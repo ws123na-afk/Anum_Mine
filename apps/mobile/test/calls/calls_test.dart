@@ -12,6 +12,7 @@ import 'package:anum_mobile/data/json_read.dart';
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/localization/calls_strings.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
+import 'package:anum_mobile/src/widgets/depth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -29,6 +30,7 @@ Map<String, Object?> _contact(String id, String name, String phone,
       'company': id == 'c1' ? 'Al Noor Trading' : null,
       'favourite': id == 'c1',
       'source': 'manual',
+      'language': id == 'c2' ? 'ar' : 'en',
       'ai_consent': consent
           ? {
               'granted_at': _now.toIso8601String(),
@@ -61,6 +63,29 @@ Map<String, Object?> _call(String id,
       'can_edit': true,
     };
 
+Map<String, Object?> _aiItem(String id,
+        {String status = 'pending_approval',
+        String purpose = 'Confirm the delivery time on Thursday.'}) =>
+    {
+      'id': id,
+      'requested_by': 'member',
+      'contact_id': 'c2',
+      'contact_name': 'عمر المثال',
+      'phone_masked': '+971•••33',
+      'purpose': purpose,
+      'script': 'Hello, this is a reminder about your delivery.',
+      'language': 'ar',
+      'max_seconds': 120,
+      'max_cost_cents': 10,
+      'status': status,
+      'approval_id': status == 'pending_approval' ? 'approval_1' : null,
+      'approval': status == 'pending_approval'
+          ? {'id': 'approval_1', 'status': 'pending', 'payload_hash': 'example'}
+          : null,
+      'created_at': _now.toIso8601String(),
+      'error': status == 'failed' ? 'The contact withdrew consent.' : null,
+    };
+
 class FakeCallsRepository implements CallsRepository {
   bool denied = false, empty = false, failCalls = false;
   final logged = <Map<String, Object?>>[];
@@ -76,14 +101,102 @@ class FakeCallsRepository implements CallsRepository {
       throw const ApiException(403,
           'Phone calls are not part of the viewer role. Ask a workspace owner to make you a member.');
     }
+    if (aiReady) {
+      return CallsSetup.fromJson(JsonReader({
+        'can_log': canLog,
+        'can_manage': owner,
+        'can_create_tasks': true,
+        'model_ready': true,
+        'provider_connected': true,
+        'capabilities': {
+          'browser_calls': true,
+          'ai_calls': true,
+          'cost_per_minute_cents': 5,
+        },
+      }));
+    }
     return CallsSetup.fromJson(JsonReader({
-      'can_log': true,
-      'can_manage': false,
+      'can_log': canLog,
+      'can_manage': owner,
       'can_create_tasks': true,
       'model_ready': true,
       'provider_connected': false,
-      'capabilities': {'problem': 'No voice provider is connected.'},
+      'capabilities': {
+        'problem': 'No voice provider is connected.',
+        'ai_calls': false,
+        'ai_problem':
+            'AI calls need a connected voice provider. A workspace owner connects one under Calls > Provider.',
+      },
     }));
+  }
+
+  // -- AI calls and the provider ---------------------------------------------
+  bool aiReady = false, owner = false, canLog = true;
+  bool failAi = false, failProvider = false;
+  final aiRequests = <Map<String, Object?>>[];
+  final cancelled = <String>[];
+  List<Map<String, Object?>> aiItems = [];
+
+  @override
+  Future<ProviderStatus> provider() async {
+    if (failProvider) {
+      throw const ApiException(503, 'The database did not answer.');
+    }
+    return ProviderStatus.fromJson(JsonReader(aiReady
+        ? {
+            'connected': true,
+            'from_number': '+971500000000',
+            'ai_calls_enabled': true,
+            'recording_enabled': false,
+            'cost_per_minute_cents': 5,
+            'last_check_status': 'ok',
+            'last_checked_at': _now.toIso8601String(),
+            'webhooks_ready': true,
+          }
+        : {'connected': false, 'webhooks_ready': false}));
+  }
+
+  @override
+  Future<CallsPage<AiCallRequest>> aiCalls({int offset = 0}) async {
+    if (failAi) throw const ApiException(503, 'AI calls are unavailable.');
+    return CallsPage(
+        [for (final item in aiItems) AiCallRequest.fromJson(JsonReader(item))],
+        aiItems.length);
+  }
+
+  @override
+  Future<AiCallRequest> aiCall(String id) async => AiCallRequest.fromJson(
+      JsonReader(aiItems.firstWhere((item) => item['id'] == id)));
+
+  @override
+  Future<AiCallRequest> requestAiCall({
+    required String contactId,
+    required String purpose,
+    required String script,
+    required String language,
+    required int maxSeconds,
+  }) async {
+    final body = {
+      'contact_id': contactId,
+      'purpose': purpose,
+      'script': script,
+      'language': language,
+      'max_seconds': maxSeconds,
+    };
+    aiRequests.add(body);
+    final item = _aiItem('aicall_new', purpose: purpose);
+    aiItems = [item, ...aiItems];
+    return AiCallRequest.fromJson(JsonReader(item));
+  }
+
+  @override
+  Future<AiCallRequest> cancelAiCall(String id) async {
+    cancelled.add(id);
+    aiItems = [
+      for (final item in aiItems)
+        item['id'] == id ? {...item, 'status': 'cancelled'} : item
+    ];
+    return aiCall(id);
   }
 
   @override
@@ -225,6 +338,7 @@ Future<void> _pump(
   PhoneDialer? dialer,
   ContactPicker? picker,
   DateTime Function()? now,
+  VoidCallback? openApprovals,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -246,6 +360,7 @@ Future<void> _pump(
       dialer: dialer ?? (uri) async => true,
       pickContact: picker ?? () async => null,
       now: now ?? DateTime.now,
+      openApprovals: openApprovals,
     ),
   ));
   await tester.pumpAndSettle();
@@ -493,13 +608,21 @@ void main() {
     testWidgets(
         'every tab lays out at ${size.width.toInt()} px, ${scale}x text, ${locale.languageCode}',
         (tester) async {
-      await _pump(tester, CallsController(FakeCallsRepository()),
+      final repo = FakeCallsRepository()
+        ..aiReady = true
+        ..owner = true
+        ..aiItems = [
+          _aiItem('aicall_1'),
+          _aiItem('aicall_2', status: 'failed')
+        ];
+      await _pump(tester, CallsController(repo),
           size: size, textScale: scale, locale: locale);
       final l = AnumLocalizations(locale);
       for (final tab in [
         'calls.tab.contacts',
         'calls.tab.dial',
-        'calls.tab.recents'
+        'calls.tab.recents',
+        'calls.tab.ai',
       ]) {
         // At large text the tab strip scrolls: bring the tab into view first.
         await tester.ensureVisible(find.text(l.t(tab)));
@@ -508,11 +631,220 @@ void main() {
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull, reason: tab);
       }
-      // The last tab is really open (Recents shows the logged call).
-      expect(find.text('Sara Example'), findsWidgets);
+      // The last tab is really open: the provider card and the AI call form.
+      expect(find.byKey(const Key('provider-card')), findsOneWidget);
+      final list = _aiList();
+      await tester.scrollUntilVisible(find.byKey(const Key('ai-form')), 300,
+          scrollable: list);
+      await tester.scrollUntilVisible(find.byKey(const Key('ai-aicall_2')), 300,
+          scrollable: list);
+      expect(tester.takeException(), isNull);
       if (locale.languageCode == 'ar') {
         expect(find.text('المكالمات الهاتفية'), findsOneWidget);
+        expect(
+            Directionality.of(
+                tester.element(find.byKey(const Key('ai-aicall_2')))),
+            TextDirection.rtl);
       }
     });
   }
+
+  group('AI calls', () {
+    test('the blocker follows the web order and the cost is per started minute',
+        () {
+      CallContact contact({bool consent = true, bool optedOut = false}) =>
+          CallContact.fromJson(JsonReader({
+            ..._contact('c9', 'Test', '+971500000009', consent: consent),
+            'opted_out': optedOut,
+          }));
+      CallsSetup setup({bool canLog = true, bool ai = true}) =>
+          CallsSetup.fromJson(JsonReader({
+            'can_log': canLog,
+            'capabilities': {'ai_calls': ai},
+          }));
+      expect(aiCallBlocker(contact(), null), 'calls.ai.blocked.role');
+      expect(aiCallBlocker(contact(), setup(canLog: false)),
+          'calls.ai.blocked.role');
+      expect(aiCallBlocker(contact(optedOut: true), setup()),
+          'calls.ai.blocked.optedOut');
+      expect(aiCallBlocker(contact(consent: false), setup()),
+          'calls.ai.blocked.noConsent');
+      expect(
+          aiCallBlocker(contact(), setup(ai: false)), 'calls.ai.blocked.off');
+      expect(aiCallBlocker(contact(), setup()), isNull);
+      expect(
+          consentingContacts(
+                  [contact(), contact(consent: false), contact(optedOut: true)])
+              .length,
+          1);
+      expect(aiCostText(120, 5), r'$0.10');
+      expect(aiCostText(121, 5), r'$0.15');
+      expect(aiCostText(60, null), r'$0.00');
+      expect(clampAiSeconds(5), 30);
+      expect(clampAiSeconds(5000), 900);
+      expect(clampAiSeconds(null), 30);
+    });
+
+    Future<void> openAi(WidgetTester tester) async {
+      // The tab strip scrolls on a phone: bring the tab into view first.
+      await tester.ensureVisible(find.text(_en('calls.tab.ai')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(_en('calls.tab.ai')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'a member asks for an AI call for a consenting contact only, and it waits for approval',
+        (tester) async {
+      final repo = FakeCallsRepository()..aiReady = true;
+      var approvals = 0;
+      await _pump(tester, CallsController(repo),
+          size: const Size(768, 1024), openApprovals: () => approvals++);
+      await openAi(tester);
+      // Only the consenting contact is offered.
+      expect(find.text('عمر المثال'), findsOneWidget);
+      expect(find.text('Sara Example'), findsNothing);
+      // Too short: explained, nothing sent.
+      await tester.enterText(find.byKey(const Key('ai-purpose')), 'Hi');
+      await tester.tap(find.byKey(const Key('ai-submit')));
+      await tester.pumpAndSettle();
+      expect(find.text(_en('calls.ai.tooShort')), findsOneWidget);
+      expect(repo.aiRequests, isEmpty);
+
+      await tester.enterText(find.byKey(const Key('ai-purpose')),
+          'Confirm the delivery time on Thursday.');
+      await tester.enterText(find.byKey(const Key('ai-script')),
+          'Hello, this is a reminder about your delivery.');
+      await tester.enterText(find.byKey(const Key('ai-seconds')), '2000');
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('ai-submit')));
+      await tester.tap(find.byKey(const Key('ai-submit')));
+      await tester.pumpAndSettle();
+      expect(repo.aiRequests.single, {
+        'contact_id': 'c2',
+        'purpose': 'Confirm the delivery time on Thursday.',
+        'script': 'Hello, this is a reminder about your delivery.',
+        'language': 'ar',
+        'max_seconds': 900,
+      });
+      expect(find.text(_en('calls.ai.sent')), findsOneWidget);
+      expect(
+          find.text(_en('calls.ai.status.pending_approval')), findsOneWidget);
+      await tester.tap(find.text(_en('calls.ai.openApprovals')).first);
+      expect(approvals, 1);
+
+      // A request still waiting can be cancelled.
+      await tester.ensureVisible(find.byKey(const Key('ai-cancel-aicall_new')));
+      await tester.tap(find.byKey(const Key('ai-cancel-aicall_new')));
+      await tester.pumpAndSettle();
+      expect(repo.cancelled, ['aicall_new']);
+      expect(find.text(_en('calls.ai.cancelled')), findsOneWidget);
+      expect(find.text(_en('calls.ai.status.cancelled')), findsOneWidget);
+    });
+
+    testWidgets('not configured: the provider and AI calls say what is missing',
+        (tester) async {
+      final repo = FakeCallsRepository();
+      await _pump(tester, CallsController(repo));
+      await openAi(tester);
+      expect(find.text(_en('calls.provider.notConfigured')), findsOneWidget);
+      expect(find.text(_en('calls.provider.askOwner')), findsOneWidget);
+      expect(find.textContaining('AI calls need a connected voice provider'),
+          findsOneWidget);
+      expect(find.byKey(const Key('ai-form')), findsNothing);
+      await _see(tester, find.text(_en('calls.ai.empty')));
+      expect(find.text(_en('calls.ai.empty')), findsOneWidget);
+    });
+
+    testWidgets('an owner sees the provider account and its last check',
+        (tester) async {
+      final repo = FakeCallsRepository()
+        ..aiReady = true
+        ..owner = true;
+      await _pump(tester, CallsController(repo));
+      await openAi(tester);
+      expect(find.text(_en('calls.provider.connected')), findsOneWidget);
+      expect(find.text('Number: +971500000000'), findsOneWidget);
+      expect(find.text(_en('calls.provider.aiOn')), findsOneWidget);
+      expect(find.textContaining('Last check passed'), findsOneWidget);
+      expect(find.text(_en('calls.provider.onWeb')), findsOneWidget);
+    });
+
+    testWidgets('viewers are told they cannot ask, and no form is shown',
+        (tester) async {
+      final repo = FakeCallsRepository()
+        ..aiReady = true
+        ..canLog = false
+        ..aiItems = [_aiItem('aicall_1')];
+      await _pump(tester, CallsController(repo));
+      await openAi(tester);
+      expect(find.text(_en('calls.ai.blocked.role')), findsOneWidget);
+      expect(find.byKey(const Key('ai-form')), findsNothing);
+      await _see(tester, find.byKey(const Key('ai-aicall_1')));
+      expect(find.byKey(const Key('ai-cancel-aicall_1')), findsNothing);
+    });
+
+    testWidgets('no consenting contact leads to Contacts', (tester) async {
+      final repo = FakeCallsRepository()
+        ..aiReady = true
+        ..empty = true;
+      await _pump(tester, CallsController(repo));
+      await openAi(tester);
+      expect(find.text(_en('calls.ai.noConsenting')), findsOneWidget);
+      await tester.tap(find.descendant(
+          of: find.byType(AnumEmpty),
+          matching: find.text(_en('calls.tab.contacts'))));
+      await tester.pumpAndSettle();
+      expect(find.text(_en('calls.contacts.empty')), findsOneWidget);
+    });
+
+    testWidgets('errors: a failed list retries, a failed provider says why',
+        (tester) async {
+      final repo = FakeCallsRepository()
+        ..aiReady = true
+        ..owner = true
+        ..failAi = true
+        ..failProvider = true;
+      await _pump(tester, CallsController(repo));
+      await openAi(tester);
+      expect(find.textContaining("Couldn't load the provider"), findsOneWidget);
+      await _see(tester, find.textContaining('AI calls are unavailable.'));
+      await _see(tester, find.text(_en('calls.retry')).last);
+      repo
+        ..failAi = false
+        ..failProvider = false
+        ..aiItems = [_aiItem('aicall_1', status: 'failed')];
+      await tester.ensureVisible(find.text(_en('calls.retry')).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(_en('calls.retry')).last);
+      await tester.pumpAndSettle();
+      expect(find.text(_en('calls.ai.status.failed')), findsOneWidget);
+      expect(find.text('The contact withdrew consent.'), findsOneWidget);
+    });
+
+    testWidgets('a denied list explains who can see it', (tester) async {
+      final repo = _DeniedAi()..aiReady = true;
+      await _pump(tester, CallsController(repo));
+      await openAi(tester);
+      await _see(
+          tester, find.text('Ask a workspace owner to make you a member.'));
+    });
+  });
+}
+
+/// The AI calls tab's own list (its first scrollable).
+Finder _aiList() => find
+    .descendant(
+        of: find.byKey(const Key('ai-tab')), matching: find.byType(Scrollable))
+    .first;
+
+/// Scrolls the AI calls tab until [finder] is built and visible.
+Future<void> _see(WidgetTester tester, Finder finder) =>
+    tester.scrollUntilVisible(finder, 200, scrollable: _aiList());
+
+class _DeniedAi extends FakeCallsRepository {
+  @override
+  Future<CallsPage<AiCallRequest>> aiCalls({int offset = 0}) async =>
+      throw const ApiException(
+          403, 'Ask a workspace owner to make you a member.');
 }

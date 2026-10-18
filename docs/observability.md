@@ -19,7 +19,7 @@ Prompts, memory contents, file contents, credentials, and personal data must not
 
 ## Implementation
 
-`services/api/anum_api/telemetry.py` wires the OpenTelemetry SDK into the API and the Temporal worker. Packages are pinned in `services/api/pyproject.toml` (`opentelemetry-api`/`-sdk`/`-exporter-otlp-proto-http` 1.45.0, `opentelemetry-instrumentation-fastapi`/`-httpx`/`-sqlalchemy` 0.66b0).
+`services/api/anum_api/telemetry.py` wires the OpenTelemetry SDK into the API and the Temporal worker. Packages are pinned in `services/api/pyproject.toml` (`opentelemetry-api`/`-sdk`/`-exporter-otlp-proto-http` 1.45.1, `opentelemetry-instrumentation-fastapi`/`-httpx`/`-sqlalchemy` 0.66b1).
 
 ### Turning export on
 
@@ -113,7 +113,7 @@ The worker sends no tenant tag, because its activities share one SDK scope. `tes
 
 #### Browser errors (web app)
 
-The web app can report its own unhandled errors and unhandled promise rejections to a Sentry-compatible project (GlitchTip on the [Oracle VM](monitoring-oracle.md#web-errors)). It is off unless the bundle is built with `VITE_SENTRY_DSN`. A build without it contains no reporting code: the branch and the SDK chunk are removed at build time, and nothing is loaded or sent. With a DSN, `@sentry/browser` 10.75.3 (pinned exactly in `apps/web/package.json`) is loaded in its own chunk after the first render. Errors thrown before it loads are not reported.
+The web app can report its own unhandled errors and unhandled promise rejections to a Sentry-compatible project (GlitchTip on the [Oracle VM](monitoring-oracle.md#web-errors)). It is off unless the bundle is built with `VITE_SENTRY_DSN`. A build without it contains no reporting code: the branch and the SDK chunk are removed at build time, and nothing is loaded or sent. With a DSN, `@sentry/browser` 11.8.0 (pinned exactly in `apps/web/package.json`) is loaded in its own chunk after the first render. Errors thrown before it loads are not reported.
 
 | Build setting | Default | Meaning |
 |---|---|---|
@@ -161,6 +161,8 @@ ANUM_OTELCOL_OVERLAY=observability docker compose -f infra/docker/compose.yaml -
 `ANUM_OTELCOL_OVERLAY=observability` merges `infra/observability/otel-collector/observability.yaml` over the base collector config, which sends traces to Tempo (`grafana/tempo:3.1.0` in monolithic mode, port 3200; retention runs as backend-worker jobs, and search leaves out the last 30 seconds), exposes metrics on `:8889` for Prometheus (`prom/prometheus:v3.5.5`, port 9090, rules in `infra/observability/prometheus/alerts.yaml`), and sends logs to Loki (`grafana/loki:3.7.8`, port 3100). Grafana (`grafana/grafana:13.2.3`, http://localhost:3000, anonymous viewer; the Prometheus, Tempo and Loki plugins ship bundled in the image, so `GF_PLUGINS_PREINSTALL_DISABLED` does not affect them) is provisioned from `infra/observability/grafana/provisioning` with Prometheus, Tempo and Loki data sources (trace to logs and log to trace links) and the dashboards in `infra/observability/grafana/dashboards`. Without the variable the profile still starts, but the collector keeps printing to its own log and Prometheus has nothing to scrape (`AnumTelemetryPipelineDown`). Storage is local disk with short retention: development only.
 
 Validated locally: `otelcol-contrib validate` (0.110.0) for both overlays, `promtool check config`/`check rules`/`test rules`, `loki -verify-config`, Tempo started with its config, `docker compose --profile observability config`, and the whole profile up with the API exporting to it (dashboards provisioned, every dashboard query accepted by Prometheus, traces searchable in Tempo, logs queryable in Loki). The Tempo 3.1.0 upgrade was checked without Docker: `tempo -config.verify` passes, and the image's binary run with this config accepted an OTLP trace and returned it by ID and by TraceQL search; the full profile has not been started on 3.1.0 yet. Grafana 13.2.3 was checked the same way: its binary, run with the compose environment and this provisioning, loaded the three data sources with their bundled plugins and the three dashboards in the ANUM folder (anonymous viewers can read, not write).
+
+The compose collector is now `otel/opentelemetry-collector-contrib:0.162.0` (October 2026 dependency batch). The configs keep the `otlp` and `otlphttp` exporter names, which collector 0.144 and later still accept as deprecated aliases of `otlp_grpc` and `otlp_http`; re-run `otelcol-contrib validate` with 0.162.0 before relying on the overlay.
 
 ### Dashboards
 

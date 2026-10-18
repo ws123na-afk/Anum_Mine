@@ -29,6 +29,7 @@ class CallContact {
     this.notes,
     this.favourite = false,
     this.source = 'manual',
+    this.language = 'auto',
     this.consent,
     this.optedOut = false,
     this.canEdit = false,
@@ -44,12 +45,16 @@ class CallContact {
       notes: j.optString('notes'),
       favourite: j.optBool('favourite') ?? false,
       source: j.optString('source') ?? 'manual',
+      language: j.optString('language') ?? 'auto',
       consent: consent == null ? null : AiConsent.fromJson(consent),
       optedOut: j.optBool('opted_out') ?? false,
       canEdit: j.optBool('can_edit') ?? false,
     );
   }
   final String id, name, phone, source;
+
+  /// The language the contact speaks: `en`, `ar` or `auto`.
+  final String language;
   final String? company, email, notes;
   final bool favourite, optedOut, canEdit;
   final AiConsent? consent;
@@ -136,6 +141,11 @@ class CallsSetup {
     required this.modelReady,
     required this.providerConnected,
     this.providerProblem,
+    this.browserCalls = false,
+    this.recording = false,
+    this.aiCalls = false,
+    this.aiProblem,
+    this.costPerMinuteCents,
   });
   factory CallsSetup.fromJson(JsonReader j) {
     final caps = j.optObject('capabilities');
@@ -146,11 +156,184 @@ class CallsSetup {
       modelReady: j.optBool('model_ready') ?? false,
       providerConnected: j.optBool('provider_connected') ?? false,
       providerProblem: caps?.optString('problem'),
+      browserCalls: caps?.optBool('browser_calls') ?? false,
+      recording: caps?.optBool('recording') ?? false,
+      aiCalls: caps?.optBool('ai_calls') ?? false,
+      aiProblem: caps?.optString('ai_problem'),
+      costPerMinuteCents: caps?.optInt('cost_per_minute_cents'),
     );
   }
   final bool canLog, canManage, canCreateTasks, modelReady, providerConnected;
+
+  /// Why calls through the provider are off (null when they work).
   final String? providerProblem;
+
+  /// What the server reports as ready (`capabilities` of GET /setup).
+  final bool browserCalls, recording, aiCalls;
+
+  /// Why AI calls are off (null when they can be asked for).
+  final String? aiProblem;
+  final int? costPerMinuteCents;
 }
+
+/// The workspace's voice provider as an owner sees it (GET /provider,
+/// call:manage). Secrets are never returned, only a short hint.
+class ProviderStatus {
+  const ProviderStatus({
+    required this.connected,
+    this.provider = 'twilio',
+    this.fromNumber,
+    this.credentialHint,
+    this.businessName,
+    this.recordingEnabled = false,
+    this.transcriptionEnabled = false,
+    this.aiCallsEnabled = false,
+    this.inboundAiEnabled = false,
+    this.aiMaxSeconds = 180,
+    this.aiMaxCostCents = 100,
+    this.costPerMinuteCents = 5,
+    this.lastCheckStatus,
+    this.lastCheckDetail,
+    this.lastCheckedAt,
+    this.webhooksReady = false,
+    this.problem,
+  });
+  factory ProviderStatus.fromJson(JsonReader j) => ProviderStatus(
+        connected: j.optBool('connected') ?? false,
+        provider: j.optString('provider') ?? 'twilio',
+        fromNumber: j.optString('from_number'),
+        credentialHint: j.optString('credential_hint'),
+        businessName: j.optString('business_name'),
+        recordingEnabled: j.optBool('recording_enabled') ?? false,
+        transcriptionEnabled: j.optBool('transcription_enabled') ?? false,
+        aiCallsEnabled: j.optBool('ai_calls_enabled') ?? false,
+        inboundAiEnabled: j.optBool('inbound_ai_enabled') ?? false,
+        aiMaxSeconds: j.optInt('ai_max_seconds') ?? 180,
+        aiMaxCostCents: j.optInt('ai_max_cost_cents') ?? 100,
+        costPerMinuteCents: j.optInt('cost_per_minute_cents') ?? 5,
+        lastCheckStatus: j.optString('last_check_status'),
+        lastCheckDetail: j.optString('last_check_detail'),
+        lastCheckedAt: j.optDate('last_checked_at'),
+        webhooksReady: j.optBool('webhooks_ready') ?? false,
+        problem: j.optString('problem'),
+      );
+  final bool connected,
+      recordingEnabled,
+      transcriptionEnabled,
+      aiCallsEnabled,
+      inboundAiEnabled,
+      webhooksReady;
+  final String provider;
+  final String? fromNumber,
+      credentialHint,
+      businessName,
+      lastCheckStatus,
+      lastCheckDetail,
+      problem;
+  final int aiMaxSeconds, aiMaxCostCents, costPerMinuteCents;
+  final DateTime? lastCheckedAt;
+}
+
+/// The statuses of an AI call request (docs/calls.md#ai-calls).
+const aiCallStatuses = [
+  'pending_approval',
+  'calling',
+  'completed',
+  'failed',
+  'cancelled',
+];
+
+/// An AI call request. Nothing is dialled until a workspace owner approves
+/// the exact number, purpose and script (bound to their payload hash).
+class AiCallRequest {
+  const AiCallRequest({
+    required this.id,
+    required this.requestedBy,
+    required this.contactId,
+    required this.contactName,
+    required this.phoneMasked,
+    required this.purpose,
+    required this.script,
+    required this.language,
+    required this.maxSeconds,
+    required this.maxCostCents,
+    required this.status,
+    required this.createdAt,
+    this.approvalId,
+    this.approvalStatus,
+    this.taskId,
+    this.callId,
+    this.error,
+  });
+  factory AiCallRequest.fromJson(JsonReader j) => AiCallRequest(
+        id: j.string('id'),
+        requestedBy: j.string('requested_by'),
+        contactId: j.string('contact_id'),
+        contactName: j.string('contact_name'),
+        phoneMasked: j.optString('phone_masked') ?? '',
+        purpose: j.string('purpose'),
+        script: j.optString('script') ?? '',
+        language: j.optString('language') ?? 'en',
+        maxSeconds: j.optInt('max_seconds') ?? 0,
+        maxCostCents: j.optInt('max_cost_cents') ?? 0,
+        status: j.string('status'),
+        createdAt: j.date('created_at'),
+        approvalId: j.optString('approval_id'),
+        approvalStatus: j.optObject('approval')?.optString('status'),
+        taskId: j.optString('task_id'),
+        callId: j.optString('call_id'),
+        error: j.optString('error'),
+      );
+  final String id,
+      requestedBy,
+      contactId,
+      contactName,
+      phoneMasked,
+      purpose,
+      script,
+      language,
+      status;
+  final int maxSeconds, maxCostCents;
+  final DateTime createdAt;
+  final String? approvalId, approvalStatus, taskId, callId, error;
+
+  bool get pending => status == 'pending_approval';
+}
+
+/// The AI call limits the server enforces (AiCallCreate in
+/// services/api/anum_api/calls/api.py), checked first so the form explains them.
+const aiPurposeMin = 5, aiPurposeMax = 500;
+const aiScriptMin = 10, aiScriptMax = 4000;
+const aiSecondsMin = 30, aiSecondsMax = 900, aiSecondsDefault = 120;
+
+/// Why an AI call cannot be asked for [contact] now, as a catalog key, or
+/// null. The same order as the web's `aiCallBlocker`
+/// (apps/web/src/lib/calls.ts); the server checks all of it again.
+String? aiCallBlocker(CallContact contact, CallsSetup? setup) {
+  if (setup == null || !setup.canLog) return 'calls.ai.blocked.role';
+  if (contact.optedOut) return 'calls.ai.blocked.optedOut';
+  if (contact.consent == null) return 'calls.ai.blocked.noConsent';
+  if (!setup.aiCalls) return 'calls.ai.blocked.off';
+  return null;
+}
+
+/// Contacts an AI call may be asked for: recorded consent, not opted out.
+List<CallContact> consentingContacts(Iterable<CallContact> contacts) => [
+      for (final c in contacts)
+        if (c.consent != null && !c.optedOut) c,
+    ];
+
+/// The most a call of [seconds] can cost at [centsPerMinute] per started
+/// minute, as `$0.10` (USD cents, as the web shows it).
+String aiCostText(int seconds, int? centsPerMinute) {
+  final minutes = seconds <= 0 ? 0 : (seconds + 59) ~/ 60;
+  final cents = minutes * (centsPerMinute ?? 0);
+  return '\$${(cents / 100).toStringAsFixed(2)}';
+}
+
+/// A typed call length clamped to the API's range (30 to 900 seconds).
+int clampAiSeconds(int? value) =>
+    (value ?? aiSecondsMin).clamp(aiSecondsMin, aiSecondsMax);
 
 class CallsPage<T> {
   const CallsPage(this.items, this.total);
