@@ -84,6 +84,34 @@ ARABIC_MESSAGES: dict[str, str] = {
     "Too many signals for this call": "إشارات كثيرة جدًا لهذه المكالمة.",
     "An offer or answer carries an sdp and no candidates": "العرض أو الرد يحمل وصف جلسة ولا يحمل مرشحين.",
     "An ice signal carries candidates and no sdp": "إشارة ICE تحمل مرشحين ولا تحمل وصف جلسة.",
+    # Customer billing (anum_api/billing/)
+    "This organisation is read-only because an invoice is overdue and the grace period has ended. "
+    "Everything stays readable. A billing admin can settle the invoice in Settings > Billing; "
+    "writes come back as soon as the payment is recorded.": (
+        "هذه المؤسسة للقراءة فقط لأن فاتورة متأخرة وانتهت مهلة السماح. تبقى كل البيانات متاحة للقراءة. "
+        "يستطيع مسؤول الفوترة سداد الفاتورة من الإعدادات > الفوترة، وتعود الكتابة فور تسجيل الدفعة."
+    ),
+    "Only a workspace owner of this organisation or an organisation administrator (realm role org_admin) "
+    "can see and change billing. Ask one of them, or ask a workspace owner to make you an owner.": (
+        "لا يرى الفوترة ولا يغيّرها إلا مالك مساحة عمل في هذه المؤسسة أو مسؤول المؤسسة (دور النطاق org_admin). "
+        "اطلب من أحدهم، أو اطلب من مالك مساحة عمل أن يجعلك مالكًا."
+    ),
+    "Invoice not found.": "الفاتورة غير موجودة.",
+    "Verify your email address first: open the link Keycloak sent you, then try again.": (
+        "وثّق بريدك الإلكتروني أولًا: افتح الرابط الذي أرسله Keycloak إليك، ثم حاول مرة أخرى."
+    ),
+    "This account already created an organisation; each account creates one.": (
+        "أنشأ هذا الحساب مؤسسة من قبل؛ ينشئ كل حساب مؤسسة واحدة."
+    ),
+    "Too many sign-ups from your network in the last hour. Try again later.": (
+        "عمليات تسجيل كثيرة جدًا من شبكتك في الساعة الأخيرة. حاول لاحقًا."
+    ),
+    "Self-serve sign-up is not open on this server; contact the ANUM team for an account.": (
+        "التسجيل الذاتي غير متاح على هذا الخادم؛ تواصل مع فريق ANUM للحصول على حساب."
+    ),
+    "That plan is not offered; choose one of the plans on the pricing page.": (
+        "هذه الخطة غير معروضة؛ اختر إحدى الخطط في صفحة الأسعار."
+    ),
     # Generic envelopes
     "Request validation failed": "تعذّر التحقق من الطلب.",
     "An unexpected error occurred": "حدث خطأ غير متوقع.",
