@@ -96,7 +96,7 @@ A locked version is never edited: a change creates a new version and lapses the 
 
 ## Support tickets
 
-Roadmap 4.D and P2 ("support ticket"), section 6 `Support`: requester identity, entitlement, severity, escalations and resolution audit. Routes are under `/api/v1/business/support` (`anum_api/business/api_support.py`, rules in `support.py`, inbox links in `support_channels.py`). Web: Business, Support tab (`#business-support`, policy under Business, Settings). Flutter: Business, Support.
+Roadmap 4.D and P2 ("support ticket"), section 6 `Support`: requester identity, entitlement, severity, escalations and resolution audit. Routes are under `/api/v1/business/support` (`anum_api/business/api_support.py`, rules in `support.py`, inbox links in `support_channels.py`). Web: Business, Support tab (`#business-support`, policy under Business, Settings). Flutter: Business, Support (list, create, detail, replies; the support plan entitlement, tickets from a message and the policy editor are on the web only). Tickets from a message are created through the API today; a "make a ticket" button in the Email and WhatsApp views is still to come.
 
 A ticket holds:
 
@@ -165,6 +165,8 @@ Every state-changing route writes an audit record with ids and counts only (neve
 - `services/api/tests/test_business_support.py`: the working-hours SLA arithmetic (weekends, nights, hours to midnight, pauses), policy checks, permissions, the status flow and resolution audit, escalation and notes, links and entitlements, tickets from an email or WhatsApp conversation (fake inboxes), reply checks and the hand-off to the approval path, the agent's draft tool, paging, filters and search, cross-workspace and cross-tenant isolation and the audit walk of every support route.
 - `services/api/tests/test_postgres_business.py::test_support_tickets_under_rls`: tickets under forced RLS, scoped foreign keys, the resolution check and the one-open-ticket-per-message index.
 - `services/api/tests/test_migrations.py`: the migrations' shape.
+- `apps/web/test/businessSupport.test.ts` and `apps/web/e2e/businessSupport.spec.ts` (mocks in `e2e/support/businessSupportApi.ts`): the SLA badges, filters and query building, and in the browser an empty queue, a ticket opened by hand, assigned, worked and noted, an email ticket whose reply is handed to Approvals with its payload hash, resolving with the required resolution, a member refused when reopening a closed ticket, the owner saving the policy, and the denied and failed states.
+- `apps/mobile/test/business_support_test.dart`: the support controller's paging, filters and states (loading, empty, error, denied), creating a ticket, status changes and the resolve dialog's checks, reply drafts and the approval hand-off, layout at 320 and 1024 wide with 200% text, Arabic.
 - `apps/web/test/business.test.ts` and `apps/web/e2e/business.spec.ts`: helpers, and the main path from an empty catalog to a paid milestone in the browser, member, empty, denied, failed and Arabic states.
 - `apps/mobile/test/business_test.dart`: catalogs, controller paging and states, layout at 320 to 1024 wide with 200% text, a lead's moves and notes, the pipeline, proposals waiting for acceptance, milestones, Arabic.
 
