@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -137,6 +138,41 @@ def test_owner_commands_map_to_tools(said: str, tool: str, arguments: dict) -> N
     call = finance_tools.plan_call(said)
     assert call is not None and call.name == tool and call.arguments == arguments
     assert intel_call(said) == call
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        "قارن " * 20000,
+        "compare paper " * 20000,
+        "why guardian " * 20000,
+        "did best after " * 20000,
+        "a" * 200000,
+    ],
+    ids=["arabic-compare", "compare-paper", "why-guardian", "did-best", "one-letter"],
+)
+def test_long_repeated_input_is_matched_fast(said: str) -> None:
+    started = time.perf_counter()
+    assert intel_call(said) is None
+    assert time.perf_counter() - started < 0.2
+
+
+def test_arabic_benchmark_command_still_matches() -> None:
+    call = intel_call("قارن محفظتي التجريبية بالمعيار")
+    assert call is not None and call.name == "finance.intel.benchmark"
+
+
+def test_package_data_ships_every_data_file() -> None:
+    """Every non-Python file in the package must be in the wheel (the image imports from it)."""
+    import tomllib
+    from fnmatch import fnmatch
+    from pathlib import Path
+
+    api = Path(__file__).resolve().parents[1]
+    globs = tomllib.loads((api / "pyproject.toml").read_text())["tool"]["setuptools"]["package-data"]["anum_api"]
+    package = api / "anum_api"
+    data = [p.relative_to(package).as_posix() for p in package.rglob("*") if p.is_file() and p.suffix not in {".py", ".pyc"} and "__pycache__" not in p.parts]
+    assert data and all(any(fnmatch(f, g) for g in globs) for f in data), [f for f in data if not any(fnmatch(f, g) for g in globs)]
 
 
 def test_ordinary_finance_questions_still_go_to_finance() -> None:

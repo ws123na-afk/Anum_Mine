@@ -306,21 +306,53 @@ def register_intel_tools(registry: ToolRegistry) -> ToolRegistry:
 # -- the owner's words to a tool call -------------------------------------------------------------
 
 _ACTIVITY = re.compile(r"\b(what did|what have) (the )?(trading )?agents? (do|done)|trading agents? (today|did)|agent activity|ماذا فعل(ت)? وكلاء التداول", re.I)
-_BEST = re.compile(r"\b(perform(ed)?|did) best\b.*\b(after|net of) (transaction )?(costs|fees)|best (paper )?strateg(y|ies)|أفضل استراتيجية", re.I)
+# Phrases whose words may sit apart ("why did the Guardian reject ...") are matched as words in
+# order, one linear search after another, never as one pattern with repeated ``.*`` groups: those
+# backtrack polynomially on long input such as one Arabic word repeated thousands of times.
+_BEST = (
+    (re.compile(r"\b(?:perform(?:ed)?|did) best\b", re.I), re.compile(r"\b(?:after|net of) (?:transaction )?(?:costs|fees)", re.I)),
+    (re.compile(r"best (?:paper )?strateg(?:y|ies)|أفضل استراتيجية", re.I),),
+)
 _DRAWDOWN = re.compile(r"\bworst drawdowns?\b|\bmax(imum)? drawdowns?\b|أسوأ تراجع|أقصى تراجع", re.I)
-_EXPLAIN = re.compile(r"\bwhy\b.*\b(guardian|gateway)\b.*\b(reject|refus|den(y|ied))|لماذا رفض", re.I)
+_EXPLAIN = (
+    (re.compile(r"\bwhy\b", re.I), re.compile(r"\b(?:guardian|gateway)\b", re.I), re.compile(r"\b(?:reject|refus|den(?:y|ied))", re.I)),
+    (re.compile("لماذا رفض"),),
+)
 _PAUSE = re.compile(r"\b(pause|stop|suspend) (all )?(the )?paper (trading|strateg(y|ies))\b|أوقف (كل )?التداول التجريبي", re.I)
-_BENCH = re.compile(r"\bcompare\b.*\bpaper\b.*\bbenchmark\b|\bpaper portfolio\b.*\bbenchmark\b|قارن.*بالمعيار", re.I)
+_BENCH = (
+    (re.compile(r"\bcompare\b", re.I), re.compile(r"\bpaper\b", re.I), re.compile(r"\bbenchmark\b", re.I)),
+    (re.compile(r"\bpaper portfolio\b", re.I), re.compile(r"\bbenchmark\b", re.I)),
+    (re.compile("قارن"), re.compile("بالمعيار")),
+)
 _REVALIDATE = re.compile(r"\b(needs?|due for) revalidation\b|\brevalidat(e|ion)\b|إعادة التحقق", re.I)
 _REPORT = re.compile(r"\b(daily|today'?s|trading) (trading )?report\b|تقرير التداول", re.I)
 _INTENT_ID = re.compile(r"\bfin_int_[a-z0-9]+\b")
 
 
+# Owner commands are short; longer text is cut before matching, so matching time stays bounded.
+MAX_COMMAND_CHARS = 1000
+
+
+def _in_order(text: str, alternatives: tuple[tuple[re.Pattern[str], ...], ...]) -> bool:
+    """Whether one alternative's words all appear in ``text``, each after the one before."""
+    for words in alternatives:
+        position = 0
+        for word in words:
+            found = word.search(text, position)
+            if found is None:
+                break
+            position = found.end()
+        else:
+            return True
+    return False
+
+
 def intel_call(text: str) -> ToolCall | None:
     """The trading intelligence tool the person's own words ask for, or ``None``."""
+    text = text[:MAX_COMMAND_CHARS]
     if _PAUSE.search(text):
         return ToolCall(name=PAUSE, arguments={"reason": "Paused from the assistant at your request"})
-    if _EXPLAIN.search(text):
+    if _in_order(text, _EXPLAIN):
         found = _INTENT_ID.search(text)
         return ToolCall(name=EXPLAIN, arguments={"intent_id": found.group(0)} if found else {})
     if _REPORT.search(text):
@@ -331,8 +363,8 @@ def intel_call(text: str) -> ToolCall | None:
         return ToolCall(name=STRATEGIES, arguments={"needs_revalidation": True})
     if _DRAWDOWN.search(text):
         return ToolCall(name=STRATEGIES, arguments={"sort": "drawdown"})
-    if _BENCH.search(text):
+    if _in_order(text, _BENCH):
         return ToolCall(name=BENCHMARK, arguments={})
-    if _BEST.search(text):
+    if _in_order(text, _BEST):
         return ToolCall(name=STRATEGIES, arguments={"sort": "after_costs"})
     return None
