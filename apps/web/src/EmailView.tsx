@@ -31,6 +31,7 @@ import { publishMailUnread } from './lib/mailUnread';
 import { viewLabel } from './lib/shell';
 import { Drawer } from './Dialog';
 import { MailAssist } from './MailAssist';
+import { MailListTools, RowLabels, useMailLabels } from './MailListAi';
 import { DeleteApproval, MailBulkBar, MailSearchBar, StarButton, SyncStatus, actionDone, actionLabel, useMailShortcuts, useMailSync } from './MailActions';
 import { PageHeader, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import { useIsOwner } from './useIsOwner';
@@ -166,6 +167,7 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
   const listRef = useRef<HTMLUListElement>(null);
 
   const folder = folders.find((f) => f.id === folderId) ?? null;
+  const mailLabels = useMailLabels(account.id, folderId, items);
 
   const loadFolders = useCallback(async () => {
     const found = sortFolders(await listMailFolders(account.id));
@@ -350,6 +352,9 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
         {pendingDelete && <DeleteApproval approval={pendingDelete.approval} count={pendingDelete.count} folderName={pendingDelete.folder} owner={owner} onOpenApprovals={onOpenApprovals}
           onDismiss={() => setPendingDelete(null)}
           onDeleted={() => { setPendingDelete(null); setSelected(new Set()); setPane(null); setNote({ text: t('mailc.delete.done') }); if (folderId) void loadList(folderId, filters); sync.checkNow(); }} />}
+        {folder && <MailListTools accountId={account.id} folderId={folder.id} folderName={folderLabel(folder)} items={items} selected={selected} labels={mailLabels.labels}
+          canAct={canAct} owner={owner} onLabels={mailLabels.add} onSelect={(uids) => setSelected(new Set(uids))} onOpenApprovals={onOpenApprovals}
+          onArchived={(uids) => { setSelected((s) => new Set([...s].filter((u) => !uids.includes(u)))); if (pane?.kind === 'message' && uids.includes(pane.uid)) setPane(null); if (folderId) void loadList(folderId, filters); sync.checkNow(); }} />}
         {newMail > 0 && folder && <p className="notice mailNewMail" role="status"><CircleDot aria-hidden="true" />{t('mailc.sync.newMail', { count: newMail, folder: folderLabel(folder) })}<button type="button" className="secondary" onClick={() => folderId && void loadList(folderId, filters)}>{t('mailc.sync.showNew')}</button></p>}
         {listState === 'loading' && <p className="muted mailPad" role="status">{t('mail.list.loading')}</p>}
         {listState === 'error' && <div className="mailPad"><Notice note={{ text: t('mail.list.failed', { reason: listError }), error: true }} /><div className="actions"><button type="button" onClick={() => folderId ? void loadList(folderId, filters) : window.location.reload()}><RefreshCw aria-hidden="true" />{t('mail.retry')}</button></div></div>}
@@ -368,6 +373,7 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
             <button type="button" className="mailRowOpen" data-uid={m.uid} aria-current={active ? 'true' : undefined} onFocus={() => setCursor(m.uid)} onClick={() => open(m.uid)}>
               <span className="mailRowTop"><strong dir="auto">{personLabel(person) || t('mail.draft.noRecipient')}</strong><time dateTime={m.date}>{when(m.date)}</time></span>
               <span className="mailRowSubject" dir="auto">{!m.seen && <span className="mailUnreadDot" role="img" aria-label={t('mail.list.unread')} />}{subject}{m.maybe_attachments && <Paperclip className="mailClip" role="img" aria-label={t('mail.list.attachment')} />}</span>
+              <RowLabels label={mailLabels.labels.get(m.uid)} />
             </button>
           </li>;
         })}</ul>}

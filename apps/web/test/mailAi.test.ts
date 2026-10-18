@@ -36,3 +36,45 @@ describe('labels', () => {
     assert.equal(cleanInstructions('x'.repeat(1500))?.length, 1000);
   });
 });
+
+import { ARCHIVE_MAX, EXPORT_MAX, capSelection, exportFailure, exportFileName, mergeLabels, rowLabelText, tidyCandidates, unlabelled, type MailRowLabel } from '../src/lib/mailAi.ts';
+
+const label = (uid: number, category: MailRowLabel['category'], priority: MailRowLabel['priority'] = 'normal'): MailRowLabel => ({ uid, category, priority, reason: '', source: 'model' });
+
+describe('list labels', () => {
+  test('Label all sends only unlabelled rows, newest first, at most 25', () => {
+    const labels = new Map([[9, label(9, 'order')]]);
+    assert.deepEqual(unlabelled([10, 9, 8], labels), [10, 8]);
+    assert.equal(unlabelled(Array.from({ length: 40 }, (_, i) => 100 - i), new Map()).length, 25);
+  });
+  test('the tidy-up picks newsletters, notifications and spam that are not high priority', () => {
+    const labels = mergeLabels(new Map(), [label(1, 'newsletter', 'low'), label(2, 'notification', 'high'), label(3, 'customer'), label(4, 'spam')]);
+    assert.deepEqual(tidyCandidates([1, 2, 3, 4, 5], labels), [1, 4]);
+  });
+  test('row words skip a normal priority', () => {
+    assert.deepEqual(rowLabelText(label(1, 'invoice')), ['Invoice']);
+    assert.deepEqual(rowLabelText(label(1, 'invoice', 'high')), ['Invoice', 'High priority']);
+  });
+  test('merging keeps earlier labels and replaces changed ones', () => {
+    const merged = mergeLabels(new Map([[1, label(1, 'order')]]), [label(1, 'spam'), label(2, 'other')]);
+    assert.equal(merged.get(1)?.category, 'spam');
+    assert.equal(merged.size, 2);
+  });
+});
+
+describe('bulk archive and export', () => {
+  test('a selection is capped to what one request may carry', () => {
+    assert.deepEqual(capSelection([3, 1, 2, 3], 2), { uids: [3, 2], dropped: 1 });
+    assert.equal(capSelection(Array.from({ length: 150 }, (_, i) => i + 1), EXPORT_MAX).dropped, 50);
+    assert.equal(capSelection(Array.from({ length: 150 }, (_, i) => i + 1), ARCHIVE_MAX).dropped, 0);
+  });
+  test('the export file is named by the UTC time', () => {
+    assert.equal(exportFileName(new Date(Date.UTC(2026, 9, 18, 7, 5))), 'mail-export-20261018-0705.mbox');
+  });
+  test('download failures say whether the export expired or is not approved yet', () => {
+    assert.equal(exportFailure(new ApiError(410, 'gone', null)).kind, 'expired');
+    assert.match(exportFailure(new ApiError(410, 'gone', null)).text, /expired/);
+    assert.equal(exportFailure(new ApiError(409, 'conflict', 'This export is pending, not approved.')).kind, 'pending');
+    assert.equal(exportFailure(new Error('network down')).kind, 'error');
+  });
+});
