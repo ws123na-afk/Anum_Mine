@@ -9,7 +9,7 @@ import type {
   FinanceSafeToSpend, FinanceSyncReport,
   FinanceExecutionStatus, FinanceIntent, FinanceIntentInput, FinanceIntentStatus, FinanceLive, FinanceLiveChangeInput, FinancePaperOrder,
   FinancePaperOrderStatus, FinanceWider, FinanceWidening, FinanceWideningInput, FinancePortfolio, FinancePortfolioInput, FinancePortfolioSummary, FinancePrice, FinancePriceInput, FinancePriceSaved,
-  FinanceAgentDecision, FinanceIntelAgent, FinanceIntelOverview, FinanceStrategy, FinanceStrategyRun, FinanceStrategyState,
+  FinanceAgentDecision, FinanceEquity, FinanceIntelAgent, FinanceIntelOverview, FinanceStrategy, FinanceStrategyRun, FinanceStrategyState,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -148,6 +148,7 @@ export const reviewIncidents = () => send<FinanceWider>('POST', '/execution/wide
 // ---- Trading intelligence dashboard, read only (docs/finance-trading-intel.md#dashboard) ---------------
 
 export const getIntelOverview = () => get<FinanceIntelOverview>('/intel/overview');
+export const getPortfolioEquity = (portfolioId: string, days: number) => get<FinanceEquity>(`/intel/portfolios/${id(portfolioId)}/equity${query({ days })}`);
 export const listStrategies = (q: { state?: FinanceStrategyState | ''; limit: number; offset: number }) =>
   get<FinancePage<FinanceStrategy>>(`/intel/strategies${query({ ...q })}`);
 export const listStrategyRuns = (strategyId: string, q: { limit: number; offset: number }) =>

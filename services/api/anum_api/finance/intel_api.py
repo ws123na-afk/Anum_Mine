@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from ..dependencies import tenant_context
 from ..schemas import TenantContext, utc_now
+from . import equity
 from .api import _not_found, _read
 from .config import finance_config
 from .execution import ExecMode
@@ -32,8 +33,9 @@ from .guardian import GuardianRules
 from .intel.markets import VENUES, session
 from .intel.records import Agent, AgentDecision, StrategyConfig, StrategyRun, StrategyState
 from .policy import current_rules
-from .store import MAX_PAGE, FinanceStore, open_finance_store
-from .trading import SIMULATED_NOTE, MoneyRow, PortfolioMode, PositionView
+from .store import MAX_PAGE, MAX_PRICES, FinanceStore, open_finance_store
+from .summary import settings_for, today_in, zone
+from .trading import SIMULATED_NOTE, MoneyRow, OrderStatus, PortfolioMode, PositionView
 from .trading_api import execution_status, portfolio_view
 
 router = APIRouter(prefix="/api/v1/finance/intel", tags=["finance"])
@@ -418,3 +420,81 @@ def list_decisions(
         items, total = store.list_agent_decisions(context, agent=agent.value if agent else None, strategy_id=strategy_id, cycle_id=cycle_id,
                                                   limit=limit, offset=offset)
     return DecisionPage(items=[decision_view(i) for i in items], total=total, limit=limit, offset=offset)
+
+
+# -- P&L and drawdown over time ---------------------------------------------------------------------------
+
+
+class EquityPointView(BaseModel):
+    day: date
+    value: Decimal | None
+    pnl: Decimal | None
+    drawdown: Decimal | None
+    drawdown_pct: float | None
+    complete: bool
+
+
+class EquitySeriesView(BaseModel):
+    currency: str
+    points: list[EquityPointView]
+    max_drawdown: Decimal | None
+    max_drawdown_pct: float | None
+    peak_day: date | None
+    trough_day: date | None
+    gaps: int
+    unpriced: list[str]
+
+
+class EquityView(BaseModel):
+    portfolio_id: str
+    name: str
+    mode: PortfolioMode
+    start: date
+    end: date
+    days: int
+    orders: int
+    max_price_age_days: int
+    prices_truncated: bool
+    series: list[EquitySeriesView]
+    note: str
+    generated_at: datetime
+    simulated: bool = True
+
+
+EQUITY_NOTE = (
+    "SIMULATED. Rebuilt each day from this run's starting cash, its filled paper or shadow orders and the prices you recorded for that day. "
+    "A day with a holding that has no fresh enough price is left as a gap, not guessed. Currencies are never mixed. Past simulated results are not a promise of future results."
+)
+
+
+@router.get("/portfolios/{portfolio_id}/equity", response_model=EquityView)
+def get_equity(
+    portfolio_id: str, days: int = Query(default=equity.DEFAULT_DAYS, ge=1, le=equity.MAX_DAYS),
+    context: TenantContext = Depends(tenant_context),
+) -> EquityView:
+    """Daily SIMULATED value, P&L and drawdown of one of your paper or shadow portfolios, per currency,
+    computed from the stored orders, fills and recorded prices. Read only."""
+    _read(context)
+    now = utc_now()
+    with open_finance_store(context) as store:
+        portfolio = store.get_portfolio(context, portfolio_id[:80])
+        if portfolio is None:
+            raise _not_found("Portfolio")
+        orders = store.portfolio_orders(context, portfolio.id, portfolio.epoch)
+        prices, rates = store.list_prices(context, symbol=None, limit=MAX_PRICES), store.list_fx_rates(context, limit=5000)
+        settings = settings_for(store, context)
+    tz = zone(settings.timezone)
+    start, end = equity.curve_window(portfolio, orders, today_in(settings, now), days, tz)
+    curves = equity.equity_curves(portfolio, orders, prices, rates, start, end, tz)
+    return EquityView(
+        portfolio_id=portfolio.id, name=portfolio.name[:120], mode=portfolio.mode, start=start, end=end, days=(end - start).days + 1,
+        orders=sum(1 for o in orders if o.status == OrderStatus.FILLED), max_price_age_days=portfolio.max_price_age_days,
+        prices_truncated=len(prices) >= MAX_PRICES,
+        series=[EquitySeriesView(
+            currency=c.currency, points=[EquityPointView(day=p.day, value=p.value, pnl=p.pnl, drawdown=p.drawdown, drawdown_pct=p.drawdown_pct,
+                                                         complete=p.complete) for p in c.points],
+            max_drawdown=c.max_drawdown, max_drawdown_pct=c.max_drawdown_pct, peak_day=c.peak_day, trough_day=c.trough_day, gaps=c.gaps,
+            unpriced=c.unpriced[:50],
+        ) for c in curves[:20]],
+        note=EQUITY_NOTE, generated_at=now,
+    )

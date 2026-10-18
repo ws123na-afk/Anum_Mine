@@ -20,6 +20,7 @@ import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog } from './Dialog';
 import { Denied, Empty, LoadError, Notice, failed, type Load } from './FinanceParts';
 import { reasonText } from './FinancePlan';
+import { EquityCharts } from './FinanceEquity';
 
 const PAGE = 10;
 const RUN_PAGE = 5;
@@ -208,11 +209,11 @@ function Positions({ portfolios, onOpen }: { portfolios: FinanceIntelPortfolio[]
     {portfolios.length === 0
       ? <Empty icon={<Wallet aria-hidden="true" />} title={t('finance.intel.noPortfolios')} text={t('finance.intel.noPortfoliosText')}
         action={<button type="button" onClick={() => onOpen('trading')}>{t('finance.trading.newPortfolio')}</button>} />
-      : <ul className="finIntelPortfolios">{portfolios.map((p) => <li key={p.id}><PortfolioBook portfolio={p} /></li>)}</ul>}
+      : <ul className="finIntelPortfolios">{portfolios.map((p) => <li key={p.id}><PortfolioBook portfolio={p} onOpen={onOpen} /></li>)}</ul>}
   </section>;
 }
 
-function PortfolioBook({ portfolio: p }: { portfolio: FinanceIntelPortfolio }) {
+function PortfolioBook({ portfolio: p, onOpen }: { portfolio: FinanceIntelPortfolio; onOpen: (tab: FinanceTab) => void }) {
   const headingId = useId();
   return <article className="finIntelBook" aria-labelledby={headingId}>
     <h3 id={headingId}><span dir="auto">{p.name}</span> <span className="statusBadge neutral">{t(`finance.trading.mode.${p.mode}` as MessageKey)}</span> <span className="statusBadge neutral finSimBadge">{t('finance.trading.simulated')}</span></h3>
@@ -237,6 +238,7 @@ function PortfolioBook({ portfolio: p }: { portfolio: FinanceIntelPortfolio }) {
         </tr>)}</tbody>
       </table></div>}
     {p.holdings_total > p.holdings.length && <p className="muted">{t('finance.intel.moreHoldings', { shown: p.holdings.length, total: p.holdings_total })}</p>}
+    <EquityCharts portfolioId={p.id} name={p.name} mode={p.mode} onOpenTrading={() => onOpen('trading')} />
   </article>;
 }
 

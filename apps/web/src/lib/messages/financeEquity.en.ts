@@ -1,0 +1,40 @@
+// SIMULATED P&L and drawdown over time (docs/finance-trading-intel.md#pl-and-drawdown-over-time). Spread into
+// en.ts; every key has an Arabic twin in financeEquity.ar.ts with the same {placeholders}. Never imply a
+// guaranteed profit, a real order or a forecast.
+import type { Message } from './types.ts';
+
+export const financeEquityEn = {
+  'finance.equity.title': 'P&L and drawdown over time',
+  'finance.equity.range': 'Period',
+  'finance.equity.days': { one: 'Last {count} day', other: 'Last {count} days' },
+  'finance.equity.currency': 'Currency',
+  'finance.equity.loading': 'Loading the simulated history...',
+  'finance.equity.error': 'The simulated history could not be loaded: {message}',
+  'finance.equity.empty': 'No simulated trades in this run yet',
+  'finance.equity.emptyPaper': 'The line starts once a paper order is approved and filled. Until then the portfolio is only its starting cash.',
+  'finance.equity.emptyShadow': 'A shadow portfolio has no cash: the line starts once a shadow order is approved and filled.',
+  'finance.equity.value': 'Value',
+  'finance.equity.pnl': 'P&L',
+  'finance.equity.drawdown': 'Drawdown',
+  'finance.equity.maxDrawdown': 'Deepest drawdown',
+  'finance.equity.period': 'Period',
+  'finance.equity.filled': { one: '{count} filled order', other: '{count} filled orders' },
+  'finance.equity.noDrawdown': 'None so far',
+  'finance.equity.drawdownLine': '{size}, from the high on {peak} to the low on {trough}',
+  'finance.equity.gaps': { one: '{count} day is a gap: something held had no recorded price from the {age} days before it ({list}). Gaps are left empty, never guessed.', other: '{count} days are gaps: something held had no recorded price from the {age} days before them ({list}). Gaps are left empty, never guessed.' },
+  'finance.equity.truncated': 'Only the newest 5,000 recorded prices are read, so older days may show gaps.',
+  'finance.equity.pnlChart': 'P&L in {currency}, fees and slippage included',
+  'finance.equity.drawdownChartPct': 'Drawdown from the running high, percent of value',
+  'finance.equity.drawdownChart': 'Drawdown of P&L from its running high, in {currency}',
+  'finance.equity.aria': 'Simulated P&L in {currency} from {start} to {end}. Newest {latest}, lowest {low}, highest {high}. Deepest drawdown: {drawdown}. Gap days: {gaps}.',
+  'finance.equity.ariaEmpty': 'No simulated value in {currency} from {start} to {end}: every day is a gap.',
+  'finance.equity.table': 'Show the figures as a table',
+  'finance.equity.tableOf': 'Daily simulated figures of {name} in {currency}',
+  'finance.equity.tablePages': 'Pages of daily figures',
+  'finance.equity.day': 'Day',
+  'finance.equity.gap': 'Gap',
+  'finance.equity.newer': 'Newer',
+  'finance.equity.older': 'Older',
+  'finance.equity.rows': 'Days {from} to {to} of {total}',
+  'finance.equity.note': 'SIMULATED. Rebuilt for each day from this run\'s starting cash, its filled orders and the prices you recorded for that day. Currencies are never mixed. Past simulated results are not a promise of future results.',
+} satisfies Record<string, Message>;

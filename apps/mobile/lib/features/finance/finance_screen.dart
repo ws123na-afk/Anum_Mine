@@ -4,6 +4,7 @@ import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'finance_controller.dart';
+import 'finance_intel_view.dart';
 import 'finance_models.dart';
 import 'finance_plan_models.dart';
 import 'finance_strings.dart';
@@ -89,6 +90,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       FinanceSection.guardian => _guardian(context, c, s),
       FinanceSection.connections => _connections(context, c, s),
       FinanceSection.trading => _trading(context, c, s),
+      FinanceSection.intel => [
+          if (c.intel != null) FinanceIntelView(controller: c.intel!)
+        ],
       FinanceSection.execution => _execution(context, c, s),
     };
   }
@@ -1137,11 +1141,12 @@ class _Sections extends StatelessWidget {
         container: true,
         child: Wrap(spacing: 8, runSpacing: 8, children: [
           for (final section in FinanceSection.values)
-            ChoiceChip(
-              label: Text(strings.t('section.${section.name}')),
-              selected: controller.section == section,
-              onSelected: (_) => controller.select(section),
-            ),
+            if (section != FinanceSection.intel || controller.intel != null)
+              ChoiceChip(
+                label: Text(strings.t('section.${section.name}')),
+                selected: controller.section == section,
+                onSelected: (_) => controller.select(section),
+              ),
         ]),
       );
 }
