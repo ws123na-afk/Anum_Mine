@@ -23,7 +23,7 @@ from test_mail_center import ADDRESS, PASSWORD, FakeServer, Stored, raw_message
 from anum_api.db import session as db_session
 from anum_api.mailbox import outgoing, service
 from anum_api.mailbox.config import mail_settings
-from anum_api.mailbox.store import SEND_LEASE, open_mail_store
+from anum_api.mailbox.store import SEND_LEASE, DraftStatus, open_mail_store
 from anum_api.main import app
 from anum_api.schemas import TenantContext
 from anum_api.settings import settings
@@ -167,6 +167,8 @@ def test_claims_are_compare_and_set_and_a_lapsed_lease_is_unknown(client: TestCl
         assert store.claim_scheduled(draft["id"], due, due + SEND_LEASE) is True
     with open_mail_store(CONTEXT) as store:
         assert store.claim_scheduled(draft["id"], due, due + SEND_LEASE) is False
+        assert store.reset_to_draft(draft["id"], DraftStatus.SCHEDULED) is False
+    assert client.delete(f"/api/v1/mail/drafts/{draft['id']}", headers=A).status_code == 409
     with open_mail_store(CONTEXT) as store:
         assert store.release_interrupted(draft["id"], due) is False
     assert asyncio.run(outgoing.run_once(due + SEND_LEASE + timedelta(seconds=1))) == {"interrupted": 1}

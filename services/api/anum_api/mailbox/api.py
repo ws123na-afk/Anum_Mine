@@ -24,6 +24,7 @@ from ..audit import AuditRecord
 from ..authorization import Permission
 from ..dependencies import has_permission, repository_context, require_permission, tenant_context
 from ..email_api import _pause_for_approval, _retire
+from .. import file_policy
 from ..file_policy import content_disposition
 from ..repository import AnumRepository
 from ..schemas import Approval, ApprovalStatus, TenantContext, new_id, utc_now
@@ -134,6 +135,9 @@ class MailSetup(BaseModel):
     attachment_max_bytes: int
     attachments_per_message: int
     attachments_total_bytes: int
+    # The file types attachments accept (the workspace upload list), for the file picker.
+    attachment_extensions: list[str]
+    attachments_accepted: str
     schedule_max_days: int
     accounts: list[AccountView]
 
@@ -393,7 +397,9 @@ async def get_setup(context: TenantContext = Depends(tenant_context)) -> MailSet
         smtp_security=cfg.smtp_security, allowed_domains=sorted(cfg.domains), can_read=True,
         can_act=has_permission(context, Permission.EMAIL_ACT), max_recipients=cfg.max_recipients, send_per_hour=cfg.send_per_hour,
         attachment_max_bytes=cfg.outbound_attachment_max_bytes, attachments_per_message=cfg.outbound_max_attachments,
-        attachments_total_bytes=cfg.outbound_total_max_bytes, schedule_max_days=cfg.schedule_max_days, accounts=accounts,
+        attachments_total_bytes=cfg.outbound_total_max_bytes,
+        attachment_extensions=sorted(ext for allowed in file_policy.ALLOWED_TYPES for ext in allowed.extensions),
+        attachments_accepted=file_policy.ACCEPTED_SUMMARY, schedule_max_days=cfg.schedule_max_days, accounts=accounts,
     )
 
 
@@ -938,8 +944,9 @@ async def delete_draft(
     draft, _ = _load_draft(context, draft_id)
     if draft.status == DraftStatus.SENDING:
         raise HTTPException(status_code=409, detail="This message is being sent right now.")
-    if draft.status == DraftStatus.PENDING_APPROVAL:
-        _retire(repository, context, draft)  # type: ignore[arg-type]
+    if draft.status in {DraftStatus.PENDING_APPROVAL, DraftStatus.SCHEDULED}:
+        # Compare-and-set first: a message the scheduler has just claimed is not discarded mid-send.
+        _back_to_draft(repository, context, draft)
     with open_mail_store(context) as store:
         files = store.list_attachments(draft.id)
         store.delete_draft(draft.id)
