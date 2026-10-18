@@ -1,0 +1,65 @@
+/* Email Center phase 2 (MailActions.tsx): bulk bar, star buttons, search and filters, the delete
+   approval and the refresh line. Spacing, radii and colour from the shared tokens in styles.css. */
+.mailcBulk {
+  align-items: center; border-bottom: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s2);
+  min-height: 48px; min-width: 0; padding: var(--d-s1) var(--d-s3);
+}
+/* From 1024px the list pane scrolls on its own: the bar stays at its top so the actions stay in reach. */
+@media (min-width: 1024px) { .mailcBulk { background: var(--d-surface-2); position: sticky; top: 0; z-index: 1; } }
+.mailcCheck { align-items: center; display: inline-flex; justify-content: center; min-height: 40px; min-width: 40px; }
+.mailcCheck input, .mailcRowCheck input { accent-color: var(--d-violet); height: 18px; margin: 0; min-height: 0; width: 18px; }
+.mailcCount { font-size: 13.5px; font-weight: 600; }
+.mailcCount.muted { font-weight: 400; }
+.mailcActions { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: var(--d-s1); justify-content: flex-end; min-width: 0; }
+.mailcAction, .mailcIcon {
+  align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 13.5px; font-weight: 600;
+  gap: var(--d-s1); min-height: 40px; padding: var(--d-s1) var(--d-s2);
+}
+.mailcAction svg, .mailcIcon svg { flex: none; height: 16px; width: 16px; }
+.mailcIcon { justify-content: center; padding: 0; width: 40px; }
+.mailcAction.danger { color: var(--d-stop); }
+
+.mailcRowCheck { align-items: center; display: inline-flex; flex: none; justify-content: center; min-height: 40px; min-width: 32px; }
+.mailcStar {
+  align-items: center; background: transparent; border: 0; border-radius: var(--d-r-control); color: var(--d-muted); display: inline-flex;
+  flex: none; justify-content: center; min-height: 40px; min-width: 40px; padding: 0;
+}
+.mailcStar svg { height: 18px; width: 18px; }
+.mailcStar.on { color: var(--d-warn); }
+.mailcStar.on svg { fill: currentColor; }
+.mailcStar:hover:not(:disabled) { background: var(--d-glass-2, transparent); color: var(--d-warn); }
+
+.mailcSearch { display: grid; gap: var(--d-s2); min-width: 0; }
+.mailcSearchRow { display: flex; gap: var(--d-s2); min-width: 0; }
+.mailcSearchRow input { flex: 1 1 auto; min-height: 40px; min-width: 0; width: auto; }
+.mailcFilters { align-items: center; border: 0; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; min-width: 0; padding: 0; }
+.mailcChip {
+  align-items: center; border: 1px solid var(--d-line); border-radius: 999px; cursor: pointer; display: inline-flex; font-size: 13px;
+  gap: var(--d-s1); min-height: 36px; padding: 0 var(--d-s3);
+}
+.mailcChip:has(input:checked) { border-color: var(--d-violet); color: var(--d-text); }
+.mailcChip input { accent-color: var(--d-violet); height: 14px; margin: 0; min-height: 0; width: 14px; }
+.mailcFilters .linkButton { margin-inline-start: auto; }
+
+.mailcApproval { border: 1px solid var(--d-warn); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); margin: var(--d-s3); padding: var(--d-s3); }
+.mailcApproval .actions { align-items: center; flex-wrap: wrap; gap: var(--d-s2); margin-top: 0; }
+.mailcApprovalTitle { align-items: center; display: flex; gap: var(--d-s2); margin: 0; }
+.mailcApprovalTitle svg { color: var(--d-warn); height: 18px; width: 18px; }
+.mailcApproval p { margin: 0; }
+.mailcMeta { display: grid; gap: var(--d-s1); margin: 0; }
+.mailcMeta > div { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.mailcMeta dt { color: var(--d-muted); font-size: 13px; }
+.mailcMeta dd { font-size: 13px; margin: 0; overflow-wrap: anywhere; }
+
+.mailcSync { align-items: center; display: flex; flex-wrap: wrap; font-size: 12.5px; gap: var(--d-s2); margin: 0; }
+.mailcSyncError { color: var(--d-warn); }
+
+.mailcBadge {
+  background: var(--d-violet); border-radius: 999px; color: #fff; font-size: 11.5px; font-weight: 700; line-height: 18px;
+  margin-inline-start: auto; min-width: 20px; padding: 0 6px; text-align: center;
+}
+
+@media (max-width: 640px) {
+  .mailcAction span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .mailcAction { justify-content: center; padding: 0; width: 40px; }
+}

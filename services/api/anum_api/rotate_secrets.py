@@ -16,7 +16,10 @@ tokens (``email_accounts.access_token_enc`` and ``refresh_token_enc``, migration
 (``commerce_connectors``, ``commerce_customers``, migrations 0038 and 0050) and every
 automation webhook trigger secret (``automation_triggers``, migrations 0049 and 0050) and
 every finance connection credential (``finance_connections``, migration 0057, each in its
-owner's own scope because finance rows are private to one person) in every tenant.
+owner's own scope because finance rows are private to one person) and every Email Center
+mailbox password (``mail_accounts``, migration 0060, also in its owner's scope) and every voice
+provider account's auth token and API key secret (``call_provider_accounts``, migration 0071)
+in every tenant, and every Brevo API key (``brevo_connections``, migration 0074).
 Pending email connections (``email_oauth_requests``) and OAuth ``state`` values live for
 minutes and expire instead; phone push tokens are re-encrypted by the phone. See
 docs/runbooks.md#rotating-anum_secrets_key.
@@ -740,6 +743,19 @@ FINANCE_CONNECTIONS = _multi_store(
     "finance_connections", "finance_connection", ("credentials_encrypted",), ("tenant_id", "workspace_id", "id"),
     user_column="owner_user_id",
 )
+# Email Center (migration 0060): each mailbox's password, private to its owner.
+MAIL_ACCOUNTS = _multi_store(
+    "mail_accounts", "mail_account", ("password_enc",), ("tenant_id", "workspace_id", "id"),
+    user_column="owner_user_id",
+)
+# Phone calls (migration 0071): the voice provider account's auth token and API key secret.
+CALL_PROVIDER_ACCOUNTS = _multi_store(
+    "call_provider_accounts", "call_provider", ("credentials_ciphertext",), ("tenant_id", "workspace_id")
+)
+# Brevo email campaigns (migration 0074): each workspace's API key.
+BREVO_CONNECTIONS = _multi_store(
+    "brevo_connections", "brevo_connection", ("api_key_ciphertext",), ("tenant_id", "workspace_id")
+)
 COMMERCE_CUSTOMERS = _multi_store(
     "commerce_customers", "commerce_customer",
     ("name_ciphertext", "email_ciphertext", "phone_ciphertext", "address_ciphertext"),
@@ -915,6 +931,57 @@ def rotate_finance_credentials(
     )
 
 
+def rotate_mail_passwords(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt every Email Center mailbox password, each in its owner's own scope."""
+    return _rotate_store(
+        MAIL_ACCOUNTS, cipher, session_factory=session_factory,
+        maintenance_session_factory=maintenance_session_factory, dry_run=dry_run, batch_size=batch_size,
+        correlation_id=correlation_id,
+    )
+
+
+def rotate_call_provider_secrets(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt every workspace's voice provider credentials (docs/calls.md#provider)."""
+    return _rotate_store(
+        CALL_PROVIDER_ACCOUNTS, cipher, session_factory=session_factory,
+        maintenance_session_factory=maintenance_session_factory, dry_run=dry_run, batch_size=batch_size,
+        correlation_id=correlation_id,
+    )
+
+
+def rotate_brevo_keys(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt every workspace's Brevo API key."""
+    return _rotate_store(
+        BREVO_CONNECTIONS, cipher, session_factory=session_factory,
+        maintenance_session_factory=maintenance_session_factory, dry_run=dry_run, batch_size=batch_size,
+        correlation_id=correlation_id,
+    )
+
+
 def _configuration_problem() -> str | None:
     if settings.repository_backend != "postgresql":
         return "rotate_secrets needs ANUM_REPOSITORY_BACKEND=postgresql (the memory backend stores nothing at rest)"
@@ -929,7 +996,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         description=(
             "Re-encrypt stored provider keys, integration credentials, developer project tokens, tyre source credentials, "
             "meeting connector and marketing tokens, WhatsApp credentials, mailbox tokens, commerce secrets "
-            "automation webhook secrets and finance connection credentials "
+            "automation webhook secrets, finance connection credentials, voice provider credentials and Brevo API keys "
             "with the first key in ANUM_SECRETS_KEY."
         ),
     )
@@ -958,6 +1025,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             ("commerce", rotate_commerce_secrets),
             ("automation_triggers", rotate_automation_trigger_secrets),
             ("finance_connections", rotate_finance_credentials),
+            ("mail_accounts", rotate_mail_passwords),
+            ("call_providers", rotate_call_provider_secrets),
+            ("brevo_connections", rotate_brevo_keys),
         )
     }
     # Provider keys, integration and tyre credentials at the top level (as before); the rest nested.

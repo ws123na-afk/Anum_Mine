@@ -188,6 +188,37 @@ so the chart refuses the same values. OAuth client secrets belong in secrets.app
 {{- if and $zoho (not (has $zoho (list "com" "eu" "in" "com.au" "jp" "ca" "sa" "com.cn"))) -}}
 {{- fail (printf "config.ANUM_EMAIL_ZOHO_DATA_CENTRE=%q must be one of com, eu, in, com.au, jp, ca, sa, com.cn" $zoho) -}}
 {{- end -}}
+{{- /* Email Center (docs/email.md#email-center): the API's startup refusals, mirrored. */ -}}
+{{- $mailOn := lower (trim (toString (get $all "ANUM_MAILSERVER_ENABLED" | default "false"))) -}}
+{{- if and $mailOn (not (has $mailOn (list "true" "false" "1" "0" "yes" "no" "on" "off"))) -}}
+{{- fail (printf "config.ANUM_MAILSERVER_ENABLED=%q must be true or false" $mailOn) -}}
+{{- end -}}
+{{- if has $mailOn (list "true" "1" "yes" "on") -}}
+{{- range $key := list "ANUM_MAILSERVER_IMAP_HOST" "ANUM_MAILSERVER_SMTP_HOST" -}}
+{{- $host := lower (trim (toString (get $all $key | default ""))) -}}
+{{- if not $host -}}
+{{- fail (printf "config.%s is required when ANUM_MAILSERVER_ENABLED=true" $key) -}}
+{{- end -}}
+{{- if or (not (contains "." $host)) (regexMatch "^[0-9.]+$" $host) (contains ":" $host) -}}
+{{- fail (printf "config.%s must be the mail server's DNS name (its TLS certificate name), not %q" $key $host) -}}
+{{- end -}}
+{{- end -}}
+{{- $smtp := lower (trim (toString (get $all "ANUM_MAILSERVER_SMTP_HOST" | default ""))) -}}
+{{- range $relay := list "brevo.com" "sendinblue.com" "mailjet.com" "sendgrid.net" "mailgun.org" "amazonaws.com" -}}
+{{- if or (eq $smtp $relay) (hasSuffix (printf ".%s" $relay) $smtp) -}}
+{{- fail "config.ANUM_MAILSERVER_SMTP_HOST must be your own mail server, never a relay service" -}}
+{{- end -}}
+{{- end -}}
+{{- if not (has (trim (toString (get $all "ANUM_MAILSERVER_SMTP_SECURITY" | default "starttls"))) (list "starttls" "tls")) -}}
+{{- fail "config.ANUM_MAILSERVER_SMTP_SECURITY must be starttls or tls outside local" -}}
+{{- end -}}
+{{- if not (trim (toString (get $all "ANUM_MAILSERVER_ALLOWED_DOMAINS" | default ""))) -}}
+{{- fail "config.ANUM_MAILSERVER_ALLOWED_DOMAINS must list at least one mailbox domain" -}}
+{{- end -}}
+{{- if not (trim (toString (get $all "ANUM_MAILSERVER_ALLOWED_TENANTS" | default ""))) -}}
+{{- fail "config.ANUM_MAILSERVER_ALLOWED_TENANTS must list the organisations allowed to use the mail server" -}}
+{{- end -}}
+{{- end -}}
 {{- range $key := list "ANUM_EMAIL_PUBLIC_API_URL" "ANUM_EMAIL_WEB_URL" -}}
 {{- $url := trim (toString (get $all $key | default "")) -}}
 {{- if and $url (not (regexMatch "^https://[^/\\s]+" $url)) -}}

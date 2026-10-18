@@ -187,7 +187,7 @@ export function recentTasksPath(agentId: string, limit = 10): string {
   return `/api/v1/tasks?${new URLSearchParams({ agent_id: agentId, limit: String(limit) })}`;
 }
 
-/** The prompt a call summary runs with (the Call Agent summarizes; telephony is not set up). */
+/** The prompt a call summary from pasted notes runs with (calls placed or logged are under Phone calls, docs/calls.md). */
 export function callSummaryPrompt(notes: string, intro: string): string {
   return `${intro}\n\n${notes.trim()}`;
 }

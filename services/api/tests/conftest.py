@@ -30,6 +30,30 @@ WORKSPACE_A2 = "workspace_test_a2"
 WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
+    "app_call_signals",
+    "app_calls",
+    "call_ai_requests",
+    "call_provider_accounts",
+    "call_opt_outs",
+    "call_log",
+    "call_contacts",
+    "mail_forward_log",
+    "mail_forward_rules",
+    "mail_sync_state",
+    "mail_account_settings",
+    "mail_ops_counters",
+    "mail_labels",
+    "mail_attachments",
+    "mail_drafts",
+    "mail_contacts",
+    "mail_identities",
+    "mail_account_grants",
+    "mail_accounts",
+    "finance_agent_decisions",
+    "finance_strategy_runs",
+    "finance_strategies",
+    "finance_market_bars",
+    "finance_instruments",
     "finance_live_incidents",
     "finance_live_widenings",
     "finance_exec_global",
@@ -51,6 +75,24 @@ TABLES_IN_DELETE_ORDER = (
     "finance_goals",
     "finance_accounts",
     "finance_settings",
+    "business_research_runs",
+    "business_drafts",
+    "business_milestones",
+    "business_projects",
+    "business_proposal_versions",
+    "business_proposals",
+    "business_opportunities",
+    "business_activities",
+    "business_inferences",
+    "business_evidence",
+    "business_leads",
+    "business_contacts",
+    "business_accounts",
+    "business_offers",
+    "business_products",
+    "business_settings",
+    "brevo_campaign_drafts",
+    "brevo_connections",
     "contact_suppressions",
     "commerce_order_lines",
     "commerce_orders",
@@ -366,3 +408,13 @@ def repository_factory(
             yield SqlAlchemyRepository(session, created_by_user_id="user_test")
 
     return factory
+
+
+@pytest.fixture(autouse=True)
+def _quiet_machine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The evaluation load guard reads the real machine; tests pretend it is idle unless a
+    test sets a reading itself (docs/finance-trading-intel.md#load-guard)."""
+    from anum_api.finance.intel import load_guard
+
+    monkeypatch.setattr(load_guard, "read_load", lambda: None)
+    monkeypatch.setattr(load_guard, "read_free_memory", lambda: None)

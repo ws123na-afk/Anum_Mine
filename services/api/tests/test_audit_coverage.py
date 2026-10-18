@@ -1,4 +1,4 @@
-"""Audit coverage of the email, WhatsApp, autonomy, developer, learning, automation and agents APIs.
+"""Audit coverage of the email, WhatsApp, autonomy, developer, learning, automation, agents, business and Brevo APIs.
 
 Each module's own test file walks every state-changing route of its router (from the
 OpenAPI schema) through ``audit_probe.AuditProbe`` and asserts an audit record without
@@ -17,10 +17,15 @@ TESTS = Path(__file__).parent
 WALKS = {
     "agents": "test_agents.py",
     "automation": "test_automation_management.py",
+    "calls": "test_calls.py",
+    "brevo": "test_brevo.py",
+    "business": "test_business.py",
     "autonomy": "test_autonomy.py",
     "developer": "test_developer.py",
     "email": "test_email.py",
     "learning": "test_learning.py",
+    "mail": "test_mail_center.py",
+    "mail_ai": "test_mail_ai.py",
     "whatsapp": "test_whatsapp.py",
 }
 

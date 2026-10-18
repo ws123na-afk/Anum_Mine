@@ -40,6 +40,7 @@ from anum_api.push import PushDevice
 from anum_api.library_privacy import LibraryPrivacy, sql_library
 from anum_api.user_preferences import UserPreferences
 from anum_api.meeting_connectors import StoredConnection
+from anum_api.calls.privacy import calls_privacy_counts
 from anum_api.meetings import Meeting
 from anum_api.meetings import TranscriptSegment as MeetingTranscriptSegment
 from anum_api.voice import TranscriptSegment, VoiceSession, transcript_expired
@@ -246,6 +247,12 @@ class SqlAlchemyPrivacyStore:
         """Favorites, private collections and private reports, in this same transaction."""
         return sql_library(self.session, self.context)
 
+    def mail(self) -> Any:
+        """The caller's Email Center mailboxes and messages (owner-only RLS), in this same transaction."""
+        from .mailbox_repository import SqlAlchemyMailStore
+
+        return SqlAlchemyMailStore(self.session, self.context)
+
     def finance(self) -> Any:
         """The caller's finance ledger (owner-only RLS), in this same transaction."""
         from .finance_repository import SqlAlchemyFinanceStore
@@ -440,6 +447,8 @@ class SqlAlchemyPrivacyStore:
         }
 
     def counts(self) -> tuple[PrivateCounts, SharedCounts]:
+        from ..app_calls import app_calls_privacy_counts
+
         module_private, module_shared = self._module_counts()
         private = PrivateCounts(
             conversations=self._count(ConversationRecord, *self._mine(ConversationRecord)),
@@ -461,6 +470,11 @@ class SqlAlchemyPrivacyStore:
             **module_private,
             home_items=home_counts(self.home(), self.context),
             finance_records=self.finance().count_everything(self.context),
+            mail_mailboxes=len(self.mail().list_accounts()),
+            mail_messages_written=len(self.mail().list_drafts(None, 100_000)),
+            **calls_privacy_counts(self.context),
+            mail_contacts=self.mail().count_contacts(),
+            **app_calls_privacy_counts(self.context),
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
@@ -503,6 +517,14 @@ class SqlAlchemyPrivacyStore:
         # Before the private memories go: a private collection's notes are among them.
         self.library().delete_all()
         self.finance().delete_everything(self.context)
+        from ..privacy import delete_mail_store
+
+        delete_mail_store(self.mail())
+        # AI labels the caller made on mailboxes others shared with them (their own went with
+        # their mailboxes, by the foreign key).
+        from .mail_labels_repository import SqlAlchemyLabelStore
+
+        SqlAlchemyLabelStore(self.session, self.context).delete_all()
         # The caller's unsent drafts anywhere, then their private mailboxes (synced message
         # metadata and every draft in them cascade), then their pending connections.
         self.session.execute(
@@ -521,6 +543,10 @@ class SqlAlchemyPrivacyStore:
         self.delete_team_private()
         self.home().delete_all(self.context)
         delete_private_agents(self, self.context)
+        # Calls are shared by two people: their own short units of work, as each side.
+        from ..app_calls import delete_my_app_calls
+
+        delete_my_app_calls(self.context)
         self.session.flush()
         return deleted
 

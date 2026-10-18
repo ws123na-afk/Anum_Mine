@@ -1,0 +1,23 @@
+/* The daily trading reports (FinanceReports.tsx). Content-driven heights; spacing from the shared tokens. */
+.finReportsBody { display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.finReportsList { display: grid; gap: var(--d-s2); align-content: start; min-width: 0; }
+.finReportPick { align-items: start; background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: inherit; cursor: pointer;
+  display: grid; gap: var(--d-s1); justify-items: start; min-height: 44px; padding: var(--d-s2); text-align: start; width: 100%; }
+.finReportPick:hover, .finReportPick.active { background: var(--d-glass-1); border-color: var(--d-line); }
+.finReportPick small { overflow-wrap: anywhere; }
+/* Below 1024px the open report comes first, so it is not under ten list rows. */
+.finReport { border-bottom: 1px solid var(--d-line); display: grid; gap: var(--d-s3); min-width: 0; order: -1; padding-bottom: var(--d-s3); }
+.finReportHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.finReportHead h3 { align-items: center; display: flex; flex-wrap: wrap; font-size: 15px; gap: var(--d-s2); margin: 0; }
+.finReportHead .actions { margin: 0; }
+.finReportFigures { grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr)); }
+.finReportSection { display: grid; gap: var(--d-s2); min-width: 0; }
+.finReportSection h4 { font-size: 14px; margin: 0; }
+.finReportSection p, .finReportSection small { overflow-wrap: anywhere; }
+@media (min-width: 1024px) {
+  .finReportsBody { grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr); }
+  .finReport { border-bottom: 0; border-inline-start: 1px solid var(--d-line); order: 0; padding-bottom: 0; padding-inline-start: var(--d-s3); }
+}
+.finReportCommentary { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.finReportCommentary h4 { align-items: center; display: flex; font-size: 14px; gap: var(--d-s2); margin: 0; }
+.finReportCommentary p { margin: 0; overflow-wrap: anywhere; }

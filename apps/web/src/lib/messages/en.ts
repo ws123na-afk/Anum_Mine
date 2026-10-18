@@ -5,10 +5,17 @@ import type { Message } from './types.ts';
 import { commerceEn } from './commerce.en.ts';
 import { financeEn } from './finance.en.ts';
 import { financeTradingEn } from './financeTrading.en.ts';
+import { financeIntelEn } from './financeIntel.en.ts';
+import { financeEquityEn } from './financeEquity.en.ts';
+import { financeReportsEn } from './financeReports.en.ts';
+import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
 import { homeEn } from './home.en.ts';
 import { teamEn } from './team.en.ts';
+import { appCallsEn } from './appCalls.en.ts';
 import { marketingEn } from './marketing.en.ts';
+import { businessEn } from './business.en.ts';
+import { brevoEn } from './brevo.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { setupPlanEn } from './setupPlan.en.ts';
@@ -17,6 +24,14 @@ import { voiceEn } from './en.voice.ts';
 import { voiceActionsEn } from './en.voiceActions.ts';
 import { agentSkillsEn } from './agentSkills.en.ts';
 import { orgChartEn } from './orgChart.en.ts';
+import { mailCenterEn } from './mailCenter.en.ts';
+import { mailOutgoingEn } from './mailOutgoing.en.ts';
+import { mailAiEn } from './mailAi.en.ts';
+import { mailShareEn } from './mailShare.en.ts';
+import { mailRulesEn } from './mailRules.en.ts';
+import { mailOpsEn } from './mailOps.en.ts';
+import { mailEn } from './mail.en.ts';
+import { callsEn } from './calls.en.ts';
 import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
 import { pagesEn } from './pages.en.ts';
@@ -29,10 +44,25 @@ export const en = {
   // ---- Finance (finance.en.ts) ----
   ...financeEn,
   ...financeTradingEn,
+  ...financeIntelEn,
+  ...financeEquityEn,
+  ...financeReportsEn,
+  ...financeIntelActionsEn,
   ...teamEn,
+  ...appCallsEn,
   ...marketingEn,
+  ...businessEn,
+  ...brevoEn,
   ...agentSkillsEn,
   ...orgChartEn,
+  ...mailCenterEn,
+  ...mailOutgoingEn,
+  ...mailAiEn,
+  ...mailShareEn,
+  ...mailRulesEn,
+  ...mailOpsEn,
+  ...mailEn,
+  ...callsEn,
   ...chatEn,
   ...setupEn,
   ...pagesEn,
@@ -1602,7 +1632,7 @@ export const en = {
   'agents.activeToggle': 'Active',
   'agents.activeToggleText': 'A paused agent does not chat or run tasks; nothing else changes.',
   'agents.callTitle': 'Call summary',
-  'agents.callNote': 'Placing and receiving calls needs telephony, which is not set up. Paste the notes or transcript of a call and the agent summarizes it.',
+  'agents.callNote': 'Paste the notes or transcript of a call and the agent summarizes it. Calls you make or log under Phone calls are in the call log, which the Call Agent reads.',
   'agents.callLabel': 'Call notes or transcript',
   'agents.callPlaceholder': 'Paste what was said on the call',
   'agents.callSubmit': 'Summarize call',
@@ -1619,7 +1649,7 @@ export const en = {
   'agents.template.document.name': 'Document Agent',
   'agents.template.document.description': 'Drafts, rewrites and summarizes documents using the workspace\'s files and memories.',
   'agents.template.call.name': 'Call Agent',
-  'agents.template.call.description': 'Summarizes calls from notes or transcripts. Placing calls needs telephony, which is not set up.',
+  'agents.template.call.description': 'Reads the call log and contacts, summarizes calls and suggests follow-ups. With a voice provider it can ask to place AI calls to contacts who consented, each one approved by an owner.',
 
   // ---- Marketplace ----
   'market.eyebrow': 'Verified distribution',

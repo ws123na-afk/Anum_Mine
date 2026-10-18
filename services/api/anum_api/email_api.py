@@ -342,9 +342,12 @@ def _draft_view(draft: EmailDraft, repository: AnumRepository, context: TenantCo
 
 
 def _pause_for_approval(
-    repository: AnumRepository, context: TenantContext, call: ToolCall, title: str, prompt: str
+    repository: AnumRepository, context: TenantContext, call: ToolCall, title: str, prompt: str, *, registry: Any = None
 ) -> tuple[Task, Approval]:
-    """A task whose run is paused at ``call`` for approval (as developer merges are)."""
+    """A task whose run is paused at ``call`` for approval (as developer merges are).
+
+    ``registry`` holds the tool's definition (default: the email tools; the Email Center
+    passes its own, docs/email.md#email-center)."""
     now = utc_now()
     task = Task(
         id=new_id("task"),
@@ -361,7 +364,7 @@ def _pause_for_approval(
     repository.record_event(
         create_event(CanonicalEventName.TASK_CREATED, context, task.id, {"title": task.title}, correlation_id=task.id, created_at=now).event
     )
-    runtime = AgentRuntime(MockModelGateway(), repository, tools=email_tool_registry())
+    runtime = AgentRuntime(MockModelGateway(), repository, tools=registry or email_tool_registry())
     run = runtime.new_run(task)
     decision = runtime.evaluate(call, context)
     proposal = AgentRunStep(

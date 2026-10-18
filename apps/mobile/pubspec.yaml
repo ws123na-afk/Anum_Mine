@@ -34,6 +34,11 @@ dependencies:
   # runs without the owner's Firebase files; push then stays off.
   firebase_core: ^4.15.0
   firebase_messaging: ^16.7.0
+  # In-app calls between teammates (docs/in-app-calls.md#flutter). Pinned: its
+  # Android plugin is Java plus one Kotlin file and applies kotlin-android itself
+  # while android.builtInKotlin=false (checked in its android/build.gradle, the
+  # AGP 9 note in CLAUDE.md); a major bump needs that check again.
+  flutter_webrtc: 1.6.2+hotfix.4
 
 dev_dependencies:
   flutter_test:

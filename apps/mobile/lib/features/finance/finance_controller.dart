@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
+import 'finance_intel_controller.dart';
+import 'finance_intel_models.dart';
 import 'finance_models.dart';
 import 'finance_plan_models.dart';
 import 'finance_repository.dart';
@@ -20,6 +22,7 @@ enum FinanceSection {
   guardian,
   connections,
   trading,
+  intel,
   execution
 }
 
@@ -27,9 +30,16 @@ enum FinanceSection {
 /// a searchable, paged transaction list, accounts, bills, debts and goals.
 /// Each part loads and fails on its own, so a failed list keeps the summary.
 class FinanceController extends ChangeNotifier {
-  FinanceController(this.repository);
+  FinanceController(this.repository, {FinanceIntelRepository? intelRepository})
+      : intel = intelRepository == null
+            ? null
+            : FinanceIntelController(intelRepository);
 
   final FinanceRepository repository;
+
+  /// The trading intelligence section (docs/finance-trading-intel.md); null
+  /// when no intel source was given, and then the section is not offered.
+  final FinanceIntelController? intel;
   static const pageSize = 25;
 
   FinanceSection section = FinanceSection.overview;
@@ -104,6 +114,8 @@ class FinanceController extends ChangeNotifier {
         await loadConnections();
       case FinanceSection.trading:
         await loadTrading();
+      case FinanceSection.intel:
+        await intel?.load();
       case FinanceSection.execution:
         await loadExecution();
       case FinanceSection.overview:

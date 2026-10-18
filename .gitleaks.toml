@@ -55,3 +55,10 @@ condition = "AND"
 paths = ['''^infra/keycloak/social_login\.py$''']
 regexTarget = "match"
 regexes = ['''^-----BEGIN PRIVATE KEY-----"\) and key\.endswith\("-----END PRIVATE KEY-----"\)\):\s+raise KcadmError\(\s+"the Apple private key must be the whole AuthKey_<KEYID>\.p8 file, from "\s+"-----BEGIN PRIVATE KEY-----$''']
+
+[[allowlists]]
+description = "Base64 of the plain text 'fake-key-for-tests-only-32-bytes', once used as a Settings secrets_key in an Email Center test (commit 1979d4b; the test now generates a key at run time), never a credential"
+condition = "AND"
+paths = ['''^services/api/tests/test_mail_center\.py$''']
+regexTarget = "secret"
+regexes = ['''^ZmFrZS1rZXktZm9yLXRlc3RzLW9ubHktMzItYnl0ZXM=?$''']

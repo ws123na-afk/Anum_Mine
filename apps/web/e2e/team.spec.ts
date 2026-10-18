@@ -108,8 +108,10 @@ test('the notifications menu lists my team notifications and opens the work item
 test('platform console: onboard a customer company and see the one-time invitation', async ({ page }) => {
   await mockWorkspaceApi(page);
   await page.goto('/#organisations');
-  await expect(page.getByRole('rowheader', { name: /^Gulf Tyres/ })).toBeVisible();
-  await expect(page.getByRole('row', { name: /^Gulf Tyres/ }).getByText('Needs attention')).toBeVisible();
+  // The organisations table (the mail health pane below lists the same organisations).
+  const orgsTable = page.locator('.orgsTable');
+  await expect(orgsTable.getByRole('rowheader', { name: /^Gulf Tyres/ })).toBeVisible();
+  await expect(orgsTable.getByRole('row', { name: /^Gulf Tyres/ }).getByText('Needs attention')).toBeVisible();
   await page.getByRole('button', { name: 'Onboard a customer company' }).click();
   await page.getByLabel('Organisation name').fill('Acme Tyres');
   await expect(page.getByLabel('Organisation id')).toHaveValue('acme_tyres');
@@ -121,7 +123,7 @@ test('platform console: onboard a customer company and see the one-time invitati
   await expect(page.getByRole('heading', { name: 'Invitation for the first admin of Acme Tyres' })).toBeVisible();
   await expect(page.getByLabel('Invitation link')).toHaveValue(/#invitation=anum_inv_example&workspace=acme_tyres_main&tenant=acme_tyres$/);
   await page.getByRole('button', { name: 'Done' }).click();
-  await expect(page.getByRole('rowheader', { name: /^Acme Tyres/ })).toBeVisible();
+  await expect(orgsTable.getByRole('rowheader', { name: /^Acme Tyres/ })).toBeVisible();
 });
 
 test('platform console explains who may use it', async ({ page }) => {

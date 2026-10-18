@@ -10,7 +10,8 @@ Phone push goes through the existing FCM path (``anum_api/push.py``): the
 ``notification.created`` event is the push trigger (fixed text, ids only), so the row
 records ``queued`` when push is on for this server and the recipient, ``not_requested``
 when the recipient turned phone push off, and ``not_configured`` when the server has no
-FCM key.
+FCM key. Most kinds push as team work; the post-close trading report notice
+(``finance_daily_report``) pushes as its own kind with its own text (``push.FINANCE_REPORT``).
 
 Email is sent after the request commits (``deliver_pending_email``), never inside the
 transaction, and retried by the reminder sweep up to three attempts. The message holds

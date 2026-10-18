@@ -2,14 +2,16 @@
 // (views, the person's workspaces with switch and Add workspace, More and Admin), and the top bar
 // (global search with the Cmd+K command palette, notifications, the user menu). App state stays
 // in main.tsx; these components only render it and report what the person picked.
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import {
   Activity, Bell, BellOff, BookOpen, GraduationCap, Phone, ShoppingCart, Wallet, Bot, Building2, ChevronDown, CircleAlert, FileText, Gauge, Hammer, House, ListTodo, LogOut, Mail, MessageCircle,
   MessageSquare, Mic, Plug, Plus, RefreshCw, Scale, ScrollText, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Store, Users, Workflow, Disc3, PhoneCall, FileBarChart, Library, Star,
-  ClipboardCheck, ClipboardList, Building, BriefcaseBusiness, Megaphone, SunMoon, CalendarDays } from 'lucide-react';
+  ClipboardCheck, ClipboardList, Building, BriefcaseBusiness, Megaphone, SunMoon, CalendarDays, AtSign, Handshake, PhoneOutgoing } from 'lucide-react';
 import type { Approval, Task } from '@anum/contracts';
 import type { WorkspacePermissions } from '@anum/contracts';
 import * as api from './lib/api';
+import { mailUnread, pollMailUnread, subscribeMailUnread } from './lib/mailUnread';
+import { getMailUnread } from './lib/mailRulesApi';
 import * as admin from './lib/adminApi';
 import { workspaceIdInput, workspaceName } from './lib/audit';
 import { describeError } from './lib/errors';
@@ -26,8 +28,8 @@ import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { TeamNotificationsSection, type TeamNotifications } from './NotificationBell';
 
 const ICONS: Record<View, ReactNode> = {
-  home: <House />, command: <Sparkles />, assistant: <MessageSquare />, agents: <Bot />, voice: <Mic />, call: <Phone />, tyre: <Disc3 />, meetings: <PhoneCall />, calendar: <CalendarDays />, commerce: <ShoppingCart />, finance: <Wallet />, marketing: <Megaphone />, learning: <GraduationCap />, automation: <Workflow />, tasks: <ListTodo />,
-  integrations: <Plug />, files: <FileText />, memory: <BookOpen />, knowledge: <Library />, reports: <FileBarChart />, favorites: <Star />, skills: <Store />, inbox: <Mail />, whatsapp: <MessageCircle />,
+  home: <House />, command: <Sparkles />, assistant: <MessageSquare />, agents: <Bot />, voice: <Mic />, call: <Phone />, calls: <PhoneOutgoing />, tyre: <Disc3 />, meetings: <PhoneCall />, calendar: <CalendarDays />, commerce: <ShoppingCart />, finance: <Wallet />, marketing: <Megaphone />, business: <Handshake />, learning: <GraduationCap />, automation: <Workflow />, tasks: <ListTodo />,
+  integrations: <Plug />, files: <FileText />, memory: <BookOpen />, knowledge: <Library />, reports: <FileBarChart />, favorites: <Star />, skills: <Store />, inbox: <Mail />, email: <AtSign />, whatsapp: <MessageCircle />,
   approvals: <ShieldCheck />, activity: <Activity />, autonomy: <SlidersHorizontal />, settings: <Settings />, governance: <Building2 />, setup: <ClipboardList />, suppressions: <BellOff />,
   enterprise: <Store />, members: <Users />, audit: <ScrollText />, budgets: <Gauge />, policy: <Scale />, developer: <Hammer />,
   team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />,
@@ -65,6 +67,10 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
     return next;
   });
   const allowed = new Set(views);
+  const mailUnreadCount = useSyncExternalStore(subscribeMailUnread, mailUnread, () => 0);
+  // The open Email page publishes its own counts; elsewhere the background sync's counts keep the badge current.
+  const pollMail = allowed.has('email') && view !== 'email';
+  useEffect(() => (pollMail ? pollMailUnread(getMailUnread) : undefined), [pollMail]);
   // The nav scrolls on its own: a view opened by link, the palette or a page button brings its
   // entry into sight (to the nearest edge, so an entry already in view never moves), again once the
   // views the person may open are known, since an owner-only entry appears only then. It moves the
@@ -83,6 +89,7 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
   const item = (id: View) => <li key={id}><button type="button" className={`navItem ${view === id ? 'active' : ''}`} aria-current={view === id ? 'page' : undefined} onClick={() => onGo(id)}>
     {ICONS[id]}<span>{viewLabel(id)}</span>
     {id === 'approvals' && pendingApprovals > 0 && <span className="navCount" aria-label={t('nav.pendingCount', { count: pendingApprovals })}>{pendingApprovals}</span>}
+    {id === 'email' && mailUnreadCount > 0 && <span className="navCount" aria-label={t('mailc.unreadBadge', { count: mailUnreadCount })}>{badgeText(mailUnreadCount)}</span>}
   </button></li>;
   const group = (name: NavGroup | 'workspaces', label: MessageKey, body: ReactNode) => {
     const open = !folds[name];

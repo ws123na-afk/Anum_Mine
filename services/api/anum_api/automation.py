@@ -141,8 +141,11 @@ STEP_ACTIONS: dict[str, str] = {
     "fail": "Stop the run as failed (input: message)",
     # Tyre planning (docs/tyre-planning.md#reports): runs after the run is committed.
     "tyre.report": "Sync the tyre data and generate a tyre report (input: kind, optional delivery)",
+    # Finance trading intelligence (docs/finance-trading-intel.md#scheduled-operations): runs after commit.
+    "finance.intel.cycle": "Run one SIMULATED trading intelligence cycle (input: phase pre_open, intraday, post_close, weekly or monthly)",
     REPORT_STEP_ACTION: "Store a shared report (input: type task_summary, automation_summary, commerce_summary or tyre_summary; period_days 1-366)",
 }
+FINANCE_INTEL_PHASES = ("pre_open", "intraday", "post_close", "weekly", "monthly")  # = finance.intel.supervisor.PHASES (tested)
 TASK_TITLE_MAX = 160
 TASK_PROMPT_MAX = 8000
 MESSAGE_MAX = 500
@@ -211,6 +214,8 @@ def check_steps(steps: list[WorkflowStep]) -> list[WorkflowStep]:
                 raise ValueError(f'{label}: "run" must be true (run the task) or false (only create it).')
         if step.action == "email.send":
             _check_email_step(label, step)
+        if step.action == "finance.intel.cycle" and step.input.get("phase") not in FINANCE_INTEL_PHASES:
+            raise ValueError(f"{label}: the phase must be one of: {', '.join(FINANCE_INTEL_PHASES)}.")
         if step.action == REPORT_STEP_ACTION:
             kind, days = step.input.get("type", "task_summary"), step.input.get("period_days", 7)
             if kind not in {"task_summary", "automation_summary", "commerce_summary", "tyre_summary"}:

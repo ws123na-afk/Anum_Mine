@@ -60,6 +60,7 @@ Checked in this change (October 2026). "ok": meets the item; "fixed": met by thi
 | Automations | ok | fixed (breadcrumb) | ok | fixed | ok | ok | ok | ok | ok (shell destination) | ok |
 | Tasks | ok | ok (pane Back) | ok | fixed | ok | ok | ok | ok | ok | ok |
 | Calls & Meetings | ok | ok | ok (`#meetings?meeting=`) | fixed | ok | ok | ok | ok | ok | ok |
+| Phone calls | ok | ok (call and contact Back) | ok (`#calls-<tab>`, `#calls?call=`) | ok | ok | ok | ok | ok | ok | ok |
 | Calendar | ok | ok (pane Back) | ok | fixed | ok | ok (no paging: a range at a time) | ok | ok | ok | ok |
 | Team, Assistants | ok | ok (Back) | ok | fixed | ok | ok | ok | ok | ok | ok |
 | Integrations | ok | fixed (breadcrumb) | ok (`#connections`) | fixed | ok | ok (search, no paging needed) | ok | ok | ok | ok |

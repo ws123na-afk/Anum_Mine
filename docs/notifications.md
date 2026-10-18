@@ -18,6 +18,8 @@ Notification preferences are per user and per workspace (`GET`/`PUT /api/v1/noti
 | `desktop_enabled` | Desktop notifications | Not a phone channel |
 | `email_enabled` | Email | Team work notifications are emailed when SMTP is configured ([Team work](team-work.md#notifications)); nothing else is emailed yet |
 
+In-app calls ([In-app calls](in-app-calls.md#phone-push)) push `incoming_call` (from `app_call.ringing`) and `missed_call` (from a `missed_call` notification) to the person rung; they have no switch of their own and follow `push_enabled`.
+
 The web app shows these under **Settings › Notifications** with the person's registered phones; the Flutter app under **Settings › Notifications** with the **Phone push** card.
 
 ## Phone push
@@ -59,7 +61,11 @@ There is no user id in any path or body. Rows live in `push_devices` (migration 
 
 Team work adds the kind `team_work`: every in-app team notification (assignment, comment, completion, blocked, overdue reminder, ANUM follow-up) emits `notification.created` naming its one recipient, who gets a push while an active member with `work:read` and with `push_enabled` on (it has no switch of its own). Text: "Team work" / "Something in your team work needs you. Open ANUM to see it."; data: `work_item_id`. See [Team work](team-work.md#notifications).
 
-The payload never carries content: a fixed title and sentence ("Approval needed" / "An action is waiting for your decision.", "Task finished", "Task failed", "Change ready for review", "Developer request stopped", "Tyre alerts", "Store alert", "Automation update", "Automation failed") and string ids for the deep link: `anum_kind`, `tenant_id`, `workspace_id`, and `approval_id`, `task_id`, `run_id`, `developer_request_id`, `commerce_alert_id` or `automation_run_id` and `workflow_id` (the app opens Automations). A notify step's own message never travels in the push. Android groups by `tag` and iOS by `apns-collapse-id` (the approval, request or task id), so a later push about the same item replaces the earlier one.
+The post-close trading report notice (`notification.created` with kind `finance_daily_report`, [Trading intelligence](finance-trading-intel.md#daily-report)) is not team work: it pushes as its own kind `finance_report` to its one recipient while an active member with `finance:read` and with `push_enabled` on. Text: "Daily trading report" / "Your simulated trading report for today is ready. No real order was placed."; data: `anum_kind` only (the app opens Finance, Trading intelligence).
+
+**Language.** A phone registers with `language` (`en` or `ar`, the language its app shows; migration `0072_push_device_language`, `push_devices.language`), and every push to it uses that language's fixed text (`push.TEXT_AR`); a phone without one, such as an older client, gets English.
+
+The payload never carries content: a fixed title and sentence ("Approval needed" / "An action is waiting for your decision.", "Task finished", "Task failed", "Change ready for review", "Developer request stopped", "Tyre alerts", "Store alert", "Automation update", "Automation failed", "Team work", "Daily trading report", in English or Arabic) and string ids for the deep link: `anum_kind`, `tenant_id`, `workspace_id`, and `approval_id`, `task_id`, `run_id`, `developer_request_id`, `commerce_alert_id` or `automation_run_id` and `workflow_id` (the app opens Automations). A notify step's own message never travels in the push. Android groups by `tag` and iOS by `apns-collapse-id` (the approval, request or task id), so a later push about the same item replaces the earlier one.
 
 The queue is in-process and bounded. A push is lost if the process stops before sending it (a restart, a scale-down); the item itself is unaffected and every client lists it. Two API replicas that refresh the same developer request at the same instant can each announce the change once.
 

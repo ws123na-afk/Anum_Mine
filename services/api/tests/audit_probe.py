@@ -28,13 +28,29 @@ MUTATING = ("post", "put", "patch", "delete")
 MODULE_PREFIXES = {
     "agents": "/api/v1/agents",
     "automation": "/api/v1/automation",
+    "calls": "/api/v1/calls",
+    "brevo": "/api/v1/brevo",
+    "business": "/api/v1/business",
     "autonomy": "/api/v1/autonomy",
     "developer": "/api/v1/developer",
     "email": "/api/v1/email",
     "learning": "/api/v1/learning",
+    "mail": "/api/v1/mail",
+    "mail_ai": "/api/v1/mail/ai",
     "whatsapp": "/api/v1/whatsapp",
 }
+_CALL_WEBHOOK = (
+    "The voice provider's signed delivery during a call, not a person's action; call starts, ends, "
+    "stored recordings and opt-outs it causes are audited as call.* records by the system actor."
+)
 EXEMPT: dict[tuple[str, str], str] = {
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/voice"): _CALL_WEBHOOK,
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/dial/{call_id}"): _CALL_WEBHOOK,
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/status"): _CALL_WEBHOOK,
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/status/{call_id}"): _CALL_WEBHOOK,
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/recording/{call_id}"): _CALL_WEBHOOK,
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/ai/{call_id}"): _CALL_WEBHOOK,
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/turn/{call_id}"): _CALL_WEBHOOK,
     ("POST", "/api/v1/automation/schedules/preview"): "Computes the next fire times of a cron expression; stores nothing.",
     ("POST", "/api/v1/developer/resolve"): "Matches a spoken request to a project name; stores nothing.",
     ("POST", "/api/v1/automation/hooks/{tenant_id}/{workspace_id}/{trigger_id}"): (
@@ -69,12 +85,20 @@ def audit_text(records: Iterable[Any]) -> str:
 
 
 def mutating_routes(prefix: str) -> set[tuple[str, str]]:
-    """``(METHOD, path template)`` of every state-changing route under ``prefix``."""
+    """``(METHOD, path template)`` of every state-changing route under ``prefix``.
+
+    A route under a longer module prefix (``/api/v1/mail/ai`` inside ``/api/v1/mail``) belongs
+    to that module's walk only."""
     paths = app.openapi()["paths"]
+    inner = [other for other in MODULE_PREFIXES.values() if other.startswith(prefix + "/")]
+
+    def under(path: str, base: str) -> bool:
+        return path.startswith(base + "/") or path == base
+
     return {
         (method.upper(), path)
         for path, operations in paths.items()
-        if path.startswith(prefix + "/") or path == prefix
+        if under(path, prefix) and not any(under(path, other) for other in inner)
         for method in operations
         if method in MUTATING
     }

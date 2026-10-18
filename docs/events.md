@@ -107,6 +107,8 @@ Team work ([Team work](team-work.md#events)) emits `work_item.created`, `work_it
 
 Workspace invitations and membership management ([Identity](identity.md#invitations-and-membership-management)) emit `workspace_invitation.created`, `workspace_invitation.accepted`, `workspace_invitation.resent`, `workspace_invitation.revoked`, `workspace_member.added`, `workspace_member.role_changed`, `workspace_member.deactivated` and `workspace_member.reactivated`. The workspace lifecycle ([Identity](identity.md#workspace-lifecycle)) emits `workspace.created` (in the new workspace), `workspace.renamed`, `workspace.archived` and `workspace.restored`. Payloads carry ids, roles, the expiry and whether an invitation is email-bound; never the invitation token or the invitee's email (the email is kept in the audit record only).
 
+[In-app calls](in-app-calls.md#events) emit `app_call.ringing` when a teammate is rung (subject: the call id; payload: the call id and the recipient's user id only). It is the phone push trigger for "Incoming call"; a missed call is a `notification.created` with kind `missed_call`. Offers, answers and ICE candidates never travel on the workspace stream: they go through the participants-only call stream ([In-app calls](in-app-calls.md#signaling)).
+
 [Calls & Meetings](meetings.md) emit `meeting.imported`, `meeting.summarized` and `meeting.failed` (subject: the meeting id). Payloads carry the title, source, linked agent, action item count or error code; never transcript text.
 
 ## Now

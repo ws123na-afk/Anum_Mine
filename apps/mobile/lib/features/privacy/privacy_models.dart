@@ -32,6 +32,9 @@ const _privateLabels = <String, String>{
   'private_agents': 'Your private agents',
   'private_agent_memories': 'Memories of your private agents',
   'finance_records': 'Finance records',
+  'app_calls':
+      'Your calls with teammates (the other person keeps theirs, showing you as a deleted user)',
+  'app_call_signals': 'Call setup messages',
 };
 
 const _sharedLabels = <String, String>{

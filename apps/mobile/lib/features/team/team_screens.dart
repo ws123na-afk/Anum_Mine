@@ -6,7 +6,11 @@ import 'package:flutter/material.dart';
 
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
+import '../../src/localization/anum_localizations.dart';
 import '../admin/owned_controller.dart';
+import '../team_calls/call_screens.dart';
+import '../team_calls/call_strings.dart';
+import '../mail_center/mail_health.dart';
 import 'team_controllers.dart';
 import 'team_models.dart';
 import 'team_repository.dart';
@@ -83,9 +87,19 @@ class TeamHubCard extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => _push(context, screen),
         );
+    final calls = AppCallsScope.maybeOf(context);
+    final callText = TeamCallText.of(context);
     return Card(
       child: Column(
         children: [
+          if (calls != null)
+            ListTile(
+              leading: const Icon(Icons.call_outlined),
+              title: Text(callText.t('calls')),
+              subtitle: Text(callText.t('callsHint')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _push(context, TeamCallsScreen(controller: calls)),
+            ),
           tile(
             Icons.assignment_ind_outlined,
             'myWork',
@@ -120,7 +134,14 @@ class TeamHubCard extends StatelessWidget {
             Icons.domain_outlined,
             'organisations',
             'organisationsHint',
-            OrganisationsScreen(repository: repository),
+            OrganisationsScreen(
+              repository: repository,
+              mailHealth: switch (repository) {
+                ApiTeamRepository(:final api) => () =>
+                    MailHealthScreen(repository: ApiMailHealthRepository(api)),
+                _ => null,
+              },
+            ),
           ),
         ],
       ),
@@ -587,6 +608,12 @@ class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({required this.repository, super.key});
   final TeamRepository repository;
 
+  /// Where a notice that is not about a work item opens, by its kind. The
+  /// app registers these (for example the post-close trading report opens
+  /// Finance, Trading intelligence; docs/finance-trading-intel.md#daily-report).
+  static final Map<String, Future<void> Function(BuildContext context)>
+      openers = {};
+
   @override
   Widget build(BuildContext context) =>
       OwnedController<TeamLoader<NotificationPage>>(
@@ -642,7 +669,12 @@ class NotificationsScreen extends StatelessWidget {
                                 onTap: () async {
                                   if (!n.read) await repository.markRead(n.id);
                                   final id = n.workItemId;
-                                  if (id != null && context.mounted) {
+                                  final opener = openers[n.kind];
+                                  if (id == null &&
+                                      opener != null &&
+                                      context.mounted) {
+                                    await opener(context);
+                                  } else if (id != null && context.mounted) {
                                     await Navigator.push<void>(
                                       context,
                                       MaterialPageRoute(
@@ -820,7 +852,11 @@ class _AssistantsScreenState extends State<AssistantsScreen> {
 }
 
 class OrganisationsScreen extends StatefulWidget {
-  const OrganisationsScreen({required this.repository, super.key});
+  const OrganisationsScreen(
+      {required this.repository, this.mailHealth, super.key});
+
+  /// The operator's mail health (docs/email.md#operator-view), when wired.
+  final Widget Function()? mailHealth;
   final TeamRepository repository;
   @override
   State<OrganisationsScreen> createState() => _OrganisationsScreenState();
@@ -872,7 +908,22 @@ class _OrganisationsScreenState extends State<OrganisationsScreen> {
         final orgs = _loader.value;
         final created = _created;
         return Scaffold(
-          appBar: AppBar(title: Text(s.t('organisations'))),
+          appBar: AppBar(
+            title: Text(s.t('organisations')),
+            actions: [
+              if (widget.mailHealth != null &&
+                  _loader.phase != TeamPhase.denied)
+                IconButton(
+                  tooltip: AnumLocalizations.maybeOf(context).t('mc.op.title'),
+                  icon: const Icon(Icons.mark_email_read_outlined),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                        builder: (_) => widget.mailHealth!()),
+                  ),
+                ),
+            ],
+          ),
           body: _loader.phase == TeamPhase.denied
               ? AnumFeedback(
                   kind: AnumFeedbackKind.permission,

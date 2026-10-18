@@ -1,0 +1,25 @@
+/* SIMULATED P&L and drawdown over time (FinanceEquity.tsx). Content-driven heights; spacing from the shared tokens. */
+.finEquity { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
+.finEquityHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.finEquityHead h4 { align-items: center; display: flex; font-size: 14px; gap: var(--d-s2); margin: 0; }
+.finEquityControls { display: grid; gap: var(--d-s2); grid-auto-columns: minmax(8rem, max-content); grid-auto-flow: column; max-width: 100%; }
+.finEquityField { flex: 0 1 auto; margin: 0; min-width: min(100%, 9rem); width: auto; }
+.finEquityField select { min-height: 40px; }
+.finEquityFigures { grid-template-columns: repeat(auto-fill, minmax(min(100%, 10rem), 1fr)); }
+.finEquityCharts { display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr); }
+.finEquityChart { display: grid; gap: var(--d-s1); margin: 0; min-width: 0; }
+.finEquityChart figcaption { color: var(--d-muted); font-size: 12px; }
+.finEquityZero { stroke: var(--d-line-strong); stroke-dasharray: 3 3; stroke-width: 1; }
+.finEquityLine { fill: none; stroke: rgb(var(--c-sky)); stroke-linejoin: round; stroke-width: 2; }
+.finEquityLine.finEquityDown { stroke: var(--d-danger); }
+.finEquityArea { fill: var(--d-danger); fill-opacity: 0.16; }
+.finEquityBenchLine { fill: none; stroke: var(--d-muted); stroke-dasharray: 6 4; stroke-linejoin: round; stroke-width: 1.5; }
+.finEquityLegend { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: var(--d-s1) var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.finEquityLegend li { align-items: center; display: inline-flex; gap: var(--d-s1); }
+.finEquityKey { border-top: 2px solid rgb(var(--c-sky)); display: inline-block; width: 18px; }
+.finEquityKey.finEquityKeyBench { border-top: 2px dashed var(--d-muted); }
+.finEquityDot { fill: rgb(var(--c-sky)); }
+.finEquityDot.finEquityDown { fill: var(--d-danger); }
+@media (min-width: 1440px) {
+  .finIntelPortfolios:not(:has(> :nth-child(2))) .finEquityCharts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

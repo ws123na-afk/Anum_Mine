@@ -47,7 +47,7 @@ KEYCLOAK_ADMIN_VARS = {
     "KC_BOOTSTRAP_ADMIN_USERNAME",
     "KC_BOOTSTRAP_ADMIN_PASSWORD",
 }
-LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng", "beszel", "beszel-agent", "glitchtip"}
+LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng", "beszel", "beszel-agent", "glitchtip", "coturn"}
 MONITORING = {"beszel", "beszel-agent", "glitchtip"}
 ONE_SHOT = {"db-init", "migrate", "retention", "backup", "restore-tools", "backup-upload", "ollama-pull"}
 API_REQUIRED = {
@@ -162,6 +162,8 @@ def test_compose_has_the_expected_services_and_profiles() -> None:
     # Optional monitoring; the agent separately, as it needs the hub's key first.
     assert profiles["beszel"] == profiles["glitchtip"] == ("monitoring",)
     assert profiles["beszel-agent"] == ("monitoring-agent",)
+    # The TURN relay for in-app calls is off unless calls.sh enable adds its profile.
+    assert profiles["coturn"] == ("calls",)
     for name in ("caddy", "postgres", "db-init", "migrate", "api", "web", "keycloak", "valkey"):
         assert profiles[name] == (), name
 
@@ -172,7 +174,9 @@ def test_only_caddy_publishes_ports_and_only_80_and_443() -> None:
     assert published == {"caddy"}
     assert services["caddy"]["ports"] == ["80:80", "443:443"]
     for name, service in services.items():
-        assert service.get("network_mode") is None, name
+        # coturn alone uses the host network (a relay needs the VM's UDP ports) and
+        # publishes nothing; calls.sh opens exactly its ports.
+        assert service.get("network_mode") == ("host" if name == "coturn" else None), name
         assert not service.get("privileged"), name
         for volume in service.get("volumes", []):
             assert "docker.sock" not in str(volume), name
@@ -330,6 +334,7 @@ def test_env_example_holds_placeholders_only() -> None:
         "KC_BOOTSTRAP_ADMIN_PASSWORD",
         "ANUM_BACKUP_ENCRYPTION_PASSPHRASE",
         "SEARXNG_SECRET",
+        "ANUM_TURN_SECRET",
     }
     owner = {key for key, value in example.items() if OWNER_PLACEHOLDER in value}
     assert {"ANUM_WEB_HOST", "ANUM_API_HOST", "ANUM_AUTH_HOST", "ACME_EMAIL"} <= owner
@@ -1118,3 +1123,29 @@ def test_owner_integrations_reach_the_api_with_callbacks_on_the_real_hosts(monke
     settings = _settings(monkeypatch, environment)
     assert settings.transcription_provider == "none" and settings.smtp_port == 587
     assert settings.meetings_oauth_redirect_uri.startswith("https://")
+
+
+def test_turn_relay_is_locked_down_and_its_secret_never_reaches_a_command_line() -> None:
+    coturn = _services()["coturn"]
+    assert not coturn.get("ports") and not coturn.get("expose")
+    assert coturn["cap_drop"] == ["ALL"] and coturn["security_opt"] == ["no-new-privileges:true"]
+    script = coturn["entrypoint"][2]
+    assert "use-auth-secret" in script and "no-cli" in script and "no-multicast-peers" in script
+    for denied in ("10.0.0.0-10.255.255.255", "127.0.0.0-127.255.255.255", "169.254.0.0-169.254.255.255", "172.16.0.0-172.31.255.255", "192.168.0.0-192.168.255.255"):
+        assert f"denied-peer-ip={denied}" in script, denied
+    # The secret is written into a file inside the container, never passed as an argument.
+    assert "--static-auth-secret" not in script and "-c /tmp/turnserver.conf" in script
+    api = _env(_services()["api"])
+    assert api["ANUM_CALLS_TURN_SECRET"] == "${ANUM_TURN_SECRET:-}"
+    # Off by default: no TURN URLs until calls.sh enable writes them.
+    assert _example()["ANUM_CALLS_TURN_URLS"] == "" and _example()["ANUM_CALLS_ALLOW_STUN_ONLY"] == "false"
+
+
+def test_calls_script_opens_only_the_relay_ports_before_the_reject_rule() -> None:
+    script = (ORACLE / "calls.sh").read_text(encoding="utf-8")
+    assert script.startswith("#!/usr/bin/env bash") and "set -euo pipefail" in script
+    code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+    assert "ufw" not in code and "netfilter-persistent" not in code
+    assert '$2 == "REJECT"' in script and "/etc/iptables/rules.v4" in script
+    assert "--dport 3478" in script and "udp" in script and "ANUM_TURN_MIN_PORT" in script
+    assert "sudo -n true" in script

@@ -6,8 +6,8 @@ import type {
 } from '@anum/contracts';
 import { getLocale, intlLocale, t, type Locale, type MessageKey } from './i18n.ts';
 
-export type FinanceTab = 'overview' | 'safe' | 'transactions' | 'accounts' | 'import' | 'bills' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'execution';
-export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'safe', 'transactions', 'accounts', 'import', 'bills', 'debts', 'goals', 'holdings', 'guardian', 'connections', 'trading', 'execution'];
+export type FinanceTab = 'overview' | 'safe' | 'transactions' | 'accounts' | 'import' | 'bills' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'intel' | 'execution';
+export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'safe', 'transactions', 'accounts', 'import', 'bills', 'debts', 'goals', 'holdings', 'guardian', 'connections', 'trading', 'intel', 'execution'];
 
 const THREE = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
 const ZERO = new Set(['JPY', 'KRW', 'VND', 'CLP', 'ISK', 'UGX', 'XAF', 'XOF']);
@@ -98,6 +98,8 @@ export function spendCurrencies(summary: Pick<FinanceSummary, 'spend_by_category
 /** The tab a URL hash opens: `#finance-transactions` and friends; anything else is the overview. */
 export function tabFromHash(hash: string): FinanceTab {
   const id = hash.replace(/^#finance-?/, '');
+  // `#finance-intel-reports` and `#finance-intel-report=<id>` open the daily reports in Trading intelligence.
+  if (id.startsWith('intel-report')) return 'intel';
   return (FINANCE_TABS as readonly string[]).includes(id) ? id as FinanceTab : 'overview';
 }
 

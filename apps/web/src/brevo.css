@@ -1,0 +1,46 @@
+/* Email campaigns through Brevo (BrevoCampaigns.tsx). Shared tokens, logical properties for RTL. */
+.bvLayout { display: grid; gap: var(--d-s3); min-width: 0; }
+.bvLayout > .notice, .bvLayout .mkSectionHead { margin: 0; }
+.bvLead { margin: var(--d-s1) 0 0; }
+.bvSections { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.bvSections button[aria-current="page"] { background: rgb(var(--c-violet) / .14); border-color: rgb(var(--c-violet) / .45); color: var(--d-text); font-weight: 650; }
+.bvToolbar { align-items: end; }
+.bvToolbar .field { margin: 0; }
+.bvSearch { flex: 1 1 220px; min-width: 0; }
+.bvFilter { flex: 0 1 200px; min-width: 0; }
+.bvTable th small, .bvTable td small { color: var(--d-faint); display: block; font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+.bvTable th strong { font-weight: 600; overflow-wrap: anywhere; }
+.bvTable .num { text-align: end; white-space: nowrap; }
+.bvTable small.bvError, .bvFacts small.bvError { color: var(--d-stop); }
+.bvPager { justify-content: flex-end; }
+.bvConnection, .bvCampaigns, .bvDrafts { display: grid; gap: var(--d-s3); min-width: 0; }
+.bvFacts th { font-weight: 600; white-space: nowrap; width: 1%; }
+.bvFacts small { color: var(--d-faint); display: block; font-size: 12px; overflow-wrap: anywhere; }
+.bvKeyForm { display: grid; gap: var(--d-s3); padding: var(--d-s4) var(--d-s5); }
+.bvKeyForm h3 { font-size: 16px; margin: 0; }
+.bvKeyForm .field { margin: 0; }
+.bvSmall { font-size: 13px; margin: 0; }
+.bvReport, .bvDetail, .bvEditor { display: grid; gap: var(--d-s3); min-width: 0; }
+.bvReport h3, .bvDetail h3 { font-size: 18px; margin: 0; overflow-wrap: anywhere; }
+.bvReport p, .bvDetail h4, .bvEditor h4 { margin: 0; }
+.bvFigures { display: grid; gap: var(--d-s2); grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin: 0; }
+.bvFigures div { background: rgb(var(--c-violet) / .06); border: 1px solid var(--d-line); border-radius: var(--d-r-control); padding: var(--d-s2) var(--d-s3); }
+.bvFigures dt { color: var(--d-muted); font-size: 12px; }
+.bvFigures dd { font-size: 18px; font-variant-numeric: tabular-nums; font-weight: 650; margin: 0; }
+.bvFactList { display: grid; gap: var(--d-s2); margin: 0; }
+.bvFactList div { display: grid; gap: var(--d-s1); grid-template-columns: minmax(110px, 30%) minmax(0, 1fr); }
+.bvFactList dt { color: var(--d-muted); font-size: 13px; }
+.bvFactList dd { margin: 0; overflow-wrap: anywhere; }
+.bvFrame { background: #fff; border: 1px solid var(--d-line); border-radius: var(--d-r-control); min-height: 320px; width: 100%; }
+.bvEditor .field { margin: 0; }
+.bvEditor textarea { font-family: var(--d-mono, ui-monospace, monospace); font-size: 13px; }
+.bvLists { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); margin: 0; min-width: 0; padding: var(--d-s3); }
+.bvLists legend { font-weight: 600; padding: 0 var(--d-s1); }
+.bvListPick { display: grid; gap: var(--d-s1); list-style: none; margin: 0; max-height: 240px; overflow: auto; padding: 0; }
+.bvListPick label { align-items: center; cursor: pointer; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-height: 32px; overflow-wrap: anywhere; }
+/* The global input rule makes inputs full width; a checkbox keeps its own size. */
+.bvListPick input[type="checkbox"] { accent-color: var(--d-violet); flex: none; height: 18px; margin: 0; min-height: 0; padding: 0; width: 18px; }
+@media (max-width: 720px) {
+  .bvFactList div { grid-template-columns: minmax(0, 1fr); }
+  .bvTable .optional { display: none; }
+}

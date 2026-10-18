@@ -10,6 +10,7 @@ import * as team from './lib/teamApi';
 import { getNotificationPreferences, currentUserId } from './lib/api';
 import { describeError } from './lib/errors';
 import { formatDateTime, t } from './lib/i18n';
+import { REPORTS_HASH } from './lib/financeReports';
 import { shouldNotifyDesktop } from './lib/team';
 import './team.css';
 
@@ -60,6 +61,8 @@ export function useTeamNotifications(signal: { recipient: unknown; at: number } 
       if (!n.read_at) { try { await team.readNotification(n.id); } catch { /* still open it */ } }
       void load();
       if (n.work_item_id) openItem.current(n.work_item_id);
+      // The post-close trading report notice opens the reports (docs/finance-trading-intel.md#daily-report).
+      else if (n.kind === 'finance_daily_report') location.hash = REPORTS_HASH;
     },
     readAll: async () => { try { await team.readAllNotifications(); await load(); } catch (e) { setError(describeError(e)); } },
     enableDesktop: () => { void Notification.requestPermission().then(setPermission); },

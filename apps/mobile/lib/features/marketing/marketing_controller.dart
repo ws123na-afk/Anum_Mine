@@ -4,13 +4,17 @@ import '../../data/api_client.dart';
 import '../workspace/workspace_models.dart';
 import 'marketing_models.dart';
 import 'marketing_repository.dart';
+import '../brevo/brevo_screen.dart';
 
 enum MkPhase { loading, ready, denied, error }
 
 /// State of the Marketing screen (docs/marketing.md).
 class MarketingController extends ChangeNotifier {
-  MarketingController(this.repository);
+  MarketingController(this.repository, {this.brevo});
   final MarketingRepository repository;
+
+  /// Email campaigns through Brevo (docs/brevo.md), opened from the app bar.
+  final BrevoController? brevo;
   static const pageSize = 20;
 
   MkPhase phase = MkPhase.loading;

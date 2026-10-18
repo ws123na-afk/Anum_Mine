@@ -6,10 +6,17 @@ import type { Message } from './types.ts';
 import { commerceAr } from './commerce.ar.ts';
 import { financeAr } from './finance.ar.ts';
 import { financeTradingAr } from './financeTrading.ar.ts';
+import { financeIntelAr } from './financeIntel.ar.ts';
+import { financeEquityAr } from './financeEquity.ar.ts';
+import { financeReportsAr } from './financeReports.ar.ts';
+import { financeIntelActionsAr } from './financeIntelActions.ar.ts';
 import { tyreAr } from './tyre.ar.ts';
 import { homeAr } from './home.ar.ts';
 import { teamAr } from './team.ar.ts';
+import { appCallsAr } from './appCalls.ar.ts';
 import { marketingAr } from './marketing.ar.ts';
+import { businessAr } from './business.ar.ts';
+import { brevoAr } from './brevo.ar.ts';
 import { ownerAr } from './ar.owner.ts';
 import { governanceAr } from './ar.governance.ts';
 import { setupPlanAr } from './setupPlan.ar.ts';
@@ -18,6 +25,14 @@ import { voiceAr } from './ar.voice.ts';
 import { voiceActionsAr } from './ar.voiceActions.ts';
 import { agentSkillsAr } from './agentSkills.ar.ts';
 import { orgChartAr } from './orgChart.ar.ts';
+import { mailCenterAr } from './mailCenter.ar.ts';
+import { mailOutgoingAr } from './mailOutgoing.ar.ts';
+import { mailAiAr } from './mailAi.ar.ts';
+import { mailShareAr } from './mailShare.ar.ts';
+import { mailRulesAr } from './mailRules.ar.ts';
+import { mailOpsAr } from './mailOps.ar.ts';
+import { mailAr } from './mail.ar.ts';
+import { callsAr } from './calls.ar.ts';
 import { chatAr } from './chat.ar.ts';
 import { setupAr } from './setup.ar.ts';
 import { pagesAr } from './pages.ar.ts';
@@ -30,10 +45,25 @@ export const ar: Record<MessageKey, Message> = {
   // ---- Finance (finance.ar.ts) ----
   ...financeAr,
   ...financeTradingAr,
+  ...financeIntelAr,
+  ...financeEquityAr,
+  ...financeReportsAr,
+  ...financeIntelActionsAr,
   ...teamAr,
+  ...appCallsAr,
   ...marketingAr,
+  ...businessAr,
+  ...brevoAr,
   ...agentSkillsAr,
   ...orgChartAr,
+  ...mailCenterAr,
+  ...mailOutgoingAr,
+  ...mailAiAr,
+  ...mailShareAr,
+  ...mailRulesAr,
+  ...mailOpsAr,
+  ...mailAr,
+  ...callsAr,
   ...chatAr,
   ...setupAr,
   ...pagesAr,
@@ -1603,7 +1633,7 @@ export const ar: Record<MessageKey, Message> = {
   'agents.activeToggle': 'نشط',
   'agents.activeToggleText': 'الوكيل المتوقف مؤقتًا لا يحادث ولا يشغّل مهام؛ ولا يتغير شيء آخر.',
   'agents.callTitle': 'ملخص مكالمة',
-  'agents.callNote': 'إجراء المكالمات واستقبالها يحتاج إلى خدمة اتصالات غير مُعدّة. الصق ملاحظات مكالمة أو نصها وسيلخّصها الوكيل.',
+  'agents.callNote': 'الصق ملاحظات مكالمة أو نصها وسيلخّصها الوكيل. المكالمات التي تجريها أو تسجلها في المكالمات الهاتفية موجودة في سجل المكالمات الذي يقرؤه وكيل المكالمات.',
   'agents.callLabel': 'ملاحظات المكالمة أو نصها',
   'agents.callPlaceholder': 'الصق ما قيل في المكالمة',
   'agents.callSubmit': 'تلخيص المكالمة',
@@ -1620,7 +1650,7 @@ export const ar: Record<MessageKey, Message> = {
   'agents.template.document.name': 'وكيل المستندات',
   'agents.template.document.description': 'يصوغ المستندات ويعيد كتابتها ويلخصها باستخدام ملفات مساحة العمل وذكرياتها.',
   'agents.template.call.name': 'وكيل المكالمات',
-  'agents.template.call.description': 'يلخّص المكالمات من الملاحظات أو النصوص. إجراء المكالمات يحتاج إلى خدمة اتصالات غير مُعدّة.',
+  'agents.template.call.description': 'يقرأ سجل المكالمات وجهات الاتصال، ويلخّص المكالمات ويقترح المتابعات. ومع مزود اتصال يمكنه طلب مكالمات ذكاء اصطناعي لجهات اتصال وافقت، يوافق المالك على كل واحدة منها.',
 
   // ---- Marketplace ----
   'market.eyebrow': 'توزيع موثّق',

@@ -47,6 +47,7 @@ from typing import Any, Protocol
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
+from .app_calls import app_calls_privacy_counts, app_calls_privacy_export, delete_my_app_calls
 from .audit import AuditRecord
 from .authorization import Permission
 from .autonomy import AutonomousAction
@@ -151,6 +152,23 @@ class PrivateCounts(BaseModel):
     # caller's ledger (settings, accounts, transactions, imports, bills, debts, goals,
     # holdings). It is private to them, so all of it is exported and deleted.
     finance_records: int = 0
+    # Email Center (migration 0060_email_center, docs/email.md#email-center): the caller's
+    # mailboxes on the workspace mail server (never the password) and the messages written in
+    # ANUM. Mail on the server is not ANUM's copy and is not touched. Migration
+    # 0067_mail_sharing_contacts adds the caller's address book (their sender identities and
+    # shares belong to their mailboxes and go with them).
+    mail_mailboxes: int = 0
+    mail_messages_written: int = 0
+    # Phone calls (migration 0071_calls, docs/calls.md#privacy): the calls the caller logged
+    # or placed, with notes, summaries, transcripts and recordings. Contacts they added are
+    # the workspace's address book and stay; opt-outs stay to protect who opted out.
+    calls_logged: int = 0
+    mail_contacts: int = 0
+    # In-app calls (migration 0073_app_calls, docs/in-app-calls.md#privacy): the caller's
+    # calls are exported; a deletion removes their signals and rewrites their side of each
+    # call as "Deleted user" so the other participant's history stays readable.
+    app_calls: int = 0
+    app_call_signals: int = 0
 
     @property
     def total(self) -> int:
@@ -781,6 +799,9 @@ class InMemoryPrivacyStore:
             **module_private,
             home_items=home_counts(self.home(), self.context),
             finance_records=self.finance().count_everything(self.context),
+            **mail_privacy_counts(self.context),
+            **calls_privacy_counts(self.context),
+            **app_calls_privacy_counts(self.context),
         )
         return private, self._shared_counts(module_shared)
 
@@ -839,6 +860,8 @@ class InMemoryPrivacyStore:
         self.commands().delete_all()
         self.library().delete_all()
         self.finance().delete_everything(self.context)
+        delete_mail_everything(self.context)
+        delete_my_app_calls(self.context)
         self._delete_email()
         self.delete_team_private()
         self.home().delete_all(self.context)
@@ -928,6 +951,95 @@ def _iso(value: datetime) -> str:
     return value.isoformat()
 
 
+from .calls.privacy import calls_export, calls_privacy_counts, delete_my_calls  # noqa: E402
+
+
+def mail_privacy_counts(context: TenantContext) -> dict[str, int]:
+    from .mailbox.store import open_mail_store
+
+    with open_mail_store(context) as store:
+        accounts = store.list_accounts()
+        drafts = store.list_drafts(None, 100_000)
+        contacts = store.count_contacts()
+    return {"mail_mailboxes": len(accounts), "mail_messages_written": len(drafts), "mail_contacts": contacts}
+
+
+def delete_mail_everything(context: TenantContext) -> None:
+    """The caller's Email Center mailboxes (with their shares and identities), every message
+    they wrote in ANUM (in shared mailboxes too), their address book, and the shares they had."""
+    from .mailbox.labels import open_label_store
+    from .mailbox.outgoing import forget_objects
+    from .mailbox.store import open_mail_store
+
+    with open_mail_store(context) as store:
+        files = store.attachments_of_account(None)
+        delete_mail_store(store)
+    # AI labels the caller made, also on mailboxes others shared with them.
+    with open_label_store(context) as labels:
+        labels.delete_all()
+    forget_objects(files)
+
+
+def delete_mail_store(store: Any) -> None:
+    """Everything of the caller's in one Email Center store (memory or SQL, same transaction)."""
+    for account in store.list_accounts():
+        store.delete_account(account.id)
+    for draft in store.list_drafts(None, 100_000):
+        store.delete_draft(draft.id)
+    for _, grant in store.list_shared_accounts():
+        store.delete_grant(grant.id)
+    while True:
+        contacts, _ = store.list_contacts(None, None, 1000)
+        if not contacts:
+            break
+        for contact in contacts:
+            store.delete_contact(contact.id)
+
+
+def mail_export(context: TenantContext) -> dict[str, Any]:
+    from .mailbox.store import contact_sort_key, open_mail_store
+
+    from .mailbox.labels import open_label_store
+
+    with open_mail_store(context) as store:
+        accounts = store.list_accounts()
+        drafts = store.list_drafts(None, 100_000)
+        identities = [i for a in accounts for i in store.list_identities(a.id)]
+        grants = [g for a in accounts for g in store.list_grants(a.id)]
+        shared = [g for _, g in store.list_shared_accounts()]
+        contacts: list[Any] = []
+        while True:
+            page, _ = store.list_contacts(None, contact_sort_key(contacts[-1]) if contacts else None, 1000)
+            if not page:
+                break
+            contacts += page
+        files = store.attachments_of_account(None)
+    with open_label_store(context) as label_store:
+        labels = label_store.list_all()
+    from .mailbox.automation import open_automation_store
+
+    with open_automation_store(context) as automation:
+        kept = [k for a in accounts if (k := automation.get_settings(a.id)) is not None]
+        rules = automation.all_rules()
+    return {
+        # Never the password, not even encrypted.
+        "mailboxes": [a.model_dump(mode="json", exclude={"password_enc"}) for a in accounts],
+        "messages_written": [d.model_dump(mode="json") for d in drafts],
+        "sender_identities": [i.model_dump(mode="json") for i in identities],
+        "shares_given": [g.model_dump(mode="json") for g in grants],
+        "shares_received": [g.model_dump(mode="json") for g in shared],
+        "contacts": [c.model_dump(mode="json") for c in contacts],
+        # The attached files' names, types, sizes and digests (the bytes stay in ANUM's storage).
+        "attachments": [f.model_dump(mode="json", exclude={"storage_key"}) for f in files],
+        # Labels AI gave messages for the caller (category, priority, reason; no mail text).
+        "labels": [label.model_dump(mode="json") for label in labels],
+        # Retention and background sync of the caller's mailboxes, and their forwarding rules
+        # (migration 0068_mail_rules_retention; both go with the mailbox when it is deleted).
+        "mailbox_settings": [k.model_dump(mode="json") for k in kept],
+        "forwarding_rules": [r.model_dump(mode="json") for r in rules],
+    }
+
+
 def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
     from .finance.store import TransactionFilter
 
@@ -953,6 +1065,8 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         if not page or len(versions) >= total:
             break
     portfolios = [p.model_dump(mode="json", exclude=hidden) for p in finance.list_portfolios(context)]
+    instruments = finance.list_instruments(context)
+    strategies = finance.list_strategies(context, limit=200, offset=0)[0]
     orders: list[Any] = []
     for portfolio in portfolios:
         mine: list[Any] = []
@@ -1000,6 +1114,16 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         # Stage 9: proposals to widen live limits and the incidents that stepped them down.
         "live_widenings": [w.model_dump(mode="json", exclude=hidden) for w in finance.list_widenings(context, status=None, limit=10_000)],
         "live_incidents": [i.model_dump(mode="json", exclude=hidden) for i in finance.list_incidents(context, limit=10_000)],
+        # Trading intelligence (migration 0065_finance_intel): instruments and their daily bars,
+        # strategy versions with their SIMULATED evaluation runs, and the agents' decisions.
+        "instruments": [i.model_dump(mode="json", exclude=hidden) for i in instruments],
+        "market_bars": [b.model_dump(mode="json", exclude=hidden) for i in instruments for b in finance.list_bars(context, i.id, limit=50_000)],
+        "strategies": [s.model_dump(mode="json", exclude=hidden) for s in strategies],
+        "strategy_runs": [
+            r.model_dump(mode="json", exclude=hidden)
+            for s in strategies for r in finance.list_strategy_runs(context, s.id, limit=2_000, offset=0)[0]
+        ],
+        "agent_decisions": [d.model_dump(mode="json", exclude=hidden) for d in finance.list_agent_decisions(context, limit=20_000, offset=0)[0]],
     }
 
 
@@ -1073,6 +1197,10 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     yield ("home", home_export(store.home(), context))
     # The caller's whole finance ledger (docs/finance.md#privacy).
     yield ("finance", finance_export(store.finance(), context))
+    yield ("mail", mail_export(context))
+    # The caller's calls with teammates, as they see them (no device ids, no peer id).
+    yield ("app_calls", app_calls_privacy_export(context))
+    yield ("calls", calls_export(context))
     yield (
         "email",
         {
@@ -1343,9 +1471,11 @@ async def delete_my_data(
     # Withdraw ANUM's access at the provider first (as disconnecting a mailbox does), outside
     # the database transaction; a failure never stops the deletion.
     notes, revoked = await revoke_mailboxes(private_mailboxes)
+    # Calls (and their recording files) go first, in their own units of work.
+    calls_deleted = delete_my_calls(context)
     with open_privacy_store(context) as store:
         recording_keys = [record.storage_key for record in store.meeting_recordings()]
-        deleted = store.delete_private()
+        deleted = store.delete_private().model_copy(update={"calls_logged": calls_deleted})
         _, kept = store.counts()
         _audit(
             store, context, "privacy.delete", "success",
