@@ -357,6 +357,8 @@ The API refuses to start with a value outside these ranges; `docker compose logs
 
 ### Other integrations
 
+**Email Center (own mail server).** `ANUM_MAILSERVER_*` in `.env` (off by default) point the Email Center at the Mailcow server on the same VM by its public name, `mail.anum360os.com` (IMAPS 993, SMTP 587). [Email: turning it on](email.md#turning-it-on-oracle-vm) has the steps; people then connect their mailbox in the web app with a Mailcow app password.
+
 `.env` also carries, empty by default, the settings for notification email (`ANUM_SMTP_*`), recording transcription (`ANUM_TRANSCRIPTION_*`), Zoom and Teams transcripts (`ANUM_ZOOM_*`, `ANUM_MICROSOFT_*`), the marketing apps (`ANUM_MARKETING_*`), background commerce sync (`ANUM_COMMERCE_SYNC_ENABLED`), the outbound webhook (`ANUM_EXTERNAL_WEBHOOK_*`) and developer mode (`ANUM_DEVELOPER_*`). The compose file derives the callback URLs from your host names: `https://<WEB>/meetings/connected` (`ANUM_MEETINGS_OAUTH_REDIRECT_URI`), `https://<WEB>/marketing/callback` (`ANUM_MARKETING_OAUTH_REDIRECT_URL`) and `https://<API>` for marketing media (`ANUM_MARKETING_PUBLIC_API_URL`). **Integrations > Connection setup** in the web app shows which are set up and what is missing; [Connecting integrations](integrations-setup.md) has the console steps for each.
 
 ## Check the Deployment

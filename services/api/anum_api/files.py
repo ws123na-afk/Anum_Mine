@@ -526,6 +526,46 @@ async def _read_body(request: Request, limit: int) -> bytes:
     return b"".join(chunks)
 
 
+def resolve_upload_type(name: str, declared: str | None) -> file_policy.AllowedType:
+    """The stored type of an upload named ``name``, or ``415`` naming what is accepted."""
+    try:
+        return file_policy.resolve_content_type(name, declared)
+    except file_policy.UnsupportedFileType as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
+
+
+def check_upload_content(name: str, allowed: file_policy.AllowedType, content: bytes) -> bool:
+    """The checks every uploaded file passes before it is stored: not empty, the content
+    signature agrees with the type, and the malware-scan hook (docs/files.md#malware-scanning).
+
+    Used by workspace uploads and by Email Center attachments (docs/email.md#attachments).
+    Returns whether a scanner looked at the bytes (``False`` when none is installed).
+    """
+    if not content:
+        raise HTTPException(422, "The file is empty. Choose a file with content.")
+    if not file_policy.content_matches_type(content, allowed):
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            f"The content of {name} is not a valid {allowed.content_type} file. Check the file and its extension.",
+        )
+    scanner = file_policy.file_scanner()
+    if scanner is None:
+        return False
+    try:
+        verdict = scanner.scan(name, allowed.content_type, content)
+    except Exception as exc:
+        raise HTTPException(503, "The malware scanner is unavailable, so nothing was stored. Try again later.") from exc
+    if not verdict.clean:
+        reason = f": {verdict.reason}" if verdict.reason else "."
+        raise HTTPException(422, f"The malware scanner refused {name}{reason}")
+    return True
+
+
+async def read_upload_body(request: Request, limit: int) -> bytes:
+    """The request body, refused with 413 past ``limit`` bytes (declared or streamed)."""
+    return await _read_body(request, limit)
+
+
 @router.post("", response_model=FileView, status_code=status.HTTP_201_CREATED)
 async def upload_file(
     request: Request,
@@ -544,31 +584,13 @@ async def upload_file(
     if Path(raw_name).name != raw_name:
         raise HTTPException(422, "Invalid file name: send the name only, without a folder.")
     name = _valid_name(raw_name)
-    try:
-        allowed = file_policy.resolve_content_type(name, request.headers.get("content-type"))
-    except file_policy.UnsupportedFileType as exc:
-        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
+    allowed = resolve_upload_type(name, request.headers.get("content-type"))
     limit = settings.max_upload_body_bytes
     content = await _read_body(request, limit)
-    if not content:
-        raise HTTPException(422, "The file is empty. Choose a file with content.")
-    if not file_policy.content_matches_type(content, allowed):
-        raise HTTPException(
-            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            f"The content of {name} is not a valid {allowed.content_type} file. Check the file and its extension.",
-        )
     digest = hashlib.sha256(content).hexdigest()
     if x_content_sha256 is not None and x_content_sha256.lower() != digest:
         raise HTTPException(422, "Content checksum mismatch: the upload was corrupted in transit. Try again.")
-    scanner = file_policy.file_scanner()
-    if scanner is not None:
-        try:
-            verdict = scanner.scan(name, allowed.content_type, content)
-        except Exception as exc:
-            raise HTTPException(503, "The malware scanner is unavailable, so nothing was stored. Try again later.") from exc
-        if not verdict.clean:
-            reason = f": {verdict.reason}" if verdict.reason else "."
-            raise HTTPException(422, f"The malware scanner refused {name}{reason}")
+    check_upload_content(name, allowed, content)
     quota = settings.files_workspace_quota_bytes
     with open_file_metadata_store(context) as store:
         current = store.usage(context)

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'mail_center_strings.dart';
 import 'marketing_strings.dart';
 import 'developer_autonomy_messages.dart';
 
@@ -15,8 +16,10 @@ class AnumLocalizations {
   String t(String key) =>
       (isArabic ? _ar : _en)[key] ??
       (isArabic ? marketingAr : marketingEn)[key] ??
+      (isArabic ? mailCenterAr : mailCenterEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
+      mailCenterEn[key] ??
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.

@@ -138,6 +138,18 @@ refuses "ANUM_EMAIL_SYNC_MAX_MESSAGES" --set-string config.ANUM_EMAIL_SYNC_MAX_M
 refuses "ANUM_EMAIL_SYNC_INTERVAL_SECONDS" --set-string config.ANUM_EMAIL_SYNC_INTERVAL_SECONDS=-1
 refuses "ANUM_EMAIL_PUBLIC_API_URL must be an https URL" --set-string config.ANUM_EMAIL_PUBLIC_API_URL=http://api.anum.example
 refuses "ANUM_LEARNING_SIGNAL_RETENTION_DAYS" --set-string config.ANUM_LEARNING_SIGNAL_RETENTION_DAYS=3
+# Email Center (docs/email.md#email-center): off by default; when on, the API's refusals.
+grep -q '^  ANUM_MAILSERVER_ENABLED: "false"' <<<"$configmap" || fail "configmap.yaml: ANUM_MAILSERVER_ENABLED must default to false"
+MAIL_ON=(--set-string config.ANUM_MAILSERVER_ENABLED=true --set-string config.ANUM_MAILSERVER_IMAP_HOST=mail.anum.example --set-string config.ANUM_MAILSERVER_SMTP_HOST=mail.anum.example --set-string config.ANUM_MAILSERVER_ALLOWED_TENANTS=tenant_example)
+helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" "${MAIL_ON[@]}" >/dev/null \
+  || fail "the chart must render with a valid Email Center configuration"
+refuses "ANUM_MAILSERVER_ENABLED" --set-string config.ANUM_MAILSERVER_ENABLED=maybe
+refuses "ANUM_MAILSERVER_IMAP_HOST is required" --set-string config.ANUM_MAILSERVER_ENABLED=true
+refuses "ANUM_MAILSERVER_IMAP_HOST must be the mail server's DNS name" "${MAIL_ON[@]}" --set-string config.ANUM_MAILSERVER_IMAP_HOST=10.0.0.5
+refuses "never a relay service" "${MAIL_ON[@]}" --set-string config.ANUM_MAILSERVER_SMTP_HOST=smtp-relay.brevo.com
+refuses "ANUM_MAILSERVER_SMTP_SECURITY must be starttls or tls" "${MAIL_ON[@]}" --set-string config.ANUM_MAILSERVER_SMTP_SECURITY=none
+refuses "ANUM_MAILSERVER_ALLOWED_DOMAINS" "${MAIL_ON[@]}" --set-string config.ANUM_MAILSERVER_ALLOWED_DOMAINS=
+refuses "ANUM_MAILSERVER_ALLOWED_TENANTS" --set-string config.ANUM_MAILSERVER_ENABLED=true --set-string config.ANUM_MAILSERVER_IMAP_HOST=mail.anum.example --set-string config.ANUM_MAILSERVER_SMTP_HOST=mail.anum.example
 refuses "ANUM_LEARNING_ENABLED" --set-string extraEnv.ANUM_LEARNING_ENABLED=sometimes
 
 # ---------------------------------------------------------------------------
