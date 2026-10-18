@@ -1,4 +1,4 @@
-# ANUM OS — Business Model, Product Strategy & Build Roadmap
+# ANUM OS: Business Model, Product Strategy & Build Roadmap
 
 **Version:** 1.0 | **Prepared:** 17 October 2026 | **Owner:** ANUM OS | **Status:** Strategy and build specification, **not an installed implementation**
 
@@ -18,14 +18,14 @@
 
 ---
 
-## 1. Verified starting point (repository inspection, 16–17 Oct 2026)
+## 1. Verified starting point (repository inspection, 16-17 Oct 2026)
 
 ### Correct main project
 - **Main OS:** https://github.com/ws123na-afk/Anum_Mine (`main`). README describes FastAPI, React/Vite, Flutter mobile, Tauri desktop, Keycloak, PostgreSQL/RLS, agent runtime, NATS events and workflow boundaries. Relevant code: `services/api/anum_api/`, `apps/web/src/`, `apps/mobile/`, `packages/contracts/`, `infra/oracle/`, `docs/`.
 - **Separate voice codebase:** https://github.com/shahzebs-Library/anum-call (voice agent application; do not mistake it for the full OS).
 - **Other assets:** https://github.com/shahzebs-Library/Tyre_Pulse ; https://github.com/ws123na-afk/VoiceQuote ; https://github.com/ws123na-afk/Anum360_Store ; https://github.com/ws123na-afk/opsbrain-docs ; https://github.com/ws123na-afk/Anum_Mine.
 
-### Already represented in ANUM source — verify runtime, do not rebuild
+### Already represented in ANUM source: verify runtime, do not rebuild
 - Agent profiles, skills, model gateway, tool execution, risk/approval policies, tasks, events and memory.
 - Organization/workspace identity and permissions, PostgreSQL tenant isolation, governance, audits, privacy and marketplace foundations.
 - Automations, email/Gmail and WhatsApp integration paths, notifications, files, knowledge and research (`web_search` backed by SearXNG).
@@ -62,11 +62,11 @@ Latest inspected failed run: https://github.com/ws123na-afk/Anum_Mine/actions/ru
 ### 2.2 Productized service packages (pricing *hypotheses*, not researched market rates)
 | Package | Standard deliverables | Suggested starting test price (SAR) | Limitations |
 |---|---|---:|---|
-| Website Starter | 4–6 responsive pages, contact form, basic SEO, handover | 1,000–2,500 | Hosting/domain/content/translation separately stated |
-| Reporting Quick Win | Import one source format, 1 dashboard, 1 export, walkthrough | 1,500–4,000 | Extra data cleanup and integrations out of scope |
-| Automation Starter | 1 defined trigger/action workflow, logging, failure notices | 750–2,000 | Provider charges paid by client; no critical action without approval |
-| AI Support Pilot | One channel, bounded knowledge, answer review, escalation, test cases | 1,500–3,500 setup | Message/AI usage and operating support quoted separately |
-| Tyre Pulse Pilot | Limited fleet dataset, tyre/replacement/cost report, one review | 750–1,500 | Only functions actually tested; no imagined savings guarantee |
+| Website Starter | 4-6 responsive pages, contact form, basic SEO, handover | 1,000-2,500 | Hosting/domain/content/translation separately stated |
+| Reporting Quick Win | Import one source format, 1 dashboard, 1 export, walkthrough | 1,500-4,000 | Extra data cleanup and integrations out of scope |
+| Automation Starter | 1 defined trigger/action workflow, logging, failure notices | 750-2,000 | Provider charges paid by client; no critical action without approval |
+| AI Support Pilot | One channel, bounded knowledge, answer review, escalation, test cases | 1,500-3,500 setup | Message/AI usage and operating support quoted separately |
+| Tyre Pulse Pilot | Limited fleet dataset, tyre/replacement/cost report, one review | 750-1,500 | Only functions actually tested; no imagined savings guarantee |
 | VoiceQuote Pilot | Configured catalog subset, quote approval/export, training | Quote after scoping | Catalog, accuracy, external integrations explicitly bounded |
 | Custom Mobile App | Discovery + estimate, milestone-based implementation | 5,000+ only as entry discussion | Never fixed-quote without scope, complexity and delivery capacity |
 | Support & Care | Updates, backups, monthly checks and agreed response time | Quote against labor + hosting + SLA | Separate from build price |
@@ -78,14 +78,14 @@ Latest inspected failed run: https://github.com/ws123na-afk/Anum_Mine/actions/ru
 - **Team:** shared workspace, role permissions, approvals, reports, budgets, basic knowledge.
 - **Business:** multiple departments, customer-support and operations packs, audit export, more automation, onboarding and support.
 - **Enterprise:** separate contract for SSO, residency, dedicated infrastructure, policy/custom integrations and SLA.
-- Price **after** 5–10 qualified buyer interviews and 2–3 paid pilots; bill usage-expensive items (LLM tokens, outbound messages, storage, telephony) transparently with caps. Avoid unlimited AI plans.
+- Price **after** 5-10 qualified buyer interviews and 2-3 paid pilots; bill usage-expensive items (LLM tokens, outbound messages, storage, telephony) transparently with caps. Avoid unlimited AI plans.
 - Subscription accounting must support trials, renewals, invoices, credits, cancellations, proration, overages, refunds, and organization-level seats/entitlements; implement only when authorized payment and tax setup are ready.
 
 ### 2.4 Unit economics and cash discipline
 - Track `revenue`, `cash collected`, `direct provider costs`, `labor hours`, `hosting share`, `support hours`, `gross margin`, `customer acquisition cost`, `retention`, `late payments` by client and by offer.
 - Do not count unpaid leads as revenue. Revenue forecasts must show assumptions and scenarios, not invented accuracy.
 - Paid third-party apps, enrichment, SaaS CRMs, outbound bulk-email tools, lead databases and extra hosting are **not authorized** by this plan.
-- Days 1–30: acquisition cash cap SAR 250, target SAR 0; allow SAR 100 only for necessary meetings/travel, preserve SAR 150.
+- Days 1-30: acquisition cash cap SAR 250, target SAR 0; allow SAR 100 only for necessary meetings/travel, preserve SAR 150.
 
 ---
 
@@ -95,11 +95,11 @@ Latest inspected failed run: https://github.com/ws123na-afk/Anum_Mine/actions/ru
 `Offer catalog → relevant companies/opportunities → evidence & qualified need → consentful contact → discovery call → tailored demo → written scope → proposal → contract/payment milestone → delivery → acceptance → testimonial/reference request → maintenance offer`
 
 ### 3.2 Lead score (deterministic; no fabricated facts)
-Score each 0–5: industry fit, verifiable problem indicators, reachable official business channel, apparent project scale, urgency confirmed in conversation, authorized buyer. Sum out of 30. Separate **verified source facts** from **agent inferences**; unknown stays unknown. Do not infer private budgets or scrape private contact information.
+Score each 0-5: industry fit, verifiable problem indicators, reachable official business channel, apparent project scale, urgency confirmed in conversation, authorized buyer. Sum out of 30. Separate **verified source facts** from **agent inferences**; unknown stays unknown. Do not infer private budgets or scrape private contact information.
 
 ### 3.3 First 30 days
 - **Week 1:** validate demo functions; publish three portfolio examples using your own/synthetic assets; identify 20 suitable prospects; contact 15 via authorized channels; target 3 discovery conversations and 1 demo.
-- **Week 2:** qualify genuine problems; produce 2–3 tightly scoped proposals; ask for a purchasing decision; document objections.
+- **Week 2:** qualify genuine problems; produce 2-3 tightly scoped proposals; ask for a purchasing decision; document objections.
 - **Week 3:** deliver first paid pilot if contracted; otherwise revise ICP/offer from actual conversations, not AI guesses.
 - **Week 4:** gather accepted deliverable, testimonial permission and support opportunity; evaluate conversion metrics; only increase tooling spend if paid demand justifies it.
 
@@ -211,12 +211,12 @@ Ask: current process, recurring pain, cost of problem, must-have outcome, who ap
 
 ## 7. Implementation roadmap with objective gates
 
-### P0. Stabilize ANUM (week 0–2, before selling ANUM subscriptions)
+### P0. Stabilize ANUM (week 0-2, before selling ANUM subscriptions)
 - Reproduce/repair the 3 commerce test failures; inspect expected tool invocation and responses. Repair auth journey's workspace SSE 403 while preserving authorization; inspect PKCE login issue. Resolve all 4 Rust advisories after identifying exact dependencies. Run required CI and regression tests.
 - Run staging health, database migration dry-run, restore drill, login/invite/workspace isolation smoke test; verify production staging distinction and no secrets leaked.
 - **Exit:** all relevant CI green, no unresolved critical/high advisories without reviewed exception, staging works; rollback documented.
 
-### P1. Internal sales MVP (weeks 1–4, feature flags; can develop alongside P0 but never release externally first)
+### P1. Internal sales MVP (weeks 1-4, feature flags; can develop alongside P0 but never release externally first)
 - Offer/service catalog with three packages plus Tyre Pulse.
 - Lead/opportunity pipeline, manual CSV import, verified-source research via existing `web_search`; dedup, evidence and do-not-contact.
 - Agent-generated qualification and approved message/proposal drafts with deterministic validation and budget cap.
@@ -224,22 +224,22 @@ Ask: current process, recurring pain, cost of problem, must-have outcome, who ap
 - Pilot Harvey prospecting **in sandbox and with no outbound sending**; port only small components shown better than ANUM alternatives.
 - **Exit:** using synthetic data, a user can create product → lead → qualification → draft → approved proposal → won opportunity → project without errors; all writes tenant-protected; sends disabled by default.
 
-### P2. Agency operations (weeks 4–8 after first qualified pipeline)
+### P2. Agency operations (weeks 4-8 after first qualified pipeline)
 - Detailed quoting/cost estimator, customer file intake, change orders, GitHub project linkage, QA templates, delivery/handover, support ticket and monthly maintenance ledger.
 - Existing Gmail/WhatsApp integrations may be used for inbound replies/approved communication, after configuration and provider authorization; do not force a new inbox tool.
 - **Exit:** one client engagement can be administered with transparent costs and acceptance; no missing approval for external action.
 
-### P3. Paid pilots and evidence (weeks 6–12)
-- Run 2–3 real, contractually authorized small pilots with correct consent and data controls; gather actual support time, margin, ROI/effort baseline, failure rate and customer feedback.
+### P3. Paid pilots and evidence (weeks 6-12)
+- Run 2-3 real, contractually authorized small pilots with correct consent and data controls; gather actual support time, margin, ROI/effort baseline, failure rate and customer feedback.
 - Fix product gaps that recur across customers. Avoid unrelated module expansion.
 - **Exit:** demonstrable business value and reliable delivery, documented customer permissions for any testimonials.
 
-### P4. Commercial ANUM SaaS beta (months 3–6, conditional)
+### P4. Commercial ANUM SaaS beta (months 3-6, conditional)
 - Organization signup/trial, tenant provisioning, actual usage metering, seats/entitlements, terms, privacy controls, billing integration with manual fallback, subscription cancellation, invoices, support and audit export.
 - Product tours, onboarding, usage caps and incident response; verified multi-tenant penetration tests and backup/restore. One region before multi-region marketing.
 - **Exit:** first paying ANUM tenant completes onboarding safely and continues paying; no cross-tenant leakage and metering is correct.
 
-### P5. Scale only after retention (months 6–12+, conditional)
+### P5. Scale only after retention (months 6-12+, conditional)
 - Industry solution packs, partner/referral program, marketplace, more connectors, enterprise policies, service-level commitments, dedicated deployments where justified.
 - Scale orchestration from inline to Temporal/NATS only when measured reliability/load requirements exceed simple infrastructure; avoid doubling services prematurely.
 
@@ -323,15 +323,15 @@ This section is a launch checklist, **not legal advice**. Do not block internal 
 
 ## 12. First actionable work order
 
-**Order 001 — Technical baseline and business-enablement audit**
+**Order 001: Technical baseline and business-enablement audit**
 - Inspect `main` HEAD, failing workflow run 38814995240 (or newer current failure), deployed environment configuration and existing modules.
 - Deliver `docs/business/ANUM_BUSINESS_GAP_REGISTER.md`, `docs/business/REUSE_DECISION_REGISTER.md`, `docs/business/P0_CI_REMEDIATION.md`, `docs/business/P1_ACCEPTANCE_TESTS.md` in a **draft PR** on a new branch, without production changes.
 - Identify which source modules already implement CRM-like records, customer support, invoicing, sales and lead workflow, instead of assuming absent from filenames.
 - Provide clear estimate by work package (hours, infrastructure, model API costs, recurring cost).
 - Request approval for repair and implementation scope only after evidence review.
 
-**Order 002 — P0 repair**, after review.
-**Order 003 — P1 internal Business MVP**, after P0 and a reviewed implementation plan.
+**Order 002: P0 repair**, after review.
+**Order 003: P1 internal Business MVP**, after P0 and a reviewed implementation plan.
 
 ### Definition of success
 The owner can demonstrate, from one ANUM workspace with no paid add-on, the full documented flow: catalog offer → sourced potential customer → qualification → owner-reviewed draft → scoped price and proposal → accepted project → developer task → QA/handover → support follow-up, with no unapproved communication, no cross-tenant data exposure and an auditable cost ledger. **Payment collection and public SaaS subscriptions remain separately gated.**
