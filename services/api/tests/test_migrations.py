@@ -993,3 +993,29 @@ def test_mail_operator_view_migration_is_expand_only_and_reads_counts_only() -> 
     assert "drop " not in upgrade and "alter_column" not in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "_extend_restrictive(add=true)" in upgrade and "or current_user = %l" in revision_text.lower()
+
+
+def test_business_migration_is_expand_only_with_forced_rls_on_every_table_and_scoped_references() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0068_business.py").read_text(encoding="utf-8")
+    assert 'revision = "0068_business"' in revision_text and len("0068_business") <= 32
+    down = revision_text.split('down_revision = "', 1)[1].split('"', 1)[0]
+    others = [path for path in versions.glob("*.py") if path.name != "0068_business.py"]
+    # Chained onto an existing revision that nothing else extends (one head).
+    assert any(f'revision = "{down}"' in path.read_text(encoding="utf-8") for path in others)
+    assert not [path for path in others if f'down_revision = "{down}"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    tables = revision_text.split("TABLES = (", 1)[1].split(")", 1)[0]
+    names = [name.strip().strip('"') for name in tables.split(",") if name.strip()]
+    assert len(names) == 16 and all(name.startswith("business_") for name in names)
+    assert upgrade.count("op.create_table(") == len(names)
+    assert "for table in tables:\n        _enable_rls(table)" in upgrade
+    assert "force row level security" in revision_text.lower() and "with check (" in revision_text.lower()
+    assert "current_setting('anum.tenant_id', true)" in revision_text and "current_setting('anum.workspace_id', true)" in revision_text
+    # References carry the scope, so a row cannot point into another tenant or workspace.
+    assert '["tenant_id", "workspace_id", column]' in revision_text
+    assert 'f"{target}.tenant_id", f"{target}.workspace_id", f"{target}.id"' in revision_text
+    # A locked (sent or accepted) proposal version cannot be updated; the trigger runs as the invoker.
+    assert "when (old.locked)" in upgrade and "security invoker" in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "op.add_column(" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade
