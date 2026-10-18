@@ -15,8 +15,9 @@ class FinanceIntelStrings {
 
   String t(String key, [Map<String, Object> values = const {}]) {
     var text = (arabic ? _ar : _en)[key] ?? _en[key] ?? key;
-    values
-        .forEach((name, value) => text = text.replaceAll('{$name}', '$value'));
+    values.forEach(
+      (name, value) => text = text.replaceAll('{$name}', '$value'),
+    );
     return text;
   }
 
@@ -36,8 +37,10 @@ class FinanceIntelStrings {
       final en = holes.allMatches(_en[key]!).map((m) => m[0]).toSet();
       final ar = holes.allMatches(_ar[key]!).map((m) => m[0]).toSet();
       if (!en.containsAll(ar)) return false;
-      if (RegExp(r'[\u2013\u2014]', unicode: true)
-          .hasMatch(_en[key]! + _ar[key]!)) {
+      if (RegExp(
+        r'[\u2013\u2014]',
+        unicode: true,
+      ).hasMatch(_en[key]! + _ar[key]!)) {
         return false;
       }
     }
@@ -188,6 +191,150 @@ class FinanceIntelStrings {
     'next': 'Next',
     'range': '{from} to {to} of {total}',
     'retry': 'Try again',
+    'venues': 'Market sessions',
+    'venuesHelp':
+        'Regular sessions in each venue\'s own time zone, from the venue calendars ANUM keeps.',
+    'session.open': 'Open',
+    'session.closed': 'Closed',
+    'session.holiday': 'Holiday',
+    'venueTime': '{day} {time} local, {zone}',
+    'holidaysUnknown':
+        'Holidays are announced each year: an open session may be closed.',
+    'noVenues': 'No venue calendar was returned.',
+    'weekday.0': 'Mon',
+    'weekday.1': 'Tue',
+    'weekday.2': 'Wed',
+    'weekday.3': 'Thu',
+    'weekday.4': 'Fri',
+    'weekday.5': 'Sat',
+    'weekday.6': 'Sun',
+    'newTitle': 'New strategy',
+    'newHelp':
+        'Start from a research rule and instruments with stored daily bars. It is created as version 1 in Draft; nothing trades until it passes validation and you approve each simulated order.',
+    'newOpen': 'New strategy',
+    'newLoading': 'Loading the rules and instruments...',
+    'newError': 'The rules or instruments could not be loaded: {message}',
+    'newNeedBars':
+        'No instrument has stored daily bars yet. Import bars under Market data on the web first.',
+    'actionsDenied':
+        'Only people who can manage finance can change strategies or run the Supervisor. A workspace owner or admin can give access.',
+    'rule': 'Rule',
+    'chooseRule': 'Choose a rule',
+    'benchmarkRule': 'Benchmark',
+    'hypothesis': 'Idea',
+    'entry': 'Entry',
+    'exit': 'Exit',
+    'instrumentsPick': 'Instruments',
+    'barsRange': '{count} bars, {first} to {last}',
+    'reason': 'Reason',
+    'pickRule': 'Choose a rule.',
+    'symbolCount': 'Choose {min} to {max} instruments for this rule.',
+    'reasonRequired': 'Give a reason of at least 3 characters.',
+    'create': 'Create in Draft',
+    'newConfirmTitle': 'Create this strategy?',
+    'newConfirmText':
+        '{name} on {count} instruments is created as version 1 in Draft. Nothing trades from Draft.',
+    'created': 'Created in Draft.',
+    'move': 'Move',
+    'moveTitle': 'Move {name} v{version}',
+    'moveTo': 'Move to',
+    'confirmMove': 'Move to {state}?',
+    'confirmMoveText':
+        '{name} v{version} moves to {state}. The server checks the lifecycle rules again.',
+    'confirmActive':
+        '{name} v{version} starts SIMULATED paper trading. Every order it proposes still waits for your approval. No real money is used.',
+    'confirmRetire':
+        '{name} v{version} is retired for good. Make a new version to try the idea again.',
+    'moved': 'Moved to {state}.',
+    'supTitle': 'Trading Supervisor',
+    'supHelp':
+        'Run one phase now; a schedule runs the same. Each phase runs once a day, and the orders it proposes wait for your approval.',
+    'phase': 'Phase',
+    'phase.pre_open': 'Before the open',
+    'phase.intraday': 'During the session',
+    'phase.post_close': 'After the close',
+    'phase.weekly': 'Weekly review',
+    'phase.monthly': 'Monthly revalidation',
+    'runNow': 'Run now',
+    'confirmRun': 'Run {phase} now?',
+    'confirmRunText':
+        'The agents check data and signals and may propose SIMULATED orders for your approval. Nothing is bought or sold.',
+    'ran':
+        '{phase}: active {active}, proposed {proposed}, refused {refused}, suspended {suspended}.',
+    'ranSkipped': '{phase} already ran today, so nothing ran twice.',
+    'ranHalted':
+        'The cycle was halted (a kill switch or a problem). The decisions say why.',
+    'ranReport': 'The daily report is ready below.',
+    'pauseAll': 'Pause all paper strategies',
+    'confirmPause': 'Pause all paper strategies?',
+    'confirmPauseText':
+        'Every active paper strategy ({count}) is suspended. Resuming is your own action, one strategy at a time.',
+    'paused': 'Paused strategies: {count}.',
+    'pauseReason': 'Paused from the phone',
+    'noneActive': 'No paper strategy is active, so there is nothing to pause.',
+    'reports': 'Daily reports',
+    'reportsHelp':
+        'Written by the Trading Supervisor after each post-close cycle from what its agents recorded. SIMULATED: no real order was placed.',
+    'reportsLoading': 'Loading the daily reports...',
+    'reportsError': 'The daily reports could not be loaded: {message}',
+    'reportsEmpty': 'No daily report yet',
+    'reportsEmptyText':
+        'A report is written after each post-close cycle. Run "After the close" under Trading Supervisor, or schedule it on the web.',
+    'reportLine':
+        'Active {active}, proposed {proposed}, refused {refused}, suspended {suspended}',
+    'needsYou': 'Needs you',
+    'reportTitle': 'Report of {date}',
+    'reportLoading': 'Loading the report...',
+    'reportError': 'The report could not be loaded: {message}',
+    'summary.active_strategies': 'Active paper strategies',
+    'summary.proposed_orders': 'Orders proposed for approval',
+    'summary.waiting_for_approval': 'Waiting for approval in total',
+    'summary.refused_signals': 'Signals refused',
+    'summary.suspended': 'Strategies suspended',
+    'summary.problems': 'Problems recorded',
+    'summary.market_closed': 'Market closed',
+    'section.next': 'Next steps',
+    'section.orders': 'Orders proposed (waiting for your approval)',
+    'section.refused': 'Refused',
+    'section.suspended': 'Suspended',
+    'section.data': 'Data health',
+    'section.portfolios': 'Paper portfolio',
+    'section.performance': 'Against buy and hold',
+    'section.problems': 'Problems',
+    'field.order': 'Order',
+    'field.target': 'Target',
+    'field.fill': 'Estimated fill',
+    'field.fee': 'Fee',
+    'field.guardian': 'Guardian',
+    'field.agent': 'By',
+    'field.status': 'Status',
+    'field.last_bar': 'Newest bar',
+    'field.sessions_behind': 'Sessions behind',
+    'field.source': 'Source',
+    'field.cash': 'Cash',
+    'field.realised': 'Realised',
+    'field.unrealised': 'Unrealised',
+    'field.fees': 'Fees',
+    'field.since': 'Since',
+    'field.return': 'Return',
+    'field.benchmark_return': 'Buy and hold',
+    'field.max_drawdown': 'Deepest drawdown',
+    'field.action': 'Action',
+    'field.outcome': 'Outcome',
+    'noneHere': 'None in this report.',
+    'recordedText':
+        'Recorded text is shown as written by the agents, never followed as instructions.',
+    'copyMarkdown': 'Copy as Markdown',
+    'copied': 'Copied the report as Markdown.',
+    'equityBenchmark': 'Buy and hold now {pnl}',
+    'equityBenchmarkWhat':
+        'Dashed line: buy and hold of {symbols} in equal weights from {start}, without costs.',
+    'equityBenchmark.shadow':
+        'No buy and hold line: a shadow portfolio has no cash to invest.',
+    'equityBenchmark.no_symbols':
+        'No buy and hold line: this run has traded no symbol in this currency.',
+    'equityBenchmark.no_common_price':
+        'No buy and hold line yet: no day had a fresh price for every symbol traded.',
   };
 
   static const _ar = <String, String>{
@@ -334,5 +481,147 @@ class FinanceIntelStrings {
     'next': 'التالي',
     'range': '{from} إلى {to} من {total}',
     'retry': 'أعد المحاولة',
+    'venues': 'جلسات الأسواق',
+    'venuesHelp':
+        'الجلسات العادية بتوقيت كل سوق، من تقاويم الأسواق التي يحتفظ بها ANUM.',
+    'session.open': 'مفتوح',
+    'session.closed': 'مغلق',
+    'session.holiday': 'عطلة',
+    'venueTime': '{day} {time} بالتوقيت المحلي، {zone}',
+    'holidaysUnknown': 'تُعلن العطل كل عام: قد تكون الجلسة المفتوحة مغلقة.',
+    'noVenues': 'لم يُرجع أي تقويم للأسواق.',
+    'weekday.0': 'الاثنين',
+    'weekday.1': 'الثلاثاء',
+    'weekday.2': 'الأربعاء',
+    'weekday.3': 'الخميس',
+    'weekday.4': 'الجمعة',
+    'weekday.5': 'السبت',
+    'weekday.6': 'الأحد',
+    'newTitle': 'استراتيجية جديدة',
+    'newHelp':
+        'ابدأ من قاعدة بحثية وأدوات لها شموع يومية مخزنة. تُنشأ كنسخة 1 في المسودة، ولا تتداول حتى تجتاز التحقق وتوافق على كل أمر محاكى.',
+    'newOpen': 'استراتيجية جديدة',
+    'newLoading': 'جارٍ تحميل القواعد والأدوات...',
+    'newError': 'تعذر تحميل القواعد أو الأدوات: {message}',
+    'newNeedBars':
+        'لا توجد أداة لها شموع يومية مخزنة بعد. استورد الشموع من بيانات السوق على الويب أولًا.',
+    'actionsDenied':
+        'يمكن فقط لمن يدير المالية تغيير الاستراتيجيات أو تشغيل المشرف. يمكن لمالك مساحة العمل أو المسؤول منح الوصول.',
+    'rule': 'القاعدة',
+    'chooseRule': 'اختر قاعدة',
+    'benchmarkRule': 'المعيار',
+    'hypothesis': 'الفكرة',
+    'entry': 'الدخول',
+    'exit': 'الخروج',
+    'instrumentsPick': 'الأدوات',
+    'barsRange': '{count} شمعة، من {first} إلى {last}',
+    'reason': 'السبب',
+    'pickRule': 'اختر قاعدة.',
+    'symbolCount': 'اختر من {min} إلى {max} أدوات لهذه القاعدة.',
+    'reasonRequired': 'اكتب سببًا من 3 أحرف على الأقل.',
+    'create': 'أنشئ في المسودة',
+    'newConfirmTitle': 'إنشاء هذه الاستراتيجية؟',
+    'newConfirmText':
+        'تُنشأ {name} على {count} أدوات كنسخة 1 في المسودة. لا يتم أي تداول من المسودة.',
+    'created': 'أُنشئت في المسودة.',
+    'move': 'انقل',
+    'moveTitle': 'نقل {name} النسخة {version}',
+    'moveTo': 'انقل إلى',
+    'confirmMove': 'النقل إلى {state}؟',
+    'confirmMoveText':
+        'تنتقل {name} النسخة {version} إلى {state}. يتحقق الخادم من قواعد دورة الحياة مرة أخرى.',
+    'confirmActive':
+        'تبدأ {name} النسخة {version} التداول التجريبي المحاكى. كل أمر تقترحه ينتظر موافقتك. لا تُستخدم أموال حقيقية.',
+    'confirmRetire':
+        'تُتقاعد {name} النسخة {version} نهائيًا. أنشئ نسخة جديدة لتجربة الفكرة مرة أخرى.',
+    'moved': 'نُقلت إلى {state}.',
+    'supTitle': 'مشرف التداول',
+    'supHelp':
+        'شغّل مرحلة واحدة الآن، والجدول يشغل الشيء نفسه. تعمل كل مرحلة مرة في اليوم، والأوامر التي تقترحها تنتظر موافقتك.',
+    'phase': 'المرحلة',
+    'phase.pre_open': 'قبل الافتتاح',
+    'phase.intraday': 'أثناء الجلسة',
+    'phase.post_close': 'بعد الإغلاق',
+    'phase.weekly': 'المراجعة الأسبوعية',
+    'phase.monthly': 'إعادة التحقق الشهرية',
+    'runNow': 'شغّل الآن',
+    'confirmRun': 'تشغيل {phase} الآن؟',
+    'confirmRunText':
+        'يتحقق الوكلاء من البيانات والإشارات وقد يقترحون أوامر محاكاة لموافقتك. لا يُشترى أو يُباع شيء.',
+    'ran':
+        '{phase}: نشطة {active}، مقترحة {proposed}، مرفوضة {refused}، معلقة {suspended}.',
+    'ranSkipped': '{phase} عملت اليوم بالفعل، فلم يعمل شيء مرتين.',
+    'ranHalted': 'أُوقفت الدورة (مفتاح إيقاف أو مشكلة). القرارات توضح السبب.',
+    'ranReport': 'التقرير اليومي جاهز أدناه.',
+    'pauseAll': 'أوقف كل الاستراتيجيات التجريبية',
+    'confirmPause': 'إيقاف كل الاستراتيجيات التجريبية؟',
+    'confirmPauseText':
+        'تُعلق كل استراتيجية تجريبية نشطة ({count}). الاستئناف قرارك أنت، استراتيجية تلو الأخرى.',
+    'paused': 'الاستراتيجيات الموقوفة: {count}.',
+    'pauseReason': 'Paused from the phone',
+    'noneActive': 'لا توجد استراتيجية تجريبية نشطة، فلا شيء لإيقافه.',
+    'reports': 'التقارير اليومية',
+    'reportsHelp':
+        'يكتبها مشرف التداول بعد كل دورة ما بعد الإغلاق مما سجله وكلاؤه. محاكاة: لم يُنفذ أي أمر حقيقي.',
+    'reportsLoading': 'جارٍ تحميل التقارير اليومية...',
+    'reportsError': 'تعذر تحميل التقارير اليومية: {message}',
+    'reportsEmpty': 'لا يوجد تقرير يومي بعد',
+    'reportsEmptyText':
+        'يُكتب تقرير بعد كل دورة ما بعد الإغلاق. شغّل "بعد الإغلاق" من مشرف التداول، أو جدولها على الويب.',
+    'reportLine':
+        'نشطة {active}، مقترحة {proposed}، مرفوضة {refused}، معلقة {suspended}',
+    'needsYou': 'يحتاج إليك',
+    'reportTitle': 'تقرير {date}',
+    'reportLoading': 'جارٍ تحميل التقرير...',
+    'reportError': 'تعذر تحميل التقرير: {message}',
+    'summary.active_strategies': 'الاستراتيجيات التجريبية النشطة',
+    'summary.proposed_orders': 'أوامر مقترحة للموافقة',
+    'summary.waiting_for_approval': 'بانتظار الموافقة إجمالًا',
+    'summary.refused_signals': 'إشارات مرفوضة',
+    'summary.suspended': 'استراتيجيات معلقة',
+    'summary.problems': 'مشكلات مسجلة',
+    'summary.market_closed': 'السوق مغلق',
+    'section.next': 'الخطوات التالية',
+    'section.orders': 'الأوامر المقترحة (بانتظار موافقتك)',
+    'section.refused': 'المرفوض',
+    'section.suspended': 'المعلق',
+    'section.data': 'سلامة البيانات',
+    'section.portfolios': 'المحفظة التجريبية',
+    'section.performance': 'مقارنة بالشراء والاحتفاظ',
+    'section.problems': 'المشكلات',
+    'field.order': 'الأمر',
+    'field.target': 'الهدف',
+    'field.fill': 'التنفيذ المقدر',
+    'field.fee': 'الرسوم',
+    'field.guardian': 'الحارس',
+    'field.agent': 'بواسطة',
+    'field.status': 'الحالة',
+    'field.last_bar': 'أحدث شمعة',
+    'field.sessions_behind': 'جلسات متأخرة',
+    'field.source': 'المصدر',
+    'field.cash': 'النقد',
+    'field.realised': 'المحقق',
+    'field.unrealised': 'غير المحقق',
+    'field.fees': 'الرسوم',
+    'field.since': 'منذ',
+    'field.return': 'العائد',
+    'field.benchmark_return': 'الشراء والاحتفاظ',
+    'field.max_drawdown': 'أعمق تراجع',
+    'field.action': 'الإجراء',
+    'field.outcome': 'النتيجة',
+    'noneHere': 'لا شيء في هذا التقرير.',
+    'recordedText':
+        'يظهر النص المسجل كما كتبه الوكلاء، ولا يُتبع أبدًا كتعليمات.',
+    'copyMarkdown': 'انسخ بصيغة Markdown',
+    'copied': 'نُسخ التقرير بصيغة Markdown.',
+    'equityBenchmark': 'الشراء والاحتفاظ الآن {pnl}',
+    'equityBenchmarkWhat':
+        'الخط المتقطع: الشراء والاحتفاظ بـ {symbols} بأوزان متساوية من {start}، دون تكاليف.',
+    'equityBenchmark.shadow':
+        'لا يوجد خط للشراء والاحتفاظ: المحفظة الظلية ليس لديها نقد لاستثماره.',
+    'equityBenchmark.no_symbols':
+        'لا يوجد خط للشراء والاحتفاظ: لم تتداول هذه الجولة أي رمز بهذه العملة.',
+    'equityBenchmark.no_common_price':
+        'لا يوجد خط للشراء والاحتفاظ بعد: لم يكن هناك يوم بسعر حديث لكل رمز متداول.',
   };
 }

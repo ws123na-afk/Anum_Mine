@@ -6,8 +6,9 @@ import 'finance_intel_models.dart';
 
 /// State of the trading intelligence section on the phone
 /// (docs/finance-trading-intel.md#dashboard). Each part loads and fails on its
-/// own, so a failed decision list keeps the overview. Read only, apart from
-/// the kill switch, which always asks first (in the view).
+/// own, so a failed decision list keeps the overview. Changes (the kill
+/// switch, a new strategy, a lifecycle move, a Supervisor cycle, the pause)
+/// always ask first in the view; none approves an order or trades live.
 class FinanceIntelController extends ChangeNotifier {
   FinanceIntelController(this.repository);
 
@@ -41,6 +42,21 @@ class FinanceIntelController extends ChangeNotifier {
 
   bool switching = false;
 
+  // Actions: what a new strategy may start from, and whether one is running.
+  FinanceLoad setupLoad = FinanceLoad.idle;
+  List<StrategyRule> rules = const [];
+  List<IntelInstrument> instruments = const [];
+  String? setupError;
+  bool acting = false;
+
+  /// The newest Supervisor cycle run from the phone.
+  IntelCycle? lastCycle;
+
+  FinanceLoad reportsLoad = FinanceLoad.idle;
+  IntelPage<DailyReportItem>? reports;
+  String? reportsError;
+  static const reportPageSize = 10;
+
   FinanceLoad _failed(Object error) =>
       error is ApiException && error.isPermissionDenied
           ? FinanceLoad.denied
@@ -49,8 +65,122 @@ class FinanceIntelController extends ChangeNotifier {
   String _reason(Object error) =>
       error is ApiException ? error.message : '$error';
 
-  Future<void> load() => Future.wait(
-      [loadOverview(), loadStrategies(offset: 0), loadDecisions(offset: 0)]);
+  Future<void> load() => Future.wait([
+        loadOverview(),
+        loadStrategies(offset: 0),
+        loadDecisions(offset: 0),
+        loadReports(offset: 0),
+        loadSetup(),
+      ]);
+
+  /// The rules and the instruments with stored bars, for "New strategy".
+  Future<void> loadSetup() async {
+    setupLoad = FinanceLoad.loading;
+    setupError = null;
+    notifyListeners();
+    try {
+      final found = await Future.wait([
+        repository.rules(),
+        repository.instruments(),
+      ]);
+      rules = found[0] as List<StrategyRule>;
+      instruments = [
+        for (final i in found[1] as List<IntelInstrument>)
+          if (i.bars > 0) i,
+      ];
+      setupLoad = FinanceLoad.ready;
+    } catch (error) {
+      setupLoad = _failed(error);
+      setupError = _reason(error);
+    }
+    notifyListeners();
+  }
+
+  Future<void> loadReports({int? offset}) async {
+    reportsLoad = FinanceLoad.loading;
+    reportsError = null;
+    notifyListeners();
+    try {
+      reports = await repository.dailyReports(
+        offset: offset ?? reports?.offset ?? 0,
+        limit: reportPageSize,
+      );
+      reportsLoad = FinanceLoad.ready;
+    } catch (error) {
+      reportsLoad = _failed(error);
+      reportsError = _reason(error);
+    }
+    notifyListeners();
+  }
+
+  Future<DailyReport> report(String id) => repository.dailyReport(id);
+
+  /// Runs one change, then reloads what it touched. Returns the server's
+  /// error text to show, or null when it worked.
+  Future<String?> _act(Future<void> Function() work) async {
+    acting = true;
+    notifyListeners();
+    try {
+      await work();
+      return null;
+    } catch (error) {
+      return _reason(error);
+    } finally {
+      acting = false;
+      notifyListeners();
+    }
+  }
+
+  Future<String?> createStrategy({
+    required String key,
+    required List<String> instrumentIds,
+    required String reason,
+  }) =>
+      _act(() async {
+        await repository.createStrategy(
+          key: key,
+          instrumentIds: instrumentIds,
+          reason: reason,
+        );
+        await Future.wait([loadOverview(), loadStrategies(offset: 0)]);
+      });
+
+  Future<String?> move(
+    IntelStrategy strategy, {
+    required String state,
+    required String reason,
+  }) =>
+      _act(() async {
+        await repository.moveStrategy(strategy.id,
+            state: state, reason: reason);
+        selected = null;
+        runs = null;
+        await Future.wait([loadOverview(), loadStrategies()]);
+      });
+
+  Future<String?> runCycle(String phase) => _act(() async {
+        lastCycle = await repository.runSupervisor(phase);
+        await Future.wait([
+          loadOverview(),
+          loadStrategies(),
+          loadDecisions(offset: 0),
+          loadReports(offset: 0),
+        ]);
+      });
+
+  /// Suspends every active paper strategy. Returns (error, how many paused).
+  Future<(String?, int)> pauseAll(String reason) async {
+    var paused = 0;
+    final error = await _act(() async {
+      paused = await repository.pauseAll(reason);
+      await Future.wait([
+        loadOverview(),
+        loadStrategies(),
+        loadDecisions(offset: 0),
+      ]);
+    });
+    return (error, paused);
+  }
 
   Future<void> loadOverview() async {
     overviewLoad = FinanceLoad.loading;
@@ -75,9 +205,10 @@ class FinanceIntelController extends ChangeNotifier {
     notifyListeners();
     try {
       strategies = await repository.strategies(
-          state: stateFilter,
-          offset: offset ?? strategies?.offset ?? 0,
-          limit: pageSize);
+        state: stateFilter,
+        offset: offset ?? strategies?.offset ?? 0,
+        limit: pageSize,
+      );
       strategiesLoad = FinanceLoad.ready;
     } catch (error) {
       strategiesLoad = _failed(error);
@@ -107,8 +238,11 @@ class FinanceIntelController extends ChangeNotifier {
     runsError = null;
     notifyListeners();
     try {
-      runs = await repository.runs(strategy.id,
-          offset: offset ?? runs?.offset ?? 0, limit: runPageSize);
+      runs = await repository.runs(
+        strategy.id,
+        offset: offset ?? runs?.offset ?? 0,
+        limit: runPageSize,
+      );
       runsLoad = FinanceLoad.ready;
     } catch (error) {
       runsLoad = _failed(error);
@@ -123,9 +257,10 @@ class FinanceIntelController extends ChangeNotifier {
     notifyListeners();
     try {
       decisions = await repository.decisions(
-          agent: agentFilter,
-          offset: offset ?? decisions?.offset ?? 0,
-          limit: pageSize);
+        agent: agentFilter,
+        offset: offset ?? decisions?.offset ?? 0,
+        limit: pageSize,
+      );
       decisionsLoad = FinanceLoad.ready;
     } catch (error) {
       decisionsLoad = _failed(error);
@@ -144,8 +279,10 @@ class FinanceIntelController extends ChangeNotifier {
     equityError.remove(portfolioId);
     notifyListeners();
     try {
-      equity[portfolioId] =
-          await repository.equity(portfolioId, days: equityDays);
+      equity[portfolioId] = await repository.equity(
+        portfolioId,
+        days: equityDays,
+      );
       equityLoad[portfolioId] = FinanceLoad.ready;
     } catch (error) {
       equityLoad[portfolioId] = _failed(error);

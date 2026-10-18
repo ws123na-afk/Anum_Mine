@@ -182,9 +182,11 @@ class TeamNotification {
     required this.workItemId,
     required this.read,
     required this.createdAt,
+    this.kind = '',
   });
   factory TeamNotification.fromJson(JsonReader r) => TeamNotification(
         id: r.string('id'),
+        kind: r.optString('kind') ?? '',
         title: r.string('title'),
         body: r.string('body'),
         workItemId: r.optString('work_item_id'),
@@ -197,6 +199,9 @@ class TeamNotification {
   final String? workItemId;
   final bool read;
   final DateTime createdAt;
+
+  /// What the notice is about (`assigned`, `finance_daily_report`, ...).
+  final String kind;
 }
 
 class NotificationPage {

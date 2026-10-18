@@ -587,6 +587,12 @@ class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({required this.repository, super.key});
   final TeamRepository repository;
 
+  /// Where a notice that is not about a work item opens, by its kind. The
+  /// app registers these (for example the post-close trading report opens
+  /// Finance, Trading intelligence; docs/finance-trading-intel.md#daily-report).
+  static final Map<String, Future<void> Function(BuildContext context)>
+      openers = {};
+
   @override
   Widget build(BuildContext context) =>
       OwnedController<TeamLoader<NotificationPage>>(
@@ -642,7 +648,12 @@ class NotificationsScreen extends StatelessWidget {
                                 onTap: () async {
                                   if (!n.read) await repository.markRead(n.id);
                                   final id = n.workItemId;
-                                  if (id != null && context.mounted) {
+                                  final opener = openers[n.kind];
+                                  if (id == null &&
+                                      opener != null &&
+                                      context.mounted) {
+                                    await opener(context);
+                                  } else if (id != null && context.mounted) {
                                     await Navigator.push<void>(
                                       context,
                                       MaterialPageRoute(
