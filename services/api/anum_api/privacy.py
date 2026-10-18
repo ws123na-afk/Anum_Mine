@@ -158,6 +158,10 @@ class PrivateCounts(BaseModel):
     # shares belong to their mailboxes and go with them).
     mail_mailboxes: int = 0
     mail_messages_written: int = 0
+    # Phone calls (migration 0071_calls, docs/calls.md#privacy): the calls the caller logged
+    # or placed, with notes, summaries, transcripts and recordings. Contacts they added are
+    # the workspace's address book and stay; opt-outs stay to protect who opted out.
+    calls_logged: int = 0
     mail_contacts: int = 0
 
     @property
@@ -790,6 +794,7 @@ class InMemoryPrivacyStore:
             home_items=home_counts(self.home(), self.context),
             finance_records=self.finance().count_everything(self.context),
             **mail_privacy_counts(self.context),
+            **calls_privacy_counts(self.context),
         )
         return private, self._shared_counts(module_shared)
 
@@ -936,6 +941,9 @@ def _dump(model: BaseModel, *, exclude: set[str] | None = None) -> dict[str, Any
 
 def _iso(value: datetime) -> str:
     return value.isoformat()
+
+
+from .calls.privacy import calls_export, calls_privacy_counts, delete_my_calls  # noqa: E402
 
 
 def mail_privacy_counts(context: TenantContext) -> dict[str, int]:
@@ -1182,6 +1190,7 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     # The caller's whole finance ledger (docs/finance.md#privacy).
     yield ("finance", finance_export(store.finance(), context))
     yield ("mail", mail_export(context))
+    yield ("calls", calls_export(context))
     yield (
         "email",
         {
@@ -1452,9 +1461,11 @@ async def delete_my_data(
     # Withdraw ANUM's access at the provider first (as disconnecting a mailbox does), outside
     # the database transaction; a failure never stops the deletion.
     notes, revoked = await revoke_mailboxes(private_mailboxes)
+    # Calls (and their recording files) go first, in their own units of work.
+    calls_deleted = delete_my_calls(context)
     with open_privacy_store(context) as store:
         recording_keys = [record.storage_key for record in store.meeting_recordings()]
-        deleted = store.delete_private()
+        deleted = store.delete_private().model_copy(update={"calls_logged": calls_deleted})
         _, kept = store.counts()
         _audit(
             store, context, "privacy.delete", "success",

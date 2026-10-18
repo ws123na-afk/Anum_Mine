@@ -122,6 +122,14 @@ class Permission(StrEnum):
     # Finance at all. Owners and members read and manage their own ledger; viewers do not.
     FINANCE_READ = "finance:read"
     FINANCE_MANAGE = "finance:manage"
+    # Phone calls (docs/calls.md#permissions): numbers and call notes are personal data, so
+    # viewers get none of them. Members read the workspace's contacts and call log, add
+    # contacts, log their calls and ask for AI calls (which wait for an owner's approval);
+    # owners also connect the voice provider, record AI call consent, lift opt-outs and
+    # change or delete anyone's entries.
+    CALL_READ = "call:read"
+    CALL_LOG = "call:log"
+    CALL_MANAGE = "call:manage"
     # Business (docs/business.md#permissions): the internal sales desk holds contacts'
     # personal data, so viewers do not see it. Owners and members read and work leads,
     # opportunities, proposals and projects; owners manage the catalog, the research caps
@@ -219,6 +227,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.MARKETING_WRITE,
             Permission.FINANCE_READ,
             Permission.FINANCE_MANAGE,
+            Permission.CALL_READ,
+            Permission.CALL_LOG,
             Permission.BUSINESS_READ,
             Permission.BUSINESS_WRITE,
         },

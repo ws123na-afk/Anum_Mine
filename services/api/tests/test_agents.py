@@ -251,7 +251,7 @@ def test_templates_enable_only_tools_that_exist(client: TestClient) -> None:
     assert templates["research"]["allowed_skills"] == ["anum.document-drafting"]
     assert templates["research"]["missing_capabilities"]
     assert templates["email"]["allowed_tools"] == [] and templates["email"]["missing_capabilities"]
-    assert templates["call"]["allowed_tools"] == [] and "Telephony" in templates["call"]["missing_capabilities"][0]
+    assert templates["call"]["allowed_tools"] == [] and "voice provider" in templates["call"]["missing_capabilities"][0]
     # Every template, as offered, can be saved as an agent.
     for template in templates.values():
         body = {key: template[key] for key in (

@@ -157,6 +157,9 @@ from .mailbox.outgoing import build_schedule_runner
 from .mailbox.settings_api import router as mail_settings_router
 from .mailbox.sync import build_sync_runner
 from .mailbox.service import register_mail_tools
+from .calls.api import router as calls_router
+from .calls.tools import register_call_tools
+from .calls.webhooks import router as calls_webhook_router
 from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
 from .business import register_business_tools, router as business_router
@@ -358,6 +361,9 @@ app.include_router(whatsapp_router)
 app.include_router(email_router)
 app.include_router(mail_ai_router)
 app.include_router(mail_router)
+# Phone calls (docs/calls.md): contacts, the call log, the voice provider and its webhooks.
+app.include_router(calls_router)
+app.include_router(calls_webhook_router)
 app.include_router(mail_sharing_router)
 app.include_router(mail_settings_router)
 app.include_router(mail_operator_router)
@@ -397,11 +403,11 @@ app.include_router(setup_plans_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
+tool_registry = register_call_tools(register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
     configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
 )))))))
-)))
+))))
 # Reports and other features send through whichever delivery tools are registered.
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).

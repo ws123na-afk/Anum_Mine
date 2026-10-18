@@ -70,6 +70,10 @@
 	<string>ANUM listens only while you record a voice command.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>ANUM converts your spoken command into an editable transcript.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
+	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
