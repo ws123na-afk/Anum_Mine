@@ -436,9 +436,13 @@ def _build_workspace_gateway(config: StoredModelConfig) -> ModelGateway:
 def budgeted_model_gateway(context: TenantContext, fallback: ModelGateway) -> ModelGateway:
     """The workspace's gateway behind its monthly model budget (model_budget.py).
 
-    Every model call made for a workspace (task runs, voice answers) uses this.
+    Every model call made for a workspace (task runs, voice answers) uses this. Calls are
+    attributed to the default assistant unless a run or a chat thread rebinds the gateway
+    to a custom agent with ``for_agent`` (docs/agent-controls.md).
     """
-    return BudgetedModelGateway(workspace_model_gateway(context, fallback), context)
+    from .agent_controls import DEFAULT_ASSISTANT_ID
+
+    return BudgetedModelGateway(workspace_model_gateway(context, fallback), context, agent_id=DEFAULT_ASSISTANT_ID)
 
 
 GENERIC_CONNECTION_FAILURE = (

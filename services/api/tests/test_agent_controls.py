@@ -319,7 +319,7 @@ def test_owners_set_caps_and_see_usage_against_them() -> None:
     assert saved.status_code == 200, saved.text
     assert saved.json()["monthly_cost_limit_usd"] == 2
     body = overview.json()
-    assert body["total"] == 2 and body["can_manage"] is True
+    assert body["total"] == 3 and body["can_manage"] is True
     by_id = {item["agent_id"]: item for item in body["items"]}
     assert by_id[agent["id"]]["usage"]["estimated_cost_usd"] == pytest.approx(0.5)
     assert by_id[agent["id"]]["percent_used"] == pytest.approx(25)
@@ -330,7 +330,7 @@ def test_owners_set_caps_and_see_usage_against_them() -> None:
     found = client.get("/api/v1/agent-controls/agent-caps", headers=OWNER, params={"q": "resea"}).json()
     assert [item["name"] for item in found["items"]] == ["Research"] and found["total"] == 1
     paged = client.get("/api/v1/agent-controls/agent-caps", headers=OWNER, params={"limit": 1, "offset": 1}).json()
-    assert len(paged["items"]) == 1 and paged["total"] == 2
+    assert len(paged["items"]) == 1 and paged["total"] == 3
     # Clearing the cap.
     cleared = client.put(f"/api/v1/agent-controls/agent-caps/{agent['id']}", headers=OWNER, json={"monthly_cost_limit_usd": None})
     assert cleared.json()["monthly_cost_limit_usd"] is None
@@ -346,7 +346,7 @@ def test_caps_are_owner_only_validated_and_scoped() -> None:
     # Another tenant's owner never sees or caps this agent.
     other = _headers("owner", tenant=TENANT_B, workspace=WORKSPACE_B, user="owner_b")
     assert client.put(f"/api/v1/agent-controls/agent-caps/{agent['id']}", headers=other, json={"monthly_cost_limit_usd": 1}).status_code == 404
-    assert client.get("/api/v1/agent-controls/agent-caps", headers=other).json()["total"] == 0
+    assert client.get("/api/v1/agent-controls/agent-caps", headers=other).json()["total"] == 1
 
 
 def test_an_agent_over_its_cap_is_refused_with_a_clear_message() -> None:
@@ -366,7 +366,7 @@ def test_an_agent_over_its_cap_is_refused_with_a_clear_message() -> None:
     # The workspace is not capped: the same workspace without the agent still runs.
     asyncio.run(BudgetedModelGateway(inner, _context(), clock=utc_now).generate_text("plain"))
     assert inner.calls == 3
-    overview = client.get("/api/v1/agent-controls/agent-caps", headers=OWNER).json()["items"][0]
+    overview = client.get("/api/v1/agent-controls/agent-caps", headers=OWNER).json()["items"][1]
     assert overview["exceeded"] is True and overview["usage"]["calls"] == 2
 
 
@@ -383,7 +383,7 @@ def test_task_runs_as_an_agent_count_against_its_cap() -> None:
     assert task.status_code in {200, 201}, task.text
     assert client.post(f"/api/v1/tasks/{task.json()['id']}/run", headers=OWNER).status_code == 200
 
-    item = client.get("/api/v1/agent-controls/agent-caps", headers=OWNER).json()["items"][0]
+    item = client.get("/api/v1/agent-controls/agent-caps", headers=OWNER).json()["items"][1]
     assert item["usage"]["calls"] == 1
 
     assert client.put(f"/api/v1/agent-controls/agent-caps/{agent['id']}", headers=OWNER, json={"monthly_cost_limit_usd": 0}).status_code == 200
@@ -400,3 +400,98 @@ def test_every_state_changing_route_is_audited_without_content() -> None:
     probe.call("PUT", "/api/v1/agent-controls/emergency-stop", ORG_ADMIN, json={"engaged": True, "reason": "Audit walk"})
     probe.call("PUT", f"/api/v1/agent-controls/agent-caps/{agent['id']}", OWNER, json={"monthly_cost_limit_usd": 3})
     probe.assert_covered()
+
+
+# --------------------------------------------------------------------------- attribution, tokens, held, notices
+
+
+def test_chat_and_voice_count_against_the_default_assistant() -> None:
+    from anum_api.onboarding import budgeted_model_gateway
+
+    gateway = budgeted_model_gateway(_context(), FixedGateway(cost=0.25))
+    assert gateway.agent_id == agent_controls.DEFAULT_ASSISTANT_ID
+    asyncio.run(gateway.generate_text("hello"))
+
+    assistant = client.get("/api/v1/agent-controls/agent-caps", headers=OWNER).json()["items"][0]
+    assert assistant["agent_id"] == "assistant" and assistant["is_default"] is True
+    assert assistant["usage"]["calls"] == 1 and assistant["usage"]["estimated_cost_usd"] == pytest.approx(0.25)
+    # The default assistant can be capped like any agent.
+    capped = client.put("/api/v1/agent-controls/agent-caps/assistant", headers=OWNER, json={"monthly_cost_limit_usd": 0.2})
+    assert capped.status_code == 200 and capped.json()["exceeded"] is True
+    with pytest.raises(AgentCapExceededError) as refused:
+        asyncio.run(gateway.generate_text("again"))
+    assert "ANUM assistant" in refused.value.message
+
+
+def test_a_chat_thread_with_an_agent_is_attributed_to_it() -> None:
+    agent = _agent()
+    thread = client.post("/api/v1/conversations", headers=OWNER, json={"title": "Outreach", "agent_id": agent["id"]})
+    assert thread.status_code in {200, 201}, thread.text
+    asked = client.post(f"/api/v1/conversations/{thread.json()['id']}/ask", headers=OWNER, json={"content": "Draft a follow-up"})
+    assert asked.status_code == 200
+    by_id = {item["agent_id"]: item for item in client.get("/api/v1/agent-controls/agent-caps", headers=OWNER).json()["items"]}
+    assert by_id[agent["id"]]["usage"]["calls"] >= 1
+
+
+def test_token_caps_refuse_an_agent_over_its_tokens() -> None:
+    agent = _agent()
+    saved = client.put(f"/api/v1/agent-controls/agent-caps/{agent['id']}", headers=OWNER, json={"monthly_token_limit": 20})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["monthly_token_limit"] == 20 and saved.json()["monthly_cost_limit_usd"] is None
+    inner = FixedGateway(cost=0.0)
+    gateway = BudgetedModelGateway(inner, _context(), clock=utc_now).for_agent(agent["id"])
+    asyncio.run(gateway.generate_text("one"))
+    asyncio.run(gateway.generate_text("two"))  # 15 tokens, then 30
+    with pytest.raises(AgentCapExceededError) as refused:
+        asyncio.run(gateway.generate_text("three"))
+    assert "monthly token cap (20 tokens)" in refused.value.message
+    items = client.get("/api/v1/agent-controls/agent-caps", headers=OWNER).json()["items"]
+    item = {i["agent_id"]: i for i in items}[agent["id"]]
+    assert item["total_tokens"] == 30 and item["token_percent_used"] == pytest.approx(150) and item["exceeded"] is True
+    bad = client.put(f"/api/v1/agent-controls/agent-caps/{agent['id']}", headers=OWNER, json={"monthly_token_limit": -1})
+    assert bad.status_code == 422
+
+
+def test_the_held_list_pages_pending_sends_for_owners() -> None:
+    for index in range(3):
+        task = client.post(
+            "/api/v1/tasks", headers=ORG_ADMIN, json={"title": f"Publish {index}", "prompt": "Send and publish the final update"}
+        ).json()
+        assert client.post(f"/api/v1/tasks/{task['id']}/run", headers=ORG_ADMIN).json()["approval"]["status"] == "pending"
+    assert _engage(ORG_ADMIN).status_code == 200
+
+    first = client.get("/api/v1/agent-controls/held", headers=ORG_ADMIN, params={"limit": 2})
+    second = client.get("/api/v1/agent-controls/held", headers=ORG_ADMIN, params={"limit": 2, "offset": 2})
+
+    assert first.status_code == 200, first.text
+    assert first.json()["engaged"] is True and first.json()["total"] == 3 and len(first.json()["items"]) == 2
+    assert first.json()["items"][0]["kind"] == "approval" and first.json()["items"][0]["title"] == "external.action"
+    assert len(second.json()["items"]) == 1
+    assert client.get("/api/v1/agent-controls/held", headers=MEMBER).status_code == 403
+    other = _headers("owner", tenant=TENANT_B, workspace=WORKSPACE_B, user="owner_b")
+    assert client.get("/api/v1/agent-controls/held", headers=other).json()["total"] == 0
+
+
+def test_owners_get_an_in_app_notice_and_a_push_event_when_the_stop_changes() -> None:
+    from anum_api.push import PushKind, intent_for
+    from anum_api.schemas import WorkspaceMembership
+
+    now = utc_now()
+    users = (("owner_ctl", "owner"), ("owner_two", "owner"), ("member_ctl", "member"))
+    for user, role in users:
+        store.memberships[(TENANT_A, WORKSPACE_A, user)] = WorkspaceMembership(
+            tenant_id=TENANT_A, workspace_id=WORKSPACE_A, user_id=user, role=role, active=True, created_at=now, updated_at=now
+        )
+    before = len(store.events)
+    try:
+        assert _engage().status_code == 200
+        events = [e for e in store.events[before:] if e.type == "notification.created"]
+        assert [e.payload["recipient"] for e in events] == ["owner_two"]
+        assert events[0].payload["kind"] == agent_controls.NOTICE_KIND
+        intent = intent_for(events[0])
+        assert intent is not None and intent.kind == PushKind.TEAM_WORK and intent.recipient == "owner_two"
+        title, body = agent_controls.notice_text(agent_controls.emergency_stop(_context()))
+        assert title == "Emergency stop turned on" and "Runaway outreach agent" in body
+    finally:
+        for user, _ in users:
+            store.memberships.pop((TENANT_A, WORKSPACE_A, user), None)

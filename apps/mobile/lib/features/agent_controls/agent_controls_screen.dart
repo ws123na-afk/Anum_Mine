@@ -1,12 +1,29 @@
 import 'package:flutter/material.dart';
 
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
-import '../admin/admin_models.dart' show formatResetDate, formatUsd;
+import '../admin/admin_models.dart'
+    show formatResetDate, formatTokens, formatUsd;
 import 'agent_controls_data.dart';
 
+/// The text of a [ControlsNotice] in the page language.
+String noticeText(AnumLocalizations l, ControlsNotice notice) {
+  if (notice.raw != null) return notice.raw!;
+  final key = notice.key ?? '';
+  if (notice.count != null) return l.p(key, notice.count!, notice.values);
+  return notice.values.isEmpty ? l.t(key) : l.f(key, notice.values);
+}
+
+String heldKindName(AnumLocalizations l, String kind) => switch (kind) {
+      'mail' => l.t('ac.held.mail'),
+      'post' => l.t('ac.held.post'),
+      _ => l.t('ac.held.approval'),
+    };
+
 /// Agent controls (docs/agent-controls.md): the organization's emergency stop
-/// for every agent and outbound send, and a monthly cost cap per agent.
+/// for every agent and outbound send, what it holds, and monthly cost and
+/// token caps per agent (the default assistant included).
 class AgentControlsScreen extends StatefulWidget {
   const AgentControlsScreen({required this.controller, super.key});
   final AgentControlsController controller;
@@ -33,30 +50,26 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
   }
 
   Future<void> _confirmToggle(EmergencyStopState stop) async {
-    final parsed = parseStopReason(_reason.text);
-    if (parsed.value == null) {
-      await c.toggle(_reason.text); // shows the reason problem
+    final l = AnumLocalizations.of(context);
+    if (parseStopReason(_reason.text).value == null) {
+      await c.toggle(_reason.text); // shows what is wrong with the reason
       return;
     }
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(stop.engaged
-            ? 'Turn the emergency stop off?'
-            : 'Stop all agents and sends?'),
-        content: Text(stop.engaged
-            ? 'Agents and automations start working again, and pending sends can be approved.'
-            : 'Every agent, automation and outbound send in the organization pauses now, and running tasks are cancelled. Only the organization owner can turn it off.'),
+        title:
+            Text(l.t(stop.engaged ? 'ac.confirmRelease' : 'ac.confirmEngage')),
+        content: Text(l.t(
+            stop.engaged ? 'ac.confirmReleaseText' : 'ac.confirmEngageText')),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
+              child: Text(l.t('ac.cancel'))),
           FilledButton(
               key: const Key('confirm-stop-change'),
               onPressed: () => Navigator.pop(context, true),
-              child: Text(stop.engaged
-                  ? 'Turn the stop off'
-                  : 'Stop all agents and sends')),
+              child: Text(l.t(stop.engaged ? 'ac.release' : 'ac.engage'))),
         ],
       ),
     );
@@ -69,19 +82,19 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
         listenable: c,
         builder: (context, _) {
           final p = context.palette;
+          final l = AnumLocalizations.of(context);
           return Scaffold(
-            appBar: AppBar(title: const Text('Agent controls'), actions: [
+            appBar: AppBar(title: Text(l.t('ac.title')), actions: [
               IconButton(
-                  tooltip: 'Refresh',
+                  tooltip: l.t('ac.refresh'),
                   onPressed: c.changing ? null : c.load,
                   icon: const Icon(Icons.refresh)),
             ]),
             body: AnumPage(onRefresh: c.load, children: [
-              const AnumHeader(
-                eyebrow: 'Safety',
-                title: 'Agent controls',
-                subtitle:
-                    'Stop every agent and outbound send at once, and cap what each agent may spend on the model each month.',
+              AnumHeader(
+                eyebrow: l.t('ac.eyebrow'),
+                title: l.t('ac.title'),
+                subtitle: l.t('ac.intro'),
                 large: true,
               ),
               ...switch (c.phase) {
@@ -95,15 +108,18 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
                         accent: p.stop,
                         child: AnumEmpty(
                           icon: Icons.error_outline,
-                          title: 'Agent controls could not be loaded',
-                          message:
-                              '${c.error ?? 'Request failed'}. Check your connection, then try again.',
-                          action: 'Retry',
+                          title: l.t('ac.loadFailed'),
+                          message: l.f(
+                              'ac.loadFailedHint', {'message': c.error ?? '-'}),
+                          action: l.t('ac.retry'),
                           onAction: c.load,
                         )),
                   ],
                 AgentControlsPhase.ready => [_stopCard(context, c.stop!)],
               },
+              if (c.heldPhase != HeldPhase.idle &&
+                  c.heldPhase != HeldPhase.forbidden)
+                _heldCard(context),
               _capsCard(context),
             ]),
           );
@@ -112,47 +128,63 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
 
   Widget _stopCard(BuildContext context, EmergencyStopState stop) {
     final p = context.palette;
+    final l = AnumLocalizations.of(context);
+    final notice = c.stopNotice;
+    final noticeWidget = notice == null
+        ? null
+        : Padding(
+            padding: const EdgeInsets.only(bottom: AnumSpacing.xs),
+            child: Text(noticeText(l, notice),
+                key: const Key('stop-notice'),
+                style: TextStyle(color: notice.failed ? p.stop : p.ok)),
+          );
     return AnumSurface(
       key: const Key('emergency-stop'),
       accent: stop.engaged ? p.stop : null,
-      semanticLabel: 'Emergency stop for all agents and sends',
+      semanticLabel: l.t('ac.stopLabel'),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         AnumHeader(
-          title: 'Emergency stop',
-          subtitle: !stop.engaged
-              ? 'Agents, automations and outbound sends run as usual. Turn the stop on if an agent misbehaves.'
+          title: l.t('ac.stopTitle'),
+          subtitle: l.t(!stop.engaged
+              ? 'ac.offSummary'
               : stop.canRelease
-                  ? 'Everything is paused for the whole organization. Pending sends stay pending.'
-                  : 'Everything is paused for the whole organization. Only the organization owner can turn it off.',
+                  ? 'ac.onRelease'
+                  : 'ac.onWait'),
           trailing: AnumPill(
-              label: stop.engaged ? 'On: paused' : 'Off: running',
+              label: l.t(stop.engaged ? 'ac.on' : 'ac.off'),
               tone: stop.engaged ? AnumTone.stop : AnumTone.ok),
         ),
         const SizedBox(height: AnumSpacing.sm),
-        for (final line in const [
-          'No agent, chat or voice answer calls the model.',
-          'No tool runs, so nothing is sent by email, WhatsApp, Brevo, phone or social posts.',
-          'Pending sends cannot be approved; they wait, and can still be rejected.',
-          'Scheduled and triggered automations do not start.',
-          'Running and queued tasks are cancelled when it is turned on.',
+        for (final key in const [
+          'ac.stops.models',
+          'ac.stops.tools',
+          'ac.stops.approvals',
+          'ac.stops.automations',
+          'ac.stops.running',
         ])
           Padding(
             padding: const EdgeInsets.only(bottom: AnumSpacing.xxs),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('•  ', style: TextStyle(color: p.muted)),
               Expanded(
-                  child: Text(line,
+                  child: Text(l.t(key),
                       style: TextStyle(color: p.muted, fontSize: 13))),
             ]),
           ),
         if (stop.changedAt != null) ...[
           const SizedBox(height: AnumSpacing.xs),
           Text(
-              'Turned ${stop.engaged ? 'on' : 'off'} by ${stop.changedByYou ? 'you' : stop.changedBy ?? '-'} on ${MaterialLocalizations.of(context).formatMediumDate(stop.changedAt!.toLocal())}.',
+              l.f(stop.engaged ? 'ac.changedOn' : 'ac.changedOff', {
+                'user':
+                    stop.changedByYou ? l.t('ac.you') : stop.changedBy ?? '-',
+                'when': MaterialLocalizations.of(context)
+                    .formatMediumDate(stop.changedAt!.toLocal()),
+              }),
               style: TextStyle(color: p.faint, fontSize: 12)),
         ],
         if (stop.reason != null)
-          Text('Reason: ${stop.reason}', style: TextStyle(color: p.text)),
+          Text(l.f('ac.reasonShown', {'reason': stop.reason!}),
+              style: TextStyle(color: p.text)),
         Divider(height: 28, color: p.line),
         if (stop.canChange) ...[
           TextField(
@@ -162,17 +194,10 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
               minLines: 2,
               maxLines: 4,
               decoration: InputDecoration(
-                  labelText: 'Reason (kept in the audit log)',
-                  hintText: stop.engaged
-                      ? 'For example: fixed the outreach agent'
-                      : 'For example: the outreach agent is sending duplicates')),
-          if (c.stopNotice != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: AnumSpacing.xs),
-              child: Text(c.stopNotice!,
-                  key: const Key('stop-notice'),
-                  style: TextStyle(color: c.stopNoticeFailed ? p.stop : p.ok)),
-            ),
+                  labelText: l.t('ac.reason'),
+                  hintText: l.t(
+                      stop.engaged ? 'ac.reasonOffHint' : 'ac.reasonOnHint'))),
+          if (noticeWidget != null) noticeWidget,
           Align(
             alignment: AlignmentDirectional.centerStart,
             child: FilledButton.icon(
@@ -183,17 +208,12 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
               onPressed: c.changing ? null : () => _confirmToggle(stop),
               icon: Icon(stop.engaged ? Icons.play_arrow : Icons.block),
               label: Text(c.changing
-                  ? 'Saving...'
-                  : stop.engaged
-                      ? 'Turn the stop off'
-                      : 'Stop all agents and sends'),
+                  ? l.t('ac.saving')
+                  : l.t(stop.engaged ? 'ac.release' : 'ac.engage')),
             ),
           ),
         ] else ...[
-          if (c.stopNotice != null)
-            Text(c.stopNotice!,
-                key: const Key('stop-notice'),
-                style: TextStyle(color: c.stopNoticeFailed ? p.stop : p.ok)),
+          if (noticeWidget != null) noticeWidget,
           Row(
               key: const Key('stop-read-only'),
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -202,9 +222,9 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
                 const SizedBox(width: AnumSpacing.sm),
                 Expanded(
                     child: Text(
-                        stop.engaged
-                            ? 'Only the organization owner (organization administrator) can turn the stop off.'
-                            : 'Only a workspace owner or the organization administrator can turn the stop on.',
+                        l.t(stop.engaged
+                            ? 'ac.cannotRelease'
+                            : 'ac.cannotEngage'),
                         style: TextStyle(color: p.muted, fontSize: 13))),
               ]),
         ],
@@ -212,26 +232,83 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
     );
   }
 
+  Widget _heldCard(BuildContext context) {
+    final p = context.palette;
+    final l = AnumLocalizations.of(context);
+    final page = c.held;
+    return AnumSurface(
+      key: const Key('held'),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        AnumHeader(title: l.t('ac.held.title'), subtitle: l.t('ac.held.intro')),
+        const SizedBox(height: AnumSpacing.sm),
+        if (c.heldPhase == HeldPhase.loading && page == null)
+          const Center(child: CircularProgressIndicator())
+        else if (c.heldPhase == HeldPhase.error)
+          AnumEmpty(
+              icon: Icons.error_outline,
+              title: l.t('ac.held.failed'),
+              message: c.heldError ?? '-',
+              action: l.t('ac.retry'),
+              onAction: c.loadHeld)
+        else if (page != null && page.total == 0)
+          AnumEmpty(
+              icon: Icons.verified_outlined,
+              title: l.t('ac.held.empty'),
+              message: l.t('ac.held.emptyHint'))
+        else if (page != null) ...[
+          for (final item in page.items)
+            Padding(
+              key: Key('held-${item.kind}-${item.id}'),
+              padding: const EdgeInsets.only(bottom: AnumSpacing.sm),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AnumPill(label: heldKindName(l, item.kind)),
+                    const SizedBox(height: AnumSpacing.xxs),
+                    Text(item.title,
+                        style: TextStyle(
+                            color: p.text, fontWeight: FontWeight.w700)),
+                    if (item.detail.isNotEmpty)
+                      Text(item.detail,
+                          style: TextStyle(color: p.muted, fontSize: 12.5)),
+                    if (item.at != null)
+                      Text(
+                          MaterialLocalizations.of(context)
+                              .formatMediumDate(item.at!.toLocal()),
+                          style: TextStyle(color: p.faint, fontSize: 12)),
+                  ]),
+            ),
+          if (page.total > AgentControlsController.pageSize)
+            _Pager(
+                offset: c.heldOffset,
+                shown: page.items.length,
+                total: page.total,
+                onPage: c.heldPage),
+        ],
+      ]),
+    );
+  }
+
   Widget _capsCard(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.of(context);
     final page = c.caps;
     return AnumSurface(
       key: const Key('agent-caps'),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         AnumHeader(
-          title: 'Monthly cost caps per agent',
+          title: l.t('ac.capsTitle'),
           subtitle: page == null || page.resetsOn.isEmpty
-              ? 'Each agent stops calling the model once its estimated cost this month reaches its cap.'
-              : 'Each agent stops calling the model once its estimated cost this month reaches its cap. Resets on ${formatResetDate(page.resetsOn)}.',
+              ? l.t('ac.capsIntro')
+              : l.f('ac.capsResets', {'date': formatResetDate(page.resetsOn)}),
         ),
         const SizedBox(height: AnumSpacing.sm),
         if (c.capsPhase == CapsPhase.forbidden)
-          const AnumEmpty(
-            key: Key('caps-forbidden'),
+          AnumEmpty(
+            key: const Key('caps-forbidden'),
             icon: Icons.lock_outline,
-            title: 'Agent caps are for owners',
-            message:
-                'Only a workspace owner or the organization administrator can see and change agent cost caps.',
+            title: l.t('ac.capsForbidden'),
+            message: l.t('ac.capsForbiddenHint'),
           )
         else ...[
           TextField(
@@ -240,10 +317,10 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
             textInputAction: TextInputAction.search,
             onSubmitted: c.search,
             decoration: InputDecoration(
-                labelText: 'Search agents',
+                labelText: l.t('ac.search'),
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: IconButton(
-                    tooltip: 'Search',
+                    tooltip: l.t('ac.searchGo'),
                     onPressed: () => c.search(_search.text),
                     icon: const Icon(Icons.arrow_forward))),
           ),
@@ -253,30 +330,28 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
           else if (c.capsPhase == CapsPhase.error)
             AnumEmpty(
                 icon: Icons.error_outline,
-                title: "Couldn't load agent caps",
-                message: c.capsError ?? 'Try again.',
-                action: 'Retry',
+                title: l.t('ac.capsFailed'),
+                message: c.capsError ?? '-',
+                action: l.t('ac.retry'),
                 onAction: c.loadCaps)
           else if (page != null && page.total == 0)
             c.query.trim().isEmpty
-                ? const AnumEmpty(
+                ? AnumEmpty(
                     icon: Icons.smart_toy_outlined,
-                    title: 'No agents yet',
-                    message:
-                        'Create an agent under Agents first; its cap and usage then show here.')
+                    title: l.t('ac.noAgents'),
+                    message: l.t('ac.noAgentsHint'))
                 : AnumEmpty(
                     icon: Icons.search_off,
-                    title: 'No agent matches',
-                    message: 'Try another name, or clear the search.',
-                    action: 'Clear search',
+                    title: l.t('ac.noMatch'),
+                    message: l.t('ac.noMatchHint'),
+                    action: l.t('ac.clearSearch'),
                     onAction: () {
                       _search.clear();
                       c.search('');
                     })
           else if (page != null) ...[
             if (!page.canManage)
-              Text(
-                  'You can see the caps; only a workspace owner can change them.',
+              Text(l.t('ac.readOnly'),
                   style: TextStyle(color: p.muted, fontSize: 13)),
             for (final item in page.items)
               _CapTile(
@@ -285,32 +360,45 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
                   controller: c,
                   canManage: page.canManage),
             if (page.total > AgentControlsController.pageSize)
-              Wrap(
-                  spacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Text(
-                        '${c.offset + 1} to ${c.offset + page.items.length} of ${page.total}',
-                        style: TextStyle(color: p.muted)),
-                    OutlinedButton(
-                        onPressed: c.offset == 0
-                            ? null
-                            : () => c.page(
-                                c.offset - AgentControlsController.pageSize),
-                        child: const Text('Previous')),
-                    OutlinedButton(
-                        onPressed: c.offset +
-                                    AgentControlsController.pageSize >=
-                                page.total
-                            ? null
-                            : () => c.page(
-                                c.offset + AgentControlsController.pageSize),
-                        child: const Text('Next')),
-                  ]),
+              _Pager(
+                  offset: c.offset,
+                  shown: page.items.length,
+                  total: page.total,
+                  onPage: c.page),
           ],
         ],
       ]),
     );
+  }
+}
+
+class _Pager extends StatelessWidget {
+  const _Pager(
+      {required this.offset,
+      required this.shown,
+      required this.total,
+      required this.onPage});
+  final int offset, shown, total;
+  final ValueChanged<int> onPage;
+  @override
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.of(context);
+    const size = AgentControlsController.pageSize;
+    return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(l.f('ac.range',
+              {'from': offset + 1, 'to': offset + shown, 'total': total})),
+          OutlinedButton(
+              onPressed: offset == 0 ? null : () => onPage(offset - size),
+              child: Text(l.t('ac.previous'))),
+          OutlinedButton(
+              onPressed:
+                  offset + size >= total ? null : () => onPage(offset + size),
+              child: Text(l.t('ac.next'))),
+        ]);
   }
 }
 
@@ -328,9 +416,11 @@ class _CapTile extends StatefulWidget {
 }
 
 class _CapTileState extends State<_CapTile> {
-  late final cap = TextEditingController(text: _text(widget.item.limitUsd));
+  late final cost = TextEditingController(text: _usd(widget.item.limitUsd));
+  late final tokens =
+      TextEditingController(text: widget.item.tokenLimit?.toString() ?? '');
 
-  static String _text(double? value) => value == null
+  static String _usd(double? value) => value == null
       ? ''
       : (value == value.roundToDouble() ? value.toStringAsFixed(0) : '$value');
 
@@ -338,29 +428,47 @@ class _CapTileState extends State<_CapTile> {
   void didUpdateWidget(covariant _CapTile old) {
     super.didUpdateWidget(old);
     if (old.item.limitUsd != widget.item.limitUsd) {
-      cap.text = _text(widget.item.limitUsd);
+      cost.text = _usd(widget.item.limitUsd);
+    }
+    if (old.item.tokenLimit != widget.item.tokenLimit) {
+      tokens.text = widget.item.tokenLimit?.toString() ?? '';
     }
   }
 
   @override
   void dispose() {
-    cap.dispose();
+    cost.dispose();
+    tokens.dispose();
     super.dispose();
+  }
+
+  Widget _bar(BuildContext context, double? fraction, int? percent) {
+    final p = context.palette;
+    final color = (percent ?? 0) >= 100
+        ? p.stop
+        : (percent ?? 0) >= 80
+            ? p.warn
+            : p.sky;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(99),
+      child: LinearProgressIndicator(
+          value: fraction ?? 0,
+          minHeight: 8,
+          color: color,
+          backgroundColor: p.background),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final l = AnumLocalizations.of(context);
     final item = widget.item;
     final c = widget.controller;
     final percent = item.percent;
-    final color = item.exceeded || (percent ?? 0) >= 100
-        ? p.stop
-        : (percent ?? 0) >= 80
-            ? p.warn
-            : p.sky;
     final notice = c.capNotices[item.agentId];
-    final limit = item.limitUsd == null ? 'No cap' : formatUsd(item.limitUsd!);
+    final limit =
+        item.limitUsd == null ? l.t('ac.noCap') : formatUsd(item.limitUsd!);
     return Padding(
       padding: const EdgeInsets.only(bottom: AnumSpacing.md),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -371,69 +479,89 @@ class _CapTileState extends State<_CapTile> {
             children: [
               Text(item.name,
                   style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
-              if (item.sharing == 'private') const AnumPill(label: 'Private'),
+              if (item.isDefault) AnumPill(label: l.t('ac.default')),
+              if (item.sharing == 'private') AnumPill(label: l.t('ac.private')),
               if (item.exceeded)
-                const AnumPill(label: 'Cap reached', tone: AnumTone.stop)
-              else if ((percent ?? 0) >= 80)
-                const AnumPill(label: 'Near the cap', tone: AnumTone.warn),
+                AnumPill(label: l.t('ac.capReached'), tone: AnumTone.stop)
+              else if (item.worstPercent >= 80)
+                AnumPill(label: l.t('ac.capNear'), tone: AnumTone.warn),
             ]),
+        if (item.isDefault)
+          Text(l.t('ac.defaultHint'),
+              style: TextStyle(color: p.faint, fontSize: 12)),
         const SizedBox(height: 6),
         Semantics(
-          label: 'Share of the cap used by ${item.name}',
+          label: l.f('ac.meter', {'name': item.name}),
           value: percent == null
-              ? 'No cap'
-              : '${formatUsd(item.costUsd)} of $limit, $percent percent',
+              ? l.t('ac.noCap')
+              : l.f('ac.meterValue', {
+                  'used': formatUsd(item.costUsd),
+                  'limit': limit,
+                  'percent': percent
+                }),
           excludeSemantics: true,
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Text('${formatUsd(item.costUsd)} / $limit',
                 style: TextStyle(color: p.text, fontWeight: FontWeight.w800)),
             const SizedBox(height: 4),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(99),
-              child: LinearProgressIndicator(
-                  value: item.fraction ?? 0,
-                  minHeight: 8,
-                  color: color,
-                  backgroundColor: p.background),
-            ),
+            _bar(context, item.fraction, percent),
+            if (item.tokenLimit != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                  l.f('ac.tokensUsed', {
+                    'used': formatTokens(item.tokens),
+                    'limit': formatTokens(item.tokenLimit!)
+                  }),
+                  style: TextStyle(color: p.text, fontSize: 12.5)),
+              const SizedBox(height: 4),
+              _bar(context, item.tokenFraction, item.tokenPercent),
+            ],
             const SizedBox(height: 4),
             Text(
-                '${item.calls == 1 ? '1 model call' : '${item.calls} model calls'}${percent == null ? '' : ', $percent% of the cap'}',
+                '${l.p('ac.calls', item.calls)}${percent == null ? '' : ', ${l.f('ac.percentOfCap', {
+                        'percent': percent
+                      })}'}',
                 style: TextStyle(color: p.faint, fontSize: 12)),
           ]),
         ),
         if (widget.canManage) ...[
           const SizedBox(height: AnumSpacing.xs),
-          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Expanded(
-              child: TextField(
-                key: Key('cap-input-${item.agentId}'),
-                controller: cap,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                    labelText: 'Monthly cap (USD) for ${item.name}',
-                    hintText: 'No cap'),
-              ),
-            ),
-            const SizedBox(width: AnumSpacing.xs),
-            FilledButton(
+          TextField(
+            key: Key('cap-input-${item.agentId}'),
+            controller: cost,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+                labelText: l.f('ac.costCap', {'name': item.name}),
+                hintText: l.t('ac.noCap')),
+          ),
+          const SizedBox(height: AnumSpacing.xs),
+          TextField(
+            key: Key('token-input-${item.agentId}'),
+            controller: tokens,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+                labelText: l.f('ac.tokenCap', {'name': item.name}),
+                hintText: l.t('ac.noCap')),
+          ),
+          const SizedBox(height: AnumSpacing.xs),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: FilledButton(
                 key: Key('cap-save-${item.agentId}'),
                 onPressed: c.savingAgent != null
                     ? null
-                    : () => c.saveCap(item, cap.text),
-                child:
-                    Text(c.savingAgent == item.agentId ? 'Saving...' : 'Save')),
-          ]),
+                    : () => c.saveCap(item, cost.text, tokens.text),
+                child: Text(c.savingAgent == item.agentId
+                    ? l.t('ac.saving')
+                    : l.t('ac.save'))),
+          ),
           if (notice != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(notice,
+              child: Text(noticeText(l, notice),
                   style: TextStyle(
-                      color:
-                          c.failedCaps.contains(item.agentId) ? p.stop : p.ok,
-                      fontSize: 12.5)),
+                      color: notice.failed ? p.stop : p.ok, fontSize: 12.5)),
             ),
         ],
         Divider(height: 24, color: p.line),

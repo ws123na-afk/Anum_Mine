@@ -34,7 +34,12 @@ export interface AgentCap {
   name: string;
   status: string;
   sharing: string;
+  /** The default assistant: chat, voice and every call no custom agent makes. */
+  is_default?: boolean;
   monthly_cost_limit_usd: number | null;
+  monthly_token_limit?: number | null;
+  total_tokens?: number;
+  token_percent_used?: number | null;
   usage: UsageTotals;
   percent_used: number | null;
   exceeded: boolean;
@@ -81,6 +86,44 @@ export function parseCap(text: string): { ok: true; value: number | null } | { o
 }
 
 export const capDraft = (cap: AgentCap): string => (cap.monthly_cost_limit_usd === null ? '' : String(cap.monthly_cost_limit_usd));
+export const tokenDraft = (cap: AgentCap): string => (cap.monthly_token_limit == null ? '' : String(cap.monthly_token_limit));
+
+/** A token cap: empty clears it; otherwise a whole number from 0 up. */
+export function parseTokenCap(text: string): { ok: true; value: number | null } | { ok: false; error: string } {
+  const trimmed = text.trim().replace(/[,\s]/g, '');
+  if (!trimmed) return { ok: true, value: null };
+  if (!/^\d+$/.test(trimmed)) return { ok: false, error: t('agentControls.tokenInvalid') };
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value) || value > 1e15) return { ok: false, error: t('agentControls.capTooLarge') };
+  return { ok: true, value };
+}
+
+/** Usage against the token cap; null without one. */
+export function tokenMeter(cap: AgentCap): CapMeter | null {
+  const limit = cap.monthly_token_limit ?? null;
+  if (limit === null) return null;
+  const used = cap.total_tokens ?? cap.usage.input_tokens + cap.usage.output_tokens;
+  const raw = usagePercent(used, limit);
+  const count = (value: number) => new Intl.NumberFormat('en-US').format(value);
+  return { percent: raw, barPercent: raw === null ? 0 : Math.min(100, Math.max(0, raw)), tone: meterTone(raw), usedText: count(used), limitText: count(limit) };
+}
+
+export type HeldKind = 'approval' | 'mail' | 'post';
+export interface HeldItem { kind: HeldKind | string; id: string; title: string; detail: string; at: string | null; by: string | null }
+export interface HeldPage { engaged: boolean; total: number; limit: number; offset: number; items: HeldItem[] }
+export const HELD_PAGE_SIZE = 20;
+
+export function heldPath(offset: number, limit = HELD_PAGE_SIZE): string {
+  return `/api/v1/agent-controls/held?limit=${limit}&offset=${Math.max(0, offset)}`;
+}
+
+/** "Approval", "Scheduled email", "Scheduled post" in the page language. */
+export function heldKindLabel(kind: string): string {
+  if (kind === 'approval') return t('agentControls.held.approval');
+  if (kind === 'mail') return t('agentControls.held.mail');
+  if (kind === 'post') return t('agentControls.held.post');
+  return kind;
+}
 
 export interface CapMeter { percent: number | null; barPercent: number; tone: MeterTone; usedText: string; limitText: string }
 

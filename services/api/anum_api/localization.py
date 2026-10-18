@@ -75,6 +75,7 @@ ARABIC_MESSAGES: dict[str, str] = {
     "Only the organization owner (the organization administrator role) can turn the emergency stop off.": "لا يمكن إيقاف الإيقاف الطارئ إلا لمالك المؤسسة (دور مسؤول المؤسسة).",
     "Only a workspace owner or the organization administrator can see agent cost caps.": "لا يمكن عرض حدود تكلفة الوكلاء إلا لمالك مساحة العمل أو مسؤول المؤسسة.",
     "Only a workspace owner can change an agent's monthly cost cap.": "لا يمكن تغيير حد التكلفة الشهري للوكيل إلا لمالك مساحة العمل.",
+    "Only a workspace owner or the organization administrator can see what the emergency stop holds.": "لا يمكن عرض ما يحتجزه الإيقاف الطارئ إلا لمالك مساحة العمل أو مسؤول المؤسسة.",
     "The emergency stop is already on.": "الإيقاف الطارئ مفعّل بالفعل.",
     "The emergency stop is already off.": "الإيقاف الطارئ متوقف بالفعل.",
     # In-app calls (anum_api/app_calls.py)

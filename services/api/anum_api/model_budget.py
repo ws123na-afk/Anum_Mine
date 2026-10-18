@@ -408,6 +408,15 @@ def _emit_threshold(
     )
 
 
+def _check_call(context: TenantContext, now: datetime, agent_id: str | None) -> None:
+    """One worker-thread hop: the stop and budgets, then the calling agent's own cap."""
+    check_model_budget(context, now=now)
+    if agent_id is not None:
+        from .agent_controls import check_agent_cap
+
+        check_agent_cap(context, agent_id, now=now)
+
+
 class BudgetedModelGateway:
     """Wraps a workspace's gateway: budget check before, usage recording after."""
 
@@ -457,10 +466,7 @@ class BudgetedModelGateway:
     async def _check(self) -> None:
         # The budget and usage rows are database reads and writes: in a worker thread,
         # never on the event loop (docs/realtime.md#event-loop).
-        if self.agent_id is None:
-            await asyncio.to_thread(check_model_budget, self.context, now=self._clock())
-        else:
-            await asyncio.to_thread(check_model_budget, self.context, now=self._clock(), agent_id=self.agent_id)
+        await asyncio.to_thread(_check_call, self.context, self._clock(), self.agent_id)
 
     async def _record_async(self, response: ModelResponse) -> None:
         await asyncio.to_thread(self._record, response)

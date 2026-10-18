@@ -998,6 +998,11 @@ async def ask_in_conversation(
     prepared = await asyncio.to_thread(_prepare_conversation_ask, conversation_id, payload, context)
     conversation, user_turn, history = prepared.conversation, prepared.user_turn, prepared.history
     runtime_config, category = prepared.runtime_config, prepared.category
+    if conversation.agent_id is not None:
+        # A thread with an agent counts against that agent's caps (docs/agent-controls.md).
+        bind = getattr(gateway, "for_agent", None)
+        if callable(bind):
+            gateway = bind(conversation.agent_id)
     if runtime_config is not None and category is not None:
         # Data or an action: a governed task, never a tool call from the chat model. No
         # memory pass: the reply quotes mailbox, WhatsApp or web data, not the user.

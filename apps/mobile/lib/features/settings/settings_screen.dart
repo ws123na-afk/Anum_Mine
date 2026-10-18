@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/api_models.dart';
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import 'model_choice.dart';
 import 'settings_controller.dart';
@@ -22,6 +23,13 @@ import '../agent_controls/agent_controls_screen.dart';
 
 /// Parts of Settings that Profile and settings opens directly.
 enum SettingsSection { profile, notifications, privacy, security }
+
+/// An agent controls string in the page language; English where no
+/// localizations are installed (some tests pump the screen bare).
+String _acText(BuildContext context, String key) =>
+    (Localizations.of<AnumLocalizations>(context, AnumLocalizations) ??
+            const AnumLocalizations(Locale('en')))
+        .t(key);
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen(
@@ -180,14 +188,13 @@ class _Content extends StatelessWidget {
               TeamHubCard(repository: controller.team!),
             ],
             if (controller.agentControls != null) ...[
-              _Heading('Agent controls'),
+              _Heading(_acText(context, 'ac.heading')),
               Card(
                   child: ListTile(
                       key: const Key('open-agent-controls'),
                       leading: const Icon(Icons.gpp_maybe_outlined),
-                      title: const Text('Emergency stop and agent caps'),
-                      subtitle: const Text(
-                          'Stop every agent and send at once, and cap monthly cost per agent.'),
+                      title: Text(_acText(context, 'ac.open')),
+                      subtitle: Text(_acText(context, 'ac.openHint')),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.push(
                           context,

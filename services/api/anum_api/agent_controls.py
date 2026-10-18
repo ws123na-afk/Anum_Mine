@@ -54,6 +54,7 @@ from .audit import AuditRecord
 from .authorization import Permission
 from .model_budget import (
     MAX_COST_LIMIT_USD,
+    MAX_TOKEN_LIMIT,
     BudgetKind,
     BudgetScope,
     ModelBudgetExceededError,
@@ -80,7 +81,12 @@ RELEASE_DENIED = (
 )
 CAPS_DENIED = "Only a workspace owner or the organization administrator can see agent cost caps."
 CAP_SET_DENIED = "Only a workspace owner can change an agent's monthly cost cap."
+HELD_DENIED = "Only a workspace owner or the organization administrator can see what the emergency stop holds."
 CANCEL_LIMIT = 200
+# Every model call that no custom agent makes (chat with the Assistant, voice, retrieval,
+# runs without an agent) is attributed to the default assistant, so it can be capped too.
+DEFAULT_ASSISTANT_ID = "assistant"
+DEFAULT_ASSISTANT_NAME = "ANUM assistant"
 
 
 # --------------------------------------------------------------------------- models
@@ -97,7 +103,8 @@ class EmergencyStop(BaseModel):
 
 class AgentCap(BaseModel):
     agent_id: str
-    monthly_cost_limit_usd: float
+    monthly_cost_limit_usd: float | None = None
+    monthly_token_limit: int | None = None
     updated_by: str
     updated_at: datetime
 
@@ -124,10 +131,11 @@ class AgentsStoppedError(ModelBudgetExceededError):
         return "An owner has turned on the emergency stop, so agents are paused and I can't answer right now."
 
 
-def agent_cap_message(agent_name: str | None, limit: float, resets_on: date) -> str:
+def agent_cap_message(agent_name: str | None, limit: float, resets_on: date, kind: BudgetKind = BudgetKind.COST) -> str:
     who = f"The agent {agent_name}" if agent_name else "This agent"
+    what = f"monthly cost cap (USD {limit:,.2f})" if kind == BudgetKind.COST else f"monthly token cap ({int(limit):,} tokens)"
     return (
-        f"{who} has used its monthly cost cap (USD {limit:,.2f}). It resets on {resets_on.isoformat()} (UTC); "
+        f"{who} has used its {what}. It resets on {resets_on.isoformat()} (UTC); "
         "a workspace owner can raise it under Agent controls."
     )
 
@@ -135,13 +143,15 @@ def agent_cap_message(agent_name: str | None, limit: float, resets_on: date) -> 
 class AgentCapExceededError(ModelBudgetExceededError):
     """An agent profile has used its monthly cost cap (HTTP 402, code model_budget_exceeded)."""
 
-    def __init__(self, agent_id: str, limit: float, resets_on: date, agent_name: str | None = None) -> None:
+    def __init__(
+        self, agent_id: str, limit: float, resets_on: date, agent_name: str | None = None, kind: BudgetKind = BudgetKind.COST
+    ) -> None:
         self.scope = BudgetScope.WORKSPACE
-        self.kind = BudgetKind.COST
+        self.kind = kind
         self.resets_on = resets_on
         self.agent_id = agent_id
         self.limit = limit
-        Exception.__init__(self, agent_cap_message(agent_name, limit, resets_on))
+        Exception.__init__(self, agent_cap_message(agent_name, limit, resets_on, kind))
 
     def spoken(self, arabic: bool) -> str:
         if arabic:
@@ -158,7 +168,9 @@ class AgentControlsStore(Protocol):
     def save_stop(self, context: TenantContext, stop: EmergencyStop) -> EmergencyStop: ...
     def list_caps(self, context: TenantContext) -> list[AgentCap]: ...
     def get_cap(self, context: TenantContext, agent_id: str) -> AgentCap | None: ...
-    def set_cap(self, context: TenantContext, agent_id: str, limit: float | None, now: datetime) -> AgentCap | None: ...
+    def set_cap(
+        self, context: TenantContext, agent_id: str, cost: float | None, tokens: int | None, now: datetime
+    ) -> AgentCap | None: ...
     def agent_usage(self, context: TenantContext, agent_id: str, month: date) -> ModelUsageTotals: ...
     def usage_by_agent(self, context: TenantContext, month: date) -> dict[str, ModelUsageTotals]: ...
     def record_agent_usage(
@@ -207,13 +219,17 @@ class InMemoryAgentControlsStore:
             found = self._caps.get((context.tenant_id, context.workspace_id, agent_id))
             return found.model_copy() if found else None
 
-    def set_cap(self, context: TenantContext, agent_id: str, limit: float | None, now: datetime) -> AgentCap | None:
+    def set_cap(
+        self, context: TenantContext, agent_id: str, cost: float | None, tokens: int | None, now: datetime
+    ) -> AgentCap | None:
         key = (context.tenant_id, context.workspace_id, agent_id)
         with self._lock:
-            if limit is None:
+            if cost is None and tokens is None:
                 self._caps.pop(key, None)
                 return None
-            cap = AgentCap(agent_id=agent_id, monthly_cost_limit_usd=limit, updated_by=context.user_id, updated_at=now)
+            cap = AgentCap(
+                agent_id=agent_id, monthly_cost_limit_usd=cost, monthly_token_limit=tokens, updated_by=context.user_id, updated_at=now
+            )
             self._caps[key] = cap
             return cap.model_copy()
 
@@ -304,7 +320,13 @@ def check_agent_cap(context: TenantContext, agent_id: str, *, now: datetime | No
         if cap is None:
             return
         used = store.agent_usage(context, agent_id, month)
-    if used.estimated_cost_usd >= cap.monthly_cost_limit_usd:
+    kind: BudgetKind | None = None
+    limit: float = 0.0
+    if cap.monthly_cost_limit_usd is not None and used.estimated_cost_usd >= cap.monthly_cost_limit_usd:
+        kind, limit = BudgetKind.COST, cap.monthly_cost_limit_usd
+    elif cap.monthly_token_limit is not None and used.total_tokens >= cap.monthly_token_limit:
+        kind, limit = BudgetKind.TOKENS, float(cap.monthly_token_limit)
+    if kind is not None:
         logger.warning(
             "agent_cap_exceeded tenant_id=%s workspace_id=%s agent_id=%s",
             _log_safe(context.tenant_id),
@@ -312,7 +334,7 @@ def check_agent_cap(context: TenantContext, agent_id: str, *, now: datetime | No
             _log_safe(agent_id),
             extra={"anum_agent_controls": {"event": "cap_exceeded", "agent_id": _log_safe(agent_id)}},
         )
-        raise AgentCapExceededError(agent_id, cap.monthly_cost_limit_usd, next_month_start(month), _agent_name(context, agent_id))
+        raise AgentCapExceededError(agent_id, limit, next_month_start(month), _agent_name(context, agent_id), kind)
 
 
 def record_agent_usage(context: TenantContext, agent_id: str, usage: ModelUsage, *, now: datetime | None = None) -> ModelUsageTotals:
@@ -322,6 +344,8 @@ def record_agent_usage(context: TenantContext, agent_id: str, usage: ModelUsage,
 
 
 def _agent_name(context: TenantContext, agent_id: str) -> str | None:
+    if agent_id == DEFAULT_ASSISTANT_ID:
+        return DEFAULT_ASSISTANT_NAME
     try:
         from .agent_profiles import load_agent
 
@@ -447,6 +471,7 @@ class AgentCapLimit(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     monthly_cost_limit_usd: float | None = Field(default=None, ge=0, le=MAX_COST_LIMIT_USD)
+    monthly_token_limit: int | None = Field(default=None, ge=0, le=MAX_TOKEN_LIMIT)
 
 
 class AgentCapView(BaseModel):
@@ -454,9 +479,14 @@ class AgentCapView(BaseModel):
     name: str
     status: str
     sharing: str
+    # The default assistant: every model call no custom agent makes (chat, voice, retrieval).
+    is_default: bool = False
     monthly_cost_limit_usd: float | None
+    monthly_token_limit: int | None = None
     usage: ModelUsageTotals
+    total_tokens: int = 0
     percent_used: float | None
+    token_percent_used: float | None = None
     exceeded: bool
     updated_by: str | None
     updated_at: datetime | None
@@ -468,6 +498,23 @@ class AgentCapsOverview(BaseModel):
     can_manage: bool
     total: int
     items: list[AgentCapView]
+
+
+class HeldItem(BaseModel):
+    kind: str  # approval, mail, post
+    id: str
+    title: str
+    detail: str
+    at: datetime | None
+    by: str | None = None
+
+
+class HeldPage(BaseModel):
+    engaged: bool
+    total: int
+    limit: int
+    offset: int
+    items: list[HeldItem]
 
 
 def _can_engage(context: TenantContext) -> bool:
@@ -513,6 +560,55 @@ def _audit(repository: Any, context: TenantContext, action: str, target: str, me
             metadata=metadata,
         )
     )
+
+
+NOTICE_KIND = "agent_controls"
+
+
+def notice_text(stop: EmergencyStop) -> tuple[str, str]:
+    """Title and body of the owners' notice: who changed it and why, nothing else."""
+    if stop.engaged:
+        return (
+            "Emergency stop turned on",
+            f"{stop.changed_by or 'An owner'} paused every agent, automation and outbound send. Reason: {stop.reason or '-'}",
+        )
+    return (
+        "Emergency stop turned off",
+        f"{stop.changed_by or 'The organization owner'} let agents run again. Reason: {stop.reason or '-'}",
+    )
+
+
+def notify_owners(context: TenantContext, stop: EmergencyStop, workspace_ids: list[str]) -> int:
+    """An in-app notification (and through it the ``notification.created`` event and the phone
+    push) for every other active owner of each workspace. Best effort: the change committed."""
+    from .notifications import deliver_pending_email
+    from .team_work import open_team_unit
+
+    title, body = notice_text(stop)
+    sent = 0
+    for workspace_id in workspace_ids:
+        scoped = TenantContext(
+            tenant_id=context.tenant_id, workspace_id=workspace_id, user_id=context.user_id, roles=list(context.roles)
+        )
+        try:
+            with open_team_unit(scoped) as unit:
+                owners = [
+                    member.user_id
+                    for member in unit.repository.list_memberships(scoped)
+                    if member.active and member.role.lower() == "owner" and member.user_id != context.user_id
+                ]
+                for user_id in owners:
+                    unit.notify(user_id, NOTICE_KIND, title, body, None)
+                    sent += 1
+                pending = list(unit.pending_email)
+            if pending:
+                deliver_pending_email(scoped, pending)
+        except Exception:  # noqa: BLE001 - never undo the stop over a notice
+            logger.exception(
+                "agent_controls_notice_failed",
+                extra={"anum_agent_controls": {"event": "notice_failed", "workspace_id": _log_safe(workspace_id)}},
+            )
+    return sent
 
 
 def _member_workspaces(context: TenantContext) -> list[str]:
@@ -577,8 +673,10 @@ async def set_emergency_stop(
 
     stop = await asyncio.to_thread(change)
     cancelled: list[tuple[TenantContext, str]] = []
+    workspaces = await asyncio.to_thread(_member_workspaces, context)
+    # Owners hear about it in the app and on their phones (the team-work push kind).
+    await asyncio.to_thread(notify_owners, context, stop, workspaces)
     if stop.engaged:
-        workspaces = await asyncio.to_thread(_member_workspaces, context)
         cancelled = await asyncio.to_thread(cancel_in_flight, context, workspaces)
         if _cancel_notifier is not None:
             for scoped, task_id in cancelled:
@@ -604,6 +702,36 @@ async def set_emergency_stop(
     )
     return _view(context, stop, len(cancelled))
 
+def _percent(used: float, limit: float | None) -> float | None:
+    if limit is None:
+        return None
+    return 100.0 if limit <= 0 else min(used / limit * 100, 1000.0)
+
+
+def _cap_view(
+    agent_id: str, name: str, status_value: str, sharing: str, cap: AgentCap | None, used: ModelUsageTotals
+) -> AgentCapView:
+    cost = cap.monthly_cost_limit_usd if cap else None
+    tokens = cap.monthly_token_limit if cap else None
+    exceeded = (cost is not None and used.estimated_cost_usd >= cost) or (tokens is not None and used.total_tokens >= tokens)
+    return AgentCapView(
+        agent_id=agent_id,
+        name=name,
+        status=status_value,
+        sharing=sharing,
+        is_default=agent_id == DEFAULT_ASSISTANT_ID,
+        monthly_cost_limit_usd=cost,
+        monthly_token_limit=tokens,
+        usage=used,
+        total_tokens=used.total_tokens,
+        percent_used=_percent(used.estimated_cost_usd, cost),
+        token_percent_used=_percent(float(used.total_tokens), None if tokens is None else float(tokens)),
+        exceeded=exceeded,
+        updated_by=cap.updated_by if cap else None,
+        updated_at=cap.updated_at if cap else None,
+    )
+
+
 @router.get("/agent-caps", response_model=AgentCapsOverview)
 def get_agent_caps(
     context: TenantContext = Depends(deps.tenant_context),
@@ -611,95 +739,135 @@ def get_agent_caps(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> AgentCapsOverview:
-    """Every agent this owner can see, with its cap and its usage this UTC month."""
+    """The default assistant and every agent this owner can see, with caps and usage this UTC month."""
     deps.require_owner_or_org_admin(context, Permission.ORGANIZATION_MANAGE, CAPS_DENIED)
     from .agent_profiles import open_agent_store
 
-    now = utc_now()
-    month = month_start(now)
+    month = month_start(utc_now())
     with open_agent_store(context) as agents:
         profiles = agents.list(context)
     with open_agent_controls_store(context) as store:
         caps = {cap.agent_id: cap for cap in store.list_caps(context)}
         usage = store.usage_by_agent(context, month)
     needle = (q or "").strip().lower()
-    profiles = sorted(
-        (p for p in profiles if not needle or needle in p.name.lower() or needle in (p.description or "").lower()),
-        key=lambda p: (p.name.lower(), p.id),
+    rows: list[tuple[str, str, str, str]] = []
+    if not needle or needle in DEFAULT_ASSISTANT_NAME.lower():
+        rows.append((DEFAULT_ASSISTANT_ID, DEFAULT_ASSISTANT_NAME, "active", "workspace"))
+    rows.extend(
+        (p.id, p.name, p.status.value, p.sharing.value)
+        for p in sorted(profiles, key=lambda p: (p.name.lower(), p.id))
+        if not needle or needle in p.name.lower() or needle in (p.description or "").lower()
     )
-    items: list[AgentCapView] = []
-    for profile in profiles[offset : offset + limit]:
-        cap = caps.get(profile.id)
-        used = usage.get(profile.id, ModelUsageTotals())
-        limit_usd = cap.monthly_cost_limit_usd if cap else None
-        percent = None
-        if limit_usd is not None:
-            percent = 100.0 if limit_usd == 0 else min(used.estimated_cost_usd / limit_usd * 100, 1000.0)
-        items.append(
-            AgentCapView(
-                agent_id=profile.id,
-                name=profile.name,
-                status=profile.status.value,
-                sharing=profile.sharing.value,
-                monthly_cost_limit_usd=limit_usd,
-                usage=used,
-                percent_used=percent,
-                exceeded=limit_usd is not None and used.estimated_cost_usd >= limit_usd,
-                updated_by=cap.updated_by if cap else None,
-                updated_at=cap.updated_at if cap else None,
-            )
-        )
+    items = [
+        _cap_view(agent_id, name, state, sharing, caps.get(agent_id), usage.get(agent_id, ModelUsageTotals()))
+        for agent_id, name, state, sharing in rows[offset : offset + limit]
+    ]
     return AgentCapsOverview(
         period_start=month,
         resets_on=next_month_start(month),
         can_manage=deps.has_permission(context, Permission.ORGANIZATION_MANAGE),
-        total=len(profiles),
+        total=len(rows),
         items=items,
     )
+
+
+def _describe_cap(found: AgentCap | None) -> str:
+    if found is None:
+        return "none"
+    cost = "none" if found.monthly_cost_limit_usd is None else found.monthly_cost_limit_usd
+    count = "none" if found.monthly_token_limit is None else found.monthly_token_limit
+    return f"cost_usd={cost} tokens={count}"
+
 
 @router.put("/agent-caps/{agent_id}", response_model=AgentCapView)
 def set_agent_cap(
     agent_id: str, payload: AgentCapLimit, context: TenantContext = Depends(deps.tenant_context)
 ) -> AgentCapView:
-    """Set (or clear with null) one agent's monthly estimated-cost cap (workspace owners)."""
+    """Set (or clear with nulls) one agent's monthly cost and token caps (workspace owners)."""
     if not deps.has_permission(context, Permission.ORGANIZATION_MANAGE):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=CAP_SET_DENIED)
-    from .agent_profiles import open_agent_store
+    if agent_id == DEFAULT_ASSISTANT_ID:
+        name, state, sharing = DEFAULT_ASSISTANT_NAME, "active", "workspace"
+    else:
+        from .agent_profiles import open_agent_store
 
-    with open_agent_store(context) as agents:
-        profile = agents.get(context, agent_id)
-    if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found in this workspace")
+        with open_agent_store(context) as agents:
+            profile = agents.get(context, agent_id)
+        if profile is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found in this workspace")
+        name, state, sharing = profile.name, profile.status.value, profile.sharing.value
     now = utc_now()
     with deps._unit_of_work(context, require_membership=True) as repository:
         store = store_in(repository)
         previous = store.get_cap(context, agent_id)
-        cap = store.set_cap(context, agent_id, payload.monthly_cost_limit_usd, now)
+        cap = store.set_cap(context, agent_id, payload.monthly_cost_limit_usd, payload.monthly_token_limit, now)
         used = store.agent_usage(context, agent_id, month_start(now))
+        # Rendered as text: audit metadata redacts any key that mentions "token".
         _audit(
-            repository,
-            context,
-            "agent_controls.agent_cap.update",
-            f"agent:{agent_id}",
-            {
-                "previous_limit_usd": "none" if previous is None else previous.monthly_cost_limit_usd,
-                "limit_usd": "none" if cap is None else cap.monthly_cost_limit_usd,
-            },
+            repository, context, "agent_controls.agent_cap.update", f"agent:{agent_id}",
+            {"previous_limits": _describe_cap(previous), "limits": _describe_cap(cap)},
         )
-    limit_usd = cap.monthly_cost_limit_usd if cap else None
-    percent = None
-    if limit_usd is not None:
-        percent = 100.0 if limit_usd == 0 else min(used.estimated_cost_usd / limit_usd * 100, 1000.0)
-    return AgentCapView(
-        agent_id=profile.id,
-        name=profile.name,
-        status=profile.status.value,
-        sharing=profile.sharing.value,
-        monthly_cost_limit_usd=limit_usd,
-        usage=used,
-        percent_used=percent,
-        exceeded=limit_usd is not None and used.estimated_cost_usd >= limit_usd,
-        updated_by=cap.updated_by if cap else None,
-        updated_at=cap.updated_at if cap else None,
-    )
+    return _cap_view(agent_id, name, state, sharing, cap, used)
 
+
+HELD_SOURCE_LIMIT = 500
+
+
+def _held_items(context: TenantContext, repository: Any) -> list[HeldItem]:
+    """What the stop holds in this workspace: pending approvals, the caller's own scheduled
+    mail (mailboxes are private to their owner) and scheduled social posts."""
+    from .schemas import ApprovalStatus
+
+    items: list[HeldItem] = []
+    for approval in repository.list_approvals(context):
+        if approval.status != ApprovalStatus.PENDING:
+            continue
+        items.append(HeldItem(
+            kind="approval", id=approval.id, title=approval.action,
+            detail=str(getattr(approval, "target", None) or approval.reason or "")[:200],
+            at=approval.created_at, by=getattr(approval, "requested_by", None),
+        ))
+        if len(items) >= HELD_SOURCE_LIMIT:
+            break
+    try:
+        from .mailbox.store import open_mail_store
+
+        with open_mail_store(context) as mail:
+            for draft in mail.list_scheduled(None, HELD_SOURCE_LIMIT):
+                recipients = len(draft.to) + len(draft.cc) + len(draft.bcc)
+                items.append(HeldItem(
+                    kind="mail", id=draft.id, title=draft.subject or "(no subject)",
+                    detail=f"{recipients} recipient{'s' if recipients != 1 else ''}", at=draft.send_at, by=draft.owner_user_id,
+                ))
+    except Exception:  # noqa: BLE001 - the Email Center may be off on this server
+        logger.debug("agent_controls_held_mail_unavailable")
+    try:
+        from .marketing.models import PostStatus
+        from .marketing.store import PostQuery, open_marketing_store
+
+        with open_marketing_store(context) as marketing:
+            for post in marketing.list_posts(context, PostQuery(statuses={PostStatus.SCHEDULED}, limit=HELD_SOURCE_LIMIT)):
+                items.append(HeldItem(
+                    kind="post", id=post.id, title=(post.title or post.text or "(no text)")[:120],
+                    detail=post.platform.value, at=post.scheduled_at,
+                ))
+    except Exception:  # noqa: BLE001 - marketing may not be set up here
+        logger.debug("agent_controls_held_posts_unavailable")
+    far = datetime.max.replace(tzinfo=utc_now().tzinfo)
+    return sorted(items, key=lambda item: (item.at or far, item.kind, item.id))
+
+
+@router.get("/held", response_model=HeldPage)
+def get_held(
+    context: TenantContext = Depends(deps.tenant_context),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> HeldPage:
+    """Sends and actions the stop holds in this workspace, oldest first, paged (owners)."""
+    deps.require_owner_or_org_admin(context, Permission.WORKSPACE_MANAGE, HELD_DENIED)
+    with deps._unit_of_work(context, require_membership=False) as repository:
+        items = _held_items(context, repository)
+    return HeldPage(
+        engaged=emergency_stop(context).engaged, total=len(items), limit=limit, offset=offset,
+        items=items[offset : offset + limit],
+    )

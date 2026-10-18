@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
 import { setLocale, t } from '../src/lib/i18n.ts';
-import { capDraft, capMeter, capsPath, parseCap, parseReason, stopSummary, type AgentCap, type AgentControls } from '../src/lib/agentControls.ts';
+import {
+  capDraft, capMeter, capsPath, heldKindLabel, heldPath, parseCap, parseReason, parseTokenCap, stopSummary, tokenDraft, tokenMeter,
+  type AgentCap, type AgentControls,
+} from '../src/lib/agentControls.ts';
 import { agentControlsEn } from '../src/lib/messages/agentControls.en.ts';
 import { agentControlsAr } from '../src/lib/messages/agentControls.ar.ts';
 import { NAV, viewFromHash, visibleViews } from '../src/lib/shell.ts';
@@ -78,5 +81,34 @@ describe('agent controls', () => {
     setLocale('en');
     assert.equal(t('agentControls.engaged', { count: 1 }), 'The emergency stop is on. 1 running task was cancelled.');
     assert.equal(t('agentControls.engaged', { count: 0 }), 'The emergency stop is on. No task was running.');
+  });
+});
+
+describe('agent token caps and the held list', () => {
+  test('a token cap is a whole number, empty clears it', () => {
+    assert.deepEqual(parseTokenCap(''), { ok: true, value: null });
+    assert.deepEqual(parseTokenCap('1,000,000'), { ok: true, value: 1000000 });
+    assert.equal(parseTokenCap('1.5').ok, false);
+    assert.equal(parseTokenCap('-2').ok, false);
+    assert.equal(tokenDraft(cap({ monthly_token_limit: 500 })), '500');
+    assert.equal(tokenDraft(cap()), '');
+  });
+
+  test('token usage against the token cap', () => {
+    assert.equal(tokenMeter(cap()), null);
+    const meter = tokenMeter(cap({ monthly_token_limit: 20, total_tokens: 30 }));
+    assert.equal(meter?.tone, 'stop');
+    assert.equal(meter?.barPercent, 100);
+    assert.equal(meter?.usedText, '30');
+  });
+
+  test('held items are paged and named', () => {
+    assert.equal(heldPath(0), '/api/v1/agent-controls/held?limit=20&offset=0');
+    assert.equal(heldPath(-3, 5), '/api/v1/agent-controls/held?limit=5&offset=0');
+    assert.equal(heldKindLabel('approval'), 'Approval');
+    assert.equal(heldKindLabel('mail'), 'Scheduled email');
+    assert.equal(heldKindLabel('post'), 'Scheduled post');
+    setLocale('ar');
+    assert.match(heldKindLabel('post'), /[؀-ۿ]/);
   });
 });

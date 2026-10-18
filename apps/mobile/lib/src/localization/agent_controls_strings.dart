@@ -1,0 +1,232 @@
+/// Agent controls screen strings (docs/agent-controls.md), English and Arabic.
+/// Looked up by `AnumLocalizations.t` after the main catalogs.
+const agentControlsEn = <String, String>{
+  'ac.open': 'Emergency stop and agent caps',
+  'ac.openHint':
+      'Stop every agent and send at once, and cap monthly cost and tokens per agent.',
+  'ac.heading': 'Agent controls',
+  'ac.title': 'Agent controls',
+  'ac.eyebrow': 'Safety',
+  'ac.intro':
+      'Stop every agent and outbound send at once, and cap what each agent may spend on the model each month.',
+  'ac.refresh': 'Refresh',
+  'ac.loadFailed': 'Agent controls could not be loaded',
+  'ac.loadFailedHint': '{message}. Check your connection, then try again.',
+  'ac.retry': 'Retry',
+  'ac.stopTitle': 'Emergency stop',
+  'ac.stopLabel': 'Emergency stop for all agents and sends',
+  'ac.on': 'On: paused',
+  'ac.off': 'Off: running',
+  'ac.offSummary':
+      'Agents, automations and outbound sends run as usual. Turn the stop on if an agent misbehaves.',
+  'ac.onRelease':
+      'Everything is paused for the whole organization. Pending sends stay pending.',
+  'ac.onWait':
+      'Everything is paused for the whole organization. Only the organization owner can turn it off.',
+  'ac.stops.models': 'No agent, chat or voice answer calls the model.',
+  'ac.stops.tools':
+      'No tool runs, so nothing is sent by email, WhatsApp, Brevo, phone or social posts.',
+  'ac.stops.approvals':
+      'Pending sends cannot be approved; they wait, and can still be rejected.',
+  'ac.stops.automations': 'Scheduled and triggered automations do not start.',
+  'ac.stops.running':
+      'Running and queued tasks are cancelled when it is turned on.',
+  'ac.changedOn': 'Turned on by {user} on {when}.',
+  'ac.changedOff': 'Turned off by {user} on {when}.',
+  'ac.you': 'you',
+  'ac.reasonShown': 'Reason: {reason}',
+  'ac.reason': 'Reason (kept in the audit log)',
+  'ac.reasonOnHint': 'For example: the outreach agent is sending duplicates',
+  'ac.reasonOffHint': 'For example: fixed the outreach agent',
+  'ac.reasonShort': 'Say why in at least 3 characters.',
+  'ac.reasonLong': 'Keep the reason under 300 characters.',
+  'ac.engage': 'Stop all agents and sends',
+  'ac.release': 'Turn the stop off',
+  'ac.saving': 'Saving...',
+  'ac.cancel': 'Cancel',
+  'ac.confirmEngage': 'Stop all agents and sends?',
+  'ac.confirmEngageText':
+      'Every agent, automation and outbound send in the organization pauses now, and running tasks are cancelled. Only the organization owner can turn it off.',
+  'ac.confirmRelease': 'Turn the emergency stop off?',
+  'ac.confirmReleaseText':
+      'Agents and automations start working again, and pending sends can be approved.',
+  'ac.engaged.zero': 'The emergency stop is on. No task was running.',
+  'ac.engaged.one':
+      'The emergency stop is on. {count} running task was cancelled.',
+  'ac.engaged.other':
+      'The emergency stop is on. {count} running tasks were cancelled.',
+  'ac.released': 'The emergency stop is off. Agents are running again.',
+  'ac.cannotRelease':
+      'Only the organization owner (organization administrator) can turn the stop off.',
+  'ac.cannotEngage':
+      'Only a workspace owner or the organization administrator can turn the stop on.',
+  'ac.held.title': 'Held while the stop is on',
+  'ac.held.intro':
+      'These sends and actions wait. Scheduled mail and posts go out after the stop is turned off unless withdrawn.',
+  'ac.held.empty': 'Nothing is held',
+  'ac.held.emptyHint':
+      'No pending approval, scheduled email or scheduled post is waiting in this workspace.',
+  'ac.held.failed': "Couldn't load what is held",
+  'ac.held.approval': 'Approval',
+  'ac.held.mail': 'Scheduled email',
+  'ac.held.post': 'Scheduled post',
+  'ac.capsTitle': 'Monthly caps per agent',
+  'ac.capsIntro':
+      'Each agent stops calling the model once its estimated cost or tokens this month reach its cap.',
+  'ac.capsResets':
+      'Each agent stops calling the model once its estimated cost or tokens this month reach its cap. Resets on {date}.',
+  'ac.capsForbidden': 'Agent caps are for owners',
+  'ac.capsForbiddenHint':
+      'Only a workspace owner or the organization administrator can see and change agent caps.',
+  'ac.search': 'Search agents',
+  'ac.searchGo': 'Search',
+  'ac.capsFailed': "Couldn't load agent caps",
+  'ac.noAgents': 'No agents yet',
+  'ac.noAgentsHint':
+      'Create an agent under Agents first; its cap and usage then show here.',
+  'ac.noMatch': 'No agent matches',
+  'ac.noMatchHint': 'Try another name, or clear the search.',
+  'ac.clearSearch': 'Clear search',
+  'ac.readOnly':
+      'You can see the caps; only a workspace owner can change them.',
+  'ac.range': '{from} to {to} of {total}',
+  'ac.previous': 'Previous',
+  'ac.next': 'Next',
+  'ac.default': 'Default assistant',
+  'ac.defaultHint':
+      'Chat with the Assistant, voice answers and runs without an agent.',
+  'ac.private': 'Private',
+  'ac.capReached': 'Cap reached',
+  'ac.capNear': 'Near the cap',
+  'ac.noCap': 'No cap',
+  'ac.meter': 'Share of the cap used by {name}',
+  'ac.meterValue': '{used} of {limit}, {percent} percent',
+  'ac.calls.one': '{count} model call',
+  'ac.calls.other': '{count} model calls',
+  'ac.percentOfCap': '{percent}% of the cap',
+  'ac.tokensUsed': '{used} of {limit} tokens',
+  'ac.costCap': 'Monthly cap (USD) for {name}',
+  'ac.tokenCap': 'Monthly token cap for {name}',
+  'ac.save': 'Save',
+  'ac.capInvalid': 'Enter an amount in US dollars, 0 or more.',
+  'ac.tokenInvalid': 'Enter a whole number of tokens, 0 or more.',
+  'ac.capSaved': 'Saved the cap for {name}.',
+  'ac.capCleared': 'Removed the cap for {name}.',
+  'ac.capFailed': "Couldn't save: {message}",
+};
+
+const agentControlsAr = <String, String>{
+  'ac.open': 'الإيقاف الطارئ وحدود الوكلاء',
+  'ac.openHint':
+      'أوقف كل الوكلاء والإرسال دفعة واحدة، وحدّد التكلفة والرموز الشهرية لكل وكيل.',
+  'ac.heading': 'تحكم الوكلاء',
+  'ac.title': 'تحكم الوكلاء',
+  'ac.eyebrow': 'الأمان',
+  'ac.intro':
+      'أوقف كل الوكلاء والإرسال الخارجي دفعة واحدة، وحدّد ما يمكن لكل وكيل إنفاقه على النموذج كل شهر.',
+  'ac.refresh': 'تحديث',
+  'ac.loadFailed': 'تعذر تحميل تحكم الوكلاء',
+  'ac.loadFailedHint': '{message}. تحقق من اتصالك ثم أعد المحاولة.',
+  'ac.retry': 'أعد المحاولة',
+  'ac.stopTitle': 'الإيقاف الطارئ',
+  'ac.stopLabel': 'الإيقاف الطارئ لكل الوكلاء والإرسال',
+  'ac.on': 'مفعّل: متوقف',
+  'ac.off': 'متوقف: يعمل',
+  'ac.offSummary':
+      'الوكلاء والأتمتة والإرسال الخارجي تعمل كالمعتاد. فعّل الإيقاف إذا أساء وكيل التصرف.',
+  'ac.onRelease':
+      'كل شيء متوقف مؤقتًا للمؤسسة كلها. يبقى الإرسال المعلّق معلّقًا.',
+  'ac.onWait':
+      'كل شيء متوقف مؤقتًا للمؤسسة كلها. لا يمكن إيقافه إلا لمالك المؤسسة.',
+  'ac.stops.models': 'لا يستدعي أي وكيل أو محادثة أو رد صوتي النموذج.',
+  'ac.stops.tools':
+      'لا تعمل أي أداة، فلا يُرسل شيء عبر البريد أو واتساب أو Brevo أو الهاتف أو المنشورات.',
+  'ac.stops.approvals':
+      'لا يمكن الموافقة على الإرسال المعلّق؛ ينتظر، ويمكن رفضه.',
+  'ac.stops.automations': 'لا تبدأ الأتمتة المجدولة أو المشغّلة بحدث.',
+  'ac.stops.running': 'تُلغى المهام الجارية والمنتظرة عند تفعيله.',
+  'ac.changedOn': 'فعّله {user} في {when}.',
+  'ac.changedOff': 'أوقفه {user} في {when}.',
+  'ac.you': 'أنت',
+  'ac.reasonShown': 'السبب: {reason}',
+  'ac.reason': 'السبب (يُحفظ في سجل التدقيق)',
+  'ac.reasonOnHint': 'مثال: وكيل التواصل يرسل رسائل مكررة',
+  'ac.reasonOffHint': 'مثال: أصلحنا وكيل التواصل',
+  'ac.reasonShort': 'اذكر السبب في 3 أحرف على الأقل.',
+  'ac.reasonLong': 'اجعل السبب أقل من 300 حرف.',
+  'ac.engage': 'أوقف كل الوكلاء والإرسال',
+  'ac.release': 'أوقف الإيقاف الطارئ',
+  'ac.saving': 'جارٍ الحفظ...',
+  'ac.cancel': 'إلغاء',
+  'ac.confirmEngage': 'إيقاف كل الوكلاء والإرسال؟',
+  'ac.confirmEngageText':
+      'يتوقف الآن كل وكيل وأتمتة وإرسال خارجي في المؤسسة، وتُلغى المهام الجارية. لا يمكن إيقافه إلا لمالك المؤسسة.',
+  'ac.confirmRelease': 'إيقاف الإيقاف الطارئ؟',
+  'ac.confirmReleaseText':
+      'يعود الوكلاء والأتمتة إلى العمل، ويمكن الموافقة على الإرسال المعلّق.',
+  'ac.engaged.zero': 'الإيقاف الطارئ مفعّل. لم تكن هناك مهام جارية.',
+  'ac.engaged.one': 'الإيقاف الطارئ مفعّل. أُلغيت مهمة جارية واحدة.',
+  'ac.engaged.two': 'الإيقاف الطارئ مفعّل. أُلغيت مهمتان جاريتان.',
+  'ac.engaged.few': 'الإيقاف الطارئ مفعّل. أُلغيت {count} مهام جارية.',
+  'ac.engaged.many': 'الإيقاف الطارئ مفعّل. أُلغيت {count} مهمة جارية.',
+  'ac.engaged.other': 'الإيقاف الطارئ مفعّل. أُلغيت {count} مهمة جارية.',
+  'ac.released': 'الإيقاف الطارئ متوقف. عاد الوكلاء إلى العمل.',
+  'ac.cannotRelease': 'لا يمكن إيقافه إلا لمالك المؤسسة (مسؤول المؤسسة).',
+  'ac.cannotEngage':
+      'لا يمكن تفعيل الإيقاف إلا لمالك مساحة العمل أو مسؤول المؤسسة.',
+  'ac.held.title': 'محتجز أثناء الإيقاف',
+  'ac.held.intro':
+      'هذا الإرسال وهذه الإجراءات تنتظر. يُرسل البريد والمنشورات المجدولة بعد إيقاف الإيقاف ما لم تُسحب.',
+  'ac.held.empty': 'لا شيء محتجز',
+  'ac.held.emptyHint':
+      'لا توجد موافقة معلّقة أو بريد مجدول أو منشور مجدول ينتظر في مساحة العمل هذه.',
+  'ac.held.failed': 'تعذر تحميل المحتجز',
+  'ac.held.approval': 'موافقة',
+  'ac.held.mail': 'بريد مجدول',
+  'ac.held.post': 'منشور مجدول',
+  'ac.capsTitle': 'الحدود الشهرية لكل وكيل',
+  'ac.capsIntro':
+      'يتوقف كل وكيل عن استدعاء النموذج عندما تبلغ تكلفته التقديرية أو رموزه هذا الشهر حدّه.',
+  'ac.capsResets':
+      'يتوقف كل وكيل عن استدعاء النموذج عندما تبلغ تكلفته التقديرية أو رموزه هذا الشهر حدّه. تُعاد في {date}.',
+  'ac.capsForbidden': 'حدود الوكلاء للمالكين',
+  'ac.capsForbiddenHint':
+      'لا يمكن عرض حدود الوكلاء وتغييرها إلا لمالك مساحة العمل أو مسؤول المؤسسة.',
+  'ac.search': 'ابحث في الوكلاء',
+  'ac.searchGo': 'بحث',
+  'ac.capsFailed': 'تعذر تحميل حدود الوكلاء',
+  'ac.noAgents': 'لا وكلاء بعد',
+  'ac.noAgentsHint': 'أنشئ وكيلًا أولًا؛ يظهر حدّه واستخدامه هنا.',
+  'ac.noMatch': 'لا وكيل مطابق',
+  'ac.noMatchHint': 'جرّب اسمًا آخر، أو امسح البحث.',
+  'ac.clearSearch': 'امسح البحث',
+  'ac.readOnly': 'يمكنك رؤية الحدود؛ لا يغيّرها إلا مالك مساحة العمل.',
+  'ac.range': '{from} إلى {to} من {total}',
+  'ac.previous': 'السابق',
+  'ac.next': 'التالي',
+  'ac.default': 'المساعد الافتراضي',
+  'ac.defaultHint':
+      'المحادثة مع المساعد والردود الصوتية والمهام التي لا يشغّلها وكيل.',
+  'ac.private': 'خاص',
+  'ac.capReached': 'بلغ الحد',
+  'ac.capNear': 'قريب من الحد',
+  'ac.noCap': 'بلا حد',
+  'ac.meter': 'نسبة الحد التي استخدمها {name}',
+  'ac.meterValue': '{used} من {limit}، {percent} بالمئة',
+  'ac.calls.zero': 'لا استدعاءات للنموذج',
+  'ac.calls.one': 'استدعاء واحد للنموذج',
+  'ac.calls.two': 'استدعاءان للنموذج',
+  'ac.calls.few': '{count} استدعاءات للنموذج',
+  'ac.calls.many': '{count} استدعاءً للنموذج',
+  'ac.calls.other': '{count} استدعاء للنموذج',
+  'ac.percentOfCap': '{percent}% من الحد',
+  'ac.tokensUsed': '{used} من {limit} رمز',
+  'ac.costCap': 'الحد الشهري بالدولار لـ {name}',
+  'ac.tokenCap': 'حد الرموز الشهري لـ {name}',
+  'ac.save': 'احفظ',
+  'ac.capInvalid': 'أدخل مبلغًا بالدولار الأمريكي، 0 أو أكثر.',
+  'ac.tokenInvalid': 'أدخل عددًا صحيحًا من الرموز، 0 أو أكثر.',
+  'ac.capSaved': 'حُفظ حد {name}.',
+  'ac.capCleared': 'أُزيل حد {name}.',
+  'ac.capFailed': 'تعذر الحفظ: {message}',
+};

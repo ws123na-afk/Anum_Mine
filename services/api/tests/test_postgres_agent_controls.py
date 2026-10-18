@@ -109,7 +109,7 @@ def test_maintenance_reads_only_the_tenant_and_whether_it_is_engaged(db: None, d
 
 def test_caps_and_usage_stay_in_their_workspace(db: None, database_engine: Engine) -> None:
     with open_agent_controls_store(ctx()) as store:
-        store.set_cap(ctx(), "agent_one", 1.0, NOW)
+        store.set_cap(ctx(), "agent_one", 1.0, None, NOW)
     usage = ModelUsage(input_tokens=10, output_tokens=5, provider="p", model="m", estimated_cost_usd=0.75)
     record_agent_usage(ctx(), "agent_one", usage, now=NOW)
     record_agent_usage(ctx(), "agent_one", usage, now=NOW)

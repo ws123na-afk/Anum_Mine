@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'agent_controls_strings.dart';
 import 'calls_strings.dart';
 import 'brevo_strings.dart';
 import 'business_strings.dart';
@@ -23,12 +24,14 @@ class AnumLocalizations {
       (isArabic ? callsAr : callsEn)[key] ??
       (isArabic ? businessAr : businessEn)[key] ??
       (isArabic ? brevoAr : brevoEn)[key] ??
+      (isArabic ? agentControlsAr : agentControlsEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
       callsEn[key] ??
       businessEn[key] ??
       brevoEn[key] ??
+      agentControlsEn[key] ??
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.
@@ -45,7 +48,12 @@ class AnumLocalizations {
   /// [values] are filled in.
   String p(String key, int count, [Map<String, Object> values = const {}]) {
     final catalog = isArabic ? _ar : _en;
-    String? pick(String form) => catalog['$key.$form'] ?? _en['$key.$form'];
+    final extra = isArabic ? agentControlsAr : agentControlsEn;
+    String? pick(String form) =>
+        catalog['$key.$form'] ??
+        extra['$key.$form'] ??
+        _en['$key.$form'] ??
+        agentControlsEn['$key.$form'];
     final form =
         isArabic ? arabicPluralForm(count) : (count == 1 ? 'one' : 'other');
     final text = (count == 0 ? pick('zero') : null) ??

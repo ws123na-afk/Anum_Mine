@@ -6,8 +6,9 @@ Three tables under forced RLS:
   ``anum.tenant_id``): whether the organization's "stop all agents and sends" switch is on,
   who changed it last, when and why. While it is on the runtime refuses model and tool
   calls, approvals of held sends and scheduled automations for that tenant.
-* ``agent_cost_caps``: one row per agent profile with a monthly estimated-cost limit in USD,
-  scoped by tenant and workspace like the agent profile itself.
+* ``agent_cost_caps``: one row per agent profile (or the default ``assistant``) with a
+  monthly estimated-cost limit in USD and/or a monthly token limit, scoped by tenant and
+  workspace like the agent profile itself.
 * ``agent_usage_monthly``: the model usage attributed to each agent per UTC month, added with
   one ``insert ... on conflict do update`` per call, scoped by tenant and workspace.
 
@@ -79,11 +80,16 @@ def upgrade() -> None:
         sa.Column("tenant_id", sa.String(80), nullable=False),
         sa.Column("workspace_id", sa.String(80), nullable=False),
         sa.Column("agent_id", sa.String(80), nullable=False),
-        sa.Column("monthly_cost_limit_usd", sa.Numeric(18, 6), nullable=False),
+        sa.Column("monthly_cost_limit_usd", sa.Numeric(18, 6), nullable=True),
+        sa.Column("monthly_token_limit", sa.BigInteger(), nullable=True),
         sa.Column("updated_by", sa.String(160), nullable=False),
         sa.Column("updated_at", TS, nullable=False, server_default=sa.func.now()),
         sa.PrimaryKeyConstraint("tenant_id", "workspace_id", "agent_id", name="pk_agent_cost_caps"),
-        sa.CheckConstraint("monthly_cost_limit_usd >= 0", name="ck_agent_cost_caps_limit"),
+        sa.CheckConstraint("monthly_cost_limit_usd is null or monthly_cost_limit_usd >= 0", name="ck_agent_cost_caps_limit"),
+        sa.CheckConstraint("monthly_token_limit is null or monthly_token_limit >= 0", name="ck_agent_cost_caps_tokens"),
+        sa.CheckConstraint(
+            "monthly_cost_limit_usd is not null or monthly_token_limit is not null", name="ck_agent_cost_caps_some_limit"
+        ),
         _workspace_fk("agent_cost_caps"),
     )
     op.create_table(

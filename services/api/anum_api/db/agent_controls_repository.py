@@ -35,7 +35,8 @@ def _totals(row) -> ModelUsageTotals:  # type: ignore[no-untyped-def]
 def _cap(row) -> AgentCap:  # type: ignore[no-untyped-def]
     return AgentCap(
         agent_id=row.agent_id,
-        monthly_cost_limit_usd=float(row.monthly_cost_limit_usd),
+        monthly_cost_limit_usd=None if row.monthly_cost_limit_usd is None else float(row.monthly_cost_limit_usd),
+        monthly_token_limit=None if row.monthly_token_limit is None else int(row.monthly_token_limit),
         updated_by=row.updated_by,
         updated_at=row.updated_at,
     )
@@ -118,7 +119,7 @@ class SqlAlchemyAgentControlsStore:
     def list_caps(self, context: TenantContext) -> list[AgentCap]:
         rows = self.session.execute(
             text(
-                "select agent_id, monthly_cost_limit_usd, updated_by, updated_at from agent_cost_caps "
+                "select agent_id, monthly_cost_limit_usd, monthly_token_limit, updated_by, updated_at from agent_cost_caps "
                 "where tenant_id = :tenant_id and workspace_id = :workspace_id"
             ),
             {"tenant_id": context.tenant_id, "workspace_id": context.workspace_id},
@@ -128,16 +129,18 @@ class SqlAlchemyAgentControlsStore:
     def get_cap(self, context: TenantContext, agent_id: str) -> AgentCap | None:
         row = self.session.execute(
             text(
-                "select agent_id, monthly_cost_limit_usd, updated_by, updated_at from agent_cost_caps "
+                "select agent_id, monthly_cost_limit_usd, monthly_token_limit, updated_by, updated_at from agent_cost_caps "
                 "where tenant_id = :tenant_id and workspace_id = :workspace_id and agent_id = :agent_id"
             ),
             {"tenant_id": context.tenant_id, "workspace_id": context.workspace_id, "agent_id": agent_id},
         ).one_or_none()
         return None if row is None else _cap(row)
 
-    def set_cap(self, context: TenantContext, agent_id: str, limit: float | None, now: datetime) -> AgentCap | None:
+    def set_cap(
+        self, context: TenantContext, agent_id: str, cost: float | None, tokens: int | None, now: datetime
+    ) -> AgentCap | None:
         scope = {"tenant_id": context.tenant_id, "workspace_id": context.workspace_id, "agent_id": agent_id}
-        if limit is None:
+        if cost is None and tokens is None:
             self.session.execute(
                 text(
                     "delete from agent_cost_caps where tenant_id = :tenant_id "
@@ -150,17 +153,22 @@ class SqlAlchemyAgentControlsStore:
         self.session.execute(
             text(
                 """
-                insert into agent_cost_caps (tenant_id, workspace_id, agent_id, monthly_cost_limit_usd, updated_by, updated_at)
-                values (:tenant_id, :workspace_id, :agent_id, :limit, :updated_by, :now)
+                insert into agent_cost_caps (
+                    tenant_id, workspace_id, agent_id, monthly_cost_limit_usd, monthly_token_limit, updated_by, updated_at
+                )
+                values (:tenant_id, :workspace_id, :agent_id, :cost, :tokens, :updated_by, :now)
                 on conflict (tenant_id, workspace_id, agent_id) do update set
                     monthly_cost_limit_usd = excluded.monthly_cost_limit_usd,
+                    monthly_token_limit = excluded.monthly_token_limit,
                     updated_by = excluded.updated_by,
                     updated_at = excluded.updated_at
                 """
             ),
-            {**scope, "limit": limit, "updated_by": context.user_id, "now": now},
+            {**scope, "cost": cost, "tokens": tokens, "updated_by": context.user_id, "now": now},
         )
-        return AgentCap(agent_id=agent_id, monthly_cost_limit_usd=limit, updated_by=context.user_id, updated_at=now)
+        return AgentCap(
+            agent_id=agent_id, monthly_cost_limit_usd=cost, monthly_token_limit=tokens, updated_by=context.user_id, updated_at=now
+        )
 
     # -- usage ---------------------------------------------------------------------------
 
