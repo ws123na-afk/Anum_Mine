@@ -164,4 +164,9 @@ Owner settings (see [Deploy on Oracle](deploy-oracle.md#self-serve-sign-up) and 
 
 ## Not done yet
 
-See the end of this page after each change.
+- The billing contact and address are edited on the web only; the phone shows them.
+- Stripe was exercised only against a stand-in (signatures, idempotency, the Checkout request); the first real test-mode payment should be checked on staging. No Playwright spec drives the Stripe redirect, the console's plan editor, issuer settings form or start-billing dialog.
+- The `anum-provisioner` Keycloak client is created by hand (steps in [Deploy on Oracle](deploy-oracle.md#self-serve-sign-up)); it is not in the realm file and the linking call was tested against a stand-in of Keycloak's admin API.
+- `messages_per_month` is metered and shown but not enforced.
+- The console's MRR and totals assume one currency (SAR); plans in another currency are listed but summed as is.
+- The console's subscription list is assembled in the API process (fine for hundreds of customers, not paged in SQL).
