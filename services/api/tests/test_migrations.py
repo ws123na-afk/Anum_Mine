@@ -1093,3 +1093,22 @@ def test_mail_writers_migration_is_expand_only() -> None:
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "grant select (disconnecting_at) on mail_accounts to anum_maintenance" in upgrade
     assert "grant select (updated_at) on mail_drafts to anum_maintenance" in upgrade
+
+
+def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0076_business_support.py").read_text(encoding="utf-8")
+    assert 'revision = "0076_business_support"' in revision_text and len("0076_business_support") <= 32
+    assert 'down_revision = "0074_brevo_campaigns"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0076_business_support.py"]
+    assert not [path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2
+    assert '"business_support_tickets"' in revision_text and '"business_ticket_replies"' in revision_text
+    assert "for table in tables:\n        _enable_rls(table)" in upgrade and "force row level security" in revision_text and "with check (" in revision_text
+    assert '["tenant_id", "workspace_id", column]' in revision_text
+    # Expand only: the two added columns are nullable, nothing is dropped or altered.
+    assert upgrade.count("op.add_column(") == 2 and upgrade.count("nullable=true)") >= 2
+    assert "alter_column" not in upgrade and "drop " not in upgrade and "op.drop" not in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "uq_business_support_tickets_open_source" in upgrade

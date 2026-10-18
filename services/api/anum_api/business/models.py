@@ -338,6 +338,7 @@ class Activity(BaseModel):
     opportunity_id: str | None = None
     proposal_id: str | None = None
     project_id: str | None = None
+    ticket_id: str | None = None
     kind: str = Field(max_length=60)
     summary: str = Field(max_length=500)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -571,8 +572,171 @@ class ResearchRun(Scoped):
     created_by: str
 
 
+# -- support tickets (roadmap 4.D and P2, docs/business.md#support-tickets) ---------------------------
+
+
+class Severity(StrEnum):
+    CRITICAL = "critical"
+    HIGH = "high"
+    NORMAL = "normal"
+    LOW = "low"
+
+
+class TicketStatus(StrEnum):
+    NEW = "new"
+    TRIAGED = "triaged"
+    IN_PROGRESS = "in_progress"
+    WAITING_ON_CUSTOMER = "waiting_on_customer"
+    RESOLVED = "resolved"
+    CLOSED = "closed"
+
+
+OPEN_TICKET_STATUSES = frozenset({TicketStatus.NEW, TicketStatus.TRIAGED, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_ON_CUSTOMER})
+
+# Which status a ticket may move to from each status (docs/business.md#ticket-states).
+TICKET_TRANSITIONS: dict[TicketStatus, frozenset[TicketStatus]] = {
+    TicketStatus.NEW: frozenset({TicketStatus.TRIAGED, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_ON_CUSTOMER, TicketStatus.RESOLVED}),
+    TicketStatus.TRIAGED: frozenset({TicketStatus.IN_PROGRESS, TicketStatus.WAITING_ON_CUSTOMER, TicketStatus.RESOLVED}),
+    TicketStatus.IN_PROGRESS: frozenset({TicketStatus.TRIAGED, TicketStatus.WAITING_ON_CUSTOMER, TicketStatus.RESOLVED}),
+    TicketStatus.WAITING_ON_CUSTOMER: frozenset({TicketStatus.IN_PROGRESS, TicketStatus.RESOLVED}),
+    TicketStatus.RESOLVED: frozenset({TicketStatus.CLOSED, TicketStatus.IN_PROGRESS}),
+    TicketStatus.CLOSED: frozenset({TicketStatus.IN_PROGRESS}),
+}
+
+
+class TicketSource(StrEnum):
+    MANUAL = "manual"
+    EMAIL = "email"
+    WHATSAPP = "whatsapp"
+
+
+class Entitlement(StrEnum):
+    """What covers the work: a delivered project, a support plan (a catalog version) or nothing yet."""
+
+    PROJECT = "project"
+    SUPPORT_PLAN = "support_plan"
+    NONE = "none"
+
+
+class ResolutionCode(StrEnum):
+    FIXED = "fixed"
+    WORKAROUND = "workaround"
+    ANSWERED = "answered"
+    NO_FAULT_FOUND = "no_fault_found"
+    DUPLICATE = "duplicate"
+    OUT_OF_SCOPE = "out_of_scope"
+
+
+class SeverityTarget(BaseModel):
+    """Targets in working hours (inside the policy's working days and hours), never wall-clock."""
+
+    response_hours: Annotated[Decimal, Field(gt=0, le=1000, max_digits=6, decimal_places=2), PlainSerializer(float, return_type=float, when_used="json")]
+    resolution_hours: Annotated[Decimal, Field(gt=0, le=5000, max_digits=7, decimal_places=2), PlainSerializer(float, return_type=float, when_used="json")]
+
+
+def _default_targets() -> dict[str, SeverityTarget]:
+    return {
+        Severity.CRITICAL.value: SeverityTarget(response_hours=Decimal("2"), resolution_hours=Decimal("16")),
+        Severity.HIGH.value: SeverityTarget(response_hours=Decimal("4"), resolution_hours=Decimal("40")),
+        Severity.NORMAL.value: SeverityTarget(response_hours=Decimal("8"), resolution_hours=Decimal("80")),
+        Severity.LOW.value: SeverityTarget(response_hours=Decimal("16"), resolution_hours=Decimal("160")),
+    }
+
+
+class SupportPolicy(BaseModel):
+    """The owner's support capacity: working days and hours in one time zone and the targets per
+    severity counted only inside them. There is no 24/7 cover; a ticket that arrives at night
+    starts counting when the next working day starts."""
+
+    timezone: str = Field(default="Asia/Riyadh", min_length=3, max_length=64)
+    # Python weekdays: Monday 0 to Sunday 6. Sunday to Thursday by default (Saudi Arabia).
+    work_days: list[int] = Field(default_factory=lambda: [6, 0, 1, 2, 3], min_length=1, max_length=7)
+    start_hour: int = Field(default=9, ge=0, le=23)
+    end_hour: int = Field(default=17, ge=1, le=24)
+    targets: dict[str, SeverityTarget] = Field(default_factory=_default_targets)
+    note: str = Field(default="", max_length=500)
+
+
+class SupportTicket(Scoped):
+    title: str = Field(min_length=3, max_length=200)
+    description: str = Field(default="", max_length=4000)
+    account_id: str | None = None
+    contact_id: str | None = None
+    project_id: str | None = None
+    requester_name: str = Field(default="", max_length=160)
+    requester_email: str | None = Field(default=None, max_length=254)
+    requester_phone: str | None = Field(default=None, max_length=40)
+    # True when the requester matched a Business contact by e-mail or phone.
+    requester_verified: bool = False
+    entitlement: Entitlement = Entitlement.NONE
+    support_offer_id: str | None = None
+    entitlement_note: str = Field(default="", max_length=300)
+    severity: Severity = Severity.NORMAL
+    status: TicketStatus = TicketStatus.NEW
+    assignee_id: str | None = Field(default=None, max_length=160)
+    source: TicketSource = TicketSource.MANUAL
+    # A link to the inbound message, never a copy: an email message id or a WhatsApp conversation id.
+    source_ref: str | None = Field(default=None, max_length=80)
+    source_account_id: str | None = Field(default=None, max_length=80)
+    # When the customer asked: the inbound message's time, or when the ticket was opened. The SLA counts from here.
+    reported_at: datetime
+    response_due_at: datetime | None = None
+    resolution_due_at: datetime | None = None
+    first_responded_at: datetime | None = None
+    sla_paused_at: datetime | None = None
+    # Working minutes spent waiting on the customer (or between resolving and reopening): they
+    # extend the resolution target.
+    sla_paused_minutes: int = Field(default=0, ge=0)
+    escalated: bool = False
+    escalation_reason: str = Field(default="", max_length=300)
+    escalated_at: datetime | None = None
+    escalated_by: str | None = None
+    resolution_code: ResolutionCode | None = None
+    resolution_summary: str = Field(default="", max_length=2000)
+    resolved_at: datetime | None = None
+    resolved_by: str | None = None
+    closed_at: datetime | None = None
+    closed_by: str | None = None
+    reopened_count: int = 0
+    created_by: str
+
+
+class ReplyChannel(StrEnum):
+    EMAIL = "email"
+    WHATSAPP = "whatsapp"
+
+
+class ReplyStatus(StrEnum):
+    DRAFT = "draft"
+    PENDING_APPROVAL = "pending_approval"
+    SENT = "sent"
+    FAILED = "failed"
+    DISCARDED = "discarded"
+
+
+class TicketReply(Scoped):
+    """A reply to the requester. It stays a draft here; asking to deliver it hands exactly this text to
+    the channel's own approval path (the email inbox's ``send_email`` or WhatsApp's send), where an
+    owner approves it with the payload hash. ANUM never sends it from here."""
+
+    ticket_id: str
+    channel: ReplyChannel
+    body: str = Field(min_length=1, max_length=4000)
+    status: ReplyStatus = ReplyStatus.DRAFT
+    generator: str = "person"  # person | agent
+    external_ref: str | None = Field(default=None, max_length=80)
+    approval_id: str | None = Field(default=None, max_length=80)
+    task_id: str | None = Field(default=None, max_length=80)
+    error: str = Field(default="", max_length=500)
+    requested_by: str | None = None
+    requested_at: datetime | None = None
+    sent_at: datetime | None = None
+    created_by: str
+
+
 class BusinessSettings(BaseModel):
     research_runs_per_day: int = Field(default=10, ge=0, le=100)
     research_searches_per_day: int = Field(default=30, ge=0, le=500)
+    support_policy: SupportPolicy = Field(default_factory=SupportPolicy)
     updated_by: str | None = None
     updated_at: datetime | None = None
