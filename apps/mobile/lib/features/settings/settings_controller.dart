@@ -9,6 +9,7 @@ import '../learning/learning_repository.dart';
 import '../privacy/privacy_repository.dart';
 import '../push/push_controller.dart';
 import '../team/team_repository.dart';
+import '../agent_controls/agent_controls_data.dart';
 
 enum SettingsPhase {
   initial,
@@ -27,7 +28,8 @@ class SettingsController extends ChangeNotifier {
       this.push,
       this.autonomy,
       this.learning,
-      this.team});
+      this.team,
+      this.agentControls});
   final AuthRepository repository;
 
   /// Members, invitations and model budgets; the API decides who may use them.
@@ -48,6 +50,10 @@ class SettingsController extends ChangeNotifier {
 
   /// Team work, notifications, assistants and organisations (docs/team-work.md).
   final TeamRepository? team;
+
+  /// The organization's emergency stop and per-agent cost caps
+  /// (docs/agent-controls.md).
+  final AgentControlsRepository? agentControls;
   SettingsPhase phase = SettingsPhase.initial;
   LocalSession? session;
   ModelConfiguration? model;

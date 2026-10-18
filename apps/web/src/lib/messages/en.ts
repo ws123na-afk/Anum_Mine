@@ -16,6 +16,7 @@ import { appCallsEn } from './appCalls.en.ts';
 import { marketingEn } from './marketing.en.ts';
 import { businessEn } from './business.en.ts';
 import { brevoEn } from './brevo.en.ts';
+import { agentControlsEn } from './agentControls.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { setupPlanEn } from './setupPlan.en.ts';
@@ -53,6 +54,7 @@ export const en = {
   ...marketingEn,
   ...businessEn,
   ...brevoEn,
+  ...agentControlsEn,
   ...agentSkillsEn,
   ...orgChartEn,
   ...mailCenterEn,
@@ -1864,6 +1866,7 @@ export const en = {
   'auto.outcome.workflow_paused': 'Skipped: automation paused',
   'auto.outcome.owner_inactive': 'Failed: schedule owner no longer a member',
   'auto.outcome.workspace_archived': 'Skipped: workspace archived',
+  'auto.outcome.emergency_stop': 'Skipped: emergency stop on',
   'auto.sched.title': 'Schedules',
   'auto.sched.add': 'Add schedule',
   'auto.sched.help': 'Schedules run this automation as the person who created the schedule. They fire only while the API scheduler is enabled.',
@@ -2066,6 +2069,7 @@ export const en = {
   'auto.trig.outcome.skipped_overlap': 'skipped, a run was still active',
   'auto.trig.outcome.owner_inactive': 'skipped, the owner is no longer a member (take it over)',
   'auto.trig.outcome.workspace_archived': 'skipped, workspace archived',
+  'auto.trig.outcome.emergency_stop': 'skipped, the emergency stop is on',
   'auto.trig.outcome.loop_skipped': 'skipped, the event came from this automation',
   'auto.trig.outcome.disabled': 'refused, trigger off',
   'auto.status.active': 'Active',

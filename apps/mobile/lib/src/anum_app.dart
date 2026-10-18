@@ -81,6 +81,7 @@ import 'infrastructure/mobile_adapters.dart';
 import 'theme/anum_theme.dart';
 import 'theme/theme_controller.dart';
 import 'localization/anum_localizations.dart';
+import '../features/agent_controls/agent_controls_data.dart';
 
 abstract final class AnumRoutes {
   static const splash = '/splash';
@@ -311,6 +312,7 @@ class _AnumAppState extends State<AnumApp> {
       push: push,
       learning: ApiLearningRepository(api),
       team: ApiTeamRepository(api),
+      agentControls: ApiAgentControlsRepository(api),
     );
     workspace.onApprovalDecided = _offerPushAfterApproval;
     // In-app calls between teammates (docs/in-app-calls.md#flutter).

@@ -23,6 +23,10 @@ When an agent proposes a risky action, the runtime should pause execution, emit 
 
 Approval prompts should be concrete. Users need to see what will happen, which account or integration will be used, what data will be sent, what can be undone, and why ANUM is asking. The product should avoid vague prompts such as "approve this action".
 
+## Emergency stop
+
+While the organization's [emergency stop](agent-controls.md) is on, `POST /api/v1/approvals/{id}/approve` answers `423` (`agents_stopped`) and the approval stays pending; rejecting still works. The tool registry refuses the call even if it was approved earlier.
+
 ## Now
 
 Support basic approval records, task pausing, approve/reject decisions, audit logging, and one high-risk sample action.

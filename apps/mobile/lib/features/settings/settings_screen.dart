@@ -17,6 +17,8 @@ import '../privacy/privacy_screen.dart';
 import '../push/push_settings_card.dart';
 import '../team/team_screens.dart';
 import '../team/team_strings.dart';
+import '../agent_controls/agent_controls_data.dart';
+import '../agent_controls/agent_controls_screen.dart';
 
 /// Parts of Settings that Profile and settings opens directly.
 enum SettingsSection { profile, notifications, privacy, security }
@@ -176,6 +178,26 @@ class _Content extends StatelessWidget {
             if (controller.team != null) ...[
               _Heading(TeamText.of(context).t('section')),
               TeamHubCard(repository: controller.team!),
+            ],
+            if (controller.agentControls != null) ...[
+              _Heading('Agent controls'),
+              Card(
+                  child: ListTile(
+                      key: const Key('open-agent-controls'),
+                      leading: const Icon(Icons.gpp_maybe_outlined),
+                      title: const Text('Emergency stop and agent caps'),
+                      subtitle: const Text(
+                          'Stop every agent and send at once, and cap monthly cost per agent.'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  OwnedController<AgentControlsController>(
+                                      create: () => AgentControlsController(
+                                          controller.agentControls!),
+                                      builder: (_, c) => AgentControlsScreen(
+                                          controller: c)))))),
             ],
             if (controller.admin != null) ...[
               _Heading('Workspace administration'),

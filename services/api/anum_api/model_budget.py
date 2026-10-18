@@ -250,7 +250,13 @@ def budget_exceeded_message(scope: BudgetScope, kind: BudgetKind, resets_on: dat
 
 
 class ModelBudgetExceededError(Exception):
-    """A tenant or workspace has used its model budget for the current UTC month."""
+    """A tenant or workspace has used its model budget for the current UTC month.
+
+    ``code`` is the API error code; subclasses (the emergency stop and per-agent caps in
+    ``agent_controls.py``) override it and the message.
+    """
+
+    code = "model_budget_exceeded"
 
     def __init__(self, scope: BudgetScope, kind: BudgetKind, resets_on: date) -> None:
         self.scope = scope
@@ -299,8 +305,18 @@ def _scope_states(
     }
 
 
-def check_model_budget(context: TenantContext, *, now: datetime | None = None) -> None:
-    """Raise :class:`ModelBudgetExceededError` when a model call may not start."""
+def check_model_budget(
+    context: TenantContext, *, now: datetime | None = None, agent_id: str | None = None
+) -> None:
+    """Raise :class:`ModelBudgetExceededError` when a model call may not start.
+
+    The tenant's emergency stop comes first (``AgentsStoppedError``, a subclass), then the
+    organization and workspace budgets, then ``agent_id``'s own monthly cap when the call is
+    made for an agent (``AgentCapExceededError``, docs/agent-controls.md).
+    """
+    from .agent_controls import check_agent_cap, require_agents_running
+
+    require_agents_running(context)
     month = month_start(now or utc_now())
     with open_model_budget_store(context) as store:
         states = _scope_states(store, context, month)
@@ -325,7 +341,8 @@ def check_model_budget(context: TenantContext, *, now: datetime | None = None) -
                 },
             )
             raise ModelBudgetExceededError(scope, kind, next_month_start(month))
-
+    if agent_id is not None:
+        check_agent_cap(context, agent_id, now=now)
 
 
 def _log_safe(value: str) -> str:
@@ -400,20 +417,29 @@ class BudgetedModelGateway:
         context: TenantContext,
         *,
         clock: Callable[[], datetime] = utc_now,
+        agent_id: str | None = None,
     ) -> None:
         self.inner = inner
         self.context = context
         self._clock = clock
+        # The agent profile this gateway's calls are made for (its monthly cap and usage).
+        self.agent_id = agent_id
+
+    def for_agent(self, agent_id: str | None) -> BudgetedModelGateway:
+        """The same gateway, with every call attributed to ``agent_id`` and behind its cap."""
+        if agent_id == self.agent_id:
+            return self
+        return BudgetedModelGateway(self.inner, self.context, clock=self._clock, agent_id=agent_id)
 
     def for_route(self, route: ModelRoute) -> BudgetedModelGateway:
         """The routed inner gateway, still behind this workspace's budget."""
         routed = route_gateway(self.inner, route)
-        return self if routed is self.inner else BudgetedModelGateway(routed, self.context, clock=self._clock)
+        return self if routed is self.inner else BudgetedModelGateway(routed, self.context, clock=self._clock, agent_id=self.agent_id)
 
     def with_image(self, image: VisionImage) -> BudgetedModelGateway | None:
         """The inner gateway's vision variant (voice calls), still behind the budget."""
         variant = vision_gateway(self.inner, image)
-        return None if variant is None else BudgetedModelGateway(variant, self.context, clock=self._clock)
+        return None if variant is None else BudgetedModelGateway(variant, self.context, clock=self._clock, agent_id=self.agent_id)
 
     def with_tool_round(self, tool_round: Any) -> BudgetedModelGateway | None:
         """The inner gateway's tool round (voice grounding), still behind the budget; None
@@ -422,7 +448,7 @@ class BudgetedModelGateway:
         variant = getattr(self.inner, "with_tool_round", None)
         if not callable(variant):
             return None
-        return BudgetedModelGateway(variant(tool_round), self.context, clock=self._clock)
+        return BudgetedModelGateway(variant(tool_round), self.context, clock=self._clock, agent_id=self.agent_id)
 
     def __getattr__(self, name: str) -> Any:
         # provider, model, base_url ... of the wrapped gateway (voice checks `provider`).
@@ -431,7 +457,10 @@ class BudgetedModelGateway:
     async def _check(self) -> None:
         # The budget and usage rows are database reads and writes: in a worker thread,
         # never on the event loop (docs/realtime.md#event-loop).
-        await asyncio.to_thread(check_model_budget, self.context, now=self._clock())
+        if self.agent_id is None:
+            await asyncio.to_thread(check_model_budget, self.context, now=self._clock())
+        else:
+            await asyncio.to_thread(check_model_budget, self.context, now=self._clock(), agent_id=self.agent_id)
 
     async def _record_async(self, response: ModelResponse) -> None:
         await asyncio.to_thread(self._record, response)
@@ -445,6 +474,10 @@ class BudgetedModelGateway:
     def _record(self, response: ModelResponse) -> None:
         try:
             record_model_usage(self.context, response.usage, now=self._clock())
+            if self.agent_id is not None:
+                from .agent_controls import record_agent_usage
+
+                record_agent_usage(self.context, self.agent_id, response.usage, now=self._clock())
         except Exception as exc:  # the call already happened; never fail the user's request
             logger.warning(
                 "model_budget_record_failed error_class=%s",

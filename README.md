@@ -131,6 +131,7 @@ x-user-roles: owner,member
 - [Approvals and risk](docs/approvals-and-risk.md)
 - [Notifications and phone push](docs/notifications.md)
 - [Autonomy](docs/autonomy.md)
+- [Agent controls: emergency stop and per-agent cost caps](docs/agent-controls.md)
 - [Team work and department assistants](docs/team-work.md)
 - [Customer organisations](docs/customer-organisations.md)
 - [Data architecture](docs/data-architecture.md)

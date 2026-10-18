@@ -66,6 +66,11 @@ class AgentPlanner:
         # unless the agent asks for the fast one.
         route = ModelRoute(agent.model_route) if agent is not None else ModelRoute.CAPABLE
         planner = route_gateway(self.model_gateway, route)
+        # As an agent, the call counts against that agent's monthly cost cap and usage
+        # (docs/agent-controls.md); gateways without budgets have no ``for_agent``.
+        bind_agent = getattr(planner, "for_agent", None) if agent is not None else None
+        if callable(bind_agent) and agent is not None:
+            planner = bind_agent(agent.id)
         # The agent's persona, then the user's learned style, then the task: text for
         # the model only, never what selects a skill or tool.
         preface = [part for part in (agent.persona() if agent is not None else None, learned_block) if part]

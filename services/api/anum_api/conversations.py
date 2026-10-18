@@ -62,7 +62,7 @@ from .dependencies import has_permission, repository_context, require_permission
 from .localization import Language, localize_message, request_language
 from .learning import SignalKind, Surface
 from .learning_store import learned_instructions, new_signal, record_server_signal
-from .model_budget import ModelBudgetExceededError, budget_exceeded_message, check_model_budget
+from .model_budget import ModelBudgetExceededError, check_model_budget
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
 from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
 from .punctuation import PLAIN_PUNCTUATION_RULE
@@ -513,7 +513,7 @@ async def stream_reply(
         raise
     except ModelBudgetExceededError as exc:
         # Accept-Language of the request (docs/web-localization.md): the code stays the same.
-        error = ("model_budget_exceeded", localize_message(budget_exceeded_message(exc.scope, exc.kind, exc.resets_on), language))
+        error = (exc.code, localize_message(exc.message, language))
     except Exception as exc:  # reported to the client; only the class name is logged
         logger.warning(
             "conversation_reply_failed error_class=%s",

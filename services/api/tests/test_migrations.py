@@ -1093,3 +1093,24 @@ def test_mail_writers_migration_is_expand_only() -> None:
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "grant select (disconnecting_at) on mail_accounts to anum_maintenance" in upgrade
     assert "grant select (updated_at) on mail_drafts to anum_maintenance" in upgrade
+
+
+def test_agent_controls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0075_agent_controls.py").read_text(encoding="utf-8")
+    assert 'revision = "0075_agent_controls"' in revision_text and len("0075_agent_controls") <= 32
+    assert 'down_revision = "0074_brevo_campaigns"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0075_agent_controls.py"]
+    assert not [path for path in others if 'down_revision = "0074_brevo_campaigns"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 3
+    for table in ("agent_emergency_stops", "agent_cost_caps", "agent_usage_monthly"):
+        assert f'"{table}"' in revision_text
+    assert '_force_rls("agent_emergency_stops", tenant_predicate)' in upgrade
+    assert "force row level security" in revision_text.split("def _force_rls", 1)[1]
+    assert "op.add_column(" not in upgrade and "op.drop" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # One narrow grant: discovery of due sends reads two columns, never the reason.
+    assert upgrade.count("grant ") == 1
+    assert "grant select (tenant_id, engaged) on agent_emergency_stops to anum_maintenance" in upgrade
+    assert "for select to anum_maintenance" in upgrade

@@ -199,6 +199,7 @@ from .retrieval_api import forget_memory, index_memory_note, retriever_for, rout
 from .inline_runs import RunClaimLost, claim_expired, run_inline
 from .skills_api import configure_tool_catalog, router as skills_router
 from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
+from .agent_controls import AgentsStoppedError, agents_stopped, configure_cancel_notifier, router as agent_controls_router
 from .onboarding import budgeted_model_gateway, router as onboarding_router
 from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
@@ -341,6 +342,15 @@ async def model_budget_exceeded_handler(request: Request, exc: ModelBudgetExceed
     )
 
 
+@app.exception_handler(AgentsStoppedError)
+async def agents_stopped_handler(request: Request, exc: AgentsStoppedError) -> Response:
+    # 423: the organization's emergency stop is on (docs/agent-controls.md).
+    return await application_error_handler(
+        request,
+        ApplicationError(ErrorCode.AGENTS_STOPPED, exc.message, status_code=status.HTTP_423_LOCKED),
+    )
+
+
 app.include_router(voice_router)
 app.include_router(voice_call_router)
 app.include_router(conversations_router)
@@ -358,6 +368,7 @@ app.include_router(membership_directory_router)
 app.include_router(audit_log_router)
 app.include_router(workspace_admin_router)
 app.include_router(model_budget_router)
+app.include_router(agent_controls_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
 app.include_router(email_router)
@@ -426,6 +437,15 @@ configure_runtime_catalog(tool_registry)
 # with ANUM_RUNTIME_BACKEND=temporal, a dispatcher that hands runs to the worker.
 run_locks = build_run_lock_manager(settings)
 run_dispatcher = build_run_dispatcher(settings)
+
+
+async def _signal_cancelled(context: TenantContext, task_id: str) -> None:
+    if run_dispatcher is not None:
+        await run_dispatcher.cancelled(context, task_id)
+
+
+# Tasks the emergency stop cancels are signalled like a person's Cancel (docs/agent-controls.md).
+configure_cancel_notifier(_signal_cancelled)
 # The autonomy routes run undo actions through the same registry (docs/autonomy.md).
 app.state.tool_registry = tool_registry
 # Chat questions that need data or an action run as tasks through this same runtime,
@@ -1695,6 +1715,10 @@ async def approve(
     # Owners hold approval:decide; anyone else may decide only an approval an organization
     # approval rule routes to them (checked in _decide_approval_locked).
     require_permission(context, Permission.APPROVAL_READ)
+    # While the emergency stop is on a held action stays held: approving it is refused (423)
+    # and it stays pending; rejecting it still works (docs/agent-controls.md).
+    if await asyncio.to_thread(agents_stopped, context):
+        raise AgentsStoppedError()
     return await _decide_approval(
         approval_id,
         ApprovalStatus.APPROVED,

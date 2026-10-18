@@ -181,6 +181,8 @@ export type ApiErrorCode =
   | 'not_found'
   | 'conflict'
   | 'model_budget_exceeded'
+  /** The organization's emergency stop is on (423): agents, automations and sends are paused. */
+  | 'agents_stopped'
   | 'gone'
   | 'payload_too_large'
   | 'rate_limited'

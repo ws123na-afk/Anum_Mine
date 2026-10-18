@@ -30,6 +30,9 @@ WORKSPACE_A2 = "workspace_test_a2"
 WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
+    "agent_usage_monthly",
+    "agent_cost_caps",
+    "agent_emergency_stops",
     "app_call_signals",
     "app_calls",
     "call_ai_requests",
@@ -408,6 +411,17 @@ def repository_factory(
             yield SqlAlchemyRepository(session, created_by_user_id="user_test")
 
     return factory
+
+
+@pytest.fixture(autouse=True)
+def _agents_running() -> Iterator[None]:
+    """The in-memory emergency stop and agent caps are process-wide: every test starts with
+    the stop off and no caps (docs/agent-controls.md)."""
+    from anum_api.agent_controls import memory_agent_controls_store
+
+    memory_agent_controls_store.clear()
+    yield
+    memory_agent_controls_store.clear()
 
 
 @pytest.fixture(autouse=True)

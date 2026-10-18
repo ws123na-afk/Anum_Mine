@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import Awaitable, Callable, Iterable
 from enum import StrEnum
@@ -123,6 +124,16 @@ class ToolRegistry:
         handler = self._handlers.get(call.name)
         if handler is None:
             return ToolResult(status="blocked", summary=f"Unknown tool: {call.name}")
+        # The organization's emergency stop refuses every tool call, whichever path reached
+        # it, so nothing leaves ANUM while it is on (docs/agent-controls.md).
+        from .agent_controls import STOP_TOOL_SUMMARY, agents_stopped
+
+        if await asyncio.to_thread(agents_stopped, context):
+            return ToolResult(
+                status="blocked",
+                summary=STOP_TOOL_SUMMARY,
+                audit_metadata={"outcome": "emergency_stop"},
+            )
         # The last check before anything leaves ANUM: a recipient on the contact
         # suppression list is never sent to, whichever path reached the tool
         # (docs/privacy.md#contact-suppression).

@@ -28,6 +28,8 @@ class ErrorCode(StrEnum):
     NOT_FOUND = "not_found"
     CONFLICT = "conflict"
     MODEL_BUDGET_EXCEEDED = "model_budget_exceeded"
+    # The organization's emergency stop is on (HTTP 423, docs/agent-controls.md).
+    AGENTS_STOPPED = "agents_stopped"
     GONE = "gone"
     PAYLOAD_TOO_LARGE = "payload_too_large"
     RATE_LIMITED = "rate_limited"
