@@ -451,6 +451,25 @@ def test_every_state_changing_route_is_audited_without_content(fake: FakeServer)
     probe.call("POST", f"/api/v1/mail/drafts/{draft['id']}/send", OWNER, json={"idempotency_key": "send-key-0401", "send_at": later})
     probe.call("POST", f"/api/v1/mail/drafts/{draft['id']}/cancel-schedule", OWNER)
     probe.call("DELETE", f"/api/v1/mail/drafts/{draft['id']}", OWNER)
+    # Phase 3 part A: shares, sender identities and contacts.
+    from anum_api.schemas import WorkspaceMembership, utc_now
+
+    store.memberships[(TENANT, WORKSPACE, "member_mc")] = WorkspaceMembership(
+        tenant_id=TENANT, workspace_id=WORKSPACE, user_id="member_mc", role="member", created_at=utc_now(), updated_at=utc_now()
+    )
+    try:
+        grant = probe.call("POST", f"{base}/grants", OWNER, json={"grantee_user_id": "member_mc", "access": "read"}).json()
+        probe.call("PATCH", f"/api/v1/mail/grants/{grant['id']}", OWNER, json={"access": "send"})
+        probe.call("DELETE", f"/api/v1/mail/grants/{grant['id']}", OWNER)
+    finally:
+        store.memberships.pop((TENANT, WORKSPACE, "member_mc"), None)
+    signature = "A private signature"
+    identity = probe.call("POST", f"{base}/identities", OWNER, sent=[signature], json={"address": "sales@example.test", "signature": signature}).json()
+    probe.call("PATCH", f"/api/v1/mail/identities/{identity['id']}", OWNER, sent=[signature], json={"signature": signature, "is_default": True})
+    probe.call("DELETE", f"/api/v1/mail/identities/{identity['id']}", OWNER)
+    contact = probe.call("POST", "/api/v1/mail/contacts", OWNER, sent=["Sara Private", "sara@client.example"], json={"name": "Sara Private", "email": "sara@client.example"}).json()
+    probe.call("PATCH", f"/api/v1/mail/contacts/{contact['id']}", OWNER, sent=["Private note"], json={"notes": "Private note"})
+    probe.call("DELETE", f"/api/v1/mail/contacts/{contact['id']}", OWNER)
     probe.call("DELETE", base, OWNER)
     probe.assert_covered()
     assert mail_backend.accounts == {} and store is not None

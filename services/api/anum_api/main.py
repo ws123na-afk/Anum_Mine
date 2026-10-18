@@ -149,6 +149,7 @@ from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
 from .mailbox.ai_api import router as mail_ai_router
 from .mailbox.api import router as mail_router
+from .mailbox.sharing_api import router as mail_sharing_router
 from .mailbox.operator_api import router as mail_operator_router
 from .mailbox.outgoing import build_schedule_runner
 from .mailbox.service import register_mail_tools
@@ -346,6 +347,7 @@ app.include_router(whatsapp_router)
 app.include_router(email_router)
 app.include_router(mail_ai_router)
 app.include_router(mail_router)
+app.include_router(mail_sharing_router)
 app.include_router(mail_operator_router)
 app.include_router(calendar_router)
 app.include_router(marketing_router)

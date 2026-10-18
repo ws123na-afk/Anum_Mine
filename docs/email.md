@@ -123,29 +123,40 @@ Then restart the API, open **Inbox** in the web app and choose **Connect**.
 
 ## Email Center (own mail server)
 
-The Email Center reads and sends mail through the workspace's **own mail server** (for ANUM: Mailcow at `mail.anum360os.com`) over IMAP (implicit TLS, port 993) and SMTP submission (STARTTLS on 587, or TLS on 465). It is separate from the OAuth inbox above: its own tables, routes (`/api/v1/mail`) and tools. Code: `services/api/anum_api/mailbox/` (`config.py`, `server.py`, `mime.py`, `html_safe.py`, `store.py`, `service.py`, `api.py`, `outgoing.py`), `db/mailbox_repository.py`, migrations `0060_email_center` and `0062_mail_outgoing`; tests `services/api/tests/test_mail_center.py`, `test_mail_outgoing.py` and `test_postgres_mail_outgoing.py`.; web `apps/web/src/MailOutgoing.tsx` (attachments, send later, the Scheduled list).
+The Email Center reads and sends mail through the workspace's **own mail server** (for ANUM: Mailcow at `mail.anum360os.com`) over IMAP (implicit TLS, port 993) and SMTP submission (STARTTLS on 587, or TLS on 465). It is separate from the OAuth inbox above: its own tables, routes (`/api/v1/mail`) and tools. Code: `services/api/anum_api/mailbox/` (`config.py`, `server.py`, `mime.py`, `html_safe.py`, `store.py`, `service.py`, `api.py`, `outgoing.py`), `db/mailbox_repository.py`, migrations `0060_email_center`, `0062_mail_outgoing` and `0066_mail_sharing_contacts`; shares, identities and contacts in `mailbox/sharing_api.py`; tests `services/api/tests/test_mail_center.py`, `test_mail_outgoing.py`, `test_postgres_mail_outgoing.py`, `test_mail_sharing.py` and `test_postgres_mail_sharing.py`; web `apps/web/src/MailOutgoing.tsx` (attachments, send later, the Scheduled list) and `apps/web/src/MailDirectory.tsx` (mailboxes, sharing, send as, contacts).
 
 It is **off** until the operator sets `ANUM_MAILSERVER_ENABLED=true`.
 
 ### How it works
 
 - **Connecting.** A person types their mailbox address and its password (use a mail server *app password* limited to IMAP and SMTP). ANUM signs in to the IMAP server once to check it, then stores the password only as Fernet ciphertext (`ANUM_SECRETS_KEY`, re-encrypted by `rotate_secrets`). The password is never returned, logged or audited. The server host and ports come only from operator settings, never from the person, so there is no way to point ANUM at another host. Only addresses on `ANUM_MAILSERVER_ALLOWED_DOMAINS` can be connected, and only organisations listed in `ANUM_MAILSERVER_ALLOWED_TENANTS` may use the mail server at all. Login checks are limited to `ANUM_MAILSERVER_CONNECT_ATTEMPTS_PER_HOUR` per person (5).
-- **Private.** A mailbox belongs to the person who connected it: forced RLS plus a restrictive `owner_user_id = anum.user_id` policy on both tables, and every query repeats the owner. Workspace owners do not see other people's mailboxes.
+- **Private, unless its owner shares it.** A mailbox belongs to the person who connected it: forced RLS plus restrictive owner policies, and every query repeats the owner. Workspace owners do not see other people's mailboxes. A person may connect several mailboxes; the page lists their own first, then those shared with them.
+- **Sharing.** The owner of a mailbox can share it with another active owner or member of the workspace (never a viewer, never someone outside it), to **read** or to **send**. Read: folders, lists, messages and attachment downloads, without marking anything read. Send: also flags, moves, drafts, replies and asking to send. The mailbox's settings, its password, its shares, its sender identities and deleting for good stay with the owner. Each share is a row in `mail_account_grants` that names the mailbox owner and is tied to the mailbox by a foreign key on (tenant, workspace, mailbox, owner), so nobody can write a share for a mailbox that is not theirs; the reading policy of `mail_accounts` admits the owner and people with a share, while inserting, updating and deleting a mailbox stay owner only. The owner changes or removes a share; the person it was shared with can remove their own (leave). Messages written in a shared mailbox belong to the person who wrote them: the owner does not see their drafts. Sending still waits for an owner of the workspace to approve the exact message, and at send time the share is checked again: a message approved after its writer lost send access is not sent. While a share is gone, the writer's drafts in that mailbox are hidden from them. The send limit counts each writer's own sends per mailbox.
+- **Sender identities.** The owner can add up to 20 addresses (aliases) a mailbox sends as, each with a display name, a plain text signature and one default. Their domain must be on `ANUM_MAILSERVER_ALLOWED_DOMAINS`, and the mail server must let that mailbox send as the address (in Mailcow: an alias of the mailbox, or the address in the mailbox's "Allow to send as" list); otherwise the server refuses the send and the message shows as failed. A new message starts from the default identity with its signature (above the quoted text in a reply); picking another sender in the composer swaps the signature. The approval names the From address, and the message goes out with it in `From:` and as the envelope sender. People with send access pick from the identities; they cannot change them.
+- **Contacts.** Each person has their own address book (`mail_contacts`, owner only): name, address (stored in lower case, one contact per address), company, phone and notes, at most 5000. The Contacts drawer searches name, address and company, pages by name, and adds, edits and removes contacts; the composer suggests contacts as a person types in To, Cc or Bcc.
 - **Reading.** Folders, message lists and messages are read live from the server (nothing is copied into ANUM). Opening a message marks it read. HTML is sanitized on the server with an allowlist (no script, style blocks, frames, forms or event handlers; links limited to http, https and mailto; remote and `cid:` images removed and counted), and the web app shows it in a sandboxed iframe with `default-src 'none'`, so opening mail never loads anything from the sender. Attachments download only (`Content-Disposition: attachment`, `nosniff`, a sandbox CSP, at most `ANUM_MAILSERVER_ATTACHMENT_MAX_BYTES`). Messages over `ANUM_MAILSERVER_MESSAGE_MAX_BYTES` are refused with a pointer to webmail.
 - **Writing.** New messages, replies, reply to all and forwards are drafts in ANUM (`mail_drafts`), each with a Message-ID made when it is created on the sender's own domain. Replies carry `In-Reply-To` and `References` and quote the original text.
 - **Sending.** `POST /drafts/{id}/send` with an `idempotency_key` creates a task paused at the high-risk `send_mail` tool with exactly the sender, recipients, subject and text. Nothing is sent until an owner approves with the payload hash (`POST /api/v1/approvals/{id}/approve`). Then the draft is claimed atomically (`pending_approval` to `sending`), submitted once over SMTP to the workspace server (which relays it onward), and the same bytes are saved to the Sent folder (skipped if a message with that Message-ID is already there); a reply also sets `\Answered` on the original. Editing a draft withdraws its approval. The same key always returns the same message and approval; a key used for another message is refused (409). If the connection breaks while the server is taking the message, the draft becomes `unknown` and is never retried by itself: the person checks Sent. At most `ANUM_MAILSERVER_SEND_PER_HOUR` sends per mailbox per hour (30) and `ANUM_MAILSERVER_MAX_RECIPIENTS` recipients per message (50).
 - **Attachments and scheduled send**: see [Attachments](#attachments) and [Scheduled send](#scheduled-send) below. Both are part of the approved call, so the payload hash covers the files and the time.
 - **Deleting for good** (Trash and Junk only) pauses the high-risk `delete_mail` tool for approval of exactly those messages. Archive, Junk, Trash and back to the inbox are plain moves.
 - **Audit.** Every state-changing route writes an audit record with ids and counts only (`tests/audit_probe.py` walks them all).
-- **Privacy.** "Download my data" exports the caller's mailboxes (never the password, not even encrypted), the messages written in ANUM and the names, types, sizes and SHA-256 of their attached files; "Delete my data" deletes them and the stored files. Mail on the server is not ANUM's copy and is not touched.
+- **Privacy.** "Download my data" exports the caller's mailboxes (never the password, not even encrypted), the messages written in ANUM, the names, types, sizes and SHA-256 of their attached files, their mailboxes' sender identities and shares, the shares they received and their contacts; "Delete my data" deletes their mailboxes (with those shares and identities), every message they wrote (in shared mailboxes too) and the stored files, the shares they received and their contacts. Mail on the server is not ANUM's copy and is not touched.
 
 ### Who can do what
 
-| Role | Read | Connect own mailbox, flags, moves, drafts, ask to send | Approve sending or deleting for good |
+| Role | Read | Connect own mailbox, flags, moves, drafts, ask to send, contacts, share own mailbox | Approve sending or deleting for good |
 | --- | --- | --- | --- |
 | Owner | yes | yes | yes |
 | Member | yes | yes | no |
 | Viewer | no | no | no |
+
+Within a mailbox, what a person may do depends on their access to it:
+
+| Access | Read | Flags, moves, drafts, ask to send, use identities | Password, disconnect, shares, identities, delete for good |
+| --- | --- | --- | --- |
+| Its owner | yes | yes | yes |
+| Shared to send | yes | yes | no |
+| Shared to read | yes (nothing is marked read) | no | no |
 
 ### API (`/api/v1/mail`)
 
@@ -153,8 +164,8 @@ Errors use the API's usual body `{"error": {"code", "message", ...}}`; `message`
 
 | Method and path | Body or query | Answer |
 | --- | --- | --- |
-| `GET /setup` | | `MailSetup {enabled, configured, tenant_allowed, imap_host, imap_port, smtp_host, smtp_port, smtp_security, allowed_domains[], can_read, can_act, max_recipients, send_per_hour, attachment_max_bytes, attachments_per_message, attachments_total_bytes, attachment_extensions[], attachments_accepted, schedule_max_days, accounts: AccountView[]}` |
-| `POST /accounts` | `{address, password, display_name?}` | 201 `AccountView {id, address, display_name, status: connected\|auth_failed\|offline\|error, last_error, last_checked_at, created_at}` |
+| `GET /setup` | | `MailSetup {enabled, configured, tenant_allowed, imap_host, imap_port, smtp_host, smtp_port, smtp_security, allowed_domains[], can_read, can_act, max_recipients, send_per_hour, attachment_max_bytes, attachments_per_message, attachments_total_bytes, attachment_extensions[], attachments_accepted, schedule_max_days, accounts: AccountView[]}` (own mailboxes first, then shared ones) |
+| `POST /accounts` | `{address, password, display_name?}` | 201 `AccountView {id, address, display_name, status: connected\|auth_failed\|offline\|error, last_error, last_checked_at, created_at, access: owner\|send\|read, owner_user_id, shared_with, grant_id (the caller's own share of a mailbox shared with them, to leave it)}` |
 | `PUT /accounts/{id}/password` | `{password}` | `AccountView` (checked against the server first) |
 | `POST /accounts/{id}/check` | | `AccountView` with fresh health (sync status) |
 | `DELETE /accounts/{id}` | | 204; forgets the password and drafts |
@@ -166,9 +177,9 @@ Errors use the API's usual body `{"error": {"code", "message", ...}}`; `message`
 | `POST /accounts/{id}/move` | `{folder, uids[], to}` (`to` is a role: inbox, archive, junk, trash, or a folder id) | `ActionResult` |
 | `POST /accounts/{id}/delete` | `{folder, uids[]}` (Trash or Junk only) | `ActionResult {status: waiting_approval, approval}` |
 | `GET /drafts` | `account_id?`, `limit` (100) | `DraftView[]` newest first |
-| `POST /drafts` | `{account_id, kind: new\|reply\|reply_all\|forward, folder?, uid?, include_attachments? (forward, default true)}` | 201 `DraftView {id, account_id, kind, to[], cc[], bcc[], subject, body, in_reply_to, message_id, status: draft\|pending_approval\|scheduled\|sending\|sent\|failed\|unknown, error, approval: Approval\|null, approval_note, saved_to_sent, sent_at, send_at, attachments: OutgoingFile[], attachment_note, created_at, updated_at}` |
+| `POST /drafts` | `{account_id, identity_id?, kind: new\|reply\|reply_all\|forward, folder?, uid?, include_attachments? (forward, default true)}` | 201 `DraftView {id, account_id, identity_id, from_address, from_name, kind, to[], cc[], bcc[], subject, body, in_reply_to, message_id, status: draft\|pending_approval\|scheduled\|sending\|sent\|failed\|unknown, error, approval: Approval\|null, approval_note, saved_to_sent, sent_at, send_at, attachments: OutgoingFile[], attachment_note, created_at, updated_at}` |
 | `GET /drafts/{id}` | | `DraftView` |
-| `PATCH /drafts/{id}` | `{to?, cc?, bcc?, subject?, body?}` | `DraftView`; withdraws a pending approval |
+| `PATCH /drafts/{id}` | `{to?, cc?, bcc?, subject?, body?, identity_id?}` (`identity_id: null` sends as the mailbox address) | `DraftView`; withdraws a pending approval |
 | `DELETE /drafts/{id}` | | 204 (mail on the server stays) |
 | `POST /drafts/{id}/send` | `{idempotency_key, send_at?}` (key: 8 to 120 characters, letters, digits, `._:-`; `send_at`: ISO 8601 with a zone) | `{draft: DraftView, approval: Approval\|null}` |
 | `POST /drafts/{id}/cancel-schedule` | | `DraftView` (back to a draft; 409 when not scheduled or already being sent) |
@@ -176,6 +187,19 @@ Errors use the API's usual body `{"error": {"code", "message", ...}}`; `message`
 | `POST /drafts/{id}/attachments` | `?name=` and the file as the raw body | 201 `OutgoingFile {id, filename, content_type, size, sha256, scanned, created_at}`; withdraws a pending approval or a schedule |
 | `DELETE /drafts/{id}/attachments/{file_id}` | | 204; withdraws a pending approval or a schedule |
 | `GET /drafts/{id}/attachments/{file_id}` | | the file as a download |
+
+| `GET /accounts/{id}/grants` | (owner) | `GrantView[] {id, account_id, grantee_user_id, grantee_email, access: read\|send, created_at, updated_at}` |
+| `GET /accounts/{id}/share-candidates` | `q?` (owner) | `{user_id, email, role, grant_id, access}[]`: active owners and members other than the caller |
+| `POST /accounts/{id}/grants` | `{grantee_user_id, access}` (owner) | 201 `GrantView`; sharing again with the same person changes the access |
+| `PATCH /grants/{id}` | `{access}` (owner) | `GrantView` |
+| `DELETE /grants/{id}` | | 204: the owner stops sharing, or the person it was shared with leaves |
+| `GET /accounts/{id}/identities` | | `IdentityView[] {id, account_id, address, display_name, signature, is_default, created_at, updated_at}`, default first; empty for read access |
+| `POST /accounts/{id}/identities` | `{address, display_name?, signature?, is_default?}` (owner) | 201 `IdentityView` |
+| `PATCH /identities/{id}` | `{display_name?, signature?, is_default?}` (owner) | `IdentityView` |
+| `DELETE /identities/{id}` | (owner) | 204; drafts that used it go back to the mailbox address |
+| `GET /contacts` | `q?`, `limit` (1 to 100, 25), `cursor?` | `ContactPage {items: ContactView[], total, next_cursor}`; `ContactView {id, name, email, company, phone, notes, created_at, updated_at}` |
+| `POST /contacts` | `{name?, email, company?, phone?, notes?}` | 201 `ContactView`; 409 when the address is already a contact |
+| `GET /contacts/{id}`, `PATCH /contacts/{id}`, `DELETE /contacts/{id}` | | `ContactView`, `ContactView`, 204 |
 
 `Approval` is the shape used everywhere (`action`, `arguments`, `payload_hash`, `expires_at`, ...); approve with `POST /api/v1/approvals/{approval.id}/approve {"payload_hash": approval.payload_hash}`.
 
@@ -317,7 +341,8 @@ High-risk mail tools carry `always_ask`: workspace autonomy can never lower thei
 
 - Push (IMAP IDLE) and a server-side background sync: the page refreshes folder counts while it is open; the sidebar badge is not updated while the Email page is closed.
 - Undo for a move: a moved message gets a new UID in its new folder, so the way back is the folder itself (Restore from Trash, Not junk, Move to inbox).
-- Several mailboxes or identities per person, contacts, labels.
+- Labels.
+- Shared address books (contacts are personal), sharing a mailbox's identities per person, and a workspace wide send limit for shared mailboxes (the limit counts each writer).
 - Attaching an existing workspace file (only files from the device are attached), and an inline preview of attached files.
 - On the phone: attaching files, scheduling and deleting for good (done on the web), and downloading attachments.
 - A screen for the operator view: it is the API above.

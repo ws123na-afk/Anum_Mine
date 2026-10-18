@@ -2,10 +2,11 @@
 // Folders with unread counts, a paged list with search and filters, the message in a sandboxed frame
 // (sanitized on the server, nothing remote loads), reply, reply all, forward and new messages written
 // as drafts, and sending only after an owner approves the exact message (payload hash shown). Flags,
-// moves, and delete for good (an approval too) act on one message or a selection.
+// moves, and delete for good (an approval too) act on one message or a selection. Phase 3: several
+// mailboxes (own and shared), sharing, sender identities and contacts (MailDirectory.tsx).
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  ArrowLeft, AtSign, CircleDot, Download, FileText, Forward, Lock, Mail, MailOpen, Paperclip, PenLine, Plug, RefreshCw, Reply, ReplyAll, Send, Settings, ShieldCheck, Trash2, Unplug,
+  ArrowLeft, AtSign, CircleDot, Contact, Download, FileText, Forward, Lock, Mail, MailOpen, Paperclip, PenLine, Plug, RefreshCw, Reply, ReplyAll, Send, Settings, ShieldCheck, Trash2, Unplug,
 } from 'lucide-react';
 import * as api from './lib/api';
 import { shortHash } from './lib/approvals';
@@ -32,6 +33,8 @@ import { viewLabel } from './lib/shell';
 import { Drawer } from './Dialog';
 import { MailAssist } from './MailAssist';
 import { DeleteApproval, MailBulkBar, MailSearchBar, StarButton, SyncStatus, actionDone, actionLabel, useMailShortcuts, useMailSync } from './MailActions';
+import { ContactsPanel, FromPicker, IdentitiesPanel, LeaveShared, MailboxPicker, RecipientField, SharedNotice, SharingPanel } from './MailDirectory';
+import { canSendFrom, ownsMailbox, pickAccount, senderLabel, type MailContact } from './lib/mailDirectory';
 import { PageHeader, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import { useIsOwner } from './useIsOwner';
 import './email.css';
@@ -42,6 +45,15 @@ type Approval = ReturnType<typeof toApproval>;
 
 const when = (value: string) => formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short' });
 const PAGE = 25;
+const MAILBOX_KEY = 'anum.mail.mailbox';
+
+/** The mailbox this viewer last opened (a per-browser convenience; storage may be unavailable). */
+function rememberedMailbox(): string | null {
+  try { return window.localStorage.getItem(MAILBOX_KEY); } catch { return null; }
+}
+function rememberMailbox(id: string): void {
+  try { window.localStorage.setItem(MAILBOX_KEY, id); } catch { /* private mode: not remembered */ }
+}
 
 function Notice({ note }: { note: Note }) {
   if (!note) return null;
@@ -65,6 +77,9 @@ export function EmailView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
   const [loadError, setLoadError] = useState('');
   const [note, setNote] = useState<Note>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [contactsOpen, setContactsOpen] = useState(false);
+  const [accountId, setAccountId] = useState<string | null>(() => rememberedMailbox());
+  const [openDraft, setOpenDraft] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setState('loading');
@@ -82,7 +97,7 @@ export function EmailView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
   if (!setup.configured) return <>{head()}<Panel icon={<Plug />} title={t('mail.notConfigured.title')} text={t('mail.notConfigured.text')} /></>;
   if (!setup.tenant_allowed) return <>{head()}<Panel icon={<Lock />} title={t('mail.tenant.title')} text={t('mail.tenant.text')} /></>;
 
-  const account = setup.accounts[0] ?? null;
+  const account = pickAccount(setup.accounts, accountId);
   if (!account) {
     return <>{head()}<Notice note={note} />
       {setup.can_act ? <ConnectForm setup={setup} onConnected={(a) => { setNote({ text: t('mail.connect.done', { address: a.address }) }); void load(); }} />
@@ -90,18 +105,47 @@ export function EmailView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
     </>;
   }
 
+  const pick = (id: string) => { setAccountId(id); rememberMailbox(id); setNote(null); };
+  const writable = setup.can_act && canSendFrom(account);
+  async function writeTo(contact: MailContact) {
+    if (!account) return;
+    setContactsOpen(false); setNote(null);
+    try {
+      const draft = await createMailDraft({ account_id: account.id, kind: 'new' });
+      await updateMailDraft(draft.id, { to: [contact.email] });
+      setOpenDraft(draft.id);
+    } catch (e) { setNote({ text: t('mail.composer.startFailed', { reason: mailError(e) }), error: true }); }
+  }
+
   return <div className="mailLayout">
     <Mailbox key={account.id} setup={setup} account={account} owner={owner} note={note} setNote={setNote} onOpenApprovals={onOpenApprovals}
+      openDraft={openDraft} onDraftOpened={() => setOpenDraft(null)}
       header={(actions) => head(<>
+        <MailboxPicker accounts={setup.accounts} currentId={account.id} onPick={pick} />
         <button type="button" className={`chipButton ${account.status === 'connected' ? 'success' : 'warning'}`} aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
-          <span className="chipDot" aria-hidden="true" /><span>{account.address}</span><span className="visuallyHidden">{t(`mail.status.${account.status}` as MessageKey)}</span>
+          {/* With the mailbox picker beside it, the chip names the status; otherwise the address. */}
+          <span className="chipDot" aria-hidden="true" />{setup.accounts.length > 1
+            ? <span>{t(`mail.status.${account.status}` as MessageKey)}</span>
+            : <><span>{account.address}</span><span className="visuallyHidden">{t(`mail.status.${account.status}` as MessageKey)}</span></>}
         </button>
+        <button type="button" className="secondary" aria-haspopup="dialog" onClick={() => setContactsOpen(true)}><Contact aria-hidden="true" />{t('mails.contacts.open')}</button>
         <button type="button" className="secondary" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}><Settings aria-hidden="true" />{t('mail.settings')}</button>
         {actions}
       </>)} />
     {settingsOpen && <Drawer title={t('mail.settings')} onClose={() => setSettingsOpen(false)}>
-      <MailboxSettings setup={setup} account={account} onChanged={(next) => setSetup((s) => s ? { ...s, accounts: s.accounts.map((a) => a.id === next.id ? next : a) } : s)}
-        onDisconnected={() => { setSettingsOpen(false); setNote({ text: t('mail.settings.disconnected', { address: account.address }) }); publishMailUnread(0); void load(); }} />
+      {ownsMailbox(account) ? <>
+        <MailboxSettings setup={setup} account={account} onChanged={(next) => setSetup((s) => s ? { ...s, accounts: s.accounts.map((a) => a.id === next.id ? { ...a, ...next } : a) } : s)}
+          onDisconnected={() => { setSettingsOpen(false); setNote({ text: t('mail.settings.disconnected', { address: account.address }) }); publishMailUnread(0); void load(); }} />
+        {setup.can_act && <SharingPanel account={account} onCount={(count) => setSetup((s) => s ? { ...s, accounts: s.accounts.map((a) => a.id === account.id ? { ...a, shared_with: count } : a) } : s)} />}
+        {setup.can_act && <IdentitiesPanel account={account} setup={setup} />}
+      </> : <LeaveShared account={account} onLeft={() => { setSettingsOpen(false); setNote({ text: t('mails.leave.done', { address: account.address }) }); setAccountId(null); void load(); }} />}
+      {setup.can_act && <details className="mailsAdd"><summary><Plug aria-hidden="true" />{t('mails.mailbox.add')}</summary>
+        <p className="muted">{t('mails.mailbox.addText')}</p>
+        <ConnectForm setup={setup} onConnected={(a) => { setSettingsOpen(false); pick(a.id); setNote({ text: t('mail.connect.done', { address: a.address }) }); void load(); }} />
+      </details>}
+    </Drawer>}
+    {contactsOpen && <Drawer title={t('mails.contacts.title')} onClose={() => setContactsOpen(false)}>
+      <ContactsPanel canAct={setup.can_act} onWrite={writable ? (c) => void writeTo(c) : undefined} />
     </Drawer>}
   </div>;
 }
@@ -137,12 +181,14 @@ function ConnectForm({ setup, onConnected }: { setup: MailSetup; onConnected: (a
   </section>;
 }
 
-function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals }: {
+function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals, openDraft, onDraftOpened }: {
   setup: MailSetup; account: MailAccount; owner: boolean; note: Note; setNote: (n: Note) => void; header: (actions: ReactNode) => ReactNode; onOpenApprovals?: () => void;
+  openDraft?: string | null; onDraftOpened?: () => void;
 }) {
   const wide = useMediaQuery(SPLIT_QUERY);
   const widest = useMediaQuery(RAIL_QUERY);
-  const canAct = setup.can_act;
+  // A mailbox shared to read only: nothing here changes it (the API refuses the same).
+  const canAct = setup.can_act && canSendFrom(account);
   const [folders, setFolders] = useState<MailFolder[]>([]);
   const [foldersState, setFoldersState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [foldersError, setFoldersError] = useState('');
@@ -201,6 +247,10 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
   }, [account.id, setNote]);
 
   useEffect(() => { if (folderId) void loadList(folderId, filters); }, [folderId, filters, loadList]);
+  useEffect(() => {
+    if (!openDraft) return;
+    setPane({ kind: 'draft', id: openDraft }); loadDrafts(); onDraftOpened?.();
+  }, [openDraft, loadDrafts, onDraftOpened]);
 
   const sync = useMailSync({
     enabled: foldersState === 'ready',
@@ -278,7 +328,8 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
     finally { setBusy(null); }
   }
 
-  const moves = folder ? availableMoves(folder.role, folders) : [];
+  // Deleting for good is the mailbox owner's alone.
+  const moves = folder ? availableMoves(folder.role, folders).filter((m) => m !== 'deleteForever' || ownsMailbox(account)) : [];
   useMailShortcuts(true, (shortcut) => {
     if (shortcut === 'search') { searchRef.current?.focus(); return; }
     if (shortcut === 'next' || shortcut === 'previous') {
@@ -309,6 +360,7 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
       {canAct && <button type="button" disabled={busy !== null} onClick={() => void startDraft('new')}><PenLine aria-hidden="true" />{t('mail.compose')}</button>}
     </>)}
     <Notice note={note} />
+    <SharedNotice account={account} />
     {account.status === 'auth_failed' && <Notice note={{ text: t('mail.authFailed'), error: true }} />}
     <SplitView className="mailSplit" layout="three" show={show} label={t('mail.folders')}>
       <aside data-pane="nav" className="pane mailNav" aria-label={t('mail.folders')}>
@@ -456,6 +508,7 @@ function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed,
   const [draft, setDraft] = useState<MailDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState({ to: '', cc: '', bcc: '', subject: '', body: '' });
+  const [identityId, setIdentityId] = useState<string | null>(null);
   const [showBcc, setShowBcc] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<Note>(null);
@@ -469,6 +522,7 @@ function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed,
   const adopt = useCallback((d: MailDraft) => {
     setDraft(d); changed.current(d);
     setFields({ to: joinRecipients(d.to), cc: joinRecipients(d.cc), bcc: joinRecipients(d.bcc), subject: d.subject, body: d.body });
+    setIdentityId(d.identity_id ?? null);
     if (d.bcc.length) setShowBcc(true);
   }, []);
   const load = useCallback(() => { setError(null); getMailDraft(draftId).then(adopt, (e) => setError(mailError(e))); }, [draftId, adopt]);
@@ -491,11 +545,11 @@ function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed,
     setBusy(kind); setNote(null);
     try { await fn(); } catch (e) { setNote({ text: mailError(e), error: true }); } finally { setBusy(null); }
   }
-  async function save(): Promise<MailDraft | null> {
+  async function save(identity: string | null | undefined = undefined): Promise<MailDraft | null> {
     const parsed = { to: parseRecipients(fields.to), cc: parseRecipients(fields.cc), bcc: parseRecipients(fields.bcc) };
     for (const value of Object.values(parsed)) if (!value.ok) { setNote({ text: t('mail.composer.badAddress', { value: value.bad }), error: true }); return null; }
     const ok = parsed as { [K in keyof typeof parsed]: { ok: true; value: string[] } };
-    const saved = await updateMailDraft(draft!.id, { to: ok.to.value, cc: ok.cc.value, bcc: ok.bcc.value, subject: fields.subject, body: fields.body });
+    const saved = await updateMailDraft(draft!.id, { to: ok.to.value, cc: ok.cc.value, bcc: ok.bcc.value, subject: fields.subject, body: fields.body, ...(identity !== undefined ? { identity_id: identity } : {}) });
     sendKey.current = null;
     adopt(saved);
     return saved;
@@ -528,6 +582,8 @@ function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed,
   }
 
   const set = (key: keyof typeof fields) => (e: { target: { value: string } }) => setFields((f) => ({ ...f, [key]: e.target.value }));
+  const setValue = (key: 'to' | 'cc' | 'bcc') => (value: string) => setFields((f) => ({ ...f, [key]: value }));
+  const fromText = draft.from_address ? senderLabel(draft.from_name, draft.from_address) : senderLabel(account.display_name, account.address);
   return <article className="mailComposer" aria-labelledby={ids.title}>
     <div className="mailReaderBar">
       <button type="button" className="secondary mailBack" onClick={onBack}><ArrowLeft aria-hidden="true" />{t('mail.reader.back')}</button>
@@ -539,10 +595,12 @@ function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed,
     {draft.status === 'sent' && draft.saved_to_sent === false && <Notice note={{ text: t('mail.draft.sentCopyMissing') }} />}
     {draft.approval_note && <Notice note={{ text: draft.approval_note }} />}
     <form className="mailForm" onSubmit={(e) => { e.preventDefault(); void run('send', send); }}>
-      <p className="mailFrom"><span className="muted">{t('mail.composer.from')}</span> <span dir="auto">{account.display_name ? `${account.display_name} <${account.address}>` : account.address}</span></p>
-      <label className="field" htmlFor={ids.to}><span>{t('mail.composer.to')}</span><input id={ids.to} dir="ltr" value={fields.to} disabled={!editable} aria-describedby={ids.hint} onChange={set('to')} /></label>
-      <label className="field" htmlFor={ids.cc}><span>{t('mail.composer.cc')}</span><input id={ids.cc} dir="ltr" value={fields.cc} disabled={!editable} aria-describedby={ids.hint} onChange={set('cc')} /></label>
-      {showBcc ? <label className="field" htmlFor={ids.bcc}><span>{t('mail.composer.bcc')}</span><input id={ids.bcc} dir="ltr" value={fields.bcc} disabled={!editable} aria-describedby={ids.hint} onChange={set('bcc')} /></label>
+      <FromPicker account={account} value={identityId} disabled={!editable || busy !== null}
+        onChange={(next) => void run('identity', async () => { const saved = await save(next); if (saved) setNote({ text: t('mails.from.changed', { address: saved.from_address ?? account.address }) }); })}
+        fallback={<p className="mailFrom"><span className="muted">{t('mail.composer.from')}</span> <span dir="auto">{fromText}</span></p>} />
+      <RecipientField label={t('mail.composer.to')} value={fields.to} disabled={!editable} describedBy={ids.hint} onChange={setValue('to')} />
+      <RecipientField label={t('mail.composer.cc')} value={fields.cc} disabled={!editable} describedBy={ids.hint} onChange={setValue('cc')} />
+      {showBcc ? <RecipientField label={t('mail.composer.bcc')} value={fields.bcc} disabled={!editable} describedBy={ids.hint} onChange={setValue('bcc')} />
         : editable && <button type="button" className="linkButton mailBccToggle" onClick={() => setShowBcc(true)}>{t('mail.composer.showBcc')}</button>}
       <small id={ids.hint} className="muted">{t('mail.composer.recipientsHint', { max: setup.max_recipients })}</small>
       <label className="field" htmlFor={ids.subject}><span>{t('mail.composer.subject')}</span><input id={ids.subject} dir="auto" maxLength={500} value={fields.subject} disabled={!editable} onChange={set('subject')} /></label>
@@ -551,7 +609,7 @@ function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed,
       <Notice note={note} />
       {approval && <div className="mailApproval" role="group" aria-label={t('mail.approval.title')}>
         <p><Send aria-hidden="true" /> <strong>{t('mail.approval.title')}</strong></p>
-        <p className="muted">{approvalAt ? t('mailo.approval.scheduleText', { when: when(approvalAt), from: account.address, to: draft.to.join(', ') }) : t('mail.approval.text', { from: account.address, to: draft.to.join(', ') })}{fileCount > 0 ? ` ${t('mailo.approval.files', { count: fileCount })}` : ''}</p>
+        <p className="muted">{approvalAt ? t('mailo.approval.scheduleText', { when: when(approvalAt), from: draft.from_address || account.address, to: draft.to.join(', ') }) : t('mail.approval.text', { from: draft.from_address || account.address, to: draft.to.join(', ') })}{fileCount > 0 ? ` ${t('mailo.approval.files', { count: fileCount })}` : ''}</p>
         <p className="mailHash"><span className="muted">{t('mail.approval.hash')}</span> <code title={approval.payloadHash ?? ''}>{shortHash(approval.payloadHash)}</code></p>
         {dirty && <p className="muted">{t('email.approval.dirty')}</p>}
         <div className="actions">

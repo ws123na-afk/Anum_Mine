@@ -2,8 +2,10 @@
 
 Permissions: reading needs ``email:read``; connecting one's own mailbox, flags, moves,
 drafts and asking to send need ``email:act`` (owners and members; viewers have no mail).
-A mailbox is private to the person who connected it (row policy and every query). Sending
-and deleting for good pause for an approval bound to the exact call (payload hash).
+A mailbox belongs to the person who connected it; its owner may share it with other members
+to read or to send (``mail_account_grants``, row policy and every query). Settings, shares,
+identities and deleting for good stay with the owner. Sending and deleting for good pause
+for an approval bound to the exact call (payload hash).
 Every state-changing route writes an audit record with ids and counts, never content.
 Attachments (uploaded through the workspace upload checks and malware-scan hook) and a send
 time are part of the approved call; a scheduled message goes at its time (``outgoing.py``).
@@ -54,17 +56,24 @@ from .service import (
     on_server,
     require_available,
     send_arguments,
+    sender_of,
+    swap_signature,
+    with_signature,
     take_connect_attempt,
     tenant_allowed,
     utc_iso,
 )
 from . import monitor, service
-from .store import EDITABLE, AccountStatus, DraftKind, DraftStatus, MailAccount, MailAttachment, MailDraft, open_mail_store
+from .store import EDITABLE, Access, AccountStatus, DraftKind, DraftStatus, MailAccount, MailAttachment, MailDraft, MailIdentity, allows, open_mail_store
 
 router = APIRouter(prefix="/api/v1/mail", tags=["mail"])
 
 READ_DENIED = "Reading email needs the owner or member role in this workspace."
 ACT_DENIED = "Using a mailbox needs the owner or member role in this workspace."
+NEEDS = {
+    "send": "This mailbox is shared with you to read only. Ask its owner to let you send from it.",
+    "owner": "Only the mailbox's owner can do this.",
+}
 MAX_BODY = 100_000
 MAX_LIMIT = 50
 KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,119}$"
@@ -116,6 +125,13 @@ class AccountView(BaseModel):
     last_error: str | None
     last_checked_at: str | None
     created_at: str
+    # owner: the caller's own mailbox; send or read: shared with the caller by owner_user_id.
+    access: Access = "owner"
+    owner_user_id: str
+    # How many people the owner shared it with (0 when the caller is not the owner).
+    shared_with: int = 0
+    # The caller's own share of a mailbox shared with them (to leave it); null for their own.
+    grant_id: str | None = None
 
 
 class MailSetup(BaseModel):
@@ -244,6 +260,9 @@ class OutgoingFileView(BaseModel):
 class DraftView(BaseModel):
     id: str
     account_id: str
+    identity_id: str | None
+    from_address: str
+    from_name: str
     kind: DraftKind
     to: list[str]
     cc: list[str]
@@ -269,6 +288,8 @@ class DraftView(BaseModel):
 
 class DraftCreate(BaseModel):
     account_id: str = Field(min_length=1, max_length=80)
+    # Send as this identity of the mailbox; empty: the mailbox's default identity, else its address.
+    identity_id: str | None = Field(default=None, max_length=80)
     kind: DraftKind = "new"
     folder: str | None = Field(default=None, max_length=500)
     uid: int | None = Field(default=None, ge=1)
@@ -282,6 +303,8 @@ class DraftUpdate(BaseModel):
     bcc: list[str] | None = Field(default=None, max_length=100)
     subject: str | None = Field(default=None, max_length=500)
     body: str | None = Field(default=None, max_length=MAX_BODY)
+    # Another sender identity of the same mailbox, or null for the mailbox address itself.
+    identity_id: str | None = Field(default=None, max_length=80)
 
 
 class SendBody(BaseModel):
@@ -298,12 +321,21 @@ class SendResponse(BaseModel):
 # -- views --------------------------------------------------------------------------------------
 
 
-def _account_view(account: MailAccount) -> AccountView:
+def _account_view(account: MailAccount, access: Access = "owner", shared_with: int = 0, grant_id: str | None = None) -> AccountView:
     return AccountView(
         id=account.id, address=account.address, display_name=account.display_name, status=account.status,
         last_error=account.last_error, last_checked_at=account.last_checked_at.isoformat() if account.last_checked_at else None,
-        created_at=account.created_at.isoformat(),
+        created_at=account.created_at.isoformat(), access=access, owner_user_id=account.owner_user_id,
+        shared_with=shared_with if access == "owner" else 0, grant_id=grant_id if access != "owner" else None,
     )
+
+
+def accounts_for(context: TenantContext) -> list[AccountView]:
+    """The caller's own mailboxes first, then those shared with them."""
+    with open_mail_store(context) as store:
+        own = [_account_view(a, "owner", len(store.list_grants(a.id))) for a in store.list_accounts()]
+        shared = [_account_view(a, g.access, grant_id=g.id) for a, g in store.list_shared_accounts()]
+    return own + shared
 
 
 def _person(person: Person) -> PersonView:
@@ -330,10 +362,19 @@ def _file_view(attachment: MailAttachment) -> OutgoingFileView:
     )
 
 
-def _draft_view(draft: MailDraft, repository: AnumRepository, context: TenantContext, attachments: list[MailAttachment] | None = None) -> DraftView:
+def _draft_view(
+    draft: MailDraft, repository: AnumRepository, context: TenantContext, attachments: list[MailAttachment] | None = None,
+    account: MailAccount | None = None, identity: MailIdentity | None = None,
+) -> DraftView:
     if attachments is None:
         with open_mail_store(context) as store:
             attachments = store.list_attachments(draft.id)
+    if account is None or (draft.identity_id and identity is None):
+        with open_mail_store(context) as store:
+            found = store.get_accessible_account(draft.account_id) if account is None else (account, "owner")
+            account = found[0] if found else None
+            identity = store.get_identity(draft.identity_id) if draft.identity_id else None
+    from_address, from_name = sender_of(account, identity) if account else ("", "")
     approval = None
     note = None
     shown = draft.status
@@ -345,7 +386,8 @@ def _draft_view(draft: MailDraft, repository: AnumRepository, context: TenantCon
             shown = DraftStatus.DRAFT
             note = (f"The send approval was {found.status.value}." if found is not None else "The send approval is gone.") + " Check the message and send it again."
     return DraftView(
-        id=draft.id, account_id=draft.account_id, kind=draft.kind, to=draft.to, cc=draft.cc, bcc=draft.bcc,
+        id=draft.id, account_id=draft.account_id, identity_id=draft.identity_id if identity else None,
+        from_address=from_address, from_name=from_name, kind=draft.kind, to=draft.to, cc=draft.cc, bcc=draft.bcc,
         subject=draft.subject, body=draft.body, in_reply_to=draft.in_reply_to, message_id=draft.message_id, status=shown,
         error=draft.error, approval=approval, approval_note=note, saved_to_sent=draft.saved_to_sent,
         sent_at=draft.sent_at.isoformat() if draft.sent_at else None, send_at=utc_iso(draft.send_at),
@@ -354,21 +396,42 @@ def _draft_view(draft: MailDraft, repository: AnumRepository, context: TenantCon
     )
 
 
-def _load_account(context: TenantContext, account_id: str) -> MailAccount:
+def load_access(context: TenantContext, account_id: str, need: Access = "owner") -> tuple[MailAccount, Access]:
+    """The mailbox if the caller owns it or it is shared with them at ``need`` or more."""
     with open_mail_store(context) as store:
-        account = store.get_account(account_id)
-    if account is None:
+        found = store.get_accessible_account(account_id)
+    if found is None:
         raise HTTPException(status_code=404, detail="Mailbox not found.")
-    return account
+    if not allows(found[1], need):
+        raise HTTPException(status_code=403, detail=NEEDS[need])
+    return found
 
 
-def _load_draft(context: TenantContext, draft_id: str) -> tuple[MailDraft, MailAccount]:
+def _load_account(context: TenantContext, account_id: str, need: Access = "owner") -> MailAccount:
+    return load_access(context, account_id, need)[0]
+
+
+def _load_draft(context: TenantContext, draft_id: str, need: Access = "read") -> tuple[MailDraft, MailAccount]:
+    """One of the caller's own messages, with its mailbox (still shared with them at ``need``)."""
     with open_mail_store(context) as store:
         draft = store.get_draft(draft_id)
-        account = store.get_account(draft.account_id) if draft else None
-    if draft is None or account is None:
+        found = store.get_accessible_account(draft.account_id) if draft else None
+    if draft is None or found is None:
         raise HTTPException(status_code=404, detail="Message not found.")
-    return draft, account
+    if not allows(found[1], need):
+        raise HTTPException(status_code=403, detail=NEEDS["send"])
+    return draft, found[0]
+
+
+def _identity_for(context: TenantContext, account: MailAccount, identity_id: str | None) -> MailIdentity | None:
+    """A sender identity of ``account`` the caller may use (422 when it is not one)."""
+    if not identity_id:
+        return None
+    with open_mail_store(context) as store:
+        identity = store.get_identity(identity_id)
+    if identity is None or identity.account_id != account.id:
+        raise HTTPException(status_code=422, detail="Pick a sender this mailbox can send as.")
+    return identity
 
 
 async def _server(context: TenantContext, account: MailAccount, job: Any) -> Any:
@@ -387,10 +450,7 @@ async def get_setup(context: TenantContext = Depends(tenant_context)) -> MailSet
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     cfg = mail_settings
     allowed = cfg.enabled and tenant_allowed(context, cfg)
-    accounts: list[AccountView] = []
-    if allowed:
-        with open_mail_store(context) as store:
-            accounts = [_account_view(a) for a in store.list_accounts()]
+    accounts: list[AccountView] = accounts_for(context) if allowed else []
     return MailSetup(
         enabled=cfg.enabled, configured=cfg.configured, tenant_allowed=allowed,
         imap_host=cfg.imap_host or None, imap_port=cfg.imap_port, smtp_host=cfg.smtp_host or None, smtp_port=cfg.smtp_port,
@@ -482,14 +542,20 @@ async def check_account(
     """Sign in to the mail server now and record the mailbox's health."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     _available(context)
-    account = _load_account(context, account_id)
+    account, access = load_access(context, account_id, "read")
     try:
         await on_server(context, account, lambda server: server.check_login())
     except MailError as exc:
         _audit(repository, context, "mail.account.check", account.id, "failure", {"reason": exc.kind})
-        return _account_view(_load_account(context, account_id))
+        if access != "owner":
+            # A shared mailbox's health is its owner's to record: answer with what this check saw.
+            failed = AccountStatus.AUTH_FAILED if exc.kind == "auth" else AccountStatus.OFFLINE if exc.kind in {"offline", "tls"} else AccountStatus.ERROR
+            return _account_view(account.model_copy(update={"status": failed, "last_error": exc.message, "last_checked_at": utc_now()}), access)
+        return _account_view(_load_account(context, account_id), access)
     _audit(repository, context, "mail.account.check", account.id)
-    return _account_view(_load_account(context, account_id))
+    if access != "owner":
+        return _account_view(account.model_copy(update={"status": AccountStatus.CONNECTED, "last_error": None, "last_checked_at": utc_now()}), access)
+    return _account_view(_load_account(context, account_id), access)
 
 
 @router.delete("/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -517,7 +583,7 @@ async def disconnect_account(
 async def list_folders(account_id: str, context: TenantContext = Depends(tenant_context)) -> list[FolderView]:
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     _available(context)
-    account = _load_account(context, account_id)
+    account = _load_account(context, account_id, "read")
     folders: list[Folder] = await _server(context, account, lambda server: server.folders())
     order = {"inbox": 0, "drafts": 1, "sent": 2, "archive": 3, "junk": 4, "trash": 5}
     return [_folder_view(f) for f in sorted((f for f in folders if f.selectable), key=lambda f: (order.get(f.role or "", 9), f.name.lower()))]
@@ -537,7 +603,7 @@ async def list_messages(
     """Newest first, ``limit`` at a time; ``before`` is the ``next_before`` of the previous page."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     _available(context)
-    account = _load_account(context, account_id)
+    account = _load_account(context, account_id, "read")
     query = re.sub(r"[\x00-\x1f\x7f]", " ", q).strip() if q else None
     page = await _server(context, account, lambda server: server.messages(folder, before=before, limit=limit, query=query or None, unread=unread, flagged=flagged))
     return MessagePage(items=[_message_view(folder, item) for item in page.items], total=page.total, next_before=page.next_before)
@@ -553,8 +619,9 @@ async def read_message(
     """One message: text, sanitized HTML (remote images blocked) and attachments. Marks it read."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     _available(context)
-    account = _load_account(context, account_id)
-    mark = has_permission(context, Permission.EMAIL_ACT)
+    account, access = load_access(context, account_id, "read")
+    # Opening marks it read, except for people the owner lets only read (they change nothing).
+    mark = has_permission(context, Permission.EMAIL_ACT) and allows(access, "send")
     raw: bytes = await _server(context, account, lambda server: server.fetch(folder, uid, mark_seen=mark, max_bytes=mail_settings.message_max_bytes))
     parsed = parse_message(raw)
     summary = Summary(
@@ -581,7 +648,7 @@ async def download_attachment(
     """Download only: never shown inline, never sniffed, and capped in size."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     _available(context)
-    account = _load_account(context, account_id)
+    account = _load_account(context, account_id, "read")
     raw: bytes = await _server(context, account, lambda server: server.fetch(folder, uid, mark_seen=False, max_bytes=mail_settings.message_max_bytes))
     found = attachment_bytes(raw, index)
     if found is None:
@@ -622,7 +689,7 @@ async def set_flags(
     """Read or unread, starred or not, on the mail server."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     _available(context)
-    account = _load_account(context, account_id)
+    account = _load_account(context, account_id, "send")
     await _server(context, account, lambda server: server.set_flag(body.folder, body.uids, body.flag, body.value))
     _audit(repository, context, f"mail.message.{body.flag}", account.id, metadata={"count": len(body.uids), "value": body.value})
     return ActionResult(status="done", summary=f"Updated {len(body.uids)} message(s).")
@@ -635,7 +702,7 @@ async def move_messages(
     """Archive, mark as junk, move to Trash, or back to the inbox (all reversible)."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     _available(context)
-    account = _load_account(context, account_id)
+    account = _load_account(context, account_id, "send")
     target = await _resolve_target(context, account, body.to)
     if target == body.folder:
         raise HTTPException(status_code=409, detail="The messages are already in that folder.")
@@ -681,7 +748,20 @@ async def list_drafts(
     with open_mail_store(context) as store:
         drafts = store.list_drafts(account_id, limit)
         files = store.attachments_of_account(account_id)
-    return [_draft_view(d, repository, context, [f for f in files if f.draft_id == d.id]) for d in drafts]
+        accounts: dict[str, MailAccount | None] = {}
+        identities: dict[str, MailIdentity | None] = {}
+        for d in drafts:
+            if d.account_id not in accounts:
+                found = store.get_accessible_account(d.account_id)
+                accounts[d.account_id] = found[0] if found else None
+            if d.identity_id and d.identity_id not in identities:
+                identities[d.identity_id] = store.get_identity(d.identity_id)
+    # A message written in a mailbox that is no longer shared with the writer stays hidden.
+    return [
+        _draft_view(d, repository, context, [f for f in files if f.draft_id == d.id], account, identities.get(d.identity_id) if d.identity_id else None)
+        for d in drafts
+        if (account := accounts.get(d.account_id)) is not None
+    ]
 
 
 @router.get("/scheduled", response_model=list[DraftView])
@@ -696,7 +776,20 @@ async def list_scheduled(
     with open_mail_store(context) as store:
         drafts = store.list_scheduled(account_id, limit)
         files = store.attachments_of_account(account_id)
-    return [_draft_view(d, repository, context, [f for f in files if f.draft_id == d.id]) for d in drafts]
+        accounts: dict[str, MailAccount | None] = {}
+        identities: dict[str, MailIdentity | None] = {}
+        for d in drafts:
+            if d.account_id not in accounts:
+                found = store.get_accessible_account(d.account_id)
+                accounts[d.account_id] = found[0] if found else None
+            if d.identity_id and d.identity_id not in identities:
+                identities[d.identity_id] = store.get_identity(d.identity_id)
+    # A message written in a mailbox that is no longer shared with the writer stays hidden.
+    return [
+        _draft_view(d, repository, context, [f for f in files if f.draft_id == d.id], account, identities.get(d.identity_id) if d.identity_id else None)
+        for d in drafts
+        if (account := accounts.get(d.account_id)) is not None
+    ]
 
 
 @router.get("/drafts/{draft_id}", response_model=DraftView)
@@ -713,11 +806,17 @@ async def create_draft(
     """A new message, or a reply, reply to all or forward of a message (quoted, threaded)."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     _available(context)
-    account = _load_account(context, body.account_id)
+    account = _load_account(context, body.account_id, "send")
+    identity = _identity_for(context, account, body.identity_id)
+    if identity is None and not body.identity_id:
+        with open_mail_store(context) as store:
+            identity = next((i for i in store.list_identities(account.id) if i.is_default), None)
+    sender, _ = sender_of(account, identity)
     now = utc_now()
     draft = MailDraft(
         id=new_id("maildraft"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
-        account_id=account.id, kind=body.kind, message_id=new_message_id(account.address), created_at=now, updated_at=now,
+        account_id=account.id, identity_id=identity.id if identity else None, kind=body.kind, message_id=new_message_id(sender),
+        created_at=now, updated_at=now,
     )
     if body.kind != "new":
         if not body.folder or not body.uid:
@@ -725,7 +824,7 @@ async def create_draft(
         folder, uid = body.folder, body.uid
         raw: bytes = await _server(context, account, lambda server: server.fetch(folder, uid, mark_seen=False, max_bytes=mail_settings.message_max_bytes))
         original = parse_message(raw)
-        own = account.address.lower()
+        own = {account.address.lower(), sender.lower()}
         if body.kind == "forward":
             draft.subject = forward_subject(original.subject)
         else:
@@ -734,14 +833,16 @@ async def create_draft(
             to = [p.address for p in first]
             cc: list[str] = []
             if body.kind == "reply_all":
-                to += [p.address for p in original.to if p.address.lower() != own]
-                cc = [p.address for p in original.cc if p.address.lower() != own]
-            draft.to = _valid_only([a for a in to if a.lower() != own] or to)
+                to += [p.address for p in original.to if p.address.lower() not in own]
+                cc = [p.address for p in original.cc if p.address.lower() not in own]
+            draft.to = _valid_only([a for a in to if a.lower() not in own] or to)
             draft.cc = [a for a in _valid_only(cc) if a.lower() not in {x.lower() for x in draft.to}]
             draft.in_reply_to = original.message_id
             draft.references = references_for(original)
         draft.body = quoted(original, forward=body.kind == "forward")[:MAX_BODY]
         draft.source_folder, draft.source_uid = folder, uid
+    if identity is not None and identity.signature.strip():
+        draft.body = with_signature(draft.body, identity.signature)[:MAX_BODY]
     with open_mail_store(context) as store:
         store.save_draft(draft)
     carried = 0
@@ -751,8 +852,11 @@ async def create_draft(
             draft.attachment_note = ("Not carried over: " + "; ".join(skipped))[:1000]
             with open_mail_store(context) as store:
                 store.save_draft(draft)
-    _audit(repository, context, "mail.draft.create", draft.id, metadata={"kind": draft.kind, "attachments": carried})
-    return _draft_view(draft, repository, context)
+    _audit(
+        repository, context, "mail.draft.create", draft.id,
+        metadata={"kind": draft.kind, "attachments": carried, "shared": account.owner_user_id != context.user_id},
+    )
+    return _draft_view(draft, repository, context, None, account, identity)
 
 
 def _carry_attachments(context: TenantContext, draft: MailDraft, raw: bytes) -> tuple[int, list[str]]:
@@ -792,7 +896,7 @@ async def update_draft(
 ) -> DraftView:
     """Edit a draft. Editing one waiting for approval withdraws that approval."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
-    draft, _ = _load_draft(context, draft_id)
+    draft, account = _load_draft(context, draft_id, "send")
     if draft.status not in EDITABLE:
         raise HTTPException(status_code=409, detail=f"This message is {draft.status.value} and can no longer be edited.")
     try:
@@ -808,11 +912,22 @@ async def update_draft(
         draft.subject = re.sub(r"[\r\n\t]+", " ", body.subject).strip()
     if body.body is not None:
         draft.body = body.body
+    if "identity_id" in body.model_fields_set and (body.identity_id or None) != draft.identity_id:
+        new_identity = _identity_for(context, account, body.identity_id)
+        old_identity = _visible_identity(context, draft.identity_id) if draft.identity_id else None
+        # The body as it now stands (sent with this edit or stored) gets the new sender's signature.
+        draft.body = swap_signature(draft.body, old_identity.signature if old_identity else "", new_identity.signature if new_identity else "")[:MAX_BODY]
+        draft.identity_id = new_identity.id if new_identity else None
     _back_to_draft(repository, context, draft)
     with open_mail_store(context) as store:
         store.save_draft(draft)
     _audit(repository, context, "mail.draft.update", draft.id, metadata={"recipients": len(draft.to) + len(draft.cc) + len(draft.bcc)})
     return _draft_view(draft, repository, context)
+
+
+def _visible_identity(context: TenantContext, identity_id: str) -> MailIdentity | None:
+    with open_mail_store(context) as store:
+        return store.get_identity(identity_id)
 
 
 def _back_to_draft(repository: AnumRepository, context: TenantContext, draft: MailDraft) -> None:
@@ -834,7 +949,7 @@ def _back_to_draft(repository: AnumRepository, context: TenantContext, draft: Ma
 
 
 def _editable_draft(context: TenantContext, draft_id: str) -> tuple[MailDraft, MailAccount]:
-    draft, account = _load_draft(context, draft_id)
+    draft, account = _load_draft(context, draft_id, "send")
     if draft.status not in EDITABLE:
         raise HTTPException(status_code=409, detail=f"This message is {draft.status.value} and can no longer be edited.")
     return draft, account
@@ -968,7 +1083,7 @@ async def send_draft(
     """
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     _available(context)
-    draft, account = _load_draft(context, draft_id)
+    draft, account = _load_draft(context, draft_id, "send")
     if draft.idempotency_key == body.idempotency_key and draft.status != DraftStatus.DRAFT:
         view = _draft_view(draft, repository, context)
         return SendResponse(draft=view, approval=view.approval)
@@ -996,7 +1111,10 @@ async def send_draft(
     with open_mail_store(context) as store:
         attachments = store.list_attachments(draft.id)
     draft.send_at = send_at
-    arguments = send_arguments(draft, account, attachments)
+    identity = _identity_for(context, account, draft.identity_id) if draft.identity_id else None
+    if draft.identity_id and identity is None:
+        raise HTTPException(status_code=409, detail="The sender identity of this message was removed. Pick a sender and send again.")
+    arguments = send_arguments(draft, account, attachments, identity)
     if draft.status == DraftStatus.PENDING_APPROVAL and draft.approval_id:
         existing = repository.get_approval(draft.approval_id, context)
         if existing is not None and existing.status == ApprovalStatus.PENDING and (existing.expires_at is None or existing.expires_at > utc_now()) and existing.arguments == arguments:
@@ -1013,7 +1131,7 @@ async def send_draft(
     when = f" at {utc_iso(send_at)} (UTC)" if send_at else ""
     task, approval = _pause_for_approval(
         repository, context, ToolCall(name=SEND_TOOL, arguments=arguments), title[:160],
-        f"Send '{draft.subject or '(no subject)'}' from {account.address} to {recipients}{files}{when}.", registry=mail_tool_registry(),
+        f"Send '{draft.subject or '(no subject)'}' from {arguments['from']} to {recipients}{files}{when}.", registry=mail_tool_registry(),
     )
     draft.status, draft.approval_id, draft.task_id, draft.error = DraftStatus.PENDING_APPROVAL, approval.id, task.id, None
     draft.approved_hash = None
@@ -1031,4 +1149,4 @@ async def send_draft(
             "attachments": len(attachments), "scheduled": send_at is not None, "payload_hash": approval.payload_hash,
         },
     )
-    return SendResponse(draft=_draft_view(draft, repository, context, attachments), approval=approval)
+    return SendResponse(draft=_draft_view(draft, repository, context, attachments, account, identity), approval=approval)
