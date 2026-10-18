@@ -42,5 +42,13 @@ export const financeReportsEn = {
   'finance.reports.problems': 'Problems',
   'finance.reports.next': 'Next steps',
   'finance.reports.none': 'None in this report.',
+  'finance.reports.commentary': 'Model commentary',
+  'finance.reports.commentaryLabel': 'Written by an AI model ({model}) from this report only. It may be wrong and is not advice. Results are SIMULATED.',
+  'finance.reports.commentary.no_model': 'No model commentary: no AI model is set up for this workspace. A workspace owner chooses one in Settings, under Model.',
+  'finance.reports.commentary.disabled': 'Model commentary is turned off on this server.',
+  'finance.reports.commentary.monthly_limit': 'No model commentary: this month\'s limit for commentaries is reached.',
+  'finance.reports.commentary.model_budget': 'No model commentary: the workspace\'s model budget for this month is used up.',
+  'finance.reports.commentary.withheld': 'The model\'s commentary was withheld because it made a claim about profits or prices.',
+  'finance.reports.commentary.failed': 'The model did not answer, so this report has no commentary.',
   'finance.reports.recorded': 'Recorded text is shown as written by the agents, never followed as instructions.',
 } satisfies Record<string, Message>;

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -94,6 +96,10 @@ abstract final class AnumRoutes {
   /// Tyre planning (docs/tyre-planning.md); `/tyres/alerts` opens its alerts.
   static const tyres = '/tyres';
   static const tyreAlerts = '/tyres/alerts';
+
+  /// Finance, Trading intelligence (docs/finance-trading-intel.md#daily-report):
+  /// where the daily trading report push opens.
+  static const financeIntel = '/finance/intel';
   static const command = '/command';
   static const quickCommands = '/quick-commands';
 }
@@ -332,6 +338,13 @@ class _AnumAppState extends State<AnumApp> {
     library = ApiLibraryRepository(api, saver: const FilePickerExportSaver());
     tools = WorkspaceToolRoutes(api: api, library: library, email: email);
     locale = LocaleController()..restore();
+    // Pushes use the app's language (docs/notifications.md#phone-push).
+    push.languageOf = () => (locale.locale?.languageCode ??
+                PlatformDispatcher.instance.locale.languageCode) ==
+            'ar'
+        ? 'ar'
+        : 'en';
+    locale.addListener(push.languageChanged);
     theme = ThemeController()..restore();
     intro = IntroController()..restore();
     auth.addListener(_onAuthChanged);
@@ -589,6 +602,14 @@ class _AnumAppState extends State<AnumApp> {
       AnumRoutes.developer => WorkspaceDestination.developer,
       _ => null,
     };
+    if (name == AnumRoutes.financeIntel) {
+      unawaited(finance.select(FinanceSection.intel));
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => _AuthenticatedDestination(
+            auth: auth, child: FinanceScreen(controller: finance)),
+      );
+    }
     if (name == AnumRoutes.tyres || name == AnumRoutes.tyreAlerts) {
       return MaterialPageRoute<void>(
         settings: settings,

@@ -52,6 +52,19 @@ class FinanceConfig(BaseSettings):
     wider_max_tier: int = Field(default=3, ge=1, le=5)
     wider_step_percent: int = Field(default=50, ge=10, le=100)
     wider_cooling_hours: int = Field(default=72, ge=24, le=720)
+    # Trading intelligence (docs/finance-trading-intel.md#load-guard): heavy evaluations are refused
+    # (a person's request) or deferred (a scheduled revalidation) while the machine is busy:
+    # 1-minute load per CPU above this, less free memory than this, or this many already running.
+    eval_max_load_per_cpu: float = Field(default=0.85, ge=0.1, le=8)
+    eval_min_free_memory_mb: int = Field(default=256, ge=0, le=65536)
+    eval_max_concurrent: int = Field(default=2, ge=1, le=16)
+    # Model-written commentary on the daily report (docs/finance-trading-intel.md#model-commentary):
+    # only when the workspace has a real model, inside its model budget, at most this many a
+    # month per person, from a bounded prompt and with a bounded answer.
+    commentary_enabled: bool = True
+    commentary_monthly_limit: int = Field(default=31, ge=0, le=400)
+    commentary_max_chars: int = Field(default=1500, ge=200, le=4000)
+    commentary_timeout_seconds: float = Field(default=45.0, ge=5, le=120)
 
     model_config = SettingsConfigDict(env_prefix="ANUM_FINANCE_", env_file=".env", extra="ignore", hide_input_in_errors=True)
 

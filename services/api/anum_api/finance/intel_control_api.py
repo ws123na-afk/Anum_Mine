@@ -23,7 +23,7 @@ from ..schemas import TenantContext, new_id, utc_now
 from .. import automation
 from ..scoped_store import ScopeNotProvisionedError
 from .api import _audit, _clean, _invalid, _manage, _not_found, _read
-from .intel import lifecycle, research
+from .intel import commentary, lifecycle, load_guard, research
 from .intel import schedules as intel_schedules
 from .intel.marketdata import (
     PROVIDERS,
@@ -370,6 +370,10 @@ def evaluate(strategy_id: str, body: EvaluateInput, context: TenantContext = Dep
             run = research.evaluate(store, context, strategy, kind=body.kind, actor=Agent.PERSON, now=utc_now())
         except research.ResearchError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+        except load_guard.ServerBusy as exc:
+            # docs/finance-trading-intel.md#load-guard: nothing was run or stored.
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc),
+                                headers={"Retry-After": str(load_guard.RETRY_AFTER_SECONDS)}) from None
     _audit(repository, context, "finance.intel.strategy.evaluate", strategy_id, {"kind": run.kind, "verdict": run.verdict, "run": run.id})
     return run_view(run)
 
@@ -554,9 +558,23 @@ class DailyReportPage(BaseModel):
     offset: int
 
 
+class ReportCommentaryView(BaseModel):
+    """Model commentary on the report (docs/finance-trading-intel.md#model-commentary). ``status`` is ``ok``
+    (with ``text``), ``skipped`` (no model, off, monthly limit or model budget), ``withheld`` (the answer made
+    a claim it must not) or ``failed`` (the model did not answer). Always shown with ``label``."""
+
+    status: str
+    reason: str | None
+    text: str | None
+    model: str | None
+    label: str
+    created_at: datetime
+
+
 class DailyReportView(DailyReportItem):
     report: dict[str, Any]
     markdown: str
+    commentary: ReportCommentaryView | None = None
 
 
 def _reports(store: FinanceStore, context: TenantContext) -> list[Any]:
@@ -582,8 +600,10 @@ def get_daily_report(report_id: str, context: TenantContext = Depends(tenant_con
     _read(context)
     with open_finance_store(context) as store:
         found = next((d for d in _reports(store, context) if d.id == report_id), None)
+        notes = commentary.commentary_for(store, context, report_id) if found is not None else None
     if found is None:
         raise _not_found("Report")
     report = found.details.get("report", {})
     return DailyReportView(id=found.id, date=str(report.get("date", "")), created_at=found.created_at, summary=report.get("summary", {}),
-                           report=report, markdown=str(found.details.get("markdown", "")))
+                           report=report, markdown=str(found.details.get("markdown", "")),
+                           commentary=ReportCommentaryView(**notes) if notes else None)

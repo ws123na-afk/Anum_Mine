@@ -58,7 +58,7 @@ def build(store: FinanceStore, context: TenantContext, decisions: list[AgentDeci
     suspensions = [d for d in decisions if d.outcome == "suspended"]
     reviews = [d for d in decisions if d.action == "portfolio_review" and d.outcome != "failed"]
     performance = [d for d in decisions if d.action in {"review", "weekly_review"} and "return" in d.details]
-    problems = [d for d in decisions if d.outcome in {"failed", "degrading", "halted"}]
+    problems = [d for d in decisions if d.outcome in {"failed", "degrading", "halted", "deferred"}]
     closed = by(outcome="market_closed")
     _, waiting = store.list_intents(context, status="pending_approval", mode=None, limit=1, offset=0)
     active = store.list_strategies(context, state="PAPER_ACTIVE", limit=200, offset=0)[1]

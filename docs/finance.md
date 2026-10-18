@@ -172,6 +172,13 @@ A sync never holds a database transaction across the network call: it reads the 
 | `ANUM_FINANCE_SYNC_BATCH_SIZE` | `20` | Connections per pass |
 | `ANUM_FINANCE_REQUEST_TIMEOUT_SECONDS` | `15` | One request to a source |
 | `ANUM_FINANCE_RETRY_MINUTES` | `60` | Wait after a failed sync |
+| `ANUM_FINANCE_EVAL_MAX_LOAD_PER_CPU` | `0.85` | Trading intelligence: a heavy evaluation does not start while the 1-minute load per CPU is above this ([load guard](finance-trading-intel.md#load-guard)) |
+| `ANUM_FINANCE_EVAL_MIN_FREE_MEMORY_MB` | `256` | ... nor while less memory than this is free (the container's cgroup limit when it has one) |
+| `ANUM_FINANCE_EVAL_MAX_CONCURRENT` | `2` | ... nor while this many evaluations already run in the process |
+| `ANUM_FINANCE_COMMENTARY_ENABLED` | `true` | Model commentary on the daily trading report, only when the workspace has a real model ([model commentary](finance-trading-intel.md#model-commentary)) |
+| `ANUM_FINANCE_COMMENTARY_MONTHLY_LIMIT` | `31` | At most this many commentaries per person per UTC month, inside the workspace's model budget |
+| `ANUM_FINANCE_COMMENTARY_MAX_CHARS` | `1500` | The longest commentary kept |
+| `ANUM_FINANCE_COMMENTARY_TIMEOUT_SECONDS` | `45` | How long the model may take |
 
 The API must be able to reach `www.ecb.europa.eu` over HTTPS (add it to the network policy's `appEgress` where egress is restricted).
 

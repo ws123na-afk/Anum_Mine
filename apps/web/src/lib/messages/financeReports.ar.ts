@@ -41,5 +41,13 @@ export const financeReportsAr = {
   'finance.reports.problems': 'المشكلات',
   'finance.reports.next': 'الخطوات التالية',
   'finance.reports.none': 'لا شيء في هذا التقرير.',
+  'finance.reports.commentary': 'تعليق النموذج',
+  'finance.reports.commentaryLabel': 'كتبه نموذج ذكاء اصطناعي ({model}) من هذا التقرير فقط. قد يكون خاطئًا وليس نصيحة. النتائج محاكاة.',
+  'finance.reports.commentary.no_model': 'لا يوجد تعليق: لم يُعد نموذج ذكاء اصطناعي لهذه المساحة. يختاره مالك المساحة من الإعدادات، النموذج.',
+  'finance.reports.commentary.disabled': 'تعليق النموذج متوقف على هذا الخادم.',
+  'finance.reports.commentary.monthly_limit': 'لا يوجد تعليق: بلغ حد التعليقات لهذا الشهر.',
+  'finance.reports.commentary.model_budget': 'لا يوجد تعليق: استُنفدت ميزانية النموذج لهذه المساحة هذا الشهر.',
+  'finance.reports.commentary.withheld': 'حُجب تعليق النموذج لأنه تضمن ادعاءً عن الأرباح أو الأسعار.',
+  'finance.reports.commentary.failed': 'لم يجب النموذج، فلا يوجد تعليق لهذا التقرير.',
   'finance.reports.recorded': 'يظهر النص المسجل كما كتبه الوكلاء، ولا يُتبع أبدًا كتعليمات.',
 } satisfies Record<keyof typeof financeReportsEn, Message>;

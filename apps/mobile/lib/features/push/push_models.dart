@@ -65,7 +65,14 @@ class PushDevice {
   }
 }
 
-enum PushDestinationKind { approval, task, developer, tyreAlerts, automation }
+enum PushDestinationKind {
+  approval,
+  task,
+  developer,
+  tyreAlerts,
+  automation,
+  financeReport
+}
 
 /// Where a tapped notification leads. A push carries ids only
 /// (`anum_kind`, `workspace_id`, `approval_id`, `task_id`,
@@ -103,6 +110,7 @@ class PushDestination {
       'automation_notice' ||
       'automation_failed' =>
         PushDestinationKind.automation,
+      'finance_report' => PushDestinationKind.financeReport,
       _ => null,
     };
     if (kind == null || workspaceId == null) return null;
@@ -125,6 +133,7 @@ class PushDestination {
         PushDestinationKind.developer => '/developer',
         PushDestinationKind.tyreAlerts => '/tyres/alerts',
         PushDestinationKind.automation => '/automations',
+        PushDestinationKind.financeReport => '/finance/intel',
       };
 }
 

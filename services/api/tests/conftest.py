@@ -375,3 +375,13 @@ def repository_factory(
             yield SqlAlchemyRepository(session, created_by_user_id="user_test")
 
     return factory
+
+
+@pytest.fixture(autouse=True)
+def _quiet_machine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The evaluation load guard reads the real machine; tests pretend it is idle unless a
+    test sets a reading itself (docs/finance-trading-intel.md#load-guard)."""
+    from anum_api.finance.intel import load_guard
+
+    monkeypatch.setattr(load_guard, "read_load", lambda: None)
+    monkeypatch.setattr(load_guard, "read_free_memory", lambda: None)

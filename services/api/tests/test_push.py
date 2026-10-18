@@ -665,3 +665,30 @@ def test_tyre_alerts_reach_every_member_who_wants_them(sender: FakeSender) -> No
     _notifications.save(ctx("member_m", "member"), NotificationPreferences(tyre_alerts=False))
     announce(CanonicalEventName.TYRE_ALERTS_RAISED, "tyre_alerts", {"critical": 1, "warning": 0})
     assert deliver().sent == 1 and sender.tokens() == [PHONE_A]
+
+
+def test_the_daily_trading_report_pushes_its_own_text_in_the_phones_language(sender: FakeSender) -> None:
+    # docs/finance-trading-intel.md#daily-report: not "Team work", ids only, Arabic on an Arabic phone.
+    member("owner_a", "owner")
+    member("viewer_v", "viewer")
+    register("owner_a", "owner", PHONE_A)
+    arabic = client.post("/api/v1/me/devices", headers=headers("owner_a", "owner"),
+                         json={"platform": "android", "token": PHONE_B, "label": "Phone", "language": "ar"})
+    assert arabic.status_code == 201 and arabic.json()["language"] == "ar"
+    bad = client.post("/api/v1/me/devices", headers=headers("owner_a", "owner"),
+                      json={"platform": "android", "token": PHONE_M, "language": "fr"})
+    assert bad.status_code == 422
+    announce(CanonicalEventName.NOTIFICATION_CREATED, "ntf_report",
+             {"recipient": "owner_a", "kind": "finance_daily_report", "work_item_id": None})
+    report = deliver()
+    assert (report.recipients, report.sent) == (1, 2)
+    by_token = {m.token: m for m in sender.messages}
+    assert (by_token[PHONE_A].title, by_token[PHONE_A].body) == push.TEXT[push.PushKind.FINANCE_REPORT]
+    assert (by_token[PHONE_B].title, by_token[PHONE_B].body) == push.TEXT_AR[push.PushKind.FINANCE_REPORT]
+    assert by_token[PHONE_A].data["anum_kind"] == "finance_report" and "Team work" not in by_token[PHONE_A].title
+    # Only someone who may read finance gets it: a viewer named as recipient gets nothing.
+    sender.messages.clear()
+    register("viewer_v", "viewer", PHONE_M)
+    announce(CanonicalEventName.NOTIFICATION_CREATED, "ntf_report_2",
+             {"recipient": "viewer_v", "kind": "finance_daily_report", "work_item_id": None})
+    assert deliver().sent == 0 and sender.messages == []

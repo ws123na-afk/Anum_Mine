@@ -805,6 +805,8 @@ class PushDeviceRecord(Base):
     token_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     token_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     token_hint: Mapped[str] = mapped_column(String(8), nullable=False)
+    # Migration 0070_push_device_language: the app's language for the push text (null is English).
+    language: Mapped[str | None] = mapped_column(String(8))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -812,6 +814,7 @@ class PushDeviceRecord(Base):
     __table_args__ = (
         _workspace_fk("push_devices"),
         UniqueConstraint("tenant_id", "workspace_id", "user_id", "token_sha256", name="uq_push_devices_user_token"),
+        CheckConstraint("language is null or language in ('en', 'ar')", name="ck_push_devices_language"),
         Index("ix_push_devices_scope_user", "tenant_id", "workspace_id", "user_id", "created_at"),
     )
 

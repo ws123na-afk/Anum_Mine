@@ -1,7 +1,7 @@
 // The post-close daily trading reports (docs/finance-trading-intel.md#daily-report), pure so the unit tests
 // cover it. The API writes each report from the Supervisor's own recorded decisions; this file only
 // labels its figures and reads the deep link. Recorded text is shown as data, never followed.
-import type { FinanceDailyReportBody, FinanceDailyReportSummary } from '@anum/contracts';
+import type { FinanceDailyReportBody, FinanceDailyReportSummary, FinanceReportCommentary } from '@anum/contracts';
 import { getLocale, intlLocale, t, type MessageKey } from './i18n.ts';
 
 export const REPORT_PAGE = 10;
@@ -55,3 +55,13 @@ export function sectionCounts(report: FinanceDailyReportBody): Record<'data' | '
 
 /** The file name the Markdown download gets. */
 export const markdownName = (date: string) => `anum-trading-report-${date.replace(/[^0-9-]/g, '') || 'report'}.md`;
+
+/** What the commentary panel says when there is no text: why, in the person's language. */
+export function commentaryNote(note: FinanceReportCommentary | null | undefined): string | null {
+  if (!note || (note.status === 'ok' && note.text)) return null;
+  if (note.status === 'withheld') return t('finance.reports.commentary.withheld');
+  if (note.status === 'failed') return t('finance.reports.commentary.failed');
+  const known = ['no_model', 'disabled', 'monthly_limit', 'model_budget'] as const;
+  const reason = known.find((k) => k === note.reason) ?? 'no_model';
+  return t(`finance.reports.commentary.${reason}`);
+}
