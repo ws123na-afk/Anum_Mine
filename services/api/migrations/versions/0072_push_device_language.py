@@ -12,8 +12,8 @@ Chained after ``0070_business``.
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0071_push_device_language"
-down_revision = "0070_business"
+revision = "0072_push_device_language"
+down_revision = "0071_calls"
 branch_labels = None
 depends_on = None
 
