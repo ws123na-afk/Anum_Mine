@@ -7,7 +7,7 @@ const now = () => new Date().toISOString();
 const later = new Date(Date.now() + 2 * 86_400_000).toISOString();
 const earlier = new Date(Date.now() - 3 * 3_600_000).toISOString();
 
-export interface TeamMockOptions { denyEdit?: boolean; emptyWork?: boolean; denyOrganisations?: boolean; denyAssistants?: boolean; denyAssistantChanges?: boolean }
+export interface TeamMockOptions { mailHealthFails?: boolean; mailcow?: 'off' | 'ok'; denyEdit?: boolean; emptyWork?: boolean; denyOrganisations?: boolean; denyAssistants?: boolean; denyAssistantChanges?: boolean }
 
 type Item = Record<string, unknown> & { id: string; title: string; status: string; version: number; comments: Record<string, unknown>[]; checklist: Record<string, unknown>[]; attachments: Record<string, unknown>[] };
 
@@ -122,6 +122,22 @@ export function createTeamMock(options: TeamMockOptions = {}) {
     if (path === '/api/v1/platform/organizations' && method === 'GET') {
       if (options.denyOrganisations) return json({ error: { code: 'forbidden', message: 'Platform operator role required: onboarding customer organisations and the platform console are for the person who runs this ANUM deployment.' } }, 403);
       return json(orgs);
+    }
+    if (path === '/api/v1/platform/mail/health' && method === 'GET') {
+      if (options.denyOrganisations) return json({ error: { code: 'forbidden', message: 'Platform operator role required.' } }, 403);
+      if (options.mailHealthFails) return json({ error: { code: 'service_unavailable', message: 'The database did not answer.' } }, 503);
+      const zero = { sent: 0, send_failed: 0, send_unknown: 0, send_rate_limited: 0, connect_rate_limited: 0, auth_failed: 0, server_offline: 0 };
+      const gulf = { sent: 12, send_failed: 1, send_unknown: 1, send_rate_limited: 2, connect_rate_limited: 1, auth_failed: 1, server_offline: 0 };
+      const rows = orgs.map((o, n) => n === 0
+        ? { tenant_id: o.tenant_id, display_name: o.display_name, mailboxes: 3, connected: 2, auth_failed: 1, offline: 0, error: 0, stale: 0, last_sync_at: now(), oldest_sync_at: now(), counts: gulf, health: 'attention' }
+        : { tenant_id: o.tenant_id, display_name: o.display_name, mailboxes: 0, connected: 0, auth_failed: 0, offline: 0, error: 0, stale: 0, last_sync_at: null, oldest_sync_at: null, counts: zero, health: 'quiet' });
+      return json({ enabled: true, days: Number(new URL(route.request().url()).searchParams.get('days') ?? 7), since: now().slice(0, 10), mailboxes: 3, totals: gulf, organisations: rows });
+    }
+    if (path === '/api/v1/platform/mail/server' && method === 'GET') {
+      const mailcow = options.mailcow === 'ok'
+        ? { state: 'ok', message: null, version: '2026-09', containers_total: 18, containers_not_running: ['sogo-mailcow'], queue_messages: 4, domains: [{ domain: 'anum360os.com', active: true, mailboxes: 3, max_mailboxes: 10, quota_used_percent: 12.5 }] }
+        : { state: 'off', message: null, version: null, containers_total: null, containers_not_running: [], queue_messages: null, domains: [] };
+      return json({ server: { enabled: true, configured: true, imap_host: 'mail.anum360os.com', smtp_host: 'mail.anum360os.com', allowed_tenants: 1, send_per_hour: 30, connect_attempts_per_hour: 5 }, mailcow });
     }
     if (path === '/api/v1/platform/organizations' && method === 'POST') {
       const b = body();

@@ -9,8 +9,9 @@ desktop and web clients turn into an OS notification when the recipient's
 Phone push goes through the existing FCM path (``anum_api/push.py``): the
 ``notification.created`` event is the push trigger (fixed text, ids only), so the row
 records ``queued`` when push is on for this server and the recipient, ``not_requested``
-when the recipient turned phone push off, and ``not_configured`` when the server has no
-FCM key.
+when the recipient turned phone push off or the kind is in-app only (``IN_APP_ONLY_KINDS``,
+whose fixed "Team work" push text would mislead), and ``not_configured`` when the server has
+no FCM key.
 
 Email is sent after the request commits (``deliver_pending_email``), never inside the
 transaction, and retried by the reminder sweep up to three attempts. The message holds
@@ -39,6 +40,8 @@ from .team_store import TeamStore, UnknownCursorError
 logger = logging.getLogger("anum_api.notifications")
 
 MAX_EMAIL_ATTEMPTS = 3
+# Kinds that are not team work: no phone push (its fixed text says "Team work"); in-app and email only.
+IN_APP_ONLY_KINDS = frozenset({"finance_daily_report"})
 
 
 def recipient_preferences(store: TeamStore, context: TenantContext, user_id: str) -> NotificationPreferences:
@@ -81,6 +84,8 @@ def create_notification(
 
     if configured_account() is None:
         push_status = PushStatus.NOT_CONFIGURED
+    elif kind in IN_APP_ONLY_KINDS:
+        push_status = PushStatus.NOT_REQUESTED
     else:
         push_status = PushStatus.QUEUED if getattr(preferences, "push_enabled", True) else PushStatus.NOT_REQUESTED
     if not preferences.email_enabled or not email:

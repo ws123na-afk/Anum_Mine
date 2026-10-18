@@ -130,6 +130,13 @@ class Permission(StrEnum):
     CALL_READ = "call:read"
     CALL_LOG = "call:log"
     CALL_MANAGE = "call:manage"
+    # Business (docs/business.md#permissions): the internal sales desk holds contacts'
+    # personal data, so viewers do not see it. Owners and members read and work leads,
+    # opportunities, proposals and projects; owners manage the catalog, the research caps
+    # and do-not-contact removals, and decide proposal acceptance in Approvals.
+    BUSINESS_READ = "business:read"
+    BUSINESS_WRITE = "business:write"
+    BUSINESS_MANAGE = "business:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -222,6 +229,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.FINANCE_MANAGE,
             Permission.CALL_READ,
             Permission.CALL_LOG,
+            Permission.BUSINESS_READ,
+            Permission.BUSINESS_WRITE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

@@ -17,8 +17,10 @@ deleted files (``anum_api.retrieval_retention``), reported under ``retrieval_ind
 deletes assistant conversations idle for longer than ``ANUM_CONVERSATION_RETENTION_DAYS``
 (``anum_api.conversation_retention``), reported under ``conversations``, and deletes
 WhatsApp messages older than each workspace's retention (``anum_api.whatsapp_retention``),
-call recordings past their retention (``anum_api.calls.retention``),
-reported under ``whatsapp``, so the daily retention CronJob covers all four.
+reported under ``whatsapp``, deletes what ANUM keeps of each Email Center mailbox past its
+retention (``anum_api.mail_retention``), reported under ``mail``, and deletes call recordings
+past their retention (``anum_api.calls.retention``), reported under ``call_recordings``, so the
+daily retention CronJob covers all six.
 """
 
 from __future__ import annotations
@@ -56,8 +58,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="python -m anum_api.voice_retention",
         description=(
             "Delete voice transcripts past their 30-day retention, retrieval index rows "
-            "of expired or deleted memories and files, idle assistant conversations and WhatsApp "
-            "messages past their workspace's retention."
+            "of expired or deleted memories and files, idle assistant conversations, WhatsApp "
+            "messages past their workspace's retention and Email Center messages and labels past their mailbox's retention."
         ),
     )
     parser.add_argument("--dry-run", action="store_true", help="count what would be deleted")
@@ -72,6 +74,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
     from .conversation_retention import purge as purge_conversations
+    from .mail_retention import purge as purge_mail
     from .retrieval_retention import purge as purge_retrieval_index
     from .whatsapp_retention import purge as purge_whatsapp
 
@@ -79,6 +82,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     report["retrieval_index"] = purge_retrieval_index(dry_run=args.dry_run, batch_size=args.batch_size)
     report["conversations"] = purge_conversations(dry_run=args.dry_run, batch_size=args.batch_size)
     report["whatsapp"] = purge_whatsapp(dry_run=args.dry_run, batch_size=args.batch_size)
+    report["mail"] = purge_mail(dry_run=args.dry_run, batch_size=args.batch_size)
     from .calls.retention import purge as purge_call_recordings
 
     report["call_recordings"] = purge_call_recordings(dry_run=args.dry_run, batch_size=args.batch_size)

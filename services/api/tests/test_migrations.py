@@ -999,7 +999,7 @@ def test_calls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0071_calls.py").read_text(encoding="utf-8")
     assert 'revision = "0071_calls"' in revision_text and len("0071_calls") <= 32
-    assert 'down_revision = "0065_finance_intel"' in revision_text
+    assert 'down_revision = "0070_business"' in revision_text
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     tables = ("call_contacts", "call_log", "call_opt_outs", "call_provider_accounts", "call_ai_requests")
     assert upgrade.count("op.create_table(") == len(tables)
@@ -1013,3 +1013,62 @@ def test_calls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -
     assert "grant select (tenant_id, workspace_id, route_id) on call_provider_accounts to anum_maintenance" in upgrade
     assert "grant select (id, tenant_id, workspace_id, recording_expires_at) on call_log to anum_maintenance" in upgrade
     assert upgrade.count("grant ") == 2 and "insert" not in upgrade.split("grant ", 1)[1]
+def test_business_migration_is_expand_only_with_forced_rls_on_every_table_and_scoped_references() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0070_business.py").read_text(encoding="utf-8")
+    assert 'revision = "0070_business"' in revision_text and len("0070_business") <= 32
+    down = revision_text.split('down_revision = "', 1)[1].split('"', 1)[0]
+    others = [path for path in versions.glob("*.py") if path.name != "0070_business.py"]
+    # Chained onto an existing revision that nothing else extends (one head).
+    assert any(f'revision = "{down}"' in path.read_text(encoding="utf-8") for path in others)
+    assert not [path for path in others if f'down_revision = "{down}"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    tables = revision_text.split("TABLES = (", 1)[1].split(")", 1)[0]
+    names = [name.strip().strip('"') for name in tables.split(",") if name.strip()]
+    assert len(names) == 16 and all(name.startswith("business_") for name in names)
+    assert upgrade.count("op.create_table(") == len(names)
+    assert "for table in tables:\n        _enable_rls(table)" in upgrade
+    assert "force row level security" in revision_text.lower() and "with check (" in revision_text.lower()
+    assert "current_setting('anum.tenant_id', true)" in revision_text and "current_setting('anum.workspace_id', true)" in revision_text
+    # References carry the scope, so a row cannot point into another tenant or workspace.
+    assert '["tenant_id", "workspace_id", column]' in revision_text
+    assert 'f"{target}.tenant_id", f"{target}.workspace_id", f"{target}.id"' in revision_text
+    # A locked (sent or accepted) proposal version cannot be updated; the trigger runs as the invoker.
+    assert "when (old.locked)" in upgrade and "security invoker" in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "op.add_column(" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade
+
+
+def test_mail_rules_retention_migration_is_expand_only_and_discovery_reads_no_content() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0068_mail_rules_retention.py").read_text(encoding="utf-8")
+    assert 'revision = "0068_mail_rules_retention"' in revision_text and len("0068_mail_rules_retention") <= 32
+    assert 'down_revision = "0067_mail_sharing_contacts"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0068_mail_rules_retention.py"]
+    assert not [path for path in others if 'down_revision = "0067_mail_sharing_contacts"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 4 and "force row level security" in upgrade
+    assert "op.add_column(" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # An active rule always carries the hash that was approved.
+    assert "status <> 'active' or (approved_hash is not null and approved_hash = rule_hash)" in upgrade
+    # The maintenance role gets scheduling and retention columns only, never content.
+    import re
+
+    columns = {column.replace("\"", "").strip() for found in re.findall(r"grant select \(([^)]*)\)", upgrade) for column in found.split(",")}
+    assert columns == {
+        "status", "account_id", "tenant_id", "workspace_id", "owner_user_id", "background_sync", "sent_retention_days",
+        "draft_retention_days", "label_retention_days", "next_sync_at", "lease_until",
+    }
+
+
+def test_mail_writers_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0069_mail_writers_uidvalidity.py").read_text(encoding="utf-8")
+    assert 'revision = "0069_mail_writers_uidvalidity"' in revision_text and len("0069_mail_writers_uidvalidity") <= 32
+    assert 'down_revision = "0068_mail_rules_retention"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert "op.create_table(" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "grant select (disconnecting_at) on mail_accounts to anum_maintenance" in upgrade
+    assert "grant select (updated_at) on mail_drafts to anum_maintenance" in upgrade

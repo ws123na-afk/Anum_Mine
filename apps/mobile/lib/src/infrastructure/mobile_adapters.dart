@@ -10,6 +10,8 @@ import 'package:http/http.dart' as http;
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/session_store.dart';
+import '../../features/mail_center/mail_center_transfer.dart';
+import '../../features/mail_center/mail_directory_models.dart';
 import '../../features/meetings/meetings_repository.dart';
 import '../../features/auth/workspace_selection.dart';
 import '../../features/workspace/api_workspace_repository.dart';
@@ -311,6 +313,103 @@ class HttpWorkspaceFileTransfer
     } on Object {
       return 'File transfer failed';
     }
+  }
+}
+
+/// Email Center file bytes (docs/email.md#attachments): device files picked
+/// with the system picker and streamed to a draft with progress and cancel,
+/// and downloads through the API saved with the system save dialog. The
+/// bearer token is sent only to the configured API.
+class HttpMailFileTransfer implements MailFileTransfer {
+  HttpMailFileTransfer({
+    required this.baseUri,
+    required this.sessions,
+    required this.files,
+    http.Client? client,
+  }) : _client = client ?? http.Client();
+
+  final Uri baseUri;
+  final SessionStore sessions;
+  final HttpWorkspaceFileTransfer files;
+  final http.Client _client;
+
+  @override
+  Future<List<PickedMailFile>> pick(List<String> extensions) async {
+    final allowed = [
+      for (final e in extensions)
+        if (e.startsWith('.') && e.length > 1) e.substring(1)
+    ];
+    final picked = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      withData: false,
+      type: allowed.isEmpty ? FileType.any : FileType.custom,
+      allowedExtensions: allowed.isEmpty ? null : allowed,
+    );
+    return [
+      for (final f in picked?.files ?? const <PlatformFile>[])
+        if (f.path != null) PickedMailFile(f.path!, f.name, f.size),
+    ];
+  }
+
+  @override
+  Future<JsonMap> upload(
+    String draftId,
+    PickedMailFile file, {
+    required void Function(int sent, int total) onProgress,
+    required UploadCancellation cancellation,
+  }) =>
+      files.uploadTo(
+          'api/v1/mail/drafts/${Uri.encodeComponent(draftId)}/attachments',
+          {'name': file.name},
+          file.path,
+          onProgress: onProgress,
+          cancellation: cancellation);
+
+  @override
+  Future<Uint8List> download(String path) async {
+    final session = await sessions.read();
+    if (session == null || session.isExpired) {
+      throw const ApiException(401, 'Authentication required');
+    }
+    final http.Response response;
+    try {
+      response = await _client
+          .get(baseUri.resolve(path.replaceFirst(RegExp(r'^/'), '')),
+              headers: sessionHeaders(session))
+          .timeout(HttpApiTransport.defaultTimeout);
+    } on TimeoutException {
+      throw const ApiException(0,
+          'The server did not answer in time. Check the connection and try again.');
+    } on http.ClientException {
+      throw const ApiException(0,
+          'The server could not be reached. Check the connection and try again.');
+    } on SocketException {
+      throw const ApiException(0,
+          'The server could not be reached. Check the connection and try again.');
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      String message;
+      try {
+        final reader = JsonReader.of(jsonDecode(response.body));
+        message = reader.optObject('error')?.optString('message') ??
+            reader.optString('detail') ??
+            'The download failed.';
+      } on Object {
+        message = 'The download failed.';
+      }
+      throw ApiException(response.statusCode, message);
+    }
+    return response.bodyBytes;
+  }
+
+  @override
+  Future<bool> save(String fileName, Uint8List bytes) async {
+    final path = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save $fileName',
+      fileName: fileName,
+      bytes: bytes,
+    );
+    return path != null;
   }
 }
 

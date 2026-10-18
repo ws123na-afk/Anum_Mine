@@ -151,14 +151,18 @@ from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
 from .mailbox.ai_api import router as mail_ai_router
 from .mailbox.api import router as mail_router
+from .mailbox.sharing_api import router as mail_sharing_router
 from .mailbox.operator_api import router as mail_operator_router
 from .mailbox.outgoing import build_schedule_runner
+from .mailbox.settings_api import router as mail_settings_router
+from .mailbox.sync import build_sync_runner
 from .mailbox.service import register_mail_tools
 from .calls.api import router as calls_router
 from .calls.tools import register_call_tools
 from .calls.webhooks import router as calls_webhook_router
 from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
+from .business import register_business_tools, router as business_router
 from .user_preferences import router as user_preferences_router
 from .home import router as home_router
 from .setup_plans import router as setup_plans_router
@@ -233,6 +237,10 @@ async def lifespan(_: FastAPI):
     mail_schedule = build_schedule_runner()
     if mail_schedule is not None:
         mail_schedule.start()
+    # Unread counts and forwarding rules of Email Center mailboxes (docs/email.md#background-sync).
+    mail_sync = build_sync_runner()
+    if mail_sync is not None:
+        mail_sync.start()
     # Syncs due sales-channel connectors when ANUM_COMMERCE_SYNC_ENABLED=true (docs/commerce.md#sync).
     commerce_scheduler = build_commerce_scheduler()
     if commerce_scheduler is not None:
@@ -255,6 +263,8 @@ async def lifespan(_: FastAPI):
             await finance_scheduler.stop()
         if commerce_scheduler is not None:
             await commerce_scheduler.stop()
+        if mail_sync is not None:
+            await mail_sync.stop()
         if mail_schedule is not None:
             await mail_schedule.stop()
         if email_scheduler is not None:
@@ -354,9 +364,12 @@ app.include_router(mail_router)
 # Phone calls (docs/calls.md): contacts, the call log, the voice provider and its webhooks.
 app.include_router(calls_router)
 app.include_router(calls_webhook_router)
+app.include_router(mail_sharing_router)
+app.include_router(mail_settings_router)
 app.include_router(mail_operator_router)
 app.include_router(calendar_router)
 app.include_router(marketing_router)
+app.include_router(business_router)
 app.include_router(user_preferences_router)
 app.include_router(push_router)
 app.include_router(commerce_router)
@@ -390,11 +403,11 @@ app.include_router(setup_plans_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = register_call_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
+tool_registry = register_call_tools(register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
     configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
 )))))))
-)))
+))))
 # Reports and other features send through whichever delivery tools are registered.
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).

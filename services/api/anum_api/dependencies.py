@@ -496,7 +496,7 @@ def _unit_of_work(context: TenantContext, *, require_membership: bool) -> Iterat
         session.close()
 
 
-def repository_context(
+def _repository_unit(
     context: TenantContext = Depends(tenant_context),
 ) -> Iterator[AnumRepository]:
     """The request's unit of work. A plain generator on purpose: FastAPI opens it (the
@@ -504,6 +504,17 @@ def repository_context(
     loop (docs/realtime.md#event-loop)."""
     with _unit_of_work(context, require_membership=True) as repository:
         yield repository
+
+
+# Commit before the response starts. FastAPI closes a ``yield`` dependency with the default
+# ("request") scope only after the response has been sent, so a client could read a 200 and
+# send its next request before the write was committed: the authenticated journey's SSE
+# request after onboarding saw no membership yet and got 403 (docs/realtime.md#commit-order). Each unit below is resolved with scope="function"
+# through a plain wrapper, so every ``Depends(repository_context)`` keeps working.
+def repository_context(
+    repository: AnumRepository = Depends(_repository_unit, scope="function"),
+) -> AnumRepository:
+    return repository
 
 
 UnitsOfWork = Callable[[TenantContext], AbstractContextManager[AnumRepository]]
@@ -585,7 +596,7 @@ async def directory_identity(
     )
 
 
-def identity_repository_context(
+def _identity_repository_unit(
     identity: AuthenticatedIdentity = Depends(authenticated_identity),
 ) -> Iterator[AnumRepository]:
     """A tenant-scoped unit of work for callers that may not be members yet (invitees)."""
@@ -593,7 +604,15 @@ def identity_repository_context(
         yield repository
 
 
-def memory_repository_context(
+def identity_repository_context(
+    repository: AnumRepository = Depends(_identity_repository_unit, scope="function"),
+) -> AnumRepository:
+    """Committed before the response starts, like :func:`repository_context`: an invitee
+    who accepts uses the new membership in the very next request."""
+    return repository
+
+
+def _memory_repository_unit(
     context: TenantContext = Depends(tenant_context),
 ) -> Iterator[MemoryRepository]:
     if settings.repository_backend == "memory":
@@ -627,6 +646,13 @@ def memory_repository_context(
         session.close()
 
 
+def memory_repository_context(
+    repository: MemoryRepository = Depends(_memory_repository_unit, scope="function"),
+) -> MemoryRepository:
+    """Committed before the response starts, like :func:`repository_context`."""
+    return repository
+
+
 @contextmanager
 def open_memory_repository(context: TenantContext) -> Iterator[MemoryRepository]:
     """A memory store for one unit of work outside a request (conversation memory).
@@ -646,7 +672,7 @@ def open_memory_repository(context: TenantContext) -> Iterator[MemoryRepository]
         yield repository
 
 
-def provisioning_repository_context(
+def _provisioning_repository_unit(
     context: TenantContext = Depends(provisioning_tenant_context),
 ) -> Iterator[AnumRepository]:
     if settings.repository_backend == "memory":
@@ -665,6 +691,14 @@ def provisioning_repository_context(
         raise
     finally:
         session.close()
+
+
+def provisioning_repository_context(
+    repository: AnumRepository = Depends(_provisioning_repository_unit, scope="function"),
+) -> AnumRepository:
+    """Committed before the response starts, like :func:`repository_context`: the tenant,
+    workspace and owner membership that onboarding creates exist for the next request."""
+    return repository
 
 
 def _require_persisted_membership(repository: AnumRepository, context: TenantContext) -> None:

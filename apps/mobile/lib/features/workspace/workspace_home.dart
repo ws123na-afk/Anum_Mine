@@ -1,7 +1,9 @@
 import '../integrations/integrations_controller.dart';
 import '../integrations/integrations_repository.dart';
 import '../integrations/integrations_screen.dart';
+
 import 'package:flutter/material.dart';
+
 import 'workspace_controller.dart';
 import 'workspace_models.dart';
 import '../chat/chat_cards.dart';
@@ -34,6 +36,8 @@ import '../finance/finance_screen.dart';
 import '../library/library_models.dart' show Favorite;
 import '../library/library_repository.dart';
 import '../library/library_screens.dart';
+import '../business/business_controller.dart';
+import '../business/business_screen.dart';
 import '../marketing/marketing_controller.dart';
 import '../marketing/marketing_screen.dart';
 import '../admin/owned_controller.dart';
@@ -64,32 +68,34 @@ import 'tasks_screen.dart';
 /// rail with the orb at its top. The Menu drawer reaches every other
 /// destination. Pages keep their state in an [IndexedStack].
 class WorkspaceHome extends StatefulWidget {
-  const WorkspaceHome(
-      {super.key,
-      required this.controller,
-      required this.chatController,
-      required this.voiceController,
-      required this.settingsController,
-      required this.governanceController,
-      required this.localeController,
-      this.themeController,
-      this.developerController,
-      this.automationsController,
-      this.marketingController,
-      this.chatDeveloper,
-      this.whatsappController,
-      this.emailController,
-      this.commerceController,
-      this.financeController,
-      this.homeController,
-      this.onOpenCommand,
-      this.agentsController,
-      this.agentChat,
-      this.agentCall,
-      this.onCommandRequest,
-      this.workspaceName,
-      this.library,
-      this.initialIndex = WorkspaceDestination.home});
+  const WorkspaceHome({
+    super.key,
+    required this.controller,
+    required this.chatController,
+    required this.voiceController,
+    required this.settingsController,
+    required this.governanceController,
+    required this.localeController,
+    this.themeController,
+    this.developerController,
+    this.automationsController,
+    this.marketingController,
+    this.businessController,
+    this.chatDeveloper,
+    this.whatsappController,
+    this.emailController,
+    this.commerceController,
+    this.financeController,
+    this.homeController,
+    this.onOpenCommand,
+    this.agentsController,
+    this.agentChat,
+    this.agentCall,
+    this.onCommandRequest,
+    this.workspaceName,
+    this.library,
+    this.initialIndex = WorkspaceDestination.home,
+  });
   final WorkspaceController controller;
   final ChatController chatController;
   final VoiceController voiceController;
@@ -110,6 +116,9 @@ class WorkspaceHome extends StatefulWidget {
 
   /// Social media marketing (docs/marketing.md), opened from the menu.
   final MarketingController? marketingController;
+
+  /// Business, the internal sales desk (docs/business.md), opened from the menu.
+  final BusinessController? businessController;
 
   /// "build ..." in the Assistant; the voice one lives on the voice controller.
   final DeveloperAssist? chatDeveloper;
@@ -169,24 +178,31 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
   AutomationsController _ownAutomations() {
     _ownsAutomations = true;
     final repository = widget.controller.repository;
-    return AutomationsController(repository is ApiWorkspaceRepository
-        ? ApiAutomationTriggerRepository(repository.api)
-        : const UnavailableAutomationRepository());
+    return AutomationsController(
+      repository is ApiWorkspaceRepository
+          ? ApiAutomationTriggerRepository(repository.api)
+          : const UnavailableAutomationRepository(),
+    );
   }
 
   /// Integrations (docs/mobile.md#anum-360-lists): its own screen on the
   /// integrations API; Resources > Services without the API repository.
   late final IntegrationsController? _integrations =
       widget.controller.repository is ApiWorkspaceRepository
-          ? IntegrationsController(ApiIntegrationsRepository(
-              (widget.controller.repository as ApiWorkspaceRepository).api))
+          ? IntegrationsController(
+              ApiIntegrationsRepository(
+                (widget.controller.repository as ApiWorkspaceRepository).api,
+              ),
+            )
           : null;
   HomeController _ownHome() {
     _ownsHome = true;
     final repository = widget.controller.repository;
-    return HomeController(repository is ApiWorkspaceRepository
-        ? ApiHomeRepository(repository.api)
-        : const UnavailableHomeRepository());
+    return HomeController(
+      repository is ApiWorkspaceRepository
+          ? ApiHomeRepository(repository.api)
+          : const UnavailableHomeRepository(),
+    );
   }
 
   late final RestorableInt _index;
@@ -227,13 +243,13 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
 
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<bool>(
-      valueListenable: widget.chatController.listOpen,
-      builder: (context, listOpen, shell) {
-        // On a phone the Assistant's conversation list sits in place of the
-        // chat: Back closes it instead of leaving the workspace.
-        final backClosesList =
-            listOpen && index == WorkspaceDestination.assistant;
-        return PopScope<Object?>(
+        valueListenable: widget.chatController.listOpen,
+        builder: (context, listOpen, shell) {
+          // On a phone the Assistant's conversation list sits in place of the
+          // chat: Back closes it instead of leaving the workspace.
+          final backClosesList =
+              listOpen && index == WorkspaceDestination.assistant;
+          return PopScope<Object?>(
             canPop: !backClosesList,
             onPopInvokedWithResult: (didPop, result) {
               if (!didPop && backClosesList) {
@@ -243,9 +259,11 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
               // Leaving the workspace never keeps the microphone open.
               widget.voiceController.setVisible(false);
             },
-            child: shell!);
-      },
-      child: _buildShell(context));
+            child: shell!,
+          );
+        },
+        child: _buildShell(context),
+      );
 
   void _push(Widget page) =>
       Navigator.push(context, MaterialPageRoute<void>(builder: (_) => page));
@@ -258,48 +276,79 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
 
   void _openMarketing() =>
       _push(MarketingScreen(controller: widget.marketingController!));
-  void _openGovernance(GovernanceSection section) => _push(GovernanceScreen(
-      controller: widget.governanceController, initialSection: section));
+
+  void _openBusiness() => _push(
+        BusinessScreen(
+          controller: widget.businessController!,
+          onOpenApprovals: () {
+            Navigator.of(context).pop();
+            _select(WorkspaceDestination.approvals);
+          },
+        ),
+      );
+  void _openGovernance(GovernanceSection section) => _push(
+        GovernanceScreen(
+          controller: widget.governanceController,
+          initialSection: section,
+        ),
+      );
 
   /// Integrations (docs/mobile.md#anum-360-lists): its own screen on the
   /// integrations API, Resources > Services without it.
   void _openIntegrations() {
     final integrations = _integrations;
     if (integrations == null) {
-      _openResources(ResourcesTab.services,
-          AnumLocalizations.of(context).t('shellIntegrations'));
+      _openResources(
+        ResourcesTab.services,
+        AnumLocalizations.of(context).t('shellIntegrations'),
+      );
       return;
     }
-    _push(Scaffold(
+    _push(
+      Scaffold(
         appBar: AppBar(),
         body: IntegrationsScreen(
-            controller: integrations,
-            onOpenInbox: widget.emailController == null ? null : _openInbox)));
+          controller: integrations,
+          onOpenInbox: widget.emailController == null ? null : _openInbox,
+        ),
+      ),
+    );
   }
 
-  void _openResources(int tab, String title) => _push(Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: ResourcesScreen(controller: widget.controller, initialTab: tab)));
-  void _openProfile() => _push(ProfileScreen(
-      settings: widget.settingsController,
-      locale: widget.localeController,
-      theme: _theme,
-      workspaceName: widget.workspaceName,
-      onAskAnum: () => _select(WorkspaceDestination.assistant)));
+  void _openResources(int tab, String title) => _push(
+        Scaffold(
+          appBar: AppBar(title: Text(title)),
+          body: ResourcesScreen(controller: widget.controller, initialTab: tab),
+        ),
+      );
+  void _openProfile() => _push(
+        ProfileScreen(
+          settings: widget.settingsController,
+          locale: widget.localeController,
+          theme: _theme,
+          workspaceName: widget.workspaceName,
+          onAskAnum: () => _select(WorkspaceDestination.assistant),
+        ),
+      );
   void _openSettings() =>
       _push(SettingsScreen(controller: widget.settingsController));
   void _openReport(String id) =>
       _push(ReportDetailScreen(repository: widget.library!, id: id));
   void _openFavorites() => _push(
-      FavoritesScreen(repository: widget.library!, onOpenOther: _openFavorite));
+        FavoritesScreen(
+            repository: widget.library!, onOpenOther: _openFavorite),
+      );
   void _openReports() => _push(ReportsScreen(repository: widget.library!));
   // Knowledge Base: collections first; memories and files stay one tap away.
-  void _openKnowledge() => _push(KnowledgeScreen(
-      repository: widget.library!,
-      onOpenMemories: () {
-        Navigator.of(context).popUntil((route) => route.isFirst);
-        _select(WorkspaceDestination.resources);
-      }));
+  void _openKnowledge() => _push(
+        KnowledgeScreen(
+          repository: widget.library!,
+          onOpenMemories: () {
+            Navigator.of(context).popUntil((route) => route.isFirst);
+            _select(WorkspaceDestination.resources);
+          },
+        ),
+      );
 
   /// A starred item that lives in another destination.
   void _openFavorite(Favorite favorite) {
@@ -364,6 +413,7 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
         if (widget.commerceController != null) 'commerce',
         if (widget.financeController != null) 'finance',
         if (widget.marketingController != null) 'marketing',
+        if (widget.businessController != null) 'business',
       };
 
   void _openTarget(HomeTarget target) {
@@ -421,15 +471,20 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
         _openWhatsApp();
       case 'autonomy' when widget.settingsController.autonomy != null:
         final repository = widget.settingsController.autonomy!;
-        _push(OwnedController<ActivityController>(
+        _push(
+          OwnedController<ActivityController>(
             create: () => ActivityController(repository),
-            builder: (_, c) => ActivityScreen(controller: c)));
+            builder: (_, c) => ActivityScreen(controller: c),
+          ),
+        );
       case 'commerce' when widget.commerceController != null:
         _push(CommerceScreen(controller: widget.commerceController!));
       case 'finance' when widget.financeController != null:
         _openFinance();
       case 'marketing' when widget.marketingController != null:
         _openMarketing();
+      case 'business' when widget.businessController != null:
+        _openBusiness();
       case 'more':
         _scaffold.currentState?.openDrawer();
       default:
@@ -450,11 +505,16 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
         _home.load(),
       ]);
     } on Object catch (error) {
-      messenger?.showSnackBar(SnackBar(
-          content: Text(l.f('homeSwitchFailed', {
-        'name': workspaceId,
-        'message': error is ApiException ? error.readable : '$error'
-      }))));
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            l.f('homeSwitchFailed', {
+              'name': workspaceId,
+              'message': error is ApiException ? error.readable : '$error',
+            }),
+          ),
+        ),
+      );
     }
   }
 
@@ -488,138 +548,159 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
       };
 
   Widget _buildShell(BuildContext context) => ListenableBuilder(
-        listenable:
-            Listenable.merge([widget.controller, widget.developerController]),
+        listenable: Listenable.merge([
+          widget.controller,
+          widget.developerController,
+        ]),
         builder: (context, _) {
           final developer = widget.developerController;
           // Chat and voice offer "Open Developer" only where it is listed.
           final openDeveloper = _showDeveloper
               ? () => _select(WorkspaceDestination.developer)
               : null;
-          return LayoutBuilder(builder: (context, constraints) {
-            final expanded = constraints.maxWidth >= 840;
-            final pages = [
-              AssistantScreen(
-                controller: widget.chatController,
-                active: index == WorkspaceDestination.assistant,
-                onOpenSettings: _openSettings,
-                developer: widget.chatDeveloper,
-                onOpenDeveloper: openDeveloper,
-                onOpenReport: widget.library == null ? null : _openReport,
-                onOpenTarget: _openChatTarget,
-                dictation: widget.voiceController.speech,
-              ),
-              HomeScreen(
-                controller: _home,
-                sections: [
-                  // Favorites and recent reports (docs/library.md).
-                  if (widget.library case final repository?)
-                    LibrarySection(
-                        repository: repository, onOpenOther: _openFavorite),
-                  // Tyre planning (docs/tyre-planning.md): its own screen.
-                  AnumSurface(
-                    onTap: () => Navigator.of(context).pushNamed('/tyres'),
-                    semanticLabel: context.anum.t('tyreOpen'),
-                    child: AnumRow(
-                      icon: Icons.tire_repair_outlined,
-                      title: context.anum.t('tyreOpen'),
-                      subtitle: context.anum.t('tyreOpenHint'),
-                      trailing: const Icon(Icons.chevron_right),
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final expanded = constraints.maxWidth >= 840;
+              final pages = [
+                AssistantScreen(
+                  controller: widget.chatController,
+                  active: index == WorkspaceDestination.assistant,
+                  onOpenSettings: _openSettings,
+                  developer: widget.chatDeveloper,
+                  onOpenDeveloper: openDeveloper,
+                  onOpenReport: widget.library == null ? null : _openReport,
+                  onOpenTarget: _openChatTarget,
+                  dictation: widget.voiceController.speech,
+                ),
+                HomeScreen(
+                  controller: _home,
+                  sections: [
+                    // Favorites and recent reports (docs/library.md).
+                    if (widget.library case final repository?)
+                      LibrarySection(
+                        repository: repository,
+                        onOpenOther: _openFavorite,
+                      ),
+                    // Tyre planning (docs/tyre-planning.md): its own screen.
+                    AnumSurface(
+                      onTap: () => Navigator.of(context).pushNamed('/tyres'),
+                      semanticLabel: context.anum.t('tyreOpen'),
+                      child: AnumRow(
+                        icon: Icons.tire_repair_outlined,
+                        title: context.anum.t('tyreOpen'),
+                        subtitle: context.anum.t('tyreOpenHint'),
+                        trailing: const Icon(Icons.chevron_right),
+                      ),
                     ),
-                  ),
-                ],
-                // On wide screens the header sits above every page instead.
-                header: expanded ? const SizedBox.shrink() : _header(),
-                onCommand: _commandRequest,
-                onVoice: _openCommand,
-                onOpen: _openTarget,
-                onSwitchWorkspace: _switchWorkspace,
-                availableFeatures: _homeFeatures,
-              ),
-              TasksScreen(controller: widget.controller),
-              VoiceScreen(
+                  ],
+                  // On wide screens the header sits above every page instead.
+                  header: expanded ? const SizedBox.shrink() : _header(),
+                  onCommand: _commandRequest,
+                  onVoice: _openCommand,
+                  onOpen: _openTarget,
+                  onSwitchWorkspace: _switchWorkspace,
+                  availableFeatures: _homeFeatures,
+                ),
+                TasksScreen(controller: widget.controller),
+                VoiceScreen(
                   controller: widget.voiceController,
                   onOpenApprovals: () =>
                       _select(WorkspaceDestination.approvals),
-                  onOpenDeveloper: openDeveloper),
-              ApprovalsScreen(controller: widget.controller),
-              AutomationsScreen(automations: _automations),
-              ResourcesScreen(controller: widget.controller),
-              if (developer != null)
-                DeveloperScreen(
-                  controller: developer,
-                  active: index == WorkspaceDestination.developer,
-                  onOpenSettings: _openSettings,
-                )
-              else
-                const SizedBox.shrink(),
-            ];
-            final content = _content(context, pages);
-            return Scaffold(
-              key: _scaffold,
-              drawer: _menu(context),
-              body: expanded ? _expanded(context, content) : content,
-              bottomNavigationBar: expanded ? null : _bottomBar(context),
-            );
-          });
+                  onOpenDeveloper: openDeveloper,
+                ),
+                ApprovalsScreen(controller: widget.controller),
+                AutomationsScreen(automations: _automations),
+                ResourcesScreen(controller: widget.controller),
+                if (developer != null)
+                  DeveloperScreen(
+                    controller: developer,
+                    active: index == WorkspaceDestination.developer,
+                    onOpenSettings: _openSettings,
+                  )
+                else
+                  const SizedBox.shrink(),
+              ];
+              final content = _content(context, pages);
+              return Scaffold(
+                key: _scaffold,
+                drawer: _menu(context),
+                body: expanded ? _expanded(context, content) : content,
+                bottomNavigationBar: expanded ? null : _bottomBar(context),
+              );
+            },
+          );
         },
       );
 
   Widget _content(BuildContext context, List<Widget> pages) {
     final l = context.anum;
-    return Column(children: [
-      if (widget.controller.phase == LoadPhase.offline)
-        _StateBanner(icon: Icons.cloud_off, text: l.t('offline')),
-      if (widget.controller.message != null &&
-          widget.controller.phase == LoadPhase.error)
-        _StateBanner(
-            icon: Icons.error_outline, text: widget.controller.message!),
-      Expanded(
+    return Column(
+      children: [
+        if (widget.controller.phase == LoadPhase.offline)
+          _StateBanner(icon: Icons.cloud_off, text: l.t('offline')),
+        if (widget.controller.message != null &&
+            widget.controller.phase == LoadPhase.error)
+          _StateBanner(
+            icon: Icons.error_outline,
+            text: widget.controller.message!,
+          ),
+        Expanded(
           child: widget.controller.phase == LoadPhase.loading &&
                   widget.controller.snapshot == null
               ? const Center(child: CircularProgressIndicator())
-              : IndexedStack(index: index, children: pages))
-    ]);
+              : IndexedStack(index: index, children: pages),
+        ),
+      ],
+    );
   }
 
   /// Rail destinations, in [WorkspaceDestination] order.
   List<NavigationDestination> _railDestinations(AnumLocalizations l) => [
         NavigationDestination(
-            icon: const Icon(Icons.chat_bubble_outline),
-            selectedIcon: const Icon(Icons.chat_bubble),
-            label: l.t('assistant')),
+          icon: const Icon(Icons.chat_bubble_outline),
+          selectedIcon: const Icon(Icons.chat_bubble),
+          label: l.t('assistant'),
+        ),
         NavigationDestination(
-            icon: const Icon(Icons.home_outlined),
-            selectedIcon: const Icon(Icons.home),
-            label: l.t('home')),
+          icon: const Icon(Icons.home_outlined),
+          selectedIcon: const Icon(Icons.home),
+          label: l.t('home'),
+        ),
         NavigationDestination(
-            icon: const Icon(Icons.task_alt_outlined),
-            selectedIcon: const Icon(Icons.task_alt),
-            label: l.t('tasks')),
+          icon: const Icon(Icons.task_alt_outlined),
+          selectedIcon: const Icon(Icons.task_alt),
+          label: l.t('tasks'),
+        ),
         NavigationDestination(
-            icon: const Icon(Icons.mic_none),
-            selectedIcon: const Icon(Icons.mic),
-            label: l.t('voice')),
+          icon: const Icon(Icons.mic_none),
+          selectedIcon: const Icon(Icons.mic),
+          label: l.t('voice'),
+        ),
         NavigationDestination(
-            icon: Badge(
-                isLabelVisible: widget.controller.pendingApprovals.isNotEmpty,
-                label: Text('${widget.controller.pendingApprovals.length}'),
-                child: const Icon(Icons.approval_outlined)),
-            selectedIcon: const Icon(Icons.approval),
-            label: l.t('approvals')),
+          icon: Badge(
+            isLabelVisible: widget.controller.pendingApprovals.isNotEmpty,
+            label: Text('${widget.controller.pendingApprovals.length}'),
+            child: const Icon(Icons.approval_outlined),
+          ),
+          selectedIcon: const Icon(Icons.approval),
+          label: l.t('approvals'),
+        ),
         NavigationDestination(
-            icon: const Icon(Icons.account_tree_outlined),
-            selectedIcon: const Icon(Icons.account_tree),
-            label: l.t('automation')),
+          icon: const Icon(Icons.account_tree_outlined),
+          selectedIcon: const Icon(Icons.account_tree),
+          label: l.t('automation'),
+        ),
         NavigationDestination(
-            icon: const Icon(Icons.folder_outlined),
-            selectedIcon: const Icon(Icons.folder),
-            label: l.t('resources')),
+          icon: const Icon(Icons.folder_outlined),
+          selectedIcon: const Icon(Icons.folder),
+          label: l.t('resources'),
+        ),
         if (_showDeveloper)
           NavigationDestination(
-              icon: const Icon(Icons.construction_outlined),
-              selectedIcon: const Icon(Icons.construction),
-              label: l.t('developer')),
+            icon: const Icon(Icons.construction_outlined),
+            selectedIcon: const Icon(Icons.construction),
+            label: l.t('developer'),
+          ),
       ];
 
   Widget _expanded(BuildContext context, Widget content) {
@@ -628,13 +709,14 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
     final destinations = _railDestinations(l);
     return AnumRail(
       rail: NavigationRail(
-          // A deep link to Developer for a non-owner selects nothing: the
-          // destination is not listed for them.
-          selectedIndex: index < destinations.length ? index : null,
-          onDestinationSelected: _select,
-          labelType: NavigationRailLabelType.all,
-          groupAlignment: -1,
-          leading: Column(children: [
+        // A deep link to Developer for a non-owner selects nothing: the
+        // destination is not listed for them.
+        selectedIndex: index < destinations.length ? index : null,
+        onDestinationSelected: _select,
+        labelType: NavigationRailLabelType.all,
+        groupAlignment: -1,
+        leading: Column(
+          children: [
             const SizedBox(height: AnumSpacing.xs),
             const AnumLogoMark(size: 40, semanticLabel: 'ANUM 360'),
             const SizedBox(height: AnumSpacing.md),
@@ -656,33 +738,46 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
               ),
             ),
             const SizedBox(height: AnumSpacing.xs),
-          ]),
-          trailing: Padding(
-            padding: const EdgeInsets.only(top: AnumSpacing.sm),
-            child: IconButton(
-                key: const Key('rail-menu'),
-                tooltip: l.t('shellOpenMenu'),
-                onPressed: () => _scaffold.currentState?.openDrawer(),
-                icon: Icon(Icons.menu, color: p.muted)),
+          ],
+        ),
+        trailing: Padding(
+          padding: const EdgeInsets.only(top: AnumSpacing.sm),
+          child: IconButton(
+            key: const Key('rail-menu'),
+            tooltip: l.t('shellOpenMenu'),
+            onPressed: () => _scaffold.currentState?.openDrawer(),
+            icon: Icon(Icons.menu, color: p.muted),
           ),
-          destinations: destinations
-              .map((item) => NavigationRailDestination(
-                  icon: item.icon,
-                  selectedIcon: item.selectedIcon,
-                  label: Text(item.label)))
-              .toList()),
+        ),
+        destinations: destinations
+            .map(
+              (item) => NavigationRailDestination(
+                icon: item.icon,
+                selectedIcon: item.selectedIcon,
+                label: Text(item.label),
+              ),
+            )
+            .toList(),
+      ),
       header: SafeArea(
         bottom: false,
         child: Padding(
           padding: const EdgeInsetsDirectional.fromSTEB(
-              AnumSpacing.lg, AnumSpacing.sm, AnumSpacing.md, AnumSpacing.xs),
-          child: _header(trailing: [
-            IconButton(
+            AnumSpacing.lg,
+            AnumSpacing.sm,
+            AnumSpacing.md,
+            AnumSpacing.xs,
+          ),
+          child: _header(
+            trailing: [
+              IconButton(
                 onPressed:
                     widget.controller.mutating ? null : widget.controller.load,
                 tooltip: l.t('refresh'),
-                icon: const Icon(Icons.refresh))
-          ]),
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
+          ),
         ),
       ),
       content: content,
@@ -705,26 +800,30 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
       onOrb: _openCommand,
       items: [
         AnumNavItem(
-            key: const Key('nav-home'),
-            icon: Icons.home_outlined,
-            selectedIcon: Icons.home,
-            label: l.t('home')),
+          key: const Key('nav-home'),
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home,
+          label: l.t('home'),
+        ),
         AnumNavItem(
-            key: const Key('nav-chat'),
-            icon: Icons.chat_bubble_outline,
-            selectedIcon: Icons.chat_bubble,
-            label: l.t('shellChat')),
+          key: const Key('nav-chat'),
+          icon: Icons.chat_bubble_outline,
+          selectedIcon: Icons.chat_bubble,
+          label: l.t('shellChat'),
+        ),
         AnumNavItem(
-            key: const Key('nav-tasks'),
-            icon: Icons.task_alt_outlined,
-            selectedIcon: Icons.task_alt,
-            label: l.t('tasks')),
+          key: const Key('nav-tasks'),
+          icon: Icons.task_alt_outlined,
+          selectedIcon: Icons.task_alt,
+          label: l.t('tasks'),
+        ),
         AnumNavItem(
-            key: const Key('nav-menu'),
-            icon: Icons.menu,
-            selectedIcon: Icons.menu_open,
-            label: l.t('shellMenu'),
-            badge: widget.controller.pendingApprovals.length),
+          key: const Key('nav-menu'),
+          icon: Icons.menu,
+          selectedIcon: Icons.menu_open,
+          label: l.t('shellMenu'),
+          badge: widget.controller.pendingApprovals.length,
+        ),
       ],
       onSelected: (value) => switch (value) {
         0 => _select(WorkspaceDestination.home),
@@ -735,10 +834,13 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
     );
   }
 
-  void _openAgents() => _push(AgentsScreen(
-      controller: widget.agentsController!,
-      chatBuilder: widget.agentChat,
-      callOpener: widget.agentCall));
+  void _openAgents() => _push(
+        AgentsScreen(
+          controller: widget.agentsController!,
+          chatBuilder: widget.agentChat,
+          callOpener: widget.agentCall,
+        ),
+      );
 
   /// The Mobile Menu: the mockup's destinations, then everything else the
   /// app has, then the plan card.
@@ -749,98 +851,156 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
       action();
     }
 
-    AnumMenuEntry destination(String key, IconData icon, int target,
-            {int badge = 0}) =>
+    AnumMenuEntry destination(
+      String key,
+      IconData icon,
+      int target, {
+      int badge = 0,
+    }) =>
         AnumMenuEntry(
-            key: Key('menu-$key'),
-            icon: icon,
-            label: l.t(key),
-            selected: index == target,
-            badge: badge,
-            onTap: () => go(() => _select(target)));
+          key: Key('menu-$key'),
+          icon: icon,
+          label: l.t(key),
+          selected: index == target,
+          badge: badge,
+          onTap: () => go(() => _select(target)),
+        );
     AnumMenuEntry page(String key, IconData icon, VoidCallback open) =>
         AnumMenuEntry(
-            key: Key('menu-$key'),
-            icon: icon,
-            label: l.t(key),
-            onTap: () => go(open));
+          key: Key('menu-$key'),
+          icon: icon,
+          label: l.t(key),
+          onTap: () => go(open),
+        );
     return AnumMenuDrawer(
       semanticLabel: l.t('shellMenuLabel'),
       sections: [
-        AnumMenuSection(entries: [
-          destination('home', Icons.home_outlined, WorkspaceDestination.home),
-          // Agents (docs/agents.md); without the agents API, the installed skills.
-          page(
+        AnumMenuSection(
+          entries: [
+            destination('home', Icons.home_outlined, WorkspaceDestination.home),
+            // Agents (docs/agents.md); without the agents API, the installed skills.
+            page(
               'shellAgents',
               Icons.smart_toy_outlined,
               widget.agentsController == null
                   ? () =>
                       _openResources(ResourcesTab.skills, l.t('shellAgents'))
-                  : _openAgents),
-          destination(
-              'tasks', Icons.task_alt_outlined, WorkspaceDestination.tasks),
-          if (widget.settingsController.team case final team?)
-            AnumMenuEntry(
+                  : _openAgents,
+            ),
+            destination(
+              'tasks',
+              Icons.task_alt_outlined,
+              WorkspaceDestination.tasks,
+            ),
+            if (widget.settingsController.team case final team?)
+              AnumMenuEntry(
                 key: const Key('menu-team'),
                 icon: Icons.groups_outlined,
                 label: TeamText.of(context).t('section'),
-                onTap: () => go(() => _push(TeamHubScreen(repository: team)))),
-          destination('shellAutomations', Icons.account_tree_outlined,
-              WorkspaceDestination.automations),
-          page('shellIntegrations', Icons.hub_outlined, _openIntegrations),
-          if (widget.library != null) ...[
-            page('shellKnowledge', Icons.menu_book_outlined, _openKnowledge),
-            page('libFavorites', Icons.star_outline, _openFavorites),
-            page('libReports', Icons.insert_chart_outlined, _openReports),
-          ] else
-            destination('shellKnowledge', Icons.menu_book_outlined,
-                WorkspaceDestination.resources),
-          destination(
-              'shellCalls', Icons.call_outlined, WorkspaceDestination.voice),
-          // Calendar & next actions (docs/calendar.md), a named route.
-          page('calendar', Icons.calendar_month_outlined,
-              () => Navigator.of(context).pushNamed('/calendar')),
-          page('settings', Icons.settings_outlined, _openProfile),
-        ]),
-        AnumMenuSection(title: l.t('shellMore'), entries: [
-          destination('approvals', Icons.approval_outlined,
-              WorkspaceDestination.approvals,
-              badge: widget.controller.pendingApprovals.length),
-          destination('assistant', Icons.chat_bubble_outline,
-              WorkspaceDestination.assistant),
-          if (widget.emailController != null) ...[
-            page('inbox', Icons.mail_outline, _openInbox),
-            page('emailSummary', Icons.mark_email_unread_outlined,
-                () => Navigator.of(context).pushNamed('/email/summary')),
-            // The Email Center on the workspace's own mail server
-            // (docs/email.md#email-center), a named route.
-            page('mc.title', Icons.dns_outlined,
-                () => Navigator.of(context).pushNamed('/mail')),
+                onTap: () => go(() => _push(TeamHubScreen(repository: team))),
+              ),
+            destination(
+              'shellAutomations',
+              Icons.account_tree_outlined,
+              WorkspaceDestination.automations,
+            ),
+            page('shellIntegrations', Icons.hub_outlined, _openIntegrations),
+            if (widget.library != null) ...[
+              page('shellKnowledge', Icons.menu_book_outlined, _openKnowledge),
+              page('libFavorites', Icons.star_outline, _openFavorites),
+              page('libReports', Icons.insert_chart_outlined, _openReports),
+            ] else
+              destination(
+                'shellKnowledge',
+                Icons.menu_book_outlined,
+                WorkspaceDestination.resources,
+              ),
+            destination(
+              'shellCalls',
+              Icons.call_outlined,
+              WorkspaceDestination.voice,
+            ),
+            // Calendar & next actions (docs/calendar.md), a named route.
+            page(
+              'calendar',
+              Icons.calendar_month_outlined,
+              () => Navigator.of(context).pushNamed('/calendar'),
+            ),
+            page('settings', Icons.settings_outlined, _openProfile),
           ],
-          if (widget.whatsappController != null)
-            page('whatsapp', Icons.forum_outlined, _openWhatsApp),
-          if (widget.marketingController != null)
-            page('mk.title', Icons.campaign_outlined, _openMarketing),
-          if (widget.financeController != null)
-            page('financeMenu', Icons.account_balance_wallet_outlined,
-                _openFinance),
-          if (_showDeveloper)
-            destination('developer', Icons.construction_outlined,
-                WorkspaceDestination.developer),
-          page('organization', Icons.admin_panel_settings_outlined,
-              () => _openGovernance(GovernanceSection.policies)),
-          page('shellMarketplace', Icons.storefront_outlined,
-              () => _openGovernance(GovernanceSection.marketplace)),
-          page('shellRouting', Icons.route,
-              () => _openGovernance(GovernanceSection.routing)),
-        ]),
+        ),
+        AnumMenuSection(
+          title: l.t('shellMore'),
+          entries: [
+            destination(
+              'approvals',
+              Icons.approval_outlined,
+              WorkspaceDestination.approvals,
+              badge: widget.controller.pendingApprovals.length,
+            ),
+            destination(
+              'assistant',
+              Icons.chat_bubble_outline,
+              WorkspaceDestination.assistant,
+            ),
+            if (widget.emailController != null) ...[
+              page('inbox', Icons.mail_outline, _openInbox),
+              page(
+                'emailSummary',
+                Icons.mark_email_unread_outlined,
+                () => Navigator.of(context).pushNamed('/email/summary'),
+              ),
+              // The Email Center on the workspace's own mail server
+              // (docs/email.md#email-center), a named route.
+              page(
+                'mc.title',
+                Icons.dns_outlined,
+                () => Navigator.of(context).pushNamed('/mail'),
+              ),
+            ],
+            if (widget.whatsappController != null)
+              page('whatsapp', Icons.forum_outlined, _openWhatsApp),
+            if (widget.marketingController != null)
+              page('mk.title', Icons.campaign_outlined, _openMarketing),
+            if (widget.businessController != null)
+              page('biz.title', Icons.handshake_outlined, _openBusiness),
+            if (widget.financeController != null)
+              page(
+                'financeMenu',
+                Icons.account_balance_wallet_outlined,
+                _openFinance,
+              ),
+            if (_showDeveloper)
+              destination(
+                'developer',
+                Icons.construction_outlined,
+                WorkspaceDestination.developer,
+              ),
+            page(
+              'organization',
+              Icons.admin_panel_settings_outlined,
+              () => _openGovernance(GovernanceSection.policies),
+            ),
+            page(
+              'shellMarketplace',
+              Icons.storefront_outlined,
+              () => _openGovernance(GovernanceSection.marketplace),
+            ),
+            page(
+              'shellRouting',
+              Icons.route,
+              () => _openGovernance(GovernanceSection.routing),
+            ),
+          ],
+        ),
       ],
       footer: AnumPlanCard(
         key: const Key('menu-plan'),
         title: l.t('planFree'),
         subtitle: widget.workspaceName ?? l.t('planFreeShort'),
-        onTap: () => go(() =>
-            _push(SubscriptionScreen(workspaceName: widget.workspaceName))),
+        onTap: () => go(
+          () => _push(SubscriptionScreen(workspaceName: widget.workspaceName)),
+        ),
       ),
     );
   }
@@ -865,19 +1025,29 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
 
 /// The wide layout: the rail, a divider, and the header above the page.
 class AnumRail extends StatelessWidget {
-  const AnumRail(
-      {required this.rail,
-      required this.header,
-      required this.content,
-      super.key});
+  const AnumRail({
+    required this.rail,
+    required this.header,
+    required this.content,
+    super.key,
+  });
   final Widget rail, header, content;
 
   @override
-  Widget build(BuildContext context) => Row(children: [
-        SafeArea(right: false, child: rail),
-        const VerticalDivider(width: 1),
-        Expanded(child: Column(children: [header, Expanded(child: content)])),
-      ]);
+  Widget build(BuildContext context) => Row(
+        children: [
+          SafeArea(right: false, child: rail),
+          const VerticalDivider(width: 1),
+          Expanded(
+            child: Column(
+              children: [
+                header,
+                Expanded(child: content),
+              ],
+            ),
+          ),
+        ],
+      );
 }
 
 class _StateBanner extends StatelessWidget {
@@ -886,17 +1056,25 @@ class _StateBanner extends StatelessWidget {
   final String text;
   @override
   Widget build(BuildContext context) => Material(
-      color: Theme.of(context).colorScheme.errorContainer,
-      child: SafeArea(
+        color: Theme.of(context).colorScheme.errorContainer,
+        child: SafeArea(
           bottom: false,
           child: Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: AnumSpacing.md, vertical: AnumSpacing.xs),
-              child: Row(children: [
+            padding: const EdgeInsets.symmetric(
+              horizontal: AnumSpacing.md,
+              vertical: AnumSpacing.xs,
+            ),
+            child: Row(
+              children: [
                 Icon(icon, size: 18),
                 const SizedBox(width: AnumSpacing.xs),
                 Expanded(
-                    child: Text(text,
-                        style: Theme.of(context).textTheme.bodySmall))
-              ]))));
+                  child:
+                      Text(text, style: Theme.of(context).textTheme.bodySmall),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
 }

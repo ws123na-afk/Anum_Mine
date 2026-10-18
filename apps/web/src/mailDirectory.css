@@ -1,0 +1,70 @@
+/* Email Center phase 3 part A (MailDirectory.tsx): mailbox picker, shared notice, sharing, sender
+   identities, contacts and the recipient suggestions. Spacing, radii and colour from the shared
+   tokens in styles.css. */
+.mailsPicker { display: inline-flex; min-width: 0; }
+.mailsPicker select { font-size: 14px; font-weight: 600; max-width: min(340px, 100%); min-height: 40px; min-width: 0; padding-block: 0; }
+.mailsShared { margin: 0; }
+.mailsShared svg { flex: none; }
+
+.mailsSection { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); min-width: 0; padding-top: var(--d-s4); }
+.mailsSection h3 { align-items: center; display: flex; font-size: 15px; gap: var(--d-s2); margin: 0; }
+.mailsSection h3 svg { flex: none; height: 18px; width: 18px; }
+.mailsSection > .notice, .mailsSection > p { margin: 0; }
+
+.mailsList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; min-width: 0; padding: 0; }
+.mailsRow {
+  align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: flex; flex-wrap: wrap;
+  gap: var(--d-s2); min-width: 0; padding: var(--d-s2) var(--d-s3);
+}
+.mailsWho { display: grid; flex: 1 1 180px; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.mailsWho small { color: var(--d-muted); font-size: 12.5px; }
+.mailsWho .statusBadge { justify-self: start; }
+.mailsRow > button, .mailsRowActions > button { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 40px; }
+.mailsRow button svg { flex: none; height: 16px; width: 16px; }
+.mailsRowActions { display: flex; flex-wrap: wrap; gap: var(--d-s1); }
+.mailsInline select { min-height: 40px; }
+
+.mailsShareForm { align-items: end; display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) minmax(150px, auto) auto; min-width: 0; }
+.mailsShareForm .field { margin-top: 0; min-width: 0; }
+.mailsShareForm .actions { margin: 0; }
+.mailsCheck { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 40px; }
+.mailsCheck input { accent-color: var(--d-violet); height: 18px; margin: 0; min-height: 0; width: 18px; }
+.mailsAdd { border-top: 1px solid var(--d-line); padding-top: var(--d-s4); }
+.mailsAdd > summary { align-items: center; cursor: pointer; display: inline-flex; font-weight: 600; gap: var(--d-s2); min-height: 40px; }
+.mailsAdd > summary svg { height: 18px; width: 18px; }
+.mailsAdd .mailConnect { margin-top: var(--d-s3); }
+
+.mailsFrom { margin-top: 0; }
+.mailsFrom select { min-width: 0; width: 100%; }
+.mailsRecipient { margin-top: 0; min-width: 0; position: relative; }
+.mailsRecipient > label { display: block; }
+.mailsSuggest {
+  background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-control); box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  inset-inline: 0; list-style: none; margin: var(--d-s1) 0 0; max-height: 264px; overflow-y: auto; padding: var(--d-s1); position: absolute; top: 100%; z-index: 5;
+}
+.mailsSuggest[hidden] { display: none; }
+.mailsSuggest li { border-radius: var(--d-r-control); cursor: pointer; display: grid; gap: 2px; min-height: 40px; padding: var(--d-s1) var(--d-s2); }
+.mailsSuggest li small { color: var(--d-muted); font-size: 12.5px; }
+.mailsSuggest li.active, .mailsSuggest li:hover { background: var(--d-surface-3); }
+
+.mailsContacts { display: grid; gap: var(--d-s3); min-width: 0; }
+.mailsContacts > p, .mailsContacts > .notice { margin: 0; }
+.mailsSearch { display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
+.mailsSearch input { flex: 1 1 180px; min-height: 40px; min-width: 0; width: auto; }
+.mailsSearch button { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 40px; }
+.mailsSearch > button:not(.secondary) {
+  background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow);
+  color: #fff; font-size: 14px; font-weight: 650; padding: 0 var(--d-s4);
+}
+.mailsSearch > button:not(.secondary):hover { background: var(--d-primary-grad-hover); }
+.mailsSearch svg { flex: none; height: 16px; width: 16px; }
+.mailsContactForm { border: 1px solid var(--d-line); border-radius: var(--d-r-control); padding: var(--d-s3); }
+.mailsContactForm h3 { font-size: 15px; margin: 0; }
+.mailsEmpty { padding: var(--d-s4) 0; }
+
+@media (max-width: 640px) {
+  .mailsShareForm { grid-template-columns: minmax(0, 1fr); }
+  .mailsPicker select { max-width: 100%; }
+}
+/* Signatures and notes are short: the composer's tall body height does not apply here. */
+.mailForm.mailsIdentityForm textarea, .mailForm.mailsContactForm textarea { min-height: 88px; }

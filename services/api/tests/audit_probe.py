@@ -29,6 +29,7 @@ MODULE_PREFIXES = {
     "agents": "/api/v1/agents",
     "automation": "/api/v1/automation",
     "calls": "/api/v1/calls",
+    "business": "/api/v1/business",
     "autonomy": "/api/v1/autonomy",
     "developer": "/api/v1/developer",
     "email": "/api/v1/email",
