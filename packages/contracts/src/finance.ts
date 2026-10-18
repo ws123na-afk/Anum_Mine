@@ -815,53 +815,76 @@ export interface FinanceIntelOverview {
   venues: FinanceIntelVenue[];
   portfolios: FinanceIntelPortfolio[];
   risk: FinanceIntelRisk;
-  recording: { strategies: boolean; runs: boolean; decisions: boolean };
+  /** How many of your strategy versions are in each lifecycle state. */
+  strategies: { state: FinanceStrategyState; count: number }[];
   pending_requests: number;
   agent_requests: number;
   note: string;
   generated_at: string;
 }
 
-/** A page that also says whether the backend records this kind of row yet. */
-export interface FinanceIntelPage<T> extends FinancePage<T> { recording: boolean; note: string | null }
-
+/** One version of a strategy. A version is never edited after DRAFT: a change is a new version. */
 export interface FinanceStrategy {
   id: string;
-  key: string | null;
+  lineage_id: string;
+  key: string;
+  code_version: string;
   name: string;
-  version: number | null;
+  version: number;
   state: FinanceStrategyState;
   symbols: string[];
   params: Record<string, string | number | boolean | null>;
-  reason: string | null;
-  updated_at: string | null;
+  reason: string;
+  portfolio_id: string | null;
+  parent_id: string | null;
+  evidence_run_id: string | null;
+  created_by: string;
+  state_changed_by: string;
+  state_changed_at: string;
+  created_at: string;
+  updated_at: string;
   simulated: true;
 }
 
 export interface FinanceStrategyFold { index: number; train_start: string | null; train_end: string | null; test_start: string | null; test_end: string | null; metrics: Record<string, number | null> }
 
+export type FinanceRunVerdict = 'passed' | 'rejected' | 'insufficient_data' | 'completed';
+
+/** One backtest or walk-forward run of a strategy version, on the bars whose SHA-256 is `data_hash`. SIMULATED. */
 export interface FinanceStrategyRun {
   id: string;
-  kind: string;
-  created_at: string | null;
-  data_source: string | null;
-  data_hash: string | null;
+  strategy_id: string;
+  kind: 'backtest' | 'walk_forward';
+  created_at: string;
+  data_source: string;
+  data_hash: string;
+  code_version: string;
+  symbols: string[];
+  costs: Record<string, string>;
   metrics: Record<string, number | null>;
   benchmark: Record<string, number | null>;
-  verdict: string | null;
+  verdict: FinanceRunVerdict;
   reasons: string[];
+  warnings: string[];
   folds: FinanceStrategyFold[];
+  /** A re-run on the same bars gave the same hash and metrics. */
+  reproduced: boolean;
+  requested_by: string;
   simulated: true;
 }
 
+export type FinanceIntelAgent = 'person' | 'trading_supervisor' | 'market_research' | 'technical_analysis' | 'strategy_research' | 'portfolio'
+  | 'risk_guardian' | 'execution_coordinator' | 'performance_reviewer';
+
 export interface FinanceAgentDecision {
   id: string;
-  agent: string;
+  cycle_id: string | null;
+  agent: FinanceIntelAgent;
   action: string;
-  outcome: string | null;
+  outcome: string;
   reasons: string[];
   strategy_id: string | null;
   intent_id: string | null;
-  created_at: string | null;
+  created_at: string;
   simulated: true;
 }

@@ -63,5 +63,7 @@ def test_overview_reads_only_the_owners_simulated_book_under_rls(client: TestCli
     assert item["simulated"] is True and item["holdings"][0]["symbol"] == "EXMPL" and item["holdings"][0]["quantity"] == "10.00000000"
     for other in (OWNER, A2, B):
         assert client.get(f"{API}/intel/overview", headers=other).json()["portfolios"] == []
-    strategies = client.get(f"{API}/intel/strategies", headers=ME).json()
-    assert strategies["items"] == [] and isinstance(strategies["recording"], bool)
+    assert client.get(f"{API}/intel/strategies", headers=ME).json() == {"items": [], "total": 0, "limit": 20, "offset": 0}
+    assert {c["state"]: c["count"] for c in body["strategies"]}["PAPER_ACTIVE"] == 0
+    for other in (OWNER, B):
+        assert client.get(f"{API}/intel/decisions", headers=other).json()["total"] == 0

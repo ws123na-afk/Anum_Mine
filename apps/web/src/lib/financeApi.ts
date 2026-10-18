@@ -9,7 +9,7 @@ import type {
   FinanceSafeToSpend, FinanceSyncReport,
   FinanceExecutionStatus, FinanceIntent, FinanceIntentInput, FinanceIntentStatus, FinanceLive, FinanceLiveChangeInput, FinancePaperOrder,
   FinancePaperOrderStatus, FinanceWider, FinanceWidening, FinanceWideningInput, FinancePortfolio, FinancePortfolioInput, FinancePortfolioSummary, FinancePrice, FinancePriceInput, FinancePriceSaved,
-  FinanceAgentDecision, FinanceIntelOverview, FinanceIntelPage, FinanceStrategy, FinanceStrategyRun, FinanceStrategyState,
+  FinanceAgentDecision, FinanceIntelAgent, FinanceIntelOverview, FinanceStrategy, FinanceStrategyRun, FinanceStrategyState,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -149,8 +149,8 @@ export const reviewIncidents = () => send<FinanceWider>('POST', '/execution/wide
 
 export const getIntelOverview = () => get<FinanceIntelOverview>('/intel/overview');
 export const listStrategies = (q: { state?: FinanceStrategyState | ''; limit: number; offset: number }) =>
-  get<FinanceIntelPage<FinanceStrategy>>(`/intel/strategies${query({ ...q })}`);
+  get<FinancePage<FinanceStrategy>>(`/intel/strategies${query({ ...q })}`);
 export const listStrategyRuns = (strategyId: string, q: { limit: number; offset: number }) =>
-  get<FinanceIntelPage<FinanceStrategyRun>>(`/intel/strategies/${id(strategyId)}/runs${query({ ...q })}`);
-export const listAgentDecisions = (q: { agent?: string; limit: number; offset: number }) =>
-  get<FinanceIntelPage<FinanceAgentDecision>>(`/intel/decisions${query({ ...q })}`);
+  get<FinancePage<FinanceStrategyRun>>(`/intel/strategies/${id(strategyId)}/runs${query({ ...q })}`);
+export const listAgentDecisions = (q: { agent?: FinanceIntelAgent | ''; strategy_id?: string; limit: number; offset: number }) =>
+  get<FinancePage<FinanceAgentDecision>>(`/intel/decisions${query({ ...q })}`);

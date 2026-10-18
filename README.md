@@ -98,6 +98,7 @@ x-user-roles: owner,member
 - [Finance: your own ledger, safe-to-spend, Guardian rules, read-only connectors, paper trading and the execution gateway (live off)](docs/finance.md)
 - [Trading intelligence: market data, strategy lab and SIMULATED trading (live off)](docs/finance-trading-intel.md)
 - [Trading intelligence gap assessment](docs/finance-trading-gap-assessment.md)
+- [Trading intelligence readiness report (loop 10, live stays off)](docs/finance-trading-readiness.md)
 - [Tyre planning](docs/tyre-planning.md)
 - [Social media marketing](docs/marketing.md)
 - [Memory](docs/memory.md)

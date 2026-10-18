@@ -6,14 +6,13 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import { Bot, ChevronLeft, ChevronRight, Clock, FlaskConical, Gauge, LineChart, ListChecks, OctagonX, Power, ShieldCheck, Wallet } from 'lucide-react';
 import type {
-  FinanceAgentDecision, FinanceIntelOverview, FinanceIntelPage, FinanceIntelPortfolio, FinancePage, FinanceStrategy, FinanceStrategyRun,
-  FinanceStrategyState,
+  FinanceIntelAgent, FinanceIntelOverview, FinanceIntelPortfolio, FinancePage, FinanceStrategy, FinanceStrategyRun, FinanceStrategyState,
 } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import { describeRules, formatAmounts, isolate, rangeLabel, type FinanceTab } from './lib/finance';
 import { codeText, formatDecimal, intentLine, intentTone } from './lib/financeTrading';
 import {
-  STRATEGY_STATES, agentLabel, formatMetric, metricLabel, orderedMetrics, outcomeTone, paramsLine, sortVenues, stateLabel, stateTone, venueClock,
+  AGENTS, STRATEGY_STATES, agentLabel, costsLine, foldMetricKeys, outcomeLabel, formatMetric, metricLabel, orderedMetrics, outcomeTone, paramsLine, sortVenues, stateLabel, stateTone, venueClock,
   verdictLabel, verdictTone,
 } from './lib/financeIntel';
 import { describeError } from './lib/errors';
@@ -44,13 +43,6 @@ function Pager({ page, onPage, label, size }: { page: FinancePage<unknown>; onPa
   </nav>;
 }
 
-/** Nothing of this kind is stored yet: said plainly, with what the person can do meanwhile. */
-function NotRecorded({ what, onOpen }: { what: string; onOpen?: () => void }) {
-  return <div className="notice finIntelNotRecorded" role="status"><FlaskConical aria-hidden="true" />
-    <span><strong>{t('finance.intel.notRecorded', { what })}</strong> {t('finance.intel.notRecordedText')}</span>
-    {onOpen && <button type="button" className="secondary" onClick={onOpen}>{t('finance.intel.openPaper')}</button>}</div>;
-}
-
 export function IntelPanel({ onOpen }: { onOpen: (tab: FinanceTab) => void }) {
   const [overview, reload] = useLoad(api.getIntelOverview);
   if (overview.kind === 'loading') return <section className="surface cmPanel"><Notice busy>{t('finance.intel.loading')}</Notice></section>;
@@ -60,9 +52,9 @@ export function IntelPanel({ onOpen }: { onOpen: (tab: FinanceTab) => void }) {
   return <div className="finIntel">
     <SimulationBanner overview={o} onChanged={() => void reload()} onOpen={onOpen} />
     <Venues overview={o} />
-    <Strategies recording={o.recording} onOpen={onOpen} />
+    <Strategies counts={o.strategies} onOpen={onOpen} />
     <Positions portfolios={o.portfolios} onOpen={onOpen} />
-    <AgentDecisions recording={o.recording.decisions} />
+    <AgentDecisions />
     <GuardianDecisions />
     <RiskLimits overview={o} onOpen={onOpen} />
   </div>;
@@ -120,7 +112,8 @@ function Venues({ overview: o }: { overview: FinanceIntelOverview }) {
   </section>;
 }
 
-function Strategies({ recording, onOpen }: { recording: FinanceIntelOverview['recording']; onOpen: (tab: FinanceTab) => void }) {
+function Strategies({ counts, onOpen }: { counts: FinanceIntelOverview['strategies']; onOpen: (tab: FinanceTab) => void }) {
+  const count = (s: FinanceStrategyState) => counts.find((c) => c.state === s)?.count ?? 0;
   const [state, setState] = useState<FinanceStrategyState | ''>(''), [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<FinanceStrategy | null>(null);
   const load = useCallback(() => api.listStrategies({ state, limit: PAGE, offset }), [state, offset]);
@@ -131,14 +124,13 @@ function Strategies({ recording, onOpen }: { recording: FinanceIntelOverview['re
       <label className="field finIntelFilter" htmlFor={filterId}><span>{t('finance.intel.stateFilter')}</span>
         <select id={filterId} value={state} onChange={(e) => { setState(e.target.value as FinanceStrategyState | ''); setOffset(0); setSelected(null); }}>
           <option value="">{t('finance.intel.allStates')}</option>
-          {STRATEGY_STATES.map((s) => <option key={s} value={s}>{stateLabel(s)}</option>)}
+          {STRATEGY_STATES.map((s) => <option key={s} value={s}>{t('finance.intel.stateCount', { state: stateLabel(s), count: count(s) })}</option>)}
         </select></label></div>
     <p className="muted finHelp">{t('finance.intel.lifecycleHelp')}</p>
     {page.kind === 'loading' && <Notice busy>{t('finance.intel.loadingStrategies')}</Notice>}
     {page.kind === 'denied' && <Notice error>{t('finance.denied.text')}</Notice>}
     {page.kind === 'error' && <LoadError message={t('finance.intel.error.strategies', { message: page.message })} retry={() => void reload()} />}
-    {page.kind === 'ready' && !page.value.recording && <NotRecorded what={t('finance.intel.what.strategies')} onOpen={() => onOpen('trading')} />}
-    {page.kind === 'ready' && page.value.recording && page.value.items.length === 0 && (state
+    {page.kind === 'ready' && page.value.items.length === 0 && (state
       ? <Empty icon={<LineChart aria-hidden="true" />} title={t('finance.intel.noneInState', { state: stateLabel(state) })} text={t('finance.intel.noneInStateText')}
         action={<button type="button" className="secondary" onClick={() => setState('')}>{t('finance.intel.allStates')}</button>} />
       : <Empty icon={<LineChart aria-hidden="true" />} title={t('finance.intel.noStrategies')} text={t('finance.intel.noStrategiesText')}
@@ -147,21 +139,22 @@ function Strategies({ recording, onOpen }: { recording: FinanceIntelOverview['re
       <div className="cmTableWrap"><table className="cmTable finTable finIntelStrategies finIntelCards" aria-label={t('finance.intel.strategiesTable')}>
         <thead><tr><th scope="col">{t('finance.intel.strategy')}</th><th scope="col">{t('finance.intel.state')}</th><th scope="col">{t('finance.intel.instruments')}</th><th scope="col">{t('finance.intel.params')}</th><th scope="col">{t('finance.intel.updated')}</th><th scope="col"><span className="visuallyHidden">{t('finance.intel.results')}</span></th></tr></thead>
         <tbody>{page.value.items.map((s) => <tr key={s.id} aria-current={selected?.id === s.id ? 'true' : undefined}>
-          <th scope="row"><span dir="auto">{s.name}</span>{s.version !== null && <small className="muted"> {t('finance.intel.version', { version: s.version })}</small>}{s.reason && <small className="finIntelReason" dir="auto">{s.reason}</small>}</th>
+          <th scope="row"><span dir="auto">{s.name}</span> <small className="muted">{t('finance.intel.version', { version: s.version })}</small>
+            <small className="finIntelReason"><span dir="auto">{s.reason}</span> {t('finance.intel.movedBy', { who: agentLabel(s.state_changed_by) })}</small></th>
           <td data-label={t('finance.intel.state')}><span className={`statusBadge ${stateTone(s.state)}`}>{stateLabel(s.state)}</span></td>
           <td data-label={t('finance.intel.instruments')}><span dir="ltr">{s.symbols.join(', ') || '-'}</span></td>
           <td data-label={t('finance.intel.params')}><small dir="auto">{paramsLine(s.params)}</small></td>
-          <td data-label={t('finance.intel.updated')}>{s.updated_at ? formatDateTime(s.updated_at) : '-'}</td>
+          <td data-label={t('finance.intel.updated')}>{formatDateTime(s.state_changed_at)}</td>
           <td><button type="button" className="secondary" aria-pressed={selected?.id === s.id} onClick={() => setSelected(selected?.id === s.id ? null : s)}>{t('finance.intel.results')}</button></td>
         </tr>)}</tbody>
       </table></div>
       <Pager page={page.value} onPage={(next) => { setOffset(next); setSelected(null); }} label={t('finance.intel.strategyPages')} size={PAGE} />
     </>}
-    {selected && <Runs key={selected.id} strategy={selected} recording={recording.runs} />}
+    {selected && <Runs key={selected.id} strategy={selected} />}
   </section>;
 }
 
-function Runs({ strategy, recording }: { strategy: FinanceStrategy; recording: boolean }) {
+function Runs({ strategy }: { strategy: FinanceStrategy }) {
   const [offset, setOffset] = useState(0);
   const load = useCallback(() => api.listStrategyRuns(strategy.id, { limit: RUN_PAGE, offset }), [strategy.id, offset]);
   const [page, reload] = useLoad(load);
@@ -171,8 +164,7 @@ function Runs({ strategy, recording }: { strategy: FinanceStrategy; recording: b
     <p className="muted finHelp">{t('finance.intel.runsHelp')}</p>
     {page.kind === 'loading' && <Notice busy>{t('finance.intel.loadingRuns')}</Notice>}
     {(page.kind === 'error' || page.kind === 'denied') && <LoadError message={t('finance.intel.error.runs', { message: page.message })} retry={() => void reload()} />}
-    {page.kind === 'ready' && (!page.value.recording || !recording) && <NotRecorded what={t('finance.intel.what.runs')} />}
-    {page.kind === 'ready' && page.value.recording && page.value.items.length === 0 && <p className="muted">{t('finance.intel.noRuns')}</p>}
+    {page.kind === 'ready' && page.value.items.length === 0 && <p className="muted">{t('finance.intel.noRuns')}</p>}
     {page.kind === 'ready' && page.value.items.length > 0 && <>
       <ul className="cmList finIntelRunList">{page.value.items.map((run) => <li key={run.id}><RunCard run={run} /></li>)}</ul>
       <Pager page={page.value} onPage={setOffset} label={t('finance.intel.runPages')} size={RUN_PAGE} />
@@ -182,25 +174,28 @@ function Runs({ strategy, recording }: { strategy: FinanceStrategy; recording: b
 
 function RunCard({ run }: { run: FinanceStrategyRun }) {
   const metrics = orderedMetrics(run.metrics), benchmark = orderedMetrics(run.benchmark);
+  const foldKeys = foldMetricKeys(run.folds);
   return <article className="finIntelRun" aria-label={t(`finance.intel.kind.${run.kind === 'walk_forward' ? 'walk_forward' : 'backtest'}` as MessageKey)}>
     <p className="finIntelRunHead"><strong>{t(`finance.intel.kind.${run.kind === 'walk_forward' ? 'walk_forward' : 'backtest'}` as MessageKey)}</strong>
       <span className={`statusBadge ${verdictTone(run.verdict)}`}>{verdictLabel(run.verdict)}</span>
+      <span className={`statusBadge ${run.reproduced ? 'success' : 'neutral'}`}>{run.reproduced ? t('finance.intel.reproduced') : t('finance.intel.notReproduced')}</span>
       <span className="statusBadge neutral finSimBadge">{t('finance.trading.simulated')}</span>
-      {run.created_at && <small className="muted">{formatDateTime(run.created_at)}</small>}</p>
-    {run.data_source && <p className="muted finHelp"><span>{t('finance.intel.dataSource')}</span> <span dir="auto">{run.data_source}</span>{run.data_hash && <> · <span dir="ltr">{run.data_hash.slice(0, 12)}</span></>}</p>}
+      <small className="muted">{formatDateTime(run.created_at)}</small></p>
+    <p className="muted finHelp"><span>{t('finance.intel.dataSource')}</span> <span dir="auto">{run.data_source}</span> · <span dir="ltr">{run.data_hash.slice(0, 12)}</span>
+      {' · '}{t('finance.intel.codeVersion', { version: run.code_version })}{costsLine(run.costs) && <> · <span dir="ltr">{costsLine(run.costs)}</span></>}</p>
     {metrics.length > 0 && <dl className="finFigures finIntelMetrics">{metrics.map((m) => <div key={m.key}><dt>{metricLabel(m.key)}</dt><dd dir="ltr">{formatMetric(m.key, m.value)}</dd></div>)}</dl>}
     {benchmark.length > 0 && <><h4 className="finIntelSub">{t('finance.intel.benchmark')}</h4>
       <dl className="finFigures finIntelMetrics">{benchmark.map((m) => <div key={m.key}><dt>{metricLabel(m.key)}</dt><dd dir="ltr">{formatMetric(m.key, m.value)}</dd></div>)}</dl></>}
     {run.reasons.length > 0 && <ul className="finIntelReasons">{run.reasons.map((r, i) => <li key={i} dir="auto">{r}</li>)}</ul>}
+    {run.warnings.length > 0 && <div className="notice finIntelWarnings" role="note"><strong>{t('finance.intel.warnings')}</strong>
+      <ul className="finIntelReasons">{run.warnings.map((w, i) => <li key={i} dir="auto">{w}</li>)}</ul></div>}
     {run.folds.length > 0 && <details className="cmChartTable"><summary>{t('finance.intel.folds', { count: run.folds.length })}</summary>
-      <div className="cmTableWrap"><table className="cmTable finTable finIntelCards">
-        <thead><tr><th scope="col">#</th><th scope="col">{t('finance.intel.train')}</th><th scope="col">{t('finance.intel.test')}</th><th scope="col">{metricLabel('total_return')}</th><th scope="col">{metricLabel('sharpe')}</th><th scope="col">{metricLabel('max_drawdown')}</th></tr></thead>
+      <div className="cmTableWrap"><table className="cmTable finTable finIntelCards" aria-label={t('finance.intel.foldsTable')}>
+        <thead><tr><th scope="col">#</th><th scope="col">{t('finance.intel.train')}</th><th scope="col">{t('finance.intel.test')}</th>{foldKeys.map((k) => <th key={k} scope="col">{metricLabel(k)}</th>)}</tr></thead>
         <tbody>{run.folds.map((f) => <tr key={f.index}><th scope="row">{f.index + 1}</th>
           <td data-label={t('finance.intel.train')}><span dir="ltr">{f.train_start ?? '-'} / {f.train_end ?? '-'}</span></td>
           <td data-label={t('finance.intel.test')}><span dir="ltr">{f.test_start ?? '-'} / {f.test_end ?? '-'}</span></td>
-          <td data-label={metricLabel('total_return')}><span dir="ltr">{formatMetric('total_return', f.metrics.total_return)}</span></td>
-          <td data-label={metricLabel('sharpe')}><span dir="ltr">{formatMetric('sharpe', f.metrics.sharpe)}</span></td>
-          <td data-label={metricLabel('max_drawdown')}><span dir="ltr">{formatMetric('max_drawdown', f.metrics.max_drawdown)}</span></td></tr>)}</tbody>
+          {foldKeys.map((k) => <td key={k} data-label={metricLabel(k)}><span dir="ltr">{formatMetric(k, f.metrics[k])}</span></td>)}</tr>)}</tbody>
       </table></div></details>}
     <p className="muted finHelp">{t('finance.intel.noPromise')}</p>
   </article>;
@@ -245,28 +240,25 @@ function PortfolioBook({ portfolio: p }: { portfolio: FinanceIntelPortfolio }) {
   </article>;
 }
 
-const AGENTS = ['supervisor', 'market_research', 'technical_analysis', 'strategy_research', 'portfolio', 'risk_guardian', 'execution_coordinator', 'performance_reviewer'];
-
-function AgentDecisions({ recording }: { recording: boolean }) {
-  const [agent, setAgent] = useState(''), [offset, setOffset] = useState(0);
-  const load = useCallback(() => api.listAgentDecisions({ agent: agent || undefined, limit: PAGE, offset }), [agent, offset]);
-  const [page, reload] = useLoad<FinanceIntelPage<FinanceAgentDecision>>(load);
+function AgentDecisions() {
+  const [agent, setAgent] = useState<FinanceIntelAgent | ''>(''), [offset, setOffset] = useState(0);
+  const load = useCallback(() => api.listAgentDecisions({ agent, limit: PAGE, offset }), [agent, offset]);
+  const [page, reload] = useLoad(load);
   const filterId = useId();
   return <section className="surface cmPanel" aria-labelledby="fin-intel-agents">
     <div className="sectionHeader"><h2 id="fin-intel-agents"><Bot aria-hidden="true" className="cmInlineIcon" />{t('finance.intel.agents')}</h2>
-      {recording && <label className="field finIntelFilter" htmlFor={filterId}><span>{t('finance.intel.agentFilter')}</span>
-        <select id={filterId} value={agent} onChange={(e) => { setAgent(e.target.value); setOffset(0); }}>
+      <label className="field finIntelFilter" htmlFor={filterId}><span>{t('finance.intel.agentFilter')}</span>
+        <select id={filterId} value={agent} onChange={(e) => { setAgent(e.target.value as FinanceIntelAgent | ''); setOffset(0); }}>
           <option value="">{t('finance.intel.allAgents')}</option>{AGENTS.map((a) => <option key={a} value={a}>{agentLabel(a)}</option>)}
-        </select></label>}</div>
+        </select></label></div>
     <p className="muted finHelp">{t('finance.intel.agentsHelp')}</p>
     {page.kind === 'loading' && <Notice busy>{t('finance.intel.loadingDecisions')}</Notice>}
     {(page.kind === 'error' || page.kind === 'denied') && <LoadError message={t('finance.intel.error.decisions', { message: page.message })} retry={() => void reload()} />}
-    {page.kind === 'ready' && !page.value.recording && <NotRecorded what={t('finance.intel.what.decisions')} />}
-    {page.kind === 'ready' && page.value.recording && page.value.items.length === 0 && <p className="muted">{agent ? t('finance.intel.noDecisionsAgent') : t('finance.intel.noDecisions')}</p>}
+    {page.kind === 'ready' && page.value.items.length === 0 && <p className="muted">{agent ? t('finance.intel.noDecisionsAgent') : t('finance.intel.noDecisions')}</p>}
     {page.kind === 'ready' && page.value.items.length > 0 && <>
       <ol className="cmList finIntelTimeline" aria-label={t('finance.intel.agentsTimeline')}>{page.value.items.map((d) => <li key={d.id}>
-        <p><strong>{agentLabel(d.agent)}</strong> <span dir="auto">{d.action.replace(/_/g, ' ')}</span> {d.outcome && <span className={`statusBadge ${outcomeTone(d.outcome)}`} dir="auto">{d.outcome.replace(/_/g, ' ')}</span>}
-          {d.created_at && <small className="muted"> {formatDateTime(d.created_at)}</small>}</p>
+        <p><strong>{agentLabel(d.agent)}</strong> <span dir="auto">{d.action.replace(/_/g, ' ')}</span> <span className={`statusBadge ${outcomeTone(d.outcome)}`} dir="auto">{outcomeLabel(d.outcome)}</span>
+          <small className="muted"> {formatDateTime(d.created_at)}</small></p>
         {d.reasons.length > 0 && <ul className="finIntelReasons">{d.reasons.map((r, i) => <li key={i} dir="auto">{r}</li>)}</ul>}
       </li>)}</ol>
       <Pager page={page.value} onPage={setOffset} label={t('finance.intel.decisionPages')} size={PAGE} />

@@ -5,7 +5,7 @@ import { afterEach, describe, test } from 'node:test';
 import type { FinanceIntelVenue } from '@anum/contracts';
 import { FINANCE_TABS, hashForTab, tabFromHash } from '../src/lib/finance.ts';
 import {
-  STRATEGY_STATES, agentLabel, formatMetric, metricLabel, orderedMetrics, outcomeTone, paramsLine, sortVenues, stateLabel, stateTone, venueClock,
+  AGENTS, STRATEGY_STATES, agentLabel, costsLine, foldMetricKeys, outcomeLabel, formatMetric, metricLabel, orderedMetrics, outcomeTone, paramsLine, sortVenues, stateLabel, stateTone, venueClock,
   verdictLabel, verdictTone,
 } from '../src/lib/financeIntel.ts';
 import { setLocale } from '../src/lib/i18n.ts';
@@ -61,7 +61,10 @@ describe('metrics', () => {
 
   test('a verdict never says profitable or approved', () => {
     assert.equal(verdictTone('passed'), 'success');
-    assert.equal(verdictTone('overfit'), 'warning');
+    assert.equal(verdictTone('rejected'), 'warning');
+    assert.equal(verdictTone('insufficient_data'), 'warning');
+    assert.equal(verdictTone('completed'), 'neutral');
+    assert.equal(verdictLabel('completed'), 'Completed, not judged');
     assert.equal(verdictTone(null), 'neutral');
     assert.equal(verdictLabel('passed'), 'Passed the checks');
     assert.equal(verdictLabel(null), 'Not judged');
@@ -72,12 +75,27 @@ describe('metrics', () => {
   });
 });
 
+describe('folds and costs', () => {
+  test('fold columns come from the first fold, known metrics first, at most four', () => {
+    const fold = (metrics: Record<string, number | null>) => ({ index: 0, train_start: null, train_end: null, test_start: null, test_end: null, metrics });
+    assert.deepEqual(foldMetricKeys([fold({ in_sample_sharpe: 0.9, out_of_sample_return: 0.02, out_of_sample_sharpe: 0.4 })]),
+      ['out_of_sample_return', 'out_of_sample_sharpe', 'in_sample_sharpe']);
+    assert.deepEqual(foldMetricKeys([]), []);
+    assert.equal(formatMetric('out_of_sample_return', 0.02), '+2.00%');
+    assert.equal(costsLine({ fee_bps: '10', slippage_bps: '5' }), 'fee bps 10, slippage bps 5');
+  });
+});
+
 describe('agents and outcomes', () => {
   test('known agents have names, unknown ones read from their key', () => {
     assert.equal(agentLabel('risk_guardian'), 'Risk Guardian');
     assert.equal(agentLabel('new_agent'), 'new agent');
     assert.equal(outcomeTone('rejected'), 'warning');
-    assert.equal(outcomeTone('accepted'), 'success');
+    assert.equal(outcomeTone('ok'), 'success');
+    assert.equal(outcomeLabel('refused'), 'Refused');
+    assert.equal(outcomeLabel('needs_review'), 'needs review');
+    for (const agent of AGENTS) assert.notEqual(agentLabel(agent), agent.replace(/_/g, ' '), agent);
+    assert.equal(agentLabel('trading_supervisor'), 'Trading Supervisor');
     assert.equal(outcomeTone('noted'), 'neutral');
     assert.equal(outcomeTone(null), 'neutral');
   });
@@ -107,7 +125,7 @@ describe('catalogs', () => {
     for (const [key, en] of Object.entries(financeIntelEn)) {
       const ar = (financeIntelAr as Record<string, unknown>)[key];
       for (const hole of holes(ar)) assert.ok(holes(en).has(hole), `${key} ${hole}`);
-      assert.doesNotMatch(JSON.stringify(en) + JSON.stringify(ar), /[–—]/, key);
+      assert.doesNotMatch(JSON.stringify(en) + JSON.stringify(ar), /[\u2013\u2014]/, key);
     }
   });
 });

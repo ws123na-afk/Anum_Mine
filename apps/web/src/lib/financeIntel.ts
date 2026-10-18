@@ -1,8 +1,12 @@
 // Trading intelligence dashboard logic (docs/finance-trading-intel.md#dashboard), pure so the unit
 // tests cover it. Everything shown is SIMULATED or recorded research: the view formats figures the
 // API sent and never computes a return, a price or a forecast of its own.
-import type { FinanceAgentDecision, FinanceStrategyRun, FinanceStrategyState, FinanceIntelVenue } from '@anum/contracts';
+import type { FinanceIntelAgent, FinanceIntelVenue, FinanceStrategyFold, FinanceStrategyRun, FinanceStrategyState } from '@anum/contracts';
 import { getLocale, intlLocale, t, type MessageKey } from './i18n.ts';
+
+/** Who can decide: the person, the Trading Supervisor and the specialist agents (intel/records.py `Agent`). */
+export const AGENTS: readonly FinanceIntelAgent[] = ['trading_supervisor', 'market_research', 'technical_analysis', 'strategy_research', 'portfolio',
+  'risk_guardian', 'execution_coordinator', 'performance_reviewer', 'person'];
 
 export const STRATEGY_STATES: readonly FinanceStrategyState[] = ['DRAFT', 'BACKTESTING', 'VALIDATION', 'PAPER_ACTIVE', 'PAPER_SUSPENDED', 'RETIRED'];
 
@@ -15,6 +19,7 @@ export const METRICS: readonly { key: string; kind: MetricKind }[] = [
   { key: 'profit_factor', kind: 'ratio' }, { key: 'expectancy', kind: 'amount' }, { key: 'win_rate', kind: 'percent' },
   { key: 'turnover', kind: 'ratio' }, { key: 'exposure', kind: 'percent' }, { key: 'trades', kind: 'count' },
   { key: 'closed_trades', kind: 'count' }, { key: 'fees', kind: 'amount' }, { key: 'bars', kind: 'count' },
+  { key: 'out_of_sample_return', kind: 'percent' }, { key: 'out_of_sample_sharpe', kind: 'ratio' }, { key: 'in_sample_sharpe', kind: 'ratio' },
 ];
 const KINDS = new Map(METRICS.map((m) => [m.key, m.kind]));
 
@@ -51,20 +56,20 @@ export function orderedMetrics(metrics: Record<string, number | null>): { key: s
 }
 
 /** A run's verdict as a tone and label. A run is never labelled profitable or approved: it passed or failed the configured checks. */
-export function verdictTone(verdict: FinanceStrategyRun['verdict']): 'success' | 'warning' | 'neutral' {
-  if (verdict === 'passed' || verdict === 'pass') return 'success';
-  if (verdict === 'rejected' || verdict === 'failed' || verdict === 'fail' || verdict === 'overfit' || verdict === 'unreliable') return 'warning';
+export function verdictTone(verdict: FinanceStrategyRun['verdict'] | null): 'success' | 'warning' | 'neutral' {
+  if (verdict === 'passed') return 'success';
+  if (verdict === 'rejected' || verdict === 'insufficient_data') return 'warning';
   return 'neutral';
 }
 
-export function verdictLabel(verdict: FinanceStrategyRun['verdict']): string {
+export function verdictLabel(verdict: FinanceStrategyRun['verdict'] | string | null): string {
   if (!verdict) return t('finance.intel.verdict.none');
   const key = `finance.intel.verdict.${verdict}` as MessageKey;
   const text = t(key);
   return text === key ? verdict : text;
 }
 
-export function agentLabel(agent: FinanceAgentDecision['agent']): string {
+export function agentLabel(agent: string): string {
   const key = `finance.intel.agent.${agent}` as MessageKey;
   const text = t(key);
   return text === key ? agent.replace(/_/g, ' ') : text;
@@ -72,9 +77,27 @@ export function agentLabel(agent: FinanceAgentDecision['agent']): string {
 
 export function outcomeTone(outcome: string | null): 'success' | 'warning' | 'neutral' {
   if (!outcome) return 'neutral';
-  if (['accepted', 'allowed', 'allow', 'approved', 'executed', 'passed'].includes(outcome)) return 'success';
+  if (['ok', 'accepted', 'allowed', 'allow', 'executed', 'passed'].includes(outcome)) return 'success';
   if (['rejected', 'denied', 'deny', 'refused', 'blocked', 'suspended', 'failed'].includes(outcome)) return 'warning';
   return 'neutral';
+}
+
+/** A decision's outcome in the person's language (the recorded word otherwise). */
+export function outcomeLabel(outcome: string): string {
+  const key = `finance.intel.outcome.${outcome}` as MessageKey;
+  const text = t(key);
+  return text === key ? outcome.replace(/_/g, ' ') : text;
+}
+
+/** The metrics shown per fold: those the first fold has, known ones first, at most four. */
+export function foldMetricKeys(folds: FinanceStrategyFold[]): string[] {
+  if (folds.length === 0) return [];
+  return orderedMetrics(folds[0].metrics).map((m) => m.key).slice(0, 4);
+}
+
+/** "fee_bps 10, slippage_bps 5": the costs a run assumed, as one line. */
+export function costsLine(costs: Record<string, string>): string {
+  return Object.entries(costs).map(([k, v]) => `${k.replace(/_/g, ' ')} ${v}`).join(', ');
 }
 
 /** Venue sessions: open ones first, then by name, so the person sees what trades now. */

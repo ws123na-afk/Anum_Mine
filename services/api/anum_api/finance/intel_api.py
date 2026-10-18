@@ -8,9 +8,8 @@ and every record is the caller's own (the store reads in the owner's scope, unde
 PostgreSQL mode).
 
 Strategies, their backtest and walk-forward runs, and the Supervisor's and specialist agents'
-decisions are read through optional store methods (``list_strategies``, ``list_strategy_runs``,
-``list_agent_decisions``). A store without them answers an empty page with ``recording: false``
-so the dashboard can say plainly that nothing is recorded yet, instead of inventing rows.
+decisions come from the records of migration ``0060_finance_intel`` (``intel/records.py``). The
+changes (lifecycle moves, runs, Supervisor cycles) live in ``intel_control_api``, not here.
 """
 
 from __future__ import annotations
@@ -19,18 +18,19 @@ import math
 from collections.abc import Mapping
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from ..dependencies import tenant_context
 from ..schemas import TenantContext, utc_now
-from .api import _read
+from .api import _not_found, _read
 from .config import finance_config
 from .execution import ExecMode
 from .guardian import GuardianRules
 from .intel.markets import VENUES, session
+from .intel.records import Agent, AgentDecision, StrategyConfig, StrategyRun, StrategyState
 from .policy import current_rules
 from .store import MAX_PAGE, FinanceStore, open_finance_store
 from .trading import SIMULATED_NOTE, MoneyRow, PortfolioMode, PositionView
@@ -38,12 +38,10 @@ from .trading_api import execution_status, portfolio_view
 
 router = APIRouter(prefix="/api/v1/finance/intel", tags=["finance"])
 
-LIFECYCLE = ("DRAFT", "BACKTESTING", "VALIDATION", "PAPER_ACTIVE", "PAPER_SUSPENDED", "RETIRED")
 SIMULATION_ONLY = (
     "Simulation only, no real orders. Paper and shadow trades use recorded prices and stated costs; "
     "live trading is off and cannot be switched on from ANUM."
 )
-NOT_RECORDED = "Nothing is recorded yet: the trading agents and the strategy lab have not stored any {what} for you."
 MAX_HOLDINGS = 50
 MAX_TEXT = 500
 
@@ -144,10 +142,9 @@ class RiskView(BaseModel):
     note: str
 
 
-class RecordingView(BaseModel):
-    strategies: bool
-    runs: bool
-    decisions: bool
+class LifecycleCount(BaseModel):
+    state: StrategyState
+    count: int
 
 
 class IntelOverview(BaseModel):
@@ -156,16 +153,15 @@ class IntelOverview(BaseModel):
     venues: list[VenueView]
     portfolios: list[PortfolioIntel]
     risk: RiskView
-    recording: RecordingView
+    strategies: list[LifecycleCount]
     pending_requests: int
     agent_requests: int
     note: str
     generated_at: datetime
 
 
-def _recording(store: FinanceStore) -> RecordingView:
-    return RecordingView(strategies=callable(getattr(store, "list_strategies", None)), runs=callable(getattr(store, "list_strategy_runs", None)),
-                         decisions=callable(getattr(store, "list_agent_decisions", None)))
+def _lifecycle_counts(store: FinanceStore, context: TenantContext) -> list[LifecycleCount]:
+    return [LifecycleCount(state=state, count=store.list_strategies(context, state=state.value, limit=1, offset=0)[1]) for state in StrategyState]
 
 
 def _venues(now: datetime) -> list[VenueView]:
@@ -202,14 +198,14 @@ def get_overview(context: TenantContext = Depends(tenant_context)) -> IntelOverv
                 waiting=view.waiting,
             ))
         risk = _risk(store, context)
-        recording = _recording(store)
+        lifecycle = _lifecycle_counts(store, context)
         agent_total = _agent_requests(store, context)
     return IntelOverview(
         simulation=SimulationView(simulation_only=True, live_enabled=finance_config.live_enabled,
                                   wider_live_enabled=finance_config.wider_live_enabled, note=SIMULATION_ONLY),
         switches=SwitchState(person_engaged=status.person_switch.engaged, global_engaged=status.global_switch.engaged,
                              can_change_global=status.global_switch.can_change),
-        venues=_venues(now), portfolios=portfolios, risk=risk, recording=recording, pending_requests=status.pending, agent_requests=agent_total,
+        venues=_venues(now), portfolios=portfolios, risk=risk, strategies=lifecycle, pending_requests=status.pending, agent_requests=agent_total,
         note=SIMULATED_NOTE, generated_at=now,
     )
 
@@ -228,14 +224,23 @@ def _agent_requests(store: FinanceStore, context: TenantContext) -> int:
 
 class StrategyView(BaseModel):
     id: str
-    key: str | None
+    lineage_id: str
+    key: str
+    code_version: str
     name: str
-    version: int | None
-    state: str
+    version: int
+    state: StrategyState
     symbols: list[str]
     params: dict[str, Any]
-    reason: str | None
-    updated_at: datetime | None
+    reason: str
+    portfolio_id: str | None
+    parent_id: str | None
+    evidence_run_id: str | None
+    created_by: str
+    state_changed_by: str
+    state_changed_at: datetime
+    created_at: datetime
+    updated_at: datetime
     simulated: bool = True
 
 
@@ -244,8 +249,6 @@ class StrategyPage(BaseModel):
     total: int
     limit: int
     offset: int
-    recording: bool
-    note: str | None
 
 
 class FoldView(BaseModel):
@@ -259,15 +262,22 @@ class FoldView(BaseModel):
 
 class RunView(BaseModel):
     id: str
+    strategy_id: str
     kind: str
-    created_at: datetime | None
-    data_source: str | None
-    data_hash: str | None
+    created_at: datetime
+    data_source: str
+    data_hash: str
+    code_version: str
+    symbols: list[str]
+    costs: dict[str, str]
     metrics: dict[str, float | None]
     benchmark: dict[str, float | None]
-    verdict: str | None
+    verdict: str
     reasons: list[str]
+    warnings: list[str]
     folds: list[FoldView]
+    reproduced: bool
+    requested_by: str
     simulated: bool = True
 
 
@@ -276,8 +286,6 @@ class RunPage(BaseModel):
     total: int
     limit: int
     offset: int
-    recording: bool
-    note: str | None
 
 
 def _params(value: object) -> dict[str, Any]:
@@ -295,47 +303,63 @@ def _params(value: object) -> dict[str, Any]:
 def _date(value: object) -> date | None:
     if isinstance(value, datetime):
         return value.date()
-    return value if isinstance(value, date) else None
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    return None
 
 
-def strategy_view(item: object) -> StrategyView:
-    state = (_text(_get(item, "state") or _get(item, "lifecycle")) or "DRAFT").upper()
-    version = _get(item, "version")
-    symbols = _get(item, "symbols") or ()
+def _span(fold: object, name: str) -> tuple[date | None, date | None]:
+    """A fold's train or test window: ``{"train": [start, end]}`` or ``train_start`` / ``train_end``."""
+    pair = _get(fold, name)
+    if isinstance(pair, (list, tuple)) and len(pair) == 2:
+        return _date(pair[0]), _date(pair[1])
+    return _date(_get(fold, f"{name}_start")), _date(_get(fold, f"{name}_end"))
+
+
+def strategy_view(item: StrategyConfig) -> StrategyView:
     return StrategyView(
-        id=str(_get(item, "id")), key=_text(_get(item, "key"), 60), name=_text(_get(item, "name"), 120) or _text(_get(item, "key"), 60) or "Strategy",
-        version=int(version) if isinstance(version, int) and not isinstance(version, bool) else None,
-        state=state if state in LIFECYCLE else "DRAFT", symbols=[s for s in (_text(x, 20) for x in list(symbols)[:20]) if s],
-        params=_params(_get(item, "params")), reason=_text(_get(item, "reason")), updated_at=_get(item, "updated_at") or _get(item, "created_at"),
+        id=item.id, lineage_id=item.lineage_id, key=item.key[:60], code_version=item.code_version[:40], name=item.name[:120], version=item.version,
+        state=item.state, symbols=[s[:20] for s in item.symbols[:20]], params=_params(item.params), reason=item.reason[:MAX_TEXT],
+        portfolio_id=item.portfolio_id, parent_id=item.parent_id, evidence_run_id=item.evidence_run_id, created_by=item.created_by[:40],
+        state_changed_by=item.state_changed_by[:40], state_changed_at=item.state_changed_at, created_at=item.created_at, updated_at=item.updated_at,
     )
 
 
-def run_view(item: object) -> RunView:
-    folds = []
-    for index, fold in enumerate(list(_get(item, "folds") or [])[:50]):
-        folds.append(FoldView(index=int(_get(fold, "index", index)), train_start=_date(_get(fold, "train_start")), train_end=_date(_get(fold, "train_end")),
-                              test_start=_date(_get(fold, "test_start")), test_end=_date(_get(fold, "test_end")), metrics=_numbers(_get(fold, "metrics"))))
+def fold_view(index: int, fold: object) -> FoldView:
+    train, test = _span(fold, "train"), _span(fold, "test")
+    metrics = {k: v for k, v in _numbers(fold).items() if k != "index"}
+    metrics.update(_numbers(_get(fold, "metrics")))
+    raw = _get(fold, "index", index)
+    return FoldView(index=raw if isinstance(raw, int) and not isinstance(raw, bool) else index, train_start=train[0], train_end=train[1],
+                    test_start=test[0], test_end=test[1], metrics=metrics)
+
+
+def run_view(item: StrategyRun) -> RunView:
     return RunView(
-        id=str(_get(item, "id")), kind=_text(_get(item, "kind"), 30) or "backtest", created_at=_get(item, "created_at"),
-        data_source=_text(_get(item, "data_source"), 200), data_hash=_text(_get(item, "data_hash"), 80), metrics=_numbers(_get(item, "metrics")),
-        benchmark=_numbers(_get(item, "benchmark")), verdict=_text(_get(item, "verdict"), 40), reasons=_texts(_get(item, "reasons")), folds=folds,
+        id=item.id, strategy_id=item.strategy_id, kind=item.kind, created_at=item.created_at, data_source=item.data_source[:200],
+        data_hash=item.data_hash[:80], code_version=item.code_version[:40], symbols=[s[:20] for s in item.symbols[:20]],
+        costs={str(k)[:40]: str(v)[:40] for k, v in list(item.costs.items())[:20]}, metrics=_numbers(item.metrics), benchmark=_numbers(item.benchmark),
+        verdict=item.verdict, reasons=_texts(item.reasons), warnings=_texts(item.warnings),
+        folds=[fold_view(i, f) for i, f in enumerate(item.folds[:50])], reproduced=item.reproduced, requested_by=item.requested_by[:40],
     )
 
 
 @router.get("/strategies", response_model=StrategyPage)
 def list_strategies(
-    state: Literal["DRAFT", "BACKTESTING", "VALIDATION", "PAPER_ACTIVE", "PAPER_SUSPENDED", "RETIRED"] | None = Query(default=None),
+    state: StrategyState | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=MAX_PAGE), offset: int = Query(default=0, ge=0, le=100_000),
     context: TenantContext = Depends(tenant_context),
 ) -> StrategyPage:
-    """Your strategies with their lifecycle state, newest change first. SIMULATED."""
+    """Your strategy versions with their lifecycle state, newest change first. SIMULATED."""
     _read(context)
     with open_finance_store(context) as store:
-        reader = getattr(store, "list_strategies", None)
-        if not callable(reader):
-            return StrategyPage(items=[], total=0, limit=limit, offset=offset, recording=False, note=NOT_RECORDED.format(what="strategies"))
-        items, total = reader(context, state=state, limit=limit, offset=offset)
-    return StrategyPage(items=[strategy_view(i) for i in items], total=int(total), limit=limit, offset=offset, recording=True, note=None)
+        items, total = store.list_strategies(context, state=state.value if state else None, limit=limit, offset=offset)
+    return StrategyPage(items=[strategy_view(i) for i in items], total=total, limit=limit, offset=offset)
 
 
 @router.get("/strategies/{strategy_id}/runs", response_model=RunPage)
@@ -343,14 +367,13 @@ def list_runs(
     strategy_id: str, limit: int = Query(default=10, ge=1, le=MAX_PAGE), offset: int = Query(default=0, ge=0, le=100_000),
     context: TenantContext = Depends(tenant_context),
 ) -> RunPage:
-    """Backtest and walk-forward runs of one of your strategies, newest first. SIMULATED."""
+    """Backtest and walk-forward runs of one of your strategy versions, newest first. SIMULATED."""
     _read(context)
     with open_finance_store(context) as store:
-        reader = getattr(store, "list_strategy_runs", None)
-        if not callable(reader):
-            return RunPage(items=[], total=0, limit=limit, offset=offset, recording=False, note=NOT_RECORDED.format(what="backtest or walk-forward runs"))
-        items, total = reader(context, strategy_id[:80], limit=limit, offset=offset)
-    return RunPage(items=[run_view(i) for i in items], total=int(total), limit=limit, offset=offset, recording=True, note=None)
+        if store.get_strategy(context, strategy_id[:80]) is None:
+            raise _not_found("Strategy")
+        items, total = store.list_strategy_runs(context, strategy_id[:80], limit=limit, offset=offset)
+    return RunPage(items=[run_view(i) for i in items], total=total, limit=limit, offset=offset)
 
 
 # -- Supervisor and agent decisions ---------------------------------------------------------------------
@@ -358,13 +381,14 @@ def list_runs(
 
 class DecisionView(BaseModel):
     id: str
+    cycle_id: str | None
     agent: str
     action: str
-    outcome: str | None
+    outcome: str
     reasons: list[str]
     strategy_id: str | None
     intent_id: str | None
-    created_at: datetime | None
+    created_at: datetime
     simulated: bool = True
 
 
@@ -373,29 +397,24 @@ class DecisionPage(BaseModel):
     total: int
     limit: int
     offset: int
-    recording: bool
-    note: str | None
 
 
-def decision_view(item: object) -> DecisionView:
-    return DecisionView(
-        id=str(_get(item, "id")), agent=_text(_get(item, "agent"), 60) or "supervisor", action=_text(_get(item, "action"), 80) or "decision",
-        outcome=_text(_get(item, "outcome"), 40), reasons=_texts(_get(item, "reasons")), strategy_id=_text(_get(item, "strategy_id"), 80),
-        intent_id=_text(_get(item, "intent_id"), 80), created_at=_get(item, "created_at"),
-    )
+def decision_view(item: AgentDecision) -> DecisionView:
+    return DecisionView(id=item.id, cycle_id=item.cycle_id, agent=item.agent.value, action=item.action[:60], outcome=item.outcome[:30],
+                        reasons=_texts(item.reasons), strategy_id=item.strategy_id, intent_id=item.intent_id, created_at=item.created_at)
 
 
 @router.get("/decisions", response_model=DecisionPage)
 def list_decisions(
-    agent: str | None = Query(default=None, max_length=60, pattern=r"^[a-z_]+$"),
+    agent: Agent | None = Query(default=None), strategy_id: str | None = Query(default=None, max_length=80),
+    cycle_id: str | None = Query(default=None, max_length=80),
     limit: int = Query(default=20, ge=1, le=MAX_PAGE), offset: int = Query(default=0, ge=0, le=100_000),
     context: TenantContext = Depends(tenant_context),
 ) -> DecisionPage:
-    """What the Trading Supervisor and the specialist agents decided, with their reasons, newest first."""
+    """What the Trading Supervisor, the specialist agents and you decided, with the reasons, newest first.
+    Recorded text is shown as data and never followed."""
     _read(context)
     with open_finance_store(context) as store:
-        reader = getattr(store, "list_agent_decisions", None)
-        if not callable(reader):
-            return DecisionPage(items=[], total=0, limit=limit, offset=offset, recording=False, note=NOT_RECORDED.format(what="agent decisions"))
-        items, total = reader(context, agent=agent, limit=limit, offset=offset)
-    return DecisionPage(items=[decision_view(i) for i in items], total=int(total), limit=limit, offset=offset, recording=True, note=None)
+        items, total = store.list_agent_decisions(context, agent=agent.value if agent else None, strategy_id=strategy_id, cycle_id=cycle_id,
+                                                  limit=limit, offset=offset)
+    return DecisionPage(items=[decision_view(i) for i in items], total=total, limit=limit, offset=offset)
