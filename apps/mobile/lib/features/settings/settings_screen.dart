@@ -12,6 +12,8 @@ import '../autonomy/autonomy_repository.dart';
 import '../autonomy/autonomy_screens.dart';
 import '../learning/learning_controller.dart';
 import '../learning/learning_screen.dart';
+import '../lifecycle/lifecycle_controller.dart';
+import '../lifecycle/lifecycle_screen.dart';
 import '../privacy/privacy_controller.dart';
 import '../privacy/privacy_screen.dart';
 import '../push/push_settings_card.dart';
@@ -286,6 +288,24 @@ class _Content extends StatelessWidget {
                                       PrivacyController(controller.privacy!),
                                   onOpenChatMemory: () =>
                                       _openChatMemory(context)))))),
+            ],
+            if (controller.lifecycle != null) ...[
+              if (controller.privacy == null)
+                _Heading('Privacy', key: sections[SettingsSection.privacy]),
+              Card(
+                  child: ListTile(
+                      key: const Key('settings-lifecycle'),
+                      leading: const Icon(Icons.inventory_2_outlined),
+                      title: const Text('Data export and deletion'),
+                      subtitle: const Text(
+                          'Export the whole organisation, or delete it or this workspace.'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) => LifecycleScreen(
+                                  controller: LifecycleController(
+                                      controller.lifecycle!)))))),
             ],
             _Heading('Security', key: sections[SettingsSection.security]),
             Card(

@@ -192,6 +192,7 @@ TABLES_IN_DELETE_ORDER = (
     "tasks",
     "workspace_memberships",
     "workspaces",
+    "tenant_lifecycle_jobs",
     "tenants",
 )
 

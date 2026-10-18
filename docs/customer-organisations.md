@@ -74,6 +74,6 @@ People who belong to several organisations (an accountant serving two customers,
 ## Not done yet
 
 - Billing: the plan is a label.
-- Suspending or deleting a customer organisation, and exporting its data, from the console.
+- Suspending a customer organisation, and listing deleted organisations, from the console. An organisation's own administrator exports and deletes it ([Organisation export and deletion](organisation-lifecycle.md)).
 - Keycloak attribute changes for a new first admin are manual (above); ANUM does not call the Keycloak admin API.
 - Flutter switches workspaces but not organisations yet; the platform console on Flutter lists and onboards only (no plan change or reissue).

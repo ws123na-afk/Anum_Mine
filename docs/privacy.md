@@ -159,3 +159,5 @@ The API exposes `Content-Disposition` to browsers (CORS `expose_headers`) so the
 - Exports are per workspace; there is no single export across every workspace of a user.
 - Deleting the identity account is an administrator task in Keycloak; ANUM has no self-service account closure.
 - File bytes are links in the export, not a zip.
+
+A whole organisation's export (zip with every shared table and file) and deletion are separate, owner-only flows: [Organisation export and deletion](organisation-lifecycle.md). Rows private to one person are not in the organisation's export, so each person downloads their own here first.

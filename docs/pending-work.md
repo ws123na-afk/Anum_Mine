@@ -21,6 +21,7 @@ State at handoff: every PR from the 18 October session is merged into `main` (#1
 7. **Audit leftovers** (`docs/business/P0_CI_REMEDIATION.md`): staging smoke test, migration dry run and restore drill on the VM; turn on branch protection.
 8. **Finance** (`docs/finance-trading-readiness.md`): choose market-data providers; live trading stays off.
 9. **Codex review limit** is used up; reviews resume when the owner adds credits.
+10. **Organisation export and deletion** (`docs/organisation-lifecycle.md`, migration `0078_tenant_lifecycle`): the new NOLOGIN role `anum_tenant_purger` must exist before that migration runs. The Oracle update does it (`db-init` runs `bootstrap-database.sql` first); on Render or Kubernetes re-run `infra/helm/bootstrap-database.sql` as the database admin before deploying.
 
 ## Build work still open (with reasons)
 
