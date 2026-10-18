@@ -203,7 +203,7 @@ test('an owner renames, archives with the typed name, restores and creates a wor
   await create.getByRole('button', { name: 'Create workspace' }).click();
   await expect(panel.getByText('Workspace Finance created. You are its owner.')).toBeVisible();
   await panel.getByRole('button', { name: 'Switch to Finance' }).click();
-  await expect(page.getByRole('button', { name: /tenant_local \/ ws_finance_1a2b3c4d/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Local / Finance 1a2b3c4d' })).toBeVisible();
 });
 
 test('a viewer sees the workspace read-only with who can change it', async ({ page }) => {

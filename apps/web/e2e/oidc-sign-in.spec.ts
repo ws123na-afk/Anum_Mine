@@ -114,7 +114,7 @@ test('signs in with authorization code + PKCE, calls the API with the bearer tok
 
   // The code and state leave the address bar; the original route comes back.
   await expect(page).toHaveURL(`${appOrigin}/#tasks`);
-  await expect(page.locator('.tenant')).toHaveText('tenant_local / workspace_foundation');
+  await expect(page.locator('.tenant')).toHaveText('Local / Foundation');
 
   await expect.poll(() => provider.apiHeaders.length).toBeGreaterThan(0);
   for (const headers of provider.apiHeaders) {

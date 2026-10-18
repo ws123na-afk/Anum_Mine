@@ -54,10 +54,16 @@
 .pageFigure dd { display: grid; gap: 1px; margin: 0; min-width: 0; }
 .pageFigure strong { font-size: 24px; font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: -.01em; line-height: 1.2; overflow-wrap: anywhere; }
 .pageFigure small { color: var(--d-faint); font-size: 12.5px; overflow-wrap: anywhere; }
-.pageFigure.danger strong { color: var(--d-stop); }
-.pageFigure.warn strong { color: var(--d-warn); }
-.pageFigure.ok strong { color: var(--d-ok); }
-.pageFigure.accent strong { background: var(--d-aurora); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* Figures stay in the text colour: a coloured number carries no meaning a reader can name. A figure
+   with a status (overdue, at risk, healthy) marks its label with a small status dot instead, and the
+   label and hint say what the status is. */
+.pageFigure strong { color: var(--d-text); }
+.pageFigure:is(.danger, .warn, .ok) dt::before {
+  border-radius: 50%; content: ""; display: inline-block; height: 8px; margin-inline-end: var(--d-s2); vertical-align: 1px; width: 8px;
+}
+.pageFigure.danger dt::before { background: var(--d-stop); }
+.pageFigure.warn dt::before { background: var(--d-warn); }
+.pageFigure.ok dt::before { background: var(--d-ok); }
 .figureSkeleton { animation: figurePulse 1.4s ease-in-out infinite; background: var(--d-glass-3); border-radius: 6px; display: block; height: 22px; margin: 4px 0; width: 64px; }
 .figureUnavailable { color: var(--d-muted); font-size: 16px; font-weight: 600; line-height: 1.6; }
 @keyframes figurePulse { 50% { opacity: .45; } }
@@ -100,6 +106,12 @@
 .paneEmpty .actions { justify-content: center; margin-top: var(--d-s2); }
 .paneProblem { align-items: center; flex-wrap: wrap; }
 .paneProblem button { margin-inline-start: auto; }
+/* A read-only notice: one line, with the way to get access behind a disclosure. */
+.accessNotice > div { display: grid; gap: var(--d-s1); min-width: 0; }
+.accessNotice details { font-size: 13.5px; }
+.accessNotice summary { color: var(--d-sky); cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; width: fit-content; }
+.accessNotice details p { margin-top: var(--d-s1); }
+.accessNotice code { font-size: 12.5px; overflow-wrap: anywhere; }
 .paneBack { display: none; }
 @media (max-width: 1023px) { .paneBack { display: inline-flex; } }
 

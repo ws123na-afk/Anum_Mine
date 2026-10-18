@@ -68,11 +68,18 @@ export function budgetMessage(error: ApiError): string {
   return error.detail ?? budgetFallbackMessage();
 }
 
+/** A 5xx whose message says the server's database is down ("Database unavailable"). */
+export function isDatabaseOutage(error: ApiError): boolean {
+  return error.status >= 500 && /\bdatabase\b/i.test(error.detail ?? '');
+}
+
 /** A sentence for a person: the API's message for known failures, never a stack trace. */
 export function describeError(error: unknown, fallback = t('common.operationFailed')): string {
   if (error instanceof ApiError) {
     if (error.status === 402 || error.code === 'model_budget_exceeded') return t('common.budgetReached', { message: budgetMessage(error) });
     if (error.status === 401) return t('common.signInExpired');
+    // A server-side database outage is the server's problem, said plainly, never the person's connection.
+    if (isDatabaseOutage(error)) return t('common.databaseUnavailable');
     if (error.detail) return error.detail;
     return error.message;
   }

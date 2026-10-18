@@ -14,7 +14,7 @@ import { t } from './lib/i18n';
 import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { Modal } from './Dialog';
-import { PageHeader, PageSummary, PaneProblem } from './PageParts';
+import { AccessNotice, PageHeader, PageSummary, PaneProblem } from './PageParts';
 import './governance.css';
 import './adminPages.css';
 
@@ -57,7 +57,8 @@ export function GovernanceView() {
   useEffect(() => { void load(); }, [load]);
   const { busy, flash, act } = useAction(load);
   // Tenant-wide controls: editable only for an organization administrator (the API's answer).
-  const { canManage, notice: readOnlyNotice } = organizationPolicyAccess(summary);
+  const access = organizationPolicyAccess(summary);
+  const { canManage } = access;
   const addBaseline = () => act('baseline', async () => {
     const pack = await gov.createPolicyPack({ name: 'Organization baseline', description: 'Approval-first enterprise defaults', rules: [{ action: 'integration.write', effect: 'require_approval', conditions: { risk: 'high' } }] });
     return t('gov.packCreated', { name: pack.name, version: pack.version });
@@ -72,11 +73,11 @@ export function GovernanceView() {
     return t('gov.exported');
   });
   return <>
-    <section className="metrics"><Metric label={t('gov.metric.packs')} value={String(summary?.policy_packs ?? 0)} /><Metric label={t('gov.metric.active')} value={String(summary?.active_policy_packs ?? 0)} /><Metric label={t('gov.metric.templates')} value={String(summary?.role_templates ?? 0)} /><Metric label={t('gov.metric.rules')} value={String(summary?.approval_rules ?? 0)} /></section>
-    <section className="moduleIntro"><div><p className="eyebrow">{t('gov.eyebrow')}</p><h2>{t('gov.title')}</h2><p>{t('gov.intro')}</p></div><div className="actions">{canManage && <button type="button" disabled={busy !== null} onClick={() => void addBaseline()}><ShieldCheck size={17} aria-hidden="true" />{t('gov.addBaseline')}</button>}<button type="button" className="secondary" disabled={busy !== null} onClick={() => void exportAudit()}><Download size={17} aria-hidden="true" />{t('gov.exportAudit')}</button></div></section>
+    <section className="metrics"><Metric label={t('gov.metric.packs')} value={String(summary?.policy_packs ?? 0)} detail={t('gov.metric.packsDetail')} /><Metric label={t('gov.metric.active')} value={String(summary?.active_policy_packs ?? 0)} detail={t('gov.metric.activeDetail')} /><Metric label={t('gov.metric.templates')} value={String(summary?.role_templates ?? 0)} detail={t('gov.metric.templatesDetail')} /><Metric label={t('gov.metric.rules')} value={String(summary?.approval_rules ?? 0)} detail={t('gov.metric.rulesDetail')} /></section>
+    <section className="moduleIntro"><div><p>{t('gov.intro')}</p></div><div className="actions">{canManage && <button type="button" disabled={busy !== null} onClick={() => void addBaseline()}><ShieldCheck size={17} aria-hidden="true" />{t('gov.addBaseline')}</button>}<button type="button" className="secondary" disabled={busy !== null} onClick={() => void exportAudit()}><Download size={17} aria-hidden="true" />{t('gov.exportAudit')}</button></div></section>
     {!loaded && <Notice>{t('gov.loading')}</Notice>}
     {loadError && <Notice error>{loadError}</Notice>}
-    {readOnlyNotice && <Notice>{readOnlyNotice}</Notice>}
+    <AccessNotice notice={access.notice} howTo={access.howTo} />
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
     <section className="surface govSection" aria-label={t('gov.packs.title')}>
       <div className="sectionHeader"><div><p className="eyebrow">{t('gov.packs.eyebrow')}</p><h2>{t('gov.packs.title')}</h2></div></div>
@@ -148,7 +149,8 @@ export function EnterpriseView() {
   }, []);
   useEffect(() => { void load(); }, [load]);
   const { busy, flash, act } = useAction(load);
-  const { canManage, notice: readOnlyNotice } = enterpriseWriteAccess(summary);
+  const access = enterpriseWriteAccess(summary);
+  const { canManage } = access;
   const regions = regionSummary(ops, targets);
   const save = async () => {
     if (!editing) return;
@@ -175,7 +177,7 @@ export function EnterpriseView() {
     </>} />
     <PageSummary label={t('pages2.ent.summary')} figures={figures} onRetry={() => void load()} />
     {capabilityError && <Notice error>{t('ent.capabilityError', { message: capabilityError })}</Notice>}
-    {readOnlyNotice && <Notice>{readOnlyNotice}</Notice>}
+    <AccessNotice notice={access.notice} howTo={access.howTo} />
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
     {editing && canManage && <Modal title={editing.isNew ? t('ent.form.new') : t('ent.form.edit', { id: editing.draft.id })} className="formDialog entDialog" onClose={() => setEditing(null)}>
       <form className="govForm" aria-label={t('ent.form.label')} onSubmit={(e) => { e.preventDefault(); void save(); }}>
@@ -211,6 +213,6 @@ export function EnterpriseView() {
   </>;
 }
 
-function Metric({ label, value, detail = t('gov.metric.detail') }: { label: string; value: string; detail?: string }) {
+function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return <article className="metric"><div className="metricTop"><span>{label}</span></div><strong>{value}</strong><small>{detail}</small></article>;
 }

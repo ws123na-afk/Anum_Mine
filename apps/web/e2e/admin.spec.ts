@@ -248,7 +248,7 @@ test('non-owners see the API permission answer and can still accept an invitatio
 
   // The joined workspace is one click away, and after the switch every request names it.
   await accept.getByRole('button', { name: 'Switch to workspace_sales' }).click();
-  await expect(page.getByRole('button', { name: /tenant_local \/ workspace_sales/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Local / Sales' })).toBeVisible();
   const switchedAt = calls.findIndex((c) => c.path === '/api/v1/workspace-memberships/current' && c.workspace === 'workspace_sales');
   expect(switchedAt).toBeGreaterThan(-1);
   await expect.poll(() => calls.slice(switchedAt + 1).filter((c) => c.path === '/api/v1/workspace-members').length).toBeGreaterThan(0);

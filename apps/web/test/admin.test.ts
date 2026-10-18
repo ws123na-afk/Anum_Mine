@@ -71,6 +71,11 @@ describe('API errors', () => {
   test('409 last-owner refusal is shown in the API words; FastAPI detail bodies work too', () => {
     assert.equal(describeError(apiErrorFrom(409, { error: { code: 'conflict', message: 'The last active owner cannot be demoted or deactivated' } })), 'The last active owner cannot be demoted or deactivated');
     assert.equal(describeError(apiErrorFrom(404, { detail: 'Invitation not found' })), 'Invitation not found');
+    // A database outage on the server is said as the server's problem, never the person's connection.
+    assert.equal(describeError(apiErrorFrom(503, { error: { code: 'service_unavailable', message: 'Database unavailable' } })), 'The server could not reach its database');
+    assert.equal(describeError(apiErrorFrom(500, { detail: 'database is down' })), 'The server could not reach its database');
+    // Only a server error: a 4xx that mentions a database keeps the API's own words.
+    assert.equal(describeError(apiErrorFrom(404, { detail: 'Database export not found' })), 'Database export not found');
     assert.equal(apiErrorFrom(500, 'oops').message, 'ANUM API request failed: 500');
     assert.equal(apiErrorFrom(410, null, 'ANUM voice request failed').message, 'ANUM voice request failed: 410');
   });

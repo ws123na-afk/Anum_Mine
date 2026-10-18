@@ -136,6 +136,25 @@ export function loadFailure<T>(error: unknown): Load<T> {
   return isPermissionDenied(error) ? { state: 'denied', message: describeError(error) } : { state: 'error', message: describeError(error) };
 }
 
+/**
+ * A read-only notice for tenant-wide settings: one line saying what is read only and why, and the
+ * way to get the role behind a "How to get access" disclosure (lib/governance.ts tenantWriteAccess).
+ */
+export function AccessNotice({ notice, howTo }: { notice: string | null; howTo: { text: string; server: string; command: string } | null }) {
+  if (!notice) return null;
+  return <div className="notice accessNotice" role="note">
+    <Lock aria-hidden="true" />
+    <div>
+      <p>{notice}</p>
+      {howTo && <details>
+        <summary>{t('gov.readOnlyHowTitle')}</summary>
+        <p>{howTo.text}</p>
+        <p>{howTo.server} <code dir="ltr">{howTo.command}</code></p>
+      </details>}
+    </div>
+  </div>;
+}
+
 /** A pane or page that the person's role cannot open: what it is and who can. */
 export function PaneDenied({ title, text }: { title: string; text: string }) {
   return <div className="paneEmpty paneDenied" role="note"><Lock aria-hidden="true" /><h3>{title}</h3><p>{text}</p></div>;

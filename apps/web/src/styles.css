@@ -338,6 +338,29 @@ button.secondary, .actions button.secondary, .approvalActions button.secondary, 
   background: var(--d-glass-2); border: 1px solid var(--d-line-strong); box-shadow: none; color: var(--d-text);
 }
 button.secondary:hover:not(:disabled) { background: var(--d-glass-3); }
+/* The default button is the primary one: a button with no class (an empty-state action, a toolbar's
+   main action) gets the primary look wherever it sits, instead of the browser's grey default. :where
+   keeps it at zero specificity, so every component and variant rule still wins. Containers that
+   already draw their own buttons (rows, tabs, menus, pickers, other modules' bars) are left out by
+   name so none of them changes; a new container's plain buttons are primary unless it styles them. */
+:where(button:not([class]), button[class=""]):where(:not(:is(
+  .actionNoticeButtons, .activity, .agentActions, .approvalActions, .attachList, .attachTools, .autoPager, .autonomyRow, .autonomySearchBox, .budgetAlertActions,
+  .calendarSteps, .callButtons, .callCameraActions, .catalogRow, .catalogMore, .catalogVersionActions, .chatActions, .chatCardActions, .chatListState, .chatPanel .notice,
+  .chatSuggestions, .cmAlert, .cmChangeForm, .cmFilters, .cmListingButtons, .cmLoadError, .cmPager, .cmSegment, .cmTabs, .colorPicker, .compactEmpty, .devFormFooter, .devTabs,
+  .enterpriseCatalog .sectionHeader, .featureSkillActions, .filePreviewHead, .fileShareRow, .finHeadActions, .finIntel, .finIntelActions, .finIntelImport, .finIntelRisk, .finIntelStrategies,
+  .finItemEnd, .finMonth, .finOrderForm, .govRow, .iconPicker, .inboxAccountActions, .inboxAttachments, .inboxChecks, .inboxConnectButtons, .inboxDraftCard, .inboxDraftRow,
+  .inboxFilters, .inboxMessageActions, .inboxMessageBar, .inboxReply, .inlineForm, .integration, .intSectionHead, .invitationActions, .kbAskForm, .kbBarActions,
+  .kbCollectionActions, .languagePills, .learningPager, .learningSearch, .libraryRow, .libraryState, .mailAiActions, .mailAiList, .mailAiNote, .mailFiles, .mailNewMail,
+  .mailoQuick, .mailReaderActions, .mailsRow, .mailsRowActions, .mailsSearch, .marketActions, .meetingsPager, .memberRow, .memoryFocusMissing, .mkAccountTable, .mkIdea,
+  .mkProviderTable, .modeTabs, .moreMenu, .moreMenuList, .msgMenu, .orgDeptHead, .orgHeroActions, .orgPlanCell, .orgToolbar, .paneProblem, .panelEmpty, .person,
+  .personActions, .phoneRow, .popoverList, .quickHeadTools, .ruleActions, .runActions, .segmented, .settingsNav, .settingsTabs, .setupActions, .setupUrl, .signInCard,
+  .skillPanelActions, .skillPickerList, .sourcesStatus, .spaceControls, .suppRow, .taskComposerFoot, .taskToolbar, .templateList, .tyreInline, .tyreStatuses, .tyreTabs,
+  .voiceActionLinks, .voiceConfirm, .voiceLangSwitch, .voiceSpace, .waClosed, .wizardSteps, .workspaceOption, .workspacePanel
+) button)) {
+  align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow);
+  color: var(--d-on-primary); display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s4);
+  &:where(:hover:not(:disabled)) { background: var(--d-primary-grad-hover); }
+}
 /* A secondary or danger button outside a styled group still gets the control shape instead of the
    browser's default; :where keeps this at zero specificity so every component rule still wins. */
 :where(button.secondary, button.danger) {
@@ -755,3 +778,50 @@ code { unicode-bidi: isolate; }
 /* Settings > Workspace: the cards under "This workspace" share its width, two to a row on wide screens. */
 .settingsStack.settingsGrid { align-items: stretch; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); margin-top: var(--d-s5); max-width: none; }
 .settingsStack.settingsGrid > .notice { grid-column: 1 / -1; }
+
+/* The workspace switcher's icon shows only on phones, where the button is icon-sized. */
+.workspaceSwitch .switchIcon { display: none; }
+/* Phones: the page starts right under the brand row. Search and the workspace switcher shrink to
+   icon buttons and, with the other top-bar actions, sit at the end of the brand row (the sidebar
+   strip is sticky at the top, so the row is always in view); their labels stay for screen readers.
+   Popovers open as sheets under the row instead of hanging off a small button. */
+@media (max-width: 760px) {
+  .shell { grid-template-rows: auto minmax(0, 1fr); }
+  .brand { min-height: 40px; }
+  .brand small { display: none; }
+  .topbar {
+    flex-wrap: nowrap; gap: var(--d-s1); inset-block-start: var(--d-s3); inset-inline-end: var(--d-s4); margin: 0; min-height: 0;
+    position: fixed; z-index: 31;
+  }
+  .topActions { flex: none; flex-wrap: nowrap; gap: var(--d-s1); }
+  .searchTrigger, .topbar .topActions .workspaceSwitch, .topActions .iconButton, .userButton {
+    flex: none; height: 40px; justify-content: center; max-width: none; min-height: 40px; padding: 0; width: 40px;
+  }
+  .searchTrigger { background: var(--d-glass-1); border-color: var(--d-line); color: var(--d-text); flex-basis: auto; order: 0; }
+  .searchTrigger span, .workspaceSwitch > span, .workspaceSwitch > .switchChevron {
+    clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px;
+  }
+  .topbar .topActions .workspaceSwitch { border-radius: var(--d-r-control); color: var(--d-text); display: inline-grid; place-items: center; }
+  .workspaceSwitch .switchIcon { display: block; height: 18px; width: 18px; }
+  .userButton > svg { display: none; }
+  .userButton .avatar { height: 34px; width: 34px; }
+  .topbar .popover, .topbar .workspacePanel {
+    background: var(--d-surface-2); inset-block-start: 64px; inset-inline: var(--d-s4); max-height: calc(100dvh - 80px); overflow: auto; position: fixed; width: auto;
+  }
+  .pageHeaderText > p { display: none; }
+  /* Section tabs: one row that scrolls sideways (the sidebar strip's pattern), never two or three rows. */
+  .settingsTabs {
+    flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; padding-block: 2px;
+    scroll-padding-inline: var(--d-s1); scroll-snap-type: x proximity; scrollbar-width: none;
+  }
+  .settingsTabs::-webkit-scrollbar { display: none; }
+  .settingsTabs > button { flex: none; scroll-snap-align: start; white-space: nowrap; }
+  .settingsTabs > button:focus-visible { outline-offset: -2px; }
+}
+@media (max-width: 420px) {
+  /* Phones: refresh gives way so the brand keeps its name (the browser's pull to refresh reloads the page). */
+  .topActions > .refreshButton { display: none; }
+}
+@media (max-width: 360px) {
+  .brandName { clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+}
