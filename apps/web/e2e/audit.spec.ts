@@ -158,7 +158,7 @@ test('a failed load says what failed and retries', async ({ page }) => {
   await mockApi(page, { failFirst: true });
   await page.goto('/#audit');
   await expect(page.getByRole('heading', { name: 'The audit log could not be loaded' })).toBeVisible();
-  await expect(page.getByText('The database is unavailable')).toBeVisible();
+  await expect(page.getByText('The server could not reach its database')).toBeVisible();
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByRole('heading', { name: '50 records loaded' })).toBeVisible();
 });

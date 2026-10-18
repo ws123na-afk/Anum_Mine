@@ -137,6 +137,18 @@ export function loadFailure<T>(error: unknown): Load<T> {
 }
 
 /**
+ * A loading placeholder shaped like the content it stands for (a heading bar, then lines), instead
+ * of a "Loading..." sentence. The label is for screen readers; the bars are decoration.
+ */
+export function LoadingSkeleton({ label, rows = 3, className = '' }: { label: string; rows?: number; className?: string }) {
+  return <div className={`loadingSkeleton ${className}`} role="status" aria-live="polite">
+    <span className="visuallyHidden">{label}</span>
+    <span className="skeletonBar head" aria-hidden="true" />
+    {Array.from({ length: rows }, (_, index) => <span key={index} className="skeletonBar" aria-hidden="true" />)}
+  </div>;
+}
+
+/**
  * A read-only notice for tenant-wide settings: one line saying what is read only and why, and the
  * way to get the role behind a "How to get access" disclosure (lib/governance.ts tenantWriteAccess).
  */

@@ -3,7 +3,12 @@
   align-items: center; background: var(--d-scrim); display: flex; inset: 0; justify-content: center;
   padding: var(--d-s4); position: fixed; z-index: 60;
 }
-.dialogPanel { display: grid; gap: var(--d-s3); max-height: calc(100dvh - 2 * var(--d-s4)); max-width: 480px; overflow: auto; padding: var(--d-s5); width: 100%; }
+/* Opening is a state change: a short fade and lift (none with reduced motion). */
+@keyframes dialogIn { from { opacity: 0; transform: translateY(6px) scale(.985); } }
+@keyframes drawerIn { from { opacity: 0; } }
+@keyframes scrimIn { from { opacity: 0; } }
+.dialogBackdrop { animation: scrimIn var(--d-base) var(--d-ease); }
+.dialogPanel { animation: dialogIn var(--d-base) var(--d-ease); display: grid; gap: var(--d-s3); max-height: calc(100dvh - 2 * var(--d-s4)); max-width: 480px; overflow: auto; padding: var(--d-s5); width: 100%; }
 .dialogPanel h2 { font-size: 18px; }
 .dialogBody { color: var(--d-muted); display: grid; gap: var(--d-s2); font-size: 14px; }
 .dialogBody strong { color: var(--d-text); }
@@ -11,8 +16,9 @@
 .drawerBackdrop { align-items: stretch; justify-content: flex-end; padding: 0; }
 .drawerPanel {
   background: var(--d-surface-1); border-inline-start: 1px solid var(--d-line-strong); box-shadow: var(--d-elev-2);
-  display: flex; flex-direction: column; height: 100dvh; max-width: 100%; width: min(520px, 100vw);
+  animation: drawerIn var(--d-base) var(--d-ease); display: flex; flex-direction: column; height: 100dvh; max-width: 100%; width: min(520px, 100vw);
 }
+@media (prefers-reduced-motion: reduce) { .dialogBackdrop, .dialogPanel, .drawerPanel { animation: none; } }
 .drawerHeader { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; gap: var(--d-s3); justify-content: space-between; padding: var(--d-s4) var(--d-s5); }
 .drawerHeader h2 { font-size: 18px; }
 .drawerBody { display: grid; align-content: start; gap: var(--d-s4); overflow-y: auto; padding: var(--d-s5); }

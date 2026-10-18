@@ -1,102 +1,109 @@
-/* ANUM 360 web theme: midnight navy + blue-violet aurora, shared with the Flutter app
-   (apps/mobile/lib/src/theme/anum_theme.dart, AnumPalette.dark and .light) and the owner's mockups
-   (docs/design/anum360.md#theme). One surface recipe, one spacing scale (4/8), three radii by
-   hierarchy (panel 20, control 12, pill 999). The accent gradient (blue to violet) is spent on the
-   logo mark, the active navigation item, primary buttons and the command orb; status colours always
-   come with a text label.
+/* ANUM web theme: "Graphite and jade" (docs/design/visual-identity.md). A calm enterprise look: a
+   cool graphite neutral base, one brand accent (jade), and the semantic colours ok, warn and stop
+   only for real status, always with a text label. Hairline borders and soft shadows give depth;
+   there are no decorative gradients and no gradient text. Radii by hierarchy: panel 12, control 8,
+   pill 999. Type is Inter (Latin) and Noto Sans Arabic, self-hosted, with a tighter display setting
+   for headings (docs/design/visual-identity.md#type).
 
-   Two themes, as in the app: Dark (the default, the mockups' look) and Light. <html data-theme>
-   holds the one in use: index.html sets it before the first paint from the saved choice
-   (Settings > Appearance, `anum.theme`: dark, light or system) and lib/theme.ts keeps it current.
-   Every view stylesheet takes its colours from these tokens, so a theme is only this block:
-   - --d-* are the theme tokens (the names predate the light theme; "d" is "design").
+   Two themes, both first-class: Dark (the default) and Light. <html data-theme> holds the one in
+   use: index.html sets it before the first paint from the saved choice (Settings > Appearance,
+   `anum.theme`: dark, light or system) and lib/theme.ts keeps it current. Every view stylesheet
+   takes its colours from these tokens, so a theme is only this block:
+   - --d-* are the theme tokens (the names predate the light theme; "d" is "design"). Several keep
+     their old names for compatibility (--d-sky, --d-violet, --d-blue, --d-rose, --d-primary-grad):
+     in this identity they all resolve to the one accent, so no page can bring back a rainbow.
    - --c-* are colour channels for tints: `rgb(var(--c-violet) / .45)` follows the theme.
-   - --l-* are the light list-row cards the mockup puts inside dark panels. */
+   - --l-* are list-row cards; in this identity they are a raised surface of the same theme.
+   Contrast (WCAG 2.1, relative luminance, AA is 4.5:1 for text):
+   Dark  text 16.7:1, muted 8.2:1, faint 5.8:1 on --d-bg; muted 7.2:1, faint 5.2:1 on --d-surface-2;
+         accent text 10.1:1 on --d-bg, 9.0:1 on --d-surface-2; ok 9.4:1, warn 10.6:1, stop 8.3:1 on
+         --d-surface-2; white on the primary button 5.2:1 (hover 6.5:1); white on danger 5.7:1.
+   Light text 17.2:1, muted 7.5:1, faint 5.1:1 on --d-bg (5.4:1 on white); accent text 5.6:1 on
+         white, 5.3:1 on --d-bg; ok 7.2:1, warn 6.2:1, stop 6.5:1 on white (each stays AA on its own 12 % tint). */
 :root {
-  /* Channels for tints and overlays. --c-hi is the overlay ink: white on dark, navy on light. */
-  --c-hi: 255 255 255; --c-shade: 2 6 23;
-  --c-sky: 125 211 252; --c-violet: 167 139 250; --c-rose: 249 168 212; --c-blue: 111 141 255; --c-indigo: 99 102 241;
-  --c-ok: 134 239 172; --c-warn: 252 211 141; --c-stop: 253 164 175; --c-danger: 225 29 72;
-  /* Palette (AnumPalette.dark): midnight navy, surfaces lighter as they rise. */
-  --d-bg: #070b1a;
-  --d-surface-1: #0e1530; --d-surface-2: #141d3b; --d-surface-3: #1b2649;
-  --d-glass: rgba(12, 19, 48, .9);
-  --d-glass-1: rgb(var(--c-hi) / .045); --d-glass-2: rgb(var(--c-hi) / .075); --d-glass-3: rgb(var(--c-hi) / .11);
-  --d-line: rgba(148, 163, 255, .13); --d-line-strong: rgba(170, 182, 255, .24); --d-line-hover: rgba(170, 182, 255, .4); --d-edge: rgba(255, 255, 255, .10);
-  /* Text: text 17:1, muted 8.9:1, faint 6.1:1 on --d-bg; muted 7.2:1 and faint 5.2:1 on --d-surface-2. */
-  --d-text: #eef1f8; --d-muted: #a3abc2; --d-faint: #8790a8;
-  --d-sky: #7dd3fc; --d-violet: #a78bfa; --d-rose: #f9a8d4; --d-blue: #6f8dff;
-  --d-ok: #86efac; --d-warn: #fcd38d; --d-stop: #fda4af; --d-on-stop: #3b0a13;
+  /* Channels for tints and overlays. --c-hi is the overlay ink: white on dark, graphite on light.
+     The accent channels (--c-sky, --c-violet, --c-blue, --c-indigo, --c-rose) are all jade. */
+  --c-hi: 255 255 255; --c-shade: 3 5 9;
+  --c-accent: 69 208 181;
+  --c-sky: var(--c-accent); --c-violet: var(--c-accent); --c-rose: var(--c-accent); --c-blue: var(--c-accent); --c-indigo: var(--c-accent);
+  --c-ok: 111 211 154; --c-warn: 242 196 107; --c-stop: 245 154 166; --c-danger: 196 37 63;
+  /* Palette: graphite, surfaces lighter as they rise. */
+  --d-bg: #0b0d12;
+  --d-surface-1: #12151c; --d-surface-2: #171b24; --d-surface-3: #1f2430;
+  --d-glass: rgba(18, 21, 28, .96);
+  --d-glass-1: rgb(var(--c-hi) / .035); --d-glass-2: rgb(var(--c-hi) / .06); --d-glass-3: rgb(var(--c-hi) / .09);
+  --d-line: rgba(255, 255, 255, .075); --d-line-strong: rgba(255, 255, 255, .13); --d-line-hover: rgba(255, 255, 255, .22); --d-edge: rgba(255, 255, 255, .04);
+  --d-text: #eceef3; --d-muted: #a2a8b6; --d-faint: #868d9c;
+  /* The brand accent: jade. Text and icons use --d-accent; filled controls use --d-primary. */
+  --d-accent: #45d0b5;
+  --d-sky: var(--d-accent); --d-violet: var(--d-accent); --d-rose: var(--d-accent); --d-blue: var(--d-accent);
+  --d-ok: #6fd39a; --d-warn: #f2c46b; --d-stop: #f59aa6; --d-on-stop: #2a070d;
   /* Text on the tinted notices and soft accents. */
-  --d-notice-text: #d6ecfb; --d-error-text: #fee2e6; --d-accent-text: #c7d2fe; --d-accent-soft: #a5b4fc; --d-violet-text: #ddd6fe;
-  --d-aurora: linear-gradient(90deg, var(--d-sky), var(--d-violet) 55%, var(--d-rose));
-  /* The logo mark and the orb rim. */
-  --d-mark-a: #4f8bff; --d-mark-b: #7a6bff; --d-mark-c: #b56bff;
+  --d-notice-text: #d5f3ec; --d-error-text: #fde3e7; --d-accent-text: #8fe3d1; --d-accent-soft: #45d0b5; --d-violet-text: #b7ecdf;
+  /* Kept for compatibility: one flat accent, never a rainbow. */
+  --d-aurora: linear-gradient(90deg, var(--d-accent), var(--d-accent));
+  /* The logo mark and the orb rim: three steps of jade. */
+  --d-mark-a: #5fe0c6; --d-mark-b: #23a990; --d-mark-c: #0f7a69;
   /* The voice orb's rim while an approval waits (the governance signal). */
-  --d-alert-rim: #ffb547;
-  /* Primary actions (accentStart to accentEnd): white is 5.2:1 on #2563eb and 5.7:1 on #7c3aed, so the
-     whole gradient passes AA. --d-on-primary-soft is secondary text on the gradient (AA on both ends). */
-  --d-primary: #4f46e5; --d-primary-hover: #5b52f0;
-  --d-primary-grad: linear-gradient(135deg, #2563eb, #7c3aed);
-  --d-primary-grad-hover: linear-gradient(135deg, #2f6df5, #8747f2);
-  --d-on-primary: #fff; --d-on-primary-soft: #e0e7ff;
-  --d-danger: #be123c; --d-danger-hover: #d61f4d;
-  --d-glow: 0 0 0 1px rgba(129, 140, 248, .45), 0 10px 32px rgba(79, 70, 229, .38);
-  --d-button-shadow: 0 1px 0 rgba(255, 255, 255, .18) inset, 0 6px 18px rgba(79, 70, 229, .28);
-  --d-elev-1: 0 1px 0 var(--d-edge) inset, 0 8px 24px rgba(2, 6, 23, .36);
-  --d-elev-2: 0 1px 0 var(--d-edge) inset, 0 18px 48px rgba(2, 6, 23, .55);
-  /* Wells: form fields, code and meter tracks sit below the surface; chrome floats over the aurora. */
-  --d-field: rgba(2, 6, 23, .45); --d-well: rgba(2, 6, 23, .55); --d-well-inset: 0 1px 2px rgba(0, 0, 0, .4) inset;
-  --d-chrome: rgba(12, 19, 48, .72); --d-chip: rgba(17, 26, 61, .8); --d-scrim: rgba(2, 6, 23, .62);
-  --d-sidebar: linear-gradient(180deg, rgba(14, 21, 48, .82), rgba(7, 11, 26, .9));
-  --d-backdrop:
-    radial-gradient(1000px 620px at 62% -14%, rgba(79, 70, 229, .22), transparent 62%),
-    radial-gradient(760px 560px at 100% 8%, rgba(167, 139, 250, .10), transparent 60%),
-    radial-gradient(900px 560px at 0% -10%, rgba(59, 130, 246, .10), transparent 60%);
-  --d-stage-glow: radial-gradient(closest-side, rgba(99, 102, 241, .38), rgba(139, 92, 246, .16) 55%, transparent);
-  /* Light cards (list rows in dark panels): text 17:1, muted 7.5:1 on --l-card. */
-  --l-card: #f4f6ff; --l-card-hover: #ffffff; --l-text: #0f172a; --l-muted: #475569; --l-line: rgba(15, 23, 42, .08);
-  --l-ok: #166534; --l-warn: #92400e; --l-stop: #9f1239; --l-info: #3730a3;
-  --d-r-panel: 20px; --d-r-control: 12px; --d-radius: var(--d-r-panel);
+  --d-alert-rim: #f2b54c;
+  /* Primary actions: a flat jade fill (the gradient tokens keep their names for older rules). */
+  --d-primary: #0f7a69; --d-primary-hover: #0c6a5b;
+  --d-primary-grad: linear-gradient(var(--d-primary), var(--d-primary));
+  --d-primary-grad-hover: linear-gradient(var(--d-primary-hover), var(--d-primary-hover));
+  --d-on-primary: #fff; --d-on-primary-soft: #d7f5ee;
+  --d-danger: #c4253f; --d-danger-hover: #a81d34;
+  /* Depth: hairlines first, then soft shadows tinted to the graphite. */
+  --d-glow: 0 0 0 1px rgb(var(--c-accent) / .32);
+  --d-button-shadow: 0 1px 0 rgba(255, 255, 255, .12) inset, 0 1px 2px rgba(3, 5, 9, .4);
+  --d-elev-1: 0 1px 0 var(--d-edge) inset, 0 1px 2px rgba(3, 5, 9, .35);
+  --d-elev-2: 0 1px 0 var(--d-edge) inset, 0 12px 32px rgba(3, 5, 9, .55), 0 2px 6px rgba(3, 5, 9, .35);
+  --d-ring: 0 0 0 3px rgb(var(--c-accent) / .28);
+  /* Wells: form fields, code and meter tracks sit below the surface; chrome floats over the page. */
+  --d-field: #0e1117; --d-well: #0e1117; --d-well-inset: 0 1px 1px rgba(0, 0, 0, .35) inset;
+  --d-chrome: rgba(18, 21, 28, .82); --d-chip: #1a1e28; --d-scrim: rgba(3, 5, 9, .66);
+  --d-sidebar: #0e1117;
+  --d-backdrop: none;
+  --d-stage-glow: radial-gradient(closest-side, rgb(var(--c-accent) / .18), rgb(var(--c-accent) / .05) 55%, transparent);
+  /* List-row cards: a raised surface of the same theme (they were light cards on dark before). */
+  --l-card: #1a1e28; --l-card-hover: #212633; --l-text: var(--d-text); --l-muted: var(--d-muted); --l-line: var(--d-line);
+  --l-ok: var(--d-ok); --l-warn: var(--d-warn); --l-stop: var(--d-stop); --l-info: var(--d-accent);
+  --d-r-panel: 12px; --d-r-control: 8px; --d-radius: var(--d-r-panel);
   --d-s1: 4px; --d-s2: 8px; --d-s3: 12px; --d-s4: 16px; --d-s5: 24px; --d-s6: 32px; --d-s7: 48px;
-  --d-ease: cubic-bezier(.2, .8, .2, 1);
+  /* Motion: state changes only, 150 to 200ms, ease-out. */
+  --d-ease: cubic-bezier(.2, .7, .2, 1); --d-fast: 150ms; --d-base: 180ms;
   /* Short aliases used by view stylesheets. */
   --line: var(--d-line); --muted: var(--d-muted); --text: var(--d-text); --danger: var(--d-stop);
   --d-font: Inter, "Noto Sans Arabic", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --d-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--d-bg); color: var(--d-text); color-scheme: dark;
-  font-family: var(--d-font); font-feature-settings: "cv11", "ss01"; line-height: 1.5;
+  font-family: var(--d-font); font-feature-settings: "cv11", "ss01", "ss03"; line-height: 1.5;
   -webkit-font-smoothing: antialiased; text-size-adjust: 100%;
 }
-/* Light (AnumPalette.light): cool paper, white panels, the same accent gradient. The status and link
-   colours are a step darker than the app's light palette so text on white and on its tints keeps AA
-   (ok 6.6:1, warn 6.6:1, stop 5.4:1, sky 5.3:1, blue 5.2:1 on --d-bg). */
+/* Light: cool paper, white panels, the same jade. */
 :root[data-theme="light"] {
-  --c-hi: 20 30 60; --c-shade: 16 24 48;
-  --c-sky: 27 98 192; --c-violet: 91 75 224; --c-rose: 184 50 122; --c-blue: 59 91 219; --c-indigo: 79 70 229;
-  --c-ok: 22 101 52; --c-warn: 146 64 14; --c-stop: 180 35 53; --c-danger: 190 18 60;
-  --d-bg: #f4f6fb;
-  --d-surface-1: #ffffff; --d-surface-2: #fbfcff; --d-surface-3: #eef1f9;
-  --d-glass: rgba(255, 255, 255, .94);
-  --d-line: rgba(20, 30, 60, .11); --d-line-strong: rgba(20, 30, 60, .2); --d-line-hover: rgba(91, 75, 224, .45); --d-edge: rgba(255, 255, 255, .9);
-  /* Text: text 17:1, muted 7.4:1, faint 5.1:1 on --d-bg; 18:1, 8:1 and 5.5:1 on white. */
-  --d-text: #0e1424; --d-muted: #45506b; --d-faint: #5e6884;
-  --d-sky: #1b62c0; --d-violet: #5b4be0; --d-rose: #b8327a; --d-blue: #3b5bdb;
-  --d-ok: #166534; --d-warn: #92400e; --d-stop: #b42335; --d-on-stop: #ffffff;
-  --d-notice-text: #123e7a; --d-error-text: #8a1c2b; --d-accent-text: #3f37c9; --d-accent-soft: #4f46e5; --d-violet-text: #4c1d95;
-  --d-glow: 0 0 0 1px rgba(91, 75, 224, .3), 0 8px 24px rgba(79, 70, 229, .22);
-  --d-button-shadow: 0 1px 0 rgba(255, 255, 255, .22) inset, 0 4px 12px rgba(79, 70, 229, .22);
-  --d-elev-1: 0 1px 0 var(--d-edge) inset, 0 1px 2px rgba(16, 24, 48, .05), 0 6px 20px rgba(16, 24, 48, .06);
-  --d-elev-2: 0 1px 0 var(--d-edge) inset, 0 18px 48px rgba(16, 24, 48, .16);
-  --d-field: #ffffff; --d-well: #eef1f8; --d-well-inset: 0 1px 2px rgba(16, 24, 48, .08) inset;
-  --d-chrome: rgba(255, 255, 255, .86); --d-chip: rgba(255, 255, 255, .92); --d-scrim: rgba(14, 20, 36, .42);
-  --d-sidebar: linear-gradient(180deg, rgba(255, 255, 255, .9), rgba(247, 249, 253, .94));
-  --d-backdrop:
-    radial-gradient(1000px 620px at 62% -14%, rgba(99, 102, 241, .10), transparent 62%),
-    radial-gradient(760px 560px at 100% 8%, rgba(167, 139, 250, .08), transparent 60%),
-    radial-gradient(900px 560px at 0% -10%, rgba(59, 130, 246, .07), transparent 60%);
-  --d-stage-glow: radial-gradient(closest-side, rgba(99, 102, 241, .2), rgba(139, 92, 246, .08) 55%, transparent);
-  --l-card: #f4f6fb; --l-card-hover: #eef1f9;
+  --c-hi: 18 21 28; --c-shade: 18 21 28;
+  --c-accent: 11 117 100;
+  --c-ok: 17 101 47; --c-warn: 148 80 12; --c-stop: 180 35 53; --c-danger: 196 37 63;
+  --d-bg: #f7f8fa;
+  --d-surface-1: #ffffff; --d-surface-2: #ffffff; --d-surface-3: #f1f3f6;
+  --d-glass: rgba(255, 255, 255, .97);
+  --d-glass-1: rgb(var(--c-hi) / .03); --d-glass-2: rgb(var(--c-hi) / .05); --d-glass-3: rgb(var(--c-hi) / .08);
+  --d-line: rgba(18, 21, 28, .09); --d-line-strong: rgba(18, 21, 28, .16); --d-line-hover: rgba(18, 21, 28, .28); --d-edge: rgba(255, 255, 255, .9);
+  --d-text: #12151c; --d-muted: #4a5162; --d-faint: #626a7b;
+  --d-accent: #0b7564;
+  --d-ok: #11652f; --d-warn: #94500c; --d-stop: #b42335; --d-on-stop: #ffffff;
+  --d-notice-text: #0b4a40; --d-error-text: #8a1c2b; --d-accent-text: #095e51; --d-accent-soft: #0b7564; --d-violet-text: #095e51;
+  --d-on-primary-soft: #d7f5ee;
+  --d-glow: 0 0 0 1px rgb(var(--c-accent) / .3);
+  --d-button-shadow: 0 1px 0 rgba(255, 255, 255, .18) inset, 0 1px 2px rgba(18, 21, 28, .14);
+  --d-elev-1: 0 1px 2px rgba(18, 21, 28, .05), 0 0 0 1px rgba(18, 21, 28, .02);
+  --d-elev-2: 0 12px 32px rgba(18, 21, 28, .12), 0 2px 6px rgba(18, 21, 28, .06);
+  --d-ring: 0 0 0 3px rgb(var(--c-accent) / .22);
+  --d-field: #ffffff; --d-well: #f1f3f6; --d-well-inset: 0 1px 1px rgba(18, 21, 28, .05) inset;
+  --d-chrome: rgba(255, 255, 255, .88); --d-chip: #ffffff; --d-scrim: rgba(18, 21, 28, .38);
+  --d-sidebar: #fbfbfc;
+  --d-stage-glow: radial-gradient(closest-side, rgb(var(--c-accent) / .14), rgb(var(--c-accent) / .04) 55%, transparent);
+  --l-card: #f7f8fa; --l-card-hover: #f1f3f6;
   color-scheme: light;
 }
 * { box-sizing: border-box; }
@@ -109,16 +116,24 @@ button, textarea, input, select { font: inherit; }
 button { cursor: pointer; touch-action: manipulation; }
 h1, h2, h3, p { margin: 0; }
 h1, h2, h3, strong { color: var(--d-text); }
-/* Type scale (1.25): 13 / 15 / 18 / 22 / 30 */
-h1 { font-size: 30px; font-weight: 700; letter-spacing: -.022em; line-height: 1.15; }
-h2 { font-size: 18px; font-weight: 650; letter-spacing: -.012em; line-height: 1.3; }
-h3 { font-size: 15px; font-weight: 650; line-height: 1.35; }
+/* Type scale: 12.5 / 13 / 14 / 15 / 17 / 22 / 28 (docs/design/visual-identity.md#type) */
+/* Display setting for headings: Inter's optical sizes, tighter tracking, balanced lines. */
+h1, h2, h3 { font-optical-sizing: auto; text-wrap: balance; }
+h1 { font-size: 28px; font-weight: 650; letter-spacing: -.026em; line-height: 1.15; }
+h2 { font-size: 17px; font-weight: 600; letter-spacing: -.014em; line-height: 1.3; }
+h3 { font-size: 15px; font-weight: 600; letter-spacing: -.006em; line-height: 1.35; }
+p { text-wrap: pretty; }
 code { font-family: var(--d-mono); }
 a { color: var(--d-sky); }
 
 /* Keyboard focus: one visible ring everywhere, never removed. */
-:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
-button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--d-accent); outline-offset: 2px; }
+button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--d-accent); outline-offset: 2px; }
+/* Pressed feedback on every button: a one-pixel settle (state change only, no idle motion). */
+:is(button:not([class]), button[class=""], button.secondary, button.danger, .primaryButton, .smallButton, .iconButton, .chipButton, .actions button, .pageHeaderActions button):not(:disabled):active { transform: translateY(1px); }
+::selection { background: rgb(var(--c-accent) / .28); }
+/* Native checkboxes, radios, ranges and progress take the brand accent. */
+:where(input[type="checkbox"], input[type="radio"], input[type="range"], progress) { accent-color: var(--d-primary); }
 
 /* ---------- Shell ---------- */
 .shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; min-height: 100dvh; position: relative; }
@@ -152,7 +167,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
   .sidebar .systemState { padding-top: var(--d-s3); }
 }
 .brand { align-items: center; display: flex; font-size: 18px; font-weight: 750; gap: var(--d-s3); letter-spacing: -.01em; padding: 0 var(--d-s2) var(--d-s5); }
-.brandMark { filter: drop-shadow(0 4px 14px rgba(111, 107, 255, .45)); flex: none; }
+.brandMark { flex: none; }
 .brandName { display: block; font-size: 20px; font-weight: 800; letter-spacing: -.01em; line-height: 1.15; }
 .brand small { color: var(--d-faint); display: block; font-size: 12px; font-weight: 500; letter-spacing: 0; }
 nav { display: grid; gap: 2px; }
@@ -160,14 +175,16 @@ nav { display: grid; gap: 2px; }
 .navItem {
   align-items: center; background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-muted);
   display: grid; font-size: 14px; gap: var(--d-s3); grid-template-columns: 20px 1fr auto; min-height: 44px; padding: var(--d-s2) var(--d-s3); position: relative; text-align: start;
-  transition: background 160ms var(--d-ease), color 160ms var(--d-ease); width: 100%;
+  transition: background var(--d-fast) var(--d-ease), color var(--d-fast) var(--d-ease); width: 100%;
 }
 .navItem svg { height: 18px; width: 18px; }
 .navItem:hover { background: var(--d-glass-1); color: var(--d-text); }
 .navItem:focus-visible { outline-offset: -2px; }
 /* The active view: the mockup's gradient pill with a soft glow. */
-.navItem.active { background: var(--d-primary-grad); box-shadow: var(--d-glow); color: #fff; font-weight: 650; }
-.navItem.active svg { color: #fff; }
+/* The active view: a quiet raised row with a jade marker, not a filled pill. */
+.navItem.active { background: var(--d-glass-3); border-color: var(--d-line); color: var(--d-text); font-weight: 600; }
+.navItem.active::before { background: var(--d-accent); border-radius: 2px; content: ""; height: 16px; inset-inline-start: -1px; position: absolute; top: 50%; transform: translateY(-50%); width: 3px; }
+.navItem.active svg { color: var(--d-accent); }
 .navCount { align-items: center; background: var(--d-stop); border-radius: 999px; color: var(--d-on-stop); display: flex; font-size: 11px; font-weight: 700; height: 20px; justify-content: center; min-width: 20px; padding: 0 6px; }
 .navGroup { border-top: 1px solid var(--d-line); margin-top: var(--d-s3); padding-top: var(--d-s2); }
 .navGroupToggle {
@@ -211,7 +228,7 @@ kbd { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); bord
 .topActions { min-width: 0; align-items: center; display: flex; flex-wrap: nowrap; gap: var(--d-s2); justify-content: flex-end; }
 .pageHead { margin-bottom: var(--d-s5); padding-bottom: var(--d-s4); position: relative; }
 /* The one aurora rule on every page: a short lit line under the title. */
-.pageHead::after { background: linear-gradient(90deg, rgb(var(--c-blue) / .6), rgb(var(--c-violet) / .35) 30%, var(--d-line) 60%); bottom: 0; content: ""; height: 1px; left: 0; position: absolute; right: 0; }
+.pageHead::after { background: var(--d-line); bottom: 0; content: ""; height: 1px; left: 0; position: absolute; right: 0; }
 .pageHead h1 { margin-top: var(--d-s1); }
 .tenant { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted); font-size: 13px; font-weight: 600; padding: var(--d-s2) var(--d-s3); }
 .iconButton {
@@ -278,8 +295,8 @@ kbd { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); bord
 .paletteGroupTitle { color: var(--d-faint); font-size: 12px; font-weight: 650; padding: var(--d-s2) var(--d-s3) var(--d-s1); }
 .paletteNote, .paletteEmpty { color: var(--d-muted); font-size: 13px; padding: var(--d-s2) var(--d-s3); }
 .paletteOption { align-items: center; border-radius: var(--d-r-control); cursor: pointer; display: flex; gap: var(--d-s3); min-height: 44px; padding: var(--d-s2) var(--d-s3); }
-.paletteOption.active { background: var(--d-primary-grad); color: #fff; }
-.paletteOption.active small { color: var(--d-on-primary-soft); }
+.paletteOption.active { background: var(--d-glass-3); box-shadow: inset 2px 0 0 var(--d-accent); color: var(--d-text); }
+[dir="rtl"] .paletteOption.active { box-shadow: inset -2px 0 0 var(--d-accent); }
 .paletteIcon { display: inline-flex; flex: none; }
 .paletteIcon svg { height: 18px; width: 18px; }
 .paletteText { display: grid; min-width: 0; }
@@ -294,16 +311,16 @@ kbd { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); bord
 
 /* ---------- Surfaces: one recipe ---------- */
 .surface, .metric {
-  background: linear-gradient(180deg, var(--d-surface-2), var(--d-surface-1)); border: 1px solid var(--d-line);
+  background: var(--d-surface-1); border: 1px solid var(--d-line);
   border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1);
 }
 .metrics { display: grid; gap: var(--d-s4); grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: var(--d-s5); }
 .metrics.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.metric { display: grid; gap: var(--d-s1); padding: var(--d-s5); }
+.metric { align-content: start; display: grid; gap: var(--d-s1); padding: var(--d-s5); }
 .metricTop { align-items: center; color: var(--d-muted); display: flex; font-size: 14px; font-weight: 500; justify-content: space-between; }
 .metricIcon { color: var(--d-sky); display: grid; height: 20px; place-items: center; }
 .metricIcon svg { height: 20px; width: 20px; }
-.metric > strong { font-size: 34px; font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; margin-top: var(--d-s2); }
+.metric > strong { font-size: 28px; font-variant-numeric: tabular-nums; font-weight: 650; letter-spacing: -.024em; line-height: 1.15; margin-top: var(--d-s2); }
 .metric small, .muted { color: var(--d-muted); font-size: 13px; }
 
 .taskLayout { align-items: start; display: grid; gap: var(--d-s5); grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); }
@@ -321,7 +338,10 @@ textarea, input, select {
 }
 textarea { min-height: 120px; resize: vertical; }
 textarea::placeholder, input::placeholder { color: var(--d-faint); }
-textarea:focus-visible, input:focus-visible, select:focus-visible { border-color: var(--d-sky); outline: 2px solid rgb(var(--c-sky) / .45); outline-offset: 1px; }
+textarea, input, select { transition: border-color var(--d-fast) var(--d-ease), box-shadow var(--d-fast) var(--d-ease); }
+textarea:hover:not(:focus), input:hover:not(:focus), select:hover:not(:focus) { border-color: var(--d-line-hover); }
+/* Fields take a soft jade ring on focus; the transparent outline keeps a visible edge in forced colours. */
+textarea:focus-visible, input:focus-visible, select:focus-visible { border-color: var(--d-accent); box-shadow: var(--d-ring); outline: 2px solid transparent; outline-offset: 1px; }
 option { background: var(--d-surface-2); color: var(--d-text); }
 .formGrid { display: grid; gap: 0 var(--d-s4); grid-template-columns: minmax(180px, .7fr) minmax(0, 1.3fr); }
 .settingsForm .formGrid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
@@ -331,7 +351,7 @@ option { background: var(--d-surface-2); color: var(--d-text); }
 .actions button, .moduleIntro > button, .approvalActions button, .uploadButton, .integration > button, .catalogRow button, .phoneRow > button, .moduleIntro .actions button {
   align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control);
   box-shadow: var(--d-button-shadow); color: #fff; cursor: pointer; display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2);
-  justify-content: center; min-height: 44px; padding: 10px var(--d-s4); transition: background 160ms var(--d-ease);
+  justify-content: center; min-height: 40px; padding: 8px var(--d-s4); transition: background var(--d-fast) var(--d-ease), box-shadow var(--d-fast) var(--d-ease), transform var(--d-fast) var(--d-ease);
 }
 .actions button:hover:not(:disabled), .moduleIntro > button:hover, .approvalActions button:hover:not(:disabled), .uploadButton:hover, .integration > button:hover, .catalogRow button:hover { background: var(--d-primary-grad-hover); }
 button.secondary, .actions button.secondary, .approvalActions button.secondary, .moduleIntro .actions button.secondary {
@@ -410,7 +430,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted);
   font-size: 14px; font-weight: 600; min-height: 44px; padding: 0 var(--d-s4);
 }
-.settingsTabs button[aria-current="page"] { background: var(--d-glass-3); border-color: rgb(var(--c-violet) / .45); color: var(--d-text); }
+.settingsTabs button[aria-current="page"] { background: var(--d-surface-3); border-color: var(--d-line-strong); box-shadow: var(--d-elev-1); color: var(--d-text); }
 .settingsTabs button:hover { color: var(--d-text); }
 .taskSummary dl, .agentRow dl, .inlineDetails { display: grid; gap: var(--d-s3); margin: var(--d-s5) 0 0; }
 dl div { min-width: 0; }
@@ -432,10 +452,10 @@ dd { color: var(--d-text); font-size: 14px; font-weight: 600; margin: 2px 0 0; o
 .timelineRow { display: grid; gap: var(--d-s3); grid-template-columns: 28px minmax(0, 1fr); }
 .timelineRail { align-items: center; display: flex; flex-direction: column; }
 .stepDot {
-  align-items: center; background: var(--d-surface-3); border: 1px solid rgb(var(--c-violet) / .5); border-radius: 50%; color: var(--d-text);
+  align-items: center; background: var(--d-surface-3); border: 1px solid var(--d-line-strong); border-radius: 50%; color: var(--d-text);
   display: flex; flex: none; font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 700; height: 28px; justify-content: center; width: 28px;
 }
-.railLine { background: linear-gradient(180deg, rgb(var(--c-violet) / .45), var(--d-line)); flex: 1; min-height: 32px; width: 1px; }
+.railLine { background: var(--d-line-strong); flex: 1; min-height: 32px; width: 1px; }
 .timelineBody { border-bottom: 1px solid var(--d-line); margin-bottom: var(--d-s3); padding: 3px 0 var(--d-s4); }
 .timelineRow:last-child .timelineBody { border-bottom: 0; margin-bottom: 0; }
 .timelineTitle { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
@@ -491,7 +511,7 @@ dd { color: var(--d-text); font-size: 14px; font-weight: 600; margin: 2px 0 0; o
 .agentList { display: grid; gap: var(--d-s3); }
 .agentRow { align-items: center; display: grid; gap: var(--d-s4); grid-template-columns: 44px minmax(0, 1fr) minmax(200px, .6fr); padding: var(--d-s5); }
 .agentIcon, .integrationIcon, .approvalIcon, .typeIcon {
-  align-items: center; background: linear-gradient(135deg, rgb(var(--c-sky) / .16), rgb(var(--c-violet) / .2)); border: 1px solid var(--d-line);
+  align-items: center; background: rgb(var(--c-accent) / .1); border: 1px solid var(--d-line);
   border-radius: var(--d-r-control); color: var(--d-text); display: flex; flex: none; height: 44px; justify-content: center; width: 44px;
 }
 .agentIcon svg, .integrationIcon svg, .approvalIcon svg, .typeIcon svg { height: 20px; width: 20px; }
@@ -504,7 +524,9 @@ dd { color: var(--d-text); font-size: 14px; font-weight: 600; margin: 2px 0 0; o
 .inlineDetails { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .approvalActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .emptyState { color: var(--d-muted); display: grid; gap: var(--d-s2); justify-items: center; padding: var(--d-s7) var(--d-s5); text-align: center; }
-.emptyState svg { color: var(--d-violet); height: 28px; width: 28px; }
+/* Empty states: the icon sits in a quiet tile, the copy says what to do next. */
+.emptyState svg { background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-sizing: content-box; color: var(--d-accent); height: 22px; margin-bottom: var(--d-s1); padding: 11px; width: 22px; }
+.emptyState h2, .emptyState h3 { color: var(--d-text); }
 .emptyState p { max-width: 42ch; }
 
 .memoryTable { overflow: hidden; padding: 0; }
@@ -639,7 +661,6 @@ dd { color: var(--d-text); font-size: 14px; font-weight: 600; margin: 2px 0 0; o
    Layout uses logical properties (inline-start/end), so <html dir="rtl"> mirrors it; only
    direction-bearing art needs an explicit flip. */
 [dir="rtl"] .flipRtl { transform: scaleX(-1); }
-[dir="rtl"] .pageHead::after { background: linear-gradient(270deg, rgb(var(--c-blue) / .6), rgb(var(--c-violet) / .35) 30%, var(--d-line) 60%); }
 /* Negative tracking breaks Arabic letter joining; Arabic text also needs a little more leading. */
 :lang(ar) h1, :lang(ar) h2, :lang(ar) h3, :lang(ar) .brand, :lang(ar) .brandName, :lang(ar) .metric > strong, :lang(ar) .voiceGreeting { letter-spacing: 0; }
 :lang(ar) body { line-height: 1.6; }
@@ -669,9 +690,9 @@ code { unicode-bidi: isolate; }
   align-items: center; border: 1px solid var(--d-line-strong); border-radius: 10px; display: inline-flex; flex: none; height: 36px; justify-content: center; width: 48px;
 }
 .themeSwatch svg { height: 18px; width: 18px; }
-.themeSwatch.dark { background: linear-gradient(135deg, #141d3b 50%, #070b1a 50%); color: #eef1f8; }
-.themeSwatch.light { background: linear-gradient(135deg, #ffffff 50%, #f4f6fb 50%); color: #0e1424; }
-.themeSwatch.system { background: linear-gradient(135deg, #f4f6fb 50%, #070b1a 50%); color: #8b5cf6; }
+.themeSwatch.dark { background: linear-gradient(135deg, #171b24 50%, #0b0d12 50%); color: #eceef3; }
+.themeSwatch.light { background: linear-gradient(135deg, #ffffff 50%, #f7f8fa 50%); color: #12151c; }
+.themeSwatch.system { background: linear-gradient(135deg, #f7f8fa 50%, #0b0d12 50%); color: #23a990; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 1100px) {
@@ -736,7 +757,7 @@ code { unicode-bidi: isolate; }
   .metrics, .metrics.three { gap: var(--d-s3); grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metrics.three > :last-child { grid-column: 1 / -1; }
   .metric { padding: var(--d-s4); }
-  .metric > strong { font-size: 28px; }
+  .metric > strong { font-size: 24px; }
   .composerSurface, .taskSummary, .timelineSurface, .approvalTable, .settingsForm, .automationComposer, .runTable, .sourcesSurface, .fileDetail { padding: var(--d-s4); }
   .integration { grid-template-columns: 44px minmax(0, 1fr); padding: var(--d-s4); }
   .integration > :last-child:not(:nth-child(2)) { grid-column: 2; justify-self: start; }
@@ -809,6 +830,8 @@ code { unicode-bidi: isolate; }
     background: var(--d-surface-2); inset-block-start: 64px; inset-inline: var(--d-s4); max-height: calc(100dvh - 80px); overflow: auto; position: fixed; width: auto;
   }
   .pageHeaderText > p { display: none; }
+  /* In the horizontal strip the raised row alone marks the current view. */
+  .navItem.active::before { display: none; }
   /* Section tabs: one row that scrolls sideways (the sidebar strip's pattern), never two or three rows. */
   .settingsTabs {
     flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; padding-block: 2px;

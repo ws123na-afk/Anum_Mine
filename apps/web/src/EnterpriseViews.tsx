@@ -14,7 +14,7 @@ import { t } from './lib/i18n';
 import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { Modal } from './Dialog';
-import { AccessNotice, PageHeader, PageSummary, PaneProblem } from './PageParts';
+import { AccessNotice, LoadingSkeleton, PageHeader, PageSummary, PaneProblem } from './PageParts';
 import './governance.css';
 import './adminPages.css';
 
@@ -75,7 +75,7 @@ export function GovernanceView() {
   return <>
     <section className="metrics"><Metric label={t('gov.metric.packs')} value={String(summary?.policy_packs ?? 0)} detail={t('gov.metric.packsDetail')} /><Metric label={t('gov.metric.active')} value={String(summary?.active_policy_packs ?? 0)} detail={t('gov.metric.activeDetail')} /><Metric label={t('gov.metric.templates')} value={String(summary?.role_templates ?? 0)} detail={t('gov.metric.templatesDetail')} /><Metric label={t('gov.metric.rules')} value={String(summary?.approval_rules ?? 0)} detail={t('gov.metric.rulesDetail')} /></section>
     <section className="moduleIntro"><div><p>{t('gov.intro')}</p></div><div className="actions">{canManage && <button type="button" disabled={busy !== null} onClick={() => void addBaseline()}><ShieldCheck size={17} aria-hidden="true" />{t('gov.addBaseline')}</button>}<button type="button" className="secondary" disabled={busy !== null} onClick={() => void exportAudit()}><Download size={17} aria-hidden="true" />{t('gov.exportAudit')}</button></div></section>
-    {!loaded && <Notice>{t('gov.loading')}</Notice>}
+    {!loaded && <LoadingSkeleton label={t('gov.loading')} />}
     {loadError && <Notice error>{loadError}</Notice>}
     <AccessNotice notice={access.notice} howTo={access.howTo} />
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}

@@ -288,6 +288,8 @@ test('a workspace owner who is not an organization administrator reads the organ
 
   const tenant = page.getByRole('region', { name: 'Organization budget' });
   await expect(tenant.getByText(/Read only: organization model budgets apply to every workspace in this organization/)).toBeVisible();
+  // How to get the role waits behind a disclosure.
+  await tenant.getByText('How to get access').click();
   await expect(tenant.getByText(/Owning this workspace is not enough/)).toBeVisible();
   // The numbers are still shown; only the controls are gone.
   await expect(tenant.getByRole('progressbar', { name: 'Organization estimated cost used' })).toBeVisible();

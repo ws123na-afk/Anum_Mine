@@ -74,6 +74,8 @@ describe('API errors', () => {
     // A database outage on the server is said as the server's problem, never the person's connection.
     assert.equal(describeError(apiErrorFrom(503, { error: { code: 'service_unavailable', message: 'Database unavailable' } })), 'The server could not reach its database');
     assert.equal(describeError(apiErrorFrom(500, { detail: 'database is down' })), 'The server could not reach its database');
+    // A full sentence from the API keeps its own words.
+    assert.equal(describeError(apiErrorFrom(503, { detail: 'The database is not reachable.' })), 'The database is not reachable.');
     // Only a server error: a 4xx that mentions a database keeps the API's own words.
     assert.equal(describeError(apiErrorFrom(404, { detail: 'Database export not found' })), 'Database export not found');
     assert.equal(apiErrorFrom(500, 'oops').message, 'ANUM API request failed: 500');

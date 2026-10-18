@@ -68,9 +68,9 @@ export function budgetMessage(error: ApiError): string {
   return error.detail ?? budgetFallbackMessage();
 }
 
-/** A 5xx whose message says the server's database is down ("Database unavailable"). */
+/** A 5xx whose whole message is the terse "Database unavailable" (or "The database is unavailable"). */
 export function isDatabaseOutage(error: ApiError): boolean {
-  return error.status >= 500 && /\bdatabase\b/i.test(error.detail ?? '');
+  return error.status >= 500 && /^(the )?database (is )?(unavailable|down)\.?$/i.test((error.detail ?? '').trim());
 }
 
 /** A sentence for a person: the API's message for known failures, never a stack trace. */

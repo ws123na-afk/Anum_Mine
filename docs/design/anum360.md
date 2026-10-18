@@ -59,25 +59,11 @@ The web app (`apps/web`) follows `web-command-center.jpg`, split into two pages 
 
 ### Theme
 
-The web uses the same two themes as the Flutter app (`AnumPalette.dark` and `AnumPalette.light` in `apps/mobile/lib/src/theme/anum_theme.dart`): **Dark**, the default and the mockups' look, and **Light**. **Settings > Appearance** (`#appearance`, also in the user menu) offers Dark, Light or "Match my device", like the app's Profile & Settings > Theme. The choice is kept in this browser under `anum.theme` (the app's key; Dark, the default, is stored as no value) and "Match my device" follows `prefers-color-scheme`, also when the device switches. `public/theme-init.js` applies the saved choice to `<html data-theme>` before the first paint and `index.html` paints the page colour before the stylesheet loads, so loading never flashes white or the other theme (a separate file because the CSP allows only same-origin scripts). `src/lib/theme.ts` holds the rules and keeps `data-theme`, `color-scheme` and `<meta name="theme-color">` current; `src/AppearanceSettings.tsx` is the setting.
+The web's colours, type, shape and motion are defined in [ANUM visual identity: graphite and jade](visual-identity.md), which replaced the navy and blue-violet palette in October 2026. There are two themes, **Dark** (the default) and **Light**. **Settings > Appearance** (`#appearance`, also in the user menu) offers Dark, Light or "Match my device"; the choice is saved in this browser (`anum.theme`), `index.html` applies it before the first paint (`public/theme-init.js`) and `src/lib/theme.ts` keeps `<html data-theme>`, `color-scheme` and the browser chrome colour current.
 
-All colour lives in the token block at the top of `apps/web/src/styles.css`; the light theme is one `:root[data-theme="light"]` block that redefines the same tokens, and no view stylesheet has a colour of its own except data colours (agent avatars, chart series, capability tiles) and the orb.
+All colour lives in the token block at the top of `apps/web/src/styles.css`; the light theme is one `:root[data-theme="light"]` block that redefines the same tokens, and no view stylesheet has a colour of its own except data colours (chart series, agent avatars, workspace dots). A button with no class is primary by default: a zero-specificity rule in `styles.css` that leaves out containers drawing their own buttons.
 
-| Tokens | What they are | Dark | Light |
-|---|---|---|---|
-| `--d-bg`, `--d-surface-1..3` | Page and raised surfaces | `#070b1a`, `#0e1530`, `#141d3b`, `#1b2649` (the app's palette) | `#f4f6fb`, white, `#fbfcff`, `#eef1f9` |
-| `--d-text`, `--d-muted`, `--d-faint` | Text | `#eef1f8`, `#a3abc2`, `#8790a8`: 17:1, 8.9:1, 6.1:1 on the page | `#0e1424`, `#45506b`, `#5e6884`: 17:1, 7.4:1, 5.1:1 |
-| `--d-sky`, `--d-violet`, `--d-blue`, `--d-rose` | Links, focus ring, accents | The app's light pastels | A step darker than the app's light palette so text keeps AA |
-| `--d-ok`, `--d-warn`, `--d-stop` | Status, always with a text label | Pastels | `#166534`, `#92400e`, `#b42335` (AA on white and on their tints) |
-| `--d-primary-grad` | Primary buttons (a button with no class is primary by default: a zero-specificity rule in `styles.css` that leaves out containers drawing their own buttons), the active navigation item, mode tabs, send | `#2563eb` to `#7c3aed` (the app's accentStart and accentEnd); white text 5.2:1 and 5.7:1 | Same |
-| `--d-glass-1..3`, `--c-hi` | Hover and selected overlays | White at 4.5 to 11 % | Navy at the same steps |
-| `--c-sky`, `--c-violet`, `--c-ok`, `--c-warn`, `--c-stop`, ... | Colour channels for tints: `rgb(var(--c-violet) / .45)` | Dark values | Light values |
-| `--d-field`, `--d-well`, `--d-chrome`, `--d-chip`, `--d-scrim`, `--d-sidebar`, `--d-backdrop` | Form fields, code and meters, floating chrome, chips, dialog backdrop, sidebar, page aurora | Navy wells | White fields, pale wells |
-| `--l-*` | The light list-row cards on Home's panels (the Command Center's rows use the panel's own surface instead) | Light cards | Pale rows on white panels |
-
-Rules: every primary action uses the accent gradient (`--d-primary-grad`), never a flat accent; a destructive button is `--d-danger` with white text; a bare secondary or danger button gets the control shape from a zero-specificity base rule; the orb stays the midnight ANUM object in both themes. `prefers-contrast: more` strengthens lines and secondary text in both themes, `prefers-reduced-transparency` drops the blur, and `prefers-reduced-motion` stops animation. The type stack names Inter first and falls back to the system UI font; neither client ships the Inter files yet.
-
-Tests: `test/theme.test.ts` (the choice rules, the pre-paint script agreeing with them, the dark tokens matching the app's palette, and AA for text, links and status colours on every surface of both themes), `e2e/theme.spec.ts` (Settings > Appearance, reload, "Match my device", the user menu in Arabic, no horizontal overflow at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844) and the light-theme axe pass in `e2e/accessibility.spec.ts`.
+Tests: `test/theme.test.ts` (the choice rules, the pre-paint script agreeing with them, the graphite and jade palette with every accent alias resolving to the one accent, and AA for text, links and status colours on every surface of both themes), `e2e/theme.spec.ts` (Settings > Appearance, reload, "Match my device", the user menu in Arabic, no horizontal overflow at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844) and the light-theme axe pass in `e2e/accessibility.spec.ts`.
 
 ### Shell
 

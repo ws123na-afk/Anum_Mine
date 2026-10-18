@@ -159,6 +159,7 @@ x-user-roles: owner,member
 - [Full skills audit (October 2026)](docs/audits/2026-10-12-full-skills-audit.md)
 - [Figma mobile design system](docs/figma-mobile-design.md)
 - [ANUM 360 redesign (owner mockups)](docs/design/anum360.md)
+- [Visual identity: graphite and jade](docs/design/visual-identity.md)
 - [Repository structure](docs/repository-structure.md)
 - [Scaling](docs/scaling.md)
 - [Governance and scale](docs/governance-and-scale.md)

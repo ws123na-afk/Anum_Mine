@@ -10,5 +10,5 @@
   root.setAttribute('data-theme', light ? 'light' : 'dark');
   root.style.colorScheme = light ? 'light' : 'dark';
   var meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', light ? '#f4f6fb' : '#070b1a');
+  if (meta) meta.setAttribute('content', light ? '#f7f8fa' : '#0b0d12');
 })();
