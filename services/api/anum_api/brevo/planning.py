@@ -38,43 +38,45 @@ AS_SOON_AS_APPROVED = "as soon as approved"
 MAX_OUTLINE = 12
 
 _BREVO_WORDS = re.compile(
-    r"\b(brevo|newsletters?|mailings?|mailshots?|subscribers?|email\s+campaigns?|contact\s+lists?)\b|نشرة|النشرة|المشتركين",
+    r"\b(brevo|newsletters?|mailings?|mailshots?|subscribers?|email campaigns?|contact lists?)\b|نشرة|النشرة|المشتركين",
     re.IGNORECASE,
 )
 _REPORT_WORDS = re.compile(
-    r"\b(reports?|stats|statistics|results|performance|perform(ed)?|open\s+rates?|opens|clicks?|click\s+rates?|bounces?"
-    r"|unsubscribes?|how\s+did)\b|تقرير|نتائج|أداء",
+    r"\b(reports?|stats|statistics|results|performance|perform(ed)?|open rates?|opens|clicks?|click rates?|bounces?"
+    r"|unsubscribes?|how did)\b|تقرير|نتائج|أداء",
     re.IGNORECASE,
 )
 _DRAFT_WORDS = re.compile(
     r"\b(draft|write|prepare|compose|create|send|schedule)\b|أرسل|ارسل|اكتب|جهز|جدول",
     re.IGNORECASE,
 )
-_LIST_WORDS = re.compile(r"\b(lists?|subscribers?|contacts?|audiences?|how\s+many)\b|قوائم|قائمة|المشتركين", re.IGNORECASE)
+_LIST_WORDS = re.compile(r"\b(lists?|subscribers?|contacts?|audiences?|how many)\b|قوائم|قائمة|المشتركين", re.IGNORECASE)
 _CAMPAIGN_WORDS = re.compile(r"\b(campaigns?|newsletters?|sent|recent|last)\b|حملات", re.IGNORECASE)
-_CAMPAIGN_ID = re.compile(r"\b(?:campaign|newsletter)\s*(?:#|no\.?|number|id)?\s*(\d{1,9})\b|#(\d{1,9})\b", re.IGNORECASE)
+_CAMPAIGN_ID = re.compile(r"\b(?:campaign|newsletter) ?(?:#|no\.?|number|id)? ?(\d{1,9})\b|#(\d{1,9})\b", re.IGNORECASE)
 _DRAFT_ID = re.compile(r"\bbrevodraft_[0-9a-f]{8,32}\b")
 _TOPIC = re.compile(
-    r"\b(?:the|a|an|our|my|this|next)\s+([a-z0-9][\w' -]{0,59}?)\s+(?:email\s+)?(?:newsletter|campaign|email|mailing|mailshot)\b",
+    r"\b(?:the|a|an|our|my|this|next) ([a-z0-9][\w' -]{0,59}?) (?:email )?(?:newsletter|campaign|email|mailing|mailshot)\b",
     re.IGNORECASE,
 )
 _TO_LISTS = re.compile(
-    r"\bto\s+(?:the\s+|our\s+|my\s+|all\s+)?([\w' ,&-]{1,120}?)\s+(?:contact\s+|mailing\s+)?lists?\b", re.IGNORECASE
+    r"\bto (?:the |our |my |all )?([\w' ,&-]{1,120}?) (?:contact |mailing )?lists?\b", re.IGNORECASE
 )
-_NAMED_LIST = re.compile(r"\blists?\s+(?:named|called)\s+[\"']?([\w' &-]{1,60}?)[\"']?(?:[.,;!?]|$|\s+(?:and|for|on|at|tomorrow)\b)",
+_NAMED_LIST = re.compile(r"\blists? (?:named|called) [\"']?([\w' &-]{1,60}?)[\"']?(?:[.,;!?]|$| (?:and|for|on|at|tomorrow)\b)",
                          re.IGNORECASE)
 _ISO_WHEN = re.compile(r"\b(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}):(\d{2}))?\b")
-_RELATIVE_WHEN = re.compile(r"\b(today|tomorrow)(?:\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?\b", re.IGNORECASE)
+_RELATIVE_WHEN = re.compile(r"\b(today|tomorrow)(?: (?:at )?(\d{1,2})(?::(\d{2}))? ?(am|pm)?)?\b", re.IGNORECASE)
 _NOT_TOPIC = frozenset({"email", "new", "brevo", "next", "latest"})
 
 
 def wants_brevo(prompt: str) -> bool:
-    return bool(_BREVO_WORDS.search(prompt) or _DRAFT_ID.search(prompt))
+    text = " ".join(prompt.split())[:2000]
+    return bool(_BREVO_WORDS.search(text) or _DRAFT_ID.search(text))
 
 
 def plan_call(prompt: str, *, now: datetime | None = None) -> ToolCall | None:
     """The one Brevo call ``prompt`` asks for, or None when it is not about Brevo."""
-    text = " ".join(prompt.split())
+    # One space between words and a bounded length: the patterns below rely on both.
+    text = " ".join(prompt.split())[:2000]
     if not wants_brevo(text):
         return None
     campaign = _CAMPAIGN_ID.search(text)
