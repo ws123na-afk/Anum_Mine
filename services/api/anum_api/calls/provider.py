@@ -19,7 +19,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import json
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -27,6 +26,7 @@ from urllib.parse import urlsplit
 from html import escape as _html_escape
 
 import httpx
+import jwt
 
 TWILIO_API = "https://api.twilio.com/2010-04-01"
 
@@ -77,10 +77,6 @@ class VoiceProvider(Protocol):
     async def fetch_recording(self, url: str, max_bytes: int) -> tuple[bytes, str]: ...
     def browser_token(self, identity: str, ttl_seconds: int = 600) -> str: ...
     def verify_signature(self, url: str, params: dict[str, str], signature: str) -> bool: ...
-
-
-def _b64url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
 def twilio_signature(auth_token: str, url: str, params: dict[str, str]) -> str:
@@ -192,7 +188,6 @@ class TwilioVoice:
         if not (c.api_key_sid and c.api_key_secret and c.twiml_app_sid):
             raise ProviderError("Calling from the browser needs an API key SID, its secret and a TwiML app SID.")
         now = int(time.time())
-        header = {"typ": "JWT", "alg": "HS256", "cty": "twilio-fpa;v=1"}
         payload: dict[str, Any] = {
             "jti": f"{c.api_key_sid}-{now}",
             "iss": c.api_key_sid,
@@ -202,9 +197,7 @@ class TwilioVoice:
             "exp": now + ttl_seconds,
             "grants": {"identity": identity, "voice": {"outgoing": {"application_sid": c.twiml_app_sid}, "incoming": {"allow": False}}},
         }
-        signing = _b64url(json.dumps(header, separators=(",", ":")).encode()) + "." + _b64url(json.dumps(payload, separators=(",", ":")).encode())
-        signature = hmac.new(c.api_key_secret.encode("utf-8"), signing.encode("ascii"), hashlib.sha256).digest()
-        return signing + "." + _b64url(signature)
+        return jwt.encode(payload, c.api_key_secret, algorithm="HS256", headers={"cty": "twilio-fpa;v=1"})
 
     def verify_signature(self, url: str, params: dict[str, str], signature: str) -> bool:
         if not signature:

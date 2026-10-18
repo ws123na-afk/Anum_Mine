@@ -77,7 +77,7 @@ async def _verified(request: Request, route_id: str) -> tuple[TenantContext, Pro
         raise HTTPException(status_code=403, detail="Forbidden")
     url = call_settings.public_base_url.rstrip("/") + request.url.path + (f"?{request.url.query}" if request.url.query else "")
     if not service.voice(account).verify_signature(url, params, request.headers.get("x-twilio-signature", "")):
-        logger.warning("call_webhook_bad_signature", extra={"anum_route": route_id[:6]})
+        logger.warning("call_webhook_bad_signature")
         raise HTTPException(status_code=403, detail="Forbidden")
     return context, account, params
 
@@ -302,7 +302,7 @@ def _request_for(store: Any, entry: CallEntry) -> Any:
 @router.post("/{route_id}/ai/{call_id}")
 async def ai_answered(route_id: str, call_id: str, request: Request) -> Response:
     """The other side answered an AI call: the disclosure first, then the first sentence of the script."""
-    context, account, params = await _verified(request, route_id)
+    context, account, _params = await _verified(request, route_id)
     with open_calls_store(context) as store:
         entry = store.get_call(call_id)
         ai_request = _request_for(store, entry) if entry is not None else None

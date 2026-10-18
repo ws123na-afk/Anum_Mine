@@ -23,9 +23,9 @@ from anum_api.agent_tools import ToolCall
 from anum_api.calls import ai, service
 from anum_api.calls.config import call_settings
 from anum_api.calls.phone import PhoneNumberError, dialable, international, normalized
-from anum_api.calls.provider import Credentials, TwilioVoice, TwiML, twilio_signature
+from anum_api.calls.provider import Credentials, ProviderError, TwilioVoice, TwiML, twilio_signature
 from anum_api.calls.retention import purge_recordings
-from anum_api.calls.store import AiRequestStatus, memory_data, open_calls_store
+from anum_api.calls.store import memory_data, open_calls_store
 from anum_api.calls.tools import call_tool_registry
 from anum_api.files import InMemoryObjectStorage, file_store
 from anum_api.model_budget import BudgetKind, BudgetScope, ModelBudgetExceededError
@@ -204,11 +204,14 @@ def test_twilio_signature_matches_the_documented_example() -> None:
 def test_browser_token_is_a_signed_jwt_with_outgoing_only_grants() -> None:
     voice = TwilioVoice(Credentials(account_sid=ACCOUNT_SID, auth_token=AUTH_TOKEN, api_key_sid="SKk", api_key_secret=KEY_SECRET, twiml_app_sid="APa"))
     token = voice.browser_token("anum_abc", ttl_seconds=300)
-    head, body, _ = token.split(".")
-    payload = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
-    assert json.loads(base64.urlsafe_b64decode(head + "==="))["cty"] == "twilio-fpa;v=1"
+    import jwt
+
+    assert jwt.get_unverified_header(token)["cty"] == "twilio-fpa;v=1"
+    payload = jwt.decode(token, KEY_SECRET, algorithms=["HS256"])
     assert payload["iss"] == "SKk" and payload["sub"] == ACCOUNT_SID and payload["exp"] - payload["iat"] == 300
     assert payload["grants"] == {"identity": "anum_abc", "voice": {"outgoing": {"application_sid": "APa"}, "incoming": {"allow": False}}}
+    with pytest.raises(jwt.InvalidSignatureError):
+        jwt.decode(token, "another-secret-value-0001", algorithms=["HS256"])
     assert KEY_SECRET not in token and AUTH_TOKEN not in token
 
 
@@ -419,7 +422,7 @@ def test_a_browser_call_expires_and_recording_from_other_hosts_is_refused(client
     # No consent on this call: a recording callback stores nothing.
     hook(client, f"recording/{call['id']}", {"RecordingStatus": "completed", "RecordingUrl": "https://evil.example/r.mp3"})
     assert not file_store.records
-    with pytest.raises(Exception):
+    with pytest.raises(ProviderError):
         asyncio.run(TwilioVoice(Credentials(account_sid="a", auth_token="b")).fetch_recording("https://evil.example/r", 100))
 
 
