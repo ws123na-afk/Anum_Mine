@@ -13,6 +13,7 @@ import { tyreEn } from './tyre.en.ts';
 import { homeEn } from './home.en.ts';
 import { teamEn } from './team.en.ts';
 import { marketingEn } from './marketing.en.ts';
+import { businessEn } from './business.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { setupPlanEn } from './setupPlan.en.ts';
@@ -24,6 +25,9 @@ import { orgChartEn } from './orgChart.en.ts';
 import { mailCenterEn } from './mailCenter.en.ts';
 import { mailOutgoingEn } from './mailOutgoing.en.ts';
 import { mailAiEn } from './mailAi.en.ts';
+import { mailShareEn } from './mailShare.en.ts';
+import { mailRulesEn } from './mailRules.en.ts';
+import { mailOpsEn } from './mailOps.en.ts';
 import { mailEn } from './mail.en.ts';
 import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
@@ -43,11 +47,15 @@ export const en = {
   ...financeIntelActionsEn,
   ...teamEn,
   ...marketingEn,
+  ...businessEn,
   ...agentSkillsEn,
   ...orgChartEn,
   ...mailCenterEn,
   ...mailOutgoingEn,
   ...mailAiEn,
+  ...mailShareEn,
+  ...mailRulesEn,
+  ...mailOpsEn,
   ...mailEn,
   ...chatEn,
   ...setupEn,

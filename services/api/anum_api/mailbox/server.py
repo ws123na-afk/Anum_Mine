@@ -62,6 +62,8 @@ class Folder:
     total: int
     unread: int
     selectable: bool = True
+    # The folder's UIDVALIDITY (RFC 3501): when it changes, every UID seen before means nothing.
+    uidvalidity: int | None = None
 
 
 @dataclass(frozen=True)
@@ -304,12 +306,16 @@ class ImapSmtpServer:
                 flags, name = parsed
                 selectable = "\\noselect" not in flags and "\\nonexistent" not in flags
                 total = unread = 0
+                validity: int | None = None
                 if selectable:
-                    status, data = connection.status(quote_mailbox(name), "(MESSAGES UNSEEN)")
+                    status, data = connection.status(quote_mailbox(name), "(MESSAGES UNSEEN UIDVALIDITY)")
                     if status == "OK" and data and isinstance(data[0], bytes):
-                        counts = dict(re.findall(rb"(MESSAGES|UNSEEN) (\d+)", data[0]))
+                        counts = dict(re.findall(rb"(MESSAGES|UNSEEN|UIDVALIDITY) (\d+)", data[0]))
                         total, unread = int(counts.get(b"MESSAGES", 0)), int(counts.get(b"UNSEEN", 0))
-                found.append(Folder(id=name, name=name, role=folder_role(name, flags), total=total, unread=unread, selectable=selectable))
+                        validity = int(counts[b"UIDVALIDITY"]) if b"UIDVALIDITY" in counts else None
+                found.append(Folder(
+                    id=name, name=name, role=folder_role(name, flags), total=total, unread=unread, selectable=selectable, uidvalidity=validity,
+                ))
                 if len(found) >= MAX_FOLDERS:
                     break
             return found
