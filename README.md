@@ -82,6 +82,7 @@ x-user-roles: owner,member
 - [Business model and product master roadmap](docs/ANUM_OS_Business_and_Product_Master_Roadmap.md)
 - [Security](docs/security.md)
 - [Threat model: agent tool use and prompt injection](docs/threat-model.md)
+- [Email Center: external penetration test plan](docs/email-pentest-plan.md)
 - [Identity and sign-in](docs/identity.md)
 - [Multi-tenancy](docs/multi-tenancy.md)
 - [Agent runtime](docs/agent-runtime.md)

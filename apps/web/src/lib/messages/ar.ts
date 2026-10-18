@@ -24,6 +24,7 @@ import { mailCenterAr } from './mailCenter.ar.ts';
 import { mailOutgoingAr } from './mailOutgoing.ar.ts';
 import { mailAiAr } from './mailAi.ar.ts';
 import { mailShareAr } from './mailShare.ar.ts';
+import { mailRulesAr } from './mailRules.ar.ts';
 import { mailOpsAr } from './mailOps.ar.ts';
 import { mailAr } from './mail.ar.ts';
 import { chatAr } from './chat.ar.ts';
@@ -48,6 +49,7 @@ export const ar: Record<MessageKey, Message> = {
   ...mailOutgoingAr,
   ...mailAiAr,
   ...mailShareAr,
+  ...mailRulesAr,
   ...mailOpsAr,
   ...mailAr,
   ...chatAr,

@@ -23,6 +23,7 @@ import { mailCenterEn } from './mailCenter.en.ts';
 import { mailOutgoingEn } from './mailOutgoing.en.ts';
 import { mailAiEn } from './mailAi.en.ts';
 import { mailShareEn } from './mailShare.en.ts';
+import { mailRulesEn } from './mailRules.en.ts';
 import { mailOpsEn } from './mailOps.en.ts';
 import { mailEn } from './mail.en.ts';
 import { chatEn } from './chat.en.ts';
@@ -47,6 +48,7 @@ export const en = {
   ...mailOutgoingEn,
   ...mailAiEn,
   ...mailShareEn,
+  ...mailRulesEn,
   ...mailOpsEn,
   ...mailEn,
   ...chatEn,

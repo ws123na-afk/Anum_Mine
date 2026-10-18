@@ -1000,6 +1000,11 @@ def mail_export(context: TenantContext) -> dict[str, Any]:
         files = store.attachments_of_account(None)
     with open_label_store(context) as label_store:
         labels = label_store.list_all()
+    from .mailbox.automation import open_automation_store
+
+    with open_automation_store(context) as automation:
+        kept = [k for a in accounts if (k := automation.get_settings(a.id)) is not None]
+        rules = automation.all_rules()
     return {
         # Never the password, not even encrypted.
         "mailboxes": [a.model_dump(mode="json", exclude={"password_enc"}) for a in accounts],
@@ -1012,6 +1017,10 @@ def mail_export(context: TenantContext) -> dict[str, Any]:
         "attachments": [f.model_dump(mode="json", exclude={"storage_key"}) for f in files],
         # Labels AI gave messages for the caller (category, priority, reason; no mail text).
         "labels": [label.model_dump(mode="json") for label in labels],
+        # Retention and background sync of the caller's mailboxes, and their forwarding rules
+        # (migration 0068_mail_rules_retention; both go with the mailbox when it is deleted).
+        "mailbox_settings": [k.model_dump(mode="json") for k in kept],
+        "forwarding_rules": [r.model_dump(mode="json") for r in rules],
     }
 
 

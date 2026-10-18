@@ -34,6 +34,7 @@ import { Drawer } from './Dialog';
 import { MailAssist } from './MailAssist';
 import { MailListTools, RowLabels, useMailLabels } from './MailListAi';
 import { DeleteApproval, MailBulkBar, MailSearchBar, StarButton, SyncStatus, actionDone, actionLabel, useMailShortcuts, useMailSync } from './MailActions';
+import { ForwardingRulesPanel, RetentionPanel, RulesOwnerOnly } from './MailAutomation';
 import { ContactsPanel, FromPicker, IdentitiesPanel, LeaveShared, MailboxPicker, RecipientField, SharedNotice, SharingPanel } from './MailDirectory';
 import { canSendFrom, ownsMailbox, pickAccount, senderLabel, type MailContact } from './lib/mailDirectory';
 import { PageHeader, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
@@ -139,7 +140,13 @@ export function EmailView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
           onDisconnected={() => { setSettingsOpen(false); setNote({ text: t('mail.settings.disconnected', { address: account.address }) }); publishMailUnread(0); void load(); }} />
         {setup.can_act && <SharingPanel account={account} onCount={(count) => setSetup((s) => s ? { ...s, accounts: s.accounts.map((a) => a.id === account.id ? { ...a, shared_with: count } : a) } : s)} />}
         {setup.can_act && <IdentitiesPanel account={account} setup={setup} />}
-      </> : <LeaveShared account={account} onLeft={() => { setSettingsOpen(false); setNote({ text: t('mails.leave.done', { address: account.address }) }); setAccountId(null); void load(); }} />}
+        <RetentionPanel account={account} owner={owner} onOpenApprovals={onOpenApprovals} />
+        {setup.can_act && <ForwardingRulesPanel account={account} owner={owner} onOpenApprovals={onOpenApprovals} />}
+      </> : <>
+        <LeaveShared account={account} onLeft={() => { setSettingsOpen(false); setNote({ text: t('mails.leave.done', { address: account.address }) }); setAccountId(null); void load(); }} />
+        <RetentionPanel account={account} owner={owner} onOpenApprovals={onOpenApprovals} />
+        <RulesOwnerOnly />
+      </>}
       {setup.can_act && <details className="mailsAdd"><summary><Plug aria-hidden="true" />{t('mails.mailbox.add')}</summary>
         <p className="muted">{t('mails.mailbox.addText')}</p>
         <ConnectForm setup={setup} onConnected={(a) => { setSettingsOpen(false); pick(a.id); setNote({ text: t('mail.connect.done', { address: a.address }) }); void load(); }} />

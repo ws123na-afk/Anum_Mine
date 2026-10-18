@@ -470,6 +470,16 @@ def test_every_state_changing_route_is_audited_without_content(fake: FakeServer)
     contact = probe.call("POST", "/api/v1/mail/contacts", OWNER, sent=["Sara Private", "sara@client.example"], json={"name": "Sara Private", "email": "sara@client.example"}).json()
     probe.call("PATCH", f"/api/v1/mail/contacts/{contact['id']}", OWNER, sent=["Private note"], json={"notes": "Private note"})
     probe.call("DELETE", f"/api/v1/mail/contacts/{contact['id']}", OWNER)
+    # Phase 6: settings changes and forwarding rules (addresses never in the audit).
+    settings = {"sent_retention_days": 30, "draft_retention_days": None, "label_retention_days": None, "background_sync": True, "base_version": 0}
+    probe.call("POST", f"{base}/settings", OWNER, json=settings)
+    probe.call("DELETE", f"{base}/settings/pending", OWNER)
+    partner = "partner@elsewhere.example"
+    rule = probe.call("POST", f"{base}/rules", OWNER, sent=[partner], json={"name": "Orders", "from_contains": "client.example", "forward_to": [partner]}).json()["rule"]
+    probe.call("PATCH", f"/api/v1/mail/rules/{rule['id']}", OWNER, sent=[partner], json={"subject_contains": "Order"})
+    probe.call("POST", f"/api/v1/mail/rules/{rule['id']}/pause", OWNER)
+    probe.call("POST", f"/api/v1/mail/rules/{rule['id']}/resume", OWNER)
+    probe.call("DELETE", f"/api/v1/mail/rules/{rule['id']}", OWNER)
     probe.call("DELETE", base, OWNER)
     probe.assert_covered()
     assert mail_backend.accounts == {} and store is not None

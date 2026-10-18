@@ -154,6 +154,8 @@ from .mailbox.api import router as mail_router
 from .mailbox.sharing_api import router as mail_sharing_router
 from .mailbox.operator_api import router as mail_operator_router
 from .mailbox.outgoing import build_schedule_runner
+from .mailbox.settings_api import router as mail_settings_router
+from .mailbox.sync import build_sync_runner
 from .mailbox.service import register_mail_tools
 from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
@@ -231,6 +233,10 @@ async def lifespan(_: FastAPI):
     mail_schedule = build_schedule_runner()
     if mail_schedule is not None:
         mail_schedule.start()
+    # Unread counts and forwarding rules of Email Center mailboxes (docs/email.md#background-sync).
+    mail_sync = build_sync_runner()
+    if mail_sync is not None:
+        mail_sync.start()
     # Syncs due sales-channel connectors when ANUM_COMMERCE_SYNC_ENABLED=true (docs/commerce.md#sync).
     commerce_scheduler = build_commerce_scheduler()
     if commerce_scheduler is not None:
@@ -253,6 +259,8 @@ async def lifespan(_: FastAPI):
             await finance_scheduler.stop()
         if commerce_scheduler is not None:
             await commerce_scheduler.stop()
+        if mail_sync is not None:
+            await mail_sync.stop()
         if mail_schedule is not None:
             await mail_schedule.stop()
         if email_scheduler is not None:
@@ -350,6 +358,7 @@ app.include_router(email_router)
 app.include_router(mail_ai_router)
 app.include_router(mail_router)
 app.include_router(mail_sharing_router)
+app.include_router(mail_settings_router)
 app.include_router(mail_operator_router)
 app.include_router(calendar_router)
 app.include_router(marketing_router)
