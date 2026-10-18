@@ -1,0 +1,70 @@
+# Third-party license policy for everything ANUM ships (docs/licenses.md).
+#
+# scripts/licenses/license_scan.py reads this file. Every dependency that ends up in a
+# shipped artifact (API image, web bundle, desktop installer, Flutter and Android apps)
+# carries a license expression; each SPDX id in it falls in one of the lists below.
+#
+#   allowed  passes.
+#   review   fails until scripts/licenses/exceptions.toml has a reviewed exception for that
+#            package with a reason (weak copyleft and similar: obligations need a decision).
+#   denied   fails until such an exception exists (strong copyleft, source-available).
+#   anything not listed (and any package with no detectable license) is "unknown" and fails.
+#
+# "A OR B" passes when either side passes; "A AND B" needs both. "+" (or-later) is read as
+# the base id. Patterns ending in "*" match a prefix. Changing these lists is an owner
+# decision: say why in the pull request.
+
+[licenses]
+allowed = [
+  "0BSD",
+  "Apache-2.0",
+  "BlueOak-1.0.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  # Permissive data license (Linux Foundation); the Mozilla CA root list in webpki-root-certs.
+  "CDLA-Permissive-2.0",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  # Weak, file-level copyleft: fine for unmodified runtime use. Changes to MPL files
+  # themselves must be published under the MPL.
+  "MPL-2.0",
+  "OpenSSL",
+  "PostgreSQL",
+  "PSF-2.0",
+  "Python-2.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Unlicense",
+  "Zlib",
+]
+
+review = [
+  # Weak copyleft: allowed for dynamically linked, unmodified libraries once someone has
+  # confirmed the relinking and notice obligations are met for that package.
+  "LGPL-*",
+  "EPL-*",
+  "CDDL-*",
+  "MPL-1.1",
+  "CC-BY-SA-*",
+]
+
+denied = [
+  "AGPL-*",
+  "GPL-*",
+  "SSPL-*",
+  "BUSL-*",
+  "Elastic-*",
+  "Commons-Clause",
+  "CC-BY-NC-*",
+  "CC-BY-ND-*",
+]
+
+# SPDX "WITH" exceptions that change how the expression is classified. Others keep the
+# class of the license they modify.
+[with]
+"Apache-2.0 WITH LLVM-exception" = "allowed"
+"GPL-2.0-only WITH Classpath-exception-2.0" = "review"
+"GPL-2.0-or-later WITH Classpath-exception-2.0" = "review"

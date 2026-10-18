@@ -32,6 +32,7 @@ State: `main` is at `6643fc1` (#359, the action browser) plus the audit fixes in
 
 12. **Browser research** (`docs/browser-research.md#setting-it-up`, optional): add `browser` to `COMPOSE_PROFILES` and set `ANUM_BROWSER_RESEARCH_URL=http://browser:8090` in `infra/oracle/.env`, run `update.sh` (about 650 MB more disk), add the metadata drop rule, then turn it on per workspace under Integrations, Browser research. Until then `web.browse_page` says "Not available on this server".
 13. **Action browser** (`docs/action-browser.md#setting-it-up`, optional, after item 12; better after the saved card CVC is no longer stored, see below): set `ANUM_BROWSER_ACTION_MODE=1` and `ANUM_ACTION_BROWSER_ENABLED=true` in `infra/oracle/.env`, run `update.sh`, then turn it on per workspace under Integrations, Action browser and add the logins and cards it may use.
+14. **License decisions** (`docs/licenses.md#current-result`): the scan reports the weak-copyleft packages listed there (for example `psycopg`/`psycopg-binary` in the API and the `sharp` libvips binaries in web and desktop); decide for each one whether to accept it with a reviewed exception in `scripts/licenses/exceptions.toml` or replace it. Run `bash scripts/licenses/check.sh` to see the current result.
 
 ## Build work still open (with reasons)
 
@@ -46,4 +47,5 @@ State: `main` is at `6643fc1` (#359, the action browser) plus the audit fixes in
 - **ANUM Command:** a step that waits for earlier steps continues only while someone has the command open (or calls `POST /commands/{id}/start`); the phone app starts every step itself and starts a waiting one from "Start the remaining steps" ([Command](command.md#not-done-yet)).
 - **Flutter:** no HQ, Executive, IBKR, Action browser or Ready to sell screens.
 - **Email domains page in ANUM** (adding Mailcow domains from ANUM with approvals) was offered, not started.
+- **Licenses:** the scan does not yet cover the native Android and iOS libraries Flutter plugins pull in (Gradle, CocoaPods), the Tauri WebView runtime or OS packages in images (those are in the deploy Trivy SBOMs); full license texts are not yet bundled into the installers or shown on an in-app licenses screen (`docs/licenses.md`).
 - **"All inboxes" view**: built (docs/email.md#all-inboxes); each inbox is read live per page with an 8 second timeout; a slow one is left out of that page and flagged.

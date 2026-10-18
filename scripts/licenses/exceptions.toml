@@ -1,0 +1,35 @@
+# Reviewed license decisions for scripts/licenses/license_scan.py (docs/licenses.md).
+#
+# Two kinds of entry. Both are matched exactly, so an entry goes stale (and fails the scan)
+# when the package's metadata changes or the package is no longer shipped: review it again.
+#
+# [[override]] corrects a license the scan detected wrongly or could not detect, after a
+# person read the package's actual license. It never accepts a license the policy fails;
+# the corrected license is still checked against scripts/licenses/policy.toml.
+#
+#   [[override]]
+#   ecosystem = "python"            # python, npm, cargo, dart or gradle
+#   package = "example-package"     # as the scan reports it (Maven: "group:artifact")
+#   detected = ""                   # what the scan detected ("" when nothing was found)
+#   license = "BSD-3-Clause"        # SPDX expression of the real license
+#   evidence = "https://..."        # where the license text was read, at a fixed revision
+#   reason = "Metadata names only 'BSD License'; LICENSE at the tag is BSD-3-Clause."
+#
+# [[exception]] accepts a package whose license the policy puts in "review" or "denied", or
+# leaves unknown. Only the owner adds these, with the reason the obligations are met.
+#
+#   [[exception]]
+#   ecosystem = "python"
+#   package = "example-package"
+#   license = "LGPL-3.0-only"       # must equal the license the scan reports for it
+#   reason = "Imported unmodified as a separate library; users can replace it; notice shipped."
+#   reviewed_by = "owner name"
+#   reviewed_on = "2026-10-18"
+
+[[override]]
+ecosystem = "python"
+package = "python-dateutil"
+detected = ""
+license = "Apache-2.0 AND BSD-3-Clause"
+evidence = "https://github.com/dateutil/dateutil/blob/2.9.0.post0/LICENSE"
+reason = "Metadata says only 'Dual License'. LICENSE at the tag: Apache-2.0 for contributions after 2017-12-01, and the BSD-3-Clause text applies to all code."
