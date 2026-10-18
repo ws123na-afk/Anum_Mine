@@ -1,5 +1,5 @@
+import '../../data/api_models.dart';
 import '../../data/api_client.dart';
-import '../../data/json_read.dart';
 import '../workspace/api_workspace_repository.dart';
 import '../workspace/workspace_models.dart';
 import 'mail_center_models.dart';
@@ -81,6 +81,23 @@ abstract interface class MailCenterRepository {
   Future<MailContact> createContact(MailContactEdit edit);
   Future<MailContact> updateContact(String contactId, MailContactEdit edit);
   Future<void> deleteContact(String contactId);
+
+  // -- retention, sync and forwarding rules ------------------------------------
+  Future<MailSettings> settings(String accountId);
+
+  /// Asks to change the settings from [baseVersion]: the approval of exactly
+  /// that change (409 when someone changed them first).
+  Future<WorkspaceApproval> changeSettings(
+      String accountId, MailSettingsEdit edit, int baseVersion);
+  Future<void> withdrawSettings(String accountId);
+  Future<List<MailRule>> rules(String accountId);
+
+  /// Create, edit and resume each ask for the rule's approval again.
+  Future<MailRule> createRule(String accountId, MailRuleEdit edit);
+  Future<MailRule> updateRule(String ruleId, MailRuleEdit edit);
+  Future<MailRule> pauseRule(String ruleId);
+  Future<MailRule> resumeRule(String ruleId);
+  Future<void> deleteRule(String ruleId);
 
   // -- AI (`/api/v1/mail/ai`) -------------------------------------------------
   Future<MailAiStatus> aiStatus();
@@ -505,4 +522,56 @@ class ApiMailCenterRepository implements MailCenterRepository {
   Future<WorkspaceApproval> exportMany(
           String accountId, String folder, List<int> uids) =>
       _owner('export', accountId, folder, uids);
+
+  // -- retention, sync and forwarding rules ------------------------------------
+
+  @override
+  Future<MailSettings> settings(String accountId) async =>
+      MailSettings.fromJson(JsonReader(await api.request(
+          'GET', '$_base/accounts/${_id(accountId)}/settings')));
+
+  @override
+  Future<WorkspaceApproval> changeSettings(
+      String accountId, MailSettingsEdit edit, int baseVersion) async {
+    final value = JsonReader(await api.request(
+        'POST', '$_base/accounts/${_id(accountId)}/settings',
+        body: edit.toJson(baseVersion)));
+    return workspaceApprovalFromJson(value.object('approval'));
+  }
+
+  @override
+  Future<void> withdrawSettings(String accountId) async => api.request(
+      'DELETE', '$_base/accounts/${_id(accountId)}/settings/pending');
+
+  @override
+  Future<List<MailRule>> rules(String accountId) async => JsonReader(
+          await api.request('GET', '$_base/accounts/${_id(accountId)}/rules'))
+      .objects('data', MailRule.fromJson);
+
+  MailRule _rule(JsonMap value) {
+    final reader = JsonReader(value);
+    return MailRule.fromJson(reader.optObject('rule') ?? reader);
+  }
+
+  @override
+  Future<MailRule> createRule(String accountId, MailRuleEdit edit) async =>
+      _rule(await api.request('POST', '$_base/accounts/${_id(accountId)}/rules',
+          body: edit.toJson()));
+
+  @override
+  Future<MailRule> updateRule(String ruleId, MailRuleEdit edit) async =>
+      _rule(await api.request('PATCH', '$_base/rules/${_id(ruleId)}',
+          body: edit.toJson()));
+
+  @override
+  Future<MailRule> pauseRule(String ruleId) async =>
+      _rule(await api.request('POST', '$_base/rules/${_id(ruleId)}/pause'));
+
+  @override
+  Future<MailRule> resumeRule(String ruleId) async =>
+      _rule(await api.request('POST', '$_base/rules/${_id(ruleId)}/resume'));
+
+  @override
+  Future<void> deleteRule(String ruleId) async =>
+      api.request('DELETE', '$_base/rules/${_id(ruleId)}');
 }

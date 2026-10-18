@@ -323,3 +323,208 @@ class MailFileProblem {
   }
   return (ok, problems);
 }
+
+/// A mailbox's last background check.
+class MailSyncState {
+  const MailSyncState(
+      {required this.status,
+      this.inboxUnread,
+      this.checkedAt,
+      this.nextSyncAt,
+      this.lastError});
+
+  factory MailSyncState.fromJson(JsonReader j) => MailSyncState(
+        status: j.optString('status') ?? 'pending',
+        inboxUnread: j.optInt('inbox_unread'),
+        checkedAt: j.optDate('checked_at'),
+        nextSyncAt: j.optDate('next_sync_at'),
+        lastError: j.optString('last_error'),
+      );
+
+  /// pending, ok, auth_failed, offline or error.
+  final String status;
+  final int? inboxUnread;
+  final DateTime? checkedAt, nextSyncAt;
+  final String? lastError;
+}
+
+/// Retention and background sync of one mailbox (`SettingsView`). A change
+/// waits for the `change_mail_settings` approval of exactly that change.
+class MailSettings {
+  const MailSettings({
+    required this.accountId,
+    required this.access,
+    required this.canChange,
+    required this.backgroundSync,
+    required this.version,
+    this.sentRetentionDays,
+    this.draftRetentionDays,
+    this.labelRetentionDays,
+    this.retentionChoices = const [7, 30, 90, 180, 365, 730],
+    this.maxRetentionDays = 3650,
+    this.syncRunning = true,
+    this.syncIntervalSeconds = 300,
+    this.sync,
+    this.approval,
+    this.pending,
+  });
+
+  factory MailSettings.fromJson(JsonReader j) {
+    final pending = j.optObject('pending');
+    return MailSettings(
+      accountId: j.string('account_id'),
+      access: j.optString('access') ?? 'owner',
+      canChange: j.optBool('can_change') ?? false,
+      sentRetentionDays: j.optInt('sent_retention_days'),
+      draftRetentionDays: j.optInt('draft_retention_days'),
+      labelRetentionDays: j.optInt('label_retention_days'),
+      backgroundSync: j.optBool('background_sync') ?? true,
+      version: j.optInt('version') ?? 0,
+      retentionChoices: [
+        for (final v in (j['retention_choices'] as List? ?? const []))
+          if (v is int) v
+      ],
+      maxRetentionDays: j.optInt('max_retention_days') ?? 3650,
+      syncRunning: j.optBool('sync_running') ?? true,
+      syncIntervalSeconds: j.optInt('sync_interval_seconds') ?? 300,
+      sync: j.optObject('sync') == null
+          ? null
+          : MailSyncState.fromJson(j.object('sync')),
+      approval: j.optObject('approval') == null
+          ? null
+          : workspaceApprovalFromJson(j.object('approval')),
+      pending: pending == null ? null : MailSettingsEdit.fromJson(pending),
+    );
+  }
+
+  final String accountId, access;
+  final bool canChange, backgroundSync, syncRunning;
+  final int version, maxRetentionDays, syncIntervalSeconds;
+  final int? sentRetentionDays, draftRetentionDays, labelRetentionDays;
+  final List<int> retentionChoices;
+  final MailSyncState? sync;
+
+  /// The change waiting for approval, and that approval.
+  final WorkspaceApproval? approval;
+  final MailSettingsEdit? pending;
+
+  MailSettingsEdit get values => MailSettingsEdit(
+        sentRetentionDays: sentRetentionDays,
+        draftRetentionDays: draftRetentionDays,
+        labelRetentionDays: labelRetentionDays,
+        backgroundSync: backgroundSync,
+      );
+}
+
+class MailSettingsEdit {
+  const MailSettingsEdit({
+    this.sentRetentionDays,
+    this.draftRetentionDays,
+    this.labelRetentionDays,
+    this.backgroundSync = true,
+  });
+
+  factory MailSettingsEdit.fromJson(JsonReader j) => MailSettingsEdit(
+        sentRetentionDays: j.optInt('sent_retention_days'),
+        draftRetentionDays: j.optInt('draft_retention_days'),
+        labelRetentionDays: j.optInt('label_retention_days'),
+        backgroundSync: j.optBool('background_sync') ?? true,
+      );
+
+  /// Days, or null to keep while the mailbox is connected.
+  final int? sentRetentionDays, draftRetentionDays, labelRetentionDays;
+  final bool backgroundSync;
+
+  MailSettingsEdit copyWith(String field, int? days) => MailSettingsEdit(
+        sentRetentionDays: field == 'sent' ? days : sentRetentionDays,
+        draftRetentionDays: field == 'draft' ? days : draftRetentionDays,
+        labelRetentionDays: field == 'label' ? days : labelRetentionDays,
+        backgroundSync: backgroundSync,
+      );
+
+  MailSettingsEdit withSync(bool value) => MailSettingsEdit(
+        sentRetentionDays: sentRetentionDays,
+        draftRetentionDays: draftRetentionDays,
+        labelRetentionDays: labelRetentionDays,
+        backgroundSync: value,
+      );
+
+  int? days(String field) => switch (field) {
+        'sent' => sentRetentionDays,
+        'draft' => draftRetentionDays,
+        _ => labelRetentionDays,
+      };
+
+  bool sameAs(MailSettingsEdit other) =>
+      sentRetentionDays == other.sentRetentionDays &&
+      draftRetentionDays == other.draftRetentionDays &&
+      labelRetentionDays == other.labelRetentionDays &&
+      backgroundSync == other.backgroundSync;
+
+  Map<String, Object?> toJson(int baseVersion) => {
+        'sent_retention_days': sentRetentionDays,
+        'draft_retention_days': draftRetentionDays,
+        'label_retention_days': labelRetentionDays,
+        'background_sync': backgroundSync,
+        'base_version': baseVersion,
+      };
+}
+
+/// A forwarding rule: forwards new inbox mail that matches, only while an
+/// owner has approved exactly what it does (`activate_mail_forward_rule`).
+class MailRule {
+  const MailRule({
+    required this.id,
+    required this.name,
+    required this.status,
+    required this.forwardTo,
+    this.fromContains = '',
+    this.subjectContains = '',
+    this.approval,
+    this.approvalNote,
+    this.lastRunAt,
+    this.lastError,
+    this.forwardedCount = 0,
+  });
+
+  factory MailRule.fromJson(JsonReader j) => MailRule(
+        id: j.string('id'),
+        name: j.optString('name') ?? '',
+        status: j.optString('status') ?? 'pending_approval',
+        forwardTo: j.optStrings('forward_to') ?? const [],
+        fromContains: j.optString('from_contains') ?? '',
+        subjectContains: j.optString('subject_contains') ?? '',
+        approval: j.optObject('approval') == null
+            ? null
+            : workspaceApprovalFromJson(j.object('approval')),
+        approvalNote: j.optString('approval_note'),
+        lastRunAt: j.optDate('last_run_at'),
+        lastError: j.optString('last_error'),
+        forwardedCount: j.optInt('forwarded_count') ?? 0,
+      );
+
+  final String id, name, status, fromContains, subjectContains;
+  final List<String> forwardTo;
+  final WorkspaceApproval? approval;
+  final String? approvalNote, lastError;
+  final DateTime? lastRunAt;
+  final int forwardedCount;
+}
+
+class MailRuleEdit {
+  const MailRuleEdit(
+      {required this.name,
+      required this.forwardTo,
+      this.fromContains = '',
+      this.subjectContains = ''});
+
+  final String name, fromContains, subjectContains;
+  final List<String> forwardTo;
+
+  Map<String, Object?> toJson() => {
+        'name': name.trim(),
+        'from_contains': fromContains.trim(),
+        'subject_contains': subjectContains.trim(),
+        'forward_to': forwardTo,
+      };
+}
