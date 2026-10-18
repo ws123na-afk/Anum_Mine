@@ -6,7 +6,47 @@ on:
   push:
     branches: [main]
 
+# Cancel superseded CI runs on the same branch or pull request.
+# Keep PR and main-branch runs separate to avoid cancelling required checks.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  changed-paths:
+    name: Detect platform changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      desktop: ${{ steps.filter.outputs.desktop }}
+      android: ${{ steps.filter.outputs.android }}
+      mobile: ${{ steps.filter.outputs.mobile }}
+      infrastructure: ${{ steps.filter.outputs.infrastructure }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            desktop:
+              - 'apps/desktop/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/ci.yml'
+            android:
+              - 'apps/android/**'
+              - '.github/workflows/ci.yml'
+            mobile:
+              - 'apps/mobile/**'
+              - '.github/workflows/ci.yml'
+            infrastructure:
+              - 'infra/helm/**'
+              - 'infra/docker/**'
+              - 'infra/oracle/**'
+              - '.github/workflows/ci.yml'
+
   web:
     name: Web and contracts
     runs-on: ubuntu-latest
@@ -410,6 +450,8 @@ jobs:
 
   helm:
     name: Helm deploy (kind)
+    needs: changed-paths
+    if: needs.changed-paths.outputs.infrastructure == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -466,6 +508,8 @@ jobs:
 
   desktop:
     name: Tauri desktop
+    needs: changed-paths
+    if: needs.changed-paths.outputs.desktop == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -500,6 +544,8 @@ jobs:
 
   android:
     name: Android client
+    needs: changed-paths
+    if: needs.changed-paths.outputs.android == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -517,6 +563,8 @@ jobs:
 
   flutter-mobile:
     name: Flutter mobile
+    needs: changed-paths
+    if: needs.changed-paths.outputs.mobile == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -589,6 +637,8 @@ jobs:
 
   flutter-ios:
     name: Flutter iOS compile check
+    needs: changed-paths
+    if: needs.changed-paths.outputs.mobile == 'true'
     # Debug and unsigned: the cheapest build that compiles the Swift, the pods and the Dart for
     # iOS. Signed builds and TestFlight uploads are in release-clients.yml.
     runs-on: macos-latest

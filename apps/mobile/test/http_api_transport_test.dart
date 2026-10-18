@@ -3,6 +3,7 @@
 // (ApiException with status 0) instead of an endless spinner, and a proxy's
 // HTML error page keeps its status code.
 import 'dart:async';
+import 'dart:io';
 
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/src/infrastructure/mobile_adapters.dart';
@@ -42,6 +43,18 @@ void main() {
         throwsA(isA<ApiException>()
             .having((e) => e.statusCode, 'statusCode', 0)
             .having((e) => e.message, 'message', contains('reached'))));
+  });
+
+  test('a TLS failure reports only the failing hostname', () async {
+    final transport = HttpApiTransport(
+        client: MockClient((_) async =>
+            throw const HandshakeException('TLS alert internal error')));
+    await expectLater(
+        transport.send(_get()),
+        throwsA(isA<ApiException>()
+            .having((e) => e.statusCode, 'statusCode', 0)
+            .having((e) => e.message, 'message', contains('api.example'))
+            .having((e) => e.message, 'message', contains('TLS handshake'))));
   });
 
   test('an HTML 502 from the proxy keeps its status code', () async {
