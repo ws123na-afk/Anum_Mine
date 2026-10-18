@@ -5,6 +5,8 @@ import type { Message } from './types.ts';
 
 export const appCallsAr: Record<keyof typeof appCallsEn, Message> = {
   'team.tab.calls': 'المكالمات',
+  'privacy.row.app_calls': 'مكالماتك مع زملائك (يحتفظ الطرف الآخر بمكالماته ويظهر اسمك كمستخدم محذوف)',
+  'privacy.row.app_call_signals': 'رسائل إعداد المكالمات',
   'calls.call': 'اتصال',
   'calls.video': 'فيديو',
   'calls.callPerson': 'اتصل بـ {name}',

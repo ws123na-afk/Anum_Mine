@@ -19,6 +19,7 @@ const PRIVATE_KEYS: (keyof PrivateCounts)[] = [
   'learning_signals', 'learned_items', 'favorites', 'private_collections', 'private_reports',
   'email_mailboxes', 'email_messages', 'email_drafts',
   'team_notifications', 'team_profile', 'private_agents', 'private_agent_memories', 'finance_records',
+  'app_calls', 'app_call_signals',
 ];
 
 const SHARED_KEYS: (keyof SharedCounts)[] = [

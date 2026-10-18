@@ -9,6 +9,9 @@ the phone push intents. The PostgreSQL row policies are in test_postgres_app_cal
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 from collections.abc import Iterator
 from datetime import timedelta
@@ -26,7 +29,6 @@ from anum_api.app_calls import (
     open_call_unit,
     read_snapshot,
     settle_stale,
-    turn_credential_valid,
     turn_credentials,
 )
 from anum_api.dependencies import memory_repository
@@ -46,6 +48,15 @@ DEVICE_B2 = "device-bob-000000002"
 OFFER = "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\n"
 
 client = TestClient(main.app)
+
+
+def turn_credential_valid(turn_label: str, credential: str, *, now=None) -> bool:  # type: ignore[no-untyped-def]
+    """What coturn checks (use-auth-secret): the HMAC matches and the expiry has not passed."""
+    expiry, _, _ = turn_label.partition(":")
+    if not expiry.isdigit():
+        return False
+    expected = base64.b64encode(hmac.new(SECRET.encode(), turn_label.encode(), hashlib.sha1).digest()).decode()
+    return hmac.compare_digest(expected, credential) and int(expiry) > (now or utc_now()).timestamp()
 
 
 def headers(user: str, role: str = "member", workspace: str = WORKSPACE, tenant: str = TENANT) -> dict[str, str]:
@@ -141,17 +152,18 @@ def test_turn_mode_mints_credentials_that_expire() -> None:
     stun, turn = servers["ice_servers"]
     assert stun["urls"] == ["stun:turn.example.test:3478"] and stun["credential"] is None
     assert turn["urls"][0].startswith("turn:")
-    assert turn_credential_valid(turn["username"], turn["credential"])
-    # The username is "<expiry>:<digest>": no user id, no tenant id.
-    assert "alice" not in turn["username"] and TENANT not in turn["username"]
+    turn_label = turn["username"]
+    assert turn_credential_valid(turn_label, turn["credential"])
+    # The label is "<expiry>:<random id>": no user id, no tenant id.
+    assert "alice" not in turn_label and TENANT not in turn_label
     # Random per issue: two credentials for the same person share nothing but the expiry format.
     assert turn_credentials(ctx("alice"))[0].split(":")[1] != turn_credentials(ctx("alice"))[0].split(":")[1]
     now = utc_now()
-    username, credential, expires_at = turn_credentials(ctx("alice"), now=now, ttl=600)
+    turn_label, credential, expires_at = turn_credentials(ctx("alice"), now=now, ttl=600)
     assert expires_at - now <= timedelta(seconds=600)
-    assert turn_credential_valid(username, credential, now=now + timedelta(seconds=599))
-    assert not turn_credential_valid(username, credential, now=now + timedelta(seconds=601))
-    assert not turn_credential_valid(username, credential[:-2] + "AA", now=now)
+    assert turn_credential_valid(turn_label, credential, now=now + timedelta(seconds=599))
+    assert not turn_credential_valid(turn_label, credential, now=now + timedelta(seconds=601))
+    assert not turn_credential_valid(turn_label, credential[:-2] + "AA", now=now)
     assert not turn_credential_valid("9999999999:forged", credential, now=now)
 
 
@@ -393,3 +405,44 @@ def test_ringing_and_missed_calls_become_call_pushes() -> None:
     missed_intent = intent_for(missed)
     assert missed_intent is not None and missed_intent.kind == PushKind.MISSED_CALL
     assert intent_for(create_event(CanonicalEventName.APP_CALL_RINGING, ctx("alice"), "x", {}).event) is None
+
+
+# --------------------------------------------------------------------------- privacy
+
+
+def test_download_my_data_lists_my_calls_without_the_other_persons_ids() -> None:
+    call = place(media="video")
+    accept(call["id"])
+    client.post(f"/api/v1/calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
+    summary = client.get("/api/v1/privacy", headers=headers("alice")).json()["private"]
+    assert summary["app_calls"] == 1 and summary["app_call_signals"] == 1
+    export = client.get("/api/v1/privacy/export", headers=headers("alice")).json()["app_calls"]
+    assert [(c["direction"], c["peer_name"], c["media"], c["status"]) for c in export] == [("outgoing", "bob", "video", "accepted")]
+    text = json.dumps(export)
+    for private in ("peer_user_id", DEVICE_A, DEVICE_B, OFFER):
+        assert private not in text
+    assert client.get("/api/v1/privacy/export", headers=headers("carol")).json()["app_calls"] == []
+
+
+def test_delete_my_data_keeps_the_other_side_as_deleted_user() -> None:
+    first = place()
+    accept(first["id"])
+    client.post(f"/api/v1/calls/{first['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
+    second = place("carol", "alice")
+    deleted = client.post("/api/v1/privacy/delete", headers=headers("alice"), json={"confirm": "DELETE MY DATA"})
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["deleted"]["app_calls"] == 2
+    # Alice sees nothing; her signals are gone.
+    assert client.get("/api/v1/calls", headers=headers("alice")).json()["items"] == []
+    assert memory_call_store.count_signals(ctx("bob")) == 0
+    # Bob and Carol keep their calls, with Alice shown as a deleted user and no trace of her id.
+    items = client.get("/api/v1/calls", headers=headers("bob")).json()["items"] + client.get("/api/v1/calls", headers=headers("carol")).json()["items"]
+    assert {item["id"] for item in items} == {first["id"], second["id"]}
+    assert all(item["peer_name"] == "Deleted user" and item["peer_user_id"].startswith("deleted:") for item in items)
+    assert all(item["status"] == "ended" for item in items)
+    assert "alice" not in json.dumps(items)
+    assert len({item["peer_user_id"] for item in items}) == 2  # one unlinkable tombstone per call
+    # When Bob deletes his data too, nobody is left and the calls go.
+    client.post("/api/v1/privacy/delete", headers=headers("bob"), json={"confirm": "DELETE MY DATA"})
+    assert memory_call_store.all_mine(ctx("bob")) == []
+    assert [c.id for c in memory_call_store.all_mine(ctx("carol"))] == [second["id"]]

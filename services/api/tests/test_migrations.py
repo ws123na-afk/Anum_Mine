@@ -1009,7 +1009,11 @@ def test_app_calls_migration_is_expand_only_and_participants_only() -> None:
     assert "force row level security" in upgrade and "create policy participants_only_{table}" in upgrade
     assert "create policy inserter_only_{table}" in upgrade and upgrade.count("as restrictive") == 2
     assert "op.add_column(" not in upgrade and "op.drop" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
-    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # One narrow grant: retention discovery reads five columns of ended calls, nothing else.
+    assert upgrade.count("grant ") == 1
+    assert "grant select (id, tenant_id, workspace_id, caller_user_id, ended_at) on app_calls to anum_maintenance" in upgrade
+    assert "for select to anum_maintenance" in upgrade and "status = 'ended' and ended_at <= now() - interval '7 days'" in upgrade
 
 
 def test_business_migration_is_expand_only_with_forced_rls_on_every_table_and_scoped_references() -> None:

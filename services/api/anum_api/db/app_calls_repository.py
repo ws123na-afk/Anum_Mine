@@ -8,10 +8,12 @@ missing.
 
 from __future__ import annotations
 
+from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, delete, func, or_, select, tuple_
+from sqlalchemy import and_, delete, func, or_, select, text, tuple_
 from sqlalchemy.orm import Session
 
 from anum_api.app_calls import (
@@ -22,7 +24,9 @@ from anum_api.app_calls import (
     CallSignal,
     CallStatus,
     SignalKind,
+    forget,
 )
+from anum_api.maintenance import SessionFactory, discover, scoped_unit
 from anum_api.schemas import TenantContext
 
 from .models import AppCallRecord, AppCallSignalRecord
@@ -193,6 +197,32 @@ class SqlAlchemyCallStore:
         )
         return int(getattr(result, "rowcount", 0) or 0)
 
+    def all_mine(self, context: TenantContext) -> list[AppCall]:
+        statement = select(AppCallRecord).where(self._scope(context)).order_by(AppCallRecord.created_at, AppCallRecord.id)
+        return [_call(record) for record in self.session.scalars(statement)]
+
+    def count_signals(self, context: TenantContext) -> int:
+        statement = select(func.count()).select_from(AppCallSignalRecord).where(self._signal_scope(context))
+        return int(self.session.scalar(statement) or 0)
+
+    def delete_my_signals(self, context: TenantContext) -> int:
+        result = self.session.execute(delete(AppCallSignalRecord).where(self._signal_scope(context)))
+        return int(getattr(result, "rowcount", 0) or 0)
+
+    def delete_call(self, context: TenantContext, call_id: str) -> bool:
+        result = self.session.execute(delete(AppCallRecord).where(self._scope(context), AppCallRecord.id == call_id))
+        return bool(getattr(result, "rowcount", 0))
+
+    def forget_side(self, context: TenantContext, call_id: str, user_id: str, tombstone: str) -> bool:
+        record = self._record(context, call_id, for_update=True)
+        if record is None:
+            return False
+        forgotten = forget(_call(record), user_id, tombstone)
+        for name in ("caller_user_id", "caller_name", "caller_client_id", "callee_user_id", "callee_name", *_MUTABLE):
+            setattr(record, name, _plain(getattr(forgotten, name)))
+        self.session.flush()
+        return True
+
     def purge(self, context: TenantContext, before: datetime) -> int:
         result = self.session.execute(
             delete(AppCallRecord).where(
@@ -200,3 +230,85 @@ class SqlAlchemyCallStore:
             )
         )
         return int(getattr(result, "rowcount", 0) or 0)
+
+
+# -- retention (the daily job, python -m anum_api.voice_retention) -------------------------
+
+_OLD_CALLS = text(
+    """
+    select id, tenant_id, workspace_id, caller_user_id, ended_at
+    from app_calls
+    where ended_at <= now() - make_interval(days => :days)
+      and (cast(:after_ended_at as timestamptz) is null
+           or (ended_at, id) > (cast(:after_ended_at as timestamptz), :after_id))
+    order by ended_at, id
+    limit :limit
+    """
+)
+# Re-checks the age; signals go with their call (ON DELETE CASCADE).
+_DELETE_OLD = text(
+    """
+    with doomed as (
+      delete from app_calls
+      where tenant_id = :tenant_id and workspace_id = :workspace_id and id = any(:ids)
+        and status = 'ended' and ended_at <= now() - make_interval(days => :days)
+      returning id
+    )
+    select count(*) as calls from doomed
+    """
+)
+_COUNT_OLD = text(
+    """
+    select count(*) as calls from app_calls
+    where tenant_id = :tenant_id and workspace_id = :workspace_id and id = any(:ids)
+      and status = 'ended' and ended_at <= now() - make_interval(days => :days)
+    """
+)
+
+
+@dataclass
+class CallPurgeResult:
+    retention_days: int
+    dry_run: bool
+    calls: int = 0
+
+
+def purge_old_calls(
+    session_factory: SessionFactory,
+    *,
+    retention_days: int,
+    maintenance_session_factory: SessionFactory | None = None,
+    batch_size: int = 500,
+    dry_run: bool = False,
+) -> CallPurgeResult:
+    """Delete calls that ended ``retention_days`` or more ago (ANUM_CALLS_RETENTION_DAYS).
+
+    Discovery runs as ``anum_maintenance`` (ids, scope, the caller and ``ended_at`` only);
+    each delete runs as the application role inside the caller's RLS context.
+    """
+    if retention_days < 7:
+        raise ValueError("retention_days must be 7 or more")
+    result = CallPurgeResult(retention_days=retention_days, dry_run=dry_run)
+    after_ended_at: datetime | None = None
+    after_id = ""
+    while True:
+        rows = discover(
+            maintenance_session_factory or session_factory,
+            _OLD_CALLS,
+            {"days": retention_days, "after_ended_at": after_ended_at, "after_id": after_id, "limit": batch_size},
+        )
+        if not rows:
+            return result
+        after_ended_at, after_id = rows[-1].ended_at, rows[-1].id
+        scopes: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+        for row in rows:
+            scopes[(row.tenant_id, row.workspace_id, row.caller_user_id)].append(row.id)
+        for (tenant_id, workspace_id, user_id), ids in scopes.items():
+            params = {"tenant_id": tenant_id, "workspace_id": workspace_id, "ids": ids, "days": retention_days}
+            with scoped_unit(session_factory, tenant_id, workspace_id, user_id=user_id) as session:
+                counted = session.execute(_COUNT_OLD if dry_run else _DELETE_OLD, params).one()
+                if dry_run:
+                    session.rollback()
+            result.calls += int(counted.calls)
+        if len(rows) < batch_size:
+            return result

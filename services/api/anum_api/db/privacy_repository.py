@@ -446,6 +446,8 @@ class SqlAlchemyPrivacyStore:
         }
 
     def counts(self) -> tuple[PrivateCounts, SharedCounts]:
+        from ..app_calls import calls_privacy_counts
+
         module_private, module_shared = self._module_counts()
         private = PrivateCounts(
             conversations=self._count(ConversationRecord, *self._mine(ConversationRecord)),
@@ -470,6 +472,7 @@ class SqlAlchemyPrivacyStore:
             mail_mailboxes=len(self.mail().list_accounts()),
             mail_messages_written=len(self.mail().list_drafts(None, 100_000)),
             mail_contacts=self.mail().count_contacts(),
+            **calls_privacy_counts(self.context),
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
@@ -538,6 +541,10 @@ class SqlAlchemyPrivacyStore:
         self.delete_team_private()
         self.home().delete_all(self.context)
         delete_private_agents(self, self.context)
+        # Calls are shared by two people: their own short units of work, as each side.
+        from ..app_calls import delete_my_calls
+
+        delete_my_calls(self.context)
         self.session.flush()
         return deleted
 

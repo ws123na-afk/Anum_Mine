@@ -319,17 +319,6 @@ def turn_credentials(context: TenantContext, *, now: datetime | None = None, ttl
     return turn_label, base64.b64encode(digest).decode(), datetime.fromtimestamp(expires, tz=issued.tzinfo)
 
 
-def turn_credential_valid(turn_label: str, credential: str, *, now: datetime | None = None) -> bool:
-    """What coturn checks: the HMAC matches and the expiry in the TURN username is in the future."""
-    secret = settings.calls_turn_secret.get_secret_value().strip() if settings.calls_turn_secret else ""
-    expiry, _, _ = turn_label.partition(":")
-    if not secret or not expiry.isdigit():
-        return False
-    expected = base64.b64encode(hmac.new(secret.encode(), turn_label.encode(), hashlib.sha1).digest()).decode()
-    current = (now or utc_now()).timestamp()
-    return hmac.compare_digest(expected, credential) and int(expiry) > current
-
-
 def _require_enabled() -> _Mode:
     mode = call_mode()
     if mode.mode == CallMode.OFF:
@@ -354,6 +343,11 @@ class CallStore(Protocol):
     def signals_for(self, context: TenantContext, client_id: str, call_ids: list[str]) -> list[CallSignal]: ...
     def delete_signals(self, context: TenantContext, call_id: str) -> int: ...
     def purge(self, context: TenantContext, before: datetime) -> int: ...
+    def all_mine(self, context: TenantContext) -> list[AppCall]: ...
+    def count_signals(self, context: TenantContext) -> int: ...
+    def delete_my_signals(self, context: TenantContext) -> int: ...
+    def delete_call(self, context: TenantContext, call_id: str) -> bool: ...
+    def forget_side(self, context: TenantContext, call_id: str, user_id: str, tombstone: str) -> bool: ...
 
 
 class InMemoryCallStore:
@@ -468,6 +462,38 @@ class InMemoryCallStore:
                     self._signals.pop(signal_id, None)
         return len(doomed)
 
+    def all_mine(self, context: TenantContext) -> list[AppCall]:
+        with self.lock:
+            return sorted((c.model_copy() for c in self._scoped(context)), key=lambda c: (c.created_at, c.id))
+
+    def count_signals(self, context: TenantContext) -> int:
+        with self.lock:
+            return len(self._visible_signals(context))
+
+    def delete_my_signals(self, context: TenantContext) -> int:
+        with self.lock:
+            doomed = [s.id for s in self._visible_signals(context)]
+            for signal_id in doomed:
+                self._signals.pop(signal_id, None)
+        return len(doomed)
+
+    def delete_call(self, context: TenantContext, call_id: str) -> bool:
+        with self.lock:
+            if self.get(context, call_id) is None:
+                return False
+            self._calls.pop(call_id, None)
+            for signal_id in [k for k, (_, _, s) in self._signals.items() if s.call_id == call_id]:
+                self._signals.pop(signal_id, None)
+        return True
+
+    def forget_side(self, context: TenantContext, call_id: str, user_id: str, tombstone: str) -> bool:
+        with self.lock:
+            call = self.get(context, call_id)
+            if call is None:
+                return False
+            self._calls[call_id] = (context.tenant_id, context.workspace_id, forget(call, user_id, tombstone))
+        return True
+
     def clear(self) -> None:
         with self.lock:
             self._calls.clear()
@@ -475,6 +501,29 @@ class InMemoryCallStore:
 
 
 memory_call_store = InMemoryCallStore()
+
+DELETED_PREFIX = "deleted:"
+DELETED_NAME = "Deleted user"
+
+
+def forget(call: AppCall, user_id: str, tombstone: str) -> AppCall:
+    """``call`` with ``user_id``'s side replaced by ``tombstone`` (Delete my data).
+
+    The other participant keeps the call in their history, shown as "Deleted user". A call
+    still ringing or in progress is ended as failed.
+    """
+    forgotten = call.model_copy()
+    if forgotten.caller_user_id == user_id:
+        forgotten.caller_user_id, forgotten.caller_name, forgotten.caller_client_id = tombstone, DELETED_NAME, "deleted"
+    if forgotten.callee_user_id == user_id:
+        forgotten.callee_user_id, forgotten.callee_name = tombstone, DELETED_NAME
+        forgotten.callee_client_id = "deleted" if forgotten.callee_client_id else None
+    if forgotten.ended_by_user_id == user_id:
+        forgotten.ended_by_user_id = tombstone
+    if forgotten.status != CallStatus.ENDED:
+        forgotten.status, forgotten.outcome, forgotten.ended_at = CallStatus.ENDED, CallOutcome.FAILED, utc_now()
+        forgotten.callee_client_id = forgotten.callee_client_id or "deleted"
+    return forgotten
 
 
 def _sql_store(session: Any) -> CallStore:
@@ -514,6 +563,72 @@ def open_call_unit(context: TenantContext) -> Iterator[CallUnit]:
                 yield CallUnit(context, team, calls)
         else:
             yield CallUnit(context, team, calls)
+
+
+# ----------------------------------------------------------------------------- privacy
+
+
+def calls_privacy_counts(context: TenantContext) -> dict[str, int]:
+    """Download/Delete my data (docs/in-app-calls.md#privacy): the caller's calls and signals."""
+    with open_call_store(context) as store:
+        return {"app_calls": len(store.all_mine(context)), "app_call_signals": store.count_signals(context)}
+
+
+def calls_privacy_export(context: TenantContext) -> list[dict[str, Any]]:
+    """The caller's own view of each call: direction, the other person's display name at the
+    time, audio or video, the times and the outcome. Never device ids or the other person's id."""
+    with open_call_store(context) as store:
+        calls = store.all_mine(context)
+    hidden = {"peer_user_id", "on_this_device", "answered_elsewhere", "ring_expires_at"}
+    return [view_of(call, context).model_dump(mode="json", exclude=hidden) for call in calls]
+
+
+def delete_my_calls(context: TenantContext) -> int:
+    """Delete my data: the caller's signals go; each call keeps the other person's side and
+    shows the caller as "Deleted user". The caller's side is rewritten inside the other
+    participant's RLS context (the caller's own context could not write a row they are no
+    longer part of). A call whose other side was already deleted is removed."""
+    forgotten = 0
+    with open_call_store(context) as store:
+        store.delete_my_signals(context)
+        peers: list[tuple[str, str]] = []
+        for call in store.all_mine(context):
+            peer = call.callee_user_id if call.caller_user_id == context.user_id else call.caller_user_id
+            if peer.startswith(DELETED_PREFIX):
+                store.delete_call(context, call.id)
+                forgotten += 1
+            else:
+                peers.append((call.id, peer))
+    for call_id, peer in peers:
+        peer_context = context.model_copy(update={"user_id": peer})
+        with open_call_store(peer_context) as store:
+            if store.forget_side(peer_context, call_id, context.user_id, f"{DELETED_PREFIX}{secrets.token_hex(8)}"):
+                forgotten += 1
+    return forgotten
+
+
+def purge_retention(
+    *,
+    session_factory: Any = None,
+    maintenance_session_factory: Any = None,
+    retention_days: int | None = None,
+    dry_run: bool = False,
+    batch_size: int = 500,
+) -> dict[str, object]:
+    """The daily retention job's call purge (``python -m anum_api.voice_retention``)."""
+    from dataclasses import asdict
+
+    from .db.app_calls_repository import purge_old_calls
+    from .maintenance import default_session_factory
+
+    result = purge_old_calls(
+        session_factory or default_session_factory,
+        retention_days=settings.calls_retention_days if retention_days is None else retention_days,
+        maintenance_session_factory=maintenance_session_factory,
+        dry_run=dry_run,
+        batch_size=batch_size,
+    )
+    return asdict(result)
 
 
 # ----------------------------------------------------------------------------- views
@@ -1010,6 +1125,5 @@ __all__ = [
     "call_mode",
     "memory_call_store",
     "router",
-    "turn_credential_valid",
     "turn_credentials",
 ]

@@ -9,6 +9,7 @@ tenant or workspace, and nobody reads or writes a call they are not part of.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterator
 
 import pytest
@@ -170,3 +171,52 @@ def test_busy_is_read_in_the_callees_own_context(client: TestClient) -> None:
     assert busy["outcome"] == "busy"
     notes = client.get("/api/v1/notifications", headers=headers("bob")).json()["items"]
     assert [n["kind"] for n in notes] == ["missed_call"]
+
+
+def test_delete_my_data_rewrites_my_side_and_keeps_the_other_persons_history(
+    client: TestClient, app_session: Callable[..., Iterator[Session]], database_engine: Engine
+) -> None:
+    call = _place(client)
+    client.post(f"/api/v1/calls/{call['id']}/accept", headers=headers("bob"), json={"client_id": DEVICE_B})
+    client.post(f"/api/v1/calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
+    exported = client.get("/api/v1/privacy/export", headers=headers("alice")).json()["app_calls"]
+    assert [(c["direction"], c["peer_name"]) for c in exported] == [("outgoing", "bob")]
+    assert "peer_user_id" not in exported[0]
+    deleted = client.post("/api/v1/privacy/delete", headers=headers("alice"), json={"confirm": "DELETE MY DATA"})
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["deleted"]["app_calls"] == 1 and deleted.json()["deleted"]["app_call_signals"] == 1
+    assert _visible(app_session, ctx("alice"), "app_calls") == 0
+    assert _visible(app_session, ctx("bob"), "app_call_signals") == 0
+    items = client.get("/api/v1/calls", headers=headers("bob")).json()["items"]
+    assert [(i["peer_name"], i["status"], i["outcome"]) for i in items] == [("Deleted user", "ended", "failed")]
+    with database_engine.connect() as connection:
+        row = connection.execute(text("select caller_user_id, caller_name, caller_client_id from app_calls")).one()
+    assert row.caller_user_id.startswith("deleted:") and row.caller_name == "Deleted user" and row.caller_client_id == "deleted"
+
+
+def test_the_daily_retention_job_discovers_old_calls_as_maintenance(
+    client: TestClient, database_engine: Engine, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from anum_api.app_calls import purge_retention
+    from anum_api.voice_retention import main as retention_main
+
+    old = _place(client)
+    client.post(f"/api/v1/calls/{old['id']}/end", headers=headers("alice"), json={"reason": "hangup"})
+    recent = _place(client, "carol", "bob")
+    client.post(f"/api/v1/calls/{recent['id']}/end", headers=headers("carol"), json={"reason": "hangup"})
+    with database_engine.begin() as connection:
+        connection.execute(text("update app_calls set ended_at = now() - interval '400 days' where id = :id"), {"id": old["id"]})
+    # The maintenance role reads five columns of ended calls only, never names or devices.
+    with database_engine.connect() as connection:  # rolled back on close
+        connection.execute(text("set local role anum_maintenance"))
+        rows = connection.execute(text("select id from app_calls")).scalars().all()
+        assert set(rows) == {old["id"]}
+    with database_engine.connect() as connection, pytest.raises(DBAPIError):
+        connection.execute(text("set local role anum_maintenance"))
+        connection.execute(text("select caller_name from app_calls"))
+    assert purge_retention(retention_days=365, dry_run=True) == {"retention_days": 365, "dry_run": True, "calls": 1}
+    assert retention_main([]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["app_calls"] == {"retention_days": 365, "dry_run": False, "calls": 1}
+    with database_engine.connect() as connection:
+        assert connection.execute(text("select id from app_calls")).scalars().all() == [recent["id"]]

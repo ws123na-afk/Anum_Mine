@@ -4,6 +4,8 @@ import type { Message } from './types.ts';
 
 export const appCallsEn = {
   'team.tab.calls': 'Calls',
+  'privacy.row.app_calls': 'Your calls with teammates (the other person keeps theirs, showing you as a deleted user)',
+  'privacy.row.app_call_signals': 'Call setup messages',
   'calls.call': 'Call',
   'calls.video': 'Video',
   'calls.callPerson': 'Call {name}',

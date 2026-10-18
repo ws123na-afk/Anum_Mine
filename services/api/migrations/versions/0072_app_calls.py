@@ -12,7 +12,14 @@ Both tables belong to one tenant and workspace (foreign key to ``workspaces``) u
 RLS: ``tenant_isolation_<table>`` on ``anum.tenant_id`` and ``anum.workspace_id``, a
 restrictive ``participants_only_<table>`` that admits a row only to its two participants
 (``anum.user_id``), and a restrictive insert policy: only the caller inserts a call and
-only the sender inserts a signal. No role is granted anything new.
+only the sender inserts a signal.
+
+Retention (``python -m anum_api.voice_retention``, the daily job): ``anum_maintenance`` may
+discover ended calls older than seven days, and reads only ``id``, ``tenant_id``,
+``workspace_id``, ``caller_user_id`` and ``ended_at`` (a column grant and a permissive select
+policy for that role; the participants-only policy admits that role's reads). The job
+then deletes as the application role inside the caller's RLS context. Grant
+``anum_maintenance`` ``WITH INHERIT FALSE, SET TRUE`` (as the bootstrap already does).
 
 Expand only: two new tables. The previous release ignores them.
 
@@ -35,7 +42,8 @@ PREDICATE = (
 )
 ME = "nullif(current_setting('anum.user_id', true), '')"
 PARTICIPANTS = {
-    "app_calls": f"{ME} in (caller_user_id, callee_user_id)",
+    # The maintenance role reads (never writes) ended calls for retention; see below.
+    "app_calls": f"{ME} in (caller_user_id, callee_user_id) or current_user = 'anum_maintenance'",
     "app_call_signals": f"{ME} in (sender_user_id, recipient_user_id)",
 }
 INSERTER = {
@@ -134,7 +142,7 @@ def upgrade() -> None:
             create policy participants_only_{table} on {table}
             as restrictive
             using ({PARTICIPANTS[table]})
-            with check ({PARTICIPANTS[table]})
+            with check ({PARTICIPANTS[table].split(" or current_user")[0]})
             """
         )
         op.execute(
@@ -147,6 +155,18 @@ def upgrade() -> None:
         )
 
 
+    op.execute("grant select (id, tenant_id, workspace_id, caller_user_id, ended_at) on app_calls to anum_maintenance")
+    # Permissive policies are OR-ed per role, so this widens access for this role only.
+    op.execute(
+        """
+        create policy maintenance_ended_app_calls on app_calls
+        for select to anum_maintenance
+        using (status = 'ended' and ended_at <= now() - interval '7 days')
+        """
+    )
+
+
 def downgrade() -> None:
+    op.execute("drop policy if exists maintenance_ended_app_calls on app_calls")
     op.drop_table("app_call_signals")
     op.drop_table("app_calls")
