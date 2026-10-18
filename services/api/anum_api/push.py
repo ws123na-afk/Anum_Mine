@@ -442,6 +442,8 @@ TEXT_AR: dict[PushKind, tuple[str, str]] = {
     PushKind.AUTOMATION_NOTICE: ("تحديث أتمتة", "لدى أتمتة رسالة لك. افتح ANUM لقراءتها."),
     PushKind.AUTOMATION_FAILED: ("فشلت الأتمتة", "تعذر إكمال أتمتة."),
     PushKind.FINANCE_REPORT: ("تقرير التداول اليومي", "تقرير التداول المحاكى لليوم جاهز. لم يُنفذ أي أمر حقيقي."),
+    PushKind.INCOMING_CALL: ("مكالمة واردة", "زميل يتصل بك. افتح ANUM للرد."),
+    PushKind.MISSED_CALL: ("مكالمة فائتة", "حاول زميل الاتصال بك في ANUM."),
 }
 
 
@@ -556,10 +558,6 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         if event.payload.get("kind") == "finance_daily_report":
             # Not team work: its own kind and text, opening Finance on the phone.
             return PushIntent(**{**common, "kind": PushKind.FINANCE_REPORT}, recipient=recipient)
-        from .notifications import IN_APP_ONLY_KINDS
-
-        if event.payload.get("kind") in IN_APP_ONLY_KINDS:
-            return None  # not team work: in-app and email only
         return PushIntent(**common, recipient=recipient, work_item_id=item if isinstance(item, str) and item else None)
     if kind in {PushKind.TASK_COMPLETED, PushKind.RUN_FAILED}:
         if task_id is None:
