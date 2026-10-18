@@ -92,9 +92,13 @@ def test_overview_is_read_only_and_writes_nothing() -> None:
     for path in ("/overview", "/strategies", f"/strategies/{strategy.id}/runs", "/decisions"):
         assert client.get(f"{INTEL}{path}", headers=MEMBER).status_code == 200
     assert (len(finance_store.list_portfolios(_ctx())), len(memory_repository.store.audit_records)) == before
+    # The read router has GET routes only; the person's writes live in intel_control_api.py.
+    from anum_api.finance import intel_api
+
+    methods = {route.path: set(route.methods) for route in intel_api.router.routes}  # type: ignore[attr-defined]
+    assert methods and all(m == {"GET"} for m in methods.values())
     paths = main.app.openapi()["paths"]
-    intel = {p: set(v) for p, v in paths.items() if p.startswith(INTEL)}
-    assert intel and all(methods == {"get"} for methods in intel.values())
+    assert all(set(paths[path]) >= {"get"} for path in methods)
 
 
 def _ctx():

@@ -12,7 +12,12 @@ const RULES = { allowed_currencies: ['USD'], max_single: [{ currency: 'USD', amo
   blocked_merchants: [], approval_above: [], quiet_hours: null, cooling_off: null };
 const NO_RULES = { ...RULES, allowed_currencies: [], max_single: [] };
 
-interface Options { recorded?: boolean; empty?: boolean; failOverview?: boolean; denied?: boolean; failStrategies?: boolean; slow?: boolean }
+interface Options { recorded?: boolean; empty?: boolean; failOverview?: boolean; denied?: boolean; failStrategies?: boolean; slow?: boolean; instruments?: boolean }
+
+const RULE_LIST = [
+  { key: 'buy_and_hold', name: 'Buy and hold', code_version: '1.0.0', candidate: 0, candidate_name: 'Benchmark', hypothesis: 'The comparison point.', instruments: 'Any', timeframe: 'Daily bars', entry: 'Buy equal weights at the first open.', exit: 'None.', defaults: {}, min_symbols: 1, max_symbols: 10 },
+  { key: 'trend_vol', name: 'Trend following with volatility controls', code_version: '1.0.0', candidate: 2, candidate_name: 'Trend following with volatility-based controls', hypothesis: 'Prices that have risen tend to keep rising for a while.', instruments: 'Equities and ETFs', timeframe: 'Daily bars', entry: 'SMA(fast) above SMA(slow).', exit: 'A trailing stop of 3 x ATR(14).', defaults: { fast: 50, slow: 200 }, min_symbols: 1, max_symbols: 10 },
+];
 
 function strategies(count: number) {
   return Array.from({ length: count }, (_, i) => ({
@@ -52,7 +57,9 @@ const EMPTY = { items: [], total: 0, limit: 10, offset: 0 };
 
 async function mockApi(page: Page, o: Options = {}) {
   const state = financeState({ denied: o.denied, agentProposal: true });
-  const all = strategies(25);
+  const all: ReturnType<typeof strategies> = strategies(25);
+  const instruments: Record<string, unknown>[] = o.instruments ? [{ id: 'ins_1', symbol: 'EXMPL', name: null, asset_class: 'etf', venue: 'XNYS', currency: 'USD',
+    listed_on: '2000-01-03', delisted_on: null, bars: 900, first_bar: '2023-01-02', last_bar: '2026-10-14', last_source: 'Broker export' }] : [];
   const sent: { method: string; path: string; body: unknown }[] = [];
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
@@ -65,12 +72,47 @@ async function mockApi(page: Page, o: Options = {}) {
     if (path === '/api/v1/workspaces/current') return json({ id: 'workspace_foundation', tenant_id: 'tenant_local', name: 'Foundation', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', archived_at: null, archived_by: null });
     if (path === '/api/v1/me/workspace-memberships') return json([{ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', role: 'member', active: true }]);
     if (path === '/api/v1/tasks' || path === '/api/v1/approvals' || path === '/api/v1/conversations') return json([]);
-    const body = request.postData() ? request.postDataJSON() : null;
+    // A plain record, so the mock can read any field the page sent.
+    const body = (request.postData() ? request.postDataJSON() : null) as Record<string, any>;
     if (path.startsWith('/api/v1/finance')) sent.push({ method: request.method(), path, body });
     if (path.startsWith('/api/v1/finance/intel')) {
       if (o.denied) return json({ error: { code: 'forbidden', message: 'Your role is viewer. Ask a workspace owner to change your role from viewer to member to use finance.', correlation_id: 'c', details: [] } }, 403);
       if (o.slow) await new Promise((resolve) => setTimeout(resolve, 600));
       const limit = Number(url.searchParams.get('limit') ?? 20), offset = Number(url.searchParams.get('offset') ?? 0);
+      const method = request.method();
+      if (path.endsWith('/intel/rules')) return json(RULE_LIST);
+      if (path.endsWith('/intel/instruments') && method === 'GET') return json(instruments);
+      if (path.endsWith('/intel/instruments') && method === 'POST') {
+        const made = { id: `ins_${instruments.length + 1}`, symbol: String(body.symbol).toUpperCase(), name: null, asset_class: body.asset_class, venue: body.venue,
+          currency: String(body.currency).toUpperCase(), listed_on: body.listed_on ?? null, delisted_on: null, bars: 0, first_bar: null, last_bar: null, last_source: null };
+        instruments.push(made);
+        return json(made, 201);
+      }
+      if (/\/intel\/instruments\/[^/]+\/bars$/.test(path)) {
+        const target = instruments.find((i) => path.includes(`/${i.id}/`));
+        if (!String(body.payload).includes('Date')) return json({ error: { code: 'validation_error', message: 'Missing column(s): date.', correlation_id: 'c', details: [] } }, 422);
+        Object.assign(target!, { bars: 3, first_bar: '2026-10-12', last_bar: '2026-10-14', last_source: body.source });
+        return json({ imported: 3, changed: 3, first: '2026-10-12', last: '2026-10-14', issues: [] });
+      }
+      if (path.endsWith('/intel/strategies') && method === 'POST') {
+        const made = { ...strategies(1)[0], id: 'strat_new', name: RULE_LIST.find((r) => r.key === body.key)!.name, key: body.key, state: 'DRAFT', version: 1, reason: body.reason, state_changed_by: 'person' };
+        all.unshift(made);
+        return json(made, 201);
+      }
+      if (/\/intel\/strategies\/[^/]+\/transition$/.test(path)) {
+        const target = all.find((x) => path.includes(`/${x.id}/`))!;
+        if (body.state === 'PAPER_ACTIVE') return json({ error: { code: 'conflict', message: 'Not ready for paper trading: not_reproduced, no_portfolio.', correlation_id: 'c', details: [] } }, 409);
+        Object.assign(target, { state: body.state, reason: body.reason, state_changed_by: 'person' });
+        return json(target);
+      }
+      if (/\/intel\/strategies\/[^/]+\/evaluate$/.test(path)) return json({ id: 'run_new', strategy_id: 'strat_1', kind: body.kind, verdict: body.kind === 'backtest' ? 'completed' : 'rejected' }, 201);
+      if (/\/intel\/strategies\/[^/]+\/portfolio$/.test(path)) {
+        const target = all.find((x) => path.includes(`/${x.id}/`))!;
+        Object.assign(target, { portfolio_id: body.portfolio_id });
+        return json(target);
+      }
+      if (path.endsWith('/intel/supervisor/run')) return json({ cycle_id: 'cyc_9', phase: body.phase, skipped: false, simulated: true, active_strategies: 1, proposed_orders: 1, refused_signals: 0, suspended: 0, halted: 0, decisions: 6 });
+      if (path.endsWith('/intel/pause-all')) return json({ paused: ['strat_1'], simulated: true });
       if (path.endsWith('/overview')) return o.failOverview ? json({ error: { code: 'internal_error', message: 'The database is not reachable.', correlation_id: 'c', details: [] } }, 503) : json(overview(o));
       if (path.endsWith('/strategies')) {
         if (o.failStrategies) return json({ error: { code: 'internal_error', message: 'The strategy store timed out.', correlation_id: 'c', details: [] } }, 503);
@@ -268,3 +310,100 @@ for (const [width, height] of VIEWPORTS) {
     }
   });
 }
+
+
+test('add an instrument, import bars and create a draft strategy, each after a confirmation where it changes research', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-intel');
+  const data = page.getByRole('region', { name: 'Market data' });
+  await expect(data.getByRole('heading', { name: 'No instrument yet' })).toBeVisible();
+  const research = page.getByRole('region', { name: 'New strategy' });
+  await expect(research).toContainText('Import daily bars for at least one instrument first');
+  await data.getByRole('button', { name: 'Add instrument' }).first().click();
+  const form = data.getByRole('form', { name: 'Add instrument' });
+  await expect(form.getByRole('textbox', { name: 'Symbol' })).toBeFocused();
+  await form.getByRole('button', { name: 'Add instrument' }).click();
+  await expect(form.getByRole('alert')).toContainText('Enter a symbol and a currency.');
+  await expect(form.getByRole('textbox', { name: 'Symbol' })).toBeFocused();
+  await form.getByRole('textbox', { name: 'Symbol' }).fill('exmpl');
+  await form.getByRole('combobox', { name: 'Type' }).selectOption('etf');
+  await form.getByRole('button', { name: 'Add instrument' }).click();
+  await expect(data).toContainText('EXMPL added. Import its daily bars next.');
+  const table = data.getByRole('table', { name: 'Your instruments and their stored bars' });
+  await expect(table).toContainText('No bars yet');
+  // A bad file says what is wrong; a good one is stored with its source.
+  const chooser = page.waitForEvent('filechooser');
+  await table.getByRole('button', { name: 'Import daily bars for EXMPL' }).click();
+  await (await chooser).setFiles({ name: 'notes.xlsx', mimeType: 'application/octet-stream', buffer: Buffer.from('x') });
+  await expect(data.getByText('Choose a .csv or .txt file.')).toBeVisible();
+  const chooser2 = page.waitForEvent('filechooser');
+  await table.getByRole('button', { name: 'Import daily bars for EXMPL' }).click();
+  await (await chooser2).setFiles({ name: 'exmpl.csv', mimeType: 'text/csv', buffer: Buffer.from('Date,Open,High,Low,Close,Volume\n2026-10-12,1,1,1,1,1\n') });
+  await expect(data).toContainText('3 bars read, 3 new or changed.');
+  await expect(table).toContainText('3 bars, 2026-10-12 to 2026-10-14');
+  // New strategy: rule details, checks, then a confirmation before anything is saved.
+  await research.getByRole('button', { name: 'New strategy' }).click();
+  const newForm = research.getByRole('form', { name: 'New strategy' });
+  await newForm.getByRole('combobox', { name: 'Rule' }).selectOption('trend_vol');
+  await expect(newForm).toContainText('A trailing stop of 3 x ATR(14).');
+  await newForm.getByRole('button', { name: 'Create draft' }).click();
+  await expect(newForm.getByRole('alert')).toContainText('This rule needs 1 to 10 instruments.');
+  await newForm.getByRole('checkbox', { name: /EXMPL/ }).check();
+  await newForm.getByRole('textbox', { name: 'Why' }).fill('Trend idea with risk control');
+  await newForm.getByRole('button', { name: 'Create draft' }).click();
+  const dialog = page.getByRole('alertdialog', { name: 'Create this strategy as a draft?' });
+  await expect(dialog).toContainText('It does not trade');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(sent.some((r) => r.method === 'POST' && r.path.endsWith('/intel/strategies'))).toBe(false);
+  await newForm.getByRole('button', { name: 'Create draft' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Create draft' }).click();
+  await expect(research).toContainText('Trend following with volatility controls version 1 created in Draft.');
+  const created = sent.find((r) => r.method === 'POST' && r.path.endsWith('/intel/strategies'));
+  expect(created?.body).toMatchObject({ key: 'trend_vol', instrument_ids: ['ins_1'], reason: 'Trend idea with risk control' });
+});
+
+test('lifecycle moves, evaluations and a Supervisor cycle ask first and show what happened', async ({ page }) => {
+  const { sent } = await mockApi(page, { recorded: true, instruments: true });
+  await page.goto('/#finance-intel');
+  const region = page.getByRole('region', { name: 'Strategies' });
+  // strat_2 is in VALIDATION: the person may move it to paper trading, back, or retire it.
+  await region.getByRole('table', { name: 'Your strategies and their lifecycle state' }).getByRole('row', { name: /Mean reversion 2\b/ }).getByRole('button', { name: 'Results' }).click();
+  const actions = region.getByRole('region', { name: 'Actions for Mean reversion 2' });
+  const move = actions.getByRole('combobox', { name: 'Move to' });
+  await expect(move.locator('option')).toHaveText(['Choose a state', 'Paper active', 'Backtesting', 'Retired']);
+  await actions.getByRole('button', { name: 'Move' }).click();
+  await expect(actions).toContainText('Choose a state and say why.');
+  await move.selectOption('PAPER_ACTIVE');
+  await actions.getByRole('textbox', { name: 'Why' }).fill('Passed my review');
+  await actions.getByRole('button', { name: 'Move' }).click();
+  const confirm = page.getByRole('alertdialog', { name: 'Move to Paper active?' });
+  await expect(confirm).toContainText('still waits for your approval');
+  await confirm.getByRole('button', { name: 'Move' }).click();
+  // The server refuses: the reason is shown, nothing changed.
+  await expect(actions.getByText('Not ready for paper trading: not_reproduced, no_portfolio.')).toBeVisible();
+  await actions.getByRole('combobox', { name: 'Paper portfolio' }).selectOption('fin_pf_1');
+  await actions.getByRole('button', { name: 'Use this portfolio' }).click();
+  await expect(actions).toContainText('It will trade with the simulated cash of Practice');
+  await actions.getByRole('button', { name: 'Run walk-forward validation' }).click();
+  await page.getByRole('alertdialog', { name: 'Run a walk-forward validation?' }).getByRole('button', { name: 'Run walk-forward validation' }).click();
+  await expect(actions).toContainText('Walk-forward validation finished: Rejected.');
+  await actions.getByRole('combobox', { name: 'Move to' }).selectOption('BACKTESTING');
+  await actions.getByRole('textbox', { name: 'Why' }).fill('More research');
+  await actions.getByRole('button', { name: 'Move' }).click();
+  await page.getByRole('alertdialog', { name: 'Move to Backtesting?' }).getByRole('button', { name: 'Move' }).click();
+  await expect(region.getByRole('region', { name: 'Actions for Mean reversion 2' })).toContainText('Moved to Backtesting.');
+  // A Supervisor cycle, then the emergency pause.
+  const sup = page.getByRole('region', { name: 'Trading Supervisor' });
+  await sup.getByRole('combobox', { name: 'Phase' }).selectOption('post_close');
+  await sup.getByRole('button', { name: 'Run cycle' }).click();
+  const runDialog = page.getByRole('alertdialog', { name: 'Run the After the close cycle now?' });
+  await expect(runDialog).toContainText('waits for your approval');
+  await runDialog.getByRole('button', { name: 'Run cycle' }).click();
+  await expect(sup.getByRole('status')).toContainText('1 orders proposed for your approval');
+  await sup.getByRole('button', { name: 'Pause all paper strategies' }).click();
+  await page.getByRole('alertdialog', { name: 'Pause all paper strategies?' }).getByRole('button', { name: 'Pause all paper strategies' }).click();
+  await expect(sup).toContainText('1 strategy version(s) paused.');
+  const writes = sent.filter((r) => r.method !== 'GET').map((r) => r.path.replace('/api/v1/finance', ''));
+  expect(writes).toEqual(['/intel/strategies/strat_2/transition', '/intel/strategies/strat_2/portfolio', '/intel/strategies/strat_2/evaluate',
+    '/intel/strategies/strat_2/transition', '/intel/supervisor/run', '/intel/pause-all']);
+});

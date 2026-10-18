@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..dependencies import tenant_context
 from ..schemas import TenantContext, utc_now
@@ -280,6 +280,8 @@ class RunView(BaseModel):
     folds: list[FoldView]
     reproduced: bool
     requested_by: str
+    # The reproducible evaluation report of a walk-forward run (intel/report.py); empty for a backtest.
+    report: dict[str, Any] = Field(default_factory=dict)
     simulated: bool = True
 
 
@@ -348,6 +350,7 @@ def run_view(item: StrategyRun) -> RunView:
         costs={str(k)[:40]: str(v)[:40] for k, v in list(item.costs.items())[:20]}, metrics=_numbers(item.metrics), benchmark=_numbers(item.benchmark),
         verdict=item.verdict, reasons=_texts(item.reasons), warnings=_texts(item.warnings),
         folds=[fold_view(i, f) for i, f in enumerate(item.folds[:50])], reproduced=item.reproduced, requested_by=item.requested_by[:40],
+        report=item.report if item.kind == "walk_forward" else {},
     )
 
 

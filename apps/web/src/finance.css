@@ -278,3 +278,24 @@
 @media (max-width: 760px) {
   .finIntelActions > button { flex: 1 1 100%; justify-content: center; }
 }
+/* Trading intelligence actions (FinanceIntelActions.tsx) */
+.finIntelStrategyActions { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
+.finIntelStrategyActions h3 { font-size: 15px; margin: 0; overflow-wrap: anywhere; }
+.finIntel .cmFilters { align-items: end; flex-wrap: wrap; min-width: 0; }
+.finIntel .cmFilters > .field { flex: 1 1 12rem; min-width: 0; }
+.finIntel .cmFilters > button { align-items: center; display: inline-flex; gap: var(--d-s2); justify-content: center; min-height: 44px; }
+.finIntel .cmFilters > button:not(.secondary):not(.danger) {
+  background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow);
+  color: #fff; font-size: 14px; font-weight: 650; padding: 10px var(--d-s4);
+}
+.finIntel .cmFilters > button:not(.secondary):not(.danger):hover:not(:disabled) { background: var(--d-primary-grad-hover); }
+.finIntel .cmFilters > button.danger { padding: 0 var(--d-s4); }
+.finIntelRule { background: var(--d-glass-1); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); margin: 0; padding: var(--d-s3); }
+.finIntelRule > div { display: grid; gap: 2px; min-width: 0; }
+.finIntelRule dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
+.finIntelRule dd { margin: 0; overflow-wrap: anywhere; }
+.finIntelPick { border: 1px solid var(--d-line); border-radius: var(--d-r-control); margin: 0; min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.finIntelPick legend { font-size: 13px; font-weight: 600; padding: 0 var(--d-s1); }
+.finIntelPick.finChecks { grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); }
+.finIntelPick .finCheck { flex-wrap: wrap; }
+.finIntelImport button { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 36px; white-space: nowrap; }

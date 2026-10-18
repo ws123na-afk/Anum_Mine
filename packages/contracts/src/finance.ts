@@ -870,7 +870,48 @@ export interface FinanceStrategyRun {
   /** A re-run on the same bars gave the same hash and metrics. */
   reproduced: boolean;
   requested_by: string;
+  /** The reproducible evaluation report of a walk-forward run (empty for a backtest). */
+  report?: FinanceEvaluationReport | Record<string, never>;
   simulated: true;
+}
+
+/** intel/report.py `evaluation_report`: everything needed to repeat and judge a walk-forward run. Never says profitable. */
+export interface FinanceEvaluationReport {
+  label: 'SIMULATED';
+  disclaimer: string;
+  strategy: { key: string; name: string; code_version: string; candidate: number; candidate_name: string; hypothesis: string; instruments: string; timeframe: string; entry: string; exit: string; params: Record<string, unknown> | null };
+  data: { source: string; sha256: string; symbols: string[] };
+  costs: Record<string, string>;
+  method: string;
+  verdict: FinanceRunVerdict;
+  verdict_text: string;
+  reasons: { code: string; text: string }[];
+  warnings: { code: string; text: string }[];
+  worst_drawdown: number | null;
+  worst_window: { test: [string, string]; return: number; drawdown: number } | null;
+  beats_benchmark: boolean | null;
+}
+
+// ---- Trading intelligence actions (finance/intel_control_api.py) ----------------------------------
+
+export type FinanceIntelAssetClass = 'equity' | 'etf' | 'crypto' | 'forex' | 'commodity';
+export type FinanceIntelPhase = 'pre_open' | 'intraday' | 'post_close' | 'weekly' | 'monthly';
+
+export interface FinanceIntelInstrument {
+  id: string; symbol: string; name: string | null; asset_class: FinanceIntelAssetClass; venue: string; currency: string;
+  listed_on: string | null; delisted_on: string | null; bars: number; first_bar: string | null; last_bar: string | null; last_source: string | null;
+}
+export interface FinanceIntelInstrumentInput { symbol: string; asset_class: FinanceIntelAssetClass; venue: string; currency: string; name?: string | null; listed_on?: string | null }
+export interface FinanceIntelBarsInput { provider: 'csv_import' | 'stooq' | 'binance_public'; payload: string; source?: string | null }
+export interface FinanceIntelBarsResult { imported: number; changed: number; first: string | null; last: string | null; issues: { code: string; day: string; message: string }[] }
+export interface FinanceIntelRule {
+  key: string; name: string; code_version: string; candidate: number; candidate_name: string; hypothesis: string; instruments: string;
+  timeframe: string; entry: string; exit: string; defaults: Record<string, number>; min_symbols: number; max_symbols: number;
+}
+export interface FinanceStrategyInput { key: string; instrument_ids: string[]; params?: Record<string, number> | null; name?: string | null; reason: string }
+export interface FinanceIntelCycle {
+  cycle_id: string; phase: FinanceIntelPhase; skipped: boolean; reason?: string; simulated: true; active_strategies?: number;
+  proposed_orders?: number; refused_signals?: number; suspended?: number; halted?: number; decisions: number;
 }
 
 export type FinanceIntelAgent = 'person' | 'trading_supervisor' | 'market_research' | 'technical_analysis' | 'strategy_research' | 'portfolio'

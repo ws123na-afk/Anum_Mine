@@ -9,12 +9,17 @@ The code is the pure package `services/api/anum_api/finance/intel/`: no network 
 | Loop | Scope | State |
 |---|---|---|
 | 1 | Gap assessment | Done ([gap assessment](finance-trading-gap-assessment.md)) |
-| 3 | Calendars, market-data parsing and checks, synthetic data | Pure code and tests done. Storage (migration `0060`), the instrument API and fetch jobs are **not built yet** |
-| 4 | Indicators, backtester, benchmark strategies, walk-forward validation | Pure code and tests done. Stored runs and the API are **not built yet** |
-| Addendum | Storage (migration `0060_finance_intel`) and the strategy lifecycle | Done, with unit and PostgreSQL tests |
-| 2, 5 to 9 | Skills, strategy runs into paper and shadow, daily jobs, screens, owner commands, security review, live design | **Not started** |
+| 2 | Trading knowledge library and agent skills | **In progress** |
+| 3 | Calendars, market data, storage | Done: calendars, CSV and recorded-provider parsing with checks, instruments and bars stored (migration `0060_finance_intel`), import API. Network fetch from providers is off until the owner accepts their terms |
+| 4 | Indicators, backtester, the six candidates, walk-forward validation, reports | Done, with tests |
+| 5 | Strategy signals into SIMULATED paper orders | Done: the Supervisor's Execution Coordinator through the existing gateway and Guardian; every order waits for the person's approval |
+| 6 | Scheduled agent operations | Done: `finance.intel.cycle` automation step, phases by venue calendar, idempotent cycles |
+| 7 | Dashboard | Done on the web: the read view (`intel_api.py`) and the actions (market data, new strategies, evaluations, lifecycle moves, Supervisor cycles, pause). P&L and drawdown charts and the Flutter screens are built separately |
+| 8 | Daily reports, monitoring, incidents | Partly: each cycle records its summary and every agent decision; the post-close report document is open |
+| 9 | Security, performance, regression, Oracle checks | Open |
+| 10 | Live-trading readiness assessment (nothing enabled) | [Readiness report](finance-trading-readiness.md) |
 
-Nothing in this package can place an order. Loop 5 is where a strategy signal may become a SIMULATED order, and only through the existing Guardian `gate` and execution gateway.
+No code here can place a real order. A strategy signal becomes, at most, a SIMULATED paper order request through the existing Guardian `gate` and execution gateway, approved by the person.
 
 ## Calendars
 
@@ -71,15 +76,23 @@ Metrics: total return, CAGR, annualised volatility, Sharpe and Sortino (no risk-
 
 `intel/strategies.py`: a registry of small, readable rules, each with a key, a version, default parameters and a small grid. A logic change is a new version; a stored run will keep the version it used.
 
-| Key | Kind | Rule | Defaults |
+The six research candidates of the brief, plus the benchmark (`CANDIDATES`, `by_candidate()`). Every rule carries its hypothesis, instruments, timeframe and exact entry and exit rules in the registry, and every one passes the look-ahead probe (tested).
+
+| Candidate | Key | Rule | Defaults |
 |---|---|---|---|
-| `buy_and_hold` | Benchmark | Equal weights on the first bar, held | |
-| `trend_sma` | Trend following | Hold while the fast SMA is above the slow one | 50 / 200 |
-| `rsi_reversion` | Mean reversion | Buy below RSI `low`, sell above `exit` | 14, 30, 55 |
-| `momentum` | Momentum | Every `every` bars, hold the `top` symbols with return over `lookback` above `threshold` | 120, 0, 1, 21 |
-| `periodic` | Periodic investing | Invest in `tranches` equal steps every `every` bars | 12, 21 |
-| `rebalance` | Rebalancing | Back to fixed weights every `every` bars | 63, equal |
-| `pair_ratio` | Pair trading, long only | Hold the cheaper leg when the log price ratio is `entry_z` deviations from its mean; flat within `exit_z` | 60, 2.0, 0.5 |
+| Benchmark | `buy_and_hold` | Equal weights on the first bar, held | |
+| 1. Diversified periodic investing and rebalancing | `periodic` | Invest in `tranches` equal steps every `every` bars | 12, 21 |
+| | `rebalance` | Back to fixed weights every `every` bars | 63, equal |
+| 2. Trend following with volatility controls | `trend_sma` | Hold while SMA(`fast`) is above SMA(`slow`) | 50 / 200 |
+| | `trend_vol` | The same, sized to `target_vol` / 20-bar volatility, closed by a trailing stop `atr_stop` x ATR(14) below the highest close since entry | 50 / 200, 15%, 3 |
+| 3. Momentum and breakout | `momentum` | Every `every` bars hold the `top` symbols with return over `lookback` above `threshold` | 120, 0, 1, 21 |
+| | `breakout` | Buy a close above the highest close of the previous `entry` bars; sell a close below the lowest of the previous `exit` bars (Donchian) | 55, 20 |
+| 4. Mean reversion with regime filters | `rsi_reversion` | Buy RSI below `low`, sell above `exit` | 14, 30, 55 |
+| | `rsi_regime` | Buy RSI(14) below `low` only above SMA(`trend`) with ADX(14) under `max_adx`; sell above `exit` or below the average | 30, 55, 200, 25 |
+| 5. Statistical pairs trading | `pair_ratio` | Hold the cheaper leg when the log price ratio is `entry_z` deviations from its mean; flat within `exit_z`. Long only: no short leg | 60, 2.0, 0.5 |
+| 6. Crypto spot | `crypto_trend` | Hold while EMA(`fast`) is above EMA(`slow`) and RSI(14) is under `max_rsi`, sized to `target_vol` (365-day volatility). Spot only | 20 / 50, 75, 50% |
+
+Candidate 6 and Freqtrade: the brief named crypto strategies supported by Freqtrade. Freqtrade is not adopted (GPL 3.0, its own bot loop, order model and exchange keys: see below), so no Freqtrade strategy file is imported or run. `crypto_trend` is a native rule in the same backtester, gateway and Guardian path as every other candidate, evaluated on daily crypto bars with 365 periods a year.
 
 Parameters are checked: unknown names, non-numbers, values out of range and contradictions (fast not shorter than slow, RSI levels out of order, weights over 1 or naming other symbols) are refused with a message. These are benchmark rules for research, not recommendations.
 
@@ -101,6 +114,61 @@ A strategy **passes** only when none of these apply; otherwise it is **rejected*
 Fewer than 2 test windows gives `insufficient_data`. An instrument with unknown listing dates carries the warning `survivorship_unknown` (a universe chosen from today's listings overstates the past).
 
 Every result carries a SHA-256 of the exact bars it used and the cost assumptions. Passing means the rule held up on these past bars with these costs. It says nothing certain about the future.
+
+## Evaluation reports
+
+`intel/report.py` and `intel/research.py`. Every walk-forward run of a stored version produces a report that restates what is needed to repeat and judge it: rule, code version, hypothesis, instruments, timeframe, entry and exit rules, the version's parameters, the data source and SHA-256 of the bars, costs, method, verdict with every reason in words, warnings, out-of-sample metrics against buy and hold over the same span, the worst drawdown and the worst test window, and the folds. `report_markdown` renders it for exports and the daily report.
+
+A stored version is validated with **its own parameters fixed** in every fold (`walk_forward(..., params=...)`), so what is promoted is exactly what was tested; without `params`, each fold picks from the rule's grid (research only). The run is executed twice on the same bars and marked `reproduced` only if both results are identical. Reports are labelled SIMULATED and never say profitable, approved or recommended (tested).
+
+## Trading Supervisor
+
+`intel/supervisor.py`. Deterministic code, not a language model. One cycle runs one phase for one person and records a structured `AgentDecision` for everything each agent decided, grouped by a cycle id that is derived from the person, phase and day: a repeated or restarted cycle is skipped (`already_ran`), and an order request uses the idempotency key `intel:<version>:<bar day>:<symbol>:<side>`, so it is never doubled.
+
+| Agent | Does | Can never |
+|---|---|---|
+| Market Research | Freshness against the venue calendar, blocking series problems, an abnormal last move, missing volume; the source of the newest bar | Fetch data or follow instructions found in data |
+| Technical Analysis | Indicator snapshot, trend, volatility regime and contradictions per instrument | |
+| Strategy Research | Backtests and walk-forward runs; monthly revalidation of active versions (suspends one that no longer passes) | Promote, resume or rewrite a version |
+| Portfolio | The paper portfolio's simulated cash, positions, realised and unrealised P&L, fees and unpriced holdings | |
+| Risk Guardian | Before any order: allowed asset classes and one currency, data fresh (one session behind skips the signal; more, or missing or corrupt data, suspends), abnormal move and missing volume circuit breakers, a per-symbol cap of 25 percent of equity, a 3 percent daily simulated loss stop (suspends). Then the existing Guardian `gate` decides inside the gateway | Loosen a limit (`RiskLimits` accepts only stricter values) |
+| Execution Coordinator | Turns the rule's target weights into SIMULATED paper market order requests through `gateway.create_trade_intent` (`requested_by = agent`), recording the bar's close as a price with its source first, so the order is priced from stored data | Approve an order (each one waits for the person's hash-bound approval), use a shadow or live executor, or trade a currency pair |
+| Performance Reviewer | Runs the rule over the bars since it became active; suspends it when the drawdown is worse than validation's times 1.5; weekly, flags it when behind buy and hold | Change the strategy |
+
+Phases: `pre_open` (data checks and analysis for every active version), `intraday` and `post_close` (signals to order requests; after the close also portfolio and performance reviews), `weekly` (analysis and the benchmark comparison), `monthly` (revalidation). The person's or the organisation's kill switch halts a cycle before any agent runs.
+
+Every proposed order records the strategy and version, the instrument, the bar date and data source, the target weight and whether it was capped, the quantity, the gateway's estimate (fill price, notional, fee, slippage, price source), the Guardian outcome and the payload hash. Fills, positions and P&L come from the existing paper executor once the person approves.
+
+**Emergency pause**: `pause_all` suspends every PAPER_ACTIVE version at once (the person's action, recorded). The existing kill switch additionally stops every executor.
+
+A daily trading phase on a day none of the strategy's venues trades (by each venue's own local date and holiday list; crypto every day) records `market_closed` instead of trading.
+
+## Scheduled operations
+
+`intel/schedules.py` uses the existing automation engine: a schedule is an ordinary workflow with one `finance.intel.cycle` step (`input.phase`) and an automation schedule (cron and IANA time zone), visible in the Workbench like any other. After the engine commits a run it calls the step handler, which re-checks that the schedule's creator is still an active member with `finance:manage`, acts as that person (their own finance rows only) and runs the phase. The cycle is idempotent per person, phase and day, so a retried, duplicated or restarted fire never runs twice.
+
+`POST /api/v1/finance/intel/schedules` with `phase` and optional `time` (defaults: pre-open 08:30, intraday 12:00, post-close 17:30, weekly 18:00, monthly 07:00), `timezone` (default `Asia/Dubai`) and `weekday` (weekly, 0 is Sunday) creates one schedule per phase; `GET` lists your own, `DELETE /schedules/{id}` removes one. Daily phases are scheduled every day and skip themselves on days the venue does not trade.
+
+Not built yet: model-written commentary in the reports, and a check of the Oracle VM's load before heavy evaluations (loop 9).
+
+## API
+
+Write routes, `finance:manage`, in `finance/intel_control_api.py` under `/api/v1/finance/intel` (the read routes are in `intel_api.py`):
+
+| Route | Does |
+|---|---|
+| `POST /instruments`, `DELETE /instruments/{id}` | Add an instrument (symbol, asset class, venue, currency, listing dates); delete one no active strategy uses |
+| `POST /instruments/{id}/bars` | Import daily bars: `provider` `csv_import`, `stooq` or `binance_public` with the file or recorded response as `payload`. Blocking problems refuse the whole import; the rest are returned as issues. Idempotent |
+| `POST /strategies` | Version 1 of a strategy, in DRAFT, from a rule key and instruments |
+| `POST /strategies/{id}/versions` | The next version with changed parameters or instruments and a reason |
+| `POST /strategies/{id}/transition` | A lifecycle move by the person (409 when the rules refuse it) |
+| `POST /strategies/{id}/portfolio` | The paper portfolio the version will trade in |
+| `POST /strategies/{id}/evaluate` | A SIMULATED `backtest` or `walk_forward` run on the stored bars |
+| `POST /supervisor/run` | One Supervisor cycle for a phase, now |
+| `POST /pause-all` | The emergency pause |
+| `GET`, `POST /schedules`, `DELETE /schedules/{id}` | Your scheduled Supervisor cycles |
+
+Audit records carry ids, kinds, states, phases, counts and codes only; never a symbol, price or amount.
 
 ## Storage
 
@@ -153,6 +221,15 @@ Conclusion: a small pure-Python package inside the API, deterministic and tested
 ## Dashboard
 
 Finance, tab **Trading intelligence** (`#finance-intel`, `apps/web/src/FinanceIntel.tsx`). Read only and SIMULATED; the readiness report for loop 10 is [Trading readiness](finance-trading-readiness.md).
+
+**Actions** (`apps/web/src/FinanceIntelActions.tsx`, through the write routes in [API](#api)), each with a confirmation where it changes research and every state handled (loading, empty with a next step, the server's own error text, permission denied):
+
+* **Market data**: add an instrument (symbol, type, venue, currency, optional listing date) and import a CSV of daily bars per instrument; the table shows how many bars are stored, their range and source.
+* **New strategy**: pick a rule (grouped by research candidate, with its idea, entry and exit), the instruments with stored bars and a reason; it is created as version 1 in Draft after a confirmation.
+* **Per strategy** (with its results): run a backtest or a walk-forward validation, choose its paper portfolio, and move it to one of the states the person may choose from its current one. Starting paper trading and retiring ask for a stronger confirmation; the server's refusal (for example "Not ready for paper trading: not_reproduced") is shown as is.
+* **Trading Supervisor**: run one phase now (the result says how many orders were proposed for approval, signals refused, strategies suspended) and the emergency pause of every paper strategy.
+
+Tests: `apps/web/test/financeIntelActions.test.ts` and `apps/web/e2e/finance-intel.spec.ts`.
 
 API (`finance/intel_api.py`, `finance:read`, every row the caller's own under forced RLS; GET only, nothing is written or audited):
 
