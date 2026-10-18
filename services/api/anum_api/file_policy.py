@@ -12,7 +12,8 @@
   ``ANUM_SECRETS_KEY`` (every key verifies, the first signs, so rotation keeps links
   valid until they expire).
 * :class:`FileScanner` is the malware-scan hook point (docs/files.md#malware-scanning).
-  No scanner ships with ANUM; :func:`set_file_scanner` installs one.
+  ANUM ships a ClamAV adapter (:mod:`anum_api.file_scanner_clamav`), installed at startup
+  when ``ANUM_FILE_SCANNER=clamav``; :func:`set_file_scanner` installs any other.
 """
 
 from __future__ import annotations
@@ -261,6 +262,9 @@ class ScanVerdict:
     clean: bool
     # Shown to the uploader when the file is refused, e.g. the signature name.
     reason: str = ""
+    # False when the scanner was unavailable and scanning is optional (local only), so
+    # the bytes were accepted without being looked at.
+    scanned: bool = True
 
 
 class FileScanner(Protocol):

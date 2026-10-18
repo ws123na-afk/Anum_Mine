@@ -47,7 +47,7 @@ KEYCLOAK_ADMIN_VARS = {
     "KC_BOOTSTRAP_ADMIN_USERNAME",
     "KC_BOOTSTRAP_ADMIN_PASSWORD",
 }
-LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng", "beszel", "beszel-agent", "glitchtip", "coturn"}
+LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng", "clamd", "beszel", "beszel-agent", "glitchtip", "coturn"}
 MONITORING = {"beszel", "beszel-agent", "glitchtip"}
 ONE_SHOT = {"db-init", "migrate", "retention", "backup", "restore-tools", "backup-upload", "ollama-pull"}
 API_REQUIRED = {
@@ -217,7 +217,7 @@ def test_other_sites_share_only_caddy_on_their_own_network() -> None:
     # ANUM's own networks keep exactly their members.
     assert _members("edge") == {"caddy", "web", "api", "keycloak", "beszel", "glitchtip"}
     backend = {"postgres", "valkey", "db-init", "migrate", "api", "keycloak", "retention", "backup"}
-    backend |= {"restore-tools", "searxng", "ollama", "ollama-pull", "glitchtip"}
+    backend |= {"restore-tools", "searxng", "clamd", "ollama", "ollama-pull", "glitchtip"}
     assert _members("backend") == backend
     # Every Caddyfile upstream is reached over `edge`, never over `sites`, so the peer
     # address the API and Keycloak see stays Caddy's edge address.
@@ -847,6 +847,24 @@ def test_searxng_is_private_and_only_the_api_uses_it() -> None:
     assert "json" in searxng_settings["search"]["formats"]
     assert searxng_settings["server"]["limiter"] is False
     assert searxng_settings["server"]["public_instance"] is False
+
+
+def test_clamd_scans_every_upload_privately_and_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    services = _services()
+    clamd = services["clamd"]
+    # Reachable from the API on the internal network only; egress for signature updates.
+    assert set(clamd["networks"]) == {"backend", "egress"}
+    assert not clamd.get("ports") and not clamd.get("expose")
+    assert "clamd" not in CADDYFILE.read_text(encoding="utf-8").lower()
+    assert clamd["image"].startswith("clamav/clamav:") and clamd["image"].endswith("-debian13-slim")
+    assert any(str(volume).startswith("clamav-db:") for volume in clamd["volumes"])
+    # A bounded share of the 24 GB VM, and clamd accepts a full-size upload.
+    assert clamd["mem_limit"] == "3g"
+    assert _env(clamd)["CLAMD_CONF_StreamMaxLength"] == "26M"
+    settings = _settings(monkeypatch, _api_environment())
+    assert settings.file_scanner == "clamav" and settings.file_scan_required is True
+    assert (settings.clamav_host, settings.clamav_port) == ("clamd", 3310)
+    assert 26 * 1024 * 1024 > settings.max_upload_body_bytes
 
 
 # --------------------------------------------------------------------------- monitoring

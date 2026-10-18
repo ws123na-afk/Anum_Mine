@@ -1,3 +1,5 @@
+import re
+
 from pydantic import AliasChoices, BaseModel, Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -256,6 +258,15 @@ class Settings(BaseSettings):
     # Server-side encryption header for every object ("AES256", "aws:kms", or empty for none).
     s3_server_side_encryption: str = ""
     s3_create_bucket: bool = False
+    # Upload malware scanning (docs/files.md#malware-scanning): "off", or "clamav" for a
+    # clamd reached over TCP with INSTREAM (anum_api/file_scanner_clamav.py). With clamav,
+    # ANUM_FILE_SCAN_REQUIRED=true fails uploads closed (503, nothing stored) when clamd is
+    # unreachable or times out; false accepts them unscanned and is refused outside local.
+    file_scanner: str = Field(default="off", pattern="^(off|clamav)$")
+    clamav_host: str = ""
+    clamav_port: int = Field(default=3310, ge=1, le=65535)
+    clamav_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    file_scan_required: bool = True
     external_webhook_url: str | None = None
     external_webhook_api_key: str | None = None
     # Integration tool responses (REST and MCP) are read up to this many bytes; the rest
@@ -414,6 +425,16 @@ class Settings(BaseSettings):
 
         parse_allowed_hosts(value)
         return value
+
+    @field_validator("clamav_host")
+    @classmethod
+    def _clamav_needs_a_host(cls, value: str, info: ValidationInfo) -> str:
+        host = value.strip()
+        if info.data.get("file_scanner") == "clamav" and not host:
+            raise ValueError("ANUM_CLAMAV_HOST is required when ANUM_FILE_SCANNER=clamav (the clamd host name)")
+        if host and not re.fullmatch(r"[A-Za-z0-9.-]{1,253}|\[[0-9A-Fa-f:.]+\]", host):
+            raise ValueError("ANUM_CLAMAV_HOST must be a host name or IP address, without a scheme or port")
+        return host
 
     @field_validator("sign_in_providers")
     @classmethod

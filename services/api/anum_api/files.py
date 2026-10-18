@@ -20,6 +20,7 @@ Routes under ``/api/v1/files``:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from collections.abc import Iterator
@@ -556,9 +557,13 @@ def check_upload_content(name: str, allowed: file_policy.AllowedType, content: b
     except Exception as exc:
         raise HTTPException(503, "The malware scanner is unavailable, so nothing was stored. Try again later.") from exc
     if not verdict.clean:
-        reason = f": {verdict.reason}" if verdict.reason else "."
-        raise HTTPException(422, f"The malware scanner refused {name}{reason}")
-    return True
+        found = verdict.reason or "malware"
+        raise HTTPException(
+            422,
+            f"The malware scanner found {found} in {name}, so it was not stored. "
+            "Delete the file and ask the sender for a clean copy.",
+        )
+    return verdict.scanned
 
 
 async def read_upload_body(request: Request, limit: int) -> bytes:
@@ -590,7 +595,8 @@ async def upload_file(
     digest = hashlib.sha256(content).hexdigest()
     if x_content_sha256 is not None and x_content_sha256.lower() != digest:
         raise HTTPException(422, "Content checksum mismatch: the upload was corrupted in transit. Try again.")
-    check_upload_content(name, allowed, content)
+    # The scan is blocking network I/O (clamd): never on the event loop (docs/realtime.md#event-loop).
+    await asyncio.to_thread(check_upload_content, name, allowed, content)
     quota = settings.files_workspace_quota_bytes
     with open_file_metadata_store(context) as store:
         current = store.usage(context)

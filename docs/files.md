@@ -1,6 +1,6 @@
 # Workspace Files
 
-Files are tenant- and workspace-scoped objects: the bytes live in object storage, the metadata in PostgreSQL under row-level security, and text files are indexed for retrieval into task prompts. Code: `services/api/anum_api/files.py` (stores and routes), `anum_api/file_policy.py` (accepted types, content checks, download names, signed links, the malware-scan hook), `anum_api/db/workspace_settings_repository.py` (PostgreSQL metadata).
+Files are tenant- and workspace-scoped objects: the bytes live in object storage, the metadata in PostgreSQL under row-level security, and text files are indexed for retrieval into task prompts. Code: `services/api/anum_api/files.py` (stores and routes), `anum_api/file_policy.py` (accepted types, content checks, download names, signed links, the malware-scan hook), `anum_api/file_scanner_clamav.py` (the ClamAV scanner), `anum_api/db/workspace_settings_repository.py` (PostgreSQL metadata).
 
 ## API
 
@@ -54,7 +54,23 @@ Clients render previews from data, never as documents:
 
 ## Malware scanning
 
-ANUM ships no scanner and does not pretend to scan. The hook point is `anum_api.file_policy.FileScanner`: a `scan(name, content_type, content) -> ScanVerdict(clean, reason)` called with every upload's bytes after the type and checksum checks and before anything is stored. Install one at startup with `set_file_scanner(...)`, for example an adapter that streams the bytes to a ClamAV `clamd` (`INSTREAM`) or a cloud scanning API. A verdict with `clean=False` refuses the upload (`422`, the reason shown to the uploader); an exception fails it with `503` and nothing stored. The scanner runs inside the request, so give it a timeout well under the HTTP timeout. Files uploaded before a scanner was installed are not rescanned; to scan them, list the workspace's files and run the scanner over their bytes. Email Center attachments (files attached to outgoing mail, including the files a forward carries) pass the same type, signature and scanner checks before they are kept ([Email: attachments](email.md#attachments)).
+Every upload passes through `anum_api.file_policy.FileScanner`: a `scan(name, content_type, content) -> ScanVerdict(clean, reason, scanned)` called with the bytes after the type and checksum checks and before anything is stored. It runs in a worker thread, never on the event loop. Email Center attachments (files attached to outgoing mail, including the files a forward carries) pass the same type, signature and scanner checks before they are kept ([Email: attachments](email.md#attachments)).
+
+ANUM ships a ClamAV scanner, `anum_api/file_scanner_clamav.py`. It streams the bytes to a `clamd` over TCP with the `INSTREAM` command (64 KiB length-prefixed chunks, no temporary file, no client library) and reads the verdict line. The settings:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `ANUM_FILE_SCANNER` | `off` | `clamav` installs the ClamAV scanner at startup; `off` scans nothing. |
+| `ANUM_CLAMAV_HOST` | empty | The clamd host name or IP address (no scheme, no port). Required with `clamav`. |
+| `ANUM_CLAMAV_PORT` | `3310` | clamd's TCP port. |
+| `ANUM_CLAMAV_TIMEOUT_SECONDS` | `30` | Timeout for connecting and for each send and read (above 0, at most 120). |
+| `ANUM_FILE_SCAN_REQUIRED` | `true` | Fail closed: when clamd is unreachable, times out or answers with an error (for example `INSTREAM size limit exceeded`), the upload fails with `503` ("The malware scanner is unavailable, so nothing was stored. Try again later.") and nothing is stored. `false` accepts the file unscanned and logs a warning; the API refuses `false` with `clamav` outside `local` ([Security](security.md#startup-policy)), and so does the Helm chart. |
+
+A file with a signature is refused with `422` and nothing is stored. The message names the signature and the file, for example: "The malware scanner found Win.Test.EICAR_HDB-1 in invoice.txt, so it was not stored. Delete the file and ask the sender for a clean copy." Uploads are at most 25 MiB (`ANUM_MAX_UPLOAD_BODY_BYTES`), so clamd's `StreamMaxLength` is set to 26M everywhere ANUM runs it; a smaller limit would turn full-size uploads into `503`s.
+
+Where clamd runs: the local compose file (`clamd` service, published on 127.0.0.1:3310 only; the compose `api` uses it), the one-VM deployment (`clamd` service, on by default, [Deploying on one Oracle Cloud VM](deploy-oracle.md#malware-scanning)) and Kubernetes (your own clamd Service, then `config.ANUM_FILE_SCANNER=clamav` and `config.ANUM_CLAMAV_HOST`; [Deployment](deployment.md#values)). Render has no clamd, so scanning stays off there unless you point `ANUM_CLAMAV_HOST` at one you run. The image is `clamav/clamav:1.5.4-debian13-slim` (linux/amd64 and linux/arm64), a third-party image pinned by tag like the other compose-only images; it is not built by ANUM's deploy workflows, so it is not in the PR Trivy scan. It ships a signature database and `freshclam` refreshes it; clamd keeps the signatures in memory (about 1.2 GB), hence the 3 GB memory limit.
+
+Any other scanner (a cloud scanning API, for example) can be installed with `file_policy.set_file_scanner(...)`: return `ScanVerdict(clean=False, reason=<signature>)` to refuse (`422`) and raise to fail the upload (`503`). Files uploaded before scanning was turned on are not rescanned; to scan them, list the workspace's files and run the scanner over their bytes.
 
 ## Storage Backends
 
@@ -107,11 +123,13 @@ The Flutter app's Resources, Files tab (`apps/mobile/lib/features/workspace/file
 
 - `services/api/tests/test_files_management.py`: types and signatures, size, empty and name refusals, the quota (including a concurrent upload), the malware hook, search, sort and keyset paging, index state, rename and delete per role, viewers, previews, links (tampering, expiry, another workspace, deleted files, key rotation), re-index, CORS for the upload headers and `PATCH`.
 - `services/api/tests/test_postgres_files.py` (database): paging, search and sort in PostgreSQL, the rename columns and indexes, and the quota under the advisory lock, as the non-owner app role.
+- `services/api/tests/test_file_scanner_clamav.py`: the ClamAV scanner against an in-process fake clamd: clean and infected verdicts, chunking, error replies, timeouts and an unreachable clamd failing closed, optional scanning, the `422` and `503` answers through the upload route, the settings, the startup refusal and the Helm chart's mirror of it.
+- `services/api/tests/test_file_scanner_clamav_integration.py` (`clamav`): a real clamd at `ANUM_TEST_CLAMD_HOST`/`ANUM_TEST_CLAMD_PORT` (default `127.0.0.1:3310`, `docker compose -f infra/docker/compose.yaml up clamd`): `PING`, the EICAR test file refused and clean bytes accepted, and an EICAR upload answering `422`. CI's "API integration" job runs clamd and fails on any skip.
 - `services/api/tests/test_object_storage.py`: the S3 adapter against moto and, `s3`-marked, against a real endpoint at `ANUM_TEST_S3_ENDPOINT` (default `http://127.0.0.1:9000`, credentials `ANUM_TEST_S3_ACCESS_KEY`/`ANUM_TEST_S3_SECRET_KEY`), for example `docker compose -f infra/docker/compose.yaml up s3`.
 
 ## Not done yet
 
-- No scanner is installed by default (see [Malware scanning](#malware-scanning)); deployments that need scanning must add one.
+- Malware scanning is off by default outside the compose files (`ANUM_FILE_SCANNER=off`); Kubernetes and Render deployments must run their own clamd to turn it on ([Malware scanning](#malware-scanning)). Files stored before scanning was turned on are not rescanned.
 - The quota is one value for every workspace (`ANUM_FILES_WORKSPACE_QUOTA_BYTES`); there is no per-workspace override or owner screen for it.
 - Name search is a bounded `ILIKE` scan within one workspace; very large workspaces would want a trigram index.
 - Office documents, archives and (on mobile) PDFs have no in-app preview, and only text files are indexed for retrieval.

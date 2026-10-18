@@ -18,6 +18,8 @@ Valkey (`valkey-cli ping`) and S3 storage (`/healthz`) have compose health check
 
 The `app` profile also starts `searxng`, a private SearXNG for the agents' `web_search` tool (settings in `infra/searxng/settings.yml`, a development-only `SEARXNG_SECRET` default, 512 MB memory limit). It publishes no port: the compose `api` and `worker` reach it as `http://searxng:8080` (`ANUM_SEARXNG_URL`). An API run on the host with `uvicorn` leaves `ANUM_SEARXNG_URL` empty, so the tool is off there ([Web search](tools-and-integrations.md#web-search)).
 
+`clamd` (ClamAV, `clamav/clamav:1.5.4-debian13-slim`, 3 GB memory limit) scans uploads ([Files: Malware scanning](files.md#malware-scanning)). It starts with the infrastructure, is published on 127.0.0.1:3310 only (clamd has no authentication) and answers `PING` once its signatures are loaded, about a minute after the start. The compose `api` sets `ANUM_FILE_SCANNER=clamav` and `ANUM_CLAMAV_HOST=clamd`; an API run on the host keeps scanning off unless you set `ANUM_FILE_SCANNER=clamav` and `ANUM_CLAMAV_HOST=127.0.0.1`. `CLAMAV_NO_FRESHCLAMD=true` skips signature updates, as CI does.
+
 The compose `api` and `worker` export OpenTelemetry to the `otel-collector` (`ANUM_OTEL_EXPORTER_OTLP_ENDPOINT`). The `observability` profile adds Prometheus, Tempo, Loki and Grafana with provisioned dashboards and alert rules from `infra/observability`; start it with `ANUM_OTELCOL_OVERLAY=observability` so the collector forwards to them ([Observability](observability.md#local-stack)). Backups and the restore drill use `infra/backup/anum_backup.py` ([Runbooks](runbooks.md#backup-and-restore)).
 
 ## Container Images
