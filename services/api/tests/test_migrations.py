@@ -955,3 +955,24 @@ def test_finance_wider_live_migration_is_expand_only_and_one_tier_at_a_time() ->
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "tier = base_tier + 1" in upgrade and "decided_by is null or decided_by = owner_user_id" in upgrade
     assert "tier_after <= tier_before" in upgrade
+
+
+def test_finance_intel_migration_is_expand_only_owner_only_and_never_live() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0060_finance_intel.py").read_text(encoding="utf-8")
+    assert 'revision = "0060_finance_intel"' in revision_text and len("0060_finance_intel") <= 32
+    assert 'down_revision = "0059_finance_wider_live"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0060_finance_intel.py"]
+    assert not [path for path in others if 'down_revision = "0059_finance_wider_live"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    tables = ("finance_instruments", "finance_market_bars", "finance_strategies", "finance_strategy_runs", "finance_agent_decisions")
+    assert upgrade.count("op.create_table(") == len(tables)
+    for table in tables:
+        assert f'"{table}"' in revision_text and f'_workspace_fk("{table}")' in revision_text
+    assert "force row level security" in upgrade and "create policy owner_only_{table}" in upgrade and "as restrictive" in upgrade
+    assert "op.add_column(" not in upgrade and "drop" not in upgrade and "alter_column" not in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    # Six lifecycle states and no live one; only the person promotes or retires.
+    assert "live" not in revision_text.split("STATES = ", 1)[1].split("\n", 1)[0].lower()
+    assert "state not in ('paper_active', 'retired') or state_changed_by = 'person'" in upgrade
+    assert "state <> 'paper_active' or portfolio_id is not null" in upgrade

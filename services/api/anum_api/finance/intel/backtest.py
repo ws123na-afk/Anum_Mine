@@ -147,8 +147,12 @@ def _round_qty(value: Decimal) -> Decimal:
 
 
 def run(data: Mapping[str, Sequence[Candle]], strategy: Strategy, *, cash: Decimal = Decimal("100000"),
-        costs: Costs | None = None, start_index: int = 0, end_index: int | None = None) -> Result:
-    """Run ``strategy`` over aligned bars. Trading starts at ``start_index``; earlier bars only warm up indicators."""
+        costs: Costs | None = None, start_index: int = 0, end_index: int | None = None, final_signal: bool = False) -> Result:
+    """Run ``strategy`` over aligned bars. Trading starts at ``start_index``; earlier bars only warm up indicators.
+
+    The strategy is not asked on the last bar (there is no next open to fill at) unless
+    ``final_signal``: the look-ahead probe needs that signal to compare it with a longer run.
+    """
     costs = costs or Costs()
     bars = align(data)
     symbols = list(bars)
@@ -228,8 +232,8 @@ def run(data: Mapping[str, Sequence[Candle]], strategy: Strategy, *, cash: Decim
         result.equity.append(float(equity))
         history.t = t
         history.weights = {s: float(holdings[s] * closes[s] / equity) if equity > 0 else 0.0 for s in symbols}
-        wanted = strategy.targets(history) if t < end - 1 else None
-        if wanted is not None:
+        wanted = strategy.targets(history) if t < end - 1 or final_signal else None
+        if wanted is not None and t < end - 1:
             clean = {s: max(0.0, min(1.0, float(w))) for s, w in wanted.items() if s in holdings and math.isfinite(float(w))}
             total = sum(clean.values())
             if total > 1.0:
