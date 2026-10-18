@@ -122,6 +122,71 @@ const callsEn = <String, String>{
   'calls.contact.optedOut': 'Asked not to be called by the AI.',
   'calls.contact.fromPhone': 'From your phone',
   'calls.saving': 'Saving',
+  // AI calls and the voice provider (docs/calls.md#ai-calls).
+  'calls.tab.ai': 'AI calls',
+  'calls.ai.title': 'AI call requests',
+  'calls.ai.rules':
+      'The AI calls only contacts who agreed to it, says at the start that it is an AI assistant, stops at your time and cost caps, and anyone can opt out. A workspace owner approves every call.',
+  'calls.ai.new': 'Ask the AI to call',
+  'calls.ai.contact': 'Contact',
+  'calls.ai.noConsenting':
+      'No contact has agreed to AI calls yet. A workspace owner records a contact’s consent on the web, under Contacts.',
+  'calls.ai.purpose': 'Purpose',
+  'calls.ai.purposeHint':
+      'One clear reason, for example: confirm the delivery time on Thursday.',
+  'calls.ai.script': 'Script',
+  'calls.ai.scriptHint':
+      'What the AI says or asks. The owner approves exactly this text.',
+  'calls.ai.language': 'Language',
+  'calls.ai.lang.en': 'English',
+  'calls.ai.lang.ar': 'Arabic',
+  'calls.ai.maxSeconds': 'Longest call (seconds)',
+  'calls.ai.secondsRange': 'Between 30 and 900 seconds.',
+  'calls.ai.cost': 'At most about {cost} at your provider’s rate.',
+  'calls.ai.submit': 'Send for approval',
+  'calls.ai.sent': 'Sent. The call waits for an owner’s approval.',
+  'calls.ai.openApprovals': 'Open Approvals',
+  'calls.ai.cancel': 'Cancel request',
+  'calls.ai.cancelled': 'AI call cancelled.',
+  'calls.ai.empty': 'No AI calls yet',
+  'calls.ai.emptyText':
+      'Ask the AI to call a contact who agreed; the request waits for an owner’s approval.',
+  'calls.ai.openCall': 'Open the call',
+  'calls.ai.requestedBy': 'Asked by {who}',
+  'calls.ai.purposeShort': 'Purpose: {purpose}',
+  'calls.ai.tooShort':
+      'Write a purpose of at least 5 characters and a script of at least 10.',
+  'calls.ai.status.pending_approval': 'Waiting for approval',
+  'calls.ai.status.calling': 'Calling',
+  'calls.ai.status.completed': 'Done',
+  'calls.ai.status.failed': 'Not called',
+  'calls.ai.status.cancelled': 'Cancelled',
+  'calls.ai.blocked.role':
+      'Viewers cannot ask for AI calls. Ask a workspace owner to make you a member.',
+  'calls.ai.blocked.optedOut': 'This number opted out of AI calls.',
+  'calls.ai.blocked.noConsent':
+      'Record this contact’s consent to AI calls first.',
+  'calls.ai.blocked.off': 'AI calls are off.',
+  'calls.provider.title': 'Voice provider',
+  'calls.provider.connected': 'Connected',
+  'calls.provider.notConfigured': 'Not set up',
+  'calls.provider.notConfiguredText':
+      'No voice provider is connected, so calls through ANUM and AI calls are off. Calls from your phone still work and are free.',
+  'calls.provider.askOwner':
+      'A workspace owner connects a Twilio account on the web, under Calls > Provider.',
+  'calls.provider.onWeb':
+      'Connect or change the provider on the web, under Calls > Provider.',
+  'calls.provider.number': 'Number: {number}',
+  'calls.provider.checkOk': 'Last check passed: {when}',
+  'calls.provider.checkFailed': 'Last check failed: {when}. {detail}',
+  'calls.provider.neverChecked':
+      'Not checked yet. Use Check connection on the web.',
+  'calls.provider.aiOn': 'AI calls on',
+  'calls.provider.aiOff': 'AI calls off',
+  'calls.provider.recordingOn': 'Recording on',
+  'calls.provider.recordingOff': 'Recording off',
+  'calls.provider.rate': '{cost} a minute',
+  'calls.provider.loadFailed': "Couldn't load the provider: {message}",
 };
 
 const callsAr = <String, String>{
@@ -241,4 +306,67 @@ const callsAr = <String, String>{
   'calls.contact.optedOut': 'طلب ألا يتصل به الذكاء الاصطناعي.',
   'calls.contact.fromPhone': 'من هاتفك',
   'calls.saving': 'جار الحفظ',
+  'calls.tab.ai': 'مكالمات الذكاء الاصطناعي',
+  'calls.ai.title': 'طلبات مكالمات الذكاء الاصطناعي',
+  'calls.ai.rules':
+      'لا يتصل الذكاء الاصطناعي إلا بجهات الاتصال التي وافقت، ويقول في البداية إنه مساعد ذكاء اصطناعي، ويتوقف عند حدود الوقت والتكلفة، ويمكن لأي شخص إلغاء الاشتراك. يوافق مالك مساحة العمل على كل مكالمة.',
+  'calls.ai.new': 'اطلب من الذكاء الاصطناعي الاتصال',
+  'calls.ai.contact': 'جهة الاتصال',
+  'calls.ai.noConsenting':
+      'لم توافق أي جهة اتصال على مكالمات الذكاء الاصطناعي بعد. يسجل مالك مساحة العمل الموافقة من الويب، في جهات الاتصال.',
+  'calls.ai.purpose': 'الغرض',
+  'calls.ai.purposeHint': 'سبب واحد واضح، مثلا: تأكيد موعد التسليم يوم الخميس.',
+  'calls.ai.script': 'النص',
+  'calls.ai.scriptHint':
+      'ما يقوله الذكاء الاصطناعي أو يسأله. يوافق المالك على هذا النص بالضبط.',
+  'calls.ai.language': 'اللغة',
+  'calls.ai.lang.en': 'الإنجليزية',
+  'calls.ai.lang.ar': 'العربية',
+  'calls.ai.maxSeconds': 'أطول مدة للمكالمة (بالثواني)',
+  'calls.ai.secondsRange': 'من 30 إلى 900 ثانية.',
+  'calls.ai.cost': 'بحد أقصى نحو {cost} بسعر مزود الخدمة.',
+  'calls.ai.submit': 'أرسل للموافقة',
+  'calls.ai.sent': 'تم الإرسال. تنتظر المكالمة موافقة المالك.',
+  'calls.ai.openApprovals': 'افتح الموافقات',
+  'calls.ai.cancel': 'إلغاء الطلب',
+  'calls.ai.cancelled': 'ألغيت مكالمة الذكاء الاصطناعي.',
+  'calls.ai.empty': 'لا توجد مكالمات ذكاء اصطناعي بعد',
+  'calls.ai.emptyText':
+      'اطلب من الذكاء الاصطناعي الاتصال بجهة اتصال وافقت، وينتظر الطلب موافقة المالك.',
+  'calls.ai.openCall': 'افتح المكالمة',
+  'calls.ai.requestedBy': 'طلبها {who}',
+  'calls.ai.purposeShort': 'الغرض: {purpose}',
+  'calls.ai.tooShort':
+      'اكتب غرضا من 5 أحرف على الأقل ونصا من 10 أحرف على الأقل.',
+  'calls.ai.status.pending_approval': 'بانتظار الموافقة',
+  'calls.ai.status.calling': 'جار الاتصال',
+  'calls.ai.status.completed': 'تمت',
+  'calls.ai.status.failed': 'لم يتم الاتصال',
+  'calls.ai.status.cancelled': 'ملغاة',
+  'calls.ai.blocked.role':
+      'لا يمكن للمشاهدين طلب مكالمات الذكاء الاصطناعي. اطلب من مالك مساحة العمل أن يجعلك عضوا.',
+  'calls.ai.blocked.optedOut':
+      'ألغى هذا الرقم الاشتراك في مكالمات الذكاء الاصطناعي.',
+  'calls.ai.blocked.noConsent':
+      'سجل أولا موافقة جهة الاتصال على مكالمات الذكاء الاصطناعي.',
+  'calls.ai.blocked.off': 'مكالمات الذكاء الاصطناعي متوقفة.',
+  'calls.provider.title': 'مزود الاتصال الصوتي',
+  'calls.provider.connected': 'متصل',
+  'calls.provider.notConfigured': 'غير معد',
+  'calls.provider.notConfiguredText':
+      'لا يوجد مزود اتصال صوتي متصل، لذلك المكالمات عبر ANUM ومكالمات الذكاء الاصطناعي متوقفة. المكالمات من هاتفك تعمل مجانا.',
+  'calls.provider.askOwner':
+      'يربط مالك مساحة العمل حساب Twilio من الويب، في المكالمات > المزود.',
+  'calls.provider.onWeb':
+      'اربط المزود أو غيره من الويب، في المكالمات > المزود.',
+  'calls.provider.number': 'الرقم: {number}',
+  'calls.provider.checkOk': 'نجح آخر فحص: {when}',
+  'calls.provider.checkFailed': 'فشل آخر فحص: {when}. {detail}',
+  'calls.provider.neverChecked': 'لم يفحص بعد. استخدم فحص الاتصال من الويب.',
+  'calls.provider.aiOn': 'مكالمات الذكاء الاصطناعي مفعلة',
+  'calls.provider.aiOff': 'مكالمات الذكاء الاصطناعي متوقفة',
+  'calls.provider.recordingOn': 'التسجيل مفعل',
+  'calls.provider.recordingOff': 'التسجيل متوقف',
+  'calls.provider.rate': '{cost} للدقيقة',
+  'calls.provider.loadFailed': 'تعذر تحميل المزود: {message}',
 };
