@@ -22,13 +22,12 @@
 .mailConnectForm .field, .mailForm .field { margin-top: 0; }
 
 /* Panes */
+.mailNav { align-content: start; display: grid; gap: var(--d-s3); padding: var(--d-s3); }
 @media (min-width: 1024px) and (max-width: 1279px) {
   .splitView.three.mailSplit { grid-template-columns: minmax(300px, 2fr) minmax(0, 3fr); grid-template-rows: auto minmax(0, 1fr); }
   .mailSplit > .mailNav { grid-column: 1 / -1; overflow: visible; }
-  .mailNav { align-items: center; grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr); }
-  .mailNav .mailFolders, .mailNav .mailOutbox { display: none; }
+  .mailNav .mailFolders { display: none; }
   .mailNav .mailFolderSelect { display: block; }
-  .mailNav .mailSync { grid-column: 1 / -1; }
 }
 @media (min-width: 1280px) {
   .splitView.three.mailSplit { grid-template-columns: minmax(210px, 240px) minmax(320px, 380px) minmax(0, 1fr); }
@@ -38,7 +37,16 @@
   .mailNav .mailFolders { display: none; }
   .mailNav .mailFolderSelect { display: block; }
 }
-.mailNav { align-content: start; display: grid; gap: var(--d-s3); padding: var(--d-s3); }
+/* Below 1280px the folder pane is a bar: search, filters, the folder select and the refresh share rows. */
+@media (max-width: 1279px) {
+  .mailNav { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+  .mailNav .mailcSearch { align-items: center; display: flex; flex: 1 1 300px; flex-wrap: wrap; gap: var(--d-s2); }
+  .mailNav .mailcSearchRow { flex: 1 1 200px; }
+  .mailNav .mailFolderSelect { flex: 1 1 160px; }
+  .mailNav .mailSync { flex: 0 1 auto; }
+  .mailNav .mailOutbox { border-top: 0; flex: 1 1 100%; padding-top: 0; }
+  .mailNav .mailOutbox:not([open]) > :not(summary) { display: none; }
+}
 .mailFolderSelect { display: none; min-width: 0; }
 .mailFolderSelect select { min-height: 40px; width: 100%; }
 .mailFolders ul { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
