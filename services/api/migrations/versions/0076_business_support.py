@@ -22,8 +22,7 @@ References carry the scope (``(tenant_id, workspace_id, <id>)`` composite foreig
 ticket can never point into another tenant or workspace. No role is granted anything and no
 discovery role reads these tables.
 
-Numbered 0076 and chained after ``0074_brevo_campaigns`` (a sibling branch takes 0075; the
-owner renumbers at merge).
+Numbered 0076 and chained after ``0075_file_scan_status``, the head of ``main``.
 """
 
 import sqlalchemy as sa
@@ -31,7 +30,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0076_business_support"
-down_revision = "0074_brevo_campaigns"
+down_revision = "0075_file_scan_status"
 branch_labels = None
 depends_on = None
 
