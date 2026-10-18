@@ -6,6 +6,7 @@ import { commerceEn } from './commerce.en.ts';
 import { financeEn } from './finance.en.ts';
 import { financeTradingEn } from './financeTrading.en.ts';
 import { financeIntelEn } from './financeIntel.en.ts';
+import { financeEquityEn } from './financeEquity.en.ts';
 import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
 import { homeEn } from './home.en.ts';
@@ -32,6 +33,7 @@ export const en = {
   ...financeEn,
   ...financeTradingEn,
   ...financeIntelEn,
+  ...financeEquityEn,
   ...financeIntelActionsEn,
   ...teamEn,
   ...marketingEn,

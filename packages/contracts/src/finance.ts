@@ -929,3 +929,50 @@ export interface FinanceAgentDecision {
   created_at: string;
   simulated: true;
 }
+
+// ---- Trading intelligence: SIMULATED P&L and drawdown over time (docs/finance-trading-intel.md#pl-and-drawdown-over-time) ----
+
+/** One day of a portfolio's current run in one currency. Amounts are decimal strings in that currency. */
+export interface FinanceEquityPoint {
+  day: string;
+  /** Paper: cash plus priced holdings. Shadow: null (no cash). Null on a gap. */
+  value: string | null;
+  /** Realised plus unrealised, fees and slippage included. Null on a gap. */
+  pnl: string | null;
+  /** How far below the running peak (zero or negative). Paper: of the value; shadow: of the P&L. */
+  drawdown: string | null;
+  /** Paper only: the drawdown as a fraction of the running peak value. */
+  drawdown_pct: number | null;
+  /** False when something held had no recorded price fresh enough that day: a gap, never a guess. */
+  complete: boolean;
+}
+
+export interface FinanceEquitySeries {
+  currency: string;
+  points: FinanceEquityPoint[];
+  max_drawdown: string | null;
+  max_drawdown_pct: number | null;
+  peak_day: string | null;
+  trough_day: string | null;
+  gaps: number;
+  unpriced: string[];
+}
+
+/** `GET /api/v1/finance/intel/portfolios/{id}/equity?days=`: one series per currency, never mixed. SIMULATED. */
+export interface FinanceEquity {
+  portfolio_id: string;
+  name: string;
+  mode: FinancePortfolioMode;
+  start: string;
+  end: string;
+  days: number;
+  /** Filled orders in this run. */
+  orders: number;
+  max_price_age_days: number;
+  /** More prices are stored than the curve reads (the newest 5,000): older days may show gaps. */
+  prices_truncated: boolean;
+  series: FinanceEquitySeries[];
+  note: string;
+  generated_at: string;
+  simulated: true;
+}

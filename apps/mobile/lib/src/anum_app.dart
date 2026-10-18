@@ -34,6 +34,7 @@ import '../features/email/inbox_screen.dart';
 import '../features/commerce/commerce_controller.dart';
 import '../features/commerce/commerce_repository.dart';
 import '../features/finance/finance_controller.dart';
+import '../features/finance/finance_intel_models.dart';
 import '../features/finance/finance_repository.dart';
 import '../features/reports/workspace_tool_routes.dart';
 import '../features/marketing/marketing_controller.dart';
@@ -286,7 +287,8 @@ class _AnumAppState extends State<AnumApp> {
     // Commerce (docs/commerce.md): sales summary and orders, read-only here.
     commerce = CommerceController(ApiCommerceRepository(api));
     // Finance (docs/finance.md): the person's own ledger, read only.
-    finance = FinanceController(ApiFinanceRepository(api));
+    finance = FinanceController(ApiFinanceRepository(api),
+        intelRepository: ApiFinanceIntelRepository(api));
     tyre = TyreController(ApiTyreRepository(api));
     final developerRepository = ApiDeveloperRepository(api);
     developer = DeveloperController(developerRepository);

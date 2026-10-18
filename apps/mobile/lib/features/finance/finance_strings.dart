@@ -20,6 +20,7 @@ class FinanceStrings {
 
   static const _en = <String, String>{
     'section.trading': 'Paper trading',
+    'section.intel': 'Trading intelligence',
     'section.execution': 'Execution and live',
     'trading.simulated': 'SIMULATED.',
     'trading.note':
@@ -280,6 +281,7 @@ class FinanceStrings {
 
   static const _ar = <String, String>{
     'section.trading': 'التداول التجريبي',
+    'section.intel': 'ذكاء التداول',
     'section.execution': 'التنفيذ والتداول الحي',
     'trading.simulated': 'محاكاة.',
     'trading.note':
