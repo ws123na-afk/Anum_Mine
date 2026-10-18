@@ -1,4 +1,4 @@
-"""Business in PostgreSQL (migration ``0069_business``), as the non-owner app role.
+"""Business in PostgreSQL (migration ``0070_business``), as the non-owner app role.
 
 Every table is under forced RLS: tenant A's rows are invisible to tenant B and to A's other
 workspace, guessed ids read as missing, writes into another scope are refused by the row

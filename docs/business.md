@@ -3,7 +3,7 @@
 Business is roadmap P1 "Internal sales MVP" ([ANUM OS business and product roadmap](ANUM_OS_Business_and_Product_Master_Roadmap.md), sections 4B, 6, 7 P1 and 8 Sales). It is where the owner keeps what they sell, who they want to sell it to, what they know about those companies, the deals in progress, the proposals and the projects that follow. It runs inside the owner's own workspace; nothing in it is seeded and nothing in it sends a message.
 
 - API: `services/api/anum_api/business/` under `/api/v1/business`.
-- Storage: migration `0069_business` (16 tables), memory store for local runs and tests.
+- Storage: migration `0070_business` (16 tables), memory store for local runs and tests.
 - Web: Business in the main navigation (`apps/web/src/BusinessView.tsx` and its tabs), English and Arabic.
 - Flutter: Business in the menu (`apps/mobile/lib/features/business/`), English and Arabic.
 - Contracts: `packages/contracts/src/business.ts`.
@@ -95,13 +95,13 @@ A locked version is never edited: a change creates a new version and lapses the 
 
 ## Storage and isolation
 
-Migration `0069_business` creates `business_settings`, `business_products`, `business_offers`, `business_accounts`, `business_contacts`, `business_leads`, `business_evidence`, `business_inferences`, `business_activities`, `business_opportunities`, `business_proposals`, `business_proposal_versions`, `business_projects`, `business_milestones`, `business_drafts` and `business_research_runs`.
+Migration `0070_business` creates `business_settings`, `business_products`, `business_offers`, `business_accounts`, `business_contacts`, `business_leads`, `business_evidence`, `business_inferences`, `business_activities`, `business_opportunities`, `business_proposals`, `business_proposal_versions`, `business_projects`, `business_milestones`, `business_drafts` and `business_research_runs`.
 
 - Every table has `tenant_id` and `workspace_id`, a foreign key to `workspaces` and forced row level security with `tenant_isolation_<table>` on `anum.tenant_id` and `anum.workspace_id` (the 0040 pattern). No role is granted anything and no discovery role reads these tables.
 - References between business tables are composite foreign keys on `(tenant_id, workspace_id, id)`, so a row can never point into another tenant or workspace by a guessed id, even though foreign key checks ignore row policies.
 - Every store query also filters on the caller's scope; a record of another workspace reads as missing (404).
 - Activities are idempotent per key (`Idempotency-Key` on `POST /leads/{id}/activities`).
-- Expand only: new tables, a trigger function and indexes. Numbered 0069 and chained after `0065_finance_intel`, the head of `main` when it was written; 0066 to 0068 are on open finance and email branches, so `down_revision` is re-chained onto the newest migration when this lands.
+- Expand only: new tables, a trigger function and indexes. Numbered 0070 and chained after `0065_finance_intel`, the head of `main` when it was written; 0066 to 0069 are on open email branches, so `down_revision` is re-chained onto the newest migration when this lands.
 
 Every state-changing route writes an audit record with ids and counts only (never contact details or message text); `tests/test_business.py` walks all of them through `audit_probe.AuditProbe`.
 
