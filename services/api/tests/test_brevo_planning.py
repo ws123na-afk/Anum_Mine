@@ -5,6 +5,7 @@ approval bound to the payload hash; without a working connection the planner ref
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -306,7 +307,7 @@ def test_the_planned_schedule_is_saved_and_reused_when_asking_to_send(brevo: Fak
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"example-logo-bytes"
 PUBLIC_API = "https://api.example.com"
-LOGO_PATH = "/api/v1/organization/branding/logo/public/"
+LOGO_PATH = "/api/v1/public/logos/"
 
 
 def _with_logo(monkeypatch: Any, *, public_api: str = PUBLIC_API, logo: bytes | None = PNG) -> None:
@@ -323,9 +324,7 @@ def _logo_src(html: str) -> str:
     return html[start:html.index('"', start)]
 
 
-def test_the_email_header_shows_the_logo_through_a_long_lived_public_link(brevo: FakeBrevo, monkeypatch: Any) -> None:  # noqa: F811
-    from anum_api import organisations
-
+def test_the_email_header_shows_the_logo_through_a_stable_public_address(brevo: FakeBrevo, monkeypatch: Any) -> None:  # noqa: F811
     connect()
     add_customers(brevo)
     _with_logo(monkeypatch)
@@ -334,28 +333,63 @@ def test_the_email_header_shows_the_logo_through_a_long_lived_public_link(brevo:
     html = ok(client.get(f"{BASE}/drafts/{result.output['draft_id']}", headers=VIEWER))["html"]
     assert 'alt="Desert Tyres logo"' in html and 'width="160"' in html
     src = _logo_src(html)
-    # The link works with no sign-in, serves only the image, and lasts about 13 months.
+    # The organisation's public id and the image's own hash; no tenant id, no token.
+    assert src.endswith(f"/{hashlib.sha256(PNG).hexdigest()}.png") and TENANT not in src
     served = client.get(src.removeprefix(PUBLIC_API))
     assert served.status_code == 200 and served.content == PNG and served.headers["content-type"] == "image/png"
-    assert served.headers["x-content-type-options"] == "nosniff" and "public" in served.headers["cache-control"]
-    later = organisations.utc_now() + timedelta(days=organisations.LOGO_LINK_DAYS - 5)
-    monkeypatch.setattr(organisations, "utc_now", lambda: later)
-    assert client.get(src.removeprefix(PUBLIC_API)).status_code == 200
-    monkeypatch.setattr(organisations, "utc_now", lambda: later + timedelta(days=10))
-    assert client.get(src.removeprefix(PUBLIC_API)).status_code == 404  # expired
+    assert served.headers["x-content-type-options"] == "nosniff"
+    assert served.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
-def test_a_tampered_link_or_a_removed_logo_is_a_plain_404(monkeypatch: Any) -> None:
-    from anum_api import organisations
+def test_a_logo_address_survives_secrets_key_rotation(monkeypatch: Any) -> None:
+    from cryptography.fernet import Fernet
+    from pydantic import SecretStr
+
+    from anum_api import organisations, secret_box
+    from anum_api.settings import settings
 
     _with_logo(monkeypatch)
     link = organisations.logo_link(CONTEXT)
     assert link is not None and link.startswith(f"{PUBLIC_API}{LOGO_PATH}")
+    # Rotate to a brand new key and drop the old one: the address does not depend on it.
+    monkeypatch.setattr(settings, "secrets_key", SecretStr(Fernet.generate_key().decode()))
+    monkeypatch.setattr(secret_box, "_cipher", None)
+    assert client.get(link.removeprefix(PUBLIC_API)).status_code == 200
+    assert organisations.logo_link(CONTEXT) == link
+
+
+def test_old_logo_addresses_keep_serving_until_the_organisation_is_purged(monkeypatch: Any) -> None:
+    from anum_api import organisations, public_logos
+
+    _with_logo(monkeypatch)
+    first = organisations.logo_link(CONTEXT)
+    newer = PNG + b"-v2"
+    _with_logo(monkeypatch, logo=newer)
+    second = organisations.logo_link(CONTEXT)
+    assert first and second and first != second
+    for link, content in ((first, PNG), (second, newer)):
+        served = client.get(link.removeprefix(PUBLIC_API))
+        assert served.status_code == 200 and served.content == content
+    # Deleting the organisation purges every published version.
+    assert public_logos.purge(TENANT) == 2
+    assert client.get(first.removeprefix(PUBLIC_API)).status_code == 404
+    assert client.get(second.removeprefix(PUBLIC_API)).status_code == 404
+    assert public_logos.purge(TENANT) == 0
+
+
+def test_a_malformed_address_or_a_removed_logo_is_a_plain_404(monkeypatch: Any) -> None:
+    from anum_api import organisations, public_logos
+
+    _with_logo(monkeypatch)
+    link = organisations.logo_link(CONTEXT)
+    assert link is not None
     path = link.removeprefix(PUBLIC_API)
-    assert client.get(path[:-4] + "abcd").status_code == 404
-    assert client.get(f"{LOGO_PATH}not-a-token").status_code == 404
+    assert client.get(path.replace(".png", ".jpg")).status_code == 404
+    assert client.get(f"{LOGO_PATH}not-an-id/{'0' * 64}.png").status_code == 404
+    assert client.get(f"{LOGO_PATH}{public_logos.org_public_id(TENANT)}/{'0' * 64}.png").status_code == 404
     _with_logo(monkeypatch, logo=None)
-    assert client.get(path).status_code == 404 and organisations.logo_link(CONTEXT) is None
+    assert organisations.logo_link(CONTEXT) is None
+    public_logos.purge(TENANT)
 
 
 def test_the_logo_fills_a_template_marker_with_arabic_alt_text(brevo: FakeBrevo, monkeypatch: Any) -> None:  # noqa: F811
