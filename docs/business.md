@@ -3,7 +3,7 @@
 Business is roadmap P1 "Internal sales MVP" ([ANUM OS business and product roadmap](ANUM_OS_Business_and_Product_Master_Roadmap.md), sections 4B, 6, 7 P1 and 8 Sales). It is where the owner keeps what they sell, who they want to sell it to, what they know about those companies, the deals in progress, the proposals and the projects that follow. It runs inside the owner's own workspace; nothing in it is seeded and nothing in it sends a message.
 
 - API: `services/api/anum_api/business/` under `/api/v1/business`.
-- Storage: migrations `0070_business` (16 tables) and `0077_business_change_orders` (change orders and the usage ledger), memory store for local runs and tests.
+- Storage: migrations `0070_business` (16 tables) and `0076_business_change_orders` (change orders and the usage ledger), memory store for local runs and tests.
 - Web: Business in the main navigation (`apps/web/src/BusinessView.tsx` and its tabs), English and Arabic.
 - Flutter: Business in the menu (`apps/mobile/lib/features/business/`), English and Arabic.
 - Contracts: `packages/contracts/src/business.ts`.
@@ -134,7 +134,7 @@ On the web these are three blocks of the project drawer (`apps/web/src/BusinessP
 
 Migration `0070_business` creates `business_settings`, `business_products`, `business_offers`, `business_accounts`, `business_contacts`, `business_leads`, `business_evidence`, `business_inferences`, `business_activities`, `business_opportunities`, `business_proposals`, `business_proposal_versions`, `business_projects`, `business_milestones`, `business_drafts` and `business_research_runs`.
 
-Migration `0077_business_change_orders` adds `business_change_orders` and `business_usage_ledger` under the same rules, and one nullable column, `business_proposal_versions.change_order_id`. Check constraints keep a sent or decided change order bound to a version and hash, and an approved one naming who approved it and the version it produced. Numbered 0077 after `0074_brevo_campaigns`; parallel branches use 0075 and 0076, and the chain is renumbered at merge.
+Migration `0076_business_change_orders` adds `business_change_orders` and `business_usage_ledger` under the same rules, and one nullable column, `business_proposal_versions.change_order_id`. Check constraints keep a sent or decided change order bound to a version and hash, and an approved one naming who approved it and the version it produced. Numbered 0076 after `0075_file_scan_status`.
 
 - Every table has `tenant_id` and `workspace_id`, a foreign key to `workspaces` and forced row level security with `tenant_isolation_<table>` on `anum.tenant_id` and `anum.workspace_id` (the 0040 pattern). No role is granted anything and no discovery role reads these tables.
 - References between business tables are composite foreign keys on `(tenant_id, workspace_id, id)`, so a row can never point into another tenant or workspace by a guessed id, even though foreign key checks ignore row policies.

@@ -12,7 +12,8 @@
   ``ANUM_SECRETS_KEY`` (every key verifies, the first signs, so rotation keeps links
   valid until they expire).
 * :class:`FileScanner` is the malware-scan hook point (docs/files.md#malware-scanning).
-  No scanner ships with ANUM; :func:`set_file_scanner` installs one.
+  ANUM ships a ClamAV adapter (:mod:`anum_api.file_scanner_clamav`), installed at startup
+  when ``ANUM_FILE_SCANNER=clamav``; :func:`set_file_scanner` installs any other.
 """
 
 from __future__ import annotations
@@ -261,13 +262,22 @@ class ScanVerdict:
     clean: bool
     # Shown to the uploader when the file is refused, e.g. the signature name.
     reason: str = ""
+    # False when the scanner was unavailable and scanning is optional (local only), so
+    # the bytes were accepted without being looked at.
+    scanned: bool = True
+
+
+class ScannerStarting(RuntimeError):
+    """The scanner has not answered since this process started, e.g. clamd is still
+    loading its signatures after a restart. Uploads answer ``503`` saying so."""
 
 
 class FileScanner(Protocol):
     """Called with every upload's bytes before they are stored (docs/files.md#malware-scanning).
 
     Return ``ScanVerdict(clean=False, reason=...)`` to refuse the upload (``422``); raise
-    to fail it (``503``, nothing stored). It runs inside the request, so keep it bounded.
+    to fail it (``503``, nothing stored; raise :class:`ScannerStarting` while the scanner
+    is still starting). It runs in a worker thread inside the request, so keep it bounded.
     """
 
     def scan(self, name: str, content_type: str, content: bytes) -> ScanVerdict: ...

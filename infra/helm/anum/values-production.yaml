@@ -116,6 +116,13 @@ networkPolicy:
               kubernetes.io/metadata.name: observability
       ports:
         - { port: 4318, protocol: TCP }
+    # ClamAV clamd for upload malware scanning (config.ANUM_FILE_SCANNER=clamav).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: clamav
+      ports:
+        - { port: 3310, protocol: TCP }
     - ports:
         - { port: 443, protocol: TCP }
   jobEgress:

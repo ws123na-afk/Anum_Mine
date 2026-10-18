@@ -49,6 +49,7 @@ A release build always signs in through Keycloak; it never falls back to the loc
 | --- | --- |
 | `VITE_ANUM_API_URL` | API base URL, default `https://api.anum360os.com`. Trailing slashes are removed. Its HTTPS origin and `wss://` origin are added to the CSP `connect-src`. |
 | `VITE_ANUM_OIDC_ISSUER` | Keycloak issuer, default `https://auth.anum360os.com/realms/anum`. Its origin is added to the CSP `connect-src`. |
+| (always) | Calls through ANUM: `wss://*.twilio.com` and `https://eventgw.twilio.com` are added to `connect-src` and `https://sdk.twilio.com` to `media-src` (`TWILIO_CSP`), the same Twilio hosts the web CSP allows. No Twilio script host: the Voice SDK is bundled. See [Phone calls](calls.md#browser-calls). |
 | `VITE_ANUM_OIDC_CLIENT_ID` | Keycloak client, default `anum-desktop`. |
 | `ANUM_TAURI_UPDATER_PUBKEY` | Updater public key (the `.pub` file from `tauri signer generate`). Turns on `createUpdaterArtifacts` and sets `plugins.updater.pubkey`. |
 | `ANUM_TAURI_UPDATER_ENDPOINT` | Required with the public key: the HTTPS update manifest URL (may use `{{target}}` and `{{current_version}}`). |
@@ -56,6 +57,10 @@ A release build always signs in through Keycloak; it never falls back to the loc
 | `ANUM_DESKTOP_VERSION` | Release version (`1.2.3`), overriding `tauri.conf.json`; the release pipeline sets it from the tag. The updater compares it with the manifest's version. |
 
 Private material never reaches the repository or the overlay: the Tauri CLI reads the updater private key from `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and macOS signing and notarization from `APPLE_SIGNING_IDENTITY`, `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID`, all as CI secrets. Missing values produce warnings, not failures, so an unsigned build still works locally. `scripts/release-config.test.mjs` runs in `pnpm check:desktop`.
+
+### Microphone
+
+Calls through ANUM and voice questions use the microphone. On macOS, `src-tauri/Info.plist` (merged into the generated one) carries `NSMicrophoneUsageDescription`, the text macOS shows when ANUM first asks, and `src-tauri/Entitlements.plist` (`bundle.macOS.entitlements`) grants `com.apple.security.device.audio-input`, which the hardened runtime of a notarized build needs; nothing else is entitled. On Windows a desktop app needs no manifest entry: WebView2 shows its own microphone prompt, and the person must allow desktop apps under Settings > Privacy > Microphone. Both are checked in `scripts/release-config.test.mjs`. A packaged call has not yet been placed on either system; do that before the beta channel opens.
 
 ## Updates
 
