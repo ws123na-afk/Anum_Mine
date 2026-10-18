@@ -308,6 +308,15 @@ class FakeMailRepository implements MailCenterRepository {
   Future<String?> approve(WorkspaceApproval approval) async {
     approved.add(approval.payloadHash);
     if (approval.action == 'delete_mail') return 'Deleted 1 message for good.';
+    if (approval.action == 'change_mail_settings') {
+      pendingSettings = null;
+      settingsVersion += 1;
+      return 'Settings changed.';
+    }
+    if (approval.action == 'activate_mail_forward_rule') {
+      _setRule('${approval.arguments['rule_id']}', 'active');
+      return 'The rule is forwarding.';
+    }
     if (approval.action != 'send_mail') return 'Done.';
     draftStatus = 'sent';
     return 'Sent from $_address to sara@client.example';
@@ -317,6 +326,156 @@ class FakeMailRepository implements MailCenterRepository {
 
   final bulk = <String>[];
   final forwards = <String>[];
+
+  // Retention, sync and forwarding rules.
+  int settingsVersion = 3;
+  Map<String, Object?>? pendingSettings;
+  Object? changeError;
+  Object? settingsError;
+  final settingsChanges = <String>[];
+  final settingsLoads = <String>[];
+  final ruleCalls = <String>[];
+  List<Map<String, Object?>> ruleRows = [];
+
+  Map<String, Object?> _ruleApproval(String id) => {
+        ..._approval(),
+        'id': 'approval_rule_$id',
+        'action': 'activate_mail_forward_rule',
+        'arguments': {
+          'rule_id': id,
+          'forward_to': ['omar@client.example']
+        },
+      };
+
+  @override
+  Future<MailSettings> settings(String accountId) async {
+    settingsLoads.add(accountId);
+    if (settingsError != null) throw settingsError!;
+    final own = accountId == 'mailbox_1';
+    return MailSettings.fromJson(JsonReader({
+      'account_id': accountId,
+      'access': own ? 'owner' : 'read',
+      'can_change': own,
+      'sent_retention_days': null,
+      'draft_retention_days': 90,
+      'label_retention_days': null,
+      'background_sync': true,
+      'version': settingsVersion,
+      'retention_choices': [7, 30, 90, 180, 365, 730],
+      'max_retention_days': 3650,
+      'sync_running': true,
+      'sync_interval_seconds': 300,
+      'sync': {
+        'status': 'ok',
+        'inbox_unread': 4,
+        'inbox_total': 30,
+        'checked_at': _now.toIso8601String(),
+      },
+      'approval': pendingSettings == null
+          ? null
+          : {
+              ..._approval(),
+              'id': 'approval_settings',
+              'action': 'change_mail_settings'
+            },
+      'pending': pendingSettings,
+    }));
+  }
+
+  @override
+  Future<WorkspaceApproval> changeSettings(
+      String accountId, MailSettingsEdit edit, int baseVersion) async {
+    if (changeError != null) {
+      final error = changeError!;
+      changeError = null;
+      settingsVersion += 1;
+      throw error;
+    }
+    settingsChanges.add('${edit.sentRetentionDays}:$baseVersion');
+    pendingSettings = edit.toJson(baseVersion)..remove('base_version');
+    return workspaceApprovalFromJson(JsonReader({
+      ..._approval(),
+      'id': 'approval_settings',
+      'action': 'change_mail_settings'
+    }));
+  }
+
+  @override
+  Future<void> withdrawSettings(String accountId) async {
+    settingsChanges.add('withdraw');
+    pendingSettings = null;
+  }
+
+  @override
+  Future<List<MailRule>> rules(String accountId) async {
+    ruleCalls.add('list:$accountId');
+    return [for (final r in ruleRows) MailRule.fromJson(JsonReader(r))];
+  }
+
+  Map<String, Object?> _ruleRow(String id, MailRuleEdit edit,
+          {String status = 'pending_approval'}) =>
+      {
+        'id': id,
+        'account_id': 'mailbox_1',
+        ...edit.toJson(),
+        'status': status,
+        'approval': status == 'pending_approval' ? _ruleApproval(id) : null,
+        'forwarded_count': 0,
+      };
+
+  @override
+  Future<MailRule> createRule(String accountId, MailRuleEdit edit) async {
+    ruleCalls.add('create:${edit.name}');
+    final row = _ruleRow('rule_${ruleRows.length + 1}', edit);
+    ruleRows = [...ruleRows, row];
+    return MailRule.fromJson(JsonReader(row));
+  }
+
+  @override
+  Future<MailRule> updateRule(String ruleId, MailRuleEdit edit) async {
+    ruleCalls.add('update:$ruleId');
+    ruleRows = [
+      for (final r in ruleRows) r['id'] == ruleId ? _ruleRow(ruleId, edit) : r
+    ];
+    return MailRule.fromJson(JsonReader(ruleRows.first));
+  }
+
+  void _setRule(String ruleId, String status) => ruleRows = [
+        for (final r in ruleRows)
+          r['id'] == ruleId
+              ? {
+                  ...r,
+                  'status': status,
+                  'approval': status == 'pending_approval'
+                      ? _ruleApproval(ruleId)
+                      : null,
+                  'last_error': null,
+                }
+              : r
+      ];
+
+  @override
+  Future<MailRule> pauseRule(String ruleId) async {
+    ruleCalls.add('pause:$ruleId');
+    _setRule(ruleId, 'paused');
+    return MailRule.fromJson(JsonReader(ruleRows.first));
+  }
+
+  @override
+  Future<MailRule> resumeRule(String ruleId) async {
+    ruleCalls.add('resume:$ruleId');
+    _setRule(ruleId, 'pending_approval');
+    return MailRule.fromJson(JsonReader(ruleRows.first));
+  }
+
+  @override
+  Future<void> deleteRule(String ruleId) async {
+    ruleCalls.add('delete:$ruleId');
+    ruleRows = [
+      for (final r in ruleRows)
+        if (r['id'] != ruleId) r
+    ];
+  }
 
   @override
   Future<void> setFlags(String accountId, String folder, List<int> uids,
@@ -1275,6 +1434,8 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, _en('mc.sh.stop')));
     await tester.pumpAndSettle();
     expect(repo.removedGrants, ['grant_1']);
+    await tester.drag(find.byType(ListView).last, const Offset(0, 3000));
+    await tester.pumpAndSettle();
     expect(find.text(_en('mc.sh.none')), findsOneWidget);
 
     await tapVisible(tester, find.text(_en('mc.id.add')));
@@ -1476,7 +1637,7 @@ void main() {
         await pumpMail(tester, c,
             size: Size(width, 900), textScale: 2, locale: locale);
         expect(tester.takeException(), isNull);
-        await tapVisible(tester, find.text(t('mc.settings')));
+        await tapVisible(tester, find.text(t('mc.settings')).first);
         expect(tester.takeException(), isNull);
         await tester.tap(find.byType(BackButton));
         await tester.pumpAndSettle();
@@ -1783,6 +1944,237 @@ void main() {
         await tester.tap(find.text('Quote request 30'));
         await tester.pumpAndSettle();
         await tapVisible(tester, find.text(t('mc.ai.forward')));
+        expect(tester.takeException(), isNull);
+      }
+    });
+  }
+
+  // -- retention and sync, forwarding rules ------------------------------------
+
+  Future<void> openSettings(WidgetTester tester, MailCenterController c,
+      {String address = _address}) async {
+    await pumpMail(tester, c);
+    final card =
+        find.ancestor(of: find.text(address), matching: find.byType(Card));
+    await tapVisible(
+        tester,
+        find.descendant(
+            of: card.first, matching: find.text(_en('mc.settings'))));
+  }
+
+  testWidgets('retention: ask to change, approve in place, withdraw',
+      (tester) async {
+    final repo = FakeMailRepository();
+    final c = MailCenterController(repo);
+    await openSettings(tester, c);
+    await tapVisible(tester, find.byKey(const ValueKey('sent-3-null')));
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text(_en('mc.rs.ask')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('4 unread in the inbox'), findsOneWidget);
+    final ask = tester.widget<FilledButton>(find.ancestor(
+        of: find.text(_en('mc.rs.ask')),
+        matching: find.byWidgetPredicate((w) => w is FilledButton)));
+    expect(ask.onPressed, isNull);
+    await tapVisible(tester, find.byKey(const ValueKey('sent-3-null')));
+    await tester.tap(find.text('30 days').last);
+    await tester.pumpAndSettle();
+    await tapVisible(tester, find.text(_en('mc.rs.ask')));
+    expect(repo.settingsChanges, ['30:3']);
+    expect(find.text(_en('mc.rs.approvalTitle')), findsWidgets);
+    expect(find.textContaining('Sent: 30 days'), findsOneWidget);
+    expect(find.textContaining(_hash), findsOneWidget);
+    await tapVisible(tester, find.text(_en('mc.rs.withdraw')));
+    expect(repo.settingsChanges.last, 'withdraw');
+    expect(find.text(_en('mc.rs.approvalTitle')), findsNothing);
+
+    // The pick is kept after withdrawing: ask again and approve it.
+    await tapVisible(tester, find.text(_en('mc.rs.ask')));
+    expect(repo.settingsChanges.last, '30:3');
+    await tapVisible(tester, find.text(_en('mc.rs.approve')));
+    expect(repo.approved, [_hash]);
+    expect(repo.settingsVersion, 4);
+    expect(find.text(_en('mc.rs.approvalTitle')), findsNothing);
+  });
+
+  testWidgets('retention: a change made first elsewhere is said and reloaded',
+      (tester) async {
+    final repo = FakeMailRepository()
+      ..changeError = const ApiException(
+          409, 'These settings changed after you opened them.');
+    final c = MailCenterController(repo);
+    await openSettings(tester, c);
+    await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('sent-3-null')), 200,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView).last,
+                matching: find.byType(Scrollable))
+            .first);
+    await tapVisible(tester, find.byKey(const ValueKey('sent-3-null')));
+    await tester.tap(find.text('30 days').last);
+    await tester.pumpAndSettle();
+    await tapVisible(tester, find.text(_en('mc.rs.ask')));
+    expect(find.text(_en('mc.rs.stale')), findsOneWidget);
+    expect(find.text('These settings changed after you opened them.'),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('sent-4-null')), findsOneWidget);
+
+    repo.settingsError = const ApiException(503, 'The server is busy.');
+    await c.directory.loadSettings();
+    await tester.pumpAndSettle();
+    expect(find.text('The server is busy.'), findsWidgets);
+  });
+
+  testWidgets('a shared mailbox shows retention read only and no rules',
+      (tester) async {
+    final repo = FakeMailRepository()
+      ..setupJson = _setup(accounts: [
+        {
+          ..._account(),
+          'id': 'mailbox_2',
+          'address': 'team@example.test',
+          'access': 'send',
+          'grant_id': 'grant_9',
+        },
+      ]);
+    final c = MailCenterController(repo);
+    await openSettings(tester, c, address: 'team@example.test');
+    expect(find.text(_en('mc.rs.readOnly')), findsOneWidget);
+    expect(find.text(_en('mc.sh.title')), findsNothing);
+    await tester.scrollUntilVisible(find.text(_en('mc.fr.ownerOnly')), 200,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView).last,
+                matching: find.byType(Scrollable))
+            .first);
+    expect(find.text(_en('mc.rs.ask')), findsNothing);
+    expect(repo.ruleCalls, isEmpty);
+    final dropdown = tester
+        .widget<DropdownButton<int?>>(find.byType(DropdownButton<int?>).first);
+    expect(dropdown.onChanged, isNull);
+  });
+
+  testWidgets('forwarding rules: checks, approval, pause, resume, remove',
+      (tester) async {
+    final repo = FakeMailRepository();
+    final c = MailCenterController(repo);
+    await openSettings(tester, c);
+    await tapVisible(tester, find.text(_en('mc.fr.new')));
+    expect(find.text(_en('mc.fr.none')), findsOneWidget);
+    final save = find.text(_en('mc.fr.askApproval'));
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(find.text(_en('mc.fr.needsName')), findsOneWidget);
+    expect(find.text(_en('mc.needsRecipient')), findsOneWidget);
+    await tester.enterText(
+        find.widgetWithText(TextFormField, _en('mc.fr.name')), 'Invoices');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, _en('mc.fr.forwardTo')), _address);
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(find.text(_en('mc.fr.toSelf')), findsOneWidget);
+    expect(find.text(_en('mc.fr.needsCondition')), findsOneWidget);
+    await tester.enterText(
+        find.widgetWithText(TextFormField, _en('mc.fr.forwardTo')),
+        'omar@client.example');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, _en('mc.fr.subject')), 'invoice');
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(repo.ruleCalls, contains('create:Invoices'));
+    expect(find.text(_en('mc.fr.status.pending_approval')), findsOneWidget);
+    expect(find.text('Subject contains "invoice"'), findsOneWidget);
+    expect(find.textContaining(_hash), findsOneWidget);
+    await tapVisible(tester, find.text(_en('mc.fr.approve')));
+    expect(repo.approved, [_hash]);
+    expect(find.text(_en('mc.fr.status.active')), findsOneWidget);
+
+    await tapVisible(tester, find.text(_en('mc.fr.pause')));
+    expect(repo.ruleCalls, contains('pause:rule_1'));
+    expect(find.text(_en('mc.fr.status.paused')), findsOneWidget);
+    await tapVisible(tester, find.text(_en('mc.fr.resume')));
+    expect(repo.ruleCalls, contains('resume:rule_1'));
+    expect(find.text(_en('mc.fr.approve')), findsOneWidget);
+
+    await tapVisible(
+        tester, find.widgetWithText(TextButton, _en('mc.fr.remove')));
+    await tester.tap(find.widgetWithText(FilledButton, _en('mc.fr.remove')));
+    await tester.pumpAndSettle();
+    expect(repo.ruleCalls, contains('delete:rule_1'));
+    expect(find.text(_en('mc.fr.none')), findsOneWidget);
+  });
+
+  testWidgets('a paused rule says why it stopped', (tester) async {
+    final repo = FakeMailRepository()
+      ..ruleRows = [
+        {
+          'id': 'rule_1',
+          'account_id': 'mailbox_1',
+          'name': 'Orders',
+          'from_contains': 'orders',
+          'subject_contains': '',
+          'forward_to': ['omar@client.example'],
+          'status': 'paused',
+          'approval': null,
+          'last_error': 'The owner is no longer a member.',
+          'forwarded_count': 7,
+          'last_run_at': _now.toIso8601String(),
+        }
+      ];
+    final c = MailCenterController(repo);
+    await openSettings(tester, c);
+    await tester.scrollUntilVisible(
+        find.textContaining('The owner is no longer a member.'), 200,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView).last,
+                matching: find.byType(Scrollable))
+            .first);
+    expect(find.textContaining('7 forwarded, last check'), findsOneWidget);
+  });
+
+  for (final width in [320.0, 390.0, 768.0, 1024.0, 1440.0]) {
+    testWidgets(
+        'retention and rules lay out at $width px, 200% text, English and Arabic',
+        (tester) async {
+      for (final locale in const [Locale('en'), Locale('ar')]) {
+        String t(String key) =>
+            (locale.languageCode == 'ar' ? mailCenterAr : mailCenterEn)[key]!;
+        final repo = FakeMailRepository()
+          ..pendingSettings = {
+            'sent_retention_days': 30,
+            'draft_retention_days': null,
+            'label_retention_days': 7,
+            'background_sync': false,
+          }
+          ..ruleRows = [
+            {
+              'id': 'rule_1',
+              'account_id': 'mailbox_1',
+              'name': 'A long rule name for invoices from suppliers',
+              'from_contains': 'billing@supplier.example',
+              'subject_contains': 'invoice',
+              'forward_to': ['omar@client.example', 'lina@client.example'],
+              'status': 'pending_approval',
+              'approval': {
+                ..._approval(),
+                'id': 'approval_rule_1',
+                'action': 'activate_mail_forward_rule',
+              },
+              'forwarded_count': 0,
+            }
+          ];
+        final c = MailCenterController(repo);
+        await pumpMail(tester, c,
+            size: Size(width, 900), textScale: 2, locale: locale);
+        await tapVisible(tester, find.text(t('mc.settings')));
+        expect(tester.takeException(), isNull);
+        await tapVisible(tester, find.text(t('mc.fr.edit')));
         expect(tester.takeException(), isNull);
       }
     });

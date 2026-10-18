@@ -171,7 +171,7 @@ class MailSelectionBar extends StatelessWidget {
             if (approval != null) ...[
               const SizedBox(height: AnumSpacing.sm),
               MailApprovalCard(
-                controller: c,
+                busy: c.busy != null,
                 approval: approval,
                 title: l.t('mc.b.approvalTitle.${c.bulkKind}'),
                 lines: [

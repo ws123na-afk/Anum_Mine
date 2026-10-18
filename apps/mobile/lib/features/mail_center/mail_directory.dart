@@ -2,8 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../data/api_client.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
+import '../workspace/workspace_models.dart';
+import 'mail_automation.dart';
 import 'mail_center_controller.dart';
 import 'mail_center_models.dart';
 import 'mail_center_repository.dart';
@@ -115,8 +118,125 @@ class MailDirectoryController extends ChangeNotifier with MailNoticeSource {
     grants = const [];
     candidates = const [];
     identities = const [];
-    await Future.wait([loadShares(), loadIdentities()]);
+    settings = null;
+    rules = const [];
+    settingsStale = false;
+    await Future.wait([
+      loadSettings(),
+      if (target.isOwn) ...[loadShares(), loadIdentities(), loadRules()],
+    ]);
   }
+
+  // -- retention and sync ---------------------------------------------------
+
+  MailPhase settingsPhase = MailPhase.idle;
+  String? settingsError;
+  MailSettings? settings;
+
+  /// Someone changed the settings after they were shown: they were read
+  /// again and the person picks again.
+  bool settingsStale = false;
+
+  Future<void> loadSettings() async {
+    final open = account;
+    if (open == null) return;
+    settingsPhase = MailPhase.loading;
+    settingsError = null;
+    notifyListeners();
+    try {
+      settings = await repository.settings(open.id);
+      settingsPhase = MailPhase.ready;
+    } on Object catch (e) {
+      settingsPhase = phaseFor(e);
+      settingsError = describe(e);
+    }
+    notifyListeners();
+  }
+
+  /// Asks to change to [edit]; nothing changes until an owner approves.
+  Future<bool> askSettings(MailSettingsEdit edit) async {
+    final current = settings, open = account;
+    if (current == null || open == null) return false;
+    settingsStale = false;
+    return _run('settings', () async {
+      try {
+        await repository.changeSettings(open.id, edit, current.version);
+        say('mc.rs.asked');
+      } on ApiException catch (e) {
+        if (e.statusCode == 409) {
+          settingsStale = true;
+          await loadSettings();
+        }
+        rethrow;
+      }
+      await loadSettings();
+    });
+  }
+
+  Future<bool> withdrawSettings() => _run('settings', () async {
+        await repository.withdrawSettings(account!.id);
+        say('mc.rs.withdrawn');
+        await loadSettings();
+      });
+
+  /// Approves a settings change or a rule with its hash, then reads both
+  /// again (the API refuses a stale approval and says why).
+  Future<bool> approve(WorkspaceApproval approval) => _run('approve', () async {
+        final result = await repository.approve(approval);
+        say(result ?? 'mc.n.approved');
+        await Future.wait([loadSettings(), loadRules()]);
+      });
+
+  // -- forwarding rules -------------------------------------------------------
+
+  MailPhase rulesPhase = MailPhase.idle;
+  String? rulesError;
+  List<MailRule> rules = const [];
+
+  Future<void> loadRules() async {
+    final open = account;
+    if (open == null || !open.isOwn) return;
+    rulesPhase = MailPhase.loading;
+    rulesError = null;
+    notifyListeners();
+    try {
+      rules = await repository.rules(open.id);
+      rulesPhase = MailPhase.ready;
+    } on Object catch (e) {
+      rulesPhase = phaseFor(e);
+      rulesError = describe(e);
+    }
+    notifyListeners();
+  }
+
+  Future<bool> saveRule(MailRule? existing, MailRuleEdit edit) =>
+      _run('rule', () async {
+        if (existing == null) {
+          await repository.createRule(account!.id, edit);
+        } else {
+          await repository.updateRule(existing.id, edit);
+        }
+        say('mc.fr.asked');
+        await loadRules();
+      });
+
+  Future<bool> pauseRule(MailRule rule) => _run('rule', () async {
+        await repository.pauseRule(rule.id);
+        say('mc.fr.paused');
+        await loadRules();
+      });
+
+  Future<bool> resumeRule(MailRule rule) => _run('rule', () async {
+        await repository.resumeRule(rule.id);
+        say('mc.fr.asked');
+        await loadRules();
+      });
+
+  Future<bool> deleteRule(MailRule rule) => _run('rule', () async {
+        await repository.deleteRule(rule.id);
+        say('mc.fr.removed');
+        await loadRules();
+      });
 
   Future<void> loadShares() async {
     final open = account;
@@ -211,7 +331,12 @@ class MailDirectoryController extends ChangeNotifier with MailNoticeSource {
   }
 
   void reset() {
-    contactsPhase = sharesPhase = identitiesPhase = MailPhase.idle;
+    contactsPhase = sharesPhase =
+        identitiesPhase = settingsPhase = rulesPhase = MailPhase.idle;
+    settings = null;
+    rules = const [];
+    settingsError = rulesError = null;
+    settingsStale = false;
     contacts = const [];
     grants = const [];
     candidates = const [];
@@ -590,11 +715,22 @@ class _MailAccountSettingsScreenState extends State<MailAccountSettingsScreen> {
           builder: (context, _) => mailPage(ListView(
             padding: const EdgeInsets.all(AnumSpacing.md),
             children: [
-              _section(context, l.t('mc.sh.title'), l.t('mc.sh.text')),
-              ..._shares(context, l, c),
+              if (widget.account.isOwn) ...[
+                _section(context, l.t('mc.sh.title'), l.t('mc.sh.text')),
+                ..._shares(context, l, c),
+                const SizedBox(height: AnumSpacing.lg),
+                _section(context, l.t('mc.id.title'), l.t('mc.id.text')),
+                ..._identities(context, l, c),
+                const SizedBox(height: AnumSpacing.lg),
+              ],
+              _section(context, l.t('mc.rs.title'), l.t('mc.rs.text')),
+              MailRetentionSection(controller: c),
               const SizedBox(height: AnumSpacing.lg),
-              _section(context, l.t('mc.id.title'), l.t('mc.id.text')),
-              ..._identities(context, l, c),
+              _section(context, l.t('mc.fr.title'), l.t('mc.fr.text')),
+              if (widget.account.isOwn)
+                MailRulesSection(controller: c)
+              else
+                Text(l.t('mc.fr.ownerOnly')),
             ],
           )),
         ),

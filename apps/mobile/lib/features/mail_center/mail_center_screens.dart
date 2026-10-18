@@ -436,14 +436,23 @@ class _AccountCard extends StatelessWidget {
                 !account.needsPassword &&
                 account.lastError != null)
               Text(account.lastError!, style: TextStyle(color: scheme.error)),
-            if (canAct && !account.isOwn)
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: TextButton.icon(
-                  onPressed: controller.busy == null ? onLeave : null,
-                  icon: const Icon(Icons.logout),
-                  label: Text(l.t('mc.leave')),
-                ),
+            if (!account.isOwn)
+              Wrap(
+                spacing: AnumSpacing.xs,
+                runSpacing: AnumSpacing.xs,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: controller.busy == null ? onSettings : null,
+                    icon: const Icon(Icons.tune),
+                    label: Text(l.t('mc.settings')),
+                  ),
+                  if (canAct)
+                    TextButton.icon(
+                      onPressed: controller.busy == null ? onLeave : null,
+                      icon: const Icon(Icons.logout),
+                      label: Text(l.t('mc.leave')),
+                    ),
+                ],
               ),
             if (canAct && account.isOwn)
               Wrap(
@@ -1302,7 +1311,7 @@ class MailMessageScreen extends StatelessWidget {
         if (deleteApproval != null) ...[
           const SizedBox(height: AnumSpacing.sm),
           MailApprovalCard(
-            controller: c,
+            busy: c.busy != null,
             approval: deleteApproval,
             title: l.t('mc.deleteApprovalTitle'),
             lines: [
@@ -1723,14 +1732,14 @@ class _StatusLine extends StatelessWidget {
 class MailApprovalCard extends StatelessWidget {
   const MailApprovalCard({
     super.key,
-    required this.controller,
+    required this.busy,
     required this.approval,
     required this.title,
     required this.lines,
     required this.approveLabel,
     required this.onApprove,
   });
-  final MailCenterController controller;
+  final bool busy;
   final WorkspaceApproval approval;
   final String title, approveLabel;
   final List<String> lines;
@@ -1766,9 +1775,7 @@ class MailApprovalCard extends StatelessWidget {
             Align(
               alignment: AlignmentDirectional.centerStart,
               child: FilledButton.icon(
-                onPressed: controller.busy == null && hash.isNotEmpty
-                    ? onApprove
-                    : null,
+                onPressed: !busy && hash.isNotEmpty ? onApprove : null,
                 icon: const Icon(Icons.verified_outlined),
                 label: Text(approveLabel),
               ),
@@ -1793,7 +1800,7 @@ Widget sendApprovalCard(BuildContext context, MailCenterController c,
   final files = approval.arguments['attachments'];
   final count = files is List ? files.length : draft.attachments.length;
   return MailApprovalCard(
-    controller: c,
+    busy: c.busy != null,
     approval: approval,
     title: l.t('mc.approvalTitle'),
     lines: [

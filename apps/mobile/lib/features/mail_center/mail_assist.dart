@@ -172,7 +172,7 @@ class MailAssistPanel extends StatelessWidget {
             if (approval != null) ...[
               const SizedBox(height: AnumSpacing.sm),
               MailApprovalCard(
-                controller: c,
+                busy: c.busy != null,
                 approval: approval,
                 title: l.t('mc.ai.draftApprovalTitle'),
                 lines: [l.t('mc.ai.draftApprovalText')],
