@@ -207,6 +207,15 @@ def new_message_id(sender_address: str) -> str:
 
 
 @dataclass(frozen=True)
+class OutgoingFile:
+    """An attachment as sent: checked and scanned when it was attached (docs/email.md#attachments)."""
+
+    filename: str
+    content_type: str
+    data: bytes
+
+
+@dataclass(frozen=True)
 class Outgoing:
     sender_name: str
     sender_address: str
@@ -219,6 +228,7 @@ class Outgoing:
     in_reply_to: str | None = None
     references: str | None = None
     date: datetime | None = None
+    attachments: tuple[OutgoingFile, ...] = ()
 
 
 def _address(text: str, name: str = "") -> Address:
@@ -242,6 +252,12 @@ def build_message(outgoing: Outgoing) -> bytes:
         message["References"] = outgoing.references
     message["MIME-Version"] = "1.0"
     message.set_content(outgoing.body or "", subtype="plain", charset="utf-8")
+    for item in outgoing.attachments:
+        maintype, _, subtype = item.content_type.partition("/")
+        if not maintype or not subtype:
+            maintype, subtype = "application", "octet-stream"
+        # The file name is a parameter value: the policy encodes it (RFC 2231) and refuses line breaks.
+        message.add_attachment(item.data, maintype=maintype, subtype=subtype, filename=_clip(item.filename, 255))
     return message.as_bytes()
 
 
