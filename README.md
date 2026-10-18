@@ -119,6 +119,7 @@ x-user-roles: owner,member
 - [Workspace files](docs/files.md)
 - [Calls & Meetings](docs/meetings.md)
 - [Phone calls: contacts, dialpad, call log, AI summaries; provider and AI calls off until an owner connects them](docs/calls.md)
+- [In-app calls between teammates](docs/in-app-calls.md)
 - [Tools and integrations](docs/tools-and-integrations.md)
 - [Connecting integrations: the owner's runbook](docs/integrations-setup.md)
 - [Email: the unified inbox](docs/email.md)

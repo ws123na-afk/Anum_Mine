@@ -85,6 +85,9 @@ class CanonicalEventName(StrEnum):
     EMAIL_RECEIVED = "email.received"
     WHATSAPP_MESSAGE_RECEIVED = "whatsapp.message_received"
     FILE_UPLOADED = "file.uploaded"
+    # In-app calls (docs/in-app-calls.md#events): the call id and the person rung only,
+    # so their phones can ring (push). Signaling never travels on the workspace stream.
+    APP_CALL_RINGING = "app_call.ringing"
 
 
 class PublicationStatus(StrEnum):

@@ -1,0 +1,72 @@
+/* In-app calls: the call screen, the minimised call pill, the notice, the Call buttons and the
+   Calls history. Shared tokens only (spacing --d-s*, radii --d-r-*), logical properties for
+   right-to-left. Heights follow content; the layer is the only full-viewport element. */
+.appCallLayer {
+  align-items: center; background: color-mix(in srgb, var(--d-bg) 72%, transparent); backdrop-filter: blur(6px);
+  display: flex; inset: 0; justify-content: center; padding: var(--d-s4); position: fixed; z-index: 60;
+}
+.appCallPanel {
+  align-items: center; display: grid; gap: var(--d-s3); justify-items: center; max-block-size: calc(100dvh - 2 * var(--d-s4));
+  max-inline-size: 420px; overflow-y: auto; padding: var(--d-s6) var(--d-s5) var(--d-s5); position: relative; text-align: center; inline-size: 100%;
+}
+.appCallPanel.withVideo { max-inline-size: 880px; padding-block-start: var(--d-s7); }
+.appCallPanel h2 { font-size: 22px; margin: 0; overflow-wrap: anywhere; }
+.appCallAvatar {
+  align-items: center; background: linear-gradient(135deg, var(--d-mark-a), var(--d-mark-c)); border-radius: 50%; color: #fff;
+  display: inline-flex; font-size: 28px; font-weight: 800; block-size: 88px; inline-size: 88px; justify-content: center;
+}
+.appCallPanel.incoming .appCallAvatar { animation: appCallPulse 1.6s ease-in-out infinite; }
+@keyframes appCallPulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--d-ok) 45%, transparent); } 50% { box-shadow: 0 0 0 14px transparent; } }
+@media (prefers-reduced-motion: reduce) { .appCallPanel.incoming .appCallAvatar { animation: none; } }
+.appCallStatus { color: var(--d-muted); font-size: 15px; margin: 0; }
+.appCallDetail { color: var(--d-text); font-size: 14px; margin: 0; max-inline-size: 36ch; }
+.appCallMinimize { inset-block-start: var(--d-s3); inset-inline-end: var(--d-s3); position: absolute; }
+.appCallControls { display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: center; margin-block-start: var(--d-s2); }
+.appCallButton {
+  align-items: center; background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text);
+  display: inline-flex; flex-direction: column; font-size: 12px; font-weight: 650; gap: var(--d-s1); min-block-size: 64px; min-inline-size: 76px; padding: var(--d-s2) var(--d-s3);
+}
+.appCallButton svg { block-size: 22px; inline-size: 22px; }
+.appCallButton[aria-pressed="true"] { background: var(--d-glass-3); border-color: var(--d-line-hover); }
+.appCallButton.accept { background: #15803d; border-color: transparent; color: #fff; }
+.appCallButton.hangup { background: var(--d-danger); border-color: transparent; color: #fff; }
+.appCallButton.small { flex-direction: row; min-block-size: 40px; min-inline-size: 0; }
+.appCallButton:disabled { opacity: .55; }
+.appCallVideos { aspect-ratio: 16 / 9; background: #000; border-radius: var(--d-r-control); inline-size: 100%; overflow: hidden; position: relative; }
+.appCallRemote { block-size: 100%; inline-size: 100%; object-fit: cover; }
+.appCallLocal {
+  border: 2px solid rgba(255, 255, 255, .6); border-radius: var(--d-r-control); inline-size: 26%; inset-block-end: var(--d-s3); inset-inline-end: var(--d-s3);
+  max-inline-size: 180px; min-inline-size: 96px; object-fit: cover; position: absolute; transform: scaleX(-1);
+}
+.appCallPill {
+  align-items: center; background: var(--d-surface-2); border: 1px solid var(--d-line-strong); border-radius: 999px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+  display: flex; gap: var(--d-s2); inset-block-end: var(--d-s4); inset-inline-end: var(--d-s4); max-inline-size: calc(100vw - 2 * var(--d-s4));
+  padding: var(--d-s2) var(--d-s2) var(--d-s2) var(--d-s4); position: fixed; z-index: 60;
+}
+.appCallPillText { font-size: 14px; font-weight: 650; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appCallNotice {
+  align-items: center; background: var(--d-surface-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); display: flex;
+  gap: var(--d-s3); inset-block-start: var(--d-s4); inset-inline: var(--d-s4); margin-inline: auto; max-inline-size: 560px; padding: var(--d-s3) var(--d-s4);
+  position: fixed; z-index: 61;
+}
+.appCallNotice span { flex: 1; font-size: 14px; }
+.callButtons { display: inline-flex; flex-wrap: wrap; gap: var(--d-s2); }
+.callButtons button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s1); min-block-size: 40px; padding: 0 var(--d-s3); }
+.callButtons svg { block-size: 16px; inline-size: 16px; }
+.personActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
+.callHistory { display: grid; gap: var(--d-s1); list-style: none; margin: var(--d-s3) 0 0; padding: 0; }
+.callRow { align-items: center; border-block-start: 1px solid var(--d-line); display: grid; gap: var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto; padding-block: var(--d-s3) 0; }
+.callRow svg.direction { block-size: 18px; color: var(--d-muted); inline-size: 18px; }
+.callRow.missed svg.direction, .callRow.missed .callWord { color: var(--d-stop); }
+.callRow strong { display: block; overflow-wrap: anywhere; }
+.callRow small { color: var(--d-muted); display: block; font-size: 13px; }
+.callFilters { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-block-start: var(--d-s3); }
+.callFilters button[aria-pressed="true"] { border-color: var(--d-line-hover); }
+.callsNote { margin-block-start: var(--d-s3); }
+@media (max-width: 640px) {
+  .appCallPanel { padding: var(--d-s5) var(--d-s4) var(--d-s4); }
+  .appCallButton { min-inline-size: 64px; }
+  .callRow { grid-template-columns: auto minmax(0, 1fr); }
+  .callRow .callButtons { grid-column: 2; }
+  .personActions { justify-content: flex-start; }
+}

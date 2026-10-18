@@ -387,6 +387,9 @@ class PushKind(StrEnum):
     AUTOMATION_FAILED = "automation_failed"
     # The post-close SIMULATED trading report (docs/finance-trading-intel.md#daily-report).
     FINANCE_REPORT = "finance_report"
+    # In-app calls (docs/in-app-calls.md#phone-push): a teammate is ringing, or rang.
+    INCOMING_CALL = "incoming_call"
+    MISSED_CALL = "missed_call"
 
 
 # Which notification preference switch gates each kind.
@@ -405,6 +408,8 @@ PREFERENCE: dict[PushKind, str] = {
     PushKind.AUTOMATION_FAILED: "automation_failed",
     # No switch of its own: follows the push channel switch, like team work.
     PushKind.FINANCE_REPORT: "push_enabled",
+    PushKind.INCOMING_CALL: "push_enabled",
+    PushKind.MISSED_CALL: "push_enabled",
 }
 
 # Fixed text: a push never carries the task, the prompt, the tool call or a PR title.
@@ -420,6 +425,8 @@ TEXT: dict[PushKind, tuple[str, str]] = {
     PushKind.AUTOMATION_NOTICE: ("Automation update", "An automation has a message for you. Open ANUM to read it."),
     PushKind.AUTOMATION_FAILED: ("Automation failed", "An automation could not finish."),
     PushKind.FINANCE_REPORT: ("Daily trading report", "Your simulated trading report for today is ready. No real order was placed."),
+    PushKind.INCOMING_CALL: ("Incoming call", "A teammate is calling you. Open ANUM to answer."),
+    PushKind.MISSED_CALL: ("Missed call", "A teammate tried to call you in ANUM."),
 }
 
 # The same fixed text in Arabic, for phones whose app shows Arabic (``push_devices.language``).
@@ -435,6 +442,8 @@ TEXT_AR: dict[PushKind, tuple[str, str]] = {
     PushKind.AUTOMATION_NOTICE: ("تحديث أتمتة", "لدى أتمتة رسالة لك. افتح ANUM لقراءتها."),
     PushKind.AUTOMATION_FAILED: ("فشلت الأتمتة", "تعذر إكمال أتمتة."),
     PushKind.FINANCE_REPORT: ("تقرير التداول اليومي", "تقرير التداول المحاكى لليوم جاهز. لم يُنفذ أي أمر حقيقي."),
+    PushKind.INCOMING_CALL: ("مكالمة واردة", "زميل يتصل بك. افتح ANUM للرد."),
+    PushKind.MISSED_CALL: ("مكالمة فائتة", "حاول زميل الاتصال بك في ANUM."),
 }
 
 
@@ -453,6 +462,7 @@ EVENT_KINDS: dict[str, PushKind] = {
     "notification.created": PushKind.TEAM_WORK,
     "automation.notification": PushKind.AUTOMATION_NOTICE,
     "automation_run.failed": PushKind.AUTOMATION_FAILED,
+    "app_call.ringing": PushKind.INCOMING_CALL,
 }
 
 
@@ -472,6 +482,7 @@ class PushIntent:
     recipient: str | None = None
     automation_run_id: str | None = None
     workflow_id: str | None = None
+    app_call_id: str | None = None
     # Automation pushes: the users the event names (notify_user_ids).
     named_users: tuple[str, ...] = ()
 
@@ -489,12 +500,15 @@ class PushIntent:
             "work_item_id": self.work_item_id,
             "automation_run_id": self.automation_run_id,
             "workflow_id": self.workflow_id,
+            "app_call_id": self.app_call_id,
         }
         return {key: value for key, value in values.items() if value}
 
     def collapse_id(self) -> str:
         if self.kind == PushKind.TYRE_ALERTS:
             return f"tyre_alerts:{self.workspace_id}"
+        if self.app_call_id:
+            return f"app_call:{self.app_call_id}:{self.kind.value}"
         return self.approval_id or self.request_id or self.alert_id or self.work_item_id or self.automation_run_id or self.task_id or self.event_id
 
 
@@ -528,11 +542,19 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         return PushIntent(**common, approval_id=event.subject, task_id=task_id)
     if kind == PushKind.TYRE_ALERTS:
         return PushIntent(**common)
+    if kind == PushKind.INCOMING_CALL:
+        recipient = event.payload.get("recipient")
+        call_id = event.payload.get("call_id")
+        if not isinstance(recipient, str) or not recipient or not isinstance(call_id, str) or not call_id:
+            return None
+        return PushIntent(**common, recipient=recipient, app_call_id=call_id)
     if kind == PushKind.TEAM_WORK:
         recipient = event.payload.get("recipient")
         item = event.payload.get("work_item_id")
         if not isinstance(recipient, str) or not recipient:
             return None
+        if event.payload.get("kind") == "missed_call":
+            return PushIntent(**{**common, "kind": PushKind.MISSED_CALL}, recipient=recipient)
         if event.payload.get("kind") == "finance_daily_report":
             # Not team work: its own kind and text, opening Finance on the phone.
             return PushIntent(**{**common, "kind": PushKind.FINANCE_REPORT}, recipient=recipient)
@@ -576,6 +598,9 @@ def resolve_recipients(intent: PushIntent, *, limit: int | None = None) -> list[
                 user for user, role in members.items()
                 if user not in excluded and _allowed(role, Permission.APPROVAL_DECIDE)
             ]
+        elif intent.kind in {PushKind.INCOMING_CALL, PushKind.MISSED_CALL}:
+            if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.CALL_USE):
+                recipients = [intent.recipient]
         elif intent.kind == PushKind.TEAM_WORK:
             if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.WORK_READ):
                 recipients = [intent.recipient]

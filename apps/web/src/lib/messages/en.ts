@@ -12,6 +12,7 @@ import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
 import { homeEn } from './home.en.ts';
 import { teamEn } from './team.en.ts';
+import { appCallsEn } from './appCalls.en.ts';
 import { marketingEn } from './marketing.en.ts';
 import { businessEn } from './business.en.ts';
 import { ownerEn } from './en.owner.ts';
@@ -47,6 +48,7 @@ export const en = {
   ...financeReportsEn,
   ...financeIntelActionsEn,
   ...teamEn,
+  ...appCallsEn,
   ...marketingEn,
   ...businessEn,
   ...agentSkillsEn,

@@ -345,6 +345,28 @@ class Settings(BaseSettings):
     push_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     # Events waiting for delivery in each process; beyond this the oldest are dropped.
     push_max_pending: int = Field(default=1000, ge=10, le=100_000)
+    # In-app calls between teammates (anum_api/app_calls.py, docs/in-app-calls.md). Off
+    # until a TURN relay is configured: ``calls_turn_urls`` (comma-separated turn: or
+    # turns: URLs of the self-hosted coturn) plus ``calls_turn_secret`` (coturn's
+    # static-auth-secret, 32+ characters) give "turn" mode, where the API mints short-lived
+    # TURN credentials (HMAC-SHA1, coturn's REST scheme) per call. Without them,
+    # ``calls_allow_stun_only=true`` gives "stun_only" mode: calls connect on many
+    # networks but fail behind strict NATs and firewalls. ``calls_stun_urls`` (stun: URLs)
+    # default to the TURN hosts.
+    calls_turn_urls: str = ""
+    calls_turn_secret: SecretStr | None = None
+    calls_stun_urls: str = ""
+    calls_allow_stun_only: bool = False
+    calls_turn_ttl_seconds: int = Field(default=7200, ge=300, le=86_400)
+    calls_ring_timeout_seconds: int = Field(default=45, ge=10, le=120)
+    calls_video_enabled: bool = True
+    # The signaling stream polls the database (in a thread, with its own short session)
+    # every ``calls_poll_seconds`` while idle and every ``calls_active_poll_seconds``
+    # while the caller has a call ringing or in progress.
+    calls_poll_seconds: float = Field(default=1.0, ge=0.1, le=10)
+    calls_active_poll_seconds: float = Field(default=0.25, ge=0.05, le=5)
+    # Calls (and their signaling rows) older than this are purged lazily.
+    calls_retention_days: int = Field(default=365, ge=7, le=3650)
     # Calls & Meetings (anum_api/meetings.py, docs/meetings.md). Recording uploads are
     # capped at ``meeting_recording_max_bytes`` (hosted Whisper APIs accept 25 MB) and
     # transcript files at ``meeting_transcript_max_bytes``. The analysis prompt holds at

@@ -995,6 +995,27 @@ def test_mail_operator_view_migration_is_expand_only_and_reads_counts_only() -> 
     assert "_extend_restrictive(add=true)" in upgrade and "or current_user = %l" in revision_text.lower()
 
 
+def test_app_calls_migration_is_expand_only_and_participants_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0073_app_calls.py").read_text(encoding="utf-8")
+    assert 'revision = "0073_app_calls"' in revision_text and len("0073_app_calls") <= 32
+    others = [path for path in versions.glob("*.py") if path.name != "0073_app_calls.py"]
+    down = revision_text.split('down_revision = "', 1)[1].split('"', 1)[0]
+    assert not [path for path in others if f'down_revision = "{down}"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2
+    for table in ("app_calls", "app_call_signals"):
+        assert f'"{table}"' in revision_text and f'_workspace_fk("{table}")' in revision_text
+    assert "force row level security" in upgrade and "create policy participants_only_{table}" in upgrade
+    assert "create policy inserter_only_{table}" in upgrade and upgrade.count("as restrictive") == 2
+    assert "op.add_column(" not in upgrade and "op.drop" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # One narrow grant: retention discovery reads five columns of ended calls, nothing else.
+    assert upgrade.count("grant ") == 1
+    assert "grant select (id, tenant_id, workspace_id, caller_user_id, ended_at) on app_calls to anum_maintenance" in upgrade
+    assert "for select to anum_maintenance" in upgrade and "status = 'ended' and ended_at <= now() - interval '7 days'" in upgrade
+
+
 def test_calls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0071_calls.py").read_text(encoding="utf-8")

@@ -130,6 +130,10 @@ class Permission(StrEnum):
     CALL_READ = "call:read"
     CALL_LOG = "call:log"
     CALL_MANAGE = "call:manage"
+    # In-app calls (docs/in-app-calls.md): every active member, viewers included, may call
+    # and answer teammates of the same workspace. A call row is visible to its two
+    # participants only (row policies on ``anum.user_id``).
+    CALL_USE = "call:use"
     # Business (docs/business.md#permissions): the internal sales desk holds contacts'
     # personal data, so viewers do not see it. Owners and members read and work leads,
     # opportunities, proposals and projects; owners manage the catalog, the research caps
@@ -192,6 +196,7 @@ _READ_PERMISSIONS = frozenset(
         Permission.WORK_READ,
         Permission.CALENDAR_READ,
         Permission.MARKETING_READ,
+        Permission.CALL_USE,
     }
 )
 

@@ -69,6 +69,21 @@ def scope_language(headers: Mapping[str, str] | list[tuple[bytes, bytes]]) -> La
 # Exact English messages the clients show, with their Arabic. Keep the English identical to the
 # raising code: tests/test_localization.py checks that every key is still raised somewhere.
 ARABIC_MESSAGES: dict[str, str] = {
+    # In-app calls (anum_api/app_calls.py)
+    "Calls are off on this server until a relay (TURN) server is configured": "المكالمات متوقفة على هذا الخادم حتى يُضبط خادم ترحيل (TURN).",
+    "Video calls are turned off on this server": "مكالمات الفيديو متوقفة على هذا الخادم.",
+    "You cannot call yourself": "لا يمكنك الاتصال بنفسك.",
+    "This person is not an active member of this workspace": "هذا الشخص ليس عضوًا نشطًا في مساحة العمل هذه.",
+    "You are already in a call": "أنت في مكالمة بالفعل.",
+    "Call not found": "لم يُعثر على المكالمة.",
+    "Only the person being called can answer": "لا يرد على المكالمة إلا الشخص المتصَل به.",
+    "This call is no longer ringing": "لم تعد هذه المكالمة ترن.",
+    "This call is not in progress": "هذه المكالمة ليست جارية.",
+    "Only the caller sends the offer": "المتصل وحده يرسل العرض.",
+    "Only the person called sends the answer": "الشخص المتصَل به وحده يرسل الرد.",
+    "Too many signals for this call": "إشارات كثيرة جدًا لهذه المكالمة.",
+    "An offer or answer carries an sdp and no candidates": "العرض أو الرد يحمل وصف جلسة ولا يحمل مرشحين.",
+    "An ice signal carries candidates and no sdp": "إشارة ICE تحمل مرشحين ولا تحمل وصف جلسة.",
     # Generic envelopes
     "Request validation failed": "تعذّر التحقق من الطلب.",
     "An unexpected error occurred": "حدث خطأ غير متوقع.",

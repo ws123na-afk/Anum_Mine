@@ -71,7 +71,8 @@ enum PushDestinationKind {
   developer,
   tyreAlerts,
   automation,
-  financeReport
+  financeReport,
+  teamCalls,
 }
 
 /// Where a tapped notification leads. A push carries ids only
@@ -107,6 +108,7 @@ class PushDestination {
       'task_completed' || 'run_failed' => PushDestinationKind.task,
       'developer_ready' || 'developer_failed' => PushDestinationKind.developer,
       'tyre_alerts' => PushDestinationKind.tyreAlerts,
+      'incoming_call' || 'missed_call' => PushDestinationKind.teamCalls,
       'automation_notice' ||
       'automation_failed' =>
         PushDestinationKind.automation,
@@ -134,6 +136,7 @@ class PushDestination {
         PushDestinationKind.tyreAlerts => '/tyres/alerts',
         PushDestinationKind.automation => '/automations',
         PushDestinationKind.financeReport => '/finance/intel',
+        PushDestinationKind.teamCalls => '/team-calls',
       };
 }
 

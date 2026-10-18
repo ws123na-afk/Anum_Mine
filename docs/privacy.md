@@ -64,6 +64,7 @@ Format `anum.privacy-export/v1`, sections in this order:
 | `commerce_connectors_created` | The sales channels the caller connected (channel, name, marketplaces, health); never the channel credentials or sync cursors ([Commerce](commerce.md)). |
 | `workspace_records_created` | The social accounts the caller connected (never their tokens) and the marketing campaigns they created ([Marketing](marketing.md)), the calendar events they created, and the automation triggers they added (never a webhook secret, [Automation](automation.md#triggers)). |
 | `agents_owned` | The custom agents the caller owns, private and shared with the workspace, each with its memories (`agent_profiles`, `agent_memories`, migration `0041_agent_profiles`, [Agents](agents.md#privacy)). Agents hold no secrets. |
+| `app_calls` | The caller's calls with teammates as they see them: direction, the other person's display name at the time, audio or video, status, outcome, times and duration ([In-app calls](in-app-calls.md#privacy)). Never device ids, the other person's user id or call setup messages. |
 | `not_included` | Plain sentences listing what is not in the file (below). |
 
 **Files are linked, not embedded.** File bytes can be up to 25 MiB each and are workspace records; embedding them would make the export unbounded. The signed-in user downloads each file from its `download_path` (the Files page does the same).
@@ -94,6 +95,8 @@ Removed, in one transaction (after the mailbox revocations below):
 - the caller's Email Center data on the workspace mail server: the mailboxes they connected (never the password, not even encrypted, in the export), with those mailboxes' shares and sender identities, every message they wrote in ANUM (in mailboxes shared with them too), the shares they received, their address book, and their mailboxes' retention and background sync settings and forwarding rules (deleted with the mailbox; migrations `0060_email_center`, `0067_mail_sharing_contacts` and `0068_mail_rules_retention`; counted as `mail_mailboxes`, `mail_messages_written` and `mail_contacts`, exported as the `mail` section, [Email Center](email.md#email-center)). Mail on the server is not ANUM's copy and stays;
 - the caller's in-app team notifications and their team member profile in this workspace (`user_notifications`, `team_member_profiles`, migration `0039_team_work`; counted as `team_notifications` and `team_profile`);
 - the caller's **private** custom agents and their memories (sharing `private`; counted as `private_agents` and `private_agent_memories`, [Agents](agents.md#privacy)). Tasks those agents ran are workspace records and stay, without the agent.
+
+- the caller's call setup messages (`app_call_signals`), and their side of every in-app call (`app_calls`, migration `0073_app_calls`): their user id becomes an unlinkable tombstone and their name "Deleted user", so the other participant's history stays readable; a call whose other side was already deleted is removed. These run in their own short units of work, the rewrite inside the other participant's RLS context ([In-app calls](in-app-calls.md#privacy)).
 
 Kept, and counted in the response and on the page:
 

@@ -47,6 +47,7 @@ from typing import Any, Protocol
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
+from .app_calls import app_calls_privacy_counts, app_calls_privacy_export, delete_my_app_calls
 from .audit import AuditRecord
 from .authorization import Permission
 from .autonomy import AutonomousAction
@@ -163,6 +164,11 @@ class PrivateCounts(BaseModel):
     # the workspace's address book and stay; opt-outs stay to protect who opted out.
     calls_logged: int = 0
     mail_contacts: int = 0
+    # In-app calls (migration 0073_app_calls, docs/in-app-calls.md#privacy): the caller's
+    # calls are exported; a deletion removes their signals and rewrites their side of each
+    # call as "Deleted user" so the other participant's history stays readable.
+    app_calls: int = 0
+    app_call_signals: int = 0
 
     @property
     def total(self) -> int:
@@ -795,6 +801,7 @@ class InMemoryPrivacyStore:
             finance_records=self.finance().count_everything(self.context),
             **mail_privacy_counts(self.context),
             **calls_privacy_counts(self.context),
+            **app_calls_privacy_counts(self.context),
         )
         return private, self._shared_counts(module_shared)
 
@@ -854,6 +861,7 @@ class InMemoryPrivacyStore:
         self.library().delete_all()
         self.finance().delete_everything(self.context)
         delete_mail_everything(self.context)
+        delete_my_app_calls(self.context)
         self._delete_email()
         self.delete_team_private()
         self.home().delete_all(self.context)
@@ -1190,6 +1198,8 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     # The caller's whole finance ledger (docs/finance.md#privacy).
     yield ("finance", finance_export(store.finance(), context))
     yield ("mail", mail_export(context))
+    # The caller's calls with teammates, as they see them (no device ids, no peer id).
+    yield ("app_calls", app_calls_privacy_export(context))
     yield ("calls", calls_export(context))
     yield (
         "email",
