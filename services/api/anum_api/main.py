@@ -168,6 +168,7 @@ from .user_preferences import router as user_preferences_router
 from .home import router as home_router
 from .setup_plans import router as setup_plans_router
 from .push import push_dispatcher, router as push_router
+from .app_call_wake import call_wake_hub, visible_on_workspace_stream
 from .developer_watch import build_developer_watcher
 from .autonomy_api import router as autonomy_router
 from .learning import SignalKind, Surface
@@ -384,6 +385,9 @@ app.include_router(finance_intel_router)
 app.include_router(finance_intel_control_router)
 app.include_router(tyre_router)
 event_runtime.add_listener(push_dispatcher.submit)
+# In-app call stream wake-ups: from NATS on every replica, or in-process without it
+# (docs/in-app-calls.md#signaling).
+call_wake_hub.attach(event_runtime)
 # Event triggers and steps waiting on agent tasks (docs/automation.md#triggers).
 event_runtime.add_listener(automation_dispatcher.submit_events)
 app.include_router(autonomy_router)
@@ -1459,7 +1463,7 @@ async def list_events(
     repository: AnumRepository = Depends(repository_context),
 ) -> list[DomainEvent]:
     require_permission(context, Permission.EVENT_READ)
-    return repository.list_events(context)
+    return [event for event in repository.list_events(context) if visible_on_workspace_stream(event)]
 
 
 @app.get("/api/v1/events/stream")
@@ -1492,6 +1496,7 @@ async def stream_events(
                 task_id=task_id,
                 follow=follow,
                 last_event_id=last_event_id,
+                visible=visible_on_workspace_stream,
             ),
             media_type="text/event-stream",
             headers=sse_headers,
@@ -1520,6 +1525,8 @@ async def stream_events(
                 idle_cycles = 0
                 for event in events:
                     cursor = event.id
+                    if not visible_on_workspace_stream(event):
+                        continue  # call stream wake-ups (app_call_wake.py)
                     yield (
                         f"id: {event.id}\n"
                         f"event: {event.type}\n"

@@ -24,15 +24,15 @@ No role is granted anything and no discovery role reads these tables.
 
 Expand only: new tables and indexes. The previous release ignores them.
 
-Numbered 0080 and chained after ``0074_brevo_campaigns``; parallel branches use 0075 to 0079 and
-the owner renumbers at merge.
+Numbered 0075 and chained after ``0074_brevo_campaigns``, the head of ``main``; renumber at merge if
+another branch lands a migration first.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0080_business_pipeline"
+revision = "0075_business_pipeline"
 down_revision = "0074_brevo_campaigns"
 branch_labels = None
 depends_on = None

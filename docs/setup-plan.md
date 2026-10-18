@@ -117,6 +117,10 @@ The COD variance bands (COD02, COD03, COD05) are in the COD Reconciliation skill
 - An approval-ageing reminder (#4); configurable Home priorities; per-agent loop and retry limits.
 - WhatsApp utility templates from the pilot pack: they need Meta submission and approval in the WhatsApp Business account; ANUM sends a template only after an owner ticks it on the auto-send list.
 
+## Flutter
+
+Settings › Workspace administration › **Setup plans** (`apps/mobile/lib/features/admin/setup_plans_screen.dart`) lists the plans with how much of each is applied here, and opens one plan's read-only preview: the pilot or whole plan, the counts and AI budget, the caller's access notes, the week-by-week rollout, every item (searched, filtered by section or to changes only, 12 at a time with "Show more", fixed reasons in the reader's language) and what ANUM cannot do yet. Applying a plan and the pilot checks stay on the web, and the screen says so. Owners and organization administrators only: anyone else sees the API's `403` explained. Tests: `apps/mobile/test/admin/org_admin_test.dart`.
+
 ## For the owner to do by hand
 
 Invite the real people and roles (and org_admin in Keycloak), turn on two-step sign-in, turn on the two-person rule once there are two owners, connect the integrations in the plan's order, upload the knowledge documents, add the webhook triggers for automations 8, 9, 10, 16 and 24, test and turn on each automation, choose the routine WhatsApp templates, run and record the 18 pilot checks on synthetic accounts, and promote agents one step at a time.

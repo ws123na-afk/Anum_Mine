@@ -1,7 +1,7 @@
 """Records of the prospecting pipeline and the outreach outbox (docs/business.md#prospecting-pipeline).
 
 The Harvey patterns (docs/business/HARVEY_PARITY.md) written as ANUM records, one tenant and
-workspace each (migration ``0080_business_pipeline``):
+workspace each (migration ``0075_business_pipeline``):
 
 * :class:`OutreachSettings`: one row per workspace: which signals the owner confirmed,
   the daily page-fetch cap, sending (off by default), per-channel daily quotas, the bounce

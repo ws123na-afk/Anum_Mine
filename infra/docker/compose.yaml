@@ -21,7 +21,7 @@ services:
       retries: 5
 
   nats:
-    image: nats:2.10-alpine
+    image: nats:2.12-alpine
     command: ["-js", "-sd", "/data", "-m", "8222"]
     ports:
       - "4222:4222"
@@ -30,9 +30,11 @@ services:
       - nats-data:/data
 
   temporal:
-    image: temporalio/auto-setup:1.25
+    image: temporalio/auto-setup:1.29
     environment:
-      DB: postgresql
+      # auto-setup accepts mysql8, postgres12, postgres12_pgx or cassandra; the old
+      # `postgresql` name is rejected by current images.
+      DB: postgres12
       DB_PORT: 5432
       POSTGRES_USER: anum
       POSTGRES_PWD: anum
@@ -43,7 +45,7 @@ services:
       - postgres
 
   temporal-ui:
-    image: temporalio/ui:2.31.2
+    image: temporalio/ui:2.55.0
     environment:
       TEMPORAL_ADDRESS: temporal:7233
     ports:
@@ -91,7 +93,7 @@ services:
       retries: 10
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.110.0
+    image: otel/opentelemetry-collector-contrib:0.162.0
     # The base config only prints what it receives. With the observability profile set
     # ANUM_OTELCOL_OVERLAY=observability so the overlay sends traces to Tempo, metrics
     # to Prometheus and logs to Loki (docs/observability.md#local-stack).
@@ -110,7 +112,7 @@ services:
   # Grafana: http://localhost:3000 (anonymous viewer; dashboards from infra/observability).
   prometheus:
     profiles: ["observability"]
-    image: prom/prometheus:v3.5.5
+    image: prom/prometheus:v3.15.0
     command:
       - "--config.file=/etc/prometheus/prometheus.yaml"
       - "--storage.tsdb.retention.time=7d"

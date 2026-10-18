@@ -44,7 +44,7 @@ Part of Order 001: [gap register](ANUM_BUSINESS_GAP_REGISTER.md), [P1 acceptance
 
 ## Per-product targeting
 
-Each product has a target customer profile (`business_target_profiles`, migration `0080_business_pipeline`), edited by owners in Prospecting on the web. Fields a seeding script fills, per product id:
+Each product has a target customer profile (`business_target_profiles`, migration `0075_business_pipeline`), edited by owners in Prospecting on the web. Fields a seeding script fills, per product id:
 
 | Field | Type | Meaning |
 |---|---|---|

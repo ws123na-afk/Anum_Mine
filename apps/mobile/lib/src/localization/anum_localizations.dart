@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'calls_strings.dart';
 import 'brevo_strings.dart';
 import 'business_pipeline_strings.dart';
+import 'org_admin_strings.dart';
 import 'business_strings.dart';
 import 'mail_center_strings.dart';
 import 'marketing_strings.dart';
@@ -25,6 +26,7 @@ class AnumLocalizations {
       (isArabic ? businessAr : businessEn)[key] ??
       (isArabic ? businessPipelineAr : businessPipelineEn)[key] ??
       (isArabic ? brevoAr : brevoEn)[key] ??
+      (isArabic ? orgAdminAr : orgAdminEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
@@ -32,6 +34,7 @@ class AnumLocalizations {
       businessEn[key] ??
       businessPipelineEn[key] ??
       brevoEn[key] ??
+      orgAdminEn[key] ??
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.

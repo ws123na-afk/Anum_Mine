@@ -60,7 +60,7 @@ KINDS: dict[str, type[BaseModel]] = {
     "milestones": Milestone,
     "drafts": Draft,
     "research_runs": ResearchRun,
-    # The prospecting pipeline and the outbox (migration 0080_business_pipeline).
+    # The prospecting pipeline and the outbox (migration 0075_business_pipeline).
     "outreach_settings": OutreachSettings,
     "observations": Observation,
     "pipeline_runs": PipelineRun,

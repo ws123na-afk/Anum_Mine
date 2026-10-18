@@ -1097,8 +1097,8 @@ def test_mail_writers_migration_is_expand_only() -> None:
 
 def test_business_pipeline_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0080_business_pipeline.py").read_text(encoding="utf-8")
-    assert 'revision = "0080_business_pipeline"' in revision_text and len("0080_business_pipeline") <= 32
+    revision_text = (versions / "0075_business_pipeline.py").read_text(encoding="utf-8")
+    assert 'revision = "0075_business_pipeline"' in revision_text and len("0075_business_pipeline") <= 32
     assert 'down_revision = "0074_brevo_campaigns"' in revision_text
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     tables = revision_text.split("TABLES = (", 1)[1].split(")", 1)[0]
