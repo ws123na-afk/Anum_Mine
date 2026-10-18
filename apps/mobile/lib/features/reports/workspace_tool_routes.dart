@@ -12,6 +12,7 @@ import '../library/library_repository.dart';
 import '../mail_center/mail_center_controller.dart';
 import '../mail_center/mail_center_repository.dart';
 import '../mail_center/mail_center_screens.dart';
+import '../mail_center/mail_center_transfer.dart';
 import '../library/library_screens.dart';
 
 /// The routes of the ANUM 360 command-result screens: reports (the
@@ -25,9 +26,15 @@ import '../library/library_screens.dart';
 ///   (docs/email.md#email-center)
 class WorkspaceToolRoutes {
   WorkspaceToolRoutes(
-      {required this.api, required this.library, required this.email});
+      {required this.api,
+      required this.library,
+      required this.email,
+      this.mailTransfer = const NoMailFileTransfer()});
 
   final AnumApiClient api;
+
+  /// Email Center attachments: picking, uploading, downloading, saving.
+  final MailFileTransfer mailTransfer;
   final LibraryRepository library;
   final EmailController email;
 
@@ -38,8 +45,9 @@ class WorkspaceToolRoutes {
 
   late final calendarController =
       CalendarController(ApiCalendarRepository(api));
-  late final mailCenterController =
-      MailCenterController(ApiMailCenterRepository(api));
+  late final mailCenterController = MailCenterController(
+      ApiMailCenterRepository(api),
+      transfer: mailTransfer);
 
   /// The route for [settings], wrapped by [guard] (the signed-in check), or
   /// null when the name is not one of these.
