@@ -57,6 +57,7 @@ The console's counts are read through `anum_platform_reader` (migration `0039_te
 |---|---|
 | `GET /api/v1/organization/branding` | every member: `{display_name, has_logo, ...}` (the tenant name until one is set) |
 | `GET /api/v1/organization/branding/logo` | every member: the image, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'` |
+| `GET /api/v1/organization/branding/logo/public/{token}` | no sign-in: the signed link is the credential (a Fernet token naming the tenant, valid 400 days), made for email headers ([Brevo](brevo.md#the-full-email)); same headers, `Cache-Control: public, max-age=86400`; tampered, expired or no logo is 404 |
 | `PUT /api/v1/organization/branding {display_name}`, `PUT /api/v1/organization/branding/logo` (raw PNG, JPEG or WebP, at most 256 KiB, checked by magic bytes; SVG is refused), `DELETE .../logo` | `org_admin` |
 
 Stored in `tenant_branding` (forced RLS on `anum.tenant_id`). The web sidebar shows the organisation name and logo; Settings › Workspace has the editor. Changes are audited.

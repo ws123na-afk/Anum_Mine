@@ -221,7 +221,7 @@ def test_the_full_email_uses_the_brand_and_the_built_in_layout(brevo: FakeBrevo,
     add_customers(brevo)
     _branded(monkeypatch)
     result = asyncio.run(brevo_tools.draft_campaign(plan_call(NEWSLETTER, now=NOW), CONTEXT))  # type: ignore[arg-type]
-    assert result.status == "succeeded" and result.output["email"] == {"generator": "template", "brevo_template_id": None, "brand": "Desert Tyres"}
+    assert result.status == "succeeded" and result.output["email"] == {"generator": "template", "brevo_template_id": None, "brand": "Desert Tyres", "logo": False}
     html = ok(client.get(f"{BASE}/drafts/{result.output['draft_id']}", headers=VIEWER))["html"]
     assert "Desert Tyres" in html and "Our winter newsletter" in html and "The winter news and offers" in html
     assert "Hello from Desert Tyres" in html and "{{ unsubscribe }}" in html and 'dir="ltr"' in html
@@ -300,3 +300,90 @@ def test_the_planned_schedule_is_saved_and_reused_when_asking_to_send(brevo: Fak
     other = asyncio.run(brevo_tools.draft_campaign(call, CONTEXT))
     now_pending = ok(client.post(f"{BASE}/drafts/{other.output['draft_id']}/send", headers=MEMBER, json={"scheduled_at": None}))
     assert now_pending["approval"]["arguments"]["scheduled_at"] == AS_SOON_AS_APPROVED
+
+
+# -- the organisation logo in the email header ------------------------------------------------------
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"example-logo-bytes"
+PUBLIC_API = "https://api.example.com"
+LOGO_PATH = "/api/v1/organization/branding/logo/public/"
+
+
+def _with_logo(monkeypatch: Any, *, public_api: str = PUBLIC_API, logo: bytes | None = PNG) -> None:
+    from anum_api.marketing.config import marketing_settings
+    from anum_api.organisations import memory_branding
+
+    monkeypatch.setattr(marketing_settings, "public_api_url", public_api)
+    monkeypatch.setitem(memory_branding.items, TENANT, {"tenant_id": TENANT, "display_name": "Desert Tyres", "logo": logo,
+                                                         "logo_content_type": "image/png" if logo else None})
+
+
+def _logo_src(html: str) -> str:
+    start = html.index(f'<img src="{PUBLIC_API}{LOGO_PATH}') + len('<img src="')
+    return html[start:html.index('"', start)]
+
+
+def test_the_email_header_shows_the_logo_through_a_long_lived_public_link(brevo: FakeBrevo, monkeypatch: Any) -> None:  # noqa: F811
+    from anum_api import organisations
+
+    connect()
+    add_customers(brevo)
+    _with_logo(monkeypatch)
+    result = asyncio.run(brevo_tools.draft_campaign(plan_call(NEWSLETTER, now=NOW), CONTEXT))  # type: ignore[arg-type]
+    assert result.status == "succeeded" and result.output["email"]["logo"] is True
+    html = ok(client.get(f"{BASE}/drafts/{result.output['draft_id']}", headers=VIEWER))["html"]
+    assert 'alt="Desert Tyres logo"' in html and 'width="160"' in html
+    src = _logo_src(html)
+    # The link works with no sign-in, serves only the image, and lasts about 13 months.
+    served = client.get(src.removeprefix(PUBLIC_API))
+    assert served.status_code == 200 and served.content == PNG and served.headers["content-type"] == "image/png"
+    assert served.headers["x-content-type-options"] == "nosniff" and "public" in served.headers["cache-control"]
+    later = organisations.utc_now() + timedelta(days=organisations.LOGO_LINK_DAYS - 5)
+    monkeypatch.setattr(organisations, "utc_now", lambda: later)
+    assert client.get(src.removeprefix(PUBLIC_API)).status_code == 200
+    monkeypatch.setattr(organisations, "utc_now", lambda: later + timedelta(days=10))
+    assert client.get(src.removeprefix(PUBLIC_API)).status_code == 404  # expired
+
+
+def test_a_tampered_link_or_a_removed_logo_is_a_plain_404(monkeypatch: Any) -> None:
+    from anum_api import organisations
+
+    _with_logo(monkeypatch)
+    link = organisations.logo_link(CONTEXT)
+    assert link is not None and link.startswith(f"{PUBLIC_API}{LOGO_PATH}")
+    path = link.removeprefix(PUBLIC_API)
+    assert client.get(path[:-4] + "abcd").status_code == 404
+    assert client.get(f"{LOGO_PATH}not-a-token").status_code == 404
+    _with_logo(monkeypatch, logo=None)
+    assert client.get(path).status_code == 404 and organisations.logo_link(CONTEXT) is None
+
+
+def test_the_logo_fills_a_template_marker_with_arabic_alt_text(brevo: FakeBrevo, monkeypatch: Any) -> None:  # noqa: F811
+    connect()
+    brevo.lists[12] = {"id": 12, "name": "العملاء", "uniqueSubscribers": 80, "totalBlacklisted": 0, "folderId": 1}
+    _with_logo(monkeypatch)
+    _templates(brevo, monkeypatch, [{"id": 4, "name": "House style", "isActive": True, "tag": "anum",
+                                     "htmlContent": "<html><body>{{ params.anum_logo }}{{ params.anum_content }}</body></html>"}])
+    result = asyncio.run(brevo_tools.draft_campaign(plan_call("أرسل نشرة الشتاء إلى قائمة العملاء", now=NOW), CONTEXT))  # type: ignore[arg-type]
+    assert result.status == "succeeded", result.summary
+    html = ok(client.get(f"{BASE}/drafts/{result.output['draft_id']}", headers=VIEWER))["html"]
+    assert html.startswith(f'<html><body><img src="{PUBLIC_API}{LOGO_PATH}') and 'alt="شعار Desert Tyres"' in html
+    assert "{{ params.anum_logo }}" not in html
+
+
+def test_without_a_logo_or_a_public_address_the_name_heads_the_email(brevo: FakeBrevo, monkeypatch: Any) -> None:  # noqa: F811
+    connect()
+    add_customers(brevo)
+    _templates(brevo, monkeypatch, [{"id": 5, "name": "House style", "isActive": True, "tag": "anum",
+                                     "htmlContent": "<html><body>{{ params.anum_logo }}{{ params.anum_content }}</body></html>"}])
+    for public_api, logo in (("", PNG), (PUBLIC_API, None)):
+        _with_logo(monkeypatch, public_api=public_api, logo=logo)
+        result = asyncio.run(brevo_tools.draft_campaign(plan_call(NEWSLETTER, now=NOW), CONTEXT))  # type: ignore[arg-type]
+        assert result.status == "succeeded" and result.output["email"]["logo"] is False
+        html = ok(client.get(f"{BASE}/drafts/{result.output['draft_id']}", headers=VIEWER))["html"]
+        assert "<img" not in html and "{{ params.anum_logo }}" not in html
+    # The built-in layout puts the brand name where the logo would be.
+    from anum_api.brevo.compose import layout
+
+    built_in = layout(subject="Our winter newsletter", preview_text="", body="", brand="Desert Tyres", rtl=False, logo_url=None)
+    assert ">Desert Tyres</td>" in built_in and "<img" not in built_in

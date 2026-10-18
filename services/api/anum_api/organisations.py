@@ -352,6 +352,65 @@ def get_logo(context: TenantContext = Depends(tenant_context)) -> Response:
     )
 
 
+# Emails are opened long after they are sent: a public logo link lasts about 13 months.
+LOGO_LINK_DAYS = 400
+LOGO_LINK_PATH = "/api/v1/organization/branding/logo/public/"
+
+
+def logo_link(context: TenantContext) -> str | None:
+    """A long-lived, signed public address of the organisation's logo, for email headers
+    (docs/brevo.md#the-full-email); None without a logo or a public API address.
+
+    The link is a Fernet token (``ANUM_SECRETS_KEY``) naming the tenant and an expiry, served
+    under the API's public origin (``ANUM_MARKETING_PUBLIC_API_URL``, the same origin
+    Instagram fetches media from). Its own short unit of work: call it in a thread."""
+    import json
+
+    from .marketing.config import marketing_settings
+    from .secret_box import secret_cipher
+
+    base = marketing_settings.public_api_url.strip().rstrip("/")
+    if not base.startswith(("https://", "http://localhost", "http://127.0.0.1")):
+        return None
+    with _session(context) as session:
+        row = _read_branding(session, context.tenant_id)
+    if row is None or row.get("logo") is None:
+        return None
+    expires = int((utc_now() + timedelta(days=LOGO_LINK_DAYS)).timestamp())
+    document = {"k": "logo", "t": context.tenant_id, "w": context.workspace_id, "e": expires}
+    return f"{base}{LOGO_LINK_PATH}{secret_cipher().encrypt(json.dumps(document, separators=(',', ':')))}"
+
+
+@router.get("/organization/branding/logo/public/{link}")
+def public_logo(link: str) -> Response:
+    """The organisation's logo behind a signed, expiring link (email headers).
+
+    No sign-in: the link is the credential. It names one tenant and an expiry; a tampered,
+    expired or logo-less link is a plain 404 that says nothing about the organisation."""
+    import json
+
+    from .secret_box import SecretDecryptionError, secret_cipher
+
+    missing = HTTPException(status_code=404, detail="Not found")
+    if len(link) > 1000:
+        raise missing
+    try:
+        document = json.loads(secret_cipher().decrypt(link))
+        if document.get("k") != "logo" or int(document.get("e", 0)) < int(utc_now().timestamp()):
+            raise missing
+        context = TenantContext(tenant_id=str(document["t"]), workspace_id=str(document.get("w") or ""), user_id="system:branding-logo", roles=[])
+    except (SecretDecryptionError, ValueError, KeyError, TypeError, AttributeError):
+        raise missing from None
+    with _session(context) as session:
+        row = _read_branding(session, context.tenant_id)
+    if row is None or row.get("logo") is None or row.get("logo_content_type") not in LOGO_TYPES:
+        raise missing
+    return Response(
+        content=bytes(row["logo"]), media_type=row["logo_content_type"],
+        headers={"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'"},
+    )
+
+
 # ----------------------------------------------------------------------------- my organisations
 
 
