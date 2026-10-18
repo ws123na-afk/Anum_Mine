@@ -31,6 +31,14 @@ abstract interface class MailCenterRepository {
   /// [to] is a role (inbox, archive, junk, trash) or a folder id.
   Future<void> move(String accountId, String folder, int uid, String to);
 
+  /// Read or unread, starred or not, for up to 200 messages at once.
+  Future<void> setFlags(String accountId, String folder, List<int> uids,
+      {required String flag, required bool value});
+
+  /// Moves up to 200 messages to a role or folder id.
+  Future<void> moveMany(
+      String accountId, String folder, List<int> uids, String to);
+
   /// Delete for good (Trash and Junk only): the approval of exactly [uids].
   Future<WorkspaceApproval?> deleteForGood(
       String accountId, String folder, List<int> uids);
@@ -85,6 +93,21 @@ abstract interface class MailCenterRepository {
       String accountId, String folder, List<int> uids);
   Future<MailDraftReply> draftReply(String accountId, String folder, int uid,
       {String kind = 'reply', String? instructions});
+
+  /// Forwards to [to] (optionally with a note, or one written by AI): the
+  /// draft with its `send_mail` approval; the same [key] answers the same.
+  Future<MailDraft> forward(String accountId, String folder, int uid,
+      {required List<String> to,
+      String? note,
+      bool writeNote = false,
+      required String key});
+
+  /// Archive (up to 200) or export (up to 100): the approval of exactly
+  /// [uids]; nothing happens until an owner approves.
+  Future<WorkspaceApproval> archiveMany(
+      String accountId, String folder, List<int> uids);
+  Future<WorkspaceApproval> exportMany(
+      String accountId, String folder, List<int> uids);
 }
 
 class ApiMailCenterRepository implements MailCenterRepository {
@@ -187,6 +210,25 @@ class ApiMailCenterRepository implements MailCenterRepository {
       api.request('POST', '$_base/accounts/${_id(accountId)}/move', body: {
         'folder': folder,
         'uids': [uid],
+        'to': to,
+      });
+
+  @override
+  Future<void> setFlags(String accountId, String folder, List<int> uids,
+          {required String flag, required bool value}) async =>
+      api.request('POST', '$_base/accounts/${_id(accountId)}/flags', body: {
+        'folder': folder,
+        'uids': uids,
+        'flag': flag,
+        'value': value,
+      });
+
+  @override
+  Future<void> moveMany(
+          String accountId, String folder, List<int> uids, String to) async =>
+      api.request('POST', '$_base/accounts/${_id(accountId)}/move', body: {
+        'folder': folder,
+        'uids': uids,
         'to': to,
       });
 
@@ -428,4 +470,39 @@ class ApiMailCenterRepository implements MailCenterRepository {
         if (instructions != null && instructions.trim().isNotEmpty)
           'instructions': instructions.trim(),
       })));
+
+  @override
+  Future<MailDraft> forward(String accountId, String folder, int uid,
+      {required List<String> to,
+      String? note,
+      bool writeNote = false,
+      required String key}) async {
+    final value = JsonReader(await api.request('POST', '$_ai/forward', body: {
+      'account_id': accountId,
+      'folder': folder,
+      'uid': uid,
+      'to': to,
+      if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      'write_note': writeNote,
+      'idempotency_key': key,
+    }));
+    return MailDraft.fromJson(value.object('draft'));
+  }
+
+  Future<WorkspaceApproval> _owner(
+      String action, String accountId, String folder, List<int> uids) async {
+    final value = JsonReader(await api.request('POST', '$_ai/$action',
+        body: {'account_id': accountId, 'folder': folder, 'uids': uids}));
+    return workspaceApprovalFromJson(value.object('approval'));
+  }
+
+  @override
+  Future<WorkspaceApproval> archiveMany(
+          String accountId, String folder, List<int> uids) =>
+      _owner('archive', accountId, folder, uids);
+
+  @override
+  Future<WorkspaceApproval> exportMany(
+          String accountId, String folder, List<int> uids) =>
+      _owner('export', accountId, folder, uids);
 }

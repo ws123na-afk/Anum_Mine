@@ -130,6 +130,20 @@ class MailCenterController extends ChangeNotifier with MailNoticeSource {
   /// An AI-drafted reply that waits for approval (medium risk).
   WorkspaceApproval? draftApproval;
 
+  /// The forward asked for from the opened message, with its send approval.
+  MailDraft? forwardDraft;
+
+  /// Selected messages of the shown list (by UID), and the bulk action that
+  /// waits for an owner's approval: archive, export or delete.
+  Set<int> selected = const {};
+  String? bulkKind;
+  WorkspaceApproval? bulkApproval;
+
+  /// An approved export, downloadable for one hour after approval.
+  WorkspaceApproval? exportReady;
+
+  static const bulkLimit = 200, exportLimit = 100;
+
   /// The action in progress (connect, password, move, send, approve, ...).
   String? busy;
 
@@ -324,6 +338,10 @@ class MailCenterController extends ChangeNotifier with MailNoticeSource {
   Future<void> openFolder(MailFolder target) async {
     folder = target;
     messages = const [];
+    selected = const {};
+    bulkApproval = null;
+    bulkKind = null;
+    exportReady = null;
     nextBefore = null;
     query = '';
     unreadOnly = false;
@@ -369,6 +387,133 @@ class MailCenterController extends ChangeNotifier with MailNoticeSource {
       // Labels are a hint; the list is complete without them.
     }
   }
+
+  // -- selecting several messages --------------------------------------------
+
+  bool get selecting => selected.isNotEmpty;
+  List<MailMessage> get selectedMessages => [
+        for (final m in messages)
+          if (selected.contains(m.uid)) m
+      ];
+
+  void toggleSelected(MailMessage message) {
+    final next = {...selected};
+    if (!next.remove(message.uid)) next.add(message.uid);
+    selected = next;
+    notifyListeners();
+  }
+
+  void selectAll() {
+    selected = {for (final m in messages) m.uid};
+    notifyListeners();
+  }
+
+  void clearSelection() {
+    selected = const {};
+    notifyListeners();
+  }
+
+  /// Read, unread, star or remove star on the selection (calls of 200).
+  Future<void> flagSelected(String flag, bool value) => _run('bulk', () async {
+        final open = account!, inFolder = folder!;
+        final uids = selected.toList();
+        for (var i = 0; i < uids.length; i += bulkLimit) {
+          await repository.setFlags(open.id, inFolder.id,
+              uids.sublist(i, (i + bulkLimit).clamp(0, uids.length)),
+              flag: flag, value: value);
+        }
+        messages = [
+          for (final m in messages)
+            selected.contains(m.uid)
+                ? (flag == 'seen'
+                    ? m.copyWith(seen: value)
+                    : m.copyWith(flagged: value))
+                : m
+        ];
+        _say(l10nCount('mc.b.updated', uids.length));
+      });
+
+  /// Moves the selection to a role (archive, junk, trash, inbox).
+  Future<void> moveSelected(String role) => _run('bulk', () async {
+        final open = account!, inFolder = folder!;
+        final uids = selected.toList();
+        var moved = 0;
+        for (var i = 0; i < uids.length; i += bulkLimit) {
+          final part = uids.sublist(i, (i + bulkLimit).clamp(0, uids.length));
+          await repository.moveMany(open.id, inFolder.id, part, role);
+          moved += part.length;
+          final gone = part.toSet();
+          messages = [
+            for (final m in messages)
+              if (!gone.contains(m.uid)) m
+          ];
+          total = (total - part.length).clamp(0, 1 << 31);
+        }
+        selected = const {};
+        _say(l10nCount('mc.b.moved', moved));
+      });
+
+  /// Asks for the approval of archiving, exporting or deleting for good
+  /// exactly the selection; nothing happens until an owner approves.
+  Future<void> askBulk(String kind) => _run('bulk', () async {
+        final open = account!, inFolder = folder!;
+        final uids = selected.toList()..sort();
+        bulkApproval = switch (kind) {
+          'archive' => await repository.archiveMany(open.id, inFolder.id, uids),
+          'export' => await repository.exportMany(open.id, inFolder.id, uids),
+          _ => await repository.deleteForGood(open.id, inFolder.id, uids),
+        };
+        bulkKind = kind;
+        _say('mc.b.waiting');
+      });
+
+  void dismissBulk() {
+    bulkApproval = null;
+    bulkKind = null;
+    notifyListeners();
+  }
+
+  /// Approves the bulk action with its hash. Archive and delete take the
+  /// messages off the list; an export becomes downloadable for one hour.
+  Future<void> approveBulk() async {
+    final approval = bulkApproval, kind = bulkKind;
+    if (approval == null || kind == null) return;
+    await _run('approve', () async {
+      final result = await repository.approve(approval);
+      final uids = <int>{
+        for (final u in (approval.arguments['uids'] as List? ?? const []))
+          if (u is int) u
+      };
+      if (kind == 'export') {
+        exportReady = approval;
+      } else {
+        messages = [
+          for (final m in messages)
+            if (!uids.contains(m.uid)) m
+        ];
+        total = (total - uids.length).clamp(0, 1 << 31);
+      }
+      selected = const {};
+      bulkApproval = null;
+      bulkKind = null;
+      _say(result ?? 'mc.n.approved');
+    });
+  }
+
+  /// Downloads the approved export (.mbox) and offers to save it.
+  Future<void> downloadExport() async {
+    final approval = exportReady;
+    if (approval == null) return;
+    await _run('download', () async {
+      final bytes = await transfer.download(
+          '/api/v1/mail/ai/exports/${Uri.encodeComponent(approval.id)}');
+      final saved = await transfer.save('mail-export.mbox', bytes);
+      _say(saved ? 'mc.n.savedFile' : 'mc.n.saveCancelled');
+    });
+  }
+
+  /// A count notice: the key and the number, said by the screen.
+  String l10nCount(String key, int count) => '$key|$count';
 
   /// Labels the shown page's unlabelled messages (at most 25).
   Future<void> labelPage() async {
@@ -434,6 +579,7 @@ class MailCenterController extends ChangeNotifier with MailNoticeSource {
     summaryError = null;
     summaryPhase = MailPhase.idle;
     draftApproval = null;
+    forwardDraft = null;
     label = labels[message.uid];
     detailPhase = MailPhase.loading;
     notifyListeners();
@@ -609,6 +755,43 @@ class MailCenterController extends ChangeNotifier with MailNoticeSource {
       }
     });
     return ok;
+  }
+
+  final _forwardKeys = <String, String>{};
+
+  /// Forwards the opened message to [to] through the send approval; the same
+  /// inputs reuse one key, so a retry never asks twice.
+  Future<void> forwardWithAi(List<String> to,
+      {String? note, bool writeNote = false}) async {
+    final open = account, message = detail?.message;
+    if (open == null || message == null) return;
+    await _run('forward', () async {
+      final sig = '${open.id}|${message.folder}|${message.uid}|'
+          '${to.join(',')}|${note ?? ''}|$writeNote';
+      final key = _forwardKeys[sig] ??=
+          'mobile-fwd:${message.uid}:${_clock().microsecondsSinceEpoch}';
+      forwardDraft = await repository.forward(
+          open.id, message.folder, message.uid,
+          to: to, note: note, writeNote: writeNote, key: key);
+      _upsertDraft(forwardDraft!);
+      _say('mc.n.waiting');
+    });
+  }
+
+  Future<void> approveForward() async {
+    final approval = forwardDraft?.approval;
+    if (approval == null) return;
+    await _run('approve', () async {
+      final result = await repository.approve(approval);
+      final open = account;
+      if (open != null) {
+        drafts = await repository.drafts(open.id);
+        forwardDraft =
+            drafts.where((d) => d.id == forwardDraft!.id).firstOrNull ??
+                forwardDraft;
+      }
+      _say(result ?? 'mc.n.approved');
+    });
   }
 
   /// Approves the AI draft's approval with its hash, then opens the drafts.
@@ -883,7 +1066,10 @@ class MailCenterController extends ChangeNotifier with MailNoticeSource {
     setupPhase = foldersPhase = listPhase = detailPhase = MailPhase.idle;
     setup = account = folder = detail = opened = draft = null;
     setupError = foldersError = listError = detailError = notice = busy = null;
-    deleteApproval = draftApproval = null;
+    deleteApproval = draftApproval = bulkApproval = exportReady = null;
+    forwardDraft = null;
+    bulkKind = null;
+    selected = const {};
     ai = null;
     summary = null;
     label = null;

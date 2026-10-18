@@ -6,7 +6,9 @@ import 'package:flutter/material.dart';
 
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
+import '../../src/localization/anum_localizations.dart';
 import '../admin/owned_controller.dart';
+import '../mail_center/mail_health.dart';
 import 'team_controllers.dart';
 import 'team_models.dart';
 import 'team_repository.dart';
@@ -120,7 +122,14 @@ class TeamHubCard extends StatelessWidget {
             Icons.domain_outlined,
             'organisations',
             'organisationsHint',
-            OrganisationsScreen(repository: repository),
+            OrganisationsScreen(
+              repository: repository,
+              mailHealth: switch (repository) {
+                ApiTeamRepository(:final api) => () =>
+                    MailHealthScreen(repository: ApiMailHealthRepository(api)),
+                _ => null,
+              },
+            ),
           ),
         ],
       ),
@@ -820,7 +829,11 @@ class _AssistantsScreenState extends State<AssistantsScreen> {
 }
 
 class OrganisationsScreen extends StatefulWidget {
-  const OrganisationsScreen({required this.repository, super.key});
+  const OrganisationsScreen(
+      {required this.repository, this.mailHealth, super.key});
+
+  /// The operator's mail health (docs/email.md#operator-view), when wired.
+  final Widget Function()? mailHealth;
   final TeamRepository repository;
   @override
   State<OrganisationsScreen> createState() => _OrganisationsScreenState();
@@ -872,7 +885,22 @@ class _OrganisationsScreenState extends State<OrganisationsScreen> {
         final orgs = _loader.value;
         final created = _created;
         return Scaffold(
-          appBar: AppBar(title: Text(s.t('organisations'))),
+          appBar: AppBar(
+            title: Text(s.t('organisations')),
+            actions: [
+              if (widget.mailHealth != null &&
+                  _loader.phase != TeamPhase.denied)
+                IconButton(
+                  tooltip: AnumLocalizations.maybeOf(context).t('mc.op.title'),
+                  icon: const Icon(Icons.mark_email_read_outlined),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                        builder: (_) => widget.mailHealth!()),
+                  ),
+                ),
+            ],
+          ),
           body: _loader.phase == TeamPhase.denied
               ? AnumFeedback(
                   kind: AnumFeedbackKind.permission,

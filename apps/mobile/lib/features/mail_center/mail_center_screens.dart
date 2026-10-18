@@ -9,6 +9,7 @@ import 'mail_directory.dart';
 import 'mail_directory_models.dart';
 import 'mail_outgoing.dart';
 import 'mail_assist.dart';
+import 'mail_bulk.dart';
 
 /// The Email Center on the phone (docs/email.md#email-center): mailboxes,
 /// folders, a folder's messages with paging and search, one message as plain
@@ -118,6 +119,16 @@ class MailNotices extends StatefulWidget {
   State<MailNotices> createState() => _MailNoticesState();
 }
 
+/// A notice as shown: a key, a `key|count` pair, or the API's own sentence.
+String noticeText(AnumLocalizations l, String text) {
+  final bar = text.indexOf('|');
+  if (bar > 0 && text.startsWith('mc.')) {
+    final count = int.tryParse(text.substring(bar + 1));
+    if (count != null) return l.f(text.substring(0, bar), {'count': count});
+  }
+  return l.t(text);
+}
+
 class _MailNoticesState extends State<MailNotices> {
   @override
   void initState() {
@@ -138,7 +149,7 @@ class _MailNoticesState extends State<MailNotices> {
     final text = widget.controller.takeNotice()!;
     final l = AnumLocalizations.maybeOf(context);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(l.t(text)),
+      content: Text(noticeText(l, text)),
       backgroundColor: error ? Theme.of(context).colorScheme.error : null,
     ));
   }
@@ -830,6 +841,14 @@ class MailListScreen extends StatefulWidget {
 
 class _MailListScreenState extends State<MailListScreen> {
   final _search = TextEditingController();
+  bool _selectMode = false;
+
+  bool get _selecting => _selectMode || widget.controller.selecting;
+
+  void _endSelect() {
+    setState(() => _selectMode = false);
+    widget.controller.clearSelection();
+  }
 
   @override
   void dispose() {
@@ -856,6 +875,14 @@ class _MailListScreenState extends State<MailListScreen> {
         appBar: AppBar(
           title: Text(c.folder?.name ?? '', overflow: TextOverflow.ellipsis),
           actions: [
+            if (c.canWrite && c.messages.isNotEmpty)
+              IconButton(
+                onPressed: _selecting
+                    ? _endSelect
+                    : () => setState(() => _selectMode = true),
+                tooltip: _selecting ? l.t('mc.b.done') : l.t('mc.b.select'),
+                icon: Icon(_selecting ? Icons.close : Icons.checklist),
+              ),
             IconButton(
               onPressed:
                   c.listPhase == MailPhase.loading ? null : c.loadMessages,
@@ -865,6 +892,27 @@ class _MailListScreenState extends State<MailListScreen> {
           ],
         ),
         body: MailNotices(controller: c, child: mailPage(_body(context, l, c))),
+        // Kept in view while scrolling, so the actions stay at hand.
+        bottomNavigationBar: (_selecting && c.messages.isNotEmpty) ||
+                c.bulkApproval != null ||
+                c.exportReady != null
+            ? SafeArea(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                      maxHeight: MediaQuery.sizeOf(context).height * 0.45),
+                  child: SingleChildScrollView(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: AnumSpacing.sm),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 880),
+                        child: MailSelectionBar(controller: c),
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            : null,
       ),
     );
   }
@@ -954,7 +1002,17 @@ class _MailListScreenState extends State<MailListScreen> {
             _MessageTile(
                 message: message,
                 label: c.labels[message.uid],
-                onTap: () => _open(message)),
+                selecting: _selecting,
+                selected: c.selected.contains(message.uid),
+                onLongPress: c.canWrite
+                    ? () {
+                        setState(() => _selectMode = true);
+                        c.toggleSelected(message);
+                      }
+                    : null,
+                onTap: _selecting
+                    ? () => c.toggleSelected(message)
+                    : () => _open(message)),
           if (c.messages.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: AnumSpacing.xs),
@@ -982,10 +1040,19 @@ class _MailListScreenState extends State<MailListScreen> {
 }
 
 class _MessageTile extends StatelessWidget {
-  const _MessageTile({required this.message, required this.onTap, this.label});
+  const _MessageTile({
+    required this.message,
+    required this.onTap,
+    this.label,
+    this.selecting = false,
+    this.selected = false,
+    this.onLongPress,
+  });
   final MailMessage message;
   final MailLabel? label;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final bool selecting, selected;
 
   @override
   Widget build(BuildContext context) {
@@ -995,10 +1062,22 @@ class _MessageTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: AnumSpacing.xs),
       child: ListTile(
         onTap: onTap,
-        leading: Icon(
-          message.seen ? Icons.drafts_outlined : Icons.mark_email_unread,
-          semanticLabel: message.seen ? null : l.t('mc.unread'),
-        ),
+        onLongPress: onLongPress,
+        selected: selected,
+        leading: selecting
+            ? Checkbox(
+                value: selected,
+                onChanged: (_) => onTap(),
+                semanticLabel: l.f('mc.b.selectOne', {
+                  'subject': message.subject.isEmpty
+                      ? l.t('mc.noSubject')
+                      : message.subject
+                }),
+              )
+            : Icon(
+                message.seen ? Icons.drafts_outlined : Icons.mark_email_unread,
+                semanticLabel: message.seen ? null : l.t('mc.unread'),
+              ),
         title: Text(
           message.sender?.label ?? l.t('mc.unknownSender'),
           maxLines: 1,
@@ -1241,10 +1320,6 @@ class MailMessageScreen extends StatelessWidget {
             },
           ),
         ],
-        if (c.aiAvailable || c.ai?.reason != null) ...[
-          const SizedBox(height: AnumSpacing.sm),
-          MailAssistPanel(controller: c),
-        ],
         const SizedBox(height: AnumSpacing.sm),
         Text(l.t('mc.untrusted'), style: theme.textTheme.bodySmall),
         if (detail.remoteImagesBlocked > 0)
@@ -1295,6 +1370,10 @@ class MailMessageScreen extends StatelessWidget {
                   : null,
             ),
           Text(l.t('mc.attachmentsNote'), style: theme.textTheme.bodySmall),
+        ],
+        if (c.aiAvailable || c.ai?.reason != null) ...[
+          const SizedBox(height: AnumSpacing.sm),
+          MailAssistPanel(controller: c),
         ],
       ],
     );
@@ -1706,7 +1785,8 @@ class MailApprovalCard extends StatelessWidget {
 /// The send approval of a draft: sender, recipients, the time when it is
 /// scheduled and how many files go with it.
 Widget sendApprovalCard(BuildContext context, MailCenterController c,
-    MailDraft draft, WorkspaceApproval approval) {
+    MailDraft draft, WorkspaceApproval approval,
+    {VoidCallback? onApprove}) {
   final l = AnumLocalizations.maybeOf(context);
   final to = approval.arguments['to'];
   final sendAt = DateTime.tryParse('${approval.arguments['send_at'] ?? ''}');
@@ -1725,6 +1805,6 @@ Widget sendApprovalCard(BuildContext context, MailCenterController c,
     ],
     approveLabel:
         sendAt != null ? l.t('mc.approveSchedule') : l.t('mc.approve'),
-    onApprove: () => c.approve(approval),
+    onApprove: onApprove ?? () => c.approve(approval),
   );
 }

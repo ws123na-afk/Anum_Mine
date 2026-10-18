@@ -10,6 +10,7 @@ import 'package:anum_mobile/features/mail_center/mail_center_repository.dart';
 import 'package:anum_mobile/features/mail_center/mail_center_screens.dart';
 import 'package:anum_mobile/features/mail_center/mail_center_transfer.dart';
 import 'package:anum_mobile/features/mail_center/mail_directory_models.dart';
+import 'package:anum_mobile/features/mail_center/mail_health.dart';
 import 'package:anum_mobile/features/workspace/files_repository.dart';
 import 'package:anum_mobile/data/api_models.dart';
 import 'dart:typed_data';
@@ -307,11 +308,63 @@ class FakeMailRepository implements MailCenterRepository {
   Future<String?> approve(WorkspaceApproval approval) async {
     approved.add(approval.payloadHash);
     if (approval.action == 'delete_mail') return 'Deleted 1 message for good.';
+    if (approval.action != 'send_mail') return 'Done.';
     draftStatus = 'sent';
     return 'Sent from $_address to sara@client.example';
   }
 
   // -- added on the phone: files, schedule, delete, sharing, contacts, AI --
+
+  final bulk = <String>[];
+  final forwards = <String>[];
+
+  @override
+  Future<void> setFlags(String accountId, String folder, List<int> uids,
+          {required String flag, required bool value}) async =>
+      bulk.add('flag:$flag:$value:${uids.length}');
+
+  @override
+  Future<void> moveMany(
+          String accountId, String folder, List<int> uids, String to) async =>
+      bulk.add('move:$to:${uids.length}');
+
+  WorkspaceApproval _ownerApproval(
+          String action, String folder, List<int> uids) =>
+      workspaceApprovalFromJson(JsonReader({
+        ..._approval(),
+        'id': 'approval_$action',
+        'action': action,
+        'arguments': {'mailbox': _address, 'folder': folder, 'uids': uids},
+      }));
+
+  @override
+  Future<WorkspaceApproval> archiveMany(
+      String accountId, String folder, List<int> uids) async {
+    bulk.add('archive:${uids.length}');
+    return _ownerApproval('archive_mail_bulk', folder, uids);
+  }
+
+  @override
+  Future<WorkspaceApproval> exportMany(
+      String accountId, String folder, List<int> uids) async {
+    bulk.add('export:${uids.length}');
+    return _ownerApproval('export_mail', folder, uids);
+  }
+
+  @override
+  Future<MailDraft> forward(String accountId, String folder, int uid,
+      {required List<String> to,
+      String? note,
+      bool writeNote = false,
+      required String key}) async {
+    forwards.add('$uid:${to.join(',')}:${note ?? ''}:$writeNote:$key');
+    return MailDraft.fromJson(JsonReader({
+      ..._draft(status: 'pending_approval', approval: true),
+      'id': 'maildraft_fwd',
+      'kind': 'forward',
+      'to': to,
+    }));
+  }
 
   final sendAts = <DateTime?>[];
   final removedFiles = <String>[];
@@ -1457,4 +1510,316 @@ void main() {
       }
     });
   }
+
+  // -- several messages, forward with approval, operator view ----------------
+
+  test('a forward reuses one key for the same inputs', () async {
+    final repo = FakeMailRepository();
+    var tick = 0;
+    final c = MailCenterController(repo,
+        clock: () => DateTime.fromMicrosecondsSinceEpoch(++tick));
+    await c.loadSetup();
+    await c.openAccount(c.accounts.single);
+    await c.openFolder(c.folders.first);
+    await c.read(c.messages.first);
+    await c.forwardWithAi(['omar@client.example'], note: 'FYI');
+    await c.forwardWithAi(['omar@client.example'], note: 'FYI');
+    await c.forwardWithAi(['lina@client.example'], note: 'FYI');
+    final keys = [
+      for (final f in repo.forwards) f.split(':').skip(4).join(':')
+    ];
+    expect(keys[0], keys[1]);
+    expect(keys[2], isNot(keys[0]));
+    expect(c.forwardDraft?.waiting, isTrue);
+  });
+
+  testWidgets('select several: flags, moves, archive and export with approval',
+      (tester) async {
+    final repo = FakeMailRepository();
+    final transfer = FakeMailTransfer(repo);
+    final c = MailCenterController(repo, transfer: transfer);
+    await pumpMail(tester, c);
+    await tester.tap(find.text(_address));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    // Long press starts selecting.
+    await tester.longPress(find.text('Quote request 30'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsOneWidget);
+    await tapVisible(tester, find.text('Quote request 29'));
+    expect(find.text('2 selected'), findsOneWidget);
+    await tapVisible(tester, find.text(_en('mc.b.read')));
+    expect(repo.bulk, ['flag:seen:true:2']);
+    expect(find.text('Updated 2 messages.'), findsOneWidget);
+    await tapVisible(tester, find.text(_en('mc.archive')));
+    expect(repo.bulk.last, 'move:archive:2');
+    expect(find.text('Quote request 30'), findsNothing);
+
+    await tapVisible(tester, find.text('Select all 23 shown'));
+    expect(find.text('23 selected'), findsOneWidget);
+    await tapVisible(tester, find.text('Archive 23 with approval'));
+    expect(repo.bulk.last, 'archive:23');
+    expect(find.text(_en('mc.b.approvalTitle.archive')), findsWidgets);
+    expect(find.textContaining(_hash), findsOneWidget);
+    await tapVisible(tester, find.text(_en('mc.b.approve.archive')));
+    expect(repo.approved, [_hash]);
+    expect(find.text('Quote request 28'), findsNothing);
+
+    await c.loadMessages();
+    await tester.pumpAndSettle();
+    // Still selecting: the bar stays until Stop selecting.
+    expect(find.byTooltip(_en('mc.b.done')), findsOneWidget);
+    await tapVisible(tester, find.text('Select all 25 shown'));
+    await tapVisible(tester, find.text('Export 25 (.mbox)'));
+    expect(repo.bulk.last, 'export:25');
+    await tapVisible(tester, find.text(_en('mc.b.approve.export')));
+    expect(find.text(_en('mc.b.exportReady')), findsOneWidget);
+    await tapVisible(tester, find.text(_en('mc.b.downloadMbox')));
+    expect(transfer.downloaded.last,
+        '/api/v1/mail/ai/exports/approval_export_mail');
+    expect(transfer.saved.last, 'mail-export.mbox');
+  });
+
+  testWidgets(
+      'bulk delete for good in Trash; shared mailboxes see no owner actions',
+      (tester) async {
+    final repo = FakeMailRepository();
+    final c = MailCenterController(repo);
+    await pumpMail(tester, c);
+    await tester.tap(find.text(_address));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Trash'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(_en('mc.b.select')));
+    await tester.pumpAndSettle();
+    await tapVisible(tester, find.text('Quote request 30'));
+    expect(find.text(_en('mc.b.restore')), findsOneWidget);
+    await tapVisible(tester, find.text('Delete 1 for good'));
+    await tester.tap(find.text(_en('mc.askToDelete')));
+    await tester.pumpAndSettle();
+    expect(repo.deletes, ['Trash:30']);
+    await tapVisible(tester, find.text(_en('mc.b.approve.delete')));
+    expect(repo.approved, [_hash]);
+    expect(find.text('Quote request 30'), findsNothing);
+
+    repo.setupJson = _setup(accounts: [
+      {..._account(), 'access': 'send', 'grant_id': 'grant_9'}
+    ]);
+    final shared = MailCenterController(repo);
+    await pumpMail(tester, shared);
+    await tester.tap(find.text(_address));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('Quote request 30'));
+    await tester.pumpAndSettle();
+    expect(find.text(_en('mc.b.read')), findsOneWidget);
+    expect(find.textContaining('with approval'), findsNothing);
+    expect(find.textContaining('(.mbox)'), findsNothing);
+  });
+
+  testWidgets('forward with a note waits for the send approval',
+      (tester) async {
+    final repo = FakeMailRepository();
+    final c = MailCenterController(repo);
+    await pumpMail(tester, c);
+    await tester.tap(find.text(_address));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Quote request 30'));
+    await tester.pumpAndSettle();
+    await tapVisible(tester, find.text(_en('mc.ai.forward')));
+    await tester.tap(find.descendant(
+        of: find.byType(BottomSheet),
+        matching: find.text(_en('mc.askToSend'))));
+    await tester.pumpAndSettle();
+    expect(find.text(_en('mc.needsRecipient')), findsOneWidget);
+    await tester.enterText(
+        find.widgetWithText(TextFormField, _en('mc.toField')),
+        'omar@client.example');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, _en('mc.ai.forwardNote')), 'FYI');
+    await tester.tap(find.descendant(
+        of: find.byType(BottomSheet),
+        matching: find.text(_en('mc.askToSend'))));
+    await tester.pumpAndSettle();
+    expect(
+        repo.forwards.single, startsWith('30:omar@client.example:FYI:false:'));
+    expect(find.textContaining(_hash), findsOneWidget);
+    await tapVisible(tester, find.text(_en('mc.approve')));
+    expect(repo.approved, [_hash]);
+  });
+
+  group('operator mail health', () {
+    Map<String, Object?> org(String id, String name, String health,
+            {int failed = 0}) =>
+        {
+          'tenant_id': id,
+          'display_name': name,
+          'mailboxes': health == 'quiet' ? 0 : 3,
+          'connected': 2,
+          'auth_failed': 1,
+          'offline': 0,
+          'error': 0,
+          'stale': 0,
+          'last_sync_at': _now.toIso8601String(),
+          'counts': {'sent': 12, 'send_failed': failed},
+          'health': health,
+        };
+
+    Future<void> pumpHealth(WidgetTester tester, FakeHealth repo,
+        {Size size = const Size(390, 844),
+        double textScale = 1,
+        Locale locale = const Locale('en')}) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        key: UniqueKey(),
+        theme: AnumTheme.dark(),
+        locale: locale,
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: const [
+          AnumLocalizations.delegate,
+          ...GlobalMaterialLocalizations.delegates
+        ],
+        builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(textScale)),
+            child: child!),
+        home: MailHealthScreen(repository: repo),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    FakeHealth sample() => FakeHealth()
+      ..orgs = [
+        org('acme', 'Acme Trading', 'ok'),
+        org('zeta', 'Zeta Fleet', 'attention', failed: 2),
+        org('quiet', 'Quiet Co', 'quiet'),
+      ];
+
+    testWidgets('attention first, search, period, server status',
+        (tester) async {
+      final repo = sample();
+      await pumpHealth(tester, repo);
+      final zeta = tester.getTopLeft(find.text('Zeta Fleet')).dy;
+      final acme = tester.getTopLeft(find.text('Acme Trading')).dy;
+      expect(zeta, lessThan(acme));
+      expect(find.textContaining('Needs attention'), findsOneWidget);
+      expect(find.text(_en('mc.op.mailcow.off')), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'acme');
+      await tester.pumpAndSettle();
+      expect(find.text('Zeta Fleet'), findsNothing);
+      await tester.enterText(find.byType(TextField), 'nothing');
+      await tester.pumpAndSettle();
+      expect(find.text(_en('mc.op.noMatch')), findsOneWidget);
+      await tester.tap(find.text('30 d'));
+      await tester.pumpAndSettle();
+      expect(repo.days.last, 30);
+    });
+
+    testWidgets('denied, offline and no organisations', (tester) async {
+      await pumpHealth(
+          tester,
+          FakeHealth()
+            ..error = const ApiException(403, 'Platform operators only.'));
+      expect(find.text(_en('mc.op.denied')), findsOneWidget);
+      await pumpHealth(
+          tester,
+          FakeHealth()
+            ..error =
+                const ApiException(0, 'The server could not be reached.'));
+      expect(find.text(_en('mc.offline')), findsOneWidget);
+      await pumpHealth(tester, FakeHealth());
+      expect(find.text(_en('mc.op.none')), findsOneWidget);
+    });
+
+    for (final width in [320.0, 390.0, 768.0, 1024.0, 1440.0]) {
+      testWidgets('lays out at $width px, 200% text, English and Arabic',
+          (tester) async {
+        for (final locale in const [Locale('en'), Locale('ar')]) {
+          await pumpHealth(tester, sample(),
+              size: Size(width, 900), textScale: 2, locale: locale);
+          expect(tester.takeException(), isNull);
+        }
+      });
+    }
+  });
+
+  for (final width in [320.0, 390.0, 768.0, 1024.0, 1440.0]) {
+    testWidgets(
+        'selection and forward lay out at $width px, 200% text, English and Arabic',
+        (tester) async {
+      for (final locale in const [Locale('en'), Locale('ar')]) {
+        String t(String key) =>
+            (locale.languageCode == 'ar' ? mailCenterAr : mailCenterEn)[key]!;
+        final repo = FakeMailRepository();
+        final c = MailCenterController(repo);
+        await pumpMail(tester, c,
+            size: Size(width, 900), textScale: 2, locale: locale);
+        await tester.tap(find.text(_address));
+        await tester.pumpAndSettle();
+        await tapVisible(tester, find.text('Trash'));
+        await tester.longPress(find.text('Quote request 30'));
+        await tester.pumpAndSettle();
+        await tapVisible(tester, find.text(t('mc.b.clear')));
+        await c.loadMessages();
+        c.selectAll();
+        await c.askBulk('export');
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await c.approveBulk();
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.byType(BackButton));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(BackButton));
+        await tester.pumpAndSettle();
+        await tapVisible(tester, find.text(_address));
+        await tapVisible(tester, find.text('Inbox'));
+        await tester.tap(find.text('Quote request 30'));
+        await tester.pumpAndSettle();
+        await tapVisible(tester, find.text(t('mc.ai.forward')));
+        expect(tester.takeException(), isNull);
+      }
+    });
+  }
+}
+
+class FakeHealth implements MailHealthRepository {
+  List<Map<String, Object?>> orgs = [];
+  Object? error;
+  final days = <int>[];
+
+  @override
+  Future<MailHealthView> health(int days) async {
+    this.days.add(days);
+    if (error != null) throw error!;
+    return MailHealthView.fromJson(JsonReader({
+      'enabled': true,
+      'days': days,
+      'since': '2026-10-11',
+      'mailboxes': 6,
+      'totals': {'sent': 24, 'send_failed': 2},
+      'organisations': orgs,
+    }));
+  }
+
+  @override
+  Future<MailServerStatus> server() async =>
+      MailServerStatus.fromJson(JsonReader({
+        'server': {
+          'enabled': true,
+          'configured': true,
+          'imap_host': 'mail.example.test',
+          'smtp_host': 'mail.example.test',
+          'allowed_tenants': 3,
+          'send_per_hour': 30,
+          'connect_attempts_per_hour': 5,
+        },
+        'mailcow': {'state': 'off'},
+      }));
 }

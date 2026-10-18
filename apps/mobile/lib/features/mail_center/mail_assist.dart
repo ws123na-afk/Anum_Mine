@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import 'mail_center_controller.dart';
+import 'mail_center_models.dart';
 import 'mail_center_screens.dart';
+import 'mail_directory.dart';
 import 'mail_directory_models.dart';
 
 /// AI on the opened message (docs/email.md#ai-on-email): summarise it or its
@@ -32,6 +34,17 @@ class MailAssistPanel extends StatelessWidget {
             builder: (_) => MailComposeScreen(controller: c)),
       );
     }
+  }
+
+  Future<void> _forward(BuildContext context) async {
+    final request = await showModalBottomSheet<(List<String>, String, bool)>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _ForwardSheet(controller: controller),
+    );
+    if (request == null) return;
+    await controller.forwardWithAi(request.$1,
+        note: request.$2, writeNote: request.$3);
   }
 
   @override
@@ -101,6 +114,16 @@ class MailAssistPanel extends StatelessWidget {
                         : const Icon(Icons.auto_awesome_outlined),
                     label: Text(l.t('mc.ai.draftReply')),
                   ),
+                if (c.canWrite)
+                  OutlinedButton.icon(
+                    onPressed: c.busy == null ? () => _forward(context) : null,
+                    icon: c.busy == 'forward'
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.forward_to_inbox_outlined),
+                    label: Text(l.t('mc.ai.forward')),
+                  ),
               ],
             ),
             if (label != null) ...[
@@ -134,6 +157,18 @@ class MailAssistPanel extends StatelessWidget {
               ),
             if (summary != null && c.summaryPhase == MailPhase.ready)
               _SummaryView(summary: summary),
+            if (c.forwardDraft case final MailDraft fwd) ...[
+              const SizedBox(height: AnumSpacing.sm),
+              if (fwd.waiting && fwd.approval != null)
+                sendApprovalCard(context, c, fwd, fwd.approval!,
+                    onApprove: c.approveForward)
+              else
+                Semantics(
+                  liveRegion: true,
+                  child: Text(l.f('mc.ai.forwardState',
+                      {'state': mailDraftStatus(context, fwd)})),
+                ),
+            ],
             if (approval != null) ...[
               const SizedBox(height: AnumSpacing.sm),
               MailApprovalCard(
@@ -323,6 +358,120 @@ class _DraftReplySheetState extends State<_DraftReplySheet> {
             ),
             const SizedBox(height: AnumSpacing.md),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Forward to typed addresses with an optional note, or one AI writes; the
+/// forward is a send, so it waits for the send approval.
+class _ForwardSheet extends StatefulWidget {
+  const _ForwardSheet({required this.controller});
+  final MailCenterController controller;
+
+  @override
+  State<_ForwardSheet> createState() => _ForwardSheetState();
+}
+
+class _ForwardSheetState extends State<_ForwardSheet> {
+  final _form = GlobalKey<FormState>();
+  final _to = TextEditingController();
+  final _note = TextEditingController();
+  bool _write = false;
+
+  static final _address = RegExp(r'^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$');
+
+  @override
+  void dispose() {
+    _to.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  String? _check(String? text) {
+    final l = AnumLocalizations.maybeOf(context);
+    final list = MailDraftEdit.split(text ?? '');
+    if (list.isEmpty) return l.t('mc.needsRecipient');
+    final bad = [
+      for (final a in list)
+        if (!_address.hasMatch(a)) a
+    ];
+    if (bad.isNotEmpty) return l.f('mc.badAddresses', {'list': bad.join(', ')});
+    if (list.length > 50) return l.f('mc.tooMany', {'max': 50});
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    final c = widget.controller;
+    return Padding(
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+          left: AnumSpacing.md,
+          right: AnumSpacing.md,
+          top: AnumSpacing.md),
+      child: Form(
+        key: _form,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(l.t('mc.ai.forward'),
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: AnumSpacing.sm),
+              MailRecipientField(
+                controller: _to,
+                label: l.t('mc.toField'),
+                helperText: l.t('mc.addressesHint'),
+                suggest: c.directory.suggest,
+                validator: _check,
+              ),
+              TextFormField(
+                controller: _note,
+                enabled: !_write,
+                maxLength: 5000,
+                minLines: 2,
+                maxLines: 5,
+                decoration: InputDecoration(
+                    labelText: l.t('mc.ai.forwardNote'),
+                    alignLabelWithHint: true),
+              ),
+              if (c.aiAvailable)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _write,
+                  onChanged: (value) => setState(() => _write = value),
+                  title: Text(l.t('mc.ai.writeNote')),
+                ),
+              Text(l.t('mc.ai.forwardHint'),
+                  style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: AnumSpacing.sm),
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: AnumSpacing.xs,
+                children: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(l.t('mc.cancel'))),
+                  FilledButton(
+                    onPressed: () {
+                      if (!(_form.currentState?.validate() ?? false)) return;
+                      Navigator.pop(context, (
+                        MailDraftEdit.split(_to.text),
+                        _write ? '' : _note.text,
+                        _write,
+                      ));
+                    },
+                    child: Text(l.t('mc.askToSend')),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AnumSpacing.md),
+            ],
+          ),
         ),
       ),
     );
