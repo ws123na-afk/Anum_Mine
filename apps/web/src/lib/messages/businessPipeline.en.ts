@@ -223,4 +223,6 @@ export const businessPipelineEn = {
   'biz.outbox.status.failed': 'Failed',
   'biz.outbox.status.cancelled': 'Cancelled',
   'biz.outbox.status.rejected': 'Rejected',
+  'biz.outbox.status.sending': 'Sending',
+  'biz.outbox.status.needs_review': 'Needs review: check the sent mail',
 } satisfies Record<string, Message>;

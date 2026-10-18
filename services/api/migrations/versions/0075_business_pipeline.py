@@ -191,6 +191,7 @@ def upgrade() -> None:
         sa.Column("channel", sa.String(20), nullable=False),
         sa.Column("step", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("follow_up_of", sa.String(80), nullable=True),
+        sa.Column("sequence_id", sa.String(80), nullable=False),
         sa.Column("recipient", sa.String(254), nullable=False),
         sa.Column("subject", sa.String(200), nullable=False, server_default=""),
         sa.Column("body", sa.Text(), nullable=False),
@@ -208,16 +209,25 @@ def upgrade() -> None:
         _ref("business_outbox", "contact_id", "business_contacts", cascade=True),
         _ref("business_outbox", "draft_id", "business_drafts", cascade=True),
         sa.CheckConstraint(_in("channel", ("email", "whatsapp")), name="ck_business_outbox_channel"),
-        sa.CheckConstraint(_in("status", ("scheduled", "pending_approval", "held", "sent", "failed", "cancelled", "rejected")), name="ck_business_outbox_status"),
+        sa.CheckConstraint(_in("status", ("scheduled", "pending_approval", "held", "sending", "sent", "failed", "cancelled", "rejected", "needs_review")), name="ck_business_outbox_status"),
         sa.CheckConstraint("step between 1 and 6", name="ck_business_outbox_step"),
     )
-    # One open outbox row per draft; a sent row is final.
+    # One live outbox row per draft, and one live row per step of a sequence (the follow-up cap);
+    # a sent row is final, a cancelled, failed or rejected one frees its place.
+    live = "status in ('scheduled', 'pending_approval', 'held', 'sending', 'sent', 'needs_review')"
     op.create_index(
         "uq_business_outbox_open_draft",
         "business_outbox",
         ["tenant_id", "workspace_id", "draft_id"],
         unique=True,
-        postgresql_where=sa.text("status in ('scheduled', 'pending_approval', 'held', 'sent')"),
+        postgresql_where=sa.text(live),
+    )
+    op.create_index(
+        "uq_business_outbox_sequence_step",
+        "business_outbox",
+        ["tenant_id", "workspace_id", "sequence_id", "step"],
+        unique=True,
+        postgresql_where=sa.text(live),
     )
     op.create_index("ix_business_outbox_lead", "business_outbox", ["tenant_id", "workspace_id", "lead_id", "status"])
     op.create_index("ix_business_outbox_scope_updated_at", "business_outbox", ["tenant_id", "workspace_id", "updated_at", "id"])

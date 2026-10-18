@@ -85,6 +85,7 @@ class BusinessOutboxRecord(Base, _Row):
     channel: Mapped[str] = mapped_column(String(20))
     step: Mapped[int] = mapped_column(Integer)
     follow_up_of: Mapped[str | None] = mapped_column(String(80))
+    sequence_id: Mapped[str] = mapped_column(String(80))
     recipient: Mapped[str] = mapped_column(String(254))
     subject: Mapped[str] = mapped_column(String(200))
     body: Mapped[str] = mapped_column(Text)

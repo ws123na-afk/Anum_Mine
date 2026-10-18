@@ -165,10 +165,12 @@ class OutboxStatus(StrEnum):
     SCHEDULED = "scheduled"  # a follow-up waiting for its day; no approval asked yet
     PENDING_APPROVAL = "pending_approval"
     HELD = "held"  # approved, but sending is off, paused, over quota or failed a send-time check
+    SENDING = "sending"  # claimed by exactly one send (row lock); holds a quota slot until it ends
     SENT = "sent"
     FAILED = "failed"
     CANCELLED = "cancelled"
     REJECTED = "rejected"
+    NEEDS_REVIEW = "needs_review"  # a send was interrupted with no provider id: never resent blindly
 
 
 OPEN_OUTBOX = frozenset({OutboxStatus.SCHEDULED, OutboxStatus.PENDING_APPROVAL, OutboxStatus.HELD})
@@ -181,6 +183,8 @@ class OutboxItem(Scoped):
     channel: str = Field(pattern=r"^(email|whatsapp)$")
     step: int = Field(default=1, ge=1, le=6)
     follow_up_of: str | None = None
+    # The first message's id: one sequence per first message, one live row per (sequence, step).
+    sequence_id: str = Field(default="", max_length=80)
     recipient: str = Field(max_length=254)
     subject: str = Field(default="", max_length=200)
     body: str = Field(min_length=1, max_length=4000)

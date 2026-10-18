@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import threading
 import logging
 import re
 from datetime import datetime, timedelta
@@ -42,6 +43,14 @@ from ..schemas import ApprovalStatus, RiskLevel, TenantContext, new_id, utc_now
 from . import assist
 from .models import CONTACTABLE_BASES, Contact, Draft, DraftChannel, DraftStatus, Lead, LeadState
 from .outreach_models import OPEN_OUTBOX, SENDABLE_CHANNELS, OutboxItem, OutboxStatus, ReplyEvent, ReplyKind
+
+# Rows that hold their draft's and their step's place (the unique indexes of migration 0075).
+LIVE_OUTBOX = frozenset(set(OPEN_OUTBOX) | {OutboxStatus.SENDING, OutboxStatus.SENT, OutboxStatus.NEEDS_REVIEW})
+# A claim older than this with no provider id is an interrupted send: reviewed by a person, never resent.
+STALE_SENDING = timedelta(minutes=10)
+# Serializes claims inside this process (the memory store has no row locks); PostgreSQL also locks
+# the workspace's settings row and the outbox row FOR UPDATE in the same short transaction.
+_claim_lock = threading.Lock()
 from .pipeline import load_settings, save_settings
 from .service import audit, contact_block, draft_hash, http_error, record_activity, stamp_state
 from .store import BusinessStore, Query, open_business_store
@@ -184,9 +193,12 @@ def _facts(store: BusinessStore, lead: Lead) -> str:
 
 
 def sent_today(store: BusinessStore, channel: str, now: datetime) -> int:
+    """Today's (UTC) used quota slots on a channel: messages sent, plus those claimed and sending
+    (a claim reserves its slot; a failed send releases it)."""
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    items, _ = store.find("outbox", Query(where={"channel": channel, "status": OutboxStatus.SENT}, limit=2000, order_by="updated_at"))
-    return sum(1 for item in items if item.sent_at is not None and item.sent_at >= start)
+    used = {OutboxStatus.SENT, OutboxStatus.SENDING, OutboxStatus.NEEDS_REVIEW}
+    items, _ = store.find("outbox", Query(where={"channel": channel, "status": used}, limit=2000, order_by="updated_at"))
+    return sum(1 for item in items if (item.sent_at or item.updated_at) >= start)
 
 
 def bounce_rate(store: BusinessStore, now: datetime) -> tuple[int, int]:
@@ -308,7 +320,7 @@ def queue_draft(context: TenantContext, repository: AnumRepository, draft_id: st
             raise http_error(409, f"Outreach is paused: {settings.paused_reason or 'an owner paused it'}.")
         if store.first("replies", lead_id=lead.id) is not None:
             raise http_error(409, "The lead has replied, so outreach and follow-ups have stopped. Continue the conversation from your inbox.")
-        existing, _ = store.find("outbox", Query(where={"draft_id": draft.id, "status": set(OPEN_OUTBOX) | {OutboxStatus.SENT}}, limit=5))
+        existing, _ = store.find("outbox", Query(where={"draft_id": draft.id, "status": LIVE_OUTBOX}, limit=5))
         if existing:
             raise http_error(409, "This draft is already in the outbox.")
         contact = store.get("contacts", draft.contact_id) if draft.contact_id else None
@@ -326,17 +338,23 @@ def queue_draft(context: TenantContext, repository: AnumRepository, draft_id: st
                 raise http_error(409, "Queue a follow-up after the previous message was approved.")
             if previous.channel != channel or previous.contact_id != draft.contact_id:
                 raise http_error(422, "A follow-up goes to the same contact on the same channel.")
-            step = previous.step + 1
-            if step > 1 + settings.follow_up_max:
-                raise http_error(409, f"At most {settings.follow_up_max} follow-up(s) per lead (Business settings).")
+            # The cap counts every live follow-up of the sequence, whichever step it was built from.
+            sequence = previous.sequence_id or previous.id
+            live, _ = store.find("outbox", Query(where={"sequence_id": sequence, "status": LIVE_OUTBOX}, limit=50))
+            follow_ups = [row for row in live if row.step > 1]
+            if len(follow_ups) >= settings.follow_up_max:
+                raise http_error(409, f"At most {settings.follow_up_max} follow-up(s) per lead (Business settings); this sequence has {len(follow_ups)}.")
+            step = max([previous.step, *(row.step for row in live)]) + 1
             days = max(settings.follow_up_min_days, int(send_after_days or settings.follow_up_min_days))
             send_after = (previous.sent_at or now) + timedelta(days=days)
         item = OutboxItem(
             id=new_id("bout"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, lead_id=lead.id, contact_id=contact.id,  # type: ignore[union-attr]
-            draft_id=draft.id, channel=channel, step=step, follow_up_of=previous.id if previous else None, recipient=recipient or "",
+            draft_id=draft.id, channel=channel, step=step, follow_up_of=previous.id if previous else None,
+            sequence_id=(previous.sequence_id or previous.id) if previous else "", recipient=recipient or "",
             subject=draft.subject, body=draft.body, content_hash=draft.approved_hash or "", status=OutboxStatus.SCHEDULED,
             send_after=send_after, created_by=context.user_id, created_at=now, updated_at=now,
         )
+        item.sequence_id = item.sequence_id or item.id
         if send_after is not None and send_after > now:
             item.note = f"Scheduled: ask for approval on or after {send_after.date().isoformat()}."
         else:
@@ -386,6 +404,7 @@ def request_again(context: TenantContext, repository: AnumRepository, item_id: s
 def sync_approval(store: BusinessStore, repository: AnumRepository, context: TenantContext, item: OutboxItem) -> tuple[OutboxItem, Any]:
     """The row with its approval; a rejected or lapsed request is shown as rejected here."""
     approval = repository.get_approval(item.approval_id, context) if item.approval_id else None
+    item = reconcile_sending(store, item)
     if item.status != OutboxStatus.PENDING_APPROVAL or approval is None:
         return item, approval
     lapsed = approval.status == ApprovalStatus.EXPIRED or (
@@ -611,20 +630,29 @@ def _send_checks(context: TenantContext, call: ToolCall) -> tuple[ToolResult | N
 
     args = call.arguments
     now = utc_now()
-    with open_business_store(context) as store:
+    # One short transaction claims the row: the workspace's settings row is locked first (it serializes
+    # every claim and quota reservation of the workspace), then the outbox row. The claim moves the row
+    # to ``sending`` and reserves the quota slot; the provider is called after commit, with no
+    # transaction open, and a second run finds ``sending`` and sends nothing.
+    with _claim_lock, open_business_store(context) as store:
+        settings = load_settings(store, context)
+        if store.get("outreach_settings", settings.id) is None:
+            save_settings(store, settings)
+        settings = store.get("outreach_settings", settings.id, for_update=True) or settings
         item = store.get("outbox", str(args.get("outbox_id", "")), for_update=True)
         if item is None:
             return ToolResult(status="failed", summary="The outbox message was deleted; nothing was sent."), None, None
         if item.status == OutboxStatus.SENT:
             same = item.content_hash == args.get("content_hash")
             return ToolResult(status="succeeded" if same else "failed", summary="Already sent." if same else "Another text was already sent; nothing changed."), None, None
+        if item.status == OutboxStatus.SENDING:
+            return ToolResult(status="failed", summary="This message is already being sent; it is not sent again."), None, None
         if item.status not in {OutboxStatus.PENDING_APPROVAL, OutboxStatus.HELD}:
             return ToolResult(status="failed", summary=f"The message is {item.status.value.replace('_', ' ')}; nothing was sent."), None, None
         bound = (args.get("content_hash") == item.content_hash and args.get("to") == item.recipient and args.get("text") == item.body
                  and args.get("subject") == item.subject and args.get("channel") == item.channel)
         if not bound:
             return _hold(store, item, OutboxStatus.CANCELLED, "The message changed after it was approved."), None, None
-        settings = load_settings(store, context)
         if not settings.sending_enabled:
             return _hold(store, item, OutboxStatus.HELD, "Approved, but sending is turned off (Business, Outreach settings). Nothing was sent."), None, None
         if settings.paused:
@@ -649,11 +677,27 @@ def _send_checks(context: TenantContext, call: ToolCall) -> tuple[ToolResult | N
         tool = delivery.channels().get(item.channel)
         if tool is None:
             return _hold(store, item, OutboxStatus.HELD, f"Approved, but no {item.channel} integration is connected. Connect one in Integrations."), None, None
-        item.status = OutboxStatus.HELD
+        item.status = OutboxStatus.SENDING  # the claim, and the reserved quota slot
         item.note = "Sending."
         item.updated_at = now
         store.save("outbox", item)
     return None, item, tool
+
+
+def reconcile_sending(store: BusinessStore, item: OutboxItem, now: datetime | None = None) -> OutboxItem:
+    """A claim whose send never finished (an API restart) is never resent: with a provider message id it
+    was sent; without one a person checks the sent mail and decides (``needs_review``)."""
+    now = now or utc_now()
+    if item.status != OutboxStatus.SENDING or now - item.updated_at < STALE_SENDING:
+        return item
+    if item.provider_ref:
+        item = item.model_copy(update={"status": OutboxStatus.SENT, "sent_at": item.sent_at or item.updated_at,
+                                       "note": "Sent (confirmed by the provider id).", "updated_at": now})
+    else:
+        item = item.model_copy(update={"status": OutboxStatus.NEEDS_REVIEW, "updated_at": now,
+                                       "note": "The send was interrupted and ANUM cannot tell whether it left. Check the sent mail before sending it again."})
+    store.save("outbox", item)
+    return item
 
 
 async def send_outreach(call: ToolCall, context: TenantContext) -> ToolResult:
@@ -667,7 +711,9 @@ async def send_outreach(call: ToolCall, context: TenantContext) -> ToolResult:
     if refusal is not None or item is None or tool is None:
         return refusal or ToolResult(status="failed", summary="Nothing was sent.")
     registry = delivery.registry()
-    inner = ToolCall(name=tool, arguments={"to": item.recipient, "subject": item.subject, "text": item.body, "attachments": [], "purpose": "marketing"})
+    # The outbox id is a stable idempotency key for providers that accept one.
+    inner = ToolCall(name=tool, arguments={"to": item.recipient, "subject": item.subject, "text": item.body, "attachments": [], "purpose": "marketing",
+                                           "idempotency_key": item.id})
 
     def policy() -> str | None:
         with _unit_of_work(context, require_membership=False) as repository:
@@ -685,6 +731,7 @@ async def send_outreach(call: ToolCall, context: TenantContext) -> ToolResult:
             if current is None:  # pragma: no cover - deleted while sending
                 return ToolResult(status="failed", summary="The outbox message was deleted while sending.")
             if result.status != "succeeded":
+                # Failed: the row leaves ``sending``, which releases its quota slot.
                 store.save("outbox", current.model_copy(update={"status": OutboxStatus.FAILED, "note": f"The send failed: {result.summary}"[:500], "updated_at": now}))
                 record_activity(store, context, "outreach_failed", f"Outreach step {current.step} failed to send ({current.channel}).", lead_id=current.lead_id,
                                 metadata={"outbox_id": current.id}, idempotency_key=f"send-failed:{current.id}")

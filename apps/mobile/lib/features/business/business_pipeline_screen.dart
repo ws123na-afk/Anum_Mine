@@ -44,8 +44,8 @@ AnumTone runTone(String status) => switch (status) {
 
 AnumTone outboxTone(String status) => switch (status) {
       'sent' => AnumTone.ok,
-      'failed' || 'rejected' || 'cancelled' => AnumTone.stop,
-      'pending_approval' || 'held' => AnumTone.warn,
+      'failed' || 'rejected' || 'cancelled' || 'needs_review' => AnumTone.stop,
+      'pending_approval' || 'held' || 'sending' => AnumTone.warn,
       _ => AnumTone.neutral,
     };
 

@@ -591,6 +591,91 @@ def test_with_sending_on_the_approved_text_goes_out_once_within_the_quota(email:
     assert numbers["sent_today"]["email"] == 1 and numbers["metrics"]["sent_total"] == 1 and numbers["metrics"]["replies"]["of"] == 1
 
 
+class SlowEmail(FakeEmail):
+    """A provider that takes a moment, so two sends overlap."""
+
+    async def __call__(self, call: ToolCall, context: TenantContext) -> ToolResult:
+        await asyncio.sleep(0.05)
+        return await super().__call__(call, context)
+
+
+@pytest.fixture
+def slow_email(monkeypatch: pytest.MonkeyPatch) -> SlowEmail:
+    fake = SlowEmail()
+    registry = ToolRegistry()
+    registry.register(ToolDefinition(name="email.send_test", description="Send e-mail.", risk_level=RiskLevel.HIGH, category="email", action_kind="send",
+                                     delivery_channel="email"), fake)
+    monkeypatch.setattr(delivery, "_registry", registry)
+    return fake
+
+
+def _send_both(*argument_sets: dict[str, Any]) -> list[ToolResult]:
+    async def both() -> list[ToolResult]:
+        return list(await asyncio.gather(*(outreach.send_outreach(ToolCall(name=outreach.SEND_TOOL, arguments=args), CONTEXT) for args in argument_sets)))
+
+    return asyncio.run(both())
+
+
+def test_concurrent_runs_of_one_approved_message_send_it_exactly_once(slow_email: SlowEmail) -> None:
+    enable_sending()
+    _, item = queued()
+    results = _send_both(item["approval"]["arguments"], item["approval"]["arguments"])
+    assert sorted(result.status for result in results) == ["failed", "succeeded"]
+    assert len(slow_email.calls) == 1 and slow_email.calls[0]["idempotency_key"] == item["id"]
+    assert "already being sent" in next(result.summary for result in results if result.status == "failed")
+    assert ok(client.get(f"{OUT}/items/{item['id']}", headers=MEMBER))["status"] == "sent"
+
+
+def test_two_concurrent_approvals_with_a_quota_of_one_send_exactly_one(slow_email: SlowEmail) -> None:
+    enable_sending(daily_quota={"email": 1})
+    _, first = queued()
+    _, second = queued(company="Second Co", email_address="buy@second.example")
+    _send_both(first["approval"]["arguments"], second["approval"]["arguments"])
+    assert len(slow_email.calls) == 1
+    statuses = sorted(ok(client.get(f"{OUT}/items/{row['id']}", headers=MEMBER))["status"] for row in (first, second))
+    assert statuses == ["held", "sent"]
+
+
+def test_a_failed_send_releases_its_quota_slot(email: FakeEmail, monkeypatch: pytest.MonkeyPatch) -> None:
+    enable_sending(daily_quota={"email": 1})
+    _, first = queued()
+
+    async def down(call: ToolCall, context: TenantContext) -> ToolResult:
+        return ToolResult(status="failed", summary="Mail server down")
+
+    monkeypatch.setattr(delivery._registry, "_handlers", {"email.send_test": down})  # type: ignore[union-attr]
+    assert approve(first["approval"]).status_code == 200
+    assert ok(client.get(f"{OUT}/items/{first['id']}", headers=MEMBER))["status"] == "failed"
+    with pipeline.open_business_store(CONTEXT) as store:
+        assert outreach.sent_today(store, "email", utc_now()) == 0
+
+
+def test_an_interrupted_send_is_reviewed_never_resent(email: FakeEmail) -> None:
+    enable_sending()
+    _, item = queued()
+    with pipeline.open_business_store(CONTEXT) as store:
+        row = store.get("outbox", item["id"])
+        store.save("outbox", row.model_copy(update={"status": OutboxStatus.SENDING, "updated_at": utc_now() - timedelta(minutes=30)}))
+    reviewed = ok(client.get(f"{OUT}/items/{item['id']}", headers=MEMBER))
+    assert reviewed["status"] == "needs_review" and "cannot tell" in reviewed["note"]
+    again = asyncio.run(outreach.send_outreach(ToolCall(name=outreach.SEND_TOOL, arguments=item["approval"]["arguments"]), CONTEXT))
+    assert again.status == "failed" and email.calls == []
+
+
+def test_the_follow_up_cap_counts_the_whole_sequence() -> None:
+    ok(client.put(f"{PIPE}/settings", headers=OWNER, json={"follow_up_max": 1}))
+    _, item = queued()
+    assert approve(item["approval"]).status_code == 200  # held: sending is off
+    first = ok(client.post(f"{OUT}/items/{item['id']}/follow-up", headers=MEMBER), 201)
+    second = ok(client.post(f"{OUT}/items/{item['id']}/follow-up", headers=MEMBER), 201)
+    for draft in (first, second):
+        ok(client.post(f"{BASE}/drafts/{draft['id']}/approve", headers=MEMBER))
+    queued_first = ok(client.post(f"{OUT}/drafts/{first['id']}/queue", headers=MEMBER, json={"follow_up_of": item["id"]}), 201)
+    assert queued_first["step"] == 2 and queued_first["sequence_id"] == item["id"]
+    refused = client.post(f"{OUT}/drafts/{second['id']}/queue", headers=MEMBER, json={"follow_up_of": item["id"]})
+    assert refused.status_code == 409 and "At most 1 follow-up" in refused.text
+
+
 def test_a_draft_changed_after_approval_is_not_sent(email: FakeEmail) -> None:
     enable_sending()
     _, item = queued()

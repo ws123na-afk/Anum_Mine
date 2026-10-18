@@ -223,4 +223,6 @@ export const businessPipelineAr: Record<keyof typeof businessPipelineEn, Message
   'biz.outbox.status.failed': 'فشلت',
   'biz.outbox.status.cancelled': 'ملغاة',
   'biz.outbox.status.rejected': 'مرفوضة',
+  'biz.outbox.status.sending': 'قيد الإرسال',
+  'biz.outbox.status.needs_review': 'تحتاج مراجعة: تحقق من البريد المرسل',
 };

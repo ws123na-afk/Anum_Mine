@@ -1110,6 +1110,6 @@ def test_business_pipeline_migration_is_expand_only_with_forced_rls_and_scoped_r
     assert '["tenant_id", "workspace_id", column]' in revision_text
     # Sending is off by default; one open outbox row per draft.
     assert '"sending_enabled", sa.boolean(), nullable=false, server_default=sa.false()' in upgrade
-    assert "uq_business_outbox_open_draft" in upgrade
+    assert "uq_business_outbox_open_draft" in upgrade and "uq_business_outbox_sequence_step" in upgrade
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "op.add_column(" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade

@@ -5,7 +5,7 @@ import type { BusinessDraft, BusinessEvidence, BusinessInference, Criterion } fr
 export type SignalStatus = 'proposed' | 'confirmed' | 'rejected';
 export type RunKind = 'discover' | 'profile';
 export type RunStatus = 'estimated' | 'running' | 'succeeded' | 'partial' | 'stopped' | 'failed' | 'interrupted';
-export type OutboxStatus = 'scheduled' | 'pending_approval' | 'held' | 'sent' | 'failed' | 'cancelled' | 'rejected';
+export type OutboxStatus = 'scheduled' | 'pending_approval' | 'held' | 'sending' | 'sent' | 'failed' | 'cancelled' | 'rejected' | 'needs_review';
 export type ReplyKind = 'reply' | 'opt_out' | 'bounce' | 'escalate';
 export type CompanySize = 'micro' | 'small' | 'medium' | 'large' | 'enterprise';
 
@@ -164,6 +164,7 @@ export interface OutboxItem {
   channel: 'email' | 'whatsapp';
   step: number;
   follow_up_of: string | null;
+  sequence_id: string;
   recipient: string;
   subject: string;
   body: string;

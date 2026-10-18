@@ -7,7 +7,7 @@ import type { Tone } from './business.ts';
 const label = (key: string) => t(key as MessageKey);
 export const runStatusLabel = (status: RunStatus) => label(`biz.run.status.${status}`);
 export const outboxStatusLabel = (status: OutboxStatus) => label(`biz.outbox.status.${status}`);
-export const OUTBOX_STATUSES: readonly OutboxStatus[] = ['pending_approval', 'held', 'scheduled', 'sent', 'failed', 'cancelled', 'rejected'];
+export const OUTBOX_STATUSES: readonly OutboxStatus[] = ['pending_approval', 'held', 'scheduled', 'sending', 'sent', 'needs_review', 'failed', 'cancelled', 'rejected'];
 export const SIZES = ['micro', 'small', 'medium', 'large', 'enterprise'] as const;
 
 export function runTone(status: RunStatus): Tone {
@@ -19,8 +19,8 @@ export function runTone(status: RunStatus): Tone {
 
 export function outboxTone(status: OutboxStatus): Tone {
   if (status === 'sent') return 'success';
-  if (status === 'failed' || status === 'rejected' || status === 'cancelled') return 'dangerTone';
-  if (status === 'pending_approval' || status === 'held') return 'warning';
+  if (status === 'failed' || status === 'rejected' || status === 'cancelled' || status === 'needs_review') return 'dangerTone';
+  if (status === 'pending_approval' || status === 'held' || status === 'sending') return 'warning';
   return 'neutral';
 }
 
