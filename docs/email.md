@@ -269,6 +269,17 @@ ANUM limits its own login checks (above). The mail server's own protection is th
 - **Keyboard.** j and k (or the arrow keys) move through the list, Enter or o opens, x selects, e archives, # moves to Trash, s stars, u marks read or unread, / searches. Keys are ignored while typing and in dialogs.
 - **Tests.** Unit `apps/web/test/mailActions.test.ts` and `mailOutgoing.test.ts`; Playwright `apps/web/e2e/email-center.spec.ts` and `email-outgoing.spec.ts` with the fake API in `e2e/support/mailApi.ts` (desktop and phone, axe in English, Arabic and the light theme).
 
+### The Email Center on the phone
+
+The Flutter app (`apps/mobile/lib/features/mail_center/`: `mail_center_models.dart`, `mail_center_repository.dart`, `mail_center_controller.dart`, `mail_center_screens.dart`; strings `lib/src/localization/mail_center_strings.dart`) uses the same `/api/v1/mail` routes. Menu, More, **Email Center**.
+
+- **Mailboxes.** Each mailbox with its state (connected, password refused, server offline, error) and last check; **Check connection**, **Enter the password again** for a refused password, **Remove from ANUM** after a confirmation. **Connect mailbox** takes the address (the allowed domains are shown), the app password (obscured, never shown again) and an optional name.
+- **Folders.** Special folders first with their totals and unread counts (not for Trash), and **Written in ANUM**: drafts, messages waiting for approval, scheduled, sent, not sent and **Check Sent** (unknown delivery).
+- **Messages.** 25 at a time, newest first; **Load more** follows `next_before`; server-side search with **Unread** and **Starred**; pull to refresh.
+- **Reading.** Plain text only: the app never renders the sender's HTML or loads anything from the sender. A message with no text part is shown as text made from the server-sanitized HTML, with a note to open the web app for the formatted version. Blocked remote images and hidden inline images are counted; attachments are listed with their sizes and downloaded from the web app. Star, Mark unread, Archive, Junk, Move to inbox and Move to Trash (each only where the mailbox has that folder).
+- **Writing.** Reply, Reply all, Forward and Write create a draft; To, Cc, Bcc (addresses checked, at most the server's recipient limit), subject and text; **Save draft**; **Send for approval** saves any change first and sends one idempotency key per attempt (a retry reuses it, a change makes a new one). The approval card shows sender, recipients, the full payload hash and its expiry; **Approve and send** sends the hash back (owners only; a member's tap is refused by the API and says so). Scheduling and attachments are set on the web; the app shows them.
+- **States.** Loading; viewers are told owners and members use email; the Email Center off, not set up or the organisation not allowed each name the operator setting; no connection or the mail server not answering (503) show the offline state with **Try again**; other failures show the API's sentence with **Try again**; an empty folder and a search with no match each say what to do.
+
 ### AI on email
 
 AI on the Email Center (code `services/api/anum_api/mailbox/ai.py`, routes `ai_api.py`, web `MailAssist.tsx`; tests `services/api/tests/test_mail_ai.py`, `apps/web/test/mailAi.test.ts`, `apps/web/e2e/email-ai.spec.ts`). Every action is a registered tool that runs under the runtime's tool policy (governance, workspace policy and autonomy) exactly as an agent's call would; the routes never call a model or the mail server around it. No migration: results are shown, not stored.
@@ -308,7 +319,7 @@ High-risk mail tools carry `always_ask`: workspace autonomy can never lower thei
 - Undo for a move: a moved message gets a new UID in its new folder, so the way back is the folder itself (Restore from Trash, Not junk, Move to inbox).
 - Several mailboxes or identities per person, contacts, labels.
 - Attaching an existing workspace file (only files from the device are attached), and an inline preview of attached files.
-- The Flutter screens.
+- On the phone: attaching files, scheduling and deleting for good (done on the web), and downloading attachments.
 - A screen for the operator view: it is the API above.
 - AI on this mailbox from the chat assistant or the Flutter app (only the web reader and the API have it), and a web screen for bulk archive and export (API only).
 - Bcc recipients are not kept in the Sent copy.
