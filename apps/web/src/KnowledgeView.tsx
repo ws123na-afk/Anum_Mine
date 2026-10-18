@@ -11,7 +11,7 @@ import { StarButton, useStars } from './Favorites';
 import { getFiles } from './lib/api';
 import { ApiError, describeError, isBudgetExceeded, isPermissionDenied, budgetMessage } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
-import { ITEMS_PAGE, fileSize, parseTags } from './lib/library';
+import { ITEMS_PAGE, citationPlace, fileSize, parseTags } from './lib/library';
 import * as lib from './lib/libraryApi';
 import { KnowledgeSummary, useRetrievalStatus } from './MemoryView';
 import { DialogButton, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
@@ -161,7 +161,7 @@ function AskPanel({ collections, selected, action }: { collections: KnowledgeCol
         {answer.status === 'answered' && <p className="kbAnswerText" dir="auto">{answer.answer}</p>}
         {answer.citations.length > 0 && <><h3>{t('kb.sources')}</h3><ol className="kbCitations">{answer.citations.map((c) => <li key={c.n} value={c.n}>
           <strong dir="auto">{c.title}</strong> <span className="statusBadge neutral">{c.provenance === 'file' ? t('kb.provenance.file') : t('kb.provenance.memory')}</span>
-          <small>{names.get(c.collection_id) ?? ''} · {t('kb.match', { score: Math.round(c.score * 100) })}</small>
+          <small>{names.get(c.collection_id) ?? ''}{citationPlace(c) ? <> · <bdi>{citationPlace(c)}</bdi></> : null} · {t('kb.match', { score: Math.round(c.score * 100) })}</small>
           <q dir="auto">{c.snippet}</q>
         </li>)}</ol><p className="muted kbUntrusted">{t('kb.untrusted')}</p></>}
       </div>}

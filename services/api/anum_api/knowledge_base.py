@@ -4,7 +4,9 @@ See docs/knowledge-base.md. The knowledge base is an organisation layer over wha
 already stores and indexes:
 
 * a **document** is a workspace file (``/api/v1/files``), uploaded into a collection or
-  linked from Files; text files are chunked and embedded by the retrieval index;
+  linked from Files; text files, and the text of PDF, DOCX, XLSX and PPTX files
+  (``doc_extract.py``), are chunked and embedded by the retrieval index, and a passage
+  of a document is cited with its page, slide or sheet;
 * a **note** is a memory (``source_type=knowledge_base``) written in the collection,
   indexed the same way. A note in a private collection is a private memory: only its
   owner can read or retrieve it (RLS since migration 0021).
@@ -42,6 +44,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .authorization import Permission
 from .dependencies import has_permission, open_memory_repository, require_permission, tenant_context
+from .doc_extract import Location, parse_location, strip_location
 from .memory import KNOWLEDGE_BASE_SOURCE_TYPE, MemoryNote, MemoryProvenance, RetentionKind, RetentionPolicy
 from .model_budget import ModelBudgetExceededError, check_model_budget
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
@@ -254,6 +257,9 @@ class Citation(BaseModel):
     chunk_index: int
     score: float
     snippet: str
+    page: int | None = Field(default=None, description="PDF page, slide or sheet number of a document passage")
+    page_unit: str | None = Field(default=None, description="page, slide or sheet; null when the passage has no page")
+    page_label: str | None = Field(default=None, description="the sheet name of a spreadsheet passage")
 
 
 class AskStatus(StrEnum):
@@ -917,6 +923,14 @@ async def _semantic(context: TenantContext, query: str, items: list[Item]) -> tu
     return "ok", chunks
 
 
+def _passage(chunk: Any) -> tuple[Location | None, str]:
+    """A chunk's page (documents only) and its text without the ``[name, page n]`` line."""
+    if str(chunk.source_type) != SourceType.FILE.value:
+        return None, chunk.content
+    location, _ = parse_location(chunk.content)
+    return location, strip_location(chunk.content, document=True)
+
+
 def _snippet(text: str) -> str:
     line = " ".join(text.split())
     return line if len(line) <= SNIPPET_CHARS else line[: SNIPPET_CHARS - 1].rstrip() + "…"
@@ -966,12 +980,12 @@ async def search(
                     collection_name=collections[item.collection_id].name,
                     score=round(chunk.score, 4),
                     matched_by=["semantic"],
-                    snippet=_snippet(chunk.content),
+                    snippet=_snippet(_passage(chunk)[1]),
                 )
             elif "semantic" not in hit.matched_by:
                 hit.matched_by.append("semantic")
                 hit.score = round(max(hit.score, chunk.score) + 0.1, 4)
-                hit.snippet = hit.snippet or _snippet(chunk.content)
+                hit.snippet = hit.snippet or _snippet(_passage(chunk)[1])
     ranked = sorted(hits.values(), key=lambda h: (-h.score, h.item.title.casefold()))[:limit]
     return SearchResult(query=query, mode=mode, hits=ranked, semantic=semantic_state)
 
@@ -1018,6 +1032,7 @@ async def ask(
             continue
         n = len(citations) + 1
         provenance = Provenance.FILE if item.kind == ItemKind.FILE else Provenance.MEMORY
+        location, body = _passage(chunk)
         citations.append(
             Citation(
                 n=n,
@@ -1029,11 +1044,14 @@ async def ask(
                 source_id=item.source_id,
                 chunk_index=chunk.chunk_index,
                 score=round(chunk.score, 4),
-                snippet=_snippet(chunk.content),
+                snippet=_snippet(body),
+                page=location.number if location else None,
+                page_unit=location.unit.value if location else None,
+                page_label=location.label if location else None,
             )
         )
         blocks.append(
-            f"[{n}] {item.title}\n"
+            f"[{n}] {item.title}{', ' + location.describe() if location else ''}\n"
             + label_untrusted(chunk.content, source=provenance, origin=f"{chunk.source_id}/chunk-{chunk.chunk_index}",
                               max_chars=PASSAGE_CHARS)
         )

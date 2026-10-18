@@ -142,10 +142,13 @@ String? renameProblem(String current, String next) {
 }
 
 const _skipReasons = {
-  'not_text': 'only text files are indexed',
+  'not_text': 'this file type is not indexed',
   'too_large': 'it has more than 2 MiB of text',
   'not_utf8': 'it is not UTF-8 text',
   'empty': 'it has no text',
+  'encrypted': 'it is password protected',
+  'malformed': 'it is damaged or could not be read',
+  'too_complex': 'it is too complex to read safely',
 };
 
 /// The retrieval index state as a label, a tone and a sentence.
