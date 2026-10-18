@@ -776,3 +776,156 @@ export interface FinanceWider {
 }
 
 export interface FinanceWideningInput { limits: FinanceLiveLimits; kinds: string[]; reason?: string | null }
+
+// ---- Trading intelligence dashboard, read only (docs/finance-trading-intel.md#dashboard) ------------
+
+export type FinanceStrategyState = 'DRAFT' | 'BACKTESTING' | 'VALIDATION' | 'PAPER_ACTIVE' | 'PAPER_SUSPENDED' | 'RETIRED';
+
+export interface FinanceIntelVenue { code: string; name: string; timezone: string; state: 'open' | 'closed' | 'holiday'; local_time: string; holidays_known: boolean; reason: string; note: string }
+
+export interface FinanceIntelPortfolio {
+  id: string;
+  name: string;
+  mode: FinancePortfolioMode;
+  cash: FinanceCurrencyAmount[];
+  realised: FinanceCurrencyAmount[];
+  unrealised: FinanceCurrencyAmount[];
+  fees: FinanceCurrencyAmount[];
+  slippage: FinanceCurrencyAmount[];
+  holdings: FinancePosition[];
+  holdings_total: number;
+  unpriced: string[];
+  waiting: number;
+  simulated: true;
+}
+
+export interface FinanceIntelRisk {
+  version: number;
+  rules: FinanceGuardianRules;
+  /** Paper and shadow orders always wait for the person's approval of the code shown. */
+  paper_always_needs_approval: boolean;
+  read_only: true;
+  note: string;
+}
+
+/** The dashboard's first read. `simulation.live_enabled` is always false: live trading stays off. */
+export interface FinanceIntelOverview {
+  simulation: { simulation_only: true; live_enabled: boolean; wider_live_enabled: boolean; note: string };
+  switches: { person_engaged: boolean; global_engaged: boolean; can_change_global: boolean };
+  venues: FinanceIntelVenue[];
+  portfolios: FinanceIntelPortfolio[];
+  risk: FinanceIntelRisk;
+  /** How many of your strategy versions are in each lifecycle state. */
+  strategies: { state: FinanceStrategyState; count: number }[];
+  pending_requests: number;
+  agent_requests: number;
+  note: string;
+  generated_at: string;
+}
+
+/** One version of a strategy. A version is never edited after DRAFT: a change is a new version. */
+export interface FinanceStrategy {
+  id: string;
+  lineage_id: string;
+  key: string;
+  code_version: string;
+  name: string;
+  version: number;
+  state: FinanceStrategyState;
+  symbols: string[];
+  params: Record<string, string | number | boolean | null>;
+  reason: string;
+  portfolio_id: string | null;
+  parent_id: string | null;
+  evidence_run_id: string | null;
+  created_by: string;
+  state_changed_by: string;
+  state_changed_at: string;
+  created_at: string;
+  updated_at: string;
+  simulated: true;
+}
+
+export interface FinanceStrategyFold { index: number; train_start: string | null; train_end: string | null; test_start: string | null; test_end: string | null; metrics: Record<string, number | null> }
+
+export type FinanceRunVerdict = 'passed' | 'rejected' | 'insufficient_data' | 'completed';
+
+/** One backtest or walk-forward run of a strategy version, on the bars whose SHA-256 is `data_hash`. SIMULATED. */
+export interface FinanceStrategyRun {
+  id: string;
+  strategy_id: string;
+  kind: 'backtest' | 'walk_forward';
+  created_at: string;
+  data_source: string;
+  data_hash: string;
+  code_version: string;
+  symbols: string[];
+  costs: Record<string, string>;
+  metrics: Record<string, number | null>;
+  benchmark: Record<string, number | null>;
+  verdict: FinanceRunVerdict;
+  reasons: string[];
+  warnings: string[];
+  folds: FinanceStrategyFold[];
+  /** A re-run on the same bars gave the same hash and metrics. */
+  reproduced: boolean;
+  requested_by: string;
+  /** The reproducible evaluation report of a walk-forward run (empty for a backtest). */
+  report?: FinanceEvaluationReport | Record<string, never>;
+  simulated: true;
+}
+
+/** intel/report.py `evaluation_report`: everything needed to repeat and judge a walk-forward run. Never says profitable. */
+export interface FinanceEvaluationReport {
+  label: 'SIMULATED';
+  disclaimer: string;
+  strategy: { key: string; name: string; code_version: string; candidate: number; candidate_name: string; hypothesis: string; instruments: string; timeframe: string; entry: string; exit: string; params: Record<string, unknown> | null };
+  data: { source: string; sha256: string; symbols: string[] };
+  costs: Record<string, string>;
+  method: string;
+  verdict: FinanceRunVerdict;
+  verdict_text: string;
+  reasons: { code: string; text: string }[];
+  warnings: { code: string; text: string }[];
+  worst_drawdown: number | null;
+  worst_window: { test: [string, string]; return: number; drawdown: number } | null;
+  beats_benchmark: boolean | null;
+}
+
+// ---- Trading intelligence actions (finance/intel_control_api.py) ----------------------------------
+
+export type FinanceIntelAssetClass = 'equity' | 'etf' | 'crypto' | 'forex' | 'commodity';
+export type FinanceIntelPhase = 'pre_open' | 'intraday' | 'post_close' | 'weekly' | 'monthly';
+
+export interface FinanceIntelInstrument {
+  id: string; symbol: string; name: string | null; asset_class: FinanceIntelAssetClass; venue: string; currency: string;
+  listed_on: string | null; delisted_on: string | null; bars: number; first_bar: string | null; last_bar: string | null; last_source: string | null;
+}
+export interface FinanceIntelInstrumentInput { symbol: string; asset_class: FinanceIntelAssetClass; venue: string; currency: string; name?: string | null; listed_on?: string | null }
+export interface FinanceIntelBarsInput { provider: 'csv_import' | 'stooq' | 'binance_public'; payload: string; source?: string | null }
+export interface FinanceIntelBarsResult { imported: number; changed: number; first: string | null; last: string | null; issues: { code: string; day: string; message: string }[] }
+export interface FinanceIntelRule {
+  key: string; name: string; code_version: string; candidate: number; candidate_name: string; hypothesis: string; instruments: string;
+  timeframe: string; entry: string; exit: string; defaults: Record<string, number>; min_symbols: number; max_symbols: number;
+}
+export interface FinanceStrategyInput { key: string; instrument_ids: string[]; params?: Record<string, number> | null; name?: string | null; reason: string }
+export interface FinanceIntelCycle {
+  cycle_id: string; phase: FinanceIntelPhase; skipped: boolean; reason?: string; simulated: true; active_strategies?: number;
+  proposed_orders?: number; refused_signals?: number; suspended?: number; halted?: number; decisions: number;
+}
+
+export type FinanceIntelAgent = 'person' | 'trading_supervisor' | 'market_research' | 'technical_analysis' | 'strategy_research' | 'portfolio'
+  | 'risk_guardian' | 'execution_coordinator' | 'performance_reviewer';
+
+export interface FinanceAgentDecision {
+  id: string;
+  cycle_id: string | null;
+  agent: FinanceIntelAgent;
+  action: string;
+  outcome: string;
+  reasons: string[];
+  strategy_id: string | null;
+  intent_id: string | null;
+  created_at: string;
+  simulated: true;
+}

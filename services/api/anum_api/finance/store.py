@@ -24,6 +24,8 @@ from ..scoped_store import open_scoped_store
 from .connectors import Connection, ConnectionStatus
 from .execution import ExecSettings, GlobalSwitch, Intent, IntentStatus
 from .guardian import GuardianChange, GuardianPolicy
+from .intel.marketdata import Instrument, StoredCandle
+from .intel.records import AgentDecision, StrategyConfig, StrategyRun
 from .models import (
     Account,
     Bill,
@@ -142,6 +144,26 @@ class FinanceStore(Protocol):
     def claim_widening(self, context: TenantContext, widening_id: str, now: datetime, approver: str, effective_at: datetime) -> bool: ...
     def list_incidents(self, context: TenantContext, *, limit: int) -> list[Incident]: ...
     def save_incident(self, incident: Incident) -> Incident: ...
+    # Trading intelligence (migration 0065_finance_intel): instruments, daily bars, strategy
+    # versions, their evaluation runs and the agents' decisions. Lists are newest first except bars.
+    def list_instruments(self, context: TenantContext) -> list[Instrument]: ...
+    def get_instrument(self, context: TenantContext, instrument_id: str) -> Instrument | None: ...
+    def save_instrument(self, instrument: Instrument) -> Instrument: ...
+    def delete_instrument(self, context: TenantContext, instrument_id: str) -> bool: ...
+    def save_bars(self, bars: list[StoredCandle]) -> int: ...
+    def list_bars(self, context: TenantContext, instrument_id: str, *, start: date | None = None, end: date | None = None,
+                  limit: int = 10_000) -> list[StoredCandle]: ...
+    def list_strategies(self, context: TenantContext, *, state: str | None = None, lineage_id: str | None = None, limit: int,
+                        offset: int) -> tuple[list[StrategyConfig], int]: ...
+    def get_strategy(self, context: TenantContext, strategy_id: str) -> StrategyConfig | None: ...
+    def latest_version(self, context: TenantContext, lineage_id: str) -> int: ...
+    def save_strategy(self, strategy: StrategyConfig) -> StrategyConfig: ...
+    def list_strategy_runs(self, context: TenantContext, strategy_id: str, *, limit: int, offset: int) -> tuple[list[StrategyRun], int]: ...
+    def get_strategy_run(self, context: TenantContext, run_id: str) -> StrategyRun | None: ...
+    def save_strategy_run(self, run: StrategyRun) -> StrategyRun: ...
+    def list_agent_decisions(self, context: TenantContext, *, agent: str | None = None, strategy_id: str | None = None,
+                             cycle_id: str | None = None, limit: int, offset: int) -> tuple[list[AgentDecision], int]: ...
+    def save_agent_decision(self, decision: AgentDecision) -> AgentDecision: ...
     # privacy: every finance row of the caller
     def count_everything(self, context: TenantContext) -> int: ...
     def delete_everything(self, context: TenantContext) -> int: ...
@@ -205,6 +227,11 @@ class InMemoryFinanceStore:
         self.global_switches: dict[str, GlobalSwitch] = {}
         self.widenings: dict[str, Widening] = {}
         self.incidents: dict[str, Incident] = {}
+        self.instruments: dict[str, Instrument] = {}
+        self.bars: dict[str, StoredCandle] = {}
+        self.strategies: dict[str, StrategyConfig] = {}
+        self.strategy_runs: dict[str, StrategyRun] = {}
+        self.decisions: dict[str, AgentDecision] = {}
 
     @staticmethod
     def _key(context: TenantContext) -> tuple[str, str, str]:
@@ -659,12 +686,120 @@ class InMemoryFinanceStore:
             self.incidents[incident.id] = incident.model_copy()
             return incident
 
+    # Trading intelligence ---------------------------------------------------------------------
+
+    def list_instruments(self, context: TenantContext) -> list[Instrument]:
+        with self._lock:
+            return [i.model_copy() for i in sorted((i for i in self.instruments.values() if mine(i, context)), key=lambda i: (i.symbol, i.id))]
+
+    def get_instrument(self, context: TenantContext, instrument_id: str) -> Instrument | None:
+        with self._lock:
+            found = self.instruments.get(instrument_id)
+            return found.model_copy() if found and mine(found, context) else None
+
+    def save_instrument(self, instrument: Instrument) -> Instrument:
+        with self._lock:
+            for other in self.instruments.values():
+                if other.id != instrument.id and mine(other, _ctx(instrument)) and (other.symbol, other.venue) == (instrument.symbol, instrument.venue):
+                    raise ValueError("duplicate_instrument")
+            self.instruments[instrument.id] = instrument.model_copy()
+            return instrument
+
+    def delete_instrument(self, context: TenantContext, instrument_id: str) -> bool:
+        with self._lock:
+            found = self.instruments.get(instrument_id)
+            if found is None or not mine(found, context):
+                return False
+            del self.instruments[instrument_id]
+            for key in [k for k, b in self.bars.items() if b.instrument_id == instrument_id and mine(b, context)]:
+                del self.bars[key]
+            return True
+
+    @staticmethod
+    def _bar_key(bar: StoredCandle) -> str:
+        return f"{bar.tenant_id}|{bar.workspace_id}|{bar.owner_user_id}|{bar.instrument_id}|{bar.day.isoformat()}"
+
+    def save_bars(self, bars: list[StoredCandle]) -> int:
+        """Insert or replace by (instrument, day); returns how many rows were new or changed."""
+        changed = 0
+        with self._lock:
+            for bar in bars:
+                key = self._bar_key(bar)
+                old = self.bars.get(key)
+                if old is None or old.candle() != bar.candle() or old.source != bar.source:
+                    changed += 1
+                    self.bars[key] = bar.model_copy(update={"id": old.id if old else bar.id})
+            return changed
+
+    def list_bars(self, context: TenantContext, instrument_id: str, *, start: date | None = None, end: date | None = None,
+                  limit: int = 10_000) -> list[StoredCandle]:
+        with self._lock:
+            found = [b for b in self.bars.values() if mine(b, context) and b.instrument_id == instrument_id
+                     and (start is None or b.day >= start) and (end is None or b.day <= end)]
+            found.sort(key=lambda b: b.day)
+            return [b.model_copy() for b in found[-limit:]]
+
+    def list_strategies(self, context: TenantContext, *, state: str | None = None, lineage_id: str | None = None, limit: int,
+                        offset: int) -> tuple[list[StrategyConfig], int]:
+        with self._lock:
+            found = [s for s in self.strategies.values() if mine(s, context) and (state is None or s.state.value == state)
+                     and (lineage_id is None or s.lineage_id == lineage_id)]
+            found.sort(key=lambda s: (s.updated_at, s.id), reverse=True)
+            return [s.model_copy() for s in found[offset:offset + limit]], len(found)
+
+    def get_strategy(self, context: TenantContext, strategy_id: str) -> StrategyConfig | None:
+        with self._lock:
+            found = self.strategies.get(strategy_id)
+            return found.model_copy() if found and mine(found, context) else None
+
+    def latest_version(self, context: TenantContext, lineage_id: str) -> int:
+        with self._lock:
+            return max((s.version for s in self.strategies.values() if mine(s, context) and s.lineage_id == lineage_id), default=0)
+
+    def save_strategy(self, strategy: StrategyConfig) -> StrategyConfig:
+        with self._lock:
+            for other in self.strategies.values():
+                if other.id != strategy.id and other.lineage_id == strategy.lineage_id and other.version == strategy.version:
+                    raise ValueError("duplicate_version")
+            self.strategies[strategy.id] = strategy.model_copy()
+            return strategy
+
+    def list_strategy_runs(self, context: TenantContext, strategy_id: str, *, limit: int, offset: int) -> tuple[list[StrategyRun], int]:
+        with self._lock:
+            found = sorted((r for r in self.strategy_runs.values() if mine(r, context) and r.strategy_id == strategy_id),
+                           key=lambda r: (r.created_at, r.id), reverse=True)
+            return [r.model_copy() for r in found[offset:offset + limit]], len(found)
+
+    def get_strategy_run(self, context: TenantContext, run_id: str) -> StrategyRun | None:
+        with self._lock:
+            found = self.strategy_runs.get(run_id)
+            return found.model_copy() if found and mine(found, context) else None
+
+    def save_strategy_run(self, run: StrategyRun) -> StrategyRun:
+        with self._lock:
+            self.strategy_runs[run.id] = run.model_copy()
+            return run
+
+    def list_agent_decisions(self, context: TenantContext, *, agent: str | None = None, strategy_id: str | None = None,
+                             cycle_id: str | None = None, limit: int, offset: int) -> tuple[list[AgentDecision], int]:
+        with self._lock:
+            found = [d for d in self.decisions.values() if mine(d, context) and (agent is None or d.agent.value == agent)
+                     and (strategy_id is None or d.strategy_id == strategy_id) and (cycle_id is None or d.cycle_id == cycle_id)]
+            found.sort(key=lambda d: (d.created_at, d.id), reverse=True)
+            return [d.model_copy() for d in found[offset:offset + limit]], len(found)
+
+    def save_agent_decision(self, decision: AgentDecision) -> AgentDecision:
+        with self._lock:
+            self.decisions[decision.id] = decision.model_copy()
+            return decision
+
     # privacy ------------------------------------------------------------------------------
 
     def _tables(self) -> tuple[dict[str, Any], ...]:
         return (
             self.transactions, self.imports, self.accounts, *self.items.values(), self.policies, self.changes,
             self.fx_rates, self.connections, self.prices, self.orders, self.portfolios, self.intents, self.widenings, self.incidents,
+            self.bars, self.instruments, self.strategy_runs, self.strategies, self.decisions,
         )
 
     def count_everything(self, context: TenantContext) -> int:
