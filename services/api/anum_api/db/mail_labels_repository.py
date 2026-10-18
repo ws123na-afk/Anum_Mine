@@ -1,4 +1,4 @@
-"""PostgreSQL store of AI labels on mail (migration ``0063_mail_labels``, docs/email.md#ai-on-email).
+"""PostgreSQL store of AI labels on mail (migration ``0066_mail_labels``, docs/email.md#ai-on-email).
 
 The session carries the tenant, workspace and user RLS context (``open_label_store`` opens it
 with ``user_scoped=True``); the table has a restrictive owner policy and every query here

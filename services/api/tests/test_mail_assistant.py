@@ -115,9 +115,13 @@ def test_visible_labels_hide_a_label_for_another_message() -> None:
 
 def test_the_labels_migration_is_expand_only_private_and_chained() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    text = (versions / "0063_mail_labels.py").read_text(encoding="utf-8")
-    assert 'revision = "0063_mail_labels"' in text and len("0063_mail_labels") <= 32 and 'down_revision = "0062_mail_outgoing"' in text
-    assert 'down_revision = "0063_mail_labels"' in (versions / "0064_mail_operator_view.py").read_text(encoding="utf-8")
+    text = (versions / "0066_mail_labels.py").read_text(encoding="utf-8")
+    assert 'revision = "0066_mail_labels"' in text and len("0066_mail_labels") <= 32
+    # One chain: nothing else follows the revision this one follows.
+    parent = text.split('down_revision = "', 1)[1].split('"', 1)[0]
+    assert (versions / f"{parent}.py").exists()
+    others = [p for p in versions.glob("*.py") if p.name != "0066_mail_labels.py"]
+    assert not [p for p in others if f'down_revision = "{parent}"' in p.read_text(encoding="utf-8")]
     upgrade = text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert "force row level security" in upgrade and "create policy owner_only_mail_labels" in upgrade and "as restrictive" in upgrade
     assert 'ondelete="cascade"' in upgrade and "grant " not in upgrade and "bypassrls" not in upgrade and "drop" not in upgrade

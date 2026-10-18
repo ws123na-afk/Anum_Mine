@@ -16,14 +16,14 @@
 
 Expand only: one new table, two grants and policies; the previous release ignores them.
 
-Chained after ``0063_mail_labels``.
+Chained after ``0062_mail_outgoing``.
 """
 
 from alembic import op
 import sqlalchemy as sa
 
 revision = "0064_mail_operator_view"
-down_revision = "0063_mail_labels"
+down_revision = "0062_mail_outgoing"
 branch_labels = None
 depends_on = None
 

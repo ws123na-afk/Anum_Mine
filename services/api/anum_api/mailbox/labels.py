@@ -1,4 +1,4 @@
-"""Stored labels from AI on email (migration ``0063_mail_labels``, docs/email.md#ai-on-email).
+"""Stored labels from AI on email (migration ``0066_mail_labels``, docs/email.md#ai-on-email).
 
 A label is the category and priority AI (or ANUM's rules) gave one message, kept so the list
 can show it. It belongs to the person who asked for it: forced RLS plus a restrictive owner

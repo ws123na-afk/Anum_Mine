@@ -1,4 +1,4 @@
-"""AI labels on mail in PostgreSQL (migration ``0063_mail_labels``, docs/email.md#ai-on-email).
+"""AI labels on mail in PostgreSQL (migration ``0066_mail_labels``, docs/email.md#ai-on-email).
 
 The API runs as the non-owner ``anum_test_app`` role against the fake mail server and a scripted
 model. Labels are private to the person who made them (forced RLS plus the restrictive owner
