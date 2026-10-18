@@ -514,6 +514,11 @@ class SqlAlchemyPrivacyStore:
         mail = self.mail()
         for account in mail.list_accounts():
             mail.delete_account(account.id)
+        # AI labels the caller made on mailboxes others shared with them (their own went with
+        # their mailboxes, by the foreign key).
+        from .mail_labels_repository import SqlAlchemyLabelStore
+
+        SqlAlchemyLabelStore(self.session, self.context).delete_all()
         # The caller's unsent drafts anywhere, then their private mailboxes (synced message
         # metadata and every draft in them cascade), then their pending connections.
         self.session.execute(

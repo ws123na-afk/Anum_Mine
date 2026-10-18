@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from ..agent_tools import ToolCall, ToolPolicyOutcome, ToolResult
@@ -42,7 +42,7 @@ from .api import (
     send_draft,
 )
 from .mime import forward_subject, new_message_id, quoted
-from .service import MailError, cfg, clean_addresses, mail_tool_registry, on_server
+from .service import DELETE_TOOL, MailError, cfg, clean_addresses, mail_tool_registry, on_server
 from .store import MailDraft, open_mail_store
 
 router = APIRouter(prefix="/api/v1/mail/ai", tags=["mail"])
@@ -123,6 +123,30 @@ class BulkBody(BaseModel):
 
 class ExportBody(BulkBody):
     uids: list[int] = Field(min_length=1, max_length=ai.MAX_EXPORT)
+
+
+class LabelView(BaseModel):
+    uid: int
+    category: ai.Category
+    priority: ai.Priority
+    reason: str
+    source: Literal["model", "rules"]
+
+
+class PageBody(BaseModel):
+    account_id: str = Field(min_length=1, max_length=80)
+    folder: str = Field(min_length=1, max_length=500)
+    uids: list[int] = Field(min_length=1, max_length=ai.MAX_SELECT)
+    # Label again messages that already have a label.
+    force: bool = False
+
+
+class PageResult(BaseModel):
+    labels: list[LabelView]
+    labelled: int
+    skipped: int
+    failed: int
+    summary: str
 
 
 class WaitingResult(BaseModel):
@@ -240,6 +264,47 @@ async def draft_reply(body: DraftReplyBody, context: TenantContext = Depends(ten
     )
 
 
+def _label_view(label: Any) -> LabelView:
+    return LabelView(uid=label.uid, category=label.category, priority=label.priority, reason=label.reason, source=label.source)
+
+
+@router.get("/labels", response_model=list[LabelView])
+async def list_labels(
+    account_id: str = Query(min_length=1, max_length=80),
+    folder: str = Query(min_length=1, max_length=500),
+    uids: str = Query(min_length=1, max_length=2_000, description="Comma-separated UIDs of the shown page (at most 100)."),
+    message_ids: str | None = Query(default=None, max_length=60_000, description="The shown Message-IDs in the same order, so a reused UID shows no stale label."),
+    context: TenantContext = Depends(tenant_context),
+) -> list[LabelView]:
+    """The caller's stored labels for the messages on a list page (no model call, no mail server)."""
+    _require(context, Permission.EMAIL_READ, READ_DENIED)
+    _available(context)
+    try:
+        ai.mailbox_for(context, account_id, "read")
+    except MailError as exc:
+        raise _mail_http(exc) from None
+    wanted = [int(part) for part in uids.split(",") if part.strip().isdigit()][:100]
+    ids = (message_ids or "").split("\t") if message_ids else []
+    by_uid = {uid: (ids[index] or None) if index < len(ids) else None for index, uid in enumerate(wanted)}
+    from .labels import open_label_store, visible_labels
+
+    with open_label_store(context) as store:
+        found = store.labels_for(account_id, folder, wanted)
+    shown = visible_labels(found, by_uid)
+    return [_label_view(shown[uid]) for uid in wanted if uid in shown]
+
+
+@router.post("/classify-page", response_model=PageResult)
+async def classify_page(body: PageBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PageResult:
+    """Label all: every message on the shown page without a label yet (at most 25)."""
+    _ready(context, Permission.EMAIL_READ)
+    call = ToolCall(name=ai.PAGE_TOOL, arguments={"account_id": body.account_id, "folder": body.folder, "uids": body.uids, "force": body.force})
+    output = await _free(repository, context, call, "Label email", body.account_id)
+    labels = [LabelView(uid=item["uid"], category=item["category"], priority=item["priority"], reason="", source=item["source"]) for item in output["labels"]]
+    summary = f"Labelled {output['labelled']} message(s)."
+    return PageResult(labels=labels, labelled=output["labelled"], skipped=output["skipped"], failed=output["failed"], summary=summary)
+
+
 FORWARD_NOTE_INSTRUCTIONS = (
     "Write a two or three sentence note, in the language of the email in the untrusted block, "
     "that the mailbox owner puts above it when forwarding it to a colleague: who sent it and what "
@@ -248,27 +313,28 @@ FORWARD_NOTE_INSTRUCTIONS = (
 )
 
 
-@router.post("/forward", response_model=ForwardResult)
-async def forward(body: ForwardBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> ForwardResult:
-    """Forward one message to the addresses the person typed. A forward is a send: it waits for
-    the same ``send_mail`` approval of exactly this message (payload hash), never sent by AI."""
-    _ready(context, Permission.EMAIL_ACT)
+async def start_forward(
+    repository: AnumRepository, context: TenantContext, *, account_id: str | None, folder: str, uid: int, to: list[str],
+    note: str | None, write_note: bool, idempotency_key: str,
+) -> ForwardResult:
+    """A forward draft to the addresses the person gave, then the ``send_mail`` approval of
+    exactly that message. Shared by the Email page and the assistant (``request_mail_action``)."""
     try:
-        recipients = clean_addresses(body.to)
+        recipients = clean_addresses(to)
         if not recipients:
             raise MailError(422, "Add at least one recipient.", "recipients")
-        account = ai.mailbox_for(context, body.account_id, "send")
-        _, original = await ai.fetch_parsed(context, account, body.folder, body.uid)
-        note = (body.note or "").strip()
-        if not note and body.write_note:
-            answer, _ = await ai._ask_model(context, with_untrusted_rules(FORWARD_NOTE_INSTRUCTIONS, ai.message_block(original, f"mail:{body.folder}:{body.uid}", ai.MESSAGE_PROMPT_CHARS)))
-            note = ai.reply_body(answer)[:2_000]
+        account = ai.mailbox_for(context, account_id, "send") if account_id else ai.default_mailbox(context, "send")
+        _, original = await ai.fetch_parsed(context, account, folder, uid)
+        text = (note or "").strip()
+        if not text and write_note:
+            answer, _ = await ai._ask_model(context, with_untrusted_rules(FORWARD_NOTE_INSTRUCTIONS, ai.message_block(original, f"mail:{folder}:{uid}", ai.MESSAGE_PROMPT_CHARS)))
+            text = ai.reply_body(answer)[:2_000]
     except MailError as exc:
         raise _mail_http(exc) from None
     with open_mail_store(context) as store:
-        existing = store.find_by_key(account.id, body.idempotency_key)
+        existing = store.find_by_key(account.id, idempotency_key)
     if existing is not None:
-        if existing.kind != "forward" or existing.source_uid != body.uid or existing.source_folder != body.folder:
+        if existing.kind != "forward" or existing.source_uid != uid or existing.source_folder != folder:
             raise HTTPException(status_code=409, detail="This send key was already used for another message.")
         view = _draft_view(existing, repository, context)
         return ForwardResult(draft=view, approval=view.approval)
@@ -276,14 +342,14 @@ async def forward(body: ForwardBody, context: TenantContext = Depends(tenant_con
     draft = MailDraft(
         id=new_id("maildraft"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
         account_id=account.id, kind="forward", message_id=new_message_id(account.address), created_at=now, updated_at=now,
-        to=recipients, subject=forward_subject(original.subject), source_folder=body.folder, source_uid=body.uid,
-        body=(note + quoted(original, forward=True))[:MAX_BODY],
+        to=recipients, subject=forward_subject(original.subject), source_folder=folder, source_uid=uid,
+        body=(text + quoted(original, forward=True))[:MAX_BODY],
     )
     with open_mail_store(context) as store:
         store.save_draft(draft)
-    _audit(repository, context, "mail.draft.create", draft.id, metadata={"kind": "forward", "ai_note": bool(body.write_note and not body.note)})
+    _audit(repository, context, "mail.draft.create", draft.id, metadata={"kind": "forward", "ai_note": bool(write_note and not note)})
     try:
-        sent = await send_draft(draft.id, SendBody(idempotency_key=body.idempotency_key), context, repository)
+        sent = await send_draft(draft.id, SendBody(idempotency_key=idempotency_key), context, repository)
     except HTTPException:
         # Not waiting for approval (a limit or a check refused it): leave no stray draft behind.
         with open_mail_store(context) as store:
@@ -292,29 +358,56 @@ async def forward(body: ForwardBody, context: TenantContext = Depends(tenant_con
     return ForwardResult(draft=sent.draft, approval=sent.approval)
 
 
-def _owner_call(name: str, context: TenantContext, body: BulkBody, extra: dict[str, Any] | None = None) -> tuple[ToolCall, str]:
+@router.post("/forward", response_model=ForwardResult)
+async def forward(body: ForwardBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> ForwardResult:
+    """Forward one message to the addresses the person typed. A forward is a send: it waits for
+    the same ``send_mail`` approval of exactly this message (payload hash), never sent by AI."""
+    _ready(context, Permission.EMAIL_ACT)
+    return await start_forward(
+        repository, context, account_id=body.account_id, folder=body.folder, uid=body.uid, to=body.to, note=body.note,
+        write_note=body.write_note, idempotency_key=body.idempotency_key,
+    )
+
+
+OWNER_ACTIONS = {ai.ARCHIVE_TOOL: "archive", ai.EXPORT_TOOL: "export", DELETE_TOOL: "delete for good"}
+
+
+async def ask_owner_action(repository: AnumRepository, context: TenantContext, tool: str, account_id: str | None, folder: str, uids: list[int]) -> tuple[Approval, str, int]:
+    """Pause ``tool`` (bulk archive, export or delete for good) for an approval of exactly these
+    messages in the caller's own mailbox. Shared by the Email page and the assistant."""
     try:
-        account = ai.mailbox_for(context, body.account_id, "owner")
+        account = ai.mailbox_for(context, account_id, "owner") if account_id else ai.default_mailbox(context, "owner")
+        uids = sorted(set(uids))
+        extra: dict[str, Any] = {}
+        if tool == ai.EXPORT_TOOL:
+            # Bind each message's Message-ID, so a reused UID can never export another message.
+            page_ids = await on_server(context, account, lambda server: _message_ids(server, folder, uids))
+            extra["message_ids"] = [page_ids.get(uid) for uid in uids]
+        if tool == DELETE_TOOL:
+            folders = await on_server(context, account, lambda server: server.folders())
+            found = next((item for item in folders if item.id == folder), None)
+            if found is None or found.role not in {"trash", "junk"}:
+                raise MailError(409, "Move messages to Trash first. Only Trash and Junk can be emptied for good.", "folder")
     except MailError as exc:
         raise _mail_http(exc) from None
-    uids = sorted(set(body.uids))
-    arguments = {
-        "account_id": account.id, "owner_user_id": account.owner_user_id, "requested_by": context.user_id,
-        "mailbox": account.address, "folder": body.folder, "uids": uids, **(extra or {}),
-    }
-    return ToolCall(name=name, arguments=arguments), account.address
+    arguments: dict[str, Any] = {"account_id": account.id, "owner_user_id": account.owner_user_id, "mailbox": account.address, "folder": folder, "uids": uids}
+    if tool != DELETE_TOOL:
+        # delete_mail binds exactly what the Email page binds.
+        arguments = {**arguments, "requested_by": context.user_id, **extra}
+    count = len(uids)
+    verb = OWNER_ACTIONS[tool]
+    _, approval = await _mediated(repository, context, ToolCall(name=tool, arguments=arguments), f"{verb.capitalize()} {count} message(s) from {folder}", account.id)
+    if approval is None:  # pragma: no cover - always_ask: never allowed without approval
+        raise HTTPException(status_code=500, detail=f"{verb.capitalize()} ran without an approval.")
+    _audit(repository, context, f"mail.ai.{tool}.requested", account.id, metadata={"count": count, "approval_id": approval.id, "payload_hash": approval.payload_hash})
+    return approval, account.address, count
 
 
 @router.post("/archive", response_model=WaitingResult)
 async def archive(body: BulkBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> WaitingResult:
     """Archive many messages at once: waits for an approval of exactly these messages."""
     _ready(context, Permission.EMAIL_ACT)
-    call, mailbox = _owner_call(ai.ARCHIVE_TOOL, context, body)
-    count = len(call.arguments["uids"])
-    _, approval = await _mediated(repository, context, call, f"Archive {count} message(s) from {body.folder}", body.account_id)
-    if approval is None:  # pragma: no cover - always_ask: never allowed without approval
-        raise HTTPException(status_code=500, detail="Bulk archive ran without an approval.")
-    _audit(repository, context, "mail.ai.archive.requested", body.account_id, metadata={"count": count, "approval_id": approval.id, "payload_hash": approval.payload_hash})
+    approval, mailbox, count = await ask_owner_action(repository, context, ai.ARCHIVE_TOOL, body.account_id, body.folder, body.uids)
     return WaitingResult(status="waiting_approval", summary=f"Waiting for approval to archive {count} message(s) in {mailbox}.", approval=approval)
 
 
@@ -322,19 +415,7 @@ async def archive(body: BulkBody, context: TenantContext = Depends(tenant_contex
 async def export(body: ExportBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> WaitingResult:
     """Export messages as an mbox file: waits for an approval, then downloads for one hour."""
     _ready(context, Permission.EMAIL_ACT)
-    try:
-        account = ai.mailbox_for(context, body.account_id, "owner")
-        uids = sorted(set(body.uids))
-        # Bind each message's Message-ID, so a reused UID can never export another message.
-        page_ids = await on_server(context, account, lambda server: _message_ids(server, body.folder, uids))
-    except MailError as exc:
-        raise _mail_http(exc) from None
-    call, mailbox = _owner_call(ai.EXPORT_TOOL, context, body, {"message_ids": [page_ids.get(uid) for uid in uids]})
-    count = len(uids)
-    _, approval = await _mediated(repository, context, call, f"Export {count} message(s) from {body.folder}", body.account_id)
-    if approval is None:  # pragma: no cover - always_ask
-        raise HTTPException(status_code=500, detail="Export ran without an approval.")
-    _audit(repository, context, "mail.ai.export.requested", body.account_id, metadata={"count": count, "approval_id": approval.id, "payload_hash": approval.payload_hash})
+    approval, mailbox, count = await ask_owner_action(repository, context, ai.EXPORT_TOOL, body.account_id, body.folder, body.uids)
     return WaitingResult(status="waiting_approval", summary=f"Waiting for approval to export {count} message(s) from {mailbox}.", approval=approval)
 
 

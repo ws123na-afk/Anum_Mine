@@ -143,6 +143,16 @@ def choose_tool_call(
     if any(skill.id == "anum.email" for skill in skills):
         # Mail questions read the inbox; filters come from the user's own words (threat
         # model G5). Sending is never planned here: it is a draft approved in the Inbox.
+        from .mailbox.config import mail_settings
+
+        if mail_settings.enabled:
+            # The Email Center (docs/email.md#assistant): summarise, label, draft, or ask for
+            # an approval to forward, archive, export or delete, from the user's own words.
+            from .mailbox.planning import plan_mail_call
+
+            mail_call = plan_mail_call(prompt, available_tools)
+            if mail_call is not None:
+                return mail_call
         from .email_inbox import SEARCH_TOOL, tool_arguments_from_prompt
 
         return ToolCall(name=SEARCH_TOOL, arguments=tool_arguments_from_prompt(prompt))

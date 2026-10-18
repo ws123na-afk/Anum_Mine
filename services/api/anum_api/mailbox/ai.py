@@ -52,10 +52,12 @@ logger = logging.getLogger("anum.mail.ai")
 
 SUMMARIZE_TOOL = "summarize_mail"
 CLASSIFY_TOOL = "classify_mail"
+PAGE_TOOL = "classify_mail_page"
+REQUEST_TOOL = "request_mail_action"
 DRAFT_TOOL = "draft_mail_reply"
 ARCHIVE_TOOL = "archive_mail_bulk"
 EXPORT_TOOL = "export_mail"
-FREE_TOOLS = frozenset({SUMMARIZE_TOOL, CLASSIFY_TOOL, DRAFT_TOOL})
+FREE_TOOLS = frozenset({SUMMARIZE_TOOL, CLASSIFY_TOOL, PAGE_TOOL, DRAFT_TOOL, REQUEST_TOOL})
 
 Category = Literal["customer", "order", "invoice", "supplier", "internal", "newsletter", "notification", "personal", "spam", "other"]
 Priority = Literal["high", "normal", "low"]
@@ -327,12 +329,67 @@ def _target(call: ToolCall) -> tuple[str, str, int]:
     return str(args.get("account_id") or ""), folder, uid
 
 
+FOLDER_ROLES = ("inbox", "sent", "archive", "junk", "trash", "drafts")
+MAX_SELECT = 25
+
+
+def default_mailbox(context: TenantContext, needed: Literal["read", "send", "owner"]) -> MailAccount:
+    """The caller's first own mailbox (the assistant names no mailbox)."""
+    with open_mail_store(context) as store:
+        accounts = store.list_accounts()
+    if not accounts:
+        raise MailError(409, "No mailbox is connected. Connect one on the Email page first.", "no_mailbox")
+    return mailbox_for(context, accounts[0].id, needed)
+
+
+async def select_messages(context: TenantContext, account: MailAccount, selector: dict[str, Any]) -> tuple[str, list[tuple[int, str | None, str]]]:
+    """Messages picked by a selector built from the person's own words (never from mail):
+    a folder role, how many, newest first, optionally only unread or from a sender.
+    Answers the folder id and (uid, Message-ID, subject) of each, newest first."""
+    role = str(selector.get("folder_role") or "inbox")
+    if role not in FOLDER_ROLES:
+        raise MailError(422, "That folder is not one the assistant can pick.", "folder")
+    count = selector.get("count")
+    count = count if isinstance(count, int) and not isinstance(count, bool) and 1 <= count <= MAX_SELECT else 1
+    sender = re.sub(r"[\x00-\x1f\x7f\"]", " ", str(selector.get("from") or "")).strip()[:120] or None
+    unread = selector.get("unread") is True
+
+    def job(server: MailServer) -> tuple[str, list[tuple[int, str | None, str]]]:
+        folder = folder_by_role(server.folders(), role)
+        if folder is None:
+            raise MailError(409, f"This mailbox has no {role} folder.", "folder")
+        page = server.messages(folder.id, before=None, limit=50, query=sender, unread=unread, flagged=False)
+        items = page.items
+        if sender:
+            needle = sender.lower()
+            items = [m for m in items if m.sender and (needle in m.sender.address.lower() or needle in m.sender.name.lower())]
+        return folder.id, [(m.uid, m.message_id, m.subject) for m in items[:count]]
+
+    folder_id, found = await on_server(context, account, job)
+    if not found:
+        who = f" from {sender}" if sender else ""
+        raise MailError(404, f"No {'unread ' if unread else ''}message{who} in {role}.", "not_found")
+    return folder_id, found
+
+
+async def target_of(call: ToolCall, context: TenantContext, needed: Literal["read", "send", "owner"]) -> tuple[MailAccount, str, int]:
+    """One message: named by mailbox, folder and UID (the Email page), or by a selector from
+    the person's own words (the assistant: "my latest email from Sara")."""
+    selector = call.arguments.get("selector")
+    if isinstance(selector, dict) and call.arguments.get("uid") is None:
+        account_id = str(call.arguments.get("account_id") or "")
+        account = mailbox_for(context, account_id, needed) if account_id else default_mailbox(context, needed)
+        folder, found = await select_messages(context, account, {**selector, "count": 1})
+        return account, folder, found[0][0]
+    account_id, folder, uid = _target(call)
+    return mailbox_for(context, account_id, needed), folder, uid
+
+
 async def summarize_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     """Summarise one message, or its thread, as text for the person. Sends and changes nothing."""
     try:
         require_available(context)
-        account_id, folder, uid = _target(call)
-        account = mailbox_for(context, account_id, "read")
+        account, folder, uid = await target_of(call, context, "read")
         _, parsed = await fetch_parsed(context, account, folder, uid)
         messages = await thread_of(context, account, folder, uid, parsed) if call.arguments.get("thread") is True else [(folder, uid, parsed)]
         limit = MESSAGE_PROMPT_CHARS if len(messages) == 1 else THREAD_PROMPT_CHARS
@@ -363,32 +420,121 @@ async def summarize_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     )
 
 
+def label_from(answer: str, raw: bytes, parsed: ParsedMessage) -> tuple[str, str, str, str]:
+    """(category, priority, reason, source): the model's answer when it names values from the
+    fixed lists, ANUM's rules for whatever it does not."""
+    parsed_answer = parse_json_object(answer) or {}
+    category = str(parsed_answer.get("category") or "").strip().lower()
+    priority = str(parsed_answer.get("priority") or "").strip().lower()
+    if category in CATEGORIES and priority in PRIORITIES:
+        return category, priority, _clean(parsed_answer.get("reason"), 240), "model"
+    rule_category, rule_priority = rules_label(raw, parsed)
+    return (category if category in CATEGORIES else rule_category), (priority if priority in PRIORITIES else rule_priority), "", "rules"
+
+
+def store_label(context: TenantContext, account: MailAccount, folder: str, uid: int, message_id: str | None, values: tuple[str, str, str, str], model: str | None) -> None:
+    from .labels import MailLabel, open_label_store
+
+    category, priority, reason, source = values
+    now = utc_now()
+    with open_label_store(context) as store:
+        store.save_label(MailLabel(
+            id=new_id("maillabel"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+            account_id=account.id, folder=folder, uid=uid, message_id=(message_id or None) and message_id[:500], category=category,
+            priority=priority, reason=reason, source=source, model=model, created_at=now, updated_at=now,  # type: ignore[arg-type]
+        ))
+
+
 async def classify_mail(call: ToolCall, context: TenantContext) -> ToolResult:
-    """A category and priority from a fixed list (the model's answer is never used as anything else)."""
+    """A category and priority from a fixed list (the model's answer is never used as anything
+    else), kept for the person so the list shows it."""
     try:
         require_available(context)
-        account_id, folder, uid = _target(call)
-        account = mailbox_for(context, account_id, "read")
+        account, folder, uid = await target_of(call, context, "read")
         raw, parsed = await fetch_parsed(context, account, folder, uid)
         answer, model = await _ask_model(context, with_untrusted_rules(CLASSIFY_INSTRUCTIONS, message_block(parsed, f"mail:{folder}:{uid}", MESSAGE_PROMPT_CHARS)))
     except MailError as exc:
         return _from_error(exc)
-    parsed_answer = parse_json_object(answer) or {}
-    category = str(parsed_answer.get("category") or "").strip().lower()
-    priority = str(parsed_answer.get("priority") or "").strip().lower()
-    source = "model"
-    if category not in CATEGORIES or priority not in PRIORITIES:
-        rule_category, rule_priority = rules_label(raw, parsed)
-        category = category if category in CATEGORIES else rule_category
-        priority = priority if priority in PRIORITIES else rule_priority
-        source = "rules"
+    values = label_from(answer, raw, parsed)
+    category, priority, reason, source = values
+    store_label(context, account, folder, uid, parsed.message_id, values, model)
     suspected = injection_suspected(parsed.text, parsed.subject)
-    reason = _clean(parsed_answer.get("reason"), 240) if source == "model" else ""
     return ToolResult(
         status="succeeded",
         summary=f"{category}, {priority} priority",
-        output={"category": category, "priority": priority, "reason": reason, "source": source, "injection_suspected": suspected, "model": model},
+        output={"category": category, "priority": priority, "reason": reason, "source": source, "injection_suspected": suspected, "model": model, "folder": folder, "uid": uid},
         audit_metadata={"tool": CLASSIFY_TOOL, "account_id": account.id, "category": category, "priority": priority, "source": source},
+    )
+
+
+PAGE_CONCURRENCY = 4
+
+
+async def classify_mail_page(call: ToolCall, context: TenantContext) -> ToolResult:
+    """Label a page of messages (at most 25), one model call per message so no message can
+    steer another's label. Messages already labelled are skipped unless ``force``."""
+    import asyncio
+
+    args = call.arguments
+    try:
+        require_available(context)
+        selector = args.get("selector")
+        if isinstance(selector, dict) and not args.get("uids"):
+            account_id = str(args.get("account_id") or "")
+            account = mailbox_for(context, account_id, "read") if account_id else default_mailbox(context, "read")
+            folder, picked = await select_messages(context, account, {**selector, "count": selector.get("count") or 10})
+            uids = [uid for uid, _, _ in picked]
+        else:
+            account = mailbox_for(context, str(args.get("account_id") or ""), "read")
+            folder = str(args.get("folder") or "")
+            if not folder or len(folder) > 500:
+                raise MailError(422, "Pick a folder first.", "folder")
+            uids = sorted({int(u) for u in args.get("uids") or [] if isinstance(u, int) and not isinstance(u, bool) and u > 0}, reverse=True)[:MAX_SELECT]
+            if not uids:
+                raise MailError(422, "There are no messages on this page to label.", "uids")
+        if ai_unavailable_reason(context):
+            raise MailError(409, ai_unavailable_reason(context) or "", "ai_unavailable")
+    except MailError as exc:
+        return _from_error(exc)
+    from .labels import open_label_store
+
+    with open_label_store(context) as store:
+        existing = store.labels_for(account.id, folder, uids)
+    todo = uids if args.get("force") is True else [uid for uid in uids if uid not in existing]
+    gate = asyncio.Semaphore(PAGE_CONCURRENCY)
+    results: dict[int, dict[str, Any]] = {}
+    failures: list[str] = []
+    suspected = 0
+
+    async def one(uid: int) -> None:
+        nonlocal suspected
+        async with gate:
+            try:
+                raw, parsed = await fetch_parsed(context, account, folder, uid)
+                answer, model = await _ask_model(context, with_untrusted_rules(CLASSIFY_INSTRUCTIONS, message_block(parsed, f"mail:{folder}:{uid}", MESSAGE_PROMPT_CHARS)))
+            except MailError as exc:
+                failures.append(exc.message)
+                return
+            values = label_from(answer, raw, parsed)
+            store_label(context, account, folder, uid, parsed.message_id, values, model)
+            suspected += 1 if injection_suspected(parsed.text, parsed.subject) else 0
+            results[uid] = {"uid": uid, "category": values[0], "priority": values[1], "source": values[3]}
+
+    await asyncio.gather(*(one(uid) for uid in todo))
+    if todo and not results:
+        reason = failures[0] if failures else "The AI model did not answer."
+        return _failed(f"No message was labelled: {reason}", 503, "ai_failed")
+    labelled = [results[uid] for uid in uids if uid in results]
+    summary = f"Labelled {len(labelled)} message(s)"
+    if len(uids) - len(todo):
+        summary += f", {len(uids) - len(todo)} already had labels"
+    if failures:
+        summary += f", {len(failures)} could not be labelled"
+    return ToolResult(
+        status="succeeded",
+        summary=summary + ".",
+        output={"account_id": account.id, "folder": folder, "labels": labelled, "labelled": len(labelled), "skipped": len(uids) - len(todo), "failed": len(failures), "injection_suspected": suspected},
+        audit_metadata={"tool": PAGE_TOOL, "account_id": account.id, "labelled": len(labelled), "skipped": len(uids) - len(todo), "failed": len(failures)},
     )
 
 
@@ -425,8 +571,7 @@ async def draft_mail_reply(call: ToolCall, context: TenantContext) -> ToolResult
     instructions = _clean(call.arguments.get("instructions"), MAX_INSTRUCTIONS)
     try:
         require_available(writer)
-        account_id, folder, uid = _target(call)
-        account = mailbox_for(writer, account_id, "send")
+        account, folder, uid = await target_of(call, writer, "send")
         _, original = await fetch_parsed(writer, account, folder, uid)
         guidance = DRAFT_INSTRUCTIONS + (DRAFT_INSTRUCTIONS_FROM_OWNER.format(instructions=instructions) if instructions else "")
         answer, model = await _ask_model(writer, with_untrusted_rules(guidance, message_block(original, f"mail:{folder}:{uid}", MESSAGE_PROMPT_CHARS)))
@@ -536,6 +681,64 @@ async def export_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     )
 
 
+REQUEST_ACTIONS = ("forward", "archive", "export", "delete")
+
+
+async def request_mail_action(call: ToolCall, context: TenantContext) -> ToolResult:
+    """The assistant's way to forward, archive, export or delete: it picks the messages from the
+    person's own words (a selector), then asks for the approval of exactly those messages
+    (``send_mail``, ``archive_mail_bulk``, ``export_mail`` or ``delete_mail``, all
+    ``always_ask``). Nothing is forwarded, moved, exported or deleted here."""
+    import hashlib
+
+    from fastapi import HTTPException
+
+    from ..durable_runs import tenant_unit_of_work
+    from .ai_api import ask_owner_action, start_forward
+
+    args = call.arguments
+    action = str(args.get("action") or "")
+    selector = args.get("selector") if isinstance(args.get("selector"), dict) else {}
+    if action not in REQUEST_ACTIONS:
+        return _failed("The assistant can ask to forward, archive, export or delete mail; nothing else.", 422, "action")
+    try:
+        require_available(context)
+        account = default_mailbox(context, "send" if action == "forward" else "owner")
+        folder, picked = await select_messages(context, account, {**selector, "count": 1 if action == "forward" else selector.get("count")})
+    except MailError as exc:
+        return _from_error(exc)
+    uids = [uid for uid, _, _ in picked]
+    subjects = [subject or "(no subject)" for _, _, subject in picked]
+    try:
+        with tenant_unit_of_work(context) as repository:
+            if action == "forward":
+                to = [str(item) for item in args.get("to") or [] if isinstance(item, str)]
+                if not to:
+                    raise MailError(422, "Say who to forward it to, with their email address.", "recipients")
+                # One key per request and message: asking again answers with the same approval.
+                seed = json.dumps([account.id, folder, uids[0], picked[0][1], sorted(to)], separators=(",", ":"))
+                key = "assist-" + hashlib.sha256(seed.encode()).hexdigest()[:40]
+                result = await start_forward(repository, context, account_id=account.id, folder=folder, uid=uids[0], to=to, note=None, write_note=False, idempotency_key=key)
+                approval = result.approval
+                if approval is None:
+                    raise MailError(409, f"That message is already {result.draft.status.value}.", "state")
+            else:
+                tool = {"archive": ARCHIVE_TOOL, "export": EXPORT_TOOL, "delete": "delete_mail"}[action]
+                approval, _, _ = await ask_owner_action(repository, context, tool, account.id, folder, uids)
+    except MailError as exc:
+        return _from_error(exc)
+    except HTTPException as exc:
+        return _failed(str(exc.detail), exc.status_code, "refused")
+    listed = "; ".join(subjects[:5]) + (f" and {len(subjects) - 5} more" if len(subjects) > 5 else "")
+    verb = {"forward": "forward", "archive": "archive", "export": "export", "delete": "delete for good"}[action]
+    return ToolResult(
+        status="succeeded",
+        summary=f"Asked for approval to {verb} {len(uids)} message(s): {listed}. Nothing happens until an owner approves it in Approvals.",
+        output={"action": action, "approval_id": approval.id, "payload_hash": approval.payload_hash, "count": len(uids), "subjects": subjects, "folder": folder},
+        audit_metadata={"tool": REQUEST_TOOL, "action": action, "count": len(uids), "approval_id": approval.id},
+    )
+
+
 def mbox(messages: list[bytes]) -> bytes:
     """An mboxrd file: one ``From `` line per message and ``>From`` quoting inside bodies."""
     out = bytearray()
@@ -565,6 +768,25 @@ AI_TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             risk_level=RiskLevel.LOW, required_roles=_PEOPLE, idempotent=True, timeout_seconds=120, category="email", action_kind="read",
         ),
         classify_mail,
+    ),
+    (
+        ToolDefinition(
+            name=PAGE_TOOL,
+            description="Label up to 25 messages (category and priority from a fixed list), one model call each. Reads only.",
+            risk_level=RiskLevel.LOW, required_roles=_PEOPLE, idempotent=True, timeout_seconds=240, category="email", action_kind="read",
+        ),
+        classify_mail_page,
+    ),
+    (
+        ToolDefinition(
+            name=REQUEST_TOOL,
+            description=(
+                "Ask for an owner's approval to forward, archive, export or delete messages picked from the person's own "
+                "words. Only creates the approval; the action runs after it is approved."
+            ),
+            risk_level=RiskLevel.MEDIUM, required_roles=_PEOPLE, timeout_seconds=120, category="email", action_kind="draft",
+        ),
+        request_mail_action,
     ),
     (
         ToolDefinition(

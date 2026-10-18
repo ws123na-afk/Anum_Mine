@@ -950,26 +950,37 @@ def delete_mail_everything(context: TenantContext) -> None:
 
     from .mailbox.outgoing import forget_objects
 
+    from .mailbox.labels import open_label_store
+
     with open_mail_store(context) as store:
         files = store.attachments_of_account(None)
         for account in store.list_accounts():
             store.delete_account(account.id)
+    # AI labels the caller made, also on mailboxes others shared with them.
+    with open_label_store(context) as labels:
+        labels.delete_all()
     forget_objects(files)
 
 
 def mail_export(context: TenantContext) -> dict[str, Any]:
     from .mailbox.store import open_mail_store
 
+    from .mailbox.labels import open_label_store
+
     with open_mail_store(context) as store:
         accounts = store.list_accounts()
         drafts = store.list_drafts(None, 100_000)
         files = store.attachments_of_account(None)
+    with open_label_store(context) as label_store:
+        labels = label_store.list_all()
     return {
         # Never the password, not even encrypted.
         "mailboxes": [a.model_dump(mode="json", exclude={"password_enc"}) for a in accounts],
         "messages_written": [d.model_dump(mode="json") for d in drafts],
         # The attached files' names, types, sizes and digests (the bytes stay in ANUM's storage).
         "attachments": [f.model_dump(mode="json", exclude={"storage_key"}) for f in files],
+        # Labels AI gave messages for the caller (category, priority, reason; no mail text).
+        "labels": [label.model_dump(mode="json") for label in labels],
     }
 
 
