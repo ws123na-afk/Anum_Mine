@@ -164,7 +164,7 @@ test('filters by mailbox, unread, starred, dates and search go to the server', a
 
 test('a message opens in its own mailbox and the reply goes from that address after approval', async ({ page }) => {
   const calls = await openAllInboxes(page);
-  await list(page).locator('.mailRow').nth(1).getByRole('button', { name: /Sales lead/ }).click();
+  await list(page).locator('.mailRow').nth(1).locator('.mailRowOpen').click();
   await expect(page.getByRole('heading', { name: 'Sales lead from the fair' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open in sales@example.com' })).toBeVisible();
   await page.getByRole('button', { name: 'Reply', exact: true }).click();
@@ -178,7 +178,7 @@ test('a message opens in its own mailbox and the reply goes from that address af
 
 test('Open in the mailbox switches the page to that mailbox', async ({ page }) => {
   await openAllInboxes(page);
-  await list(page).locator('.mailRow').first().getByRole('button', { name: /Tyre order/ }).click();
+  await list(page).locator('.mailRow').first().locator('.mailRowOpen').click();
   await page.getByRole('button', { name: 'Open in admin@example.com' }).click();
   await expect(page.getByRole('region', { name: 'All inboxes' })).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: 'Mailbox' }).first()).toHaveValue(own.id);
@@ -191,15 +191,19 @@ test('a mailbox that could not be read is named and the rest still list', async 
   await expect(list(page).getByRole('button', { name: 'Try again' })).toBeVisible();
 });
 
-test('empty, failure and permission denied each say what to do', async ({ page }) => {
+test('an empty list offers to check again', async ({ page }) => {
   await openAllInboxes(page, { empty: true });
   await expect(page.getByRole('heading', { name: 'Nothing in any inbox' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Check again' })).toBeVisible();
-  await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
+test('a failure says what failed and offers to try again', async ({ page }) => {
   await openAllInboxes(page, { fail: true });
   await expect(page.getByText('The inboxes could not be loaded', { exact: false })).toBeVisible();
   await expect(list(page).getByRole('button', { name: 'Try again' })).toBeVisible();
-  await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
+test('permission denied names who reads email', async ({ page }) => {
   await openAllInboxes(page, { denied: true });
   await expect(page.getByRole('heading', { name: 'Your role cannot read email' })).toBeVisible();
 });
