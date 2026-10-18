@@ -222,6 +222,7 @@ class VersionSummary(BaseModel):
     version: int
     content_hash: str
     locked: bool
+    change_order_id: str | None = None
     total: Money
     created_at: datetime
 
@@ -273,7 +274,7 @@ def proposal_view(store: BusinessStore, repository: AnumRepository, context: Ten
     return ProposalView(
         **proposal.model_dump(), account_name=account.name if account else "", opportunity_name=opportunity.name if opportunity else "",
         current=version_view(current),
-        versions=[VersionSummary(version=item.version, content_hash=item.content_hash, locked=item.locked, total=proposal_totals(item)["total"], created_at=item.created_at) for item in versions],
+        versions=[VersionSummary(version=item.version, content_hash=item.content_hash, locked=item.locked, change_order_id=item.change_order_id, total=proposal_totals(item)["total"], created_at=item.created_at) for item in versions],
         approval_state=state, approval=approval if state == "pending" else None, project_id=project.id if project else None,
     )
 
@@ -484,6 +485,8 @@ def proposal_markdown(view: ProposalView) -> str:
         f"Version: {current.version} ({'accepted' if view.status == ProposalStatus.ACCEPTED else view.status.value.replace('_', ' ')})  ",
         f"Content hash: `{current.content_hash}`", "",
     ]
+    if view.status == ProposalStatus.ACCEPTED and view.accepted_version and current.version != view.accepted_version:
+        lines[-1:-1] = [f"Amends accepted version {view.accepted_version} through approved change orders.  "]
     if current.summary:
         lines += ["## Summary", "", current.summary, ""]
     if current.scope:
@@ -509,10 +512,9 @@ def proposal_markdown(view: ProposalView) -> str:
 def export_proposal(proposal_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
     read(context)
     with open_business_store(context) as store:
+        # An accepted proposal exports its contract record: the accepted version, or the
+        # newest version approved change orders produced from it (docs/business.md#change-orders).
         view = proposal_view(store, repository, context, get_or_404(store, "proposals", proposal_id, "Proposal"))
-        if view.status == ProposalStatus.ACCEPTED and view.accepted_version and view.accepted_version != view.current.version:
-            accepted = store.first("proposal_versions", proposal_id=proposal_id, version=view.accepted_version)
-            view = view.model_copy(update={"current": version_view(accepted)})
     audit(repository, context, "business.proposal.exported", proposal_id, metadata={"version": view.current.version})
     name = "".join(char if char.isalnum() else "-" for char in view.title.lower()).strip("-")[:60] or "proposal"
     return Response(content=proposal_markdown(view), media_type="text/markdown; charset=utf-8",

@@ -7,6 +7,7 @@ import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'business_controller.dart';
 import 'business_models.dart';
+import 'project_money.dart';
 
 /// Business on the phone (docs/business.md): the owner's summary, leads with
 /// their evidence and state, the pipeline, proposals waiting for acceptance
@@ -519,6 +520,25 @@ class _ProjectCard extends StatelessWidget {
                     },
                   ),
                 ],
+              ),
+            ),
+          if (controller.money != null && controller.setup != null)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                key: Key('biz-project-money-${project.id}'),
+                icon: const Icon(Icons.request_quote_outlined),
+                label: Text(l.t('biz.money.open')),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ProjectMoneyScreen(
+                      repository: controller.money!,
+                      project: project,
+                      permissions: controller.setup!.permissions,
+                      onContractChanged: controller.refreshProjects,
+                    ),
+                  ),
+                ),
               ),
             ),
         ],

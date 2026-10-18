@@ -75,6 +75,8 @@ TABLES_IN_DELETE_ORDER = (
     "finance_goals",
     "finance_accounts",
     "finance_settings",
+    "business_usage_ledger",
+    "business_change_orders",
     "business_research_runs",
     "business_drafts",
     "business_milestones",

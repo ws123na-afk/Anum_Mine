@@ -152,7 +152,7 @@ export interface ProposalContent {
 }
 
 export interface ProposalVersionView extends ProposalContent {
-  id: string; proposal_id: string; version: number; content_hash: string; locked: boolean; created_by: string; created_at: string;
+  id: string; proposal_id: string; version: number; content_hash: string; locked: boolean; change_order_id?: string | null; created_by: string; created_at: string;
   subtotal: number; external_costs: number; tax: number; total: number; milestone_total: number; margin: number; margin_pct: number | null;
   issues: string[]; warnings: string[];
 }
@@ -164,7 +164,7 @@ export interface BusinessProposal extends Scoped {
   accepted_hash: string | null; accepted_by: string | null; accepted_at: string | null; requested_hash: string | null; requested_version: number | null;
   approval_id: string | null; approval_task_id: string | null; decision_note: string; sent_at: string | null; created_by: string;
   account_name: string; opportunity_name: string; current: ProposalVersionView;
-  versions: { version: number; content_hash: string; locked: boolean; total: number; created_at: string }[];
+  versions: { version: number; content_hash: string; locked: boolean; change_order_id?: string | null; total: number; created_at: string }[];
   approval_state: ApprovalState; approval: ProposalApproval | null; project_id: string | null;
 }
 
@@ -177,6 +177,40 @@ export interface BusinessProject extends Scoped {
   proposal_id: string; proposal_version: number; opportunity_id: string; account_id: string; name: string; status: ProjectStatus;
   currency: BusinessCurrency; contract_total: number; owner_id: string; start_on: string | null; contract_limits: string; created_by: string;
   account_name: string; milestones: BusinessMilestone[]; accepted_milestones: number; accepted_value: number; paid_value: number;
+}
+
+// Change orders, the usage and cost ledger and project profitability (docs/business.md#change-orders).
+export type ChangeOrderStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'withdrawn';
+export interface ChangeOrderLine extends LineItem { action: 'add' | 'remove' }
+
+export interface BusinessChangeOrder extends Scoped {
+  project_id: string; proposal_id: string; account_id: string; number: number; title: string; request: string; requested_by: string;
+  lines: ChangeOrderLine[]; timeline_days: number; internal_cost_delta: number; status: ChangeOrderStatus; currency: BusinessCurrency;
+  base_version: number | null; base_hash: string | null; content_hash: string | null; subtotal_delta: number | null; tax_delta: number | null;
+  total_delta: number | null; result_version: number | null; submitted_by: string | null; submitted_at: string | null; decided_by: string | null;
+  decided_at: string | null; decision_note: string; created_by: string;
+  project_name: string; issues: string[]; current_version: number | null; stale: boolean;
+}
+
+export interface ChangeOrderInput {
+  title: string; request: string; requested_by: string; lines: ChangeOrderLine[]; timeline_days: number; internal_cost_delta: number;
+}
+
+export type UsageKind = 'labour' | 'ai_usage' | 'hosting' | 'messaging' | 'other';
+
+export interface BusinessUsageEntry extends Scoped {
+  account_id: string; project_id: string | null; kind: UsageKind; description: string; occurred_on: string; quantity: number; unit_cost: number;
+  amount: number; currency: BusinessCurrency; billable: boolean; source: 'manual' | 'model_budget'; external_ref: string | null; created_by: string;
+  account_name: string; project_name: string | null;
+}
+
+export interface BusinessProfitability {
+  project_id: string; currency: BusinessCurrency; accepted_version: number; current_version: number; accepted_revenue: number;
+  change_orders_revenue: number; approved_change_orders: number; revenue: number; tax: number; contract_total: number;
+  cash_collected: number | null; outstanding: number | null; labour_hours: number | null; labour_cost: number | null; direct_costs: number | null;
+  costs: { kind: UsageKind; amount: number; entries: number }[]; billable_costs: number | null; non_billable_costs: number | null;
+  gross_margin: number | null; gross_margin_pct: number | null; other_currency: { currency: BusinessCurrency; amount: number; entries: number }[];
+  reconciled: boolean; notes: string[];
 }
 
 export interface FunnelStep { stage: 'created' | 'qualified' | 'contacted' | 'meeting' | 'offered' | 'won'; reached: number; of: number; rate_pct: number | null; from_previous_pct: number | null }

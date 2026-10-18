@@ -1,4 +1,5 @@
-"""PostgreSQL store for the internal sales MVP (migration ``0070_business``).
+"""PostgreSQL store for the internal sales MVP (migrations ``0070_business`` and
+``0077_business_change_orders``).
 
 The session carries the tenant and workspace RLS context (``open_scoped_store``); every
 query also filters on the scope explicitly, so a guessed id from another workspace reads
@@ -231,6 +232,7 @@ class BusinessProposalVersionRecord(Base, _Row):
     valid_until: Mapped[date | None] = mapped_column(Date)
     content_hash: Mapped[str] = mapped_column(String(64))
     locked: Mapped[bool] = mapped_column(Boolean)
+    change_order_id: Mapped[str | None] = mapped_column(String(80))
     created_by: Mapped[str] = mapped_column(String(160))
 
 
@@ -298,6 +300,52 @@ class BusinessResearchRunRecord(Base, _Updated):
     created_by: Mapped[str] = mapped_column(String(160))
 
 
+class BusinessChangeOrderRecord(Base, _Updated):
+    __tablename__ = "business_change_orders"
+    project_id: Mapped[str] = mapped_column(String(80))
+    proposal_id: Mapped[str] = mapped_column(String(80))
+    account_id: Mapped[str] = mapped_column(String(80))
+    number: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(200))
+    request: Mapped[str] = mapped_column(Text)
+    requested_by: Mapped[str] = mapped_column(String(160))
+    lines: Mapped[list[Any]] = mapped_column(JSONB)
+    timeline_days: Mapped[int] = mapped_column(Integer)
+    internal_cost_delta: Mapped[Decimal] = mapped_column(MONEY)
+    status: Mapped[str] = mapped_column(String(20))
+    currency: Mapped[str] = mapped_column(String(3))
+    base_version: Mapped[int | None] = mapped_column(Integer)
+    base_hash: Mapped[str | None] = mapped_column(String(64))
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    subtotal_delta: Mapped[Decimal | None] = mapped_column(MONEY)
+    tax_delta: Mapped[Decimal | None] = mapped_column(MONEY)
+    total_delta: Mapped[Decimal | None] = mapped_column(MONEY)
+    result_version: Mapped[int | None] = mapped_column(Integer)
+    submitted_by: Mapped[str | None] = mapped_column(String(160))
+    submitted_at: Mapped[datetime | None] = mapped_column(TS)
+    decided_by: Mapped[str | None] = mapped_column(String(160))
+    decided_at: Mapped[datetime | None] = mapped_column(TS)
+    decision_note: Mapped[str] = mapped_column(String(500))
+    created_by: Mapped[str] = mapped_column(String(160))
+
+
+class BusinessUsageEntryRecord(Base, _Updated):
+    __tablename__ = "business_usage_ledger"
+    account_id: Mapped[str] = mapped_column(String(80))
+    project_id: Mapped[str | None] = mapped_column(String(80))
+    kind: Mapped[str] = mapped_column(String(20))
+    description: Mapped[str] = mapped_column(String(300))
+    occurred_on: Mapped[date] = mapped_column(Date)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    unit_cost: Mapped[Decimal] = mapped_column(MONEY)
+    amount: Mapped[Decimal] = mapped_column(MONEY)
+    currency: Mapped[str] = mapped_column(String(3))
+    billable: Mapped[bool] = mapped_column(Boolean)
+    source: Mapped[str] = mapped_column(String(20))
+    external_ref: Mapped[str | None] = mapped_column(String(160))
+    created_by: Mapped[str] = mapped_column(String(160))
+
+
 class BusinessSettingsRecord(Base):
     __tablename__ = "business_settings"
     tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
@@ -324,6 +372,8 @@ RECORDS: dict[str, Any] = {
     "milestones": BusinessMilestoneRecord,
     "drafts": BusinessDraftRecord,
     "research_runs": BusinessResearchRunRecord,
+    "change_orders": BusinessChangeOrderRecord,
+    "usage_ledger": BusinessUsageEntryRecord,
 }
 if set(RECORDS) != set(KINDS):  # pragma: no cover - import-time wiring check
     raise RuntimeError("business record types and kinds differ")

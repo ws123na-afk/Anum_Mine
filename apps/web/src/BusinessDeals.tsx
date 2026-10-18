@@ -16,6 +16,7 @@ import {
 import * as b from './lib/businessApi';
 import { Drawer } from './Dialog';
 import { AcceptanceApproval, Badge, Empty, Note, Pager, ReasonDialog, day, failure, when } from './BusinessParts';
+import { ProjectMoney } from './BusinessProjectMoney';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'error'; text: string };
 
@@ -396,6 +397,7 @@ function ProjectDrawer({ setup, initial, id, onClose, onChanged }: { setup: Busi
           {row.paid_on && <small className="muted">{t('biz.project.paidOn', { date: day(row.paid_on) })}</small>}
         </li>)}</ol>}
       </section>
+      <ProjectMoney setup={setup} project={item} onProjectChanged={() => { void b.getProject(item.id).then(setItem).catch((error) => setProblem(failure(error, t('biz.project.load')))); onChanged(); }} />
     </div>
   </Drawer>;
 }

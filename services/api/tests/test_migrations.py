@@ -1093,3 +1093,24 @@ def test_mail_writers_migration_is_expand_only() -> None:
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "grant select (disconnecting_at) on mail_accounts to anum_maintenance" in upgrade
     assert "grant select (updated_at) on mail_drafts to anum_maintenance" in upgrade
+
+
+def test_business_change_orders_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0077_business_change_orders.py").read_text(encoding="utf-8")
+    assert 'revision = "0077_business_change_orders"' in revision_text and len("0077_business_change_orders") <= 32
+    down = revision_text.split('down_revision = "', 1)[1].split('"', 1)[0]
+    others = [path for path in versions.glob("*.py") if path.name != "0077_business_change_orders.py"]
+    assert any(f'revision = "{down}"' in path.read_text(encoding="utf-8") for path in others)
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2 and '"business_change_orders"' in upgrade and '"business_usage_ledger"' in upgrade
+    assert "for table in tables:\n        _enable_rls(table)" in upgrade
+    assert "force row level security" in revision_text.lower() and "with check (" in revision_text.lower()
+    assert "current_setting('anum.tenant_id', true)" in revision_text and "current_setting('anum.workspace_id', true)" in revision_text
+    assert '["tenant_id", "workspace_id", column]' in revision_text
+    # Expand only: one nullable column on the proposal versions, nothing altered or dropped.
+    assert upgrade.count("op.add_column(") == 1 and "nullable=true" in upgrade.split("op.add_column(", 1)[1].split("\n", 1)[0]
+    assert "alter_column" not in upgrade and "drop " not in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    # An approved change order names who approved it and the version it produced.
+    assert "status <> 'approved' or (decided_by is not null and decided_at is not null and result_version is not null)" in upgrade

@@ -3,7 +3,8 @@
 import type {
   BusinessAccountDetail, BusinessDraft, BusinessDuplicate, BusinessKpi, BusinessLead, BusinessLeadDetail, BusinessOpportunity, BusinessPage,
   BusinessProduct, BusinessProductDetail, BusinessProject, BusinessProposal, BusinessSettings, BusinessSetup, ConsentBasis, Criterion, DraftChannel,
-  ImportResult, LeadState, MilestoneStatus, OpportunityStage, ProjectStatus, ProposalContent, BusinessContact,
+  ImportResult, LeadState, MilestoneStatus, OpportunityStage, ProjectStatus, ProposalContent, BusinessContact, BusinessChangeOrder, BusinessProfitability,
+  BusinessUsageEntry, ChangeOrderInput, UsageKind,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -110,3 +111,22 @@ export const createProject = (proposalId: string, startOn: string | null) => api
 export const updateProject = (projectId: string, body: { status?: ProjectStatus; start_on?: string | null }) => apiRequest<BusinessProject>(`${BASE}/projects/${id(projectId)}`, json('PATCH', body));
 export const updateMilestone = (milestoneId: string, body: { status?: MilestoneStatus; paid_amount?: number | null; paid_on?: string | null; due_on?: string | null }) =>
   apiRequest<BusinessProject>(`${BASE}/milestones/${id(milestoneId)}`, json('PATCH', body));
+
+// change orders (an owner approves with the content hash they were shown)
+export const listChangeOrders = (projectId: string, q: { limit: number; offset: number }) =>
+  apiRequest<BusinessPage<BusinessChangeOrder>>(`${BASE}/projects/${id(projectId)}/change-orders${query(q)}`, { method: 'GET' });
+export const createChangeOrder = (projectId: string, body: ChangeOrderInput) => apiRequest<BusinessChangeOrder>(`${BASE}/projects/${id(projectId)}/change-orders`, json('POST', body));
+export const updateChangeOrder = (changeId: string, body: Partial<ChangeOrderInput>) => apiRequest<BusinessChangeOrder>(`${BASE}/change-orders/${id(changeId)}`, json('PATCH', body));
+export const submitChangeOrder = (changeId: string) => apiRequest<BusinessChangeOrder>(`${BASE}/change-orders/${id(changeId)}/submit`, json('POST'));
+export const approveChangeOrder = (changeId: string, contentHash: string) => apiRequest<BusinessChangeOrder>(`${BASE}/change-orders/${id(changeId)}/approve`, json('POST', { content_hash: contentHash }));
+export const rejectChangeOrder = (changeId: string, reason: string) => apiRequest<BusinessChangeOrder>(`${BASE}/change-orders/${id(changeId)}/reject`, json('POST', { reason }));
+export const withdrawChangeOrder = (changeId: string, reason: string) => apiRequest<BusinessChangeOrder>(`${BASE}/change-orders/${id(changeId)}/withdraw`, json('POST', { reason }));
+
+// usage and cost ledger, profitability
+export const listUsage = (q: { project_id?: string; account_id?: string; kind?: readonly UsageKind[]; limit: number; offset: number }) =>
+  apiRequest<BusinessPage<BusinessUsageEntry>>(`${BASE}/usage${query(q)}`, { method: 'GET' });
+export const createUsage = (body: Record<string, unknown>) => apiRequest<BusinessUsageEntry>(`${BASE}/usage`, json('POST', body));
+export const updateUsage = (entryId: string, body: Record<string, unknown>) => apiRequest<BusinessUsageEntry>(`${BASE}/usage/${id(entryId)}`, json('PATCH', body));
+export const deleteUsage = (entryId: string) => apiRequestVoid(`${BASE}/usage/${id(entryId)}`, { method: 'DELETE' });
+export const importAiUsage = (body: Record<string, unknown>) => apiRequest<BusinessUsageEntry>(`${BASE}/usage/import-ai`, json('POST', body));
+export const getProfitability = (projectId: string) => apiRequest<BusinessProfitability>(`${BASE}/projects/${id(projectId)}/profitability`, { method: 'GET' });

@@ -1,4 +1,5 @@
-"""Business in PostgreSQL (migration ``0070_business``), as the non-owner app role.
+"""Business in PostgreSQL (migrations ``0070_business`` and ``0077_business_change_orders``), as
+the non-owner app role.
 
 Every table is under forced RLS: tenant A's rows are invisible to tenant B and to A's other
 workspace, guessed ids read as missing, writes into another scope are refused by the row
@@ -30,7 +31,7 @@ BASE = "/api/v1/business"
 TABLES = (
     "business_settings", "business_products", "business_offers", "business_accounts", "business_contacts", "business_leads", "business_evidence",
     "business_inferences", "business_activities", "business_opportunities", "business_proposals", "business_proposal_versions", "business_projects",
-    "business_milestones", "business_drafts", "business_research_runs",
+    "business_milestones", "business_drafts", "business_research_runs", "business_change_orders", "business_usage_ledger",
 )
 
 
@@ -199,3 +200,43 @@ def test_settings_and_activities_are_scoped(db: Engine) -> None:
     again = client.post(f"{BASE}/leads/{lead_id}/activities", headers={**A, **key}, json={"kind": "meeting_logged", "summary": "Visited the shop"})
     assert first.status_code == 201 and again.status_code == 200 and first.json()["id"] == again.json()["id"]
     assert client.post(f"{BASE}/leads/{lead_id}/activities", headers={**B, **key}, json={"kind": "note", "summary": "x y"}).status_code == 404
+
+
+def test_change_orders_and_the_ledger_under_rls(db: Engine) -> None:
+    """An approved change order adds a locked version (version 1 stays immutable), and the
+    change orders and ledger rows of tenant A are invisible to tenant B and A's other workspace."""
+    path = main_path(A)
+    pending = ok(client.post(f"{BASE}/proposals/{path['proposal']['id']}/request-acceptance", headers=MEMBER_A))
+    assert ok(client.post(f"/api/v1/approvals/{pending['approval']['id']}/approve", headers=A, json={"payload_hash": pending["approval"]["payload_hash"]}))
+    project = ok(client.post(f"{BASE}/projects", headers=A, json={"proposal_id": path["proposal"]["id"]}), 201)
+    change = ok(client.post(f"{BASE}/projects/{project['id']}/change-orders", headers=MEMBER_A, json={
+        "title": "Menu page", "lines": [{"description": "Menu page", "unit_price": 450}], "timeline_days": 7}), 201)
+    sent = ok(client.post(f"{BASE}/change-orders/{change['id']}/submit", headers=MEMBER_A))
+    assert client.post(f"{BASE}/change-orders/{change['id']}/approve", headers=MEMBER_A, json={"content_hash": sent["content_hash"]}).status_code == 403
+    approved = ok(client.post(f"{BASE}/change-orders/{change['id']}/approve", headers=A, json={"content_hash": sent["content_hash"]}))
+    assert approved["status"] == "approved" and approved["result_version"] == 2
+    assert ok(client.get(f"{BASE}/projects/{project['id']}", headers=A))["contract_total"] == 2250.0
+    entry = ok(client.post(f"{BASE}/usage", headers=A, json={"project_id": project["id"], "kind": "labour", "description": "Build pages",
+                                                               "occurred_on": "2026-11-02", "quantity": 4, "unit_cost": 60}), 201)
+    money = ok(client.get(f"{BASE}/projects/{project['id']}/profitability", headers=A))
+    assert money["revenue"] == 2250.0 and money["labour_cost"] == 240.0 and money["gross_margin"] == 2010.0 and money["reconciled"]
+    for other in (A2, B):
+        assert client.get(f"{BASE}/change-orders/{change['id']}", headers=other).status_code == 404
+        assert client.patch(f"{BASE}/usage/{entry['id']}", headers=other, json={"billable": True}).status_code == 404
+        assert ok(client.get(f"{BASE}/usage", headers=other))["total"] == 0
+    with db.connect() as connection:
+        # Both the accepted and the amended version refuse a direct update.
+        for version in (1, 2):
+            with pytest.raises(DBAPIError):
+                with connection.begin():
+                    _scoped(connection, TENANT_A, WORKSPACE_A)
+                    connection.execute(text("update business_proposal_versions set summary = 'changed' where proposal_id = :p and version = :v"),
+                                       {"p": path["proposal"]["id"], "v": version})
+        # Tenant B cannot point a ledger row at tenant A's project (scoped foreign key).
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_B, WORKSPACE_B)
+                connection.execute(text(
+                    "insert into business_usage_ledger (id, tenant_id, workspace_id, account_id, project_id, kind, description, occurred_on, currency, source, created_by) "
+                    "values ('busg_x', :t, :w, :a, :p, 'other', 'Steal', '2026-11-01', 'AED', 'manual', 'u')"),
+                    {"t": TENANT_B, "w": WORKSPACE_B, "a": project["account_id"], "p": project["id"]})
