@@ -27,7 +27,15 @@ from ..settings import settings
 from .config import MailServerSettings, mail_settings
 from .mime import Outgoing, build_message, valid_address
 from .server import Folder, ImapSmtpServer, MailServer, MailServerError
-from .store import AccountStatus, DraftStatus, MailAccount, MailDraft, open_mail_store
+from .store import (
+    AccountStatus,
+    DraftStatus,
+    MailAccount,
+    MailDraft,
+    MailIdentity,
+    allows,
+    open_mail_store,
+)
 
 logger = logging.getLogger("anum.mail")
 
@@ -107,6 +115,9 @@ def _status_for(error: MailServerError) -> AccountStatus:
 
 
 def _record_health(context: TenantContext, account: MailAccount, status: AccountStatus, error: str | None) -> MailAccount:
+    if account.owner_user_id != context.user_id:
+        # A shared mailbox: only its owner may change the row (the row policy says the same).
+        return account
     now = utc_now()
     fresh = account.last_checked_at is not None and now - account.last_checked_at < timedelta(seconds=60)
     if account.status == status and account.last_error == error and fresh:
@@ -191,13 +202,46 @@ def check_ready_to_send(draft: MailDraft) -> None:
         raise MailError(422, "The message is empty. Add a subject or some text.", "empty")
 
 
-def send_arguments(draft: MailDraft, account: MailAccount) -> dict[str, Any]:
+SIGNATURE_MARK = "\n\n-- \n"
+
+
+def with_signature(body: str, signature: str) -> str:
+    """``body`` with ``signature`` after the person's text and before any quoted original."""
+    if not signature.strip():
+        return body
+    block = SIGNATURE_MARK + signature.strip("\n")
+    # A reply or forward starts with an empty line above the quoted original: sign above it.
+    return block + body if body.startswith("\n\n") else body + block
+
+
+def swap_signature(body: str, old: str, new: str) -> str:
+    """Replace the old identity's signature block with the new one (or add the new one)."""
+    if old.strip():
+        block = SIGNATURE_MARK + old.strip("\n")
+        if block in body:
+            replacement = SIGNATURE_MARK + new.strip("\n") if new.strip() else ""
+            return body.replace(block, replacement, 1)
+    return with_signature(body, new) if new.strip() and (SIGNATURE_MARK + new.strip("\n")) not in body else body
+
+
+def sender_of(account: MailAccount, identity: MailIdentity | None) -> tuple[str, str]:
+    """The From address and name a message goes out with."""
+    if identity is not None:
+        return identity.address, identity.display_name or account.display_name or ""
+    return account.address, account.display_name or ""
+
+
+def send_arguments(draft: MailDraft, account: MailAccount, identity: MailIdentity | None = None) -> dict[str, Any]:
     """Exactly what the approval shows and binds (the payload hash covers all of it)."""
+    address, name = sender_of(account, identity)
     return {
         "draft_id": draft.id,
         "account_id": account.id,
         "owner_user_id": draft.owner_user_id,
-        "from": account.address,
+        "mailbox": account.address,
+        "identity_id": identity.id if identity else None,
+        "from_name": name,
+        "from": address,
         "to": list(draft.to),
         "cc": list(draft.cc),
         "bcc": list(draft.bcc),
@@ -227,18 +271,27 @@ async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     except MailError as exc:
         return _failed(f"Not sent: {exc.message}")
     draft_id = str(args.get("draft_id") or "")
+    identity: MailIdentity | None = None
     with open_mail_store(owner) as store:
         draft = store.get_draft(draft_id)
-        account = store.get_account(str(args.get("account_id") or "")) if draft else None
+        found = store.get_accessible_account(str(args.get("account_id") or "")) if draft else None
+        if draft is not None and draft.identity_id:
+            identity = store.get_identity(draft.identity_id)
+    account = found[0] if found else None
     if draft is None or account is None or draft.account_id != account.id:
-        return _failed("Not sent: the message or its mailbox is gone.")
+        return _failed("Not sent: the message or its mailbox is gone, or the mailbox is no longer shared with the writer.")
+    if not allows(found[1] if found else None, "send"):
+        return _failed("Not sent: the mailbox's owner no longer lets the writer send from it.", draft_id=draft.id)
+    if draft.identity_id and (identity is None or identity.account_id != account.id):
+        return _failed("Not sent: the sender identity was removed. Pick a sender and send again.", draft_id=draft.id)
     if draft.status == DraftStatus.SENT:
         return ToolResult(status="succeeded", summary="This message was already sent.", output={"draft_id": draft.id})
     if draft.status in {DraftStatus.SENDING, DraftStatus.UNKNOWN}:
         return _failed("Not sent again: an earlier attempt may have reached the server. Check Sent.", draft_id=draft.id)
     if draft.status != DraftStatus.PENDING_APPROVAL:
         return _failed("Not sent: the message is no longer waiting for approval.", draft_id=draft.id)
-    if send_arguments(draft, account) != {key: args.get(key) for key in send_arguments(draft, account)}:
+    bound = send_arguments(draft, account, identity)
+    if bound != {key: args.get(key) for key in bound}:
         return _failed("Not sent: the message changed after it was sent for approval.", draft_id=draft.id)
     since = utc_now() - timedelta(hours=1)
     with open_mail_store(owner) as store:
@@ -247,8 +300,9 @@ async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
         if not store.claim_send(draft.id):
             return _failed("Not sent: another attempt is already sending this message.", draft_id=draft.id)
 
+    from_address, from_name = sender_of(account, identity)
     outgoing = Outgoing(
-        sender_name=account.display_name or "", sender_address=account.address, to=draft.to, cc=draft.cc, bcc=draft.bcc,
+        sender_name=from_name, sender_address=from_address, to=draft.to, cc=draft.cc, bcc=draft.bcc,
         subject=draft.subject, body=draft.body, message_id=draft.message_id, in_reply_to=draft.in_reply_to, references=draft.references,
     )
     raw = build_message(outgoing)
@@ -268,7 +322,7 @@ async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
             store.save_draft(stored)
 
     try:
-        report = await on_server(owner, account, lambda server: server.send(account.address, recipients, raw))
+        report = await on_server(owner, account, lambda server: server.send(from_address, recipients, raw))
     except MailError as exc:
         if exc.kind == "uncertain":
             record(DraftStatus.UNKNOWN, exc.message[:500])
@@ -297,7 +351,7 @@ async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
         logger.warning("mail.sent_copy_failed", extra={"anum_kind": exc.kind})
     record(DraftStatus.SENT, None if saved else "Sent, but the copy could not be saved to the Sent folder.", saved)
     refused = sorted(report.refused)
-    summary = f"Sent from {account.address} to {', '.join(draft.to)}: {draft.subject or '(no subject)'}"
+    summary = f"Sent from {from_address} to {', '.join(draft.to)}: {draft.subject or '(no subject)'}"
     if refused:
         summary += f". The server refused {len(refused)} recipient(s)."
     return ToolResult(

@@ -1,20 +1,45 @@
-"""PostgreSQL store of the Email Center (migration ``0060_email_center``, docs/email.md#email-center).
+"""PostgreSQL store of the Email Center (migrations ``0060_email_center`` and
+``0061_mail_sharing_contacts``, docs/email.md#email-center).
 
 The session carries the tenant, workspace and user RLS context (``open_mail_store`` opens it
-with ``user_scoped=True``); both tables also have a restrictive owner policy, and every query
-here repeats the scope and the owner. The mailbox password is stored only as Fernet ciphertext.
+with ``user_scoped=True``); every table also has restrictive owner policies (a mailbox is
+readable by the people its owner shared it with), and every query here repeats the scope and
+the owner or grantee. The mailbox password is stored only as Fernet ciphertext.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, delete, func, select, update
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    String,
+    Text,
+    and_,
+    delete,
+    func,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.mailbox.store import AccountStatus, DraftStatus, MailAccount, MailDraft
+from anum_api.mailbox.store import (
+    Access,
+    AccountStatus,
+    DraftStatus,
+    MailAccount,
+    MailContact,
+    MailDraft,
+    MailGrant,
+    MailIdentity,
+)
 from anum_api.schemas import TenantContext, utc_now
 
 from .models import Base, WorkspaceScopedMixin, _workspace_fk
@@ -55,6 +80,7 @@ class MailDraftRecord(Base, WorkspaceScopedMixin):
     source_folder: Mapped[str | None] = mapped_column(String(500))
     source_uid: Mapped[int | None] = mapped_column(Integer)
     message_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    identity_id: Mapped[str | None] = mapped_column(String(80), ForeignKey("mail_identities.id", ondelete="SET NULL"))
     idempotency_key: Mapped[str | None] = mapped_column(String(120))
     status: Mapped[str] = mapped_column(String(30), nullable=False)
     approval_id: Mapped[str | None] = mapped_column(String(80))
@@ -66,6 +92,86 @@ class MailDraftRecord(Base, WorkspaceScopedMixin):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (_workspace_fk("mail_drafts"),)
+
+
+def _account_fk(table: str) -> ForeignKeyConstraint:
+    return ForeignKeyConstraint(
+        ["tenant_id", "workspace_id", "account_id", "owner_user_id"],
+        ["mail_accounts.tenant_id", "mail_accounts.workspace_id", "mail_accounts.id", "mail_accounts.owner_user_id"],
+        name=f"fk_{table}_account", ondelete="CASCADE",
+    )
+
+
+class MailGrantRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "mail_account_grants"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    account_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    grantee_user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    access: Mapped[str] = mapped_column(String(10), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("mail_account_grants"), _account_fk("mail_account_grants"))
+
+
+class MailIdentityRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "mail_identities"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    account_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    address: Mapped[str] = mapped_column(String(320), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(200))
+    signature: Mapped[str] = mapped_column(Text, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("mail_identities"), _account_fk("mail_identities"))
+
+
+class MailContactRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "mail_contacts"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    company: Mapped[str] = mapped_column(String(200), nullable=False)
+    phone: Mapped[str] = mapped_column(String(60), nullable=False)
+    notes: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (_workspace_fk("mail_contacts"),)
+
+
+def _grant(row: MailGrantRecord) -> MailGrant:
+    return MailGrant(
+        id=row.id, tenant_id=row.tenant_id, workspace_id=row.workspace_id, owner_user_id=row.owner_user_id, account_id=row.account_id,
+        grantee_user_id=row.grantee_user_id, access=row.access, created_at=row.created_at, updated_at=row.updated_at,  # type: ignore[arg-type]
+    )
+
+
+def _identity(row: MailIdentityRecord) -> MailIdentity:
+    return MailIdentity(
+        id=row.id, tenant_id=row.tenant_id, workspace_id=row.workspace_id, owner_user_id=row.owner_user_id, account_id=row.account_id,
+        address=row.address, display_name=row.display_name, signature=row.signature, is_default=row.is_default,
+        created_at=row.created_at, updated_at=row.updated_at,
+    )
+
+
+def _contact(row: MailContactRecord) -> MailContact:
+    return MailContact(
+        id=row.id, tenant_id=row.tenant_id, workspace_id=row.workspace_id, owner_user_id=row.owner_user_id, name=row.name,
+        email=row.email, company=row.company, phone=row.phone, notes=row.notes, created_at=row.created_at, updated_at=row.updated_at,
+    )
+
+
+def _like(query: str) -> str:
+    return "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
 def _account(row: MailAccountRecord) -> MailAccount:
@@ -83,7 +189,7 @@ def _draft(row: MailDraftRecord) -> MailDraft:
         account_id=row.account_id, kind=row.kind,  # type: ignore[arg-type]
         to=list(row.to_addresses or []), cc=list(row.cc_addresses or []), bcc=list(row.bcc_addresses or []),
         subject=row.subject, body=row.body, in_reply_to=row.in_reply_to, references=row.references_header,
-        source_folder=row.source_folder, source_uid=row.source_uid, message_id=row.message_id,
+        source_folder=row.source_folder, source_uid=row.source_uid, message_id=row.message_id, identity_id=row.identity_id,
         idempotency_key=row.idempotency_key, status=DraftStatus(row.status), approval_id=row.approval_id,
         task_id=row.task_id, error=row.error, saved_to_sent=row.saved_to_sent, sent_at=row.sent_at,
         created_at=row.created_at, updated_at=row.updated_at,
@@ -97,8 +203,22 @@ class SqlAlchemyMailStore:
         self.workspace_id = context.workspace_id
         self.owner = context.user_id
 
-    def _scope(self, model: type[MailAccountRecord] | type[MailDraftRecord]):  # type: ignore[no-untyped-def]
+    def _scope(self, model):  # type: ignore[no-untyped-def]
         return (model.tenant_id == self.tenant_id, model.workspace_id == self.workspace_id, model.owner_user_id == self.owner)
+
+    def _workspace(self, model):  # type: ignore[no-untyped-def]
+        return (model.tenant_id == self.tenant_id, model.workspace_id == self.workspace_id)
+
+    def _check_scope(self, item: MailAccount | MailDraft | MailGrant | MailIdentity | MailContact) -> None:
+        if (item.tenant_id, item.workspace_id, item.owner_user_id) != (self.tenant_id, self.workspace_id, self.owner):
+            raise PermissionError("row outside the caller's scope")
+
+    def _flush(self, message: str) -> None:
+        try:
+            with self.session.begin_nested():
+                self.session.flush()
+        except IntegrityError:
+            raise ValueError(message) from None
 
     def list_accounts(self) -> list[MailAccount]:
         rows = self.session.scalars(select(MailAccountRecord).where(*self._scope(MailAccountRecord)).order_by(MailAccountRecord.created_at))
@@ -130,6 +250,155 @@ class SqlAlchemyMailStore:
         result = self.session.execute(delete(MailAccountRecord).where(*self._scope(MailAccountRecord), MailAccountRecord.id == account_id))
         return bool(result.rowcount)  # type: ignore[attr-defined]
 
+    # -- shared mailboxes -------------------------------------------------------------------
+
+    def list_shared_accounts(self) -> list[tuple[MailAccount, MailGrant]]:
+        rows = self.session.execute(
+            select(MailAccountRecord, MailGrantRecord)
+            .join(MailGrantRecord, MailGrantRecord.account_id == MailAccountRecord.id)
+            .where(*self._workspace(MailAccountRecord), *self._workspace(MailGrantRecord), MailGrantRecord.grantee_user_id == self.owner)
+            .order_by(MailAccountRecord.created_at)
+        ).all()
+        return [(_account(account), _grant(grant)) for account, grant in rows]
+
+    def get_accessible_account(self, account_id: str) -> tuple[MailAccount, Access] | None:
+        row = self.session.scalar(select(MailAccountRecord).where(*self._workspace(MailAccountRecord), MailAccountRecord.id == account_id))
+        if row is None:
+            return None
+        if row.owner_user_id == self.owner:
+            return _account(row), "owner"
+        access = self.session.scalar(
+            select(MailGrantRecord.access).where(
+                *self._workspace(MailGrantRecord), MailGrantRecord.account_id == account_id, MailGrantRecord.grantee_user_id == self.owner
+            )
+        )
+        return (_account(row), access) if access in {"read", "send"} else None  # type: ignore[return-value]
+
+    def list_grants(self, account_id: str) -> list[MailGrant]:
+        rows = self.session.scalars(
+            select(MailGrantRecord).where(*self._scope(MailGrantRecord), MailGrantRecord.account_id == account_id).order_by(MailGrantRecord.created_at, MailGrantRecord.id)
+        )
+        return [_grant(row) for row in rows]
+
+    def _visible_grant(self, grant_id: str) -> MailGrantRecord | None:
+        return self.session.scalar(
+            select(MailGrantRecord).where(
+                *self._workspace(MailGrantRecord), MailGrantRecord.id == grant_id,
+                or_(MailGrantRecord.owner_user_id == self.owner, MailGrantRecord.grantee_user_id == self.owner),
+            )
+        )
+
+    def get_grant(self, grant_id: str) -> MailGrant | None:
+        row = self._visible_grant(grant_id)
+        return _grant(row) if row else None
+
+    def save_grant(self, grant: MailGrant) -> MailGrant:
+        self._check_scope(grant)
+        row = self.session.get(MailGrantRecord, grant.id)
+        if row is None:
+            row = MailGrantRecord(id=grant.id, tenant_id=grant.tenant_id, workspace_id=grant.workspace_id, owner_user_id=grant.owner_user_id, created_at=grant.created_at)
+            self.session.add(row)
+        row.account_id, row.grantee_user_id, row.access, row.updated_at = grant.account_id, grant.grantee_user_id, grant.access, grant.updated_at
+        self._flush("already shared with this person")
+        return grant
+
+    def delete_grant(self, grant_id: str) -> bool:
+        result = self.session.execute(
+            delete(MailGrantRecord).where(
+                *self._workspace(MailGrantRecord), MailGrantRecord.id == grant_id,
+                or_(MailGrantRecord.owner_user_id == self.owner, MailGrantRecord.grantee_user_id == self.owner),
+            )
+        )
+        return bool(result.rowcount)  # type: ignore[attr-defined]
+
+    # -- identities -------------------------------------------------------------------------
+
+    def _identities(self):  # type: ignore[no-untyped-def]
+        # The owner's, or a mailbox shared with the caller to send (the row policy says the same).
+        sender = select(MailGrantRecord.account_id).where(
+            *self._workspace(MailGrantRecord), MailGrantRecord.grantee_user_id == self.owner, MailGrantRecord.access == "send"
+        )
+        return select(MailIdentityRecord).where(
+            *self._workspace(MailIdentityRecord),
+            or_(MailIdentityRecord.owner_user_id == self.owner, MailIdentityRecord.account_id.in_(sender)),
+        )
+
+    def list_identities(self, account_id: str) -> list[MailIdentity]:
+        rows = self.session.scalars(
+            self._identities().where(MailIdentityRecord.account_id == account_id)
+            .order_by(MailIdentityRecord.is_default.desc(), MailIdentityRecord.address, MailIdentityRecord.id)
+        )
+        return [_identity(row) for row in rows]
+
+    def get_identity(self, identity_id: str) -> MailIdentity | None:
+        row = self.session.scalar(self._identities().where(MailIdentityRecord.id == identity_id))
+        return _identity(row) if row else None
+
+    def save_identity(self, identity: MailIdentity) -> MailIdentity:
+        self._check_scope(identity)
+        row = self.session.get(MailIdentityRecord, identity.id)
+        if row is None:
+            row = MailIdentityRecord(id=identity.id, tenant_id=identity.tenant_id, workspace_id=identity.workspace_id, owner_user_id=identity.owner_user_id, created_at=identity.created_at)
+            self.session.add(row)
+        row.account_id, row.address, row.display_name = identity.account_id, identity.address, identity.display_name
+        row.signature, row.is_default, row.updated_at = identity.signature, identity.is_default, identity.updated_at
+        self._flush("this mailbox already sends as that address")
+        return identity
+
+    def delete_identity(self, identity_id: str) -> bool:
+        result = self.session.execute(delete(MailIdentityRecord).where(*self._scope(MailIdentityRecord), MailIdentityRecord.id == identity_id))
+        return bool(result.rowcount)  # type: ignore[attr-defined]
+
+    # -- contacts ---------------------------------------------------------------------------
+
+    def list_contacts(self, query: str | None, after: tuple[str, str] | None, limit: int) -> tuple[list[MailContact], int]:
+        # Byte order ("C"), like the Python sort of the memory store, so a cursor means the same in both.
+        sort = func.lower(func.coalesce(func.nullif(MailContactRecord.name, ""), MailContactRecord.email)).collate("C")
+        ident = MailContactRecord.id.collate("C")
+        base = select(MailContactRecord).where(*self._scope(MailContactRecord))
+        if query:
+            pattern = _like(query)
+            base = base.where(
+                or_(
+                    MailContactRecord.name.ilike(pattern, escape="\\"),
+                    MailContactRecord.email.ilike(pattern, escape="\\"),
+                    MailContactRecord.company.ilike(pattern, escape="\\"),
+                )
+            )
+        total = int(self.session.scalar(select(func.count()).select_from(base.subquery())) or 0)
+        page = base
+        if after is not None:
+            page = page.where(or_(sort > after[0], and_(sort == after[0], ident > after[1])))
+        rows = self.session.scalars(page.order_by(sort, ident).limit(limit))
+        return [_contact(row) for row in rows], total
+
+    def get_contact(self, contact_id: str) -> MailContact | None:
+        row = self.session.scalar(select(MailContactRecord).where(*self._scope(MailContactRecord), MailContactRecord.id == contact_id))
+        return _contact(row) if row else None
+
+    def find_contact(self, email: str) -> MailContact | None:
+        row = self.session.scalar(select(MailContactRecord).where(*self._scope(MailContactRecord), MailContactRecord.email == email.lower()))
+        return _contact(row) if row else None
+
+    def save_contact(self, contact: MailContact) -> MailContact:
+        self._check_scope(contact)
+        require_workspace(self.session, self.tenant_id, self.workspace_id)
+        row = self.session.get(MailContactRecord, contact.id)
+        if row is None:
+            row = MailContactRecord(id=contact.id, tenant_id=contact.tenant_id, workspace_id=contact.workspace_id, owner_user_id=contact.owner_user_id, created_at=contact.created_at)
+            self.session.add(row)
+        row.name, row.email, row.company, row.phone, row.notes = contact.name, contact.email, contact.company, contact.phone, contact.notes
+        row.updated_at = contact.updated_at
+        self._flush("a contact with this address already exists")
+        return contact
+
+    def delete_contact(self, contact_id: str) -> bool:
+        result = self.session.execute(delete(MailContactRecord).where(*self._scope(MailContactRecord), MailContactRecord.id == contact_id))
+        return bool(result.rowcount)  # type: ignore[attr-defined]
+
+    def count_contacts(self) -> int:
+        return int(self.session.scalar(select(func.count()).select_from(MailContactRecord).where(*self._scope(MailContactRecord))) or 0)
+
     def list_drafts(self, account_id: str | None, limit: int) -> list[MailDraft]:
         query = select(MailDraftRecord).where(*self._scope(MailDraftRecord))
         if account_id is not None:
@@ -160,6 +429,7 @@ class SqlAlchemyMailStore:
         row.in_reply_to, row.references_header = draft.in_reply_to, draft.references
         row.source_folder, row.source_uid = draft.source_folder, draft.source_uid
         row.message_id, row.idempotency_key, row.status = draft.message_id, draft.idempotency_key, draft.status.value
+        row.identity_id = draft.identity_id
         row.approval_id, row.task_id, row.error = draft.approval_id, draft.task_id, draft.error
         row.saved_to_sent, row.sent_at, row.updated_at = draft.saved_to_sent, draft.sent_at, draft.updated_at
         try:

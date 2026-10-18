@@ -184,6 +184,7 @@ def test_summary_counts_only_the_callers_data_and_shows_retention() -> None:
         "finance_records": 0,
         "mail_mailboxes": 0,
         "mail_messages_written": 0,
+        "mail_contacts": 0,
     }
     assert body["shared"]["tasks_created"] == 1
     assert body["retention"]["conversation_days"] == settings.conversation_retention_days
@@ -372,6 +373,7 @@ def test_delete_removes_only_my_private_data_and_keeps_shared_records() -> None:
         "finance_records": 0,
         "mail_mailboxes": 0,
         "mail_messages_written": 0,
+        "mail_contacts": 0,
     }
     assert body["kept"]["tasks_created"] == 1
     assert "identity provider" in body["account_note"]

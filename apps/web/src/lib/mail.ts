@@ -7,7 +7,11 @@ export type MailFolderRole = 'inbox' | 'drafts' | 'sent' | 'archive' | 'junk' | 
 export type MailDraftKind = 'new' | 'reply' | 'reply_all' | 'forward';
 export type MailDraftStatus = 'draft' | 'pending_approval' | 'sending' | 'sent' | 'failed' | 'unknown';
 
-export interface MailAccount { id: string; address: string; display_name: string | null; status: MailAccountStatus; last_error: string | null; last_checked_at: string | null; created_at: string }
+export interface MailAccount {
+  id: string; address: string; display_name: string | null; status: MailAccountStatus; last_error: string | null; last_checked_at: string | null; created_at: string;
+  /** owner: the caller's own; send or read: shared with the caller by `owner_user_id` (phase 3). */
+  access?: 'owner' | 'send' | 'read'; owner_user_id?: string; shared_with?: number; grant_id?: string | null;
+}
 export interface MailSetup {
   enabled: boolean; configured: boolean; tenant_allowed: boolean; imap_host: string | null; imap_port: number; smtp_host: string | null; smtp_port: number;
   smtp_security: string; allowed_domains: string[]; can_read: boolean; can_act: boolean; max_recipients: number; send_per_hour: number; accounts: MailAccount[];
@@ -25,7 +29,7 @@ export interface MailDetail {
   remote_images_blocked: number; inline_images_hidden: number; attachments: MailAttachment[];
 }
 export interface MailDraft {
-  id: string; account_id: string; kind: MailDraftKind; to: string[]; cc: string[]; bcc: string[]; subject: string; body: string; in_reply_to: string | null;
+  id: string; account_id: string; identity_id?: string | null; from_address?: string; from_name?: string; kind: MailDraftKind; to: string[]; cc: string[]; bcc: string[]; subject: string; body: string; in_reply_to: string | null;
   message_id: string; status: MailDraftStatus; error: string | null; approval: ApiApproval | null; approval_note: string | null; saved_to_sent: boolean | null;
   sent_at: string | null; created_at: string; updated_at: string;
 }

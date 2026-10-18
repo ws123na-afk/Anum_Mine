@@ -153,9 +153,12 @@ class PrivateCounts(BaseModel):
     finance_records: int = 0
     # Email Center (migration 0060_email_center, docs/email.md#email-center): the caller's
     # mailboxes on the workspace mail server (never the password) and the messages written in
-    # ANUM. Mail on the server is not ANUM's copy and is not touched.
+    # ANUM. Mail on the server is not ANUM's copy and is not touched. Migration
+    # 0061_mail_sharing_contacts adds the caller's address book (their sender identities and
+    # shares belong to their mailboxes and go with them).
     mail_mailboxes: int = 0
     mail_messages_written: int = 0
+    mail_contacts: int = 0
 
     @property
     def total(self) -> int:
@@ -941,28 +944,58 @@ def mail_privacy_counts(context: TenantContext) -> dict[str, int]:
     with open_mail_store(context) as store:
         accounts = store.list_accounts()
         drafts = store.list_drafts(None, 100_000)
-    return {"mail_mailboxes": len(accounts), "mail_messages_written": len(drafts)}
+        contacts = store.count_contacts()
+    return {"mail_mailboxes": len(accounts), "mail_messages_written": len(drafts), "mail_contacts": contacts}
 
 
 def delete_mail_everything(context: TenantContext) -> None:
-    """The caller's Email Center mailboxes and, with them, every message written in ANUM."""
+    """The caller's Email Center mailboxes (with their shares and identities), every message
+    they wrote in ANUM (in shared mailboxes too), their address book, and the shares they had."""
     from .mailbox.store import open_mail_store
 
     with open_mail_store(context) as store:
-        for account in store.list_accounts():
-            store.delete_account(account.id)
+        delete_mail_store(store)
+
+
+def delete_mail_store(store: Any) -> None:
+    """Everything of the caller's in one Email Center store (memory or SQL, same transaction)."""
+    for account in store.list_accounts():
+        store.delete_account(account.id)
+    for draft in store.list_drafts(None, 100_000):
+        store.delete_draft(draft.id)
+    for _, grant in store.list_shared_accounts():
+        store.delete_grant(grant.id)
+    while True:
+        contacts, _ = store.list_contacts(None, None, 1000)
+        if not contacts:
+            break
+        for contact in contacts:
+            store.delete_contact(contact.id)
 
 
 def mail_export(context: TenantContext) -> dict[str, Any]:
-    from .mailbox.store import open_mail_store
+    from .mailbox.store import contact_sort_key, open_mail_store
 
     with open_mail_store(context) as store:
         accounts = store.list_accounts()
         drafts = store.list_drafts(None, 100_000)
+        identities = [i for a in accounts for i in store.list_identities(a.id)]
+        grants = [g for a in accounts for g in store.list_grants(a.id)]
+        shared = [g for _, g in store.list_shared_accounts()]
+        contacts: list[Any] = []
+        while True:
+            page, _ = store.list_contacts(None, contact_sort_key(contacts[-1]) if contacts else None, 1000)
+            if not page:
+                break
+            contacts += page
     return {
         # Never the password, not even encrypted.
         "mailboxes": [a.model_dump(mode="json", exclude={"password_enc"}) for a in accounts],
         "messages_written": [d.model_dump(mode="json") for d in drafts],
+        "sender_identities": [i.model_dump(mode="json") for i in identities],
+        "shares_given": [g.model_dump(mode="json") for g in grants],
+        "shares_received": [g.model_dump(mode="json") for g in shared],
+        "contacts": [c.model_dump(mode="json") for c in contacts],
     }
 
 
