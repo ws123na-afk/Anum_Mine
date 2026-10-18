@@ -1,4 +1,4 @@
-"""PostgreSQL rows of the prospecting pipeline and the outbox (migration ``0075_business_pipeline``).
+"""PostgreSQL rows of the prospecting pipeline and the outbox (migration ``0076_business_pipeline``).
 
 The generic :class:`~anum_api.db.business_repository.SqlAlchemyBusinessStore` reads and writes
 them like every other business kind, inside the caller's tenant and workspace (RLS).
@@ -124,6 +124,8 @@ class BusinessTargetProfileRecord(Base, _Row):
     roles: Mapped[list[Any]] = mapped_column(JSONB)
     keywords: Mapped[list[Any]] = mapped_column(JSONB)
     disqualifiers: Mapped[list[Any]] = mapped_column(JSONB)
+    trigger_events: Mapped[list[Any]] = mapped_column(JSONB)
+    company_size_note: Mapped[str] = mapped_column(String(300))
     value_proposition: Mapped[str] = mapped_column(Text)
     value_proposition_ar: Mapped[str] = mapped_column(Text)
     updated_by: Mapped[str | None] = mapped_column(String(160))

@@ -755,6 +755,36 @@ def test_inbox_hooks_notice_replies_and_bounces() -> None:
     assert [reply["kind"] for reply in ok(client.get(f"{OUT}/leads/{created['lead']['id']}/replies", headers=MEMBER))].count("bounce") == 1
 
 
+def test_the_inbox_reads_the_body_of_shared_mail_and_never_private_mail(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api import email_inbox
+
+    fetched: list[str] = []
+
+    async def body(context: TenantContext, account: Any, message: Any) -> Any:
+        fetched.append(message.from_address)
+        return SimpleNamespace(text="Thanks, but please unsubscribe me from your list.", truncated=False, attachments=[])
+
+    monkeypatch.setattr(email_inbox, "fetch_body", body)
+    shared = SimpleNamespace(visibility=email_inbox.Visibility.WORKSPACE)
+    created, _ = queued()
+    stranger = SimpleNamespace(from_address="someone@else.example", subject="Hello", snippet="")
+    reply = SimpleNamespace(from_address="orders@bakery.example", subject="Re: A question", snippet="Thanks")
+    assert asyncio.run(email_inbox._note_business_replies(CONTEXT, shared, [stranger, reply])) == 1  # type: ignore[arg-type]
+    assert fetched == ["orders@bakery.example"]  # only the lead's reply is read
+    kinds = [item["kind"] for item in ok(client.get(f"{OUT}/leads/{created['lead']['id']}/replies", headers=MEMBER))]
+    assert kinds == ["opt_out"]  # the opt-out wording was only in the body
+    assert "unsubscribe" not in str(business_store._rows["replies"])  # classified, never stored
+
+    fetched.clear()
+    private = SimpleNamespace(visibility=email_inbox.Visibility.PRIVATE)
+    second, item = queued(company="Second Co", email_address="buy@second.example")
+    from_private = SimpleNamespace(from_address="buy@second.example", subject="Re: hi", snippet="Please unsubscribe me")
+    assert asyncio.run(email_inbox._note_business_replies(CONTEXT, private, [from_private])) == 1  # type: ignore[arg-type]
+    assert fetched == []  # a private mailbox's content is never read
+    assert [r["kind"] for r in ok(client.get(f"{OUT}/leads/{second['lead']['id']}/replies", headers=MEMBER))] == ["reply"]
+    assert ok(client.get(f"{OUT}/items/{item['id']}", headers=MEMBER))["status"] == "cancelled"
+
+
 def test_outbox_records_are_scoped(email: FakeEmail) -> None:
     created, item = queued()
     for headers in (OTHER_WORKSPACE, OTHER_TENANT):

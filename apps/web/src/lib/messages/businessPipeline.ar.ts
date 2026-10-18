@@ -29,6 +29,8 @@ export const businessPipelineAr: Record<keyof typeof businessPipelineEn, Message
   'biz.target.keywords': 'كلمات مفتاحية',
   'biz.target.disqualifiers': 'عوامل الاستبعاد',
   'biz.target.sizes': 'أحجام الشركات',
+  'biz.target.sizeNote': 'حجم الشركة بكلماتك',
+  'biz.target.triggers': 'أحداث محفزة (حدث في كل سطر، للمحادثات)',
   'biz.target.pitch': 'عرض القيمة',
   'biz.target.pitchAr': 'عرض القيمة بالعربية',
   'biz.target.edit': 'تعديل',

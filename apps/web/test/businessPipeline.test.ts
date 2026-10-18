@@ -29,7 +29,7 @@ describe('business prospecting and outreach', () => {
 
   test('a target profile round-trips through the form and drops unknown sizes', () => {
     const profile = { industries: ['Fleet'], company_sizes: ['medium' as const], regions: ['Saudi Arabia', 'UAE'], roles: ['Fleet manager'], keywords: ['tyre'],
-      disqualifiers: ['government'], value_proposition: 'Track every tyre.', value_proposition_ar: 'تتبع كل إطار.' };
+      disqualifiers: ['government'], trigger_events: ['New fleet contract'], company_size_note: '20 to 200 vehicles', value_proposition: 'Track every tyre.', value_proposition_ar: 'تتبع كل إطار.' };
     const draft = targetDraft(profile);
     assert.equal(draft.regions, 'Saudi Arabia, UAE');
     assert.deepEqual(targetBody({ ...draft, sizes: [...draft.sizes, 'huge'], pitch: '  Track every tyre.  ' }), profile);

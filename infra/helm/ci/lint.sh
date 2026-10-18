@@ -151,6 +151,19 @@ refuses "ANUM_MAILSERVER_SMTP_SECURITY must be starttls or tls" "${MAIL_ON[@]}" 
 refuses "ANUM_MAILSERVER_ALLOWED_DOMAINS" "${MAIL_ON[@]}" --set-string config.ANUM_MAILSERVER_ALLOWED_DOMAINS=
 refuses "ANUM_MAILSERVER_ALLOWED_TENANTS" --set-string config.ANUM_MAILSERVER_ENABLED=true --set-string config.ANUM_MAILSERVER_IMAP_HOST=mail.anum.example --set-string config.ANUM_MAILSERVER_SMTP_HOST=mail.anum.example
 refuses "ANUM_LEARNING_ENABLED" --set-string extraEnv.ANUM_LEARNING_ENABLED=sometimes
+# Upload malware scanning (docs/files.md#malware-scanning): off by default; with clamav,
+# the API's refusals (a host is required, scanning may never fail open outside local).
+grep -q '^  ANUM_FILE_SCANNER: "off"' <<<"$configmap" || fail "configmap.yaml: ANUM_FILE_SCANNER must default to off"
+SCAN_ON=(--set-string config.ANUM_FILE_SCANNER=clamav --set-string config.ANUM_CLAMAV_HOST=clamav.clamav.svc)
+helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" "${SCAN_ON[@]}" >/dev/null \
+  || fail "the chart must render with a valid ClamAV configuration"
+refuses "ANUM_FILE_SCANNER" --set-string config.ANUM_FILE_SCANNER=virustotal
+refuses "ANUM_CLAMAV_HOST is required" --set-string config.ANUM_FILE_SCANNER=clamav
+refuses "ANUM_CLAMAV_HOST" "${SCAN_ON[@]}" --set-string config.ANUM_CLAMAV_HOST=tcp://clamd:3310
+refuses "ANUM_FILE_SCAN_REQUIRED must stay true" "${SCAN_ON[@]}" --set-string config.ANUM_FILE_SCAN_REQUIRED=false
+refuses "ANUM_FILE_SCAN_REQUIRED must stay true" "${SCAN_ON[@]}" --set-string extraEnv.ANUM_FILE_SCAN_REQUIRED=0
+refuses "ANUM_CLAMAV_PORT" --set-string config.ANUM_CLAMAV_PORT=70000
+refuses "ANUM_CLAMAV_TIMEOUT_SECONDS" --set-string config.ANUM_CLAMAV_TIMEOUT_SECONDS=0
 
 # ---------------------------------------------------------------------------
 # Admission policy chart (infra/helm/anum-admission, docs/deployment.md#admission-policy).

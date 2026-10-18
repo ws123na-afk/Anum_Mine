@@ -1,7 +1,7 @@
 """Records of the prospecting pipeline and the outreach outbox (docs/business.md#prospecting-pipeline).
 
 The Harvey patterns (docs/business/HARVEY_PARITY.md) written as ANUM records, one tenant and
-workspace each (migration ``0075_business_pipeline``):
+workspace each (migration ``0076_business_pipeline``):
 
 * :class:`OutreachSettings`: one row per workspace: which signals the owner confirmed,
   the daily page-fetch cap, sending (off by default), per-channel daily quotas, the bounce
@@ -76,6 +76,8 @@ class TargetProfile(Scoped):
     roles: list[str] = Field(default_factory=list, max_length=20)
     keywords: list[str] = Field(default_factory=list, max_length=30)
     disqualifiers: list[str] = Field(default_factory=list, max_length=30)
+    trigger_events: list[str] = Field(default_factory=list, max_length=20)
+    company_size_note: str = Field(default="", max_length=300)
     value_proposition: str = Field(default="", max_length=1000)
     value_proposition_ar: str = Field(default="", max_length=1000)
     updated_by: str | None = None

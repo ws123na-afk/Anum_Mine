@@ -49,6 +49,8 @@ export interface TargetProfileInput {
   roles: string[];
   keywords: string[];
   disqualifiers: string[];
+  trigger_events: string[];
+  company_size_note: string;
   value_proposition: string;
   value_proposition_ar: string;
 }

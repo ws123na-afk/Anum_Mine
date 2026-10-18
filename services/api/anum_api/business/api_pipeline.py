@@ -134,6 +134,8 @@ class TargetProfileInput(BaseModel):
     roles: list[str] = Field(default_factory=list, max_length=20)
     keywords: list[str] = Field(default_factory=list, max_length=30)
     disqualifiers: list[str] = Field(default_factory=list, max_length=30)
+    trigger_events: list[str] = Field(default_factory=list, max_length=20)
+    company_size_note: str = Field(default="", max_length=300)
     value_proposition: str = Field(default="", max_length=1000)
     value_proposition_ar: str = Field(default="", max_length=1000)
 
@@ -174,7 +176,9 @@ def save_target(product_id: str, payload: TargetProfileInput, context: TenantCon
     with open_business_store(context) as store:
         product = get_or_404(store, "products", product_id, "Product")
         profile = store.first("target_profiles", product_id=product.id)
-        values = {name: clean_list(getattr(payload, name), 120) for name in ("industries", "regions", "roles", "keywords", "disqualifiers")}
+        values: dict[str, Any] = {name: clean_list(getattr(payload, name), 120) for name in ("industries", "regions", "roles", "keywords", "disqualifiers")}
+        values["trigger_events"] = clean_list(payload.trigger_events, 300)
+        values["company_size_note"] = " ".join(payload.company_size_note.split())
         values["company_sizes"] = list(dict.fromkeys(payload.company_sizes))
         values["value_proposition"] = " ".join(payload.value_proposition.split())
         values["value_proposition_ar"] = " ".join(payload.value_proposition_ar.split())

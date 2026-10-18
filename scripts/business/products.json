@@ -1,5 +1,5 @@
 {
-  "_about": "The owner's own products for the Business catalog, loaded by scripts/business/seed-products.py. Facts come from docs/business/products/<slug>.md, which lists the sources. Prices are not set: every offer is 'quote' until the owner confirms a price. The target_profile block is NOT sent: the business API has no fields for it yet (the Harvey branch adds them).",
+  "_about": "The owner's own products for the Business catalog, loaded by scripts/business/seed-products.py. Facts come from docs/business/products/<slug>.md, which lists the sources. Prices are not set: every offer is 'quote' until the owner confirms a price. The target_profile block becomes each product's target customer profile (PUT /api/v1/business/pipeline/products/{id}/target); '-' means unknown.",
   "products": [
     {
       "slug": "anum-os",
@@ -45,7 +45,6 @@
         "notes": "Price: '-' (owner to confirm). Recommendation: quote the pilot from the roadmap pricing formula (labor hours x internal hourly cost + verified external costs + contingency + profit) and set SaaS prices only after 5 to 10 buyer interviews and 2 to 3 paid pilots (roadmap 2.3). Cost assumptions are zero until the owner enters them."
       },
       "target_profile": {
-        "_pending_api": "Not sent. Waiting for the target-profile fields on the Harvey branch.",
         "industries": ["Professional services", "Retail and e-commerce operators", "Operations teams with many repeated tasks"],
         "company_size": "5 to 50 staff",
         "regions": ["UAE", "Saudi Arabia", "Rest of GCC"],
@@ -93,7 +92,6 @@
         "notes": "Price: '-' (owner to confirm). Recommendation: the roadmap's test price hypothesis for this pilot is SAR 750 to 1,500 (roadmap 2.2, not market research). The Tyre Pulse website quotes plans on request, never a published figure. Cost assumptions are zero until the owner enters them."
       },
       "target_profile": {
-        "_pending_api": "Not sent. Waiting for the target-profile fields on the Harvey branch.",
         "industries": ["Construction", "Transport and logistics", "Ready-mix concrete", "Equipment rental", "Workshop networks", "Government and enterprise fleets"],
         "company_size": "Fleets of about 50 or more vehicles and machines, one or more sites",
         "regions": ["UAE", "Saudi Arabia", "Rest of GCC"],
@@ -132,7 +130,6 @@
         "notes": "Price: '-' (owner to confirm). Recommendation: quote after scoping, as roadmap 2.2 says, using the pricing formula. Maturity is set to 'idea' only because it is not verified here: owner to set it."
       },
       "target_profile": {
-        "_pending_api": "Not sent. Waiting for the target-profile fields on the Harvey branch.",
         "industries": ["Service businesses that send quotations"],
         "company_size": "-",
         "regions": ["UAE", "Saudi Arabia", "Rest of GCC"],
@@ -155,7 +152,6 @@
       },
       "offer": null,
       "target_profile": {
-        "_pending_api": "Not sent. Waiting for the target-profile fields on the Harvey branch.",
         "industries": ["-"],
         "company_size": "-",
         "regions": ["UAE"],

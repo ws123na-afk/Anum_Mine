@@ -21,8 +21,8 @@ export async function mockPipeline(page: Page, options: { role?: 'owner' | 'memb
     { id: 'bprod_voice', kind: 'product', name: 'VoiceQuote', name_ar: '', summary: 'Quotes by voice.', maturity: 'pilot', integrations: [], created_by: 'u', created_at: now(), updated_at: now(), offers: [], active_offer: null, versions: 0 },
   ];
   const targets: Json[] = [
-    { product_id: 'bprod_tyre', product_name: 'TyrePulse', saved: false, industries: [], company_sizes: [], regions: ['Saudi Arabia', 'United Arab Emirates'], roles: [], keywords: [], disqualifiers: [], value_proposition: 'Fleet tyre management.', value_proposition_ar: '', updated_by: null, updated_at: null },
-    { product_id: 'bprod_voice', product_name: 'VoiceQuote', saved: false, industries: [], company_sizes: [], regions: ['Saudi Arabia'], roles: [], keywords: [], disqualifiers: [], value_proposition: 'Quotes by voice.', value_proposition_ar: '', updated_by: null, updated_at: null },
+    { product_id: 'bprod_tyre', product_name: 'TyrePulse', saved: false, industries: [], company_sizes: [], regions: ['Saudi Arabia', 'United Arab Emirates'], roles: [], keywords: [], disqualifiers: [], trigger_events: [], company_size_note: '', value_proposition: 'Fleet tyre management.', value_proposition_ar: '', updated_by: null, updated_at: null },
+    { product_id: 'bprod_voice', product_name: 'VoiceQuote', saved: false, industries: [], company_sizes: [], regions: ['Saudi Arabia'], roles: [], keywords: [], disqualifiers: [], trigger_events: [], company_size_note: '', value_proposition: 'Quotes by voice.', value_proposition_ar: '', updated_by: null, updated_at: null },
   ];
   const signals: Json[] = [
     { code: 'FOUND_IN_SEARCH', label: 'Found in a market search', description: 'The company appeared in a web search.', category: 'discovery', value_type: 'text', cost_note: 'Included.', criterion: null, status: 'proposed', decided_by: null, decided_at: null },

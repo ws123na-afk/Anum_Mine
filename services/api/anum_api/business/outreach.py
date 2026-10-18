@@ -44,7 +44,7 @@ from . import assist
 from .models import CONTACTABLE_BASES, Contact, Draft, DraftChannel, DraftStatus, Lead, LeadState
 from .outreach_models import OPEN_OUTBOX, SENDABLE_CHANNELS, OutboxItem, OutboxStatus, ReplyEvent, ReplyKind
 
-# Rows that hold their draft's and their step's place (the unique indexes of migration 0075).
+# Rows that hold their draft's and their step's place (the unique indexes of migration 0076).
 LIVE_OUTBOX = frozenset(set(OPEN_OUTBOX) | {OutboxStatus.SENDING, OutboxStatus.SENT, OutboxStatus.NEEDS_REVIEW})
 # A claim older than this with no provider id is an interrupted send: reviewed by a person, never resent.
 STALE_SENDING = timedelta(minutes=10)
@@ -597,12 +597,32 @@ def note_inbound(context: TenantContext, channel: str, address: str, text: str =
 BOUNCE_SENDERS = re.compile(r"^(mailer-daemon|postmaster|mail-daemon|bounce[s]?)@", re.IGNORECASE)
 
 
+def inbound_candidates(context: TenantContext, addresses: list[str]) -> set[str]:
+    """The senders (lowercase) worth reading: bounce senders, and contacts of leads that have outbox rows.
+    The inbox reads bodies for these only."""
+    found: set[str] = set()
+    with open_business_store(context) as store:
+        for address in {value.strip().lower() for value in addresses if value}:
+            if BOUNCE_SENDERS.match(address):
+                found.add(address)
+                continue
+            normalized = suppression.normalize(address)
+            if normalized is None or normalized[0] != "email":
+                continue
+            for contact in store.find("contacts", Query(where={"email": normalized[1]}, limit=20))[0]:
+                if any(store.first("outbox", lead_id=lead.id) is not None for lead in store.find("leads", Query(where={"contact_id": contact.id}, limit=20))[0]):
+                    found.add(address)
+                    break
+    return found
+
+
 def note_inbound_emails(context: TenantContext, messages: list[Any]) -> int:
     """Hook for the e-mail inbox sync: replies from contacts, and bounces naming a sent recipient."""
     matched = 0
     for message in messages:
         sender = str(getattr(message, "from_address", "") or "")
-        text = f"{getattr(message, 'subject', '') or ''}\n{getattr(message, 'snippet', '') or ''}"
+        # Subject, preview and (when the inbox read it) the body: classified in memory, never stored.
+        text = f"{getattr(message, 'subject', '') or ''}\n{getattr(message, 'snippet', '') or ''}\n{getattr(message, 'body', '') or ''}"
         if BOUNCE_SENDERS.match(sender):
             for address in set(re.findall(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", text)):
                 with open_business_store(context) as store:

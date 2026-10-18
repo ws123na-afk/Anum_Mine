@@ -58,17 +58,19 @@ export function fitText(fit: Pick<ProductFit, 'score' | 'disqualified'>): string
   return fit.score === null ? t('biz.fit.noProfile') : t('biz.fit.score', { score: fit.score });
 }
 
-export interface TargetDraft { industries: string; sizes: string[]; regions: string; roles: string; keywords: string; disqualifiers: string; pitch: string; pitchAr: string }
+export interface TargetDraft { industries: string; sizes: string[]; sizeNote: string; regions: string; roles: string; keywords: string; disqualifiers: string; triggers: string; pitch: string; pitchAr: string }
 
 export const targetDraft = (profile: TargetProfileInput): TargetDraft => ({
   industries: profile.industries.join(', '), sizes: [...profile.company_sizes], regions: profile.regions.join(', '), roles: profile.roles.join(', '),
-  keywords: profile.keywords.join(', '), disqualifiers: profile.disqualifiers.join(', '), pitch: profile.value_proposition, pitchAr: profile.value_proposition_ar,
+  keywords: profile.keywords.join(', '), disqualifiers: profile.disqualifiers.join(', '), triggers: profile.trigger_events.join('\n'), sizeNote: profile.company_size_note,
+  pitch: profile.value_proposition, pitchAr: profile.value_proposition_ar,
 });
 
 export function targetBody(draft: TargetDraft): TargetProfileInput {
   return {
     industries: wordsOf(draft.industries), company_sizes: draft.sizes.filter((size): size is (typeof SIZES)[number] => (SIZES as readonly string[]).includes(size)) as TargetProfileInput['company_sizes'],
     regions: wordsOf(draft.regions), roles: wordsOf(draft.roles), keywords: wordsOf(draft.keywords, 30), disqualifiers: wordsOf(draft.disqualifiers, 30),
+    trigger_events: draft.triggers.split(/\r?\n/).map((line) => line.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 20), company_size_note: draft.sizeNote.trim(),
     value_proposition: draft.pitch.trim(), value_proposition_ar: draft.pitchAr.trim(),
   };
 }

@@ -95,6 +95,8 @@ function TargetForm({ target, onDone }: { target: TargetProfile; onDone: () => v
       <fieldset className="field"><legend>{t('biz.target.sizes')}</legend><div className="bzInline">{SIZES.map((size) => <label key={size} className="bzCheck">
         <input type="checkbox" checked={draft.sizes.includes(size)} onChange={(event) => set('sizes', event.target.checked ? [...draft.sizes, size] : draft.sizes.filter((item) => item !== size))} />{t(key(`biz.size.${size}`))}</label>)}</div></fieldset>
     </div>
+    <label className="field" htmlFor={`${base}-sizeNote`}><span>{t('biz.target.sizeNote')}</span><input id={`${base}-sizeNote`} dir="auto" value={draft.sizeNote} onChange={(event) => set('sizeNote', event.target.value)} /></label>
+    <label className="field" htmlFor={`${base}-triggers`}><span>{t('biz.target.triggers')}</span><textarea id={`${base}-triggers`} rows={3} dir="auto" value={draft.triggers} onChange={(event) => set('triggers', event.target.value)} /></label>
     <label className="field" htmlFor={`${base}-pitch`}><span>{t('biz.target.pitch')}</span><textarea id={`${base}-pitch`} rows={2} dir="auto" value={draft.pitch} onChange={(event) => set('pitch', event.target.value)} /></label>
     <label className="field" htmlFor={`${base}-pitchAr`}><span>{t('biz.target.pitchAr')}</span><textarea id={`${base}-pitchAr`} rows={2} dir="rtl" value={draft.pitchAr} onChange={(event) => set('pitchAr', event.target.value)} /></label>
     {problem && <Note error>{problem}</Note>}

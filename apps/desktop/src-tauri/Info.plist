@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged by the Tauri CLI into the generated Info.plist. macOS shows this text when ANUM first
+     asks for the microphone (docs/desktop.md, "Microphone"). -->
+<plist version="1.0">
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>ANUM uses the microphone only during a call you place through ANUM or a voice question you start.</string>
+</dict>
+</plist>

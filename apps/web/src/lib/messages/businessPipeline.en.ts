@@ -29,6 +29,8 @@ export const businessPipelineEn = {
   'biz.target.keywords': 'Keywords',
   'biz.target.disqualifiers': 'Disqualifiers',
   'biz.target.sizes': 'Company sizes',
+  'biz.target.sizeNote': 'Company size in your words',
+  'biz.target.triggers': 'Trigger events (one per line, for conversations)',
   'biz.target.pitch': 'Value proposition',
   'biz.target.pitchAr': 'Value proposition in Arabic',
   'biz.target.edit': 'Edit',

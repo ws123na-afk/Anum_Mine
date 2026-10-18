@@ -44,7 +44,7 @@ Part of Order 001: [gap register](ANUM_BUSINESS_GAP_REGISTER.md), [P1 acceptance
 
 ## Per-product targeting
 
-Each product has a target customer profile (`business_target_profiles`, migration `0075_business_pipeline`), edited by owners in Prospecting on the web. Fields a seeding script fills, per product id:
+Each product has a target customer profile (`business_target_profiles`, migration `0076_business_pipeline`), edited by owners in Prospecting on the web. Fields a seeding script fills, per product id:
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -54,11 +54,14 @@ Each product has a target customer profile (`business_target_profiles`, migratio
 | `roles` | list of text (20) | Buyer roles to look for in a conversation. |
 | `keywords` | list of text (30) | Words that raise fit when the company's own pages use them. |
 | `disqualifiers` | list of text (30) | Words that drop a discovered company and mark its fit disqualified. |
+| `trigger_events` | list of text (20) | Events that make a buyer ready (for conversations; not used for fit). |
+| `company_size_note` | text (300) | The size in the owner's own words, kept next to the mapped bands. |
 | `value_proposition`, `value_proposition_ar` | text (1000) | The pitch drafts use, per language. |
 
 Seed through the API: `PUT /api/v1/business/pipeline/products/{product_id}/target` (owner).
 
-## Not finished
+## Tests
 
-- Database (RLS) tests for the six new tables are not written yet; the migration test checks their shape and forced RLS.
-- Reply detection reads the e-mail inbox's subject and preview only (the inbox does not keep bodies); bounces are matched by the recipient named in them.
+- `services/api/tests/test_business_pipeline.py`: every capability above, the concurrency of sends and quota reservations, and the synthetic journey.
+- `services/api/tests/test_postgres_business_pipeline.py` (marker `database`): forced RLS on all six tables, cross-tenant and cross-workspace reads and writes refused, scoped foreign keys, the unique indexes.
+- `services/api/tests/test_seed_products_script.py`: the seeding script fills the target profiles.

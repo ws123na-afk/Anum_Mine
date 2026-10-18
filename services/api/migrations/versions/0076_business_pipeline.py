@@ -24,7 +24,7 @@ No role is granted anything and no discovery role reads these tables.
 
 Expand only: new tables and indexes. The previous release ignores them.
 
-Numbered 0075 and chained after ``0074_brevo_campaigns``, the head of ``main``; renumber at merge if
+Numbered 0076 and chained after ``0075_file_scan_status``, the head of ``main``; renumber at merge if
 another branch lands a migration first.
 """
 
@@ -32,8 +32,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0075_business_pipeline"
-down_revision = "0074_brevo_campaigns"
+revision = "0076_business_pipeline"
+down_revision = "0075_file_scan_status"
 branch_labels = None
 depends_on = None
 
@@ -129,6 +129,8 @@ def upgrade() -> None:
         _jsonb("roles"),
         _jsonb("keywords"),
         _jsonb("disqualifiers"),
+        _jsonb("trigger_events"),
+        sa.Column("company_size_note", sa.String(300), nullable=False, server_default=""),
         sa.Column("value_proposition", sa.Text(), nullable=False, server_default=""),
         sa.Column("value_proposition_ar", sa.Text(), nullable=False, server_default=""),
         sa.Column("updated_by", sa.String(160), nullable=True),
