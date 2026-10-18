@@ -11,6 +11,7 @@ import { EMAIL_PATTERN, TENANT_ID_PATTERN, healthTone, organisationInvitationLin
 import { figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { Modal } from './Dialog';
+import { MailDomains } from './MailDomains';
 import { MailHealthPane } from './MailHealthPane';
 import { PageHeader, PageSummary, PaneProblem } from './PageParts';
 import './team.css';
@@ -117,6 +118,7 @@ export function OrganisationsView() {
       </table></div>}
     </section>}
     {orgs && <MailHealthPane />}
+    {orgs && <MailDomains />}
     <p className="muted orgPrivacy">{t('orgs.privacyNote')}</p>
   </div>;
 }
