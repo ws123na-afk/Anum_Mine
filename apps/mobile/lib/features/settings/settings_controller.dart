@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../admin/admin_repository.dart';
+import '../admin/org_admin_repository.dart';
 import '../auth/auth_repository.dart';
 import '../autonomy/autonomy_repository.dart';
 import '../learning/learning_repository.dart';
@@ -24,6 +25,7 @@ enum SettingsPhase {
 class SettingsController extends ChangeNotifier {
   SettingsController(this.repository,
       {this.admin,
+      this.orgAdmin,
       this.privacy,
       this.push,
       this.autonomy,
@@ -34,6 +36,9 @@ class SettingsController extends ChangeNotifier {
 
   /// Members, invitations and model budgets; the API decides who may use them.
   final AdminRepository? admin;
+
+  /// Contact opt-outs, this workspace, setup plans and the org chart.
+  final OrgAdminRepository? orgAdmin;
 
   /// Download my data / Delete my data (docs/privacy.md).
   final PrivacyRepository? privacy;

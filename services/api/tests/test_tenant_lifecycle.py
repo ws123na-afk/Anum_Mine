@@ -176,7 +176,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
     in_migration = set(module._all_tables())
     assert in_migration == {t.name for t in PURGED_TABLES}
     assert LIFECYCLE_JOBS_TABLE not in in_migration
-    assert len(module.revision) <= 32 and module.down_revision == "0074_brevo_campaigns"
+    assert len(module.revision) <= 32 and module.down_revision == "0075_file_scan_status"
     for name in in_migration:
         predicate = module._purge_predicate(name)
         assert "anum.tenant_id" in predicate and "status = 'purging'" in predicate

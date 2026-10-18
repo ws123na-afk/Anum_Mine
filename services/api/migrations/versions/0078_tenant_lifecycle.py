@@ -24,7 +24,7 @@
 Expand only: two new tables, new policies, grants to two NOLOGIN roles and a widened
 restrictive predicate that admits only the purger. The previous release ignores them.
 
-Numbered 0078 and chained after ``0074_brevo_campaigns``; parallel branches use 0075 to
+Numbered 0078 and chained after ``0075_file_scan_status``, the head of ``main``; parallel branches use 0076 and
 0077, so the owner renumbers at merge.
 """
 
@@ -33,7 +33,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0078_tenant_lifecycle"
-down_revision = "0074_brevo_campaigns"
+down_revision = "0075_file_scan_status"
 branch_labels = None
 depends_on = None
 
