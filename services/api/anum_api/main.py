@@ -148,11 +148,8 @@ from .finance.wider_api import router as finance_wider_router
 from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
 from .mailbox.api import router as mail_router
-<<<<<<< HEAD
 from .mailbox.operator_api import router as mail_operator_router
-=======
 from .mailbox.outgoing import build_schedule_runner
->>>>>>> origin/claude/email-center
 from .mailbox.service import register_mail_tools
 from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts

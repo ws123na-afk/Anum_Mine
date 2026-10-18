@@ -32,10 +32,7 @@ from ..settings import settings
 from .config import MailServerSettings, mail_settings
 from .mime import Outgoing, OutgoingFile, build_message, valid_address
 from .server import Folder, ImapSmtpServer, MailServer, MailServerError
-<<<<<<< HEAD
-from .store import AccountStatus, DraftStatus, MailAccount, MailDraft, open_mail_store
 from . import monitor
-=======
 from .store import (
     NOT_APPROVED_IN_TIME,
     SEND_LEASE,
@@ -46,7 +43,6 @@ from .store import (
     MailDraft,
     open_mail_store,
 )
->>>>>>> origin/claude/email-center
 
 logger = logging.getLogger("anum.mail")
 
@@ -347,22 +343,14 @@ async def deliver(owner: TenantContext, draft: MailDraft, account: MailAccount, 
         report = await on_server(owner, account, lambda server: server.send(account.address, recipients, raw))
     except MailError as exc:
         if exc.kind == "uncertain":
-<<<<<<< HEAD
-            record(DraftStatus.UNKNOWN, exc.message[:500])
+            record_send(owner, draft.id, DraftStatus.UNKNOWN, exc.message[:500])
             monitor.bump(owner, "send_unknown")
             return _failed(exc.message, draft_id=draft.id)
-        record(DraftStatus.FAILED, exc.message[:500])
+        record_send(owner, draft.id, DraftStatus.FAILED, exc.message[:500])
         monitor.bump(owner, "send_failed")
         return _failed(f"Not sent: {exc.message}", draft_id=draft.id)
-    record(DraftStatus.SENT, None)
-    monitor.bump(owner, "sent")
-=======
-            record_send(owner, draft.id, DraftStatus.UNKNOWN, exc.message[:500])
-            return _failed(exc.message, draft_id=draft.id)
-        record_send(owner, draft.id, DraftStatus.FAILED, exc.message[:500])
-        return _failed(f"Not sent: {exc.message}", draft_id=draft.id)
     record_send(owner, draft.id, DraftStatus.SENT, None)
->>>>>>> origin/claude/email-center
+    monitor.bump(owner, "sent")
 
     def save_copy(server: MailServer) -> bool:
         sent = folder_by_role(server.folders(), "sent")

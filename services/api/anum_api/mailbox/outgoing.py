@@ -33,6 +33,7 @@ from sqlalchemy import text
 from ..audit import AuditRecord
 from ..schemas import TenantContext, new_id, utc_now
 from ..settings import settings
+from . import monitor
 from .config import mail_settings
 from .store import SEND_LEASE, DraftStatus, MailAttachment, MailDraft, mail_backend, open_mail_store
 
@@ -258,6 +259,7 @@ async def handle_due(tenant_id: str, workspace_id: str, owner_user_id: str, draf
             return store.count_sends_since(account.id, now - timedelta(hours=1)) > mail_settings.send_per_hour
 
     if await asyncio.to_thread(over_limit):
+        await asyncio.to_thread(monitor.bump, context, "send_rate_limited")
         return await fail(f"Not sent: this mailbox already sent {mail_settings.send_per_hour} messages in the last hour. Schedule it again.", "rate_limited")
     result = await deliver(context, draft, account, attachments)
     await asyncio.to_thread(

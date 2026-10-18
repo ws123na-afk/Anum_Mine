@@ -57,13 +57,8 @@ from .service import (
     tenant_allowed,
     utc_iso,
 )
-<<<<<<< HEAD
 from . import monitor, service
-from .store import EDITABLE, AccountStatus, DraftKind, DraftStatus, MailAccount, MailDraft, open_mail_store
-=======
-from . import service
 from .store import EDITABLE, AccountStatus, DraftKind, DraftStatus, MailAccount, MailAttachment, MailDraft, open_mail_store
->>>>>>> origin/claude/email-center
 
 router = APIRouter(prefix="/api/v1/mail", tags=["mail"])
 
@@ -988,12 +983,8 @@ async def send_draft(
         raise _http(exc) from None
     # A scheduled message is counted when it goes (the scheduler checks the limit then).
     with open_mail_store(context) as store:
-<<<<<<< HEAD
-        if store.count_sends_since(account.id, utc_now() - timedelta(hours=1)) >= mail_settings.send_per_hour:
-            monitor.bump(context, "send_rate_limited")
-=======
         if send_at is None and store.count_sends_since(account.id, utc_now() - timedelta(hours=1)) >= mail_settings.send_per_hour:
->>>>>>> origin/claude/email-center
+            monitor.bump(context, "send_rate_limited")
             raise HTTPException(status_code=429, detail=f"This mailbox sent {mail_settings.send_per_hour} messages in the last hour. Try again later.")
     with open_mail_store(context) as store:
         attachments = store.list_attachments(draft.id)
