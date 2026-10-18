@@ -14,7 +14,7 @@ import hashlib
 import hmac
 import json
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -48,15 +48,6 @@ DEVICE_B2 = "device-bob-000000002"
 OFFER = "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\n"
 
 client = TestClient(main.app)
-
-
-def turn_credential_valid(turn_label: str, credential: str, *, now=None) -> bool:  # type: ignore[no-untyped-def]
-    """What coturn checks (use-auth-secret): the HMAC matches and the expiry has not passed."""
-    expiry, _, _ = turn_label.partition(":")
-    if not expiry.isdigit():
-        return False
-    expected = base64.b64encode(hmac.new(SECRET.encode(), turn_label.encode(), hashlib.sha1).digest()).decode()
-    return hmac.compare_digest(expected, credential) and int(expiry) > (now or utc_now()).timestamp()
 
 
 def headers(user: str, role: str = "member", workspace: str = WORKSPACE, tenant: str = TENANT) -> dict[str, str]:
@@ -146,25 +137,27 @@ def test_stun_only_mode_is_opt_in_and_says_its_limit(monkeypatch: pytest.MonkeyP
     assert servers["expires_at"] is None
 
 
-def test_turn_mode_mints_credentials_that_expire() -> None:
+def test_turn_mode_mints_credentials_that_expire(monkeypatch: pytest.MonkeyPatch) -> None:
     servers = client.get("/api/v1/calls/ice-servers", headers=headers("alice")).json()
     assert servers["mode"] == "turn" and servers["ttl_seconds"] == settings.calls_turn_ttl_seconds
     stun, turn = servers["ice_servers"]
     assert stun["urls"] == ["stun:turn.example.test:3478"] and stun["credential"] is None
     assert turn["urls"][0].startswith("turn:")
-    turn_label = turn["username"]
-    assert turn_credential_valid(turn_label, turn["credential"])
+    expiry, _, opaque = turn["username"].partition(":")
+    assert expiry.isdigit() and int(expiry) > utc_now().timestamp() and len(opaque) == 24
+    assert len(base64.b64decode(turn["credential"])) == 20
     # The label is "<expiry>:<random id>": no user id, no tenant id.
-    assert "alice" not in turn_label and TENANT not in turn_label
+    assert "alice" not in turn["username"] and TENANT not in turn["username"]
     # Random per issue: two credentials for the same person share nothing but the expiry format.
     assert turn_credentials(ctx("alice"))[0].split(":")[1] != turn_credentials(ctx("alice"))[0].split(":")[1]
-    now = utc_now()
-    turn_label, credential, expires_at = turn_credentials(ctx("alice"), now=now, ttl=600)
-    assert expires_at - now <= timedelta(seconds=600)
-    assert turn_credential_valid(turn_label, credential, now=now + timedelta(seconds=599))
-    assert not turn_credential_valid(turn_label, credential, now=now + timedelta(seconds=601))
-    assert not turn_credential_valid(turn_label, credential[:-2] + "AA", now=now)
-    assert not turn_credential_valid("9999999999:forged", credential, now=now)
+    # coturn's use-auth-secret scheme: base64(HMAC-SHA1(secret, "<expiry>:<id>")) over a fixed label.
+    monkeypatch.setattr(app_calls.secrets, "token_hex", lambda size: "0" * (size * 2))
+    now = datetime(2030, 1, 1, tzinfo=UTC)
+    label, credential, expires_at = turn_credentials(ctx("alice"), now=now, ttl=600)
+    assert label == "1893456600:000000000000000000000000"
+    expected_label = b"1893456600:000000000000000000000000"
+    assert credential == base64.b64encode(hmac.new(SECRET.encode(), expected_label, hashlib.sha1).digest()).decode()
+    assert expires_at == now + timedelta(seconds=600)
 
 
 def test_the_secret_never_appears_in_any_answer() -> None:
