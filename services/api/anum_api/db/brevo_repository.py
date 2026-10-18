@@ -1,4 +1,4 @@
-"""PostgreSQL store for Brevo email campaigns (migration ``0071_brevo_campaigns``).
+"""PostgreSQL store for Brevo email campaigns (migration ``0074_brevo_campaigns``).
 
 The session carries the tenant and workspace RLS context (``open_scoped_store``); every
 query also filters on the scope explicitly, so a guessed id from another workspace reads

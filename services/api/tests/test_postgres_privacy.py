@@ -222,7 +222,10 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
         "finance_records": 0,
         "mail_mailboxes": 0,
         "mail_messages_written": 0,
+        "calls_logged": 0,
         "mail_contacts": 0,
+        "app_calls": 0,
+        "app_call_signals": 0,
     }
     assert summary["shared"]["tasks_created"] == 1
 

@@ -50,6 +50,13 @@ class PushController extends ChangeNotifier
   final PushMessaging messaging;
   final PushLocalStore store;
 
+  /// The language the app shows (`en` or `ar`); pushes to this phone use its
+  /// text (docs/notifications.md#phone-push). Null leaves the server's default.
+  String? Function() languageOf = () => null;
+
+  /// The app's language changed: register again so pushes follow it.
+  Future<void> languageChanged() => _reregister();
+
   PushPhase phase = PushPhase.checking;
   String? error;
   String? notice;
@@ -254,7 +261,8 @@ class PushController extends ChangeNotifier
     final device = await repository.register(
         platform: messaging.platform,
         token: token,
-        label: messaging.deviceLabel);
+        label: messaging.deviceLabel,
+        language: languageOf());
     thisDeviceId = device.id;
     await store.setDeviceId(scopeOf(context), device.id);
   }

@@ -26,5 +26,8 @@ export function reportDetail(id: string) {
     problems: s.problems ? [{ agent: 'performance_reviewer', action: 'review', outcome: 'degrading', reasons: ['behind_benchmark'], strategy: 'Trend example v2' }] : [],
     next_steps: s.waiting_for_approval ? ['Review the 1 SIMULATED order request(s) waiting for your approval under Finance, Paper trading.'] : ['Nothing needs your action today.'],
   };
-  return { ...item, report, markdown: `# Trading report, ${item.date} (after the close, SIMULATED)\n` };
+  const commentary = i === 0
+    ? { status: 'ok', reason: null, text: 'Simulated results only. One order waits for your approval; data for EXMPL is current.', model: 'anthropic/example-model', label: 'Model commentary', created_at: item.created_at }
+    : { status: 'skipped', reason: 'no_model', text: null, model: null, label: 'Model commentary', created_at: item.created_at };
+  return { ...item, report, markdown: `# Trading report, ${item.date} (after the close, SIMULATED)\n`, commentary };
 }

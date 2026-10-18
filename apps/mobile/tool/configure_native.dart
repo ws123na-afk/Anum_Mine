@@ -74,6 +74,19 @@ String configureAndroidManifest(String manifest) {
   if (!value.contains('android.permission.RECORD_AUDIO')) {
     value = value.replaceFirst('<application', '$permissions    <application');
   }
+  // In-app calls (docs/in-app-calls.md#flutter): the camera for video calls,
+  // audio routing (speaker) and network changes for WebRTC.
+  for (final permission in const [
+    'android.permission.CAMERA',
+    'android.permission.MODIFY_AUDIO_SETTINGS',
+    'android.permission.ACCESS_NETWORK_STATE',
+  ]) {
+    if (!value.contains(permission)) {
+      value = value.replaceFirst(
+          '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
+          '<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="$permission" />');
+    }
+  }
   // Debug and profile builds talk to local plain-HTTP services; the release
   // overlay (androidReleaseManifest) turns cleartext traffic off again.
   if (!value.contains('android:usesCleartextTraffic')) {
@@ -260,12 +273,16 @@ String configureIosInfoPlist(String plist) {
   var value = plist;
   const privacy = '''
 	<key>NSMicrophoneUsageDescription</key>
-	<string>ANUM listens only while you record a voice command.</string>
+	<string>ANUM uses the microphone while you record a voice command or are in a call with a teammate.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>ANUM converts your spoken command into an editable transcript.</string>
 ''';
   if (!value.contains('NSMicrophoneUsageDescription')) {
     value = _insertBeforeLastDictClose(value, privacy);
+  }
+  if (!value.contains('NSCameraUsageDescription')) {
+    value = _insertBeforeLastDictClose(value,
+        '\t<key>NSCameraUsageDescription</key>\n\t<string>ANUM uses the camera only during a video call with a teammate.</string>\n');
   }
   // AppAuth on iOS returns from the sign-in browser through this scheme.
   if (!value.contains('<string>$oidcRedirectScheme</string>')) {
@@ -354,6 +371,7 @@ const _podPermissions = '''
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
         '\$(inherited)',
         'PERMISSION_MICROPHONE=1',
+        'PERMISSION_CAMERA=1',
         'PERMISSION_SPEECH_RECOGNIZER=1',
       ]
     end

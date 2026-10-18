@@ -157,6 +157,9 @@ from .mailbox.outgoing import build_schedule_runner
 from .mailbox.settings_api import router as mail_settings_router
 from .mailbox.sync import build_sync_runner
 from .mailbox.service import register_mail_tools
+from .calls.api import router as calls_router
+from .calls.tools import register_call_tools
+from .calls.webhooks import router as calls_webhook_router
 from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
 from .business import register_business_tools, router as business_router
@@ -187,6 +190,7 @@ from .suppression import router as suppression_router
 from .automation import build_automation_scheduler, register_scheduler_pass, router as automation_router
 from .assistants import router as assistants_router
 from .notifications import router as notifications_router
+from .app_calls import router as app_calls_router
 from .organisations import router as organisations_router
 from .team_work import build_team_reminder_scheduler, router as team_router
 from .automation_dispatch import automation_dispatcher
@@ -359,6 +363,9 @@ app.include_router(whatsapp_router)
 app.include_router(email_router)
 app.include_router(mail_ai_router)
 app.include_router(mail_router)
+# Phone calls (docs/calls.md): contacts, the call log, the voice provider and its webhooks.
+app.include_router(calls_router)
+app.include_router(calls_webhook_router)
 app.include_router(mail_sharing_router)
 app.include_router(mail_settings_router)
 app.include_router(mail_operator_router)
@@ -391,6 +398,7 @@ app.include_router(knowledge_router)
 app.include_router(reports_router)
 app.include_router(team_router)
 app.include_router(notifications_router)
+app.include_router(app_calls_router)
 app.include_router(assistants_router)
 app.include_router(organisations_router)
 app.include_router(agents_router)
@@ -399,11 +407,11 @@ app.include_router(setup_plans_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = register_brevo_tools(register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
+tool_registry = register_brevo_tools(register_call_tools(register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
     configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
 )))))))
-))))
+)))))
 # Reports and other features send through whichever delivery tools are registered.
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).

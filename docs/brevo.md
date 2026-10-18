@@ -2,7 +2,7 @@
 
 ANUM connects a workspace to the owner's [Brevo](https://www.brevo.com) account so the team can read contact lists, senders and campaign reports, write campaign drafts, and send or schedule them. **Nothing reaches a contact without an owner's approval** bound to the exact draft. Claude agents use the same capabilities as mediated tools under the runtime's tool policy.
 
-Code: `services/api/anum_api/brevo/` (API, client, tools), `services/api/anum_api/db/brevo_repository.py` (PostgreSQL), migration `0071_brevo_campaigns`, `apps/web/src/BrevoCampaigns.tsx` (web, Marketing's **Email campaigns** tab), `apps/mobile/lib/features/brevo/` (Flutter, read-only).
+Code: `services/api/anum_api/brevo/` (API, client, tools), `services/api/anum_api/db/brevo_repository.py` (PostgreSQL), migration `0074_brevo_campaigns`, `apps/web/src/BrevoCampaigns.tsx` (web, Marketing's **Email campaigns** tab), `apps/mobile/lib/features/brevo/` (Flutter, read-only).
 
 ## How ANUM talks to Brevo
 
@@ -85,7 +85,7 @@ Brevo authenticates each sending domain with its own DKIM record and a `brevo-co
 
 ## Data
 
-Migration `0071_brevo_campaigns`: `brevo_connections` (one per workspace) and `brevo_campaign_drafts`, both with forced RLS on `anum.tenant_id` and `anum.workspace_id`; a column grant of `tenant_id, workspace_id` on `brevo_connections` to `anum_maintenance` for key rotation. Expand only. Tests: `tests/test_brevo.py` (Brevo as an `httpx.MockTransport`), `tests/test_postgres_brevo.py` (RLS isolation, the main path, one draft per campaign, maintenance discovery, key rotation), `apps/web/test/brevo.test.ts`, `apps/web/e2e/brevo.spec.ts` (English and Arabic, axe), `apps/mobile/test/brevo/brevo_test.dart` (320 to 1440 px, 200% text, Arabic).
+Migration `0074_brevo_campaigns`: `brevo_connections` (one per workspace) and `brevo_campaign_drafts`, both with forced RLS on `anum.tenant_id` and `anum.workspace_id`; a column grant of `tenant_id, workspace_id` on `brevo_connections` to `anum_maintenance` for key rotation. Expand only. Tests: `tests/test_brevo.py` (Brevo as an `httpx.MockTransport`), `tests/test_postgres_brevo.py` (RLS isolation, the main path, one draft per campaign, maintenance discovery, key rotation), `apps/web/test/brevo.test.ts`, `apps/web/e2e/brevo.spec.ts` (English and Arabic, axe), `apps/mobile/test/brevo/brevo_test.dart` (320 to 1440 px, 200% text, Arabic).
 
 ## Not done yet
 

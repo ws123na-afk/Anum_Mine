@@ -805,6 +805,8 @@ class PushDeviceRecord(Base):
     token_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     token_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     token_hint: Mapped[str] = mapped_column(String(8), nullable=False)
+    # Migration 0072_push_device_language: the app's language for the push text (null is English).
+    language: Mapped[str | None] = mapped_column(String(8))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -812,6 +814,7 @@ class PushDeviceRecord(Base):
     __table_args__ = (
         _workspace_fk("push_devices"),
         UniqueConstraint("tenant_id", "workspace_id", "user_id", "token_sha256", name="uq_push_devices_user_token"),
+        CheckConstraint("language is null or language in ('en', 'ar')", name="ck_push_devices_language"),
         Index("ix_push_devices_scope_user", "tenant_id", "workspace_id", "user_id", "created_at"),
     )
 
@@ -1659,4 +1662,62 @@ class ContactSuppressionRecord(Base):
         CheckConstraint("kind in ('phone', 'email')", name="ck_contact_suppressions_kind"),
         CheckConstraint("channel in ('email', 'whatsapp', 'sms', 'all')", name="ck_contact_suppressions_channel"),
         CheckConstraint("purpose in ('marketing', 'all')", name="ck_contact_suppressions_purpose"),
+    )
+
+
+class AppCallRecord(Base):
+    """One in-app call between two teammates (migration ``0073_app_calls``).
+
+    Visible to its two participants only: a restrictive policy checks ``anum.user_id``
+    against the caller and the callee, and only the caller inserts the row.
+    """
+
+    __tablename__ = "app_calls"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    caller_user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    callee_user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    caller_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    callee_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    caller_client_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    callee_client_id: Mapped[str | None] = mapped_column(String(64))
+    media: Mapped[str] = mapped_column(String(8), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    outcome: Mapped[str | None] = mapped_column(String(16))
+    ended_by_user_id: Mapped[str | None] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[int | None] = mapped_column(Integer)
+
+    __table_args__ = (
+        _workspace_fk("app_calls"),
+        Index("ix_app_calls_scope_caller", "tenant_id", "workspace_id", "caller_user_id", "created_at"),
+        Index("ix_app_calls_scope_callee", "tenant_id", "workspace_id", "callee_user_id", "created_at"),
+    )
+
+
+class AppCallSignalRecord(Base):
+    """An offer, answer or ICE batch for one device of a call (migration ``0073_app_calls``)."""
+
+    __tablename__ = "app_call_signals"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    call_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    sender_user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    recipient_user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    recipient_client_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("app_call_signals"),
+        ForeignKeyConstraint(["call_id"], ["app_calls.id"], name="fk_app_call_signals_call", ondelete="CASCADE"),
+        Index("ix_app_call_signals_recipient", "tenant_id", "workspace_id", "recipient_client_id", "call_id", "created_at"),
     )

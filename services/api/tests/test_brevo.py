@@ -459,10 +459,10 @@ def test_key_rotation_covers_brevo_connections() -> None:
 
 def test_migration_is_expand_only_with_forced_rls_and_scoped_discovery() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    text = (versions / "0071_brevo_campaigns.py").read_text(encoding="utf-8")
-    assert 'revision = "0071_brevo_campaigns"' in text and len("0071_brevo_campaigns") <= 32
+    text = (versions / "0074_brevo_campaigns.py").read_text(encoding="utf-8")
+    assert 'revision = "0074_brevo_campaigns"' in text and len("0074_brevo_campaigns") <= 32
     down = text.split('down_revision = "', 1)[1].split('"', 1)[0]
-    others = [path for path in versions.glob("*.py") if path.name != "0071_brevo_campaigns.py"]
+    others = [path for path in versions.glob("*.py") if path.name != "0074_brevo_campaigns.py"]
     assert any(f'revision = "{down}"' in path.read_text(encoding="utf-8") for path in others)
     assert not [path for path in others if f'down_revision = "{down}"' in path.read_text(encoding="utf-8")]
     upgrade = text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()

@@ -2,12 +2,12 @@
 // first, and the selected report. Read only and SIMULATED. Opened from the report notice in the bell
 // (`#finance-intel-reports`, newest selected) or by link (`#finance-intel-report=<id>`).
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, Download, FileText, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, FileText, Sparkles, X } from 'lucide-react';
 import type { FinanceDailyReport, FinanceDailyReportItem, FinancePage } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import { formatAmounts, isolate, rangeLabel } from './lib/finance';
 import { agentLabel, outcomeLabel, outcomeTone } from './lib/financeIntel';
-import { REPORT_PAGE, markdownName, needsAction, pct, reportFromHash, reportHash, sectionCounts, summaryLine, summaryRows } from './lib/financeReports';
+import { REPORT_PAGE, commentaryNote, markdownName, needsAction, pct, reportFromHash, reportHash, sectionCounts, summaryLine, summaryRows } from './lib/financeReports';
 import { formatDateTime, t } from './lib/i18n';
 import { Empty, LoadError, Notice, failed, type Load } from './FinanceParts';
 import './financeReports.css';
@@ -107,6 +107,12 @@ function ReportBody({ report: r, headingId, onClose }: { report: FinanceDailyRep
       </div>
     </div>
     <p className="muted finHelp" dir="auto">{body.disclaimer} <small>{formatDateTime(r.created_at)}</small></p>
+    {r.commentary && <section className="finReportCommentary" aria-labelledby={`${headingId}-c`}>
+      <h4 id={`${headingId}-c`}><Sparkles aria-hidden="true" className="cmInlineIcon" />{t('finance.reports.commentary')}</h4>
+      {r.commentary.status === 'ok' && r.commentary.text
+        ? <><p dir="auto">{r.commentary.text}</p><p className="muted finHelp">{t('finance.reports.commentaryLabel', { model: r.commentary.model ?? '-' })}</p></>
+        : <p className="muted">{commentaryNote(r.commentary)}</p>}
+    </section>}
     <dl className="finFigures finReportFigures">{summaryRows(body.summary).map((row) => <div key={row.key}><dt>{row.label}</dt><dd dir="ltr">{row.value}</dd></div>)}</dl>
     <ReportSection title={t('finance.reports.next')}>
       <ul className="finIntelReasons">{body.next_steps.map((step, i) => <li key={i} dir="auto">{step}</li>)}</ul>

@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -54,9 +57,11 @@ Future<bool> _confirm(
   return ok == true;
 }
 
-void _say(BuildContext context, String text) =>
-    ScaffoldMessenger.maybeOf(context)
-        ?.showSnackBar(SnackBar(content: Text(text)));
+void _say(BuildContext context, String text) {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  messenger?.hideCurrentSnackBar();
+  messenger?.showSnackBar(SnackBar(content: Text(text)));
+}
 
 // -- market sessions ----------------------------------------------------------
 
@@ -850,6 +855,27 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
         const SizedBox(height: AnumSpacing.xs),
         Text(r.disclaimer, style: TextStyle(color: p.muted)),
         const SizedBox(height: AnumSpacing.sm),
+        if (r.commentaryStatus != null) ...[
+          _Heading(s.t('commentary')),
+          if (r.commentaryStatus == 'ok' && r.commentaryText != null) ...[
+            Text(r.commentaryText!),
+            Text(s.t('commentaryLabel', {'model': r.commentaryModel ?? '-'}),
+                style: TextStyle(color: p.muted, fontSize: 12)),
+          ] else
+            Text(
+                s.t(r.commentaryStatus == 'withheld'
+                    ? 'commentary.withheld'
+                    : r.commentaryStatus == 'failed'
+                        ? 'commentary.failed'
+                        : 'commentary.${const [
+                            'no_model',
+                            'disabled',
+                            'monthly_limit',
+                            'model_budget'
+                          ].contains(r.commentaryReason) ? r.commentaryReason : 'no_model'}'),
+                style: TextStyle(color: p.muted)),
+          const SizedBox(height: AnumSpacing.sm),
+        ],
         for (final key in reportSummaryKeys)
           AnumRow(
             title: s.t('summary.$key'),
@@ -969,5 +995,445 @@ class _Section extends StatelessWidget {
             ),
       ],
     );
+  }
+}
+
+// -- market data: instruments and their daily bars -----------------------------
+
+/// The system file picker for a bars file (CSV, at most 2 MB, read as text).
+Future<BarsFile?> pickBarsFile() async {
+  final picked = await FilePicker.platform.pickFiles(
+    type: FileType.custom,
+    allowedExtensions: const ['csv', 'txt'],
+    withData: true,
+  );
+  final file = picked?.files.firstOrNull;
+  if (file == null) return null;
+  if (file.size == 0 || file.bytes == null) {
+    return (name: file.name, text: null, problem: 'fileEmpty');
+  }
+  if (file.size > maxBarsFileBytes) {
+    return (name: file.name, text: null, problem: 'fileTooBig');
+  }
+  try {
+    return (name: file.name, text: utf8.decode(file.bytes!), problem: null);
+  } on FormatException {
+    return (name: file.name, text: null, problem: 'fileNotText');
+  }
+}
+
+class IntelMarketData extends StatelessWidget {
+  const IntelMarketData(
+      {required this.controller,
+      required this.overview,
+      required this.strings,
+      super.key});
+  final FinanceIntelController controller;
+  final IntelOverview overview;
+  final FinanceIntelStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = strings, c = controller, p = context.palette;
+    final List<Widget> body;
+    if (c.setupLoad == FinanceLoad.denied) {
+      body = [
+        AnumFeedback(
+            kind: AnumFeedbackKind.permission, message: s.t('actionsDenied'))
+      ];
+    } else if (c.setupLoad == FinanceLoad.error) {
+      body = [
+        AnumFeedback(
+            kind: AnumFeedbackKind.error,
+            message: s.t('newError', {'message': c.setupError ?? ''}),
+            onRetry: c.loadSetup)
+      ];
+    } else if (c.setupLoad != FinanceLoad.ready) {
+      body = [
+        AnumFeedback(kind: AnumFeedbackKind.loading, message: s.t('newLoading'))
+      ];
+    } else {
+      body = [
+        if (c.allInstruments.isEmpty)
+          AnumEmpty(
+              icon: Icons.candlestick_chart_outlined,
+              title: s.t('noInstruments'),
+              message: s.t('noInstrumentsText'))
+        else
+          for (final i in c.allInstruments) ...[
+            AnumRow(
+              title: i.symbol,
+              subtitle: [
+                '${i.venue} · ${i.currency} · ${s.label('asset', i.assetClass)}',
+                i.bars == 0
+                    ? s.t('noBarsYet')
+                    : s.t('barsRange', {
+                        'count': i.bars,
+                        'first': i.firstBar ?? '-',
+                        'last': i.lastBar ?? '-'
+                      }),
+                if (i.lastSource != null)
+                  s.t('barsSource', {'source': i.lastSource!}),
+              ].join('\n'),
+              icon: Icons.candlestick_chart_outlined,
+            ),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                onPressed: c.acting ? null : () => _import(context, i),
+                icon: const Icon(Icons.upload_file),
+                label: Text(s.t('importBarsFor', {'symbol': i.symbol})),
+              ),
+            ),
+          ],
+        const SizedBox(height: AnumSpacing.xs),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: OutlinedButton.icon(
+            onPressed: c.acting ? null : () => _add(context),
+            icon: const Icon(Icons.add),
+            label: Text(s.t('addInstrument')),
+          ),
+        ),
+      ];
+    }
+    return AnumSurface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        AnumHeader(title: s.t('marketData')),
+        Text(s.t('marketDataHelp'), style: TextStyle(color: p.muted)),
+        const SizedBox(height: AnumSpacing.xs),
+        ...body,
+      ]),
+    );
+  }
+
+  Future<void> _add(BuildContext context) async {
+    final done = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => AddInstrumentScreen(
+            controller: controller,
+            venues: [for (final v in overview.venues) v],
+            strings: strings)));
+    if (done == true && context.mounted) {
+      _say(context, strings.t('instrumentAdded'));
+    }
+  }
+
+  Future<void> _import(BuildContext context, IntelInstrument instrument) async {
+    final s = strings;
+    final file = await (controller.pickBars ?? pickBarsFile)();
+    if (file == null || !context.mounted) return;
+    if (file.problem != null) {
+      _say(context, s.t(file.problem!));
+      return;
+    }
+    final ok = await _confirm(context,
+        title: s.t('importConfirmTitle', {'symbol': instrument.symbol}),
+        text: s.t('importConfirmText',
+            {'file': file.name, 'symbol': instrument.symbol}),
+        action: s.t('importBars'),
+        strings: s);
+    if (!ok || !context.mounted) return;
+    final (error, done) = await controller.importBars(instrument, file);
+    if (!context.mounted) return;
+    if (error != null || done == null) {
+      _say(context, s.t('importFailed', {'message': error ?? ''}));
+      return;
+    }
+    _say(
+        context,
+        [
+          s.t('imported', {'count': done.imported, 'changed': done.changed}),
+          if (done.issues.isNotEmpty)
+            s.t('importIssues', {'count': done.issues.length}),
+        ].join(' '));
+  }
+}
+
+/// Adding an instrument on its own screen.
+class AddInstrumentScreen extends StatefulWidget {
+  const AddInstrumentScreen(
+      {required this.controller,
+      required this.venues,
+      required this.strings,
+      super.key});
+  final FinanceIntelController controller;
+  final List<IntelVenue> venues;
+  final FinanceIntelStrings strings;
+
+  @override
+  State<AddInstrumentScreen> createState() => _AddInstrumentScreenState();
+}
+
+class _AddInstrumentScreenState extends State<AddInstrumentScreen> {
+  final _symbol = TextEditingController();
+  final _currency = TextEditingController();
+  final _listed = TextEditingController();
+  String _asset = 'etf';
+  String? _venue;
+  String? _error;
+
+  @override
+  void dispose() {
+    _symbol.dispose();
+    _currency.dispose();
+    _listed.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final s = widget.strings;
+    final symbol = _symbol.text.trim(), currency = _currency.text.trim();
+    final listed = _listed.text.trim();
+    String? problem;
+    if (symbol.isEmpty || symbol.length > 20) {
+      problem = s.t('symbolRequired');
+    } else if (_venue == null) {
+      problem = s.t('venueRequired');
+    } else if (!RegExp(r'^[A-Za-z]{3,10}$').hasMatch(currency)) {
+      problem = s.t('currencyRequired');
+    } else if (listed.isNotEmpty &&
+        !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(listed)) {
+      problem = s.t('dateFormat');
+    }
+    setState(() => _error = problem);
+    if (problem != null) return;
+    final ok = await _confirm(context,
+        title: s.t('addInstrumentConfirm', {'symbol': symbol.toUpperCase()}),
+        text: s.t('addInstrumentText'),
+        action: s.t('addInstrument'),
+        strings: s);
+    if (!ok || !mounted) return;
+    final error = await widget.controller.createInstrument(
+        symbol: symbol,
+        assetClass: _asset,
+        venue: _venue!,
+        currency: currency,
+        listedOn: listed.isEmpty ? null : listed);
+    if (!mounted) return;
+    if (error != null) {
+      setState(() => _error = error);
+      return;
+    }
+    Navigator.of(context).pop(true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.strings, c = widget.controller, p = context.palette;
+    return Scaffold(
+      appBar: AppBar(title: Text(s.t('addInstrument'))),
+      body: ListenableBuilder(
+        listenable: c,
+        builder: (context, _) => ListView(
+          padding: const EdgeInsets.all(AnumSpacing.md),
+          children: [
+            Text(s.t('addInstrumentText'), style: TextStyle(color: p.muted)),
+            const SizedBox(height: AnumSpacing.md),
+            TextField(
+              controller: _symbol,
+              maxLength: 20,
+              textCapitalization: TextCapitalization.characters,
+              decoration: InputDecoration(labelText: s.t('symbol')),
+            ),
+            DropdownButtonFormField<String>(
+              initialValue: _asset,
+              isExpanded: true,
+              decoration: InputDecoration(labelText: s.t('assetClass')),
+              items: [
+                for (final a in intelAssetClasses)
+                  DropdownMenuItem(value: a, child: Text(s.label('asset', a))),
+              ],
+              onChanged: (v) => setState(() => _asset = v ?? _asset),
+            ),
+            const SizedBox(height: AnumSpacing.sm),
+            DropdownButtonFormField<String>(
+              initialValue: _venue,
+              isExpanded: true,
+              decoration: InputDecoration(labelText: s.t('venue')),
+              hint: Text(s.t('chooseVenue')),
+              items: [
+                for (final v in widget.venues)
+                  DropdownMenuItem(
+                      value: v.code,
+                      child: Text(v.name, overflow: TextOverflow.ellipsis)),
+              ],
+              onChanged: (v) => setState(() {
+                _venue = v;
+                _error = null;
+              }),
+            ),
+            const SizedBox(height: AnumSpacing.sm),
+            TextField(
+              controller: _currency,
+              maxLength: 10,
+              textCapitalization: TextCapitalization.characters,
+              decoration: InputDecoration(labelText: s.t('currency')),
+            ),
+            TextField(
+              controller: _listed,
+              keyboardType: TextInputType.datetime,
+              decoration: InputDecoration(
+                  labelText: s.t('listedOn'), helperText: s.t('dateHint')),
+            ),
+            if (_error != null)
+              Semantics(
+                liveRegion: true,
+                child: Text(_error!, style: TextStyle(color: p.stop)),
+              ),
+            const SizedBox(height: AnumSpacing.sm),
+            Wrap(
+                spacing: AnumSpacing.sm,
+                runSpacing: AnumSpacing.xs,
+                children: [
+                  FilledButton(
+                      onPressed: c.acting ? null : _submit,
+                      child: Text(s.t('addInstrument'))),
+                  OutlinedButton(
+                      onPressed: c.acting
+                          ? null
+                          : () => Navigator.of(context).pop(false),
+                      child: Text(s.t('cancel'))),
+                ]),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// -- one strategy: evaluations and its paper portfolio --------------------------
+
+/// "Evaluate": a SIMULATED backtest or walk-forward run, after a confirmation.
+class IntelEvaluateButton extends StatelessWidget {
+  const IntelEvaluateButton(
+      {required this.controller,
+      required this.strategy,
+      required this.strings,
+      super.key});
+  final FinanceIntelController controller;
+  final IntelStrategy strategy;
+  final FinanceIntelStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    if (strategy.state == 'RETIRED' ||
+        controller.setupLoad == FinanceLoad.denied) {
+      return const SizedBox.shrink();
+    }
+    return TextButton.icon(
+      onPressed: controller.acting ? null : () => _run(context),
+      icon: const Icon(Icons.science_outlined),
+      label: Text(strings.t('evaluate')),
+    );
+  }
+
+  Future<void> _run(BuildContext context) async {
+    final s = strings;
+    final kind = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(s.t('evaluateTitle',
+            {'name': strategy.name, 'version': strategy.version})),
+        children: [
+          for (final k in ['backtest', 'walk_forward'])
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(k),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: AnumSpacing.xs),
+                child: Text(s.label('kind', k)),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (kind == null || !context.mounted) return;
+    final ok = await _confirm(context,
+        title: s.t('evaluateConfirm', {'kind': s.label('kind', kind)}),
+        text: s.t('evaluateText'),
+        action: s.t('evaluate'),
+        strings: s);
+    if (!ok || !context.mounted) return;
+    final (error, verdict) = await controller.evaluate(strategy, kind: kind);
+    if (!context.mounted) return;
+    _say(
+        context,
+        error ??
+            s.t('evaluated', {
+              'kind': s.label('kind', kind),
+              'verdict': s.label('verdict', verdict ?? '')
+            }));
+  }
+}
+
+/// "Paper portfolio": choose which paper portfolio the version will trade in.
+class IntelPortfolioButton extends StatelessWidget {
+  const IntelPortfolioButton(
+      {required this.controller,
+      required this.strategy,
+      required this.overview,
+      required this.strings,
+      super.key});
+  final FinanceIntelController controller;
+  final IntelStrategy strategy;
+  final IntelOverview overview;
+  final FinanceIntelStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    if (strategy.state == 'PAPER_ACTIVE' ||
+        strategy.state == 'RETIRED' ||
+        controller.setupLoad == FinanceLoad.denied) {
+      return const SizedBox.shrink();
+    }
+    return TextButton.icon(
+      onPressed: controller.acting ? null : () => _choose(context),
+      icon: const Icon(Icons.account_balance_wallet_outlined),
+      label: Text(strings.t('paperPortfolio')),
+    );
+  }
+
+  Future<void> _choose(BuildContext context) async {
+    final s = strings;
+    final paper = [
+      for (final p in overview.portfolios)
+        if (p.mode == 'paper') p
+    ];
+    if (paper.isEmpty) {
+      _say(context, s.t('noPaperPortfolio'));
+      return;
+    }
+    final picked = await showDialog<IntelPortfolio>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(s.t('choosePortfolio',
+            {'name': strategy.name, 'version': strategy.version})),
+        children: [
+          for (final p in paper)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(p),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: AnumSpacing.xs),
+                child: Text(p.id == strategy.portfolioId
+                    ? s.t('currentPortfolio', {'name': p.name})
+                    : p.name),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (picked == null ||
+        !context.mounted ||
+        picked.id == strategy.portfolioId) {
+      return;
+    }
+    final ok = await _confirm(context,
+        title: s.t('portfolioConfirm', {'name': picked.name}),
+        text: s.t('portfolioText'),
+        action: s.t('usePortfolio'),
+        strings: s);
+    if (!ok || !context.mounted) return;
+    final error = await controller.choosePortfolio(strategy, picked.id);
+    if (!context.mounted) return;
+    _say(context, error ?? s.t('portfolioChosen', {'name': picked.name}));
   }
 }

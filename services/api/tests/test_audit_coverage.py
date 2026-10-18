@@ -17,6 +17,7 @@ TESTS = Path(__file__).parent
 WALKS = {
     "agents": "test_agents.py",
     "automation": "test_automation_management.py",
+    "calls": "test_calls.py",
     "brevo": "test_brevo.py",
     "business": "test_business.py",
     "autonomy": "test_autonomy.py",

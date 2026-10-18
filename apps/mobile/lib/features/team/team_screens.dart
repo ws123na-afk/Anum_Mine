@@ -8,6 +8,8 @@ import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../admin/owned_controller.dart';
+import '../team_calls/call_screens.dart';
+import '../team_calls/call_strings.dart';
 import '../mail_center/mail_health.dart';
 import 'team_controllers.dart';
 import 'team_models.dart';
@@ -85,9 +87,19 @@ class TeamHubCard extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => _push(context, screen),
         );
+    final calls = AppCallsScope.maybeOf(context);
+    final callText = TeamCallText.of(context);
     return Card(
       child: Column(
         children: [
+          if (calls != null)
+            ListTile(
+              leading: const Icon(Icons.call_outlined),
+              title: Text(callText.t('calls')),
+              subtitle: Text(callText.t('callsHint')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _push(context, TeamCallsScreen(controller: calls)),
+            ),
           tile(
             Icons.assignment_ind_outlined,
             'myWork',

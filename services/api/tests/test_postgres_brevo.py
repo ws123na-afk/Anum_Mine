@@ -1,4 +1,4 @@
-"""Brevo email campaigns in PostgreSQL (migration ``0071_brevo_campaigns``), as the non-owner app role.
+"""Brevo email campaigns in PostgreSQL (migration ``0074_brevo_campaigns``), as the non-owner app role.
 
 Both tables are under forced RLS: tenant A's connection and drafts are invisible to tenant B
 and to A's other workspace, guessed ids read as missing, writes into another scope are

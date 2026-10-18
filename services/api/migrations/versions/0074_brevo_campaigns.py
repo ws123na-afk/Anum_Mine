@@ -28,8 +28,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0071_brevo_campaigns"
-down_revision = "0070_business"
+revision = "0074_brevo_campaigns"
+down_revision = "0073_app_calls"
 branch_labels = None
 depends_on = None
 

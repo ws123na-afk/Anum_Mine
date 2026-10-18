@@ -61,6 +61,10 @@ class Provenance(StrEnum):
     EMAIL = "email"
     # An imported meeting transcript (recording, file, Zoom or Teams): what other people said.
     MEETING_TRANSCRIPT = "meeting_transcript"
+    # A person's notes about a phone call and a call's transcript (docs/calls.md): what the
+    # other side said, never instructions.
+    CALL_NOTES = "call_notes"
+    CALL_TRANSCRIPT = "call_transcript"
 
 
 def _attribute(value: str) -> str:

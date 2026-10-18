@@ -1,4 +1,4 @@
-"""Brevo storage: an in-memory store and the PostgreSQL store (migration ``0071_brevo_campaigns``).
+"""Brevo storage: an in-memory store and the PostgreSQL store (migration ``0074_brevo_campaigns``).
 
 ``ANUM_REPOSITORY_BACKEND=memory`` (local and tests) keeps everything in this process;
 ``postgresql`` uses ``anum_api.db.brevo_repository`` under forced RLS. Every method works
