@@ -1,7 +1,7 @@
 """Phone calls storage: contacts, the call log, opt-outs, the provider account and AI call requests.
 
 ``ANUM_REPOSITORY_BACKEND=memory`` keeps everything in this process (local and tests);
-PostgreSQL uses ``anum_api.db.calls_repository`` (migration ``0070_calls``, forced RLS on
+PostgreSQL uses ``anum_api.db.calls_repository`` (migration ``0071_calls``, forced RLS on
 tenant and workspace). A store is opened for one tenant and workspace and only ever sees
 that scope. Field names match the table columns, so the SQL store maps rows directly.
 """
@@ -502,7 +502,7 @@ def route_workspace(route_id: str) -> tuple[str, str] | None:
     """Which tenant and workspace a webhook route belongs to.
 
     PostgreSQL: one discovery query as ``anum_maintenance``, which may read only the scope
-    and route of ``call_provider_accounts`` (migration 0070).
+    and route of ``call_provider_accounts`` (migration 0071).
     """
     from ..settings import settings
 

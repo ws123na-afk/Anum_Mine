@@ -18,7 +18,7 @@ automation webhook trigger secret (``automation_triggers``, migrations 0049 and 
 every finance connection credential (``finance_connections``, migration 0057, each in its
 owner's own scope because finance rows are private to one person) and every Email Center
 mailbox password (``mail_accounts``, migration 0060, also in its owner's scope) and every voice
-provider account's auth token and API key secret (``call_provider_accounts``, migration 0070)
+provider account's auth token and API key secret (``call_provider_accounts``, migration 0071)
 in every tenant.
 Pending email connections (``email_oauth_requests``) and OAuth ``state`` values live for
 minutes and expire instead; phone push tokens are re-encrypted by the phone. See
@@ -748,7 +748,7 @@ MAIL_ACCOUNTS = _multi_store(
     "mail_accounts", "mail_account", ("password_enc",), ("tenant_id", "workspace_id", "id"),
     user_column="owner_user_id",
 )
-# Phone calls (migration 0070): the voice provider account's auth token and API key secret.
+# Phone calls (migration 0071): the voice provider account's auth token and API key secret.
 CALL_PROVIDER_ACCOUNTS = _multi_store(
     "call_provider_accounts", "call_provider", ("credentials_ciphertext",), ("tenant_id", "workspace_id")
 )

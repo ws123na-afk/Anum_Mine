@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 import { mockMarketing } from './support/marketingApi';
 import { mockWhatsApp } from './support/whatsappApi';
+import { mockCallsApi } from './support/callsApi';
 
 // The shared page layout (docs/design/anum360.md#page-layout): summary bands from the API, split
 // views that open on the first unread or newest record, the AI Chat context rail, share links in the
@@ -80,6 +81,11 @@ const pages: { hash: string; mock: (page: Page) => Promise<unknown>; ready: stri
   { hash: 'inbox', mock: mockWorkspaceApi, ready: '.inboxRow' },
   { hash: 'whatsapp', mock: mockWhatsApp, ready: '.waConversation' },
   { hash: 'meetings', mock: mockWorkspaceApi, ready: '.meetingRows li' },
+  { hash: 'calls', mock: mockCallsApi, ready: '.callsRow' },
+  { hash: 'calls-contacts?contact=contact_omar', mock: mockCallsApi, ready: '.callsDetail .callsMeta' },
+  { hash: 'calls-dial', mock: mockCallsApi, ready: '.callsKeypad' },
+  { hash: 'calls-ai', mock: (page) => mockCallsApi(page, { provider: true }), ready: '.callsAiNew textarea' },
+  { hash: 'calls-provider', mock: (page) => mockCallsApi(page, { provider: true }), ready: '.callsUrl code' },
   { hash: 'marketing', mock: mockMarketing, ready: '.mkPostTable tbody tr' },
   { hash: 'marketing-accounts', mock: mockMarketing, ready: '.mkAccountTable tbody tr' },
   { hash: 'finance', mock: mockWorkspaceApi, ready: '.finChart svg' },
@@ -94,8 +100,8 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, 
   test.describe(`at ${size.width}x${size.height}`, () => {
     test.use({ viewport: size });
     test('every page in the shared layout fits without horizontal overflow, in English and Arabic', async ({ page }) => {
-      // Twenty-eight page loads in one test: give it room on a busy runner.
-      test.setTimeout(120_000);
+      // Thirty-eight page loads in one test: give it room on a busy runner.
+      test.setTimeout(180_000);
       for (const locale of ['en', 'ar'] as const) {
         for (const item of pages) {
           const tab = await page.context().newPage();

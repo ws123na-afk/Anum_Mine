@@ -997,8 +997,8 @@ def test_mail_operator_view_migration_is_expand_only_and_reads_counts_only() -> 
 
 def test_calls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0070_calls.py").read_text(encoding="utf-8")
-    assert 'revision = "0070_calls"' in revision_text and len("0070_calls") <= 32
+    revision_text = (versions / "0071_calls.py").read_text(encoding="utf-8")
+    assert 'revision = "0071_calls"' in revision_text and len("0071_calls") <= 32
     assert 'down_revision = "0065_finance_intel"' in revision_text
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     tables = ("call_contacts", "call_log", "call_opt_outs", "call_provider_accounts", "call_ai_requests")

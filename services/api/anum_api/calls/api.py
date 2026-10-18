@@ -313,6 +313,8 @@ class Capabilities(BaseModel):
     problem: str | None = None
     ai_problem: str | None = None
     cost_per_minute_cents: int | None = None
+    # What ANUM says before a recorded call connects, in English and Arabic (shown in the consent step).
+    recording_notice: dict[str, str] | None = None
 
 
 class CallsSetup(BaseModel):
@@ -381,7 +383,14 @@ def _contact_view(store: Any, context: TenantContext, contact: CallContact) -> C
     )
 
 
+def _stale(entry: CallEntry) -> bool:
+    """A browser call that never reached the provider (the tab closed, the microphone was refused)."""
+    return entry.kind == CallKind.PROVIDER and entry.status == CallStatus.DIALING and not entry.provider_call_id and service.dial_expired(entry)
+
+
 def _call_view(context: TenantContext, entry: CallEntry) -> CallView:
+    if _stale(entry):
+        entry = entry.model_copy(update={"status": CallStatus.FAILED, "outcome": Outcome.CANCELLED})
     return CallView(**entry.model_dump(), can_edit=service.can_edit(context, entry.user_id))
 
 
@@ -459,6 +468,10 @@ def setup(context: TenantContext = Depends(tenant_context)) -> CallsSetup:
             transcription=bool(account and problem is None and account.transcription_enabled),
             ai_calls=ai_problem is None, inbound_ai=bool(account and problem is None and account.inbound_ai_enabled and ai.model_ready(gateway)),
             problem=browser, ai_problem=ai_problem, cost_per_minute_cents=account.cost_per_minute_cents if account else None,
+            recording_notice={
+                language: service.recording_notice(account.business_name, transcription=account.transcription_enabled, language=language)
+                for language in ("en", "ar")
+            } if account and account.recording_enabled else None,
         ),
         transcription_configured=build_transcriber(settings) is not None,
     )
@@ -678,7 +691,7 @@ def delete_call(call_id: str, context: TenantContext = Depends(tenant_context)) 
     with open_calls_store(context) as store:
         entry = _call_or_404(store, call_id)
         require_edit(context, entry.user_id)
-        if entry.status in {CallStatus.DIALING, CallStatus.RINGING, CallStatus.IN_PROGRESS}:
+        if entry.status in {CallStatus.DIALING, CallStatus.RINGING, CallStatus.IN_PROGRESS} and not _stale(entry):
             raise HTTPException(status_code=409, detail="This call is still going on; delete it once it has ended.")
         store.delete_call(call_id)
     if entry.recording_file_id:

@@ -1,4 +1,4 @@
-"""PostgreSQL store of phone calls (migration ``0070_calls``, docs/calls.md#storage).
+"""PostgreSQL store of phone calls (migration ``0071_calls``, docs/calls.md#storage).
 
 The session carries the tenant and workspace RLS context (``open_calls_store``); every query
 here repeats the scope as well. The provider's auth token and API key secret are stored only

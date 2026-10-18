@@ -24,14 +24,14 @@ rows that hold a recording (the recording retention purge). It cannot write.
 Expand only: new tables, grants and policies. The previous release ignores them.
 
 Chained after ``0065_finance_intel`` (main's head) for now. Open pull requests hold 0066 to
-0069; this revision is re-chained onto the last of them when they merge.
+0070; this revision is re-chained onto the last of them when they merge.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0070_calls"
+revision = "0071_calls"
 down_revision = "0065_finance_intel"
 branch_labels = None
 depends_on = None

@@ -156,7 +156,7 @@ class PrivateCounts(BaseModel):
     # ANUM. Mail on the server is not ANUM's copy and is not touched.
     mail_mailboxes: int = 0
     mail_messages_written: int = 0
-    # Phone calls (migration 0070_calls, docs/calls.md#privacy): the calls the caller logged
+    # Phone calls (migration 0071_calls, docs/calls.md#privacy): the calls the caller logged
     # or placed, with notes, summaries, transcripts and recordings. Contacts they added are
     # the workspace's address book and stay; opt-outs stay to protect who opted out.
     calls_logged: int = 0

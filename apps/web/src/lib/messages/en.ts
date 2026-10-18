@@ -23,6 +23,7 @@ import { mailCenterEn } from './mailCenter.en.ts';
 import { mailOutgoingEn } from './mailOutgoing.en.ts';
 import { mailAiEn } from './mailAi.en.ts';
 import { mailEn } from './mail.en.ts';
+import { callsEn } from './calls.en.ts';
 import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
 import { pagesEn } from './pages.en.ts';
@@ -45,6 +46,7 @@ export const en = {
   ...mailOutgoingEn,
   ...mailAiEn,
   ...mailEn,
+  ...callsEn,
   ...chatEn,
   ...setupEn,
   ...pagesEn,
@@ -1614,7 +1616,7 @@ export const en = {
   'agents.activeToggle': 'Active',
   'agents.activeToggleText': 'A paused agent does not chat or run tasks; nothing else changes.',
   'agents.callTitle': 'Call summary',
-  'agents.callNote': 'Placing and receiving calls needs telephony, which is not set up. Paste the notes or transcript of a call and the agent summarizes it.',
+  'agents.callNote': 'Paste the notes or transcript of a call and the agent summarizes it. Calls you make or log under Phone calls are in the call log, which the Call Agent reads.',
   'agents.callLabel': 'Call notes or transcript',
   'agents.callPlaceholder': 'Paste what was said on the call',
   'agents.callSubmit': 'Summarize call',
@@ -1631,7 +1633,7 @@ export const en = {
   'agents.template.document.name': 'Document Agent',
   'agents.template.document.description': 'Drafts, rewrites and summarizes documents using the workspace\'s files and memories.',
   'agents.template.call.name': 'Call Agent',
-  'agents.template.call.description': 'Summarizes calls from notes or transcripts. Placing calls needs telephony, which is not set up.',
+  'agents.template.call.description': 'Reads the call log and contacts, summarizes calls and suggests follow-ups. With a voice provider it can ask to place AI calls to contacts who consented, each one approved by an owner.',
 
   // ---- Marketplace ----
   'market.eyebrow': 'Verified distribution',

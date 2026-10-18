@@ -8,7 +8,7 @@ itself, its notes, transcript and summary stay until someone deletes the call.
 under ``call_recordings``, so a deployment needs no extra schedule.
 
 Calls holding an expired recording are discovered as ``anum_maintenance``: id, scope and
-expiry only (migration ``0070_calls``). Each one is then cleared as the application role
+expiry only (migration ``0071_calls``). Each one is then cleared as the application role
 inside its tenant and workspace RLS context, and the file is deleted from the workspace
 files. Output is counts only.
 """
