@@ -74,7 +74,9 @@ _LIVE_CHUNKS = """
         or (c.source_type = 'file' and exists (
           select 1 from workspace_files f
           where f.tenant_id = c.tenant_id and f.workspace_id = c.workspace_id
-            and f.id = c.source_id))
+            and f.id = c.source_id
+            -- Quarantined files (migration 0075) are never retrieved.
+            and f.scan_status is distinct from 'infected'))
       )
 """
 _COLUMNS = "c.id, c.tenant_id, c.workspace_id, c.source_type, c.source_id, c.chunk_index, c.content"

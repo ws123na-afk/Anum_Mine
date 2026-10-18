@@ -225,4 +225,41 @@ so the chart refuses the same values. OAuth client secrets belong in secrets.app
 {{- fail (printf "config.%s must be an https URL (mail providers refuse other OAuth redirects outside localhost)" $key) -}}
 {{- end -}}
 {{- end -}}
+{{- /* Upload malware scanning (docs/files.md#malware-scanning): the API's refusals, mirrored. */ -}}
+{{- $scanner := lower (trim (toString (get $all "ANUM_FILE_SCANNER" | default "off"))) -}}
+{{- if not (has $scanner (list "off" "clamav")) -}}
+{{- fail (printf "config.ANUM_FILE_SCANNER=%q must be off or clamav (the API refuses other values at startup)" $scanner) -}}
+{{- end -}}
+{{- $scanRequired := lower (trim (toString (get $all "ANUM_FILE_SCAN_REQUIRED" | default "true"))) -}}
+{{- if not (has $scanRequired (list "true" "false" "1" "0" "yes" "no" "on" "off")) -}}
+{{- fail (printf "config.ANUM_FILE_SCAN_REQUIRED=%q must be true or false" $scanRequired) -}}
+{{- end -}}
+{{- $clamPort := trim (toString (get $all "ANUM_CLAMAV_PORT" | default "")) -}}
+{{- if $clamPort -}}
+{{- if or (not (regexMatch "^[0-9]{1,5}$" $clamPort)) (lt (atoi $clamPort) 1) (gt (atoi $clamPort) 65535) -}}
+{{- fail (printf "config.ANUM_CLAMAV_PORT=%q must be a port from 1 to 65535 (the API refuses other values at startup)" $clamPort) -}}
+{{- end -}}
+{{- end -}}
+{{- $clamTimeout := trim (toString (get $all "ANUM_CLAMAV_TIMEOUT_SECONDS" | default "")) -}}
+{{- if $clamTimeout -}}
+{{- $badTimeout := not (regexMatch "^[0-9]{1,3}(\\.[0-9]+)?$" $clamTimeout) -}}
+{{- if not $badTimeout -}}
+{{- $badTimeout = or (le (float64 $clamTimeout) 0.0) (gt (float64 $clamTimeout) 120.0) -}}
+{{- end -}}
+{{- if $badTimeout -}}
+{{- fail (printf "config.ANUM_CLAMAV_TIMEOUT_SECONDS=%q must be a number above 0 to 120 (the API refuses other values at startup)" $clamTimeout) -}}
+{{- end -}}
+{{- end -}}
+{{- if eq $scanner "clamav" -}}
+{{- $clamHost := trim (toString (get $all "ANUM_CLAMAV_HOST" | default "")) -}}
+{{- if not $clamHost -}}
+{{- fail "config.ANUM_CLAMAV_HOST is required when ANUM_FILE_SCANNER=clamav (the clamd Service name, e.g. clamav.clamav.svc)" -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9.-]{1,253}$" $clamHost) -}}
+{{- fail (printf "config.ANUM_CLAMAV_HOST=%q must be a host name or IP address, without a scheme or port" $clamHost) -}}
+{{- end -}}
+{{- if has $scanRequired (list "false" "0" "no" "off") -}}
+{{- fail "config.ANUM_FILE_SCAN_REQUIRED must stay true outside local when ANUM_FILE_SCANNER=clamav (uploads would be stored unscanned while clamd is down); the API refuses it at startup" -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}

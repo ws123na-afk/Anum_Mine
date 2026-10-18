@@ -146,7 +146,9 @@ services:
       retries: 10
       start_period: 30s
     stop_grace_period: 60s
-    mem_limit: 4g
+    # 1 GB shared buffers plus up to 100 backends; 3.5 GB keeps the default stack's
+    # ceilings within 11 GB (docs/deploy-oracle.md#memory-budget).
+    mem_limit: 3584m
     logging: *logging
 
   # One-shot, on every `up`: creates or updates the roles and Keycloak's database with
@@ -289,6 +291,14 @@ services:
       # Private web search (the searxng service below); a workspace owner can switch
       # the web_search tool off under Integrations.
       ANUM_SEARXNG_URL: http://searxng:8080
+      # Upload malware scanning (docs/files.md#malware-scanning): every upload and email
+      # attachment goes to the clamd service below; while clamd is down or still loading
+      # its signatures, uploads fail with 503 and nothing is stored (fail closed).
+      ANUM_FILE_SCANNER: clamav
+      ANUM_CLAMAV_HOST: clamd
+      ANUM_CLAMAV_PORT: "3310"
+      ANUM_CLAMAV_TIMEOUT_SECONDS: "30"
+      ANUM_FILE_SCAN_REQUIRED: "true"
       # Unified inbox (docs/email.md): the owner's own OAuth clients; a provider stays
       # "not set up" while its client id or secret is empty. The redirect URI to
       # register is https://<API>/api/v1/email/oauth/callback.
@@ -564,6 +574,45 @@ services:
       retries: 3
       start_period: 20s
     mem_limit: 512m
+    logging: *logging
+
+  # --- ClamAV clamd (upload malware scanning) ----------------------------------------
+  # No published port and no Caddy route: the API streams each upload to
+  # clamd:3310 (INSTREAM) on the internal backend network; egress lets freshclam fetch
+  # signature updates. clamd keeps one copy of the signatures in memory (about 1.2 GB):
+  # ConcurrentDatabaseReload no reloads in place instead of loading a second copy, and
+  # freshclam does not load a downloaded set to test it (TestDatabases no; the files are
+  # still signature-checked), so 2 GB is enough (docs/deploy-oracle.md#memory-budget).
+  clamd:
+    image: clamav/clamav:1.5.4-debian13-slim
+    restart: unless-stopped
+    environment:
+      # Uploads are at most 25 MiB (ANUM_MAX_UPLOAD_BODY_BYTES): clamd accepts a stream
+      # slightly larger, so a full-size upload is scanned instead of refused.
+      CLAMD_CONF_StreamMaxLength: 26M
+      CLAMD_CONF_ConcurrentDatabaseReload: "no"
+      CLAMD_CONF_MaxThreads: "4"
+      FRESHCLAM_CONF_TestDatabases: "no"
+      # Signature updates twice a day.
+      FRESHCLAM_CHECKS: "2"
+    volumes:
+      - clamav-db:/var/lib/clamav
+    networks:
+      - backend
+      - egress
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # The first start loads (or downloads) the signature database.
+      start_period: 600s
+    mem_limit: 2g
+    # Loading signatures is single-threaded; one core keeps scans of large files from
+    # starving PostgreSQL and the API on a 2 OCPU VM.
+    cpus: 1.0
     logging: *logging
 
   # --- Scheduled jobs (profile `jobs`; started by systemd timers, never by `up`) ----
@@ -950,8 +999,8 @@ networks:
       config:
         - subnet: 172.30.20.0/24
   # Outbound internet for the containers that need it: the API (S3 bucket, model
-  # provider), Keycloak (mail), the off-site backup upload, Ollama (model downloads)
-  # and SearXNG (the search engines it queries).
+  # provider), Keycloak (mail), the off-site backup upload, Ollama (model downloads),
+  # SearXNG (the search engines it queries) and clamd (signature updates).
   egress:
     ipam:
       config:
@@ -978,6 +1027,8 @@ volumes:
   caddy-data:
   caddy-config:
   ollama-models:
+  # ClamAV signatures (seeded from the image, refreshed by freshclam).
+  clamav-db:
   # Monitoring data (monitoring.sh purge deletes them).
   beszel-data:
   beszel-agent-data:

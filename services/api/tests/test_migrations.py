@@ -1093,3 +1093,38 @@ def test_mail_writers_migration_is_expand_only() -> None:
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "grant select (disconnecting_at) on mail_accounts to anum_maintenance" in upgrade
     assert "grant select (updated_at) on mail_drafts to anum_maintenance" in upgrade
+
+
+def test_file_scan_status_migration_is_expand_only_with_a_discovery_only_policy() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0075_file_scan_status.py").read_text(encoding="utf-8")
+    assert 'revision = "0075_file_scan_status"' in revision_text and len("0075_file_scan_status") <= 32
+    assert 'down_revision = "0074_brevo_campaigns"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0075_file_scan_status.py"]
+    assert not [path for path in others if 'down_revision = "0074_brevo_campaigns"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.add_column(") == 3 and "nullable=true" in upgrade
+    assert "op.create_table(" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # Discovery only: ids, scope and the scan state of unscanned rows; never the name, key or digest.
+    assert "grant select (id, tenant_id, workspace_id, scan_status) on workspace_files to anum_maintenance" in upgrade
+    assert "for select to anum_maintenance" in upgrade and "using (scan_status is null)" in upgrade
+    assert "grant insert" not in upgrade and "grant update" not in upgrade and "grant delete" not in upgrade
+
+
+def test_customer_billing_migration_is_expand_only_with_narrow_reader_policies() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0081_customer_billing.py").read_text(encoding="utf-8")
+    assert 'revision = "0081_customer_billing"' in revision_text and len("0081_customer_billing") <= 32
+    assert 'down_revision = "0075_file_scan_status"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0081_customer_billing.py"]
+    assert not [path for path in others if 'down_revision = "0075_file_scan_status"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "grant insert" not in upgrade and "grant update" not in upgrade and "grant delete" not in upgrade
+    assert "force row level security" in upgrade
+    # The reader roles never see contacts, bill-to snapshots, proof files or Stripe ciphertexts.
+    granted = revision_text.split("READER_COLUMNS = {", 1)[1].split("def _in", 1)[0]
+    for secret in ("contact_email", "bill_to", "proof_content", "stripe_secret_ciphertext", "reference"):
+        assert secret not in granted

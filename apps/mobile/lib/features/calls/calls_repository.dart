@@ -35,6 +35,27 @@ abstract interface class CallsRepository {
   Future<CallEntry> summarize(String id);
   Future<CallEntry> saveFollowUp(String id, String text, String? dueDate);
   Future<CallEntry> followUpTask(String id);
+
+  /// The voice provider as an owner sees it (call:manage). The provider is
+  /// connected and changed on the web; the phone shows its status.
+  Future<ProviderStatus> provider();
+
+  /// AI call requests, newest first, with their approval state.
+  Future<CallsPage<AiCallRequest>> aiCalls({int offset});
+  Future<AiCallRequest> aiCall(String id);
+
+  /// Asks for an AI call. Nothing is dialled: the request waits for a
+  /// workspace owner's approval of the exact number, purpose and script.
+  Future<AiCallRequest> requestAiCall({
+    required String contactId,
+    required String purpose,
+    required String script,
+    required String language,
+    required int maxSeconds,
+  });
+
+  /// Cancels a request still waiting for approval (its approval is withdrawn).
+  Future<AiCallRequest> cancelAiCall(String id);
 }
 
 class ApiCallsRepository implements CallsRepository {
@@ -159,6 +180,46 @@ class ApiCallsRepository implements CallsRepository {
   @override
   Future<CallEntry> followUpTask(String id) async =>
       _call(await api.request('POST', _one('log', id, '/follow-up/task')));
+
+  AiCallRequest _ai(JsonMap body) => AiCallRequest.fromJson(JsonReader(body));
+
+  @override
+  Future<ProviderStatus> provider() async => ProviderStatus.fromJson(
+      JsonReader(await api.request('GET', '$_base/provider')));
+
+  @override
+  Future<CallsPage<AiCallRequest>> aiCalls({int offset = 0}) async {
+    final j = JsonReader(await api.request(
+        'GET',
+        _path('$_base/ai-calls',
+            {'limit': '$callsPageSize', 'offset': '$offset'})));
+    return CallsPage(
+        j.optObjects('items', AiCallRequest.fromJson), j.optInt('total') ?? 0);
+  }
+
+  @override
+  Future<AiCallRequest> aiCall(String id) async =>
+      _ai(await api.request('GET', _one('ai-calls', id)));
+
+  @override
+  Future<AiCallRequest> requestAiCall({
+    required String contactId,
+    required String purpose,
+    required String script,
+    required String language,
+    required int maxSeconds,
+  }) async =>
+      _ai(await api.request('POST', '$_base/ai-calls', body: {
+        'contact_id': contactId,
+        'purpose': purpose.trim(),
+        'script': script.trim(),
+        'language': language,
+        'max_seconds': maxSeconds,
+      }));
+
+  @override
+  Future<AiCallRequest> cancelAiCall(String id) async =>
+      _ai(await api.request('POST', _one('ai-calls', id, '/cancel')));
 }
 
 /// Opens the phone's own dialer with a number (a `tel:` link). The phone

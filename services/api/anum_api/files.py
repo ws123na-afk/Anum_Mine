@@ -220,6 +220,12 @@ class FileRecord(BaseModel):
     # Set by a rename (migration 0026); None for a file never renamed.
     updated_by: str | None = None
     updated_at: datetime | None = None
+    # Malware scan (migration 0075, docs/files.md#malware-scanning): None until a scanner
+    # looked at the bytes (uploads before scanning, generated files); `infected` files
+    # are quarantined: listed so they can be deleted, never served.
+    scan_status: Literal["clean", "infected"] | None = None
+    scan_signature: str | None = None
+    scanned_at: datetime | None = None
 
 
 class FileSort(StrEnum):
@@ -275,6 +281,9 @@ class FileMetadataStore(Protocol):
     def usage(self, context: TenantContext) -> FileUsage: ...
     def rename(self, context: TenantContext, file_id: str, name: str) -> FileRecord | None: ...
     def delete(self, context: TenantContext, file_id: str) -> bool: ...
+    def record_scan(self, context: TenantContext, file_id: str, sha256: str, status: str, signature: str | None) -> bool:
+        """Store a scan result if the file is still unscanned with these bytes."""
+        ...
 
 
 class FileStore:
@@ -350,6 +359,22 @@ class FileStore:
                 return False
             self.records.pop(file_id, None)
             return True
+
+    def record_scan(self, context: TenantContext, file_id: str, sha256: str, status: str, signature: str | None) -> bool:
+        with self._lock:
+            record = self.get(context, file_id)
+            if record is None or record.sha256 != sha256 or record.scan_status is not None:
+                return False
+            self.records[file_id] = record.model_copy(
+                update={"scan_status": status, "scan_signature": signature, "scanned_at": utc_now()}
+            )
+            return True
+
+    def unscanned(self, after_id: str, limit: int) -> list[FileRecord]:
+        """Memory backend discovery for the rescan job (ids in order, unscanned only)."""
+        with self._lock:
+            items = sorted((r for r in self.records.values() if r.scan_status is None and r.id > after_id), key=lambda r: r.id)
+        return items[:limit]
 
 
 file_store = FileStore(build_object_storage(settings))
@@ -454,6 +479,22 @@ def _record(file_id: str, context: TenantContext) -> FileRecord:
     return record
 
 
+def quarantine_message(record: FileRecord) -> str:
+    found = record.scan_signature or "malware"
+    return (
+        f"{record.name} is quarantined: the malware scanner found {found} in it, so it cannot be opened, "
+        "previewed, shared or indexed. Delete it, or ask a workspace owner to."
+    )
+
+
+def _servable(file_id: str, context: TenantContext) -> FileRecord:
+    """The record of a file whose bytes may be served; quarantined files answer 409."""
+    record = _record(file_id, context)
+    if record.scan_status == "infected":
+        raise HTTPException(409, quarantine_message(record))
+    return record
+
+
 def _index_state(source: Any, model: str | None) -> FileIndex:
     if source is None:
         return FileIndex(status="pending")
@@ -483,7 +524,7 @@ def _views(context: TenantContext, records: list[FileRecord]) -> list[FileView]:
         views.append(FileView(
             **record.model_dump(),
             kind=kind,
-            previewable=kind in file_policy.PREVIEWABLE_KINDS,
+            previewable=kind in file_policy.PREVIEWABLE_KINDS and record.scan_status != "infected",
             can_manage=_can_manage(context, record),
             index=None if sources is None else _index_state(sources.get(record.id), model),
         ))
@@ -535,6 +576,13 @@ def resolve_upload_type(name: str, declared: str | None) -> file_policy.AllowedT
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
 
 
+SCANNER_STARTING = (
+    "The malware scanner is still starting (it loads its virus signatures after a restart, "
+    "which takes a few minutes), so nothing was stored. Try again in a few minutes."
+)
+SCANNER_UNAVAILABLE = "The malware scanner is unavailable, so nothing was stored. Try again later."
+
+
 def check_upload_content(name: str, allowed: file_policy.AllowedType, content: bytes) -> bool:
     """The checks every uploaded file passes before it is stored: not empty, the content
     signature agrees with the type, and the malware-scan hook (docs/files.md#malware-scanning).
@@ -554,12 +602,18 @@ def check_upload_content(name: str, allowed: file_policy.AllowedType, content: b
         return False
     try:
         verdict = scanner.scan(name, allowed.content_type, content)
+    except file_policy.ScannerStarting as exc:
+        raise HTTPException(503, SCANNER_STARTING, headers={"Retry-After": "60"}) from exc
     except Exception as exc:
-        raise HTTPException(503, "The malware scanner is unavailable, so nothing was stored. Try again later.") from exc
+        raise HTTPException(503, SCANNER_UNAVAILABLE) from exc
     if not verdict.clean:
-        reason = f": {verdict.reason}" if verdict.reason else "."
-        raise HTTPException(422, f"The malware scanner refused {name}{reason}")
-    return True
+        found = verdict.reason or "malware"
+        raise HTTPException(
+            422,
+            f"The malware scanner found {found} in {name}, so it was not stored. "
+            "Delete the file and ask the sender for a clean copy.",
+        )
+    return verdict.scanned
 
 
 async def read_upload_body(request: Request, limit: int) -> bytes:
@@ -591,7 +645,8 @@ async def upload_file(
     digest = hashlib.sha256(content).hexdigest()
     if x_content_sha256 is not None and x_content_sha256.lower() != digest:
         raise HTTPException(422, "Content checksum mismatch: the upload was corrupted in transit. Try again.")
-    check_upload_content(name, allowed, content)
+    # The scan is blocking network I/O (clamd): never on the event loop (docs/realtime.md#event-loop).
+    scanned = await asyncio.to_thread(check_upload_content, name, allowed, content)
     # The plan's storage across the organisation (docs/billing.md#plans-and-limits).
     from .billing.enforce import require_capacity
 
@@ -606,9 +661,11 @@ async def upload_file(
         key = workspace_object_key(context.tenant_id, context.workspace_id, "files", file_id, digest)
     except ValueError as exc:
         raise HTTPException(422, "Invalid tenant or workspace identifier") from exc
+    now = utc_now()
     record = FileRecord(id=file_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                         name=name, content_type=allowed.content_type, size_bytes=len(content), sha256=digest,
-                        storage_key=key, created_by=context.user_id, created_at=utc_now())
+                        storage_key=key, created_by=context.user_id, created_at=now,
+                        scan_status="clean" if scanned else None, scanned_at=now if scanned else None)
     file_store.storage.put(key, content, allowed.content_type)
     try:
         with open_file_metadata_store(context) as store:
@@ -759,6 +816,8 @@ def serve_link(token: str) -> Response:
         record = store.get(context, claims.file_id)
     if record is None or record.sha256 != claims.sha256:
         raise HTTPException(404, "File not found")
+    if record.scan_status == "infected":
+        raise HTTPException(409, quarantine_message(record))
     try:
         content = file_store.storage.get(record.storage_key)
     except FileNotFoundError as exc:
@@ -807,7 +866,7 @@ def rename_file(file_id: str, body: FileRename, context: TenantContext = Depends
 @router.get("/{file_id}/content")
 def download_file(file_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     _require(context, Permission.FILE_READ, READ_DENIED)
-    record = _record(file_id, context)
+    record = _servable(file_id, context)
     try:
         content = file_store.storage.get(record.storage_key)
     except FileNotFoundError as exc:
@@ -822,7 +881,7 @@ def preview_file(file_id: str, context: TenantContext = Depends(tenant_context))
     """Text, Markdown and data files as text, at most 256 KiB (``truncated`` says when more
     exists). Images and PDFs are previewed from their bytes; other kinds have no preview."""
     _require(context, Permission.FILE_READ, READ_DENIED)
-    record = _record(file_id, context)
+    record = _servable(file_id, context)
     kind = file_policy.kind_of(record.content_type, record.name)
     if kind not in file_policy.TEXT_PREVIEW_KINDS:
         raise HTTPException(422, "Only text, Markdown and data files have a text preview. Download this file to open it.")
@@ -839,7 +898,7 @@ def preview_file(file_id: str, context: TenantContext = Depends(tenant_context))
 def create_link(file_id: str, body: FileLinkRequest | None = None,
                 context: TenantContext = Depends(tenant_context)) -> FileLink:
     _require(context, Permission.FILE_READ, READ_DENIED)
-    record = _record(file_id, context)
+    record = _servable(file_id, context)
     inline = (body or FileLinkRequest()).disposition == "inline"
     if inline and file_policy.kind_of(record.content_type, record.name) not in file_policy.PREVIEWABLE_KINDS:
         raise HTTPException(422, "This kind of file has no preview; ask for a download link instead.")
@@ -854,7 +913,7 @@ def create_link(file_id: str, body: FileLinkRequest | None = None,
 async def reindex_file(file_id: str, context: TenantContext = Depends(tenant_context)) -> FileView:
     """Index one file for retrieval again (spends model budget for text files)."""
     _require(context, Permission.FILE_UPLOAD, UPLOAD_DENIED)
-    record = _record(file_id, context)
+    record = _servable(file_id, context)
     try:
         content = file_store.storage.get(record.storage_key)
     except FileNotFoundError as exc:
