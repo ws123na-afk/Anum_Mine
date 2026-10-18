@@ -18,6 +18,8 @@ Notification preferences are per user and per workspace (`GET`/`PUT /api/v1/noti
 | `desktop_enabled` | Desktop notifications | Not a phone channel |
 | `email_enabled` | Email | Team work notifications are emailed when SMTP is configured ([Team work](team-work.md#notifications)); nothing else is emailed yet |
 
+In-app calls ([In-app calls](in-app-calls.md#phone-push)) push `incoming_call` (from `app_call.ringing`) and `missed_call` (from a `missed_call` notification) to the person rung; they have no switch of their own and follow `push_enabled`.
+
 The web app shows these under **Settings › Notifications** with the person's registered phones; the Flutter app under **Settings › Notifications** with the **Phone push** card.
 
 ## Phone push

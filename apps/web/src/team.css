@@ -67,7 +67,7 @@
 .peopleList { display: grid; gap: var(--d-s2); margin-top: var(--d-s3); }
 .person { align-items: center; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; padding-top: var(--d-s3); }
 .person small { color: var(--d-muted); display: block; font-size: 13px; overflow-wrap: anywhere; }
-.person > button { border-radius: var(--d-r-control); min-height: 40px; padding: 0 var(--d-s3); }
+.person > button, .personActions > button { border-radius: var(--d-r-control); min-height: 40px; padding: 0 var(--d-s3); }
 .profileForm { grid-column: 1 / -1; }
 
 /* Detail */

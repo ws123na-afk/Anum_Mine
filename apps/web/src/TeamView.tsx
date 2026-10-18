@@ -13,11 +13,13 @@ import { figure, type Load } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { loadFailure, PageHeader, PageSummary } from './PageParts';
 import { Modal } from './Dialog';
+import { CallButtons } from './AppCalls';
+import { CallHistory } from './CallHistory';
 import './team.css';
 
 // The board and the workload table are one "Team dashboard" tab (docs/team-work.md#dashboard).
-type Tab = 'mine' | 'board' | 'activity' | 'people';
-const TABS: Tab[] = ['mine', 'board', 'activity', 'people'];
+type Tab = 'mine' | 'board' | 'activity' | 'people' | 'calls';
+const TABS: Tab[] = ['mine', 'board', 'activity', 'people', 'calls'];
 const savedTab = (): Tab => { const saved = sessionStorageGet('anum.team.tab'); return saved === 'workload' ? 'board' : (TABS as string[]).includes(saved ?? '') ? saved as Tab : 'mine'; };
 type Flash = { text: string; error?: boolean } | null;
 
@@ -101,6 +103,7 @@ export function TeamView({ focusItemId = null, onFocusChange, live = 0 }: { focu
         {tab === 'board' && <Board key={`board-${revision}`} workload={workload} onRetryWorkload={loadWorkload} selected={selected} onOpen={open} onCreate={() => setCreating(true)} />}
         {tab === 'activity' && <ActivityFeed key={`feed-${revision}`} onOpen={open} />}
         {tab === 'people' && <PeoplePanel people={dir.people} onChanged={() => { void dir.reload(); changed(); }} />}
+        {tab === 'calls' && <CallHistory />}
       </div>
       {selected && <WorkDetail key={selected} itemId={selected} options={dir.options} onClose={() => open(null)} onChanged={changed} />}
     </div>
@@ -383,7 +386,10 @@ function PeoplePanel({ people, onChanged }: { people: TeamPerson[]; onChanged():
     <ul className="peopleList">{people.map((p) => <li key={p.user_id} className="person">
       <div><strong>{p.display_name}</strong><small>{[t(`team.role.${p.role}` as MessageKey), p.job_title, p.department ? t(`team.dept.${p.department}` as MessageKey) : null, p.email].filter(Boolean).join(' · ')}</small>
         {!p.has_profile && <small className="warnText">{t('team.noProfile')}</small>}</div>
-      <button type="button" className="secondary" onClick={() => setEditing(editing === p.user_id ? null : p.user_id)} aria-expanded={editing === p.user_id}>{p.user_id === me ? t('team.editMine') : t('team.edit')}</button>
+      <div className="personActions">
+        {p.user_id !== me && <CallButtons person={p} />}
+        <button type="button" className="secondary" onClick={() => setEditing(editing === p.user_id ? null : p.user_id)} aria-expanded={editing === p.user_id}>{p.user_id === me ? t('team.editMine') : t('team.edit')}</button>
+      </div>
       {editing === p.user_id && <ProfileForm person={p} onDone={() => { setEditing(null); onChanged(); }} />}
     </li>)}</ul>
   </section>;

@@ -222,6 +222,9 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     const method = request.method();
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (path === '/api/v1/events/stream') return route.fulfill({ status: 204 });
+    // In-app calls (docs/in-app-calls.md): off unless a spec mocks them (e2e/support/appCallsRelay.ts).
+    if (path === '/api/v1/calls/config') return json({ enabled: false, mode: 'off', reason: 'Calls are off on this server until a relay (TURN) server is configured', video_enabled: true, ring_timeout_seconds: 45 });
+    if (path === '/api/v1/calls' && method === 'GET') return json({ items: [], next_cursor: null });
     if (path === '/api/v1/auth/local/session') return json({}, 404);
     if (path === '/api/v1/tasks' && method === 'GET') return json([task, doneTask]);
     if (path === '/api/v1/tasks/summary') return json({ total: 2, archived: 0, by_status: { waiting_approval: 1, completed: 1 }, creators: ['user_local'] });
