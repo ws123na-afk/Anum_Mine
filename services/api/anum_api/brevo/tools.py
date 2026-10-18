@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from html import escape
 from typing import Any
 
 from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
@@ -96,8 +97,12 @@ def definitions() -> list[ToolDefinition]:
                 "name": {"type": "string", "maxLength": 200}, "subject": {"type": "string", "maxLength": 200},
                 "preview_text": {"type": "string", "maxLength": 200}, "html": {"type": "string"},
                 "list_ids": {"type": "array", "items": {"type": "integer", "minimum": 1}, "maxItems": MAX_LISTS},
+                # The planner names lists and gives an outline (docs/brevo.md#planner); ids and HTML win when both are given.
+                "list_names": {"type": "array", "items": {"type": "string", "maxLength": 100}, "maxItems": MAX_LISTS},
+                "outline": {"type": "array", "items": {"type": "string", "maxLength": 300}, "maxItems": 12},
+                "schedule": {"type": "string", "maxLength": 40},
                 "sender_id": {"type": "integer", "minimum": 1},
-            }, ["name", "subject", "html", "list_ids"]),
+            }, ["name", "subject"]),
         ),
         send_definition(),
     ]
@@ -190,6 +195,47 @@ async def campaign_report(call: ToolCall, context: TenantContext) -> ToolResult:
 # -- draft tool ---------------------------------------------------------------------------------
 
 
+def _list_key(name: str) -> str:
+    key = " ".join(name.casefold().split())
+    return key.removesuffix("s")
+
+
+async def _list_ids_by_name(client: BrevoClient, wanted: list[str]) -> tuple[list[int], list[str]]:
+    """Resolve list names from the user's prompt against the account's lists: one exact
+    match each (case and a trailing "s" aside), never a guess."""
+    lists, _ = await client.lists(limit=50)
+    ids: list[int] = []
+    missing: list[str] = []
+    for name in wanted:
+        matches = [item.id for item in lists if _list_key(item.name) == _list_key(name)]
+        if len(matches) == 1:
+            ids.append(matches[0])
+        else:
+            missing.append(name[:100])
+    return ids, missing
+
+
+def outline_html(subject: str, preview_text: str, outline: list[str]) -> str:
+    """A plain starting point built from the planner's outline, for a person to finish
+    before asking to send. Every value is escaped; nothing remote is referenced."""
+    if not outline:
+        return ""
+    parts = [f"<h1>{escape(subject)}</h1>"]
+    if preview_text:
+        parts.append(f"<p>{escape(preview_text)}</p>")
+    for section in outline[:12]:
+        heading, _, note = section.partition(":")
+        parts.append(f"<h2>{escape(heading.strip())}</h2>")
+        parts.append(f"<p>{escape(note.strip() or heading.strip())}</p>")
+    return "\n".join(parts)
+
+
+def _requested_schedule(value: Any) -> str | None:
+    when = _parse_when(value)
+    return when.strftime("%Y-%m-%d %H:%M UTC") if when is not None and when > utc_now() else None
+
+
+
 async def draft_campaign(call: ToolCall, context: TenantContext) -> ToolResult:
     args = call.arguments
     connection, client, refused = await _client(context)
@@ -203,10 +249,21 @@ async def draft_campaign(call: ToolCall, context: TenantContext) -> ToolResult:
     sender = next((item for item in senders if str(item.id) == str(wanted)), None) if wanted else (senders[0] if senders else None)
     if sender is None:
         return _failed("No verified, active sender matches. Add and verify a sender in Brevo (Senders, domains and IPs) first.")
+    list_ids = args.get("list_ids") or []
+    if not list_ids and args.get("list_names"):
+        try:
+            list_ids, missing = await _list_ids_by_name(client, [str(item) for item in args.get("list_names") or []])
+        except BrevoError as error:
+            return _failed(f"Brevo did not list the contact lists: {error.message}")
+        if missing:
+            return _failed(f"No single Brevo contact list is named {', '.join(repr(name) for name in missing)}. "
+                           "Check the list names on the Email campaigns page and ask again with the exact name.")
+    html_text = str(args.get("html") or "") or outline_html(str(args.get("subject") or ""), str(args.get("preview_text") or ""),
+                                                              [str(item) for item in args.get("outline") or []])
     try:
         payload = DraftInput(
             name=str(args.get("name") or ""), subject=str(args.get("subject") or ""), preview_text=str(args.get("preview_text") or ""),
-            sender_id=sender.id, html=str(args.get("html") or ""), list_ids=[int(item) for item in args.get("list_ids") or []],
+            sender_id=sender.id, html=html_text, list_ids=[int(item) for item in list_ids],
         )
     except (ValueError, TypeError) as exc:
         return _failed(f"The draft is incomplete: {str(exc).splitlines()[0][:200]}")
@@ -231,10 +288,12 @@ async def draft_campaign(call: ToolCall, context: TenantContext) -> ToolResult:
 
     await asyncio.to_thread(save)
     await asyncio.to_thread(audit, context, "brevo.draft.created", draft.id, metadata={"by": "assistant", "lists": len(draft.list_ids)})
+    requested = _requested_schedule(args.get("schedule"))
+    when = f" Requested time: {requested}; pick it when you ask to send." if requested else ""
     return ToolResult(
         status="succeeded",
-        summary=f"Drafted the email campaign \"{draft.name}\" (draft {draft.id}) for review on the Email campaigns page. Nothing was sent.",
-        output={"draft_id": draft.id, "lists": names},
+        summary=f"Drafted the email campaign \"{draft.name}\" (draft {draft.id}) for review on the Email campaigns page. Nothing was sent.{when}",
+        output={"draft_id": draft.id, "lists": names, "requested_schedule": requested or "as soon as approved"},
         audit_metadata={"draft_id": draft.id, "lists": len(draft.list_ids)},
     )
 

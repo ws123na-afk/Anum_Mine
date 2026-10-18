@@ -59,10 +59,32 @@ Registered in the API's and the Temporal worker's tool registries, under `ToolPo
 | `brevo.list_lists` | low | read | Contact lists with subscriber counts. |
 | `brevo.list_campaigns` | low | read | Recent campaigns with their numbers. |
 | `brevo.campaign_report` | low | read | One campaign's report. |
-| `brevo.draft_campaign` | low | draft | Writes a draft in ANUM (`source: assistant`); nothing in Brevo, nothing sent. Owners and members. |
+| `brevo.draft_campaign` | low | draft | Writes a draft in ANUM (`source: assistant`); nothing in Brevo, nothing sent. Owners and members. Takes `list_ids` and `html`, or the planner's `list_names`, `outline` and `schedule` (below). |
 | `brevo.send_campaign` | high | publish, `always_ask` | Sends or schedules one draft after an owner's approval, checked again as above. |
 
 The read tools declare an input schema, so the voice assistant's grounded lookups can use them; every result carries its provenance and is labelled untrusted before any prompt.
+
+## Planner
+
+The `anum.brevo` skill (`agent_skills.py`) is selected by the words Brevo, newsletter(s), mailing, mailshot or subscribers (and نشرة, المشتركين), only where the four tools below are registered and, for an agent, allowed. `brevo/planning.py` then turns the user's own prompt (never retrieved text or model output, threat model G5) into one call, deterministically, so a task, chat and the command preview agree (`choose_tool_call`, hooked before the marketing planner in `AgentPlanner.plan`):
+
+| Request | Planned call |
+| --- | --- |
+| "send the winter newsletter to the customers list" (draft, write, prepare, compose, create, send, schedule) | `brevo.draft_campaign` with the name ("Winter newsletter"), subject, preview text, a four-part content outline, `list_names` and `schedule` |
+| "how did newsletter campaign 101 perform?" | `brevo.campaign_report {campaign_id: 101}` |
+| "show the Brevo campaign reports" | `brevo.list_campaigns {status: sent}` |
+| "how many subscribers are on our lists?" | `brevo.list_lists` |
+| A draft request that names no list | `anum.respond` asking which list |
+| "send brevodraft_..." | `anum.respond` pointing to Ask to send on the Email campaigns page |
+
+- **The planner never plans `brevo.send_campaign`.** A request to "send" becomes a draft for review; the send is asked for on the page and waits for an owner's approval bound to the payload hash, as above. The send tool stays `always_ask`, so workspace autonomy cannot let it run.
+- Every planned call goes through the runtime's `ToolPolicy` like any other: the reads are low risk and allowed, the draft needs an owner or member.
+- `list_names` are resolved at execution against the account's lists (the first 50): one exact match per name, ignoring case and a trailing "s"; anything else fails with "No single Brevo contact list is named ..." and nothing is written. The outline becomes plain, escaped HTML (a heading and a short note per section, no remote content) for a person to finish before asking to send.
+- `schedule` is an ISO time in UTC parsed from "tomorrow at 9am", "today at 14:00" or "2026-11-02 14:30", or "as soon as approved" (also for a time less than 10 minutes away or past). The draft does not store it: the tool's answer repeats it, and the person picks it when asking to send, where the approval binds it.
+- **Not configured:** before a Brevo call reaches the runtime, `AgentPlanner.plan` reads the connection in its own thread and short unit of work (`brevo.planning.refusal`). With no connection, or a key Brevo refused, the plan is an `anum.respond` that says nothing was drafted or sent and how an owner fixes it. The tools refuse the same way if called directly.
+- List names and dates are parsed from English requests; an Arabic request selects the skill but asks which list.
+
+Tests: `tests/test_brevo_planning.py` (intent to plan, reads as allowed tool calls, never a send, a planned draft that sends nothing and whose send waits for an owner's approval with the right payload hash, list names that must exist, refusal when Brevo is not connected or its key was refused).
 
 ## Permissions
 
@@ -90,6 +112,6 @@ Migration `0074_brevo_campaigns`: `brevo_connections` (one per workspace) and `b
 ## Not done yet
 
 - The phone reads campaigns and reports only; drafting, tests and sending are on the web.
-- No planner skill turns a free-text task ("send the winter newsletter") into these tools yet: they are available to the voice assistant's read lookups and as registered tools, and drafts are asked for from the web.
+- The planner writes the outline, not the finished email: a person writes the content (in ANUM or Brevo's editor) before asking to send. It does not plan sends, and list names and dates are understood in English only.
 - Contacts, list membership, templates and Brevo's own drag-and-drop editor are not managed from ANUM; write the HTML in Brevo's editor (or elsewhere) and paste it.
 - Brevo webhooks (opens, bounces in real time) are not received; numbers are read when the page or a tool asks.
