@@ -27,6 +27,7 @@ import { moveMail, requestMailDelete, setMailFlag } from './lib/mailActionsApi';
 import { publishMailUnread } from './lib/mailUnread';
 import { viewLabel } from './lib/shell';
 import { Drawer } from './Dialog';
+import { MailAssist } from './MailAssist';
 import { DeleteApproval, MailBulkBar, MailSearchBar, StarButton, SyncStatus, actionDone, actionLabel, useMailShortcuts, useMailSync } from './MailActions';
 import { PageHeader, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import { useIsOwner } from './useIsOwner';
@@ -371,7 +372,8 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
       <section data-pane="detail" className="pane mailDetail" aria-label={t('mail.reader.empty')}>
         {pane?.kind === 'message' && folder && <Reader key={`${folder.id}:${pane.uid}`} account={account} folder={folder} uid={pane.uid} canAct={canAct} busy={busy !== null}
           message={items.find((m) => m.uid === pane.uid) ?? null} moves={moves} onBack={() => setPane(null)} onAction={(action) => void act(action, [pane.uid])}
-          onCompose={(kind) => void startDraft(kind, pane.uid)} />}
+          onCompose={(kind) => void startDraft(kind, pane.uid)} onOpenApprovals={onOpenApprovals}
+          onDrafted={(draft) => { setDrafts((list) => [draft, ...(list ?? []).filter((d) => d.id !== draft.id)]); setPane({ kind: 'draft', id: draft.id }); }} />}
         {pane?.kind === 'draft' && <Composer key={pane.id} draftId={pane.id} account={account} setup={setup} owner={owner} onOpenApprovals={onOpenApprovals}
           onBack={() => setPane(null)} onChanged={(d) => setDrafts((list) => d ? (list ?? []).map((x) => x.id === d.id ? d : x) : (list ?? []).filter((x) => x.id !== pane.id))}
           onClosed={() => { setPane(null); loadDrafts(); }} onSent={() => { loadDrafts(); sync.checkNow(); }} />}
@@ -381,9 +383,9 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
   </>;
 }
 
-function Reader({ account, folder, uid, message, canAct, busy, moves, onBack, onAction, onCompose }: {
+function Reader({ account, folder, uid, message, canAct, busy, moves, onBack, onAction, onCompose, onDrafted, onOpenApprovals }: {
   account: MailAccount; folder: MailFolder; uid: number; message: MailMessage | null; canAct: boolean; busy: boolean; moves: MailAction[];
-  onBack: () => void; onAction: (action: MailAction) => void; onCompose: (kind: MailDraftKind) => void;
+  onBack: () => void; onAction: (action: MailAction) => void; onCompose: (kind: MailDraftKind) => void; onDrafted: (draft: MailDraft) => void; onOpenApprovals?: () => void;
 }) {
   const [detail, setDetail] = useState<MailDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -425,6 +427,7 @@ function Reader({ account, folder, uid, message, canAct, busy, moves, onBack, on
         <div><dt>{t('mail.reader.date')}</dt><dd><time dateTime={m.date}>{when(m.date)}</time></dd></div>
       </dl>
     </header>
+    <MailAssist target={{ account_id: account.id, folder: folder.id, uid }} canAct={canAct} onDrafted={onDrafted} onOpenApprovals={onOpenApprovals} />
     {detail.remote_images_blocked > 0 && <p className="notice mailBlocked" role="status"><ShieldCheck aria-hidden="true" />{t('mail.reader.imagesBlocked', { count: detail.remote_images_blocked })}</p>}
     {detail.inline_images_hidden > 0 && <p className="muted mailSmall">{t('mail.reader.inlineHidden', { count: detail.inline_images_hidden })}</p>}
     {doc && <div className="actions mailBodyToggle"><button type="button" className="linkButton" aria-pressed={plain} onClick={() => setPlain(!plain)}>{plain ? t('mailc.showFormatted') : t('mailc.showPlain')}</button></div>}

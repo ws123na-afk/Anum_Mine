@@ -353,6 +353,7 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             timeout_seconds=90,
             category="email",
             action_kind="send",
+            always_ask=True,
         ),
         send_mail,
     ),
@@ -365,6 +366,7 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             timeout_seconds=60,
             category="email",
             action_kind="delete",
+            always_ask=True,
         ),
         delete_mail,
     ),
@@ -373,7 +375,9 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
 
 def register_mail_tools(registry: ToolRegistry) -> ToolRegistry:
     """Add the Email Center tools to a runtime's registry (the API's and the Temporal worker's)."""
-    for definition, handler in TOOL_DEFINITIONS:
+    from .ai import AI_TOOL_DEFINITIONS
+
+    for definition, handler in [*TOOL_DEFINITIONS, *AI_TOOL_DEFINITIONS]:
         if definition.name not in registry.names:
             registry.register(definition, handler)
     return registry
