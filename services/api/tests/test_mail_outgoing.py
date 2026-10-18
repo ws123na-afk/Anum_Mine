@@ -19,7 +19,8 @@ from anum_api.files import file_store
 from anum_api.mailbox import outgoing, service
 from anum_api.mailbox.config import mail_settings
 from anum_api.mailbox.server import SendUncertain
-from anum_api.mailbox.store import SEND_LEASE, DraftStatus, mail_backend
+from anum_api.mailbox.store import SEND_LEASE, DraftStatus, mail_backend, open_mail_store
+from anum_api.schemas import TenantContext
 from anum_api.store import store
 from test_mail_center import MEMBER, OWNER, VIEWER, FakeServer, Stored, client, connect, fake, raw_message  # noqa: F401
 
@@ -94,6 +95,12 @@ def test_attachments_pass_the_upload_checks_and_the_scanner(fake: FakeServer, sc
     assert attach(draft["id"], "later.pdf", PDF).status_code == 503
     files = view(draft["id"])["attachments"]
     assert [f["filename"] for f in files] == ["quote.pdf"]
+
+
+def test_setup_tells_the_composer_the_limits(fake: FakeServer) -> None:
+    setup = client.get("/api/v1/mail/setup", headers=OWNER).json()
+    assert setup["attachment_max_bytes"] == mail_settings.outbound_attachment_max_bytes and setup["attachments_per_message"] == 10
+    assert ".pdf" in setup["attachment_extensions"] and ".exe" not in setup["attachment_extensions"] and setup["schedule_max_days"] == 30
 
 
 def test_without_a_scanner_files_are_marked_not_scanned(fake: FakeServer) -> None:
@@ -362,3 +369,23 @@ def test_privacy_export_lists_files_without_storage_keys(fake: FakeServer) -> No
     attach(draft["id"], "quote.pdf", PDF)
     exported = client.get("/api/v1/privacy/export", headers=OWNER)
     assert exported.status_code == 200 and "quote.pdf" in exported.text and "storage_key" not in exported.text
+
+
+def test_discarding_a_scheduled_message_stops_it_unless_it_is_being_sent(fake: FakeServer) -> None:
+    account = connect()
+    first = new_draft(account)
+    when = soon(20)
+    approve(schedule(first["id"], when, "send-key-s901")["approval"])
+    assert client.delete(f"/api/v1/mail/drafts/{first['id']}", headers=OWNER).status_code == 204
+    assert run(when + timedelta(seconds=1)) == {} and not fake.sent
+    second = new_draft(account)
+    approve(schedule(second["id"], when, "send-key-s902")["approval"])
+    # The scheduler claimed it a moment ago: discarding (or editing) now answers 409, never a second send.
+    owner = TenantContext(tenant_id=OWNER["x-tenant-id"], workspace_id=OWNER["x-workspace-id"], user_id=OWNER["x-user-id"], roles=["owner"])
+    with open_mail_store(owner) as store:
+        assert store.claim_scheduled(second["id"], when + timedelta(seconds=1), when + SEND_LEASE)
+        # A request that read the message before the claim cannot turn it back by compare-and-set.
+        assert store.reset_to_draft(second["id"], DraftStatus.SCHEDULED) is False
+    assert client.delete(f"/api/v1/mail/drafts/{second['id']}", headers=OWNER).status_code == 409
+    assert client.patch(f"/api/v1/mail/drafts/{second['id']}", headers=OWNER, json={"body": "x"}).status_code == 409
+    assert client.post(f"/api/v1/mail/drafts/{second['id']}/cancel-schedule", headers=OWNER).status_code == 409

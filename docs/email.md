@@ -123,7 +123,7 @@ Then restart the API, open **Inbox** in the web app and choose **Connect**.
 
 ## Email Center (own mail server)
 
-The Email Center reads and sends mail through the workspace's **own mail server** (for ANUM: Mailcow at `mail.anum360os.com`) over IMAP (implicit TLS, port 993) and SMTP submission (STARTTLS on 587, or TLS on 465). It is separate from the OAuth inbox above: its own tables, routes (`/api/v1/mail`) and tools. Code: `services/api/anum_api/mailbox/` (`config.py`, `server.py`, `mime.py`, `html_safe.py`, `store.py`, `service.py`, `api.py`, `outgoing.py`), `db/mailbox_repository.py`, migrations `0060_email_center` and `0062_mail_outgoing`; tests `services/api/tests/test_mail_center.py`, `test_mail_outgoing.py` and `test_postgres_mail_outgoing.py`. The web Email page does not show attachments and scheduled send yet (in progress).
+The Email Center reads and sends mail through the workspace's **own mail server** (for ANUM: Mailcow at `mail.anum360os.com`) over IMAP (implicit TLS, port 993) and SMTP submission (STARTTLS on 587, or TLS on 465). It is separate from the OAuth inbox above: its own tables, routes (`/api/v1/mail`) and tools. Code: `services/api/anum_api/mailbox/` (`config.py`, `server.py`, `mime.py`, `html_safe.py`, `store.py`, `service.py`, `api.py`, `outgoing.py`), `db/mailbox_repository.py`, migrations `0060_email_center` and `0062_mail_outgoing`; tests `services/api/tests/test_mail_center.py`, `test_mail_outgoing.py` and `test_postgres_mail_outgoing.py`.; web `apps/web/src/MailOutgoing.tsx` (attachments, send later, the Scheduled list).
 
 It is **off** until the operator sets `ANUM_MAILSERVER_ENABLED=true`.
 
@@ -153,7 +153,7 @@ Errors use the API's usual body `{"error": {"code", "message", ...}}`; `message`
 
 | Method and path | Body or query | Answer |
 | --- | --- | --- |
-| `GET /setup` | | `MailSetup {enabled, configured, tenant_allowed, imap_host, imap_port, smtp_host, smtp_port, smtp_security, allowed_domains[], can_read, can_act, max_recipients, send_per_hour, attachment_max_bytes, attachments_per_message, attachments_total_bytes, schedule_max_days, accounts: AccountView[]}` |
+| `GET /setup` | | `MailSetup {enabled, configured, tenant_allowed, imap_host, imap_port, smtp_host, smtp_port, smtp_security, allowed_domains[], can_read, can_act, max_recipients, send_per_hour, attachment_max_bytes, attachments_per_message, attachments_total_bytes, attachment_extensions[], attachments_accepted, schedule_max_days, accounts: AccountView[]}` |
 | `POST /accounts` | `{address, password, display_name?}` | 201 `AccountView {id, address, display_name, status: connected\|auth_failed\|offline\|error, last_error, last_checked_at, created_at}` |
 | `PUT /accounts/{id}/password` | `{password}` | `AccountView` (checked against the server first) |
 | `POST /accounts/{id}/check` | | `AccountView` with fresh health (sync status) |
@@ -264,8 +264,21 @@ ANUM limits its own login checks (above). The mail server's own protection is th
 - **Delete for good** (Trash and Junk only) asks to confirm, then shows the approval the API created for exactly those messages with its payload hash and expiry. An owner approves it there (the hash goes back with the decision); members are told an owner decides and can open Approvals.
 - **Reading.** The sanitized HTML is shown in an iframe with `sandbox="allow-popups allow-popups-to-escape-sandbox"` (no scripts, no same origin), `referrerpolicy="no-referrer"` and its own CSP `default-src 'none'; img-src data:` so nothing loads from the sender; links open in a new tab. **Show plain text** switches to the text part. Blocked remote images and hidden inline images are counted; attachments download through the API, too-large ones point to webmail.
 - **Writing and sending.** Reply, Reply all, Forward and Write create a draft in ANUM; the composer checks the addresses, saves (`PATCH`), and **Send** asks for approval with one idempotency key per attempt (a retry reuses it). The approval shows the sender, recipients and payload hash; an owner approves in place, and the draft then shows Sent, Not sent with the reason, or **Check Sent** when delivery is unknown. "Written in ANUM" lists drafts, messages waiting for approval and sent ones.
+- **Attachments.** **Attach files** in the composer picks files from the device; the page says at once when a file's type, size or the message's count or total is over the limits (the API checks again and runs the malware scanner), shows each file's progress with a stop button, then its name, size and **Not scanned** when the server has no scanner. Each file downloads or is removed in place; adding or removing one withdraws a pending approval or a schedule. A forward lists the files it carried and says which were left out. The approval card says how many files go with the message.
+- **Send later.** **Schedule** opens a picker with two quick picks (tomorrow and Monday at 08:00 in the person's own time zone, which it names) and a date and time field; a time less than a minute ahead or past the limit is explained before anything is asked. The approval card then says the message is scheduled for that time and the owner's button reads **Approve schedule**. A scheduled message shows its time and **Cancel schedule**; editing it turns it back into a draft that remembers the last time picked. **Scheduled** in the folder rail lists the person's scheduled messages, soonest first (empty, loading and failed states included).
 - **Keyboard.** j and k (or the arrow keys) move through the list, Enter or o opens, x selects, e archives, # moves to Trash, s stars, u marks read or unread, / searches. Keys are ignored while typing and in dialogs.
-- **Tests.** Unit `apps/web/test/mailActions.test.ts`; Playwright `apps/web/e2e/email-center.spec.ts` with the fake API in `e2e/support/mailApi.ts` (desktop and phone, axe in English, Arabic and the light theme).
+- **Tests.** Unit `apps/web/test/mailActions.test.ts` and `mailOutgoing.test.ts`; Playwright `apps/web/e2e/email-center.spec.ts` and `email-outgoing.spec.ts` with the fake API in `e2e/support/mailApi.ts` (desktop and phone, axe in English, Arabic and the light theme).
+
+### The Email Center on the phone
+
+The Flutter app (`apps/mobile/lib/features/mail_center/`: `mail_center_models.dart`, `mail_center_repository.dart`, `mail_center_controller.dart`, `mail_center_screens.dart`; strings `lib/src/localization/mail_center_strings.dart`) uses the same `/api/v1/mail` routes. Menu, More, **Email Center**.
+
+- **Mailboxes.** Each mailbox with its state (connected, password refused, server offline, error) and last check; **Check connection**, **Enter the password again** for a refused password, **Remove from ANUM** after a confirmation. **Connect mailbox** takes the address (the allowed domains are shown), the app password (obscured, never shown again) and an optional name.
+- **Folders.** Special folders first with their totals and unread counts (not for Trash), and **Written in ANUM**: drafts, messages waiting for approval, scheduled, sent, not sent and **Check Sent** (unknown delivery).
+- **Messages.** 25 at a time, newest first; **Load more** follows `next_before`; server-side search with **Unread** and **Starred**; pull to refresh.
+- **Reading.** Plain text only: the app never renders the sender's HTML or loads anything from the sender. A message with no text part is shown as text made from the server-sanitized HTML, with a note to open the web app for the formatted version. Blocked remote images and hidden inline images are counted; attachments are listed with their sizes and downloaded from the web app. Star, Mark unread, Archive, Junk, Move to inbox and Move to Trash (each only where the mailbox has that folder).
+- **Writing.** Reply, Reply all, Forward and Write create a draft; To, Cc, Bcc (addresses checked, at most the server's recipient limit), subject and text; **Save draft**; **Send for approval** saves any change first and sends one idempotency key per attempt (a retry reuses it, a change makes a new one). The approval card shows sender, recipients, the full payload hash and its expiry; **Approve and send** sends the hash back (owners only; a member's tap is refused by the API and says so). Scheduling and attachments are set on the web; the app shows them.
+- **States.** Loading; viewers are told owners and members use email; the Email Center off, not set up or the organisation not allowed each name the operator setting; no connection or the mail server not answering (503) show the offline state with **Try again**; other failures show the API's sentence with **Try again**; an empty folder and a search with no match each say what to do.
 
 ### AI on email
 
@@ -306,7 +319,7 @@ High-risk mail tools carry `always_ask`: workspace autonomy can never lower thei
 - Undo for a move: a moved message gets a new UID in its new folder, so the way back is the folder itself (Restore from Trash, Not junk, Move to inbox).
 - Several mailboxes or identities per person, contacts, labels.
 - Attaching an existing workspace file (only files from the device are attached), and an inline preview of attached files.
-- The Flutter screens.
+- On the phone: attaching files, scheduling and deleting for good (done on the web), and downloading attachments.
 - A screen for the operator view: it is the API above.
 - AI on this mailbox from the chat assistant or the Flutter app (only the web reader and the API have it), and a web screen for bulk archive and export (API only).
 - Bcc recipients are not kept in the Sent copy.
