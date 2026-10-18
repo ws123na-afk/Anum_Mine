@@ -7,6 +7,8 @@ import 'settings_controller.dart';
 import '../../src/widgets/depth.dart';
 import '../auth/account_screens.dart';
 import '../admin/admin.dart';
+import '../billing/billing_screen.dart';
+import '../../src/localization/anum_localizations.dart';
 import '../autonomy/autonomy_controller.dart';
 import '../autonomy/autonomy_repository.dart';
 import '../autonomy/autonomy_screens.dart';
@@ -182,6 +184,23 @@ class _Content extends StatelessWidget {
               _AdminCard(
                   repository: controller.admin!,
                   workspaceId: session.context.workspaceId),
+            ],
+            if (controller.billing != null) ...[
+              _Heading(AnumLocalizations.maybeOf(context).t('bl.title')),
+              Card(
+                  child: ListTile(
+                      leading: const Icon(Icons.receipt_long_outlined),
+                      title:
+                          Text(AnumLocalizations.maybeOf(context).t('bl.open')),
+                      subtitle: Text(
+                          AnumLocalizations.maybeOf(context).t('bl.openHint')),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) => BillingScreen(
+                                  controller: BillingController(
+                                      controller.billing!)))))),
             ],
             _Heading('Model connection'),
             Card(

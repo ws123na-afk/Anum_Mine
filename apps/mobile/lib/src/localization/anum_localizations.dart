@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'calls_strings.dart';
+import 'billing_strings.dart';
 import 'brevo_strings.dart';
 import 'business_strings.dart';
 import 'mail_center_strings.dart';
@@ -23,12 +24,14 @@ class AnumLocalizations {
       (isArabic ? callsAr : callsEn)[key] ??
       (isArabic ? businessAr : businessEn)[key] ??
       (isArabic ? brevoAr : brevoEn)[key] ??
+      (isArabic ? billingAr : billingEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
       callsEn[key] ??
       businessEn[key] ??
       brevoEn[key] ??
+      billingEn[key] ??
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.

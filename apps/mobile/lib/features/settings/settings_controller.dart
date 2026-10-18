@@ -4,6 +4,7 @@ import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../admin/admin_repository.dart';
 import '../auth/auth_repository.dart';
+import '../billing/billing_data.dart';
 import '../autonomy/autonomy_repository.dart';
 import '../learning/learning_repository.dart';
 import '../privacy/privacy_repository.dart';
@@ -27,7 +28,8 @@ class SettingsController extends ChangeNotifier {
       this.push,
       this.autonomy,
       this.learning,
-      this.team});
+      this.team,
+      this.billing});
   final AuthRepository repository;
 
   /// Members, invitations and model budgets; the API decides who may use them.
@@ -48,6 +50,10 @@ class SettingsController extends ChangeNotifier {
 
   /// Team work, notifications, assistants and organisations (docs/team-work.md).
   final TeamRepository? team;
+
+  /// The organisation's plan, usage and invoices (docs/billing.md); the API
+  /// lets workspace owners and organisation administrators in.
+  final BillingRepository? billing;
   SettingsPhase phase = SettingsPhase.initial;
   LocalSession? session;
   ModelConfiguration? model;
