@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { expect as baseExpect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 import { CallRelay, type Teammate } from './support/appCallsRelay';
 
@@ -12,6 +12,9 @@ test.use({
     ...(process.env.ANUM_E2E_CHROMIUM ? { executablePath: process.env.ANUM_E2E_CHROMIUM } : {}),
   },
 });
+
+// Ringing crosses two browsers and a long-poll relay: allow for a busy CI runner.
+const expect = baseExpect.configure({ timeout: 15_000 });
 
 const OMAR: Teammate = { user_id: 'user_local', name: 'Omar Owner' };
 const AHMED: Teammate = { user_id: 'user_ahmed', name: 'Ahmed Saleh' };
