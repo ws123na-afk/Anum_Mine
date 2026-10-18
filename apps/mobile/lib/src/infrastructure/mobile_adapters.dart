@@ -238,16 +238,23 @@ class HttpWorkspaceFileTransfer
       })
       ..contentLength = total;
     unawaited(cancellation.whenCancelled.then((_) => client.close()));
-    unawaited(file
-        .openRead()
-        .listen((chunk) {
-          if (cancellation.isCancelled) return;
+    // The body must end (sink closed) or the client never finishes sending
+    // and the upload hangs at 100%. A `listen(onDone: ...)` followed by
+    // `asFuture()` loses that onDone, so the bytes are copied in a loop.
+    unawaited(() async {
+      try {
+        await for (final chunk in file.openRead()) {
+          if (cancellation.isCancelled) break;
           sent += chunk.length;
           request.sink.add(chunk);
           onProgress(sent, total);
-        }, onDone: request.sink.close, onError: request.sink.addError)
-        .asFuture<void>()
-        .catchError((Object _) {}));
+        }
+      } on Object catch (error, stack) {
+        request.sink.addError(error, stack);
+      } finally {
+        await request.sink.close();
+      }
+    }());
     try {
       final response =
           await http.Response.fromStream(await client.send(request));

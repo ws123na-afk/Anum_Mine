@@ -580,7 +580,7 @@ jobs:
       # After pub get, so the formatter takes the language version (and so the style)
       # from the pubspec's SDK constraint, as `dart format` does locally (docs/mobile.md).
       - name: Check Dart formatting
-        run: dart format --output=none --set-exit-if-changed lib test tool
+        run: dart format --output=none --set-exit-if-changed lib test tool integration_test
       - name: Run Flutter analyzer (infos and warnings are errors)
         run: flutter analyze --fatal-infos --fatal-warnings
       - uses: actions/setup-go@v7
@@ -600,6 +600,10 @@ jobs:
         # The JSON file reporter adds a machine-readable copy of the results; the console output
         # and the exit code are unchanged.
         run: flutter test --file-reporter=json:build/test-results/flutter-test.json
+      - name: Run Flutter journey tests (integration_test, headless)
+        # Every user journey end to end against a fake API, on the headless
+        # flutter-tester device (docs/mobile-journeys.md). No emulator needed.
+        run: flutter test integration_test -d flutter-tester --file-reporter=json:build/test-results/flutter-journeys.json
       - name: Upload Flutter test results
         if: failure()
         uses: actions/upload-artifact@v7

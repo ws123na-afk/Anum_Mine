@@ -246,10 +246,14 @@ class SettingsController extends ChangeNotifier {
 
   void _fail(Object error) {
     final text = error.toString();
-    message = text;
-    phase = text.contains('(403,')
+    // The API's own sentence, not "ApiException(404, ...)"; status 0 is the
+    // transport's "could not be reached", which is offline.
+    message = _describe(error);
+    phase = (error is ApiException && error.isPermissionDenied) ||
+            text.contains('(403,')
         ? SettingsPhase.permissionDenied
-        : text.toLowerCase().contains('socket') ||
+        : (error is ApiException && error.statusCode == 0) ||
+                text.toLowerCase().contains('socket') ||
                 text.toLowerCase().contains('network')
             ? SettingsPhase.offline
             : SettingsPhase.error;
