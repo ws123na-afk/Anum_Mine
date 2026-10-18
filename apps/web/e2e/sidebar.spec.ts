@@ -33,7 +33,7 @@ test('on a short window the last Admin entry scrolls into sight and opens its pa
 
   const nav = page.locator('.sidebar nav');
   const item = lastItem(page);
-  await expect(item).toHaveText('Organisations');
+  await expect(item).toHaveText('Billing console');
   await expect(item.locator('xpath=ancestor::*[contains(@class,"navGroup-admin")]')).toHaveCount(1);
   // The nav is the one scroll area: no group scrolls inside a box of its own.
   const scrollers = await page.locator('.sidebar').evaluate((sidebar) => [...sidebar.querySelectorAll('*')]
@@ -56,7 +56,7 @@ test('on a short window the last Admin entry scrolls into sight and opens its pa
 
   await item.click();
   await expect(item).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('main.workspace')).toHaveClass(/view-organisations/);
+  await expect(page.locator('main.workspace')).toHaveClass(/view-platformBilling/);
 
   // Keyboard: focus moving to an entry that is out of sight brings it into the nav's view.
   await page.locator('main.workspace').focus();
@@ -79,7 +79,7 @@ test('on a phone the last entry of the nav strip scrolls into sight and opens it
   await page.setViewportSize({ width: 390, height: 844 });
   await openHome(page);
   const item = lastItem(page);
-  await expect(item).toHaveText('Organisations');
+  await expect(item).toHaveText('Billing console');
   await item.scrollIntoViewIfNeeded();
   // The strip snaps after it scrolls; wait until the entry stands still in the window.
   await expect(item).toBeInViewport({ ratio: 1 });
@@ -89,5 +89,5 @@ test('on a phone the last entry of the nav strip scrolls into sight and opens it
 
   await item.tap();
   await expect(item).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('main.workspace')).toHaveClass(/view-organisations/);
+  await expect(page.locator('main.workspace')).toHaveClass(/view-platformBilling/);
 });

@@ -2,7 +2,7 @@ import type { AgentRun, Approval, ApprovalRouteReason, DomainEvent, SignInOption
 import { parseSignInOptions } from './signIn';
 import { accessToken, currentClaims, oidcEnabled } from './auth';
 import { decisionBody } from './approvals';
-import { apiErrorFrom, apiErrorFromResponse } from './errors';
+import { apiErrorFrom, apiErrorFromResponse, isBillingCode, type ApiError } from './errors';
 import { getLocale, t } from './i18n';
 import type { ApiFile, ApiFileLink, ApiFilePreview, ApiFileUsage, SortValue } from './files';
 import { filesListPath } from './files';
@@ -375,7 +375,7 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   if (!response.ok) {
     // Surface the API's error envelope (e.g. "Could not reach Ollama ...", or 402 model_budget_exceeded)
     // as an ApiError that keeps the status and code.
-    throw await apiErrorFromResponse(response);
+    throw announceBilling(await apiErrorFromResponse(response));
   }
 
   return response.json() as Promise<T>;
@@ -388,7 +388,14 @@ export const apiRequestVoid = (path: string, init: RequestInit): Promise<void> =
 
 async function requestVoid(path: string, init: RequestInit): Promise<void> {
   const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers: { ...(await authHeaders()), ...init.headers } });
-  if (!response.ok) throw await apiErrorFromResponse(response);
+  if (!response.ok) throw announceBilling(await apiErrorFromResponse(response));
+}
+
+/** Window event for a 402 plan_limit_reached or billing_read_only from any request (billing/BillingNotice.tsx shows it). */
+export const BILLING_REFUSAL_EVENT = 'anum:billing-refusal';
+function announceBilling(error: ApiError): ApiError {
+  if (isBillingCode(error) && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(BILLING_REFUSAL_EVENT, { detail: { code: error.code, message: error.detail } }));
+  return error;
 }
 
 
