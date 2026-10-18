@@ -79,6 +79,7 @@ x-user-roles: owner,member
 - [Product vision](docs/product-vision.md)
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
+- [Business model and product master roadmap](docs/ANUM_OS_Business_and_Product_Master_Roadmap.md)
 - [Security](docs/security.md)
 - [Threat model: agent tool use and prompt injection](docs/threat-model.md)
 - [Identity and sign-in](docs/identity.md)
