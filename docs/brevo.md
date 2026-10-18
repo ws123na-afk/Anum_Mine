@@ -10,7 +10,7 @@ Code: `services/api/anum_api/brevo/` (API, client, tools), `services/api/anum_ap
 - The key is sent only in the `api-key` header. Each call has a 15 second timeout, asks for an uncompressed answer and reads at most 2 MB; a larger, compressed or redirected answer fails with a plain message. Errors never carry the key, headers or body.
 - Brevo's answers (list names, campaign names, subjects) are untrusted data: parsers keep only the fields ANUM shows and cut every string; the web and the app show them as text, never as HTML; tools return them with provenance (`tool_output`, origin `api.brevo.com`) and they reach a model only through `tool_output_prompt_block` (`prompt_provenance.label_untrusted`).
 
-Endpoints used: `GET /account` (check the key, the account's own address and plan), `GET /contacts/lists`, `GET /contacts/lists/{id}`, `GET /senders`, `GET /emailCampaigns?statistics=globalStats`, `GET /emailCampaigns/{id}` (no statistics filter, so the answer has the global and per-list numbers), `POST /emailCampaigns`, `PUT /emailCampaigns/{id}`, `POST /emailCampaigns/{id}/sendNow`, `POST /emailCampaigns/{id}/sendTest`.
+Endpoints used: `GET /smtp/templates?templateStatus=true` (the planner's email layout), `GET /account` (check the key, the account's own address and plan), `GET /contacts/lists`, `GET /contacts/lists/{id}`, `GET /senders`, `GET /emailCampaigns?statistics=globalStats`, `GET /emailCampaigns/{id}` (no statistics filter, so the answer has the global and per-list numbers), `POST /emailCampaigns`, `PUT /emailCampaigns/{id}`, `POST /emailCampaigns/{id}/sendNow`, `POST /emailCampaigns/{id}/sendTest`.
 
 ## Connection (owners)
 
@@ -42,7 +42,7 @@ A draft is written in ANUM: name, subject, preview text, a sender, up to 10 cont
 
 ## Sending and scheduling (always an owner's approval)
 
-1. `POST /drafts/{id}/send {scheduled_at?}` (members and owners) reads the lists and the sender from Brevo again and pauses a `brevo.send_campaign` call for approval. The approver sees the campaign, subject, preview text, sender, lists, how many contacts they hold, when, the Brevo account and the text of the email; the payload hash binds all of it plus the content hash. A scheduled time must be 10 minutes to one year away.
+1. `POST /drafts/{id}/send {scheduled_at?}` (members and owners; a request without `scheduled_at` reuses the time saved on the draft, an explicit `null` means as soon as approved) reads the lists and the sender from Brevo again and pauses a `brevo.send_campaign` call for approval. The approver sees the campaign, subject, preview text, sender, lists, how many contacts they hold, when, the Brevo account and the text of the email; the payload hash binds all of it plus the content hash. A scheduled time must be 10 minutes to one year away.
 2. An owner approves with the payload hash shown (`POST /api/v1/approvals/{id}/approve`). The tool is `always_ask` and of the protected `publish` kind: workspace autonomy can never let it run without a person.
 3. At execution the tool checks again, in one short transaction, that the draft still hashes to the approved content and has the approved lists, sender and time, and claims the send (`sending`). Then, with no transaction open, it checks with Brevo that the sender is still verified and active and every list still exists, creates (or updates) the draft's one Brevo campaign with the approved content (preview text included as `previewText`) and the tag `anum:<draft id>`, records the campaign id at once, and calls `sendNow` or leaves Brevo to send at `scheduledAt`.
 4. **One Brevo campaign per draft**: the id is stored as soon as Brevo returns it and a partial unique index allows one draft per campaign in a workspace. A later attempt reuses that campaign (and, after an interrupted first attempt, finds it by its tag). Running the same approved call again sends nothing more.
@@ -59,7 +59,7 @@ Registered in the API's and the Temporal worker's tool registries, under `ToolPo
 | `brevo.list_lists` | low | read | Contact lists with subscriber counts. |
 | `brevo.list_campaigns` | low | read | Recent campaigns with their numbers. |
 | `brevo.campaign_report` | low | read | One campaign's report. |
-| `brevo.draft_campaign` | low | draft | Writes a draft in ANUM (`source: assistant`); nothing in Brevo, nothing sent. Owners and members. Takes `list_ids` and `html`, or the planner's `list_names`, `outline` and `schedule` (below). |
+| `brevo.draft_campaign` | low | draft | Writes a draft in ANUM (`source: assistant`); nothing in Brevo, nothing sent. Owners and members. Takes `list_ids` and `html`, or the planner's `list_names`, `outline`, `brief`, `language` and `schedule`, and then writes the full email (below). |
 | `brevo.send_campaign` | high | publish, `always_ask` | Sends or schedules one draft after an owner's approval, checked again as above. |
 
 The read tools declare an input schema, so the voice assistant's grounded lookups can use them; every result carries its provenance and is labelled untrusted before any prompt.
@@ -70,7 +70,8 @@ The `anum.brevo` skill (`agent_skills.py`) is selected by the words Brevo, newsl
 
 | Request | Planned call |
 | --- | --- |
-| "send the winter newsletter to the customers list" (draft, write, prepare, compose, create, send, schedule) | `brevo.draft_campaign` with the name ("Winter newsletter"), subject, preview text, a four-part content outline, `list_names` and `schedule` |
+| "send the winter newsletter to the customers list" (draft, write, prepare, compose, create, send, schedule) | `brevo.draft_campaign` with the name ("Winter newsletter"), subject, preview text, a four-part outline, the user's words as `brief`, `language`, `list_names` and `schedule` |
+| "أرسل نشرة الشتاء إلى قائمة العملاء غدا الساعة 9 صباحا" (أرسل, اكتب, جهز, جدول) | the same in Arabic: "نشرة الشتاء", lists `["العملاء"]`, tomorrow 09:00 UTC |
 | "how did newsletter campaign 101 perform?" | `brevo.campaign_report {campaign_id: 101}` |
 | "show the Brevo campaign reports" | `brevo.list_campaigns {status: sent}` |
 | "how many subscribers are on our lists?" | `brevo.list_lists` |
@@ -79,12 +80,23 @@ The `anum.brevo` skill (`agent_skills.py`) is selected by the words Brevo, newsl
 
 - **The planner never plans `brevo.send_campaign`.** A request to "send" becomes a draft for review; the send is asked for on the page and waits for an owner's approval bound to the payload hash, as above. The send tool stays `always_ask`, so workspace autonomy cannot let it run.
 - Every planned call goes through the runtime's `ToolPolicy` like any other: the reads are low risk and allowed, the draft needs an owner or member.
-- `list_names` are resolved at execution against the account's lists (the first 50): one exact match per name, ignoring case and a trailing "s"; anything else fails with "No single Brevo contact list is named ..." and nothing is written. The outline becomes plain, escaped HTML (a heading and a short note per section, no remote content) for a person to finish before asking to send.
-- `schedule` is an ISO time in UTC parsed from "tomorrow at 9am", "today at 14:00" or "2026-11-02 14:30", or "as soon as approved" (also for a time less than 10 minutes away or past). The draft does not store it: the tool's answer repeats it, and the person picks it when asking to send, where the approval binds it.
-- **Not configured:** before a Brevo call reaches the runtime, `AgentPlanner.plan` reads the connection in its own thread and short unit of work (`brevo.planning.refusal`). With no connection, or a key Brevo refused, the plan is an `anum.respond` that says nothing was drafted or sent and how an owner fixes it. The tools refuse the same way if called directly.
-- List names and dates are parsed from English requests; an Arabic request selects the skill but asks which list.
+- `list_names` are resolved at execution against the account's lists (the first 50): one exact match per name, ignoring case, a trailing "s" and the Arabic article (so "عملاء" finds "العملاء"); anything else fails with "No single Brevo contact list is named ..." and nothing is written.
+- **Lists in English and Arabic:** "to the customers and VIP lists", "the list named Trade Partners"; "إلى قائمة العملاء", "لقائمتي العملاء والموزعين" (a name ends at a time word or a number, and "و" starts the next one).
+- **Dates in English and Arabic** (UTC): "tomorrow at 9am", "today at 6pm", "2026-11-02 14:30", "on 2026-12-01 at 08:15"; "غدا الساعة 9 صباحا", "اليوم الساعة 7 مساء", "بتاريخ 2026-11-02 الساعة 14:30", with Arabic-Indic digits too. Tomorrow without a time is 09:00. Anything else, a past time or one less than 10 minutes away is "as soon as approved".
+- **The schedule is saved on the draft** (`scheduled_at`, the column from 0074; no new migration) when it is 10 minutes to a year away. Asking to send reuses it (the web pre-fills it; an API request without `scheduled_at` takes it), the approval binds it, and withdrawing a request keeps it.
 
-Tests: `tests/test_brevo_planning.py` (intent to plan, reads as allowed tool calls, never a send, a planned draft that sends nothing and whose send waits for an owner's approval with the right payload hash, list names that must exist, refusal when Brevo is not connected or its key was refused).
+### The full email
+
+At execution `brevo.draft_campaign` writes the complete email (`brevo/compose.py`), still only a draft that an owner approves before anything is sent:
+
+- **Brand:** the organisation's display name (Settings, Branding; `organisations.branding_for`) heads and signs it; Marketing's brand voice and the user's learned style steer the wording.
+- **The owner's Brevo template, when there is one:** the newest active template (one tagged `anum` first) that contains the marker `{{ params.anum_content }}` is the layout; the body replaces the marker and the rest stays as the owner wrote it. Templates without the marker are not used, so the owner chooses where the body goes. Without one, a table-based layout (600 px, the brand name, hidden preview text, the subject, the sections and Brevo's `{{ unsubscribe }}` link) is used; Arabic drafts are right to left.
+- **The words:** with a connected model, through the workspace's budgeted gateway, the model writes each section from the user's own words and the brand voice as JSON plain text; every heading, paragraph and button label is escaped before it goes into the HTML. Without a model, or when its answer cannot be read, the sections come from English or Arabic templates and the tool says to edit them. Template HTML from Brevo never reaches a model, and nothing remote (images, scripts) is added. The button's address is left as `#` for the reviewer to set.
+- The tool's answer says which (`email: {generator, brevo_template_id, brand}`).
+
+- **Not configured:** before a Brevo call reaches the runtime, `AgentPlanner.plan` reads the connection in its own thread and short unit of work (`brevo.planning.refusal`). With no connection, or a key Brevo refused, the plan is an `anum.respond` that says nothing was drafted or sent and how an owner fixes it. The tools refuse the same way if called directly.
+
+Tests: `tests/test_brevo_planning.py` (intent to plan in English and Arabic, list names and dates in both, the full email from the brand, the owner's Brevo template and a model with its text escaped, the saved schedule reused when asking to send, reads as allowed tool calls, never a send, a planned draft that sends nothing and whose send waits for an owner's approval with the right payload hash, list names that must exist, refusal when Brevo is not connected or its key was refused).
 
 ## Permissions
 
@@ -112,6 +124,6 @@ Migration `0074_brevo_campaigns`: `brevo_connections` (one per workspace) and `b
 ## Not done yet
 
 - The phone reads campaigns and reports only; drafting, tests and sending are on the web.
-- The planner writes the outline, not the finished email: a person writes the content (in ANUM or Brevo's editor) before asking to send. It does not plan sends, and list names and dates are understood in English only.
+- The planner does not plan sends (by design: an owner approves each one), and the organisation's logo is not put in the email (it is not hosted at a public address).
 - Contacts, list membership, templates and Brevo's own drag-and-drop editor are not managed from ANUM; write the HTML in Brevo's editor (or elsewhere) and paste it.
 - Brevo webhooks (opens, bounces in real time) are not received; numbers are read when the page or a tool asks.

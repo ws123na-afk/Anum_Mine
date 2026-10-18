@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from html import escape
 from typing import Any
 
 from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
@@ -44,6 +43,7 @@ from .service import (
     draft_hash,
     load_connection,
 )
+from .compose import describe
 from .store import open_brevo_store
 
 PROVENANCE = {"source": "tool_output", "origin": HOST, "trust": "untrusted"}
@@ -101,6 +101,9 @@ def definitions() -> list[ToolDefinition]:
                 "list_names": {"type": "array", "items": {"type": "string", "maxLength": 100}, "maxItems": MAX_LISTS},
                 "outline": {"type": "array", "items": {"type": "string", "maxLength": 300}, "maxItems": 12},
                 "schedule": {"type": "string", "maxLength": 40},
+                "brief": {"type": "string", "maxLength": 2000},
+                "about": {"type": "string", "maxLength": 60},
+                "language": {"type": "string", "enum": ["en", "ar"]},
                 "sender_id": {"type": "integer", "minimum": 1},
             }, ["name", "subject"]),
         ),
@@ -196,8 +199,9 @@ async def campaign_report(call: ToolCall, context: TenantContext) -> ToolResult:
 
 
 def _list_key(name: str) -> str:
-    key = " ".join(name.casefold().split())
-    return key.removesuffix("s")
+    # Case, a trailing "s" and the Arabic article aside: "customers" is "Customers", "العملاء" is "عملاء".
+    words = [word.removeprefix("ال") if len(word) > 4 else word for word in name.casefold().split()]
+    return " ".join(words).removesuffix("s")
 
 
 async def _list_ids_by_name(client: BrevoClient, wanted: list[str]) -> tuple[list[int], list[str]]:
@@ -215,25 +219,13 @@ async def _list_ids_by_name(client: BrevoClient, wanted: list[str]) -> tuple[lis
     return ids, missing
 
 
-def outline_html(subject: str, preview_text: str, outline: list[str]) -> str:
-    """A plain starting point built from the planner's outline, for a person to finish
-    before asking to send. Every value is escaped; nothing remote is referenced."""
-    if not outline:
-        return ""
-    parts = [f"<h1>{escape(subject)}</h1>"]
-    if preview_text:
-        parts.append(f"<p>{escape(preview_text)}</p>")
-    for section in outline[:12]:
-        heading, _, note = section.partition(":")
-        parts.append(f"<h2>{escape(heading.strip())}</h2>")
-        parts.append(f"<p>{escape(note.strip() or heading.strip())}</p>")
-    return "\n".join(parts)
-
-
-def _requested_schedule(value: Any) -> str | None:
+def _requested_time(value: Any) -> datetime | None:
+    """A planned send time the send request will accept: 10 minutes to a year away, else None."""
     when = _parse_when(value)
-    return when.strftime("%Y-%m-%d %H:%M UTC") if when is not None and when > utc_now() else None
-
+    now = utc_now()
+    if when is None or when < now + timedelta(minutes=10) or when > now + timedelta(days=365):
+        return None
+    return when.astimezone(UTC).replace(microsecond=0)
 
 
 async def draft_campaign(call: ToolCall, context: TenantContext) -> ToolResult:
@@ -258,8 +250,18 @@ async def draft_campaign(call: ToolCall, context: TenantContext) -> ToolResult:
         if missing:
             return _failed(f"No single Brevo contact list is named {', '.join(repr(name) for name in missing)}. "
                            "Check the list names on the Email campaigns page and ask again with the exact name.")
-    html_text = str(args.get("html") or "") or outline_html(str(args.get("subject") or ""), str(args.get("preview_text") or ""),
-                                                              [str(item) for item in args.get("outline") or []])
+    html_text = str(args.get("html") or "")
+    composed = None
+    if not html_text and args.get("outline"):
+        # The planner's draft: the full email in the workspace's brand and Brevo template (docs/brevo.md#planner).
+        from .compose import compose
+
+        composed = await compose(
+            context, client, subject=str(args.get("subject") or ""), preview_text=str(args.get("preview_text") or ""),
+            outline=[str(item) for item in args.get("outline") or []][:12], brief=str(args.get("brief") or "")[:2000],
+            about=str(args.get("about") or "")[:60], language="ar" if args.get("language") == "ar" else "en",
+        )
+        html_text = composed.html
     try:
         payload = DraftInput(
             name=str(args.get("name") or ""), subject=str(args.get("subject") or ""), preview_text=str(args.get("preview_text") or ""),
@@ -280,6 +282,8 @@ async def draft_campaign(call: ToolCall, context: TenantContext) -> ToolResult:
         content_hash=content_hash(name=payload.name, subject=payload.subject, preview_text=payload.preview_text, sender_id=sender.id,
                                   sender_email=sender.email, html=payload.html, list_ids=payload.list_ids),
         list_ids=payload.list_ids, list_names=names, source="assistant", created_by=context.user_id, created_at=now, updated_at=now,
+        # The requested time is kept on the draft; asking to send reuses it (the approval binds it).
+        scheduled_at=_requested_time(args.get("schedule")),
     )
 
     def save() -> None:
@@ -288,12 +292,15 @@ async def draft_campaign(call: ToolCall, context: TenantContext) -> ToolResult:
 
     await asyncio.to_thread(save)
     await asyncio.to_thread(audit, context, "brevo.draft.created", draft.id, metadata={"by": "assistant", "lists": len(draft.list_ids)})
-    requested = _requested_schedule(args.get("schedule"))
-    when = f" Requested time: {requested}; pick it when you ask to send." if requested else ""
+    requested = draft.scheduled_at.strftime("%Y-%m-%d %H:%M UTC") if draft.scheduled_at else None
+    when = f" It is set to go out at {requested} once an owner approves it." if requested else ""
+    if composed is not None and composed.note:
+        when += f" {composed.note}"
     return ToolResult(
         status="succeeded",
         summary=f"Drafted the email campaign \"{draft.name}\" (draft {draft.id}) for review on the Email campaigns page. Nothing was sent.{when}",
-        output={"draft_id": draft.id, "lists": names, "requested_schedule": requested or "as soon as approved"},
+        output={"draft_id": draft.id, "lists": names, "scheduled_at": draft.scheduled_at.isoformat() if draft.scheduled_at else "as soon as approved",
+                **({"email": describe(composed)} if composed is not None else {})},
         audit_metadata={"draft_id": draft.id, "lists": len(draft.list_ids)},
     )
 
