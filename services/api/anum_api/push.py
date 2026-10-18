@@ -381,6 +381,9 @@ class PushKind(StrEnum):
     TEAM_WORK = "team_work"
     AUTOMATION_NOTICE = "automation_notice"
     AUTOMATION_FAILED = "automation_failed"
+    # In-app calls (docs/in-app-calls.md#phone-push): a teammate is ringing, or rang.
+    INCOMING_CALL = "incoming_call"
+    MISSED_CALL = "missed_call"
 
 
 # Which notification preference switch gates each kind.
@@ -397,6 +400,8 @@ PREFERENCE: dict[PushKind, str] = {
     # A notify step's push was asked for by the automation's owner; push_enabled still applies.
     PushKind.AUTOMATION_NOTICE: "push_enabled",
     PushKind.AUTOMATION_FAILED: "automation_failed",
+    PushKind.INCOMING_CALL: "push_enabled",
+    PushKind.MISSED_CALL: "push_enabled",
 }
 
 # Fixed text: a push never carries the task, the prompt, the tool call or a PR title.
@@ -411,6 +416,8 @@ TEXT: dict[PushKind, tuple[str, str]] = {
     PushKind.TEAM_WORK: ("Team work", "Something in your team work needs you. Open ANUM to see it."),
     PushKind.AUTOMATION_NOTICE: ("Automation update", "An automation has a message for you. Open ANUM to read it."),
     PushKind.AUTOMATION_FAILED: ("Automation failed", "An automation could not finish."),
+    PushKind.INCOMING_CALL: ("Incoming call", "A teammate is calling you. Open ANUM to answer."),
+    PushKind.MISSED_CALL: ("Missed call", "A teammate tried to call you in ANUM."),
 }
 
 EVENT_KINDS: dict[str, PushKind] = {
@@ -424,6 +431,7 @@ EVENT_KINDS: dict[str, PushKind] = {
     "notification.created": PushKind.TEAM_WORK,
     "automation.notification": PushKind.AUTOMATION_NOTICE,
     "automation_run.failed": PushKind.AUTOMATION_FAILED,
+    "app_call.ringing": PushKind.INCOMING_CALL,
 }
 
 
@@ -443,6 +451,7 @@ class PushIntent:
     recipient: str | None = None
     automation_run_id: str | None = None
     workflow_id: str | None = None
+    app_call_id: str | None = None
     # Automation pushes: the users the event names (notify_user_ids).
     named_users: tuple[str, ...] = ()
 
@@ -460,12 +469,15 @@ class PushIntent:
             "work_item_id": self.work_item_id,
             "automation_run_id": self.automation_run_id,
             "workflow_id": self.workflow_id,
+            "app_call_id": self.app_call_id,
         }
         return {key: value for key, value in values.items() if value}
 
     def collapse_id(self) -> str:
         if self.kind == PushKind.TYRE_ALERTS:
             return f"tyre_alerts:{self.workspace_id}"
+        if self.app_call_id:
+            return f"app_call:{self.app_call_id}:{self.kind.value}"
         return self.approval_id or self.request_id or self.alert_id or self.work_item_id or self.automation_run_id or self.task_id or self.event_id
 
 
@@ -499,11 +511,19 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         return PushIntent(**common, approval_id=event.subject, task_id=task_id)
     if kind == PushKind.TYRE_ALERTS:
         return PushIntent(**common)
+    if kind == PushKind.INCOMING_CALL:
+        recipient = event.payload.get("recipient")
+        call_id = event.payload.get("call_id")
+        if not isinstance(recipient, str) or not recipient or not isinstance(call_id, str) or not call_id:
+            return None
+        return PushIntent(**common, recipient=recipient, app_call_id=call_id)
     if kind == PushKind.TEAM_WORK:
         recipient = event.payload.get("recipient")
         item = event.payload.get("work_item_id")
         if not isinstance(recipient, str) or not recipient:
             return None
+        if event.payload.get("kind") == "missed_call":
+            return PushIntent(**{**common, "kind": PushKind.MISSED_CALL}, recipient=recipient)
         return PushIntent(**common, recipient=recipient, work_item_id=item if isinstance(item, str) and item else None)
     if kind in {PushKind.TASK_COMPLETED, PushKind.RUN_FAILED}:
         if task_id is None:
@@ -544,6 +564,9 @@ def resolve_recipients(intent: PushIntent, *, limit: int | None = None) -> list[
                 user for user, role in members.items()
                 if user not in excluded and _allowed(role, Permission.APPROVAL_DECIDE)
             ]
+        elif intent.kind in {PushKind.INCOMING_CALL, PushKind.MISSED_CALL}:
+            if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.CALL_USE):
+                recipients = [intent.recipient]
         elif intent.kind == PushKind.TEAM_WORK:
             if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.WORK_READ):
                 recipients = [intent.recipient]

@@ -122,6 +122,10 @@ class Permission(StrEnum):
     # Finance at all. Owners and members read and manage their own ledger; viewers do not.
     FINANCE_READ = "finance:read"
     FINANCE_MANAGE = "finance:manage"
+    # In-app calls (docs/in-app-calls.md): every active member, viewers included, may call
+    # and answer teammates of the same workspace. A call row is visible to its two
+    # participants only (row policies on ``anum.user_id``).
+    CALL_USE = "call:use"
 
 
 class OrganizationRole(StrEnum):
@@ -177,6 +181,7 @@ _READ_PERMISSIONS = frozenset(
         Permission.WORK_READ,
         Permission.CALENDAR_READ,
         Permission.MARKETING_READ,
+        Permission.CALL_USE,
     }
 )
 
