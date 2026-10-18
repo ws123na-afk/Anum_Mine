@@ -76,13 +76,48 @@ class CallsController extends ChangeNotifier {
         (query, offset) => repository.contacts(query: query, offset: offset));
     recents = CallsList<CallEntry>(
         (query, offset) => repository.calls(query: query, offset: offset));
+    aiCalls = CallsList<AiCallRequest>(
+        (_, offset) => repository.aiCalls(offset: offset));
   }
   final CallsRepository repository;
   late final CallsList<CallContact> contacts;
   late final CallsList<CallEntry> recents;
+  late final CallsList<AiCallRequest> aiCalls;
   CallsSetup? setup;
   String? setupError;
   bool setupDenied = false;
+
+  /// The provider as an owner sees it; loaded only for owners (call:manage).
+  ProviderStatus? provider;
+  String? providerError;
+  bool providerLoading = false;
+
+  /// Loads the AI calls tab: the requests and, for owners, the provider.
+  Future<void> loadAi() async {
+    final owner = setup?.canManage ?? false;
+    if (owner) {
+      providerLoading = true;
+      _notify();
+    }
+    await Future.wait([
+      aiCalls.load(),
+      if (owner) _loadProvider(),
+    ]);
+  }
+
+  Future<void> _loadProvider() async {
+    try {
+      provider = await repository.provider();
+      providerError = null;
+    } on ApiException catch (e) {
+      providerError = e.readable;
+    } on Object catch (e) {
+      providerError = '$e';
+    } finally {
+      providerLoading = false;
+      _notify();
+    }
+  }
 
   /// The dialer was opened at this time for this number: ask to log it.
   PendingDial? pending;
@@ -105,7 +140,7 @@ class CallsController extends ChangeNotifier {
     }
     _notify();
     if (!setupDenied) {
-      await Future.wait([contacts.load(), recents.load()]);
+      await Future.wait([contacts.load(), recents.load(), loadAi()]);
     }
   }
 
@@ -122,6 +157,8 @@ class CallsController extends ChangeNotifier {
   void reset() {
     setup = null;
     pending = null;
+    provider = null;
+    providerError = null;
   }
 
   @override
@@ -129,6 +166,7 @@ class CallsController extends ChangeNotifier {
     _disposed = true;
     contacts.dispose();
     recents.dispose();
+    aiCalls.dispose();
     super.dispose();
   }
 }
