@@ -68,6 +68,12 @@ class _CallsScreenState extends State<CallsScreen>
   }
 
   @override
+  void didUpdateWidget(CallsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) unawaited(c.load());
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _tabs.dispose();
@@ -587,37 +593,49 @@ class _DialTabState extends State<_DialTab> {
                     style: TextStyle(color: context.palette.muted)),
               ),
             const SizedBox(height: AnumSpacing.sm),
+            // Rows of equal keys whose height follows the text size, so the
+            // keypad never clips at large text.
             Directionality(
               textDirection: TextDirection.ltr,
-              child: GridView.count(
-                crossAxisCount: 3,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: AnumSpacing.xs,
-                crossAxisSpacing: AnumSpacing.xs,
-                childAspectRatio: 1.9,
-                children: [
-                  for (final key in keys)
-                    Semantics(
-                      button: true,
-                      label: key == '0' ? '0 +' : key,
-                      excludeSemantics: true,
-                      child: OutlinedButton(
-                        key: Key('dial-$key'),
-                        onPressed: () => _set(pressKey(_number, key)),
-                        onLongPress: key == '0'
-                            ? () => _set(longPressZero(_number))
-                            : null,
-                        child:
-                            Column(mainAxisSize: MainAxisSize.min, children: [
-                          Text(key, style: const TextStyle(fontSize: 22)),
-                          if (key == '0')
-                            const Text('+', style: TextStyle(fontSize: 11)),
-                        ]),
-                      ),
-                    ),
-                ],
-              ),
+              child: Column(children: [
+                for (var row = 0; row < keys.length; row += 3)
+                  Padding(
+                    padding:
+                        EdgeInsets.only(top: row == 0 ? 0 : AnumSpacing.xs),
+                    child: Row(children: [
+                      for (final key in keys.sublist(row, row + 3)) ...[
+                        if (key != keys[row])
+                          const SizedBox(width: AnumSpacing.xs),
+                        Expanded(
+                          child: Semantics(
+                            button: true,
+                            label: key == '0' ? '0 +' : key,
+                            excludeSemantics: true,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(minHeight: 56),
+                              child: OutlinedButton(
+                                key: Key('dial-$key'),
+                                onPressed: () => _set(pressKey(_number, key)),
+                                onLongPress: key == '0'
+                                    ? () => _set(longPressZero(_number))
+                                    : null,
+                                child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(key,
+                                          style: const TextStyle(fontSize: 22)),
+                                      if (key == '0')
+                                        const Text('+',
+                                            style: TextStyle(fontSize: 11)),
+                                    ]),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ]),
+                  ),
+              ]),
             ),
             const SizedBox(height: AnumSpacing.sm),
             Text(l.t('calls.dial.hint'),
