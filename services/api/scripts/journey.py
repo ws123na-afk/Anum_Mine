@@ -170,7 +170,12 @@ def sign_in(issuer: str, client_id: str, redirect_uri: str, username: str, passw
 
 
 def check_pkce_is_required(issuer: str, client_id: str, redirect_uri: str) -> None:
-    """The public web client must refuse an authorization request without a PKCE challenge."""
+    """The public web client must refuse an authorization request without a PKCE challenge.
+
+    Keycloak logs this refusal as ``LOGIN_ERROR ... reason="Missing parameter:
+    code_challenge_method"``. That line in the job's service logs is this check working,
+    not a failed sign-in (docs/business/P0_CI_REMEDIATION.md).
+    """
     with httpx.Client(timeout=30, follow_redirects=False) as browser:
         response = browser.get(
             f"{issuer}/protocol/openid-connect/auth",
