@@ -32,6 +32,7 @@ INFO_PLIST = MOBILE / "ios" / "Runner" / "Info.plist"
 PBXPROJ = MOBILE / "ios" / "Runner.xcodeproj" / "project.pbxproj"
 OIDC_DART = MOBILE / "lib" / "features" / "auth" / "oidc.dart"
 RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release-clients.yml"
+ANDROID_RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release-android.yml"
 
 CLIENT_ID = "anum-flutter"
 APPLICATION_ID = "com.anum.app"
@@ -273,6 +274,35 @@ def test_complete_configuration_builds_signed_and_uploads_when_asked(tmp_path: P
     ios = {name: PLACEHOLDER for name in IOS_SIGNING} | PRODUCTION_URLS
     code, _, outputs = _release_config("ios", tmp_path, upload=True, values=ios)
     assert (code, outputs) == (0, {"signed": "true", "upload": "true"})
+
+
+def test_play_upload_accepts_workload_identity_instead_of_a_json_key(tmp_path: Path) -> None:
+    android = {name: PLACEHOLDER for name in ANDROID_SIGNING} | PRODUCTION_URLS
+    wif = {"PLAY_WORKLOAD_IDENTITY_PROVIDER": PLACEHOLDER, "PLAY_SERVICE_ACCOUNT": PLACEHOLDER}
+    code, _, outputs = _release_config("android", tmp_path, upload=True, values=android | wif)
+    assert (code, outputs) == (0, {"build": "true", "play": "true"})
+    # Half a federation setup is not enough, and the error names both ways to configure it.
+    code, stdout, _ = _release_config(
+        "android", tmp_path, upload=True, values=android | {"PLAY_WORKLOAD_IDENTITY_PROVIDER": PLACEHOLDER}
+    )
+    assert code == 1
+    assert "PLAY_WORKLOAD_IDENTITY_PROVIDER and PLAY_SERVICE_ACCOUNT" in stdout
+    assert PLACEHOLDER not in stdout
+
+
+def test_android_release_uses_federation_scoped_to_the_upload_job() -> None:
+    workflow = yaml.safe_load(ANDROID_RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    assert "id-token" not in workflow["permissions"]
+    assert workflow["jobs"]["android"]["permissions"] == {"contents": "read", "id-token": "write"}
+    assert "permissions" not in workflow["jobs"]["android-apk"]
+    steps = workflow["jobs"]["android"]["steps"]
+    config = next(step for step in steps if step.get("id") == "config")
+    # The preflight sees the real secret, never a stand-in value.
+    assert config["env"]["PLAY_SERVICE_ACCOUNT_JSON"] == "${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}"
+    auth = next(step for step in steps if step.get("id") == "google-auth")
+    assert re.fullmatch(r"google-github-actions/auth@[0-9a-f]{40}", auth["uses"])
+    assert auth["with"]["workload_identity_provider"] == "${{ env.PLAY_WORKLOAD_IDENTITY_PROVIDER }}"
+    assert auth["with"]["service_account"] == "${{ env.PLAY_SERVICE_ACCOUNT }}"
 
 
 FIREBASE_CONFIG_SCRIPT = REPO_ROOT / ".github" / "scripts" / "mobile-firebase-config.sh"

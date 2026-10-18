@@ -804,9 +804,15 @@ class WorkspaceFileRecord(Base, WorkspaceScopedMixin):
     # Last rename (migration 0029_file_management); null for a file never renamed.
     updated_by: Mapped[str | None] = mapped_column(String(160))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Malware scan (migration 0075_file_scan_status): null until scanned; `infected` is
+    # quarantined (docs/files.md#malware-scanning).
+    scan_status: Mapped[str | None] = mapped_column(String(16))
+    scan_signature: Mapped[str | None] = mapped_column(String(200))
+    scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         _workspace_fk("workspace_files"),
+        CheckConstraint("scan_status is null or scan_status in ('clean', 'infected')", name="ck_workspace_files_scan_status"),
         Index("ix_workspace_files_scope_created", "tenant_id", "workspace_id", "created_at"),
         # Keyset paging by name and by size (migration 0029_file_management).
         Index("ix_workspace_files_scope_name", "tenant_id", "workspace_id", text('(lower(name) collate "C")'), "id"),

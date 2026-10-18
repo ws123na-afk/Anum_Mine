@@ -5,7 +5,7 @@ Each store's session must already carry the tenant and workspace RLS context; qu
 also filter on the scope explicitly.
 """
 
-from sqlalchemy import delete, func, select, text, tuple_
+from sqlalchemy import delete, func, select, text, tuple_, update
 from sqlalchemy.orm import Session
 
 from anum_api.audit import AuditRecord
@@ -179,6 +179,9 @@ class SqlAlchemyFileMetadataStore:
                 storage_key=record.storage_key,
                 created_by=record.created_by,
                 created_at=record.created_at,
+                scan_status=record.scan_status,
+                scan_signature=record.scan_signature,
+                scanned_at=record.scanned_at,
             )
         )
         self.session.flush()
@@ -249,6 +252,19 @@ class SqlAlchemyFileMetadataStore:
     def delete(self, context: TenantContext, file_id: str) -> bool:
         result = self.session.execute(
             delete(WorkspaceFileRecord).where(*self._scope(context), WorkspaceFileRecord.id == file_id)
+        )
+        return bool(result.rowcount)
+
+    def record_scan(self, context: TenantContext, file_id: str, sha256: str, status: str, signature: str | None) -> bool:
+        result = self.session.execute(
+            update(WorkspaceFileRecord)
+            .where(
+                *self._scope(context),
+                WorkspaceFileRecord.id == file_id,
+                WorkspaceFileRecord.sha256 == sha256,
+                WorkspaceFileRecord.scan_status.is_(None),
+            )
+            .values(scan_status=status, scan_signature=signature, scanned_at=utc_now())
         )
         return bool(result.rowcount)
 
@@ -341,4 +357,7 @@ def _file(row: WorkspaceFileRecord) -> FileRecord:
         created_at=row.created_at,
         updated_by=row.updated_by,
         updated_at=row.updated_at,
+        scan_status=row.scan_status,  # type: ignore[arg-type]
+        scan_signature=row.scan_signature,
+        scanned_at=row.scanned_at,
     )
