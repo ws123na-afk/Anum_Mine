@@ -51,7 +51,6 @@ export const mailAiEn = {
   'mailai.priority.low': 'Low priority',
   'mailai.list.label': 'AI and approvals for this list',
   'mailai.labelAll': { one: 'Label {count} message', other: 'Label all ({count})' },
-  'mailai.labelAll.none': 'Everything shown is labelled',
   'mailai.labelAll.working': { one: 'Labelling {count} message...', other: 'Labelling {count} messages...' },
   'mailai.labelAll.done': { one: 'Labelled {count} message.', other: 'Labelled {count} messages.' },
   'mailai.labelAll.partly': 'Labelled {count}; {failed} could not be labelled. Try again for the rest.',

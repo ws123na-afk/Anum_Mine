@@ -282,7 +282,7 @@ The Flutter app (`apps/mobile/lib/features/mail_center/`: `mail_center_models.da
 
 ### AI on email
 
-AI on the Email Center (code `services/api/anum_api/mailbox/ai.py`, routes `ai_api.py`, web `MailAssist.tsx`; tests `services/api/tests/test_mail_ai.py`, `apps/web/test/mailAi.test.ts`, `apps/web/e2e/email-ai.spec.ts`). Every action is a registered tool that runs under the runtime's tool policy (governance, workspace policy and autonomy) exactly as an agent's call would; the routes never call a model or the mail server around it. No migration: results are shown, not stored.
+AI on the Email Center (code `services/api/anum_api/mailbox/ai.py`, routes `ai_api.py`, web `MailAssist.tsx`; tests `services/api/tests/test_mail_ai.py`, `apps/web/test/mailAi.test.ts`, `apps/web/e2e/email-ai.spec.ts`). Every action is a registered tool that runs under the runtime's tool policy (governance, workspace policy and autonomy) exactly as an agent's call would; the routes never call a model or the mail server around it. Labels are stored per person (migration `0066_mail_labels`, below); summaries and drafts' wording are not stored outside the draft.
 
 | Action | Tool | Risk | Approval |
 | --- | --- | --- | --- |
@@ -313,6 +313,17 @@ High-risk mail tools carry `always_ask`: workspace autonomy can never lower thei
 | `POST /export` | `{account_id, folder, uids[]}` | `{status: waiting_approval, summary, approval}` (binds each message's Message-ID) |
 | `GET /exports/{approval_id}` | | the mbox download; 409 before approval or when a message changed, 410 an hour after approval |
 
+**Stored labels and Label all.** A label (category, priority, a one-sentence reason, model or rules) is kept in `mail_labels` (migration `0066_mail_labels`): one row per person, mailbox, folder and UID, with the message's Message-ID, forced RLS plus a restrictive owner policy, deleted with the mailbox (foreign key) and by "Delete my data", exported by "Download my data". No subject, sender or body is stored. The list shows a label only while the message at that UID still has that Message-ID. **Label all** (`POST /classify-page`, tool `classify_mail_page`, at most 25 at a time) labels the shown page's unlabelled messages with one model call per message, so no message can steer another's label; `force` labels again.
+
+**On the Email page.** Rows show the label chips (category, and the priority unless normal). The bar over the list offers **Label all (n)** when a model is set up, **Select n newsletters and notifications** after labelling, and for a selection **Archive n with approval** (up to 200) and **Export n (.mbox)** (up to 100). Both show the approval card with the payload hash and expiry; an owner approves in place (members are told an owner approves, and can open Approvals). An approved export shows **Download .mbox** for one hour; a late download says the export expired.
+
+**The assistant (chat and tasks).** With the Email Center on, mail requests in the assistant's own words become one tool call (`mailbox/planning.py`; never from model output or mail): "summarise my latest email from Sara" (`summarize_mail`), "label my last 15 emails" (`classify_mail_page`), "draft a reply to the latest email saying ..." (`draft_mail_reply`, the instructions are the person's words), and "forward my latest email to omar@example.com", "archive my last 5 emails", "export my latest email", "delete the latest email in trash" (`request_mail_action`). The last only picks the messages from the person's words and creates the approval of exactly them (`send_mail`, `archive_mail_bulk`, `export_mail`, `delete_mail`, all `always_ask`); nothing happens until an owner approves. "Send ..." is answered with where to send from (the Email page). With the Email Center off, mail questions go to the OAuth inbox search as before. Tests: `services/api/tests/test_mail_assistant.py` (planner, selectors, approvals, an email ordering a forward asked about in chat gets only a summary) and `test_postgres_mail_labels.py`.
+
+| Method and path (`/api/v1/mail/ai`) | Body or query | Answer |
+| --- | --- | --- |
+| `GET /labels` | `account_id`, `folder`, `uids` (comma-separated, at most 100), `message_ids` (tab-separated, same order) | `{uid, category, priority, reason, source}[]` |
+| `POST /classify-page` | `{account_id, folder, uids[] (at most 25), force?}` | `{labels[], labelled, skipped, failed, summary}`; 503 when no message could be labelled |
+
 ### Not done yet (Email Center)
 
 - Push (IMAP IDLE) and a server-side background sync: the page refreshes folder counts while it is open; the sidebar badge is not updated while the Email page is closed.
@@ -321,5 +332,6 @@ High-risk mail tools carry `always_ask`: workspace autonomy can never lower thei
 - Attaching an existing workspace file (only files from the device are attached), and an inline preview of attached files.
 - On the phone: attaching files, scheduling and deleting for good (done on the web), and downloading attachments.
 - A screen for the operator view: it is the API above.
-- AI on this mailbox from the chat assistant or the Flutter app (only the web reader and the API have it), and a web screen for bulk archive and export (API only).
+- AI on this mailbox in the Flutter app (the web and the assistant chat have it).
+- AI drafts do not add a sender identity's signature yet (identities are not on `main`).
 - Bcc recipients are not kept in the Sent copy.

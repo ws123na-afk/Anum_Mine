@@ -52,7 +52,6 @@ export const mailAiAr: Record<keyof typeof mailAiEn, Message> = {
   'mailai.priority.low': 'أولوية منخفضة',
   'mailai.list.label': 'الذكاء الاصطناعي والموافقات لهذه القائمة',
   'mailai.labelAll': { zero: 'صنّف {count}', one: 'صنّف رسالة واحدة', two: 'صنّف رسالتين', few: 'صنّف الكل ({count})', many: 'صنّف الكل ({count})', other: 'صنّف الكل ({count})' },
-  'mailai.labelAll.none': 'كل الرسائل المعروضة مصنّفة',
   'mailai.labelAll.working': { zero: 'جارٍ التصنيف...', one: 'جارٍ تصنيف رسالة واحدة...', two: 'جارٍ تصنيف رسالتين...', few: 'جارٍ تصنيف {count} رسائل...', many: 'جارٍ تصنيف {count} رسالة...', other: 'جارٍ تصنيف {count} رسالة...' },
   'mailai.labelAll.done': { zero: 'لم تُصنّف أي رسالة.', one: 'صُنّفت رسالة واحدة.', two: 'صُنّفت رسالتان.', few: 'صُنّفت {count} رسائل.', many: 'صُنّفت {count} رسالة.', other: 'صُنّفت {count} رسالة.' },
   'mailai.labelAll.partly': 'صُنّفت {count}؛ وتعذّر تصنيف {failed}. أعد المحاولة للباقي.',

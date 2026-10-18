@@ -118,11 +118,10 @@ export function MailListTools({ accountId, folderId, folderName, items, selected
     }
   }
 
-  const showBar = (ai === 'ready' && items.length > 0) || tidy.length > 0 || (canAct && picked.length > 0);
+  const showBar = (ai === 'ready' && todo.length > 0) || tidy.length > 0 || (canAct && picked.length > 0);
   return <>
     {showBar && <div className="mailAiList" role="toolbar" aria-label={t('mailai.list.label')}>
-      {ai === 'ready' && items.length > 0 && <button type="button" className="secondary" disabled={busy !== null || todo.length === 0} aria-busy={busy === 'label'} onClick={() => void labelAll()}
-        title={todo.length === 0 ? t('mailai.labelAll.none') : undefined}><Tags aria-hidden="true" />{todo.length ? t('mailai.labelAll', { count: todo.length }) : t('mailai.labelAll.none')}</button>}
+      {ai === 'ready' && todo.length > 0 && <button type="button" className="secondary" disabled={busy !== null} aria-busy={busy === 'label'} onClick={() => void labelAll()}><Tags aria-hidden="true" />{t('mailai.labelAll', { count: todo.length })}</button>}
       {tidy.length > 0 && canAct && <button type="button" className="secondary" disabled={busy !== null} onClick={() => onSelect(tidy)}><Sparkles aria-hidden="true" />{t('mailai.tidy.select', { count: tidy.length })}</button>}
       {canAct && picked.length > 0 && <>
         <button type="button" className="secondary" disabled={busy !== null || pending !== null} aria-busy={busy === 'archive'} onClick={() => void ask('archive')}><Archive aria-hidden="true" />{t('mailai.bulk.archive', { count: Math.min(picked.length, ARCHIVE_MAX) })}</button>

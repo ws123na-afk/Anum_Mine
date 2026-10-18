@@ -118,8 +118,8 @@ test('Label all labels the shown page and the rows show the chips', async ({ pag
   expect(ai.calls.pages[0].uids).toHaveLength(25);
   await expect(list.locator('.mailAiRowLabels').first()).toBeVisible();
   await expect(list.locator('.mailRow').filter({ hasText: 'Newsletter' }).first()).toBeVisible();
-  await expect(tools.getByRole('button', { name: 'Everything shown is labelled' })).toBeDisabled();
-  // A label made in the reader shows on its row too.
+  // Once everything shown is labelled, Label all is no longer offered.
+  await expect(page.getByRole('button', { name: /Label all/ })).toHaveCount(0);
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
 
