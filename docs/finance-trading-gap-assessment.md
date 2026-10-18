@@ -18,7 +18,7 @@ The brief's hard boundaries hold for every loop: live trading stays off, no live
 | `finance/connectors.py`, `finance/sync.py` | Read-only connector registry, ECB adapter, safe background sync through `anum_maintenance` | Pattern for market-data providers: read-only, bounded fetch, no transaction across the network |
 | `finance/tools.py` | Read tools, proposal tools, the request planner that reads only the user's own words | Home of the new trading intelligence tools and owner commands |
 | `finance/store.py`, `db/finance_repository.py` | In-memory and PostgreSQL stores in the owner's own scope | Extended with the new tables |
-| `migrations/0056` to `0059` | Owner-only forced RLS on every finance table, live check constraints | New migration `0060` follows the same pattern |
+| `migrations/0056` to `0059` | Owner-only forced RLS on every finance table, live check constraints | New migration `0065_finance_intel` follows the same pattern |
 | `agent_skills.py` | `anum.finance` skill manifest and trigger words | Registry for the six new trading skills |
 | `automation.py` | Cron schedules in an IANA zone that run `task.create` steps as their actor | The existing scheduler for pre-market, intraday, post-close, weekly and monthly jobs |
 | Web `FinanceTrading.tsx`, `FinanceWider.tsx` | Paper trading and execution tabs | Extended with the trading intelligence tab |
@@ -57,7 +57,7 @@ Conclusion: the minimum architecture is a small pure-Python package inside the A
 
 1. This assessment.
 2. Skills, docs, tool contracts and tests.
-3. Market-data layer and historical storage (migration `0060`).
+3. Market-data layer and historical storage (migration `0065_finance_intel`).
 4. Indicators, backtester, benchmark strategies and validation.
 5. Strategy runs into paper and shadow through Guardian and the gateway, with circuit breakers.
 6. Daily jobs, health, reports.

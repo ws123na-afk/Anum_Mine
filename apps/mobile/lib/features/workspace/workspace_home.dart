@@ -812,6 +812,10 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
             page('inbox', Icons.mail_outline, _openInbox),
             page('emailSummary', Icons.mark_email_unread_outlined,
                 () => Navigator.of(context).pushNamed('/email/summary')),
+            // The Email Center on the workspace's own mail server
+            // (docs/email.md#email-center), a named route.
+            page('mc.title', Icons.dns_outlined,
+                () => Navigator.of(context).pushNamed('/mail')),
           ],
           if (widget.whatsappController != null)
             page('whatsapp', Icons.forum_outlined, _openWhatsApp),

@@ -21,6 +21,8 @@ WALKS = {
     "developer": "test_developer.py",
     "email": "test_email.py",
     "learning": "test_learning.py",
+    "mail": "test_mail_center.py",
+    "mail_ai": "test_mail_ai.py",
     "whatsapp": "test_whatsapp.py",
 }
 

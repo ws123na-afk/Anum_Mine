@@ -212,6 +212,17 @@ config:
   # 0 turns it off.
   ANUM_EMAIL_SYNC_INTERVAL_SECONDS: "300"
   ANUM_EMAIL_OAUTH_STATE_TTL_SECONDS: "900"
+  # Email Center: the workspace's own mail server over IMAPS and SMTP submission
+  # (docs/email.md#email-center). Off by default. Each person's mailbox password is entered
+  # in the web app and stored encrypted; nothing here is a credential.
+  ANUM_MAILSERVER_ENABLED: "false"
+  ANUM_MAILSERVER_IMAP_HOST: ""
+  ANUM_MAILSERVER_IMAP_PORT: "993"
+  ANUM_MAILSERVER_SMTP_HOST: ""
+  ANUM_MAILSERVER_SMTP_PORT: "587"
+  ANUM_MAILSERVER_SMTP_SECURITY: starttls
+  ANUM_MAILSERVER_ALLOWED_DOMAINS: anum360os.com
+  ANUM_MAILSERVER_ALLOWED_TENANTS: ""
 
   # What ANUM learned (docs/learning.md). false stops new learning everywhere; feedback
   # signals older than the retention (7 to 3650 days) are deleted as they are used.

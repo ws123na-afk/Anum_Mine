@@ -438,6 +438,12 @@ def insecure_configuration_problems(config: Any) -> list[str]:
         problems.append("Request size and rate limits must be positive outside local")
     if not config.rate_limit_enabled:
         problems.append("ANUM_RATE_LIMIT_ENABLED must stay true outside local")
+
+    # The Email Center's mail server (docs/email.md#email-center); nothing while it is off.
+    from .mailbox.config import MailServerSettings, mail_settings, mailserver_problems
+
+    mail = getattr(config, "mailserver", None)
+    problems.extend(mailserver_problems(mail if isinstance(mail, MailServerSettings) else mail_settings))
     return problems
 
 

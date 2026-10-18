@@ -22,7 +22,7 @@ LIVE_CANDIDATE is documented as a possible future state only; the database refus
 | Backtester with next-bar fills, fee, spread, slippage, volume cap | `finance/intel/backtest.py` | Built |
 | Benchmark strategies (buy and hold, trend, mean reversion, momentum, periodic, rebalance, pair ratio) | `finance/intel/strategies.py` | Built |
 | Walk-forward validation with look-ahead probe and rejection reasons | `finance/intel/validation.py` | Built |
-| Storage for instruments, bars, strategy versions, runs and agent decisions under forced RLS (migration `0060_finance_intel`) | `finance/intel/records.py`, `finance/store.py`, `db/finance_repository.py` | Built |
+| Storage for instruments, bars, strategy versions, runs and agent decisions under forced RLS (migration `0065_finance_intel`) | `finance/intel/records.py`, `finance/store.py`, `db/finance_repository.py` | Built |
 | Strategy lifecycle DRAFT, BACKTESTING, VALIDATION, PAPER_ACTIVE, PAPER_SUSPENDED, RETIRED with promotion criteria and versions | `finance/intel/lifecycle.py` | Built |
 | Read-only dashboard API (`GET /api/v1/finance/intel/overview`, `/strategies`, `/strategies/{id}/runs`, `/decisions`), `finance:read`, owner scope | `finance/intel_api.py` | Built |
 | Web dashboard: simulation banner, kill switch, venue sessions, strategies by lifecycle state with paging, backtest and walk-forward results with benchmark, folds, warnings and reproduction, paper and shadow positions and P&L, Supervisor and agent decisions with reasons, Guardian decisions, risk limits read only; English and Arabic | `apps/web/src/FinanceIntel.tsx`, `apps/web/src/lib/financeIntel.ts` | Built ([dashboard](finance-trading-intel.md#dashboard)) |
@@ -34,7 +34,7 @@ LIVE_CANDIDATE is documented as a possible future state only; the database refus
 |---|---|
 | `services/api/tests/test_finance_intel.py` | Calendars, data checks, indicators without look-ahead, backtester, strategies, walk-forward |
 | `services/api/tests/test_finance_intel_lifecycle.py` | Lifecycle moves, promotion criteria, versions, agent limits |
-| `services/api/tests/test_postgres_finance_intel.py` | Migration `0060` under forced RLS, database checks |
+| `services/api/tests/test_postgres_finance_intel.py` | Migration `0065_finance_intel` under forced RLS, database checks |
 | `services/api/tests/test_finance_intel_dashboard.py` | Dashboard routes: simulation only, live off, positions and P&L after an approved paper order, read only (no writes, no audit rows, only GET routes), `finance:read`, isolation from another person and another tenant, Guardian rules read back, paging and filters, recorded text returned as data, bounds |
 | `services/api/tests/test_postgres_finance_intel_dashboard.py` | The overview and pages under RLS as the non-owner app role (runs in CI's database job) |
 | `services/api/tests/test_finance_trading.py` | Paper and shadow trading, gateway, Guardian, kill switches, live refused (unchanged) |

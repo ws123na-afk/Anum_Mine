@@ -174,6 +174,10 @@ The owner's mockups (`docs/design/anum360-mockups/mobile-14-screens.jpg`, screen
 
 The ANUM 360 Home (`lib/features/home/`, [home.md](home.md)) reads one summary call (`GET /api/v1/home/summary`), the caller's pins and quick commands, and the insights list. Pins open a web app in the browser (https only), switch to a pinned workspace or open a feature; quick commands and insight commands are handed to ANUM Command, which shows the plan before anything runs. Tests: `test/home/home_test.dart` (parsing, controller states, main paths, 320-1440 px at 200 % text in English and Arabic, tap-target and label guidelines).
 
+## Email Center
+
+`lib/features/mail_center/` is the Email Center on the workspace's own mail server for owners and members ([Email: Email Center](email.md#the-email-center-on-the-phone)), opened from Menu, More, **Email Center** (named route `/mail`, registered in `workspace_tool_routes.dart`). No new plugin: mail is shown as plain text, never as HTML. Tests: `test/mail_center/mail_center_test.dart` (320 to 1440 px, 200% text, English and Arabic).
+
 ## WhatsApp inbox
 
 `lib/features/whatsapp/` mirrors the web inbox for owners and members ([WhatsApp](whatsapp.md)): conversations with filters, search and paging; a thread with the 24-hour window, the suggested reply with its provenance label, a reply sent for approval, and Approve & send / Reject for owners (the payload hash is sent back). It opens from the app bar on wide layouts and from More on phones. Connecting the number and template replies stay on the web. Tests: `test/whatsapp/whatsapp_test.dart` (320 to 1440 px, 200% text, English and Arabic).

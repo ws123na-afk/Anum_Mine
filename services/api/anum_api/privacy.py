@@ -151,6 +151,11 @@ class PrivateCounts(BaseModel):
     # caller's ledger (settings, accounts, transactions, imports, bills, debts, goals,
     # holdings). It is private to them, so all of it is exported and deleted.
     finance_records: int = 0
+    # Email Center (migration 0060_email_center, docs/email.md#email-center): the caller's
+    # mailboxes on the workspace mail server (never the password) and the messages written in
+    # ANUM. Mail on the server is not ANUM's copy and is not touched.
+    mail_mailboxes: int = 0
+    mail_messages_written: int = 0
 
     @property
     def total(self) -> int:
@@ -781,6 +786,7 @@ class InMemoryPrivacyStore:
             **module_private,
             home_items=home_counts(self.home(), self.context),
             finance_records=self.finance().count_everything(self.context),
+            **mail_privacy_counts(self.context),
         )
         return private, self._shared_counts(module_shared)
 
@@ -839,6 +845,7 @@ class InMemoryPrivacyStore:
         self.commands().delete_all()
         self.library().delete_all()
         self.finance().delete_everything(self.context)
+        delete_mail_everything(self.context)
         self._delete_email()
         self.delete_team_private()
         self.home().delete_all(self.context)
@@ -928,6 +935,44 @@ def _iso(value: datetime) -> str:
     return value.isoformat()
 
 
+def mail_privacy_counts(context: TenantContext) -> dict[str, int]:
+    from .mailbox.store import open_mail_store
+
+    with open_mail_store(context) as store:
+        accounts = store.list_accounts()
+        drafts = store.list_drafts(None, 100_000)
+    return {"mail_mailboxes": len(accounts), "mail_messages_written": len(drafts)}
+
+
+def delete_mail_everything(context: TenantContext) -> None:
+    """The caller's Email Center mailboxes and, with them, every message written in ANUM."""
+    from .mailbox.store import open_mail_store
+
+    from .mailbox.outgoing import forget_objects
+
+    with open_mail_store(context) as store:
+        files = store.attachments_of_account(None)
+        for account in store.list_accounts():
+            store.delete_account(account.id)
+    forget_objects(files)
+
+
+def mail_export(context: TenantContext) -> dict[str, Any]:
+    from .mailbox.store import open_mail_store
+
+    with open_mail_store(context) as store:
+        accounts = store.list_accounts()
+        drafts = store.list_drafts(None, 100_000)
+        files = store.attachments_of_account(None)
+    return {
+        # Never the password, not even encrypted.
+        "mailboxes": [a.model_dump(mode="json", exclude={"password_enc"}) for a in accounts],
+        "messages_written": [d.model_dump(mode="json") for d in drafts],
+        # The attached files' names, types, sizes and digests (the bytes stay in ANUM's storage).
+        "attachments": [f.model_dump(mode="json", exclude={"storage_key"}) for f in files],
+    }
+
+
 def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
     from .finance.store import TransactionFilter
 
@@ -1002,7 +1047,7 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         # Stage 9: proposals to widen live limits and the incidents that stepped them down.
         "live_widenings": [w.model_dump(mode="json", exclude=hidden) for w in finance.list_widenings(context, status=None, limit=10_000)],
         "live_incidents": [i.model_dump(mode="json", exclude=hidden) for i in finance.list_incidents(context, limit=10_000)],
-        # Trading intelligence (migration 0060_finance_intel): instruments and their daily bars,
+        # Trading intelligence (migration 0065_finance_intel): instruments and their daily bars,
         # strategy versions with their SIMULATED evaluation runs, and the agents' decisions.
         "instruments": [i.model_dump(mode="json", exclude=hidden) for i in instruments],
         "market_bars": [b.model_dump(mode="json", exclude=hidden) for i in instruments for b in finance.list_bars(context, i.id, limit=50_000)],
@@ -1085,6 +1130,7 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     yield ("home", home_export(store.home(), context))
     # The caller's whole finance ledger (docs/finance.md#privacy).
     yield ("finance", finance_export(store.finance(), context))
+    yield ("mail", mail_export(context))
     yield (
         "email",
         {

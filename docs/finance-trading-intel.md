@@ -10,7 +10,7 @@ The code is the pure package `services/api/anum_api/finance/intel/`: no network 
 |---|---|---|
 | 1 | Gap assessment | Done ([gap assessment](finance-trading-gap-assessment.md)) |
 | 2 | Trading knowledge library and agent skills | **In progress** |
-| 3 | Calendars, market data, storage | Done: calendars, CSV and recorded-provider parsing with checks, instruments and bars stored (migration `0060_finance_intel`), import API. Network fetch from providers is off until the owner accepts their terms |
+| 3 | Calendars, market data, storage | Done: calendars, CSV and recorded-provider parsing with checks, instruments and bars stored (migration `0065_finance_intel`), import API. Network fetch from providers is off until the owner accepts their terms |
 | 4 | Indicators, backtester, the six candidates, walk-forward validation, reports | Done, with tests |
 | 5 | Strategy signals into SIMULATED paper orders | Done: the Supervisor's Execution Coordinator through the existing gateway and Guardian; every order waits for the person's approval |
 | 6 | Scheduled agent operations | Done: `finance.intel.cycle` automation step, phases by venue calendar, idempotent cycles |
@@ -172,7 +172,7 @@ Audit records carry ids, kinds, states, phases, counts and codes only; never a s
 
 ## Storage
 
-Migration `0060_finance_intel`. Five tables, each under forced RLS with the tenant policy and a restrictive owner-only policy, like the rest of Finance: nobody but the owner sees a row, not even a workspace owner.
+Migration `0065_finance_intel`. Five tables, each under forced RLS with the tenant policy and a restrictive owner-only policy, like the rest of Finance: nobody but the owner sees a row, not even a workspace owner.
 
 | Table | Holds | Database checks |
 |---|---|---|

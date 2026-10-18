@@ -19,6 +19,10 @@ import { voiceEn } from './en.voice.ts';
 import { voiceActionsEn } from './en.voiceActions.ts';
 import { agentSkillsEn } from './agentSkills.en.ts';
 import { orgChartEn } from './orgChart.en.ts';
+import { mailCenterEn } from './mailCenter.en.ts';
+import { mailOutgoingEn } from './mailOutgoing.en.ts';
+import { mailAiEn } from './mailAi.en.ts';
+import { mailEn } from './mail.en.ts';
 import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
 import { pagesEn } from './pages.en.ts';
@@ -37,6 +41,10 @@ export const en = {
   ...marketingEn,
   ...agentSkillsEn,
   ...orgChartEn,
+  ...mailCenterEn,
+  ...mailOutgoingEn,
+  ...mailAiEn,
+  ...mailEn,
   ...chatEn,
   ...setupEn,
   ...pagesEn,

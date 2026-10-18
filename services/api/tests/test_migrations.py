@@ -959,11 +959,11 @@ def test_finance_wider_live_migration_is_expand_only_and_one_tier_at_a_time() ->
 
 def test_finance_intel_migration_is_expand_only_owner_only_and_never_live() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0060_finance_intel.py").read_text(encoding="utf-8")
-    assert 'revision = "0060_finance_intel"' in revision_text and len("0060_finance_intel") <= 32
-    assert 'down_revision = "0059_finance_wider_live"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0060_finance_intel.py"]
-    assert not [path for path in others if 'down_revision = "0059_finance_wider_live"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0065_finance_intel.py").read_text(encoding="utf-8")
+    assert 'revision = "0065_finance_intel"' in revision_text and len("0065_finance_intel") <= 32
+    assert 'down_revision = "0064_mail_operator_view"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0065_finance_intel.py"]
+    assert not [path for path in others if 'down_revision = "0064_mail_operator_view"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     tables = ("finance_instruments", "finance_market_bars", "finance_strategies", "finance_strategy_runs", "finance_agent_decisions")
     assert upgrade.count("op.create_table(") == len(tables)
@@ -976,3 +976,20 @@ def test_finance_intel_migration_is_expand_only_owner_only_and_never_live() -> N
     assert "live" not in revision_text.split("STATES = ", 1)[1].split("\n", 1)[0].lower()
     assert "state not in ('paper_active', 'retired') or state_changed_by = 'person'" in upgrade
     assert "state <> 'paper_active' or portfolio_id is not null" in upgrade
+
+
+def test_mail_operator_view_migration_is_expand_only_and_reads_counts_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0064_mail_operator_view.py").read_text(encoding="utf-8")
+    assert 'revision = "0064_mail_operator_view"' in revision_text and len("0064_mail_operator_view") <= 32
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 1 and "force row level security" in upgrade
+    # The platform reader gets counted columns only, never the address, password or error text.
+    assert "grant select (tenant_id, status, last_checked_at) on mail_accounts to anum_platform_reader" in upgrade
+    assert "grant select (tenant_id, day, metric, count) on mail_ops_counters to anum_platform_reader" in upgrade
+    for column in ("address", "password_enc", "display_name", "last_error", "owner_user_id"):
+        assert f"{column})" not in upgrade and f"{column}," not in upgrade
+    # Expand only, no widening of the app role.
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "_extend_restrictive(add=true)" in upgrade and "or current_user = %l" in revision_text.lower()
