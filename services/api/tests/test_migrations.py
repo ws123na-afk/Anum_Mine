@@ -993,3 +993,23 @@ def test_mail_operator_view_migration_is_expand_only_and_reads_counts_only() -> 
     assert "drop " not in upgrade and "alter_column" not in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "_extend_restrictive(add=true)" in upgrade and "or current_user = %l" in revision_text.lower()
+
+
+def test_calls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0070_calls.py").read_text(encoding="utf-8")
+    assert 'revision = "0070_calls"' in revision_text and len("0070_calls") <= 32
+    assert 'down_revision = "0065_finance_intel"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    tables = ("call_contacts", "call_log", "call_opt_outs", "call_provider_accounts", "call_ai_requests")
+    assert upgrade.count("op.create_table(") == len(tables)
+    for table in tables:
+        assert f'_workspace_fk("{table}")' in revision_text
+    assert "force row level security" in revision_text and "for table in tables:\n        _enable_rls(table)" in upgrade
+    assert "op.add_column(" not in upgrade and "drop" not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # Secrets only as ciphertext; anum_maintenance sees scope, route and recording expiry only.
+    assert '"credentials_ciphertext"' in revision_text and 'sa.Column("auth_token"' not in revision_text
+    assert "grant select (tenant_id, workspace_id, route_id) on call_provider_accounts to anum_maintenance" in upgrade
+    assert "grant select (id, tenant_id, workspace_id, recording_expires_at) on call_log to anum_maintenance" in upgrade
+    assert upgrade.count("grant ") == 2 and "insert" not in upgrade.split("grant ", 1)[1]

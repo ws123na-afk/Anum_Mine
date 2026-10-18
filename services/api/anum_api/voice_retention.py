@@ -17,6 +17,7 @@ deleted files (``anum_api.retrieval_retention``), reported under ``retrieval_ind
 deletes assistant conversations idle for longer than ``ANUM_CONVERSATION_RETENTION_DAYS``
 (``anum_api.conversation_retention``), reported under ``conversations``, and deletes
 WhatsApp messages older than each workspace's retention (``anum_api.whatsapp_retention``),
+call recordings past their retention (``anum_api.calls.retention``),
 reported under ``whatsapp``, so the daily retention CronJob covers all four.
 """
 
@@ -78,6 +79,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     report["retrieval_index"] = purge_retrieval_index(dry_run=args.dry_run, batch_size=args.batch_size)
     report["conversations"] = purge_conversations(dry_run=args.dry_run, batch_size=args.batch_size)
     report["whatsapp"] = purge_whatsapp(dry_run=args.dry_run, batch_size=args.batch_size)
+    from .calls.retention import purge as purge_call_recordings
+
+    report["call_recordings"] = purge_call_recordings(dry_run=args.dry_run, batch_size=args.batch_size)
     print(json.dumps(report, indent=2))
     return 0
 
