@@ -38,6 +38,10 @@ Also set `ANUM_MARKETING_PUBLIC_API_URL` (the API's public HTTPS origin) for Ins
 - **Health**: `POST /accounts/{id}/check` refreshes if needed and calls the platform; a refusal marks the account `needs_reauth` (or `error`) with the platform's reason and the fix.
 - **Revoke**: `DELETE /accounts/{id}` revokes the token at the platform where it offers that (LinkedIn, X, TikTok, Google; for Meta the note says to remove the app under Facebook Settings), forgets both tokens, keeps the row as `revoked` so history keeps its name, and returns every scheduled or pending post of that account to draft.
 
+## Email campaigns
+
+Email campaigns go through the owner's Brevo account and live in Marketing's **Email campaigns** tab: the connection (API key, owners only), campaigns with their numbers and reports, and drafts whose sending always waits for an owner's approval. See [Email campaigns (Brevo)](brevo.md).
+
 ## Planner
 
 - **Campaigns** (`/campaigns`, keyset paging, search, status filter): name, objective, product, brief, languages, platforms, dates, status and a UTM campaign name. Deleting is refused while posts of the campaign are queued; its posts stay without a campaign.

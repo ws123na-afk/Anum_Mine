@@ -84,6 +84,8 @@ TABLES_IN_DELETE_ORDER = (
     "business_offers",
     "business_products",
     "business_settings",
+    "brevo_campaign_drafts",
+    "brevo_connections",
     "contact_suppressions",
     "commerce_order_lines",
     "commerce_orders",
