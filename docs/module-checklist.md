@@ -27,7 +27,8 @@ A module page is done when it passes every item below, on the web and in the Flu
 
 - Every control is reachable by Tab, has a visible focus ring and a name (visible label, `aria-label`, or `visuallyHidden` text for icon buttons such as edit and delete, naming the item).
 - Regions have headings (`aria-labelledby`); charts have a text alternative (`role="img"` with a summary) and a table fallback.
-- The axe gate (`e2e/accessibility.spec.ts`) has no serious or critical violation in English, Arabic and the light theme.
+- The axe gate (`e2e/accessibility.spec.ts`) has no serious or critical violation in English, Arabic and the light theme. A new view or tab gets an entry in `e2e/support/gatePages.ts`, which feeds the axe, layout and dead-button gates.
+- No dead buttons: `e2e/journey.spec.ts` presses every visible button on the page and fails on one that does nothing. A search box that needs text is `required`, so pressing Search on an empty box says why.
 
 ## Arabic, right to left
 
@@ -37,7 +38,7 @@ A module page is done when it passes every item below, on the web and in the Flu
 
 ## Responsive
 
-- Rendered at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844, English and Arabic, light and dark: no horizontal overflow, no clipped control, content-driven heights, no wasted columns next to a tall panel (`e2e/page-layout.spec.ts`).
+- Rendered at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844, English and Arabic, light and dark: no horizontal overflow, no clipped control, content-driven heights, no wasted columns next to a tall panel (`e2e/page-layout.spec.ts` checks overflow and clipped controls on every page in `e2e/support/gatePages.ts`). A table that scrolls sideways is focusable (`tabIndex={0}`) so the keyboard can scroll it.
 
 ## Tests
 

@@ -148,7 +148,7 @@ function Overview() {
       <div className="cmGrid cmOverviewGrid">
         <section className="surface cmPanel cmWide" aria-labelledby="cm-by-channel">
           <h2 id="cm-by-channel">{t('commerce.overview.byChannel')}</h2>
-          {d.by_channel.length === 0 ? <p className="muted cmEmpty">{t('commerce.overview.noSales')}</p> : <div className="cmTableWrap"><table className="cmTable">
+          {d.by_channel.length === 0 ? <p className="muted cmEmpty">{t('commerce.overview.noSales')}</p> : <div className="cmTableWrap" tabIndex={0}><table className="cmTable">
             <thead><tr><th scope="col">{t('commerce.col.marketplace')}</th><th scope="col" className="num">{t('commerce.col.orders')}</th><th scope="col" className="num">{t('commerce.col.units')}</th><th scope="col" className="num">{t('commerce.col.revenue')}</th></tr></thead>
             <tbody>{d.by_channel.map((row) => <tr key={`${row.marketplace_id}-${row.currency}`}><td><ChannelDot channel={row.channel} />{row.marketplace}</td><td className="num">{formatCount(row.orders)}</td><td className="num">{formatCount(row.units)}</td><td className="num">{formatMoney(row.revenue, row.currency)}</td></tr>)}</tbody>
           </table></div>}
@@ -258,7 +258,7 @@ function SalesChart({ dashboard }: { dashboard: CommerceDashboard }) {
         </svg>
         {shown && <div className="cmTooltip" role="status"><strong>{shown.date}</strong>{shown.parts.map((p) => <span key={p.channel}><ChannelDot channel={p.channel} />{channelLabel(p.channel)}: {formatMoney(p.revenue, dashboard.currency)}</span>)}<span>{t('commerce.chart.total', { amount: formatMoney(shown.total, dashboard.currency) })}</span></div>}
       </div>
-      <details className="cmChartTable"><summary>{t('commerce.chart.table')}</summary><div className="cmTableWrap"><table className="cmTable">
+      <details className="cmChartTable"><summary>{t('commerce.chart.table')}</summary><div className="cmTableWrap" tabIndex={0}><table className="cmTable">
         <thead><tr><th scope="col">{t('commerce.col.date')}</th>{chart.channels.map((c) => <th key={c} scope="col" className="num">{channelLabel(c)}</th>)}<th scope="col" className="num">{t('commerce.col.total')}</th></tr></thead>
         <tbody>{chart.days.filter((d) => d.total > 0).map((d) => <tr key={d.date}><td>{d.date}</td>{d.parts.map((p) => <td key={p.channel} className="num">{formatMoney(p.revenue, dashboard.currency)}</td>)}<td className="num">{formatMoney(d.total, dashboard.currency)}</td></tr>)}</tbody>
       </table></div></details>
@@ -298,7 +298,7 @@ function Orders({ canSeeBuyers }: { canSeeBuyers: boolean }) {
     {state.kind === 'ready' && (state.value.items.length === 0
       ? <div className="emptyState"><PackageSearch aria-hidden="true" /><h3>{t('commerce.orders.empty')}</h3><p>{q || status || channel ? t('commerce.orders.emptyFiltered') : t('commerce.orders.emptyText')}</p></div>
       : <>
-        <div className="cmTableWrap"><table className="cmTable cmOrders">
+        <div className="cmTableWrap" tabIndex={0}><table className="cmTable cmOrders">
           <thead><tr><th scope="col">{t('commerce.col.order')}</th><th scope="col">{t('commerce.col.marketplace')}</th><th scope="col">{t('commerce.col.placed')}</th><th scope="col">{t('commerce.col.status')}</th><th scope="col" className="num">{t('commerce.col.items')}</th><th scope="col" className="num">{t('commerce.col.total')}</th></tr></thead>
           <tbody>{state.value.items.map((o) => <tr key={o.id}>
             <td><button type="button" className="cmLinkButton" onClick={() => void show(o)} aria-label={t('commerce.orders.open', { order: o.external_id })}>{o.external_id}</button></td>
@@ -330,7 +330,7 @@ function OrderDetail({ state, canSeeBuyers, onClose }: { state: Load<CommerceOrd
       <div><dt>{t('commerce.order.destination')}</dt><dd>{[o.ship_city, o.ship_country].filter(Boolean).join(', ') || '-'}</dd></div>
       <div><dt>{t('commerce.col.total')}</dt><dd>{formatMoney(o.total_amount, o.currency)}</dd></div>
     </dl>
-    <div className="cmTableWrap"><table className="cmTable"><thead><tr><th scope="col">{t('commerce.col.sku')}</th><th scope="col">{t('commerce.col.title')}</th><th scope="col" className="num">{t('commerce.col.qty')}</th><th scope="col" className="num">{t('commerce.col.total')}</th></tr></thead>
+    <div className="cmTableWrap" tabIndex={0}><table className="cmTable"><thead><tr><th scope="col">{t('commerce.col.sku')}</th><th scope="col">{t('commerce.col.title')}</th><th scope="col" className="num">{t('commerce.col.qty')}</th><th scope="col" className="num">{t('commerce.col.total')}</th></tr></thead>
       <tbody>{o.lines.length ? o.lines.map((line, i) => <tr key={`${line.sku}-${i}`}><td>{line.sku}</td><td>{line.title}</td><td className="num">{line.quantity}</td><td className="num">{formatMoney(line.total, o.currency)}</td></tr>) : <tr><td colSpan={4} className="muted">{t('commerce.order.noLines')}</td></tr>}</tbody></table></div>
     <h4>{t('commerce.order.buyer')}</h4>
     {!o.customer ? <p className="muted">{t('commerce.order.noBuyer')}</p> : o.customer.pii_visible ? <dl className="cmFacts">
@@ -517,7 +517,7 @@ function Returns() {
     {state.kind === 'error' && <LoadError message={t('pages2.commerce.returns.failed', { message: state.message })} retry={() => void load()} />}
     {state.kind === 'ready' && state.value.items.length === 0 && <div className="emptyState"><Undo2 aria-hidden="true" /><h3>{t('pages2.commerce.returns.empty', { count: days })}</h3><p>{t('pages2.commerce.returns.emptyText')}</p></div>}
     {state.kind === 'ready' && state.value.items.length > 0 && <>
-      <div className="cmTableWrap"><table className="cmTable cmReturns">
+      <div className="cmTableWrap" tabIndex={0}><table className="cmTable cmReturns">
         <thead><tr><th scope="col">{t('pages2.commerce.returns.col.when')}</th><th scope="col">{t('commerce.col.order')}</th><th scope="col">{t('pages2.commerce.col.sku')}</th><th scope="col" className="num">{t('pages2.commerce.returns.col.qty')}</th><th scope="col">{t('pages2.commerce.returns.col.reason')}</th><th scope="col">{t('commerce.col.status')}</th><th scope="col" className="num">{t('pages2.commerce.returns.col.amount')}</th></tr></thead>
         <tbody>{state.value.items.map((row) => <tr key={row.id}>
           <td>{when(row.returned_at)}</td>

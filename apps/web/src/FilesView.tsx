@@ -165,7 +165,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
       <section data-pane="list" className="pane filesListPane" aria-label={t('files.list')} aria-busy={list.state === 'loading'}>
         <form className="paneHead toolbar filesToolbar" role="search" onSubmit={submitSearch}>
           <label className="visuallyHidden" htmlFor={`${searchId}-q`}>{t('files.searchLabel')}</label>
-          <input id={`${searchId}-q`} type="search" value={draft} placeholder={t('files.searchLabel')} maxLength={255} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) setQuery(''); }} />
+          <input id={`${searchId}-q`} type="search" required value={draft} placeholder={t('files.searchLabel')} maxLength={255} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) setQuery(''); }} />
           <button type="submit" className="secondary iconOnly" aria-label={t('common.search')} title={t('common.search')}><Search aria-hidden="true" /></button>
           <label className="visuallyHidden" htmlFor={`${searchId}-sort`}>{t('files.sortLabel')}</label>
           <select id={`${searchId}-sort`} value={sort} onChange={(e) => setSort(e.target.value as SortValue)}>{sortOptions().map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>

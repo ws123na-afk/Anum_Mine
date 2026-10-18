@@ -126,7 +126,7 @@ function Table({ series, paper, name }: { series: FinanceEquitySeries; paper: bo
   const values = benchmarkValues(series), withBench = paper && values.some((v) => v !== null);
   const benchByDay = new Map(series.points.map((p, i) => [p.day, values[i]]));
   return <details className="cmChartTable"><summary>{t('finance.equity.table')}</summary>
-    <div className="cmTableWrap"><table className="cmTable finTable finIntelCards" aria-label={t('finance.equity.tableOf', { name, currency: series.currency })}>
+    <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finIntelCards" aria-label={t('finance.equity.tableOf', { name, currency: series.currency })}>
       <thead><tr><th scope="col">{t('finance.equity.day')}</th>{paper && <th scope="col">{t('finance.equity.value')}</th>}<th scope="col">{t('finance.equity.pnl')}</th><th scope="col">{t('finance.equity.drawdown')}</th>{withBench && <th scope="col">{t('finance.equity.benchmark.title')}</th>}</tr></thead>
       <tbody>{rows.map((p) => <tr key={p.day}>
         <th scope="row" dir="ltr">{p.day}</th>

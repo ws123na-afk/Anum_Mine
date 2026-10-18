@@ -207,7 +207,7 @@ function PostsTab({ setup, campaigns, owner, onEdit, onNotice }: { setup: Setup;
       <h2 id="mk-posts-title" className="visuallyHidden">{t('marketing.tab.posts')}</h2>
       <form className="toolbar mkPostFilters" role="search" onSubmit={(event: FormEvent) => { event.preventDefault(); setQuery(draft.trim()); }}>
         <label className="visuallyHidden" htmlFor={`${ids}-q`}>{t('marketing.filter.search')}</label>
-        <input id={`${ids}-q`} type="search" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={t('marketing.filter.searchPlaceholder')} />
+        <input id={`${ids}-q`} type="search" required value={draft} onChange={(event) => { setDraft(event.target.value); if (!event.target.value) setQuery(''); }} placeholder={t('marketing.filter.searchPlaceholder')} />
         <label className="visuallyHidden" htmlFor={`${ids}-status`}>{t('marketing.filter.status')}</label>
         <select id={`${ids}-status`} value={status} onChange={(event) => setStatus(event.target.value as PostStatus | '')}><option value="">{t('pages.mk.anyStatus')}</option>{POST_STATUSES.map((value) => <option key={value} value={value}>{statusName(value)}</option>)}</select>
         <label className="visuallyHidden" htmlFor={`${ids}-platform`}>{t('marketing.filter.platform')}</label>
