@@ -20,6 +20,7 @@ import { orgChartEn } from './orgChart.en.ts';
 import { mailCenterEn } from './mailCenter.en.ts';
 import { mailOutgoingEn } from './mailOutgoing.en.ts';
 import { mailAiEn } from './mailAi.en.ts';
+import { mailOpsEn } from './mailOps.en.ts';
 import { mailEn } from './mail.en.ts';
 import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
@@ -40,6 +41,7 @@ export const en = {
   ...mailCenterEn,
   ...mailOutgoingEn,
   ...mailAiEn,
+  ...mailOpsEn,
   ...mailEn,
   ...chatEn,
   ...setupEn,
