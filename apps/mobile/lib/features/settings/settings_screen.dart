@@ -6,6 +6,7 @@ import 'model_choice.dart';
 import 'settings_controller.dart';
 import '../../src/widgets/depth.dart';
 import '../auth/account_screens.dart';
+import '../help/help_screen.dart';
 import '../admin/admin.dart';
 import '../autonomy/autonomy_controller.dart';
 import '../autonomy/autonomy_repository.dart';
@@ -65,7 +66,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) => ListenableBuilder(
       listenable: widget.controller,
       builder: (_, __) => Scaffold(
-          appBar: AppBar(title: const Text('Settings')),
+          appBar: AppBar(title: const Text('Settings'), actions: [
+            // In-app help (docs/help.md): bundled articles, so it works offline too.
+            IconButton(
+              key: const Key('settings-help'),
+              icon: const Icon(Icons.help_outline),
+              tooltip: helpTitle(context),
+              onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const HelpScreen())),
+            ),
+          ]),
           body: switch (widget.controller.phase) {
             SettingsPhase.initial || SettingsPhase.loading => const _State(
                 icon: Icons.settings_outlined,

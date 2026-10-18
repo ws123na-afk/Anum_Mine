@@ -191,6 +191,7 @@ from .automation import build_automation_scheduler, register_scheduler_pass, rou
 from .assistants import router as assistants_router
 from .notifications import router as notifications_router
 from .app_calls import router as app_calls_router
+from .demo import router as demo_router
 from .organisations import router as organisations_router
 from .team_work import build_team_reminder_scheduler, router as team_router
 from .automation_dispatch import automation_dispatcher
@@ -399,6 +400,7 @@ app.include_router(reports_router)
 app.include_router(team_router)
 app.include_router(notifications_router)
 app.include_router(app_calls_router)
+app.include_router(demo_router)
 app.include_router(assistants_router)
 app.include_router(organisations_router)
 app.include_router(agents_router)

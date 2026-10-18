@@ -13,6 +13,7 @@ import { DialogButton, PageSummary } from './PageParts';
 import { Modal } from './Dialog';
 import type { MemoryTarget } from './SourcesUsed';
 import './features.css';
+import { HelpLink } from './HelpLink';
 
 type Status = { state: 'loading' } | { state: 'ready'; value: RetrievalIndexStatus } | { state: 'error' };
 
@@ -160,7 +161,7 @@ export function MemoryView({ tasks, onOpenConversation, initialOnlyChats = false
         </tbody>)}
       </table></div>
     </section>}
-    {!loading && !error && !shown.length && <div className="surface emptyState"><Search aria-hidden="true" /><h3>{applied ? t('memory.empty.noMatch') : onlyChats ? t('memory.empty.noChats') : show === 'tasks' ? t('pages.kb.noTaskNotes') : t('memory.empty.none')}</h3><p>{applied ? t('memory.empty.noMatchText', { query: applied }) : onlyChats ? t('memory.empty.noChatsText') : t('memory.empty.noneText')}</p>{show !== 'all' && !applied && <button type="button" className="secondary" onClick={() => pick('all')}>{t('memory.showAll')}</button>}</div>}
+    {!loading && !error && !shown.length && <div className="surface emptyState"><Search aria-hidden="true" /><h3>{applied ? t('memory.empty.noMatch') : onlyChats ? t('memory.empty.noChats') : show === 'tasks' ? t('pages.kb.noTaskNotes') : t('memory.empty.none')}</h3><p>{applied ? t('memory.empty.noMatchText', { query: applied }) : onlyChats ? t('memory.empty.noChatsText') : t('memory.empty.noneText')}</p><HelpLink />{show !== 'all' && !applied && <button type="button" className="secondary" onClick={() => pick('all')}>{t('memory.showAll')}</button>}</div>}
   </>;
 }
 

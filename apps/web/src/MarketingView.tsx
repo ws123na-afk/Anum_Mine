@@ -23,6 +23,7 @@ import { figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { PageHeader, PageSummary } from './PageParts';
 import './marketing.css';
+import { HelpLink } from './HelpLink';
 
 type Tab = 'posts' | 'calendar' | 'campaigns' | 'email' | 'accounts' | 'analytics';
 const TABS: Tab[] = ['posts', 'calendar', 'campaigns', 'email', 'accounts', 'analytics'];
@@ -33,7 +34,7 @@ function Note({ children, error, id }: { children: ReactNode; error?: boolean; i
 }
 function Badge({ tone, children }: { tone: string; children: ReactNode }) { return <span className={`statusBadge ${tone}`}>{children}</span>; }
 function Empty({ title, text, action }: { title: string; text: string; action?: ReactNode }) {
-  return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p>{action && <div className="actions mkInline mkCenter">{action}</div>}</div>;
+  return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p><HelpLink />{action && <div className="actions mkInline mkCenter">{action}</div>}</div>;
 }
 const failure = (e: unknown, what: string) => isPermissionDenied(e) ? t('marketing.denied', { message: describeError(e) }) : t('marketing.failed', { what, message: describeError(e) });
 

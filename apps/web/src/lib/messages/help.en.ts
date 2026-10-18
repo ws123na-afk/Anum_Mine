@@ -1,0 +1,36 @@
+// In-app help and the sales demo workspace, English (docs/help.md, docs/demo-workspace.md).
+// Spread into en.ts; help.ar.ts has the same keys.
+import type { Message } from './types.ts';
+
+export const helpEn = {
+  'help.open': 'Help',
+  'help.title': 'Help',
+  'help.search': 'Search help',
+  'help.searchPlaceholder': 'Search help, for example approve',
+  'help.count': { one: '{count} article', other: '{count} articles' },
+  'help.thisPage': 'For this page',
+  'help.allArticles': 'All articles',
+  'help.results': 'Matching articles',
+  'help.noResults': 'No article matches "{query}". Try another word, or open the full documentation.',
+  'help.back': 'All articles',
+  'help.docs': 'Full documentation',
+  'help.offline': 'Help articles are part of the app, so they also work offline.',
+  'help.emptyLink': 'How this page works',
+  'demo.title': 'Sales demo workspace',
+  'demo.lead': 'A workspace called Demo with clearly labelled sample data across tasks, approvals, email, calendar, business, marketing, files and knowledge. Nothing can be sent from it.',
+  'demo.loading': 'Loading the demo workspace...',
+  'demo.none': 'There is no demo workspace yet. Create one to show ANUM to a customer without touching real data.',
+  'demo.ready': { one: 'The demo workspace holds {count} sample record.', other: 'The demo workspace holds {count} sample records.' },
+  'demo.filledAt': 'Last filled {when}.',
+  'demo.create': 'Create demo workspace',
+  'demo.reset': 'Reset demo data',
+  'demo.open': 'Open demo workspace',
+  'demo.working': 'Filling the demo workspace...',
+  'demo.resetTitle': 'Reset the demo data?',
+  'demo.resetText': 'This deletes the sample records in the Demo workspace and fills it again. Records people added there themselves stay.',
+  'demo.done': { one: 'The demo workspace now holds {count} sample record.', other: 'The demo workspace now holds {count} sample records.' },
+  'demo.ownerOnly': 'Only a workspace owner can create or reset the demo workspace. Ask an owner of this workspace.',
+  'demo.error': 'The demo workspace could not be loaded or filled: {reason}. Try again; if it keeps failing, check that the API is running.',
+  'demo.sendsOff': 'Sending is off in the demo workspace: email, campaigns, messages and calls never leave ANUM.',
+  'demo.banner': 'Demo workspace: sample data only. Nothing is sent from here.',
+} satisfies Record<string, Message>;

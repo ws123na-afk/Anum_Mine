@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel
 
 from ..authorization import Permission
+from ..demo import refuse_send_in_demo
 from ..dependencies import (
     _unit_of_work,
     has_permission,
@@ -374,6 +375,7 @@ async def send_test(draft_id: str, context: TenantContext = Depends(tenant_conte
     The draft's Brevo campaign is created on the first test (as a Brevo draft, which sends
     nothing) and kept up to date; the approved send later updates and sends that same campaign."""
     _manage(context)
+    refuse_send_in_demo(context)
     lock = _test_locks.setdefault(f"{context.tenant_id}/{context.workspace_id}/{draft_id}", asyncio.Lock())
     async with lock:
         def load() -> CampaignDraft:

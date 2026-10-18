@@ -15,6 +15,7 @@ import { PageHeader, PageSummary, SPLIT_QUERY, SplitView, useMediaQuery } from '
 import { rich } from './rich';
 import './admin.css';
 import './files.css';
+import { HelpLink } from './HelpLink';
 
 const PdfPreview = lazy(() => import('./PdfPreview'));
 
@@ -203,7 +204,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
         {more && items.length > 0 && <div className="paneBody filesMore"><button type="button" className="secondary" onClick={() => void loadMore()} disabled={paging}>{paging ? t('common.loading') : t('files.loadMore')}</button></div>}
         {list.state === 'ready' && !shown.length && (searching || filtered
           ? <div className="paneEmpty"><Search aria-hidden="true" /><h3>{searching ? t('files.noMatch', { query }) : t('pages.files.noFilterMatch')}</h3><p>{t('files.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={clearAll}>{t('files.clearSearch')}</button></div></div>
-          : <div className="paneEmpty"><Upload aria-hidden="true" /><h3>{t('files.empty')}</h3><p>{canUpload ? t('files.emptyUpload') : t('files.emptyReadOnly')}</p>{canUpload && <div className="actions"><button type="button" onClick={() => picker.current?.click()}><Upload aria-hidden="true" />{t('files.uploadFirst')}</button></div>}</div>)}
+          : <div className="paneEmpty"><Upload aria-hidden="true" /><h3>{t('files.empty')}</h3><p>{canUpload ? t('files.emptyUpload') : t('files.emptyReadOnly')}</p><HelpLink />{canUpload && <div className="actions"><button type="button" onClick={() => picker.current?.click()}><Upload aria-hidden="true" />{t('files.uploadFirst')}</button></div>}</div>)}
       </section>
       <section data-pane="detail" className="pane filesDetailPane" aria-label={focusFileId ? undefined : t('files.detail.title')}>
         {focusFileId
