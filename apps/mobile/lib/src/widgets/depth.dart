@@ -205,7 +205,7 @@ class AnumHeader extends StatelessWidget {
   }
 }
 
-/// A big number with a soft gradient, label and caption.
+/// A big number in the text colour, with a label, icon and caption.
 class AnumMetric extends StatelessWidget {
   const AnumMetric({
     required this.label,
@@ -239,18 +239,14 @@ class AnumMetric extends StatelessWidget {
             Icon(icon, size: 18, color: accent ?? p.sky),
           ]),
           const SizedBox(height: 10),
-          ShaderMask(
-            shaderCallback: (rect) => LinearGradient(
-              colors: [p.text, p.sky, p.violet],
-              stops: const [0, 0.6, 1],
-            ).createShader(rect),
-            child: Text(value,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    height: 1)),
-          ),
+          // A solid token colour, so a row of figures scans quickly; the
+          // accent stays on the icon.
+          Text(value,
+              style: TextStyle(
+                  color: p.text,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  height: 1)),
           if (caption != null) ...[
             const SizedBox(height: 8),
             Text(caption!, style: TextStyle(color: p.faint, fontSize: 12)),
@@ -482,19 +478,50 @@ class AnumPage extends StatelessWidget {
   }
 }
 
-/// Lays out metric tiles in 2 columns on phones, 4 on wide screens.
+/// Lays out metric tiles in rows of at most 2 on phones and 4 from 760 px,
+/// spread evenly so no tile is left alone on the last row: 5 tiles are
+/// 3 + 2 on a wide screen and 2 + 2 + 1 (the last spanning the row) on a
+/// phone; 3 tiles on a wide screen share one row.
 class AnumMetricGrid extends StatelessWidget {
   const AnumMetricGrid({required this.children, super.key});
   final List<Widget> children;
 
+  static const gap = 12.0;
+
+  /// How many tiles go on each row for [count] tiles and at most
+  /// [maxColumns] per row: as few rows as possible, the longer rows first,
+  /// and row lengths that differ by one at most.
+  static List<int> rowSizes(int count, int maxColumns) {
+    if (count <= 0) return const [];
+    final rows = (count + maxColumns - 1) ~/ maxColumns;
+    final base = count ~/ rows, extra = count % rows;
+    return [for (var r = 0; r < rows; r++) base + (r < extra ? 1 : 0)];
+  }
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(builder: (context, c) {
-        final columns = c.maxWidth >= 760 ? 4 : 2;
-        const gap = 12.0;
-        final width = (c.maxWidth - gap * (columns - 1)) / columns;
-        return Wrap(spacing: gap, runSpacing: gap, children: [
-          for (final child in children) SizedBox(width: width, child: child),
-        ]);
+        final maxColumns = c.maxWidth >= 760 ? 4 : 2;
+        final rows = <Widget>[];
+        var start = 0;
+        for (final size in rowSizes(children.length, maxColumns)) {
+          final row = children.sublist(start, start + size);
+          start += size;
+          rows.add(Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            for (var i = 0; i < row.length; i++) ...[
+              if (i > 0) const SizedBox(width: gap),
+              Expanded(child: row[i]),
+            ],
+          ]));
+        }
+        return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < rows.length; i++) ...[
+                if (i > 0) const SizedBox(height: gap),
+                rows[i],
+              ],
+            ]);
       });
 }
 
