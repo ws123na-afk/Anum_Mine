@@ -61,12 +61,17 @@ def test_full_research_flow_to_paper_and_a_supervisor_cycle(monkeypatch: pytest.
     monkeypatch.setattr(intel_control_api, "utc_now", lambda: tuesday)
     instrument = _instrument()
     assert instrument["symbol"] == "EXMPL" and instrument["currency"] == "USD"
+    listed = client.get(f"{API}/instruments", headers=MEMBER).json()
+    assert listed[0]["bars"] == 0 and listed[0]["last_bar"] is None
     imported = client.post(f"{API}/instruments/{instrument['id']}/bars", json={"payload": CSV, "source": "Test file"}, headers=MEMBER)
     assert imported.status_code == 200 and imported.json()["imported"] == 900 and imported.json()["changed"] == 900
     again = client.post(f"{API}/instruments/{instrument['id']}/bars", json={"payload": CSV, "source": "Test file"}, headers=MEMBER)
     assert again.json()["changed"] == 0  # idempotent import
+    listed = client.get(f"{API}/instruments", headers=MEMBER).json()
+    assert listed[0]["bars"] == 900 and listed[0]["last_bar"] == BARS[-1].day.isoformat() and listed[0]["last_source"] == "Test file"
+    assert client.get(f"{API}/instruments", headers=OTHER).json() == []
     strategy = _strategy(instrument["id"])
-    assert strategy["state"] == "DRAFT" and strategy["symbols"] == ["EXMPL"]
+    assert strategy["state"] == "DRAFT" and strategy["symbols"] == ["EXMPL"] and strategy["simulated"] is True and "owner_user_id" not in strategy
     assert _move(strategy["id"], "VALIDATION").status_code == 409  # DRAFT cannot skip ahead
     assert _move(strategy["id"], "BACKTESTING").status_code == 200
     assert _move(strategy["id"], "VALIDATION").status_code == 409  # needs a backtest first
@@ -171,3 +176,11 @@ def _me():  # type: ignore[no-untyped-def]
     from anum_api.schemas import TenantContext
 
     return TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="member_intel", roles=["member"])
+
+
+def test_rules_list_the_six_candidates_and_the_benchmark() -> None:
+    rules = client.get(f"{API}/rules", headers=VIEWER)
+    assert rules.status_code == 403
+    items = client.get(f"{API}/rules", headers=MEMBER).json()
+    assert items[0]["key"] == "buy_and_hold" and sorted({r["candidate"] for r in items}) == [0, 1, 2, 3, 4, 5, 6]
+    assert all(r["hypothesis"] and r["entry"] and r["exit"] for r in items)

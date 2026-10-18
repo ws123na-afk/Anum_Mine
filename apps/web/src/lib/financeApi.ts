@@ -10,6 +10,8 @@ import type {
   FinanceExecutionStatus, FinanceIntent, FinanceIntentInput, FinanceIntentStatus, FinanceLive, FinanceLiveChangeInput, FinancePaperOrder,
   FinancePaperOrderStatus, FinanceWider, FinanceWidening, FinanceWideningInput, FinancePortfolio, FinancePortfolioInput, FinancePortfolioSummary, FinancePrice, FinancePriceInput, FinancePriceSaved,
   FinanceAgentDecision, FinanceIntelAgent, FinanceIntelOverview, FinanceStrategy, FinanceStrategyRun, FinanceStrategyState,
+  FinanceIntelBarsInput, FinanceIntelBarsResult, FinanceIntelCycle, FinanceIntelInstrument, FinanceIntelInstrumentInput, FinanceIntelPhase,
+  FinanceIntelRule, FinanceStrategyInput,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -152,5 +154,19 @@ export const listStrategies = (q: { state?: FinanceStrategyState | ''; limit: nu
   get<FinancePage<FinanceStrategy>>(`/intel/strategies${query({ ...q })}`);
 export const listStrategyRuns = (strategyId: string, q: { limit: number; offset: number }) =>
   get<FinancePage<FinanceStrategyRun>>(`/intel/strategies/${id(strategyId)}/runs${query({ ...q })}`);
+// Trading intelligence actions (finance/intel_control_api.py). Every result is SIMULATED; nothing here approves an order.
+export const listIntelRules = () => get<FinanceIntelRule[]>('/intel/rules');
+export const listInstruments = () => get<FinanceIntelInstrument[]>('/intel/instruments');
+export const createInstrument = (body: FinanceIntelInstrumentInput) => send<FinanceIntelInstrument>('POST', '/intel/instruments', body);
+export const importBars = (instrumentId: string, body: FinanceIntelBarsInput) => send<FinanceIntelBarsResult>('POST', `/intel/instruments/${id(instrumentId)}/bars`, body);
+export const createStrategy = (body: FinanceStrategyInput) => send<FinanceStrategy>('POST', '/intel/strategies', body);
+export const moveStrategy = (strategyId: string, state: FinanceStrategyState, reason: string) =>
+  send<FinanceStrategy>('POST', `/intel/strategies/${id(strategyId)}/transition`, { state, reason });
+export const chooseStrategyPortfolio = (strategyId: string, portfolioId: string) =>
+  send<FinanceStrategy>('POST', `/intel/strategies/${id(strategyId)}/portfolio`, { portfolio_id: portfolioId });
+export const evaluateStrategy = (strategyId: string, kind: 'backtest' | 'walk_forward') =>
+  send<FinanceStrategyRun>('POST', `/intel/strategies/${id(strategyId)}/evaluate`, { kind });
+export const runSupervisor = (phase: FinanceIntelPhase) => send<FinanceIntelCycle>('POST', '/intel/supervisor/run', { phase });
+export const pauseAllStrategies = (reason: string) => send<{ paused: string[]; simulated: true }>('POST', '/intel/pause-all', { reason });
 export const listAgentDecisions = (q: { agent?: FinanceIntelAgent | ''; strategy_id?: string; limit: number; offset: number }) =>
   get<FinancePage<FinanceAgentDecision>>(`/intel/decisions${query({ ...q })}`);

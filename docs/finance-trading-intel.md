@@ -14,7 +14,7 @@ The code is the pure package `services/api/anum_api/finance/intel/`: no network 
 | 4 | Indicators, backtester, the six candidates, walk-forward validation, reports | Done, with tests |
 | 5 | Strategy signals into SIMULATED paper orders | Done: the Supervisor's Execution Coordinator through the existing gateway and Guardian; every order waits for the person's approval |
 | 6 | Scheduled agent operations | Done: `finance.intel.cycle` automation step, phases by venue calendar, idempotent cycles |
-| 7 | Dashboard | Read view done (Finance, Trading intelligence tab, `intel_api.py`); actions for creating strategies, lifecycle moves and running a cycle in progress. P&L and drawdown charts and the Flutter screens are built separately |
+| 7 | Dashboard | Done on the web: the read view (`intel_api.py`) and the actions (market data, new strategies, evaluations, lifecycle moves, Supervisor cycles, pause). P&L and drawdown charts and the Flutter screens are built separately |
 | 8 | Daily reports, monitoring, incidents | Partly: each cycle records its summary and every agent decision; the post-close report document is open |
 | 9 | Security, performance, regression, Oracle checks | Open |
 | 10 | Live-trading readiness assessment (nothing enabled) | [Readiness report](finance-trading-readiness.md) |
@@ -221,6 +221,15 @@ Conclusion: a small pure-Python package inside the API, deterministic and tested
 ## Dashboard
 
 Finance, tab **Trading intelligence** (`#finance-intel`, `apps/web/src/FinanceIntel.tsx`). Read only and SIMULATED; the readiness report for loop 10 is [Trading readiness](finance-trading-readiness.md).
+
+**Actions** (`apps/web/src/FinanceIntelActions.tsx`, through the write routes in [API](#api)), each with a confirmation where it changes research and every state handled (loading, empty with a next step, the server's own error text, permission denied):
+
+* **Market data**: add an instrument (symbol, type, venue, currency, optional listing date) and import a CSV of daily bars per instrument; the table shows how many bars are stored, their range and source.
+* **New strategy**: pick a rule (grouped by research candidate, with its idea, entry and exit), the instruments with stored bars and a reason; it is created as version 1 in Draft after a confirmation.
+* **Per strategy** (with its results): run a backtest or a walk-forward validation, choose its paper portfolio, and move it to one of the states the person may choose from its current one. Starting paper trading and retiring ask for a stronger confirmation; the server's refusal (for example "Not ready for paper trading: not_reproduced") is shown as is.
+* **Trading Supervisor**: run one phase now (the result says how many orders were proposed for approval, signals refused, strategies suspended) and the emergency pause of every paper strategy.
+
+Tests: `apps/web/test/financeIntelActions.test.ts` and `apps/web/e2e/finance-intel.spec.ts`.
 
 API (`finance/intel_api.py`, `finance:read`, every row the caller's own under forced RLS; GET only, nothing is written or audited):
 

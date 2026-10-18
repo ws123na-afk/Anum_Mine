@@ -1,7 +1,7 @@
 // Trading intelligence dashboard logic (docs/finance-trading-intel.md#dashboard), pure so the unit
 // tests cover it. Everything shown is SIMULATED or recorded research: the view formats figures the
 // API sent and never computes a return, a price or a forecast of its own.
-import type { FinanceIntelAgent, FinanceIntelVenue, FinanceStrategyFold, FinanceStrategyRun, FinanceStrategyState } from '@anum/contracts';
+import type { FinanceIntelAgent, FinanceIntelPhase, FinanceIntelRule, FinanceIntelVenue, FinanceStrategyFold, FinanceStrategyRun, FinanceStrategyState } from '@anum/contracts';
 import { getLocale, intlLocale, t, type MessageKey } from './i18n.ts';
 
 /** Who can decide: the person, the Trading Supervisor and the specialist agents (intel/records.py `Agent`). */
@@ -118,4 +118,51 @@ export function paramsLine(params: Record<string, string | number | boolean | nu
   const entries = Object.entries(params);
   if (entries.length === 0) return t('finance.intel.noParams');
   return entries.map(([k, v]) => `${k.replace(/_/g, ' ')} ${v === null ? '-' : String(v)}`).join(', ');
+}
+
+
+// ---- actions (finance/intel_control_api.py) -----------------------------------------------------
+
+/** The moves the person may make from each state (intel/lifecycle.py TRANSITIONS); the server checks again. */
+const MOVES: Record<FinanceStrategyState, readonly FinanceStrategyState[]> = {
+  DRAFT: ['BACKTESTING', 'RETIRED'],
+  BACKTESTING: ['VALIDATION', 'DRAFT', 'RETIRED'],
+  VALIDATION: ['PAPER_ACTIVE', 'BACKTESTING', 'RETIRED'],
+  PAPER_ACTIVE: ['PAPER_SUSPENDED', 'RETIRED'],
+  PAPER_SUSPENDED: ['PAPER_ACTIVE', 'RETIRED'],
+  RETIRED: [],
+};
+
+export function nextStates(state: FinanceStrategyState): FinanceStrategyState[] {
+  return [...MOVES[state]];
+}
+
+/** Moving into these needs a stronger confirmation: paper trading starts, or the version is closed for good. */
+export function isWeightyMove(target: FinanceStrategyState): boolean {
+  return target === 'PAPER_ACTIVE' || target === 'RETIRED';
+}
+
+export const PHASES: readonly FinanceIntelPhase[] = ['pre_open', 'intraday', 'post_close', 'weekly', 'monthly'];
+
+export const phaseLabel = (phase: FinanceIntelPhase) => t(`finance.intel.phase.${phase}` as MessageKey);
+
+/** Rules grouped by research candidate, the benchmark (0) first, for the "New strategy" picker. */
+export function rulesByCandidate(rules: FinanceIntelRule[]): { candidate: number; name: string; rules: FinanceIntelRule[] }[] {
+  const groups = new Map<number, { candidate: number; name: string; rules: FinanceIntelRule[] }>();
+  for (const rule of rules) {
+    const group = groups.get(rule.candidate) ?? { candidate: rule.candidate, name: rule.candidate_name, rules: [] };
+    group.rules.push(rule);
+    groups.set(rule.candidate, group);
+  }
+  return [...groups.values()].sort((a, b) => a.candidate - b.candidate);
+}
+
+export const MAX_BARS_FILE = 2_000_000;
+
+/** Why a chosen bars file cannot be sent, or null. The server checks every bar again. */
+export function barsFileProblem(file: { name: string; size: number }): MessageKey | null {
+  if (file.size === 0) return 'finance.intel.data.fileEmpty';
+  if (file.size > MAX_BARS_FILE) return 'finance.intel.data.fileTooBig';
+  if (!/\.(csv|txt|json)$/i.test(file.name)) return 'finance.intel.data.fileType';
+  return null;
 }

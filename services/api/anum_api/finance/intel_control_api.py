@@ -37,9 +37,10 @@ from .intel.marketdata import (
     parse_provider,
 )
 from .intel.markets import VENUES
-from .intel.records import MAX_INSTRUMENTS, MAX_STRATEGIES, Agent, StrategyConfig, StrategyRun, StrategyState
+from .intel.records import MAX_INSTRUMENTS, MAX_STRATEGIES, Agent, StrategyConfig, StrategyState
 from .intel.strategies import StrategyError
 from .intel.supervisor import PHASES, Supervisor, pause_all
+from .intel_api import RunView, StrategyView, run_view, strategy_view
 from .store import FinanceStore, open_finance_store
 from .trading import PortfolioMode
 
@@ -51,7 +52,7 @@ def _lifecycle_error(exc: lifecycle.LifecycleError) -> HTTPException:
     return HTTPException(code, detail=str(exc))
 
 
-def _own(store: FinanceStore, context: TenantContext, strategy_id: str) -> StrategyConfig:
+def _own(store: FinanceStore, context: TenantContext, strategy_id: str) -> StrategyView:
     found = store.get_strategy(context, strategy_id)
     if found is None:
         raise _not_found("Strategy")
@@ -102,6 +103,37 @@ def create_instrument(body: InstrumentInput, context: TenantContext = Depends(te
             raise HTTPException(status.HTTP_409_CONFLICT, "You already have this symbol on this venue.") from None
     _audit(repository, context, "finance.intel.instrument.create", instrument.id, {"asset_class": instrument.asset_class.value})
     return instrument
+
+
+class InstrumentView(BaseModel):
+    id: str
+    symbol: str
+    name: str | None
+    asset_class: AssetClass
+    venue: str
+    currency: str
+    listed_on: date | None
+    delisted_on: date | None
+    bars: int
+    first_bar: date | None
+    last_bar: date | None
+    last_source: str | None
+
+
+@router.get("/instruments", response_model=list[InstrumentView])
+def list_instruments(context: TenantContext = Depends(tenant_context)) -> list[InstrumentView]:
+    """Your instruments with how many daily bars are stored and from where."""
+    _read(context)
+    views: list[InstrumentView] = []
+    with open_finance_store(context) as store:
+        for i in store.list_instruments(context):
+            bars = store.list_bars(context, i.id, limit=50_000)
+            views.append(InstrumentView(
+                id=i.id, symbol=i.symbol, name=i.name, asset_class=i.asset_class, venue=i.venue, currency=i.currency, listed_on=i.listed_on,
+                delisted_on=i.delisted_on, bars=len(bars), first_bar=bars[0].day if bars else None, last_bar=bars[-1].day if bars else None,
+                last_source=bars[-1].source if bars else None,
+            ))
+    return views
 
 
 @router.delete("/instruments/{instrument_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -167,6 +199,36 @@ def import_bars(instrument_id: str, body: BarsInput, context: TenantContext = De
 # -- strategies --------------------------------------------------------------------------------
 
 
+class RuleView(BaseModel):
+    key: str
+    name: str
+    code_version: str
+    candidate: int
+    candidate_name: str
+    hypothesis: str
+    instruments: str
+    timeframe: str
+    entry: str
+    exit: str
+    defaults: dict[str, Any]
+    min_symbols: int
+    max_symbols: int
+
+
+@router.get("/rules", response_model=list[RuleView])
+def list_rules(context: TenantContext = Depends(tenant_context)) -> list[RuleView]:
+    """The strategy rules a version can use, grouped by research candidate (0 is the benchmark)."""
+    _read(context)
+    from .intel.strategies import CANDIDATES, REGISTRY
+
+    return [
+        RuleView(key=r.key, name=r.name, code_version=r.version, candidate=r.candidate, candidate_name=CANDIDATES.get(r.candidate, "Benchmark"),
+                 hypothesis=r.hypothesis, instruments=r.instruments, timeframe=r.timeframe, entry=r.entry, exit=r.exit,
+                 defaults={k: v for k, v in r.defaults.items() if k != "weights"}, min_symbols=r.min_symbols, max_symbols=r.max_symbols)
+        for r in sorted(REGISTRY.values(), key=lambda r: (r.candidate, r.key))
+    ]
+
+
 class StrategyInput(BaseModel):
     key: str
     instrument_ids: list[str] = Field(min_length=1, max_length=10)
@@ -187,9 +249,9 @@ def _symbols(store: FinanceStore, context: TenantContext, instrument_ids: list[s
     return symbols
 
 
-@router.post("/strategies", response_model=StrategyConfig, status_code=status.HTTP_201_CREATED)
+@router.post("/strategies", response_model=StrategyView, status_code=status.HTTP_201_CREATED)
 def create_strategy(body: StrategyInput, context: TenantContext = Depends(tenant_context),
-                    repository: AnumRepository = Depends(repository_context)) -> StrategyConfig:
+                    repository: AnumRepository = Depends(repository_context)) -> StrategyView:
     _manage(context)
     with open_finance_store(context) as store:
         if store.list_strategies(context, limit=1, offset=0)[1] >= MAX_STRATEGIES:
@@ -202,7 +264,7 @@ def create_strategy(body: StrategyInput, context: TenantContext = Depends(tenant
             raise _invalid(str(exc)) from None
         store.save_strategy(strategy)
     _audit(repository, context, "finance.intel.strategy.create", strategy.id, {"key": strategy.key, "version": 1})
-    return strategy
+    return strategy_view(strategy)
 
 
 class VersionInput(BaseModel):
@@ -211,9 +273,9 @@ class VersionInput(BaseModel):
     reason: str = Field(min_length=3, max_length=300)
 
 
-@router.post("/strategies/{strategy_id}/versions", response_model=StrategyConfig, status_code=status.HTTP_201_CREATED)
+@router.post("/strategies/{strategy_id}/versions", response_model=StrategyView, status_code=status.HTTP_201_CREATED)
 def new_version(strategy_id: str, body: VersionInput, context: TenantContext = Depends(tenant_context),
-                repository: AnumRepository = Depends(repository_context)) -> StrategyConfig:
+                repository: AnumRepository = Depends(repository_context)) -> StrategyView:
     """A changed copy as the next version (DRAFT). The current version is never edited."""
     _manage(context)
     with open_finance_store(context) as store:
@@ -230,7 +292,7 @@ def new_version(strategy_id: str, body: VersionInput, context: TenantContext = D
             version = version.model_copy(update={"instrument_ids": body.instrument_ids})
         store.save_strategy(version)
     _audit(repository, context, "finance.intel.strategy.version", version.id, {"parent": current.id, "version": version.version})
-    return version
+    return strategy_view(version)
 
 
 class TransitionInput(BaseModel):
@@ -238,9 +300,9 @@ class TransitionInput(BaseModel):
     reason: str = Field(min_length=3, max_length=300)
 
 
-@router.post("/strategies/{strategy_id}/transition", response_model=StrategyConfig)
+@router.post("/strategies/{strategy_id}/transition", response_model=StrategyView)
 def move_strategy(strategy_id: str, body: TransitionInput, context: TenantContext = Depends(tenant_context),
-                  repository: AnumRepository = Depends(repository_context)) -> StrategyConfig:
+                  repository: AnumRepository = Depends(repository_context)) -> StrategyView:
     _manage(context)
     with open_finance_store(context) as store:
         current = _own(store, context, strategy_id)
@@ -252,7 +314,7 @@ def move_strategy(strategy_id: str, body: TransitionInput, context: TenantContex
         store.save_strategy(moved)
         store.save_agent_decision(_person_decision(context, "transition", moved, {"from": current.state.value, "to": moved.state.value}))
     _audit(repository, context, "finance.intel.strategy.transition", strategy_id, {"from": current.state.value, "to": moved.state.value})
-    return moved
+    return strategy_view(moved)
 
 
 def _person_decision(context: TenantContext, action: str, strategy: StrategyConfig | None, details: dict[str, Any]) -> Any:
@@ -267,9 +329,9 @@ class PortfolioInput(BaseModel):
     portfolio_id: str
 
 
-@router.post("/strategies/{strategy_id}/portfolio", response_model=StrategyConfig)
+@router.post("/strategies/{strategy_id}/portfolio", response_model=StrategyView)
 def choose_portfolio(strategy_id: str, body: PortfolioInput, context: TenantContext = Depends(tenant_context),
-                     repository: AnumRepository = Depends(repository_context)) -> StrategyConfig:
+                     repository: AnumRepository = Depends(repository_context)) -> StrategyView:
     _manage(context)
     with open_finance_store(context) as store:
         current = _own(store, context, strategy_id)
@@ -284,16 +346,16 @@ def choose_portfolio(strategy_id: str, body: PortfolioInput, context: TenantCont
             raise _lifecycle_error(exc) from None
         store.save_strategy(updated)
     _audit(repository, context, "finance.intel.strategy.portfolio", strategy_id, {"portfolio": portfolio.id})
-    return updated
+    return strategy_view(updated)
 
 
 class EvaluateInput(BaseModel):
     kind: Literal["backtest", "walk_forward"] = "walk_forward"
 
 
-@router.post("/strategies/{strategy_id}/evaluate", response_model=StrategyRun, status_code=status.HTTP_201_CREATED)
+@router.post("/strategies/{strategy_id}/evaluate", response_model=RunView, status_code=status.HTTP_201_CREATED)
 def evaluate(strategy_id: str, body: EvaluateInput, context: TenantContext = Depends(tenant_context),
-             repository: AnumRepository = Depends(repository_context)) -> StrategyRun:
+             repository: AnumRepository = Depends(repository_context)) -> RunView:
     """A SIMULATED backtest or walk-forward run of this version on its stored bars."""
     _manage(context)
     with open_finance_store(context) as store:
@@ -305,7 +367,7 @@ def evaluate(strategy_id: str, body: EvaluateInput, context: TenantContext = Dep
         except research.ResearchError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
     _audit(repository, context, "finance.intel.strategy.evaluate", strategy_id, {"kind": run.kind, "verdict": run.verdict, "run": run.id})
-    return run
+    return run_view(run)
 
 
 # -- the Supervisor -----------------------------------------------------------------------------

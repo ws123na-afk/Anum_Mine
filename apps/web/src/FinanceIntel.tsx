@@ -18,6 +18,7 @@ import {
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog } from './Dialog';
+import { IntelWorkbench, StrategyActions, SupervisorPanel } from './FinanceIntelActions';
 import { Denied, Empty, LoadError, Notice, failed, type Load } from './FinanceParts';
 import { reasonText } from './FinancePlan';
 
@@ -45,6 +46,8 @@ function Pager({ page, onPage, label, size }: { page: FinancePage<unknown>; onPa
 
 export function IntelPanel({ onOpen }: { onOpen: (tab: FinanceTab) => void }) {
   const [overview, reload] = useLoad(api.getIntelOverview);
+  const [refresh, setRefresh] = useState(0);
+  const changed = useCallback(() => { setRefresh((n) => n + 1); void reload(); }, [reload]);
   if (overview.kind === 'loading') return <section className="surface cmPanel"><Notice busy>{t('finance.intel.loading')}</Notice></section>;
   if (overview.kind === 'denied') return <Denied />;
   if (overview.kind === 'error') return <section className="surface cmPanel"><LoadError message={t('finance.intel.error.load', { message: overview.message })} retry={() => void reload()} /></section>;
@@ -52,9 +55,11 @@ export function IntelPanel({ onOpen }: { onOpen: (tab: FinanceTab) => void }) {
   return <div className="finIntel">
     <SimulationBanner overview={o} onChanged={() => void reload()} onOpen={onOpen} />
     <Venues overview={o} />
-    <Strategies counts={o.strategies} onOpen={onOpen} />
+    <IntelWorkbench venues={o.venues} onChanged={changed} />
+    <Strategies counts={o.strategies} portfolios={o.portfolios} refresh={refresh} onChanged={changed} onOpen={onOpen} />
+    <SupervisorPanel activeCount={o.strategies.find((c) => c.state === 'PAPER_ACTIVE')?.count ?? 0} onRan={changed} />
     <Positions portfolios={o.portfolios} onOpen={onOpen} />
-    <AgentDecisions />
+    <AgentDecisions refresh={refresh} />
     <GuardianDecisions />
     <RiskLimits overview={o} onOpen={onOpen} />
   </div>;
@@ -112,11 +117,14 @@ function Venues({ overview: o }: { overview: FinanceIntelOverview }) {
   </section>;
 }
 
-function Strategies({ counts, onOpen }: { counts: FinanceIntelOverview['strategies']; onOpen: (tab: FinanceTab) => void }) {
+function Strategies({ counts, portfolios, refresh, onChanged, onOpen }: {
+  counts: FinanceIntelOverview['strategies']; portfolios: FinanceIntelPortfolio[]; refresh: number; onChanged: () => void; onOpen: (tab: FinanceTab) => void;
+}) {
   const count = (s: FinanceStrategyState) => counts.find((c) => c.state === s)?.count ?? 0;
   const [state, setState] = useState<FinanceStrategyState | ''>(''), [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<FinanceStrategy | null>(null);
-  const load = useCallback(() => api.listStrategies({ state, limit: PAGE, offset }), [state, offset]);
+  // `refresh` changes after an action, which reloads the list.
+  const load = useCallback(() => api.listStrategies({ state, limit: PAGE, offset }), [state, offset, refresh]);
   const [page, reload] = useLoad(load);
   const filterId = useId();
   return <section className="surface cmPanel" aria-labelledby="fin-intel-strategies">
@@ -150,7 +158,9 @@ function Strategies({ counts, onOpen }: { counts: FinanceIntelOverview['strategi
       </table></div>
       <Pager page={page.value} onPage={(next) => { setOffset(next); setSelected(null); }} label={t('finance.intel.strategyPages')} size={PAGE} />
     </>}
-    {selected && <Runs key={selected.id} strategy={selected} />}
+    {selected && <StrategyActions key={selected.id} strategy={selected} portfolios={portfolios}
+      onChanged={(updated) => { if (updated) setSelected(updated); onChanged(); }} />}
+    {selected && <Runs key={`${selected.id}-${refresh}`} strategy={selected} />}
   </section>;
 }
 
@@ -240,9 +250,10 @@ function PortfolioBook({ portfolio: p }: { portfolio: FinanceIntelPortfolio }) {
   </article>;
 }
 
-function AgentDecisions() {
+function AgentDecisions({ refresh }: { refresh: number }) {
   const [agent, setAgent] = useState<FinanceIntelAgent | ''>(''), [offset, setOffset] = useState(0);
-  const load = useCallback(() => api.listAgentDecisions({ agent, limit: PAGE, offset }), [agent, offset]);
+  // `refresh` changes after an action, which reloads the list.
+  const load = useCallback(() => api.listAgentDecisions({ agent, limit: PAGE, offset }), [agent, offset, refresh]);
   const [page, reload] = useLoad(load);
   const filterId = useId();
   return <section className="surface cmPanel" aria-labelledby="fin-intel-agents">
