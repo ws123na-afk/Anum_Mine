@@ -107,6 +107,7 @@ x-user-roles: owner,member
 - [Tyre planning](docs/tyre-planning.md)
 - [Social media marketing](docs/marketing.md)
 - [Email campaigns through Brevo (connection, drafts, approval-only sending, agent tools)](docs/brevo.md)
+- [Customer billing: plans, subscriptions, invoices, payments, dunning and self-serve sign-up](docs/billing.md)
 - [Business: the internal sales desk (catalog, leads, research, pipeline, proposals, projects; sending off)](docs/business.md)
 - [Memory](docs/memory.md)
 - [What ANUM learned: feedback, style, routines and improvement notes](docs/learning.md)

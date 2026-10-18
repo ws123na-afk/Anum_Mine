@@ -374,6 +374,14 @@ services:
       ANUM_COMMERCE_SYNC_ENABLED: ${ANUM_COMMERCE_SYNC_ENABLED:-false}
       # Read-only finance connections (ECB exchange rates) sync in the background (docs/finance.md#sync).
       ANUM_FINANCE_SYNC_ENABLED: ${ANUM_FINANCE_SYNC_ENABLED:-false}
+      # Customer billing and self-serve sign-up (docs/billing.md): off until the owner sets them.
+      ANUM_BILLING_ISSUER_TENANT_ID: ${ANUM_BILLING_ISSUER_TENANT_ID:-}
+      ANUM_BILLING_SCHEDULER_ENABLED: ${ANUM_BILLING_SCHEDULER_ENABLED:-false}
+      ANUM_WEB_APP_URL: https://${ANUM_WEB_HOST}
+      ANUM_SIGNUP_ENABLED: ${ANUM_SIGNUP_ENABLED:-false}
+      ANUM_SIGNUP_DAILY_LIMIT: ${ANUM_SIGNUP_DAILY_LIMIT:-50}
+      ANUM_KEYCLOAK_PROVISIONER_CLIENT_ID: ${ANUM_KEYCLOAK_PROVISIONER_CLIENT_ID:-}
+      ANUM_KEYCLOAK_PROVISIONER_CLIENT_SECRET: ${ANUM_KEYCLOAK_PROVISIONER_CLIENT_SECRET:-}
       # The outbound REST webhook behind the external.action tool (always approved).
       ANUM_EXTERNAL_WEBHOOK_URL: ${ANUM_EXTERNAL_WEBHOOK_URL:-}
       ANUM_EXTERNAL_WEBHOOK_API_KEY: ${ANUM_EXTERNAL_WEBHOOK_API_KEY:-}

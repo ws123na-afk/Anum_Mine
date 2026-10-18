@@ -24,7 +24,7 @@ Both are organisation roles: a workspace role never grants them, and they are dr
 1. the tenant (`tenant_id`: 3 to 80 lowercase letters, digits, `_` or `-`; an id that exists answers `409`);
 2. its first workspace, `<tenant_id>_main`;
 3. its branding (display name);
-4. the `platform_organizations` row: operator, plan placeholder (`trial`, `standard`, `enterprise`; billing is not connected), first admin's email;
+4. the `platform_organizations` row: operator, plan placeholder (`trial`, `standard`, `enterprise`; a label: real plans and subscriptions are in [Customer billing](billing.md)), first admin's email;
 5. a single-use, email-bound **owner** invitation for the first admin (7 days), returned once.
 
 An audit record is written in the new tenant and in the operator's own workspace. The operator never becomes a member of the customer organisation.
@@ -73,7 +73,7 @@ People who belong to several organisations (an accountant serving two customers,
 
 ## Not done yet
 
-- Billing: the plan is a label.
+- The console's plan field is still a label; billing itself is in [Customer billing](billing.md) (plans, subscriptions, invoices, payments).
 - Suspending or deleting a customer organisation, and exporting its data, from the console.
 - Keycloak attribute changes for a new first admin are manual (above); ANUM does not call the Keycloak admin API.
 - Flutter switches workspaces but not organisations yet; the platform console on Flutter lists and onboards only (no plan change or reissue).
