@@ -149,6 +149,7 @@ from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
 from .mailbox.ai_api import router as mail_ai_router
 from .mailbox.api import router as mail_router
+from .mailbox.outgoing import build_schedule_runner
 from .mailbox.service import register_mail_tools
 from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
@@ -222,6 +223,10 @@ async def lifespan(_: FastAPI):
     email_scheduler = email_inbox.build_email_scheduler(settings)
     if email_scheduler is not None:
         email_scheduler.start()
+    # Sends scheduled Email Center messages when they are due (docs/email.md#scheduled-send).
+    mail_schedule = build_schedule_runner()
+    if mail_schedule is not None:
+        mail_schedule.start()
     # Syncs due sales-channel connectors when ANUM_COMMERCE_SYNC_ENABLED=true (docs/commerce.md#sync).
     commerce_scheduler = build_commerce_scheduler()
     if commerce_scheduler is not None:
@@ -244,6 +249,8 @@ async def lifespan(_: FastAPI):
             await finance_scheduler.stop()
         if commerce_scheduler is not None:
             await commerce_scheduler.stop()
+        if mail_schedule is not None:
+            await mail_schedule.stop()
         if email_scheduler is not None:
             await email_scheduler.stop()
         if scheduler is not None:

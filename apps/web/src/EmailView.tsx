@@ -29,7 +29,7 @@ import { viewLabel } from './lib/shell';
 import { Drawer } from './Dialog';
 import { MailAssist } from './MailAssist';
 import { DeleteApproval, MailBulkBar, MailSearchBar, StarButton, SyncStatus, actionDone, actionLabel, useMailShortcuts, useMailSync } from './MailActions';
-import { PageHeader, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
+import { PageHeader, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import { useIsOwner } from './useIsOwner';
 import './email.css';
 
@@ -138,6 +138,7 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
   setup: MailSetup; account: MailAccount; owner: boolean; note: Note; setNote: (n: Note) => void; header: (actions: ReactNode) => ReactNode; onOpenApprovals?: () => void;
 }) {
   const wide = useMediaQuery(SPLIT_QUERY);
+  const widest = useMediaQuery(RAIL_QUERY);
   const canAct = setup.can_act;
   const [folders, setFolders] = useState<MailFolder[]>([]);
   const [foldersState, setFoldersState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -323,7 +324,7 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
           </li>)}</ul></nav>
         </>}
         <SyncStatus state={sync} onCheckNow={sync.checkNow} />
-        <details className="mailOutbox" open={wide || undefined}>
+        <details className="mailOutbox" open={widest || undefined}>
           <summary><FileText aria-hidden="true" />{t('mail.outbox')}{drafts && <span className="mailOutboxCount">{formatNumber(draftsWaiting.length)}</span>}</summary>
           <p className="muted">{t('mail.outboxHint')}</p>
           {draftsFailed && <p className="muted">{t('mail.list.moreFailed')} <button type="button" className="linkButton" onClick={loadDrafts}>{t('mail.retry')}</button></p>}
