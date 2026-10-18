@@ -2,7 +2,7 @@
 
 ``ANUM_REPOSITORY_BACKEND=memory`` (local and tests) keeps everything in this process;
 ``postgresql`` uses ``anum_api.db.business_repository`` under forced RLS (migration
-``0068_business``). Every method works inside the caller's tenant and workspace only:
+``0069_business``). Every method works inside the caller's tenant and workspace only:
 a record of another workspace reads as missing, whatever id is asked for.
 """
 

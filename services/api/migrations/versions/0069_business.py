@@ -31,8 +31,8 @@ no discovery role reads these tables.
 
 Expand only: new tables. The previous release ignores them.
 
-Numbered 0068 and chained after ``0065_finance_intel`` (the head of ``main`` when it was
-written). 0066 and 0067 are on open branches: re-chain ``down_revision`` onto the newest
+Numbered 0069 and chained after ``0065_finance_intel`` (the head of ``main`` when it was
+written). 0066 to 0068 are on open branches (finance and email): re-chain ``down_revision`` onto the newest
 migration when this lands (CLAUDE.md, parallel migrations).
 """
 
@@ -40,7 +40,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0068_business"
+revision = "0069_business"
 down_revision = "0065_finance_intel"
 branch_labels = None
 depends_on = None

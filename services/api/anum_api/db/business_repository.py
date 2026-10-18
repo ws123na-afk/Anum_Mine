@@ -1,4 +1,4 @@
-"""PostgreSQL store for the internal sales MVP (migration ``0068_business``).
+"""PostgreSQL store for the internal sales MVP (migration ``0069_business``).
 
 The session carries the tenant and workspace RLS context (``open_scoped_store``); every
 query also filters on the scope explicitly, so a guessed id from another workspace reads

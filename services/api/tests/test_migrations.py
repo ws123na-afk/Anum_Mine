@@ -997,10 +997,10 @@ def test_mail_operator_view_migration_is_expand_only_and_reads_counts_only() -> 
 
 def test_business_migration_is_expand_only_with_forced_rls_on_every_table_and_scoped_references() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0068_business.py").read_text(encoding="utf-8")
-    assert 'revision = "0068_business"' in revision_text and len("0068_business") <= 32
+    revision_text = (versions / "0069_business.py").read_text(encoding="utf-8")
+    assert 'revision = "0069_business"' in revision_text and len("0069_business") <= 32
     down = revision_text.split('down_revision = "', 1)[1].split('"', 1)[0]
-    others = [path for path in versions.glob("*.py") if path.name != "0068_business.py"]
+    others = [path for path in versions.glob("*.py") if path.name != "0069_business.py"]
     # Chained onto an existing revision that nothing else extends (one head).
     assert any(f'revision = "{down}"' in path.read_text(encoding="utf-8") for path in others)
     assert not [path for path in others if f'down_revision = "{down}"' in path.read_text(encoding="utf-8")]
