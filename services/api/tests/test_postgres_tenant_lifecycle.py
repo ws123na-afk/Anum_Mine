@@ -210,7 +210,7 @@ def test_organisation_purge_leaves_only_the_receipt_and_tenant_b_untouched(clien
     assert lifecycle.run_lifecycle_pass() == {"purged": 1}
 
     after_a = {name: count for name, count in _counts(database_engine, TENANT_A).items() if count}
-    assert after_a == {"workspaces": 1, "audit_records": 1, LIFECYCLE_JOBS_TABLE: 1}
+    assert after_a == {"workspaces": 1, "audit_records": 1, LIFECYCLE_JOBS_TABLE: 1, "deleted_organizations": 1}
     assert _counts(database_engine, TENANT_B) == before_b
     with database_engine.begin() as connection:
         tenant = connection.execute(text("select name, status from tenants where id = :t"), {"t": TENANT_A}).one()
@@ -224,6 +224,46 @@ def test_organisation_purge_leaves_only_the_receipt_and_tenant_b_untouched(clien
         with pytest.raises(FileNotFoundError):
             file_store.storage.get(keys[workspace])
     assert file_store.storage.get(keys[WORKSPACE_B]) == f"bytes of {WORKSPACE_B}".encode()
+
+
+def test_console_receipt_and_keycloak_cleanup(client: TestClient, database_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
+    from test_tenant_lifecycle import FakeKeycloak
+
+    from anum_api import keycloak_admin
+
+    _seed(database_engine)
+    with database_engine.begin() as connection:
+        connection.execute(
+            text(
+                "insert into platform_organizations (tenant_id, operator_user_id, display_name, plan, first_workspace_id, first_admin_email, created_at, updated_at) "
+                "values (:t, 'operator_1', 'Acme A', 'standard', :w, 'admin@example.com', now(), now())"
+            ),
+            {"t": TENANT_A, "w": WORKSPACE_A},
+        )
+    admin = FakeKeycloak({"only_a": {"tenant_id": [TENANT_A]}, "a_and_b": {"tenant_id": [TENANT_B], "tenant_ids": [TENANT_A]}})
+    monkeypatch.setattr(keycloak_admin, "build_admin", lambda: admin)
+    assert client.post("/api/v1/organization/lifecycle/deletion", headers=headers(), json={"confirm": TENANT_A}).status_code == 202
+    _end_cooling_off(database_engine)
+    assert lifecycle.run_lifecycle_pass() == {"purged": 1}
+    assert admin.deleted == ["only_a"] and admin.users["a_and_b"]["attributes"]["tenant_ids"] == []
+    # Discovery as anum_maintenance finds nothing more to do.
+    assert lifecycle.run_lifecycle_pass() == {}
+
+    operator = {"x-tenant-id": TENANT_B, "x-workspace-id": WORKSPACE_B, "x-user-id": "operator_1", "x-user-roles": "owner,platform_operator"}
+    [row] = client.get("/api/v1/platform/organizations/deleted", headers=operator).json()
+    assert row["tenant_id"] == TENANT_A and row["display_name"] == "Acme A" and row["plan"] == "standard"
+    assert row["status"] == "deleted" and row["counts"]["tasks"] == 50 and row["file_count"] == 2
+    assert row["identity_cleanup"] == {"status": "removed", "removed": 1, "detached": 1, "finished_at": row["identity_cleanup"]["finished_at"]}
+    someone_else = {**operator, "x-user-id": "operator_2"}
+    assert client.get("/api/v1/platform/organizations/deleted", headers=someone_else).json() == []
+    with database_engine.begin() as connection:
+        actions = connection.execute(text("select action, outcome from audit_records where tenant_id = :t order by created_at"), {"t": TENANT_A}).all()
+    assert [tuple(a) for a in actions] == [("organisation.deleted", "success"), ("organisation.identities_removed", "success")]
+    with database_engine.connect() as connection, connection.begin():
+        connection.execute(text("set local role anum_platform_reader"))
+        connection.execute(text("select set_config('anum.user_id', 'operator_1', true)"))
+        with pytest.raises(Exception, match="permission denied"):
+            connection.execute(text("select identity_attempts, updated_at from deleted_organizations"))
 
 
 def test_workspace_purge_and_cancel(client: TestClient, database_engine: Engine) -> None:

@@ -16,7 +16,12 @@
   tenant. The API reaches the role with ``SET LOCAL ROLE`` (granted ``WITH INHERIT FALSE,
   SET TRUE``).
 
-Expand only: a new table, new policies, grants to two NOLOGIN roles and a widened
+* ``deleted_organizations``: the receipt the platform console lists after an organisation
+  is purged (ids, dates, counts and the Keycloak cleanup outcome), under forced RLS on
+  ``anum.tenant_id``; ``anum_platform_reader`` reads the operator's own rows and
+  ``anum_maintenance`` finds receipts whose Keycloak cleanup is pending. Never purged.
+
+Expand only: two new tables, new policies, grants to two NOLOGIN roles and a widened
 restrictive predicate that admits only the purger. The previous release ignores them.
 
 Numbered 0078 and chained after ``0074_brevo_campaigns``; parallel branches use 0075 to
@@ -34,6 +39,12 @@ depends_on = None
 
 TS = sa.DateTime(timezone=True)
 JOBS = "tenant_lifecycle_jobs"
+DELETED = "deleted_organizations"
+DELETED_COLUMNS = (
+    "tenant_id", "job_id", "operator_user_id", "display_name", "plan", "requested_by", "requested_at",
+    "purge_started_at", "deleted_at", "status", "row_count", "file_count", "counts", "identity_status",
+    "identity_removed", "identity_detached", "identity_finished_at",
+)
 PURGER = "anum_tenant_purger"
 KINDS = ("organisation_export", "organisation_deletion", "workspace_deletion")
 STATUSES = ("queued", "running", "ready", "failed", "expired", "scheduled", "cancelled", "purging", "completed")
@@ -299,9 +310,69 @@ def upgrade() -> None:
     for table, columns in POLICY_LOOKUPS.items():
         op.execute(f"grant select ({', '.join(columns)}) on {table} to {PURGER}")
     op.execute(EXTEND_RESTRICTIVE.replace(":tables", _array_literal(_all_tables())))
+    _deleted_organizations()
+
+
+def _deleted_organizations() -> None:
+    """The receipt the platform console shows for a deleted organisation: ids, dates and
+    counts only. Written by the application role in the tenant's context; read by the
+    operator who onboarded it through ``anum_platform_reader``; never purged."""
+    op.create_table(
+        DELETED,
+        sa.Column("tenant_id", sa.String(80), sa.ForeignKey("tenants.id", name="fk_deleted_organizations_tenant"), primary_key=True),
+        sa.Column("job_id", sa.String(80), nullable=False),
+        sa.Column("operator_user_id", sa.String(160), nullable=True),
+        sa.Column("display_name", sa.String(160), nullable=True),
+        sa.Column("plan", sa.String(40), nullable=True),
+        sa.Column("requested_by", sa.String(160), nullable=False),
+        sa.Column("requested_at", TS, nullable=False),
+        sa.Column("purge_started_at", TS, nullable=False),
+        sa.Column("deleted_at", TS, nullable=True),
+        sa.Column("status", sa.String(20), nullable=False, server_default="purging"),
+        sa.Column("row_count", sa.BigInteger(), nullable=False, server_default="0"),
+        sa.Column("file_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("counts", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+        sa.Column("identity_status", sa.String(20), nullable=False, server_default="pending"),
+        sa.Column("identity_removed", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("identity_detached", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("identity_attempts", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("identity_finished_at", TS, nullable=True),
+        sa.Column("updated_at", TS, nullable=False, server_default=sa.func.now()),
+        sa.CheckConstraint("status in ('purging', 'deleted')", name="ck_deleted_organizations_status"),
+        sa.CheckConstraint(
+            "identity_status in ('pending', 'removed', 'not_configured', 'failed')", name="ck_deleted_organizations_identity"
+        ),
+    )
+    op.execute(f"alter table {DELETED} enable row level security")
+    op.execute(f"alter table {DELETED} force row level security")
+    op.execute(
+        f"""
+        create policy tenant_isolation_{DELETED} on {DELETED}
+        using (tenant_id = {TENANT})
+        with check (tenant_id = {TENANT})
+        """
+    )
+    op.execute(f"grant select ({', '.join(DELETED_COLUMNS)}) on {DELETED} to anum_platform_reader")
+    op.execute(
+        f"""
+        create policy platform_reader_{DELETED} on {DELETED}
+        for select to anum_platform_reader
+        using (operator_user_id = nullif(current_setting('anum.user_id', true), ''))
+        """
+    )
+    # Keycloak cleanup still to do (retried by the runner).
+    op.execute(f"grant select (tenant_id, job_id, status, identity_status, identity_attempts) on {DELETED} to anum_maintenance")
+    op.execute(
+        f"""
+        create policy maintenance_identity_{DELETED} on {DELETED}
+        for select to anum_maintenance
+        using (status = 'deleted' and identity_status = 'pending')
+        """
+    )
 
 
 def downgrade() -> None:
+    op.execute(f"drop table if exists {DELETED}")
     op.execute(STRIP_RESTRICTIVE.replace(":tables", _array_literal(_all_tables())))
     for table in _all_tables():
         op.execute(f"drop policy if exists lifecycle_purge_{table} on {table}")

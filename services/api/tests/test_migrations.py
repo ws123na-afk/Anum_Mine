@@ -1101,7 +1101,7 @@ def test_tenant_lifecycle_migration_is_expand_only_with_a_narrow_purge_role() ->
     assert 'revision = "0078_tenant_lifecycle"' in revision_text and len("0078_tenant_lifecycle") <= 32
     assert 'down_revision = "0074_brevo_campaigns"' in revision_text
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
-    assert upgrade.count("op.create_table(") == 1 and "force row level security" in upgrade
+    assert upgrade.count("op.create_table(") == 2 and "force row level security" in upgrade
     assert "create role {purger} nologin" in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "op.drop" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade

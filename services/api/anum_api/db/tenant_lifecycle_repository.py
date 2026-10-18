@@ -332,3 +332,102 @@ def tombstone(session: Session, tenant_id: str, workspace_id: str, *, organisati
         ),
         {"name": DELETED_WORKSPACE, "now": now, "by": SYSTEM_ACTOR, "tenant": tenant_id, "workspace": workspace_id},
     )
+
+
+# ----------------------------------------------------------------------------- console receipts
+
+_RECEIPT_COLUMNS = (
+    "tenant_id, job_id, operator_user_id, display_name, plan, requested_by, requested_at, purge_started_at, deleted_at, "
+    "status, row_count, file_count, counts, identity_status, identity_removed, identity_detached, identity_finished_at"
+)
+
+
+def _receipt(row: Any) -> Any:
+    from ..tenant_lifecycle import DeletedOrganisation
+
+    data = dict(row._mapping)
+    data["counts"] = data.get("counts") or {}
+    return DeletedOrganisation(**data)
+
+
+class SqlReceiptStore:
+    """``deleted_organizations`` through the application role's session (tenant context set)."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, tenant_id: str) -> Any:
+        row = self.session.execute(
+            text(f"select {_RECEIPT_COLUMNS}, identity_attempts from deleted_organizations where tenant_id = :t"),  # nosec B608 - constant text
+            {"t": tenant_id},
+        ).first()
+        return _receipt(row) if row is not None else None
+
+    def open(self, job: LifecycleJob, now: datetime) -> None:
+        # Copied from platform_organizations before the purge removes it.
+        self.session.execute(
+            text(
+                """
+                insert into deleted_organizations
+                  (tenant_id, job_id, operator_user_id, display_name, plan, requested_by, requested_at, purge_started_at)
+                select cast(:t as varchar), :job, p.operator_user_id, p.display_name, p.plan, :by, :at, :now
+                from (select 1) as one
+                left join platform_organizations p on p.tenant_id = :t
+                on conflict (tenant_id) do nothing
+                """
+            ),
+            {"t": job.tenant_id, "job": job.id, "by": job.requested_by, "at": job.requested_at, "now": now},
+        )
+
+    def save(self, record: Any) -> None:
+        self.session.execute(
+            text(
+                """
+                update deleted_organizations set identity_status = :identity_status, identity_removed = :identity_removed,
+                  identity_detached = :identity_detached, identity_attempts = :identity_attempts,
+                  identity_finished_at = :identity_finished_at, updated_at = now()
+                where tenant_id = :tenant_id
+                """
+            ),
+            record.model_dump(
+                include={"tenant_id", "identity_status", "identity_removed", "identity_detached", "identity_attempts", "identity_finished_at"}
+            ),
+        )
+
+    def complete(self, tenant_id: str, now: datetime, counts: dict[str, int], files: int, identity: str) -> None:
+        self.session.execute(
+            text(
+                """
+                update deleted_organizations set status = 'deleted', deleted_at = :now, counts = cast(:counts as jsonb),
+                  row_count = :rows, file_count = :files, identity_status = :identity, updated_at = :now
+                where tenant_id = :t
+                """
+            ),
+            {"t": tenant_id, "now": now, "counts": json.dumps(counts), "rows": sum(counts.values()), "files": files, "identity": identity},
+        )
+
+
+_IDENTITY_DUE = text(
+    "select tenant_id from deleted_organizations where status = 'deleted' and identity_status = 'pending' order by tenant_id limit 50"
+)
+
+
+def discover_identity_cleanups() -> list[str]:
+    """Deleted organisations whose Keycloak cleanup is still to do, as ``anum_maintenance``."""
+    return [row.tenant_id for row in maintenance.discover(maintenance.default_session_factory, _IDENTITY_DUE)]
+
+
+def deleted_for_operator(operator: str) -> list[Any]:
+    """The operator's deleted organisations, through ``anum_platform_reader`` (rolled back)."""
+    session = _session()
+    try:
+        session.execute(text("set local role anum_platform_reader"))
+        session.execute(text("select set_config('anum.user_id', :user_id, true)"), {"user_id": operator})
+        rows = session.execute(
+            text(f"select {_RECEIPT_COLUMNS} from deleted_organizations where operator_user_id = :operator"),  # nosec B608 - constant text
+            {"operator": operator},
+        ).all()
+        return [_receipt(row) for row in rows]
+    finally:
+        session.rollback()
+        session.close()

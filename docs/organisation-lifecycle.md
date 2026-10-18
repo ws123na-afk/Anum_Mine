@@ -2,7 +2,7 @@
 
 An organisation (tenant) can take all of its data out of ANUM and can leave ANUM for good. A workspace can be deleted on its own. This is what a customer company needs before ANUM is offered as a hosted service (P4 SaaS, [Business gap register](business/ANUM_BUSINESS_GAP_REGISTER.md)); a person's own data stays under [Privacy](privacy.md).
 
-Implemented in `services/api/anum_api/tenant_lifecycle.py` (routes, jobs, the background runner), `tenant_lifecycle_tables.py` (the registry of every tenant table), `db/tenant_lifecycle_repository.py` (PostgreSQL), migration `0078_tenant_lifecycle`; web `apps/web/src/DataLifecycle.tsx` under Settings > Workspace; Flutter `apps/mobile/lib/features/lifecycle/` under Settings > Data export and deletion.
+Implemented in `services/api/anum_api/tenant_lifecycle.py` (routes, jobs, the background runner), `tenant_lifecycle_tables.py` (the registry of every tenant table), `db/tenant_lifecycle_repository.py` (PostgreSQL), migration `0078_tenant_lifecycle`; web `apps/web/src/DataLifecycle.tsx` under Settings > Workspace; Flutter `apps/mobile/lib/features/lifecycle/` under Settings > Data export and deletion (English and Arabic, `lifecycle_strings.dart`; the Flutter Privacy screen is now in both languages too, `privacy/privacy_strings.dart`); the platform console's **Deleted organisations** pane (`apps/web/src/DeletedOrganisationsPane.tsx`); Keycloak account cleanup in `anum_api/keycloak_admin.py`.
 
 ## Who may do what
 
@@ -59,7 +59,13 @@ Finding the workspaces of an organisation needs one read across workspaces: `anu
 3. **Purge.** After `purge_after` the runner moves the job to `purging` and deletes, table by table in foreign-key order (children first), in batches of `ANUM_TENANT_PURGE_BATCH_ROWS` (default 1000), each batch its own short transaction. Memberships and invitations go first, so nobody can sign in to it while the rest is removed. File bytes (workspace files, Email Center attachments) and export archives are deleted from object storage before their rows. The runner repeats until a full pass finds nothing left, so rows a background job wrote meanwhile go too.
 4. **Receipt.** What stays: the `tenants` row (renamed "Deleted organisation", status `deleted`, so the id is never reused), one workspace row kept as a tombstone (archived, renamed "Deleted workspace") and, in it, one `audit_records` row `organisation.deleted` (or `workspace.deleted`) with the job id, who asked, when, and row and file counts per table. No content, names or emails. The job row stays `completed` with the same counts.
 
+5. **Sign-in accounts.** Right after an organisation's purge, ANUM removes its Keycloak accounts (`anum_api/keycloak_admin.py`): a person whose `tenant_id` / `tenant_ids` name only this organisation is deleted; a person who also belongs to other organisations keeps the account and only loses this organisation (their home `tenant_id` moves to another organisation they belong to when it pointed here). It is idempotent: a deleted user is gone (`404` counts as done) and a detached one no longer carries the organisation, so a second run changes nothing. Each run writes an `organisation.identities_removed` audit record in the receipt workspace (counts, or the error type), and the outcome goes on the console receipt (`removed`, `pending`, `failed`, `not_configured`). A failure is retried by the next passes (found through `anum_maintenance`) and marked `failed` after 5 attempts, which the console shows so the operator finishes it in Keycloak.
+   ANUM reaches Keycloak with a confidential service-account client (client credentials, no user password) that needs only the `realm-management` roles `view-users` and `manage-users`. Without `ANUM_KEYCLOAK_ADMIN_URL`, `ANUM_KEYCLOAK_ADMIN_CLIENT_ID` and `ANUM_KEYCLOAK_ADMIN_CLIENT_SECRET` the cleanup is off, the receipt says `not_configured` and the operator removes the accounts. To set it up in the admin console: realm **anum** › Clients › Create client (`anum-lifecycle`, client authentication on, only "Service accounts roles" enabled) › Service accounts roles › Assign role › filter by clients › `realm-management` `view-users` and `manage-users`; copy the secret from Credentials into the API's secret store.
+6. **Platform console.** The operator who onboarded the organisation sees it under **Deleted organisations** in the console (`GET /api/v1/platform/organizations/deleted`, read only): name, id, who asked and when, when the purge started and finished, rows and files removed per table, and the sign-in accounts outcome. It is read from `deleted_organizations` (below) through `anum_platform_reader`, which sees only the operator's own organisations and only these id, date and count columns.
+
 Deleting a workspace removes every row with that `workspace_id` and its files; organisation-wide rows (branding, policies, the suppression list) stay.
+
+`deleted_organizations` (migration `0078`) is the console receipt: written by the application role in the tenant's context when the purge starts (copying the operator, name and plan from `platform_organizations` before that row is purged) and completed when it ends. It is never exported or purged. Forced RLS on `anum.tenant_id`; `anum_platform_reader` reads it where `operator_user_id = anum.user_id`; `anum_maintenance` sees only the scope and status columns of receipts whose Keycloak cleanup is pending.
 
 ### How the purge stays inside RLS
 
@@ -84,7 +90,7 @@ A new tenant table therefore needs a registry entry and, in its migration, the p
 
 ## Audit
 
-`organisation.export.requested`, `organisation.export.ready` (or `.failed`), `organisation.export.link_issued`, `organisation.export.downloaded`, `organisation.deletion.scheduled`, `organisation.deletion.cancelled`, `workspace.deletion.scheduled`, `workspace.deletion.cancelled` are written in the workspace where the person acted, with ids and counts only. The receipts are described above.
+`organisation.export.requested`, `organisation.export.ready` (or `.failed`), `organisation.export.link_issued`, `organisation.export.downloaded`, `organisation.deletion.scheduled`, `organisation.deletion.cancelled`, `workspace.deletion.scheduled`, `workspace.deletion.cancelled` are written in the workspace where the person acted, with ids and counts only. The receipts (`organisation.deleted`, `workspace.deleted`) and the Keycloak cleanup (`organisation.identities_removed`, outcome `success` or `failure`) are described above.
 
 ## Configuration
 
@@ -98,15 +104,19 @@ A new tenant table therefore needs a registry entry and, in its migration, the p
 | `ANUM_TENANT_EXPORT_MAX_BYTES` | `536870912` | Largest archive. |
 | `ANUM_TENANT_EXPORT_BATCH_ROWS` | `500` | Rows per read transaction. |
 | `ANUM_TENANT_PURGE_BATCH_ROWS` | `1000` | Rows per delete transaction. |
+| `ANUM_KEYCLOAK_ADMIN_URL` | empty | Keycloak's base URL for the account cleanup (for example `http://keycloak:8080`). Empty: off. |
+| `ANUM_KEYCLOAK_ADMIN_REALM` | `anum` | The realm whose users are removed. |
+| `ANUM_KEYCLOAK_ADMIN_CLIENT_ID` | empty | The service-account client. |
+| `ANUM_KEYCLOAK_ADMIN_CLIENT_SECRET` | empty | Its secret, from the secret store. |
 
 With `ANUM_REPOSITORY_BACKEND=memory` (local runs and tests) the export and purge cover the in-process stores (tenants, workspaces, memberships, invitations, tasks, runs, approvals, events, audit records and workspace files); the full table registry applies with PostgreSQL.
 
+## Out of scope: import
+
+Importing an export into another ANUM (or back into this one) is deliberately out of scope. The archive is a portable copy for the organisation's own records and for moving to another system; secrets are not in it, rows private to one person are not in it, and ids would collide with live data, so an import would need its own design (id remapping, re-connecting integrations, consent of each person for their private data). Nothing in the API reads an archive back.
+
 ## Not done yet
 
-- The Keycloak accounts of a deleted organisation are not removed (ANUM holds no Keycloak admin credential); the platform operator removes them.
-- There is no import of an export into another ANUM.
-- The platform console does not list deleted organisations or their receipts.
-- The Flutter screen is in English only (like the Flutter Privacy screen); the web page has English and Arabic.
 - The archive is uploaded to object storage in one piece (the storage interface takes bytes), so the API process needs memory for one archive up to `ANUM_TENANT_EXPORT_MAX_BYTES`.
 - Rows of a tenant table with a null `workspace_id` (possible only in `memories`) are not exported; an organisation deletion still removes them.
 - With the memory backend only the core stores are covered (above).

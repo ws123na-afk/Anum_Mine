@@ -118,6 +118,11 @@
 .orgActions { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
 .orgActions .actions { margin-top: 0; }
 .orgPrivacy { max-width: 70ch; }
+.deletedOrgsPane > .muted { margin: 0 0 var(--d-s3); max-width: 70ch; }
+.deletedOrgCounts { margin-top: var(--d-s1); }
+.deletedOrgCounts summary { cursor: pointer; color: var(--d-muted); font-size: 13px; }
+.deletedOrgCounts ul { display: grid; gap: var(--d-s1); grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); margin: var(--d-s2) 0 0; max-block-size: 240px; overflow: auto; padding: 0; list-style: none; }
+.deletedOrgCounts li { display: flex; gap: var(--d-s2); justify-content: space-between; overflow-wrap: anywhere; }
 .inviteReveal input { font-family: var(--d-mono); font-size: 13px; }
 .brandingRow { align-items: end; display: grid; gap: var(--d-s4); grid-template-columns: 72px minmax(0, 1fr); }
 .logoPreview { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); block-size: 72px; color: var(--d-muted); display: flex; inline-size: 72px; justify-content: center; overflow: hidden; }

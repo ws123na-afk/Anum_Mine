@@ -207,6 +207,75 @@ export function timeLeftText(purgeAfter: string, now: number = Date.now()): stri
   return t('lifecycle.left.one', { amount: t('lifecycle.minutes', { count: left.minutes }) });
 }
 
+// --- Deleted organisations in the platform console (read only).
+
+export type IdentityStatus = 'pending' | 'removed' | 'not_configured' | 'failed';
+
+/** `GET /api/v1/platform/organizations/deleted`, one row. */
+export interface ApiDeletedOrganisation {
+  tenant_id: string;
+  display_name: string | null;
+  plan: string | null;
+  requested_by: string;
+  requested_at: string;
+  purge_started_at: string;
+  deleted_at: string | null;
+  status: 'purging' | 'deleted';
+  row_count: number;
+  file_count: number;
+  counts: Record<string, number>;
+  identity_cleanup: { status: IdentityStatus; removed: number; detached: number; finished_at: string | null };
+}
+
+export interface DeletedOrganisation {
+  tenantId: string;
+  name: string;
+  plan: string | null;
+  requestedBy: string;
+  requestedAt: string;
+  purgeStartedAt: string;
+  deletedAt: string | null;
+  deleting: boolean;
+  rows: number;
+  files: number;
+  counts: { table: string; rows: number }[];
+  identity: { status: IdentityStatus; removed: number; detached: number };
+}
+
+/** Maps a receipt; tables sorted by rows deleted (largest first), empty ones left out. */
+export function mapDeletedOrganisation(row: ApiDeletedOrganisation): DeletedOrganisation {
+  const counts = Object.entries(row.counts ?? {})
+    .filter(([, rows]) => rows > 0)
+    .map(([table, rows]) => ({ table, rows }))
+    .sort((a, b) => b.rows - a.rows || a.table.localeCompare(b.table));
+  return {
+    tenantId: row.tenant_id,
+    name: row.display_name || row.tenant_id,
+    plan: row.plan,
+    requestedBy: row.requested_by,
+    requestedAt: row.requested_at,
+    purgeStartedAt: row.purge_started_at,
+    deletedAt: row.deleted_at,
+    deleting: row.status !== 'deleted',
+    rows: row.row_count,
+    files: row.file_count,
+    counts,
+    identity: { status: row.identity_cleanup.status, removed: row.identity_cleanup.removed, detached: row.identity_cleanup.detached },
+  };
+}
+
+/** Newest deletion first (a purge still running counts from when it started). */
+export function sortDeleted(rows: readonly DeletedOrganisation[]): DeletedOrganisation[] {
+  const at = (row: DeletedOrganisation) => Date.parse(row.deletedAt ?? row.purgeStartedAt) || 0;
+  return [...rows].sort((a, b) => at(b) - at(a) || a.tenantId.localeCompare(b.tenantId));
+}
+
+/** The sentence for what happened to the sign-in accounts. */
+export function identityText(identity: DeletedOrganisation['identity']): string {
+  if (identity.status === 'removed') return t('lifecycle.deleted.identity.removed', { removed: identity.removed, detached: identity.detached });
+  return t(`lifecycle.deleted.identity.${identity.status}` as MessageKey);
+}
+
 /** The API answers a relative download path; make it absolute against the API base. */
 export function absoluteUrl(base: string, url: string): string {
   if (/^https?:\/\//i.test(url)) return url;

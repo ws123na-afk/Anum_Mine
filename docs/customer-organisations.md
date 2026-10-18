@@ -74,6 +74,6 @@ People who belong to several organisations (an accountant serving two customers,
 ## Not done yet
 
 - Billing: the plan is a label.
-- Suspending a customer organisation, and listing deleted organisations, from the console. An organisation's own administrator exports and deletes it ([Organisation export and deletion](organisation-lifecycle.md)).
-- Keycloak attribute changes for a new first admin are manual (above); ANUM does not call the Keycloak admin API.
+- Suspending a customer organisation from the console. Deleted organisations are listed read only under Deleted organisations. An organisation's own administrator exports and deletes it ([Organisation export and deletion](organisation-lifecycle.md)).
+- Keycloak attribute changes for a new first admin are manual (above); the only Keycloak admin calls ANUM makes remove a deleted organisation's accounts, when that optional service account is configured ([Organisation export and deletion](organisation-lifecycle.md#deletion)).
 - Flutter switches workspaces but not organisations yet; the platform console on Flutter lists and onboards only (no plan change or reissue).

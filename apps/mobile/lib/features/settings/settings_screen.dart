@@ -14,6 +14,8 @@ import '../learning/learning_controller.dart';
 import '../learning/learning_screen.dart';
 import '../lifecycle/lifecycle_controller.dart';
 import '../lifecycle/lifecycle_screen.dart';
+import '../lifecycle/lifecycle_strings.dart';
+import '../privacy/privacy_strings.dart';
 import '../privacy/privacy_controller.dart';
 import '../privacy/privacy_screen.dart';
 import '../push/push_settings_card.dart';
@@ -276,9 +278,9 @@ class _Content extends StatelessWidget {
               Card(
                   child: ListTile(
                       leading: const Icon(Icons.privacy_tip_outlined),
-                      title: const Text('Your data and privacy'),
-                      subtitle: const Text(
-                          'See what is stored, download it or delete it.'),
+                      title: Text(PrivacyStrings.of(context).t('tile.title')),
+                      subtitle:
+                          Text(PrivacyStrings.of(context).t('tile.subtitle')),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.push(
                           context,
@@ -296,9 +298,9 @@ class _Content extends StatelessWidget {
                   child: ListTile(
                       key: const Key('settings-lifecycle'),
                       leading: const Icon(Icons.inventory_2_outlined),
-                      title: const Text('Data export and deletion'),
-                      subtitle: const Text(
-                          'Export the whole organisation, or delete it or this workspace.'),
+                      title: Text(LifecycleStrings.of(context).t('tile.title')),
+                      subtitle:
+                          Text(LifecycleStrings.of(context).t('tile.subtitle')),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.push(
                           context,

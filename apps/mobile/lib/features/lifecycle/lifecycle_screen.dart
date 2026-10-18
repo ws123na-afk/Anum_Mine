@@ -5,6 +5,7 @@ import '../../src/theme/anum_theme.dart';
 import '../developer/developer_screen.dart' show LinkOpener, openInBrowser;
 import 'lifecycle_controller.dart';
 import 'lifecycle_models.dart';
+import 'lifecycle_strings.dart';
 
 /// A download link opens in the browser when it is https (or plain http to
 /// this device during local development); otherwise it is copied.
@@ -39,6 +40,13 @@ class _LifecycleScreenState extends State<LifecycleScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The controller writes its result sentences in the app's language.
+    widget.controller.strings = LifecycleStrings.of(context);
+  }
+
+  @override
   void dispose() {
     widget.controller.dispose();
     super.dispose();
@@ -59,9 +67,11 @@ class _LifecycleScreenState extends State<LifecycleScreen> {
     }
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
+    final s = LifecycleStrings.of(context);
+    final when = formatWhen(link.expiresAt, s);
     _snack(open
-        ? 'The browser could not open the download. The link was copied; paste it into a browser before ${formatWhen(link.expiresAt)}.'
-        : 'Download link copied. It works until ${formatWhen(link.expiresAt)}.');
+        ? s.t('openFailedCopied', {'when': when})
+        : s.t('linkCopied', {'when': when}));
   }
 
   Future<void> _schedule(
@@ -88,18 +98,20 @@ class _LifecycleScreenState extends State<LifecycleScreen> {
   Future<void> _cancel(String title, Future<bool> Function() cancel) async {
     final ok = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
-                title: Text(title),
-                content: const Text(
-                    'The deletion stops and nothing is removed. Everyone keeps working as before.'),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('Keep it scheduled')),
-                  FilledButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: const Text('Cancel deletion')),
-                ]));
+        builder: (context) {
+          final s = LifecycleStrings.of(context);
+          return AlertDialog(
+              title: Text(title),
+              content: Text(s.t('cancelText')),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: Text(s.t('keepScheduled'))),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: Text(s.t('cancelDeletion'))),
+              ]);
+        });
     if (ok ?? false) await cancel();
   }
 
@@ -108,25 +120,27 @@ class _LifecycleScreenState extends State<LifecycleScreen> {
       listenable: widget.controller,
       builder: (context, _) {
         final c = widget.controller;
+        final s = LifecycleStrings.of(context);
+
         return Scaffold(
-            appBar: AppBar(title: const Text('Data export and deletion')),
+            appBar: AppBar(title: Text(s.t('title'))),
             body: switch (c.phase) {
-              LifecyclePhase.loading => const _Status(
+              LifecyclePhase.loading => _Status(
                   icon: Icons.inventory_2_outlined,
-                  title: 'Loading data export and deletion',
+                  title: s.t('loading'),
                   loading: true),
-              LifecyclePhase.permissionDenied => const _Status(
+              LifecyclePhase.permissionDenied => _Status(
                   icon: Icons.lock_outline,
-                  title: 'Permission required',
-                  message: lifecyclePermissionMessage),
+                  title: s.t('permissionTitle'),
+                  message: s.t('permission')),
               LifecyclePhase.offline => _Status(
                   icon: Icons.cloud_off_outlined,
-                  title: 'You are offline',
-                  message: 'Reconnect to see exports and deletions.',
+                  title: s.t('offlineTitle'),
+                  message: s.t('offlineText'),
                   retry: c.load),
               LifecyclePhase.error => _Status(
                   icon: Icons.error_outline,
-                  title: 'Data export and deletion unavailable',
+                  title: s.t('unavailable'),
                   message: c.loadError,
                   retry: c.load),
               LifecyclePhase.ready => _content(context, c, c.summary!),
@@ -137,6 +151,7 @@ class _LifecycleScreenState extends State<LifecycleScreen> {
       BuildContext context, LifecycleController c, LifecycleSummary s) {
     final theme = Theme.of(context);
     final small = theme.textTheme.bodySmall;
+    final t = LifecycleStrings.of(context);
     final busy = c.busy != null;
     final orgDeletion = s.organisationDeletion;
     final wsDeletion = s.workspaceDeletion;
@@ -155,16 +170,16 @@ class _LifecycleScreenState extends State<LifecycleScreen> {
                         AnumSpacing.md,
                         AnumSpacing.xl),
                     children: [
-                      Text(
-                          'Take all of your organisation\'s data out of ANUM, or leave ANUM for good. Your own personal data is under Settings, Privacy.',
-                          style: small),
+                      Text(t.t('lead'), style: small),
                       // Organisation export.
-                      const _Heading('Export the organisation'),
-                      Text(
-                          'One zip file with every row of every workspace as JSON lines and CSV, plus every workspace file. Secrets, sign-in accounts and rows private to one person are left out; each person downloads their own from Privacy. An archive is kept for ${formatHours(s.exportRetentionHours)} and a download link works for ${_ttl(s.exportLinkTtlSeconds)}.'),
+                      _Heading(t.t('exportHeading')),
+                      Text(t.t('exportText', {
+                        'retention': formatHours(s.exportRetentionHours, t),
+                        'ttl': _ttl(s.exportLinkTtlSeconds, t)
+                      })),
                       const SizedBox(height: AnumSpacing.sm),
                       if (!s.canManageOrganisation)
-                        const _Rights(organisationRightsMessage)
+                        _Rights(t.t('orgRights'))
                       else ...[
                         Align(
                             alignment: AlignmentDirectional.centerStart,
@@ -175,29 +190,25 @@ class _LifecycleScreenState extends State<LifecycleScreen> {
                                         ? null
                                         : c.requestExport,
                                 icon: const Icon(Icons.archive_outlined),
-                                label: Text(c.busy == LifecycleAction.export
-                                    ? 'Requesting...'
-                                    : 'Request export'))),
+                                label: Text(t.t(c.busy == LifecycleAction.export
+                                    ? 'requesting'
+                                    : 'requestExport')))),
                         if (s.exportInProgress)
                           Padding(
                               padding:
                                   const EdgeInsets.only(top: AnumSpacing.xs),
-                              child: Text(
-                                  'An export is being prepared. This page checks again every few seconds.',
-                                  style: small)),
+                              child:
+                                  Text(t.t('exportInProgress'), style: small)),
                         if (orgDeleting)
                           Padding(
                               padding:
                                   const EdgeInsets.only(top: AnumSpacing.xs),
-                              child: Text(
-                                  'New exports cannot start while the organisation is scheduled for deletion. Cancel the deletion first.',
-                                  style: small)),
+                              child: Text(t.t('exportBlocked'), style: small)),
                         _MessageFor(c, LifecycleAction.export),
                         _MessageFor(c, LifecycleAction.link),
                         const SizedBox(height: AnumSpacing.sm),
                         if (s.exports.isEmpty)
-                          const _Empty(
-                              'No exports yet. Request one to download everything your organisation keeps in ANUM.')
+                          _Empty(t.t('noExports'))
                         else
                           for (final job in s.exports)
                             _ExportCard(
@@ -209,49 +220,45 @@ class _LifecycleScreenState extends State<LifecycleScreen> {
                                 onCopy: () => _download(job, open: false)),
                       ],
                       // Organisation deletion.
-                      const _Heading('Delete the organisation'),
-                      Text(
-                          'Deletes every workspace, member, file and record of this organisation. Nothing is deleted for ${formatHours(s.coolingOffHours)} after the request, and it can be cancelled until then. Export the organisation first if you need a copy.'),
+                      _Heading(t.t('orgHeading')),
+                      Text(t.t('orgText',
+                          {'period': formatHours(s.coolingOffHours, t)})),
                       const SizedBox(height: AnumSpacing.sm),
                       _DeletionState(
                           job: orgDeletion,
                           what: 'organisation',
                           canAct: s.canManageOrganisation,
                           busy: busy,
-                          onCancel: () => _cancel(
-                              'Cancel deleting the organisation?',
+                          onCancel: () => _cancel(t.t('cancelOrgTitle'),
                               c.cancelOrganisationDeletion)),
                       if (!s.canManageOrganisation)
-                        const _Rights(organisationRightsMessage)
+                        _Rights(t.t('orgRights'))
                       else if (!orgDeleting &&
                           s.organisationConfirmation != null)
                         Align(
                             alignment: AlignmentDirectional.centerStart,
                             child: _DangerButton(
                                 key: const Key('lifecycle-delete-organisation'),
-                                label: c.busy ==
+                                label: t.t(c.busy ==
                                         LifecycleAction.organisationDeletion
-                                    ? 'Scheduling...'
-                                    : 'Delete organisation',
+                                    ? 'scheduling'
+                                    : 'deleteOrg'),
                                 onPressed: busy
                                     ? null
                                     : () => _schedule(
-                                        title: 'Delete the organisation?',
+                                        title: t.t('deleteOrgTitle'),
                                         expected: s.organisationConfirmation!,
-                                        what:
-                                            'every workspace, member, file and record of this organisation',
-                                        fieldLabel:
-                                            'Type the organisation id to confirm',
-                                        confirmLabel:
-                                            'Schedule organisation deletion',
+                                        what: t.t('deleteOrgWhat'),
+                                        fieldLabel: t.t('deleteOrgField'),
+                                        confirmLabel: t.t('deleteOrgConfirm'),
                                         coolingOffHours: s.coolingOffHours,
                                         schedule:
                                             c.scheduleOrganisationDeletion))),
                       _MessageFor(c, LifecycleAction.organisationDeletion),
                       // Workspace deletion.
-                      const _Heading('Delete this workspace'),
-                      Text(
-                          'Deletes this workspace\'s tasks, conversations, files and records. Organisation settings such as branding and policies stay. Nothing is deleted for ${formatHours(s.coolingOffHours)} after the request, and it can be cancelled until then.'),
+                      _Heading(t.t('wsHeading')),
+                      Text(t.t('wsText',
+                          {'period': formatHours(s.coolingOffHours, t)})),
                       const SizedBox(height: AnumSpacing.sm),
                       _DeletionState(
                           job: wsDeletion,
@@ -259,10 +266,9 @@ class _LifecycleScreenState extends State<LifecycleScreen> {
                           canAct: s.canDeleteWorkspace,
                           busy: busy,
                           onCancel: () => _cancel(
-                              'Cancel deleting this workspace?',
-                              c.cancelWorkspaceDeletion)),
+                              t.t('cancelWsTitle'), c.cancelWorkspaceDeletion)),
                       if (!s.canDeleteWorkspace)
-                        const _Rights(workspaceRightsMessage)
+                        _Rights(t.t('wsRights'))
                       else if (!(wsDeletion != null &&
                               (wsDeletion.isScheduled ||
                                   wsDeletion.isPurging)) &&
@@ -271,21 +277,18 @@ class _LifecycleScreenState extends State<LifecycleScreen> {
                             alignment: AlignmentDirectional.centerStart,
                             child: _DangerButton(
                                 key: const Key('lifecycle-delete-workspace'),
-                                label:
+                                label: t.t(
                                     c.busy == LifecycleAction.workspaceDeletion
-                                        ? 'Scheduling...'
-                                        : 'Delete workspace',
+                                        ? 'scheduling'
+                                        : 'deleteWs'),
                                 onPressed: busy
                                     ? null
                                     : () => _schedule(
-                                        title: 'Delete this workspace?',
+                                        title: t.t('deleteWsTitle'),
                                         expected: s.workspaceConfirmation!,
-                                        what:
-                                            'every task, conversation, file and record of this workspace',
-                                        fieldLabel:
-                                            'Type the workspace name to confirm',
-                                        confirmLabel:
-                                            'Schedule workspace deletion',
+                                        what: t.t('deleteWsWhat'),
+                                        fieldLabel: t.t('deleteWsField'),
+                                        confirmLabel: t.t('deleteWsConfirm'),
                                         coolingOffHours: s.coolingOffHours,
                                         schedule:
                                             c.scheduleWorkspaceDeletion))),
@@ -293,12 +296,11 @@ class _LifecycleScreenState extends State<LifecycleScreen> {
                     ]))));
   }
 
-  static String _ttl(int seconds) {
+  static String _ttl(int seconds, LifecycleStrings t) {
     if (seconds >= 3600 && seconds % 3600 == 0) {
-      return formatHours(seconds ~/ 3600);
+      return formatHours(seconds ~/ 3600, t);
     }
-    final minutes = (seconds / 60).ceil();
-    return '$minutes ${minutes == 1 ? 'minute' : 'minutes'}';
+    return t.count('minute', (seconds / 60).ceil());
   }
 }
 
@@ -318,6 +320,7 @@ class _ExportCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final small = theme.textTheme.bodySmall;
+    final t = LifecycleStrings.of(context);
     final (icon, color) = switch (job.status) {
       'ready' => (Icons.check_circle_outline, scheme.primary),
       'failed' => (Icons.error_outline, scheme.error),
@@ -325,13 +328,13 @@ class _ExportCard extends StatelessWidget {
       _ => (Icons.hourglass_top, scheme.onSurfaceVariant),
     };
     final details = <String>[
-      'Requested ${formatWhen(job.requestedAt)}',
+      t.t('requested', {'when': formatWhen(job.requestedAt, t)}),
       if (job.archiveBytes != null)
-        'Size ${formatArchiveSize(job.archiveBytes)}',
-      if (job.rowCount != null) '${job.rowCount} rows',
-      if (job.fileCount != null) '${job.fileCount} files',
+        t.t('size', {'size': formatArchiveSize(job.archiveBytes)}),
+      if (job.rowCount != null) t.t('rows', {'n': job.rowCount!}),
+      if (job.fileCount != null) t.t('files', {'n': job.fileCount!}),
       if (job.isReady && job.expiresAt != null)
-        'Kept until ${formatWhen(job.expiresAt)}',
+        t.t('keptUntil', {'when': formatWhen(job.expiresAt, t)}),
     ];
     return Card(
         key: ValueKey('lifecycle-export-${job.id}'),
@@ -344,7 +347,7 @@ class _ExportCard extends StatelessWidget {
                 Icon(icon, color: color, size: 22),
                 const SizedBox(width: AnumSpacing.xs),
                 Expanded(
-                    child: Text(job.statusLabel,
+                    child: Text(job.statusLabelIn(t),
                         style: theme.textTheme.titleSmall)),
                 if (job.inProgress)
                   const SizedBox.square(
@@ -358,8 +361,7 @@ class _ExportCard extends StatelessWidget {
                 Text(job.error!, style: small?.copyWith(color: scheme.error)),
               ],
               if (job.status == 'expired')
-                Text('The archive was deleted. Request a new export.',
-                    style: small),
+                Text(t.t('archiveDeleted'), style: small),
               if (job.isReady) ...[
                 const SizedBox(height: AnumSpacing.xs),
                 Wrap(
@@ -374,11 +376,11 @@ class _ExportCard extends StatelessWidget {
                                   child:
                                       CircularProgressIndicator(strokeWidth: 2))
                               : const Icon(Icons.open_in_new),
-                          label: const Text('Open download link')),
+                          label: Text(t.t('openLink'))),
                       OutlinedButton.icon(
                           onPressed: disabled ? null : onCopy,
                           icon: const Icon(Icons.copy),
-                          label: const Text('Copy download link')),
+                          label: Text(t.t('copyLink'))),
                     ]),
               ],
             ])));
@@ -406,18 +408,29 @@ class _DeletionState extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final scheme = Theme.of(context).colorScheme;
+    final t = LifecycleStrings.of(context);
+    final noun = t.t('what.$what');
     final (title, body) = switch (job.status) {
       'scheduled' => (
-          'This $what will be deleted on ${formatWhen(job.purgeAfter)}',
-          'Requested ${formatWhen(job.requestedAt)}${job.requestedBy == null ? '' : ' by ${job.requestedBy}'}. Everyone keeps working until then.${canAct ? '' : ' Ask an owner to cancel it if this is a mistake.'}'
+          t.t('banner.scheduled',
+              {'what': noun, 'when': formatWhen(job.purgeAfter, t)}),
+          t.t('banner.scheduledBody', {
+                'when': formatWhen(job.requestedAt, t),
+                'by': job.requestedBy == null
+                    ? ''
+                    : t.t('banner.by', {'who': job.requestedBy!})
+              }) +
+              (canAct ? '' : t.t('banner.askOwner'))
         ),
       'purging' => (
-          'This $what is being deleted now',
-          'The deletion started ${formatWhen(job.startedAt ?? job.purgeAfter)} and can no longer be cancelled. Members lose access as it runs.'
+          t.t('banner.purging', {'what': noun}),
+          t.t('banner.purgingBody',
+              {'when': formatWhen(job.startedAt ?? job.purgeAfter, t)})
         ),
       _ => (
-          'Deleting this $what failed',
-          '${job.error ?? 'The server did not say why.'} The deletion is retried by the server; contact your platform operator if this stays.'
+          t.t('banner.failed', {'what': noun}),
+          t.t('banner.failedBody',
+              {'error': job.error ?? t.t('banner.noReason')})
         ),
     };
     return Padding(
@@ -461,7 +474,7 @@ class _DeletionState extends StatelessWidget {
                             key: Key('lifecycle-cancel-$what'),
                             onPressed: busy ? null : onCancel,
                             icon: const Icon(Icons.undo),
-                            label: const Text('Cancel deletion')),
+                            label: Text(t.t('cancelDeletion'))),
                       ],
                     ]))));
   }
@@ -500,6 +513,7 @@ class _ConfirmDeletionDialogState extends State<_ConfirmDeletionDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final t = LifecycleStrings.of(context);
     final ready = confirmationMatches(widget.expected, _typed.text);
     return AlertDialog(
         scrollable: true,
@@ -508,10 +522,12 @@ class _ConfirmDeletionDialogState extends State<_ConfirmDeletionDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                  'This schedules deleting ${widget.what}. Nothing is deleted for ${formatHours(widget.coolingOffHours)}; until then anyone allowed can cancel it. After that it cannot be undone.'),
+              Text(t.t('dialog.text', {
+                'what': widget.what,
+                'period': formatHours(widget.coolingOffHours, t)
+              })),
               const SizedBox(height: AnumSpacing.sm),
-              Text('Type exactly:', style: theme.textTheme.bodySmall),
+              Text(t.t('dialog.typeExactly'), style: theme.textTheme.bodySmall),
               SelectableText(widget.expected,
                   key: const Key('lifecycle-expected'),
                   style: theme.textTheme.titleSmall),
@@ -526,13 +542,13 @@ class _ConfirmDeletionDialogState extends State<_ConfirmDeletionDialog> {
                       labelText: widget.fieldLabel,
                       helperText: _typed.text.isEmpty || ready
                           ? null
-                          : 'It must match exactly, including capitals.',
+                          : t.t('dialog.mismatch'),
                       helperMaxLines: 3)),
             ]),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Keep it')),
+              child: Text(t.t('dialog.keep'))),
           FilledButton(
               key: const Key('lifecycle-confirm-button'),
               style: FilledButton.styleFrom(
@@ -654,7 +670,7 @@ class _Status extends StatelessWidget {
                       OutlinedButton.icon(
                           onPressed: retry,
                           icon: const Icon(Icons.refresh),
-                          label: const Text('Retry'))
+                          label: Text(LifecycleStrings.of(context).t('retry')))
                     ]
                   ])))));
 }

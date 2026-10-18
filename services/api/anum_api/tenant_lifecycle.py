@@ -989,8 +989,10 @@ def run_purge(job: LifecycleJob, data: TenantData) -> None:
     keep_workspace = job.workspace_id
     if job.kind == JobKind.ORGANISATION_DELETION:
         # Export archives go first: their rows are removed by the application role below.
-        with lifecycle_unit(context, require_membership=False) as (store, _):
+        with lifecycle_unit(context, require_membership=False) as (store, repository):
             archives = [j.archive_key for j in store.list_jobs(job.tenant_id, kind=JobKind.ORGANISATION_EXPORT, limit=10_000) if j.archive_key]
+            # The console receipt, opened before platform_organizations is purged.
+            receipts(repository).open(job, utc_now())
         for key in archives:
             file_store.storage.delete(key)
     counts: dict[str, int] = dict(job.counts)
@@ -1028,6 +1030,8 @@ def _finish_purge(job: LifecycleJob, data: TenantData, keep_workspace: str, coun
     context = _system(job.tenant_id, keep_workspace)
     org = job.kind == JobKind.ORGANISATION_DELETION
     action = "organisation.deleted" if org else "workspace.deleted"
+    # Keycloak accounts are removed right after (remove_identities), or by the operator.
+    identity = ("pending" if keycloak_configured() else "not_configured") if org else None
     with lifecycle_unit(context, require_membership=False) as (store, repository):
         if isinstance(data, MemoryTenantData):
             data.finish(job, keep_workspace, now)
@@ -1070,9 +1074,12 @@ def _finish_purge(job: LifecycleJob, data: TenantData, keep_workspace: str, coun
                     "rows": sum(counts.values()),
                     "files": files,
                     "counts": counts,
+                    **({"identity_cleanup": identity} if identity else {}),
                 },
             )
         )
+        if org and identity:
+            receipts(repository).complete(job.tenant_id, now, counts, files, identity)
 
 
 def _record_purge_error(job: LifecycleJob, exc: Exception) -> None:
@@ -1081,6 +1088,218 @@ def _record_purge_error(job: LifecycleJob, exc: Exception) -> None:
         current = store.get(job.tenant_id, job.id)
         if current is not None and current.status == JobStatus.PURGING:
             store.save(current.model_copy(update={"error": f"The deletion stopped ({type(exc).__name__}) and will be retried.", "lease_until": None, "updated_at": now}))
+
+
+# ----------------------------------------------------------------------------- console receipts
+
+
+IDENTITY_MAX_ATTEMPTS = 5
+
+
+class IdentityCleanup(BaseModel):
+    status: str
+    removed: int = 0
+    detached: int = 0
+    finished_at: datetime | None = None
+
+
+class DeletedOrganisation(BaseModel):
+    tenant_id: str
+    job_id: str
+    operator_user_id: str | None = None
+    display_name: str | None = None
+    plan: str | None = None
+    requested_by: str
+    requested_at: datetime
+    purge_started_at: datetime
+    deleted_at: datetime | None = None
+    status: str = "purging"
+    row_count: int = 0
+    file_count: int = 0
+    counts: dict[str, int] = Field(default_factory=dict)
+    identity_status: str = "pending"
+    identity_removed: int = 0
+    identity_detached: int = 0
+    identity_attempts: int = 0
+    identity_finished_at: datetime | None = None
+
+
+class DeletedOrganisationView(BaseModel):
+    tenant_id: str
+    display_name: str | None
+    plan: str | None
+    requested_by: str
+    requested_at: datetime
+    purge_started_at: datetime
+    deleted_at: datetime | None
+    status: str
+    row_count: int
+    file_count: int
+    counts: dict[str, int]
+    identity_cleanup: IdentityCleanup
+
+
+def deleted_view(record: DeletedOrganisation) -> DeletedOrganisationView:
+    return DeletedOrganisationView(
+        **record.model_dump(include=set(DeletedOrganisationView.model_fields) - {"identity_cleanup"}),
+        identity_cleanup=IdentityCleanup(
+            status=record.identity_status, removed=record.identity_removed, detached=record.identity_detached,
+            finished_at=record.identity_finished_at,
+        ),
+    )
+
+
+class ReceiptStore(Protocol):
+    def get(self, tenant_id: str) -> DeletedOrganisation | None: ...
+    def open(self, job: LifecycleJob, now: datetime) -> None: ...
+    def save(self, record: DeletedOrganisation) -> None: ...
+
+    def complete(self, tenant_id: str, now: datetime, counts: dict[str, int], files: int, identity: str) -> None: ...
+
+
+class MemoryReceiptStore:
+    def __init__(self) -> None:
+        self.records: dict[str, DeletedOrganisation] = {}
+
+    def clear(self) -> None:
+        self.records.clear()
+
+    def get(self, tenant_id: str) -> DeletedOrganisation | None:
+        return self.records.get(tenant_id)
+
+    def open(self, job: LifecycleJob, now: datetime) -> None:
+        if job.tenant_id in self.records:
+            return
+        from .organisations import memory_branding
+
+        operated = memory_branding.platform.get(job.tenant_id) or {}
+        self.records[job.tenant_id] = DeletedOrganisation(
+            tenant_id=job.tenant_id, job_id=job.id, operator_user_id=operated.get("operator_user_id"),
+            display_name=operated.get("display_name"), plan=operated.get("plan"), requested_by=job.requested_by,
+            requested_at=job.requested_at, purge_started_at=now,
+        )
+
+    def save(self, record: DeletedOrganisation) -> None:
+        self.records[record.tenant_id] = record
+
+    def complete(self, tenant_id: str, now: datetime, counts: dict[str, int], files: int, identity: str) -> None:
+        record = self.records.get(tenant_id)
+        if record is not None:
+            self.records[tenant_id] = record.model_copy(update={
+                "status": "deleted", "deleted_at": now, "counts": counts, "row_count": sum(counts.values()),
+                "file_count": files, "identity_status": identity,
+            })
+        from .organisations import memory_branding
+
+        memory_branding.platform.pop(tenant_id, None)
+
+    def list_for_operator(self, operator: str) -> list[DeletedOrganisation]:
+        return [r for r in self.records.values() if r.operator_user_id == operator]
+
+    def due(self) -> list[str]:
+        return [t for t, r in self.records.items() if r.status == "deleted" and r.identity_status == "pending"]
+
+
+memory_receipts = MemoryReceiptStore()
+
+
+def receipts(repository: Any) -> ReceiptStore:
+    if settings.repository_backend == "memory":
+        return memory_receipts
+    from .db.tenant_lifecycle_repository import SqlReceiptStore
+
+    return SqlReceiptStore(repository.session)
+
+
+def keycloak_configured() -> bool:
+    from . import keycloak_admin
+
+    return keycloak_admin.build_admin() is not None
+
+
+def due_identity_cleanups() -> list[str]:
+    if settings.repository_backend == "memory":
+        return memory_receipts.due()
+    from .db.tenant_lifecycle_repository import discover_identity_cleanups
+
+    return discover_identity_cleanups()
+
+
+def remove_identities(tenant_id: str) -> str:
+    """Remove the organisation's Keycloak accounts (only people in no other organisation)
+    and record the outcome on the receipt and in the audit trail. Idempotent."""
+    from . import keycloak_admin
+
+    jobs = memory_lifecycle_store if settings.repository_backend == "memory" else None
+    with _receipt_unit(tenant_id, jobs) as (record, workspace_id):
+        if record is None or record.status != "deleted" or record.identity_status != "pending":
+            return "skipped"
+    admin = keycloak_admin.build_admin()
+    context = _system(tenant_id, workspace_id)
+    now = utc_now()
+    if admin is None:
+        outcome, update, audit_outcome, metadata = "not_configured", {"identity_status": "not_configured"}, "skipped", {"reason": "not_configured"}
+    else:
+        try:
+            result = keycloak_admin.remove_organisation_users(admin, tenant_id)
+        except Exception as exc:  # noqa: BLE001 - recorded, retried by the next pass
+            logger.exception("Keycloak cleanup failed", extra={"anum_lifecycle_tenant": tenant_id})
+            attempts = record.identity_attempts + 1
+            status_after = "failed" if attempts >= IDENTITY_MAX_ATTEMPTS else "pending"
+            outcome, update, audit_outcome = ("failed" if status_after == "failed" else "retry"), {"identity_attempts": attempts, "identity_status": status_after}, "failure"
+            metadata = {"error": type(exc).__name__, "attempts": attempts}
+        else:
+            outcome, audit_outcome = "removed", "success"
+            update = {"identity_status": "removed", "identity_removed": result.removed, "identity_detached": result.detached, "identity_finished_at": now}
+            metadata = {"removed": result.removed, "detached": result.detached}
+    with lifecycle_unit(context, require_membership=False) as (_, repository):
+        store = receipts(repository)
+        current = store.get(tenant_id)
+        if current is not None:
+            store.save(current.model_copy(update=update))
+        repository.record_audit(_audit(context, "organisation.identities_removed", tenant_id, {"job_id": record.job_id, **metadata}, outcome=audit_outcome))
+    return outcome
+
+
+@contextmanager
+def _receipt_unit(tenant_id: str, memory_jobs: MemoryJobStore | None) -> Iterator[tuple[DeletedOrganisation | None, str]]:
+    """The receipt and the workspace that holds the audit trail (the deletion job's)."""
+    if memory_jobs is not None:
+        record = memory_receipts.get(tenant_id)
+        job = memory_jobs.get(tenant_id, record.job_id) if record else None
+        yield record, (job.workspace_id if job else "")
+        return
+    from .db import session as db_session
+    from .db.tenant_lifecycle_repository import SqlJobStore, SqlReceiptStore
+
+    session = db_session.SessionLocal()
+    try:
+        db_session.set_tenant_context(session, tenant_id)
+        record = SqlReceiptStore(session).get(tenant_id)
+        job = SqlJobStore(session).get(tenant_id, record.job_id) if record else None
+        yield record, (job.workspace_id if job else "")
+    finally:
+        session.rollback()
+        session.close()
+
+
+def _deleted_for_operator(operator: str) -> list[DeletedOrganisation]:
+    if settings.repository_backend == "memory":
+        return memory_receipts.list_for_operator(operator)
+    from .db.tenant_lifecycle_repository import deleted_for_operator
+
+    return deleted_for_operator(operator)
+
+
+@router.get("/platform/organizations/deleted", response_model=list[DeletedOrganisationView])
+def list_deleted_organisations(context: TenantContext = Depends(tenant_context)) -> list[DeletedOrganisationView]:
+    """Read-only receipts of the organisations this platform operator onboarded that were
+    deleted (or are being purged): dates and counts, never content."""
+    from .organisations import _require_operator
+
+    _require_operator(context)
+    records = sorted(_deleted_for_operator(context.user_id), key=lambda r: (r.deleted_at or r.purge_started_at), reverse=True)
+    return [deleted_view(record) for record in records]
 
 
 # ----------------------------------------------------------------------------- runner
@@ -1118,12 +1337,17 @@ def handle_job(job: LifecycleJob, now: datetime, data: TenantData | None = None)
         logger.exception("Purge failed", extra={"anum_lifecycle_job": job.id})
         _record_purge_error(claimed, exc)
         return "error"
+    if claimed.kind == JobKind.ORGANISATION_DELETION:
+        remove_identities(claimed.tenant_id)
     return "purged"
 
 
 def run_lifecycle_pass(now: datetime | None = None) -> dict[str, int]:
     now = now or utc_now()
     counts: dict[str, int] = {}
+    for tenant_id in due_identity_cleanups():
+        outcome = "identities_" + remove_identities(tenant_id)
+        counts[outcome] = counts.get(outcome, 0) + 1
     for job in due_jobs(now):
         try:
             outcome = handle_job(job, now)

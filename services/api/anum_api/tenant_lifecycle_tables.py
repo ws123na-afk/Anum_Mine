@@ -31,6 +31,10 @@ class TenantTable:
 # The job table of this feature: never exported, never purged by the purge role (the
 # application role changes it, and the deletion job row stays as the receipt).
 LIFECYCLE_JOBS_TABLE = "tenant_lifecycle_jobs"
+# The receipt the platform console lists after a deletion (ids, dates and counts only):
+# never exported, never purged.
+DELETED_ORGANIZATIONS_TABLE = "deleted_organizations"
+RECEIPT_TABLES = frozenset({LIFECYCLE_JOBS_TABLE, DELETED_ORGANIZATIONS_TABLE})
 
 # Organisation-wide tables (no workspace_id): a workspace deletion leaves them alone.
 _TENANT_WIDE = frozenset(
@@ -51,6 +55,7 @@ _TENANT_WIDE = frozenset(
         "tenant_branding",
         "user_preferences",
         LIFECYCLE_JOBS_TABLE,
+        DELETED_ORGANIZATIONS_TABLE,
     }
 )
 
@@ -113,6 +118,7 @@ _DOMAINS = (
     ("platform_organizations", "organisation"),
     ("workspace", "organisation"),
     (LIFECYCLE_JOBS_TABLE, "organisation"),
+    (DELETED_ORGANIZATIONS_TABLE, "organisation"),
 )
 
 
@@ -299,6 +305,7 @@ _ORDER = (
     "workspace_memberships",
     "workspaces",
     LIFECYCLE_JOBS_TABLE,
+    DELETED_ORGANIZATIONS_TABLE,
 )
 
 _STORAGE_KEYS = {"workspace_files": "storage_key", "mail_attachments": "storage_key"}
@@ -319,7 +326,7 @@ BY_NAME = {table.name: table for table in TENANT_TABLES}
 
 # What the purge role deletes, and what the export reads: every tenant table except the
 # job table (kept as the receipt and changed only by the application role).
-PURGED_TABLES: tuple[TenantTable, ...] = tuple(t for t in TENANT_TABLES if t.name != LIFECYCLE_JOBS_TABLE)
+PURGED_TABLES: tuple[TenantTable, ...] = tuple(t for t in TENANT_TABLES if t.name not in RECEIPT_TABLES)
 EXPORTED_TABLES: tuple[TenantTable, ...] = PURGED_TABLES
 
 # Removed before anything else, so nobody can open the organisation (or workspace) while

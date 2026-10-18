@@ -1,4 +1,5 @@
 import '../../data/json_read.dart';
+import 'lifecycle_strings.dart';
 
 /// One organisation export or deletion job (docs/organisation-lifecycle.md).
 class LifecycleJob {
@@ -72,16 +73,19 @@ class LifecycleJob {
   bool get isFailed => status == 'failed';
 
   /// The status in words, for the export list and the deletion banners.
-  String get statusLabel => switch (status) {
-        'queued' => 'Waiting to start',
-        'running' => 'Preparing',
-        'ready' => 'Ready to download',
-        'failed' => 'Failed',
-        'expired' => 'Expired',
-        'scheduled' => 'Scheduled',
-        'cancelled' => 'Cancelled',
-        'purging' => 'Deleting now',
-        'completed' => 'Deleted',
+  String get statusLabel => statusLabelIn(LifecycleStrings.english);
+
+  String statusLabelIn(LifecycleStrings s) => switch (status) {
+        'queued' ||
+        'running' ||
+        'ready' ||
+        'failed' ||
+        'expired' ||
+        'scheduled' ||
+        'cancelled' ||
+        'purging' ||
+        'completed' =>
+          s.t('status.$status'),
         '' => '-',
         _ => status,
       };
@@ -154,35 +158,20 @@ bool confirmationMatches(String? expected, String typed) =>
     expected != null && expected.isNotEmpty && typed == expected;
 
 /// "168 hours" reads as "7 days"; other values stay in hours.
-String formatHours(int hours) {
-  if (hours >= 24 && hours % 24 == 0) {
-    final days = hours ~/ 24;
-    return '$days ${days == 1 ? 'day' : 'days'}';
-  }
-  return '$hours ${hours == 1 ? 'hour' : 'hours'}';
+String formatHours(int hours, [LifecycleStrings s = LifecycleStrings.english]) {
+  if (hours >= 24 && hours % 24 == 0) return s.count('day', hours ~/ 24);
+  return s.count('hour', hours);
 }
 
-const _months = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec'
-];
-
-/// "25 Oct 2026, 09:05" in the device's time zone; `-` when unknown.
-String formatWhen(DateTime? value) {
+/// "25 Oct 2026, 09:05" in the device's time zone (Western digits in both
+/// languages); `-` when unknown.
+String formatWhen(DateTime? value,
+    [LifecycleStrings s = LifecycleStrings.english]) {
   if (value == null) return '-';
   final local = value.toLocal();
+  final months = s.t('months').split(',');
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${local.day} ${_months[local.month - 1]} ${local.year}, '
+  return '${local.day} ${months[local.month - 1]} ${local.year}, '
       '${two(local.hour)}:${two(local.minute)}';
 }
 

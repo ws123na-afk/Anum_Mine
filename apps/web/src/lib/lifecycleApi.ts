@@ -3,6 +3,10 @@
 import { apiBaseUrl, apiRequest } from './api';
 import {
   absoluteUrl,
+  mapDeletedOrganisation,
+  sortDeleted,
+  type ApiDeletedOrganisation,
+  type DeletedOrganisation,
   mapExportLink,
   mapJob,
   mapLifecycle,
@@ -15,6 +19,12 @@ import {
 } from './lifecycle';
 
 const base = '/api/v1/organization/lifecycle';
+
+/** The platform operator's deleted organisations (receipts only), newest first. */
+export async function getDeletedOrganisations(): Promise<DeletedOrganisation[]> {
+  const rows = await apiRequest<ApiDeletedOrganisation[]>('/api/v1/platform/organizations/deleted', { method: 'GET' });
+  return sortDeleted(rows.map(mapDeletedOrganisation));
+}
 
 export async function getLifecycle(): Promise<LifecyclePage> {
   return mapLifecycle(await apiRequest<ApiLifecyclePage>(base, { method: 'GET' }));

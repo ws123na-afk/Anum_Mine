@@ -4,19 +4,14 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
 import 'lifecycle_models.dart';
+import 'lifecycle_strings.dart';
 import 'lifecycle_repository.dart';
 
 enum LifecyclePhase { loading, ready, permissionDenied, offline, error }
 
-const lifecyclePermissionMessage =
-    'Only active members of this workspace can see its data export and deletion. '
-    'Ask a workspace owner to restore your membership, or switch to a workspace you belong to.';
-
-const organisationRightsMessage =
-    'Only an organisation administrator who is also an owner of this workspace can export the organisation or schedule its deletion.';
-
-const workspaceRightsMessage =
-    'Only an owner of this workspace can schedule or cancel its deletion.';
+final lifecyclePermissionMessage = LifecycleStrings.english.t('permission');
+final organisationRightsMessage = LifecycleStrings.english.t('orgRights');
+final workspaceRightsMessage = LifecycleStrings.english.t('wsRights');
 
 /// Which action a message belongs to, so each section shows its own result.
 enum LifecycleAction {
@@ -33,6 +28,10 @@ class LifecycleController extends ChangeNotifier {
       {this.pollInterval = const Duration(seconds: 5)});
   final LifecycleRepository repository;
   final Duration pollInterval;
+
+  /// The language of the sentences this controller writes; the screen sets
+  /// it from the app's locale.
+  LifecycleStrings strings = LifecycleStrings.english;
 
   LifecyclePhase phase = LifecyclePhase.loading;
   LifecycleSummary? summary;
@@ -56,7 +55,7 @@ class LifecycleController extends ChangeNotifier {
       summary = await repository.summary();
       phase = LifecyclePhase.ready;
     } on Object catch (error) {
-      loadError = describe(error, 'load');
+      loadError = describe(error, 'load', strings);
       phase = error is ApiException && error.isPermissionDenied
           ? LifecyclePhase.permissionDenied
           : _offline(error)
@@ -101,7 +100,7 @@ class LifecycleController extends ChangeNotifier {
       messages[action] = (await work(), false);
       ok = true;
     } on Object catch (error) {
-      messages[action] = (describe(error, action.name), true);
+      messages[action] = (describe(error, action.name, strings), true);
       // A 409 or 410 means the page is out of date: reload to show what is
       // true now.
       stale = error is ApiException &&
@@ -116,7 +115,7 @@ class LifecycleController extends ChangeNotifier {
 
   Future<bool> requestExport() => _run(LifecycleAction.export, () async {
         await repository.requestExport();
-        return 'Export requested. It is prepared in the background; this page updates when it is ready.';
+        return strings.t('done.export');
       });
 
   /// Requests a signed link for a ready export; null when it failed (the
@@ -125,7 +124,8 @@ class LifecycleController extends ChangeNotifier {
     LifecycleExportLink? link;
     await _run(LifecycleAction.link, () async {
       link = await repository.exportLink(jobId);
-      return 'Download link ready. It works until ${formatWhen(link!.expiresAt)}.';
+      return strings
+          .t('done.link', {'when': formatWhen(link!.expiresAt, strings)});
     }, jobId: jobId);
     return link;
   }
@@ -133,25 +133,27 @@ class LifecycleController extends ChangeNotifier {
   Future<bool> scheduleOrganisationDeletion(String confirm) =>
       _run(LifecycleAction.organisationDeletion, () async {
         final job = await repository.scheduleOrganisationDeletion(confirm);
-        return 'Organisation deletion scheduled for ${formatWhen(job.purgeAfter)}. You can cancel it until then.';
+        return strings.t(
+            'done.orgScheduled', {'when': formatWhen(job.purgeAfter, strings)});
       });
 
   Future<bool> cancelOrganisationDeletion() =>
       _run(LifecycleAction.organisationDeletion, () async {
         await repository.cancelOrganisationDeletion();
-        return 'Organisation deletion cancelled. Nothing was deleted.';
+        return strings.t('done.orgCancelled');
       });
 
   Future<bool> scheduleWorkspaceDeletion(String confirmName) =>
       _run(LifecycleAction.workspaceDeletion, () async {
         final job = await repository.scheduleWorkspaceDeletion(confirmName);
-        return 'Workspace deletion scheduled for ${formatWhen(job.purgeAfter)}. You can cancel it until then.';
+        return strings.t(
+            'done.wsScheduled', {'when': formatWhen(job.purgeAfter, strings)});
       });
 
   Future<bool> cancelWorkspaceDeletion() =>
       _run(LifecycleAction.workspaceDeletion, () async {
         await repository.cancelWorkspaceDeletion();
-        return 'Workspace deletion cancelled. Nothing was deleted.';
+        return strings.t('done.wsCancelled');
       });
 
   void _notify() {
@@ -171,42 +173,35 @@ class LifecycleController extends ChangeNotifier {
     return text.contains('socket') || text.contains('network');
   }
 
-  /// What failed and how to fix it.
-  static String describe(Object error, String action) {
+  /// What failed and how to fix it, in [s]'s language.
+  static String describe(Object error, String action,
+      [LifecycleStrings s = LifecycleStrings.english]) {
     if (error is ApiException) {
-      if (error.statusCode == 401) {
-        return 'Your sign-in expired. Sign in again, then retry.';
-      }
+      if (error.statusCode == 401) return s.t('error.signIn');
       if (error.isPermissionDenied) {
-        if (action == 'load') return lifecyclePermissionMessage;
+        if (action == 'load') return s.t('permission');
         // The API names the role needed.
         return error.message.isEmpty || error.message == 'Request failed'
-            ? (action == 'workspaceDeletion'
-                ? workspaceRightsMessage
-                : organisationRightsMessage)
+            ? s.t(action == 'workspaceDeletion' ? 'wsRights' : 'orgRights')
             : error.message;
       }
       if (error.statusCode == 409) {
-        return '${error.message} The page was reloaded to show the current state.';
+        return s.t('error.reloaded', {'message': error.message});
       }
-      if (error.statusCode == 410) {
-        return 'This export has expired and its archive was deleted. Request a new export.';
-      }
+      if (error.statusCode == 410) return s.t('error.expired');
       if (error.statusCode == 422) {
-        return '${error.readable} Nothing was scheduled.';
+        return s.t('error.nothingScheduled', {'message': error.readable});
       }
     }
-    if (_offline(error)) {
-      return 'You are offline. Reconnect, then try again.';
-    }
-    final what = switch (action) {
-      'load' => 'Could not load data export and deletion',
-      'export' => 'Could not request the export',
-      'link' => 'Could not get a download link',
-      'organisationDeletion' => 'Could not change the organisation deletion',
-      _ => 'Could not change the workspace deletion',
-    };
+    if (_offline(error)) return s.t('error.offline');
+    final what = s.t(switch (action) {
+      'load' => 'error.load',
+      'export' => 'error.export',
+      'link' => 'error.link',
+      'organisationDeletion' => 'error.organisationDeletion',
+      _ => 'error.workspaceDeletion',
+    });
     final reason = error is ApiException ? error.message : error.toString();
-    return '$what: $reason. Check your connection and try again.';
+    return s.t('error.generic', {'what': what, 'reason': reason});
   }
 }

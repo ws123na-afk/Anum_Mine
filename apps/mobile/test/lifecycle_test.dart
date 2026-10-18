@@ -8,6 +8,9 @@ import 'package:anum_mobile/features/lifecycle/lifecycle_controller.dart';
 import 'package:anum_mobile/features/lifecycle/lifecycle_models.dart';
 import 'package:anum_mobile/features/lifecycle/lifecycle_repository.dart';
 import 'package:anum_mobile/features/lifecycle/lifecycle_screen.dart';
+import 'package:anum_mobile/features/lifecycle/lifecycle_strings.dart';
+import 'package:anum_mobile/src/localization/anum_localizations.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:anum_mobile/features/settings/settings.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
 import 'package:flutter/material.dart';
@@ -173,11 +176,21 @@ Future<LifecycleController> _controller(_Transport transport,
         pollInterval: poll);
 
 Future<void> _show(WidgetTester tester, LifecycleController controller,
-    {LinkOpener? open, Size size = const Size(390, 3000)}) async {
+    {LinkOpener? open,
+    Size size = const Size(390, 3000),
+    Locale locale = const Locale('en')}) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(MaterialApp(
       theme: AnumTheme.dark(),
+      locale: locale,
+      supportedLocales: const [Locale('en'), Locale('ar')],
+      localizationsDelegates: const [
+        AnumLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: LifecycleScreen(
           controller: controller, openLink: open ?? (_) async => true)));
   await tester.pumpAndSettle();
@@ -204,6 +217,37 @@ void main() {
     expect(confirmationMatches(_orgId, _orgId.toLowerCase()), isFalse);
     expect(confirmationMatches(_orgId, _orgId), isTrue);
     expect(formatWhen(null), '-');
+  });
+
+  test('English and Arabic strings have the same keys and plain punctuation',
+      () {
+    expect(LifecycleStrings.ar.keys.toSet(), LifecycleStrings.en.keys.toSet());
+    for (final text in [
+      ...LifecycleStrings.en.values,
+      ...LifecycleStrings.ar.values
+    ]) {
+      expect(text.contains('—') || text.contains('–'), isFalse, reason: text);
+    }
+    const ar = LifecycleStrings(true);
+    expect(formatHours(168, ar), '7 أيام');
+    expect(formatHours(48, ar), 'يومان');
+    expect(formatHours(1, ar), 'ساعة واحدة');
+    expect(formatHours(168), '7 days');
+  });
+
+  testWidgets('Arabic: the page reads right to left in Arabic', (tester) async {
+    final transport = _Transport()
+      ..orgDeletion = _deletion('organisation_deletion', 'scheduled');
+    await _show(tester, await _controller(transport),
+        locale: const Locale('ar'));
+    expect(find.text('تصدير البيانات وحذفها'), findsOneWidget);
+    expect(find.text('تصدير المؤسسة'), findsOneWidget);
+    expect(find.text('جاهز للتنزيل'), findsOneWidget);
+    expect(find.textContaining('ستُحذف هذه المؤسسة'), findsOneWidget);
+    expect(find.text('إلغاء الحذف'), findsWidgets);
+    expect(Directionality.of(tester.element(find.text('تصدير المؤسسة'))),
+        TextDirection.rtl);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('renders the summary for an owner', (tester) async {

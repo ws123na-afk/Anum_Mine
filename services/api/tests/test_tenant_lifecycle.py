@@ -49,6 +49,10 @@ def _clear() -> None:
                        store.workspaces, store.memberships, store.invitations, store.audit_records):
         collection.clear()
     lifecycle.memory_lifecycle_store.clear()
+    lifecycle.memory_receipts.clear()
+    from anum_api.organisations import memory_branding
+
+    memory_branding.platform.pop(TENANT_A, None)
     file_store.clear()
 
 
@@ -419,3 +423,150 @@ def test_runner_is_built_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "tenant_lifecycle_enabled", True)
     runner = lifecycle.build_lifecycle_runner(settings)
     assert runner is not None and runner.poll_interval == settings.tenant_lifecycle_poll_seconds
+
+
+# --------------------------------------------------------------------------- Keycloak accounts and the console
+
+
+class FakeKeycloak:
+    """Stands in for Keycloak's admin API: users with tenant_id / tenant_ids attributes."""
+
+    def __init__(self, users: dict[str, dict[str, list[str]]], *, fail: bool = False) -> None:
+        self.users = {uid: {"id": uid, "username": uid, "attributes": attrs} for uid, attrs in users.items()}
+        self.fail = fail
+        self.deleted: list[str] = []
+        self.updated: list[str] = []
+
+    def users_with_attribute(self, name: str, value: str) -> list[dict]:
+        if self.fail:
+            raise RuntimeError("keycloak down")
+        return [dict(u) for u in self.users.values() if value in (u["attributes"].get(name) or [])]
+
+    def delete_user(self, user_id: str) -> None:
+        self.users.pop(user_id, None)
+        self.deleted.append(user_id)
+
+    def update_attributes(self, user: dict, attributes: dict) -> None:
+        self.users[user["id"]]["attributes"] = attributes
+        self.updated.append(user["id"])
+
+
+def _keycloak_users() -> dict[str, dict[str, list[str]]]:
+    return {
+        "only_a": {"tenant_id": [TENANT_A]},
+        "home_a_also_b": {"tenant_id": [TENANT_A], "tenant_ids": [TENANT_B]},
+        "home_b_also_a": {"tenant_id": [TENANT_B], "tenant_ids": [TENANT_A, "tenant_life_c"]},
+        "only_b": {"tenant_id": [TENANT_B]},
+    }
+
+
+def test_keycloak_cleanup_removes_only_people_in_no_other_organisation_and_is_idempotent() -> None:
+    from anum_api.keycloak_admin import remove_organisation_users
+
+    admin = FakeKeycloak(_keycloak_users())
+    result = remove_organisation_users(admin, TENANT_A)
+    assert (result.removed, result.detached) == (1, 2)
+    assert admin.deleted == ["only_a"]
+    assert admin.users["home_a_also_b"]["attributes"] == {"tenant_id": [TENANT_B], "tenant_ids": []}
+    assert admin.users["home_b_also_a"]["attributes"] == {"tenant_id": [TENANT_B], "tenant_ids": ["tenant_life_c"]}
+    assert admin.users["only_b"]["attributes"] == {"tenant_id": [TENANT_B]}
+    again = remove_organisation_users(admin, TENANT_A)
+    assert (again.removed, again.detached) == (0, 0)
+
+
+def test_http_admin_uses_a_service_account_and_treats_404_as_done() -> None:
+    import httpx
+
+    from anum_api.keycloak_admin import HttpKeycloakAdmin
+
+    calls: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.url.path.endswith("/token"):
+            assert b"grant_type=client_credentials" in request.content
+            return httpx.Response(200, json={"access_token": "example"})
+        assert request.headers["authorization"] == "Bearer example"
+        if request.method == "GET":
+            return httpx.Response(200, json=[{"id": "u1", "attributes": {"tenant_id": [TENANT_A]}}])
+        return httpx.Response(404)
+
+    admin = HttpKeycloakAdmin("http://keycloak.test", "anum", "anum-lifecycle", "example", transport=httpx.MockTransport(handler))
+    assert admin.users_with_attribute("tenant_id", TENANT_A)[0]["id"] == "u1"
+    admin.delete_user("u1")
+    assert ("DELETE", "/admin/realms/anum/users/u1") in calls
+
+
+def _onboarded_by(operator: str) -> None:
+    from anum_api.organisations import memory_branding
+
+    memory_branding.platform[TENANT_A] = {
+        "tenant_id": TENANT_A, "operator_user_id": operator, "display_name": "Acme A", "plan": "trial",
+        "first_workspace_id": WORKSPACE_A, "first_admin_email": "admin@example.com", "created_at": utc_now(),
+    }
+
+
+def _purge_tenant_a(client: TestClient) -> str:
+    job_id = client.post("/api/v1/organization/lifecycle/deletion", headers=ADMIN_A, json={"confirm": TENANT_A}).json()["id"]
+    lifecycle.run_lifecycle_pass(now=_due(hours=settings.tenant_deletion_cooling_off_hours))
+    return job_id
+
+
+def test_purge_removes_keycloak_accounts_and_audits_it(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api import keycloak_admin
+
+    admin = FakeKeycloak(_keycloak_users())
+    monkeypatch.setattr(keycloak_admin, "build_admin", lambda: admin)
+    _onboarded_by("operator_1")
+    _purge_tenant_a(client)
+    receipt = lifecycle.memory_receipts.get(TENANT_A)
+    assert receipt is not None and receipt.status == "deleted"
+    assert (receipt.identity_status, receipt.identity_removed, receipt.identity_detached) == ("removed", 1, 2)
+    assert admin.deleted == ["only_a"]
+    audits = [r for r in store.audit_records if r.tenant_id == TENANT_A]
+    assert [r.action for r in audits] == ["organisation.deleted", "organisation.identities_removed"]
+    assert audits[1].metadata["removed"] == 1 and audits[1].outcome == "success"
+    # Nothing left to do: later passes do not touch Keycloak again.
+    assert lifecycle.run_lifecycle_pass() == {}
+
+
+def test_keycloak_failures_are_retried_then_marked_failed(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api import keycloak_admin
+
+    admin = FakeKeycloak(_keycloak_users(), fail=True)
+    monkeypatch.setattr(keycloak_admin, "build_admin", lambda: admin)
+    _purge_tenant_a(client)
+    assert lifecycle.memory_receipts.get(TENANT_A).identity_status == "pending"
+    for _ in range(lifecycle.IDENTITY_MAX_ATTEMPTS - 2):
+        assert lifecycle.run_lifecycle_pass() == {"identities_retry": 1}
+    assert lifecycle.run_lifecycle_pass() == {"identities_failed": 1}
+    receipt = lifecycle.memory_receipts.get(TENANT_A)
+    assert receipt.identity_status == "failed" and receipt.identity_attempts == lifecycle.IDENTITY_MAX_ATTEMPTS
+    failures = [r for r in store.audit_records if r.action == "organisation.identities_removed"]
+    assert failures and all(r.outcome == "failure" for r in failures)
+
+
+def test_without_a_keycloak_client_the_receipt_says_not_configured(client: TestClient) -> None:
+    _purge_tenant_a(client)
+    assert lifecycle.memory_receipts.get(TENANT_A).identity_status == "not_configured"
+    receipt_audit = next(r for r in store.audit_records if r.action == "organisation.deleted")
+    assert receipt_audit.metadata["identity_cleanup"] == "not_configured"
+
+
+def test_platform_console_lists_deleted_organisations_read_only(client: TestClient) -> None:
+    operator = headers("operator_1", roles="owner,platform_operator", tenant=TENANT_B, workspace=WORKSPACE_B)
+    other_operator = headers("operator_2", roles="owner,platform_operator", tenant=TENANT_B, workspace=WORKSPACE_B)
+    _onboarded_by("operator_1")
+    assert client.get("/api/v1/platform/organizations/deleted", headers=operator).json() == []
+    _purge_tenant_a(client)
+    listed = client.get("/api/v1/platform/organizations/deleted", headers=operator)
+    assert listed.status_code == 200
+    [row] = listed.json()
+    assert row["tenant_id"] == TENANT_A and row["display_name"] == "Acme A" and row["status"] == "deleted"
+    assert row["counts"]["tasks"] == 4 and row["row_count"] >= 4 and row["deleted_at"]
+    assert row["identity_cleanup"]["status"] == "not_configured"
+    assert "job_id" not in row and "operator_user_id" not in row
+    assert client.get("/api/v1/platform/organizations/deleted", headers=other_operator).json() == []
+    assert client.get("/api/v1/platform/organizations/deleted", headers=ADMIN_A).status_code == 403
+    # The organisation no longer appears among the live ones.
+    assert all(o["tenant_id"] != TENANT_A for o in client.get("/api/v1/platform/organizations", headers=operator).json())

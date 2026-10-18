@@ -10,7 +10,11 @@ import {
   confirmationMatches,
   coolingOffText,
   hasActiveExport,
+  identityText,
   isOpenDeletion,
+  mapDeletedOrganisation,
+  sortDeleted,
+  type ApiDeletedOrganisation,
   mapExportLink,
   mapLifecycle,
   shouldPoll,
@@ -136,5 +140,41 @@ describe('organisation lifecycle helpers', () => {
 
   test('the Arabic catalog has every English key', () => {
     assert.deepEqual(Object.keys(lifecycleAr).sort(), Object.keys(lifecycleEn).sort());
+  });
+});
+
+describe('deleted organisations in the platform console', () => {
+  const receipt = (overrides: Partial<ApiDeletedOrganisation> = {}): ApiDeletedOrganisation => ({
+    tenant_id: 'acme', display_name: 'Acme Ltd', plan: 'trial', requested_by: 'admin_1',
+    requested_at: '2026-10-10T10:00:00Z', purge_started_at: '2026-10-17T10:00:00Z', deleted_at: '2026-10-17T10:05:00Z',
+    status: 'deleted', row_count: 52, file_count: 2, counts: { tasks: 40, work_items: 12, favorites: 0 },
+    identity_cleanup: { status: 'removed', removed: 3, detached: 1, finished_at: '2026-10-17T10:06:00Z' },
+    ...overrides,
+  });
+
+  test('maps a receipt with the largest tables first and empty ones left out', () => {
+    const row = mapDeletedOrganisation(receipt());
+    assert.equal(row.name, 'Acme Ltd');
+    assert.equal(row.deleting, false);
+    assert.deepEqual(row.counts, [{ table: 'tasks', rows: 40 }, { table: 'work_items', rows: 12 }]);
+    assert.equal(mapDeletedOrganisation(receipt({ display_name: null })).name, 'acme');
+    assert.equal(mapDeletedOrganisation(receipt({ status: 'purging', deleted_at: null })).deleting, true);
+  });
+
+  test('sorts newest deletion first, a running purge by when it started', () => {
+    const rows = sortDeleted([
+      mapDeletedOrganisation(receipt({ tenant_id: 'old', deleted_at: '2026-09-01T00:00:00Z' })),
+      mapDeletedOrganisation(receipt({ tenant_id: 'running', status: 'purging', deleted_at: null, purge_started_at: '2026-10-18T00:00:00Z' })),
+      mapDeletedOrganisation(receipt({ tenant_id: 'recent' })),
+    ]);
+    assert.deepEqual(rows.map((r) => r.tenantId), ['running', 'recent', 'old']);
+  });
+
+  test('says what happened to the sign-in accounts in both languages', () => {
+    const identity = mapDeletedOrganisation(receipt()).identity;
+    assert.equal(identityText(identity), '3 removed, 1 kept for their other organisations');
+    assert.match(identityText({ status: 'not_configured', removed: 0, detached: 0 }), /Keycloak/);
+    setLocale('ar');
+    assert.equal(identityText(identity), 'حُذف 3، وبقي 1 لمؤسساتهم الأخرى');
   });
 });
