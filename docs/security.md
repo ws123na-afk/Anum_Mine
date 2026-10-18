@@ -59,6 +59,7 @@ Outside `ANUM_ENVIRONMENT=local` the API refuses to start (`InsecureConfiguratio
 - the object-storage secret, webhook key or model key is a compose default (`anum-local-secret`, `anum`, `admin`);
 - Keycloak's compose admin password (`admin/admin`) is in the API's environment or `.env` as `KEYCLOAK_ADMIN_PASSWORD` or `KC_BOOTSTRAP_ADMIN_PASSWORD` (or is `anum`/`anum-local-secret`). The API never uses Keycloak's admin account and normally never sees these variables; the check catches a shared env file or a copied compose `environment` block. The Helm chart refuses any Keycloak admin credential in `config` or `extraEnv`. The Keycloak deployment itself is outside ANUM's reach, so its rotated admin password is a release-gate item;
 - rate limiting is disabled or a limit is not positive;
+- upload malware scanning uses ClamAV (`ANUM_FILE_SCANNER=clamav`) with `ANUM_FILE_SCAN_REQUIRED=false`, which would store files unscanned while clamd is down; the Helm chart refuses the same. In every environment `clamav` without `ANUM_CLAMAV_HOST` is refused ([Files: Malware scanning](files.md#malware-scanning));
 - `ANUM_SENTRY_DSN` (optional error reporting) uses plain `http` to anything but a private service name without dots, such as `glitchtip` on the compose network ([Observability: Error reporting](observability.md#error-reporting)). A malformed DSN is refused in every environment, without echoing its key.
 - the Email Center is on (`ANUM_MAILSERVER_ENABLED=true`) with a missing or IP-address mail server host, a relay service (Brevo and the like) as the SMTP host, `ANUM_MAILSERVER_SMTP_SECURITY=none`, or an empty domain or organisation allowlist; the Helm chart refuses the same ([Email Center](email.md#email-center)).
 - `ANUM_FCM_SERVICE_ACCOUNT_JSON` (optional phone push) is refused when it is not a Firebase service-account JSON key (type, project, client email, a readable PEM private key, an https token URI), in every environment and without echoing the key; the Helm chart refuses it in `config` or `extraEnv` ([Notifications](notifications.md#server)).
@@ -70,6 +71,10 @@ The API container defaults to `ANUM_ENVIRONMENT=production`, so these checks app
 ### Web container
 
 The web image's nginx sends a CSP of `default-src 'self'` with these exceptions: `script-src 'wasm-unsafe-eval'` and one jsdelivr folder, `cdn.jsdelivr.net/npm/@huggingface/transformers@<locked version>/dist/` (also in `connect-src`), plus `connect-src` to `huggingface.co` for the in-browser Kokoro voice (ONNX runtime loader and model weights). The CSP names that versioned path rather than the whole CDN, which serves any npm package and would let an injected tag load arbitrary script; `tests/test_render_blueprint.py` fails when the path and the version in `pnpm-lock.yaml` differ; `connect-src` also lists `ANUM_CSP_CONNECT_SRC` (the API origin) and, only in an image built with `VITE_SENTRY_DSN`, that DSN's origin for browser error reports ([Observability](observability.md#browser-errors-web-app)); `style-src 'unsafe-inline'` for React style attributes; `frame-ancestors 'none'`, `object-src 'none'`. It also sends HSTS, `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and a `Permissions-Policy` that allows only the microphone (voice) for the page's own origin.
+
+## Vulnerability disclosure
+
+[SECURITY.md](../SECURITY.md) at the repository root says how to report a vulnerability privately (email, no public issue). The public [Trust page](legal-pages.md#trust-page) at `/trust` repeats the contact and summarizes the measures on this page; both say ANUM holds no third-party certification and has had no external penetration test yet.
 
 ## Scanning in CI
 

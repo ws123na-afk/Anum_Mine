@@ -88,6 +88,11 @@ class CanonicalEventName(StrEnum):
     # In-app calls (docs/in-app-calls.md#events): the call id and the person rung only,
     # so their phones can ring (push). Signaling never travels on the workspace stream.
     APP_CALL_RINGING = "app_call.ringing"
+    # Call stream wake-ups (anum_api/app_call_wake.py): the call id only. A call was
+    # answered or ended, or a setup message was stored for it. Left out of the workspace
+    # event stream; the call stream re-reads the database when one arrives.
+    APP_CALL_UPDATED = "app_call.updated"
+    APP_CALL_SIGNALED = "app_call.signaled"
 
 
 class PublicationStatus(StrEnum):

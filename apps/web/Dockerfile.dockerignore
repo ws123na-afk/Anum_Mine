@@ -1,6 +1,6 @@
 # Build context for apps/web/Dockerfile is the repository root. BuildKit reads this file
-# instead of a root .dockerignore. Only the web app, contracts and workspace manifests
-# are sent; local secrets and other apps never enter the context.
+# instead of a root .dockerignore. Only the web app, contracts, docs/legal (the public
+# legal pages) and workspace manifests are sent; local secrets and other apps never enter the context.
 **
 !package.json
 !pnpm-lock.yaml
@@ -8,6 +8,7 @@
 !apps/desktop/package.json
 !apps/web
 !packages/contracts
+!docs/legal
 **/node_modules
 **/dist
 **/.env

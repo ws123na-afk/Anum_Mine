@@ -16,6 +16,7 @@ import { appCallsEn } from './appCalls.en.ts';
 import { marketingEn } from './marketing.en.ts';
 import { businessEn } from './business.en.ts';
 import { brevoEn } from './brevo.en.ts';
+import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { setupPlanEn } from './setupPlan.en.ts';
@@ -53,6 +54,7 @@ export const en = {
   ...marketingEn,
   ...businessEn,
   ...brevoEn,
+  ...publicSiteEn,
   ...agentSkillsEn,
   ...orgChartEn,
   ...mailCenterEn,
@@ -1145,6 +1147,9 @@ export const en = {
   'files.listChanged': 'The list changed while you were reading it, so it was reloaded.',
   'files.loadMoreFailed': 'Could not load more files: {message}',
   'files.readDenied': 'Seeing files needs a viewer, member or owner role in this workspace. Ask a workspace owner for access.',
+  'files.quarantined': 'Quarantined',
+  'files.quarantinedDetail': 'The malware scanner found {signature} in this file, so it cannot be opened, previewed or shared. Delete it.',
+  'files.quarantinedUnknown': 'a threat',
   'files.manageNote': 'Only the person who uploaded this file or a workspace owner can rename or delete it.',
   'files.loadFailed': 'Could not load files: {message} Check the connection to the API, then retry.',
   'files.searchLabel': 'Search files by name',

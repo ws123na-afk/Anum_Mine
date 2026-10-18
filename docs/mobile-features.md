@@ -29,7 +29,7 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | [Sources used](#sources-used) | Done | Task detail › Sources used |
 | [Governance and organization](#governance-and-organization) | Partial | Organization (Policy packs, Marketplace, Advanced routing) |
 | [Budgets](#budgets) | Done | Settings › Model budgets |
-| [Members, invitations and audit](#members-invitations-and-audit) | Done (workspace lifecycle is web only) | Members and invitations, Accept an invitation, Audit log, Approval policy |
+| [Members, invitations and audit](#members-invitations-and-audit) | Done (creating a workspace is web only) | Members and invitations, Accept an invitation, Audit log, Approval policy, This workspace, Contact opt-outs, Setup plans, Org chart |
 | [Developer mode](#developer-mode) | Done | Developer |
 | [Privacy](#privacy) | Done | Settings › Your data and privacy |
 | [Notifications and push](#notifications-and-push) | Done in the app; needs the owner's Firebase setup to deliver | Settings › Notifications, Phone push card |
@@ -209,8 +209,12 @@ Screen: **Settings › Model budgets**. Details: [Model gateway](model-gateway.m
 | Export a filtered part of the audit log | Web only (the Organization screen exports the whole log) |
 | Set the workspace approval policy (two-person rule, approval for medium risk) | Done (owners; members read-only) |
 | The invitation is emailed automatically | Not built: the owner sends the token or link |
+| This workspace: see its name, id, organization, status and your role; rename, archive (type the name to confirm) and restore | Done (owners and organization administrators; others read-only). Creating another workspace is web only |
+| Contact opt-outs: list, search by number, address or text, filter by channel, add with a reason, remove with a reason | Done (owners and organization administrators). CSV export is web only |
+| Setup plans: list the plans and preview one (pilot or whole plan, counts, budget, rollout, every item with search, section filter and paging, gaps) | Done, read-only (owners and organization administrators). Applying and pilot checks are web only |
+| Org chart: departments with agents, assistants and people, statuses, search and paging | Done, read-only. Profiles and exports are web only |
 
-Screens: **Settings › Members and invitations**, **Accept an invitation**, **Audit log**, **Approval policy**. Non-owners get the server's explanation of who can do it. Details: [Identity](identity.md#client-screens), [Audit log](governance-and-scale.md#audit-log).
+Screens: **Settings › Members and invitations**, **Accept an invitation**, **Audit log**, **Approval policy**, **This workspace**, **Contact opt-outs**, **Setup plans**, **Org chart** (`apps/mobile/lib/features/admin/`, English and Arabic, tested in `test/admin/org_admin_test.dart`). Non-owners get the server's explanation of who can do it. Details: [Identity](identity.md#client-screens), [Audit log](governance-and-scale.md#audit-log).
 
 ## Developer mode
 

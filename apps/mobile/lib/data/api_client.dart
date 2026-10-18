@@ -107,6 +107,19 @@ class AnumApiClient {
     JsonMap? body,
     bool authenticated = true,
     Map<String, String> headers = const {},
+  }) async =>
+      (await requestWithStatus(method, path,
+              body: body, authenticated: authenticated, headers: headers))
+          .body;
+
+  /// [request] that also returns the success status, for routes whose answer
+  /// differs by it (`201` created against `200` already there).
+  Future<({int status, JsonMap body})> requestWithStatus(
+    String method,
+    String path, {
+    JsonMap? body,
+    bool authenticated = true,
+    Map<String, String> headers = const {},
   }) async {
     final sent = <String, String>{'content-type': 'application/json'};
     if (authenticated) {
@@ -128,7 +141,7 @@ class AnumApiClient {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException.fromResponse(response);
     }
-    return response.body ?? const {};
+    return (status: response.statusCode, body: response.body ?? const {});
   }
 }
 

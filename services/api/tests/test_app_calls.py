@@ -384,6 +384,105 @@ def test_the_stream_route_needs_a_device_id_and_a_member() -> None:
     assert response.text.startswith("retry: 1000")
 
 
+# --------------------------------------------------------------------------- wake-ups (app_call_wake.py)
+
+
+def test_answering_signaling_and_ending_record_wake_events_with_the_call_id_only() -> None:
+    call = place()
+    accept(call["id"])
+    signal = client.post(f"/api/v1/app-calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
+    assert signal.status_code == 202, signal.text
+    client.post(f"/api/v1/app-calls/{call['id']}/end", headers=headers("bob"), json={"reason": "hangup"})
+    wakes = [(e.type, e.subject, e.payload) for e in store.events if e.type in {"app_call.updated", "app_call.signaled"}]
+    assert wakes == [
+        ("app_call.updated", call["id"], {"call_id": call["id"]}),
+        ("app_call.signaled", call["id"], {"call_id": call["id"]}),
+        ("app_call.updated", call["id"], {"call_id": call["id"]}),
+    ]
+    # Wake-ups stay off the workspace event list and stream; the ring stays on (push trigger).
+    listed = {e["type"] for e in client.get("/api/v1/events", headers=headers("alice", "owner")).json()}
+    assert "app_call.ringing" in listed and not listed & {"app_call.updated", "app_call.signaled"}
+    streamed = client.get("/api/v1/events/stream", params={"follow": "false"}, headers=headers("alice", "owner")).text
+    assert "event: app_call.ringing" in streamed and "app_call.signaled" not in streamed and "app_call.updated" not in streamed
+
+
+def test_a_refused_signal_records_no_wake_event() -> None:
+    call = place()
+    early = client.post(f"/api/v1/app-calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
+    assert early.status_code == 409
+    assert not [e for e in store.events if e.type == "app_call.signaled"]
+
+
+def test_a_settled_ring_records_a_wake_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    call = place()
+    monkeypatch.setattr(settings, "calls_ring_timeout_seconds", 0)
+    assert client.get("/api/v1/app-calls", headers=headers("bob")).status_code == 200
+    assert [e.subject for e in store.events if e.type == "app_call.updated"] == [call["id"]]
+
+
+def test_a_signal_wakes_the_stream_long_before_its_next_poll(monkeypatch: pytest.MonkeyPatch) -> None:
+    from contextlib import aclosing
+
+    from anum_api.app_call_wake import call_wake_hub
+
+    monkeypatch.setattr(settings, "calls_poll_seconds", 10.0)
+    monkeypatch.setattr(settings, "calls_active_poll_seconds", 5.0)
+    call = place()
+    accept(call["id"])
+
+    async def run() -> tuple[float, list[str]]:
+        loop = asyncio.get_running_loop()
+        frames: list[str] = []
+        listening = asyncio.Event()
+
+        async def never() -> bool:
+            return False
+
+        async def consume() -> None:
+            async with aclosing(call_event_source(ctx("bob"), DEVICE_B, never)) as source:
+                async for frame in source:
+                    frames.append(frame)
+                    if frame.startswith("event: call") or "\nevent: call" in frame:
+                        listening.set()
+                    if "event: signal" in frame:
+                        return
+
+        task = asyncio.create_task(consume())
+        await asyncio.wait_for(listening.wait(), 2)
+        await asyncio.sleep(0.2)  # the stream is now waiting out its 5 s poll
+        started = loop.time()
+        response = await asyncio.to_thread(
+            client.post, f"/api/v1/app-calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER}
+        )
+        assert response.status_code == 202, response.text
+        await asyncio.wait_for(task, 3)
+        return loop.time() - started, frames
+
+    elapsed, frames = asyncio.run(run())
+    assert elapsed < 2.0, f"the signal waited for the poll ({elapsed:.2f}s)"
+    assert any("event: signal" in frame and "offer" in frame for frame in frames)
+    assert call_wake_hub.listener_count == 0
+
+
+def test_the_stream_polls_slowly_only_while_the_bus_delivers(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.app_calls import Snapshot, poll_interval
+
+    monkeypatch.setattr(settings, "calls_bus_fallback_poll_seconds", 10.0)
+    idle = Snapshot(calls=[], signals=[])
+    assert poll_interval(idle, bus_live=True) == 10.0
+    assert poll_interval(idle, bus_live=False) == settings.calls_poll_seconds
+    call = place()
+    with open_call_unit(ctx("alice")) as unit:
+        ringing = unit.calls.get(unit.context, call["id"])
+    assert ringing is not None
+    live = Snapshot(calls=[ringing], signals=[])
+    assert poll_interval(live, bus_live=False) == settings.calls_active_poll_seconds
+    # A slow poll still wakes in time to settle the ring when it times out.
+    left = live.seconds_to_deadline(utc_now())
+    assert left is not None and 0 < left <= settings.calls_ring_timeout_seconds
+    assert idle.seconds_to_deadline(utc_now()) is None
+
+
 # --------------------------------------------------------------------------- push
 
 

@@ -17,6 +17,7 @@ import { appCallsAr } from './appCalls.ar.ts';
 import { marketingAr } from './marketing.ar.ts';
 import { businessAr } from './business.ar.ts';
 import { brevoAr } from './brevo.ar.ts';
+import { publicSiteAr } from './publicSite.ar.ts';
 import { ownerAr } from './ar.owner.ts';
 import { governanceAr } from './ar.governance.ts';
 import { setupPlanAr } from './setupPlan.ar.ts';
@@ -54,6 +55,7 @@ export const ar: Record<MessageKey, Message> = {
   ...marketingAr,
   ...businessAr,
   ...brevoAr,
+  ...publicSiteAr,
   ...agentSkillsAr,
   ...orgChartAr,
   ...mailCenterAr,
@@ -1146,6 +1148,9 @@ export const ar: Record<MessageKey, Message> = {
   'files.listChanged': 'تغيّرت القائمة أثناء قراءتك لها، فأُعيد تحميلها.',
   'files.loadMoreFailed': 'تعذّر تحميل مزيد من الملفات: {message}',
   'files.readDenied': 'يتطلب عرض الملفات دور مشاهد أو عضو أو مالك في مساحة العمل هذه. اطلب الوصول من مالك مساحة العمل.',
+  'files.quarantined': 'معزول',
+  'files.quarantinedDetail': 'وجد فاحص البرمجيات الضارة {signature} في هذا الملف، لذا لا يمكن فتحه أو معاينته أو مشاركته. احذفه.',
+  'files.quarantinedUnknown': 'تهديدًا',
   'files.manageNote': 'لا يستطيع إعادة تسمية هذا الملف أو حذفه إلا من رفعه أو مالك مساحة العمل.',
   'files.loadFailed': 'تعذّر تحميل الملفات: {message} تحقّق من الاتصال بالواجهة البرمجية ثم أعد المحاولة.',
   'files.searchLabel': 'ابحث في الملفات بالاسم',

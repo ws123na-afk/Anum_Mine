@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  canReindex, fileTypeLabel, filesListPath, formatBytes, indexBadge, mergePage, parseInline, parseMarkdown, previewMode, progressText,
+  canReindex, fileBadge, fileTypeLabel, isQuarantined, filesListPath, formatBytes, indexBadge, mergePage, parseInline, parseMarkdown, previewMode, progressText,
   renameProblem, safeHref, uploadProblem, uploaderLabel, usageMeter, type ApiFile, type ApiFileUsage,
 } from '../src/lib/files.ts';
 
@@ -144,5 +144,18 @@ describe('Markdown reader', () => {
     assert.equal(blocks[2].type === 'list' && blocks[2].ordered, false);
     assert.equal(blocks[3].type === 'list' && blocks[3].items.length, 2);
     assert.deepEqual(blocks[6], { type: 'code', text: '<script>x</script>' });
+  });
+});
+
+describe('quarantined files', () => {
+  test('the quarantine badge wins over the index state and names the signature', () => {
+    const index = { status: 'indexed' as const, error: null, chunk_count: 2, embedding_model: 'm', indexed_at: null };
+    const badge = fileBadge({ index, scan_status: 'infected', scan_signature: 'Eicar-Test-Signature' });
+    assert.equal(badge.label, 'Quarantined');
+    assert.equal(badge.tone, 'dangerTone');
+    assert.match(badge.detail, /found Eicar-Test-Signature in this file/);
+    assert.equal(fileBadge({ index, scan_status: 'clean' }).label, 'Indexed');
+    assert.equal(isQuarantined({ scan_status: 'infected' }), true);
+    assert.equal(isQuarantined({ scan_status: null }), false);
   });
 });
