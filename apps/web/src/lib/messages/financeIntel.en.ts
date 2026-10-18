@@ -166,4 +166,5 @@ export const financeIntelEn = {
   'finance.intel.outcome.suspended': 'Suspended',
   'finance.intel.outcome.skipped': 'Skipped',
   'finance.intel.outcome.failed': 'Failed',
+  'finance.intel.outcome.deferred': 'Deferred (server busy)',
 } satisfies Record<string, Message>;

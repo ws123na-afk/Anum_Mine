@@ -31,6 +31,7 @@ import { mailShareAr } from './mailShare.ar.ts';
 import { mailRulesAr } from './mailRules.ar.ts';
 import { mailOpsAr } from './mailOps.ar.ts';
 import { mailAr } from './mail.ar.ts';
+import { callsAr } from './calls.ar.ts';
 import { chatAr } from './chat.ar.ts';
 import { setupAr } from './setup.ar.ts';
 import { pagesAr } from './pages.ar.ts';
@@ -60,6 +61,7 @@ export const ar: Record<MessageKey, Message> = {
   ...mailRulesAr,
   ...mailOpsAr,
   ...mailAr,
+  ...callsAr,
   ...chatAr,
   ...setupAr,
   ...pagesAr,
@@ -1629,7 +1631,7 @@ export const ar: Record<MessageKey, Message> = {
   'agents.activeToggle': 'نشط',
   'agents.activeToggleText': 'الوكيل المتوقف مؤقتًا لا يحادث ولا يشغّل مهام؛ ولا يتغير شيء آخر.',
   'agents.callTitle': 'ملخص مكالمة',
-  'agents.callNote': 'إجراء المكالمات واستقبالها يحتاج إلى خدمة اتصالات غير مُعدّة. الصق ملاحظات مكالمة أو نصها وسيلخّصها الوكيل.',
+  'agents.callNote': 'الصق ملاحظات مكالمة أو نصها وسيلخّصها الوكيل. المكالمات التي تجريها أو تسجلها في المكالمات الهاتفية موجودة في سجل المكالمات الذي يقرؤه وكيل المكالمات.',
   'agents.callLabel': 'ملاحظات المكالمة أو نصها',
   'agents.callPlaceholder': 'الصق ما قيل في المكالمة',
   'agents.callSubmit': 'تلخيص المكالمة',
@@ -1646,7 +1648,7 @@ export const ar: Record<MessageKey, Message> = {
   'agents.template.document.name': 'وكيل المستندات',
   'agents.template.document.description': 'يصوغ المستندات ويعيد كتابتها ويلخصها باستخدام ملفات مساحة العمل وذكرياتها.',
   'agents.template.call.name': 'وكيل المكالمات',
-  'agents.template.call.description': 'يلخّص المكالمات من الملاحظات أو النصوص. إجراء المكالمات يحتاج إلى خدمة اتصالات غير مُعدّة.',
+  'agents.template.call.description': 'يقرأ سجل المكالمات وجهات الاتصال، ويلخّص المكالمات ويقترح المتابعات. ومع مزود اتصال يمكنه طلب مكالمات ذكاء اصطناعي لجهات اتصال وافقت، يوافق المالك على كل واحدة منها.',
 
   // ---- Marketplace ----
   'market.eyebrow': 'توزيع موثّق',

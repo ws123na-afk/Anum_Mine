@@ -40,6 +40,7 @@ from anum_api.push import PushDevice
 from anum_api.library_privacy import LibraryPrivacy, sql_library
 from anum_api.user_preferences import UserPreferences
 from anum_api.meeting_connectors import StoredConnection
+from anum_api.calls.privacy import calls_privacy_counts
 from anum_api.meetings import Meeting
 from anum_api.meetings import TranscriptSegment as MeetingTranscriptSegment
 from anum_api.voice import TranscriptSegment, VoiceSession, transcript_expired
@@ -446,7 +447,7 @@ class SqlAlchemyPrivacyStore:
         }
 
     def counts(self) -> tuple[PrivateCounts, SharedCounts]:
-        from ..app_calls import calls_privacy_counts
+        from ..app_calls import app_calls_privacy_counts
 
         module_private, module_shared = self._module_counts()
         private = PrivateCounts(
@@ -471,8 +472,9 @@ class SqlAlchemyPrivacyStore:
             finance_records=self.finance().count_everything(self.context),
             mail_mailboxes=len(self.mail().list_accounts()),
             mail_messages_written=len(self.mail().list_drafts(None, 100_000)),
-            mail_contacts=self.mail().count_contacts(),
             **calls_privacy_counts(self.context),
+            mail_contacts=self.mail().count_contacts(),
+            **app_calls_privacy_counts(self.context),
         )
         shared = SharedCounts(
             tasks_created=self._count(TaskRecord, *self._task_filter()),
@@ -542,9 +544,9 @@ class SqlAlchemyPrivacyStore:
         self.home().delete_all(self.context)
         delete_private_agents(self, self.context)
         # Calls are shared by two people: their own short units of work, as each side.
-        from ..app_calls import delete_my_calls
+        from ..app_calls import delete_my_app_calls
 
-        delete_my_calls(self.context)
+        delete_my_app_calls(self.context)
         self.session.flush()
         return deleted
 

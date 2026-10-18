@@ -5,12 +5,12 @@ import '../../src/localization/anum_localizations.dart';
 /// English and Arabic strings of in-app calls (docs/in-app-calls.md).
 /// test/calls/app_calls_test.dart checks that both catalogs have the same keys
 /// and placeholders.
-class CallText {
-  const CallText(this.arabic);
+class TeamCallText {
+  const TeamCallText(this.arabic);
   final bool arabic;
 
-  static CallText of(BuildContext context) =>
-      CallText(AnumLocalizations.maybeOf(context).isArabic);
+  static TeamCallText of(BuildContext context) =>
+      TeamCallText(AnumLocalizations.maybeOf(context).isArabic);
 
   String t(String key) => (arabic ? ar : en)[key] ?? en[key] ?? key;
 
@@ -21,7 +21,7 @@ class CallText {
   }
 
   static const en = <String, String>{
-    'calls': 'Calls',
+    'calls': 'Team calls',
     'callsHint': 'Call teammates in this workspace, and see missed calls.',
     'people': 'People',
     'recent': 'Recent',
@@ -98,7 +98,7 @@ class CallText {
   };
 
   static const ar = <String, String>{
-    'calls': 'المكالمات',
+    'calls': 'مكالمات الفريق',
     'callsHint':
         'اتصل بزملائك في مساحة العمل هذه واطّلع على المكالمات الفائتة.',
     'people': 'الأشخاص',

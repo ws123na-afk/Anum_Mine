@@ -29,12 +29,14 @@ class PushRepository {
   Future<PushDevice> register(
           {required String platform,
           required String token,
-          String? label}) async =>
+          String? label,
+          String? language}) async =>
       PushDevice.fromJson(
           await api.request('POST', '/api/v1/me/devices', body: {
         'platform': platform,
         'token': token,
         if (label != null) 'label': label,
+        if (language != null) 'language': language,
       }));
 
   Future<void> remove(String deviceId) async {

@@ -41,8 +41,16 @@ def notify_report_ready(context: TenantContext, result: dict[str, Any]) -> bool:
     if result.get("skipped") or not result.get("report_id") or not context.user_id:
         return False
     from ...notifications import deliver_pending_email
+    from ...schemas import utc_now
     from ...team_work import open_team_unit
+    from .commentary import write_commentary
 
+    # Model commentary first, so the notice arrives when the report is complete. Best effort:
+    # without a model, or past the budget cap, the report stands alone (docs/finance-trading-intel.md#model-commentary).
+    try:
+        write_commentary(context, str(result["report_id"]), now=utc_now())
+    except Exception:
+        logger.exception("Finance report commentary failed", extra={"anum_report_id": result.get("report_id")})
     title, body = notice_text(result)
     try:
         with open_team_unit(context) as unit:

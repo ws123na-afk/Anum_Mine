@@ -72,6 +72,10 @@
 	<string>ANUM uses the camera only during a video call with a teammate.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>ANUM converts your spoken command into an editable transcript.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
+	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

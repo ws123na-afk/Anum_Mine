@@ -10,22 +10,22 @@ import { parseSse, reconnectDelay } from './appCalls';
 const id = encodeURIComponent;
 const post = <T>(path: string, body?: unknown) => apiRequest<T>(path, { method: 'POST', ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
-export const getCallConfig = () => apiRequest<AppCallConfig>('/api/v1/calls/config', { method: 'GET' });
-export const getIceServers = () => apiRequest<AppCallIceServers>('/api/v1/calls/ice-servers', { method: 'GET' });
+export const getCallConfig = () => apiRequest<AppCallConfig>('/api/v1/app-calls/config', { method: 'GET' });
+export const getIceServers = () => apiRequest<AppCallIceServers>('/api/v1/app-calls/ice-servers', { method: 'GET' });
 export const placeCall = (calleeUserId: string, media: AppCallMedia, clientId: string) =>
-  post<AppCall>('/api/v1/calls', { callee_user_id: calleeUserId, media, client_id: clientId });
-export const acceptCall = (callId: string, clientId: string) => post<AppCall>(`/api/v1/calls/${id(callId)}/accept`, { client_id: clientId });
-export const endCall = (callId: string, reason: AppCallEndReason = 'hangup') => post<AppCall>(`/api/v1/calls/${id(callId)}/end`, { reason });
-export const sendHeartbeat = (callId: string) => apiRequestVoid(`/api/v1/calls/${id(callId)}/heartbeat`, { method: 'POST' });
-export const sendDescription = (callId: string, kind: 'offer' | 'answer', sdp: string) => post<{ id: string }>(`/api/v1/calls/${id(callId)}/signals`, { kind, sdp });
-export const sendCandidates = (callId: string, candidates: AppCallIceCandidate[]) => post<{ id: string }>(`/api/v1/calls/${id(callId)}/signals`, { kind: 'ice', candidates });
+  post<AppCall>('/api/v1/app-calls', { callee_user_id: calleeUserId, media, client_id: clientId });
+export const acceptCall = (callId: string, clientId: string) => post<AppCall>(`/api/v1/app-calls/${id(callId)}/accept`, { client_id: clientId });
+export const endCall = (callId: string, reason: AppCallEndReason = 'hangup') => post<AppCall>(`/api/v1/app-calls/${id(callId)}/end`, { reason });
+export const sendHeartbeat = (callId: string) => apiRequestVoid(`/api/v1/app-calls/${id(callId)}/heartbeat`, { method: 'POST' });
+export const sendDescription = (callId: string, kind: 'offer' | 'answer', sdp: string) => post<{ id: string }>(`/api/v1/app-calls/${id(callId)}/signals`, { kind, sdp });
+export const sendCandidates = (callId: string, candidates: AppCallIceCandidate[]) => post<{ id: string }>(`/api/v1/app-calls/${id(callId)}/signals`, { kind: 'ice', candidates });
 
 export function listCalls(options: { cursor?: string | null; missed?: boolean; limit?: number } = {}): Promise<AppCallPage> {
   const query = new URLSearchParams();
   query.set('limit', String(options.limit ?? 20));
   if (options.cursor) query.set('cursor', options.cursor);
   if (options.missed) query.set('missed', 'true');
-  return apiRequest<AppCallPage>(`/api/v1/calls?${query}`, { method: 'GET' });
+  return apiRequest<AppCallPage>(`/api/v1/app-calls?${query}`, { method: 'GET' });
 }
 
 export interface CallStreamHandlers {
@@ -44,7 +44,7 @@ export async function runCallStream(clientId: string, handlers: CallStreamHandle
   while (!signal.aborted) {
     handlers.onState('connecting');
     try {
-      const response = await fetch(`${apiBaseUrl}/api/v1/calls/stream?client_id=${id(clientId)}`, { headers: await authHeaders(), signal });
+      const response = await fetch(`${apiBaseUrl}/api/v1/app-calls/stream?client_id=${id(clientId)}`, { headers: await authHeaders(), signal });
       if (!response.ok || !response.body) throw await apiErrorFromResponse(response);
       handlers.onState('live');
       failures = 0;

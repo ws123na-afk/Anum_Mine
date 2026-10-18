@@ -66,10 +66,10 @@ import '../features/library/library_repository.dart';
 import '../features/push/firebase_push_messaging.dart';
 import '../features/push/push_controller.dart';
 import '../features/push/push_models.dart';
-import '../features/calls/call_controller.dart' as calls_feature;
-import '../features/calls/call_media.dart';
-import '../features/calls/call_repository.dart';
-import '../features/calls/call_screens.dart';
+import '../features/team_calls/call_controller.dart' as calls_feature;
+import '../features/team_calls/call_media.dart';
+import '../features/team_calls/call_repository.dart';
+import '../features/team_calls/call_screens.dart';
 import '../features/push/push_repository.dart';
 import '../features/governance/api_governance_repository.dart';
 import '../features/governance/governance_controller.dart';
@@ -102,10 +102,14 @@ abstract final class AnumRoutes {
   /// Tyre planning (docs/tyre-planning.md); `/tyres/alerts` opens its alerts.
   static const tyres = '/tyres';
   static const tyreAlerts = '/tyres/alerts';
+
+  /// Finance, Trading intelligence (docs/finance-trading-intel.md#daily-report):
+  /// where the daily trading report push opens.
+  static const financeIntel = '/finance/intel';
   static const command = '/command';
 
   /// In-app calls with teammates (docs/in-app-calls.md); call pushes open it.
-  static const calls = '/calls';
+  static const teamCalls = '/team-calls';
   static const quickCommands = '/quick-commands';
 }
 
@@ -380,6 +384,13 @@ class _AnumAppState extends State<AnumApp> {
             sessions: sessions,
             files: fileTransfer));
     locale = LocaleController()..restore();
+    // Pushes use the app's language (docs/notifications.md#phone-push).
+    push.languageOf = () => (locale.locale?.languageCode ??
+                PlatformDispatcher.instance.locale.languageCode) ==
+            'ar'
+        ? 'ar'
+        : 'en';
+    locale.addListener(push.languageChanged);
     theme = ThemeController()..restore();
     intro = IntroController()..restore();
     auth.addListener(_onAuthChanged);
@@ -673,6 +684,14 @@ class _AnumAppState extends State<AnumApp> {
       AnumRoutes.developer => WorkspaceDestination.developer,
       _ => null,
     };
+    if (name == AnumRoutes.financeIntel) {
+      unawaited(finance.select(FinanceSection.intel));
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => _AuthenticatedDestination(
+            auth: auth, child: FinanceScreen(controller: finance)),
+      );
+    }
     if (name == AnumRoutes.tyres || name == AnumRoutes.tyreAlerts) {
       return MaterialPageRoute<void>(
         settings: settings,
@@ -708,11 +727,11 @@ class _AnumAppState extends State<AnumApp> {
       (child) => _AuthenticatedDestination(auth: auth, child: child),
     );
     if (tool != null) return tool;
-    if (name == AnumRoutes.calls) {
+    if (name == AnumRoutes.teamCalls) {
       return MaterialPageRoute<void>(
         settings: settings,
         builder: (_) => _AuthenticatedDestination(
-            auth: auth, child: CallsScreen(controller: appCalls)),
+            auth: auth, child: TeamCallsScreen(controller: appCalls)),
       );
     }
     if (name == AnumRoutes.inbox) {

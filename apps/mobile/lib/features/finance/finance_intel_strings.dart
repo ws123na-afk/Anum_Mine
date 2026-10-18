@@ -172,6 +172,7 @@ class FinanceIntelStrings {
     'outcome.suspended': 'Suspended',
     'outcome.skipped': 'Skipped',
     'outcome.failed': 'Failed',
+    'outcome.deferred': 'Deferred (server busy)',
     'risk': 'Risk limits',
     'readOnly': 'Read only',
     'riskVersion': 'Guardian rules, version {version}',
@@ -335,6 +336,76 @@ class FinanceIntelStrings {
         'No buy and hold line: this run has traded no symbol in this currency.',
     'equityBenchmark.no_common_price':
         'No buy and hold line yet: no day had a fresh price for every symbol traded.',
+    'marketData': 'Market data',
+    'marketDataHelp':
+        'Instruments and their daily bars, imported from your own CSV files. Strategies are tested only on bars stored here.',
+    'noInstruments': 'No instrument yet',
+    'noInstrumentsText':
+        'Add an instrument, then import a CSV of its daily bars (date, open, high, low, close, volume).',
+    'noBarsYet': 'No bars yet',
+    'barsSource': 'Source: {source}',
+    'importBars': 'Import bars',
+    'importBarsFor': 'Import bars for {symbol}',
+    'importConfirmTitle': 'Import bars for {symbol}?',
+    'importConfirmText':
+        'The daily bars in {file} are checked and stored for {symbol}. A file with corrupt, duplicated or future bars is refused as a whole.',
+    'imported': 'Imported {count} bars ({changed} new or changed).',
+    'importIssues': '{count} rows have notes; see them on the web.',
+    'importFailed': 'The bars were not imported: {message}',
+    'fileEmpty': 'That file is empty.',
+    'fileTooBig': 'That file is larger than 2 MB. Split it into smaller files.',
+    'fileNotText': 'That file is not a text CSV file.',
+    'addInstrument': 'Add instrument',
+    'addInstrumentText':
+        'An instrument is a symbol on a venue in one currency. Its bars come only from files you import.',
+    'addInstrumentConfirm': 'Add {symbol}?',
+    'instrumentAdded': 'Instrument added. Import its daily bars next.',
+    'symbol': 'Symbol',
+    'assetClass': 'Type',
+    'venue': 'Venue',
+    'chooseVenue': 'Choose a venue',
+    'currency': 'Currency',
+    'listedOn': 'Listed on (optional)',
+    'dateHint': 'Year-month-day, for example 2000-01-03',
+    'symbolRequired': 'Enter a symbol of up to 20 characters.',
+    'venueRequired': 'Choose a venue.',
+    'currencyRequired': 'Enter a currency code such as USD or AED.',
+    'dateFormat': 'Write the date as year-month-day, for example 2000-01-03.',
+    'asset.equity': 'Share',
+    'asset.etf': 'ETF',
+    'asset.crypto': 'Crypto',
+    'asset.forex': 'Currency pair',
+    'asset.commodity': 'Commodity',
+    'evaluate': 'Evaluate',
+    'evaluateTitle': 'Evaluate {name} v{version}',
+    'evaluateConfirm': 'Run a {kind} now?',
+    'evaluateText':
+        'A SIMULATED run on the stored bars with the stated costs. It is stored with its results; a good result alone never promotes the strategy.',
+    'evaluated': '{kind} finished: {verdict}.',
+    'paperPortfolio': 'Paper portfolio',
+    'choosePortfolio': 'Paper portfolio for {name} v{version}',
+    'currentPortfolio': '{name} (current)',
+    'noPaperPortfolio':
+        'No paper portfolio yet. Make one under Finance, Paper trading on the web.',
+    'portfolioConfirm': 'Trade in {name}?',
+    'portfolioText':
+        'When this version is on paper, its SIMULATED orders go to this portfolio, each still waiting for your approval.',
+    'usePortfolio': 'Use this portfolio',
+    'portfolioChosen': 'This version will trade in {name}.',
+    'commentary': 'Model commentary',
+    'commentaryLabel':
+        'Written by an AI model ({model}) from this report only. It may be wrong and is not advice. Results are SIMULATED.',
+    'commentary.no_model':
+        'No model commentary: no AI model is set up for this workspace. A workspace owner chooses one in Settings, under Model.',
+    'commentary.disabled': 'Model commentary is turned off on this server.',
+    'commentary.monthly_limit':
+        'No model commentary: this month\'s limit for commentaries is reached.',
+    'commentary.model_budget':
+        'No model commentary: the workspace\'s model budget for this month is used up.',
+    'commentary.withheld':
+        'The model\'s commentary was withheld because it made a claim about profits or prices.',
+    'commentary.failed':
+        'The model did not answer, so this report has no commentary.',
   };
 
   static const _ar = <String, String>{
@@ -462,6 +533,7 @@ class FinanceIntelStrings {
     'outcome.suspended': 'معلق',
     'outcome.skipped': 'تم تخطيه',
     'outcome.failed': 'فشل',
+    'outcome.deferred': 'مؤجل (الخادم مشغول)',
     'risk': 'حدود المخاطر',
     'readOnly': 'للقراءة فقط',
     'riskVersion': 'قواعد الحارس، الإصدار {version}',
@@ -623,5 +695,73 @@ class FinanceIntelStrings {
         'لا يوجد خط للشراء والاحتفاظ: لم تتداول هذه الجولة أي رمز بهذه العملة.',
     'equityBenchmark.no_common_price':
         'لا يوجد خط للشراء والاحتفاظ بعد: لم يكن هناك يوم بسعر حديث لكل رمز متداول.',
+    'marketData': 'بيانات السوق',
+    'marketDataHelp':
+        'الأدوات وشموعها اليومية، مستوردة من ملفات CSV الخاصة بك. تُختبر الاستراتيجيات فقط على الشموع المخزنة هنا.',
+    'noInstruments': 'لا توجد أداة بعد',
+    'noInstrumentsText':
+        'أضف أداة، ثم استورد ملف CSV لشموعها اليومية (التاريخ، الافتتاح، الأعلى، الأدنى، الإغلاق، الحجم).',
+    'noBarsYet': 'لا توجد شموع بعد',
+    'barsSource': 'المصدر: {source}',
+    'importBars': 'استورد الشموع',
+    'importBarsFor': 'استورد شموع {symbol}',
+    'importConfirmTitle': 'استيراد شموع {symbol}؟',
+    'importConfirmText':
+        'تُفحص الشموع اليومية في {file} وتُخزن لـ {symbol}. يُرفض الملف كاملًا إذا احتوى شموعًا تالفة أو مكررة أو مستقبلية.',
+    'imported': 'استُوردت {count} شمعة ({changed} جديدة أو متغيرة).',
+    'importIssues': 'لدى {count} صفوف ملاحظات؛ اطلع عليها على الويب.',
+    'importFailed': 'لم تُستورد الشموع: {message}',
+    'fileEmpty': 'هذا الملف فارغ.',
+    'fileTooBig': 'هذا الملف أكبر من 2 ميغابايت. قسّمه إلى ملفات أصغر.',
+    'fileNotText': 'هذا الملف ليس ملف CSV نصيًا.',
+    'addInstrument': 'أضف أداة',
+    'addInstrumentText':
+        'الأداة رمز في سوق بعملة واحدة. تأتي شموعها فقط من الملفات التي تستوردها.',
+    'addInstrumentConfirm': 'إضافة {symbol}؟',
+    'instrumentAdded': 'أُضيفت الأداة. استورد شموعها اليومية بعد ذلك.',
+    'symbol': 'الرمز',
+    'assetClass': 'النوع',
+    'venue': 'السوق',
+    'chooseVenue': 'اختر سوقًا',
+    'currency': 'العملة',
+    'listedOn': 'تاريخ الإدراج (اختياري)',
+    'dateHint': 'سنة-شهر-يوم، مثل 2000-01-03',
+    'symbolRequired': 'أدخل رمزًا حتى 20 حرفًا.',
+    'venueRequired': 'اختر سوقًا.',
+    'currencyRequired': 'أدخل رمز عملة مثل USD أو AED.',
+    'dateFormat': 'اكتب التاريخ بصيغة سنة-شهر-يوم، مثل 2000-01-03.',
+    'asset.equity': 'سهم',
+    'asset.etf': 'صندوق متداول',
+    'asset.crypto': 'أصل رقمي',
+    'asset.forex': 'زوج عملات',
+    'asset.commodity': 'سلعة',
+    'evaluate': 'قيّم',
+    'evaluateTitle': 'تقييم {name} النسخة {version}',
+    'evaluateConfirm': 'تشغيل {kind} الآن؟',
+    'evaluateText':
+        'تشغيل محاكى على الشموع المخزنة بالتكاليف المذكورة. يُخزن مع نتائجه، والنتيجة الجيدة وحدها لا ترقّي الاستراتيجية أبدًا.',
+    'evaluated': 'انتهى {kind}: {verdict}.',
+    'paperPortfolio': 'المحفظة التجريبية',
+    'choosePortfolio': 'المحفظة التجريبية لـ {name} النسخة {version}',
+    'currentPortfolio': '{name} (الحالية)',
+    'noPaperPortfolio':
+        'لا توجد محفظة تجريبية بعد. أنشئها من المالية، التداول التجريبي على الويب.',
+    'portfolioConfirm': 'التداول في {name}؟',
+    'portfolioText':
+        'عندما تكون هذه النسخة تجريبية، تذهب أوامرها المحاكاة إلى هذه المحفظة، وكل أمر ينتظر موافقتك.',
+    'usePortfolio': 'استخدم هذه المحفظة',
+    'portfolioChosen': 'ستتداول هذه النسخة في {name}.',
+    'commentary': 'تعليق النموذج',
+    'commentaryLabel':
+        'كتبه نموذج ذكاء اصطناعي ({model}) من هذا التقرير فقط. قد يكون خاطئًا وليس نصيحة. النتائج محاكاة.',
+    'commentary.no_model':
+        'لا يوجد تعليق: لم يُعد نموذج ذكاء اصطناعي لهذه المساحة. يختاره مالك المساحة من الإعدادات، النموذج.',
+    'commentary.disabled': 'تعليق النموذج متوقف على هذا الخادم.',
+    'commentary.monthly_limit': 'لا يوجد تعليق: بلغ حد التعليقات لهذا الشهر.',
+    'commentary.model_budget':
+        'لا يوجد تعليق: استُنفدت ميزانية النموذج لهذه المساحة هذا الشهر.',
+    'commentary.withheld':
+        'حُجب تعليق النموذج لأنه تضمن ادعاءً عن الأرباح أو الأسعار.',
+    'commentary.failed': 'لم يجب النموذج، فلا يوجد تعليق لهذا التقرير.',
   };
 }

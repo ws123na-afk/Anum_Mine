@@ -1,4 +1,4 @@
-"""PostgreSQL store for in-app calls (migration ``0072_app_calls``).
+"""PostgreSQL store for in-app calls (migration ``0073_app_calls``).
 
 The session's RLS context names the tenant, the workspace and the participant
 (``anum.user_id``). Every statement repeats the tenant, the workspace and the participant

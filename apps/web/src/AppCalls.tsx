@@ -43,19 +43,19 @@ type Ended = { call: AppCall; message: string | null; person: Person } | null;
 function endMessage(call: AppCall): string | null {
   const word = outcomeWord(call);
   const name = call.peer_name;
-  if (word === 'declinedByPeer') return t('calls.ended.declinedByPeer', { name });
-  if (word === 'busyPeer') return t('calls.ended.busyPeer', { name });
-  if (word === 'noAnswer') return t('calls.ended.noAnswer', { name });
-  if (word === 'failed') return t('calls.ended.failed');
-  if (word === 'dropped') return t('calls.ended.dropped');
-  if (word === 'completed' && call.duration_seconds !== null) return t('calls.ended.duration', { duration: formatDuration(call.duration_seconds) });
+  if (word === 'declinedByPeer') return t('appCalls.ended.declinedByPeer', { name });
+  if (word === 'busyPeer') return t('appCalls.ended.busyPeer', { name });
+  if (word === 'noAnswer') return t('appCalls.ended.noAnswer', { name });
+  if (word === 'failed') return t('appCalls.ended.failed');
+  if (word === 'dropped') return t('appCalls.ended.dropped');
+  if (word === 'completed' && call.duration_seconds !== null) return t('appCalls.ended.duration', { duration: formatDuration(call.duration_seconds) });
   return null;
 }
 
 function mediaMessage(error: unknown): string {
   const problem = mediaProblem(error);
-  if (problem === 'other') return t('calls.media.other', { message: error instanceof Error ? error.message : String(error) });
-  return t(`calls.media.${problem}` as MessageKey);
+  if (problem === 'other') return t('appCalls.media.other', { message: error instanceof Error ? error.message : String(error) });
+  return t(`appCalls.media.${problem}` as MessageKey);
 }
 
 /** A soft two-tone ring (incoming) or ring-back (outgoing) from Web Audio; silent if blocked. */
@@ -177,7 +177,7 @@ export function AppCallProvider({ children }: { children: ReactNode }) {
         if (ringing && ringing.id === call.id) {
           if (call.status !== 'ringing' || call.answered_elsewhere) {
             setIncoming(null);
-            if (call.answered_elsewhere) setNotice(t('calls.answeredElsewhere'));
+            if (call.answered_elsewhere) setNotice(t('appCalls.answeredElsewhere'));
             bump();
           }
           return;
@@ -187,7 +187,7 @@ export function AppCallProvider({ children }: { children: ReactNode }) {
           setEnded(null);
           setIncoming(call);
           if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-            try { new Notification(t('calls.notify.title'), { body: t('calls.notify.body', { name: call.peer_name }), tag: `app-call-${call.id}` }); } catch { /* optional */ }
+            try { new Notification(t('appCalls.notify.title'), { body: t('appCalls.notify.body', { name: call.peer_name }), tag: `app-call-${call.id}` }); } catch { /* optional */ }
           }
         }
         if (call.status === 'ended') bump();
@@ -203,15 +203,15 @@ export function AppCallProvider({ children }: { children: ReactNode }) {
 
   const unavailable = useMemo(() => {
     if (config.state === 'loading') return null;
-    if (config.state === 'denied') return t('calls.denied');
-    if (config.state === 'error') return t('calls.configFailed', { message: config.message });
-    if (!config.config.enabled) return t('calls.off');
-    if (!online) return t('calls.offline');
+    if (config.state === 'denied') return t('appCalls.denied');
+    if (config.state === 'error') return t('appCalls.configFailed', { message: config.message });
+    if (!config.config.enabled) return t('appCalls.off');
+    if (!online) return t('appCalls.offline');
     return null;
   }, [config, online]);
 
   const start = useCallback((person: Person, media: AppCallMedia) => {
-    if (activeRef.current || preparing) { setNotice(t('calls.alreadyInCall')); return; }
+    if (activeRef.current || preparing) { setNotice(t('appCalls.alreadyInCall')); return; }
     if (unavailable) { setNotice(unavailable); return; }
     setEnded(null); setNotice(null);
     setPreparing({ person, media });
@@ -229,7 +229,7 @@ export function AppCallProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         for (const track of local.getTracks()) track.stop();
         setPreparing(null);
-        setNotice(t('calls.startFailed', { message: describeError(error) }));
+        setNotice(t('appCalls.startFailed', { message: describeError(error) }));
       }
     })();
   }, [preparing, unavailable, clientId, engineFor, finish, bump]);
@@ -259,7 +259,7 @@ export function AppCallProvider({ children }: { children: ReactNode }) {
       bump();
     } catch (error) {
       teardown();
-      setNotice(t('calls.answerFailed', { message: describeError(error) }));
+      setNotice(t('appCalls.answerFailed', { message: describeError(error) }));
       bump();
     }
   }, [engineFor, clientId, teardown, bump]);
@@ -278,7 +278,7 @@ export function AppCallProvider({ children }: { children: ReactNode }) {
 
   return <Context.Provider value={value}>
     {children}
-    {notice && <div className="appCallNotice" role="status"><span>{notice}</span><button type="button" className="iconButton small" aria-label={t('calls.close')} title={t('calls.close')} onClick={() => setNotice(null)}><X aria-hidden="true" /></button></div>}
+    {notice && <div className="appCallNotice" role="status"><span>{notice}</span><button type="button" className="iconButton small" aria-label={t('appCalls.close')} title={t('appCalls.close')} onClick={() => setNotice(null)}><X aria-hidden="true" /></button></div>}
     {preparing && <CallScreen phase="preparing" name={preparing.person.display_name} media={preparing.media} onHangUp={() => undefined} />}
     {incoming && !active && <IncomingScreen call={incoming} onAnswer={answer} onDecline={decline} />}
     {active && <CallScreen
@@ -300,11 +300,11 @@ function IncomingScreen({ call, onAnswer, onDecline }: { call: AppCall; onAnswer
     <section className="surface appCallPanel incoming" role="alertdialog" aria-modal="true" aria-labelledby={titleId} ref={panel as never}>
       <Avatar name={call.peer_name} />
       <h2 id={titleId}><bdi>{call.peer_name}</bdi></h2>
-      <p className="appCallStatus">{t(call.media === 'video' ? 'calls.videoCall' : 'calls.voiceCall')} · {t('calls.phase.incoming')}</p>
+      <p className="appCallStatus">{t(call.media === 'video' ? 'appCalls.videoCall' : 'appCalls.voiceCall')} · {t('appCalls.phase.incoming')}</p>
       <div className="appCallControls">
-        <button type="button" className="appCallButton accept" onClick={() => onAnswer(false)} data-autofocus><Phone aria-hidden="true" /><span>{t('calls.answer')}</span></button>
-        {call.media === 'video' && <button type="button" className="appCallButton accept" onClick={() => onAnswer(true)}><Video aria-hidden="true" /><span>{t('calls.answerVideo')}</span></button>}
-        <button type="button" className="appCallButton hangup" onClick={onDecline}><PhoneOff aria-hidden="true" /><span>{t('calls.decline')}</span></button>
+        <button type="button" className="appCallButton accept" onClick={() => onAnswer(false)} data-autofocus><Phone aria-hidden="true" /><span>{t('appCalls.answer')}</span></button>
+        {call.media === 'video' && <button type="button" className="appCallButton accept" onClick={() => onAnswer(true)}><Video aria-hidden="true" /><span>{t('appCalls.answerVideo')}</span></button>}
+        <button type="button" className="appCallButton hangup" onClick={onDecline}><PhoneOff aria-hidden="true" /><span>{t('appCalls.decline')}</span></button>
       </div>
     </section>
   </div>;
@@ -332,33 +332,33 @@ function CallScreen({ phase, call, name, media, engine, remote, onHangUp }: {
     if (remoteVideo.current && remote && remoteVideo.current.srcObject !== remote) remoteVideo.current.srcObject = remote;
   }, [remote, compact]);
   useEffect(() => { if (localVideo.current && engine && localVideo.current.srcObject !== engine.local) localVideo.current.srcObject = engine.local; }, [engine, compact]);
-  const status = phase === 'connected' && call ? formatDuration(elapsedSeconds(call, now)) : t(`calls.phase.${phase === 'idle' || phase === 'ended' || phase === 'incoming' ? 'connecting' : phase}` as MessageKey);
+  const status = phase === 'connected' && call ? formatDuration(elapsedSeconds(call, now)) : t(`appCalls.phase.${phase === 'idle' || phase === 'ended' || phase === 'incoming' ? 'connecting' : phase}` as MessageKey);
   const video = media === 'video';
   const controls = <div className="appCallControls">
-    <button type="button" className="appCallButton" aria-pressed={muted} onClick={() => setMuted(!muted)} disabled={!engine}>{muted ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />}<span>{muted ? t('calls.unmute') : t('calls.mute')}</span></button>
-    <button type="button" className="appCallButton" aria-pressed={speaker} onClick={() => setSpeaker(!speaker)} disabled={!engine}>{speaker ? <Volume2 aria-hidden="true" /> : <VolumeX aria-hidden="true" />}<span>{speaker ? t('calls.speakerOff') : t('calls.speakerOn')}</span></button>
-    {video && <button type="button" className="appCallButton" aria-pressed={!camera} onClick={() => setCamera(!camera)} disabled={!engine}>{camera ? <CameraOff aria-hidden="true" /> : <Camera aria-hidden="true" />}<span>{camera ? t('calls.cameraOff') : t('calls.cameraOn')}</span></button>}
-    <button type="button" className="appCallButton hangup" onClick={onHangUp} disabled={phase === 'preparing'}><PhoneOff aria-hidden="true" /><span>{t('calls.hangUp')}</span></button>
+    <button type="button" className="appCallButton" aria-pressed={muted} onClick={() => setMuted(!muted)} disabled={!engine}>{muted ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />}<span>{muted ? t('appCalls.unmute') : t('appCalls.mute')}</span></button>
+    <button type="button" className="appCallButton" aria-pressed={speaker} onClick={() => setSpeaker(!speaker)} disabled={!engine}>{speaker ? <Volume2 aria-hidden="true" /> : <VolumeX aria-hidden="true" />}<span>{speaker ? t('appCalls.speakerOff') : t('appCalls.speakerOn')}</span></button>
+    {video && <button type="button" className="appCallButton" aria-pressed={!camera} onClick={() => setCamera(!camera)} disabled={!engine}>{camera ? <CameraOff aria-hidden="true" /> : <Camera aria-hidden="true" />}<span>{camera ? t('appCalls.cameraOff') : t('appCalls.cameraOn')}</span></button>}
+    <button type="button" className="appCallButton hangup" onClick={onHangUp} disabled={phase === 'preparing'}><PhoneOff aria-hidden="true" /><span>{t('appCalls.hangUp')}</span></button>
   </div>;
   return <>
     <audio ref={audio} autoPlay hidden />
     {compact
-      ? <div className="appCallPill" role="region" aria-label={t('calls.screen', { name })}>
+      ? <div className="appCallPill" role="region" aria-label={t('appCalls.screen', { name })}>
           <span className="appCallPillText"><bdi>{name}</bdi> · <span aria-live="polite">{status}</span></span>
-          <button type="button" className="iconButton small" aria-label={t('calls.screen', { name })} title={t('calls.screen', { name })} onClick={() => setCompact(false)}><Maximize2 aria-hidden="true" /></button>
-          <button type="button" className="appCallButton hangup small" onClick={onHangUp}><PhoneOff aria-hidden="true" /><span>{t('calls.hangUp')}</span></button>
+          <button type="button" className="iconButton small" aria-label={t('appCalls.screen', { name })} title={t('appCalls.screen', { name })} onClick={() => setCompact(false)}><Maximize2 aria-hidden="true" /></button>
+          <button type="button" className="appCallButton hangup small" onClick={onHangUp}><PhoneOff aria-hidden="true" /><span>{t('appCalls.hangUp')}</span></button>
         </div>
       : <div className="appCallLayer">
           <section className={`surface appCallPanel ${video ? 'withVideo' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} ref={panel as never}>
-            <button type="button" className="iconButton small appCallMinimize" aria-label={t('calls.minimise')} title={t('calls.minimise')} onClick={() => setCompact(true)}><Minimize2 aria-hidden="true" /></button>
+            <button type="button" className="iconButton small appCallMinimize" aria-label={t('appCalls.minimise')} title={t('appCalls.minimise')} onClick={() => setCompact(true)}><Minimize2 aria-hidden="true" /></button>
             {video
               ? <div className="appCallVideos">
-                  <video ref={remoteVideo} className="appCallRemote" autoPlay playsInline muted aria-label={t('calls.remoteVideo', { name })} />
-                  <video ref={localVideo} className="appCallLocal" autoPlay playsInline muted aria-label={t('calls.localVideo')} />
+                  <video ref={remoteVideo} className="appCallRemote" autoPlay playsInline muted aria-label={t('appCalls.remoteVideo', { name })} />
+                  <video ref={localVideo} className="appCallLocal" autoPlay playsInline muted aria-label={t('appCalls.localVideo')} />
                 </div>
               : <Avatar name={name} />}
             <h2 id={titleId}><bdi>{name}</bdi></h2>
-            <p className="appCallStatus" aria-live="polite">{t(video ? 'calls.videoCall' : 'calls.voiceCall')} · <span data-testid="call-status">{status}</span></p>
+            <p className="appCallStatus" aria-live="polite">{t(video ? 'appCalls.videoCall' : 'appCalls.voiceCall')} · <span data-testid="call-status">{status}</span></p>
             {controls}
           </section>
         </div>}
@@ -373,11 +373,11 @@ function EndedScreen({ ended, onClose, onCallAgain }: { ended: NonNullable<Ended
     <section className="surface appCallPanel" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={panel as never}>
       <Avatar name={ended.person.display_name} />
       <h2 id={titleId}><bdi>{ended.person.display_name}</bdi></h2>
-      <p className="appCallStatus" role="status">{word ? t(`calls.word.${word}` as MessageKey) : t('calls.word.completed')}</p>
+      <p className="appCallStatus" role="status">{word ? t(`appCalls.word.${word}` as MessageKey) : t('appCalls.word.completed')}</p>
       {ended.message && <p className="appCallDetail">{ended.message}</p>}
       <div className="appCallControls">
-        <button type="button" className="appCallButton accept" onClick={() => onCallAgain(ended.call.media)}><Phone aria-hidden="true" /><span>{t('calls.callAgain')}</span></button>
-        <button type="button" className="appCallButton" onClick={onClose} data-autofocus><X aria-hidden="true" /><span>{t('calls.close')}</span></button>
+        <button type="button" className="appCallButton accept" onClick={() => onCallAgain(ended.call.media)}><Phone aria-hidden="true" /><span>{t('appCalls.callAgain')}</span></button>
+        <button type="button" className="appCallButton" onClick={onClose} data-autofocus><X aria-hidden="true" /><span>{t('appCalls.close')}</span></button>
       </div>
     </section>
   </div>;
@@ -391,8 +391,8 @@ export function CallButtons({ person, compact = false }: { person: Person; compa
   const reason = calls.unavailable;
   const video = calls.config.state === 'ready' && calls.config.config.video_enabled;
   return <span className="callButtons">
-    <button type="button" className="secondary" disabled={Boolean(reason) || calls.inCall} aria-describedby={reason ? hintId : undefined} aria-label={t('calls.callPerson', { name: person.display_name })} onClick={() => calls.start(person, 'audio')}><Phone aria-hidden="true" />{!compact && t('calls.call')}</button>
-    {video && <button type="button" className="secondary" disabled={Boolean(reason) || calls.inCall} aria-describedby={reason ? hintId : undefined} aria-label={t('calls.videoPerson', { name: person.display_name })} onClick={() => calls.start(person, 'video')}><Video aria-hidden="true" />{!compact && t('calls.video')}</button>}
+    <button type="button" className="secondary" disabled={Boolean(reason) || calls.inCall} aria-describedby={reason ? hintId : undefined} aria-label={t('appCalls.callPerson', { name: person.display_name })} onClick={() => calls.start(person, 'audio')}><Phone aria-hidden="true" />{!compact && t('appCalls.call')}</button>
+    {video && <button type="button" className="secondary" disabled={Boolean(reason) || calls.inCall} aria-describedby={reason ? hintId : undefined} aria-label={t('appCalls.videoPerson', { name: person.display_name })} onClick={() => calls.start(person, 'video')}><Video aria-hidden="true" />{!compact && t('appCalls.video')}</button>}
     {reason && <span id={hintId} className="srOnly">{reason}</span>}
   </span>;
 }

@@ -52,7 +52,7 @@ class ApiCallRepository implements CallRepository {
   final SessionStore sessions;
   final http.Client Function() _newClient;
 
-  static const _base = '/api/v1/calls';
+  static const _base = '/api/v1/app-calls';
   String _id(String value) => Uri.encodeComponent(value);
 
   @override
@@ -141,7 +141,7 @@ class ApiCallRepository implements CallRepository {
         }
         final current = client = _newClient();
         final uri = api.baseUri
-            .resolve('api/v1/calls/stream?client_id=${_id(clientId)}');
+            .resolve('api/v1/app-calls/stream?client_id=${_id(clientId)}');
         final request = http.Request('GET', uri)
           ..headers.addAll(
               {...sessionHeaders(session), 'accept': 'text/event-stream'});

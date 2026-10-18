@@ -1,6 +1,7 @@
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/json_read.dart';
 import 'package:anum_mobile/features/finance/finance_controller.dart';
+import 'package:anum_mobile/features/finance/finance_intel_actions.dart';
 import 'package:anum_mobile/features/finance/finance_intel_controller.dart';
 import 'package:anum_mobile/features/finance/finance_intel_models.dart';
 import 'package:anum_mobile/features/finance/finance_intel_strings.dart';
@@ -141,8 +142,9 @@ class FakeIntel implements FinanceIntelRepository {
       this.denyActions = false,
       this.reportCount = 3,
       this.failReport = 0,
-      this.refuseMove = false});
-  final bool empty, deny, failEquity, denyActions, refuseMove;
+      this.refuseMove = false,
+      this.busy = false});
+  final bool empty, deny, failEquity, denyActions, refuseMove, busy;
   int failOverview, failReport;
   final int reportCount;
   bool killed = false;
@@ -339,7 +341,11 @@ class FakeIntel implements FinanceIntelRepository {
         'symbol': 'EXMPL',
         'bars': 900,
         'first_bar': '2023-01-02',
-        'last_bar': '2026-10-14'
+        'last_bar': '2026-10-14',
+        'asset_class': 'etf',
+        'venue': 'XNYS',
+        'currency': 'USD',
+        'last_source': 'Broker export'
       })),
       IntelInstrument.fromJson(
           JsonReader.of({'id': 'ins_2', 'symbol': 'NOBARS', 'bars': 0})),
@@ -386,6 +392,67 @@ class FakeIntel implements FinanceIntelRepository {
       'halted': 0,
       'decisions': 9,
       if (phase == 'post_close') 'report_id': 'fin_dec_report_0'
+    }));
+  }
+
+  @override
+  Future<IntelInstrument> createInstrument(
+      {required String symbol,
+      required String assetClass,
+      required String venue,
+      required String currency,
+      String? listedOn}) async {
+    _manage();
+    requests.add(
+        'instrument $symbol $assetClass $venue $currency ${listedOn ?? '-'}');
+    return IntelInstrument.fromJson(JsonReader.of(
+        {'id': 'ins_9', 'symbol': symbol.toUpperCase(), 'bars': 0}));
+  }
+
+  @override
+  Future<BarsImport> importBars(String instrumentId,
+      {required String payload, required String source}) async {
+    _manage();
+    if (payload.contains('BROKEN')) {
+      throw const ApiException(
+          422, 'Line 3: the date 2027-01-01 is in the future.');
+    }
+    requests.add('bars $instrumentId $source ${payload.length}');
+    return BarsImport.fromJson(JsonReader.of({
+      'imported': 2,
+      'changed': 2,
+      'first': '2026-10-13',
+      'last': '2026-10-14',
+      'issues': [
+        {
+          'code': 'zero_volume',
+          'day': '2026-10-13',
+          'message': 'Volume is zero.'
+        }
+      ]
+    }));
+  }
+
+  @override
+  Future<String> evaluate(String strategyId, {required String kind}) async {
+    _manage();
+    if (busy) {
+      throw const ApiException(503,
+          'The server is busy right now, so the evaluation did not start. Try again in a minute.');
+    }
+    requests.add('evaluate $strategyId $kind');
+    return kind == 'backtest' ? 'completed' : 'passed';
+  }
+
+  @override
+  Future<IntelStrategy> choosePortfolio(
+      String strategyId, String portfolioId) async {
+    _manage();
+    requests.add('portfolio $strategyId $portfolioId');
+    return IntelStrategy.fromJson(JsonReader.of({
+      ...strategyJson(1),
+      'state': 'VALIDATION',
+      'portfolio_id': portfolioId
     }));
   }
 
@@ -496,6 +563,14 @@ class FakeIntel implements FinanceIntelRepository {
         ],
       },
       'markdown': '# Trading report, 2026-10-15 (after the close, SIMULATED)\n',
+      'commentary': {
+        'status': 'ok',
+        'reason': null,
+        'text': 'Simulated results only. One order waits for your approval.',
+        'model': 'anthropic/example-model',
+        'label': 'Model commentary',
+        'created_at': stamp
+      },
     }));
   }
 }
@@ -530,7 +605,7 @@ Widget app(FinanceController controller,
 Future<FinanceController> openIntel(WidgetTester tester, FakeIntel repo,
     {Locale locale = const Locale('en'),
     double textScale = 1,
-    Size size = const Size(390, 6000)}) async {
+    Size size = const Size(390, 14000)}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -924,7 +999,7 @@ void main() {
     testWidgets(
         'the new strategy and report screens fit at $width with 200% text',
         (tester) async {
-      await openIntel(tester, FakeIntel(),
+      final c = await openIntel(tester, FakeIntel(),
           textScale: 2, size: Size(width, 12000));
       final open = find.widgetWithText(FilledButton, 'New strategy');
       await tester.ensureVisible(open);
@@ -939,6 +1014,172 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Report of 2026-10-15'), findsOneWidget);
       expect(tester.takeException(), isNull);
+      final intel = c.intel!;
+      await tester.pumpWidget(MaterialApp(
+          key: UniqueKey(),
+          theme: AnumTheme.dark(),
+          builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(2)),
+              child: child!),
+          home: AddInstrumentScreen(
+              controller: intel,
+              venues: intel.overview!.venues,
+              strings: const FinanceIntelStrings(false))));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(TextField), findsNWidgets(3));
+      expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets(
+      'market data: add an instrument and import its bars, asking first',
+      (tester) async {
+    final repo = FakeIntel();
+    final c = await openIntel(tester, repo);
+    expect(find.text('Market data'), findsOneWidget);
+    expect(find.textContaining('XNYS · USD · ETF'), findsOneWidget);
+    expect(find.textContaining('No bars yet'), findsOneWidget);
+    expect(find.textContaining('Source: Broker export'), findsOneWidget);
+    // A file the API would refuse is caught on the phone.
+    c.intel!.pickBars =
+        () async => (name: 'huge.csv', text: null, problem: 'fileTooBig');
+    await tester.tap(find.text('Import bars for EXMPL'));
+    await tester.pumpAndSettle();
+    expect(
+        find.text(
+            'That file is larger than 2 MB. Split it into smaller files.'),
+        findsOneWidget);
+    c.intel!.pickBars = () async => (
+          name: 'exmpl.csv',
+          text: 'Date,Open,High,Low,Close,Volume\n2026-10-13,1,1,1,1,0\n',
+          problem: null
+        );
+    await tester.tap(find.text('Import bars for EXMPL'));
+    await tester.pumpAndSettle();
+    expect(find.text('Import bars for EXMPL?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(repo.requests.where((r) => r.startsWith('bars')), isEmpty);
+    await tester.tap(find.text('Import bars for EXMPL'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Import bars'));
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('bars ins_1 exmpl.csv 53'));
+    expect(find.textContaining('Imported 2 bars (2 new or changed).'),
+        findsOneWidget);
+    c.intel!.pickBars =
+        () async => (name: 'bad.csv', text: 'BROKEN', problem: null);
+    await tester.tap(find.text('Import bars for EXMPL'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Import bars'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Line 3: the date 2027-01-01 is in the future.'),
+        findsOneWidget);
+  });
+
+  testWidgets('adding an instrument checks the form and confirms',
+      (tester) async {
+    final repo = FakeIntel();
+    await openIntel(tester, repo);
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Add instrument'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Add instrument'));
+    await tester.pumpAndSettle();
+    expect(find.text('Enter a symbol of up to 20 characters.'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextField, 'Symbol'), 'demo');
+    await tester.tap(find.widgetWithText(FilledButton, 'Add instrument'));
+    await tester.pumpAndSettle();
+    expect(find.text('Choose a venue.'), findsOneWidget);
+    await tester.tap(find.text('Choose a venue'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Saudi Exchange (Tadawul)').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Currency'), 'sar');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Listed on (optional)'), '1/2/2000');
+    await tester.tap(find.widgetWithText(FilledButton, 'Add instrument'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('year-month-day'), findsWidgets);
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Listed on (optional)'), '2000-01-02');
+    await tester.tap(find.widgetWithText(FilledButton, 'Add instrument'));
+    await tester.pumpAndSettle();
+    expect(find.text('Add DEMO?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Add instrument').last);
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('instrument demo etf XSAU sar 2000-01-02'));
+    expect(find.text('Instrument added. Import its daily bars next.'),
+        findsOneWidget);
+  });
+
+  testWidgets(
+      'an evaluation asks first, says the verdict or that the server is busy',
+      (tester) async {
+    final repo = FakeIntel();
+    await openIntel(tester, repo);
+    await tester.tap(find.text('Evaluate').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Walk-forward'));
+    await tester.pumpAndSettle();
+    expect(find.text('Run a Walk-forward now?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Evaluate'));
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('evaluate strat_1 walk_forward'));
+    expect(
+        find.text('Walk-forward finished: Passed the checks.'), findsOneWidget);
+  });
+
+  testWidgets('a busy server refuses an evaluation and says to try later',
+      (tester) async {
+    await openIntel(tester, FakeIntel(busy: true));
+    await tester.tap(find.text('Evaluate').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Backtest'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Evaluate'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('The server is busy right now'), findsOneWidget);
+  });
+
+  testWidgets('the paper portfolio is chosen after a confirmation',
+      (tester) async {
+    final repo = FakeIntel();
+    final c = await openIntel(tester, repo);
+    // Paper active versions keep their portfolio; open a version in Validation.
+    expect(find.text('Paper portfolio'), findsNothing);
+    final strategy = IntelStrategy.fromJson(
+        JsonReader.of({...strategyJson(5), 'state': 'VALIDATION'}));
+    await tester.pumpWidget(MaterialApp(
+        theme: AnumTheme.dark(),
+        home: Scaffold(
+            body: IntelPortfolioButton(
+                controller: c.intel!,
+                strategy: strategy,
+                overview: c.intel!.overview!,
+                strings: const FinanceIntelStrings(false)))));
+    await tester.tap(find.text('Paper portfolio'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Practice'));
+    await tester.pumpAndSettle();
+    expect(find.text('Trade in Practice?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Use this portfolio'));
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('portfolio strat_5 fin_pf_1'));
+  });
+
+  testWidgets('the report shows model commentary with its label',
+      (tester) async {
+    await openIntel(tester, FakeIntel());
+    await tester.tap(find.textContaining('Active 1, proposed 1,'));
+    await tester.pumpAndSettle();
+    expect(find.text('Model commentary'), findsOneWidget);
+    expect(
+        find.text('Simulated results only. One order waits for your approval.'),
+        findsOneWidget);
+    expect(
+        find.textContaining('Written by an AI model (anthropic/example-model)'),
+        findsOneWidget);
+  });
 }

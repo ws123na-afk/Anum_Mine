@@ -60,6 +60,12 @@ void main() {
       })!;
       expect(automation.kind, PushDestinationKind.automation);
       expect(automation.route, '/automations');
+      final report = PushDestination.fromData({
+        'anum_kind': 'finance_report',
+        'workspace_id': 'workspace_test',
+      })!;
+      expect(report.kind, PushDestinationKind.financeReport);
+      expect(report.route, '/finance/intel');
       expect(PushDestination.fromData({'anum_kind': 'task_completed'}), isNull);
       expect(
           PushDestination.fromData(
@@ -110,6 +116,18 @@ void main() {
       expect(push.thisDeviceId, 'device_1');
       expect(store.devices['tenant_test/user_test/workspace_test'], 'device_1');
       expect(await store.offered(), isTrue);
+    });
+
+    test('the phone registers with the language its app shows', () async {
+      final (push, api, _, _) = await _controller();
+      push.languageOf = () => 'ar';
+      await push.enable();
+      final post = api.requests.firstWhere((r) => r.method == 'POST');
+      expect(post.body!['language'], 'ar');
+      push.languageOf = () => 'en';
+      await push.languageChanged();
+      final again = api.requests.where((r) => r.method == 'POST').last;
+      expect(again.body!['language'], 'en');
     });
 
     test('a refused prompt is reported as blocked', () async {

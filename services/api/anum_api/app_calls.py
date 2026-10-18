@@ -8,24 +8,24 @@ the caller's RLS context, and an id from another tenant or workspace answers 404
 like an unknown id. With PostgreSQL ``app_calls`` and ``app_call_signals`` are under forced
 RLS on the tenant and the workspace, plus restrictive policies that admit a row only to
 its two participants (``anum.user_id``) and let only the caller insert a call and only the
-sender insert a signal (migration ``0072_app_calls``).
+sender insert a signal (migration ``0073_app_calls``).
 
-Lifecycle. ``POST /calls`` rings (status ``ringing``; ``app_call.ringing`` is the phone push
-trigger). The callee's device that answers (``POST /calls/{id}/accept`` with its
+Lifecycle. ``POST /app-calls`` rings (status ``ringing``; ``app_call.ringing`` is the phone push
+trigger). The callee's device that answers (``POST /app-calls/{id}/accept`` with its
 ``client_id``) is bound to the call; other devices stop ringing. Then the caller sends the
-offer, the callee the answer and both their ICE candidates (``POST /calls/{id}/signals``),
-each addressed to the other side's bound client. ``POST /calls/{id}/end`` ends it; a ring
+offer, the callee the answer and both their ICE candidates (``POST /app-calls/{id}/signals``),
+each addressed to the other side's bound client. ``POST /app-calls/{id}/end`` ends it; a ring
 that nobody answers within ``ANUM_CALLS_RING_TIMEOUT_SECONDS`` becomes ``missed`` and a call
 whose parties stop sending heartbeats for ``HEARTBEAT_TIMEOUT`` seconds becomes
 ``dropped``, both settled lazily by the next read of either participant. Missed, cancelled
 and busy rings leave the callee an in-app notification (kind ``missed_call``).
 
-Signaling stream. ``GET /calls/stream?client_id=`` is a per-device SSE stream of the
+Signaling stream. ``GET /app-calls/stream?client_id=`` is a per-device SSE stream of the
 caller's call states and the signals addressed to that device. Like the workspace event
 stream it never reads through the request's session (CLAUDE.md, "Streaming responses
 outlive request dependencies"): every poll opens its own short session in a worker thread.
 
-ICE servers. ``GET /calls/ice-servers`` returns the STUN URLs and, in ``turn`` mode,
+ICE servers. ``GET /app-calls/ice-servers`` returns the STUN URLs and, in ``turn`` mode,
 short-lived TURN credentials in coturn's REST scheme (``use-auth-secret``): the username
 is ``<expiry unix time>:<opaque id>`` and the credential the base64 HMAC-SHA1 of it under
 ``ANUM_CALLS_TURN_SECRET``. The opaque id is random per issue, so coturn's logs name no user.
@@ -568,13 +568,13 @@ def open_call_unit(context: TenantContext) -> Iterator[CallUnit]:
 # ----------------------------------------------------------------------------- privacy
 
 
-def calls_privacy_counts(context: TenantContext) -> dict[str, int]:
+def app_calls_privacy_counts(context: TenantContext) -> dict[str, int]:
     """Download/Delete my data (docs/in-app-calls.md#privacy): the caller's calls and signals."""
     with open_call_store(context) as store:
         return {"app_calls": len(store.all_mine(context)), "app_call_signals": store.count_signals(context)}
 
 
-def calls_privacy_export(context: TenantContext) -> list[dict[str, Any]]:
+def app_calls_privacy_export(context: TenantContext) -> list[dict[str, Any]]:
     """The caller's own view of each call: direction, the other person's display name at the
     time, audio or video, the times and the outcome. Never device ids or the other person's id."""
     with open_call_store(context) as store:
@@ -583,7 +583,7 @@ def calls_privacy_export(context: TenantContext) -> list[dict[str, Any]]:
     return [view_of(call, context).model_dump(mode="json", exclude=hidden) for call in calls]
 
 
-def delete_my_calls(context: TenantContext) -> int:
+def delete_my_app_calls(context: TenantContext) -> int:
     """Delete my data: the caller's signals go; each call keeps the other person's side and
     shows the caller as "Deleted user". The caller's side is rewritten inside the other
     participant's RLS context (the caller's own context could not write a row they are no
@@ -772,7 +772,7 @@ def _deliver_after_commit(background: BackgroundTasks, unit: CallUnit) -> None:
 # ----------------------------------------------------------------------------- routes
 
 
-@router.get("/calls/config", response_model=CallConfig)
+@router.get("/app-calls/config", response_model=CallConfig)
 def get_call_config(context: TenantContext = Depends(tenant_context)) -> CallConfig:
     """Whether calls work on this server and how (every member may read it)."""
     require_permission(context, Permission.CALL_USE)
@@ -786,7 +786,7 @@ def get_call_config(context: TenantContext = Depends(tenant_context)) -> CallCon
     )
 
 
-@router.get("/calls/ice-servers", response_model=IceServers)
+@router.get("/app-calls/ice-servers", response_model=IceServers)
 def get_ice_servers(context: TenantContext = Depends(tenant_context)) -> IceServers:
     """STUN URLs and, with a relay configured, TURN credentials that expire."""
     require_permission(context, Permission.CALL_USE)
@@ -803,7 +803,7 @@ def get_ice_servers(context: TenantContext = Depends(tenant_context)) -> IceServ
     return IceServers(mode=mode.mode, ice_servers=servers, expires_at=expires_at, ttl_seconds=ttl)
 
 
-@router.post("/calls", response_model=AppCallView, status_code=status.HTTP_201_CREATED)
+@router.post("/app-calls", response_model=AppCallView, status_code=status.HTTP_201_CREATED)
 def place_call(body: PlaceCall, background: BackgroundTasks, context: TenantContext = Depends(tenant_context)) -> AppCallView:
     """Ring a teammate. A busy callee gets the call recorded as ``busy`` (201, not an error)."""
     require_permission(context, Permission.CALL_USE)
@@ -856,7 +856,7 @@ def place_call(body: PlaceCall, background: BackgroundTasks, context: TenantCont
     return view
 
 
-@router.get("/calls", response_model=AppCallPage)
+@router.get("/app-calls", response_model=AppCallPage)
 def list_calls(
     background: BackgroundTasks,
     limit: int = Query(default=20, ge=1, le=50),
@@ -883,7 +883,7 @@ def list_calls(
     return AppCallPage(items=[view_of(call, context) for call in calls], next_cursor=next_cursor)
 
 
-@router.post("/calls/{call_id}/accept", response_model=AppCallView)
+@router.post("/app-calls/{call_id}/accept", response_model=AppCallView)
 def accept_call(call_id: str, body: AcceptCall, context: TenantContext = Depends(tenant_context)) -> AppCallView:
     """The callee answers on this device; the caller then sends the offer."""
     require_permission(context, Permission.CALL_USE)
@@ -905,7 +905,7 @@ def accept_call(call_id: str, body: AcceptCall, context: TenantContext = Depends
         return view_of(call, context, body.client_id)
 
 
-@router.post("/calls/{call_id}/end", response_model=AppCallView)
+@router.post("/app-calls/{call_id}/end", response_model=AppCallView)
 def end_call(call_id: str, body: EndCall, background: BackgroundTasks, context: TenantContext = Depends(tenant_context)) -> AppCallView:
     """Hang up, decline or report a failure; ending an ended call returns it unchanged."""
     require_permission(context, Permission.CALL_USE)
@@ -929,7 +929,7 @@ def end_call(call_id: str, body: EndCall, background: BackgroundTasks, context: 
     return view
 
 
-@router.post("/calls/{call_id}/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/app-calls/{call_id}/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
 def call_heartbeat(call_id: str, context: TenantContext = Depends(tenant_context)) -> None:
     """Sent every 15 s by a connected device; a call without one for a minute is dropped."""
     require_permission(context, Permission.CALL_USE)
@@ -943,7 +943,7 @@ def call_heartbeat(call_id: str, context: TenantContext = Depends(tenant_context
         store.save(context, call)
 
 
-@router.post("/calls/{call_id}/signals", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/app-calls/{call_id}/signals", status_code=status.HTTP_202_ACCEPTED)
 def send_signal(call_id: str, body: SignalBody, context: TenantContext = Depends(tenant_context)) -> dict[str, str]:
     """An offer (caller), an answer (callee) or ICE candidates, for the other side's device."""
     require_permission(context, Permission.CALL_USE)
@@ -1085,7 +1085,7 @@ def _check_member(context: TenantContext) -> None:
         pass
 
 
-@router.get("/calls/stream")
+@router.get("/app-calls/stream")
 async def call_stream(
     request: Request,
     client_id: str = Query(pattern=CLIENT_ID_PATTERN),
@@ -1103,8 +1103,8 @@ async def call_stream(
     )
 
 
-# Declared after /calls/stream, /calls/config and /calls/ice-servers so those paths win.
-@router.get("/calls/{call_id}", response_model=AppCallView)
+# Declared after /app-calls/stream, /app-calls/config and /app-calls/ice-servers so those paths win.
+@router.get("/app-calls/{call_id}", response_model=AppCallView)
 def get_call(call_id: str, context: TenantContext = Depends(tenant_context)) -> AppCallView:
     require_permission(context, Permission.CALL_USE)
     with open_call_store(context) as store:

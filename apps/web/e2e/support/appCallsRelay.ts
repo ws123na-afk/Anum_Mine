@@ -37,11 +37,11 @@ export class CallRelay {
     };
   }
 
-  /** Routes this page's /api/v1/calls traffic as `me`; `people` are the teammates it can ring. */
+  /** Routes this page's /api/v1/app-calls traffic as `me`; `people` are the teammates it can ring. */
   async attach(page: Page, me: Teammate, people: Teammate[]): Promise<void> {
     const sent = new Map<string, Map<string, string>>();
     const delivered = new Map<string, Set<string>>();
-    await page.route((url) => url.host === 'localhost:8000' && url.pathname.startsWith('/api/v1/calls'), async (route: Route) => {
+    await page.route((url) => url.host === 'localhost:8000' && url.pathname.startsWith('/api/v1/app-calls'), async (route: Route) => {
       const request = route.request();
       const url = new URL(request.url());
       const path = url.pathname;
@@ -49,11 +49,11 @@ export class CallRelay {
       const body = request.postData() ? request.postDataJSON() as Record<string, unknown> : {};
       const json = (data: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
       const mode = this.options.mode ?? 'turn';
-      if (path === '/api/v1/calls/config') {
+      if (path === '/api/v1/app-calls/config') {
         return json({ enabled: mode !== 'off', mode, reason: mode === 'off' ? 'Calls are off on this server until a relay (TURN) server is configured' : null, video_enabled: true, ring_timeout_seconds: 45 });
       }
-      if (path === '/api/v1/calls/ice-servers') return json({ mode, ice_servers: [], expires_at: null, ttl_seconds: null });
-      if (path === '/api/v1/calls' && method === 'POST') {
+      if (path === '/api/v1/app-calls/ice-servers') return json({ mode, ice_servers: [], expires_at: null, ttl_seconds: null });
+      if (path === '/api/v1/app-calls' && method === 'POST') {
         const callee = people.find((p) => p.user_id === body.callee_user_id);
         if (!callee) return json({ error: { code: 'not_found', message: 'This person is not an active member of this workspace', correlation_id: 'c', details: [] } }, 404);
         const call: StoredCall = {
@@ -65,11 +65,11 @@ export class CallRelay {
         this.notify();
         return json(this.view(call, me.user_id, call.callerClient), 201);
       }
-      if (path === '/api/v1/calls' && method === 'GET') {
+      if (path === '/api/v1/app-calls' && method === 'GET') {
         const mine = this.calls.filter((c) => c.caller === me.user_id || c.callee === me.user_id).reverse().map((c) => this.view(c, me.user_id));
         return json({ items: url.searchParams.get('missed') === 'true' ? mine.filter((c) => c.direction === 'incoming' && ['missed', 'cancelled', 'busy'].includes(String(c.outcome))) : mine, next_cursor: null });
       }
-      const match = /^\/api\/v1\/calls\/([^/]+)\/(accept|end|heartbeat|signals)$/.exec(path);
+      const match = /^\/api\/v1\/app-calls\/([^/]+)\/(accept|end|heartbeat|signals)$/.exec(path);
       if (match) {
         const call = this.calls.find((c) => c.id === match[1] && (c.caller === me.user_id || c.callee === me.user_id));
         if (!call) return json({ error: { code: 'not_found', message: 'Call not found', correlation_id: 'c', details: [] } }, 404);
@@ -97,7 +97,7 @@ export class CallRelay {
         this.notify();
         return json(this.view(call, me.user_id, String(body.client_id ?? '')));
       }
-      if (path === '/api/v1/calls/stream') {
+      if (path === '/api/v1/app-calls/stream') {
         const client = url.searchParams.get('client_id') ?? '';
         const states = sent.get(client) ?? new Map<string, string>();
         sent.set(client, states);

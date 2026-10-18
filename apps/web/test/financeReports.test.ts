@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
 import { tabFromHash } from '../src/lib/finance.ts';
-import { REPORTS_HASH, markdownName, needsAction, pct, reportFromHash, reportHash, summaryLine, summaryRows } from '../src/lib/financeReports.ts';
+import { REPORTS_HASH, commentaryNote, markdownName, needsAction, pct, reportFromHash, reportHash, summaryLine, summaryRows } from '../src/lib/financeReports.ts';
 import { setLocale } from '../src/lib/i18n.ts';
 import { financeReportsAr } from '../src/lib/messages/financeReports.ar.ts';
 import { financeReportsEn } from '../src/lib/messages/financeReports.en.ts';
@@ -50,5 +50,15 @@ describe('daily reports', () => {
     }
     setLocale('ar');
     assert.match(summaryRows({})[0].label, /الاستراتيجيات/);
+  });
+
+  test('commentary says why there is no text', () => {
+    const base = { text: null, model: null, label: 'x', created_at: '2026-10-15T14:00:00Z' };
+    assert.equal(commentaryNote(null), null);
+    assert.equal(commentaryNote({ ...base, status: 'ok', reason: null, text: 'Simulated.' }), null);
+    assert.match(commentaryNote({ ...base, status: 'skipped', reason: 'no_model' }) ?? '', /no AI model is set up/);
+    assert.match(commentaryNote({ ...base, status: 'skipped', reason: 'model_budget' }) ?? '', /model budget/);
+    assert.match(commentaryNote({ ...base, status: 'withheld', reason: 'profit_claim' }) ?? '', /withheld/);
+    assert.match(commentaryNote({ ...base, status: 'failed', reason: 'model_unavailable' }) ?? '', /did not answer/);
   });
 });

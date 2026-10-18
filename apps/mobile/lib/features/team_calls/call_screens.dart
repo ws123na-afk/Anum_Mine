@@ -42,12 +42,12 @@ class AppCallOverlay extends StatelessWidget {
         child: ListenableBuilder(
           listenable: controller,
           builder: (context, _) {
-            final s = CallText.of(context);
+            final s = TeamCallText.of(context);
             final notice = controller.notice;
             return Stack(children: [
               child,
-              if (controller.phase != CallPhase.idle)
-                Positioned.fill(child: CallScreen(controller: controller)),
+              if (controller.phase != TeamCallPhase.idle)
+                Positioned.fill(child: TeamCallScreen(controller: controller)),
               if (notice != null)
                 Positioned(
                   left: 16,
@@ -148,33 +148,33 @@ class _RoundButton extends StatelessWidget {
 }
 
 /// Incoming, ringing, connecting, connected (timer) and ended.
-class CallScreen extends StatelessWidget {
-  const CallScreen({required this.controller, super.key});
+class TeamCallScreen extends StatelessWidget {
+  const TeamCallScreen({required this.controller, super.key});
   final AppCallsController controller;
 
-  String _status(CallText s) {
+  String _status(TeamCallText s) {
     final call = controller.call;
     switch (controller.phase) {
-      case CallPhase.preparing:
+      case TeamCallPhase.preparing:
         return s.t('preparing');
-      case CallPhase.ringing:
+      case TeamCallPhase.ringing:
         return s.t('ringing');
-      case CallPhase.incoming:
+      case TeamCallPhase.incoming:
         return s.t('incoming');
-      case CallPhase.connecting:
-      case CallPhase.idle:
+      case TeamCallPhase.connecting:
+      case TeamCallPhase.idle:
         return s.t('connecting');
-      case CallPhase.reconnecting:
+      case TeamCallPhase.reconnecting:
         return s.t('reconnecting');
-      case CallPhase.connected:
+      case TeamCallPhase.connected:
         return formatCallDuration(controller.elapsed);
-      case CallPhase.ended:
+      case TeamCallPhase.ended:
         final word = call?.word;
         return s.t('word.${(word ?? CallWord.completed).name}');
     }
   }
 
-  String? _endDetail(CallText s) {
+  String? _endDetail(TeamCallText s) {
     final call = controller.call;
     if (call == null) return null;
     final name = call.peerName;
@@ -193,7 +193,7 @@ class CallScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = CallText.of(context);
+    final s = TeamCallText.of(context);
     final scheme = Theme.of(context).colorScheme;
     final name = controller.peer?.name ?? controller.call?.peerName ?? '';
     final video = controller.media == CallMediaKind.video;
@@ -203,7 +203,7 @@ class CallScreen extends StatelessWidget {
     const red = Color(0xFFBE123C);
     const green = Color(0xFF15803D);
     final controls = <Widget>[
-      if (phase == CallPhase.incoming) ...[
+      if (phase == TeamCallPhase.incoming) ...[
         _RoundButton(
             icon: Icons.call,
             label: s.t('answer'),
@@ -220,7 +220,7 @@ class CallScreen extends StatelessWidget {
             label: s.t('decline'),
             color: red,
             onPressed: controller.decline),
-      ] else if (phase == CallPhase.ended) ...[
+      ] else if (phase == TeamCallPhase.ended) ...[
         _RoundButton(
             icon: Icons.call,
             label: s.t('callAgain'),
@@ -261,12 +261,12 @@ class CallScreen extends StatelessWidget {
             icon: Icons.call_end,
             label: s.t('hangUp'),
             color: red,
-            onPressed: phase == CallPhase.preparing
+            onPressed: phase == TeamCallPhase.preparing
                 ? null
                 : () => controller.hangUp()),
       ],
     ];
-    final detail = phase == CallPhase.ended ? _endDetail(s) : null;
+    final detail = phase == TeamCallPhase.ended ? _endDetail(s) : null;
     return Material(
       color: scheme.surface,
       child: SafeArea(
@@ -280,7 +280,7 @@ class CallScreen extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     color: scheme.onPrimary)),
           );
-          final media = video && remote != null && phase != CallPhase.ended
+          final media = video && remote != null && phase != TeamCallPhase.ended
               ? AspectRatio(
                   aspectRatio: 3 / 4,
                   child: ClipRRect(
@@ -351,15 +351,15 @@ class CallScreen extends StatelessWidget {
 }
 
 /// Call and Video buttons for one teammate.
-class CallButtons extends StatelessWidget {
-  const CallButtons({required this.person, super.key});
+class TeamCallButtons extends StatelessWidget {
+  const TeamCallButtons({required this.person, super.key});
   final CallPerson person;
 
   @override
   Widget build(BuildContext context) {
     final controller = AppCallsScope.maybeOf(context);
     if (controller == null) return const SizedBox.shrink();
-    final s = CallText.of(context);
+    final s = TeamCallText.of(context);
     final disabled = controller.unavailableKey != null ||
         controller.busy ||
         controller.configPhase == CallConfigPhase.loading;
@@ -382,15 +382,15 @@ class CallButtons extends StatelessWidget {
 }
 
 /// Teammates to call and the recent calls, with the missed filter.
-class CallsScreen extends StatefulWidget {
-  const CallsScreen({required this.controller, super.key});
+class TeamCallsScreen extends StatefulWidget {
+  const TeamCallsScreen({required this.controller, super.key});
   final AppCallsController controller;
 
   @override
-  State<CallsScreen> createState() => _CallsScreenState();
+  State<TeamCallsScreen> createState() => _TeamCallsScreenState();
 }
 
-class _CallsScreenState extends State<CallsScreen> {
+class _TeamCallsScreenState extends State<TeamCallsScreen> {
   List<CallPerson>? _people;
   String? _peopleError;
   List<AppCall> _calls = const [];
@@ -459,7 +459,7 @@ class _CallsScreenState extends State<CallsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final s = CallText.of(context);
+    final s = TeamCallText.of(context);
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -519,7 +519,7 @@ class _CallsScreenState extends State<CallsScreen> {
                               leading: CircleAvatar(
                                   child: Text(_initials(person.name))),
                               title: Text(person.name),
-                              trailing: CallButtons(person: person),
+                              trailing: TeamCallButtons(person: person),
                             ),
                     ]),
               ),
@@ -590,7 +590,7 @@ class _CallTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = CallText.of(context);
+    final s = TeamCallText.of(context);
     final scheme = Theme.of(context).colorScheme;
     final m = MaterialLocalizations.of(context);
     final local = call.createdAt.toLocal();
@@ -616,7 +616,7 @@ class _CallTile extends StatelessWidget {
       title: Text(call.peerName),
       subtitle: Text(
           '${word == null ? s.t('ringing') : s.t('word.${word.name}')} · ${parts.join(' · ')}'),
-      trailing: CallButtons(
+      trailing: TeamCallButtons(
           person: CallPerson(userId: call.peerUserId, name: call.peerName)),
     );
   }

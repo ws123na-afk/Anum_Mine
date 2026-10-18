@@ -17,6 +17,7 @@ from typing import Any, Literal
 from ...schemas import TenantContext, new_id
 from ..store import FinanceStore
 from . import backtest as bt
+from . import load_guard
 from .marketdata import Candle, Instrument, check_series
 from .markets import periods_per_year
 from .records import Agent, StrategyConfig, StrategyRun
@@ -100,7 +101,8 @@ def evaluate(store: FinanceStore, context: TenantContext, strategy: StrategyConf
              actor: Agent | str, now: datetime, costs: bt.Costs | None = None, today: Any = None) -> StrategyRun:
     """Run, store and return one evaluation of this version. SIMULATED."""
     who = Agent(actor)
-    with _one_at_a_time(context):
+    # One per person, then the machine-wide load guard (load_guard.ServerBusy when busy).
+    with _one_at_a_time(context), load_guard.heavy():
         return _evaluate(store, context, strategy, kind=kind, who=who, now=now, costs=costs, today=today)
 
 

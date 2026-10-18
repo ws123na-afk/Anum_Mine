@@ -28,6 +28,7 @@ MUTATING = ("post", "put", "patch", "delete")
 MODULE_PREFIXES = {
     "agents": "/api/v1/agents",
     "automation": "/api/v1/automation",
+    "calls": "/api/v1/calls",
     "business": "/api/v1/business",
     "autonomy": "/api/v1/autonomy",
     "developer": "/api/v1/developer",
@@ -37,7 +38,18 @@ MODULE_PREFIXES = {
     "mail_ai": "/api/v1/mail/ai",
     "whatsapp": "/api/v1/whatsapp",
 }
+_CALL_WEBHOOK = (
+    "The voice provider's signed delivery during a call, not a person's action; call starts, ends, "
+    "stored recordings and opt-outs it causes are audited as call.* records by the system actor."
+)
 EXEMPT: dict[tuple[str, str], str] = {
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/voice"): _CALL_WEBHOOK,
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/dial/{call_id}"): _CALL_WEBHOOK,
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/status"): _CALL_WEBHOOK,
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/status/{call_id}"): _CALL_WEBHOOK,
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/recording/{call_id}"): _CALL_WEBHOOK,
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/ai/{call_id}"): _CALL_WEBHOOK,
+    ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/turn/{call_id}"): _CALL_WEBHOOK,
     ("POST", "/api/v1/automation/schedules/preview"): "Computes the next fire times of a cron expression; stores nothing.",
     ("POST", "/api/v1/developer/resolve"): "Matches a spoken request to a project name; stores nothing.",
     ("POST", "/api/v1/automation/hooks/{tenant_id}/{workspace_id}/{trigger_id}"): (

@@ -23,16 +23,15 @@ then deletes as the application role inside the caller's RLS context. Grant
 
 Expand only: two new tables. The previous release ignores them.
 
-Chained after ``0070_business`` (main's head when merged). The parallel calls branch adds
-``0071_calls``: if that lands first, re-chain ``down_revision`` onto it.
+Chained after ``0072_push_device_language`` (main's head when merged).
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0072_app_calls"
-down_revision = "0070_business"
+revision = "0073_app_calls"
+down_revision = "0072_push_device_language"
 branch_labels = None
 depends_on = None
 

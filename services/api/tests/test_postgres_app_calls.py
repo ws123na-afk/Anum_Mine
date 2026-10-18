@@ -1,4 +1,4 @@
-"""In-app calls in PostgreSQL (migration 0072_app_calls).
+"""In-app calls in PostgreSQL (migration 0073_app_calls).
 
 The API runs as the non-owner ``anum_test_app`` role. ``app_calls`` and
 ``app_call_signals`` are under forced RLS: tenant and workspace isolation, a restrictive
@@ -80,7 +80,7 @@ def _visible(app_session: Callable[..., Iterator[Session]], context: TenantConte
 
 
 def _place(client: TestClient, caller: str = "alice", callee: str = "bob") -> dict:  # type: ignore[type-arg]
-    response = client.post("/api/v1/calls", headers=headers(caller), json={"callee_user_id": callee, "client_id": DEVICE_A})
+    response = client.post("/api/v1/app-calls", headers=headers(caller), json={"callee_user_id": callee, "client_id": DEVICE_A})
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -89,8 +89,8 @@ def test_a_call_and_its_signals_are_visible_to_the_two_participants_only(
     client: TestClient, app_session: Callable[..., Iterator[Session]]
 ) -> None:
     call = _place(client)
-    assert client.post(f"/api/v1/calls/{call['id']}/accept", headers=headers("bob"), json={"client_id": DEVICE_B}).status_code == 200
-    sent = client.post(f"/api/v1/calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
+    assert client.post(f"/api/v1/app-calls/{call['id']}/accept", headers=headers("bob"), json={"client_id": DEVICE_B}).status_code == 200
+    sent = client.post(f"/api/v1/app-calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
     assert sent.status_code == 202, sent.text
     assert _visible(app_session, ctx("alice"), "app_calls") == 1
     assert _visible(app_session, ctx("bob"), "app_calls") == 1
@@ -100,12 +100,12 @@ def test_a_call_and_its_signals_are_visible_to_the_two_participants_only(
     assert _visible(app_session, ctx("carol"), "app_call_signals") == 0
     assert _visible(app_session, ctx("bob", workspace_id=WORKSPACE_A2), "app_calls") == 0
     assert _visible(app_session, ctx("bob", tenant_id=TENANT_B, workspace_id=WORKSPACE_B), "app_calls") == 0
-    assert client.get(f"/api/v1/calls/{call['id']}", headers=headers("carol")).status_code == 404
-    assert client.post(f"/api/v1/calls/{call['id']}/end", headers=headers("carol"), json={}).status_code == 404
+    assert client.get(f"/api/v1/app-calls/{call['id']}", headers=headers("carol")).status_code == 404
+    assert client.post(f"/api/v1/app-calls/{call['id']}/end", headers=headers("carol"), json={}).status_code == 404
     # The offer reaches bob's bound device through the stream's own short session.
     snapshot = read_snapshot(ctx("bob"), DEVICE_B)
     assert [s.kind.value for s in snapshot.signals] == ["offer"]
-    ended = client.post(f"/api/v1/calls/{call['id']}/end", headers=headers("bob"), json={"reason": "hangup"})
+    ended = client.post(f"/api/v1/app-calls/{call['id']}/end", headers=headers("bob"), json={"reason": "hangup"})
     assert ended.json()["outcome"] == "completed"
     assert _visible(app_session, ctx("bob"), "app_call_signals") == 0
 
@@ -117,7 +117,7 @@ def test_a_call_and_its_signals_are_visible_to_the_two_participants_only(
 def test_nobody_rings_a_person_of_another_workspace_or_tenant(
     client: TestClient, app_session: Callable[..., Iterator[Session]], callee: str, tenant_id: str, workspace_id: str
 ) -> None:
-    response = client.post("/api/v1/calls", headers=headers("alice"), json={"callee_user_id": callee, "client_id": DEVICE_A})
+    response = client.post("/api/v1/app-calls", headers=headers("alice"), json={"callee_user_id": callee, "client_id": DEVICE_A})
     assert response.status_code == 404
     assert _visible(app_session, ctx(callee, tenant_id=tenant_id, workspace_id=workspace_id), "app_calls") == 0
     assert _visible(app_session, ctx("alice"), "app_calls") == 0
@@ -145,7 +145,7 @@ def test_the_row_policies_refuse_forged_rows(
     with pytest.raises(DBAPIError):
         forge(ctx("bob"), id="call_forged_3", tenant=TENANT_A, workspace=WORKSPACE_A, caller="alice", callee="bob")
     call = _place(client)
-    client.post(f"/api/v1/calls/{call['id']}/accept", headers=headers("bob"), json={"client_id": DEVICE_B})
+    client.post(f"/api/v1/app-calls/{call['id']}/accept", headers=headers("bob"), json={"client_id": DEVICE_B})
     # A non-participant cannot slip a signal into the call.
     with app_session(ctx("carol")) as session, pytest.raises(DBAPIError):
         session.execute(text("select set_config('anum.user_id', 'carol', true)"))
@@ -166,7 +166,7 @@ def test_the_row_policies_refuse_forged_rows(
 
 def test_busy_is_read_in_the_callees_own_context(client: TestClient) -> None:
     first = _place(client, "carol", "bob")
-    client.post(f"/api/v1/calls/{first['id']}/accept", headers=headers("bob"), json={"client_id": DEVICE_B})
+    client.post(f"/api/v1/app-calls/{first['id']}/accept", headers=headers("bob"), json={"client_id": DEVICE_B})
     busy = _place(client, "alice", "bob")
     assert busy["outcome"] == "busy"
     notes = client.get("/api/v1/notifications", headers=headers("bob")).json()["items"]
@@ -177,8 +177,8 @@ def test_delete_my_data_rewrites_my_side_and_keeps_the_other_persons_history(
     client: TestClient, app_session: Callable[..., Iterator[Session]], database_engine: Engine
 ) -> None:
     call = _place(client)
-    client.post(f"/api/v1/calls/{call['id']}/accept", headers=headers("bob"), json={"client_id": DEVICE_B})
-    client.post(f"/api/v1/calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
+    client.post(f"/api/v1/app-calls/{call['id']}/accept", headers=headers("bob"), json={"client_id": DEVICE_B})
+    client.post(f"/api/v1/app-calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
     exported = client.get("/api/v1/privacy/export", headers=headers("alice")).json()["app_calls"]
     assert [(c["direction"], c["peer_name"]) for c in exported] == [("outgoing", "bob")]
     assert "peer_user_id" not in exported[0]
@@ -187,7 +187,7 @@ def test_delete_my_data_rewrites_my_side_and_keeps_the_other_persons_history(
     assert deleted.json()["deleted"]["app_calls"] == 1 and deleted.json()["deleted"]["app_call_signals"] == 1
     assert _visible(app_session, ctx("alice"), "app_calls") == 0
     assert _visible(app_session, ctx("bob"), "app_call_signals") == 0
-    items = client.get("/api/v1/calls", headers=headers("bob")).json()["items"]
+    items = client.get("/api/v1/app-calls", headers=headers("bob")).json()["items"]
     assert [(i["peer_name"], i["status"], i["outcome"]) for i in items] == [("Deleted user", "ended", "failed")]
     with database_engine.connect() as connection:
         row = connection.execute(text("select caller_user_id, caller_name, caller_client_id from app_calls")).one()
@@ -201,9 +201,9 @@ def test_the_daily_retention_job_discovers_old_calls_as_maintenance(
     from anum_api.voice_retention import main as retention_main
 
     old = _place(client)
-    client.post(f"/api/v1/calls/{old['id']}/end", headers=headers("alice"), json={"reason": "hangup"})
+    client.post(f"/api/v1/app-calls/{old['id']}/end", headers=headers("alice"), json={"reason": "hangup"})
     recent = _place(client, "carol", "bob")
-    client.post(f"/api/v1/calls/{recent['id']}/end", headers=headers("carol"), json={"reason": "hangup"})
+    client.post(f"/api/v1/app-calls/{recent['id']}/end", headers=headers("carol"), json={"reason": "hangup"})
     with database_engine.begin() as connection:
         connection.execute(text("update app_calls set ended_at = now() - interval '400 days' where id = :id"), {"id": old["id"]})
     # The maintenance role reads five columns of ended calls only, never names or devices.

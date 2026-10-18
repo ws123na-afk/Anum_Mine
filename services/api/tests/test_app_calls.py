@@ -92,13 +92,13 @@ def _clean(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 def place(caller: str = "alice", callee: str = "bob", media: str = "audio", device: str = DEVICE_A) -> dict:
-    response = client.post("/api/v1/calls", headers=headers(caller), json={"callee_user_id": callee, "media": media, "client_id": device})
+    response = client.post("/api/v1/app-calls", headers=headers(caller), json={"callee_user_id": callee, "media": media, "client_id": device})
     assert response.status_code == 201, response.text
     return response.json()
 
 
 def accept(call_id: str, user: str = "bob", device: str = DEVICE_B) -> dict:
-    response = client.post(f"/api/v1/calls/{call_id}/accept", headers=headers(user), json={"client_id": device})
+    response = client.post(f"/api/v1/app-calls/{call_id}/accept", headers=headers(user), json={"client_id": device})
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -109,10 +109,10 @@ def accept(call_id: str, user: str = "bob", device: str = DEVICE_B) -> dict:
 def test_calls_are_off_until_a_relay_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "calls_turn_urls", "")
     monkeypatch.setattr(settings, "calls_turn_secret", None)
-    config = client.get("/api/v1/calls/config", headers=headers("alice")).json()
+    config = client.get("/api/v1/app-calls/config", headers=headers("alice")).json()
     assert config["enabled"] is False and config["mode"] == "off" and "TURN" in config["reason"]
-    assert client.get("/api/v1/calls/ice-servers", headers=headers("alice")).status_code == 503
-    refused = client.post("/api/v1/calls", headers=headers("alice"), json={"callee_user_id": "bob", "client_id": DEVICE_A})
+    assert client.get("/api/v1/app-calls/ice-servers", headers=headers("alice")).status_code == 503
+    refused = client.post("/api/v1/app-calls", headers=headers("alice"), json={"callee_user_id": "bob", "client_id": DEVICE_A})
     assert refused.status_code == 503
     assert refused.json()["error"]["code"] == "service_unavailable"
 
@@ -130,15 +130,15 @@ def test_stun_only_mode_is_opt_in_and_says_its_limit(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(settings, "calls_turn_urls", "")
     monkeypatch.setattr(settings, "calls_allow_stun_only", True)
     monkeypatch.setattr(settings, "calls_stun_urls", "stun:stun.example.test:3478")
-    config = client.get("/api/v1/calls/config", headers=headers("alice")).json()
+    config = client.get("/api/v1/app-calls/config", headers=headers("alice")).json()
     assert config["enabled"] is True and config["mode"] == "stun_only" and "strict firewalls" in config["reason"]
-    servers = client.get("/api/v1/calls/ice-servers", headers=headers("alice")).json()
+    servers = client.get("/api/v1/app-calls/ice-servers", headers=headers("alice")).json()
     assert servers["ice_servers"] == [{"urls": ["stun:stun.example.test:3478"], "username": None, "credential": None}]
     assert servers["expires_at"] is None
 
 
 def test_turn_mode_mints_credentials_that_expire(monkeypatch: pytest.MonkeyPatch) -> None:
-    servers = client.get("/api/v1/calls/ice-servers", headers=headers("alice")).json()
+    servers = client.get("/api/v1/app-calls/ice-servers", headers=headers("alice")).json()
     assert servers["mode"] == "turn" and servers["ttl_seconds"] == settings.calls_turn_ttl_seconds
     stun, turn = servers["ice_servers"]
     assert stun["urls"] == ["stun:turn.example.test:3478"] and stun["credential"] is None
@@ -161,7 +161,7 @@ def test_turn_mode_mints_credentials_that_expire(monkeypatch: pytest.MonkeyPatch
 
 
 def test_the_secret_never_appears_in_any_answer() -> None:
-    for path in ("/api/v1/calls/config", "/api/v1/calls/ice-servers"):
+    for path in ("/api/v1/app-calls/config", "/api/v1/app-calls/ice-servers"):
         assert SECRET not in client.get(path, headers=headers("alice")).text
 
 
@@ -170,7 +170,7 @@ def test_the_secret_never_appears_in_any_answer() -> None:
 
 @pytest.mark.parametrize("callee", ["dave", "erin", "nobody"])
 def test_only_active_members_of_the_same_workspace_can_be_rung(callee: str) -> None:
-    response = client.post("/api/v1/calls", headers=headers("alice"), json={"callee_user_id": callee, "client_id": DEVICE_A})
+    response = client.post("/api/v1/app-calls", headers=headers("alice"), json={"callee_user_id": callee, "client_id": DEVICE_A})
     assert response.status_code == 404
     assert response.json()["error"]["message"] == "This person is not an active member of this workspace"
     assert memory_call_store.live(ctx("alice")) == []
@@ -178,28 +178,28 @@ def test_only_active_members_of_the_same_workspace_can_be_rung(callee: str) -> N
 
 def test_a_deactivated_member_cannot_be_rung() -> None:
     member("bob", active=False)
-    response = client.post("/api/v1/calls", headers=headers("alice"), json={"callee_user_id": "bob", "client_id": DEVICE_A})
+    response = client.post("/api/v1/app-calls", headers=headers("alice"), json={"callee_user_id": "bob", "client_id": DEVICE_A})
     assert response.status_code == 404
 
 
 def test_nobody_calls_themselves_and_viewers_may_call() -> None:
-    response = client.post("/api/v1/calls", headers=headers("alice"), json={"callee_user_id": "alice", "client_id": DEVICE_A})
+    response = client.post("/api/v1/app-calls", headers=headers("alice"), json={"callee_user_id": "alice", "client_id": DEVICE_A})
     assert response.status_code == 422
     call = place("carol", "alice")
     assert call["direction"] == "outgoing" and call["peer_user_id"] == "alice"
 
 
 def test_a_device_id_must_look_like_one() -> None:
-    response = client.post("/api/v1/calls", headers=headers("alice"), json={"callee_user_id": "bob", "client_id": "x"})
+    response = client.post("/api/v1/app-calls", headers=headers("alice"), json={"callee_user_id": "bob", "client_id": "x"})
     assert response.status_code == 422
 
 
 def test_the_callee_of_another_workspace_sees_nothing() -> None:
     call = place()
-    assert client.get(f"/api/v1/calls/{call['id']}", headers=headers("bob", workspace=OTHER_WORKSPACE)).status_code == 404
-    assert client.get(f"/api/v1/calls/{call['id']}", headers=headers("carol")).status_code == 404
-    assert client.post(f"/api/v1/calls/{call['id']}/accept", headers=headers("carol"), json={"client_id": DEVICE_B}).status_code == 404
-    assert client.get("/api/v1/calls", headers=headers("carol")).json()["items"] == []
+    assert client.get(f"/api/v1/app-calls/{call['id']}", headers=headers("bob", workspace=OTHER_WORKSPACE)).status_code == 404
+    assert client.get(f"/api/v1/app-calls/{call['id']}", headers=headers("carol")).status_code == 404
+    assert client.post(f"/api/v1/app-calls/{call['id']}/accept", headers=headers("carol"), json={"client_id": DEVICE_B}).status_code == 404
+    assert client.get("/api/v1/app-calls", headers=headers("carol")).json()["items"] == []
 
 
 # --------------------------------------------------------------------------- lifecycle
@@ -215,18 +215,18 @@ def test_ring_accept_signal_and_hang_up() -> None:
         snapshot = read_snapshot(ctx("bob"), device)
         assert [c.id for c in snapshot.calls] == [call["id"]]
     # No signal before the call is answered.
-    early = client.post(f"/api/v1/calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
+    early = client.post(f"/api/v1/app-calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
     assert early.status_code == 409
     accepted = accept(call["id"])
     assert accepted["status"] == "accepted" and accepted["on_this_device"] is True
     # The offer comes from the caller only, the answer from the callee only.
-    assert client.post(f"/api/v1/calls/{call['id']}/signals", headers=headers("bob"), json={"kind": "offer", "sdp": OFFER}).status_code == 409
-    assert client.post(f"/api/v1/calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "answer", "sdp": OFFER}).status_code == 409
-    sent = client.post(f"/api/v1/calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
+    assert client.post(f"/api/v1/app-calls/{call['id']}/signals", headers=headers("bob"), json={"kind": "offer", "sdp": OFFER}).status_code == 409
+    assert client.post(f"/api/v1/app-calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "answer", "sdp": OFFER}).status_code == 409
+    sent = client.post(f"/api/v1/app-calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
     assert sent.status_code == 202
     ice = {"kind": "ice", "candidates": [{"candidate": "candidate:1 1 udp 1 127.0.0.1 9 typ host", "sdpMid": "0", "sdpMLineIndex": 0}]}
-    assert client.post(f"/api/v1/calls/{call['id']}/signals", headers=headers("bob"), json=ice).status_code == 202
-    assert client.post(f"/api/v1/calls/{call['id']}/signals", headers=headers("bob"), json={"kind": "answer", "sdp": OFFER}).status_code == 202
+    assert client.post(f"/api/v1/app-calls/{call['id']}/signals", headers=headers("bob"), json=ice).status_code == 202
+    assert client.post(f"/api/v1/app-calls/{call['id']}/signals", headers=headers("bob"), json={"kind": "answer", "sdp": OFFER}).status_code == 202
     # Signals reach the bound device only, never the other phone or a non-participant.
     bob = read_snapshot(ctx("bob"), DEVICE_B)
     assert [s.kind.value for s in bob.signals] == ["offer"]
@@ -237,15 +237,15 @@ def test_ring_accept_signal_and_hang_up() -> None:
     # The other phone learns the call was answered elsewhere.
     other = app_calls.view_of(read_snapshot(ctx("bob"), DEVICE_B2).calls[0], ctx("bob"), DEVICE_B2)
     assert other.answered_elsewhere is True and other.on_this_device is False
-    assert client.post(f"/api/v1/calls/{call['id']}/heartbeat", headers=headers("bob")).status_code == 204
-    ended = client.post(f"/api/v1/calls/{call['id']}/end", headers=headers("alice"), json={"reason": "hangup"}).json()
+    assert client.post(f"/api/v1/app-calls/{call['id']}/heartbeat", headers=headers("bob")).status_code == 204
+    ended = client.post(f"/api/v1/app-calls/{call['id']}/end", headers=headers("alice"), json={"reason": "hangup"}).json()
     assert ended["status"] == "ended" and ended["outcome"] == "completed" and ended["duration_seconds"] >= 0
     # Signals are deleted with the end; the record stays for both.
     assert memory_call_store.signals_for(ctx("alice"), DEVICE_A, [call["id"]]) == []
-    page = client.get("/api/v1/calls", headers=headers("bob")).json()
+    page = client.get("/api/v1/app-calls", headers=headers("bob")).json()
     assert page["items"][0]["direction"] == "incoming" and page["items"][0]["outcome"] == "completed"
     # Ending twice is harmless.
-    again = client.post(f"/api/v1/calls/{call['id']}/end", headers=headers("bob"), json={"reason": "hangup"})
+    again = client.post(f"/api/v1/app-calls/{call['id']}/end", headers=headers("bob"), json={"reason": "hangup"})
     assert again.status_code == 200 and again.json()["outcome"] == "completed"
     actions = [record.action for record in store.audit_records]
     assert {"app_call.placed", "app_call.answered", "app_call.ended"} <= set(actions)
@@ -255,27 +255,27 @@ def test_ring_accept_signal_and_hang_up() -> None:
 
 def test_only_the_callee_answers_and_only_while_ringing() -> None:
     call = place()
-    refused = client.post(f"/api/v1/calls/{call['id']}/accept", headers=headers("alice"), json={"client_id": DEVICE_A})
+    refused = client.post(f"/api/v1/app-calls/{call['id']}/accept", headers=headers("alice"), json={"client_id": DEVICE_A})
     assert refused.status_code == 403
     accept(call["id"])
-    second = client.post(f"/api/v1/calls/{call['id']}/accept", headers=headers("bob"), json={"client_id": DEVICE_B2})
+    second = client.post(f"/api/v1/app-calls/{call['id']}/accept", headers=headers("bob"), json={"client_id": DEVICE_B2})
     assert second.status_code == 409
 
 
 def test_decline_and_cancel_and_the_missed_call_notification() -> None:
     declined = place()
-    result = client.post(f"/api/v1/calls/{declined['id']}/end", headers=headers("bob"), json={"reason": "decline"}).json()
+    result = client.post(f"/api/v1/app-calls/{declined['id']}/end", headers=headers("bob"), json={"reason": "decline"}).json()
     assert result["outcome"] == "declined"
     cancelled = place()
-    result = client.post(f"/api/v1/calls/{cancelled['id']}/end", headers=headers("alice"), json={"reason": "hangup"}).json()
+    result = client.post(f"/api/v1/app-calls/{cancelled['id']}/end", headers=headers("alice"), json={"reason": "hangup"}).json()
     assert result["outcome"] == "cancelled"
     notifications = client.get("/api/v1/notifications", headers=headers("bob")).json()["items"]
     assert [(n["kind"], n["title"]) for n in notifications] == [("missed_call", "Missed call")]
     assert "voice call" in notifications[0]["body"]
-    missed = client.get("/api/v1/calls?missed=true", headers=headers("bob")).json()["items"]
+    missed = client.get("/api/v1/app-calls?missed=true", headers=headers("bob")).json()["items"]
     assert [item["id"] for item in missed] == [cancelled["id"]]
     # The caller's own list has both; alice gets no missed-call notification.
-    assert len(client.get("/api/v1/calls", headers=headers("alice")).json()["items"]) == 2
+    assert len(client.get("/api/v1/app-calls", headers=headers("alice")).json()["items"]) == 2
     assert client.get("/api/v1/notifications", headers=headers("alice")).json()["items"] == []
 
 
@@ -287,7 +287,7 @@ def test_a_busy_callee_is_recorded_not_rung() -> None:
     ringing = [e for e in store.events if e.type == CanonicalEventName.APP_CALL_RINGING.value]
     assert [e.subject for e in ringing] == [first["id"]]
     # And the caller of a live call cannot start a second one.
-    refused = client.post("/api/v1/calls", headers=headers("carol"), json={"callee_user_id": "alice", "client_id": DEVICE_A})
+    refused = client.post("/api/v1/app-calls", headers=headers("carol"), json={"callee_user_id": "alice", "client_id": DEVICE_A})
     assert refused.status_code == 409
 
 
@@ -297,7 +297,7 @@ def test_an_unanswered_ring_becomes_missed_on_the_next_read() -> None:
     with open_call_unit(ctx("bob")) as unit:
         settled = settle_stale(unit, now=later)
     assert [c.outcome.value for c in settled if c.outcome] == ["missed"]
-    view = client.get(f"/api/v1/calls/{call['id']}", headers=headers("alice")).json()
+    view = client.get(f"/api/v1/app-calls/{call['id']}", headers=headers("alice")).json()
     assert view["outcome"] == "missed" and view["ended_at"] == view["ring_expires_at"]
     kinds = [n["kind"] for n in client.get("/api/v1/notifications", headers=headers("bob")).json()["items"]]
     assert kinds == ["missed_call"]
@@ -310,20 +310,20 @@ def test_a_connected_call_without_heartbeats_is_dropped() -> None:
     with open_call_unit(ctx("alice")) as unit:
         settled = settle_stale(unit, now=later)
     assert [c.outcome.value for c in settled if c.outcome] == ["dropped"]
-    assert client.post(f"/api/v1/calls/{call['id']}/heartbeat", headers=headers("bob")).status_code == 409
+    assert client.post(f"/api/v1/app-calls/{call['id']}/heartbeat", headers=headers("bob")).status_code == 409
 
 
 def test_a_device_failure_is_recorded_as_failed() -> None:
     call = place()
     accept(call["id"])
-    result = client.post(f"/api/v1/calls/{call['id']}/end", headers=headers("bob"), json={"reason": "failed"}).json()
+    result = client.post(f"/api/v1/app-calls/{call['id']}/end", headers=headers("bob"), json={"reason": "failed"}).json()
     assert result["outcome"] == "failed"
 
 
 def test_signal_shapes_are_checked() -> None:
     call = place()
     accept(call["id"])
-    url = f"/api/v1/calls/{call['id']}/signals"
+    url = f"/api/v1/app-calls/{call['id']}/signals"
     assert client.post(url, headers=headers("alice"), json={"kind": "offer"}).status_code == 422
     assert client.post(url, headers=headers("alice"), json={"kind": "offer", "sdp": "not sdp"}).status_code == 422
     assert client.post(url, headers=headers("alice"), json={"kind": "ice", "sdp": OFFER}).status_code == 422
@@ -337,12 +337,12 @@ def test_history_pages_with_a_cursor() -> None:
     for _ in range(3):
         call = place()
         ids.append(call["id"])
-        client.post(f"/api/v1/calls/{call['id']}/end", headers=headers("alice"), json={"reason": "hangup"})
-    first = client.get("/api/v1/calls?limit=2", headers=headers("alice")).json()
+        client.post(f"/api/v1/app-calls/{call['id']}/end", headers=headers("alice"), json={"reason": "hangup"})
+    first = client.get("/api/v1/app-calls?limit=2", headers=headers("alice")).json()
     assert len(first["items"]) == 2 and first["next_cursor"]
-    second = client.get("/api/v1/calls", params={"limit": 2, "cursor": first["next_cursor"]}, headers=headers("alice")).json()
+    second = client.get("/api/v1/app-calls", params={"limit": 2, "cursor": first["next_cursor"]}, headers=headers("alice")).json()
     assert [i["id"] for i in first["items"] + second["items"]] == list(reversed(ids)) and second["next_cursor"] is None
-    assert client.get("/api/v1/calls?cursor=garbage|x", headers=headers("alice")).status_code == 422
+    assert client.get("/api/v1/app-calls?cursor=garbage|x", headers=headers("alice")).status_code == 422
 
 
 # --------------------------------------------------------------------------- stream
@@ -369,7 +369,7 @@ def test_the_stream_sends_this_devices_calls_and_signals() -> None:
     assert [(name, data["status"], data["direction"]) for name, data in incoming] == [("call", "ringing", "incoming")]
     assert incoming[0][1]["peer_name"] == "alice"
     accept(call["id"])
-    client.post(f"/api/v1/calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
+    client.post(f"/api/v1/app-calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
     bob = _collect("bob", DEVICE_B)
     assert [name for name, _ in bob] == ["call", "signal"]
     assert bob[1][1]["kind"] == "offer" and bob[1][1]["payload"]["sdp"] == OFFER
@@ -378,8 +378,8 @@ def test_the_stream_sends_this_devices_calls_and_signals() -> None:
 
 
 def test_the_stream_route_needs_a_device_id_and_a_member() -> None:
-    assert client.get("/api/v1/calls/stream", headers=headers("alice")).status_code == 422
-    response = client.get("/api/v1/calls/stream", params={"client_id": DEVICE_A, "follow": "false"}, headers=headers("alice"))
+    assert client.get("/api/v1/app-calls/stream", headers=headers("alice")).status_code == 422
+    response = client.get("/api/v1/app-calls/stream", params={"client_id": DEVICE_A, "follow": "false"}, headers=headers("alice"))
     assert response.status_code == 200 and response.headers["content-type"].startswith("text/event-stream")
     assert response.text.startswith("retry: 1000")
 
@@ -406,7 +406,7 @@ def test_ringing_and_missed_calls_become_call_pushes() -> None:
 def test_download_my_data_lists_my_calls_without_the_other_persons_ids() -> None:
     call = place(media="video")
     accept(call["id"])
-    client.post(f"/api/v1/calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
+    client.post(f"/api/v1/app-calls/{call['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
     summary = client.get("/api/v1/privacy", headers=headers("alice")).json()["private"]
     assert summary["app_calls"] == 1 and summary["app_call_signals"] == 1
     export = client.get("/api/v1/privacy/export", headers=headers("alice")).json()["app_calls"]
@@ -420,16 +420,16 @@ def test_download_my_data_lists_my_calls_without_the_other_persons_ids() -> None
 def test_delete_my_data_keeps_the_other_side_as_deleted_user() -> None:
     first = place()
     accept(first["id"])
-    client.post(f"/api/v1/calls/{first['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
+    client.post(f"/api/v1/app-calls/{first['id']}/signals", headers=headers("alice"), json={"kind": "offer", "sdp": OFFER})
     second = place("carol", "alice")
     deleted = client.post("/api/v1/privacy/delete", headers=headers("alice"), json={"confirm": "DELETE MY DATA"})
     assert deleted.status_code == 200, deleted.text
     assert deleted.json()["deleted"]["app_calls"] == 2
     # Alice sees nothing; her signals are gone.
-    assert client.get("/api/v1/calls", headers=headers("alice")).json()["items"] == []
+    assert client.get("/api/v1/app-calls", headers=headers("alice")).json()["items"] == []
     assert memory_call_store.count_signals(ctx("bob")) == 0
     # Bob and Carol keep their calls, with Alice shown as a deleted user and no trace of her id.
-    items = client.get("/api/v1/calls", headers=headers("bob")).json()["items"] + client.get("/api/v1/calls", headers=headers("carol")).json()["items"]
+    items = client.get("/api/v1/app-calls", headers=headers("bob")).json()["items"] + client.get("/api/v1/app-calls", headers=headers("carol")).json()["items"]
     assert {item["id"] for item in items} == {first["id"], second["id"]}
     assert all(item["peer_name"] == "Deleted user" and item["peer_user_id"].startswith("deleted:") for item in items)
     assert all(item["status"] == "ended" for item in items)

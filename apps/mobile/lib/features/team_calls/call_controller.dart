@@ -12,7 +12,7 @@ import 'call_repository.dart';
 
 enum CallConfigPhase { loading, ready, denied, error }
 
-enum CallPhase {
+enum TeamCallPhase {
   idle,
   preparing,
   ringing,
@@ -23,7 +23,7 @@ enum CallPhase {
   ended
 }
 
-/// A message for the person; [key] is a [CallText] key.
+/// A message for the person; [key] is a [TeamCallText] key.
 class CallNotice {
   const CallNotice(this.key, [this.values = const {}]);
   final String key;
@@ -51,7 +51,7 @@ class AppCallsController extends ChangeNotifier {
   /// The signed-in person, left out of the People list.
   String? selfUserId;
 
-  CallPhase phase = CallPhase.idle;
+  TeamCallPhase phase = TeamCallPhase.idle;
   AppCall? call;
   CallPerson? peer;
   CallMediaKind media = CallMediaKind.audio;
@@ -81,7 +81,7 @@ class AppCallsController extends ChangeNotifier {
     return seconds < 0 ? 0 : seconds;
   }
 
-  /// Why calls cannot be placed now, as a [CallText] key, or null.
+  /// Why calls cannot be placed now, as a [TeamCallText] key, or null.
   String? get unavailableKey {
     switch (configPhase) {
       case CallConfigPhase.loading:
@@ -97,7 +97,7 @@ class AppCallsController extends ChangeNotifier {
     }
   }
 
-  bool get busy => phase != CallPhase.idle && phase != CallPhase.ended;
+  bool get busy => phase != TeamCallPhase.idle && phase != TeamCallPhase.ended;
 
   /// Signed in: read the server's call mode and, when calls are on, listen.
   Future<void> start() async {
@@ -161,7 +161,7 @@ class AppCallsController extends ChangeNotifier {
         if (current != null &&
             current.id == signal.callId &&
             media != null &&
-            phase != CallPhase.incoming) {
+            phase != TeamCallPhase.incoming) {
           unawaited(media
               .handle(signal)
               .catchError((Object _) => hangUp(reason: 'failed')));
@@ -174,7 +174,7 @@ class AppCallsController extends ChangeNotifier {
   void _onCall(AppCall update) {
     final current = call;
     if (current != null && current.id == update.id) {
-      if (phase == CallPhase.incoming) {
+      if (phase == TeamCallPhase.incoming) {
         if (update.status != CallStatus.ringing || update.answeredElsewhere) {
           _reset();
           if (update.answeredElsewhere) {
@@ -194,7 +194,7 @@ class AppCallsController extends ChangeNotifier {
           update.status == CallStatus.accepted &&
           !_offered) {
         _offered = true;
-        phase = CallPhase.connecting;
+        phase = TeamCallPhase.connecting;
         unawaited(session
             ?.offer()
             .catchError((Object _) => hangUp(reason: 'failed')));
@@ -214,7 +214,7 @@ class AppCallsController extends ChangeNotifier {
       call = update;
       peer = CallPerson(userId: update.peerUserId, name: update.peerName);
       media = update.media;
-      phase = CallPhase.incoming;
+      phase = TeamCallPhase.incoming;
       notice = null;
       notifyListeners();
     } else if (update.status == CallStatus.ended) {
@@ -228,12 +228,12 @@ class AppCallsController extends ChangeNotifier {
   void _linkChanged(CallLinkState state) {
     switch (state) {
       case CallLinkState.connecting:
-        if (phase != CallPhase.ringing) phase = CallPhase.connecting;
+        if (phase != TeamCallPhase.ringing) phase = TeamCallPhase.connecting;
       case CallLinkState.connected:
-        phase = CallPhase.connected;
+        phase = TeamCallPhase.connected;
         _startHeartbeats();
       case CallLinkState.reconnecting:
-        phase = CallPhase.reconnecting;
+        phase = TeamCallPhase.reconnecting;
       case CallLinkState.failed:
         unawaited(hangUp(reason: 'failed'));
         return;
@@ -267,7 +267,7 @@ class AppCallsController extends ChangeNotifier {
     peer = person;
     media = video ? CallMediaKind.video : CallMediaKind.audio;
     camera = video;
-    phase = CallPhase.preparing;
+    phase = TeamCallPhase.preparing;
     notice = null;
     call = null;
     notifyListeners();
@@ -292,7 +292,7 @@ class AppCallsController extends ChangeNotifier {
       }
       session = media0;
       call = placed;
-      phase = CallPhase.ringing;
+      phase = TeamCallPhase.ringing;
       _offered = false;
       revision += 1;
       notifyListeners();
@@ -318,8 +318,8 @@ class AppCallsController extends ChangeNotifier {
 
   Future<void> answer({bool video = false}) async {
     final ringing = call;
-    if (phase != CallPhase.incoming || ringing == null) return;
-    phase = CallPhase.connecting;
+    if (phase != TeamCallPhase.incoming || ringing == null) return;
+    phase = TeamCallPhase.connecting;
     camera = video && ringing.video;
     notifyListeners();
     final media0 = mediaFactory();
@@ -362,7 +362,7 @@ class AppCallsController extends ChangeNotifier {
 
   Future<void> decline() async {
     final ringing = call;
-    if (phase != CallPhase.incoming || ringing == null) return;
+    if (phase != TeamCallPhase.incoming || ringing == null) return;
     _reset();
     notifyListeners();
     try {
@@ -377,7 +377,7 @@ class AppCallsController extends ChangeNotifier {
   Future<void> hangUp({String reason = 'hangup'}) async {
     final current = call;
     if (current == null) {
-      if (phase == CallPhase.preparing) return;
+      if (phase == TeamCallPhase.preparing) return;
       _reset();
       notifyListeners();
       return;
@@ -418,7 +418,7 @@ class AppCallsController extends ChangeNotifier {
   }
 
   void dismiss() {
-    if (phase == CallPhase.ended) _reset();
+    if (phase == TeamCallPhase.ended) _reset();
     notice = null;
     notifyListeners();
   }
@@ -435,7 +435,7 @@ class AppCallsController extends ChangeNotifier {
     unawaited(media0?.close());
     call = ended;
     peer ??= CallPerson(userId: ended.peerUserId, name: ended.peerName);
-    phase = CallPhase.ended;
+    phase = TeamCallPhase.ended;
     revision += 1;
     notifyListeners();
   }
@@ -454,7 +454,7 @@ class AppCallsController extends ChangeNotifier {
     unawaited(media0?.close());
     call = null;
     peer = null;
-    phase = CallPhase.idle;
+    phase = TeamCallPhase.idle;
     muted = false;
     speaker = true;
     _offered = false;

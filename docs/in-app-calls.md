@@ -2,15 +2,15 @@
 
 Free voice and video calls between people of the same ANUM workspace, on the web and in the Flutter app. Media goes peer to peer over WebRTC; ANUM's API only rings, carries the call setup messages and keeps a small record of the call. No paid provider is involved: the relay for difficult networks is a self-hosted coturn on the owner's VM.
 
-This is not the phone dialer or provider calling (those are a separate feature with their own call log) and not the voice assistant ([Voice](voice.md#call-mode)).
+This is not the phone dialer or provider calling ([Phone calls](calls.md), under `/api/v1/calls` with its own call log) and not the voice assistant ([Voice](voice.md#call-mode)).
 
 ## What a person can do
 
-- **Call a teammate.** Web: Team, People, then **Call** or **Video** next to a person. Flutter: Settings or the menu, Team work, **Calls**, People. Every active member of the workspace can call and be called, viewers included.
+- **Call a teammate.** Web: Team, People, then **Call** or **Video** next to a person. Flutter: Settings or the menu, Team work, **Team calls**, People. Every active member of the workspace can call and be called, viewers included.
 - **Answer or decline.** An incoming call shows the caller's name, voice or video, and **Answer**, **Answer with video** (video calls) and **Decline**, above whatever screen is open. Every device of the person rings; the one that answers takes the call and the others stop ("You answered this call on another device").
 - **During the call:** the timer, **Mute**, **Speaker** (web: the other person's audio on or off; phone: loudspeaker or earpiece), **Turn camera off/on** (video calls) and **Hang up**. On the web the call can be minimised to a small bar while you keep working.
 - **After the call:** what happened ("Call ended, call lasted 2:10", "Ahmed declined the call", "No answer", "On another call", "Could not connect", "Call dropped") with **Call again**.
-- **Recent and missed calls.** Web: Team, **Calls** (All or Missed, Load older, Call back). Flutter: Calls, Recent. A missed call also leaves an in-app notification ("Missed call") and, with phone push on, a push.
+- **Recent and missed calls.** Web: Team, **Team calls** (All or Missed, Load older, Call back). Flutter: Team calls, Recent. A missed call also leaves an in-app notification ("Missed call") and, with phone push on, a push.
 
 Every state has its message: calls off on the server (and who can turn them on), a refused microphone or camera (and how to allow it), no device, the device offline, a call that could not connect or dropped, and a person already in another call. English and Arabic, right to left in Arabic.
 
@@ -20,14 +20,14 @@ Both people must be active members of the request's workspace (and so of the sam
 
 ## How a call works
 
-1. `POST /api/v1/calls {callee_user_id, media: audio|video, client_id}` creates the call as `ringing` and records the `app_call.ringing` event, which rings the callee's phones through push. If the callee is already in a call, the call is recorded as `busy` and nobody is rung. A caller already in a call gets 409.
-2. Each open web tab and each running app keeps one **call stream**: `GET /api/v1/calls/stream?client_id=<device id>` (server-sent events). It sends `call` events (a call's current state, as this person sees it) and `signal` events (setup messages for this device). On every connection it sends the calls that are ringing or in progress, so a phone opened from the push shows the incoming screen at once.
-3. The callee's device answers: `POST /api/v1/calls/{id}/accept {client_id}` binds that device to the call.
-4. The caller's device then sends the WebRTC offer, the callee's device the answer, and both their ICE candidates in small batches: `POST /api/v1/calls/{id}/signals {kind: offer|answer, sdp}` or `{kind: ice, candidates: [...]}`. Each signal is addressed to the other side's bound device only. Only the caller sends the offer and only the callee the answer (409 otherwise); a signal before the call is answered is refused.
-5. While connected, each device sends `POST /api/v1/calls/{id}/heartbeat` every 15 seconds.
-6. `POST /api/v1/calls/{id}/end {reason: hangup|decline|failed|busy}` ends it. Ending an ended call returns it unchanged.
+1. `POST /api/v1/app-calls {callee_user_id, media: audio|video, client_id}` creates the call as `ringing` and records the `app_call.ringing` event, which rings the callee's phones through push. If the callee is already in a call, the call is recorded as `busy` and nobody is rung. A caller already in a call gets 409.
+2. Each open web tab and each running app keeps one **call stream**: `GET /api/v1/app-calls/stream?client_id=<device id>` (server-sent events). It sends `call` events (a call's current state, as this person sees it) and `signal` events (setup messages for this device). On every connection it sends the calls that are ringing or in progress, so a phone opened from the push shows the incoming screen at once.
+3. The callee's device answers: `POST /api/v1/app-calls/{id}/accept {client_id}` binds that device to the call.
+4. The caller's device then sends the WebRTC offer, the callee's device the answer, and both their ICE candidates in small batches: `POST /api/v1/app-calls/{id}/signals {kind: offer|answer, sdp}` or `{kind: ice, candidates: [...]}`. Each signal is addressed to the other side's bound device only. Only the caller sends the offer and only the callee the answer (409 otherwise); a signal before the call is answered is refused.
+5. While connected, each device sends `POST /api/v1/app-calls/{id}/heartbeat` every 15 seconds.
+6. `POST /api/v1/app-calls/{id}/end {reason: hangup|decline|failed|busy}` ends it. Ending an ended call returns it unchanged.
 
-Other routes: `GET /api/v1/calls/config` (whether calls work here and how), `GET /api/v1/calls/ice-servers`, `GET /api/v1/calls?limit=&cursor=&missed=` (the caller's own calls, newest first) and `GET /api/v1/calls/{id}`.
+All routes are under `/api/v1/app-calls` (the phone calls feature owns `/api/v1/calls`). Other routes: `GET /api/v1/app-calls/config` (whether calls work here and how), `GET /api/v1/app-calls/ice-servers`, `GET /api/v1/app-calls?limit=&cursor=&missed=` (the caller's own calls, newest first) and `GET /api/v1/app-calls/{id}`.
 
 ### Outcomes
 
@@ -51,7 +51,7 @@ The workspace event stream only sees `app_call.ringing` (the call id and the per
 
 ## Storage
 
-Migration `0072_app_calls` (expand only: two new tables):
+Migration `0073_app_calls` (expand only: two new tables):
 
 - `app_calls`: caller and callee (user ids and their display names at the time of the call), the device bound on each side, audio or video, the status (`ringing`, `accepted`, `ended`), the outcome, who ended it, the times (created, answered, ended, last heartbeat) and the duration in seconds. Checks: two different people, known values only, an outcome exactly when ended.
 - `app_call_signals`: the offers, answers and ICE batches of a call in progress, each with its sender, recipient and recipient device, at most 40 kB each. Deleted when the call ends (and with the call).
@@ -60,7 +60,7 @@ Both tables have forced RLS: `tenant_isolation_*` on `anum.tenant_id` and `anum.
 
 The audit log records `app_call.placed`, `app_call.answered` and `app_call.ended` with the actor, the call id, audio or video, the outcome and the duration; it never names the other participant. Calls that ended more than `ANUM_CALLS_RETENTION_DAYS` (365) ago are deleted, with their signals, by the daily retention job (`python -m anum_api.voice_retention`, reported under `app_calls`): it discovers them as `anum_maintenance` and deletes each as the application role inside the caller's RLS context. A participant placing a new call also purges their own old calls.
 
-**Renumbering.** `0072_app_calls` is chained on `0070_business` (main's head). The parallel calls branch adds `0071_calls`; whichever lands second re-chains its `down_revision` onto the other (the migration test reads `down_revision` from the file).
+**Migration chain.** `0073_app_calls` follows `0072_push_device_language` (main's head after the phone calls feature, `0071_calls`, and the finance push language change merged). A branch landing first with the same number would need this re-chained (the migration test reads `down_revision` from the file).
 
 ### Privacy
 
@@ -75,7 +75,7 @@ A separate branch adds a call log with an entry kind `in_app`. Once both are mer
 
 ## Relay (TURN) and STUN
 
-WebRTC connects directly when it can. Behind strict NATs and firewalls (many office and some mobile networks) it needs a TURN relay. ANUM uses coturn's REST credential scheme (`use-auth-secret`): `GET /api/v1/calls/ice-servers` mints, per request, a username `<expiry unix time>:<random id>` and a password, the base64 HMAC-SHA1 of the username under the shared secret. coturn checks the HMAC and refuses the username after its expiry. The id is random for every issue and nothing maps it back, so coturn's logs name nobody. Credentials last `ANUM_CALLS_TURN_TTL_SECONDS` (default 7200, 300 to 86400): a client fetches fresh ones for every call, and an allocation cannot be refreshed after expiry, so a single relayed call is limited to that time.
+WebRTC connects directly when it can. Behind strict NATs and firewalls (many office and some mobile networks) it needs a TURN relay. ANUM uses coturn's REST credential scheme (`use-auth-secret`): `GET /api/v1/app-calls/ice-servers` mints, per request, a username `<expiry unix time>:<random id>` and a password, the base64 HMAC-SHA1 of the username under the shared secret. coturn checks the HMAC and refuses the username after its expiry. The id is random for every issue and nothing maps it back, so coturn's logs name nobody. Credentials last `ANUM_CALLS_TURN_TTL_SECONDS` (default 7200, 300 to 86400): a client fetches fresh ones for every call, and an allocation cannot be refreshed after expiry, so a single relayed call is limited to that time.
 
 | Setting | Meaning |
 | --- | --- |
@@ -85,10 +85,10 @@ WebRTC connects directly when it can. Behind strict NATs and firewalls (many off
 | `ANUM_CALLS_ALLOW_STUN_ONLY` | `true` turns calls on without a relay. |
 | `ANUM_CALLS_TURN_TTL_SECONDS`, `ANUM_CALLS_RING_TIMEOUT_SECONDS`, `ANUM_CALLS_VIDEO_ENABLED`, `ANUM_CALLS_POLL_SECONDS`, `ANUM_CALLS_ACTIVE_POLL_SECONDS`, `ANUM_CALLS_RETENTION_DAYS` | Limits described above. |
 
-Modes (`GET /api/v1/calls/config`):
+Modes (`GET /api/v1/app-calls/config`):
 
 - **off** (the default): no relay is configured, or its secret is missing or shorter than 32 characters. Placing a call answers 503 and the apps say "Calls are off on this server. Ask the person who runs ANUM to set up the calls relay."
-- **stun_only**: `ANUM_CALLS_ALLOW_STUN_ONLY=true` without a relay. Calls connect on many home and mobile networks but fail behind strict firewalls; the apps say so on the Calls screen. With no STUN URLs only devices on the same network connect.
+- **stun_only**: `ANUM_CALLS_ALLOW_STUN_ONLY=true` without a relay. Calls connect on many home and mobile networks but fail behind strict firewalls; the apps say so on the Team calls screen. With no STUN URLs only devices on the same network connect.
 - **turn**: a relay with a valid secret. The recommended production mode.
 
 ## Deploying the relay on the Oracle VM
@@ -107,7 +107,7 @@ Owner steps (details in [Deploying on Oracle](deploy-oracle.md#in-app-calls)):
 
 1. Oracle console: Networking, Virtual cloud networks, the VCN, the subnet's security list, **Add ingress rules** (source `0.0.0.0/0`, stateful): TCP 3478, UDP 3478, UDP 49160-49200.
 2. On the VM: `bash infra/oracle/calls.sh enable` (it asks for the VM's public IPv4 address, suggesting the address the API host name resolves to). It writes `ANUM_TURN_EXTERNAL_IP`, `ANUM_TURN_PRIVATE_IP` and `ANUM_CALLS_TURN_URLS` (`turn:<API host>:3478?transport=udp,turn:<API host>:3478?transport=tcp`) into `.env`, generates `ANUM_TURN_SECRET` if missing, opens the three ports in the host firewall, adds `calls` to `COMPOSE_PROFILES`, starts coturn and restarts the API.
-3. Check: `bash infra/oracle/calls.sh status`; in the web app the Calls tab no longer says calls are off; a call between a phone on mobile data and a laptop on office Wi-Fi connects.
+3. Check: `bash infra/oracle/calls.sh status`; in the web app the Team calls tab no longer says calls are off; a call between a phone on mobile data and a laptop on office Wi-Fi connects.
 
 Host firewall: Oracle's Ubuntu images end the INPUT chain with a REJECT rule, so `calls.sh` inserts ACCEPT rules before it, live (`iptables -I INPUT <position of REJECT>`) and in `/etc/iptables/rules.v4` before `-A INPUT -j REJECT`:
 
@@ -125,7 +125,7 @@ Other hosts (Render, Kubernetes): run coturn anywhere with a public address and 
 
 **Web** (`apps/web/src/AppCalls.tsx`, `CallHistory.tsx`, `lib/appCalls*.ts`): one stream per tab while calls are on, the incoming screen with a soft ring (Web Audio; silent when the browser blocks autoplay) and a desktop notification when the tab is hidden and notifications are allowed, the call screen as a modal dialog (focus kept inside, Escape minimises), the Calls tab with paging. The microphone (and camera) is requested before the call rings anyone, so a refusal never leaves someone ringing.
 
-**Flutter** (`apps/mobile/lib/features/calls/`): `flutter_webrtc` 1.6.2+hotfix.4. Its Android plugin is Java plus one Kotlin file and applies `kotlin-android` itself while `android.builtInKotlin=false` (checked in its `android/build.gradle`, the AGP 9 note in CLAUDE.md); it pulls the WebRTC Android library from Maven Central and `audioswitch` from JitPack, and adds about 10 MB per ABI to the APK. The app declares `CAMERA`, `MODIFY_AUDIO_SETTINGS` and `ACCESS_NETWORK_STATE` on Android (with `tool/configure_native.dart`) and `NSCameraUsageDescription` on iOS (with `PERMISSION_CAMERA` for permission_handler). The call layer sits above the navigator, so a ring shows on any screen while the app is open. A push (`incoming_call`, `missed_call`) opens the Calls screen; the stream then shows the ringing call.
+**Flutter** (`apps/mobile/lib/features/team_calls/`): `flutter_webrtc` 1.6.2+hotfix.4. Its Android plugin is Java plus one Kotlin file and applies `kotlin-android` itself while `android.builtInKotlin=false` (checked in its `android/build.gradle`, the AGP 9 note in CLAUDE.md); it pulls the WebRTC Android library from Maven Central and `audioswitch` from JitPack, and adds about 10 MB per ABI to the APK. The app declares `CAMERA`, `MODIFY_AUDIO_SETTINGS` and `ACCESS_NETWORK_STATE` on Android (with `tool/configure_native.dart`) and `NSCameraUsageDescription` on iOS (with `PERMISSION_CAMERA` for permission_handler). The call layer sits above the navigator, so a ring shows on any screen while the app is open. A push (`incoming_call`, `missed_call`) opens the Team calls screen (route `/team-calls`); the stream then shows the ringing call.
 
 **Not built, on purpose:** CallKit (iOS) and ConnectionService (Android) system call screens. They need VoIP push (PushKit and an APNs VoIP certificate) or a self-managed `ConnectionService` with full-screen intents and a foreground service; both are high risk without device testing. Without them, an incoming call rings in the app while it is open, and otherwise the phone shows a normal push ("Incoming call") that opens the app, which shows the ring while it is still ringing. Also not built: group calls, switching a voice call to video mid-call, screen sharing, call recording.
 

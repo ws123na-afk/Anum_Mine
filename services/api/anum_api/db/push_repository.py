@@ -28,6 +28,7 @@ def _device(record: PushDeviceRecord) -> StoredPushDevice:
         user_id=record.user_id,
         platform=PushPlatform(record.platform),
         label=record.label,
+        language=record.language,
         token_ciphertext=record.token_ciphertext,
         token_sha256=record.token_sha256,
         token_hint=record.token_hint,
@@ -76,6 +77,7 @@ class SqlAlchemyPushDeviceStore:
             self.session.add(record)
         record.platform = device.platform.value
         record.label = device.label
+        record.language = device.language
         record.token_ciphertext = device.token_ciphertext
         record.token_sha256 = device.token_sha256
         record.token_hint = device.token_hint

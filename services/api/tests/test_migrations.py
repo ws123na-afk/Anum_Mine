@@ -997,9 +997,9 @@ def test_mail_operator_view_migration_is_expand_only_and_reads_counts_only() -> 
 
 def test_app_calls_migration_is_expand_only_and_participants_only() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0072_app_calls.py").read_text(encoding="utf-8")
-    assert 'revision = "0072_app_calls"' in revision_text and len("0072_app_calls") <= 32
-    others = [path for path in versions.glob("*.py") if path.name != "0072_app_calls.py"]
+    revision_text = (versions / "0073_app_calls.py").read_text(encoding="utf-8")
+    assert 'revision = "0073_app_calls"' in revision_text and len("0073_app_calls") <= 32
+    others = [path for path in versions.glob("*.py") if path.name != "0073_app_calls.py"]
     down = revision_text.split('down_revision = "', 1)[1].split('"', 1)[0]
     assert not [path for path in others if f'down_revision = "{down}"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
@@ -1016,6 +1016,24 @@ def test_app_calls_migration_is_expand_only_and_participants_only() -> None:
     assert "for select to anum_maintenance" in upgrade and "status = 'ended' and ended_at <= now() - interval '7 days'" in upgrade
 
 
+def test_calls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0071_calls.py").read_text(encoding="utf-8")
+    assert 'revision = "0071_calls"' in revision_text and len("0071_calls") <= 32
+    assert 'down_revision = "0070_business"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    tables = ("call_contacts", "call_log", "call_opt_outs", "call_provider_accounts", "call_ai_requests")
+    assert upgrade.count("op.create_table(") == len(tables)
+    for table in tables:
+        assert f'_workspace_fk("{table}")' in revision_text
+    assert "force row level security" in revision_text and "for table in tables:\n        _enable_rls(table)" in upgrade
+    assert "op.add_column(" not in upgrade and "drop" not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # Secrets only as ciphertext; anum_maintenance sees scope, route and recording expiry only.
+    assert '"credentials_ciphertext"' in revision_text and 'sa.Column("auth_token"' not in revision_text
+    assert "grant select (tenant_id, workspace_id, route_id) on call_provider_accounts to anum_maintenance" in upgrade
+    assert "grant select (id, tenant_id, workspace_id, recording_expires_at) on call_log to anum_maintenance" in upgrade
+    assert upgrade.count("grant ") == 2 and "insert" not in upgrade.split("grant ", 1)[1]
 def test_business_migration_is_expand_only_with_forced_rls_on_every_table_and_scoped_references() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0070_business.py").read_text(encoding="utf-8")

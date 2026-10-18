@@ -951,10 +951,22 @@ export interface FinanceDailyReportBody {
   next_steps: string[];
 }
 
+/** Model commentary on a report (docs/finance-trading-intel.md#model-commentary). Always shown with `label`. */
+export interface FinanceReportCommentary {
+  status: 'ok' | 'skipped' | 'withheld' | 'failed';
+  /** Why there is no text: `no_model`, `disabled`, `monthly_limit`, `model_budget`, `profit_claim`, `empty_answer`, `model_unavailable`. */
+  reason: string | null;
+  text: string | null;
+  model: string | null;
+  label: string;
+  created_at: string;
+}
+
 /** `GET /api/v1/finance/intel/daily-reports/{id}`. */
 export interface FinanceDailyReport extends FinanceDailyReportItem {
   report: FinanceDailyReportBody;
   markdown: string;
+  commentary?: FinanceReportCommentary | null;
 }
 
 export type FinanceIntelAgent = 'person' | 'trading_supervisor' | 'market_research' | 'technical_analysis' | 'strategy_research' | 'portfolio'

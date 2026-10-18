@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'calls_strings.dart';
 import 'business_strings.dart';
 import 'mail_center_strings.dart';
 import 'marketing_strings.dart';
@@ -18,10 +19,12 @@ class AnumLocalizations {
       (isArabic ? _ar : _en)[key] ??
       (isArabic ? marketingAr : marketingEn)[key] ??
       (isArabic ? mailCenterAr : mailCenterEn)[key] ??
+      (isArabic ? callsAr : callsEn)[key] ??
       (isArabic ? businessAr : businessEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
+      callsEn[key] ??
       businessEn[key] ??
       key;
 

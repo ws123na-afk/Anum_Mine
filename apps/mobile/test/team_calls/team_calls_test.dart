@@ -6,12 +6,12 @@ import 'dart:async';
 
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/json_read.dart';
-import 'package:anum_mobile/features/calls/call_controller.dart';
-import 'package:anum_mobile/features/calls/call_media.dart';
-import 'package:anum_mobile/features/calls/call_models.dart';
-import 'package:anum_mobile/features/calls/call_repository.dart';
-import 'package:anum_mobile/features/calls/call_screens.dart';
-import 'package:anum_mobile/features/calls/call_strings.dart';
+import 'package:anum_mobile/features/team_calls/call_controller.dart';
+import 'package:anum_mobile/features/team_calls/call_media.dart';
+import 'package:anum_mobile/features/team_calls/call_models.dart';
+import 'package:anum_mobile/features/team_calls/call_repository.dart';
+import 'package:anum_mobile/features/team_calls/call_screens.dart';
+import 'package:anum_mobile/features/team_calls/call_strings.dart';
 import 'package:anum_mobile/features/push/push_models.dart';
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
@@ -202,7 +202,7 @@ Future<AppCallsController> _pump(
     home: home ??
         Scaffold(
             body: Builder(
-                builder: (context) => CallsScreen(controller: controller))),
+                builder: (context) => TeamCallsScreen(controller: controller))),
   ));
   await controller.start();
   await tester.pumpAndSettle();
@@ -212,15 +212,16 @@ Future<AppCallsController> _pump(
 void main() {
   test('both catalogs have the same keys and placeholders, without long dashes',
       () {
-    expect(CallText.ar.keys.toSet(), CallText.en.keys.toSet());
+    expect(TeamCallText.ar.keys.toSet(), TeamCallText.en.keys.toSet());
     final placeholder = RegExp(r'\{(\w+)\}');
-    for (final key in CallText.en.keys) {
+    for (final key in TeamCallText.en.keys) {
       Set<String> names(String text) =>
           placeholder.allMatches(text).map((m) => m.group(1)!).toSet();
-      expect(names(CallText.ar[key]!), names(CallText.en[key]!), reason: key);
+      expect(names(TeamCallText.ar[key]!), names(TeamCallText.en[key]!),
+          reason: key);
       expect(
           RegExp('[\u2013\u2014]')
-              .hasMatch(CallText.en[key]! + CallText.ar[key]!),
+              .hasMatch(TeamCallText.en[key]! + TeamCallText.ar[key]!),
           isFalse,
           reason: key);
     }
@@ -248,7 +249,7 @@ void main() {
     for (final kind in ['incoming_call', 'missed_call']) {
       final destination = PushDestination.fromData(
           {'anum_kind': kind, 'workspace_id': 'ws', 'app_call_id': 'call_1'});
-      expect(destination?.route, '/calls', reason: kind);
+      expect(destination?.route, '/team-calls', reason: kind);
     }
   });
 
@@ -279,7 +280,7 @@ void main() {
     expect(media.log, contains('handle:offer'));
     media.onState!(CallLinkState.connected);
     await tester.pump();
-    expect(controller.phase, CallPhase.connected);
+    expect(controller.phase, TeamCallPhase.connected);
     expect(
         find.textContaining(RegExp(r'Voice call · \d:\d\d')), findsOneWidget);
     expect(repository.log, contains('heartbeat'));
@@ -295,7 +296,7 @@ void main() {
     expect(media.log, contains('close'));
     await tester.tap(find.bySemanticsLabel('Close'));
     await tester.pumpAndSettle();
-    expect(controller.phase, CallPhase.idle);
+    expect(controller.phase, TeamCallPhase.idle);
   });
 
   testWidgets('declining sends decline and clears the ring', (tester) async {
@@ -307,7 +308,7 @@ void main() {
     await tester.tap(find.bySemanticsLabel('Decline'));
     await tester.pumpAndSettle();
     expect(repository.log, contains('end:call_1:decline'));
-    expect(controller.phase, CallPhase.idle);
+    expect(controller.phase, TeamCallPhase.idle);
   });
 
   testWidgets('a call answered on another device stops ringing here',
@@ -322,7 +323,7 @@ void main() {
     repository.events.add(CallChanged(AppCall.fromJson(JsonReader(elsewhere))));
     await tester.pump();
     await tester.pump();
-    expect(controller.phase, CallPhase.idle);
+    expect(controller.phase, TeamCallPhase.idle);
     expect(
         find.text('You answered this call on another device.'), findsOneWidget);
   });
@@ -348,7 +349,7 @@ void main() {
     repository.events.add(CallChanged(
         _call(direction: 'outgoing', status: 'ended', outcome: 'declined')));
     await tester.pumpAndSettle();
-    expect(controller.phase, CallPhase.ended);
+    expect(controller.phase, TeamCallPhase.ended);
     expect(find.text('Ahmed Saleh declined the call.'), findsOneWidget);
     // The caller's own row is not listed.
     expect(find.byTooltip('Call Omar Owner'), findsNothing);
