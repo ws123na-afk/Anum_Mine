@@ -1,4 +1,4 @@
-"""In-app calls in PostgreSQL (migration 0071_app_calls).
+"""In-app calls in PostgreSQL (migration 0072_app_calls).
 
 The API runs as the non-owner ``anum_test_app`` role. ``app_calls`` and
 ``app_call_signals`` are under forced RLS: tenant and workspace isolation, a restrictive

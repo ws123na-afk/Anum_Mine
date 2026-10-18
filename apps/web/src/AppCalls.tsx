@@ -350,7 +350,7 @@ function CallScreen({ phase, call, name, media, engine, remote, onHangUp }: {
         </div>
       : <div className="appCallLayer">
           <section className={`surface appCallPanel ${video ? 'withVideo' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} ref={panel as never}>
-            <button type="button" className="iconButton small appCallMinimize" aria-label={t('calls.close')} title={t('calls.close')} onClick={() => setCompact(true)}><Minimize2 aria-hidden="true" /></button>
+            <button type="button" className="iconButton small appCallMinimize" aria-label={t('calls.minimise')} title={t('calls.minimise')} onClick={() => setCompact(true)}><Minimize2 aria-hidden="true" /></button>
             {video
               ? <div className="appCallVideos">
                   <video ref={remoteVideo} className="appCallRemote" autoPlay playsInline muted aria-label={t('calls.remoteVideo', { name })} />

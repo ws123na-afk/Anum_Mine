@@ -34,6 +34,7 @@ export const appCallsEn = {
   'calls.cameraOn': 'Turn camera on',
   'calls.cameraOff': 'Turn camera off',
   'calls.close': 'Close',
+  'calls.minimise': 'Minimise the call',
   'calls.callAgain': 'Call again',
   'calls.remoteVideo': 'Video from {name}',
   'calls.localVideo': 'Your camera',

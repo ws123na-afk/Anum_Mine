@@ -8,7 +8,7 @@ the caller's RLS context, and an id from another tenant or workspace answers 404
 like an unknown id. With PostgreSQL ``app_calls`` and ``app_call_signals`` are under forced
 RLS on the tenant and the workspace, plus restrictive policies that admit a row only to
 its two participants (``anum.user_id``) and let only the caller insert a call and only the
-sender insert a signal (migration ``0071_app_calls``).
+sender insert a signal (migration ``0072_app_calls``).
 
 Lifecycle. ``POST /calls`` rings (status ``ringing``; ``app_call.ringing`` is the phone push
 trigger). The callee's device that answers (``POST /calls/{id}/accept`` with its

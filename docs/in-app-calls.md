@@ -51,7 +51,7 @@ The workspace event stream only sees `app_call.ringing` (the call id and the per
 
 ## Storage
 
-Migration `0071_app_calls` (expand only: two new tables):
+Migration `0072_app_calls` (expand only: two new tables):
 
 - `app_calls`: caller and callee (user ids and their display names at the time of the call), the device bound on each side, audio or video, the status (`ringing`, `accepted`, `ended`), the outcome, who ended it, the times (created, answered, ended, last heartbeat) and the duration in seconds. Checks: two different people, known values only, an outcome exactly when ended.
 - `app_call_signals`: the offers, answers and ICE batches of a call in progress, each with its sender, recipient and recipient device, at most 40 kB each. Deleted when the call ends (and with the call).
@@ -60,7 +60,7 @@ Both tables have forced RLS: `tenant_isolation_*` on `anum.tenant_id` and `anum.
 
 The audit log records `app_call.placed`, `app_call.answered` and `app_call.ended` with the actor, the call id, audio or video, the outcome and the duration; it never names the other participant. Calls older than `ANUM_CALLS_RETENTION_DAYS` (365) are purged when either participant places a new call.
 
-**Renumbering.** Written as `0071_app_calls` on main's head `0065_finance_intel` while parallel branches hold 0066 to 0070; re-chain `down_revision` onto the head at merge time (and the migration test reads it from the file).
+**Renumbering.** Written as `0072_app_calls` on main's head `0065_finance_intel` while parallel branches hold 0066 to 0071; re-chain `down_revision` onto the head at merge time (and the migration test reads it from the file).
 
 ### Privacy
 

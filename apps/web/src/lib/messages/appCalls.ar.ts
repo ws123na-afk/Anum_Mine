@@ -35,6 +35,7 @@ export const appCallsAr: Record<keyof typeof appCallsEn, Message> = {
   'calls.cameraOn': 'تشغيل الكاميرا',
   'calls.cameraOff': 'إيقاف الكاميرا',
   'calls.close': 'إغلاق',
+  'calls.minimise': 'تصغير المكالمة',
   'calls.callAgain': 'اتصل مرة أخرى',
   'calls.remoteVideo': 'فيديو من {name}',
   'calls.localVideo': 'كاميرتك',

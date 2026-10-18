@@ -1663,7 +1663,7 @@ class ContactSuppressionRecord(Base):
 
 
 class AppCallRecord(Base):
-    """One in-app call between two teammates (migration ``0071_app_calls``).
+    """One in-app call between two teammates (migration ``0072_app_calls``).
 
     Visible to its two participants only: a restrictive policy checks ``anum.user_id``
     against the caller and the callee, and only the caller inserts the row.
@@ -1698,7 +1698,7 @@ class AppCallRecord(Base):
 
 
 class AppCallSignalRecord(Base):
-    """An offer, answer or ICE batch for one device of a call (migration ``0071_app_calls``)."""
+    """An offer, answer or ICE batch for one device of a call (migration ``0072_app_calls``)."""
 
     __tablename__ = "app_call_signals"
 

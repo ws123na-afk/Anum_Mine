@@ -9,7 +9,7 @@
   align-items: center; display: grid; gap: var(--d-s3); justify-items: center; max-block-size: calc(100dvh - 2 * var(--d-s4));
   max-inline-size: 420px; overflow-y: auto; padding: var(--d-s6) var(--d-s5) var(--d-s5); position: relative; text-align: center; inline-size: 100%;
 }
-.appCallPanel.withVideo { max-inline-size: 880px; }
+.appCallPanel.withVideo { max-inline-size: 880px; padding-block-start: var(--d-s7); }
 .appCallPanel h2 { font-size: 22px; margin: 0; overflow-wrap: anywhere; }
 .appCallAvatar {
   align-items: center; background: linear-gradient(135deg, var(--d-mark-a), var(--d-mark-c)); border-radius: 50%; color: #fff;
