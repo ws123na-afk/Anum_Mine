@@ -30,6 +30,19 @@ WORKSPACE_A2 = "workspace_test_a2"
 WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
+    "billing_invoice_lines",
+    "billing_credit_notes",
+    "billing_payments",
+    "billing_seats",
+    "billing_invoices",
+    "billing_subscriptions",
+    "billing_usage",
+    "billing_accounts",
+    "billing_plans",
+    "billing_settings",
+    "billing_number_sequences",
+    "billing_webhook_events",
+    "billing_signups",
     "app_call_signals",
     "app_calls",
     "call_ai_requests",

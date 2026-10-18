@@ -20,6 +20,7 @@ Routes under ``/api/v1/files``:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from collections.abc import Iterator
@@ -591,6 +592,10 @@ async def upload_file(
     if x_content_sha256 is not None and x_content_sha256.lower() != digest:
         raise HTTPException(422, "Content checksum mismatch: the upload was corrupted in transit. Try again.")
     check_upload_content(name, allowed, content)
+    # The plan's storage across the organisation (docs/billing.md#plans-and-limits).
+    from .billing.enforce import require_capacity
+
+    await asyncio.to_thread(require_capacity, context, "storage", len(content))
     quota = settings.files_workspace_quota_bytes
     with open_file_metadata_store(context) as store:
         current = store.usage(context)

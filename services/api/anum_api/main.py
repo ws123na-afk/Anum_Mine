@@ -164,6 +164,10 @@ from .calendar_api import router as calendar_router
 from .marketing import register_marketing_tools, router as marketing_router, run_due_posts
 from .business import register_business_tools, router as business_router
 from .brevo import register_brevo_tools, router as brevo_router
+from .billing import build_billing_scheduler, console as billing_console_router, public as billing_public_router
+from .billing import router as billing_router, signup_router as billing_signup_router, webhooks as billing_webhook_router
+from .billing.api import _BlockedChange, blocked_change_handler
+from .billing.enforce import require_capacity
 from .user_preferences import router as user_preferences_router
 from .home import router as home_router
 from .setup_plans import router as setup_plans_router
@@ -252,6 +256,10 @@ async def lifespan(_: FastAPI):
     finance_scheduler = build_finance_scheduler()
     if finance_scheduler is not None:
         finance_scheduler.start()
+    # Trial ends, renewals, dunning and read-only when ANUM_BILLING_SCHEDULER_ENABLED=true (docs/billing.md#lifecycle).
+    billing_scheduler = build_billing_scheduler()
+    if billing_scheduler is not None:
+        billing_scheduler.start()
     # Overdue reminders, ANUM follow-ups and notification email retries (docs/team-work.md).
     reminders = build_team_reminder_scheduler(settings)
     if reminders is not None:
@@ -261,6 +269,8 @@ async def lifespan(_: FastAPI):
     finally:
         if reminders is not None:
             await reminders.stop()
+        if billing_scheduler is not None:
+            await billing_scheduler.stop()
         if finance_scheduler is not None:
             await finance_scheduler.stop()
         if commerce_scheduler is not None:
@@ -373,6 +383,14 @@ app.include_router(calendar_router)
 app.include_router(marketing_router)
 app.include_router(business_router)
 app.include_router(brevo_router)
+# Customer billing (docs/billing.md): the organisation's Billing page, the platform console,
+# Stripe's webhook, the public plan list and self-serve sign-up.
+app.include_router(billing_webhook_router)
+app.include_router(billing_router)
+app.include_router(billing_console_router)
+app.include_router(billing_public_router)
+app.include_router(billing_signup_router)
+app.add_exception_handler(_BlockedChange, blocked_change_handler)
 app.include_router(user_preferences_router)
 app.include_router(push_router)
 app.include_router(commerce_router)
@@ -516,6 +534,7 @@ async def create_workspace(
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> Workspace:
     require_permission(context, Permission.WORKSPACE_CREATE)
+    await asyncio.to_thread(require_capacity, context, "workspaces", 1)
     now = utc_now()
     workspace = Workspace(
         id=context.workspace_id,
@@ -660,6 +679,8 @@ async def create_task(
     require_permission(context, Permission.TASK_CREATE)
     if payload.agent_id is not None:
         _usable_agent(context, payload.agent_id)
+    # The plan's agent runs per month (docs/billing.md#plans-and-limits); a database read, off the loop.
+    await asyncio.to_thread(require_capacity, context, "agent_runs", 1)
     now = utc_now()
     task = Task(
         id=new_id("task"),

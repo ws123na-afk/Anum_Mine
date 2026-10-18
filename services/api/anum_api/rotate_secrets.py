@@ -982,6 +982,66 @@ def rotate_brevo_keys(
     )
 
 
+_BILLING_ISSUERS = text("select tenant_id from billing_settings where tenant_id > :after order by tenant_id limit :limit")
+
+
+def rotate_billing_stripe_keys(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt every billing issuer's Stripe secret key and webhook secret (docs/billing.md).
+
+    Issuers are found as ``anum_maintenance`` (``billing_settings.tenant_id`` only); each
+    row is locked and rewritten as the application role inside that issuer's tenant.
+    """
+    from .billing.rows import SqlRows
+
+    report = RotationReport(dry_run=dry_run, correlation_id=correlation_id or new_id("rotate_secrets"))
+    after = ""
+    columns = ("stripe_secret_ciphertext", "stripe_webhook_secret_ciphertext")
+    while True:
+        rows = discover(maintenance_session_factory or session_factory, _BILLING_ISSUERS, {"after": after, "limit": batch_size})
+        for row in rows:
+            report.scanned += 1
+            session = session_factory()
+            try:
+                from .db.session import set_tenant_context
+
+                set_tenant_context(session, row.tenant_id)
+                found = SqlRows(session, row.tenant_id).get("billing_settings", for_update=True, tenant_id=row.tenant_id)
+                old = [found.get(column) if found else None for column in columns]
+                if found is None or all(value is None or cipher.is_current(value) for value in old):
+                    report.already_current += 1
+                    session.rollback()
+                    continue
+                try:
+                    new = [value if value is None or cipher.is_current(value) else cipher.rotate(value) for value in old]
+                except SecretDecryptionError:
+                    report.failed += 1
+                    report.failures.append({"tenant_id": row.tenant_id, "store": "billing_settings"})
+                    session.rollback()
+                    continue
+                report.rotated += 1
+                if dry_run:
+                    session.rollback()
+                    continue
+                SqlRows(session, row.tenant_id).update("billing_settings", {"tenant_id": row.tenant_id}, dict(zip(columns, new)))
+                session.commit()
+            except BaseException:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+        if len(rows) < batch_size:
+            return report
+        after = rows[-1].tenant_id
+
+
 def _configuration_problem() -> str | None:
     if settings.repository_backend != "postgresql":
         return "rotate_secrets needs ANUM_REPOSITORY_BACKEND=postgresql (the memory backend stores nothing at rest)"
@@ -996,7 +1056,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         description=(
             "Re-encrypt stored provider keys, integration credentials, developer project tokens, tyre source credentials, "
             "meeting connector and marketing tokens, WhatsApp credentials, mailbox tokens, commerce secrets "
-            "automation webhook secrets, finance connection credentials, voice provider credentials and Brevo API keys "
+            "automation webhook secrets, finance connection credentials, voice provider credentials, Brevo API keys and billing Stripe keys "
             "with the first key in ANUM_SECRETS_KEY."
         ),
     )
@@ -1028,6 +1088,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ("mail_accounts", rotate_mail_passwords),
             ("call_providers", rotate_call_provider_secrets),
             ("brevo_connections", rotate_brevo_keys),
+            ("billing_settings", rotate_billing_stripe_keys),
         )
     }
     # Provider keys, integration and tyre credentials at the top level (as before); the rest nested.

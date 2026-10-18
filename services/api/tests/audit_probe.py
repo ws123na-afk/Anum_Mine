@@ -30,6 +30,8 @@ MODULE_PREFIXES = {
     "automation": "/api/v1/automation",
     "calls": "/api/v1/calls",
     "brevo": "/api/v1/brevo",
+    "billing": "/api/v1/billing",
+    "platform_billing": "/api/v1/platform/billing",
     "business": "/api/v1/business",
     "autonomy": "/api/v1/autonomy",
     "developer": "/api/v1/developer",
@@ -44,6 +46,10 @@ _CALL_WEBHOOK = (
     "stored recordings and opt-outs it causes are audited as call.* records by the system actor."
 )
 EXEMPT: dict[tuple[str, str], str] = {
+    ("POST", "/api/v1/billing/webhooks/stripe/{issuer_tenant_id}"): (
+        "Stripe's signed delivery, not a person's action; each event id is stored once and the payment it "
+        "records carries the provider id and the system:stripe actor."
+    ),
     ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/voice"): _CALL_WEBHOOK,
     ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/dial/{call_id}"): _CALL_WEBHOOK,
     ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/status"): _CALL_WEBHOOK,

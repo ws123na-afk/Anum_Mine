@@ -11,6 +11,7 @@ See docs/identity.md (Invitations and membership management).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import secrets
 from datetime import datetime, timedelta
@@ -258,6 +259,10 @@ async def create_invitation(
     _require_manager(context)
     if repository.get_workspace(context.workspace_id, context) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+    # Pending invitations count as seats of the plan (docs/billing.md#plans-and-limits).
+    from .billing.enforce import require_capacity
+
+    await asyncio.to_thread(require_capacity, context, "seats", 1)
     now = utc_now()
     token = new_invitation_token()
     invitation = repository.save_invitation(

@@ -17,6 +17,7 @@ See docs/identity.md#workspace-lifecycle.
 
 from __future__ import annotations
 
+import asyncio
 import re
 import secrets
 from datetime import datetime
@@ -133,6 +134,9 @@ async def create_workspace_in_organization(
 ) -> Workspace:
     """Create a workspace in the caller's tenant with the caller as its first owner."""
     require_owner_or_org_admin(context, Permission.WORKSPACE_CREATE, CREATE_REQUIRED)
+    from .billing.enforce import require_capacity
+
+    await asyncio.to_thread(require_capacity, context, "workspaces", 1)
     workspace_id = payload.workspace_id or generated_workspace_id(payload.name)
     if workspace_id == context.workspace_id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That workspace ID is already in use")

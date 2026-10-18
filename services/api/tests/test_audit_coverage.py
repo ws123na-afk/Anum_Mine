@@ -19,6 +19,8 @@ WALKS = {
     "automation": "test_automation_management.py",
     "calls": "test_calls.py",
     "brevo": "test_brevo.py",
+    "billing": "test_billing.py",
+    "platform_billing": "test_billing.py",
     "business": "test_business.py",
     "autonomy": "test_autonomy.py",
     "developer": "test_developer.py",
