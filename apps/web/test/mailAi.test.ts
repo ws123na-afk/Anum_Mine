@@ -78,3 +78,13 @@ describe('bulk archive and export', () => {
     assert.equal(exportFailure(new Error('network down')).kind, 'error');
   });
 });
+
+import { identityChoice } from '../src/lib/mailAi.ts';
+
+describe('the sender of an AI draft', () => {
+  test('no choice means the default identity; an empty choice the mailbox address', () => {
+    assert.equal(identityChoice(undefined), undefined);
+    assert.equal(identityChoice(null), '');
+    assert.equal(identityChoice('mailidentity_example'), 'mailidentity_example');
+  });
+});

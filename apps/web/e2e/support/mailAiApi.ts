@@ -15,6 +15,8 @@ export interface MailAiMockOptions {
   injection?: boolean;
   /** The approved export download answers 410 (expired). */
   exportExpired?: boolean;
+  /** The mailbox has sender identities (Sales is the default). */
+  identities?: boolean;
 }
 
 export interface MailAiCalls { summaries: unknown[]; labels: unknown[]; drafts: unknown[]; pages: { uids: number[] }[]; archives: { uids: number[] }[]; exports: { uids: number[] }[]; approvals: unknown[]; downloads: number }
@@ -64,6 +66,13 @@ export async function mockMailAiApi(page: Page, options: MailAiMockOptions = {})
       if (method === 'PATCH') Object.assign(draft, request.postDataJSON() as object);
       if (method === 'DELETE') { delete drafts[draftMatch[1]]; return route.fulfill({ status: 204 }); }
       return json(draft);
+    }
+    if (options.identities && path === `/api/v1/mail/accounts/${mailAccount.id}/identities` && method === 'GET') {
+      const at = stamp();
+      return json([
+        { id: 'mailidentity_sales', account_id: mailAccount.id, address: 'sales@example.com', display_name: 'Sales team', signature: 'Sales team', is_default: true, created_at: at, updated_at: at },
+        { id: 'mailidentity_support', account_id: mailAccount.id, address: 'support@example.com', display_name: null, signature: 'Support desk', is_default: false, created_at: at, updated_at: at },
+      ]);
     }
     if (!path.startsWith('/api/v1/mail/ai/')) return route.fallback();
     if (path === '/api/v1/mail/ai/labels') {

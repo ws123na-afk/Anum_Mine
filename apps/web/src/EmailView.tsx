@@ -490,7 +490,7 @@ function Reader({ account, folder, uid, message, canAct, busy, moves, onBack, on
         <div><dt>{t('mail.reader.date')}</dt><dd><time dateTime={m.date}>{when(m.date)}</time></dd></div>
       </dl>
     </header>
-    <MailAssist target={{ account_id: account.id, folder: folder.id, uid }} canAct={canAct} onDrafted={onDrafted} onOpenApprovals={onOpenApprovals} />
+    <MailAssist target={{ account_id: account.id, folder: folder.id, uid }} account={account} canAct={canAct} onDrafted={onDrafted} onOpenApprovals={onOpenApprovals} />
     {detail.remote_images_blocked > 0 && <p className="notice mailBlocked" role="status"><ShieldCheck aria-hidden="true" />{t('mail.reader.imagesBlocked', { count: detail.remote_images_blocked })}</p>}
     {detail.inline_images_hidden > 0 && <p className="muted mailSmall">{t('mail.reader.inlineHidden', { count: detail.inline_images_hidden })}</p>}
     {doc && <div className="actions mailBodyToggle"><button type="button" className="linkButton" aria-pressed={plain} onClick={() => setPlain(!plain)}>{plain ? t('mailc.showFormatted') : t('mailc.showPlain')}</button></div>}

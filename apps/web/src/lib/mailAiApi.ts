@@ -21,8 +21,8 @@ export const summarizeMail = (ref: MailMessageRef, thread = false): Promise<Mail
   apiRequest(`${base}/summarize`, { method: 'POST', body: JSON.stringify({ ...ref, thread }) });
 export const classifyMail = (ref: MailMessageRef): Promise<MailLabel> =>
   apiRequest(`${base}/classify`, { method: 'POST', body: JSON.stringify(ref) });
-export const draftMailReplyWithAi = (ref: MailMessageRef, kind: 'reply' | 'reply_all', instructions?: string): Promise<MailAiDraft> =>
-  apiRequest(`${base}/draft-reply`, { method: 'POST', body: JSON.stringify({ ...ref, kind, ...(instructions ? { instructions } : {}) }) });
+export const draftMailReplyWithAi = (ref: MailMessageRef, kind: 'reply' | 'reply_all', instructions?: string, identityId?: string): Promise<MailAiDraft> =>
+  apiRequest(`${base}/draft-reply`, { method: 'POST', body: JSON.stringify({ ...ref, kind, ...(instructions ? { instructions } : {}), ...(identityId !== undefined ? { identity_id: identityId } : {}) }) });
 
 /** The caller's stored labels for the shown page (no model call). */
 export function listMailLabels(accountId: string, folder: string, rows: { uid: number; message_id: string | null }[]): Promise<MailRowLabel[]> {

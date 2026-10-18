@@ -45,8 +45,8 @@ from .mime import (
     valid_address,
 )
 from .server import MailServer
-from .service import MailError, cfg, folder_by_role, on_server, require_available
-from .store import MailAccount, MailDraft, open_mail_store
+from .service import MailError, cfg, folder_by_role, on_server, require_available, sender_of, with_signature
+from .store import MailAccount, MailDraft, MailIdentity, open_mail_store
 
 logger = logging.getLogger("anum.mail.ai")
 
@@ -538,6 +538,25 @@ async def classify_mail_page(call: ToolCall, context: TenantContext) -> ToolResu
     )
 
 
+def pick_identity(context: TenantContext, account: MailAccount, identity_id: object) -> MailIdentity | None:
+    """The sender identity a draft goes out as: the one named, the mailbox's default identity
+    when none is named, or the mailbox address itself for an empty id."""
+    if identity_id == "":
+        return None
+    with open_mail_store(context) as store:
+        if identity_id:
+            found = store.get_identity(str(identity_id))
+            if found is None or found.account_id != account.id:
+                raise MailError(422, "That sender is not one of this mailbox's identities. Pick another in From.", "identity")
+            return found
+        return next((item for item in store.list_identities(account.id) if item.is_default), None)
+
+
+def signed(text: str, identity: MailIdentity | None) -> str:
+    """The person's (or AI's) text with the identity's signature, above any quoted original."""
+    return with_signature(text, identity.signature) if identity is not None and identity.signature.strip() else text
+
+
 def _writer_context(call: ToolCall, context: TenantContext) -> TenantContext:
     """A draft belongs to the person who asked for it, also when an approval runs it later."""
     writer = str(call.arguments.get("writer_user_id") or "")
@@ -572,6 +591,7 @@ async def draft_mail_reply(call: ToolCall, context: TenantContext) -> ToolResult
     try:
         require_available(writer)
         account, folder, uid = await target_of(call, writer, "send")
+        identity = pick_identity(writer, account, call.arguments.get("identity_id"))
         _, original = await fetch_parsed(writer, account, folder, uid)
         guidance = DRAFT_INSTRUCTIONS + (DRAFT_INSTRUCTIONS_FROM_OWNER.format(instructions=instructions) if instructions else "")
         answer, model = await _ask_model(writer, with_untrusted_rules(guidance, message_block(original, f"mail:{folder}:{uid}", MESSAGE_PROMPT_CHARS)))
@@ -580,30 +600,31 @@ async def draft_mail_reply(call: ToolCall, context: TenantContext) -> ToolResult
     text = reply_body(answer)
     if not text:
         return _failed("The AI model wrote no reply. Try again, or write the reply yourself.", 503, "ai_failed")
-    own = account.address.lower()
+    sender, _ = sender_of(account, identity)
+    own_addresses = {account.address.lower(), sender.lower()}
     first = original.reply_to or ([original.sender] if original.sender else [])
     to = [p.address for p in first]
     cc: list[str] = []
     if kind == "reply_all":
-        to += [p.address for p in original.to if p.address.lower() != own]
-        cc = [p.address for p in original.cc if p.address.lower() != own]
+        to += [p.address for p in original.to if p.address.lower() not in own_addresses]
+        cc = [p.address for p in original.cc if p.address.lower() not in own_addresses]
     now = utc_now()
     draft = MailDraft(
         id=new_id("maildraft"), tenant_id=writer.tenant_id, workspace_id=writer.workspace_id, owner_user_id=writer.user_id,
-        account_id=account.id, kind=kind, message_id=new_message_id(account.address), created_at=now, updated_at=now,
+        account_id=account.id, identity_id=identity.id if identity else None, kind=kind, message_id=new_message_id(sender), created_at=now, updated_at=now,
         subject=reply_subject(original.subject), in_reply_to=original.message_id, references=references_for(original),
         source_folder=folder, source_uid=uid,
     )
-    draft.to = _valid([a for a in to if a.lower() != own] or to)
+    draft.to = _valid([a for a in to if a.lower() not in own_addresses] or to)
     draft.cc = [a for a in _valid(cc) if a.lower() not in {x.lower() for x in draft.to}]
-    draft.body = (text + quoted(original, forward=False))[:100_000]
+    draft.body = (signed(text, identity) + quoted(original, forward=False))[:100_000]
     with open_mail_store(writer) as store:
         store.save_draft(draft)
     suspected = injection_suspected(original.text, original.subject)
     return ToolResult(
         status="succeeded",
         summary=f"Drafted a reply to {', '.join(draft.to) or 'the sender'}. Review it before you send; sending needs an approval.",
-        output={"draft_id": draft.id, "to": draft.to, "subject": draft.subject, "model": model, "injection_suspected": suspected},
+        output={"draft_id": draft.id, "to": draft.to, "subject": draft.subject, "from": sender, "identity_id": draft.identity_id, "model": model, "injection_suspected": suspected},
         audit_metadata={"tool": DRAFT_TOOL, "draft_id": draft.id, "kind": kind, "body_chars": len(text), "model": model},
     )
 

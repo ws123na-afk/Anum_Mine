@@ -6,7 +6,10 @@
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { CircleDot, ListChecks, PenLine, RefreshCw, ShieldAlert, Sparkles, Tags } from 'lucide-react';
 import { t } from './lib/i18n';
-import type { MailDraft } from './lib/mail';
+import type { MailAccount, MailDraft } from './lib/mail';
+import { senderLabel, type MailIdentity } from './lib/mailDirectory';
+import { listMailIdentities } from './lib/mailDirectoryApi';
+import { identityChoice } from './lib/mailAi';
 import {
   assistFailure, categoryLabel, cleanInstructions, priorityLabel, priorityTone,
   type AssistFailure, type MailLabel, type MailMessageRef, type MailSummary,
@@ -17,8 +20,8 @@ import './mailAi.css';
 type Busy = 'summary' | 'thread' | 'label' | 'draft' | null;
 type Status = { state: 'checking' } | { state: 'ready' } | { state: 'unavailable'; reason: string } | { state: 'failed'; reason: string };
 
-export function MailAssist({ target, canAct, onDrafted, onOpenApprovals }: {
-  target: MailMessageRef; canAct: boolean; onDrafted: (draft: MailDraft) => void; onOpenApprovals?: () => void;
+export function MailAssist({ target, account, canAct, onDrafted, onOpenApprovals }: {
+  target: MailMessageRef; account: MailAccount; canAct: boolean; onDrafted: (draft: MailDraft) => void; onOpenApprovals?: () => void;
 }) {
   const [status, setStatus] = useState<Status>({ state: 'checking' });
   const [busy, setBusy] = useState<Busy>(null);
@@ -32,6 +35,10 @@ export function MailAssist({ target, canAct, onDrafted, onOpenApprovals }: {
   const [waiting, setWaiting] = useState(false);
   const titleId = useId();
   const instructionsId = useId();
+  const fromId = useId();
+  const [identities, setIdentities] = useState<MailIdentity[]>([]);
+  // undefined: the mailbox's default identity; null: the mailbox address; else an identity id.
+  const [from, setFrom] = useState<string | null | undefined>(undefined);
 
   const check = () => {
     setStatus({ state: 'checking' });
@@ -41,6 +48,13 @@ export function MailAssist({ target, canAct, onDrafted, onOpenApprovals }: {
     );
   };
   useEffect(check, []);
+  useEffect(() => {
+    if (!composing || !canAct) return;
+    let live = true;
+    // Senders are a choice, not a requirement: without them the draft goes out as the mailbox.
+    listMailIdentities(account.id).then((found) => { if (live) setIdentities(found); }, () => { if (live) setIdentities([]); });
+    return () => { live = false; };
+  }, [composing, canAct, account.id]);
 
   async function run(action: Exclude<Busy, null>) {
     setBusy(action); setFailure(null); setNotice(null); setWaiting(false);
@@ -48,7 +62,7 @@ export function MailAssist({ target, canAct, onDrafted, onOpenApprovals }: {
       if (action === 'summary' || action === 'thread') setSummary(await summarizeMail(target, action === 'thread'));
       else if (action === 'label') setLabel(await classifyMail(target));
       else {
-        const result = await draftMailReplyWithAi(target, replyAll ? 'reply_all' : 'reply', cleanInstructions(instructions));
+        const result = await draftMailReplyWithAi(target, replyAll ? 'reply_all' : 'reply', cleanInstructions(instructions), identityChoice(from));
         if (result.status === 'waiting_approval') { setWaiting(true); setComposing(false); return; }
         if (result.draft) { setComposing(false); setInstructions(''); setNotice(t('mailai.drafted')); onDrafted(result.draft); }
       }
@@ -91,6 +105,12 @@ export function MailAssist({ target, canAct, onDrafted, onOpenApprovals }: {
       {!summary && !label && !failure && !working && !notice && !waiting && <p className="muted mailSmall">{t('mailai.hint')}</p>}
 
       {composing && canAct && <form className="mailAiDraft" onSubmit={submitDraft}>
+        {identities.length > 0 && <label className="mailAiFrom" htmlFor={fromId}><span>{t('mail.composer.from')}</span>
+          <select id={fromId} dir="ltr" value={from === undefined ? (identities.find((i) => i.is_default)?.id ?? '') : from ?? ''} onChange={(e) => setFrom(e.target.value || null)}>
+            <option value="">{t('mails.from.mailbox', { sender: senderLabel(account.display_name, account.address) })}</option>
+            {identities.map((i) => <option key={i.id} value={i.id}>{senderLabel(i.display_name ?? account.display_name, i.address)}</option>)}
+          </select>
+        </label>}
         <label htmlFor={instructionsId}>{t('mailai.instructions')}</label>
         <textarea id={instructionsId} rows={2} maxLength={1000} value={instructions} aria-describedby={`${instructionsId}-hint`} onChange={(e) => setInstructions(e.target.value)} dir="auto" />
         <p id={`${instructionsId}-hint`} className="muted mailSmall">{t('mailai.instructionsHint')}</p>

@@ -199,3 +199,14 @@ for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [768, 1024
     }
   });
 }
+
+test('an AI draft is written as the default sender unless another is picked', async ({ page }) => {
+  const { ai, panel } = await openMessage(page, { identities: true });
+  await panel.getByRole('button', { name: 'Draft reply with AI' }).click();
+  const from = panel.getByLabel('From');
+  await expect(from).toHaveValue('mailidentity_sales');
+  await from.selectOption('mailidentity_support');
+  await panel.getByRole('button', { name: 'Write draft' }).click();
+  await expect(page.getByRole('article', { name: 'Reply' })).toBeVisible();
+  expect(ai.calls.drafts).toEqual([{ account_id: 'mailbox_one', folder: 'INBOX', uid: 130, kind: 'reply', identity_id: 'mailidentity_support' }]);
+});

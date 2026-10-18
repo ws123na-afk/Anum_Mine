@@ -36,3 +36,5 @@
 .mailAiList button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 13px; font-weight: 600; gap: var(--d-s1); min-height: 40px; padding: var(--d-s1) var(--d-s2); }
 .mailAiList svg { flex: none; height: 16px; width: 16px; }
 .mailAiListNote { margin: var(--d-s2) var(--d-s3) 0 !important; }
+.mailAiFrom { display: grid; gap: var(--d-s1); min-width: 0; }
+.mailAiFrom select { min-height: 40px; width: 100%; }

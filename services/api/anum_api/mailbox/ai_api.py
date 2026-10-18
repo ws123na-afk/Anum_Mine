@@ -42,7 +42,7 @@ from .api import (
     send_draft,
 )
 from .mime import forward_subject, new_message_id, quoted
-from .service import DELETE_TOOL, MailError, cfg, clean_addresses, mail_tool_registry, on_server
+from .service import DELETE_TOOL, MailError, cfg, clean_addresses, mail_tool_registry, on_server, sender_of
 from .store import MailDraft, open_mail_store
 
 router = APIRouter(prefix="/api/v1/mail/ai", tags=["mail"])
@@ -92,6 +92,9 @@ class DraftReplyBody(MessageRef):
     kind: Literal["reply", "reply_all"] = "reply"
     # The person's own words for the reply (trusted, unlike the mail).
     instructions: str | None = Field(default=None, max_length=ai.MAX_INSTRUCTIONS)
+    # The sender identity to write as: omitted, the mailbox's default identity; "" the mailbox
+    # address itself. Its signature goes under the reply, above the quoted original.
+    identity_id: str | None = Field(default=None, max_length=80)
 
 
 class DraftReplyResult(BaseModel):
@@ -108,6 +111,8 @@ class ForwardBody(MessageRef):
     # Let the model write the note (a short summary for the recipients) when ``note`` is empty.
     write_note: bool = False
     idempotency_key: str = Field(pattern=KEY_PATTERN)
+    # As for a drafted reply: omitted, the default identity; "" the mailbox address.
+    identity_id: str | None = Field(default=None, max_length=80)
 
 
 class ForwardResult(BaseModel):
@@ -245,6 +250,7 @@ async def draft_reply(body: DraftReplyBody, context: TenantContext = Depends(ten
         arguments={
             "account_id": body.account_id, "folder": body.folder, "uid": body.uid, "kind": body.kind,
             "instructions": (body.instructions or "").strip() or None, "writer_user_id": context.user_id,
+            **({"identity_id": body.identity_id} if body.identity_id is not None else {}),
         },
     )
     result, approval = await _mediated(repository, context, call, "Draft an email reply with AI", body.account_id)
@@ -315,7 +321,7 @@ FORWARD_NOTE_INSTRUCTIONS = (
 
 async def start_forward(
     repository: AnumRepository, context: TenantContext, *, account_id: str | None, folder: str, uid: int, to: list[str],
-    note: str | None, write_note: bool, idempotency_key: str,
+    note: str | None, write_note: bool, idempotency_key: str, identity_id: str | None = None,
 ) -> ForwardResult:
     """A forward draft to the addresses the person gave, then the ``send_mail`` approval of
     exactly that message. Shared by the Email page and the assistant (``request_mail_action``)."""
@@ -324,6 +330,7 @@ async def start_forward(
         if not recipients:
             raise MailError(422, "Add at least one recipient.", "recipients")
         account = ai.mailbox_for(context, account_id, "send") if account_id else ai.default_mailbox(context, "send")
+        identity = ai.pick_identity(context, account, identity_id)
         _, original = await ai.fetch_parsed(context, account, folder, uid)
         text = (note or "").strip()
         if not text and write_note:
@@ -341,9 +348,10 @@ async def start_forward(
     now = utc_now()
     draft = MailDraft(
         id=new_id("maildraft"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
-        account_id=account.id, kind="forward", message_id=new_message_id(account.address), created_at=now, updated_at=now,
+        account_id=account.id, identity_id=identity.id if identity else None, kind="forward",
+        message_id=new_message_id(sender_of(account, identity)[0]), created_at=now, updated_at=now,
         to=recipients, subject=forward_subject(original.subject), source_folder=folder, source_uid=uid,
-        body=(text + quoted(original, forward=True))[:MAX_BODY],
+        body=(ai.signed(text, identity) + quoted(original, forward=True))[:MAX_BODY],
     )
     with open_mail_store(context) as store:
         store.save_draft(draft)
@@ -365,7 +373,7 @@ async def forward(body: ForwardBody, context: TenantContext = Depends(tenant_con
     _ready(context, Permission.EMAIL_ACT)
     return await start_forward(
         repository, context, account_id=body.account_id, folder=body.folder, uid=body.uid, to=body.to, note=body.note,
-        write_note=body.write_note, idempotency_key=body.idempotency_key,
+        write_note=body.write_note, idempotency_key=body.idempotency_key, identity_id=body.identity_id,
     )
 
 

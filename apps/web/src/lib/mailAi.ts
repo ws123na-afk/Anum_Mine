@@ -95,3 +95,8 @@ export function exportFailure(error: unknown): { kind: 'pending' | 'expired' | '
   if (error instanceof ApiError && error.status === 409) return { kind: 'pending', text: error.detail || t('mailai.export.notReady') };
   return { kind: 'error', text: describeError(error, t('mailai.failed')) };
 }
+
+/** The identity_id a drafted reply sends: omitted for the default identity, "" for the mailbox address. */
+export function identityChoice(from: string | null | undefined): string | undefined {
+  return from === undefined ? undefined : from ?? '';
+}
