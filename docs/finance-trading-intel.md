@@ -11,6 +11,7 @@ The code is the pure package `services/api/anum_api/finance/intel/`: no network 
 | 1 | Gap assessment | Done ([gap assessment](finance-trading-gap-assessment.md)) |
 | 3 | Calendars, market-data parsing and checks, synthetic data | Pure code and tests done. Storage (migration `0060`), the instrument API and fetch jobs are **not built yet** |
 | 4 | Indicators, backtester, benchmark strategies, walk-forward validation | Pure code and tests done. Stored runs and the API are **not built yet** |
+| Addendum | Storage (migration `0060_finance_intel`) and the strategy lifecycle | Done, with unit and PostgreSQL tests |
 | 2, 5 to 9 | Skills, strategy runs into paper and shadow, daily jobs, screens, owner commands, security review, live design | **Not started** |
 
 Nothing in this package can place an order. Loop 5 is where a strategy signal may become a SIMULATED order, and only through the existing Guardian `gate` and execution gateway.
@@ -100,6 +101,42 @@ A strategy **passes** only when none of these apply; otherwise it is **rejected*
 Fewer than 2 test windows gives `insufficient_data`. An instrument with unknown listing dates carries the warning `survivorship_unknown` (a universe chosen from today's listings overstates the past).
 
 Every result carries a SHA-256 of the exact bars it used and the cost assumptions. Passing means the rule held up on these past bars with these costs. It says nothing certain about the future.
+
+## Storage
+
+Migration `0060_finance_intel`. Five tables, each under forced RLS with the tenant policy and a restrictive owner-only policy, like the rest of Finance: nobody but the owner sees a row, not even a workspace owner.
+
+| Table | Holds | Database checks |
+|---|---|---|
+| `finance_instruments` | The person's instrument master: symbol, asset class, venue, currency, provider symbols, listing dates | One row per symbol and venue; delisting not before listing |
+| `finance_market_bars` | Daily OHLCV bars with source, provider, delayed flag and fetch time | One bar per instrument and day (an import is idempotent); positive prices; the high and low contain the open and close |
+| `finance_strategies` | One row per strategy **version** | The six lifecycle states only; PAPER_ACTIVE needs a paper portfolio; only the person puts a version into PAPER_ACTIVE or RETIRED; an agent's new version names its evidence run |
+| `finance_strategy_runs` | Backtests and walk-forward runs: SHA-256 of the bars, costs, metrics, verdict, reasons, folds, whether it was reproduced | Known kinds and verdicts; the hash is 64 hex characters |
+| `finance_agent_decisions` | Every structured output of the Supervisor and the specialist agents, and the person's lifecycle actions | Known agents only |
+
+Store methods (`FinanceStore`): `list_instruments`, `get_instrument`, `save_instrument`, `delete_instrument`, `save_bars`, `list_bars`, `list_strategies`, `get_strategy`, `latest_version`, `save_strategy`, `list_strategy_runs`, `get_strategy_run`, `save_strategy_run`, `list_agent_decisions`, `save_agent_decision`. Lists page with `limit` and `offset` and return the rows and the total. The rows are in the privacy export and deleted with the rest of the person's finance data.
+
+## Lifecycle
+
+`intel/lifecycle.py`:
+
+```
+DRAFT -> BACKTESTING -> VALIDATION -> PAPER_ACTIVE <-> PAPER_SUSPENDED -> RETIRED
+```
+
+| Move | Agents | The person |
+|---|---|---|
+| DRAFT to BACKTESTING, BACKTESTING to VALIDATION (after a backtest of this version), and one step back | Yes | Yes |
+| VALIDATION to PAPER_ACTIVE | No | Yes, when the criteria hold |
+| PAPER_ACTIVE to PAPER_SUSPENDED | Yes (tightening) | Yes |
+| PAPER_SUSPENDED to PAPER_ACTIVE | No | Yes, when the criteria hold |
+| Anything to RETIRED | No | Yes |
+
+**Promotion criteria** (`Criteria`, defaults; stricter values allowed): the newest walk-forward run of this exact version (same rule code, symbols and parameters) passed, it was reproduced (a second run on the same bars gave the same data hash and metrics), at least 3 folds, out-of-sample drawdown no worse than 35 percent, a benchmark comparison, and a paper portfolio to trade in. A positive backtest return alone never promotes.
+
+**Versions.** The rule, symbols and parameters of a version never change. `new_version` makes the next version in the same lineage as a DRAFT, with a reason; an agent must also name the evaluation run of the current version that justifies it. The old version keeps its state and history, so a strategy that lost money cannot be quietly rewritten.
+
+**LIVE_CANDIDATE** is a possible future state for a separately reviewed live design. It is not implemented as a state, the database refuses it, and nothing here grants any permission beyond SIMULATED paper orders through the Guardian gate and the execution gateway.
 
 ## Frameworks evaluated
 
