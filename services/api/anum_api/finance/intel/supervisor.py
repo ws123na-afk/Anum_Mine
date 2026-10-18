@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import ROUND_DOWN, Decimal
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from ...schemas import TenantContext, new_id
 from ..execution import ExecMode, ExecSettings, GlobalSwitch, IntentStatus
@@ -43,7 +44,7 @@ from . import lifecycle
 from . import research
 from .indicators import snapshot
 from .marketdata import AssetClass, check_series
-from .markets import freshness
+from .markets import freshness, is_trading_day, venue
 from .records import Agent, AgentDecision, StrategyConfig, StrategyState
 from .strategies import build
 
@@ -273,8 +274,18 @@ class Supervisor:
 
     # -- signals to simulated orders -------------------------------------------------------------
 
+    def _venues_open_today(self, strategy: StrategyConfig) -> bool | None:
+        """Whether any of the strategy's venues trades on its own local date today (None: no instruments)."""
+        venues = {i.venue for i in (self.store.get_instrument(self.context, x) for x in strategy.instrument_ids) if i is not None}
+        if not venues:
+            return None
+        return any(is_trading_day(venue(code), self.now.astimezone(ZoneInfo(venue(code).timezone)).date()) for code in venues)
+
     def trade(self, strategy: StrategyConfig) -> None:
         if not lifecycle.can_trade(strategy):
+            return
+        if self._venues_open_today(strategy) is False:
+            self._decide(Agent.SUPERVISOR, "trade", "market_closed", ["not_a_trading_day"], strategy=strategy)
             return
         portfolio = self.store.get_portfolio(self.context, strategy.portfolio_id or "")
         if portfolio is None or portfolio.mode != PortfolioMode.PAPER:

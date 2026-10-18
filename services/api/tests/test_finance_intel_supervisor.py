@@ -143,7 +143,7 @@ def test_kill_switch_halts_the_cycle() -> None:
 def test_stale_or_missing_data_suspends_and_one_session_only_skips() -> None:
     store, _, _ = _store_with_data()
     strategy = _active(store)
-    later = NOW + timedelta(days=7)
+    later = NOW + timedelta(days=6)  # Thursday 18 June: four sessions behind (19 June is an NYSE holiday)
     Supervisor(store, ME, later).run("intraday")
     suspended = store.get_strategy(ME, strategy.id)
     assert suspended is not None and suspended.state is StrategyState.PAPER_SUSPENDED and suspended.state_changed_by == "risk_guardian"
@@ -206,3 +206,13 @@ def test_research_refuses_without_stored_bars() -> None:
     with pytest.raises(research.ResearchError) as refused:
         research.evaluate(store, ME, s, kind="backtest", actor=Agent.PERSON, now=NOW)
     assert refused.value.code == "no_instruments"
+
+
+def test_a_day_the_venue_does_not_trade_records_market_closed() -> None:
+    store, _, _ = _store_with_data()
+    _active(store)
+    saturday = NOW + timedelta(days=1)
+    assert saturday.weekday() == 5
+    Supervisor(store, ME, saturday).run("intraday")
+    closed = [d for d in store.list_agent_decisions(ME, agent="trading_supervisor", limit=10, offset=0)[0] if d.outcome == "market_closed"]
+    assert closed and store.list_intents(ME, status=None, mode=None, limit=10, offset=0)[1] == 0

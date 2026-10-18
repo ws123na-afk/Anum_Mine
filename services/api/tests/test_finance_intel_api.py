@@ -52,7 +52,13 @@ def _move(strategy_id: str, state: str, headers: dict[str, str] = MEMBER):  # ty
     return client.post(f"{API}/strategies/{strategy_id}/transition", json={"state": state, "reason": f"move to {state}"}, headers=headers)
 
 
-def test_full_research_flow_to_paper_and_a_supervisor_cycle() -> None:
+def test_full_research_flow_to_paper_and_a_supervisor_cycle(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import datetime, timezone
+
+    from anum_api.finance import intel_control_api
+
+    tuesday = datetime(2026, 10, 20, 15, 0, tzinfo=timezone.utc)  # a New York trading day, whatever day the test runs
+    monkeypatch.setattr(intel_control_api, "utc_now", lambda: tuesday)
     instrument = _instrument()
     assert instrument["symbol"] == "EXMPL" and instrument["currency"] == "USD"
     imported = client.post(f"{API}/instruments/{instrument['id']}/bars", json={"payload": CSV, "source": "Test file"}, headers=MEMBER)
@@ -124,3 +130,44 @@ def test_versions_live_candidate_and_permissions() -> None:
     assert client.post(f"{API}/pause-all", json={}, headers=MEMBER).json() == {"paused": [], "simulated": True}
     in_use = client.delete(f"{API}/instruments/{instrument['id']}", headers=MEMBER)
     assert in_use.status_code == 204  # only DRAFT versions use it
+
+
+def test_scheduled_cycles_run_through_automation_once_per_day(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from datetime import datetime, timezone
+
+    from anum_api import automation
+    from anum_api.finance.intel.supervisor import PHASES
+    from anum_api.schemas import WorkspaceMembership
+
+    assert automation.FINANCE_INTEL_PHASES == PHASES
+    monkeypatch.setattr(automation, "engine", automation.LocalAutomationEngine(str(tmp_path / "automation.db")))
+    now = datetime(2026, 10, 18, 9, 0, tzinfo=timezone.utc)
+    memory_repository.save_membership(WorkspaceMembership(
+        tenant_id=TENANT, workspace_id=WORKSPACE, user_id="member_intel", role="member", created_at=now, updated_at=now))
+    assert client.post(f"{API}/schedules", json={"phase": "post_close"}, headers=VIEWER).status_code == 403
+    assert client.post(f"{API}/schedules", json={"phase": "midnight"}, headers=MEMBER).status_code == 422
+    assert client.post(f"{API}/schedules", json={"phase": "weekly", "timezone": "Mars/Base"}, headers=MEMBER).status_code == 422
+    created = client.post(f"{API}/schedules", json={"phase": "weekly", "weekday": 5, "time": "18:15", "timezone": "Asia/Dubai"}, headers=MEMBER)
+    assert created.status_code == 201, created.text
+    schedule = created.json()
+    assert schedule["cron"] == "15 18 * * 5" and schedule["description"] == "Every Friday at 18:15" and schedule["next_run_at"]
+    assert client.post(f"{API}/schedules", json={"phase": "weekly"}, headers=MEMBER).status_code == 409
+    assert client.get(f"{API}/schedules", headers=OTHER).json() == []  # another person's finance schedule is not shown
+
+    run = client.post(f"/api/v1/automation/workflows/{schedule['workflow_id']}/runs", headers=MEMBER)
+    assert run.status_code == 201, run.text
+    decisions = finance_store.list_agent_decisions(_me(), agent="trading_supervisor", limit=10, offset=0)[0]
+    assert len(decisions) == 1 and decisions[0].action == "cycle" and decisions[0].details["phase"] == "weekly"
+    # A second fire the same day is skipped by the cycle itself.
+    client.post(f"/api/v1/automation/workflows/{schedule['workflow_id']}/runs", headers=MEMBER)
+    assert len(finance_store.list_agent_decisions(_me(), agent="trading_supervisor", limit=10, offset=0)[0]) == 1
+
+    assert client.delete(f"{API}/schedules/{schedule['id']}", headers=OTHER).status_code == 404
+    assert client.delete(f"{API}/schedules/{schedule['id']}", headers=MEMBER).status_code == 204
+    assert client.get(f"{API}/schedules", headers=MEMBER).json() == []
+
+
+def _me():  # type: ignore[no-untyped-def]
+    from anum_api.schemas import TenantContext
+
+    return TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="member_intel", roles=["member"])

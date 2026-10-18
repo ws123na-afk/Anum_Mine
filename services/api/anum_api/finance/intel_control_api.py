@@ -11,17 +11,20 @@ cycle proposes wait in the execution gateway for the person's hash-bound approva
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel, Field, field_validator
 
 from ..dependencies import repository_context, tenant_context
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
-from .api import _audit, _clean, _invalid, _manage, _not_found
+from .. import automation
+from ..scoped_store import ScopeNotProvisionedError
+from .api import _audit, _clean, _invalid, _manage, _not_found, _read
 from .intel import lifecycle, research
+from .intel import schedules as intel_schedules
 from .intel.marketdata import (
     PROVIDERS,
     SYMBOL,
@@ -340,3 +343,127 @@ def pause_everything(body: PauseInput, context: TenantContext = Depends(tenant_c
         paused = pause_all(store, context, now=utc_now(), reason=body.reason)
     _audit(repository, context, "finance.intel.pause_all", context.user_id, {"paused": len(paused)})
     return {"paused": [s.id for s in paused], "simulated": True}
+
+
+# -- scheduled operations -----------------------------------------------------------------------
+
+WEEKDAYS = ("sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday")
+
+
+class ScheduleInput(BaseModel):
+    phase: str
+    time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    timezone: str = Field(default="Asia/Dubai", min_length=1, max_length=80)
+    weekday: int = Field(default=5, ge=0, le=6, description="0 = Sunday; weekly only")
+
+    @field_validator("timezone")
+    @classmethod
+    def _zone(cls, value: str) -> str:
+        from .. import cron
+
+        try:
+            cron.zone(value)
+        except cron.CronError as exc:
+            raise ValueError(str(exc)) from None
+        return value
+
+    def at(self) -> str:
+        return self.time or intel_schedules.DEFAULT_TIMES.get(self.phase, "08:30")
+
+    def cron_expression(self) -> str:
+        hour, minute = (int(part) for part in self.at().split(":"))
+        if self.phase == "weekly":
+            return f"{minute} {hour} * * {self.weekday}"
+        if self.phase == "monthly":
+            return f"{minute} {hour} 1 * *"
+        return f"{minute} {hour} * * *"
+
+    def describe(self) -> str:
+        if self.phase == "weekly":
+            return f"Every {WEEKDAYS[self.weekday].capitalize()} at {self.at()}"
+        if self.phase == "monthly":
+            return f"Monthly on the 1st at {self.at()}"
+        return f"Daily at {self.at()} (skipped on days the venue does not trade)"
+
+
+class ScheduleView(BaseModel):
+    id: str
+    workflow_id: str
+    phase: str
+    description: str
+    cron: str
+    timezone: str
+    enabled: bool
+    next_run_at: datetime | None
+    last_run_at: datetime | None
+
+
+def _schedules(context: TenantContext) -> list[ScheduleView]:
+    engine = automation.current_engine()
+    workflows = {w.id: w for w in engine.list_workflows(context)}
+    views: list[ScheduleView] = []
+    for schedule in engine.list_schedules(context):
+        workflow = workflows.get(schedule.workflow_id)
+        step = next((x for x in workflow.steps if x.action == intel_schedules.STEP_ACTION), None) if workflow else None
+        if step is None or schedule.created_by != context.user_id:  # finance is personal: only your own schedules
+            continue
+        views.append(ScheduleView(
+            id=schedule.id, workflow_id=schedule.workflow_id, phase=str(step.input.get("phase")),
+            description=str(step.input.get("description", "")), cron=schedule.cron, timezone=schedule.timezone,
+            enabled=schedule.enabled, next_run_at=schedule.next_run_at, last_run_at=schedule.last_run_at,
+        ))
+    return views
+
+
+@router.get("/schedules", response_model=list[ScheduleView])
+def list_schedules(context: TenantContext = Depends(tenant_context)) -> list[ScheduleView]:
+    """Your scheduled Supervisor cycles."""
+    _read(context)
+    return _schedules(context)
+
+
+@router.post("/schedules", response_model=ScheduleView, status_code=status.HTTP_201_CREATED)
+def create_schedule(body: ScheduleInput, context: TenantContext = Depends(tenant_context),
+                    repository: AnumRepository = Depends(repository_context)) -> ScheduleView:
+    """Run one Supervisor phase on a schedule, as you. One schedule per phase."""
+    _manage(context)
+    problem = intel_schedules.check_step_input({"phase": body.phase})
+    if problem:
+        raise _invalid(problem[0].upper() + problem[1:])
+    if any(view.phase == body.phase for view in _schedules(context)):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"You already schedule the {body.phase} cycle. Delete that schedule first.")
+    engine = automation.current_engine()
+    try:
+        workflow = engine.create_workflow(context, automation.WorkflowCreate(
+            name=f"Trading intelligence: {body.phase} cycle (SIMULATED)",
+            description="Created from Finance > Trading intelligence. Runs one SIMULATED Supervisor cycle; orders still wait for your approval.",
+            steps=[automation.WorkflowStep(id="cycle", name=f"{body.phase} cycle", action=intel_schedules.STEP_ACTION,
+                                           input={"phase": body.phase, "description": body.describe()}, max_attempts=1)],
+        ))
+        schedule = engine.create_schedule(context, automation.ScheduleCreate(
+            workflow_id=workflow.id, name=f"Trading intelligence {body.phase} - {body.describe()}"[:160], cron=body.cron_expression(),
+            timezone=body.timezone,
+        ))
+    except ScopeNotProvisionedError:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Complete onboarding for this workspace first.") from None
+    except (KeyError, ValueError) as exc:
+        raise _invalid(str(exc)) from None
+    _audit(repository, context, "finance.intel.schedule.create", schedule.id, {"phase": body.phase})
+    return next(view for view in _schedules(context) if view.id == schedule.id)
+
+
+@router.delete("/schedules/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def delete_schedule(schedule_id: str, context: TenantContext = Depends(tenant_context),
+                    repository: AnumRepository = Depends(repository_context)) -> Response:
+    _manage(context)
+    view = next((v for v in _schedules(context) if v.id == schedule_id), None)
+    if view is None:
+        raise _not_found("Schedule")
+    engine = automation.current_engine()
+    engine.delete_schedule(context, schedule_id)
+    try:
+        engine.delete_workflow(context, view.workflow_id)
+    except (KeyError, ValueError, AttributeError):
+        pass  # the schedule is gone; an orphaned workflow without a schedule never fires
+    _audit(repository, context, "finance.intel.schedule.delete", schedule_id, {"phase": view.phase})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

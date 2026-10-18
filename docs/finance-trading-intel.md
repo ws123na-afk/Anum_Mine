@@ -9,12 +9,17 @@ The code is the pure package `services/api/anum_api/finance/intel/`: no network 
 | Loop | Scope | State |
 |---|---|---|
 | 1 | Gap assessment | Done ([gap assessment](finance-trading-gap-assessment.md)) |
-| 3 | Calendars, market-data parsing and checks, synthetic data | Pure code and tests done. Storage (migration `0060`), the instrument API and fetch jobs are **not built yet** |
-| 4 | Indicators, backtester, benchmark strategies, walk-forward validation | Pure code and tests done. Stored runs and the API are **not built yet** |
-| Addendum | Storage (migration `0060_finance_intel`), the strategy lifecycle, the six research candidates, evaluation reports, the Trading Supervisor with seven agents, write API | Done, with unit, API and PostgreSQL tests. Scheduling by venue calendar and the dashboard follow |
-| 2, 5 to 9 | Skills, strategy runs into paper and shadow, daily jobs, screens, owner commands, security review, live design | **Not started** |
+| 2 | Trading knowledge library and agent skills | **In progress** |
+| 3 | Calendars, market data, storage | Done: calendars, CSV and recorded-provider parsing with checks, instruments and bars stored (migration `0060_finance_intel`), import API. Network fetch from providers is off until the owner accepts their terms |
+| 4 | Indicators, backtester, the six candidates, walk-forward validation, reports | Done, with tests |
+| 5 | Strategy signals into SIMULATED paper orders | Done: the Supervisor's Execution Coordinator through the existing gateway and Guardian; every order waits for the person's approval |
+| 6 | Scheduled agent operations | Done: `finance.intel.cycle` automation step, phases by venue calendar, idempotent cycles |
+| 7 | Dashboard | Read view done (Finance, Trading intelligence tab, `intel_api.py`); actions for creating strategies, lifecycle moves and running a cycle in progress. P&L and drawdown charts and the Flutter screens are built separately |
+| 8 | Daily reports, monitoring, incidents | Partly: each cycle records its summary and every agent decision; the post-close report document is open |
+| 9 | Security, performance, regression, Oracle checks | Open |
+| 10 | Live-trading readiness assessment (nothing enabled) | [Readiness report](finance-trading-readiness.md) |
 
-Nothing in this package can place an order. Loop 5 is where a strategy signal may become a SIMULATED order, and only through the existing Guardian `gate` and execution gateway.
+No code here can place a real order. A strategy signal becomes, at most, a SIMULATED paper order request through the existing Guardian `gate` and execution gateway, approved by the person.
 
 ## Calendars
 
@@ -136,7 +141,15 @@ Every proposed order records the strategy and version, the instrument, the bar d
 
 **Emergency pause**: `pause_all` suspends every PAPER_ACTIVE version at once (the person's action, recorded). The existing kill switch additionally stops every executor.
 
-Not built yet: the scheduler entries that run the phases on each venue's calendar (the cycle is callable now from the API), and model-written commentary; both are later loops.
+A daily trading phase on a day none of the strategy's venues trades (by each venue's own local date and holiday list; crypto every day) records `market_closed` instead of trading.
+
+## Scheduled operations
+
+`intel/schedules.py` uses the existing automation engine: a schedule is an ordinary workflow with one `finance.intel.cycle` step (`input.phase`) and an automation schedule (cron and IANA time zone), visible in the Workbench like any other. After the engine commits a run it calls the step handler, which re-checks that the schedule's creator is still an active member with `finance:manage`, acts as that person (their own finance rows only) and runs the phase. The cycle is idempotent per person, phase and day, so a retried, duplicated or restarted fire never runs twice.
+
+`POST /api/v1/finance/intel/schedules` with `phase` and optional `time` (defaults: pre-open 08:30, intraday 12:00, post-close 17:30, weekly 18:00, monthly 07:00), `timezone` (default `Asia/Dubai`) and `weekday` (weekly, 0 is Sunday) creates one schedule per phase; `GET` lists your own, `DELETE /schedules/{id}` removes one. Daily phases are scheduled every day and skip themselves on days the venue does not trade.
+
+Not built yet: model-written commentary in the reports, and a check of the Oracle VM's load before heavy evaluations (loop 9).
 
 ## API
 
@@ -153,6 +166,7 @@ Write routes, `finance:manage`, in `finance/intel_control_api.py` under `/api/v1
 | `POST /strategies/{id}/evaluate` | A SIMULATED `backtest` or `walk_forward` run on the stored bars |
 | `POST /supervisor/run` | One Supervisor cycle for a phase, now |
 | `POST /pause-all` | The emergency pause |
+| `GET`, `POST /schedules`, `DELETE /schedules/{id}` | Your scheduled Supervisor cycles |
 
 Audit records carry ids, kinds, states, phases, counts and codes only; never a symbol, price or amount.
 
