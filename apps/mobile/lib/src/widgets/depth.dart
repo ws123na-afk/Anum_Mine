@@ -2,56 +2,22 @@ import 'package:flutter/material.dart';
 
 import '../theme/anum_theme.dart';
 
-/// The app background: midnight with faint aurora washes.
+/// The app background: the plain neutral page colour (no washes, so content
+/// carries the page).
 class AnumBackdrop extends StatelessWidget {
   const AnumBackdrop({required this.child, super.key});
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final wash = dark ? 1.0 : 0.5;
-    return DecoratedBox(
-      decoration: BoxDecoration(color: p.background),
-      child: Stack(children: [
-        Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(-0.9, -1.1),
-                radius: 1.1,
-                colors: [
-                  p.sky.withValues(alpha: 0.12 * wash),
-                  Colors.transparent
-                ],
-              ),
-            ),
-          ),
-        ),
-        Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(1.0, -1.0),
-                radius: 1.0,
-                colors: [
-                  p.violet.withValues(alpha: 0.14 * wash),
-                  Colors.transparent
-                ],
-              ),
-            ),
-          ),
-        ),
-        child,
-      ]),
-    );
-  }
+  Widget build(BuildContext context) => DecoratedBox(
+        decoration: BoxDecoration(color: context.palette.background),
+        child: child,
+      );
 }
 
-/// A raised surface: solid (never glass, so text keeps contrast), lighter at
-/// the top, with a lit top edge and a contact + ambient shadow. When tappable
-/// it presses in slightly, like a physical card.
+/// A raised surface: solid (never glass, so text keeps contrast), a hairline
+/// border and a soft ambient shadow. When tappable it presses in slightly
+/// (150 ms, none with reduced motion).
 class AnumSurface extends StatefulWidget {
   const AnumSurface({
     required this.child,
@@ -66,7 +32,7 @@ class AnumSurface extends StatefulWidget {
   final VoidCallback? onTap;
   final EdgeInsetsGeometry padding;
 
-  /// Optional coloured glow on the leading edge, e.g. amber for "needs you".
+  /// Optional status bar on the leading edge, e.g. amber for "needs you".
   final Color? accent;
   final String? semanticLabel;
 
@@ -80,52 +46,31 @@ class _AnumSurfaceState extends State<AnumSurface> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    final radius = BorderRadius.circular(18);
+    final radius = BorderRadius.circular(AnumRadius.lg);
+    // The shadow sits on an uncoloured box and the fill is a Material, so
+    // list tiles and ink inside the card still paint (a coloured box between
+    // a ListTile and its Material would hide them).
     final card = DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: radius,
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [p.surface2, p.surface1],
-        ),
-        border: Border.all(color: p.line),
         boxShadow: [
           BoxShadow(
-              color: p.shadow, blurRadius: 24, offset: const Offset(0, 10)),
-          BoxShadow(
-              color: p.shadow.withValues(alpha: 0.4),
-              blurRadius: 4,
-              offset: const Offset(0, 1)),
-          if (widget.accent != null)
-            BoxShadow(
-                color: widget.accent!.withValues(alpha: 0.18),
-                blurRadius: 22,
-                spreadRadius: -4),
+              color: p.shadow, blurRadius: 16, offset: const Offset(0, 4)),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: radius,
+      child: Material(
+        color: _pressed ? p.surface3 : p.surface1,
+        animationDuration: AnumMotion.of(context, AnumMotion.quick),
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+            borderRadius: radius, side: BorderSide(color: p.line)),
         child: Stack(children: [
-          // Lit top edge.
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: Container(height: 1, color: p.edge),
-          ),
           if (widget.accent != null)
             PositionedDirectional(
-              top: 14,
-              bottom: 14,
+              top: 0,
+              bottom: 0,
               start: 0,
-              child: Container(
-                  width: 3,
-                  decoration: BoxDecoration(
-                      color: widget.accent,
-                      borderRadius: const BorderRadiusDirectional.horizontal(
-                          end: Radius.circular(3)))),
+              child: Container(width: 3, color: widget.accent),
             ),
           Padding(padding: widget.padding, child: widget.child),
         ]),
@@ -150,9 +95,9 @@ class _AnumSurfaceState extends State<AnumSurface> {
         onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
         child: AnimatedScale(
-          scale: _pressed && !reduceMotion ? 0.98 : 1,
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOut,
+          scale: _pressed ? 0.985 : 1,
+          duration: AnumMotion.of(context, AnumMotion.quick),
+          curve: AnumMotion.curve,
           child: card,
         ),
       ),
@@ -244,9 +189,10 @@ class AnumMetric extends StatelessWidget {
           Text(value,
               style: TextStyle(
                   color: p.text,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  height: 1)),
+                  fontSize: 26,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.5,
+                  height: 1.1)),
           if (caption != null) ...[
             const SizedBox(height: 8),
             Text(caption!, style: TextStyle(color: p.faint, fontSize: 12)),
@@ -287,9 +233,10 @@ class AnumPill extends StatelessWidget {
     final color = anumToneColor(context, tone);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
+        color: Color.alphaBlend(
+            color.withValues(alpha: 0.12), context.palette.surface1),
+        borderRadius: BorderRadius.circular(AnumRadius.pill),
+        border: Border.all(color: color.withValues(alpha: 0.24)),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -310,7 +257,8 @@ class AnumPill extends StatelessWidget {
   }
 }
 
-/// A gradient icon chip used at the start of rows.
+/// A tinted icon chip used at the start of rows: the tone's (or the
+/// accent's) soft tint with the icon in that colour.
 class AnumIconChip extends StatelessWidget {
   const AnumIconChip({required this.icon, this.tone, super.key});
   final IconData icon;
@@ -319,19 +267,17 @@ class AnumIconChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final color = tone == null ? null : anumToneColor(context, tone!);
+    final color = tone == null ? p.violet : anumToneColor(context, tone!);
     return Container(
       width: 40,
       height: 40,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        gradient: LinearGradient(colors: [
-          (color ?? p.sky).withValues(alpha: 0.24),
-          (color ?? p.violet).withValues(alpha: 0.24),
-        ]),
-        border: Border.all(color: p.edge),
+        borderRadius: BorderRadius.circular(AnumRadius.md),
+        color: tone == null
+            ? p.accentSoft
+            : Color.alphaBlend(color.withValues(alpha: 0.12), p.surface1),
       ),
-      child: Icon(icon, size: 20, color: p.text),
+      child: Icon(icon, size: 20, color: color),
     );
   }
 }
@@ -418,8 +364,16 @@ class AnumEmpty extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 8),
       child: Column(children: [
-        Icon(icon, size: 34, color: p.violet),
-        const SizedBox(height: 10),
+        Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+              color: p.surface3,
+              borderRadius: BorderRadius.circular(AnumRadius.lg),
+              border: Border.all(color: p.line)),
+          child: Icon(icon, size: 24, color: p.muted),
+        ),
+        const SizedBox(height: AnumSpacing.sm),
         Text(title,
             textAlign: TextAlign.center,
             style: TextStyle(

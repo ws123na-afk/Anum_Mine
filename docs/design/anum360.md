@@ -12,8 +12,8 @@ The owner's mockups for the ANUM 360 redesign are in [`anum360-mockups/`](anum36
 
 ## Visual language
 
-- A deep midnight navy background with a blue-to-violet aurora glow behind the command orb; content cards are raised surfaces (dark on command screens, light cards on report and list screens).
-- One accent gradient (blue to violet) for primary actions and the orb; status colours for state (green done, amber pending, red high or stop), always with a text label too.
+- A calm, premium enterprise look (owner, 19 Oct 2026): a restrained neutral base, one brand accent (ANUM iris) for primary actions, links, focus and selection, and semantic colours only for real status (green done, amber pending, red stop), always with a text label too.
+- Hairline borders with soft depth, no gradient text, first-class light and dark themes. The blue-to-violet brand gradient stays only on the ANUM mark and the orb.
 - The orb (the ANUM "A" mark with a live waveform) is the centre of the bottom navigation and of the command screens.
 - Every colour, spacing and type value comes from the app's tokens (`AnumPalette`, `AnumSpacing`, the theme). Mockup values are mapped to the nearest token, never copied.
 
@@ -78,6 +78,26 @@ All colour lives in the token block at the top of `apps/web/src/styles.css`; the
 Rules: every primary action uses the accent gradient (`--d-primary-grad`), never a flat accent; a destructive button is `--d-danger` with white text; a bare secondary or danger button gets the control shape from a zero-specificity base rule; the orb stays the midnight ANUM object in both themes. `prefers-contrast: more` strengthens lines and secondary text in both themes, `prefers-reduced-transparency` drops the blur, and `prefers-reduced-motion` stops animation. The type stack names Inter first and falls back to the system UI font; neither client ships the Inter files yet.
 
 Tests: `test/theme.test.ts` (the choice rules, the pre-paint script agreeing with them, the dark tokens matching the app's palette, and AA for text, links and status colours on every surface of both themes), `e2e/theme.spec.ts` (Settings > Appearance, reload, "Match my device", the user menu in Arabic, no horizontal overflow at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844) and the light-theme axe pass in `e2e/accessibility.spec.ts`.
+
+### Flutter tokens (premium identity)
+
+`AnumPalette` in `apps/mobile/lib/src/theme/anum_theme.dart` holds the app's tokens; the theme (ColorScheme, TextTheme, buttons, inputs, chips, list tiles, tabs, app bars, navigation bar and rail, dialogs, sheets, snack bars, tooltips, switches) and the shared widgets (`AnumSurface`, `AnumMetric`, `AnumMetricGrid`, `AnumIconChip`, `AnumPill`, `AnumEmpty`, `AnumFeedback`, `AnumSkeleton`, `AnumGradientButton`, the bottom navigation and menu drawer) read only these, so every screen inherits the look. The web's tokens are to be kept to the same values (web branch `claude/design-shell-fixes`; its token change had not landed when these were set).
+
+| Token | Dark | Light | Contrast |
+|---|---|---|---|
+| `background`, `surface1`, `surface2`, `surface3` | `#0b0b0f`, `#131318`, `#17171d`, `#1e1e25` | `#f7f7f8`, `#ffffff`, `#ffffff`, `#f1f1f3` | |
+| `line` (hairline), `lineStrong` (inputs, outlines) | `#2a2a33`, `#3a3a45` | `#e4e4e7`, `#d4d4d8` | |
+| `text`, `muted`, `faint` | `#ededf0`, `#a1a1aa`, `#8b8b95` | `#18181b`, `#52525b`, `#6b6b74` | text 7:1 or more, muted and faint 4.5:1 or more on every surface |
+| Accent as text and icons (`violet`, also `sky` and `rose`) | `#a9a4ff` | `#5145cd` | 4.5:1 or more on every surface and on `accentSoft` |
+| Accent as a fill (`accentStart` = `accentEnd`), `onAccent` | `#5b50e0`, white | `#5145cd`, white | white 5.7:1 and 6.8:1 |
+| `accentSoft` (selected rows, chips, navigation indicator) | `#24223d` | `#eeedfb` | |
+| `ok`, `warn`, `stop` | `#6ee7a0`, `#fbbf24`, `#f87171` | `#166534`, `#92400e`, `#b42335` | 4.5:1 or more on surfaces and on their own 12 % tint |
+| `shadow` (soft ambient depth) | black at 40 % | `#18181b` at 8 % | |
+| `brandStart`, `brandMiddle`, `brandEnd` (mark and orb only) | `#4f8bff`, `#6a5cff`, `#9b6bff` | same | |
+
+Radii: 8, 10 (controls), 14 (cards), 20 (sheets, dialogs), pill. Type: Inter with Noto Sans Arabic (both bundled; IBM Plex Sans Arabic would need the owner's approval to add the font files), Material 3 sizes and line heights, tighter tracking and weights on headings; KPI values are solid `text` at 26 px. Motion: 150 ms (`AnumMotion.quick`) and 200 ms (`standard`, `page`) on state changes only, zero with reduced motion (`AnumMotion.of`); the loading skeleton's sweep stops too. Loading states show a skeleton (`AnumSkeleton`) with the message instead of a spinner.
+
+Screenshots at 390x844, light and dark, rendered with the bundled fonts and the icon font: [`screens/flutter/`](screens/flutter/) (`home-*.png`, `business-*.png`, `email-*.png`, `settings-*.png`). Tests: `apps/mobile/test/widgets/theme_identity_test.dart` (AA for every text and status colour on every surface in both themes, one accent, solid controls, hairline cards, motion durations, the skeleton with reduced motion, and the shared states at 320 to 1440 px, 200 % text, RTL and dark).
 
 ### Shell
 
