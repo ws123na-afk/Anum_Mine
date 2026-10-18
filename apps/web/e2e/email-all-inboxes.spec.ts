@@ -168,7 +168,8 @@ test('a message opens in its own mailbox and the reply goes from that address af
   await expect(page.getByRole('heading', { name: 'Sales lead from the fair' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open in sales@example.com' })).toBeVisible();
   await page.getByRole('button', { name: 'Reply', exact: true }).click();
-  await expect(page.getByText('sales@example.com', { exact: false }).first()).toBeVisible();
+  // The composer writes from the message's own mailbox.
+  await expect(page.locator('.mailComposer')).toContainText('sales@example.com');
   expect(calls.drafts[0]).toMatchObject({ account_id: shared.id, kind: 'reply' });
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('group', { name: 'Approve sending' })).toBeVisible();
