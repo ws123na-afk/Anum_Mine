@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   ANUM_BUILD_NUMBER_OFFSET: ${{ vars.ANUM_BUILD_NUMBER_OFFSET }}
@@ -19,7 +18,15 @@ jobs:
   android:
     name: Android app bundle
     runs-on: ubuntu-latest
+    # Only this job uploads to Play, so only it may mint the OIDC token for Workload Identity
+    # Federation; the APK job keeps the workflow's read-only default.
+    permissions:
+      contents: read
+      id-token: write
     env:
+      # Google Cloud identity the Play upload federates to (no JSON key in GitHub).
+      PLAY_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.ANUM_PLAY_WORKLOAD_IDENTITY_PROVIDER || 'projects/1095200600666/locations/global/workloadIdentityPools/github-actions/providers/github' }}
+      PLAY_SERVICE_ACCOUNT: ${{ vars.ANUM_PLAY_SERVICE_ACCOUNT || 'anum-play-publisher@anum-os.iam.gserviceaccount.com' }}
       VERSION: ""
       BUILD_NUMBER: ""
       PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL || 'https://api.anum360os.com/' }}
@@ -44,9 +51,9 @@ jobs:
           ANUM_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANUM_ANDROID_KEYSTORE_PASSWORD }}
           ANUM_ANDROID_KEY_ALIAS: ${{ secrets.ANUM_ANDROID_KEY_ALIAS }}
           ANUM_ANDROID_KEY_PASSWORD: ${{ secrets.ANUM_ANDROID_KEY_PASSWORD }}
-          # WIF is used for Play upload; keep this non-empty so the shared release preflight
-          # recognizes that store authentication is configured without requiring a JSON key.
-          PLAY_SERVICE_ACCOUNT_JSON: "workload-identity-federation"
+          # Play upload authenticates through Workload Identity Federation (PLAY_WORKLOAD_IDENTITY_PROVIDER
+          # and PLAY_SERVICE_ACCOUNT from the job env); the preflight checks those, or this key if set.
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           ANUM_PRODUCTION_API_URL: ${{ vars.ANUM_PRODUCTION_API_URL || 'https://api.anum360os.com/' }}
           ANUM_PRODUCTION_OIDC_ISSUER: ${{ vars.ANUM_PRODUCTION_OIDC_ISSUER || 'https://auth.anum360os.com/realms/anum' }}
           ANUM_PRODUCTION_WEB_APP_URL: ${{ vars.ANUM_PRODUCTION_WEB_APP_URL || 'https://app.anum360os.com/' }}
@@ -128,10 +135,10 @@ jobs:
       - name: Authenticate to Google Cloud for Play upload
         if: steps.config.outputs.build == 'true' && steps.config.outputs.play == 'true'
         id: google-auth
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
-          workload_identity_provider: projects/1095200600666/locations/global/workloadIdentityPools/github-actions/providers/github
-          service_account: anum-play-publisher@anum-os.iam.gserviceaccount.com
+          workload_identity_provider: ${{ env.PLAY_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.PLAY_SERVICE_ACCOUNT }}
           create_credentials_file: true
           export_environment_variables: true
 
