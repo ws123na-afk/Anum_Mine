@@ -439,6 +439,14 @@ def insecure_configuration_problems(config: Any) -> list[str]:
     if not config.rate_limit_enabled:
         problems.append("ANUM_RATE_LIMIT_ENABLED must stay true outside local")
 
+    # Upload malware scanning (docs/files.md#malware-scanning) must fail closed: an
+    # unreachable clamd may never let unscanned files through outside local.
+    if getattr(config, "file_scanner", "off") == "clamav" and not getattr(config, "file_scan_required", True):
+        problems.append(
+            "ANUM_FILE_SCAN_REQUIRED must stay true outside local when ANUM_FILE_SCANNER=clamav "
+            "(uploads would be stored unscanned while clamd is down)"
+        )
+
     # The Email Center's mail server (docs/email.md#email-center); nothing while it is off.
     from .mailbox.config import MailServerSettings, mail_settings, mailserver_problems
 

@@ -215,6 +215,19 @@ def default_skill_registry() -> SkillRegistry:
                 required_tools=frozenset({"marketing.draft_social_post", "marketing.schedule_post", "marketing.summary"}),
             ),
             SkillManifest(
+                id="anum.brevo",
+                version="1.0.0",
+                name="Email campaigns (Brevo)",
+                description="Drafts Brevo email campaigns for review and reads lists and campaign reports; sending waits for an owner's approval.",
+                triggers=frozenset(
+                    {"brevo", "newsletter", "newsletters", "mailing", "mailshot", "subscribers", "نشرة", "المشتركين", "مشتركين"}
+                ),
+                # Selectable only where the Brevo tools are registered; the send tool is never planned.
+                required_tools=frozenset(
+                    {"brevo.list_lists", "brevo.list_campaigns", "brevo.campaign_report", "brevo.draft_campaign"}
+                ),
+            ),
+            SkillManifest(
                 id="anum.external-action",
                 version="1.0.0",
                 name="External action",

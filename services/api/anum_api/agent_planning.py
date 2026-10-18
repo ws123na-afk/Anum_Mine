@@ -72,11 +72,15 @@ class AgentPlanner:
         prompt = "\n\n".join([*preface, f"Task:\n{task.prompt}"]) if preface else task.prompt
         response = await self._generate(planner, prompt, context_blocks)
         # As an agent, only its tools can be chosen (team work's ``team.assign_task`` too).
-        call = _marketing_call(task, selected) or (
+        call = _brevo_call(task.prompt, selected) or _marketing_call(task, selected) or (
             self._select_tool(task.prompt, selected, response)
             if agent is None
             else self._select_tool(task.prompt, selected, response, tools)
         )
+        # A Brevo call with no working connection becomes a reply that says what to fix.
+        from .brevo.planning import refusal as brevo_refusal
+
+        call = await brevo_refusal(task, call) or call
         return PlanResult(
             plan=AgentPlan(
                 objective=task.prompt,
@@ -129,6 +133,9 @@ def choose_tool_call(
         # "ask Ahmed to call the supplier by Thursday": the tool parses the user's own
         # sentence (never model output) and resolves the person in the workspace.
         return ToolCall(name="team.assign_task", arguments={"command": " ".join(prompt.split())[:500]})
+    brevo_call = _brevo_call(prompt, skills)
+    if brevo_call is not None:
+        return brevo_call
     if any(skill.id == "anum.whatsapp-inbox" for skill in skills):
         # Read-only: which conversations need attention. Replies are drafted and sent
         # from the inbox, where a person approves them (docs/whatsapp.md#agent-tools).
@@ -204,3 +211,13 @@ def _marketing_call(task: Task, skills: Sequence[SkillManifest]) -> ToolCall | N
     from .marketing.tools import planned_call
 
     return planned_call(task, task.prompt)
+
+
+def _brevo_call(prompt: str, skills: Sequence[SkillManifest]) -> ToolCall | None:
+    """Brevo email campaign drafts and reads (docs/brevo.md#planner), from the user's own
+    prompt. Never a send: that waits for an owner's approval of the exact draft."""
+    if not any(skill.id == "anum.brevo" for skill in skills):
+        return None
+    from .brevo.planning import plan_call
+
+    return plan_call(prompt)

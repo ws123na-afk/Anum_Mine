@@ -426,7 +426,15 @@ async def send_test(draft_id: str, context: TenantContext = Depends(tenant_conte
 async def request_send(draft_id: str, payload: SendRequest, context: TenantContext = Depends(tenant_context)) -> DraftView:
     """Ask to send (or schedule) the draft: a paused ``brevo.send_campaign`` for an owner to approve."""
     _write(context)
-    when = payload.scheduled_at
+
+    def load() -> CampaignDraft:
+        with open_brevo_store(context) as store:
+            return _get_or_404(store, draft_id)
+
+    draft = await asyncio.to_thread(load)
+    # A request that names no time reuses the draft's saved one (the planner's "tomorrow at 9");
+    # an explicit null sends as soon as it is approved.
+    when = payload.scheduled_at if "scheduled_at" in payload.model_fields_set else draft.scheduled_at
     if when is not None:
         when = when if when.tzinfo else when.replace(tzinfo=UTC)
         when = when.astimezone(UTC).replace(microsecond=0)
@@ -434,12 +442,6 @@ async def request_send(draft_id: str, payload: SendRequest, context: TenantConte
             raise http_error(422, "Pick a time at least 10 minutes from now, so there is time to approve it.")
         if when > utc_now() + timedelta(days=365):
             raise http_error(422, "Pick a time within the next year.")
-
-    def load() -> CampaignDraft:
-        with open_brevo_store(context) as store:
-            return _get_or_404(store, draft_id)
-
-    draft = await asyncio.to_thread(load)
     if draft.status not in {DraftStatus.DRAFT, DraftStatus.FAILED}:
         raise http_error(409, f"The campaign is {draft.status.value.replace('_', ' ')}; only a draft can be sent for approval.")
     connection, client = await _connected_client(context)
@@ -495,7 +497,7 @@ def cancel_send(draft_id: str, context: TenantContext = Depends(tenant_context),
         draft.status = DraftStatus.DRAFT
         draft.approval_id = None
         draft.approval_task_id = None
-        draft.scheduled_at = None
+        # The chosen time stays on the draft, so asking again reuses it.
         draft.updated_at = utc_now()
         store.save_draft(draft)
     audit(context, "brevo.campaign.send_withdrawn", draft_id, repository=repository)

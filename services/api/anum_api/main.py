@@ -125,6 +125,7 @@ from .tasks import (
     normalize_query,
 )
 from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
+from .file_scanner_clamav import install_configured_scanner
 from .hardening import BodyLimitRule, docs_routes, enforce_startup_policy, install_hardening
 from .meetings import router as meetings_router
 from .voice import router as voice_router
@@ -285,6 +286,8 @@ async def lifespan(_: FastAPI):
 
 
 enforce_startup_policy(settings)
+# Upload malware scanning with clamd when ANUM_FILE_SCANNER=clamav (docs/files.md#malware-scanning).
+install_configured_scanner(settings)
 # Errors to a Sentry-compatible server (GlitchTip) when ANUM_SENTRY_DSN is set; scrubbed
 # to types, frames, routes and the tenant id (anum_api/error_reporting.py).
 setup_error_reporting(settings, service_name="anum-api")

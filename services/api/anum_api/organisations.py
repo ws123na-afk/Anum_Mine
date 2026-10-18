@@ -243,6 +243,13 @@ def _branding_view(tenant_id: str, row: dict[str, Any] | None, fallback: str | N
     )
 
 
+def branding_for(context: TenantContext) -> Branding:
+    """The organisation's branding (display name, logo flag) for other modules, such as the
+    Brevo email composer (docs/brevo.md#planner). Its own short unit of work: call it in a thread."""
+    with _session(context) as session:
+        return _branding_view(context.tenant_id, _read_branding(session, context.tenant_id), _tenant_name(session, context.tenant_id))
+
+
 def _audit(context: TenantContext, repository: Any, action: str, target: str, metadata: dict[str, Any]) -> None:
     repository.record_audit(
         AuditRecord(

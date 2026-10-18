@@ -187,6 +187,32 @@ services:
       timeout: 5s
       retries: 3
 
+  # Upload malware scanning (docs/files.md#malware-scanning): ClamAV's clamd on TCP 3310
+  # (INSTREAM), bound to 127.0.0.1 only because clamd has no authentication. Point a
+  # host-run API at it with ANUM_FILE_SCANNER=clamav and ANUM_CLAMAV_HOST=127.0.0.1.
+  # The image ships a signature database; freshclam refreshes it (CLAMAV_NO_FRESHCLAMD=true
+  # skips that, as CI does). clamd holds one copy of the signatures in memory (about
+  # 1.2 GB): no concurrent reload and no test load by freshclam, so 2 GB is enough.
+  clamd:
+    image: clamav/clamav:1.5.4-debian13-slim
+    environment:
+      CLAMAV_NO_FRESHCLAMD: ${CLAMAV_NO_FRESHCLAMD:-false}
+      # Uploads are at most 25 MiB (ANUM_MAX_UPLOAD_BODY_BYTES): clamd accepts a stream
+      # slightly larger, so a full-size upload is scanned instead of refused.
+      CLAMD_CONF_StreamMaxLength: 26M
+      # Reload signatures in place: no second copy in memory during an update.
+      CLAMD_CONF_ConcurrentDatabaseReload: "no"
+      FRESHCLAM_CONF_TestDatabases: "no"
+    ports:
+      - "127.0.0.1:3310:3310"
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+
   # Application containers. Opt in with `--profile app`; the default
   # `docker compose up` still starts infrastructure only (docs/infrastructure.md).
   api:
@@ -209,11 +235,15 @@ services:
       # Telemetry goes to the collector (docs/observability.md); unset to turn it off.
       ANUM_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       ANUM_SEARXNG_URL: http://searxng:8080
+      # Every upload is scanned by the clamd service (docs/files.md#malware-scanning).
+      ANUM_FILE_SCANNER: clamav
+      ANUM_CLAMAV_HOST: clamd
     ports:
       - "8000:8000"
     depends_on:
       - postgres
       - searxng
+      - clamd
 
   # Temporal worker for durable agent runs: same image, different command.
   worker:
