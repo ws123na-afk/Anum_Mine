@@ -60,8 +60,20 @@ class RealtimeListener:
 class RealtimeHub:
     def __init__(self) -> None:
         self._listeners: dict[tuple[str, str], set[RealtimeListener]] = {}
+        # Called on the event loop with every event that passed the scope checks below
+        # (the in-app call stream's wake-ups, anum_api/app_call_wake.py). An observer only
+        # schedules work and must route by the event's own tenant and workspace.
+        self._observers: list[Callable[[DomainEvent], None]] = []
         self.live = False
         self.dropped_messages = 0
+
+    def add_observer(self, observer: Callable[[DomainEvent], None]) -> None:
+        if observer not in self._observers:
+            self._observers.append(observer)
+
+    def remove_observer(self, observer: Callable[[DomainEvent], None]) -> None:
+        if observer in self._observers:
+            self._observers.remove(observer)
 
     def set_live(self, live: bool) -> None:
         self.live = live
@@ -105,6 +117,12 @@ class RealtimeHub:
         ):
             self._drop(message, "subject does not match event scope")
             return
+
+        for observer in list(self._observers):
+            try:
+                observer(event)
+            except Exception:  # an observer must never stop delivery to the streams
+                logger.exception("A realtime observer failed")
 
         if workspace_token == TENANT_WIDE_SEGMENT:
             targets: Iterable[RealtimeListener] = [
@@ -153,6 +171,7 @@ async def live_event_source(
     last_event_id: str | None = None,
     keepalive_seconds: float = 15.0,
     fallback_poll_seconds: float = 1.0,
+    visible: Callable[[DomainEvent], bool] | None = None,
 ) -> AsyncIterator[str]:
     """SSE stream fed by the bus, with persisted-history replay and catch-up.
 
@@ -164,6 +183,8 @@ async def live_event_source(
 
     def matches(event: DomainEvent) -> bool:
         if not event_visible_to(event, context):
+            return False
+        if visible is not None and not visible(event):
             return False
         return task_id is None or event.subject == task_id or event.payload.get("task_id") == task_id
 
