@@ -1016,3 +1016,15 @@ def test_mail_rules_retention_migration_is_expand_only_and_discovery_reads_no_co
         "status", "account_id", "tenant_id", "workspace_id", "owner_user_id", "background_sync", "sent_retention_days",
         "draft_retention_days", "label_retention_days", "next_sync_at", "lease_until",
     }
+
+
+def test_mail_writers_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0069_mail_writers_uidvalidity.py").read_text(encoding="utf-8")
+    assert 'revision = "0069_mail_writers_uidvalidity"' in revision_text and len("0069_mail_writers_uidvalidity") <= 32
+    assert 'down_revision = "0068_mail_rules_retention"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert "op.create_table(" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "grant select (disconnecting_at) on mail_accounts to anum_maintenance" in upgrade
+    assert "grant select (updated_at) on mail_drafts to anum_maintenance" in upgrade

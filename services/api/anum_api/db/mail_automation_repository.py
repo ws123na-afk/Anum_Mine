@@ -17,7 +17,7 @@ from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKeyConstraint, Inte
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.mailbox.automation import ForwardLog, ForwardRule, LogStatus, MailboxSettings, SyncState
+from anum_api.mailbox.automation import COUNTED, ForwardLog, ForwardRule, LogStatus, MailboxSettings, SyncState
 from anum_api.schemas import TenantContext, utc_now
 
 from .models import Base, WorkspaceScopedMixin, _workspace_fk
@@ -86,6 +86,7 @@ class MailRuleRecord(Base, WorkspaceScopedMixin):
     task_id: Mapped[str | None] = mapped_column(String(80))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_uid: Mapped[int | None] = mapped_column(BigInteger)
+    last_uidvalidity: Mapped[int | None] = mapped_column(BigInteger)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(String(500))
     forwarded_count: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -139,14 +140,14 @@ def _rule(row: MailRuleRecord) -> ForwardRule:
         id=row.id, tenant_id=row.tenant_id, workspace_id=row.workspace_id, owner_user_id=row.owner_user_id, account_id=row.account_id,
         name=row.name, from_contains=row.from_contains, subject_contains=row.subject_contains, forward_to=list(row.forward_to or []),
         status=row.status, rule_hash=row.rule_hash, approved_hash=row.approved_hash, approval_id=row.approval_id, task_id=row.task_id,  # type: ignore[arg-type]
-        approved_at=row.approved_at, last_uid=row.last_uid, last_run_at=row.last_run_at, last_error=row.last_error,
+        approved_at=row.approved_at, last_uid=row.last_uid, last_uidvalidity=row.last_uidvalidity, last_run_at=row.last_run_at, last_error=row.last_error,
         forwarded_count=row.forwarded_count, created_at=row.created_at, updated_at=row.updated_at,
     )
 
 
 RULE_COLUMNS = (
     "name", "from_contains", "subject_contains", "forward_to", "status", "rule_hash", "approved_hash", "approval_id", "task_id",
-    "approved_at", "last_uid", "last_run_at", "last_error", "forwarded_count", "updated_at",
+    "approved_at", "last_uid", "last_uidvalidity", "last_run_at", "last_error", "forwarded_count", "updated_at",
 )
 
 
@@ -297,16 +298,29 @@ class SqlAlchemyAutomationStore:
             return 0
         return int(self.session.scalar(
             select(func.count()).select_from(MailForwardLogRecord)
-            .where(*self._mine(MailForwardLogRecord), MailForwardLogRecord.rule_id.in_(rule_ids), MailForwardLogRecord.created_at >= since)
+            .where(*self._mine(MailForwardLogRecord), MailForwardLogRecord.rule_id.in_(rule_ids), MailForwardLogRecord.created_at >= since,
+                   MailForwardLogRecord.status.in_(COUNTED))
         ) or 0)
 
-    def record_run(self, rule_id: str, approved_hash: str, last_uid: int | None, forwarded: int, error: str | None, now: datetime) -> bool:
+    def record_run(self, rule_id: str, approved_hash: str, last_uid: int | None, forwarded: int, error: str | None, now: datetime, uidvalidity: int | None = None) -> bool:
+        values: dict[str, object] = {"last_uid": last_uid, "last_run_at": now, "last_error": error, "forwarded_count": MailRuleRecord.forwarded_count + forwarded}
+        if uidvalidity is not None:
+            values["last_uidvalidity"] = uidvalidity
         result = self.session.execute(
             update(MailRuleRecord)
             .where(*self._mine(MailRuleRecord), MailRuleRecord.id == rule_id, MailRuleRecord.status == "active", MailRuleRecord.approved_hash == approved_hash)
-            .values(last_uid=last_uid, last_run_at=now, last_error=error, forwarded_count=MailRuleRecord.forwarded_count + forwarded)
+            .values(**values)
         )
         return (result.rowcount or 0) == 1  # type: ignore[attr-defined]
+
+    def restart_rule(self, rule_id: str, approved_hash: str, last_uid: int, uidvalidity: int | None, now: datetime) -> bool:
+        if not self.record_run(rule_id, approved_hash, last_uid, 0, None, now, uidvalidity):
+            return False
+        # Forward records above the new start belong to the old UID numbering.
+        self.session.execute(
+            delete(MailForwardLogRecord).where(*self._mine(MailForwardLogRecord), MailForwardLogRecord.rule_id == rule_id, MailForwardLogRecord.uid > last_uid)
+        )
+        return True
 
     def refuse_rule(self, rule_id: str, error: str, now: datetime) -> None:
         self.session.execute(

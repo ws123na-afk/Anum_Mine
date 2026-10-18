@@ -42,6 +42,8 @@ MAX_RETENTION_DAYS = 3650
 MAX_RULES = 20
 MAX_FORWARD_TO = 5
 SYNC_LEASE = timedelta(minutes=5)
+# Forward records that count toward the hourly send limit: sent, being sent, or maybe sent.
+COUNTED = ("forwarding", "forwarded", "unknown")
 
 
 class MailboxSettings(BaseModel):
@@ -108,6 +110,8 @@ class ForwardRule(BaseModel):
     task_id: str | None = None
     approved_at: datetime | None = None
     last_uid: int | None = None
+    # The inbox UIDVALIDITY that ``last_uid`` belongs to (migration 0069).
+    last_uidvalidity: int | None = None
     last_run_at: datetime | None = None
     last_error: str | None = None
     forwarded_count: int = 0
@@ -166,7 +170,8 @@ class AutomationStore(Protocol):
     def claim_forward(self, log: ForwardLog) -> bool: ...
     def finish_forward(self, rule_id: str, uid: int, status: LogStatus, error: str | None) -> None: ...
     def count_forwards_since(self, rule_ids: list[str], since: datetime) -> int: ...
-    def record_run(self, rule_id: str, approved_hash: str, last_uid: int | None, forwarded: int, error: str | None, now: datetime) -> bool: ...
+    def record_run(self, rule_id: str, approved_hash: str, last_uid: int | None, forwarded: int, error: str | None, now: datetime, uidvalidity: int | None = None) -> bool: ...
+    def restart_rule(self, rule_id: str, approved_hash: str, last_uid: int, uidvalidity: int | None, now: datetime) -> bool: ...
     def refuse_rule(self, rule_id: str, error: str, now: datetime) -> None: ...
 
 
@@ -309,9 +314,13 @@ class MemoryAutomationScope:
 
     def count_forwards_since(self, rule_ids: list[str], since: datetime) -> int:
         with self.b.lock:
-            return sum(1 for (rule, _), row in self.b.log.items() if rule in rule_ids and self._mine(row) and row.created_at >= since)
+            # Sent or maybe sent only: loop-guard skips and definite failures send nothing.
+            return sum(
+                1 for (rule, _), row in self.b.log.items()
+                if rule in rule_ids and self._mine(row) and row.created_at >= since and row.status in COUNTED
+            )
 
-    def record_run(self, rule_id: str, approved_hash: str, last_uid: int | None, forwarded: int, error: str | None, now: datetime) -> bool:
+    def record_run(self, rule_id: str, approved_hash: str, last_uid: int | None, forwarded: int, error: str | None, now: datetime, uidvalidity: int | None = None) -> bool:
         """A pass's progress, only while the rule is still active on the hash the pass checked."""
         with self.b.lock:
             found = self.b.rules.get(rule_id)
@@ -319,7 +328,19 @@ class MemoryAutomationScope:
                 return False
             self.b.rules[rule_id] = found.model_copy(update={
                 "last_uid": last_uid, "last_run_at": now, "last_error": error, "forwarded_count": found.forwarded_count + forwarded,
+                "last_uidvalidity": uidvalidity if uidvalidity is not None else found.last_uidvalidity,
             })
+        return True
+
+    def restart_rule(self, rule_id: str, approved_hash: str, last_uid: int, uidvalidity: int | None, now: datetime) -> bool:
+        """Start from ``last_uid``; forward records above it belong to another UID numbering."""
+        with self.b.lock:
+            if not self.record_run(rule_id, approved_hash, last_uid, 0, None, now, uidvalidity):
+                return False
+            if uidvalidity is not None:
+                self.b.rules[rule_id] = self.b.rules[rule_id].model_copy(update={"last_uidvalidity": uidvalidity})
+            for key in [k for k in self.b.log if k[0] == rule_id and k[1] > last_uid]:
+                del self.b.log[key]
         return True
 
     def refuse_rule(self, rule_id: str, error: str, now: datetime) -> None:

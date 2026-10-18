@@ -48,6 +48,9 @@ from .store import AccountStatus, MailAccount, mail_backend, open_mail_store
 logger = logging.getLogger("anum.mail")
 BATCH = 50
 PAGE = 50
+# A check reads back at most this many pages of new inbox mail (PAGE each) to reach where each
+# rule stopped; more new mail than that between two checks is reported, not silently skipped.
+MAX_PAGES = 20
 RULE_HEADER = "X-ANUM-Forward-Rule"
 
 _DUE = text(
@@ -117,9 +120,11 @@ class _Budget:
 
 
 def _sends_left(context: TenantContext, account: MailAccount, rules: list[ForwardRule], now: datetime) -> int:
+    from .writers import recent_sends
+
     hour = now - timedelta(hours=1)
-    with open_mail_store(context) as mail:
-        sent = mail.count_sends_since(account.id, hour)
+    # Every writer's sends count: a mailbox shared to send has one hourly limit, not one per person.
+    sent = recent_sends(account.id, hour)
     with open_automation_store(context) as store:
         forwarded = store.count_forwards_since([rule.id for rule in rules], hour)
     return min(mail_settings.forward_per_pass, mail_settings.send_per_hour - sent - forwarded)
@@ -207,18 +212,32 @@ async def run_rules(context: TenantContext, account: MailAccount, inbox: Folder 
         checked.append(rule)
     if not checked:
         return result
-    page = await on_server(context, account, lambda server: server.messages(inbox.id, before=None, limit=PAGE, query=None, unread=False, flagged=False))
-    newest = max((item.uid for item in page.items), default=0)
+    validity = inbox.uidvalidity
+
+    def restarts(rule: ForwardRule) -> bool:
+        # Never run yet, or the inbox's UIDs were renumbered (UIDVALIDITY changed): start from the newest.
+        return rule.last_uid is None or (validity is not None and rule.last_uidvalidity is not None and rule.last_uidvalidity != validity)
+
+    floor = min((rule.last_uid or 0 for rule in checked if not restarts(rule)), default=None)
+    items, complete = await _new_mail(context, account, inbox, floor)
+    newest = max((item.uid for item in items), default=0)
+    oldest = min((item.uid for item in items), default=0)
     budget = _Budget(await asyncio.to_thread(_sends_left, context, account, checked, now))
     for rule in checked:
         approved = rule.approved_hash or ""
-        if rule.last_uid is None:
-            # The first pass after approval only marks where the rule starts: older mail is not forwarded.
+        if restarts(rule):
+            # The first pass after approval (or after the UIDs were renumbered) only marks where
+            # the rule starts: older mail is not forwarded, and old forward records above it go.
             with open_automation_store(context) as store:
-                store.record_run(rule.id, approved, newest, 0, None, now)
+                store.restart_rule(rule.id, approved, newest, validity, now)
             continue
         last, forwarded, error = rule.last_uid, 0, None
-        for item in sorted((i for i in page.items if i.uid > (rule.last_uid or 0)), key=lambda i: i.uid):
+        if not complete and oldest > (rule.last_uid or 0) + 1:
+            error = (
+                f"More new mail arrived since the last check than one check reads ({MAX_PAGES * PAGE} messages); "
+                "the older ones were not forwarded."
+            )
+        for item in sorted((i for i in items if i.uid > (rule.last_uid or 0)), key=lambda i: i.uid):
             sender = f"{item.sender.name} <{item.sender.address}>" if item.sender else ""
             own = item.sender is not None and item.sender.address.lower() == account.address.lower()
             if own or not rule_matches(rule, sender, item.subject):
@@ -240,8 +259,25 @@ async def run_rules(context: TenantContext, account: MailAccount, inbox: Folder 
                 error = "The last forward was not sent. Check the mailbox's Sent folder and the recipients."
         result.forwarded += forwarded
         with open_automation_store(context) as store:
-            store.record_run(rule.id, approved, last, forwarded, error, now)
+            store.record_run(rule.id, approved, last, forwarded, error, now, validity)
     return result
+
+
+async def _new_mail(context: TenantContext, account: MailAccount, inbox: Folder, floor: int | None) -> tuple[list[Summary], bool]:
+    """Inbox messages newer than ``floor``, paging back until it is reached (at most MAX_PAGES).
+
+    Returns them and whether the read reached ``floor`` (or the oldest message). Without a floor
+    (every rule restarts) one page is enough: only the newest UID is needed.
+    """
+    items: list[Summary] = []
+    before: int | None = None
+    for _ in range(MAX_PAGES if floor is not None else 1):
+        page = await on_server(context, account, lambda server, before=before: server.messages(inbox.id, before=before, limit=PAGE, query=None, unread=False, flagged=False))
+        items += page.items
+        if floor is None or not page.items or page.next_before is None or min(item.uid for item in page.items) <= floor:
+            return items, True
+        before = page.next_before
+    return items, False
 
 
 def _still_a_member(context: TenantContext) -> bool:

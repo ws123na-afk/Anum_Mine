@@ -370,3 +370,99 @@ def test_mail_server_errors_in_rules_do_not_lose_the_counts(fake: FakeServer) ->
     shown = client.get(f"{MAIL}/accounts/{account['id']}/rules", headers=OWNER).json()[0]
     assert shown["forwarded_count"] == 0 and "not sent" in shown["last_error"]
     assert client.get(f"{MAIL}/unread", headers=OWNER).json()["total"] == 31
+
+
+# -- review fixes ---------------------------------------------------------------------------------
+
+
+def test_the_hourly_limit_counts_every_writer_of_a_shared_mailbox(fake: FakeServer, members: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    account = connect()
+    share(account["id"], "send")
+    approve(new_rule(account).json()["approval"])
+    run_sync()
+    monkeypatch.setattr(mail_settings, "send_per_hour", 3)
+    # The person it is shared with sent three messages from it in the last hour.
+    for _ in range(3):
+        draft = client.post(f"{MAIL}/drafts", headers=MEMBER, json={"account_id": account["id"]}).json()
+        with mail_backend.lock:
+            mail_backend.drafts[draft["id"]] = mail_backend.drafts[draft["id"]].model_copy(update={"status": DraftStatus.SENT, "sent_at": utc_now(), "updated_at": utc_now()})
+    arrive(fake, "Order 11")
+    due_again()
+    run_sync()
+    assert fake.sent == []
+    assert "limit" in client.get(f"{MAIL}/accounts/{account['id']}/rules", headers=OWNER).json()[0]["last_error"]
+
+
+def test_more_new_mail_than_one_page_is_all_forwarded(fake: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+    account = connect()
+    approve(new_rule(account, from_contains="", subject_contains="Order").json()["approval"])
+    run_sync()  # starts after uid 30
+    monkeypatch.setattr(mail_settings, "forward_per_pass", 200)
+    monkeypatch.setattr(mail_settings, "send_per_hour", 500)
+    uids = [arrive(fake, f"Order {n}") for n in range(70)]
+    due_again()
+    run_sync()
+    forwarded = [BytesParser(policy=policy.default).parsebytes(raw)["Subject"] for _, _, raw in fake.sent]
+    assert len(forwarded) == 70 and forwarded[0] == "Fwd: Order 0" and forwarded[-1] == "Fwd: Order 69"
+    assert client.get(f"{MAIL}/accounts/{account['id']}/rules", headers=OWNER).json()[0]["forwarded_count"] == 70
+    assert uids[0] < uids[-1]
+
+
+def test_only_sent_or_maybe_sent_forwards_count_toward_the_limit(fake: FakeServer) -> None:
+    from anum_api.mailbox.automation import ForwardLog
+
+    account = connect()
+    rule_id = new_rule(account).json()["rule"]["id"]
+    context = TenantContext(tenant_id=OWNER["x-tenant-id"], workspace_id=OWNER["x-workspace-id"], user_id="owner_mc", roles=["owner"])
+    with open_automation_store(context) as store:
+        for uid, status in ((1, "forwarded"), (2, "unknown"), (3, "failed"), (4, "failed"), (5, "forwarding")):
+            store.claim_forward(ForwardLog(id=f"mfwd_{uid}", tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id="owner_mc", rule_id=rule_id, uid=uid, status=status))
+        assert store.count_forwards_since([rule_id], utc_now() - timedelta(hours=1)) == 3
+
+
+def test_disconnecting_removes_every_writers_stored_files(fake: FakeServer, members: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.mailbox import api as mail_api
+
+    account = connect()
+    share(account["id"], "send")
+    mine = client.post(f"{MAIL}/drafts", headers=OWNER, json={"account_id": account["id"]}).json()
+    theirs = client.post(f"{MAIL}/drafts", headers=MEMBER, json={"account_id": account["id"]}).json()
+    for draft, headers in ((mine, OWNER), (theirs, MEMBER)):
+        uploaded = client.post(f"{MAIL}/drafts/{draft['id']}/attachments", headers=headers, params={"name": "notes.txt"}, content=b"plain example text")
+        assert uploaded.status_code == 201, uploaded.text
+    forgotten: list[str] = []
+    monkeypatch.setattr(mail_api, "forget_objects", lambda files: forgotten.extend(f.owner_user_id for f in files))
+    assert client.delete(f"{MAIL}/accounts/{account['id']}", headers=OWNER).status_code == 204
+    assert sorted(forgotten) == ["member_mc", "owner_mc"]
+    assert mail_backend.attachments == {}
+
+
+def test_a_new_uidvalidity_restarts_the_rule_instead_of_skipping_mail(fake: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+    import dataclasses
+
+    from test_mail_center import Bound
+
+    validity = {"value": 1}
+    plain = Bound.folders
+    monkeypatch.setattr(Bound, "folders", lambda self: [dataclasses.replace(f, uidvalidity=validity["value"]) for f in plain(self)])
+    account = connect()
+    approve(new_rule(account).json()["approval"])
+    run_sync()  # starts after uid 30 in UIDVALIDITY 1
+    arrive(fake, "Order before")  # uid 101
+    due_again()
+    run_sync()
+    assert len(fake.sent) == 1
+    # The server renumbers the inbox (UIDVALIDITY 2): UIDs start again from 1.
+    validity["value"] = 2
+    fake.folders_["INBOX"] = ("inbox", [Stored(i, raw_message(f"Renumbered {i}")) for i in range(1, 6)])
+    due_again()
+    run_sync()
+    assert len(fake.sent) == 1  # the restart forwards nothing old
+    rule = client.get(f"{MAIL}/accounts/{account['id']}/rules", headers=OWNER).json()[0]
+    with automation_backend.lock:
+        stored = automation_backend.rules[rule["id"]]
+        assert stored.last_uid == 5 and stored.last_uidvalidity == 2
+    fake.folders_["INBOX"][1].append(Stored(6, raw_message("Order after", "Sara <sara@client.example>")))
+    due_again()
+    run_sync()
+    assert len(fake.sent) == 2 and b"Order after" in fake.sent[1][2]

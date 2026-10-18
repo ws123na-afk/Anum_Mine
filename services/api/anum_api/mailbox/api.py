@@ -565,11 +565,22 @@ async def disconnect_account(
     """Forget the mailbox: its password and every draft written in ANUM. Mail on the server stays."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     account = _load_account(context, account_id)
+    from .writers import writers_of
+
+    # Messages written by people it was shared with are their own rows: mark the mailbox, find
+    # every writer (ids only), and collect each one's files in their own scope before the rows
+    # go with the mailbox, so no stored file is left behind.
     with open_mail_store(context) as store:
-        for draft in store.list_drafts(account.id, 1000):
-            if draft.status == DraftStatus.PENDING_APPROVAL:
-                _retire(repository, context, draft)  # type: ignore[arg-type]
-        files = store.attachments_of_account(account.id)
+        store.mark_disconnecting(account.id)
+    files = []
+    for writer in sorted({context.user_id, *writers_of(account.id)}):
+        scope = context if writer == context.user_id else context.model_copy(update={"user_id": writer})
+        with open_mail_store(scope) as store:
+            for draft in store.list_drafts(account.id, 1000):
+                if draft.status == DraftStatus.PENDING_APPROVAL:
+                    _retire(repository, scope, draft)  # type: ignore[arg-type]
+            files += store.attachments_of_account(account.id)
+    with open_mail_store(context) as store:
         store.delete_account(account.id)
     forget_objects(files)
     _audit(repository, context, "mail.account.disconnect", account.id)

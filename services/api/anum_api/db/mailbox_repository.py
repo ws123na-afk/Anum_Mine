@@ -63,6 +63,8 @@ class MailAccountRecord(Base, WorkspaceScopedMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     last_error: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set while the owner disconnects it (migration 0069): every writer's files are collected.
+    disconnecting_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -281,6 +283,11 @@ class SqlAlchemyMailStore:
         except IntegrityError:
             raise ValueError("mailbox already connected in this workspace") from None
         return account
+
+    def mark_disconnecting(self, account_id: str) -> None:
+        self.session.execute(
+            update(MailAccountRecord).where(*self._scope(MailAccountRecord), MailAccountRecord.id == account_id).values(disconnecting_at=utc_now())
+        )
 
     def delete_account(self, account_id: str) -> bool:
         result = self.session.execute(delete(MailAccountRecord).where(*self._scope(MailAccountRecord), MailAccountRecord.id == account_id))
