@@ -1109,8 +1109,15 @@ class _MessageTile extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(mailWhen(context, message.date),
-                style: Theme.of(context).textTheme.bodySmall),
+            // Bounded: a short date at 200% text on a 320 px phone is wider
+            // than a time and would push the tile past its width.
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 88),
+              child: Text(mailWhen(context, message.date),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall),
+            ),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
