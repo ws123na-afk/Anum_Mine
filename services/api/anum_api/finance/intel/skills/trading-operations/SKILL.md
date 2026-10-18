@@ -14,6 +14,7 @@ Everything here is SIMULATED and live trading is off. The Supervisor is determin
 - "ANUM, what did the trading agents do today?"
 - "Which paper strategy performed best after transaction costs?" and "Show the worst drawdown for each strategy."
 - "Which strategy needs revalidation?"
+- "Prepare my daily trading report."
 - Explaining a cycle, a phase, the lifecycle or a skipped or halted run.
 
 ## Inputs
@@ -27,7 +28,7 @@ Everything here is SIMULATED and live trading is off. The Supervisor is determin
 
 ## Permitted tools
 
-See `tools.json`: `finance.intel.activity`, `finance.intel.strategies`, `finance.intel.benchmark` (read only).
+See `tools.json`: `finance.intel.activity`, `finance.intel.strategies`, `finance.intel.benchmark`, `finance.intel.daily_report` (read only).
 
 ## Prohibited actions
 

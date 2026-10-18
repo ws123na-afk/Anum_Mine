@@ -127,6 +127,8 @@ class Supervisor:
         halt = self._halted()
         if halt:
             self._decide(Agent.SUPERVISOR, "cycle", "halted", [halt], details={"phase": phase})
+            if phase == "post_close":
+                self.write_report(phase)
             return self._summary(phase)
         strategies = self.active()
         if phase in {"pre_open", "weekly"}:
@@ -148,7 +150,18 @@ class Supervisor:
                 self.revalidate(strategy)
         summary = self._summary(phase)
         self._decide(Agent.SUPERVISOR, "cycle", "ok", details={k: v for k, v in summary.items() if k != "cycle_id"})
+        if phase == "post_close":
+            report = self.write_report(phase)
+            summary["report_id"] = report.id
         return {**summary, "decisions": len(self.decisions)}
+
+    def write_report(self, phase: str) -> AgentDecision:
+        """The written post-close report from this cycle's decisions (docs/finance-trading-intel.md#daily-report)."""
+        from .daily_report import build
+
+        report = build(self.store, self.context, list(self.decisions), phase=phase, now=self.now)
+        markdown = report.pop("markdown")
+        return self._decide(Agent.SUPERVISOR, "daily_report", "ok", details={"report": report, "markdown": markdown})
 
     def _summary(self, phase: str) -> dict[str, Any]:
         def count(outcome: str) -> int:

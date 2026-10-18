@@ -50,6 +50,22 @@
         "properties": {},
         "additionalProperties": false
       }
+    },
+    {
+      "name": "finance.intel.daily_report",
+      "action": "read",
+      "purpose": "The written post-close trading report: data health, orders proposed for your approval, refusals, suspensions, the paper portfolio, buy and hold comparison, problems and next steps. Read only; SIMULATED.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string",
+            "format": "date",
+            "description": "YYYY-MM-DD; the newest report if left out"
+          }
+        },
+        "additionalProperties": false
+      }
     }
   ],
   "prohibited": [

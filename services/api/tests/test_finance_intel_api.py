@@ -184,3 +184,13 @@ def test_rules_list_the_six_candidates_and_the_benchmark() -> None:
     items = client.get(f"{API}/rules", headers=MEMBER).json()
     assert items[0]["key"] == "buy_and_hold" and sorted({r["candidate"] for r in items}) == [0, 1, 2, 3, 4, 5, 6]
     assert all(r["hypothesis"] and r["entry"] and r["exit"] for r in items)
+
+
+def test_an_instrument_keeps_a_bounded_number_of_bars(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.finance import intel_control_api
+
+    monkeypatch.setattr(intel_control_api, "MAX_BARS", 500)
+    instrument = _instrument()
+    refused = client.post(f"{API}/instruments/{instrument['id']}/bars", json={"payload": CSV}, headers=MEMBER)
+    assert refused.status_code == 409 and "at most 500" in refused.json()["error"]["message"]
+    assert client.get(f"{API}/instruments", headers=MEMBER).json()[0]["bars"] == 0

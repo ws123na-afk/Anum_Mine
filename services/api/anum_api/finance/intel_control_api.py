@@ -37,7 +37,7 @@ from .intel.marketdata import (
     parse_provider,
 )
 from .intel.markets import VENUES
-from .intel.records import MAX_INSTRUMENTS, MAX_STRATEGIES, Agent, StrategyConfig, StrategyState
+from .intel.records import MAX_BARS, MAX_INSTRUMENTS, MAX_STRATEGIES, Agent, StrategyConfig, StrategyState
 from .intel.strategies import StrategyError
 from .intel.supervisor import PHASES, Supervisor, pause_all
 from .intel_api import RunView, StrategyView, run_view, strategy_view
@@ -182,6 +182,9 @@ def import_bars(instrument_id: str, body: BarsInput, context: TenantContext = De
         blocking = [i for i in issues if i.blocking]
         if blocking:
             raise _invalid(f"{len(blocking)} bar(s) cannot be imported: " + "; ".join(f"{i.day}: {i.message}" for i in blocking[:5]))
+        stored_days = {b.day for b in store.list_bars(context, instrument.id, limit=MAX_BARS + 1)}
+        if len(stored_days | {c.day for c in candles}) > MAX_BARS:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"An instrument keeps at most {MAX_BARS} daily bars. Import a shorter period.")
         info = PROVIDERS[body.provider]
         label = (_clean(body.source, 100) or info.name)[:120]
         rows = [
@@ -529,3 +532,56 @@ def delete_schedule(schedule_id: str, context: TenantContext = Depends(tenant_co
         pass  # the schedule is gone; an orphaned workflow without a schedule never fires
     _audit(repository, context, "finance.intel.schedule.delete", schedule_id, {"phase": view.phase})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# -- daily reports ------------------------------------------------------------------------------
+
+
+class DailyReportItem(BaseModel):
+    id: str
+    date: str
+    created_at: datetime
+    summary: dict[str, Any]
+    simulated: bool = True
+
+
+class DailyReportPage(BaseModel):
+    items: list[DailyReportItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class DailyReportView(DailyReportItem):
+    report: dict[str, Any]
+    markdown: str
+
+
+def _reports(store: FinanceStore, context: TenantContext) -> list[Any]:
+    found, _ = store.list_agent_decisions(context, agent=Agent.SUPERVISOR.value, limit=20_000, offset=0)
+    return [d for d in found if d.action == "daily_report"]
+
+
+@router.get("/daily-reports", response_model=DailyReportPage)
+def list_daily_reports(limit: int = 20, offset: int = 0, context: TenantContext = Depends(tenant_context)) -> DailyReportPage:
+    """Your post-close trading reports, newest first. SIMULATED."""
+    _read(context)
+    limit, offset = max(1, min(limit, 100)), max(0, offset)
+    with open_finance_store(context) as store:
+        reports = _reports(store, context)
+    page = reports[offset:offset + limit]
+    return DailyReportPage(items=[DailyReportItem(id=d.id, date=str(d.details.get("report", {}).get("date", d.created_at.date().isoformat())),
+                                                  created_at=d.created_at, summary=d.details.get("report", {}).get("summary", {})) for d in page],
+                           total=len(reports), limit=limit, offset=offset)
+
+
+@router.get("/daily-reports/{report_id}", response_model=DailyReportView)
+def get_daily_report(report_id: str, context: TenantContext = Depends(tenant_context)) -> DailyReportView:
+    _read(context)
+    with open_finance_store(context) as store:
+        found = next((d for d in _reports(store, context) if d.id == report_id), None)
+    if found is None:
+        raise _not_found("Report")
+    report = found.details.get("report", {})
+    return DailyReportView(id=found.id, date=str(report.get("date", "")), created_at=found.created_at, summary=report.get("summary", {}),
+                           report=report, markdown=str(found.details.get("markdown", "")))

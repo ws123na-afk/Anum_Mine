@@ -15,8 +15,8 @@ The code is the pure package `services/api/anum_api/finance/intel/`: no network 
 | 5 | Strategy signals into SIMULATED paper orders | Done: the Supervisor's Execution Coordinator through the existing gateway and Guardian; every order waits for the person's approval |
 | 6 | Scheduled agent operations | Done: `finance.intel.cycle` automation step, phases by venue calendar, idempotent cycles |
 | 7 | Dashboard | Done on the web: the read view (`intel_api.py`) and the actions (market data, new strategies, evaluations, lifecycle moves, Supervisor cycles, pause). P&L and drawdown charts and the Flutter screens are built separately |
-| 8 | Daily reports, monitoring, incidents | Partly: each cycle records its summary and every agent decision; the post-close report document is open |
-| 9 | Security, performance, regression, Oracle checks | Open |
+| 8 | Daily reports, monitoring, incidents | Done: the written post-close report (stored, API, assistant tool), with every agent decision and cycle summary recorded |
+| 9 | Security, performance, regression, Oracle checks | Done: see [Checks](#checks); walk-forward made 25 to 50 times faster, evaluations bounded, bar storage capped |
 | 10 | Live-trading readiness assessment (nothing enabled) | [Readiness report](finance-trading-readiness.md) |
 
 No code here can place a real order. A strategy signal becomes, at most, a SIMULATED paper order request through the existing Guardian `gate` and execution gateway, approved by the person.
@@ -196,6 +196,59 @@ Every reference ends with a sources table (source, link, source date, licence, l
 | `finance.intel.pause_all` | Suspends every active paper strategy (tightens only; resuming is the person's action) |
 
 No tool promotes, resumes or retires a strategy, approves an order, changes a limit or trades live. The request planner maps the owner's own words to these tools: "what did the trading agents do today", "which paper strategy performed best after transaction costs", "explain why the Guardian rejected this simulated trade", "show the worst drawdown for each strategy", "pause all paper trading", "compare my paper portfolio against an appropriate benchmark", "which strategy needs revalidation" (and Arabic forms).
+
+## Daily report
+
+`intel/daily_report.py`. At the end of every `post_close` cycle (also a halted one, which then says why nothing ran) the Supervisor writes a report from that cycle's own decisions, nothing recomputed or invented, and stores it as an owner-only decision (`action = "daily_report"`) with the structured report and its Markdown:
+
+- summary: active strategies, orders proposed for approval and all waiting, signals refused, suspensions, problems, market-closed days;
+- data health per instrument: newest bar, sessions behind, source, status and reasons;
+- orders proposed: strategy and version, side and quantity, target weight, estimated fill with its price source, fee, the Guardian's outcome;
+- refusals and suspensions with the agents' reasons;
+- the paper portfolio: cash, realised and unrealised P&L, fees, holdings without a recent price;
+- each active strategy against buy and hold over its paper period;
+- problems (failed checks, degrading strategies, halts) and next steps for the person.
+
+It is labelled SIMULATED, says that no real order was placed, quotes agent reasons as data and has no long dashes (tested). Read it with `GET /api/v1/finance/intel/daily-reports` (newest first, paged) and `GET /api/v1/finance/intel/daily-reports/{id}` (`finance:read`, own reports only), or ask the assistant to "prepare my daily trading report" (`finance.intel.daily_report`). It is not e-mailed or pushed: delivery through the notification channels is a later step.
+
+## Checks
+
+Loop 9, all read only and without any paid resource.
+
+**Security.** bandit (whole API and migrations), gitleaks over the full history, ruff on the new code: clean. No Python or web dependency was added, so the last pip-audit and OSV results stand; the desktop's `rustls` and `zip` advisories are fixed ([Security](security.md#scanning-in-ci)). The new code makes no network, shell, `eval` or unpickling call. Reviewed and tested:
+
+| Area | Check | Evidence |
+|---|---|---|
+| Tenant and owner isolation | Five tables under forced RLS with owner-only restrictive policies; every route and tool reads only the caller's rows | `test_postgres_finance_intel.py`, the API and report tests (another person and another tenant see nothing) |
+| Agent permissions | Agents cannot promote, resume or retire (code and database check), approve orders, loosen limits or trade live; the only write tool pauses | `test_finance_intel_lifecycle.py`, `test_finance_intel_supervisor.py`, `test_finance_intel_knowledge.py` |
+| Approval integrity | Agent orders go through the gateway as `requested_by = agent`, priced from stored bars, and wait for the person's hash-bound approval | `test_finance_intel_supervisor.py` |
+| Duplicate orders and restarts | Deterministic order keys per version, bar, symbol and side; one cycle per person, phase and day | Supervisor and API schedule tests |
+| Prompt injection | Agent reasons, provider text and file contents are data; tools cannot act on them | Report and tool notes; e2e shows an injected reason as text |
+| Data validation | Corrupt, duplicated or future bars refuse an import; gaps are never filled; abnormal moves stop signals | `test_finance_intel.py`, API tests |
+| Resource limits | 2 MB and 10,000 bars per import, at most 50,000 bars per instrument (now enforced), 200 instruments, 200 versions, 200 runs per version, 10 symbols per run | API tests |
+
+**Performance.** Measured on the development container (x86_64, 4 cores) before and after the shared indicator cache (`backtest.SeriesCache`: walk-forward shares one set of indicator series across its runs; results are identical, tested for every rule):
+
+| Workload | Before | After | Peak memory |
+|---|---|---|---|
+| Walk-forward, 1 symbol, 2,500 bars, 8 parameter choices | 25.7 s | 1.0 s | 3 MB |
+| Walk-forward, 10 symbols, 5,000 bars | 143 s | 2.6 s | 18 MB |
+| Walk-forward, 1 symbol, 20,000 bars (the old cap) | not measured | 131 s | 36 MB |
+| Supervisor `post_close`, 10 active strategies, 900 bars | 1.7 s | 1.7 s | 2 MB |
+
+Evaluations run inside the API process, so they are bounded: only the newest 3,000 aligned bars are evaluated (the run carries `trimmed_to_recent_bars`), and one evaluation per person runs at a time (a second gets "already running"). A walk-forward evaluation of a stored version is then a few seconds.
+
+**Oracle VM** (`infra/oracle/compose.yaml`, `docs/deploy-oracle.md`; read only, nothing changed):
+
+| Check | Finding |
+|---|---|
+| Architecture | Ampere A1 arm64, 4 OCPU, 24 GB (Always Free). The trading code is pure Python with no new dependency, so the existing `aarch64` wheels cover it |
+| Memory | The API container is limited to 2 GB. The largest measured run peaks at 36 MB of Python memory; a test process with every workload above stayed under 220 MB resident |
+| CPU | Cycles and evaluations run on the API's worker threads. Monthly revalidation is scheduled at 07:00, outside business hours; evaluations are capped and serialized per person |
+| Disk | An estimated 200 to 300 bytes per stored bar in PostgreSQL, indexes included (not measured on the VM). The 50,000-bar cap per instrument and 200 instruments bound one person's market data at roughly 2.5 GB in the worst case; typical use (10 instruments, 15 years of daily bars) is about 10 MB |
+| Paid resources | None created or needed. Provider fetch stays off; a paid data licence (Gulf exchanges) is an owner decision |
+
+The owner can confirm on the VM, read only: `uname -m` (aarch64), `nproc`, `free -h`, `df -h /`, `docker stats --no-stream` while a Supervisor cycle runs.
 
 ## Storage
 

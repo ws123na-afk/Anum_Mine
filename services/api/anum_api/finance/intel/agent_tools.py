@@ -33,7 +33,8 @@ STRATEGIES = "finance.intel.strategies"
 EXPLAIN = "finance.intel.explain_order"
 BENCHMARK = "finance.intel.benchmark"
 PAUSE = "finance.intel.pause_all"
-READ_TOOLS = (ACTIVITY, STRATEGIES, EXPLAIN, BENCHMARK)
+REPORT = "finance.intel.daily_report"
+READ_TOOLS = (ACTIVITY, STRATEGIES, EXPLAIN, BENCHMARK, REPORT)
 
 SCHEMAS: dict[str, dict[str, Any]] = {
     ACTIVITY: {
@@ -55,6 +56,11 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "additionalProperties": False,
     },
     BENCHMARK: {"type": "object", "properties": {}, "additionalProperties": False},
+    REPORT: {
+        "type": "object",
+        "properties": {"day": {"type": "string", "format": "date", "description": "YYYY-MM-DD; the newest report if left out"}},
+        "additionalProperties": False,
+    },
     PAUSE: {
         "type": "object",
         "properties": {"reason": {"type": "string", "minLength": 3, "maxLength": 300}},
@@ -227,6 +233,33 @@ async def _benchmark(call: ToolCall, context: TenantContext) -> ToolResult:
                       output={"rows": rows, "note": NOTE}, audit_metadata={"strategies": len(rows)})
 
 
+async def _report(call: ToolCall, context: TenantContext) -> ToolResult:
+    if not _has(context, Permission.FINANCE_READ):
+        return _denied()
+    wanted = call.arguments.get("day")
+
+    def work() -> Any:
+        with open_finance_store(context) as store:
+            found, _ = store.list_agent_decisions(context, agent="trading_supervisor", limit=2000, offset=0)
+        reports = [d for d in found if d.action == "daily_report"]
+        if isinstance(wanted, str) and wanted:
+            reports = [d for d in reports if d.details.get("report", {}).get("date") == wanted]
+        return reports[0] if reports else None
+
+    found = await asyncio.to_thread(work)
+    if found is None:
+        return ToolResult(status="succeeded", output={"note": NOTE},
+                          summary=("No daily trading report is stored yet. The Supervisor writes one after each post-close cycle: schedule the "
+                                   "post-close phase or run it under Finance, Trading intelligence."))
+    report = found.details.get("report", {})
+    s = report.get("summary", {})
+    summary = (f"Trading report for {report.get('date')} (SIMULATED): {s.get('active_strategies', 0)} active strategies, "
+               f"{s.get('proposed_orders', 0)} orders proposed for your approval, {s.get('refused_signals', 0)} signals refused, "
+               f"{s.get('suspended', 0)} suspended. Next: " + " ".join(report.get("next_steps", [])))
+    return ToolResult(status="succeeded", summary=summary, output={"report_id": found.id, "markdown": found.details.get("markdown", ""), "note": NOTE},
+                      audit_metadata={"report": found.id})
+
+
 async def _pause(call: ToolCall, context: TenantContext) -> ToolResult:
     if not _has(context, Permission.FINANCE_MANAGE):
         return ToolResult(status="blocked", summary="Pausing paper strategies needs the owner or member role in this workspace.")
@@ -256,6 +289,8 @@ def register_intel_tools(registry: ToolRegistry) -> ToolRegistry:
                   "agents' recorded decisions. Read only.", _explain),
         BENCHMARK: ("Each active paper strategy's period since it started against buy and hold of the same symbols, from the Performance "
                     "Reviewer's records. Read only; SIMULATED.", _benchmark),
+        REPORT: ("The written post-close trading report: data health, orders proposed for your approval, refusals, suspensions, the paper "
+                 "portfolio, buy and hold comparison, problems and next steps. Read only; SIMULATED.", _report),
     }
     for name, (description, handler) in reads.items():
         registry.register(ToolDefinition(name=name, description=description, risk_level=RiskLevel.LOW, idempotent=True, timeout_seconds=30,
@@ -277,6 +312,7 @@ _EXPLAIN = re.compile(r"\bwhy\b.*\b(guardian|gateway)\b.*\b(reject|refus|den(y|i
 _PAUSE = re.compile(r"\b(pause|stop|suspend) (all )?(the )?paper (trading|strateg(y|ies))\b|أوقف (كل )?التداول التجريبي", re.I)
 _BENCH = re.compile(r"\bcompare\b.*\bpaper\b.*\bbenchmark\b|\bpaper portfolio\b.*\bbenchmark\b|قارن.*بالمعيار", re.I)
 _REVALIDATE = re.compile(r"\b(needs?|due for) revalidation\b|\brevalidat(e|ion)\b|إعادة التحقق", re.I)
+_REPORT = re.compile(r"\b(daily|today'?s|trading) (trading )?report\b|تقرير التداول", re.I)
 _INTENT_ID = re.compile(r"\bfin_int_[a-z0-9]+\b")
 
 
@@ -287,6 +323,8 @@ def intel_call(text: str) -> ToolCall | None:
     if _EXPLAIN.search(text):
         found = _INTENT_ID.search(text)
         return ToolCall(name=EXPLAIN, arguments={"intent_id": found.group(0)} if found else {})
+    if _REPORT.search(text):
+        return ToolCall(name=REPORT, arguments={})
     if _ACTIVITY.search(text):
         return ToolCall(name=ACTIVITY, arguments={})
     if _REVALIDATE.search(text):
