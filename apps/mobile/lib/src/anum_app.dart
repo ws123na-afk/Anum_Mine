@@ -330,7 +330,14 @@ class _AnumAppState extends State<AnumApp> {
             upload: fileTransfer.upload))
       ..onSettled = _commandSettled;
     library = ApiLibraryRepository(api, saver: const FilePickerExportSaver());
-    tools = WorkspaceToolRoutes(api: api, library: library, email: email);
+    tools = WorkspaceToolRoutes(
+        api: api,
+        library: library,
+        email: email,
+        mailTransfer: HttpMailFileTransfer(
+            baseUri: Uri.parse(configuredUrl),
+            sessions: sessions,
+            files: fileTransfer));
     locale = LocaleController()..restore();
     theme = ThemeController()..restore();
     intro = IntroController()..restore();

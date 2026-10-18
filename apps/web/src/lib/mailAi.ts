@@ -42,3 +42,61 @@ export function cleanInstructions(text: string): string | undefined {
   const value = text.trim().slice(0, 1000);
   return value || undefined;
 }
+
+/** A stored label for one message of the list (GET /mail/ai/labels). */
+export interface MailRowLabel { uid: number; category: MailCategory; priority: MailPriority; reason: string; source: 'model' | 'rules' }
+export interface MailPageLabels { labels: MailRowLabel[]; labelled: number; skipped: number; failed: number; summary: string }
+export interface MailWaiting { status: 'waiting_approval'; summary: string; approval: ApiApproval }
+
+/** At most this many messages are labelled in one "Label all" (the API's cap). */
+export const LABEL_PAGE_MAX = 25;
+/** Export and bulk archive caps (the API's). */
+export const EXPORT_MAX = 100;
+export const ARCHIVE_MAX = 200;
+/** Categories a tidy-up offers to select for archiving. */
+export const TIDY_CATEGORIES: ReadonlySet<MailCategory> = new Set(['newsletter', 'notification', 'spam']);
+
+/** The messages "Label all" sends: the shown page without a label yet, newest first, capped. */
+export function unlabelled(uids: number[], labels: ReadonlyMap<number, MailRowLabel>, max = LABEL_PAGE_MAX): number[] {
+  return uids.filter((uid) => !labels.has(uid)).slice(0, max);
+}
+
+/** Shown messages labelled as newsletters, notifications or spam with low or normal priority. */
+export function tidyCandidates(uids: number[], labels: ReadonlyMap<number, MailRowLabel>): number[] {
+  return uids.filter((uid) => { const label = labels.get(uid); return Boolean(label && TIDY_CATEGORIES.has(label.category) && label.priority !== 'high'); });
+}
+
+/** Merge fresh labels into what the list already shows. */
+export function mergeLabels(current: ReadonlyMap<number, MailRowLabel>, fresh: MailRowLabel[]): Map<number, MailRowLabel> {
+  const next = new Map(current);
+  for (const label of fresh) next.set(label.uid, label);
+  return next;
+}
+
+/** Words for a row's labels, for its accessible name and the chips. */
+export function rowLabelText(label: MailRowLabel): string[] {
+  return label.priority === 'normal' ? [categoryLabel(label.category)] : [categoryLabel(label.category), priorityLabel(label.priority)];
+}
+
+/** A selection split into what one request may carry (export 100, archive 200). */
+export function capSelection(uids: number[], max: number): { uids: number[]; dropped: number } {
+  const sorted = [...new Set(uids)].sort((a, b) => b - a);
+  return { uids: sorted.slice(0, max), dropped: Math.max(0, sorted.length - max) };
+}
+
+export function exportFileName(now: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `mail-export-${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}.mbox`;
+}
+
+/** What a failed export download means: not approved yet, expired, or another failure. */
+export function exportFailure(error: unknown): { kind: 'pending' | 'expired' | 'error'; text: string } {
+  if (error instanceof ApiError && error.status === 410) return { kind: 'expired', text: error.detail || t('mailai.export.expired') };
+  if (error instanceof ApiError && error.status === 409) return { kind: 'pending', text: error.detail || t('mailai.export.notReady') };
+  return { kind: 'error', text: describeError(error, t('mailai.failed')) };
+}
+
+/** The identity_id a drafted reply sends: omitted for the default identity, "" for the mailbox address. */
+export function identityChoice(from: string | null | undefined): string | undefined {
+  return from === undefined ? undefined : from ?? '';
+}

@@ -86,6 +86,7 @@ x-user-roles: owner,member
 - [P1 acceptance tests for the Business section](docs/business/P1_ACCEPTANCE_TESTS.md)
 - [Security](docs/security.md)
 - [Threat model: agent tool use and prompt injection](docs/threat-model.md)
+- [Email Center: external penetration test plan](docs/email-pentest-plan.md)
 - [Identity and sign-in](docs/identity.md)
 - [Multi-tenancy](docs/multi-tenancy.md)
 - [Agent runtime](docs/agent-runtime.md)

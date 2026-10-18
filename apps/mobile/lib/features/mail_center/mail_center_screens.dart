@@ -5,13 +5,18 @@ import '../../src/theme/anum_theme.dart';
 import '../workspace/workspace_models.dart';
 import 'mail_center_controller.dart';
 import 'mail_center_models.dart';
+import 'mail_directory.dart';
+import 'mail_directory_models.dart';
+import 'mail_outgoing.dart';
+import 'mail_assist.dart';
+import 'mail_bulk.dart';
 
 /// The Email Center on the phone (docs/email.md#email-center): mailboxes,
 /// folders, a folder's messages with paging and search, one message as plain
 /// text, and writing with send through an owner's approval.
 const _maxWidth = 880.0;
 
-Widget _page(Widget child) => SafeArea(
+Widget mailPage(Widget child) => SafeArea(
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: _maxWidth),
@@ -105,16 +110,26 @@ Widget? stateFor(
 }
 
 /// Shows the controller's notices as snack bars while [child] is on screen.
-class _Notices extends StatefulWidget {
-  const _Notices({required this.controller, required this.child});
-  final MailCenterController controller;
+class MailNotices extends StatefulWidget {
+  const MailNotices({super.key, required this.controller, required this.child});
+  final MailNoticeSource controller;
   final Widget child;
 
   @override
-  State<_Notices> createState() => _NoticesState();
+  State<MailNotices> createState() => _MailNoticesState();
 }
 
-class _NoticesState extends State<_Notices> {
+/// A notice as shown: a key, a `key|count` pair, or the API's own sentence.
+String noticeText(AnumLocalizations l, String text) {
+  final bar = text.indexOf('|');
+  if (bar > 0 && text.startsWith('mc.')) {
+    final count = int.tryParse(text.substring(bar + 1));
+    if (count != null) return l.f(text.substring(0, bar), {'count': count});
+  }
+  return l.t(text);
+}
+
+class _MailNoticesState extends State<MailNotices> {
   @override
   void initState() {
     super.initState();
@@ -134,7 +149,7 @@ class _NoticesState extends State<_Notices> {
     final text = widget.controller.takeNotice()!;
     final l = AnumLocalizations.maybeOf(context);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(l.t(text)),
+      content: Text(noticeText(l, text)),
       backgroundColor: error ? Theme.of(context).colorScheme.error : null,
     ));
   }
@@ -143,7 +158,7 @@ class _NoticesState extends State<_Notices> {
   Widget build(BuildContext context) => widget.child;
 }
 
-String _when(BuildContext context, DateTime value) {
+String mailWhen(BuildContext context, DateTime value) {
   final local = value.toLocal();
   final m = MaterialLocalizations.of(context);
   final now = DateTime.now();
@@ -191,6 +206,21 @@ class _MailCenterScreenState extends State<MailCenterScreen> {
       appBar: AppBar(
         title: Text(l.t('mc.title')),
         actions: [
+          ListenableBuilder(
+            listenable: c,
+            builder: (context, _) => (c.setup?.available ?? false)
+                ? IconButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                          builder: (_) =>
+                              MailContactsScreen(controller: c.directory)),
+                    ),
+                    tooltip: l.t('mc.c.title'),
+                    icon: const Icon(Icons.contacts_outlined),
+                  )
+                : const SizedBox.shrink(),
+          ),
           IconButton(
             onPressed: c.setupPhase == MailPhase.loading ? null : c.loadSetup,
             tooltip: l.t('refresh'),
@@ -198,11 +228,11 @@ class _MailCenterScreenState extends State<MailCenterScreen> {
           ),
         ],
       ),
-      body: _Notices(
+      body: MailNotices(
         controller: c,
         child: ListenableBuilder(
           listenable: c,
-          builder: (context, _) => _page(_body(context, l, c)),
+          builder: (context, _) => mailPage(_body(context, l, c)),
         ),
       ),
     );
@@ -246,14 +276,36 @@ class _MailCenterScreenState extends State<MailCenterScreen> {
           Text(l.t('mc.subtitle'),
               style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: AnumSpacing.sm),
-          for (final account in setup.accounts)
-            _AccountCard(
-              controller: c,
-              account: account,
-              onOpen: () => _openAccount(account),
-              onPassword: () => _password(context, account),
-              onRemove: () => _remove(context, account),
-            ),
+          for (final (title, list) in [
+            (l.t('mc.yourMailboxes'), c.ownAccounts),
+            (l.t('mc.sharedWithYou'), c.sharedAccounts),
+          ])
+            if (list.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.only(
+                    top: AnumSpacing.xs, bottom: AnumSpacing.xs),
+                child: Semantics(
+                  header: true,
+                  child: Text(title,
+                      style: Theme.of(context).textTheme.titleSmall),
+                ),
+              ),
+              for (final account in list)
+                _AccountCard(
+                  controller: c,
+                  account: account,
+                  onOpen: () => _openAccount(account),
+                  onPassword: () => _password(context, account),
+                  onRemove: () => _remove(context, account),
+                  onLeave: () => _leave(context, account),
+                  onSettings: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                        builder: (_) => MailAccountSettingsScreen(
+                            controller: c.directory, account: account)),
+                  ).then((_) => c.loadSetup()),
+                ),
+            ],
           if (setup.canAct)
             Align(
               alignment: AlignmentDirectional.centerStart,
@@ -307,6 +359,26 @@ class _MailCenterScreenState extends State<MailCenterScreen> {
     );
     if (yes == true) await widget.controller.disconnect(account);
   }
+
+  Future<void> _leave(BuildContext context, MailAccount account) async {
+    final l = AnumLocalizations.maybeOf(context);
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(l.t('mc.leaveTitle')),
+        content: Text(l.f('mc.leaveText', {'address': account.address})),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: Text(l.t('mc.cancel'))),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: Text(l.t('mc.leave'))),
+        ],
+      ),
+    );
+    if (yes == true) await widget.controller.leave(account);
+  }
 }
 
 class _AccountCard extends StatelessWidget {
@@ -316,10 +388,12 @@ class _AccountCard extends StatelessWidget {
     required this.onOpen,
     required this.onPassword,
     required this.onRemove,
+    required this.onLeave,
+    required this.onSettings,
   });
   final MailCenterController controller;
   final MailAccount account;
-  final VoidCallback onOpen, onPassword, onRemove;
+  final VoidCallback onOpen, onPassword, onRemove, onLeave, onSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -343,11 +417,14 @@ class _AccountCard extends StatelessWidget {
               subtitle: Text(
                 [
                   if (account.displayName != null) account.address,
+                  if (!account.isOwn) l.t('mc.access.${account.access}'),
+                  if (account.isOwn && account.sharedWith > 0)
+                    l.f('mc.sharedCount', {'count': account.sharedWith}),
                   l.t('mc.status.${account.status}'),
                   checked == null
                       ? l.t('mc.neverChecked')
-                      : l.f(
-                          'mc.lastChecked', {'time': _when(context, checked)}),
+                      : l.f('mc.lastChecked',
+                          {'time': mailWhen(context, checked)}),
                 ].join(' · '),
               ),
               trailing: const Icon(Icons.chevron_right),
@@ -359,7 +436,16 @@ class _AccountCard extends StatelessWidget {
                 !account.needsPassword &&
                 account.lastError != null)
               Text(account.lastError!, style: TextStyle(color: scheme.error)),
-            if (canAct)
+            if (canAct && !account.isOwn)
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  onPressed: controller.busy == null ? onLeave : null,
+                  icon: const Icon(Icons.logout),
+                  label: Text(l.t('mc.leave')),
+                ),
+              ),
+            if (canAct && account.isOwn)
               Wrap(
                 spacing: AnumSpacing.xs,
                 runSpacing: AnumSpacing.xs,
@@ -376,6 +462,11 @@ class _AccountCard extends StatelessWidget {
                         : null,
                     icon: const Icon(Icons.sync),
                     label: Text(l.t('mc.check')),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: controller.busy == null ? onSettings : null,
+                    icon: const Icon(Icons.manage_accounts_outlined),
+                    label: Text(l.t('mc.settings')),
                   ),
                   TextButton.icon(
                     onPressed: controller.busy == null ? onRemove : null,
@@ -549,8 +640,7 @@ class MailFoldersScreen extends StatelessWidget {
       listenable: c,
       builder: (context, _) {
         final account = c.account;
-        final canAct =
-            (c.setup?.canAct ?? false) && c.foldersPhase == MailPhase.ready;
+        final canAct = c.canWrite && c.foldersPhase == MailPhase.ready;
         return Scaffold(
           appBar: AppBar(
             title: Text(account?.address ?? l.t('mc.folders'),
@@ -571,7 +661,8 @@ class MailFoldersScreen extends StatelessWidget {
                   label: Text(l.t('mc.write')),
                 )
               : null,
-          body: _Notices(controller: c, child: _page(_body(context, l, c))),
+          body:
+              MailNotices(controller: c, child: mailPage(_body(context, l, c))),
         );
       },
     );
@@ -584,10 +675,13 @@ class MailFoldersScreen extends StatelessWidget {
       return MailState(
         icon: Icons.key_off_outlined,
         title: l.t('mc.passwordRefused'),
-        action: FilledButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(l.t('mc.enterPassword')),
-        ),
+        text: account.isOwn ? null : l.t('mc.passwordRefusedShared'),
+        action: account.isOwn
+            ? FilledButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(l.t('mc.enterPassword')),
+              )
+            : null,
       );
     }
     final state = stateFor(context, c.foldersPhase, c.foldersError,
@@ -599,6 +693,12 @@ class MailFoldersScreen extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(
             AnumSpacing.md, AnumSpacing.md, AnumSpacing.md, 96),
         children: [
+          if (account != null && !account.isOwn)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AnumSpacing.sm),
+              child: Text(l.t('mc.sharedNote.${account.access}'),
+                  style: Theme.of(context).textTheme.bodySmall),
+            ),
           Text(l.t('mc.folders'),
               style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: AnumSpacing.xs),
@@ -630,6 +730,23 @@ class MailFoldersScreen extends StatelessWidget {
                 },
               ),
             ),
+          if (account != null && account.canWrite)
+            Card(
+              margin: const EdgeInsets.only(bottom: AnumSpacing.xs),
+              child: ListTile(
+                leading: const Icon(Icons.schedule_send_outlined),
+                title: Text(l.t('mc.s.title')),
+                subtitle: Text(l.t('mc.s.subtitle')),
+                onTap: () {
+                  c.loadScheduled();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                        builder: (_) => MailScheduledScreen(controller: c)),
+                  );
+                },
+              ),
+            ),
           const SizedBox(height: AnumSpacing.md),
           Text(l.t('mc.writtenHere'),
               style: Theme.of(context).textTheme.titleMedium),
@@ -639,7 +756,7 @@ class MailFoldersScreen extends StatelessWidget {
             Card(
               margin: const EdgeInsets.only(bottom: AnumSpacing.xs),
               child: ListTile(
-                leading: Icon(_draftIcon(draft.status)),
+                leading: Icon(mailDraftIcon(draft.status)),
                 title: Text(
                   draft.subject.isEmpty ? l.t('mc.noSubject') : draft.subject,
                   maxLines: 1,
@@ -647,7 +764,7 @@ class MailFoldersScreen extends StatelessWidget {
                 ),
                 subtitle: Text(
                   [
-                    _draftStatus(context, draft),
+                    mailDraftStatus(context, draft),
                     if (draft.to.isNotEmpty) draft.to.join(', '),
                   ].join(' · '),
                   maxLines: 2,
@@ -669,16 +786,25 @@ class MailFoldersScreen extends StatelessWidget {
   }
 }
 
-String _draftStatus(BuildContext context, MailDraft draft) {
+String mailDraftStatus(BuildContext context, MailDraft draft) {
   final l = AnumLocalizations.maybeOf(context);
-  final sendAt = draft.sendAt;
-  if (sendAt != null && draft.status == 'pending_approval') {
-    return l.f('mc.d.scheduled', {
-      'time': '${MaterialLocalizations.of(context).formatShortDate(sendAt.toLocal())} '
-          '${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(sendAt.toLocal()))}'
-    });
+  final sendAt = draft.scheduledFor;
+  if (sendAt != null) {
+    return l.f(
+        draft.status == 'scheduled'
+            ? 'mc.d.scheduledApproved'
+            : 'mc.d.scheduled',
+        {'time': mailDateTime(context, sendAt)});
   }
   return l.t('mc.d.${draft.status}');
+}
+
+/// A date and time in the person's own time zone and format.
+String mailDateTime(BuildContext context, DateTime value) {
+  final m = MaterialLocalizations.of(context);
+  final local = value.toLocal();
+  return '${m.formatShortDate(local)} '
+      '${m.formatTimeOfDay(TimeOfDay.fromDateTime(local), alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context))}';
 }
 
 IconData _folderIcon(String? role) => switch (role) {
@@ -691,9 +817,10 @@ IconData _folderIcon(String? role) => switch (role) {
       _ => Icons.folder_outlined,
     };
 
-IconData _draftIcon(String status) => switch (status) {
+IconData mailDraftIcon(String status) => switch (status) {
       'sent' => Icons.check_circle_outline,
       'pending_approval' => Icons.hourglass_top,
+      'scheduled' => Icons.schedule_send_outlined,
       'failed' => Icons.error_outline,
       'unknown' => Icons.help_outline,
       'sending' => Icons.outbox_outlined,
@@ -714,6 +841,14 @@ class MailListScreen extends StatefulWidget {
 
 class _MailListScreenState extends State<MailListScreen> {
   final _search = TextEditingController();
+  bool _selectMode = false;
+
+  bool get _selecting => _selectMode || widget.controller.selecting;
+
+  void _endSelect() {
+    setState(() => _selectMode = false);
+    widget.controller.clearSelection();
+  }
 
   @override
   void dispose() {
@@ -740,6 +875,14 @@ class _MailListScreenState extends State<MailListScreen> {
         appBar: AppBar(
           title: Text(c.folder?.name ?? '', overflow: TextOverflow.ellipsis),
           actions: [
+            if (c.canWrite && c.messages.isNotEmpty)
+              IconButton(
+                onPressed: _selecting
+                    ? _endSelect
+                    : () => setState(() => _selectMode = true),
+                tooltip: _selecting ? l.t('mc.b.done') : l.t('mc.b.select'),
+                icon: Icon(_selecting ? Icons.close : Icons.checklist),
+              ),
             IconButton(
               onPressed:
                   c.listPhase == MailPhase.loading ? null : c.loadMessages,
@@ -748,7 +891,28 @@ class _MailListScreenState extends State<MailListScreen> {
             ),
           ],
         ),
-        body: _Notices(controller: c, child: _page(_body(context, l, c))),
+        body: MailNotices(controller: c, child: mailPage(_body(context, l, c))),
+        // Kept in view while scrolling, so the actions stay at hand.
+        bottomNavigationBar: (_selecting && c.messages.isNotEmpty) ||
+                c.bulkApproval != null ||
+                c.exportReady != null
+            ? SafeArea(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                      maxHeight: MediaQuery.sizeOf(context).height * 0.45),
+                  child: SingleChildScrollView(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: AnumSpacing.sm),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 880),
+                        child: MailSelectionBar(controller: c),
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            : null,
       ),
     );
   }
@@ -813,8 +977,42 @@ class _MailListScreenState extends State<MailListScreen> {
                     )
                   : null,
             ),
+          if (c.aiAvailable && c.messages.isNotEmpty)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: AnumSpacing.xs),
+                child: OutlinedButton.icon(
+                  onPressed: c.busy == null ? c.labelPage : null,
+                  icon: c.busy == 'label'
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.label_outline),
+                  label: Text(l.f('mc.ai.labelAll', {
+                    'count': c.messages
+                        .where((m) => !c.labels.containsKey(m.uid))
+                        .take(25)
+                        .length
+                  })),
+                ),
+              ),
+            ),
           for (final message in c.messages)
-            _MessageTile(message: message, onTap: () => _open(message)),
+            _MessageTile(
+                message: message,
+                label: c.labels[message.uid],
+                selecting: _selecting,
+                selected: c.selected.contains(message.uid),
+                onLongPress: c.canWrite
+                    ? () {
+                        setState(() => _selectMode = true);
+                        c.toggleSelected(message);
+                      }
+                    : null,
+                onTap: _selecting
+                    ? () => c.toggleSelected(message)
+                    : () => _open(message)),
           if (c.messages.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: AnumSpacing.xs),
@@ -842,9 +1040,19 @@ class _MailListScreenState extends State<MailListScreen> {
 }
 
 class _MessageTile extends StatelessWidget {
-  const _MessageTile({required this.message, required this.onTap});
+  const _MessageTile({
+    required this.message,
+    required this.onTap,
+    this.label,
+    this.selecting = false,
+    this.selected = false,
+    this.onLongPress,
+  });
   final MailMessage message;
+  final MailLabel? label;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final bool selecting, selected;
 
   @override
   Widget build(BuildContext context) {
@@ -854,26 +1062,45 @@ class _MessageTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: AnumSpacing.xs),
       child: ListTile(
         onTap: onTap,
-        leading: Icon(
-          message.seen ? Icons.drafts_outlined : Icons.mark_email_unread,
-          semanticLabel: message.seen ? null : l.t('mc.unread'),
-        ),
+        onLongPress: onLongPress,
+        selected: selected,
+        leading: selecting
+            ? Checkbox(
+                value: selected,
+                onChanged: (_) => onTap(),
+                semanticLabel: l.f('mc.b.selectOne', {
+                  'subject': message.subject.isEmpty
+                      ? l.t('mc.noSubject')
+                      : message.subject
+                }),
+              )
+            : Icon(
+                message.seen ? Icons.drafts_outlined : Icons.mark_email_unread,
+                semanticLabel: message.seen ? null : l.t('mc.unread'),
+              ),
         title: Text(
           message.sender?.label ?? l.t('mc.unknownSender'),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(fontWeight: bold ? FontWeight.bold : null),
         ),
-        subtitle: Text(
-          message.subject.isEmpty ? l.t('mc.noSubject') : message.subject,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              message.subject.isEmpty ? l.t('mc.noSubject') : message.subject,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (label != null) MailLabelChips(label: label!),
+          ],
         ),
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(_when(context, message.date),
+            Text(mailWhen(context, message.date),
                 style: Theme.of(context).textTheme.bodySmall),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -922,6 +1149,28 @@ class MailMessageScreen extends StatelessWidget {
     }
   }
 
+  Future<void> _deleteForGood(BuildContext context) async {
+    final l = AnumLocalizations.maybeOf(context);
+    final message = controller.detail?.message;
+    if (message == null) return;
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(l.t('mc.deleteForGoodTitle')),
+        content: Text(l.t('mc.deleteForGoodText')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: Text(l.t('mc.cancel'))),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: Text(l.t('mc.askToDelete'))),
+        ],
+      ),
+    );
+    if (yes == true) await controller.deleteForGood(message);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AnumLocalizations.maybeOf(context);
@@ -930,8 +1179,9 @@ class MailMessageScreen extends StatelessWidget {
       listenable: c,
       builder: (context, _) {
         final detail = c.detail;
-        final canAct = c.setup?.canAct ?? false;
+        final canAct = c.canWrite;
         final role = c.folder?.role;
+        final canDelete = c.ownsAccount && (role == 'trash' || role == 'junk');
         return Scaffold(
           appBar: AppBar(
             title: Text(l.t('mc.compose')),
@@ -950,9 +1200,11 @@ class MailMessageScreen extends StatelessWidget {
                 PopupMenuButton<String>(
                   tooltip: l.t('mc.more'),
                   enabled: c.busy == null,
-                  onSelected: (value) => value == 'unread'
-                      ? c.markUnread(detail.message)
-                      : _move(context, value),
+                  onSelected: (value) => switch (value) {
+                    'unread' => c.markUnread(detail.message),
+                    'delete' => _deleteForGood(context),
+                    _ => _move(context, value),
+                  },
                   itemBuilder: (_) => [
                     PopupMenuItem(
                         value: 'unread', child: Text(l.t('mc.markUnread'))),
@@ -968,12 +1220,17 @@ class MailMessageScreen extends StatelessWidget {
                     if (role != 'trash' && c.folderWithRole('trash') != null)
                       PopupMenuItem(
                           value: 'trash', child: Text(l.t('mc.trash'))),
+                    if (canDelete)
+                      PopupMenuItem(
+                          value: 'delete',
+                          child: Text(l.t('mc.deleteForGood'))),
                   ],
                 ),
               ],
             ],
           ),
-          body: _Notices(controller: c, child: _page(_body(context, l, c))),
+          body:
+              MailNotices(controller: c, child: mailPage(_body(context, l, c))),
         );
       },
     );
@@ -988,7 +1245,8 @@ class MailMessageScreen extends StatelessWidget {
     if (detail == null) return const SizedBox.shrink();
     final message = detail.message;
     final theme = Theme.of(context);
-    final canAct = c.setup?.canAct ?? false;
+    final canAct = c.canWrite;
+    final deleteApproval = c.deleteApproval;
     String people(List<MailPerson> list) => list
         .map((p) => p.name.isEmpty ? p.address : '${p.name} <${p.address}>')
         .join(', ');
@@ -1041,6 +1299,27 @@ class MailMessageScreen extends StatelessWidget {
               ),
             ],
           ),
+        if (deleteApproval != null) ...[
+          const SizedBox(height: AnumSpacing.sm),
+          MailApprovalCard(
+            controller: c,
+            approval: deleteApproval,
+            title: l.t('mc.deleteApprovalTitle'),
+            lines: [
+              l.f('mc.deleteApprovalCount', {
+                'count':
+                    (deleteApproval.arguments['uids'] as List?)?.length ?? 1,
+                'folder': c.folder?.name ?? message.folder,
+              }),
+            ],
+            approveLabel: l.t('mc.approveDelete'),
+            onApprove: () async {
+              if (await c.approveDelete() && context.mounted) {
+                Navigator.pop(context);
+              }
+            },
+          ),
+        ],
         const SizedBox(height: AnumSpacing.sm),
         Text(l.t('mc.untrusted'), style: theme.textTheme.bodySmall),
         if (detail.remoteImagesBlocked > 0)
@@ -1073,16 +1352,35 @@ class MailMessageScreen extends StatelessWidget {
                   file.filename.isEmpty ? file.contentType : file.filename,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis),
-              subtitle: Text(_size(file.size)),
+              subtitle: Text(file.downloadable
+                  ? mailSize(file.size)
+                  : '${mailSize(file.size)} · ${l.t('mc.tooLarge')}'),
+              trailing: file.downloadable
+                  ? IconButton(
+                      tooltip: l.f('mc.download', {'name': file.saveName}),
+                      onPressed: c.busy == null
+                          ? () => c.downloadReceived(file)
+                          : null,
+                      icon: c.busy == 'download'
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.download_outlined),
+                    )
+                  : null,
             ),
           Text(l.t('mc.attachmentsNote'), style: theme.textTheme.bodySmall),
+        ],
+        if (c.aiAvailable || c.ai?.reason != null) ...[
+          const SizedBox(height: AnumSpacing.sm),
+          MailAssistPanel(controller: c),
         ],
       ],
     );
   }
 }
 
-String _size(int bytes) {
+String mailSize(int bytes) {
   if (bytes >= 1024 * 1024) {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
@@ -1187,7 +1485,7 @@ class _MailComposeScreenState extends State<MailComposeScreen> {
           appBar: AppBar(
             title: Text(l.t('mc.compose')),
             actions: [
-              if (draft != null && draft.status != 'sending')
+              if (draft != null && draft.status != 'sending' && c.canWrite)
                 IconButton(
                   onPressed: c.busy == null ? () => _delete(draft) : null,
                   tooltip: l.t('mc.deleteDraft'),
@@ -1195,9 +1493,9 @@ class _MailComposeScreenState extends State<MailComposeScreen> {
                 ),
             ],
           ),
-          body: _Notices(
+          body: MailNotices(
             controller: c,
-            child: _page(draft == null
+            child: mailPage(draft == null
                 ? MailState(
                     icon: Icons.error_outline, title: l.t('mc.errorTitle'))
                 : _content(context, l, c, draft)),
@@ -1207,51 +1505,95 @@ class _MailComposeScreenState extends State<MailComposeScreen> {
     );
   }
 
+  Future<void> _pickSender(String? identityId) async {
+    final c = widget.controller;
+    if (await c.setIdentity(_edit, identityId)) {
+      final body = c.draft?.body;
+      if (body != null && mounted) setState(() => _body.text = body);
+    }
+  }
+
+  Future<void> _schedule(MailDraft draft) async {
+    if (!(_form.currentState?.validate() ?? false)) return;
+    final c = widget.controller;
+    final when = await pickSendTime(context, c, initial: draft.sendAt);
+    if (when == null || !mounted) return;
+    await c.askToSend(_edit, sendAt: when);
+  }
+
   Widget _content(BuildContext context, AnumLocalizations l,
       MailCenterController c, MailDraft draft) {
     final theme = Theme.of(context);
-    final editable = draft.editable && draft.status != 'sending';
+    final editable = draft.editable && draft.status != 'sending' && c.canWrite;
     final account = c.account;
+    final identities = c.identities;
+    final approval = draft.approval;
+    final scheduledFor = draft.scheduledFor;
+    final busy = c.busy != null || c.uploads.isNotEmpty;
     return Form(
       key: _form,
       child: ListView(
         padding: const EdgeInsets.all(AnumSpacing.md),
         children: [
-          if (account != null)
-            Text(l.f('mc.from', {'from': account.address}),
+          if (identities.isNotEmpty && account != null)
+            DropdownButtonFormField<String>(
+              isExpanded: true,
+              initialValue: identities.any((i) => i.id == draft.identityId)
+                  ? draft.identityId
+                  : '',
+              decoration: InputDecoration(labelText: l.t('mc.fromField')),
+              items: [
+                for (final identity in identities)
+                  DropdownMenuItem(
+                    value: identity.id,
+                    child:
+                        Text(identity.label, overflow: TextOverflow.ellipsis),
+                  ),
+                DropdownMenuItem(
+                  value: '',
+                  child: Text(account.address, overflow: TextOverflow.ellipsis),
+                ),
+              ],
+              onChanged: !editable || busy
+                  ? null
+                  : (value) => _pickSender(
+                      value == null || value.isEmpty ? null : value),
+            )
+          else
+            Text(
+                l.f('mc.from',
+                    {'from': draft.fromAddress ?? account?.address ?? ''}),
                 style: theme.textTheme.bodySmall),
           _StatusLine(draft: draft),
           const SizedBox(height: AnumSpacing.xs),
-          TextFormField(
+          MailRecipientField(
             controller: _to,
             enabled: editable,
-            keyboardType: TextInputType.emailAddress,
-            decoration: InputDecoration(
-              labelText: l.t('mc.toField'),
-              helperText: l.t('mc.addressesHint'),
-              suffixIcon: IconButton(
-                tooltip: '${l.t('mc.ccField')} / ${l.t('mc.bccField')}',
-                onPressed: () => setState(() => _showCopies = !_showCopies),
-                icon: Icon(_showCopies ? Icons.expand_less : Icons.expand_more),
-              ),
+            label: l.t('mc.toField'),
+            helperText: l.t('mc.addressesHint'),
+            suggest: c.directory.suggest,
+            suffixIcon: IconButton(
+              tooltip: '${l.t('mc.ccField')} / ${l.t('mc.bccField')}',
+              onPressed: () => setState(() => _showCopies = !_showCopies),
+              icon: Icon(_showCopies ? Icons.expand_less : Icons.expand_more),
             ),
             validator: (v) => _checkAddresses(v, required: true),
           ),
           if (_showCopies) ...[
             const SizedBox(height: AnumSpacing.xs),
-            TextFormField(
+            MailRecipientField(
               controller: _cc,
               enabled: editable,
-              keyboardType: TextInputType.emailAddress,
-              decoration: InputDecoration(labelText: l.t('mc.ccField')),
+              label: l.t('mc.ccField'),
+              suggest: c.directory.suggest,
               validator: _checkAddresses,
             ),
             const SizedBox(height: AnumSpacing.xs),
-            TextFormField(
+            MailRecipientField(
               controller: _bcc,
               enabled: editable,
-              keyboardType: TextInputType.emailAddress,
-              decoration: InputDecoration(labelText: l.t('mc.bccField')),
+              label: l.t('mc.bccField'),
+              suggest: c.directory.suggest,
               validator: _checkAddresses,
             ),
           ],
@@ -1271,29 +1613,37 @@ class _MailComposeScreenState extends State<MailComposeScreen> {
             decoration: InputDecoration(
                 labelText: l.t('mc.body'), alignLabelWithHint: true),
           ),
-          if (draft.attachments.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: AnumSpacing.xs),
-              child: Text(
-                  l.f('mc.d.files', {'names': draft.attachments.join(', ')}),
-                  style: theme.textTheme.bodySmall),
-            ),
+          const SizedBox(height: AnumSpacing.xs),
+          MailAttachmentsSection(
+              controller: c, draft: draft, editable: editable),
           if (draft.approvalNote != null)
             Padding(
               padding: const EdgeInsets.only(top: AnumSpacing.xs),
               child: Text(draft.approvalNote!),
             ),
           const SizedBox(height: AnumSpacing.sm),
-          if (draft.waiting && draft.approval != null)
-            _ApprovalCard(controller: c, approval: draft.approval!),
+          if (draft.waiting && approval != null)
+            sendApprovalCard(context, c, draft, approval),
+          if (scheduledFor != null && editable)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AnumSpacing.xs),
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: OutlinedButton.icon(
+                  onPressed: busy ? null : () => c.cancelSchedule(draft),
+                  icon: const Icon(Icons.cancel_schedule_send_outlined),
+                  label: Text(l.t('mc.s.cancel')),
+                ),
+              ),
+            ),
           if (editable)
             Wrap(
               spacing: AnumSpacing.xs,
               runSpacing: AnumSpacing.xs,
               children: [
-                if (!draft.waiting)
+                if (!draft.waiting && !draft.scheduled)
                   FilledButton.icon(
-                    onPressed: c.busy == null ? _send : null,
+                    onPressed: busy ? null : _send,
                     icon: c.busy == 'send'
                         ? const SizedBox.square(
                             dimension: 18,
@@ -1301,14 +1651,24 @@ class _MailComposeScreenState extends State<MailComposeScreen> {
                         : const Icon(Icons.send),
                     label: Text(l.t('mc.askToSend')),
                   ),
+                if (!draft.scheduled)
+                  OutlinedButton.icon(
+                    onPressed: busy ? null : () => _schedule(draft),
+                    icon: c.busy == 'schedule'
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.schedule_send_outlined),
+                    label: Text(l.t('mc.s.schedule')),
+                  ),
                 OutlinedButton.icon(
-                  onPressed: c.busy == null
-                      ? () {
+                  onPressed: busy
+                      ? null
+                      : () {
                           if (_form.currentState?.validate() ?? false) {
                             c.saveDraft(_edit);
                           }
-                        }
-                      : null,
+                        },
                   icon: const Icon(Icons.save_outlined),
                   label: Text(l.t('mc.saveDraft')),
                 ),
@@ -1340,8 +1700,8 @@ class _StatusLine extends StatelessWidget {
           l.f('mc.d.failedText', {'reason': draft.error ?? ''}),
           scheme.error
         ),
-      'draft' || 'pending_approval' || 'sending' => (
-          _draftStatus(context, draft),
+      'draft' || 'pending_approval' || 'sending' || 'scheduled' => (
+          mailDraftStatus(context, draft),
           null
         ),
       _ => (null, null),
@@ -1358,20 +1718,32 @@ class _StatusLine extends StatelessWidget {
   }
 }
 
-class _ApprovalCard extends StatelessWidget {
-  const _ApprovalCard({required this.controller, required this.approval});
+/// An approval waiting for an owner: what it does, the full payload hash and
+/// its expiry. Approving sends the hash back, so only what is shown runs.
+class MailApprovalCard extends StatelessWidget {
+  const MailApprovalCard({
+    super.key,
+    required this.controller,
+    required this.approval,
+    required this.title,
+    required this.lines,
+    required this.approveLabel,
+    required this.onApprove,
+  });
   final MailCenterController controller;
   final WorkspaceApproval approval;
+  final String title, approveLabel;
+  final List<String> lines;
+  final VoidCallback onApprove;
 
   @override
   Widget build(BuildContext context) {
     final l = AnumLocalizations.maybeOf(context);
     final hash = approval.payloadHash ?? '';
-    final to = approval.arguments['to'];
     final expires = approval.expiresAt;
     return Semantics(
       container: true,
-      label: l.t('mc.approvalTitle'),
+      label: title,
       child: Container(
         margin: const EdgeInsets.only(bottom: AnumSpacing.sm),
         padding: const EdgeInsets.all(AnumSpacing.sm),
@@ -1382,12 +1754,8 @@ class _ApprovalCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(l.t('mc.approvalTitle'),
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            Text(l.f('mc.approvalFrom',
-                {'from': '${approval.arguments['from'] ?? ''}'})),
-            Text(l.f('mc.approvalTo',
-                {'to': to is List ? to.join(', ') : '${to ?? ''}'})),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+            for (final line in lines) Text(line),
             SelectableText(l.f('mc.approvalHash', {'hash': hash})),
             if (expires != null)
               Text(l.f('mc.approvalExpires', {
@@ -1399,10 +1767,10 @@ class _ApprovalCard extends StatelessWidget {
               alignment: AlignmentDirectional.centerStart,
               child: FilledButton.icon(
                 onPressed: controller.busy == null && hash.isNotEmpty
-                    ? () => controller.approve(approval)
+                    ? onApprove
                     : null,
                 icon: const Icon(Icons.verified_outlined),
-                label: Text(l.t('mc.approve')),
+                label: Text(approveLabel),
               ),
             ),
             Text(l.t('mc.approveOwners'),
@@ -1412,4 +1780,31 @@ class _ApprovalCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The send approval of a draft: sender, recipients, the time when it is
+/// scheduled and how many files go with it.
+Widget sendApprovalCard(BuildContext context, MailCenterController c,
+    MailDraft draft, WorkspaceApproval approval,
+    {VoidCallback? onApprove}) {
+  final l = AnumLocalizations.maybeOf(context);
+  final to = approval.arguments['to'];
+  final sendAt = DateTime.tryParse('${approval.arguments['send_at'] ?? ''}');
+  final files = approval.arguments['attachments'];
+  final count = files is List ? files.length : draft.attachments.length;
+  return MailApprovalCard(
+    controller: c,
+    approval: approval,
+    title: l.t('mc.approvalTitle'),
+    lines: [
+      l.f('mc.approvalFrom', {'from': '${approval.arguments['from'] ?? ''}'}),
+      l.f('mc.approvalTo', {'to': to is List ? to.join(', ') : '${to ?? ''}'}),
+      if (sendAt != null)
+        l.f('mc.approvalWhen', {'time': mailDateTime(context, sendAt)}),
+      if (count > 0) l.f('mc.approvalFiles', {'count': count}),
+    ],
+    approveLabel:
+        sendAt != null ? l.t('mc.approveSchedule') : l.t('mc.approve'),
+    onApprove: onApprove ?? () => c.approve(approval),
+  );
 }
