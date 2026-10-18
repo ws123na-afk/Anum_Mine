@@ -227,8 +227,12 @@ class IntelStrategy {
     required this.reason,
     required this.stateChangedBy,
     required this.stateChangedAt,
+    this.portfolioId,
   });
   final String id, name, state, reason, stateChangedBy;
+
+  /// The paper portfolio this version trades in, once chosen.
+  final String? portfolioId;
   final int version;
   final List<String> symbols;
   final DateTime stateChangedAt;
@@ -242,6 +246,7 @@ class IntelStrategy {
         reason: r.optString('reason') ?? '',
         stateChangedBy: r.optString('state_changed_by') ?? 'person',
         stateChangedAt: r.date('state_changed_at'),
+        portfolioId: r.optString('portfolio_id'),
       );
 }
 
@@ -486,16 +491,19 @@ class StrategyRule {
 
 /// An instrument with its stored daily bars (`GET /intel/instruments`).
 class IntelInstrument {
-  const IntelInstrument({
-    required this.id,
-    required this.symbol,
-    required this.bars,
-    this.firstBar,
-    this.lastBar,
-  });
-  final String id, symbol;
+  const IntelInstrument(
+      {required this.id,
+      required this.symbol,
+      required this.bars,
+      this.firstBar,
+      this.lastBar,
+      this.assetClass = '',
+      this.venue = '',
+      this.currency = '',
+      this.lastSource});
+  final String id, symbol, assetClass, venue, currency;
   final int bars;
-  final String? firstBar, lastBar;
+  final String? firstBar, lastBar, lastSource;
 
   factory IntelInstrument.fromJson(JsonReader r) => IntelInstrument(
         id: r.string('id'),
@@ -503,8 +511,49 @@ class IntelInstrument {
         bars: r.optInt('bars') ?? 0,
         firstBar: r.optString('first_bar'),
         lastBar: r.optString('last_bar'),
+        assetClass: r.optString('asset_class') ?? '',
+        venue: r.optString('venue') ?? '',
+        currency: r.optString('currency') ?? '',
+        lastSource: r.optString('last_source'),
       );
 }
+
+/// The asset classes an instrument may have (intel/marketdata.py `AssetClass`).
+const intelAssetClasses = ['equity', 'etf', 'crypto', 'forex', 'commodity'];
+
+/// The largest bars file the API accepts (`BarsInput.payload`).
+const maxBarsFileBytes = 2000000;
+
+/// What one bars import did (`POST /intel/instruments/{id}/bars`).
+class BarsImport {
+  const BarsImport(
+      {required this.imported,
+      required this.changed,
+      required this.issues,
+      this.first,
+      this.last});
+  final int imported, changed;
+  final List<String> issues;
+  final String? first, last;
+
+  factory BarsImport.fromJson(JsonReader r) => BarsImport(
+        imported: r.optInt('imported') ?? 0,
+        changed: r.optInt('changed') ?? 0,
+        first: r.optString('first'),
+        last: r.optString('last'),
+        issues: r.optObjects(
+            'issues',
+            (i) =>
+                '${i.optString('day') ?? ''} ${i.optString('message') ?? i.optString('code') ?? ''}'
+                    .trim()),
+      );
+}
+
+/// A bars file picked on the phone: its name and text, or why it cannot be sent.
+typedef BarsFile = ({String name, String? text, String? problem});
+
+/// Picks one bars file (CSV) on the phone; null when the person cancels.
+typedef BarsFilePicker = Future<BarsFile?> Function();
 
 /// The Supervisor phases, in the order of a trading day and beyond.
 const intelPhases = ['pre_open', 'intraday', 'post_close', 'weekly', 'monthly'];
@@ -635,9 +684,20 @@ class DailyReport {
     required this.performance,
     required this.problems,
     required this.markdown,
+    this.commentaryStatus,
+    this.commentaryReason,
+    this.commentaryText,
+    this.commentaryModel,
   });
   final DailyReportItem item;
   final String disclaimer, markdown;
+
+  /// Model commentary (docs/finance-trading-intel.md#model-commentary):
+  /// `ok` with text, or `skipped`, `withheld`, `failed` with a reason.
+  final String? commentaryStatus,
+      commentaryReason,
+      commentaryText,
+      commentaryModel;
   final List<String> nextSteps;
   final List<ReportLine> orders,
       refused,
@@ -747,6 +807,10 @@ class DailyReport {
             p.optStrings('reasons') ?? const []),
       ),
       markdown: r.optString('markdown') ?? '',
+      commentaryStatus: r.optObject('commentary')?.optString('status'),
+      commentaryReason: r.optObject('commentary')?.optString('reason'),
+      commentaryText: r.optObject('commentary')?.optString('text'),
+      commentaryModel: r.optObject('commentary')?.optString('model'),
     );
   }
 }
@@ -789,6 +853,18 @@ abstract interface class FinanceIntelRepository {
   });
   Future<IntelCycle> runSupervisor(String phase);
   Future<int> pauseAll(String reason);
+  Future<IntelInstrument> createInstrument(
+      {required String symbol,
+      required String assetClass,
+      required String venue,
+      required String currency,
+      String? listedOn});
+  Future<BarsImport> importBars(String instrumentId,
+      {required String payload, required String source});
+
+  /// A SIMULATED `backtest` or `walk_forward` run; returns its verdict.
+  Future<String> evaluate(String strategyId, {required String kind});
+  Future<IntelStrategy> choosePortfolio(String strategyId, String portfolioId);
 
   // Post-close daily reports, read only.
   Future<IntelPage<DailyReportItem>> dailyReports({
@@ -980,4 +1056,46 @@ class ApiFinanceIntelRepository implements FinanceIntelRepository {
       DailyReport.fromJson(
         await _get('/intel/daily-reports/${Uri.encodeComponent(reportId)}'),
       );
+
+  @override
+  Future<IntelInstrument> createInstrument(
+          {required String symbol,
+          required String assetClass,
+          required String venue,
+          required String currency,
+          String? listedOn}) async =>
+      IntelInstrument.fromJson(JsonReader.of(
+          await api.request('POST', '$base/intel/instruments', body: {
+        'symbol': symbol,
+        'asset_class': assetClass,
+        'venue': venue,
+        'currency': currency,
+        if (listedOn != null) 'listed_on': listedOn,
+      })));
+
+  @override
+  Future<BarsImport> importBars(String instrumentId,
+          {required String payload, required String source}) async =>
+      BarsImport.fromJson(JsonReader.of(await api.request('POST',
+          '$base/intel/instruments/${Uri.encodeComponent(instrumentId)}/bars',
+          body: {
+            'provider': 'csv_import',
+            'payload': payload,
+            'source': source
+          })));
+
+  @override
+  Future<String> evaluate(String strategyId, {required String kind}) async =>
+      JsonReader.of(await api.request('POST',
+              '$base/intel/strategies/${Uri.encodeComponent(strategyId)}/evaluate',
+              body: {'kind': kind}))
+          .optString('verdict') ??
+      '';
+
+  @override
+  Future<IntelStrategy> choosePortfolio(
+          String strategyId, String portfolioId) async =>
+      IntelStrategy.fromJson(JsonReader.of(await api.request('POST',
+          '$base/intel/strategies/${Uri.encodeComponent(strategyId)}/portfolio',
+          body: {'portfolio_id': portfolioId})));
 }

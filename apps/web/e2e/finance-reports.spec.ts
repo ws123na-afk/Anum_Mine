@@ -71,6 +71,9 @@ test('the reports list pages newest first, and a report shows its sections read 
   const report = reports.getByRole('article');
   await expect(report.getByRole('heading', { name: /Report of 2026-10-15/ })).toBeVisible();
   await expect(report).toContainText('no real order was placed');
+  await expect(report.getByRole('heading', { name: 'Model commentary' })).toBeVisible();
+  await expect(report).toContainText('One order waits for your approval');
+  await expect(report).toContainText('Written by an AI model (anthropic/example-model) from this report only. It may be wrong and is not advice.');
   await expect(report.locator('dt').filter({ hasText: 'Orders proposed for approval' })).toBeVisible();
   await expect(report).toContainText('buy 10 EXMPL');
   await expect(report).toContainText('Review the 1 SIMULATED order request(s)');
@@ -81,6 +84,7 @@ test('the reports list pages newest first, and a report shows its sections read 
   expect((await download).suggestedFilename()).toBe('anum-trading-report-2026-10-15.md');
   await list.getByRole('button', { name: 'Open the report of 2026-10-13' }).click();
   await expect(report).toContainText('Suspended by Performance reviewer');
+  await expect(report).toContainText('No model commentary: no AI model is set up for this workspace.');
   await expect(report).toContainText('Drawdown beyond what validation showed');
   await report.getByRole('button', { name: 'Close the report' }).click();
   await expect(reports.getByRole('article')).toHaveCount(0);

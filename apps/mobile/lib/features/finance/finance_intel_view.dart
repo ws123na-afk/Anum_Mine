@@ -59,6 +59,7 @@ class FinanceIntelView extends StatelessWidget {
           parts = [
             _Banner(controller: c, overview: o, strings: s),
             IntelVenues(overview: o, strings: s),
+            IntelMarketData(controller: c, overview: o, strings: s),
             IntelNewStrategy(controller: c, strings: s),
             _Strategies(controller: c, overview: o, strings: s),
             IntelSupervisor(controller: c, overview: o, strings: s),
@@ -386,6 +387,17 @@ class _Strategies extends StatelessWidget {
                   IntelMoveButton(
                     controller: c,
                     strategy: strategy,
+                    strings: s,
+                  ),
+                  IntelEvaluateButton(
+                    controller: c,
+                    strategy: strategy,
+                    strings: s,
+                  ),
+                  IntelPortfolioButton(
+                    controller: c,
+                    strategy: strategy,
+                    overview: overview,
                     strings: s,
                   ),
                 ],

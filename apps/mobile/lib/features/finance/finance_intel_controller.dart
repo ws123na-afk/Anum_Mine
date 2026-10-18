@@ -46,6 +46,12 @@ class FinanceIntelController extends ChangeNotifier {
   FinanceLoad setupLoad = FinanceLoad.idle;
   List<StrategyRule> rules = const [];
   List<IntelInstrument> instruments = const [];
+
+  /// Every instrument, also those without bars yet (Market data).
+  List<IntelInstrument> allInstruments = const [];
+
+  /// Picks a bars file; the view's default uses the system file picker.
+  BarsFilePicker? pickBars;
   String? setupError;
   bool acting = false;
 
@@ -84,8 +90,9 @@ class FinanceIntelController extends ChangeNotifier {
         repository.instruments(),
       ]);
       rules = found[0] as List<StrategyRule>;
+      allInstruments = found[1] as List<IntelInstrument>;
       instruments = [
-        for (final i in found[1] as List<IntelInstrument>)
+        for (final i in allInstruments)
           if (i.bars > 0) i,
       ];
       setupLoad = FinanceLoad.ready;
@@ -166,6 +173,51 @@ class FinanceIntelController extends ChangeNotifier {
           loadDecisions(offset: 0),
           loadReports(offset: 0),
         ]);
+      });
+
+  Future<String?> createInstrument(
+          {required String symbol,
+          required String assetClass,
+          required String venue,
+          required String currency,
+          String? listedOn}) =>
+      _act(() async {
+        await repository.createInstrument(
+            symbol: symbol,
+            assetClass: assetClass,
+            venue: venue,
+            currency: currency,
+            listedOn: listedOn);
+        await loadSetup();
+      });
+
+  /// Imports one bars file. Returns (error, what the import did).
+  Future<(String?, BarsImport?)> importBars(
+      IntelInstrument instrument, BarsFile file) async {
+    BarsImport? done;
+    final error = await _act(() async {
+      done = await repository.importBars(instrument.id,
+          payload: file.text ?? '', source: file.name);
+      await loadSetup();
+    });
+    return (error, done);
+  }
+
+  /// A SIMULATED evaluation. Returns (error, verdict).
+  Future<(String?, String?)> evaluate(IntelStrategy strategy,
+      {required String kind}) async {
+    String? verdict;
+    final error = await _act(() async {
+      verdict = await repository.evaluate(strategy.id, kind: kind);
+      if (selected?.id == strategy.id) await loadRuns(offset: 0);
+    });
+    return (error, verdict);
+  }
+
+  Future<String?> choosePortfolio(IntelStrategy strategy, String portfolioId) =>
+      _act(() async {
+        await repository.choosePortfolio(strategy.id, portfolioId);
+        await loadStrategies();
       });
 
   /// Suspends every active paper strategy. Returns (error, how many paused).

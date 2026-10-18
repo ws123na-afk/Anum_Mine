@@ -61,7 +61,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from threading import RLock
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -100,6 +100,7 @@ class DeviceRegistration(BaseModel):
     platform: PushPlatform
     token: str = Field(min_length=20, max_length=4096, pattern=REGISTRATION_PATTERN, repr=False)
     label: str | None = Field(default=None, max_length=80, description="Shown in the device list, e.g. 'Android phone'")
+    language: Literal["en", "ar"] | None = Field(default=None, description="The language the app shows; pushes use its text")
 
 
 class PushDevice(BaseModel):
@@ -109,6 +110,7 @@ class PushDevice(BaseModel):
     platform: PushPlatform
     label: str | None = None
     token_hint: str
+    language: str | None = None
     created_at: datetime
     updated_at: datetime
     last_sent_at: datetime | None = None
@@ -321,6 +323,7 @@ async def register_my_device(
                     update={
                         "platform": payload.platform,
                         "label": payload.label,
+                        "language": payload.language or existing.language,
                         "updated_at": now,
                         "token_ciphertext": secret_cipher().encrypt(payload.token),
                     }
@@ -339,6 +342,7 @@ async def register_my_device(
             user_id=context.user_id,
             platform=payload.platform,
             label=payload.label,
+            language=payload.language,
             token_ciphertext=secret_cipher().encrypt(payload.token),
             token_sha256=digest,
             token_hint=payload.token[-4:],
@@ -381,6 +385,8 @@ class PushKind(StrEnum):
     TEAM_WORK = "team_work"
     AUTOMATION_NOTICE = "automation_notice"
     AUTOMATION_FAILED = "automation_failed"
+    # The post-close SIMULATED trading report (docs/finance-trading-intel.md#daily-report).
+    FINANCE_REPORT = "finance_report"
 
 
 # Which notification preference switch gates each kind.
@@ -397,6 +403,8 @@ PREFERENCE: dict[PushKind, str] = {
     # A notify step's push was asked for by the automation's owner; push_enabled still applies.
     PushKind.AUTOMATION_NOTICE: "push_enabled",
     PushKind.AUTOMATION_FAILED: "automation_failed",
+    # No switch of its own: follows the push channel switch, like team work.
+    PushKind.FINANCE_REPORT: "push_enabled",
 }
 
 # Fixed text: a push never carries the task, the prompt, the tool call or a PR title.
@@ -411,7 +419,28 @@ TEXT: dict[PushKind, tuple[str, str]] = {
     PushKind.TEAM_WORK: ("Team work", "Something in your team work needs you. Open ANUM to see it."),
     PushKind.AUTOMATION_NOTICE: ("Automation update", "An automation has a message for you. Open ANUM to read it."),
     PushKind.AUTOMATION_FAILED: ("Automation failed", "An automation could not finish."),
+    PushKind.FINANCE_REPORT: ("Daily trading report", "Your simulated trading report for today is ready. No real order was placed."),
 }
+
+# The same fixed text in Arabic, for phones whose app shows Arabic (``push_devices.language``).
+TEXT_AR: dict[PushKind, tuple[str, str]] = {
+    PushKind.APPROVAL_REQUIRED: ("مطلوب موافقة", "إجراء ينتظر قرارك."),
+    PushKind.TASK_COMPLETED: ("انتهت المهمة", "انتهت مهمة بدأتها."),
+    PushKind.RUN_FAILED: ("فشلت المهمة", "تعذر إكمال مهمة بدأتها."),
+    PushKind.DEVELOPER_READY: ("تغيير جاهز للمراجعة", "طلب تطوير لديه طلب سحب جاهز للدمج."),
+    PushKind.DEVELOPER_FAILED: ("توقف طلب التطوير", "فشل طلب تطوير أو لم تنجح فحوصه."),
+    PushKind.COMMERCE_ALERT: ("تنبيه المتجر", "قناة بيع تحتاج إلى انتباهك: مخزون منخفض أو طلب متأخر أو مرتجعات أو سعر."),
+    PushKind.TYRE_ALERTS: ("تنبيهات الإطارات", "تنبيهات إطارات جديدة تحتاج إلى انتباه."),
+    PushKind.TEAM_WORK: ("عمل الفريق", "شيء في عمل فريقك يحتاج إليك. افتح ANUM لتراه."),
+    PushKind.AUTOMATION_NOTICE: ("تحديث أتمتة", "لدى أتمتة رسالة لك. افتح ANUM لقراءتها."),
+    PushKind.AUTOMATION_FAILED: ("فشلت الأتمتة", "تعذر إكمال أتمتة."),
+    PushKind.FINANCE_REPORT: ("تقرير التداول اليومي", "تقرير التداول المحاكى لليوم جاهز. لم يُنفذ أي أمر حقيقي."),
+}
+
+
+def push_text(kind: PushKind, language: str | None) -> tuple[str, str]:
+    """The fixed title and body of a kind in the phone's language (English when unknown)."""
+    return (TEXT_AR if language == "ar" else TEXT)[kind]
 
 EVENT_KINDS: dict[str, PushKind] = {
     "approval.requested": PushKind.APPROVAL_REQUIRED,
@@ -504,10 +533,9 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         item = event.payload.get("work_item_id")
         if not isinstance(recipient, str) or not recipient:
             return None
-        from .notifications import IN_APP_ONLY_KINDS
-
-        if event.payload.get("kind") in IN_APP_ONLY_KINDS:
-            return None  # not team work: in-app and email only
+        if event.payload.get("kind") == "finance_daily_report":
+            # Not team work: its own kind and text, opening Finance on the phone.
+            return PushIntent(**{**common, "kind": PushKind.FINANCE_REPORT}, recipient=recipient)
         return PushIntent(**common, recipient=recipient, work_item_id=item if isinstance(item, str) and item else None)
     if kind in {PushKind.TASK_COMPLETED, PushKind.RUN_FAILED}:
         if task_id is None:
@@ -551,6 +579,9 @@ def resolve_recipients(intent: PushIntent, *, limit: int | None = None) -> list[
         elif intent.kind == PushKind.TEAM_WORK:
             if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.WORK_READ):
                 recipients = [intent.recipient]
+        elif intent.kind == PushKind.FINANCE_REPORT:
+            if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.FINANCE_READ):
+                recipients = [intent.recipient]
         elif intent.kind in {PushKind.AUTOMATION_NOTICE, PushKind.AUTOMATION_FAILED}:
             recipients = [
                 user for user in intent.named_users if _allowed(members.get(user, ""), Permission.AUTOMATION_READ)
@@ -582,6 +613,7 @@ class _Target:
     device_id: str
     token: str
     digest: str
+    language: str | None = None
 
 
 def _targets_for(intent: PushIntent, user_id: str) -> list[_Target]:
@@ -603,7 +635,7 @@ def _targets_for(intent: PushIntent, user_id: str) -> list[_Target]:
         except SecretDecryptionError:
             logger.warning("push_token_unreadable device=%s", device.id)
             continue
-        targets.append(_Target(user_id, device.id, token, device.token_sha256))
+        targets.append(_Target(user_id, device.id, token, device.token_sha256, device.language))
     return targets
 
 
@@ -712,7 +744,6 @@ class PushDispatcher:
             return report
         recipients = await asyncio.to_thread(resolve_recipients, intent)
         report.recipients = len(recipients)
-        title, body = TEXT[intent.kind]
         seen: set[str] = set()
         targets: list[_Target] = []
         for user_id in recipients:
@@ -723,6 +754,7 @@ class PushDispatcher:
         gate = asyncio.Semaphore(MAX_IN_FLIGHT)
 
         async def one(target: _Target) -> SendOutcome:
+            title, body = push_text(intent.kind, target.language)
             async with gate:
                 return await sender.send(
                     PushMessage(token=target.token, title=title, body=body, data=intent.data(), collapse_id=intent.collapse_id())

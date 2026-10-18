@@ -165,4 +165,5 @@ export const financeIntelAr: Record<keyof typeof financeIntelEn, Message> = {
   'finance.intel.outcome.suspended': 'موقوف',
   'finance.intel.outcome.skipped': 'تم تخطيه',
   'finance.intel.outcome.failed': 'فشل',
+  'finance.intel.outcome.deferred': 'مؤجل (الخادم مشغول)',
 };

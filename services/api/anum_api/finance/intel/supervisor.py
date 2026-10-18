@@ -41,6 +41,7 @@ from ..store import FinanceStore
 from ..trading import InstrumentKind, OrderType, PortfolioMode, PriceRecord, Side, replay, value_book
 from . import backtest as bt
 from . import lifecycle
+from . import load_guard
 from . import research
 from .indicators import snapshot
 from .marketdata import AssetClass, check_series
@@ -143,6 +144,9 @@ class Supervisor:
             for strategy in self.active():
                 self.portfolio_review(strategy)
                 self.performance_review(strategy)
+            # Revalidations the load guard deferred are tried again after the close.
+            for strategy in self.deferred_revalidations():
+                self.revalidate(strategy)
         if phase == "weekly":
             for strategy in self.active():
                 self.performance_review(strategy, weekly=True)
@@ -242,11 +246,28 @@ class Supervisor:
         except research.ResearchError as exc:
             self._decide(Agent.STRATEGY_RESEARCH, "revalidate", "failed", [exc.code], strategy=strategy)
             return
+        except load_guard.ServerBusy as exc:
+            # The machine is busy (docs/finance-trading-intel.md#load-guard): not a failure of the
+            # strategy. Recorded as deferred; the next post-close cycle tries again.
+            self._decide(Agent.STRATEGY_RESEARCH, "revalidate", "deferred", ["server_busy", exc.reason], strategy=strategy,
+                         details={"load_per_cpu": exc.reading.load_per_cpu, "free_memory_mb": exc.reading.free_memory_mb})
+            return
         self._decide(Agent.STRATEGY_RESEARCH, "revalidate", run.verdict, run.reasons, strategy=strategy,
                      details={"run_id": run.id, "reproduced": run.reproduced, "data_hash": run.data_hash})
         if run.verdict != "passed" or not run.reproduced:
             self._suspend(Agent.STRATEGY_RESEARCH, strategy, "revalidation_failed",
                           "Monthly out-of-sample revalidation did not pass: " + (", ".join(run.reasons) or run.verdict) + ".")
+
+    def deferred_revalidations(self) -> list[StrategyConfig]:
+        """Active versions whose newest revalidation was deferred because the server was busy."""
+        found: list[StrategyConfig] = []
+        for strategy in self.active():
+            decisions, _ = self.store.list_agent_decisions(self.context, agent=Agent.STRATEGY_RESEARCH.value,
+                                                           strategy_id=strategy.id, limit=50, offset=0)
+            newest = next((d for d in decisions if d.action == "revalidate"), None)
+            if newest is not None and newest.outcome == "deferred":
+                found.append(strategy)
+        return found
 
     def performance_review(self, strategy: StrategyConfig, *, weekly: bool = False) -> None:
         """The rule on the bars since it became active, against what validation showed."""

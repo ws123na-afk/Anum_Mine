@@ -129,16 +129,29 @@ def test_a_post_close_report_sends_one_in_app_notice_with_counts_only() -> None:
     assert all(ch not in notice.body for ch in (chr(0x2013), chr(0x2014)))
     again = client.post("/api/v1/finance/intel/supervisor/run", json={"phase": "post_close"}, headers=headers).json()
     assert again["skipped"] is True and len(notices()) == before + 1, "a repeated cycle never notifies twice"
-    assert notice.push_status.value in {"not_requested", "not_configured"}, "the fixed push text says Team work: no push"
     from anum_api.dependencies import memory_repository
-    from anum_api.push import intent_for
+    from anum_api.push import TEXT, TEXT_AR, PushKind, intent_for, push_text
 
     events = [e for e in memory_repository.store.events if e.type == "notification.created" and e.subject == notice.id]
     assert len(events) == 1 and events[0].payload == {"recipient": ME.user_id, "kind": KIND, "work_item_id": None}
-    assert intent_for(events[0]) is None
+    intent = intent_for(events[0])
+    assert intent is not None and intent.kind == PushKind.FINANCE_REPORT and intent.recipient == ME.user_id
+    assert intent.data()["anum_kind"] == "finance_report" and "work_item_id" not in intent.data()
+    title, body = push_text(PushKind.FINANCE_REPORT, "en")
+    assert title == "Daily trading report" and "No real order was placed" in body and "Team work" not in title
+    assert push_text(PushKind.FINANCE_REPORT, "ar") == TEXT_AR[PushKind.FINANCE_REPORT] and push_text(PushKind.FINANCE_REPORT, None) == title_body(TEXT)
+    assert set(TEXT_AR) == set(TEXT) == set(PushKind)
+    for text in [*TEXT.values(), *TEXT_AR.values()]:
+        assert not any(ch in "".join(text) for ch in (chr(0x2013), chr(0x2014))) and "profit" not in "".join(text).lower()
     title, body = notice_text({"report_id": "x", "halted": 1})
     assert "halted" in body and "SIMULATED" in title
     finance_store.clear()
+
+
+def title_body(text):  # type: ignore[no-untyped-def]
+    from anum_api.push import PushKind
+
+    return text[PushKind.FINANCE_REPORT]
 
 
 def _store_with_data_into(store) -> None:  # type: ignore[no-untyped-def]
