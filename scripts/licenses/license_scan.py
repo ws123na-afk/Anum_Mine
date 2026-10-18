@@ -832,6 +832,28 @@ def notices(results: list[dict]) -> str:
             source = f"<{entry['source']}>" if entry["source"] else "-"
             lines.append(f"| {escape(name)} | {escape(license_expr) or 'unknown'} | {', '.join(sorted(entry['apps']))} | {source} |")
         lines.append("")
+    # Components accepted under a reviewed exception (scripts/licenses/exceptions.toml), with
+    # the notice the license asks for. Only exceptions that ship in some app are listed.
+    accepted: dict[tuple[str, str], dict] = {}
+    for result in results:
+        if result["exception"]:
+            entry = accepted.setdefault((result["ecosystem"], result["name"]),
+                                        {"result": result, "apps": set()})
+            entry["apps"].update(result["apps"])
+    if accepted:
+        lines += ["## Components used under a reviewed license exception", "",
+                  "These components carry a weak copyleft license. Each was reviewed and accepted for",
+                  "the reason given (docs/licenses.md).", ""]
+        for (ecosystem, name), entry in sorted(accepted.items(), key=lambda item: (item[0][0], item[0][1].lower())):
+            result, exception = entry["result"], entry["result"]["exception"]
+            lines += [f"### {escape(name)} ({ECOSYSTEM_TITLES[ecosystem]})", "",
+                      f"- License: {result['effective']}",
+                      f"- Used in: {', '.join(sorted(entry['apps']))}",
+                      f"- Source: <{exception.get('source_url') or result['source']}>",
+                      f"- Why it is accepted: {exception['reason']}"]
+            if exception.get("notice"):
+                lines.append(f"- Notice: {exception['notice']}")
+            lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 

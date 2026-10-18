@@ -25,6 +25,8 @@
 #   reason = "Imported unmodified as a separate library; users can replace it; notice shipped."
 #   reviewed_by = "owner name"
 #   reviewed_on = "2026-10-18"
+#   source_url = "https://..."      # optional: where the source is offered (shown in the notices)
+#   notice = "Licensed under ..."   # optional: notice text the license asks for (shown in the notices)
 
 [[override]]
 ecosystem = "python"
