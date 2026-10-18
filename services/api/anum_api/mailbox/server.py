@@ -19,7 +19,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal, Protocol
 
 from .config import MailServerSettings
@@ -36,6 +36,12 @@ NAMES: dict[str, FolderRole] = {
 }
 MAX_FOLDERS = 200
 MAX_SEARCH = 20_000
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def imap_date(day: date) -> str:
+    """An IMAP SEARCH date (RFC 3501 date: 1-Feb-2026), independent of the process locale."""
+    return f"{day.day}-{_MONTHS[day.month - 1]}-{day.year}"
 
 
 class MailServerError(Exception):
@@ -99,7 +105,12 @@ class MailServer(Protocol):
 
     def check_login(self) -> None: ...
     def folders(self) -> list[Folder]: ...
-    def messages(self, folder: str, *, before: int | None, limit: int, query: str | None, unread: bool, flagged: bool) -> Page: ...
+    # ``since`` and ``until`` (both optional, inclusive days by the server's received date) narrow the list;
+    # callers pass them only when set, so fakes without them keep working.
+    def messages(
+        self, folder: str, *, before: int | None, limit: int, query: str | None, unread: bool, flagged: bool,
+        since: date | None = None, until: date | None = None,
+    ) -> Page: ...
     def fetch(self, folder: str, uid: int, *, mark_seen: bool, max_bytes: int) -> bytes: ...
     def set_flag(self, folder: str, uids: list[int], flag: str, value: bool) -> None: ...
     def move(self, folder: str, uids: list[int], target: str) -> None: ...
@@ -320,7 +331,10 @@ class ImapSmtpServer:
                     break
             return found
 
-    def messages(self, folder: str, *, before: int | None, limit: int, query: str | None, unread: bool, flagged: bool) -> Page:
+    def messages(
+        self, folder: str, *, before: int | None, limit: int, query: str | None, unread: bool, flagged: bool,
+        since: date | None = None, until: date | None = None,
+    ) -> Page:
         with self._imap() as connection:
             self._select(connection, folder, readonly=True)
             criteria: list[str] = []
@@ -332,6 +346,10 @@ class ImapSmtpServer:
                 criteria.append("UNSEEN")
             if flagged:
                 criteria.append("FLAGGED")
+            if since is not None:
+                criteria += ["SINCE", imap_date(since)]
+            if until is not None:
+                criteria += ["BEFORE", imap_date(until + timedelta(days=1))]
             if query:
                 connection.literal = query.encode("utf-8")  # type: ignore[attr-defined]
                 data = self._ok(connection.uid("SEARCH", "CHARSET", "UTF-8", *criteria, "TEXT"), "search")
