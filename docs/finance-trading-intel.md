@@ -9,7 +9,7 @@ The code is the pure package `services/api/anum_api/finance/intel/`: no network 
 | Loop | Scope | State |
 |---|---|---|
 | 1 | Gap assessment | Done ([gap assessment](finance-trading-gap-assessment.md)) |
-| 2 | Trading knowledge library and agent skills | **In progress** |
+| 2 | Trading knowledge library and agent skills | Done: six skill packages with sourced references, registered skills, five agent tools and the owner's commands |
 | 3 | Calendars, market data, storage | Done: calendars, CSV and recorded-provider parsing with checks, instruments and bars stored (migration `0065_finance_intel`), import API. Network fetch from providers is off until the owner accepts their terms |
 | 4 | Indicators, backtester, the six candidates, walk-forward validation, reports | Done, with tests |
 | 5 | Strategy signals into SIMULATED paper orders | Done: the Supervisor's Execution Coordinator through the existing gateway and Guardian; every order waits for the person's approval |
@@ -169,6 +169,33 @@ Write routes, `finance:manage`, in `finance/intel_control_api.py` under `/api/v1
 | `GET`, `POST /schedules`, `DELETE /schedules/{id}` | Your scheduled Supervisor cycles |
 
 Audit records carry ids, kinds, states, phases, counts and codes only; never a symbol, price or amount.
+
+## Skills and tools
+
+**Knowledge library** (`finance/intel/skills/`, loaded and checked by `finance/intel/knowledge.py`): six packages in the Claude skill format, each a folder with `SKILL.md` (front matter with name, description, version and ANUM skill id; when to use, inputs, outputs, permitted tools, prohibited actions, failure handling), `references/*.md` and `tools.json`.
+
+| Skill | Covers |
+|---|---|
+| `anum.trading.market-data` | Terminology, instrument types, venues and hours, providers and broker or exchange API behaviour, liquidity, spread, volatility and slippage |
+| `anum.trading.technical-analysis` | Exact indicator definitions as implemented, regimes and contradictions |
+| `anum.trading.strategy-research` | The six candidate families and their evidence, backtesting methodology and biases, risk-adjusted measures, fundamentals and valuation |
+| `anum.trading.portfolio` | Paper portfolios, diversification and portfolio theory, benchmarks |
+| `anum.trading.risk` | ANUM's controls in order, regulatory and geographic restrictions (UAE, Saudi Arabia, United States, European Union), psychology and automated-system failures |
+| `anum.trading.operations` | Cycles, phases, the lifecycle and the owner's commands |
+
+Every reference ends with a sources table (source, link, source date, licence, limitations): peer-reviewed papers, regulators, exchanges and provider documentation. Copyrighted works are summarised, not reproduced. The loader refuses a package with a missing section, a reference without sources, a broken link or a long dash; tests keep each `tools.json` equal to the registered tools and check that no package promises profit and that every one says it is SIMULATED with live trading off. Each package is an agent skill in the runtime registry (selected by its words, only where its tools are registered) and can be published as a skill version (`knowledge.skill_version`).
+
+**Agent tools** (`finance/intel/agent_tools.py`, registered with the finance tools in the API and the worker):
+
+| Tool | Does |
+|---|---|
+| `finance.intel.activity` | What the Supervisor and its agents did on a day, with counts and what was proposed, refused or suspended |
+| `finance.intel.strategies` | Versions with their newest evaluation: return after costs, worst drawdown, buy and hold, and whether an active one needs revalidation (missing, failed or older than 30 days) |
+| `finance.intel.explain_order` | Why a SIMULATED order request was refused or denied: the Guardian decision, the gateway refusal and the agents' decisions |
+| `finance.intel.benchmark` | Each active strategy's paper period against buy and hold of the same symbols |
+| `finance.intel.pause_all` | Suspends every active paper strategy (tightens only; resuming is the person's action) |
+
+No tool promotes, resumes or retires a strategy, approves an order, changes a limit or trades live. The request planner maps the owner's own words to these tools: "what did the trading agents do today", "which paper strategy performed best after transaction costs", "explain why the Guardian rejected this simulated trade", "show the worst drawdown for each strategy", "pause all paper trading", "compare my paper portfolio against an appropriate benchmark", "which strategy needs revalidation" (and Arabic forms).
 
 ## Storage
 
