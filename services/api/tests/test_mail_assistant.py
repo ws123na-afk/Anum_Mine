@@ -267,3 +267,34 @@ def test_injected_words_in_mail_never_become_recipients_of_an_assistant_forward(
 @pytest.fixture(autouse=True)
 def _assistant_on(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mail_settings, "enabled", True)
+
+
+def test_the_planner_stays_fast_on_long_repeated_input() -> None:
+    """Patterns that could backtrack were replaced by word checks (CodeQL polynomial regex)."""
+    import time
+
+    from anum_api.mailbox.planning import _instructions, addresses
+
+    hostile = [
+        "draft a reply" + "\t\t" * 50_000 + "x",
+        "draft a reply" + ":" + "\t" * 50_000 + "!",
+        "draft a reply يقول" + "\t" * 50_000,
+        "forward my email " + "%" * 100_000,
+        "label my last " + "1 " * 50_000 + "emails",
+        "forward to " + "a." * 50_000 + "@",
+    ]
+    started = time.perf_counter()
+    for text in hostile:
+        plan_mail_call(text, TOOLS)
+        _instructions(text)
+        addresses(text)
+    assert time.perf_counter() - started < 2.0
+    assert addresses("forward to <omar@example.test>, sara@example.test. and omar@example.test") == ["omar@example.test", "sara@example.test"]
+    assert addresses("to:omar@example.test") == ["omar@example.test"]
+    assert _instructions("draft a reply: thanks, see you Monday") == "thanks, see you Monday"
+    assert _instructions("اكتب رد يقول شكرا") == "شكرا"
+    assert _instructions("draft a reply") is None
+    plan = lambda text: plan_mail_call(text, TOOLS)  # noqa: E731
+    assert plan("label the 3 latest messages").arguments["selector"]["count"] == 3  # type: ignore[union-attr]
+    assert plan("summarise 2 emails from Sara").arguments["selector"]["count"] == 2  # type: ignore[union-attr]
+    assert plan("label my e-mails").arguments["selector"]["count"] == 10  # type: ignore[union-attr]

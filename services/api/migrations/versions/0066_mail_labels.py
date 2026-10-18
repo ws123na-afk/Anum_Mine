@@ -10,14 +10,14 @@ its labels (foreign key, on delete cascade).
 
 Expand only: a new table; the previous release ignores it.
 
-Chained after the head on main, ``0064_mail_operator_view`` (rechain after ``0065_finance_intel`` when it lands first).
+Chained after ``0065_finance_intel`` (finance landed on main first).
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "0066_mail_labels"
-down_revision = "0064_mail_operator_view"
+down_revision = "0065_finance_intel"
 branch_labels = None
 depends_on = None
 

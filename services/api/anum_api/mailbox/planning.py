@@ -16,9 +16,18 @@ from collections.abc import Collection
 
 from ..agent_tools import ToolCall
 from .ai import CLASSIFY_TOOL, DRAFT_TOOL, MAX_SELECT, PAGE_TOOL, REQUEST_TOOL, SUMMARIZE_TOOL
+from .mime import valid_address
 
 MAIL_TOOLS = frozenset({SUMMARIZE_TOOL, CLASSIFY_TOOL, PAGE_TOOL, DRAFT_TOOL, REQUEST_TOOL})
-ADDRESS = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# A request to the assistant is short; anything longer is cut before any pattern runs, and the
+# patterns below never put two overlapping repetitions next to each other (no backtracking).
+MAX_PROMPT = 2_000
+_EDGE = "<>()[]{},;:!?\"'`."
+_COUNT_BEFORE = frozenset({"last", "latest", "newest", "recent", "top", "first"})
+_COUNT_AFTER = frozenset({"latest", "newest", "recent", "last"})
+_MAIL_WORDS = frozenset({"email", "emails", "e-mail", "e-mails", "messages", "mails"})
+_ADDRESS_GAPS = re.compile(r"[\s,;:<>()\[\]{}\"'`]+")
+_INSTRUCTION_WORDS = re.compile(r"\b(?:saying|that says|to say|and say|telling them|telling her|telling him)\b", re.IGNORECASE)
 SEND_ONLY = (
     "Sending starts from the message on the Email page: open the draft, check it and press Send. "
     "Every send waits for an owner to approve the exact message."
@@ -47,12 +56,8 @@ def _selector(prompt: str, *, many: bool) -> dict[str, object]:
             break
     if re.search(r"\bin\s+(the\s+|my\s+)?archive\b", text):
         role = "archive"
-    count = 1
-    number = re.search(r"\b(?:last|latest|newest|recent|top|first)\s+(\d{1,2})\b|\b(\d{1,2})\s+(?:latest|newest|recent|last)?\s*(?:e-?mails?|messages|mails)\b", text)
-    if number:
-        count = int(number.group(1) or number.group(2))
-    elif many:
-        count = 10
+    number = _count(text)
+    count = number if number is not None else (10 if many else 1)
     selector: dict[str, object] = {"folder_role": role, "count": max(1, min(count, MAX_SELECT))}
     if re.search(r"\bunread\b|غير\s+المقروء", text):
         selector["unread"] = True
@@ -66,21 +71,61 @@ def _selector(prompt: str, *, many: bool) -> dict[str, object]:
     return selector
 
 
+def _words(text: str) -> list[str]:
+    return [word.strip(_EDGE) for word in text.split()]
+
+
+def _count(text: str) -> int | None:
+    """"last 5", "latest 12", "5 emails", "3 latest messages": the number of messages asked for."""
+    words = _words(text)
+    for index, word in enumerate(words):
+        if not (word.isdigit() and len(word) <= 2):
+            continue
+        if index > 0 and words[index - 1] in _COUNT_BEFORE:
+            return int(word)
+        following = words[index + 1 : index + 3]
+        if following and (following[0] in _MAIL_WORDS or (following[0] in _COUNT_AFTER and following[1:2] and following[1] in _MAIL_WORDS)):
+            return int(word)
+    return None
+
+
+def addresses(text: str, limit: int = 10) -> list[str]:
+    """The e-mail addresses the person typed, in order, each once (word by word, no search)."""
+    found: list[str] = []
+    for piece in _ADDRESS_GAPS.split(text[:MAX_PROMPT]):
+        word = piece.strip(".!?")
+        if "@" in word and valid_address(word) and word not in found:
+            found.append(word)
+            if len(found) == limit:
+                break
+    return found
+
+
 def _instructions(prompt: str) -> str | None:
-    found = re.search(r"\b(?:saying|that says|to say|and say|telling (?:them|her|him))\b\s*(.+)$|:\s*(.+)$|يقول\s+(.+)$", prompt, re.IGNORECASE | re.DOTALL)
-    if not found:
+    """What follows "saying ...", a colon or "يقول": the person's own words for the reply."""
+    prompt = prompt[:MAX_PROMPT]
+    starts: list[int] = []
+    phrase = _INSTRUCTION_WORDS.search(prompt)
+    if phrase:
+        starts.append(phrase.end())
+    colon = prompt.find(":")
+    if colon >= 0 and prompt[colon + 1 :].strip():
+        starts.append(colon + 1)
+    arabic = prompt.find("يقول")
+    if arabic >= 0 and prompt[arabic + 4 : arabic + 5].isspace():
+        starts.append(arabic + 4)
+    if not starts:
         return None
-    text = next((group for group in found.groups() if group), "").strip()
-    return text[:1000] or None
+    return prompt[min(starts) :].strip()[:1000] or None
 
 
 def plan_mail_call(prompt: str, available_tools: Collection[str]) -> ToolCall | None:
     """The Email Center tool for this request, from the person's words only; None otherwise."""
     if not MAIL_TOOLS <= set(available_tools):
         return None
-    text = " ".join(prompt.split())
+    text = " ".join(prompt[:MAX_PROMPT].split())
     if _has(_FORWARD, text):
-        recipients = list(dict.fromkeys(ADDRESS.findall(text)))[:10]
+        recipients = addresses(text)
         return ToolCall(name=REQUEST_TOOL, arguments={"action": "forward", "selector": _selector(text, many=False), "to": recipients})
     for pattern, action in ((_EXPORT, "export"), (_DELETE, "delete"), (_ARCHIVE, "archive")):
         if _has(pattern, text):
