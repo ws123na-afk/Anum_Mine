@@ -38,6 +38,9 @@ class HttpApiTransport implements ApiTransport {
     } on TimeoutException {
       throw const ApiException(0,
           'The server did not answer in time. Check the connection and try again.');
+    } on HandshakeException {
+      throw ApiException(0,
+          'TLS handshake failed with ${request.uri.host}. Please try again.');
     } on http.ClientException {
       throw const ApiException(0,
           'The server could not be reached. Check the connection and try again.');
