@@ -75,7 +75,7 @@ OpenTofu should define networks, compute, managed databases where used, object s
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `ci.yml` | PRs and pushes to `main` | Web, API, e2e, PostgreSQL, compose (including `--profile app`), **Security scans**, **Docker images**, **Helm deploy (kind)**, desktop, Android, Flutter. |
+| `ci.yml` | PRs and pushes to `main` | Web, API, e2e, PostgreSQL, compose (including `--profile app`), **Security scans**, **Licenses and SBOMs**, **Docker images**, **Helm deploy (kind)**, desktop, Android, Flutter. |
 | `codeql.yml` | PRs, pushes to `main`, weekly | CodeQL `security-extended` for Python and JavaScript/TypeScript. |
 | `deploy-staging.yml` | Pushes to `main`, manual | Builds and pushes `ghcr.io/<owner>/anum-api:<sha>`, `anum-web:<sha>` and `anum-backup:<sha>`, then `helm upgrade --install` into the `staging` environment once `STAGING_DEPLOY_TARGET=kubernetes` is set. |
 | `deploy-production.yml` | Manual, `production` environment approval | Builds the production web bundle for a commit staging deployed, then `helm upgrade --install` with `values-production.yaml`; or `helm rollback` to a given revision. Skipped while `PRODUCTION_DEPLOY_TARGET` is unset. |
