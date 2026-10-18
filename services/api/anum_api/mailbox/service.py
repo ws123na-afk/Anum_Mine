@@ -509,8 +509,9 @@ def register_mail_tools(registry: ToolRegistry) -> ToolRegistry:
     """Add the Email Center tools to a runtime's registry (the API's and the Temporal worker's)."""
     from .ai import AI_TOOL_DEFINITIONS
     from .automation_tools import AUTOMATION_TOOL_DEFINITIONS
+    from .domains_api import DOMAIN_TOOL_DEFINITIONS
 
-    for definition, handler in [*TOOL_DEFINITIONS, *AI_TOOL_DEFINITIONS, *AUTOMATION_TOOL_DEFINITIONS]:
+    for definition, handler in [*TOOL_DEFINITIONS, *AI_TOOL_DEFINITIONS, *AUTOMATION_TOOL_DEFINITIONS, *DOMAIN_TOOL_DEFINITIONS]:
         if definition.name not in registry.names:
             registry.register(definition, handler)
     return registry
