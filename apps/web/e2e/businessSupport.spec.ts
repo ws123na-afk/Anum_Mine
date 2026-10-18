@@ -24,7 +24,7 @@ test('open, assign, work, reply through Approvals and resolve a ticket', async (
   await form.getByLabel('E-mail').fill('sara@example.com');
   await form.getByRole('button', { name: 'Open ticket' }).click();
   const ticket = page.getByRole('dialog', { name: 'Dashboard sync stopped' });
-  await expect(ticket.getByText('T-1001')).toBeVisible();
+  await expect(ticket.getByText('T-1001', { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/#business-support\/btkt_1$/);
   await expect(ticket.getByText(/opened by hand, so ANUM has no conversation/)).toBeVisible();
 
@@ -62,7 +62,7 @@ test('open, assign, work, reply through Approvals and resolve a ticket', async (
   await resolve.getByLabel('How it was resolved').fill('Fixed');
   await resolve.getByRole('button', { name: 'Resolve' }).click();
   await expect(resolve.getByText('Choose a resolution.')).toBeVisible();
-  await resolve.getByLabel('Resolution', { exact: true }).selectOption('fixed');
+  await resolve.getByRole('combobox', { name: 'Resolution' }).selectOption('fixed');
   await resolve.getByRole('button', { name: 'Resolve' }).click();
   await expect(resolve.getByText(/at least 10 characters/)).toBeVisible();
   await resolve.getByLabel('How it was resolved').fill('Restarted the export worker and re-ran March.');

@@ -490,10 +490,10 @@ export function SupportPolicySection() {
   if (support.state.kind === 'loading') return <section className="surface bzCard" aria-label={t('biz.sup.policy.title')}><Note>{t('biz.loading')}</Note></section>;
   if (support.state.kind === 'denied') return <section className="surface bzCard" aria-labelledby="bz-policy-denied"><h2 id="bz-policy-denied">{t('biz.sup.policy.title')}</h2><p className="muted">{t('biz.denied', { message: support.state.text })}</p></section>;
   if (support.state.kind === 'error') return <section className="surface bzCard" aria-label={t('biz.sup.policy.title')}><Note error>{t('biz.failed', { what: t('biz.sup.policy.title'), message: support.state.text })} <button type="button" className="secondary" onClick={() => void support.load()}>{t('common.tryAgain')}</button></Note></section>;
-  return <PolicyForm key={JSON.stringify(support.state.value.policy)} policy={support.state.value.policy} manage={support.state.value.can_manage} onSaved={() => void support.load()} />;
+  return <PolicyForm policy={support.state.value.policy} manage={support.state.value.can_manage} />;
 }
 
-function PolicyForm({ policy, manage, onSaved }: { policy: SupportPolicy; manage: boolean; onSaved: () => void }) {
+function PolicyForm({ policy, manage }: { policy: SupportPolicy; manage: boolean }) {
   const [draft, setDraft] = useState<PolicyDraft>(() => policyDraft(policy));
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null), [busy, setBusy] = useState(false);
   async function save(event: FormEvent) {
@@ -501,7 +501,8 @@ function PolicyForm({ policy, manage, onSaved }: { policy: SupportPolicy; manage
     const body = policyBody(draft);
     if (!body.ok) { setMessage({ text: body.error, error: true }); return; }
     setBusy(true);
-    try { await b.saveSupportPolicy(body.value); setMessage({ text: t('biz.sup.policy.saved') }); onSaved(); }
+    // The saved policy replaces the draft in place; reloading the setup would remount the form and drop the message.
+    try { setDraft(policyDraft(await b.saveSupportPolicy(body.value))); setMessage({ text: t('biz.sup.policy.saved') }); }
     catch (error) { setMessage({ text: failure(error, t('biz.sup.policy.title')), error: true }); } finally { setBusy(false); }
   }
   const toggle = (day: number) => setDraft({ ...draft, workDays: draft.workDays.includes(day) ? draft.workDays.filter((item) => item !== day) : [...draft.workDays, day] });
