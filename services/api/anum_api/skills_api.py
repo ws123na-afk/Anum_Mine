@@ -4,6 +4,10 @@ docs/skills.md. Publishing and rolling back an installation to an earlier versio
 organization administrator role; installing, enabling, disabling and uninstalling are
 workspace-owner actions; every member can read. Every change is audited in the same
 transaction (``audit_records``), and a skill's history is read back from those records.
+
+Versions are signed with Ed25519 over a canonical package digest (``skill_signing``,
+docs/skills.md#signing). Organization administrators manage the tenant's trusted publisher
+keys; an unsigned or unverifiable version is never installed, upgraded to or rolled back to.
 """
 
 from __future__ import annotations
@@ -22,6 +26,18 @@ from .authorization import Permission
 from .dependencies import has_permission, require_permission, tenant_context
 from .schemas import RiskLevel, TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
+from .skill_signing import (
+    KEY_ID_PATTERN,
+    PublisherKey,
+    PublisherKeyStatus,
+    SigningError,
+    SkillSignature,
+    SkillVerification,
+    key_fingerprint,
+    normalize_public_key,
+    platform_keys,
+    verify,
+)
 
 if TYPE_CHECKING:
     from .agent_tools import ToolDefinition
@@ -35,6 +51,9 @@ class SkillVersionCreate(BaseModel):
     instructions: str = Field(min_length=1, max_length=50_000)
     required_tools: list[str] = Field(default_factory=list, max_length=100)
     risk_level: RiskLevel = RiskLevel.LOW
+    # Ed25519 signature over the canonical package digest (docs/skills.md#signing). A version
+    # can be published unsigned and signed later; it cannot be installed until it verifies.
+    signature: SkillSignature | None = None
 
 
 class SkillVersion(SkillVersionCreate):
@@ -42,6 +61,39 @@ class SkillVersion(SkillVersionCreate):
     publisher_tenant_id: str
     created_by: str
     created_at: datetime
+    signed_at: datetime | None = None
+    signed_by: str | None = None
+    # Computed on every read against the trusted keys as they are now; never stored.
+    verification: SkillVerification | None = None
+
+
+class PublisherKeyCreate(BaseModel):
+    id: str = Field(pattern=KEY_ID_PATTERN)
+    publisher: str = Field(min_length=1, max_length=160)
+    public_key: str = Field(min_length=1, max_length=100)
+
+
+class PublisherKeyRotate(BaseModel):
+    new_id: str = Field(pattern=KEY_ID_PATTERN)
+    public_key: str = Field(min_length=1, max_length=100)
+
+
+class PublisherKeyRevoke(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class PublisherKeyList(BaseModel):
+    keys: list[PublisherKey]
+    platform_keys: list[PublisherKey]
+    can_manage: bool
+
+
+class PublisherKeyRevoked(BaseModel):
+    key: PublisherKey
+    # Versions of this tenant signed with the key: no longer installable.
+    affected_versions: int
+    # Installations in this workspace now flagged.
+    flagged_installations: int
 
 
 class SkillInstallCreate(BaseModel):
@@ -61,6 +113,9 @@ class SkillInstallation(BaseModel):
     enabled: bool
     installed_by: str
     installed_at: datetime
+    # The installed version's signature check, computed on read: anything other than
+    # ``verified`` flags the installation (for example after its key was revoked).
+    verification: SkillVerification | None = None
 
 
 class SkillResolveRequest(BaseModel):
@@ -132,6 +187,10 @@ class SkillVersionExistsError(ValueError):
     """A tenant can publish a given skill version only once (versions are immutable)."""
 
 
+class PublisherKeyExistsError(ValueError):
+    """A key id is used once per tenant, including rotated and revoked keys."""
+
+
 class SkillRegistryStore(Protocol):
     """Skill versions (tenant-owned) and installations (per workspace).
 
@@ -148,6 +207,13 @@ class SkillRegistryStore(Protocol):
     def delete_installation(self, context: TenantContext, skill_id: str) -> bool: ...
     def record_audit(self, record: AuditRecord) -> AuditRecord: ...
     def skill_history(self, context: TenantContext, skill_id: str, limit: int) -> list[AuditRecord]: ...
+    def list_publisher_keys(self, context: TenantContext) -> list[PublisherKey]: ...
+    def add_publisher_key(self, key: PublisherKey) -> PublisherKey: ...
+    def save_publisher_key(self, key: PublisherKey) -> PublisherKey: ...
+    def set_signature(
+        self, context: TenantContext, skill_id: str, version: str, signature: SkillSignature,
+        signed_at: datetime, signed_by: str,
+    ) -> SkillVersion | None: ...
 
 
 class SkillStore:
@@ -156,12 +222,44 @@ class SkillStore:
     def __init__(self) -> None:
         self.versions: dict[tuple[str, str, str], SkillVersion] = {}
         self.installations: dict[tuple[str, str, str], SkillInstallation] = {}
+        self.publisher_keys: dict[tuple[str, str], PublisherKey] = {}
         self._lock = RLock()
 
     def clear(self) -> None:
         with self._lock:
             self.versions.clear()
             self.installations.clear()
+            self.publisher_keys.clear()
+
+    def list_publisher_keys(self, context: TenantContext) -> list[PublisherKey]:
+        with self._lock:
+            keys = [k.model_copy() for (tenant, _), k in self.publisher_keys.items() if tenant == context.tenant_id]
+        return sorted(keys, key=lambda k: (k.created_at, k.id))
+
+    def add_publisher_key(self, key: PublisherKey) -> PublisherKey:
+        with self._lock:
+            if (key.tenant_id or "", key.id) in self.publisher_keys:
+                raise PublisherKeyExistsError(key.id)
+            self.publisher_keys[(key.tenant_id or "", key.id)] = key.model_copy()
+        return key
+
+    def save_publisher_key(self, key: PublisherKey) -> PublisherKey:
+        with self._lock:
+            self.publisher_keys[(key.tenant_id or "", key.id)] = key.model_copy()
+        return key
+
+    def set_signature(
+        self, context: TenantContext, skill_id: str, version: str, signature: SkillSignature,
+        signed_at: datetime, signed_by: str,
+    ) -> SkillVersion | None:
+        key = (context.tenant_id, skill_id, version)
+        with self._lock:
+            current = self.versions.get(key)
+            if current is None:
+                return None
+            updated = current.model_copy(update={"signature": signature, "signed_at": signed_at, "signed_by": signed_by})
+            self.versions[key] = updated
+        return updated
 
     def add_version(self, version: SkillVersion) -> SkillVersion:
         key = (version.publisher_tenant_id, version.skill_id, version.version)
@@ -255,15 +353,58 @@ def describe_tool(name: str, granted: bool) -> SkillToolView:
 
 
 def _audit(
-    store: SkillRegistryStore, context: TenantContext, action: str, skill_id: str, metadata: dict[str, Any]
+    store: SkillRegistryStore, context: TenantContext, action: str, skill_id: str, metadata: dict[str, Any],
+    *, target: str | None = None, outcome: str = "success",
 ) -> None:
     store.record_audit(
         AuditRecord(
             id=new_id("audit"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
-            actor=context.user_id, action=action, target=skill_target(skill_id), outcome="success",
+            actor=context.user_id, action=action, target=target or skill_target(skill_id), outcome=outcome,
             correlation_id=new_id("correlation"), created_at=utc_now(), metadata=metadata,
         )
     )
+
+
+def key_target(key_id: str) -> str:
+    return f"skill_publisher_key:{key_id}"
+
+
+def trusted_keys(store: SkillRegistryStore, context: TenantContext) -> list[PublisherKey]:
+    """Platform keys first, then the tenant's own (ids never collide: adding one checks)."""
+    return [*platform_keys(), *store.list_publisher_keys(context)]
+
+
+def verification_of(
+    version: SkillVersionCreate, keys: list[PublisherKey], *, signature: SkillSignature | None = None,
+    signed_at: datetime | None = None,
+) -> SkillVerification:
+    stored_at = getattr(version, "signed_at", None)
+    return verify(
+        skill_id=version.skill_id, version=version.version, name=version.name, description=version.description,
+        instructions=version.instructions, required_tools=list(version.required_tools),
+        risk_level=version.risk_level.value, signature=signature or version.signature,
+        signed_at=signed_at or stored_at, keys=keys,
+    )
+
+
+def with_verification(version: SkillVersion, keys: list[PublisherKey]) -> SkillVersion:
+    return version.model_copy(update={"verification": verification_of(version, keys)})
+
+
+def _signing_metadata(check: SkillVerification) -> dict[str, Any]:
+    return {
+        "digest": check.digest, "signature_status": check.status.value, "key_id": check.key_id,
+        "signer": check.signer, "key_source": check.key_source.value if check.key_source else None,
+    }
+
+
+def _installation_view(
+    installation: SkillInstallation, versions: dict[str, SkillVersion], keys: list[PublisherKey]
+) -> SkillInstallation:
+    version = versions.get(installation.version)
+    if version is None:
+        return installation
+    return installation.model_copy(update={"verification": verification_of(version, keys)})
 
 
 @contextmanager
@@ -288,19 +429,169 @@ def publish_skill(payload: SkillVersionCreate, context: TenantContext = Depends(
     # A published version is tenant-owned and installable in every workspace, so publishing
     # needs the organization administrator role; installing stays a workspace-owner action.
     require_permission(context, Permission.ORG_POLICY_MANAGE)
+    now = utc_now()
+    signed = payload.signature is not None
     version = SkillVersion(id=new_id("skill_version"), publisher_tenant_id=context.tenant_id,
-                           created_by=context.user_id, created_at=utc_now(),
+                           created_by=context.user_id, created_at=now,
+                           signed_at=now if signed else None, signed_by=context.user_id if signed else None,
                            **payload.model_dump())
+    refused: SkillVerification | None = None
     try:
         with open_skill_store(context) as store:
-            result = store.add_version(version)
-            _audit(store, context, "skill.published", version.skill_id, {
-                "version": version.version, "risk_level": version.risk_level.value,
-                "required_tools": list(version.required_tools),
-            })
-            return result
+            keys = trusted_keys(store, context)
+            check = verification_of(version, keys)
+            if signed and not check.installable:
+                # A bad signature is refused outright: nothing is published, the attempt is audited.
+                refused = check
+                _audit(store, context, "skill.signature_refused", version.skill_id, {
+                    "version": version.version, **_signing_metadata(check)}, outcome="denied")
+            else:
+                result = store.add_version(version)
+                _audit(store, context, "skill.published", version.skill_id, {
+                    "version": version.version, "risk_level": version.risk_level.value,
+                    "required_tools": list(version.required_tools), **_signing_metadata(check),
+                })
+                return result.model_copy(update={"verification": check})
     except SkillVersionExistsError as exc:
         raise HTTPException(409, "Skill version already exists") from exc
+    raise HTTPException(422, f"Signature refused: {refused.detail if refused else 'it does not verify'}")
+
+
+@router.put("/skills/versions/{skill_id}/{version}/signature", response_model=SkillVersion)
+def sign_skill_version(
+    skill_id: str, version: str, payload: SkillSignature, context: TenantContext = Depends(tenant_context)
+) -> SkillVersion:
+    """Attach a signature to a published version that is unsigned or no longer verifies.
+
+    The content never changes (versions are immutable): the publisher signs the digest
+    shown in ``verification.digest`` offline and an organization administrator attaches it.
+    """
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
+    refused: SkillVerification | None = None
+    with open_skill_store(context) as store:
+        current = store.get_version(context, skill_id, version)
+        if current is None:
+            raise HTTPException(404, "Skill version not found")
+        keys = trusted_keys(store, context)
+        before = verification_of(current, keys)
+        if before.installable:
+            raise HTTPException(409, "This version is already signed and verified")
+        now = utc_now()
+        check = verification_of(current, keys, signature=payload, signed_at=now)
+        if not check.installable:
+            refused = check
+            _audit(store, context, "skill.signature_refused", skill_id, {
+                "version": version, **_signing_metadata(check)}, outcome="denied")
+        else:
+            updated = store.set_signature(context, skill_id, version, payload, now, context.user_id)
+            if updated is None:
+                raise HTTPException(404, "Skill version not found")
+            _audit(store, context, "skill.signed", skill_id, {
+                "version": version, "previous_status": before.status.value, **_signing_metadata(check)})
+            return updated.model_copy(update={"verification": check})
+    raise HTTPException(422, f"Signature refused: {refused.detail if refused else 'it does not verify'}")
+
+
+@router.get("/skills/publisher-keys", response_model=PublisherKeyList)
+def list_publisher_keys(context: TenantContext = Depends(tenant_context)) -> PublisherKeyList:
+    """The tenant's trusted publisher keys (public keys only) and the platform's, any member."""
+    require_permission(context, Permission.POLICY_READ)
+    with open_skill_store(context) as store:
+        keys = store.list_publisher_keys(context)
+    return PublisherKeyList(
+        keys=keys, platform_keys=list(platform_keys()),
+        can_manage=has_permission(context, Permission.ORG_POLICY_MANAGE),
+    )
+
+
+def _new_key(context: TenantContext, key_id: str, publisher: str, public_key: str, existing: list[PublisherKey]) -> PublisherKey:
+    try:
+        normalized = normalize_public_key(public_key)
+    except SigningError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if any(key.id == key_id for key in platform_keys()) or any(key.id == key_id for key in existing):
+        raise HTTPException(409, f"Key id {key_id} is already used; choose another id")
+    fingerprint = key_fingerprint(normalized)
+    clash = next((key for key in existing if key.fingerprint == fingerprint and key.status != PublisherKeyStatus.REVOKED), None)
+    if clash is not None:
+        raise HTTPException(409, f"This public key is already trusted as {clash.id}")
+    if any(key.public_key == normalized for key in existing):
+        raise HTTPException(409, "This public key was revoked here and cannot be trusted again")
+    return PublisherKey(
+        id=key_id, tenant_id=context.tenant_id, publisher=publisher.strip(), public_key=normalized,
+        fingerprint=fingerprint, created_by=context.user_id, created_at=utc_now(),
+    )
+
+
+@router.post("/skills/publisher-keys", response_model=PublisherKey, status_code=status.HTTP_201_CREATED)
+def add_publisher_key(payload: PublisherKeyCreate, context: TenantContext = Depends(tenant_context)) -> PublisherKey:
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
+    try:
+        with open_skill_store(context) as store:
+            key = _new_key(context, payload.id, payload.publisher, payload.public_key, store.list_publisher_keys(context))
+            store.add_publisher_key(key)
+            _audit(store, context, "skill.publisher_key_added", "", {
+                "key_id": key.id, "publisher": key.publisher, "fingerprint": key.fingerprint,
+            }, target=key_target(key.id))
+            return key
+    except PublisherKeyExistsError as exc:
+        raise HTTPException(409, f"Key id {payload.id} is already used; choose another id") from exc
+
+
+@router.post("/skills/publisher-keys/{key_id}/rotate", response_model=PublisherKey, status_code=status.HTTP_201_CREATED)
+def rotate_publisher_key(key_id: str, payload: PublisherKeyRotate, context: TenantContext = Depends(tenant_context)) -> PublisherKey:
+    """Replace an active key: the old one keeps verifying what it signed before now."""
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
+    try:
+        with open_skill_store(context) as store:
+            existing = store.list_publisher_keys(context)
+            old = next((key for key in existing if key.id == key_id), None)
+            if old is None:
+                raise HTTPException(404, "Publisher key not found")
+            if old.status != PublisherKeyStatus.ACTIVE:
+                raise HTTPException(409, f"Only an active key can be rotated; {key_id} is {old.status.value}")
+            new = _new_key(context, payload.new_id, old.publisher, payload.public_key, existing)
+            store.add_publisher_key(new)
+            store.save_publisher_key(old.model_copy(update={
+                "status": PublisherKeyStatus.ROTATED, "rotated_at": new.created_at, "replaced_by": new.id,
+            }))
+            _audit(store, context, "skill.publisher_key_rotated", "", {
+                "key_id": key_id, "new_key_id": new.id, "publisher": old.publisher,
+                "fingerprint": old.fingerprint, "new_fingerprint": new.fingerprint,
+            }, target=key_target(key_id))
+            return new
+    except PublisherKeyExistsError as exc:
+        raise HTTPException(409, f"Key id {payload.new_id} is already used; choose another id") from exc
+
+
+@router.post("/skills/publisher-keys/{key_id}/revoke", response_model=PublisherKeyRevoked)
+def revoke_publisher_key(key_id: str, payload: PublisherKeyRevoke, context: TenantContext = Depends(tenant_context)) -> PublisherKeyRevoked:
+    """Stop trusting a key: its versions cannot be installed and installed ones are flagged."""
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
+    with open_skill_store(context) as store:
+        old = next((key for key in store.list_publisher_keys(context) if key.id == key_id), None)
+        if old is None:
+            raise HTTPException(404, "Publisher key not found")
+        if old.status == PublisherKeyStatus.REVOKED:
+            raise HTTPException(409, f"Key {key_id} is already revoked")
+        revoked = old.model_copy(update={
+            "status": PublisherKeyStatus.REVOKED, "revoked_at": utc_now(), "revoked_by": context.user_id,
+            "revoke_reason": payload.reason.strip(),
+        })
+        store.save_publisher_key(revoked)
+        signed = {(v.skill_id, v.version) for v in store.list_versions(context)
+                  if v.signature is not None and v.signature.key_id == key_id}
+        flagged = [i for i in store.list_installations(context) if (i.skill_id, i.version) in signed]
+        for installation in flagged:
+            _audit(store, context, "skill.installation_flagged", installation.skill_id, {
+                "version": installation.version, "key_id": key_id, "reason": revoked.revoke_reason,
+            }, outcome="flagged")
+        _audit(store, context, "skill.publisher_key_revoked", "", {
+            "key_id": key_id, "publisher": old.publisher, "fingerprint": old.fingerprint,
+            "reason": revoked.revoke_reason, "affected_versions": len(signed),
+            "flagged_installations": len(flagged),
+        }, target=key_target(key_id))
+    return PublisherKeyRevoked(key=revoked, affected_versions=len(signed), flagged_installations=len(flagged))
 
 
 @router.get("/skills/versions", response_model=list[SkillVersion])
@@ -314,18 +605,20 @@ def list_skill_versions(
     require_permission(context, Permission.POLICY_READ)
     with open_skill_store(context) as store:
         versions = store.list_versions(context)
+        keys = trusted_keys(store, context)
     needle = (q or "").strip().casefold()
     if needle:
         versions = [
             v for v in versions
             if needle in v.skill_id.casefold() or needle in v.name.casefold() or needle in v.description.casefold()
         ]
-    return versions[offset:offset + limit]
+    return [with_verification(v, keys) for v in versions[offset:offset + limit]]
 
 
 @router.post("/skills/installations", response_model=SkillInstallation, status_code=201)
 def install_skill(payload: SkillInstallCreate, context: TenantContext = Depends(tenant_context)) -> SkillInstallation:
     require_permission(context, Permission.POLICY_MANAGE)
+    refused: SkillVerification | None = None
     with open_skill_store(context) as store:
         version = store.get_version(context, payload.skill_id, payload.version)
         if version is None:
@@ -334,23 +627,39 @@ def install_skill(payload: SkillInstallCreate, context: TenantContext = Depends(
         if not set(approved) <= set(version.required_tools):
             raise HTTPException(422, "Approved tools must be declared by the skill")
         previous = store.get_installation(context, payload.skill_id)
-        result = store.save_installation(SkillInstallation(
-            id=new_id("skill_install"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
-            skill_version_id=version.id, skill_id=version.skill_id, version=version.version,
-            approved_tools=approved, enabled=True, installed_by=context.user_id, installed_at=utc_now(),
-        ))
-        _audit(store, context, "skill.installed", version.skill_id, {
-            "version": version.version, "approved_tools": approved,
-            "previous_version": previous.version if previous else None,
-        })
-        return result
+        check = verification_of(version, trusted_keys(store, context))
+        if not check.installable:
+            # Install and upgrade both land here: the refusal is audited and committed, then raised.
+            refused = check
+            _audit(store, context, "skill.install_refused", version.skill_id, {
+                "version": version.version, "previous_version": previous.version if previous else None,
+                **_signing_metadata(check)}, outcome="denied")
+        else:
+            result = store.save_installation(SkillInstallation(
+                id=new_id("skill_install"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
+                skill_version_id=version.id, skill_id=version.skill_id, version=version.version,
+                approved_tools=approved, enabled=True, installed_by=context.user_id, installed_at=utc_now(),
+            ))
+            _audit(store, context, "skill.installed", version.skill_id, {
+                "version": version.version, "approved_tools": approved,
+                "previous_version": previous.version if previous else None, **_signing_metadata(check),
+            })
+            return result.model_copy(update={"verification": check})
+    reason = refused.detail if refused else "its signature does not verify."
+    raise HTTPException(409, f"Skill {payload.skill_id} {payload.version} cannot be installed: {reason}")
 
 
 @router.get("/skills/installations", response_model=list[SkillInstallation])
 def list_installations(context: TenantContext = Depends(tenant_context)) -> list[SkillInstallation]:
     require_permission(context, Permission.POLICY_READ)
     with open_skill_store(context) as store:
-        return store.list_installations(context)
+        installations = store.list_installations(context)
+        keys = trusted_keys(store, context)
+        versions = {(v.skill_id, v.version): v for v in store.list_versions(context)}
+    return [
+        _installation_view(i, {i.version: versions[(i.skill_id, i.version)]} if (i.skill_id, i.version) in versions else {}, keys)
+        for i in installations
+    ]
 
 
 @router.patch("/skills/installations/{skill_id}", response_model=SkillInstallation)
@@ -377,6 +686,7 @@ def rollback_installation(
     that the earlier version also declares. The enabled switch is kept.
     """
     require_permission(context, Permission.ORG_POLICY_MANAGE)
+    refused: SkillVerification | None = None
     with open_skill_store(context) as store:
         installation = store.get_installation(context, skill_id)
         if installation is None:
@@ -386,15 +696,25 @@ def rollback_installation(
             raise HTTPException(404, "Skill version not found")
         if version_key(target.version) >= version_key(installation.version):
             raise HTTPException(422, "Roll back only to an earlier version; install a newer version from Skills")
-        approved = sorted(set(installation.approved_tools) & set(target.required_tools))
-        result = store.save_installation(installation.model_copy(update={
-            "skill_version_id": target.id, "version": target.version, "approved_tools": approved,
-            "installed_by": context.user_id, "installed_at": utc_now(),
-        }))
-        _audit(store, context, "skill.rolled_back", skill_id, {
-            "from_version": installation.version, "to_version": target.version, "approved_tools": approved,
-        })
-        return result
+        check = verification_of(target, trusted_keys(store, context))
+        if not check.installable:
+            refused = check
+            _audit(store, context, "skill.rollback_refused", skill_id, {
+                "from_version": installation.version, "to_version": target.version, **_signing_metadata(check),
+            }, outcome="denied")
+        else:
+            approved = sorted(set(installation.approved_tools) & set(target.required_tools))
+            result = store.save_installation(installation.model_copy(update={
+                "skill_version_id": target.id, "version": target.version, "approved_tools": approved,
+                "installed_by": context.user_id, "installed_at": utc_now(),
+            }))
+            _audit(store, context, "skill.rolled_back", skill_id, {
+                "from_version": installation.version, "to_version": target.version, "approved_tools": approved,
+                **_signing_metadata(check),
+            })
+            return result.model_copy(update={"verification": check})
+    reason = refused.detail if refused else "its signature does not verify."
+    raise HTTPException(409, f"Cannot roll back to {payload.version}: only a signed version can be rolled back to. {reason}")
 
 
 @router.delete("/skills/installations/{skill_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
@@ -447,8 +767,12 @@ def skill_detail(
         versions = [v for v in store.list_versions(context) if v.skill_id == skill_id]
         installation = store.get_installation(context, skill_id)
         history = store.skill_history(context, skill_id, 50)
+        keys = trusted_keys(store, context)
     if not versions:
         raise HTTPException(404, "Skill not found")
+    versions = [with_verification(v, keys) for v in versions]
+    if installation is not None:
+        installation = _installation_view(installation, {v.version: v for v in versions}, keys)
     versions.sort(key=lambda v: version_key(v.version), reverse=True)
     latest = versions[0]
     wanted = version or (installation.version if installation else None)

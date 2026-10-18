@@ -7,6 +7,7 @@ import { getLocale, t } from './i18n';
 import type { ApiFile, ApiFileLink, ApiFilePreview, ApiFileUsage, SortValue } from './files';
 import { filesListPath } from './files';
 import type { ApiCurrentMembership } from './policy';
+import type { SkillVerification } from './skillSigning';
 import * as workspaces from './workspaces';
 import * as capabilities from './capabilities';
 import type { ModelConfig, ModelConfigBody, ModelConnectionTest } from './modelConfig';
@@ -164,8 +165,8 @@ export async function approveTask(approval: Approval, reason?: string): Promise<
 // task_id is null for a memory remembered from a chat; owner_user_id marks it private to its owner.
 export interface MemoryNote { id: string; task_id: string | null; content: string; provenance: { source_type: string; source_id: string | null; created_by_user_id: string; created_at: string; metadata?: Record<string, unknown> }; retention: { kind: string; expires_at: string | null }; created_at: string; owner_user_id?: string | null; updated_at?: string | null; }
 export type FileRecord = ApiFile;
-export interface SkillVersion { id: string; skill_id: string; version: string; name: string; description: string; required_tools: string[]; risk_level: string; created_at: string; }
-export interface SkillInstallation { id: string; skill_id: string; version: string; approved_tools: string[]; enabled: boolean; installed_at: string; }
+export interface SkillVersion { id: string; skill_id: string; version: string; name: string; description: string; required_tools: string[]; risk_level: string; created_at: string; verification?: SkillVerification | null; signed_by?: string | null; signed_at?: string | null }
+export interface SkillInstallation { id: string; skill_id: string; version: string; approved_tools: string[]; enabled: boolean; installed_at: string; verification?: SkillVerification | null }
 export interface WorkspaceInfo { id: string; tenant_id: string; name: string; created_at: string; updated_at: string; }
 export interface OnboardingStatus { complete: boolean; tenant: { id: string; name: string } | null; workspace: WorkspaceInfo | null; membership: { role: string } | null; model_configured: boolean; }
 export type { ModelConfig, ModelConnectionTest } from './modelConfig';

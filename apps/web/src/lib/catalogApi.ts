@@ -4,6 +4,7 @@
 import { apiBaseUrl, apiRequest, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
 import type { IntegrationState, MarketPackage, PackageInstall, SkillDetail, SkillInstallLike, SkillVersionLike, WorkspaceCredential } from './catalog';
+import type { PublisherKey, PublisherKeyList, PublisherKeyRevoked } from './skillSigning';
 
 const get = <T>(path: string) => apiRequest<T>(path, { method: 'GET' });
 const send = <T>(method: string, path: string, body: unknown = {}) => apiRequest<T>(path, { method, body: JSON.stringify(body) });
@@ -22,6 +23,13 @@ export const deleteIntegrationCredential = (integrationId: string) => remove(`/a
 export const getSkillDetail = (skillId: string, version?: string) => get<SkillDetail>(`/api/v1/skills/${id(skillId)}${version ? `?version=${id(version)}` : ''}`);
 export const publishSkillVersion = (body: unknown) => send<SkillVersionLike>('POST', '/api/v1/skills/versions', body);
 export const rollbackSkill = (skillId: string, version: string) => send<SkillInstallLike>('POST', `/api/v1/skills/installations/${id(skillId)}/rollback`, { version });
+export const signSkillVersion = (skillId: string, version: string, body: { key_id: string; signature: string }) => send<SkillVersionLike>('PUT', `/api/v1/skills/versions/${id(skillId)}/${id(version)}/signature`, body);
+
+// Trusted publisher keys (docs/skills.md#signing): any member reads, organization administrators manage.
+export const getPublisherKeys = () => get<PublisherKeyList>('/api/v1/skills/publisher-keys');
+export const addPublisherKey = (body: { id: string; publisher: string; public_key: string }) => send<PublisherKey>('POST', '/api/v1/skills/publisher-keys', body);
+export const rotatePublisherKey = (keyId: string, body: { new_id: string; public_key: string }) => send<PublisherKey>('POST', `/api/v1/skills/publisher-keys/${id(keyId)}/rotate`, body);
+export const revokePublisherKey = (keyId: string, reason: string) => send<PublisherKeyRevoked>('POST', `/api/v1/skills/publisher-keys/${id(keyId)}/revoke`, { reason });
 
 export const getPackages = () => get<MarketPackage[]>('/api/v1/marketplace/packages');
 export const getPackageInstalls = () => get<PackageInstall[]>('/api/v1/marketplace/installs');

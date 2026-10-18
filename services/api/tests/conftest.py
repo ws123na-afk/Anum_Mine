@@ -178,6 +178,7 @@ TABLES_IN_DELETE_ORDER = (
     "approval_rules",
     "role_templates",
     "policy_packs",
+    "skill_publisher_keys",
     "skill_installations",
     "skill_versions",
     "audit_records",

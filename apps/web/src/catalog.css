@@ -102,3 +102,38 @@
   .marketRow > .marketActions { grid-column: 2; justify-content: flex-start; }
   .catalogToolbarFlat .field:nth-of-type(2) { flex-basis: 100%; }
 }
+
+/* Skill signing and trusted publisher keys (docs/skills.md#signing). */
+.skillTabs { gap: var(--d-s2); margin: var(--d-s4) 0 var(--d-s3); }
+.skillTabs button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: var(--d-s2) var(--d-s4); }
+.skillTabs button.secondary { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); color: var(--d-text); }
+.skillTabs button.active { background: var(--d-primary-grad); border: 1px solid transparent; color: #fff; }
+.featureSkillActions .statusBadge, .catalogVersionList .statusBadge, .skillSignatureLine .statusBadge { align-items: center; display: inline-flex; gap: 4px; }
+.skillSignatureLine { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.skillFlag { margin-top: var(--d-s2); overflow-wrap: anywhere; }
+.keyMono { font-family: var(--d-mono); overflow-wrap: anywhere; }
+.skillSignature { display: grid; flex: 1 1 100%; gap: var(--d-s1); min-width: 0; }
+.skillSignature > button { justify-self: start; }
+.skillDigest { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1); }
+.skillDigest code { font-family: var(--d-mono); font-size: 12px; overflow-wrap: anywhere; word-break: break-all; }
+.skillSignForm { border-top: 1px solid var(--d-line); padding-top: var(--d-s2); }
+.publisherKeys { display: grid; gap: var(--d-s3); margin-top: var(--d-s4); }
+.publisherKeysHead { align-items: start; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; }
+.publisherKeysHead > div:first-child { flex: 1 1 320px; min-width: 0; }
+.publisherKeysHead h3 { margin: 0; }
+.publisherKeyList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.publisherKey { align-items: start; display: grid; gap: var(--d-s3); grid-template-columns: 44px minmax(0, 1fr) auto; padding: var(--d-s3) var(--d-s4); }
+.publisherKeyBody { display: grid; gap: 2px; min-width: 0; }
+.publisherKeyBody h4 { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; overflow-wrap: anywhere; }
+.publisherKeyBody p { margin: 0; }
+.publisherKeyBody small { color: var(--d-muted); font-size: 12px; }
+.publisherKeyActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
+.publisherKeyActions button { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 44px; }
+.publisherKeyActions button.dangerText { color: var(--d-danger); }
+.publisherKeysPlatform { display: grid; gap: var(--d-s2); }
+.publisherKeysPlatform h4 { margin: var(--d-s2) 0 0; }
+@media (max-width: 640px) {
+  .publisherKey { grid-template-columns: 44px minmax(0, 1fr); }
+  .publisherKeyActions { grid-column: 1 / -1; justify-content: flex-start; }
+  .catalogForm { grid-template-columns: minmax(0, 1fr); }
+}

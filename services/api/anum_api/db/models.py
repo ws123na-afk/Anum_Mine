@@ -533,12 +533,39 @@ class SkillVersionRecord(Base, TenantScopedMixin):
     risk_level: Mapped[str] = mapped_column(String(40), nullable=False)
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Ed25519 signature over the canonical package digest (0082, docs/skills.md#signing).
+    signature_key_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    signature: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signed_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
 
     __table_args__ = (
         _tenant_fk("skill_versions"),
         UniqueConstraint("tenant_id", "skill_id", "version", name="uq_skill_versions_tenant_skill_version"),
         UniqueConstraint("tenant_id", "id", name="uq_skill_versions_tenant_id"),
     )
+
+
+class SkillPublisherKeyRecord(Base):
+    """A tenant's trusted skill publisher key: public key only (0082, docs/skills.md#signing)."""
+
+    __tablename__ = "skill_publisher_keys"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    publisher: Mapped[str] = mapped_column(String(160), nullable=False)
+    public_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    replaced_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    revoke_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    __table_args__ = (_tenant_fk("skill_publisher_keys"),)
 
 
 class SkillInstallationRecord(Base, WorkspaceScopedMixin):

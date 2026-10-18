@@ -9,6 +9,7 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from skill_signing_support import signed
 
 from anum_api import main
 from anum_api.dependencies import memory_repository
@@ -40,11 +41,11 @@ def clean() -> Iterator[None]:
 
 
 def _publish(client: TestClient, version: str, tools: list[str], name: str = "Release notes", risk: str = "medium") -> None:
-    response = client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json={
+    response = client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json=signed(client, ORG_ADMIN, {
         "skill_id": "acme.release-notes", "version": version, "name": name,
         "description": "Drafts release notes from merged work", "instructions": "Summarize changes.",
         "required_tools": tools, "risk_level": risk,
-    })
+    }))
     assert response.status_code == 201, response.text
 
 
@@ -119,9 +120,11 @@ def test_rollback_is_for_org_admins_never_widens_grants_and_is_audited() -> None
     assert client.post("/api/v1/skills/installations/acme.other/rollback", headers=ORG_ADMIN,
                        json=body).status_code == 404
 
-    actions = [r.action for r in governance_store.query_audit(CONTEXT)]
+    # Trusting the test publisher key is audited on its own target (skill_publisher_key:...).
+    records = [r for r in governance_store.query_audit(CONTEXT) if r.target.startswith("skill:")]
+    actions = [r.action for r in records]
     assert actions == ["skill.published", "skill.published", "skill.installed", "skill.disabled", "skill.rolled_back"]
-    rollback = governance_store.query_audit(CONTEXT)[-1]
+    rollback = records[-1]
     assert dict(rollback.metadata)["from_version"] == "2.0.0" and rollback.actor == "owner_sk"
 
 

@@ -20,6 +20,7 @@ from conftest import (
     tenant_context,
 )
 from fastapi.testclient import TestClient
+from skill_signing_support import signed
 from sqlalchemy import Engine, event, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
@@ -120,11 +121,11 @@ SKILL = {
 
 
 def test_skill_registry_survives_a_restart_and_is_scoped(client: TestClient, database_engine: Engine) -> None:
-    assert client.post("/api/v1/skills/versions", headers=A, json=SKILL).status_code == 201
+    assert client.post("/api/v1/skills/versions", headers=A, json=signed(client, A, SKILL)).status_code == 201
     installed = client.post("/api/v1/skills/installations", headers=A, json={
         "skill_id": "acme.research", "version": "1.0.0", "approved_tools": ["web.search"]})
     assert installed.status_code == 201, installed.text
-    assert client.post("/api/v1/skills/versions", headers=A, json=SKILL).status_code == 409
+    assert client.post("/api/v1/skills/versions", headers=A, json=signed(client, A, SKILL)).status_code == 409
 
     _forget_process_memory()
     assert _count(database_engine, "skill_versions") == 1

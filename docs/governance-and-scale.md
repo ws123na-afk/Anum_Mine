@@ -36,10 +36,11 @@ Governance settings are tenant-level: one policy pack, role template, approval r
 | `PUT /routing/targets/{id}` (tenant routing targets) | same |
 | `PUT /marketplace/packages/{id}`, `DELETE /marketplace/packages/{id}` (the tenant's marketplace catalog) | same |
 | `POST /skills/versions` (publishing a tenant-owned skill version) | same |
+| `PUT /skills/versions/{skill_id}/{version}/signature`, `POST /skills/publisher-keys`, `POST /skills/publisher-keys/{id}/rotate`, `POST /skills/publisher-keys/{id}/revoke` (skill signing and the tenant's trusted publisher keys, [Skills: Signing](skills.md#signing)) | same |
 | `PUT /model-budgets/workspace`, `GET /model-budgets` | workspace owner (`organization:manage`); workspace-scoped, unchanged |
 | `POST`/`DELETE /marketplace/packages/{id}/install` | workspace owner (`marketplace:manage`); installs into this workspace only |
 | `POST /skills/installations`, `PATCH`/`DELETE /skills/installations/{skill_id}` | workspace owner (`policy:manage`); installs into this workspace only |
-| `GET /routing/targets`, `POST /routing/decisions`, `GET /marketplace/packages`, `GET /marketplace/installs`, `GET /skills/versions` | any member (unchanged) |
+| `GET /routing/targets`, `POST /routing/decisions`, `GET /marketplace/packages`, `GET /marketplace/installs`, `GET /skills/versions`, `GET /skills/publisher-keys` (public keys only) | any member (unchanged) |
 | `GET /organization/governance`, `GET /policy-packs`, `GET /role-templates`, `GET /organization/approval-rules`, `GET /organization/memory-governance` | any member (`organization:read`) |
 | `GET /audit-records`, `GET /audit-records/actions`, `GET /audit-records/{id}` (the [audit log](#audit-log)) | workspace owner (`audit:read`), or `org_admin` with an active membership in the workspace (any role) |
 | `GET /audit/export` (the acting workspace's audit trail, filtered) | workspace owner (`audit:export`), or `org_admin` with an active membership in the workspace |
