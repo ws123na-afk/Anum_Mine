@@ -21,10 +21,10 @@ Provider output is untrusted input: parsed by strict rules with size caps, never
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import math
-import random
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -305,13 +305,41 @@ def parse_provider(provider: str, payload: str) -> list[Candle]:
 SYNTHETIC_SOURCE = "synthetic: generated test data, not market data"
 
 
+class _SeededNormal:
+    """Reproducible normal draws from SHA-256 of (seed, counter) via Box-Muller.
+
+    Synthetic bars must be identical for a seed on every Python version, and they are never used
+    for anything secret, so a hash counter is enough and keeps the stdlib PRNG out of the code.
+    """
+
+    def __init__(self, seed: int) -> None:
+        self._seed = int(seed).to_bytes(16, "big", signed=True)
+        self._counter = 0
+        self._spare: float | None = None
+
+    def _uniform(self) -> float:
+        self._counter += 1
+        digest = hashlib.sha256(self._seed + self._counter.to_bytes(8, "big")).digest()
+        # 53 random bits, shifted into (0, 1] so log() never sees zero.
+        return (int.from_bytes(digest[:7], "big") >> 3) / float(1 << 53) + 2.0 ** -54
+
+    def normal(self, mu: float, sigma: float) -> float:
+        if self._spare is not None:
+            z, self._spare = self._spare, None
+        else:
+            radius = math.sqrt(-2.0 * math.log(self._uniform()))
+            angle = 2.0 * math.pi * self._uniform()
+            z, self._spare = radius * math.cos(angle), radius * math.sin(angle)
+        return mu + sigma * z
+
+
 def synthetic_bars(seed: int, start: date, count: int, *, start_price: float = 100.0, drift: float = 0.0003,
                    vol: float = 0.012, trading_days: Iterable[int] = (0, 1, 2, 3, 4), regime_every: int = 0) -> list[Candle]:
     """Deterministic geometric random walk bars for demonstrations and tests. Never market data.
 
     ``regime_every`` flips the drift sign every that many bars so trend and range periods alternate.
     """
-    rng = random.Random(seed)
+    rng = _SeededNormal(seed)
     days = frozenset(trading_days)
     out: list[Candle] = []
     price, day, mu = start_price, start, drift
@@ -319,11 +347,11 @@ def synthetic_bars(seed: int, start: date, count: int, *, start_price: float = 1
         if day.weekday() in days:
             if regime_every and len(out) and len(out) % regime_every == 0:
                 mu = -mu
-            open_ = price * math.exp(rng.gauss(0, vol / 4))
-            close = open_ * math.exp(rng.gauss(mu, vol))
-            high = max(open_, close) * math.exp(abs(rng.gauss(0, vol / 2)))
-            low = min(open_, close) * math.exp(-abs(rng.gauss(0, vol / 2)))
-            volume = int(1_000_000 * math.exp(rng.gauss(0, 0.3)))
+            open_ = price * math.exp(rng.normal(0, vol / 4))
+            close = open_ * math.exp(rng.normal(mu, vol))
+            high = max(open_, close) * math.exp(abs(rng.normal(0, vol / 2)))
+            low = min(open_, close) * math.exp(-abs(rng.normal(0, vol / 2)))
+            volume = int(1_000_000 * math.exp(rng.normal(0, 0.3)))
             out.append(make_candle(day, f"{open_:.4f}", f"{high:.4f}", f"{low:.4f}", f"{close:.4f}", volume))
             price = close
         day += timedelta(days=1)
