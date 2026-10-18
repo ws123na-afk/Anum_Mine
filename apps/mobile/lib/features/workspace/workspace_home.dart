@@ -920,6 +920,13 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
               Icons.call_outlined,
               WorkspaceDestination.voice,
             ),
+            // Phone calls through the phone's own dialer, with the call log
+            // and contacts (docs/calls.md#mobile), a named route.
+            page(
+              'calls.menu',
+              Icons.contact_phone_outlined,
+              () => Navigator.of(context).pushNamed('/calls'),
+            ),
             // Calendar & next actions (docs/calendar.md), a named route.
             page(
               'calendar',

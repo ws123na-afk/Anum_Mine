@@ -14,6 +14,7 @@
   "dependencies": {
     "@anum/contracts": "workspace:*",
     "@sentry/browser": "10.75.3",
+    "@twilio/voice-sdk": "2.18.5",
     "@vitejs/plugin-react": "6.1.2",
     "kokoro-js": "1.2.1",
     "lucide-react": "1.52.0",

@@ -40,6 +40,7 @@ from anum_api.push import PushDevice
 from anum_api.library_privacy import LibraryPrivacy, sql_library
 from anum_api.user_preferences import UserPreferences
 from anum_api.meeting_connectors import StoredConnection
+from anum_api.calls.privacy import calls_privacy_counts
 from anum_api.meetings import Meeting
 from anum_api.meetings import TranscriptSegment as MeetingTranscriptSegment
 from anum_api.voice import TranscriptSegment, VoiceSession, transcript_expired
@@ -469,6 +470,7 @@ class SqlAlchemyPrivacyStore:
             finance_records=self.finance().count_everything(self.context),
             mail_mailboxes=len(self.mail().list_accounts()),
             mail_messages_written=len(self.mail().list_drafts(None, 100_000)),
+            **calls_privacy_counts(self.context),
             mail_contacts=self.mail().count_contacts(),
         )
         shared = SharedCounts(

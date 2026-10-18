@@ -271,7 +271,7 @@ test('memory, chat, call summary, pause and delete on an agent\'s page', async (
   expect(api.calls.find((c) => c.method === 'POST' && c.path === '/api/v1/conversations')!.body).toEqual({ agent_id: 'agent_fleet' });
 
   await page.locator('.agentActions').getByRole('button', { name: 'Call' }).click();
-  await expect(page.getByText(/needs telephony, which is not set up/)).toBeVisible();
+  await expect(page.getByText(/Calls you make or log under Phone calls are in the call log/)).toBeVisible();
   await page.getByLabel('Call notes or transcript').fill('Ali: tyres arrive Monday. Sara: book fitting Tuesday.');
   await page.getByRole('button', { name: 'Summarize call' }).click();
   await expect(page.getByText('Rotate the front tyres on trucks 3 and 12 on Tuesday.')).toBeVisible();

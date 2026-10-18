@@ -462,15 +462,22 @@ TEMPLATES: tuple[_TemplateSpec, ...] = (
         icon="phone",
         color="#16a34a",
         category=AgentCategory.WORK,
-        description="Summarizes calls from notes or transcripts. Placing calls needs telephony, which is not set up.",
+        description=(
+            "Reads the call log and contacts, summarizes calls and suggests follow-ups. With a voice provider it can "
+            "ask to place AI calls to contacts who consented, each one approved by an owner."
+        ),
         instructions=(
-            "Summarize calls from the notes or transcript the user gives you: who spoke, what was "
-            "decided, follow-ups with owners and dates."
+            "Help with phone calls: find calls and contacts with the call tools, summarize what was said, decided and "
+            "promised, and propose follow-ups with owners and dates. Only ask for an AI call to a contact whose "
+            "ai_call_consent is true and who has not opted out, with one clear purpose and a short script; never a cold "
+            "call. Every AI call waits for an owner's approval."
         ),
         model_route=AgentModelRoute.FAST,
+        # The call tools (docs/calls.md#agent-tools): the call log and contacts, and AI calls
+        # through the voice provider (always approved by an owner).
         tool_patterns=["telephony.*", "call.*"],
         skills=["anum.document-drafting"],
-        wants=[("telephony.*", "Telephony (placing and receiving calls)")],
+        wants=[("telephony.*", "A voice provider for AI calls (Calls > Provider)")],
     ),
 )
 
