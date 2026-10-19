@@ -77,6 +77,6 @@ test('a failed change order list says what failed and offers a retry', async ({ 
   await mockBusinessChanges(page, { failChanges: true });
   await page.goto(`/#business-projects/${PROJECT_ID}`);
   const project = page.getByRole('dialog', { name: 'Fleet reporting pilot' });
-  await expect(project.getByText(/Loading the change orders failed: Database unavailable/)).toBeVisible();
+  await expect(project.getByText(/Loading the change orders failed: The server could not reach its database/)).toBeVisible();
   await expect(project.getByRole('button', { name: 'Try again' }).first()).toBeVisible();
 });
