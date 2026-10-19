@@ -5,6 +5,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
+  // GitHub's Linux runners have four cores; three workers keep each CI shard well under 15 minutes.
+  workers: process.env.CI ? 3 : undefined,
   // CI runs the suite in shards (.github/workflows/ci.yml, `--shard`): each shard writes a blob
   // report, and the "Browser end-to-end" job merges them into one HTML report.
   reporter: process.env.CI ? [['github'], ['blob']] : 'list',

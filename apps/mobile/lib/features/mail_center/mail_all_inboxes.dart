@@ -585,6 +585,18 @@ class _AllInboxTile extends StatelessWidget {
     final theme = Theme.of(context);
     final shared = item.access != 'owner';
     final subject = m.subject.isEmpty ? l.t('mc.noSubject') : m.subject;
+    final sender = Text(
+      m.sender?.label ?? '',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(fontWeight: m.seen ? null : FontWeight.w700),
+    );
+    final date =
+        Text(mailWhen(context, m.date), style: theme.textTheme.bodySmall);
+    // With large text on a narrow phone the date would push the sender off the row: it moves under it.
+    final compact = MediaQuery.sizeOf(context).width /
+            MediaQuery.textScalerOf(context).scale(1) <
+        360;
     return Card(
       margin: const EdgeInsets.only(top: AnumSpacing.xs),
       child: ListTile(
@@ -596,23 +608,19 @@ class _AllInboxTile extends StatelessWidget {
                 icon: Icon(m.flagged ? Icons.star : Icons.star_border),
               )
             : null,
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                m.sender?.label ?? '',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontWeight: m.seen ? null : FontWeight.w700),
+        title: compact
+            ? sender
+            : Row(
+                children: [
+                  Expanded(child: sender),
+                  const SizedBox(width: AnumSpacing.xs),
+                  date,
+                ],
               ),
-            ),
-            const SizedBox(width: AnumSpacing.xs),
-            Text(mailWhen(context, m.date), style: theme.textTheme.bodySmall),
-          ],
-        ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (compact) date,
             Text(subject, maxLines: 1, overflow: TextOverflow.ellipsis),
             const SizedBox(height: AnumSpacing.xxs),
             Semantics(

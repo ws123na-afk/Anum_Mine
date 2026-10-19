@@ -1085,6 +1085,21 @@ class _MessageTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AnumLocalizations.maybeOf(context);
     final bold = !message.seen;
+    final date = Text(mailWhen(context, message.date),
+        style: Theme.of(context).textTheme.bodySmall);
+    final marks = [
+      if (message.maybeAttachments) const Icon(Icons.attach_file, size: 16),
+      if (message.flagged)
+        Icon(Icons.star,
+            size: 16,
+            semanticLabel: l.t('mc.starred'),
+            color: Theme.of(context).colorScheme.tertiary),
+    ];
+    // With large text on a narrow phone the date would take the whole row (ListTile then fails to
+    // lay out): it moves under the subject, and only the small marks stay at the end.
+    final compact = MediaQuery.sizeOf(context).width /
+            MediaQuery.textScalerOf(context).scale(1) <
+        360;
     return Card(
       margin: const EdgeInsets.only(bottom: AnumSpacing.xs),
       child: ListTile(
@@ -1120,29 +1135,26 @@ class _MessageTile extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
+            if (compact) date,
             if (label != null) MailLabelChips(label: label!),
           ],
         ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(mailWhen(context, message.date),
-                style: Theme.of(context).textTheme.bodySmall),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (message.maybeAttachments)
-                  const Icon(Icons.attach_file, size: 16),
-                if (message.flagged)
-                  Icon(Icons.star,
-                      size: 16,
-                      semanticLabel: l.t('mc.starred'),
-                      color: Theme.of(context).colorScheme.tertiary),
-              ],
-            ),
-          ],
-        ),
+        trailing: compact
+            ? (marks.isEmpty
+                ? null
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: marks,
+                  ))
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  date,
+                  Row(mainAxisSize: MainAxisSize.min, children: marks),
+                ],
+              ),
       ),
     );
   }
