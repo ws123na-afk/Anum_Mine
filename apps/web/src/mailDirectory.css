@@ -2,12 +2,12 @@
    identities, contacts and the recipient suggestions. Spacing, radii and colour from the shared
    tokens in styles.css. */
 .mailsPicker { display: inline-flex; min-width: 0; }
-.mailsPicker select { font-size: 14px; font-weight: 600; max-width: min(340px, 100%); min-height: 40px; min-width: 0; padding-block: 0; }
+.mailsPicker select { font-size: var(--text-md); font-weight: 600; max-width: min(340px, 100%); min-height: 40px; min-width: 0; padding-block: 0; }
 .mailsShared { margin: 0; }
 .mailsShared svg { flex: none; }
 
 .mailsSection { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); min-width: 0; padding-top: var(--d-s4); }
-.mailsSection h3 { align-items: center; display: flex; font-size: 15px; gap: var(--d-s2); margin: 0; }
+.mailsSection h3 { align-items: center; display: flex; font-size: var(--text-base); gap: var(--d-s2); margin: 0; }
 .mailsSection h3 svg { flex: none; height: 18px; width: 18px; }
 .mailsSection > .notice, .mailsSection > p { margin: 0; }
 
@@ -17,7 +17,7 @@
   gap: var(--d-s2); min-width: 0; padding: var(--d-s2) var(--d-s3);
 }
 .mailsWho { display: grid; flex: 1 1 180px; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
-.mailsWho small { color: var(--d-muted); font-size: 12.5px; }
+.mailsWho small { color: var(--d-muted); font-size: var(--text-sm); }
 .mailsWho .statusBadge { justify-self: start; }
 .mailsRow > button, .mailsRowActions > button { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 40px; }
 .mailsRow button svg { flex: none; height: 16px; width: 16px; }
@@ -44,7 +44,7 @@
 }
 .mailsSuggest[hidden] { display: none; }
 .mailsSuggest li { border-radius: var(--d-r-control); cursor: pointer; display: grid; gap: 2px; min-height: 40px; padding: var(--d-s1) var(--d-s2); }
-.mailsSuggest li small { color: var(--d-muted); font-size: 12.5px; }
+.mailsSuggest li small { color: var(--d-muted); font-size: var(--text-sm); }
 .mailsSuggest li.active, .mailsSuggest li:hover { background: var(--d-surface-3); }
 
 .mailsContacts { display: grid; gap: var(--d-s3); min-width: 0; }
@@ -54,12 +54,12 @@
 .mailsSearch button { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 40px; }
 .mailsSearch > button:not(.secondary) {
   background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow);
-  color: #fff; font-size: 14px; font-weight: 650; padding: 0 var(--d-s4);
+  color: #fff; font-size: var(--text-md); font-weight: 650; padding: 0 var(--d-s4);
 }
 .mailsSearch > button:not(.secondary):hover { background: var(--d-primary-grad-hover); }
 .mailsSearch svg { flex: none; height: 16px; width: 16px; }
 .mailsContactForm { border: 1px solid var(--d-line); border-radius: var(--d-r-control); padding: var(--d-s3); }
-.mailsContactForm h3 { font-size: 15px; margin: 0; }
+.mailsContactForm h3 { font-size: var(--text-base); margin: 0; }
 .mailsEmpty { padding: var(--d-s4) 0; }
 
 @media (max-width: 640px) {
