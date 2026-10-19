@@ -1118,7 +1118,7 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
     assert 'revision = "0076_business_support"' in revision_text and len("0076_business_support") <= 32
     assert 'down_revision = "0075_file_scan_status"' in revision_text
     others = [path for path in versions.glob("*.py") if path.name != "0076_business_support.py"]
-    assert not [path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
+    assert not [path for path in others if 'down_revision = "0075_file_scan_status"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 2
     assert '"business_support_tickets"' in revision_text and '"business_ticket_replies"' in revision_text
@@ -1129,3 +1129,22 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
     assert "alter_column" not in upgrade and "drop " not in upgrade and "op.drop" not in upgrade
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "uq_business_support_tickets_open_source" in upgrade
+
+
+def test_file_versions_migration_is_expand_only_with_forced_rls_and_a_scoped_reference() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0089_file_versions.py").read_text(encoding="utf-8")
+    assert 'revision = "0089_file_versions"' in revision_text and len("0089_file_versions") <= 32
+    assert 'down_revision = "0076_business_support"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0089_file_versions.py"]
+    assert not [path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 1 and upgrade.count("op.add_column(") == 1
+    # The added column has a default, so the previous release keeps inserting rows.
+    assert 'sa.column("version", sa.integer(), nullable=false, server_default="1")' in upgrade
+    assert "create unique index concurrently if not exists uq_workspace_files_scope_id" in upgrade
+    assert "force row level security" in upgrade and "with check (" in upgrade
+    assert "current_setting('anum.tenant_id', true)" in revision_text and "current_setting('anum.workspace_id', true)" in revision_text
+    assert '["tenant_id", "workspace_id", "file_id"]' in revision_text and 'ondelete="cascade"' in upgrade
+    assert "alter_column" not in upgrade and "drop " not in upgrade and "op.drop" not in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade

@@ -20,6 +20,15 @@ export const CURRENCIES: readonly BusinessCurrency[] = ['SAR', 'AED', 'USD'];
 export const PRICE_TYPES: readonly PriceType[] = ['fixed', 'from', 'range', 'hourly', 'quote'];
 export const MATURITIES: readonly ProductMaturity[] = ['idea', 'prototype', 'pilot', 'live', 'retired'];
 export const KINDS: readonly ProductKind[] = ['service_package', 'product'];
+
+/** Catalog list filters (docs/business.md#catalog): name search plus kind and maturity, paged by offset. */
+export interface CatalogFilters { q: string; kind: ProductKind | ''; maturity: ProductMaturity | '' }
+export const NO_CATALOG_FILTERS: CatalogFilters = { q: '', kind: '', maturity: '' };
+export function catalogQuery(filters: CatalogFilters, offset: number, limit = PAGE_SIZE): { q?: string; kind?: string; maturity?: string; limit: number; offset: number } {
+  const q = filters.q.trim();
+  return { ...(q ? { q } : {}), ...(filters.kind ? { kind: filters.kind } : {}), ...(filters.maturity ? { maturity: filters.maturity } : {}), limit, offset: Math.max(0, offset) };
+}
+export const catalogFiltered = (filters: CatalogFilters) => Boolean(filters.q.trim() || filters.kind || filters.maturity);
 export const PROJECT_STATUSES: readonly ProjectStatus[] = ['planned', 'active', 'on_hold', 'delivered', 'closed'];
 export const MILESTONE_STATUSES: readonly MilestoneStatus[] = ['planned', 'in_progress', 'submitted', 'accepted', 'blocked'];
 

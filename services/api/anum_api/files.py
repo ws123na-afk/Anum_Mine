@@ -226,6 +226,43 @@ class FileRecord(BaseModel):
     scan_status: Literal["clean", "infected"] | None = None
     scan_signature: str | None = None
     scanned_at: datetime | None = None
+    # The current version number (migration 0089_file_versions, docs/files.md#versions).
+    version: int = 1
+
+
+class FileVersionRecord(BaseModel):
+    """An earlier version of a file: its bytes, who uploaded them and who replaced them."""
+
+    id: str
+    tenant_id: str
+    workspace_id: str
+    file_id: str
+    version: int
+    content_type: str
+    size_bytes: int
+    sha256: str
+    storage_key: str
+    created_by: str
+    created_at: datetime
+    replaced_by: str
+    replaced_at: datetime
+    scan_status: Literal["clean", "infected"] | None = None
+    scan_signature: str | None = None
+    scanned_at: datetime | None = None
+
+
+class FileContent(BaseModel):
+    """New current bytes for a file (a new version or a restored one)."""
+
+    content_type: str
+    size_bytes: int
+    sha256: str
+    storage_key: str
+    created_by: str
+    created_at: datetime
+    scan_status: Literal["clean", "infected"] | None = None
+    scan_signature: str | None = None
+    scanned_at: datetime | None = None
 
 
 class FileSort(StrEnum):
@@ -245,14 +282,83 @@ class FilePageQuery(BaseModel):
 
 
 class FileUsage(BaseModel):
-    used_bytes: int = 0
+    used_bytes: int = Field(
+        default=0, description="Every stored byte: current files and older versions (identical bytes of one file count once)"
+    )
     file_count: int = 0
+    version_bytes: int = Field(default=0, description="The part of `used_bytes` taken by older versions")
+    version_count: int = 0
+
+
+class StorageByType(BaseModel):
+    content_type: str
+    file_count: int
+    bytes: int
+
+
+class StorageFile(BaseModel):
+    """One file with what it takes in storage: current bytes plus its older versions."""
+
+    record: FileRecord
+    version_count: int
+    version_bytes: int
+    total_bytes: int
+
+
+class StorageReport(BaseModel):
+    usage: FileUsage
+    by_type: list[StorageByType]
+    largest: list[StorageFile]
 
 
 class StorageQuotaExceeded(Exception):
     def __init__(self, usage: FileUsage) -> None:
         super().__init__("workspace storage quota exceeded")
         self.usage = usage
+
+
+class FileContentChanged(Exception):
+    """The file's current bytes changed (or it was deleted) since the caller read it."""
+
+
+def distinct_bytes(rows: list[tuple[str, str, int]]) -> int:
+    """Bytes of ``(file_id, sha256, size)`` rows, identical content of one file counted once."""
+    return sum({(file_id, digest): size for file_id, digest, size in rows}.values())
+
+
+def previous_version(record: FileRecord, replaced_by: str) -> FileVersionRecord:
+    """The older-version row that keeps ``record``'s current bytes when they are replaced."""
+    return FileVersionRecord(
+        id=new_id("filever"), tenant_id=record.tenant_id, workspace_id=record.workspace_id, file_id=record.id,
+        version=record.version, content_type=record.content_type, size_bytes=record.size_bytes, sha256=record.sha256,
+        storage_key=record.storage_key, created_by=record.created_by, created_at=record.created_at,
+        replaced_by=replaced_by, replaced_at=utc_now(), scan_status=record.scan_status,
+        scan_signature=record.scan_signature, scanned_at=record.scanned_at,
+    )
+
+
+def build_storage_report(
+    usage: FileUsage, records: list[FileRecord], versions: list[FileVersionRecord], largest: int
+) -> StorageReport:
+    """The storage report from rows (the memory store; PostgreSQL aggregates in SQL first)."""
+    by_type: dict[str, list[int]] = {}
+    for record in records:
+        entry = by_type.setdefault(record.content_type, [0, 0])
+        entry[0] += 1
+        entry[1] += record.size_bytes
+    per_file: dict[str, list[FileVersionRecord]] = {}
+    for version in versions:
+        per_file.setdefault(version.file_id, []).append(version)
+    files = []
+    for record in records:
+        olds = per_file.get(record.id, [])
+        extra = sum({v.sha256: v.size_bytes for v in olds if v.sha256 != record.sha256}.values())
+        files.append(StorageFile(record=record, version_count=len(olds), version_bytes=extra,
+                                 total_bytes=record.size_bytes + extra))
+    files.sort(key=lambda item: (-item.total_bytes, item.record.id))
+    types = [StorageByType(content_type=key, file_count=value[0], bytes=value[1]) for key, value in by_type.items()]
+    types.sort(key=lambda item: (-item.bytes, item.content_type))
+    return StorageReport(usage=usage, by_type=types, largest=files[:largest])
 
 
 def sort_key(record: FileRecord, sort: FileSort) -> tuple[Any, str]:
@@ -285,6 +391,40 @@ class FileMetadataStore(Protocol):
         """Store a scan result if the file is still unscanned with these bytes."""
         ...
 
+    def added_bytes(self, context: TenantContext, file_id: str, sha256: str, size: int) -> int:
+        """What storing ``sha256`` as a version of ``file_id`` adds to usage (0 when the file has those bytes)."""
+        ...
+
+    def replace_content(
+        self, context: TenantContext, file_id: str, expected_sha256: str, content: FileContent,
+        quota_bytes: int | None = None,
+    ) -> FileRecord:
+        """Make ``content`` the current version and keep the current one as an older version.
+
+        Raises :class:`FileContentChanged` when the file is gone or its bytes are no longer
+        ``expected_sha256``, and :class:`StorageQuotaExceeded` past ``quota_bytes`` (checked under
+        the same per-workspace lock as uploads)."""
+        ...
+
+    def list_versions(
+        self, context: TenantContext, file_id: str, limit: int, offset: int
+    ) -> tuple[list[FileVersionRecord], int]:
+        """Older versions, newest first, and how many there are."""
+        ...
+
+    def get_version(self, context: TenantContext, file_id: str, version_id: str) -> FileVersionRecord | None: ...
+    def delete_version(self, context: TenantContext, file_id: str, version_id: str) -> FileVersionRecord | None: ...
+
+    def key_in_use(self, context: TenantContext, file_id: str, storage_key: str) -> bool:
+        """Whether the file's current version or an older one still uses ``storage_key``."""
+        ...
+
+    def storage_keys(self, context: TenantContext, file_id: str) -> list[str]:
+        """Every object key of a file, current and older versions."""
+        ...
+
+    def storage_report(self, context: TenantContext, largest: int) -> StorageReport: ...
+
 
 class FileStore:
     """Object storage for the bytes plus the in-memory metadata store (``memory`` backend)."""
@@ -292,13 +432,24 @@ class FileStore:
     def __init__(self, storage: ObjectStorage) -> None:
         self.storage = storage
         self.records: dict[str, FileRecord] = {}
+        self.versions: dict[str, FileVersionRecord] = {}
         self._lock = RLock()
 
     def clear(self) -> None:
         with self._lock:
             for record in self.records.values():
                 self.storage.delete(record.storage_key)
+            for version in self.versions.values():
+                self.storage.delete(version.storage_key)
             self.records.clear()
+            self.versions.clear()
+
+    def _versions_of(self, context: TenantContext, file_id: str) -> list[FileVersionRecord]:
+        return [v for v in self._scoped_versions(context) if v.file_id == file_id]
+
+    def _scoped_versions(self, context: TenantContext) -> list[FileVersionRecord]:
+        return [v for v in self.versions.values()
+                if v.tenant_id == context.tenant_id and v.workspace_id == context.workspace_id]
 
     def _scoped(self, context: TenantContext) -> list[FileRecord]:
         return [r for r in self.records.values()
@@ -342,7 +493,12 @@ class FileStore:
     def usage(self, context: TenantContext) -> FileUsage:
         with self._lock:
             items = self._scoped(context)
-        return FileUsage(used_bytes=sum(r.size_bytes for r in items), file_count=len(items))
+            versions = self._scoped_versions(context)
+        current = sum(r.size_bytes for r in items)
+        used = distinct_bytes(
+            [(r.id, r.sha256, r.size_bytes) for r in items] + [(v.file_id, v.sha256, v.size_bytes) for v in versions]
+        )
+        return FileUsage(used_bytes=used, file_count=len(items), version_bytes=used - current, version_count=len(versions))
 
     def rename(self, context: TenantContext, file_id: str, name: str) -> FileRecord | None:
         with self._lock:
@@ -358,7 +514,73 @@ class FileStore:
             if self.get(context, file_id) is None:
                 return False
             self.records.pop(file_id, None)
+            for version in self._versions_of(context, file_id):
+                self.versions.pop(version.id, None)
             return True
+
+    def added_bytes(self, context: TenantContext, file_id: str, sha256: str, size: int) -> int:
+        with self._lock:
+            record = self.get(context, file_id)
+            known = (record is not None and record.sha256 == sha256) or any(
+                v.sha256 == sha256 for v in self._versions_of(context, file_id)
+            )
+        return 0 if known else size
+
+    def replace_content(
+        self, context: TenantContext, file_id: str, expected_sha256: str, content: FileContent,
+        quota_bytes: int | None = None,
+    ) -> FileRecord:
+        with self._lock:
+            record = self.get(context, file_id)
+            if record is None or record.sha256 != expected_sha256:
+                raise FileContentChanged(file_id)
+            if quota_bytes is not None:
+                current = self.usage(context)
+                if current.used_bytes + self.added_bytes(context, file_id, content.sha256, content.size_bytes) > quota_bytes:
+                    raise StorageQuotaExceeded(current)
+            old = previous_version(record, context.user_id)
+            self.versions[old.id] = old
+            updated = record.model_copy(update={**content.model_dump(), "version": record.version + 1})
+            self.records[file_id] = updated
+            return updated
+
+    def list_versions(
+        self, context: TenantContext, file_id: str, limit: int, offset: int
+    ) -> tuple[list[FileVersionRecord], int]:
+        with self._lock:
+            items = sorted(self._versions_of(context, file_id), key=lambda v: v.version, reverse=True)
+        return items[offset: offset + limit], len(items)
+
+    def get_version(self, context: TenantContext, file_id: str, version_id: str) -> FileVersionRecord | None:
+        with self._lock:
+            return next((v for v in self._versions_of(context, file_id) if v.id == version_id), None)
+
+    def delete_version(self, context: TenantContext, file_id: str, version_id: str) -> FileVersionRecord | None:
+        with self._lock:
+            version = self.get_version(context, file_id, version_id)
+            if version is not None:
+                self.versions.pop(version.id, None)
+            return version
+
+    def key_in_use(self, context: TenantContext, file_id: str, storage_key: str) -> bool:
+        with self._lock:
+            record = self.get(context, file_id)
+            return (record is not None and record.storage_key == storage_key) or any(
+                v.storage_key == storage_key for v in self._versions_of(context, file_id)
+            )
+
+    def storage_keys(self, context: TenantContext, file_id: str) -> list[str]:
+        with self._lock:
+            record = self.get(context, file_id)
+            keys = [record.storage_key] if record is not None else []
+            keys += [v.storage_key for v in self._versions_of(context, file_id)]
+        return list(dict.fromkeys(keys))
+
+    def storage_report(self, context: TenantContext, largest: int) -> StorageReport:
+        with self._lock:
+            items = self._scoped(context)
+            versions = self._scoped_versions(context)
+        return build_storage_report(self.usage(context), items, versions, largest)
 
     def record_scan(self, context: TenantContext, file_id: str, sha256: str, status: str, signature: str | None) -> bool:
         with self._lock:
@@ -443,6 +665,41 @@ class FilePreview(BaseModel):
     text: str
     truncated: bool
     size_bytes: int
+
+
+class FileVersionView(FileVersionRecord):
+    downloadable: bool = Field(description="False for a quarantined version (the scanner found malware in it)")
+
+
+class FileVersionPage(BaseModel):
+    """A file's older versions, newest first; ``file`` is the current version."""
+
+    file: FileView
+    items: list[FileVersionView]
+    total: int
+    limit: int
+    offset: int
+
+
+class StorageKind(BaseModel):
+    kind: file_policy.FileKind | Literal["other"]
+    file_count: int
+    bytes: int
+
+
+class StorageFileView(BaseModel):
+    file: FileView
+    version_count: int
+    version_bytes: int = Field(description="Bytes of older versions that differ from the current one")
+    total_bytes: int
+
+
+class StorageView(BaseModel):
+    """Usage against the workspace quota, by kind, and the files that take the most space."""
+
+    usage: FileUsageView
+    by_kind: list[StorageKind]
+    largest: list[StorageFileView]
 
 
 router = APIRouter(prefix="/api/v1/files", tags=["files"])
@@ -543,8 +800,8 @@ def _quota_error(usage: FileUsage, size: int) -> ApplicationError:
     return ApplicationError(
         ErrorCode.PAYLOAD_TOO_LARGE,
         f"This workspace has used {human_bytes(usage.used_bytes)} of its {human_bytes(quota)} storage quota, so a "
-        f"{human_bytes(size)} file does not fit. Delete files you no longer need, or ask the operator to raise "
-        "ANUM_FILES_WORKSPACE_QUOTA_BYTES.",
+        f"{human_bytes(size)} file does not fit. Delete files or older versions you no longer need (Storage lists "
+        "the largest), or ask the operator to raise ANUM_FILES_WORKSPACE_QUOTA_BYTES.",
         status_code=413,
         details=[ErrorDetail(type="storage_quota", message=f"used={usage.used_bytes} quota={quota}")],
     )
@@ -780,6 +1037,35 @@ def file_usage(context: TenantContext = Depends(tenant_context)) -> FileUsageVie
     _require(context, Permission.FILE_READ, READ_DENIED)
     with open_file_metadata_store(context) as store:
         usage = store.usage(context)
+    return _usage_view(context, usage)
+
+
+STORAGE_LARGEST = 10
+
+
+@router.get("/storage", response_model=StorageView)
+def storage_report(context: TenantContext = Depends(tenant_context)) -> StorageView:
+    """Usage against the quota, split by kind, and the ten files (with their older versions) that take the most space."""
+    _require(context, Permission.FILE_READ, READ_DENIED)
+    with open_file_metadata_store(context) as store:
+        report = store.storage_report(context, STORAGE_LARGEST)
+    kinds: dict[str, list[int]] = {}
+    for row in report.by_type:
+        kind = file_policy.kind_of(row.content_type, "")
+        entry = kinds.setdefault(kind.value if kind is not None else "other", [0, 0])
+        entry[0] += row.file_count
+        entry[1] += row.bytes
+    by_kind = [StorageKind(kind=key, file_count=value[0], bytes=value[1]) for key, value in kinds.items()]  # type: ignore[arg-type]
+    by_kind.sort(key=lambda item: (-item.bytes, str(item.kind)))
+    views = _views(context, [item.record for item in report.largest])
+    largest = [
+        StorageFileView(file=view, version_count=item.version_count, version_bytes=item.version_bytes, total_bytes=item.total_bytes)
+        for view, item in zip(views, report.largest, strict=True)
+    ]
+    return StorageView(usage=_usage_view(context, report.usage), by_kind=by_kind, largest=largest)
+
+
+def _usage_view(context: TenantContext, usage: FileUsage) -> FileUsageView:
     return FileUsageView(
         **usage.model_dump(),
         quota_bytes=settings.files_workspace_quota_bytes,
@@ -920,6 +1206,192 @@ async def reindex_file(file_id: str, context: TenantContext = Depends(tenant_con
     return _views(context, [record])[0]
 
 
+# --------------------------------------------------------------------------- versions
+
+VERSION_CHANGED = "This file changed or was deleted while you were working on it. Reload it and try again."
+SAME_CONTENT = "This is the same content as the current version, so nothing changed."
+
+
+def _delete_objects(keys: list[str]) -> None:
+    for key in keys:
+        try:
+            file_store.storage.delete(key)
+        except Exception:  # noqa: BLE001 - the metadata is gone, so the bytes are unreachable either way.
+            continue
+
+
+def _manageable(context: TenantContext, file_id: str) -> FileRecord:
+    _require(context, Permission.FILE_UPLOAD, UPLOAD_DENIED)
+    record = _record(file_id, context)
+    if not _can_manage(context, record):
+        raise HTTPException(403, VERSION_DENIED)
+    return record
+
+
+VERSION_DENIED = "Only the person who uploaded this file or a workspace owner can change its versions."
+
+
+def _version(context: TenantContext, file_id: str, version_id: str) -> FileVersionRecord:
+    with open_file_metadata_store(context) as store:
+        version = store.get_version(context, file_id, version_id)
+    if version is None:
+        raise HTTPException(404, "Version not found: it may have been deleted. Reload the versions.")
+    return version
+
+
+def _version_quarantined(record: FileRecord, version: FileVersionRecord) -> str:
+    found = version.scan_signature or "malware"
+    return (
+        f"Version {version.version} of {record.name} is quarantined: the malware scanner found {found} in it, "
+        "so it cannot be downloaded or restored. Delete that version."
+    )
+
+
+def version_download_name(name: str, version: int) -> str:
+    path = Path(name)
+    return f"{path.stem} (version {version}){path.suffix}"
+
+
+async def _make_current(
+    context: TenantContext, record: FileRecord, content: FileContent, data: bytes, *, key_existed: bool
+) -> FileRecord:
+    """Swap in new current bytes under the quota; never leave unreachable bytes behind."""
+    quota = settings.files_workspace_quota_bytes
+    try:
+        with open_file_metadata_store(context) as store:
+            updated = store.replace_content(context, record.id, record.sha256, content, quota)
+    except StorageQuotaExceeded as exc:
+        if not key_existed:
+            file_store.storage.delete(content.storage_key)
+        raise _quota_error(exc.usage, content.size_bytes) from exc
+    except FileContentChanged as exc:
+        if not key_existed:
+            file_store.storage.delete(content.storage_key)
+        raise HTTPException(409, VERSION_CHANGED) from exc
+    except BaseException:
+        if not key_existed:
+            file_store.storage.delete(content.storage_key)
+        raise
+    # The index follows the current bytes (docs/memory.md#retrieval); best effort, as on upload.
+    from .retrieval_api import reindex_one_file
+
+    if updated.scan_status != "infected":
+        await reindex_one_file(context, updated, data)
+    return updated
+
+
+@router.get("/{file_id}/versions", response_model=FileVersionPage)
+def list_file_versions(
+    file_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=100_000),
+    context: TenantContext = Depends(tenant_context),
+) -> FileVersionPage:
+    """The current version and one page of older versions, newest first."""
+    _require(context, Permission.FILE_READ, READ_DENIED)
+    with open_file_metadata_store(context) as store:
+        record = store.get(context, file_id)
+        if record is None:
+            raise HTTPException(404, "File not found")
+        items, total = store.list_versions(context, file_id, limit, offset)
+    return FileVersionPage(
+        file=_views(context, [record])[0],
+        items=[FileVersionView(**item.model_dump(), downloadable=item.scan_status != "infected") for item in items],
+        total=total, limit=limit, offset=offset,
+    )
+
+
+@router.post("/{file_id}/versions", response_model=FileView, status_code=status.HTTP_201_CREATED)
+async def upload_file_version(
+    file_id: str,
+    request: Request,
+    context: TenantContext = Depends(tenant_context),
+    x_content_sha256: str | None = Header(default=None),
+) -> FileView:
+    """Upload new content for a file. The current bytes become an older version; the name and
+    type stay (the content must match the file's extension), and the same checks as an upload
+    apply: size, signature, the malware scan and the workspace quota."""
+    record = _manageable(context, file_id)
+    allowed = resolve_upload_type(record.name, request.headers.get("content-type"))
+    content = await _read_body(request, settings.max_upload_body_bytes)
+    digest = hashlib.sha256(content).hexdigest()
+    if x_content_sha256 is not None and x_content_sha256.lower() != digest:
+        raise HTTPException(422, "Content checksum mismatch: the upload was corrupted in transit. Try again.")
+    scanned = await asyncio.to_thread(check_upload_content, record.name, allowed, content)
+    if digest == record.sha256:
+        raise HTTPException(409, SAME_CONTENT)
+    quota = settings.files_workspace_quota_bytes
+    with open_file_metadata_store(context) as store:
+        current = store.usage(context)
+        added = store.added_bytes(context, file_id, digest, len(content))
+    if current.used_bytes + added > quota:
+        raise _quota_error(current, len(content))
+    try:
+        key = workspace_object_key(context.tenant_id, context.workspace_id, "files", file_id, digest)
+    except ValueError as exc:
+        raise HTTPException(422, "Invalid tenant or workspace identifier") from exc
+    now = utc_now()
+    new = FileContent(content_type=allowed.content_type, size_bytes=len(content), sha256=digest, storage_key=key,
+                      created_by=context.user_id, created_at=now,
+                      scan_status="clean" if scanned else None, scanned_at=now if scanned else None)
+    file_store.storage.put(key, content, allowed.content_type)
+    updated = await _make_current(context, record, new, content, key_existed=added == 0)
+    return _views(context, [updated])[0]
+
+
+@router.get("/{file_id}/versions/{version_id}/content")
+def download_file_version(file_id: str, version_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    _require(context, Permission.FILE_READ, READ_DENIED)
+    record = _record(file_id, context)
+    version = _version(context, file_id, version_id)
+    if version.scan_status == "infected":
+        raise HTTPException(409, _version_quarantined(record, version))
+    try:
+        content = file_store.storage.get(version.storage_key)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "File content not found") from exc
+    name = version_download_name(record.name, version.version)
+    return Response(content, media_type="application/octet-stream",
+                    headers={"Content-Disposition": file_policy.content_disposition("attachment", name),
+                             "ETag": f'"{version.sha256}"', "Cache-Control": "private, no-store"})
+
+
+@router.post("/{file_id}/versions/{version_id}/restore", response_model=FileView)
+async def restore_file_version(file_id: str, version_id: str, context: TenantContext = Depends(tenant_context)) -> FileView:
+    """Make an older version current again. The current bytes become an older version too, so a
+    restore can itself be undone; the restored bytes are shared, so it takes no extra space."""
+    record = _manageable(context, file_id)
+    version = _version(context, file_id, version_id)
+    if version.scan_status == "infected":
+        raise HTTPException(409, _version_quarantined(record, version))
+    if version.sha256 == record.sha256:
+        raise HTTPException(409, SAME_CONTENT)
+    try:
+        data = file_store.storage.get(version.storage_key)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "File content not found") from exc
+    new = FileContent(content_type=version.content_type, size_bytes=version.size_bytes, sha256=version.sha256,
+                      storage_key=version.storage_key, created_by=context.user_id, created_at=utc_now(),
+                      scan_status=version.scan_status, scan_signature=version.scan_signature, scanned_at=version.scanned_at)
+    updated = await _make_current(context, record, new, data, key_existed=True)
+    return _views(context, [updated])[0]
+
+
+@router.delete("/{file_id}/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_file_version(file_id: str, version_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    """Delete one older version (the current one is never deleted this way) to free its space."""
+    _manageable(context, file_id)
+    with open_file_metadata_store(context) as store:
+        version = store.delete_version(context, file_id, version_id)
+        if version is None:
+            raise HTTPException(404, "Version not found: it may have been deleted. Reload the versions.")
+        in_use = store.key_in_use(context, file_id, version.storage_key)
+    # Shared bytes (identical content of another version) stay; others go after the commit.
+    if not in_use:
+        _delete_objects([version.storage_key])
+    return Response(status_code=204)
+
+
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_file(file_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     _require(context, Permission.FILE_UPLOAD, UPLOAD_DENIED)
@@ -929,9 +1401,11 @@ def delete_file(file_id: str, context: TenantContext = Depends(tenant_context)) 
             raise HTTPException(404, "File not found")
         if not _can_manage(context, record):
             raise HTTPException(403, MANAGE_DENIED)
+        keys = store.storage_keys(context, file_id)
         store.delete(context, file_id)
-    # Bytes go only after the metadata delete committed, so a file is never listed without content.
-    file_store.storage.delete(record.storage_key)
+    # Bytes (every version's) go only after the metadata delete committed, so a file is never
+    # listed without content.
+    _delete_objects(keys)
     # Retrieval already ignores chunks of a file without metadata; this drops them.
     from .retrieval_api import forget_file
 
@@ -981,8 +1455,9 @@ def remove_workspace_file(context: TenantContext, file_id: str) -> bool:
         record = store.get(context, file_id)
         if record is None:
             return False
+        keys = store.storage_keys(context, file_id)
         store.delete(context, file_id)
-    file_store.storage.delete(record.storage_key)
+    _delete_objects(keys)
     from .retrieval_api import forget_file
 
     forget_file(context, file_id)

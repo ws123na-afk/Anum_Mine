@@ -159,6 +159,43 @@ test('empty, denied and failed states explain themselves', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 });
 
+test('the catalog searches, filters and pages, and says when nothing matches or a load fails', async ({ page }) => {
+  const mock = await mockBusiness(page, { products: 30, failProducts: 1 });
+  await page.goto('/#business-catalog');
+  await expect(page.getByText(/The catalog could not be read/)).toBeVisible();
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByRole('status').filter({ hasText: '30 products' })).toBeVisible();
+  const rows = page.getByRole('table', { name: 'Catalog' }).getByRole('row');
+  await expect(rows).toHaveCount(26);
+  await page.getByRole('button', { name: 'Show more (25 of 30)' }).click();
+  await expect(rows).toHaveCount(31);
+  await expect(page.getByRole('button', { name: /Show more/ })).toHaveCount(0);
+  expect(mock.calls.some((call) => call.path === '/products' && call.query?.includes('offset=25'))).toBe(true);
+
+  const search = page.getByRole('searchbox', { name: 'Search the catalog' });
+  await search.fill('fleet');
+  await page.getByRole('button', { name: 'Find' }).click();
+  await expect(page.getByRole('status').filter({ hasText: '1 product' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Package 007 Fleet dashboard' })).toBeVisible();
+  expect(mock.calls.some((call) => call.path === '/products' && call.query?.includes('q=fleet'))).toBe(true);
+
+  await search.fill('nothing like this');
+  await page.getByRole('button', { name: 'Find' }).click();
+  await expect(page.getByRole('heading', { name: 'No product matches' })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(page.getByRole('status').filter({ hasText: '30 products' })).toBeVisible();
+
+  await page.getByLabel('Maturity', { exact: true }).selectOption('live');
+  await expect(page.getByRole('status').filter({ hasText: '10 products' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Show more/ })).toHaveCount(0);
+
+  for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(size);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `no horizontal overflow at ${size.width}px`).toBeLessThanOrEqual(1);
+  }
+});
+
 test('Business works in Arabic, right to left', async ({ page }) => {
   await mockBusiness(page);
   await page.addInitScript(() => localStorage.setItem('anum.locale', 'ar'));

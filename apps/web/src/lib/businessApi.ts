@@ -30,7 +30,7 @@ export const saveSettings = (body: { research_runs_per_day: number; research_sea
 export const getKpi = (days: number) => apiRequest<BusinessKpi>(`${BASE}/kpi${query({ days })}`, { method: 'GET' });
 
 // catalog
-export const listProducts = (q: { q?: string; limit: number; offset: number }) => apiRequest<BusinessPage<BusinessProduct>>(`${BASE}/products${query(q)}`, { method: 'GET' });
+export const listProducts = (q: { q?: string; kind?: string; maturity?: string; limit: number; offset: number }) => apiRequest<BusinessPage<BusinessProduct>>(`${BASE}/products${query(q)}`, { method: 'GET' });
 export const getProduct = (productId: string) => apiRequest<BusinessProductDetail>(`${BASE}/products/${id(productId)}`, { method: 'GET' });
 export const createProduct = (body: Record<string, unknown>) => apiRequest<BusinessProductDetail>(`${BASE}/products`, json('POST', body));
 export const updateProduct = (productId: string, body: Record<string, unknown>) => apiRequest<BusinessProductDetail>(`${BASE}/products/${id(productId)}`, json('PATCH', body));
