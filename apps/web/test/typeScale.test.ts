@@ -9,38 +9,6 @@ const src = new URL('../src/', import.meta.url);
 
 // Stylesheets still on raw sizes. Only ever shrinks; a new stylesheet must use the tokens.
 const PENDING = new Set([
-  'adminPages.css',
-  'answer.css',
-  'appCalls.css',
-  'audit.css',
-  'autonomy.css',
-  'brevo.css',
-  'calls.css',
-  'connections.css',
-  'dialog.css',
-  'features.css',
-  'files.css',
-  'financeEquity.css',
-  'financeReports.css',
-  'governance.css',
-  'help.css',
-  'integrations.css',
-  'learning.css',
-  'lifecycle.css',
-  'mailAi.css',
-  'mailAutomation.css',
-  'mailCenter.css',
-  'mailDirectory.css',
-  'mailOutgoing.css',
-  'meetings.css',
-  'message.css',
-  'model-settings.css',
-  'privacy.css',
-  'space.css',
-  'suppression.css',
-  'tasks.css',
-  'voiceActions.css',
-  'workbench.css',
 ]);
 
 // Raw sizes that are justified: none yet. Format 'file.css:selector fragment', with a reason.

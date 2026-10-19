@@ -10,12 +10,12 @@
 .voiceActionHead > svg { color: var(--d-violet); flex: none; height: 18px; width: 18px; }
 .voiceActionCard.success .voiceActionHead > svg { color: var(--d-ok); }
 .voiceActionCard.danger .voiceActionHead > svg { color: var(--d-stop); }
-.voiceActionHead h3 { flex: 1 1 auto; font-size: 14px; margin: 0; min-width: 0; }
+.voiceActionHead h3 { flex: 1 1 auto; font-size: var(--text-md); margin: 0; min-width: 0; }
 .voiceActionTitle { font-weight: 650; overflow-wrap: anywhere; }
-.voiceActionFacts { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 13px; gap: var(--d-s1) var(--d-s3); }
-.voiceActionNote { color: var(--d-muted); font-size: 13px; }
+.voiceActionFacts { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s1) var(--d-s3); }
+.voiceActionNote { color: var(--d-muted); font-size: var(--text-sm); }
 .voiceActionCandidates { display: flex; flex-wrap: wrap; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
-.voiceActionCandidates li { background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: 999px; font-size: 13px; overflow-wrap: anywhere; padding: 2px 10px; }
+.voiceActionCandidates li { background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: 999px; font-size: var(--text-sm); overflow-wrap: anywhere; padding: 2px 10px; }
 .voiceActionLinks { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .voiceActionLinks button {
   align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: 999px; color: #fff; display: inline-flex;

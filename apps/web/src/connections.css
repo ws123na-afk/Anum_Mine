@@ -6,34 +6,34 @@
 .setupDetailStatus { display: grid; gap: var(--d-s2); justify-items: start; }
 .setupState { align-items: flex-start; color: var(--d-muted); display: flex; gap: var(--d-s2); margin: 0; }
 .setupState svg { color: var(--d-warn); flex: none; height: 18px; margin-top: 2px; width: 18px; }
-.setupText { color: var(--d-muted); font-size: 14px; }
-.setupSay { font-size: 15px; }
+.setupText { color: var(--d-muted); font-size: var(--text-md); }
+.setupSay { font-size: var(--text-base); }
 .setupActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.setupActions button, .setupGuide { align-items: center; display: inline-flex; font-size: 14px; font-weight: 600; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s3); white-space: nowrap; }
+.setupActions button, .setupGuide { align-items: center; display: inline-flex; font-size: var(--text-md); font-weight: 600; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s3); white-space: nowrap; }
 .setupActions svg, .setupGuide svg { height: 16px; width: 16px; }
 .setupActions .setupPrimary {
   background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow); color: #fff; cursor: pointer;
 }
 .setupActions .setupPrimary:hover { background: var(--d-primary-grad-hover); }
 .setupGuide {
-  border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); font-size: 14px; font-weight: 600;
+  border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); font-size: var(--text-md); font-weight: 600;
   padding: 0 var(--d-s3); text-decoration: none;
 }
 .setupGuide:hover { border-color: var(--d-line-hover); }
 .setupGuide:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
 .setupGuide .setupExternal { color: var(--d-faint); height: 14px; width: 14px; }
-.setupLabel { color: var(--d-muted); font-size: 13px; font-weight: 600; margin: 0 0 var(--d-s1); }
+.setupLabel { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; margin: 0 0 var(--d-s1); }
 .setupCodes { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
-.setupCodes code { background: var(--d-well); border-radius: 6px; font-size: 13px; overflow-wrap: anywhere; padding: 2px var(--d-s2); }
+.setupCodes code { background: var(--d-well); border-radius: 6px; font-size: var(--text-sm); overflow-wrap: anywhere; padding: 2px var(--d-s2); }
 .setupUrl { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
 .setupUrl code { flex: 1 1 200px; min-width: 0; }
-.setupUrl button { align-items: center; display: inline-flex; font-size: 14px; gap: var(--d-s1); min-height: 44px; }
+.setupUrl button { align-items: center; display: inline-flex; font-size: var(--text-md); gap: var(--d-s1); min-height: 44px; }
 .setupUrl button svg { height: 14px; width: 14px; }
-.setupCost, .setupFoot { color: var(--d-muted); font-size: 13px; }
+.setupCost, .setupFoot { color: var(--d-muted); font-size: var(--text-sm); }
 .setupCost strong { color: var(--d-text); font-weight: 600; }
 .serviceFacts { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); margin: 0; }
 .serviceFacts dd { font-weight: 500; }
-.serviceDetail .integrationTool, .serviceDetail .integrationLastError { font-size: 13px; margin: 0; }
+.serviceDetail .integrationTool, .serviceDetail .integrationLastError { font-size: var(--text-sm); margin: 0; }
 .serviceDetail .integrationTool { color: var(--d-muted); }
 .serviceDetail .integrationTool.available { color: var(--d-text); }
 .serviceDetail .integrationLastError { color: var(--d-warn); overflow-wrap: anywhere; }
