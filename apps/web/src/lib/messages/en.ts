@@ -36,6 +36,7 @@ import { mailShareEn } from './mailShare.en.ts';
 import { mailAllEn } from './mailAll.en.ts';
 import { mailRulesEn } from './mailRules.en.ts';
 import { mailOpsEn } from './mailOps.en.ts';
+import { mailDomainsEn } from './mailDomains.en.ts';
 import { mailEn } from './mail.en.ts';
 import { callsEn } from './calls.en.ts';
 import { chatEn } from './chat.en.ts';
@@ -73,6 +74,7 @@ export const en = {
   ...mailAllEn,
   ...mailRulesEn,
   ...mailOpsEn,
+  ...mailDomainsEn,
   ...mailEn,
   ...callsEn,
   ...chatEn,

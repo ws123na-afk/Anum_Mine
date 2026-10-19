@@ -352,6 +352,10 @@ services:
       ANUM_MAILCOW_API_ENABLED: ${ANUM_MAILCOW_API_ENABLED:-false}
       ANUM_MAILCOW_API_URL: ${ANUM_MAILCOW_API_URL:-}
       ANUM_MAILCOW_API_KEY: ${ANUM_MAILCOW_API_KEY:-}
+      # Mail domains and aliases from the platform console, after approval (docs/email.md#mail-domains).
+      ANUM_MAILCOW_WRITE_ENABLED: ${ANUM_MAILCOW_WRITE_ENABLED:-false}
+      ANUM_MAILCOW_API_WRITE_KEY: ${ANUM_MAILCOW_API_WRITE_KEY:-}
+      ANUM_MAILCOW_MAIL_HOST: ${ANUM_MAILCOW_MAIL_HOST:-}
       # Meeting recordings to text (docs/meetings.md); none = transcript files only.
       ANUM_TRANSCRIPTION_PROVIDER: ${ANUM_TRANSCRIPTION_PROVIDER:-none}
       ANUM_TRANSCRIPTION_BASE_URL: ${ANUM_TRANSCRIPTION_BASE_URL:-}
