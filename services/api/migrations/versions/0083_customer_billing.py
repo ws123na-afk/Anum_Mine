@@ -27,8 +27,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0081_customer_billing"
-down_revision = "0075_file_scan_status"
+revision = "0083_customer_billing"
+down_revision = "0076_business_support"
 branch_labels = None
 depends_on = None
 

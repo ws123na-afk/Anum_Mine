@@ -2,7 +2,7 @@
 
 Follows the cross-tenant maintenance pattern (``anum_api.maintenance``): organisations with
 a live subscription are **discovered** as ``anum_maintenance`` (migration
-``0081_customer_billing`` grants it ids, statuses and dates of live subscriptions only),
+``0083_customer_billing`` grants it ids, statuses and dates of live subscriptions only),
 then each organisation is handled as the application role inside its own tenant context,
 in its own short transaction. Reminder emails are planned afterwards, outside that
 transaction, through the delivery path: they wait for an approval like every external send.

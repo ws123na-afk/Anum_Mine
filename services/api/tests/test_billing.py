@@ -639,3 +639,12 @@ def test_audit_walks_of_billing_routes(monkeypatch: pytest.MonkeyPatch) -> None:
     console_probe.call("POST", "/api/v1/platform/billing/run", OPERATOR)
     console_probe.assert_covered()
     org_probe.assert_covered()
+
+
+def test_email_check_is_linear_and_strict() -> None:
+    from anum_api.billing.api import is_email
+
+    assert is_email("ap@acme.example") and is_email("a.b+c@sub.acme.example")
+    for bad in ("", "a@b", "a@@b.c", "a b@c.d", "a@b.", "a@.b", "@b.c", "a@b.c,d@e.f", "x" * 300 + "@a.b"):
+        assert not is_email(bad), bad
+    assert not is_email("!" * 100_000 + "@" + "!" * 100_000)

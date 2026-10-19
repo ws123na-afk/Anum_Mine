@@ -1114,11 +1114,11 @@ def test_file_scan_status_migration_is_expand_only_with_a_discovery_only_policy(
 
 def test_customer_billing_migration_is_expand_only_with_narrow_reader_policies() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0081_customer_billing.py").read_text(encoding="utf-8")
-    assert 'revision = "0081_customer_billing"' in revision_text and len("0081_customer_billing") <= 32
-    assert 'down_revision = "0075_file_scan_status"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0081_customer_billing.py"]
-    assert not [path for path in others if 'down_revision = "0075_file_scan_status"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0083_customer_billing.py").read_text(encoding="utf-8")
+    assert 'revision = "0083_customer_billing"' in revision_text and len("0083_customer_billing") <= 32
+    assert 'down_revision = "0076_business_support"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0083_customer_billing.py"]
+    assert not [path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert "drop " not in upgrade and "alter_column" not in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade

@@ -3,7 +3,7 @@
 An organisation's rows sit in many workspaces, and the workspace tables' row policies
 admit one workspace at a time. The meters are therefore read as ``anum_maintenance`` with
 ``anum.billing_tenant`` set to the caller's own organisation (migration
-``0081_customer_billing``): column grants on ids, sizes, flags and timestamps only, and
+``0083_customer_billing``): column grants on ids, sizes, flags and timestamps only, and
 policies that admit only that organisation's rows. In memory the same counts come from
 the in-process stores.
 """

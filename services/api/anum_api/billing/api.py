@@ -56,6 +56,15 @@ MAX_PAGE = 100
 COUNTRY = r"^[A-Za-z]{2}$"
 
 
+def is_email(value: str) -> bool:
+    """One plain address (``name@host.tld``), checked without a backtracking pattern."""
+    if not value or len(value) > 254 or value.count("@") != 1 or any(c.isspace() or c in ",;<>" for c in value):
+        return False
+    local, domain = value.split("@")
+    labels = domain.split(".")
+    return bool(local) and len(labels) >= 2 and all(labels)
+
+
 def _raise(exc: svc.BillingError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=exc.message)
 
@@ -98,7 +107,7 @@ class AccountInput(BaseModel):
     @classmethod
     def _email(cls, value: str) -> str:
         value = value.strip()
-        if value and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+        if value and not is_email(value):
             raise ValueError("Enter one email address, such as billing@example.com.")
         return value
 
@@ -903,7 +912,7 @@ async def email_invoice(
     if invoice["status"] in ("draft", "void"):
         raise HTTPException(status_code=409, detail=f"Invoice {invoice['number'] or invoice_id} is {invoice['status']}; only issued invoices are emailed.")
     to = (payload.to or account["contact_email"] or "").strip()
-    if not re.fullmatch(r"[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+", to):
+    if not is_email(to):
         raise HTTPException(status_code=422, detail="Enter the email address to send to, or add a billing contact email to the organisation.")
     try:
         outcome = await request_invoice_email(context, repository, tenant_id, invoice, to, channel=payload.channel)
