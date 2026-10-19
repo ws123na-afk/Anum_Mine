@@ -13,7 +13,6 @@ import { formatDateTime, t } from './lib/i18n';
 import { REPORTS_PAGE, changeLabel, changeTone, createdByLabel, metricValue, periodLabel, reportTypeLabel } from './lib/library';
 import * as lib from './lib/libraryApi';
 import './library.css';
-import { HelpLink } from './HelpLink';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
 type Flash = { text: string; error?: boolean } | null;
@@ -120,7 +119,7 @@ export function ReportsView({ initialReportId, onOpenConversation, onOpenAutomat
       {load.kind === 'forbidden' && <div className="libraryState" role="alert"><Lock aria-hidden="true" /><p>{t('reports.forbidden', { message: load.detail })}</p></div>}
       {load.kind === 'error' && <div className="libraryState" role="alert"><p>{t('reports.loadFailed', { message: load.detail })}</p><button type="button" className="secondary" onClick={() => void fetchFirst(filters)}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
       {load.kind === 'ready' && items.length === 0 && <div className="emptyState"><FileBarChart aria-hidden="true" />
-        <h3>{filtered ? t('reports.noMatch') : t('reports.empty')}</h3><p>{filtered ? t('reports.noMatchText') : t('reports.emptyText')}</p><HelpLink />
+        <h3>{filtered ? t('reports.noMatch') : t('reports.empty')}</h3><p>{filtered ? t('reports.noMatchText') : t('reports.emptyText')}</p>
       </div>}
       {load.kind === 'ready' && items.length > 0 && <ul className="libraryList">{items.map((report) => <li key={report.id} className="libraryRow reportRow">
         <span className="libraryMain">

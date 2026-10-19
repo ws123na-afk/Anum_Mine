@@ -186,6 +186,7 @@ class BusinessState {
     api.get('/api/v1/business/proposals',
         (_) => FakeResponse.json(page([proposal])));
     api.get('/api/v1/approvals', (_) => FakeResponse.json([approval]));
+    seedApprovalPages(api, () => [approval]);
     api.get(
         '/api/v1/tasks',
         (_) => FakeResponse.json([

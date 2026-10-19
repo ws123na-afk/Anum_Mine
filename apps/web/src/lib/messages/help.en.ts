@@ -15,7 +15,6 @@ export const helpEn = {
   'help.back': 'All articles',
   'help.docs': 'Full documentation',
   'help.offline': 'Help articles are part of the app, so they also work offline.',
-  'help.emptyLink': 'How this page works',
   'demo.title': 'Sales demo workspace',
   'demo.lead': 'A workspace called Demo with clearly labelled sample data across tasks, approvals, email, calendar, business, marketing, files and knowledge. Nothing can be sent from it.',
   'demo.loading': 'Loading the demo workspace...',

@@ -620,6 +620,12 @@ dd { color: var(--d-text); font-size: var(--text-md); font-weight: 600; margin: 
 .approvalReadOnly { color: var(--d-muted); font-size: var(--text-sm); margin-top: var(--d-s2); }
 .approvalSuppressed svg, .approvalReadOnly svg { flex: none; margin-top: 2px; }
 /* Approval routing: who may approve this item and why (docs/approvals-and-risk.md#approval-routing). */
+.approvalToolbar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
+.approvalSearch { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-muted); display: flex; flex: 1 1 220px; gap: var(--d-s2); max-width: 420px; min-height: 40px; min-width: 0; padding: 0 var(--d-s3); }
+.approvalSearch input { background: transparent; border: 0; color: var(--d-text); flex: 1; min-height: 38px; min-width: 0; outline: none; padding: 0; }
+.approvalSearch:focus-within { outline: 2px solid var(--d-sky); outline-offset: 1px; }
+.approvalMore { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; }
+.approvalMore small { color: var(--d-muted); }
 .approvalRulesLink { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s1); margin: 0; }
 .approvalRouting { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); margin-top: var(--d-s2); padding: var(--d-s2) var(--d-s3); }
 .approvalRoutingWho { align-items: center; display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s1); margin: 0; }
