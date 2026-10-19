@@ -103,6 +103,10 @@ async def voice(route_id: str, request: Request) -> Response:
 
 
 def _browser_call(context: TenantContext, account: ProviderAccount, params: dict[str, str], identity: str) -> Response:
+    from ..demo import is_demo
+
+    if is_demo(context):  # nothing is dialled from a demo workspace (docs/demo-workspace.md)
+        return _refuse()
     call_id = params.get("anum_call_id", "")
     with action_lock, open_calls_store(context) as store:
         entry = store.get_call(call_id, lock=True)

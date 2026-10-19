@@ -26,6 +26,7 @@ import { budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } fr
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { statusLabel } from './lib/labels';
 import './agents.css';
+import { HelpLink } from './HelpLink';
 
 const agents = agentsApi(api.apiRequest, api.apiRequestVoid);
 
@@ -217,7 +218,7 @@ function AgentList({ catalog, catalogError, role, onOpen, onCreate, onRetryCatal
     {state === 'ready' && items.length === 0 && (filtered
       ? <div className="emptyState"><Search aria-hidden="true" /><h3>{t('agents.emptyFiltered')}</h3><p>{t('agents.emptyFilteredText')}</p>
           <button type="button" className="secondary" onClick={() => { setQuery(''); setQ(''); setStatus('all'); setCategory('all'); }}>{t('agents.clearFilters')}</button></div>
-      : <div className="emptyState"><Bot aria-hidden="true" /><h3>{t('agents.emptyTitle')}</h3><p>{canCreate ? t('agents.emptyText') : t('agents.emptyViewer')}</p>
+      : <div className="emptyState"><Bot aria-hidden="true" /><h3>{t('agents.emptyTitle')}</h3><p>{canCreate ? t('agents.emptyText') : t('agents.emptyViewer')}</p><HelpLink />
           {canCreate && <div className="actions"><button type="button" onClick={onCreate}><Plus aria-hidden="true" />{t('agents.createFirst')}</button></div>}
           {catalogError && <><Notice error>{catalogError}</Notice><button type="button" className="secondary" onClick={onRetryCatalog}>{t('common.tryAgain')}</button></>}
           {catalog && canCreate && <p className="muted">{t('agents.templatesHint', { count: catalog.templates.length })}</p>}

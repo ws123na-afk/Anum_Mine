@@ -1,0 +1,24 @@
+/* In-app help panel (src/HelpPanel.tsx, docs/help.md). Spacing and colour from the shared tokens. */
+.helpSearch { align-items: center; border: 1px solid var(--d-line); border-radius: 10px; display: flex; gap: var(--d-s2); padding: 0 var(--d-s3); }
+.helpSearch:focus-within { outline: 2px solid var(--d-sky); outline-offset: 2px; }
+.helpSearch svg { color: var(--d-muted); flex: none; height: 18px; width: 18px; }
+.helpSearch input { background: transparent; border: 0; color: var(--d-text); flex: 1; min-height: 40px; min-width: 0; outline: none; }
+.helpCount, .helpOffline { margin: 0; }
+.helpGroup { color: var(--d-muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; margin: 0 0 var(--d-s2); text-transform: uppercase; }
+.helpList { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
+.helpItem { align-items: flex-start; background: none; border: 1px solid transparent; border-radius: 10px; color: var(--d-text); cursor: pointer; display: flex; gap: var(--d-s3); padding: var(--d-s2) var(--d-s3); text-align: start; width: 100%; }
+.helpItem:hover { border-color: var(--d-line); }
+.helpItem:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 1px; }
+.helpItem svg { color: var(--d-violet); flex: none; height: 18px; margin-top: 2px; width: 18px; }
+.helpItem > span { display: grid; gap: 2px; min-width: 0; }
+.helpItem .muted { overflow-wrap: anywhere; }
+.helpArticle { display: grid; gap: var(--d-s3); min-width: 0; }
+.helpArticle h3 { font-size: 20px; margin: 0; }
+.helpArticle .mdBody { overflow-wrap: anywhere; }
+.helpBack { align-items: center; display: inline-flex; gap: var(--d-s2); justify-self: start; }
+.helpBack svg, .helpDocs svg, .helpLink svg, .helpEmpty a svg { height: 16px; width: 16px; }
+[dir="rtl"] .helpBack svg { transform: scaleX(-1); }
+.helpDocs, .helpEmpty a { align-items: center; color: var(--d-sky); display: inline-flex; font-weight: 600; gap: var(--d-s1); }
+.helpLink { align-items: center; display: inline-flex; gap: var(--d-s1); justify-self: center; }
+.emptyState .helpLink svg, .paneEmpty .helpLink svg, .panelEmpty .helpLink svg { color: inherit; height: 16px; width: 16px; }
+.demoCard .helpLink { justify-self: start; }

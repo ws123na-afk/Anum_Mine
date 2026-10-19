@@ -18,6 +18,7 @@ import { marketingAr } from './marketing.ar.ts';
 import { businessAr } from './business.ar.ts';
 import { businessSupportAr } from './businessSupport.ar.ts';
 import { brevoAr } from './brevo.ar.ts';
+import { helpAr } from './help.ar.ts';
 import { publicSiteAr } from './publicSite.ar.ts';
 import { ownerAr } from './ar.owner.ts';
 import { governanceAr } from './ar.governance.ts';
@@ -58,6 +59,7 @@ export const ar: Record<MessageKey, Message> = {
   ...businessAr,
   ...businessSupportAr,
   ...brevoAr,
+  ...helpAr,
   ...publicSiteAr,
   ...agentSkillsAr,
   ...orgChartAr,
