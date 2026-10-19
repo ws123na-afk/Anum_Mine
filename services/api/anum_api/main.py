@@ -169,6 +169,7 @@ from .brevo import register_brevo_tools, router as brevo_router
 from .user_preferences import router as user_preferences_router
 from .home import router as home_router
 from .setup_plans import router as setup_plans_router
+from . import notification_email
 from .push import push_dispatcher, router as push_router
 from .app_call_wake import call_wake_hub, visible_on_workspace_stream
 from .developer_watch import build_developer_watcher
@@ -289,6 +290,7 @@ async def lifespan(_: FastAPI):
             await developer_watcher.stop()
         await automation_dispatcher.stop()
         await push_dispatcher.stop()
+        await asyncio.to_thread(notification_email.shutdown)
         await event_runtime.stop()
         shutdown_telemetry()
         shutdown_error_reporting()
@@ -400,6 +402,8 @@ app.include_router(finance_intel_router)
 app.include_router(finance_intel_control_router)
 app.include_router(tyre_router)
 event_runtime.add_listener(push_dispatcher.submit)
+# The same events by email for people who turned Email on (docs/notifications.md#email).
+event_runtime.add_listener(notification_email.submit)
 # In-app call stream wake-ups: from NATS on every replica, or in-process without it
 # (docs/in-app-calls.md#signaling).
 call_wake_hub.attach(event_runtime)

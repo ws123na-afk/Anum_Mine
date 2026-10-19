@@ -22,7 +22,9 @@ function invitationRow(overrides: Json = {}): Json {
   };
 }
 
-interface MockOptions { forbidden?: boolean; runStatus?: number; /** The API's `can_manage_tenant_budget` for the caller (org_admin). */ orgAdmin?: boolean }
+/** What the mock mail server does with an invitation email (docs/identity.md#invitation-email). */
+type MailMode = 'sent' | 'failed' | 'off';
+interface MockOptions { mail?: MailMode; forbidden?: boolean; runStatus?: number; /** The API's `can_manage_tenant_budget` for the caller (org_admin). */ orgAdmin?: boolean }
 
 async function mockApi(page: Page, options: MockOptions = {}) {
   const calls: { method: string; path: string; body: unknown; workspace: string | undefined }[] = [];
@@ -82,14 +84,21 @@ async function mockApi(page: Page, options: MockOptions = {}) {
       const status = query.get('status');
       return json(status ? invitations.filter((x) => x.status === status) : invitations);
     }
+    if (path === '/api/v1/workspace-invitations/email-status') return json({ configured: (options.mail ?? 'sent') !== 'off', link_base: 'http://localhost:4173/' });
+    const mailAnswer = (to: unknown, wanted: unknown) => {
+      if (!to || wanted === false) return { status: 'not_requested', to: to ?? null, attempts: 0, error: null, link_included: false };
+      if (options.mail === 'off') return { status: 'not_configured', to, attempts: 0, error: 'No mail server is set up on this ANUM server', link_included: false };
+      if (options.mail === 'failed') return { status: 'failed', to, attempts: 3, error: 'The mail server could not be reached (TimeoutError)', link_included: true };
+      return { status: 'sent', to, attempts: 1, error: null, link_included: true };
+    };
     if (path === '/api/v1/workspace-invitations/invitation_existing/resend') {
       invitations = invitations.map((x) => x.id === 'invitation_existing' ? { ...x, status: 'pending', expires_at: inAWeek } : x);
-      return json({ invitation: invitations.find((x) => x.id === 'invitation_existing'), token: `${token}_resent` });
+      return json({ invitation: invitations.find((x) => x.id === 'invitation_existing'), token: `${token}_resent`, email: mailAnswer(null, true) });
     }
     if (path === '/api/v1/workspace-invitations' && method === 'POST') {
       const created = invitationRow({ id: 'invitation_new', role: (body as Json).role, invitee_user_id: (body as Json).invitee_user_id ?? null, invitee_email: (body as Json).invitee_email ?? null });
       invitations = [created, ...invitations];
-      return json({ invitation: created, token }, 201);
+      return json({ invitation: created, token, email: mailAnswer(created.invitee_email, (body as Json).send_email) }, 201);
     }
     if (path === '/api/v1/workspace-invitations/invitation_existing/revoke') {
       invitations = invitations.map((x) => x.id === 'invitation_existing' ? { ...x, status: 'revoked', revoked_at: now } : x);
@@ -205,7 +214,7 @@ test('creating an invitation shows the token once with copy actions, and revoke 
   await expect(reveal.getByText(/cannot be shown again/)).toBeVisible();
   await reveal.getByRole('button', { name: 'Copy token' }).click();
   await expect(reveal.getByText(/Token copied\.|Copying is blocked here/)).toBeVisible();
-  expect(calls.find((c) => c.method === 'POST' && c.path === '/api/v1/workspace-invitations')?.body).toEqual({ role: 'owner', invitee_email: 'ana@example.com', ttl_hours: 48 });
+  expect(calls.find((c) => c.method === 'POST' && c.path === '/api/v1/workspace-invitations')?.body).toEqual({ role: 'owner', invitee_email: 'ana@example.com', ttl_hours: 48, app_url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\//) });
 
   await reveal.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByText(token)).toHaveCount(0);
@@ -225,6 +234,57 @@ test('creating an invitation shows the token once with copy actions, and revoke 
   await invitations.getByRole('button', { name: 'Revoked' }).click();
   await expect(invitations.getByRole('article', { name: 'Invitation for user_pending' }).getByText('revoked', { exact: true })).toBeVisible();
   expect(calls.some((c) => c.method === 'POST' && c.path === '/api/v1/workspace-invitations/invitation_existing/resend')).toBe(true);
+});
+
+test('an invitation is emailed and the page says so, while the token stays copyable', async ({ page }) => {
+  const calls = await mockApi(page, { mail: 'sent' });
+  await page.goto('/#members');
+  const form = page.getByRole('form', { name: 'Invite someone' });
+  await expect(form.getByText(/Add an email address and ANUM emails the invitation/)).toBeVisible();
+  await form.getByLabel('Email').fill('ana@example.com');
+  await expect(form.getByRole('checkbox', { name: 'Send the invitation by mail' })).toBeChecked();
+  await form.getByRole('button', { name: 'Create invitation' }).click();
+  const reveal = page.getByRole('region', { name: 'New invitation token' });
+  await expect(reveal.getByText('Emailed to ana@example.com with a link to accept.')).toBeVisible();
+  await expect(reveal.getByTestId('invitation-token')).toHaveText(token);
+  await expect(page.getByText('Invitation created and emailed to ana@example.com.')).toBeVisible();
+  expect((calls.find((c) => c.method === 'POST' && c.path === '/api/v1/workspace-invitations')?.body as Json).send_email).toBeUndefined();
+});
+
+test('turning the email off sends nothing and says so', async ({ page }) => {
+  const calls = await mockApi(page, { mail: 'sent' });
+  await page.goto('/#members');
+  const form = page.getByRole('form', { name: 'Invite someone' });
+  await form.getByLabel('Email').fill('ana@example.com');
+  await form.getByRole('checkbox', { name: 'Send the invitation by mail' }).uncheck();
+  await form.getByRole('button', { name: 'Create invitation' }).click();
+  await expect(page.getByRole('region', { name: 'New invitation token' }).getByText('Not emailed, as you chose.')).toBeVisible();
+  expect((calls.find((c) => c.method === 'POST' && c.path === '/api/v1/workspace-invitations')?.body as Json).send_email).toBe(false);
+});
+
+test('a failed email tells the owner to send the link themselves', async ({ page }) => {
+  await mockApi(page, { mail: 'failed' });
+  await page.goto('/#members');
+  const form = page.getByRole('form', { name: 'Invite someone' });
+  await form.getByLabel('Email').fill('ana@example.com');
+  await form.getByRole('button', { name: 'Create invitation' }).click();
+  const reveal = page.getByRole('region', { name: 'New invitation token' });
+  await expect(reveal.getByRole('alert')).toContainText('could not be sent after 3 tries');
+  await expect(reveal.getByRole('alert')).toContainText('send it yourself');
+  await expect(reveal.getByRole('button', { name: 'Copy link' })).toBeVisible();
+});
+
+test('without a mail server the form and the result say ANUM does not email', async ({ page }) => {
+  await mockApi(page, { mail: 'off' });
+  await page.goto('/#members');
+  const form = page.getByRole('form', { name: 'Invite someone' });
+  await form.getByLabel('Email').fill('ana@example.com');
+  await expect(form.getByText(/no mail server set up, so ANUM cannot email invitations/)).toBeVisible();
+  await expect(form.getByRole('checkbox', { name: 'Send the invitation by mail' })).toHaveCount(0);
+  await form.getByRole('button', { name: 'Create invitation' }).click();
+  const reveal = page.getByRole('region', { name: 'New invitation token' });
+  await expect(reveal.getByRole('alert')).toContainText('this server has no mail server set up');
+  await expect(reveal.getByTestId('invitation-token')).toHaveText(token);
 });
 
 test('non-owners see the API permission answer and can still accept an invitation link', async ({ page }) => {

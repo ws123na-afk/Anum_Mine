@@ -20,6 +20,7 @@ the notification's title and body only: never tokens or links with credentials.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import smtplib
 import ssl
@@ -31,8 +32,9 @@ from email.message import EmailMessage
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
-from .dependencies import tenant_context
+from .dependencies import UnitsOfWork, tenant_context, units_of_work
 from .identity import is_local_environment
 from .onboarding import NotificationPreferences
 from .schemas import TenantContext, new_id, utc_now
@@ -317,6 +319,84 @@ def _store_for_caller(context: TenantContext) -> Any:
     from .team_work import open_team_unit
 
     return open_team_unit(context, require_membership=True)
+
+
+class EmailChannel(BaseModel):
+    """``configured``: the server has a mail server. ``address_known``: ANUM has an address
+    for the caller (team profile, else an accepted invitation's email)."""
+
+    configured: bool
+    address_known: bool
+
+
+class NotificationChannels(BaseModel):
+    email: EmailChannel
+    # Phone push is described by GET /api/v1/push/status; desktop alerts need the browser's or the
+    # desktop app's permission, which only the client can see.
+    push_configured: bool
+
+
+@router.get("/notification-channels", response_model=NotificationChannels)
+async def notification_channels(context: TenantContext = Depends(tenant_context)) -> NotificationChannels:
+    """What the Email and Phone push switches can do for the caller right now, so Settings can
+    say why a switch that is on delivers nothing (no mail server, no address)."""
+    from .push import configured_account
+
+    address = await asyncio.to_thread(recipient_address, context, context.user_id) if email_configured() else None
+    return NotificationChannels(
+        email=EmailChannel(configured=email_configured(), address_known=address is not None),
+        push_configured=configured_account() is not None,
+    )
+
+
+class EmailTestResult(BaseModel):
+    status: str
+    to: str | None = None
+    attempts: int = 0
+    error: str | None = None
+
+
+def _send_test_email(units: UnitsOfWork, context: TenantContext) -> EmailTestResult:
+    """Blocking: look up the caller's address, send, audit. Runs in a worker thread."""
+    from .audit import AuditRecord
+
+    address = recipient_address(context, context.user_id) if email_configured() else None
+    if not email_configured():
+        outcome = MailOutcome("not_configured", 0, "No mail server is set up on this ANUM server (ANUM_SMTP_HOST and ANUM_SMTP_FROM)")
+    elif address is None:
+        outcome = MailOutcome("no_address", 0, "ANUM has no email address for you. Add one to your team profile, then try again")
+    else:
+        outcome = send_with_retries(
+            address,
+            "ANUM: test email",
+            "This is a test email from ANUM. If you can read it, the Email switch in your notification settings works.\n\nNothing else is needed.",
+        )
+    with units(context) as repository:
+        repository.record_audit(
+            AuditRecord(
+                id=new_id("audit"),
+                tenant_id=context.tenant_id,
+                workspace_id=context.workspace_id,
+                actor=context.user_id,
+                action="notification.email_test",
+                target=context.user_id,
+                outcome="success" if outcome.status == "sent" else "failure",
+                correlation_id=new_id("correlation"),
+                created_at=utc_now(),
+                metadata={"status": outcome.status, "attempts": outcome.attempts, "error": outcome.error, "to": address},
+            )
+        )
+    return EmailTestResult(status=outcome.status, to=address, attempts=outcome.attempts, error=outcome.error)
+
+
+@router.post("/notification-channels/email-test", response_model=EmailTestResult)
+async def send_test_email(
+    context: TenantContext = Depends(tenant_context),
+    units: UnitsOfWork = Depends(units_of_work),
+) -> EmailTestResult:
+    """Send the caller a test email through ANUM's system mail, so they can see the Email switch
+    work (or why not). Only ever to the caller's own address; audited as ``notification.email_test``."""
+    return await asyncio.to_thread(_send_test_email, units, context)
 
 
 @router.get("/notifications", response_model=NotificationPage)

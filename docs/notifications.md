@@ -15,12 +15,27 @@ Notification preferences are per user and per workspace (`GET`/`PUT /api/v1/noti
 | `tyre_alerts` | Tyre alerts (migration `0037_tyre_planning`, default on) | `tyre_alerts.raised` to every active member who may read tyre planning ([Tyre planning](tyre-planning.md#alerts)) |
 | `automation_failed` | Automations failed | `automation_run.failed` to the people its payload names (`notify_user_ids`: the run's owner and the automation's creator, while active members with `automation:read`) |
 | `push_enabled` | Phone push for this workspace (migration `0027_push_devices`, default on; older clients that do not send it leave it on) | The channel switch for all of the above; also gates a `notify` step that asked for push (`automation.notification` with `push: true`, to the run's owner) |
-| `desktop_enabled` | Desktop notifications | Not a phone channel |
-| `email_enabled` | Email | Team work notifications are emailed when SMTP is configured ([Team work](team-work.md#notifications)); nothing else is emailed yet |
+| `desktop_enabled` | Desktop notifications | Not a phone channel. The channel switch for the web and desktop apps' [operating-system notifications](#desktop) |
+| `email_enabled` | Email | The channel switch for [email](#email): each kind above is also emailed to people who turned this on |
 
 In-app calls ([In-app calls](in-app-calls.md#phone-push)) push `incoming_call` (from `app_call.ringing`) and `missed_call` (from a `missed_call` notification) to the person rung; they have no switch of their own and follow `push_enabled`.
 
 The web app shows these under **Settings › Notifications** with the person's registered phones; the Flutter app under **Settings › Notifications** with the **Phone push** card.
+
+## Email
+
+Email follows the same switches as phone push. With **Email** on, each recipient also gets an email for every kind they kept on above (`approval_required`, `task_completed`, `run_failed`, `automation_failed`, `commerce_alerts`, `tyre_alerts`), and for team work and the finance report notices through the notification row ([Team work](team-work.md#notifications)). A failed automation therefore notifies its owner and the automation's creator by email **and** push when both switches are on.
+
+- **Recipients** are the ones push resolves (`push.resolve_recipients`): active members who may see the item, so email never reaches anyone push would not. Each recipient's preferences are read in their own RLS context.
+- **Address:** the email in the person's team profile, else the verified email of the invitation they accepted. Without one, nothing is sent and the attempt is audited as `no_address`.
+- **Text:** the push sentence ("Approval needed" / "An action is waiting for your decision.") plus "Open ANUM to see it." Never a task title, prompt, tool argument or token.
+- **Sender:** ANUM's system mail, the SMTP server in `ANUM_SMTP_*` ([Team work](team-work.md#notifications) has the settings). It is not an agent-composed message, so it needs no approval. Sending runs on a small worker pool after the commit (`notification_email.py`, listening to committed events in the API and the worker), with the same retries as [invitation email](identity.md#invitation-email): transient failures up to three attempts with doubling backoff, permanent refusals at once.
+- **Audit:** `notification.email` per recipient (`sent`, `failed` or `no_address`, attempts, safe error). Team work emails keep their own row state (`pending`, `sent`, `failed`, `not_configured`, `not_requested`) and the reminder sweep's retries.
+- **States Settings shows** (`GET /api/v1/notification-channels` → `{email: {configured, address_known}, push_configured}`): no mail server on this server (who to ask), no address for you (where to add one), ready, and on. **Send me a test email** (`POST /api/v1/notification-channels/email-test`) emails the caller, and only the caller, a test message and answers `sent`, `failed` (with attempts and why), `not_configured` or `no_address`; it is audited as `notification.email_test`.
+
+## Desktop
+
+With **Desktop notifications** on, the web app and the desktop app raise an operating-system notification while ANUM is in the background and the browser (or app) already allows notifications; ANUM never prompts on its own. It covers an approval waiting for an owner (`approval_required`), a task you started that finished or failed (`task_completed`, `run_failed`), team work (`notification.created`), failed automations and notices, store alerts (`commerce_alerts`) and tyre alerts (`tyre_alerts`). The text is the push text, fixed, never a title. Saving the switches in Settings applies at once in the open tabs. Settings shows when the browser blocks or has not yet allowed notifications and offers **Allow in this browser**. The phone app has no desktop channel; its Settings says so and uses Phone push.
 
 ## Phone push
 
@@ -85,6 +100,5 @@ The Flutter app ([Flutter mobile](mobile.md#phone-push)):
 
 ## Not done yet
 
-- Email delivery and desktop notifications for these events.
 - `python -m anum_api.rotate_secrets` does not re-encrypt push tokens; phones re-encrypt their own token when the app starts. Keep a retired key in `ANUM_SECRETS_KEY` until every phone has opened the app, or accept that a phone that never does stops getting pushes until it does (its token cannot be decrypted, it is skipped and logged by device id).
 - iOS push needs the Push Notifications capability on the App ID and in Xcode; it is an owner step ([Flutter mobile](mobile.md#phone-push)), not committed, so CI's unsigned iOS build stays unchanged.

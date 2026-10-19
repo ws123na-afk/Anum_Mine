@@ -3,9 +3,12 @@
 // (or the desktop shell) already allows notifications; ANUM never prompts for permission here.
 import type { DomainEvent } from '@anum/contracts';
 import { getNotificationPreferences } from './api';
+import { onPreferences } from './desktopEvents';
 import { notificationFor, type AlertPreferences } from './commerce';
 
 let preferences: Promise<AlertPreferences | null> | null = null;
+// Settings saved: read the switches again before the next alert.
+onPreferences(() => { preferences = null; });
 
 export async function notifyCommerceAlert(event: DomainEvent): Promise<void> {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;

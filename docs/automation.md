@@ -107,7 +107,7 @@ With PostgreSQL, starting a run locks the automation row, so the policy holds wh
 
 Runs publish `automation_run.completed`, `automation_run.paused`, `automation_run.failed` and `automation_run.cancelled` (subject: the run id; payload: `run_id`, `workflow_id`, `workflow_name`, `schedule_id`, `trigger_id`, `status`, `trigger`) through the same repository and outbox as other domain events ([Events](events.md)), in the engine's transaction. A failure adds `error`, `failed_step` and `notify_user_ids`: the run's actor and the automation's creator, each only when their **automation failed** notification preference (Settings, Notifications) is on.
 
-The web app listens on the event stream: a failure or `notify` step addressed to the signed-in user shows an alert with **Open run**, which opens the automation with that run highlighted; with the **desktop enabled** preference on and browser permission granted it also raises an operating-system notification. With phone push set up, a failure and a `notify` step with the `push` channel also reach the named people's phones ([Notifications](notifications.md)). The **email enabled** preference has no sender yet; to email someone, use an `email.send` step.
+The web app listens on the event stream: a failure or `notify` step addressed to the signed-in user shows an alert with **Open run**, which opens the automation with that run highlighted; with the **desktop enabled** preference on and browser permission granted it also raises an operating-system notification. With phone push set up, a failure and a `notify` step with the `push` channel also reach the named people's phones ([Notifications](notifications.md)). With the **email enabled** preference on and ANUM's mail server set up, a failure is also emailed to the named people ([Notifications: Email](notifications.md#email)): fixed text, no step output. To email someone else, use an `email.send` step.
 
 Audit records: `automation.workflow.created`, `.updated`, `.paused`, `.resumed`, `.deleted`; `automation.schedule.created`, `.updated`, `.deleted`, `.taken_over`; `automation.trigger.created`, `.updated`, `.deleted`, `.secret_rotated`, `.taken_over`; and `email.send.requested` (with `automation_run_id`) for an email step.
 
@@ -224,7 +224,6 @@ A step with `action: "report.generate"` and `input: {"type": "task_summary" | "a
 
 ## Not done yet
 
-- Email delivery of failure notifications (the `email_enabled` preference) has no sender; use an `email.send` step to email from an automation.
 - Event triggers on workspace events only: integration signals other than email, WhatsApp and files (for example marketplace orders) arrive through a webhook trigger.
 - The Flutter step editor takes a mailbox id for `email.send` (the web picks from the connected mailboxes).
 - Cancelling a run does not cancel the agent task it started; cancel it under Tasks.

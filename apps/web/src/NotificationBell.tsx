@@ -3,6 +3,7 @@
 // The list is the API's (only the recipient can read it); a `notification.created` event for this
 // user refreshes it, and with "Desktop notifications" on in Settings an OS notification is shown
 // while the page is in the background.
+import { onPreferences } from './lib/desktopEvents';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCheck, ClipboardCheck } from 'lucide-react';
 import type { UserNotification } from '@anum/contracts';
@@ -45,7 +46,10 @@ export function useTeamNotifications(signal: { recipient: unknown; at: number } 
     } catch (e) { setError(describeError(e)); return null; }
   }, []);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { void getNotificationPreferences().then((p) => { desktop.current = p.desktop_enabled; }).catch(() => undefined); }, []);
+  useEffect(() => {
+    void getNotificationPreferences().then((p) => { desktop.current = p.desktop_enabled; }).catch(() => undefined);
+    return onPreferences((p) => { desktop.current = p.desktop_enabled; });
+  }, []);
   useEffect(() => {
     if (!signal || signal.recipient !== currentUserId()) return;
     void load().then((latest) => {
