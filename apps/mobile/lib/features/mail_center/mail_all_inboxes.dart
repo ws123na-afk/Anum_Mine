@@ -607,7 +607,13 @@ class _AllInboxTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AnumSpacing.xs),
-            Text(mailWhen(context, m.date), style: theme.textTheme.bodySmall),
+            // A date (not today's time) is wider: at 200% text it wraps instead of overflowing.
+            Flexible(
+              child: Text(mailWhen(context, m.date),
+                  maxLines: 2,
+                  textAlign: TextAlign.end,
+                  style: theme.textTheme.bodySmall),
+            ),
           ],
         ),
         subtitle: Column(
