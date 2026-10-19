@@ -20,16 +20,21 @@ the notification's title and body only: never tokens or links with credentials.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import smtplib
 import ssl
-from collections.abc import Iterable
+import sys
+import time
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from email.message import EmailMessage
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
-from .dependencies import tenant_context
+from .dependencies import UnitsOfWork, tenant_context, units_of_work
 from .identity import is_local_environment
 from .onboarding import NotificationPreferences
 from .schemas import TenantContext, new_id, utc_now
@@ -105,7 +110,37 @@ def create_notification(
 
 
 class EmailRefused(RuntimeError):
-    """The SMTP server could not be used safely or refused the message."""
+    """The SMTP server could not be used safely or refused the message.
+
+    ``transient`` is true when trying again later can help: the server was unreachable,
+    hung up, or answered with a 4xx code. Configuration problems and 5xx refusals are
+    permanent and are not retried.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
+
+
+def _unreachable(exc: OSError) -> EmailRefused:
+    return EmailRefused(f"The mail server could not be reached ({type(exc).__name__})", transient=True)
+
+
+def _smtp_failure(exc: smtplib.SMTPException) -> EmailRefused:
+    """A short sentence safe to show (never the server's raw answer), and whether to retry."""
+    name = type(exc).__name__
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return EmailRefused("The mail server refused ANUM's sign-in (check ANUM_SMTP_USERNAME and ANUM_SMTP_PASSWORD)")
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return EmailRefused("The mail server refused the recipient address")
+    if isinstance(exc, (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError)):
+        return EmailRefused(f"The mail server could not be reached ({name})", transient=True)
+    code = getattr(exc, "smtp_code", None)
+    if isinstance(code, int) and 400 <= code < 500:
+        return EmailRefused(f"The mail server asked to try again later ({code})", transient=True)
+    if isinstance(code, int):
+        return EmailRefused(f"The mail server refused the message ({code})")
+    return EmailRefused(f"The mail server refused the message ({name})")
 
 
 def send_email(to: str, subject: str, text: str) -> None:
@@ -124,10 +159,15 @@ def send_email(to: str, subject: str, text: str) -> None:
     if security == "none" and not is_local_environment(settings.environment):
         raise EmailRefused("Unencrypted SMTP is allowed only in local and test")
     client: smtplib.SMTP
-    if security == "tls":
-        client = smtplib.SMTP_SSL(host, settings.smtp_port, timeout=timeout, context=context)
-    else:
-        client = smtplib.SMTP(host, settings.smtp_port, timeout=timeout)
+    try:
+        if security == "tls":
+            client = smtplib.SMTP_SSL(host, settings.smtp_port, timeout=timeout, context=context)
+        else:
+            client = smtplib.SMTP(host, settings.smtp_port, timeout=timeout)
+    except smtplib.SMTPException as exc:
+        raise _smtp_failure(exc) from exc
+    except OSError as exc:
+        raise _unreachable(exc) from exc
     try:
         if security == "starttls":
             client.ehlo()
@@ -140,13 +180,94 @@ def send_email(to: str, subject: str, text: str) -> None:
         if login and secret:
             client.login(login, secret)
         client.send_message(message)
+    except EmailRefused:
+        raise
     except smtplib.SMTPException as exc:
-        raise EmailRefused(type(exc).__name__) from exc
+        raise _smtp_failure(exc) from exc
+    except OSError as exc:
+        raise _unreachable(exc) from exc
     finally:
         try:
             client.quit()
         except (smtplib.SMTPException, OSError):
             pass
+
+
+@dataclass(frozen=True)
+class MailOutcome:
+    """What happened to one system email (an invitation, a notice, a test message).
+
+    ``status``: ``sent``; ``failed`` (refused, or still failing after ``attempts`` tries);
+    ``not_configured`` (no ``ANUM_SMTP_HOST``/``ANUM_SMTP_FROM``); ``no_address`` (the
+    recipient has no email address ANUM knows); ``not_requested`` (nobody asked for it).
+    ``error`` is a sentence safe to show, never the server's raw answer or a credential.
+    """
+
+    status: str
+    attempts: int = 0
+    error: str | None = None
+
+
+def send_with_retries(
+    to: str,
+    subject: str,
+    text: str,
+    *,
+    attempts: int = MAX_EMAIL_ATTEMPTS,
+    backoff_seconds: float | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> MailOutcome:
+    """Send one system email now, retrying transient failures with exponential backoff.
+
+    Blocking (SMTP is a network call): run it in a worker thread, never on the event loop,
+    and never while a database transaction is open (docs/notifications.md#email).
+    """
+    if not email_configured():
+        return MailOutcome("not_configured", 0, "No mail server is set up on this ANUM server (ANUM_SMTP_HOST and ANUM_SMTP_FROM)")
+    delay = settings.smtp_retry_backoff_seconds if backoff_seconds is None else backoff_seconds
+    error = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            # Looked up on the module so tests can replace ``send_email``.
+            sys.modules[__name__].send_email(to, subject, text)
+        except EmailRefused as exc:
+            error = str(exc)[:300]
+            if not exc.transient or attempt >= attempts:
+                return MailOutcome("failed", attempt, error)
+        except OSError as exc:
+            error = _unreachable(exc).args[0]
+            if attempt >= attempts:
+                return MailOutcome("failed", attempt, error)
+        else:
+            return MailOutcome("sent", attempt, None)
+        sleep(delay * (2 ** (attempt - 1)))
+    return MailOutcome("failed", attempts, error)  # pragma: no cover - the loop always returns
+
+
+def recipient_address(context: TenantContext, user_id: str) -> str | None:
+    """The address ANUM emails ``user_id`` at in this workspace: the email in their team
+    profile, else the verified email of the invitation they accepted. Read in the
+    recipient's own RLS context, in its own short unit of work (call it in a thread)."""
+    from .team_work import open_team_unit
+
+    recipient = context.model_copy(update={"user_id": user_id})
+    with open_team_unit(recipient) as unit:
+        return address_in_unit(unit.store, unit.repository, recipient, user_id)
+
+
+def address_in_unit(store: TeamStore, repository: Any, context: TenantContext, user_id: str) -> str | None:
+    """Profile email, else the verified email of the invitation ``user_id`` accepted, inside an
+    open unit of work. Every path that emails a person (the notification row, the event
+    listener, the test email, Settings' hint) resolves the address here, so they agree."""
+    from .schemas import InvitationStatus
+
+    profile = store.list_profiles(context).get(user_id)
+    if profile is not None and profile.email:
+        return profile.email
+    for invitation in repository.list_invitations(context):
+        if invitation.status == InvitationStatus.ACCEPTED and invitation.accepted_by_user_id == user_id and invitation.invitee_email:
+            return invitation.invitee_email
+    return None
 
 
 def _email_text(notification: UserNotification) -> str:
@@ -190,8 +311,8 @@ def deliver_pending_email(context: TenantContext, pending: Iterable[tuple[str, s
         recipient = context.model_copy(update={"user_id": user_id})
         try:
             with open_team_unit(recipient) as unit:
-                profile = unit.store.list_profiles(recipient).get(user_id)
-                deliver_email(unit.store, recipient, notification_id, profile.email if profile else None)
+                address = address_in_unit(unit.store, unit.repository, recipient, user_id)
+                deliver_email(unit.store, recipient, notification_id, address)
         except Exception:  # never fail the caller's request after it committed
             logger.exception("Notification email delivery failed", extra={"anum_notification_id": notification_id})
 
@@ -205,6 +326,84 @@ def _store_for_caller(context: TenantContext) -> Any:
     from .team_work import open_team_unit
 
     return open_team_unit(context, require_membership=True)
+
+
+class EmailChannel(BaseModel):
+    """``configured``: the server has a mail server. ``address_known``: ANUM has an address
+    for the caller (team profile, else an accepted invitation's email)."""
+
+    configured: bool
+    address_known: bool
+
+
+class NotificationChannels(BaseModel):
+    email: EmailChannel
+    # Phone push is described by GET /api/v1/push/status; desktop alerts need the browser's or the
+    # desktop app's permission, which only the client can see.
+    push_configured: bool
+
+
+@router.get("/notification-channels", response_model=NotificationChannels)
+async def notification_channels(context: TenantContext = Depends(tenant_context)) -> NotificationChannels:
+    """What the Email and Phone push switches can do for the caller right now, so Settings can
+    say why a switch that is on delivers nothing (no mail server, no address)."""
+    from .push import configured_account
+
+    address = await asyncio.to_thread(recipient_address, context, context.user_id) if email_configured() else None
+    return NotificationChannels(
+        email=EmailChannel(configured=email_configured(), address_known=address is not None),
+        push_configured=configured_account() is not None,
+    )
+
+
+class EmailTestResult(BaseModel):
+    status: str
+    to: str | None = None
+    attempts: int = 0
+    error: str | None = None
+
+
+def _send_test_email(units: UnitsOfWork, context: TenantContext) -> EmailTestResult:
+    """Blocking: look up the caller's address, send, audit. Runs in a worker thread."""
+    from .audit import AuditRecord
+
+    address = recipient_address(context, context.user_id) if email_configured() else None
+    if not email_configured():
+        outcome = MailOutcome("not_configured", 0, "No mail server is set up on this ANUM server (ANUM_SMTP_HOST and ANUM_SMTP_FROM)")
+    elif address is None:
+        outcome = MailOutcome("no_address", 0, "ANUM has no email address for you. Add one to your team profile, then try again")
+    else:
+        outcome = send_with_retries(
+            address,
+            "ANUM: test email",
+            "This is a test email from ANUM. If you can read it, the Email switch in your notification settings works.\n\nNothing else is needed.",
+        )
+    with units(context) as repository:
+        repository.record_audit(
+            AuditRecord(
+                id=new_id("audit"),
+                tenant_id=context.tenant_id,
+                workspace_id=context.workspace_id,
+                actor=context.user_id,
+                action="notification.email_test",
+                target=context.user_id,
+                outcome="success" if outcome.status == "sent" else "failure",
+                correlation_id=new_id("correlation"),
+                created_at=utc_now(),
+                metadata={"status": outcome.status, "attempts": outcome.attempts, "error": outcome.error, "to": address},
+            )
+        )
+    return EmailTestResult(status=outcome.status, to=address, attempts=outcome.attempts, error=outcome.error)
+
+
+@router.post("/notification-channels/email-test", response_model=EmailTestResult)
+async def send_test_email(
+    context: TenantContext = Depends(tenant_context),
+    units: UnitsOfWork = Depends(units_of_work),
+) -> EmailTestResult:
+    """Send the caller a test email through ANUM's system mail, so they can see the Email switch
+    work (or why not). Only ever to the caller's own address; audited as ``notification.email_test``."""
+    return await asyncio.to_thread(_send_test_email, units, context)
 
 
 @router.get("/notifications", response_model=NotificationPage)

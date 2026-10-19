@@ -5,6 +5,7 @@ import type {
   AcceptedInvitation,
   BudgetKind,
   CreatedInvitation,
+  InvitationEmail,
   InvitationRequest,
   ModelBudget,
   ModelBudgetLimits,
@@ -30,7 +31,8 @@ export interface ApiInvitation {
   created_by_user_id: string; expires_at: string; accepted_by_user_id: string | null;
   accepted_at: string | null; revoked_at: string | null; created_at: string;
 }
-export interface ApiInvitationCreated { invitation: ApiInvitation; token: string }
+export interface ApiInvitationEmail { status: string; to?: string | null; attempts?: number; error?: string | null; link_included?: boolean }
+export interface ApiInvitationCreated { invitation: ApiInvitation; token: string; email?: ApiInvitationEmail }
 export interface ApiInvitationAccepted { invitation: ApiInvitation; membership: ApiMember }
 interface ApiBudget { scope: string; monthly_cost_limit_usd: number | null; monthly_token_limit: number | null; updated_at: string; updated_by: string }
 interface ApiScopeView {
@@ -57,7 +59,26 @@ export function mapInvitation(value: ApiInvitation): WorkspaceInvitation {
   };
 }
 
-export const mapCreatedInvitation = (value: ApiInvitationCreated): CreatedInvitation => ({ invitation: mapInvitation(value.invitation), token: value.token });
+export function mapInvitationEmail(value: ApiInvitationEmail | undefined): InvitationEmail {
+  const status = (['sent', 'failed', 'not_configured', 'not_requested'] as const).find((known) => known === value?.status) ?? 'not_requested';
+  return { status, to: value?.to ?? null, attempts: value?.attempts ?? 0, error: value?.error ?? null, linkIncluded: value?.link_included ?? false };
+}
+
+export const mapCreatedInvitation = (value: ApiInvitationCreated): CreatedInvitation => ({ invitation: mapInvitation(value.invitation), token: value.token, email: mapInvitationEmail(value.email) });
+
+/** One sentence for the invitation email's outcome, with the tone of its notice. Always says what the owner does next. */
+export function invitationEmailNotice(email: InvitationEmail): { tone: 'success' | 'warning' | 'neutral'; text: string } {
+  switch (email.status) {
+    case 'sent':
+      return { tone: 'success', text: t(email.linkIncluded ? 'invite.email.sent' : 'invite.email.sentToken', { to: email.to ?? '' }) };
+    case 'failed':
+      return { tone: 'warning', text: t('invite.email.failed', { to: email.to ?? '', attempts: email.attempts, error: email.error ?? t('invite.email.unknownError') }) };
+    case 'not_configured':
+      return { tone: 'warning', text: t('invite.email.notConfigured', { to: email.to ?? '' }) };
+    default:
+      return { tone: 'neutral', text: t(email.to ? 'invite.email.notSent' : 'invite.email.noAddress') };
+  }
+}
 export const mapAcceptedInvitation = (value: ApiInvitationAccepted): AcceptedInvitation => ({ invitation: mapInvitation(value.invitation), membership: mapMember(value.membership) });
 
 function mapBudget(value: ApiBudget | null): ModelBudget | null {
@@ -112,6 +133,8 @@ export function invitationBody(request: InvitationRequest): Record<string, unkno
     ...(request.inviteeUserId ? { invitee_user_id: request.inviteeUserId } : {}),
     ...(request.inviteeEmail ? { invitee_email: request.inviteeEmail } : {}),
     ...(request.ttlHours ? { ttl_hours: request.ttlHours } : {}),
+    ...(request.sendEmail === false ? { send_email: false } : {}),
+    ...(request.appUrl ? { app_url: request.appUrl } : {}),
   };
 }
 
