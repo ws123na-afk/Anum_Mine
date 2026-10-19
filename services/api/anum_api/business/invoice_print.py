@@ -82,14 +82,15 @@ def _party(heading: str, lines: list[tuple[str, str]]) -> str:
 def _row(line: InvoiceLine) -> str:
     quantity = f"{Decimal(str(line.quantity)).normalize():f}"
     return (
-        f"<tr><td>{_text(line.description)}</td><td class=\"num\">{_text(quantity)}</td><td class=\"num\">{_amount(line.unit_price)}</td>"
-        f"<td class=\"num\">{Decimal(str(line.tax_rate_pct)).normalize():f}%</td><td class=\"num\">{_amount(line.total)}</td></tr>"
+        f"<tr><td>{_text(line.description)}</td><td class=\"num\">{_text(quantity)}</td><td class=\"num\">{_text(_amount(line.unit_price))}</td>"
+        f"<td class=\"num\">{_text(f'{Decimal(str(line.tax_rate_pct)).normalize():f}')}%</td><td class=\"num\">{_text(_amount(line.total))}</td></tr>"
     )
 
 
 def render_invoice(invoice: Invoice, payments: list[InvoicePayment], seller_fallback: BillingProfile, language: Language = "en") -> str:
     """The invoice as an HTML document. The seller printed is the one stored on a sent
     invoice; a draft shows the current billing profile."""
+    language = "ar" if language == "ar" else "en"  # a constant, never the request's own string
     label = LABELS[language]
     seller = invoice.seller or seller_fallback
     direction = "rtl" if language == "ar" else "ltr"
@@ -112,18 +113,18 @@ def render_invoice(invoice: Invoice, payments: list[InvoicePayment], seller_fall
     buyer_lines = [("", invoice.bill_to_name), ("", invoice.bill_to_address), (label["tax_no"], invoice.bill_to_tax_number), (label["email"], invoice.bill_to_email)]
     rows = "".join(_row(item) for item in invoice.lines)
     totals = [(label["subtotal"], invoice.subtotal), (label["tax"], invoice.tax)]
-    totals_html = "".join(f"<tr><td>{_text(name)}</td><td class=\"num\">{_amount(value)}</td></tr>" for name, value in totals)
-    totals_html += f"<tr class=\"grand\"><td>{_text(label['total'])} ({_text(currency)})</td><td class=\"num\">{_amount(invoice.total)}</td></tr>"
+    totals_html = "".join(f"<tr><td>{_text(name)}</td><td class=\"num\">{_text(_amount(value))}</td></tr>" for name, value in totals)
+    totals_html += f"<tr class=\"grand\"><td>{_text(label['total'])} ({_text(currency)})</td><td class=\"num\">{_text(_amount(invoice.total))}</td></tr>"
     if invoice.amount_paid > 0:
-        totals_html += f"<tr><td>{_text(label['paid'])}</td><td class=\"num\">{_amount(invoice.amount_paid)}</td></tr>"
-        totals_html += f"<tr class=\"grand\"><td>{_text(label['balance'])}</td><td class=\"num\">{_amount(invoice.balance_due())}</td></tr>"
+        totals_html += f"<tr><td>{_text(label['paid'])}</td><td class=\"num\">{_text(_amount(invoice.amount_paid))}</td></tr>"
+        totals_html += f"<tr class=\"grand\"><td>{_text(label['balance'])}</td><td class=\"num\">{_text(_amount(invoice.balance_due()))}</td></tr>"
     blocks = ""
     for heading, value in ((label["terms"], invoice.payment_terms), (label["bank"], seller.bank_details), (label["notes"], invoice.notes)):
         if value.strip():
             blocks += f"<div class=\"block\"><h2>{_text(heading)}</h2><p>{_text(value)}</p></div>"
     if payments:
         paid_rows = "".join(
-            f"<tr><td>{payment.paid_on.isoformat()}</td><td>{_text(payment.reference)}</td><td class=\"num\">{_amount(payment.amount)}</td></tr>" for payment in payments
+            f"<tr><td>{_text(payment.paid_on.isoformat())}</td><td>{_text(payment.reference)}</td><td class=\"num\">{_text(_amount(payment.amount))}</td></tr>" for payment in payments
         )
         blocks += f"<div class=\"block\"><h2>{_text(label['payments'])}</h2><table><tbody>{paid_rows}</tbody></table></div>"
     foot = f"<div class=\"foot\">{_text(seller.footer_note)}</div>" if seller.footer_note.strip() else ""
