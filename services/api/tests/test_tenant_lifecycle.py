@@ -175,7 +175,12 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
     spec.loader.exec_module(module)
     in_migration = set(module._all_tables())
     # Tables added after 0079 bring their own purge policy in their own migration.
-    later = {"skill_publisher_keys": "0083_skill_signing", "skill_signing_settings": "0083_skill_signing"}
+    later = {
+        "skill_publisher_keys": "0083_skill_signing",
+        "skill_signing_settings": "0083_skill_signing",
+        "business_change_orders": "0080_business_change_orders",
+        "business_usage_ledger": "0080_business_change_orders",
+    }
     for table, revision in later.items():
         text = (API_ROOT / "migrations" / "versions" / f"{revision}.py").read_text(encoding="utf-8")
         assert table in text and "create policy lifecycle_purge_{table}" in text
