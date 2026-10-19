@@ -18,7 +18,6 @@ const PENDING = new Set([
   'autonomy.css',
   'brevo.css',
   'business.css',
-  'calendar.css',
   'call.css',
   'calls.css',
   'catalog.css',
