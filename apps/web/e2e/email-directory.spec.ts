@@ -141,7 +141,7 @@ test('a contact\'s Write opens a new message to them', async ({ page }) => {
 test('a mailbox shared to read can be opened, changes nothing, and can be left', async ({ page, isMobile }) => {
   const { directory } = await openEmail(page, { shared: 'read' });
   const picker = page.getByRole('combobox', { name: 'Mailbox' });
-  await expect(picker.locator('option')).toHaveText(['admin@example.com', 'team@example.com (shared with you)']);
+  await expect(picker.locator('option')).toHaveText(['All inboxes', 'admin@example.com', 'team@example.com (shared with you)']);
   await picker.selectOption('mailbox_shared');
   await expect(page.getByRole('note')).toContainText('Shared with you to read by owner_two.');
   const list = page.getByRole('region', { name: 'Inbox' });

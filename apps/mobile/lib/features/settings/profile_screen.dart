@@ -79,31 +79,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final l = context.anum;
     final settings = widget.settings;
     final session = settings.session;
-    switch (settings.phase) {
-      case SettingsPhase.initial || SettingsPhase.loading:
-        if (session == null) {
-          return AnumFeedback(
-              kind: AnumFeedbackKind.loading, message: l.t('profileLoading'));
-        }
-      case SettingsPhase.offline:
-        return AnumFeedback(
-            kind: AnumFeedbackKind.offline,
-            message: l.t('profileOffline'),
-            onRetry: settings.load);
-      case SettingsPhase.permissionDenied:
-        return AnumFeedback(
-            kind: AnumFeedbackKind.permission,
-            message: l.t('profileDenied'),
-            onRetry: settings.load);
-      case SettingsPhase.error:
-        return AnumFeedback(
-            kind: AnumFeedbackKind.error,
-            message: l.f('profileError', {'message': settings.message ?? ''}),
-            onRetry: settings.load);
-      case SettingsPhase.ready || SettingsPhase.saving:
-        break;
-    }
-    final identity = AccountIdentity.fromSession(session!);
     final rtl = Directionality.of(context) == TextDirection.rtl;
     final chevron = Icon(rtl ? Icons.chevron_left : Icons.chevron_right);
     final themeLabel = switch (widget.theme.mode) {
@@ -135,6 +110,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ]),
               onTap: onTap,
             ));
+    // Language and theme live on this device: they stay reachable while the
+    // profile cannot load (offline, a refused or failing API call).
+    Widget failed(AnumFeedback feedback) => AnumPage(
+          onRefresh: settings.load,
+          children: [
+            feedback,
+            AnumSurface(
+              padding: const EdgeInsets.symmetric(vertical: AnumSpacing.xs),
+              child: Column(children: [
+                row('language', Icons.translate, () => _pickLanguage(context),
+                    value: languageLabel),
+                row('profileTheme', Icons.brightness_6_outlined,
+                    () => _pickTheme(context),
+                    value: themeLabel),
+              ]),
+            ),
+          ],
+        );
+    switch (settings.phase) {
+      case SettingsPhase.initial || SettingsPhase.loading:
+        if (session == null) {
+          return AnumFeedback(
+              kind: AnumFeedbackKind.loading, message: l.t('profileLoading'));
+        }
+      case SettingsPhase.offline:
+        return failed(AnumFeedback(
+            kind: AnumFeedbackKind.offline,
+            message: l.t('profileOffline'),
+            onRetry: settings.load));
+      case SettingsPhase.permissionDenied:
+        return failed(AnumFeedback(
+            kind: AnumFeedbackKind.permission,
+            message: l.t('profileDenied'),
+            onRetry: settings.load));
+      case SettingsPhase.error:
+        return failed(AnumFeedback(
+            kind: AnumFeedbackKind.error,
+            message: l.f('profileError', {'message': settings.message ?? ''}),
+            onRetry: settings.load));
+      case SettingsPhase.ready || SettingsPhase.saving:
+        break;
+    }
+    final identity = AccountIdentity.fromSession(session!);
     return AnumPage(
       onRefresh: settings.load,
       children: [

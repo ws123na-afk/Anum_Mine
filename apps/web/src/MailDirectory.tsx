@@ -9,6 +9,7 @@
 // - ContactsPanel: the person's own address book (search, paging, add, edit, delete, write to).
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { CircleDot, Contact, LogOut, PenLine, Plus, RefreshCw, Search, Share2, Trash2, UserPlus } from 'lucide-react';
+import { ALL_INBOXES } from './lib/mailAllInboxes';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatNumber, t } from './lib/i18n';
 import type { MailAccount, MailSetup } from './lib/mail';
@@ -43,10 +44,12 @@ function useRun() {
 // -- mailboxes ------------------------------------------------------------------------------------
 
 /** One select for the caller's mailboxes; own first, shared ones say so. Shown only with two or more. */
-export function MailboxPicker({ accounts, currentId, onPick }: { accounts: MailAccount[]; currentId: string; onPick: (id: string) => void }) {
+/** Picks the open mailbox; with `allOption`, "All inboxes" (ALL_INBOXES) comes first (docs/email.md#all-inboxes). */
+export function MailboxPicker({ accounts, currentId, onPick, allOption = false }: { accounts: MailAccount[]; currentId: string; onPick: (id: string) => void; allOption?: boolean }) {
   if (accounts.length < 2) return null;
   return <label className="mailsPicker"><span className="visuallyHidden">{t('mails.mailbox.pick')}</span>
     <select value={currentId} onChange={(e) => onPick(e.target.value)}>
+      {allOption && <option value={ALL_INBOXES}>{t('maila.option')}</option>}
       {accounts.map((a) => <option key={a.id} value={a.id}>{accessOf(a) === 'owner' ? a.address : t('mails.mailbox.sharedOption', { address: a.address })}</option>)}
     </select>
   </label>;

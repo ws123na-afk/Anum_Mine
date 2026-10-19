@@ -151,6 +151,7 @@ from .finance.intel_api import router as finance_intel_router
 from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
 from .mailbox.ai_api import router as mail_ai_router
+from .mailbox.all_inboxes import router as mail_all_inboxes_router
 from .mailbox.api import router as mail_router
 from .mailbox.sharing_api import router as mail_sharing_router
 from .mailbox.domains_api import router as mail_domains_router
@@ -195,6 +196,7 @@ from .assistants import router as assistants_router
 from .notifications import router as notifications_router
 from .app_calls import router as app_calls_router
 from .organisations import router as organisations_router
+from .public_logos import router as public_logos_router
 from .team_work import build_team_reminder_scheduler, router as team_router
 from .automation_dispatch import automation_dispatcher
 from .files import router as files_router
@@ -368,6 +370,7 @@ app.include_router(whatsapp_router)
 app.include_router(email_router)
 app.include_router(mail_ai_router)
 app.include_router(mail_router)
+app.include_router(mail_all_inboxes_router)
 # Phone calls (docs/calls.md): contacts, the call log, the voice provider and its webhooks.
 app.include_router(calls_router)
 app.include_router(calls_webhook_router)
@@ -410,6 +413,7 @@ app.include_router(notifications_router)
 app.include_router(app_calls_router)
 app.include_router(assistants_router)
 app.include_router(organisations_router)
+app.include_router(public_logos_router)
 app.include_router(agents_router)
 app.include_router(home_router)
 app.include_router(setup_plans_router)

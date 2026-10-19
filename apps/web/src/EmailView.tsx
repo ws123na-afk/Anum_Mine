@@ -3,7 +3,8 @@
 // (sanitized on the server, nothing remote loads), reply, reply all, forward and new messages written
 // as drafts, and sending only after an owner approves the exact message (payload hash shown). Flags,
 // moves, and delete for good (an approval too) act on one message or a selection. Phase 3: several
-// mailboxes (own and shared), sharing, sender identities and contacts (MailDirectory.tsx).
+// mailboxes (own and shared), sharing, sender identities and contacts (MailDirectory.tsx), and All
+// inboxes over every readable mailbox (MailAllInboxes.tsx).
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowLeft, AtSign, CircleDot, Contact, Download, FileText, Forward, Lock, Mail, MailOpen, Paperclip, PenLine, Plug, RefreshCw, Reply, ReplyAll, Send, Settings, ShieldCheck, Trash2, Unplug,
@@ -39,6 +40,8 @@ import { ContactsPanel, FromPicker, IdentitiesPanel, LeaveShared, MailboxPicker,
 import { canSendFrom, ownsMailbox, pickAccount, senderLabel, type MailContact } from './lib/mailDirectory';
 import { PageHeader, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import { useIsOwner } from './useIsOwner';
+import { AllInboxes } from './MailAllInboxes';
+import { ALL_INBOXES } from './lib/mailAllInboxes';
 import './email.css';
 
 type Note = { text: string; error?: boolean } | null;
@@ -57,13 +60,13 @@ function rememberMailbox(id: string): void {
   try { window.localStorage.setItem(MAILBOX_KEY, id); } catch { /* private mode: not remembered */ }
 }
 
-function Notice({ note }: { note: Note }) {
+export function Notice({ note }: { note: Note }) {
   if (!note) return null;
   return <p className={`notice ${note.error ? 'errorNotice' : ''}`} role={note.error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{note.text}</p>;
 }
 
 /** Problems with the mail server read as the fix, not as a status code. */
-function mailError(e: unknown): string {
+export function mailError(e: unknown): string {
   if (e instanceof ApiError && e.status === 503) return t('mail.offline');
   return describeError(e);
 }
@@ -108,6 +111,13 @@ export function EmailView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
   }
 
   const pick = (id: string) => { setAccountId(id); rememberMailbox(id); setNote(null); };
+  // All inboxes (docs/email.md#all-inboxes): offered once there are two mailboxes or more.
+  if (accountId === ALL_INBOXES && setup.accounts.length > 1) {
+    return <div className="mailLayout">
+      <AllInboxes setup={setup} owner={owner} onOpenApprovals={onOpenApprovals} onOpenMailbox={pick}
+        header={(actions) => head(<><MailboxPicker accounts={setup.accounts} currentId={ALL_INBOXES} onPick={pick} allOption />{actions}</>)} />
+    </div>;
+  }
   const writable = setup.can_act && canSendFrom(account);
   async function writeTo(contact: MailContact) {
     if (!account) return;
@@ -123,7 +133,7 @@ export function EmailView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
     <Mailbox key={account.id} setup={setup} account={account} owner={owner} note={note} setNote={setNote} onOpenApprovals={onOpenApprovals}
       openDraft={openDraft} onDraftOpened={() => setOpenDraft(null)}
       header={(actions) => head(<>
-        <MailboxPicker accounts={setup.accounts} currentId={account.id} onPick={pick} />
+        <MailboxPicker accounts={setup.accounts} currentId={account.id} onPick={pick} allOption />
         <button type="button" className={`chipButton ${account.status === 'connected' ? 'success' : 'warning'}`} aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
           {/* With the mailbox picker beside it, the chip names the status; otherwise the address. */}
           <span className="chipDot" aria-hidden="true" />{setup.accounts.length > 1
@@ -158,7 +168,7 @@ export function EmailView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
   </div>;
 }
 
-function Panel({ icon, title, text, children }: { icon: ReactNode; title: string; text: string; children?: ReactNode }) {
+export function Panel({ icon, title, text, children }: { icon: ReactNode; title: string; text: string; children?: ReactNode }) {
   const id = useId();
   return <section className="surface mailPanel" aria-labelledby={id}><span className="mailPanelIcon" aria-hidden="true">{icon}</span><div><h2 id={id}>{title}</h2><p className="muted">{text}</p>{children}</div></section>;
 }
@@ -453,7 +463,7 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
   </>;
 }
 
-function Reader({ account, folder, uid, message, canAct, busy, moves, onBack, onAction, onCompose, onDrafted, onOpenApprovals }: {
+export function Reader({ account, folder, uid, message, canAct, busy, moves, onBack, onAction, onCompose, onDrafted, onOpenApprovals }: {
   account: MailAccount; folder: MailFolder; uid: number; message: MailMessage | null; canAct: boolean; busy: boolean; moves: MailAction[];
   onBack: () => void; onAction: (action: MailAction) => void; onCompose: (kind: MailDraftKind) => void; onDrafted: (draft: MailDraft) => void; onOpenApprovals?: () => void;
 }) {
@@ -514,7 +524,7 @@ function Reader({ account, folder, uid, message, canAct, busy, moves, onBack, on
   </article>;
 }
 
-function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed, onSent, onOpenApprovals }: {
+export function Composer({ draftId, account, setup, owner, onBack, onChanged, onClosed, onSent, onOpenApprovals }: {
   draftId: string; account: MailAccount; setup: MailSetup; owner: boolean; onBack: () => void; onChanged: (draft: MailDraft | null) => void;
   onClosed: () => void; onSent: () => void; onOpenApprovals?: () => void;
 }) {

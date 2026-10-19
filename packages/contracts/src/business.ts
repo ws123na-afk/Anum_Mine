@@ -188,3 +188,100 @@ export interface BusinessKpi {
   proposals_sent: number; proposals_accepted: number; contracted: MoneyFigure[]; cash_collected: MoneyFigure[]; research_runs: number; web_searches: number;
   truncated: boolean; notes: string[];
 }
+
+// -- support tickets (/api/v1/business/support, docs/business.md#support-tickets) -----------------
+// Targets are working hours inside the policy's working days and hours, never wall-clock: there is
+// no 24/7 cover. A ticket links to the inbound email or WhatsApp conversation by id only.
+
+export type TicketSeverity = 'critical' | 'high' | 'normal' | 'low';
+export type TicketStatus = 'new' | 'triaged' | 'in_progress' | 'waiting_on_customer' | 'resolved' | 'closed';
+export type TicketSource = 'manual' | 'email' | 'whatsapp';
+export type TicketEntitlement = 'project' | 'support_plan' | 'none';
+export type ResolutionCode = 'fixed' | 'workaround' | 'answered' | 'no_fault_found' | 'duplicate' | 'out_of_scope';
+export type ReplyChannel = 'email' | 'whatsapp';
+export type ReplyStatus = 'draft' | 'pending_approval' | 'sent' | 'failed' | 'discarded';
+/** One SLA clock: met or missed once done, paused while waiting on the customer, else breached, due soon or on track. */
+export type SlaClock = 'none' | 'met' | 'missed' | 'paused' | 'breached' | 'due_soon' | 'on_track';
+
+export interface SeverityTarget { response_hours: number; resolution_hours: number }
+
+export interface SupportPolicy {
+  timezone: string;
+  /** Monday 0 to Sunday 6. */
+  work_days: number[];
+  start_hour: number;
+  end_hour: number;
+  targets: Record<TicketSeverity, SeverityTarget>;
+  note: string;
+}
+
+export interface SupportSetup {
+  policy: SupportPolicy;
+  severities: TicketSeverity[];
+  statuses: TicketStatus[];
+  open_statuses: TicketStatus[];
+  transitions: Record<TicketStatus, TicketStatus[]>;
+  resolution_codes: ResolutionCode[];
+  entitlements: TicketEntitlement[];
+  can_write: boolean;
+  can_manage: boolean;
+  can_decide: boolean;
+  can_link_email: boolean;
+  can_link_whatsapp: boolean;
+}
+
+export interface SupportAssignee { user_id: string; role: string; you: boolean }
+
+export interface SupportSummary { open: number; new: number; unassigned: number; escalated: number; breached: number; waiting_on_customer: number; truncated: boolean }
+
+export interface TicketSla { response: SlaClock; resolution: SlaClock; breached: boolean }
+
+export interface SupportTicket extends Scoped {
+  title: string; description: string; account_id: string | null; contact_id: string | null; project_id: string | null;
+  requester_name: string; requester_email: string | null; requester_phone: string | null; requester_verified: boolean;
+  entitlement: TicketEntitlement; support_offer_id: string | null; entitlement_note: string;
+  severity: TicketSeverity; status: TicketStatus; assignee_id: string | null;
+  source: TicketSource; source_ref: string | null; source_account_id: string | null;
+  reported_at: string; response_due_at: string | null; resolution_due_at: string | null; first_responded_at: string | null;
+  sla_paused_at: string | null; sla_paused_minutes: number;
+  escalated: boolean; escalation_reason: string; escalated_at: string | null; escalated_by: string | null;
+  resolution_code: ResolutionCode | null; resolution_summary: string; resolved_at: string | null; resolved_by: string | null;
+  closed_at: string | null; closed_by: string | null; reopened_count: number; created_by: string;
+  /** Short reference such as T-1A2B3C. */
+  reference: string;
+  account_name: string | null; contact_name: string | null; project_name: string | null; support_plan_name: string | null;
+  sla: TicketSla;
+  /** The statuses this ticket may move to now. */
+  allowed: TicketStatus[];
+}
+
+export interface TicketReplyApproval {
+  id: string; task_id: string; action: string; risk_level: string; status: string; reason: string; created_at: string; decided_at: string | null;
+  arguments: Record<string, unknown>; payload_hash: string | null; expires_at: string | null; decided_by: string | null; decision_reason: string | null;
+}
+
+export interface TicketReply extends Scoped {
+  ticket_id: string; channel: ReplyChannel; body: string; status: ReplyStatus; generator: string; external_ref: string | null;
+  approval_id: string | null; task_id: string | null; error: string; requested_by: string | null; requested_at: string | null; sent_at: string | null;
+  created_by: string;
+  approval: TicketReplyApproval | null;
+}
+
+export interface TicketActivity extends BusinessActivity { ticket_id: string | null }
+
+export interface TicketDetail extends SupportTicket {
+  replies: TicketReply[];
+  activities: TicketActivity[];
+  can_reply: boolean;
+  reply_channel: ReplyChannel | null;
+}
+
+export interface TicketReplyRequest { ticket: TicketDetail; reply: TicketReply; detail: string }
+
+/** Fields a ticket accepts on create and PATCH (all optional on PATCH; null clears a link). */
+export interface TicketFields {
+  title?: string; description?: string; severity?: TicketSeverity;
+  account_id?: string | null; contact_id?: string | null; project_id?: string | null;
+  requester_name?: string; requester_email?: string | null; requester_phone?: string | null;
+  entitlement?: TicketEntitlement; support_offer_id?: string | null; entitlement_note?: string; assignee_id?: string | null;
+}
