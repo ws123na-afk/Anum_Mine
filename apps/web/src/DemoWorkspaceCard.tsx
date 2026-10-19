@@ -4,7 +4,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowRightLeft, CircleDot, Lock, Presentation, RefreshCw, ShieldCheck } from 'lucide-react';
 import { ConfirmDialog } from './Dialog';
-import { HelpLink } from './HelpLink';
 import { getDemoStatus, resetDemo, type DemoStatus } from './lib/demo';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t } from './lib/i18n';
@@ -63,7 +62,7 @@ export function DemoWorkspaceCard({ onSwitchWorkspace }: { onSwitchWorkspace?: (
           : <button type="button" disabled={busy} onClick={() => void fill()}><Presentation aria-hidden="true" />{busy ? t('demo.working') : t('demo.create')}</button>}
         {load.status.exists && onSwitchWorkspace && <button type="button" disabled={busy} onClick={() => void onSwitchWorkspace(load.status.workspaceId).catch((error: unknown) => setFlash({ text: describeError(error), error: true }))}><ArrowRightLeft aria-hidden="true" />{t('demo.open')}</button>}
       </div>
-      <HelpLink article="demo" />
+      
     </>}
     {confirm && <ConfirmDialog title={t('demo.resetTitle')} confirmLabel={t('demo.reset')} busy={busy} onCancel={() => setConfirm(false)} onConfirm={() => void fill()}>
       <p>{t('demo.resetText')}</p>

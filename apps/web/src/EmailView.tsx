@@ -43,7 +43,6 @@ import { useIsOwner } from './useIsOwner';
 import { AllInboxes } from './MailAllInboxes';
 import { ALL_INBOXES } from './lib/mailAllInboxes';
 import './email.css';
-import { HelpLink } from './HelpLink';
 
 type Note = { text: string; error?: boolean } | null;
 type Pane = { kind: 'message'; uid: number } | { kind: 'draft'; id: string } | null;
@@ -429,7 +428,7 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
         {listState === 'loading' && <p className="muted mailPad" role="status">{t('mail.list.loading')}</p>}
         {listState === 'error' && <div className="mailPad"><Notice note={{ text: t('mail.list.failed', { reason: listError }), error: true }} /><div className="actions"><button type="button" onClick={() => folderId ? void loadList(folderId, filters) : window.location.reload()}><RefreshCw aria-hidden="true" />{t('mail.retry')}</button></div></div>}
         {listState === 'ready' && items.length === 0 && <div className="paneEmpty"><Mail aria-hidden="true" />
-          {filtersActive(filters) ? <><h3>{t('mailc.search.noMatch', { folder: folder ? folderLabel(folder) : '' })}</h3><p>{t('mailc.search.noMatchText')}</p><HelpLink /><div className="actions"><button type="button" className="secondary" onClick={() => setFilters(NO_FILTERS)}>{t('mailc.search.clear')}</button></div></>
+          {filtersActive(filters) ? <><h3>{t('mailc.search.noMatch', { folder: folder ? folderLabel(folder) : '' })}</h3><p>{t('mailc.search.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={() => setFilters(NO_FILTERS)}>{t('mailc.search.clear')}</button></div></>
             : <><h3>{emptyText}</h3>{canAct && folder?.role === 'inbox' && <div className="actions"><button type="button" className="secondary" onClick={() => void startDraft('new')}><PenLine aria-hidden="true" />{t('mail.compose')}</button></div>}</>}
         </div>}
         {listState === 'ready' && items.length > 0 && <ul ref={listRef} className="mailRows">{items.map((m) => {

@@ -26,7 +26,6 @@ import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { PageHeader, PageSummary } from './PageParts';
 import './commerce.css';
-import { HelpLink } from './HelpLink';
 
 type Tab = CommerceTab;
 const TABS = COMMERCE_TABS;
@@ -144,7 +143,7 @@ function Overview() {
       <Metric icon={<Truck />} label={t('commerce.metric.pending')} value={formatCount(d.pending_total)} detail={d.late_total ? t('commerce.metric.late', { count: d.late_total }) : t('commerce.metric.onTime')} tone={d.late_total ? 'danger' : undefined} />
       <Metric icon={<Undo2 />} label={t('commerce.metric.returns')} value={formatCount(d.returns.count)} detail={t('commerce.metric.returnRate', { rate: returnRate })} />
     </section>
-    {d.connectors === 0 ? <div className="emptyState"><Plug aria-hidden="true" /><h3>{t('commerce.overview.noChannels')}</h3><p>{t('commerce.overview.noChannelsText')}</p><HelpLink /></div> : <>
+    {d.connectors === 0 ? <div className="emptyState"><Plug aria-hidden="true" /><h3>{t('commerce.overview.noChannels')}</h3><p>{t('commerce.overview.noChannelsText')}</p></div> : <>
       <SalesChart dashboard={d} />
       <div className="cmGrid cmOverviewGrid">
         <section className="surface cmPanel cmWide" aria-labelledby="cm-by-channel">
@@ -614,7 +613,7 @@ function Connections({ permissions, onChanged }: { permissions: CommerceSetup['p
       {state.kind === 'loading' && <Notice busy>{t('commerce.connections.loading')}</Notice>}
       {state.kind === 'denied' && <Notice error>{t('commerce.denied.read')}</Notice>}
       {state.kind === 'error' && <LoadError message={t('commerce.error.connections', { message: state.message })} retry={() => void load()} />}
-      {state.kind === 'ready' && state.value.length === 0 && !adding && <div className="emptyState"><Link2 aria-hidden="true" /><h3>{t('commerce.connections.empty')}</h3><p>{permissions.manage ? t('commerce.connections.emptyOwner') : t('commerce.connections.emptyMember')}</p><HelpLink /></div>}
+      {state.kind === 'ready' && state.value.length === 0 && !adding && <div className="emptyState"><Link2 aria-hidden="true" /><h3>{t('commerce.connections.empty')}</h3><p>{permissions.manage ? t('commerce.connections.emptyOwner') : t('commerce.connections.emptyMember')}</p></div>}
       {state.kind === 'ready' && state.value.length > 0 && <ul className="cmConnectors">{state.value.map((c) => <li key={c.id} className="cmConnector">
         <div className="cmConnectorHead">
           <div><strong><ChannelDot channel={c.channel} />{c.name}</strong><small>{channelLabel(c.channel)}{c.marketplace_names.length && c.channel !== 'own_store' ? ` · ${c.marketplace_names.join(', ')}` : ''}{c.channel === 'own_store' ? ` · ${t(`commerce.mode.${String(c.settings.mode ?? 'anum360')}` as MessageKey)}` : ''}</small></div>

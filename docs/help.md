@@ -4,7 +4,7 @@ Short, task-based help articles for every module, shown inside the apps and work
 
 ## Where people find it
 
-- **Web**: the **?** button in the top bar opens the help panel (a side drawer). It lists every article, puts the article for the current page first under "For this page", and searches as you type. Each page's empty state has a **How this page works** link that opens that page's article directly.
+- **Web**: the **?** button in the top bar opens the help panel (a side drawer). It lists every article, puts the article for the current page first under "For this page", and searches as you type.
 - **Flutter**: Settings has a **?** button in its top bar that opens the Help screen: search, the article list and each article, with the same files.
 - Every article ends with a link to the full documentation in this folder, and the panel links to this page when nothing matches a search.
 

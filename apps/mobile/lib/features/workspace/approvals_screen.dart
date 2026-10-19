@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import 'approvals_paging.dart';
+import 'list_kit.dart';
 import 'tasks_screen.dart';
 import 'work_status.dart';
 import 'workspace_controller.dart';
@@ -9,86 +14,247 @@ import 'workspace_models.dart';
 
 /// Approvals as a designed surface: risk first, the exact action, why it was
 /// stopped, and which task asked. Approving always needs a deliberate confirm.
-class ApprovalsScreen extends StatelessWidget {
+/// The queue and its history are paged: pending first, filter tabs, search and
+/// "Load more" (docs/approvals-and-risk.md#paging-filters-and-search).
+class ApprovalsScreen extends StatefulWidget {
   const ApprovalsScreen({required this.controller, super.key});
   final WorkspaceController controller;
 
-  int _riskRank(String risk) => switch (risk.toLowerCase()) {
+  @override
+  State<ApprovalsScreen> createState() => _ApprovalsScreenState();
+}
+
+class _ApprovalsScreenState extends State<ApprovalsScreen> {
+  late final ApprovalsListController _list;
+  final _search = TextEditingController();
+  Timer? _debounce;
+  String _signal = '';
+
+  static int _riskRank(String risk) => switch (risk.toLowerCase()) {
         'blocked' || 'critical' => 0,
         'high' => 1,
         'medium' => 2,
         _ => 3,
       };
 
+  /// What the shell knows about the queue; a change means an approval event
+  /// or a decision happened, so the first page is reloaded quietly.
+  String _signalOf(WorkspaceController c) => c.approvals
+      .map((a) => '${a.id}:${a.status}:${a.approvers.length}')
+      .join(',');
+
+  @override
+  void initState() {
+    super.initState();
+    final repository = widget.controller.repository;
+    _list = ApprovalsListController(repository is ApprovalsPagingRepository
+        ? repository as ApprovalsPagingRepository
+        : LocalApprovalsPaging(() => widget.controller.approvals));
+    _signal = _signalOf(widget.controller);
+    widget.controller.addListener(_onShell);
+    _list.load();
+  }
+
+  void _onShell() {
+    final next = _signalOf(widget.controller);
+    if (next == _signal) return;
+    _signal = next;
+    _list.load(quiet: true);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onShell);
+    _debounce?.cancel();
+    _search.dispose();
+    _list.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() {});
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      _list.setQuery(value);
+    });
+  }
+
+  void _clearSearch() {
+    _debounce?.cancel();
+    _search.clear();
+    setState(() {});
+    _list.setQuery('');
+  }
+
+  Future<void> _refresh() async {
+    await widget.controller.load();
+    await _list.load(quiet: true);
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-        listenable: controller,
+        listenable: Listenable.merge([widget.controller, _list]),
         builder: (context, _) {
+          final l = AnumLocalizations.maybeOf(context);
           final p = context.palette;
-          final pending = [...controller.pendingApprovals]..sort((a, b) {
+          final now = DateTime.now();
+          final pending = _list.items
+              .where((a) => a.effectiveStatus(now) == 'pending')
+              .toList()
+            ..sort((a, b) {
               final byRisk = _riskRank(a.risk).compareTo(_riskRank(b.risk));
               return byRisk != 0 ? byRisk : a.createdAt.compareTo(b.createdAt);
             });
-          final decided = controller.approvals
-              .where((a) => a.effectiveStatus() != 'pending')
-              .toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-          final approved =
-              decided.where((a) => a.effectiveStatus() == 'approved').length;
-          final rejected =
-              decided.where((a) => a.effectiveStatus() == 'rejected').length;
+          final decided = _list.items
+              .where((a) => a.effectiveStatus(now) != 'pending')
+              .toList();
+          final summary = _list.summary;
+          String count(int? value) => value == null ? '-' : '$value';
+          final searching = _list.query.isNotEmpty || _search.text.isNotEmpty;
+          final ready = _list.phase == ApprovalsPhase.ready;
+
+          Widget noMatch() => AnumSurface(
+                child: AnumEmpty(
+                  icon: Icons.search_off,
+                  title: l.f('apv.empty.searchTitle', {'query': _list.query}),
+                  message: l.t('apv.empty.searchText'),
+                  action: l.t('apv.search.clear'),
+                  onAction: _clearSearch,
+                ),
+              );
 
           return AnumPage(
-            onRefresh: controller.load,
+            onRefresh: _refresh,
             children: [
-              const AnumHeader(
-                eyebrow: 'Governance',
-                title: 'Approvals',
-                subtitle:
-                    'Agents stop and ask before risky actions. Highest risk first.',
+              AnumHeader(
+                eyebrow: l.t('apv.eyebrow'),
+                title: l.t('apv.title'),
+                subtitle: l.t('apv.subtitle'),
                 large: true,
               ),
               AnumMetricGrid(children: [
                 AnumMetric(
-                  label: 'Waiting',
-                  value: '${pending.length}',
+                  label: l.t('apv.metric.waiting'),
+                  value: count(summary?.pending),
                   icon: Icons.front_hand_outlined,
-                  accent: pending.isEmpty ? null : p.warn,
+                  accent: (summary?.pending ?? 0) == 0 ? null : p.warn,
                 ),
                 AnumMetric(
-                    label: 'Approved',
-                    value: '$approved',
+                    label: l.t('apv.metric.approved'),
+                    value: count(summary?.approved),
                     icon: Icons.check_circle_outline),
                 AnumMetric(
-                    label: 'Rejected', value: '$rejected', icon: Icons.block),
+                    label: l.t('apv.metric.rejected'),
+                    value: count(summary?.rejected),
+                    icon: Icons.block),
                 AnumMetric(
-                  label: 'Total',
-                  value: '${controller.approvals.length}',
+                  label: l.t('apv.metric.total'),
+                  value: count(summary?.total),
                   icon: Icons.fact_check_outlined,
                 ),
               ]),
-              if (pending.isEmpty)
-                const AnumSurface(
-                  child: AnumEmpty(
-                    icon: Icons.verified_outlined,
-                    title: 'Nothing is waiting for you',
-                    message:
-                        'When an agent wants to do something risky, it will appear here first.',
-                  ),
-                )
-              else
-                for (final approval in pending)
-                  PendingApprovalCard(
-                      approval: approval, controller: controller),
-              if (decided.isNotEmpty)
+              Semantics(
+                container: true,
+                label: l.t('apv.filter.label'),
+                child: AnumSegmentTabs<ApprovalFilter>(
+                  selected: _list.filter,
+                  onSelected: _list.setFilter,
+                  segments: [
+                    AnumSegment(ApprovalFilter.all, l.t('apv.filter.all'),
+                        key: const Key('approvals-filter-all')),
+                    AnumSegment(
+                        ApprovalFilter.pending, l.t('apv.filter.pending'),
+                        key: const Key('approvals-filter-pending')),
+                    AnumSegment(
+                        ApprovalFilter.decided, l.t('apv.filter.decided'),
+                        key: const Key('approvals-filter-decided')),
+                  ],
+                ),
+              ),
+              TextField(
+                key: const Key('approvals-search'),
+                controller: _search,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  labelText: l.t('apv.search.label'),
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _search.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: l.t('apv.search.clear'),
+                          icon: const Icon(Icons.close),
+                          onPressed: _clearSearch),
+                ),
+                onChanged: _onSearchChanged,
+                onSubmitted: (value) {
+                  _debounce?.cancel();
+                  _list.setQuery(value);
+                },
+              ),
+              if (_list.phase == ApprovalsPhase.loading)
+                Center(
+                    child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: CircularProgressIndicator(
+                            semanticsLabel: l.t('apv.loading')))),
+              if (_list.phase == ApprovalsPhase.denied)
+                AnumSurface(
+                    child: AnumEmpty(
+                        icon: Icons.lock_outline,
+                        title: l.t('apv.denied.title'),
+                        message: l.t('apv.denied.text'))),
+              if (_list.phase == ApprovalsPhase.error)
+                AnumSurface(
+                    child: AnumEmpty(
+                        icon: Icons.cloud_off_outlined,
+                        title: l.t('apv.error.title'),
+                        message: l.f('apv.error.text',
+                            {'reason': _list.error ?? 'The request failed.'}),
+                        action: l.t('apv.retry'),
+                        onAction: _list.load)),
+              if (ready && _list.filter != ApprovalFilter.decided) ...[
+                if (pending.isEmpty)
+                  searching
+                      ? noMatch()
+                      : AnumSurface(
+                          child: AnumEmpty(
+                            icon: Icons.verified_outlined,
+                            title: l.t('apv.empty.pendingTitle'),
+                            message: l.t('apv.empty.pendingText'),
+                          ),
+                        )
+                else
+                  for (final approval in pending)
+                    PendingApprovalCard(
+                        key: ValueKey('pending-${approval.id}'),
+                        approval: approval,
+                        controller: widget.controller,
+                        onDecided: () => _list.load(quiet: true)),
+              ],
+              if (ready &&
+                  _list.filter == ApprovalFilter.decided &&
+                  decided.isEmpty)
+                searching
+                    ? noMatch()
+                    : AnumSurface(
+                        child: AnumEmpty(
+                          icon: Icons.history,
+                          title: l.t('apv.empty.decidedTitle'),
+                          message: l.t('apv.empty.decidedText'),
+                        ),
+                      ),
+              if (ready &&
+                  _list.filter != ApprovalFilter.pending &&
+                  decided.isNotEmpty)
                 AnumSurface(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const AnumHeader(
-                            eyebrow: 'History', title: 'Decisions'),
+                        AnumHeader(
+                            eyebrow: l.t('apv.history.eyebrow'),
+                            title: l.t('apv.history.title')),
                         const SizedBox(height: 6),
-                        for (final approval in decided.take(20))
+                        for (final approval in decided)
                           AnumRow(
                             icon: approval.effectiveStatus() == 'approved'
                                 ? Icons.check
@@ -96,7 +262,8 @@ class ApprovalsScreen extends StatelessWidget {
                             tone: approval.effectiveStatus() == 'approved'
                                 ? AnumTone.ok
                                 : AnumTone.stop,
-                            title: approvalTitle(approval, controller.tasks),
+                            title: approvalTitle(
+                                approval, widget.controller.tasks),
                             subtitle: 'Tool: ${approval.action}',
                             detail: [
                               decisionSummary(approval),
@@ -109,11 +276,55 @@ class ApprovalsScreen extends StatelessWidget {
                           ),
                       ]),
                 ),
+              if (ready && _list.items.isNotEmpty) _MoreFooter(list: _list),
               const SizedBox(height: AnumSpacing.lg),
             ],
           );
         },
       );
+}
+
+/// "N of M shown" and the Load more button of the paged list.
+class _MoreFooter extends StatelessWidget {
+  const _MoreFooter({required this.list});
+  final ApprovalsListController list;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    final p = context.palette;
+    final total = list.summary?.totalFor(list.filter);
+    final shown = list.items.length;
+    final text = total == null
+        ? l.f('apv.shownUnknown', {'shown': shown})
+        : l.f('apv.shown',
+            {'shown': shown, 'total': total < shown ? shown : total});
+    return Column(children: [
+      Semantics(
+          liveRegion: true,
+          child: Text(text, style: TextStyle(color: p.muted, fontSize: 13))),
+      if (list.pagingError != null) ...[
+        const SizedBox(height: 6),
+        Semantics(
+            liveRegion: true,
+            child: Text(l.f('apv.loadMoreError', {'reason': list.pagingError!}),
+                style: TextStyle(color: p.warn, fontSize: 13))),
+      ],
+      if (list.hasMore) ...[
+        const SizedBox(height: 8),
+        OutlinedButton(
+          key: const Key('approvals-load-more'),
+          onPressed: list.paging ? null : list.loadMore,
+          child: list.paging
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : Text(l.t('apv.loadMore')),
+        ),
+      ],
+    ]);
+  }
 }
 
 /// One pending approval with everything needed to decide it: the exact
