@@ -28,6 +28,18 @@ from .dependencies import (
     _membership_unit_of_work as _membership_units,
 )
 from .approval_integrity import as_viewed
+from .approval_paging import (
+    APPROVAL_PAGE_DEFAULT_LIMIT,
+    APPROVAL_PAGE_MAX_LIMIT,
+    APPROVAL_QUERY_MAX_CHARS,
+    ApprovalFilter,
+    ApprovalPage,
+    ApprovalSummary,
+)
+from .approval_paging import decode_cursor as decode_approval_cursor
+from .approval_paging import encode_cursor as encode_approval_cursor
+from .approval_paging import group_of as approval_group
+from .approval_paging import normalize_query as normalize_approval_query
 from .audit import AuditRecord
 from .errors import ApplicationError, ErrorCode, application_error_handler, error_response, register_exception_handlers
 from .events import CanonicalEventName, create_event
@@ -1566,6 +1578,51 @@ async def list_approvals(
     now = utc_now()
     approvals = [as_viewed(approval, now) for approval in repository.list_approvals(context)]
     return _with_progress(approvals, context, repository, siblings=approvals)
+
+
+@app.get("/api/v1/approvals/page", response_model=ApprovalPage)
+async def list_approvals_page(
+    status_filter: ApprovalFilter = Query(default=ApprovalFilter.ALL, alias="status"),
+    query: str | None = Query(default=None, max_length=APPROVAL_QUERY_MAX_CHARS),
+    task_id: str | None = Query(default=None, max_length=80),
+    cursor: str | None = Query(default=None, max_length=400),
+    limit: int = Query(default=APPROVAL_PAGE_DEFAULT_LIMIT, ge=1, le=APPROVAL_PAGE_MAX_LIMIT),
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> ApprovalPage:
+    """Approvals pending first, then newest first, filtered and searched, one keyset page at a time."""
+    require_permission(context, Permission.APPROVAL_READ)
+    try:
+        after = decode_approval_cursor(cursor) if cursor else None
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor") from exc
+    now = utc_now()
+    rows, more = repository.list_approvals_page(
+        context,
+        now=now,
+        status=status_filter,
+        query=normalize_approval_query(query),
+        task_id=task_id or None,
+        cursor=after,
+        limit=limit,
+    )
+    items = _with_progress([as_viewed(approval, now) for approval in rows], context, repository)
+    next_cursor = (
+        encode_approval_cursor(approval_group(rows[-1], now), rows[-1].created_at, rows[-1].id)
+        if more and rows
+        else None
+    )
+    return ApprovalPage(items=items, next_cursor=next_cursor)
+
+
+@app.get("/api/v1/approvals/summary", response_model=ApprovalSummary)
+async def approvals_summary(
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> ApprovalSummary:
+    """How many approvals are pending, approved, rejected and expired now (the badge and metrics)."""
+    require_permission(context, Permission.APPROVAL_READ)
+    return repository.summarize_approvals(context, utc_now())
 
 
 @app.get("/api/v1/approvals/{approval_id}", response_model=Approval)
