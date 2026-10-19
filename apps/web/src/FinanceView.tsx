@@ -77,7 +77,7 @@ export function FinanceView() {
   if (tab !== 'overview') crumbs.push({ label: t(`finance.tab.${tab}` as MessageKey) });
   const header = <PageHeader title={viewLabel('finance')} subtitle={t('finance.subtitle')} crumbs={tab === 'overview' ? undefined : crumbs} actions={summary.kind === 'ready' ? <>
     <button type="button" className="secondary" onClick={() => setSettingsOpen(true)}><Settings2 aria-hidden="true" />{t('finance.settings.open')}</button>
-    <button type="button" onClick={() => pick('import')}><FileUp aria-hidden="true" />{t('finance.import.open')}</button>
+    {tab !== 'import' && <button type="button" onClick={() => pick('import')}><FileUp aria-hidden="true" />{t('finance.import.open')}</button>}
   </> : undefined} />;
 
   if (summary.kind === 'loading' && accounts.kind !== 'denied') return <div className="cmLayout">{header}<Notice busy>{t('finance.loading')}</Notice></div>;
@@ -238,7 +238,7 @@ function SpendChart({ summary, currency, onOpen }: { summary: FinanceSummary; cu
           })}
         </svg>
       </div>
-      <details className="cmChartTable"><summary>{t('finance.chart.table')}</summary><div className="cmTableWrap"><table className="cmTable">
+      <details className="cmChartTable"><summary>{t('finance.chart.table')}</summary><div className="cmTableWrap" tabIndex={0}><table className="cmTable">
         <thead><tr><th scope="col">{t('finance.col.category')}</th><th scope="col" className="num">{t('finance.col.count')}</th><th scope="col" className="num">{t('finance.col.amount')}</th></tr></thead>
         <tbody>{bars.map((bar) => <tr key={bar.category}><td>{categoryLabel(bar.category)}</td><td className="num">{bar.count}</td><td className="num"><Money value={bar.amount} currency={currency} /></td></tr>)}</tbody>
       </table></div></details>
@@ -296,7 +296,7 @@ function Transactions({ accounts, onChanged, onImport }: { accounts: FinanceAcco
         <button type="button" className="cmPrimary" disabled={accounts.length === 0} onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.transactions.add')}</button>
       </div>
     </div>
-    <form className="cmFilters finFilters" role="search" aria-label={t('finance.transactions.filters')} onSubmit={(e) => { e.preventDefault(); setOffset(0); setFilters(draft); }}>
+    <form className="cmFilters finFilters" role="search" aria-label={t('finance.transactions.filters')} onSubmit={(e) => { e.preventDefault(); setOffset(0); setFilters({ ...draft }); }}>
       <label className="cmSearch"><span className="visuallyHidden">{t('finance.transactions.search')}</span><input type="search" value={draft.q} maxLength={200} placeholder={t('finance.transactions.search')} onChange={(e) => setDraft({ ...draft, q: e.target.value })} /></label>
       {wide ? moreFilters : <details className="finMoreFilters" open={filtered || undefined}><summary>{t('finance.filter.more')}</summary><div className="cmFilters">{moreFilters}</div></details>}
       <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
@@ -309,7 +309,7 @@ function Transactions({ accounts, onChanged, onImport }: { accounts: FinanceAcco
     {state.kind === 'ready' && (state.value.items.length === 0
       ? <Empty icon={<FileUp aria-hidden="true" />} title={filtered ? t('finance.transactions.noMatch') : t('finance.transactions.empty')} text={filtered ? t('finance.transactions.noMatchText') : t('finance.transactions.emptyText')}
         action={filtered ? undefined : <button type="button" onClick={onImport}><FileUp aria-hidden="true" />{t('finance.import.open')}</button>} />
-      : <><div className="cmTableWrap"><table className="cmTable finTable finTxTable">
+      : <><div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finTxTable">
         <thead><tr><th scope="col">{t('finance.col.date')}</th><th scope="col">{t('finance.col.description')}</th><th scope="col">{t('finance.col.category')}</th><th scope="col" className="num">{t('finance.col.amount')}</th><th scope="col"><span className="visuallyHidden">{t('finance.col.actions')}</span></th></tr></thead>
         <tbody>{state.value.items.map((row) => <tr key={row.id}>
           <td className="finDate"><bdi dir="ltr">{row.posted_on}</bdi></td>
@@ -529,7 +529,7 @@ function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: Finan
           <button type="button" className="secondary" disabled={busy} onClick={() => void runPreview()}><RefreshCw aria-hidden="true" />{t('finance.import.recheck')}</button>
         </div>
       </fieldset>
-      {preview.rows.length > 0 && <div className="cmTableWrap"><table className="cmTable finTable">
+      {preview.rows.length > 0 && <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable">
         <caption className="visuallyHidden">{t('finance.import.sample')}</caption>
         <thead><tr><th scope="col">{t('finance.import.line')}</th><th scope="col">{t('finance.col.date')}</th><th scope="col">{t('finance.col.description')}</th><th scope="col">{t('finance.col.category')}</th><th scope="col" className="num">{t('finance.col.amount')}</th></tr></thead>
         <tbody>{preview.rows.map((row) => <tr key={row.line} className={row.duplicate ? 'finDuplicate' : undefined}>

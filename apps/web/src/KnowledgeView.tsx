@@ -244,7 +244,7 @@ function CollectionDetail({ collection, starred, onStar, onBack, onChanged, onCo
       <Notice flash={flash} />
       <form className="toolbar kbItemFilters" role="search" onSubmit={(e) => { e.preventDefault(); setFilters({ ...filters, q: draft.trim() || undefined }); }}>
         <label className="visuallyHidden" htmlFor="kb-filter-q">{t('kb.filterItems')}</label>
-        <input id="kb-filter-q" type="search" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={t('kb.filterItems')} maxLength={200} dir="auto" />
+        <input id="kb-filter-q" type="search" required value={draft} onChange={(e) => { setDraft(e.target.value); if (!e.target.value && filters.q) setFilters({ ...filters, q: undefined }); }} placeholder={t('kb.filterItems')} maxLength={200} dir="auto" />
         <label className="visuallyHidden" htmlFor="kb-filter-kind">{t('kb.kind')}</label>
         <select id="kb-filter-kind" value={filters.kind ?? ''} onChange={(e) => setFilters({ ...filters, kind: e.target.value as KnowledgeItemKind | '' })}><option value="">{t('kb.anyKind')}</option><option value="file">{t('kb.kind.file')}</option><option value="note">{t('kb.kind.note')}</option></select>
         <label className="visuallyHidden" htmlFor="kb-filter-tag">{t('kb.tag')}</label>

@@ -203,7 +203,7 @@ function Holdings({ portfolio: p }: { portfolio: FinancePortfolio }) {
   const id = useId();
   return <section aria-labelledby={id} className="finSub">
     <h3 id={id}>{t('finance.trading.holdings')}</h3>
-    {p.holdings.length === 0 ? <p className="muted">{t('finance.trading.noHoldings')}</p> : <div className="cmTableWrap"><table className="cmTable finTable finTradeTable">
+    {p.holdings.length === 0 ? <p className="muted">{t('finance.trading.noHoldings')}</p> : <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finTradeTable">
       <caption className="visuallyHidden">{t('finance.trading.holdingsCaption', { name: p.name })}</caption>
       <thead><tr><th scope="col">{t('finance.trading.col.symbol')}</th><th scope="col" className="num">{t('finance.trading.col.quantity')}</th><th scope="col" className="num">{t('finance.trading.col.cost')}</th>
         <th scope="col" className="num">{t('finance.trading.col.price')}</th><th scope="col" className="num">{t('finance.trading.col.value')}</th><th scope="col" className="num">{t('finance.trading.unrealised')}</th></tr></thead>
