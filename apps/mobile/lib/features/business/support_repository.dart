@@ -16,6 +16,17 @@ abstract interface class SupportRepository {
     int limit,
   });
   Future<TicketDetail> create(Map<String, Object?> fields);
+
+  /// A ticket linked to an inbound email ([source] `email`, [refId] the inbox
+  /// message id) or a WhatsApp conversation ([source] `whatsapp`, [refId] the
+  /// conversation id). The API answers 409 when that message or conversation
+  /// already has an open ticket; its sentence names that ticket.
+  Future<TicketDetail> fromMessage({
+    required String source,
+    required String refId,
+    String? title,
+    String? severity,
+  });
   Future<TicketDetail> ticket(String id);
   Future<TicketDetail> update(String id, Map<String, Object?> fields);
   Future<void> delete(String id);
@@ -91,6 +102,20 @@ class ApiSupportRepository implements SupportRepository {
   @override
   Future<TicketDetail> create(Map<String, Object?> fields) =>
       _detail('POST', '/tickets', body: fields);
+
+  @override
+  Future<TicketDetail> fromMessage({
+    required String source,
+    required String refId,
+    String? title,
+    String? severity,
+  }) =>
+      _detail('POST', '/tickets/from-message', body: {
+        'source': source,
+        'ref_id': refId,
+        if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
+        if (severity != null) 'severity': severity,
+      });
 
   @override
   Future<TicketDetail> ticket(String id) =>

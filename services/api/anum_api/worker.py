@@ -147,6 +147,9 @@ async def run_worker(config: Settings = settings) -> None:
     from .push import push_dispatcher
 
     event_runtime.add_listener(push_dispatcher.submit)
+    from . import notification_email
+
+    event_runtime.add_listener(notification_email.submit)
     await event_runtime.start()
     push_dispatcher.start()
     try:
@@ -161,6 +164,7 @@ async def run_worker(config: Settings = settings) -> None:
             logger.info("Shutting down; in-flight activities are retried by Temporal")
     finally:
         await push_dispatcher.stop()
+        await asyncio.to_thread(notification_email.shutdown)
         await event_runtime.stop()
         shutdown_telemetry()
         shutdown_error_reporting()

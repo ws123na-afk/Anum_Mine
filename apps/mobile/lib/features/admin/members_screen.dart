@@ -396,6 +396,11 @@ class _TokenReveal extends StatelessWidget {
               label: expiryLabel(invitation.expiresAt), tone: AnumTone.warn),
         ),
         const SizedBox(height: 10),
+        Text(created.email.notice,
+            key: const Key('invitation-email-notice'),
+            style: TextStyle(
+                color: created.email.sent ? p.ok : p.warn, fontSize: 13)),
+        const SizedBox(height: 10),
         Text(
             'ANUM keeps only a hash of this token. Copy it now: it cannot be shown again. '
             '${link == null ? 'The invitee pastes it under Settings › Accept an invitation, signed in as themselves.' : 'The invitee opens the link, or pastes the token or link under Accept an invitation, signed in as themselves.'}',
@@ -444,6 +449,21 @@ class _InviteSheetState extends State<_InviteSheet> {
   String role = 'member';
   String? error;
   bool saving = false;
+  bool sendEmail = true;
+
+  /// Whether this server can email invitations; null while unknown.
+  InvitationEmailSetup? setup;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.repository.invitationEmailSetup().then((value) {
+      if (mounted) setState(() => setup = value);
+    }).catchError((Object _) {
+      if (mounted) setState(() => setup = null);
+    });
+    email.addListener(() => setState(() {}));
+  }
 
   @override
   void dispose() {
@@ -464,7 +484,7 @@ class _InviteSheetState extends State<_InviteSheet> {
       saving = true;
       error = null;
     });
-    final ok = await widget.controller.invite(draft);
+    final ok = await widget.controller.invite(draft.withSendEmail(sendEmail));
     if (!mounted) return;
     if (ok) {
       Navigator.pop(context);
@@ -516,6 +536,29 @@ class _InviteSheetState extends State<_InviteSheet> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
                         labelText: 'Expires after (hours)')),
+                if (email.text.trim().isEmpty)
+                  const Padding(
+                      padding: EdgeInsets.only(top: AnumSpacing.sm),
+                      child: Text(
+                          'Add an email address and ANUM emails the invitation for you. With only a user id, copy the link and send it yourself.',
+                          key: Key('invite-needs-address')))
+                else if (setup != null && setup!.configured)
+                  SwitchListTile(
+                      key: const Key('invite-send-email'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Send the invitation by mail'),
+                      subtitle: const Text(
+                          'ANUM emails the invitee how to accept. You can still copy the link afterwards.'),
+                      value: sendEmail,
+                      onChanged: saving
+                          ? null
+                          : (value) => setState(() => sendEmail = value))
+                else if (setup != null)
+                  const Padding(
+                      padding: EdgeInsets.only(top: AnumSpacing.sm),
+                      child: Text(
+                          'This server has no mail server set up, so ANUM cannot email invitations. After you create it, copy the link and send it yourself.',
+                          key: Key('invite-server-off'))),
                 if (error != null) ...[
                   const SizedBox(height: AnumSpacing.sm),
                   Text(error!,
