@@ -3,7 +3,7 @@
    logical properties only. */
 .entDialog { max-width: 760px; }
 .entTargets { margin-bottom: var(--d-s4); }
-.entTargets .dataTable small { color: var(--d-faint); display: block; font-size: 12px; }
+.entTargets .dataTable small { color: var(--d-faint); display: block; font-size: var(--text-xs); }
 .entTargets .dataTable code { overflow-wrap: anywhere; }
 .entTargets .entNarrow { display: none; }
 /* The routing table keeps id, model, status and Edit inside the pane: the long columns drop out
@@ -16,10 +16,10 @@
 .skillRow { align-items: start; border-bottom: 1px solid var(--d-line); display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: 36px minmax(0, 1fr) minmax(0, auto); padding: var(--d-s3) var(--d-s4); }
 .skillRow:last-child { border-bottom: 0; }
 .skillRow > div { min-width: 0; }
-.skillRow h3 { font-size: 15px; margin: 0; }
-.skillRow h3 small { color: var(--d-faint); font-size: 12.5px; font-weight: 500; }
-.skillRow p { color: var(--d-muted); font-size: 13.5px; margin: 2px 0 0; overflow-wrap: anywhere; }
-.skillRow > div > small { color: var(--d-faint); display: block; font-size: 12.5px; margin-top: 4px; }
+.skillRow h3 { font-size: var(--text-base); margin: 0; }
+.skillRow h3 small { color: var(--d-faint); font-size: var(--text-sm); font-weight: 500; }
+.skillRow p { color: var(--d-muted); font-size: var(--text-md); margin: 2px 0 0; overflow-wrap: anywhere; }
+.skillRow > div > small { color: var(--d-faint); display: block; font-size: var(--text-sm); margin-top: 4px; }
 .skillRow .tagRow { margin-top: var(--d-s1); }
 .skillRow .integrationIcon { height: 36px; width: 36px; }
 .skillRow .featureSkillActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; max-width: 360px; }
@@ -50,4 +50,4 @@
 .learningPage > .pageHeader, .learningPage > .pageSummary { margin-bottom: 0; }
 .learningStack { display: grid; gap: var(--d-s5); min-width: 0; }
 .learningState .sectionHeader { align-items: center; }
-.learningState .sectionHeader h2 { font-size: 16px; }
+.learningState .sectionHeader h2 { font-size: var(--text-lg); }

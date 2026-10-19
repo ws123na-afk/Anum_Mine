@@ -1,9 +1,9 @@
 /* Memory, Skills and Agents views. Colours, spacing and radii come from the tokens in styles.css. */
 .featureSearch { display: grid; gap: var(--d-s3); padding: var(--d-s4); margin-bottom: var(--d-s4); }
 .featureSearch .actions { display: flex; gap: var(--d-s2); }
-.featureMeta { margin: 0; font-size: 0.82rem; color: var(--d-muted); }
+.featureMeta { margin: 0; font-size: var(--text-sm); color: var(--d-muted); }
 
-.featureChip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; text-transform: capitalize; background: var(--d-glass-2); color: var(--d-muted); width: fit-content; }
+.featureChip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: var(--text-xs); text-transform: capitalize; background: var(--d-glass-2); color: var(--d-muted); width: fit-content; }
 .featureChip svg { width: 14px; height: 14px; }
 .featureChip.indexed { background: rgb(var(--c-ok) / .14); color: var(--d-ok); }
 .featureChip.failed { background: rgb(var(--c-stop) / .14); color: var(--d-stop); }
@@ -20,8 +20,8 @@
 .featureToolList { margin: 0; padding-inline-start: 18px; display: grid; gap: 4px; }
 
 .featureDisabled { opacity: 0.7; }
-.featureLink { font-size: 0.85rem; }
-.featureToggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; }
+.featureLink { font-size: var(--text-md); }
+.featureToggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: var(--text-md); }
 .featureToggle input { width: 18px; height: 18px; }
 
 /* Memory view: one toolbar row (search, source filter, chat memory chip, re-index, add), then the
@@ -32,20 +32,20 @@
 .kbBarActions > button:not(.chipButton) { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s2); min-height: 40px; padding: 0 var(--d-s3); }
 .kbBarActions > button:not(.secondary):not(.chipButton) { background: var(--d-primary-grad); border: 0; box-shadow: var(--d-button-shadow); color: var(--d-on-primary); font-weight: 650; }
 .segmentedRadios { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 12px; gap: 2px; padding: 3px; }
-.segmentedRadios label { border-radius: 9px; color: var(--d-muted); font-size: 13px; font-weight: 600; min-height: 34px; padding: 0 var(--d-s3); }
+.segmentedRadios label { border-radius: 9px; color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; min-height: 34px; padding: 0 var(--d-s3); }
 .segmentedRadios label:has(input:checked) { background: var(--d-glass-3); color: var(--d-text); }
 .segmentedRadios input { height: 14px; width: 14px; }
 .memoryTable { overflow: visible; }
 .memoryRows { table-layout: fixed; }
 .memoryColText { width: auto; } .memoryColSource { width: 150px; } .memoryColAdded { width: 130px; } .memoryColIndex { width: 120px; } .memoryColActions { width: 150px; }
-.memoryRows tr.memoryGroupRow > th { background: var(--d-glass-1); color: var(--d-text); font-size: 13px; font-weight: 650; padding-block: var(--d-s2); }
+.memoryRows tr.memoryGroupRow > th { background: var(--d-glass-1); color: var(--d-text); font-size: var(--text-sm); font-weight: 650; padding-block: var(--d-s2); }
 .memoryRows tr.memoryGroupRow:hover > th { background: var(--d-glass-1); }
 .memoryRows tr.memoryRow { display: table-row; padding: 0; }
 .memoryRows td { vertical-align: top; }
 .memoryCell { min-width: 220px; }
-.memoryCell p { color: var(--d-text); font-size: 14px; margin: 2px 0 0; overflow-wrap: anywhere; }
+.memoryCell p { color: var(--d-text); font-size: var(--text-md); margin: 2px 0 0; overflow-wrap: anywhere; }
 .memoryLabel { align-items: center; display: flex; gap: var(--d-s2); }
-.memoryLabel strong { color: var(--d-muted); font-size: 12.5px; font-weight: 600; }
+.memoryLabel strong { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; }
 .typeIcon.small { border-radius: 8px; height: 24px; width: 24px; }
 .typeIcon.small svg { height: 14px; width: 14px; }
 .memoryRows .memoryChatLink { min-height: 34px; }
@@ -53,14 +53,14 @@
   .memoryCell { min-width: 0; } .kbBarActions { margin-inline-start: 0; }
   .memoryRows { table-layout: auto; }
 }
-.memorySource { color: var(--d-faint); display: block; font-size: 12px; margin-top: var(--d-s1); overflow-wrap: anywhere; }
-.memoryChatLink { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 13px; gap: var(--d-s1); min-height: 44px; padding: 0 var(--d-s3); white-space: nowrap; width: fit-content; }
+.memorySource { color: var(--d-faint); display: block; font-size: var(--text-xs); margin-top: var(--d-s1); overflow-wrap: anywhere; }
+.memoryChatLink { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: var(--text-sm); gap: var(--d-s1); min-height: 44px; padding: 0 var(--d-s3); white-space: nowrap; width: fit-content; }
 .memoryChatLink svg { height: 16px; width: 16px; }
 
 /* Memory view: "All memories" / "From my chats", and deleting every memory from the caller's chats. */
 .memoryFilter { align-items: center; display: flex; flex-wrap: wrap; gap: 0 var(--d-s4); min-width: 0; }
-.memoryFilter > span { color: var(--d-muted); font-size: 13px; }
-.memoryFilter label { align-items: center; cursor: pointer; display: inline-flex; font-size: 14px; gap: var(--d-s2); min-height: 44px; }
+.memoryFilter > span { color: var(--d-muted); font-size: var(--text-sm); }
+.memoryFilter label { align-items: center; cursor: pointer; display: inline-flex; font-size: var(--text-md); gap: var(--d-s2); min-height: 44px; }
 .memoryFilter input { accent-color: var(--d-violet); height: 18px; margin: 0; min-height: 0; width: 18px; }
 .memoryBulk { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; margin-bottom: var(--d-s4); }
 .memoryBulk .featureMeta { flex: 1 1 260px; }

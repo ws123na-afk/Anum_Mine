@@ -22,9 +22,9 @@
 .fileActions { margin-top: 0; }
 button.secondary.dangerText { color: var(--d-stop); }
 .fileShare { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3); }
-.fileShare label { color: var(--d-muted); font-size: 13px; font-weight: 600; }
+.fileShare label { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; }
 .fileShareRow { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.fileShareRow input { flex: 1 1 240px; font-family: var(--d-mono); font-size: 12.5px; min-width: 0; }
+.fileShareRow input { flex: 1 1 240px; font-family: var(--d-mono); font-size: var(--text-sm); min-width: 0; }
 .fileShareRow button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s2); padding: 0 var(--d-s3); }
 .fileDetail dd .statusBadge { margin-inline-end: var(--d-s2); }
 .fileDetail .taskMeta dd { overflow-wrap: anywhere; }
@@ -35,17 +35,17 @@ button.secondary.dangerText { color: var(--d-stop); }
 .filesNote { align-items: center; display: flex; gap: var(--d-s2); margin-top: var(--d-s3); }
 .filesNote svg { flex: none; height: 16px; width: 16px; }
 .filePreview { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); margin-top: var(--d-s2); padding-top: var(--d-s3); min-width: 0; }
-.filePreview h3 { font-size: 16px; }
+.filePreview h3 { font-size: var(--text-lg); }
 .filePreviewHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .filePreviewHead .actions { margin-top: 0; }
 .filePreviewHead button { min-height: 36px; padding-block: var(--d-s1); }
-.filePreviewText, .filePreviewDoc pre { background: var(--d-field); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-family: var(--d-mono); font-size: 13px; margin: 0; max-height: min(60vh, 560px); overflow: auto; padding: var(--d-s3) var(--d-s4); white-space: pre-wrap; overflow-wrap: anywhere; }
+.filePreviewText, .filePreviewDoc pre { background: var(--d-field); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-family: var(--d-mono); font-size: var(--text-sm); margin: 0; max-height: min(60vh, 560px); overflow: auto; padding: var(--d-s3) var(--d-s4); white-space: pre-wrap; overflow-wrap: anywhere; }
 .filePreviewDoc { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); max-height: min(60vh, 560px); overflow: auto; overflow-wrap: anywhere; padding: var(--d-s4); }
-.filePreviewDoc :is(h4, h5, h6) { font-size: 15px; margin: 0; }
+.filePreviewDoc :is(h4, h5, h6) { font-size: var(--text-base); margin: 0; }
 .filePreviewDoc :is(p, ul, ol, blockquote) { margin: 0; }
 .filePreviewDoc :is(ul, ol) { padding-inline-start: var(--d-s5); }
 .filePreviewDoc blockquote { border-inline-start: 3px solid var(--d-line-strong); color: var(--d-muted); padding-inline-start: var(--d-s3); }
-.filePreviewDoc code { font-family: var(--d-mono); font-size: 13px; }
+.filePreviewDoc code { font-family: var(--d-mono); font-size: var(--text-sm); }
 .filePreviewDoc a { color: var(--d-sky); }
 .filePreviewDoc hr { border: 0; border-top: 1px solid var(--d-line); margin: 0; width: 100%; }
 .filePreviewText:focus-visible, .filePreviewDoc:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
