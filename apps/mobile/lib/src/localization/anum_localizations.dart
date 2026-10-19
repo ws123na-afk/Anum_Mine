@@ -2901,6 +2901,7 @@ class _AnumDelegate extends LocalizationsDelegate<AnumLocalizations> {
     Intl.defaultLocale = locale.languageCode;
     return SynchronousFuture(AnumLocalizations(locale));
   }
+
   @override
   bool shouldReload(_AnumDelegate old) => false;
 }
