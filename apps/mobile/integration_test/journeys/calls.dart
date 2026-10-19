@@ -101,6 +101,12 @@ void installCalls(FakeAnumApi api) {
             }
           ])));
   api.get('/api/v1/calls/log', (_) => FakeResponse.json(page([_quote, _busy])));
+  // The owner tabs (AI calls, opt-outs, provider) load with the screen: empty,
+  // no provider connected.
+  api.get('/api/v1/calls/ai-calls', (_) => FakeResponse.json(page([])));
+  api.get('/api/v1/calls/opt-outs', (_) => FakeResponse.json(page([])));
+  api.get('/api/v1/calls/provider',
+      (_) => const FakeResponse.json({'connected': false}));
   api.get(
       '/api/v1/calls/log/{id}',
       (r) => switch (r.params['id']) {
