@@ -118,6 +118,7 @@ x-user-roles: owner,member
 - [Knowledge base and favorites](docs/knowledge-base.md)
 - [Reports](docs/reports.md)
 - [Privacy: download and delete my data](docs/privacy.md)
+- [Organisation export and deletion](docs/organisation-lifecycle.md)
 - [Privacy policy template](docs/privacy-policy.md)
 - [Public pages: legal documents, Trust and status](docs/legal-pages.md)
 - [Terms of Service (draft)](docs/legal/terms-of-service.md)

@@ -8,7 +8,7 @@ const later = new Date(Date.now() + 2 * 86_400_000).toISOString();
 const earlier = new Date(Date.now() - 3 * 3_600_000).toISOString();
 
 // Mail domains (docs/email.md#mail-domains): 'ok' is Mailcow with changes on, 'readOnly' with changes off, 'fails' a 503.
-export interface TeamMockOptions { mailDomains?: 'ok' | 'readOnly' | 'fails'; mailHealthFails?: boolean; mailcow?: 'off' | 'ok'; denyEdit?: boolean; emptyWork?: boolean; denyOrganisations?: boolean; denyAssistants?: boolean; denyAssistantChanges?: boolean }
+export interface TeamMockOptions { mailDomains?: 'ok' | 'readOnly' | 'fails'; mailHealthFails?: boolean; mailcow?: 'off' | 'ok'; denyEdit?: boolean; emptyWork?: boolean; denyOrganisations?: boolean; denyAssistants?: boolean; denyAssistantChanges?: boolean; deletedOrgs?: 'empty' | 'fail' }
 
 type Item = Record<string, unknown> & { id: string; title: string; status: string; version: number; comments: Record<string, unknown>[]; checklist: Record<string, unknown>[]; attachments: Record<string, unknown>[] };
 
@@ -130,6 +130,15 @@ export function createTeamMock(options: TeamMockOptions = {}) {
     if (path === '/api/v1/platform/organizations' && method === 'GET') {
       if (options.denyOrganisations) return json({ error: { code: 'forbidden', message: 'Platform operator role required: onboarding customer organisations and the platform console are for the person who runs this ANUM deployment.' } }, 403);
       return json(orgs);
+    }
+    if (path === '/api/v1/platform/organizations/deleted' && method === 'GET') {
+      if (options.denyOrganisations) return json({ error: { code: 'forbidden', message: 'Platform operator role required.' } }, 403);
+      if (options.deletedOrgs === 'fail') return json({ error: { code: 'service_unavailable', message: 'The database did not answer.' } }, 503);
+      if (options.deletedOrgs === 'empty') return json([]);
+      return json([
+        { tenant_id: 'old_traders', display_name: 'Old Traders', plan: 'trial', requested_by: 'admin_old', requested_at: earlier, purge_started_at: earlier, deleted_at: now(), status: 'deleted', row_count: 52, file_count: 2, counts: { tasks: 40, work_items: 12 }, identity_cleanup: { status: 'removed', removed: 3, detached: 1, finished_at: now() } },
+        { tenant_id: 'leaving_co', display_name: 'Leaving Co', plan: 'standard', requested_by: 'admin_leave', requested_at: earlier, purge_started_at: now(), deleted_at: null, status: 'purging', row_count: 0, file_count: 0, counts: {}, identity_cleanup: { status: 'pending', removed: 0, detached: 0, finished_at: null } },
+      ]);
     }
     if (path === '/api/v1/platform/mail/health' && method === 'GET') {
       if (options.denyOrganisations) return json({ error: { code: 'forbidden', message: 'Platform operator role required.' } }, 403);
