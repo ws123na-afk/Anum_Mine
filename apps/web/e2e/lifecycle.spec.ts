@@ -196,7 +196,7 @@ test('a failed load says what failed and retries', async ({ page }) => {
   await mockApi(page, { failFirst: true });
   await page.goto('/#settings');
   const panel = section(page);
-  await expect(panel.getByRole('alert')).toContainText("Couldn't load data export and deletion: The database is unavailable");
+  await expect(panel.getByRole('alert')).toContainText("Couldn't load data export and deletion: The server could not reach its database");
   await panel.getByRole('button', { name: 'Try again' }).click();
   await expect(panel.getByRole('list', { name: 'Recent exports' })).toBeVisible();
 });
