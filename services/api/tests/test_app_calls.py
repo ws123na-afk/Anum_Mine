@@ -464,6 +464,90 @@ def test_a_signal_wakes_the_stream_long_before_its_next_poll(monkeypatch: pytest
     assert call_wake_hub.listener_count == 0
 
 
+def _seconds_until_frame(user: str, device: str, trigger, marker: str) -> tuple[float, list[str]]:  # type: ignore[no-untyped-def]
+    """Starts ``user``'s stream on ``device``, lets it settle into its (slow) poll, runs
+    ``trigger`` in a worker thread and times how long the frame containing ``marker`` takes."""
+    from contextlib import aclosing
+
+    async def run() -> tuple[float, list[str]]:
+        loop = asyncio.get_running_loop()
+        frames: list[str] = []
+        armed = asyncio.Event()
+
+        async def never() -> bool:
+            return False
+
+        async def consume() -> None:
+            async with aclosing(call_event_source(ctx(user), device, never)) as source:
+                async for frame in source:
+                    frames.append(frame)
+                    if armed.is_set() and marker in frame:
+                        return
+
+        task = asyncio.create_task(consume())
+        await asyncio.sleep(0.3)  # first read done; the stream now waits out its 5 s poll
+        armed.set()
+        started = loop.time()
+        await asyncio.to_thread(trigger)
+        await asyncio.wait_for(task, 3)
+        return loop.time() - started, frames
+
+    return asyncio.run(run())
+
+
+def test_a_busy_ring_wakes_the_callers_other_devices(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.app_call_wake import call_wake_hub
+
+    monkeypatch.setattr(settings, "calls_poll_seconds", 10.0)
+    monkeypatch.setattr(settings, "calls_active_poll_seconds", 5.0)
+    first = place("carol", "bob", device="device-carol-0000001")
+    accept(first["id"])
+    busy: dict = {}
+
+    def ring_busy() -> None:
+        busy.update(place("alice", "bob"))
+
+    # Alice's other device never saw this call (no ring for a busy callee), yet it is told.
+    elapsed, frames = _seconds_until_frame("alice", "device-alice-0000002", ring_busy, '"outcome":"busy"')
+    assert busy["outcome"] == "busy"
+    assert [(e.type, e.payload) for e in store.events if e.subject == busy["id"]] == [
+        ("app_call.updated", {"call_id": busy["id"]})
+    ]
+    assert elapsed < 2.0, f"the busy call waited for the poll ({elapsed:.2f}s)"
+    assert any(busy["id"] in frame for frame in frames)
+    assert call_wake_hub.listener_count == 0
+
+
+def test_delete_my_data_ending_a_live_call_wakes_the_other_persons_devices(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.app_calls import delete_my_app_calls
+
+    monkeypatch.setattr(settings, "calls_poll_seconds", 10.0)
+    monkeypatch.setattr(settings, "calls_active_poll_seconds", 5.0)
+    ended = place("alice", "bob")
+    client.post(f"/api/v1/app-calls/{ended['id']}/end", headers=headers("alice"), json={"reason": "hangup"})
+    live = place()
+    accept(live["id"])
+    store.events.clear()
+
+    elapsed, frames = _seconds_until_frame("alice", DEVICE_A, lambda: delete_my_app_calls(ctx("bob")), '"outcome":"failed"')
+    assert elapsed < 2.0, f"the ended call waited for the poll ({elapsed:.2f}s)"
+    assert any(live["id"] in frame and '"status":"ended"' in frame for frame in frames)
+    # One call-id-only event, for the call that was in progress only.
+    assert [(e.type, e.subject, e.payload) for e in store.events] == [
+        ("app_call.updated", live["id"], {"call_id": live["id"]})
+    ]
+
+
+def test_delete_my_data_records_no_event_for_calls_already_ended() -> None:
+    from anum_api.app_calls import delete_my_app_calls
+
+    call = place()
+    client.post(f"/api/v1/app-calls/{call['id']}/end", headers=headers("bob"), json={"reason": "decline"})
+    store.events.clear()
+    assert delete_my_app_calls(ctx("bob")) == 1
+    assert store.events == []
+
+
 def test_the_stream_polls_slowly_only_while_the_bus_delivers(monkeypatch: pytest.MonkeyPatch) -> None:
     from anum_api.app_calls import Snapshot, poll_interval
 

@@ -44,6 +44,8 @@ def test_a_wake_concerns_a_stream_that_knows_the_call_or_any_ring() -> None:
     assert CallWake(call_ids={"call_1"}).concerns({"call_1", "call_2"})
     assert not CallWake(call_ids={"call_9"}).concerns({"call_1"})
     assert CallWake(call_ids={"call_9"}, ringing=True).concerns(set())
+    # A state change may be for a call the stream never saw (busy, Delete my data).
+    assert CallWake(call_ids={"call_9"}, updated=True).concerns(set())
     assert CallWake(overflowed=True).concerns(set())
 
 

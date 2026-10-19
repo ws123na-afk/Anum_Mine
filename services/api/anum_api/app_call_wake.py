@@ -7,7 +7,8 @@ records a canonical event in the same transaction as the change (so with Postgre
 a durable outbox row, published by the relay):
 
 - ``app_call.ringing``: a call was placed (the call id and the person rung).
-- ``app_call.updated``: a call was answered or ended (the call id only).
+- ``app_call.updated``: a call was answered or ended, including a busy ring and a call
+  ended by Delete my data (the call id only).
 - ``app_call.signaled``: an offer, answer or ICE batch was stored (the call id only).
 
 The events carry ids only, never a session description, a candidate, a device id or the
@@ -60,14 +61,23 @@ def visible_on_workspace_stream(event: DomainEvent) -> bool:
 
 @dataclass
 class CallWake:
-    """What woke a stream: the calls that changed, whether a call rang, or an overflow."""
+    """What woke a stream: the calls that changed, whether a call rang or changed state,
+    or an overflow.
+
+    A ring or a state change (``app_call.updated``) concerns every stream of the workspace,
+    because a stream may not know the call yet: the caller's other devices never saw a call
+    the callee was busy for, and the callee's devices never rang for it. Both are one event
+    per answer or end, so each stream reads a few times per call. A setup message
+    (``app_call.signaled``, many per call) concerns only a stream that shows the call.
+    """
 
     call_ids: set[str] = field(default_factory=set)
     ringing: bool = False
+    updated: bool = False
     overflowed: bool = False
 
     def concerns(self, known_call_ids: Iterable[str]) -> bool:
-        return self.overflowed or self.ringing or not self.call_ids.isdisjoint(known_call_ids)
+        return self.overflowed or self.ringing or self.updated or not self.call_ids.isdisjoint(known_call_ids)
 
 
 class CallWakeListener:
@@ -92,6 +102,8 @@ class CallWakeListener:
             return
         if event.type == RINGING:
             self._wake.ringing = True
+        elif event.type == UPDATED:
+            self._wake.updated = True
         call_id = event.payload.get("call_id") or event.subject
         if isinstance(call_id, str) and call_id:
             if len(self._wake.call_ids) >= self.max_pending:
