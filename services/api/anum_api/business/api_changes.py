@@ -42,6 +42,8 @@ from .models import (
     UsageSource,
     money,
 )
+from .invoice_models import DecisionSubject, PortalDecisionSummary
+from .portal_service import decision_summary
 from .service import audit, content_hash, http_error, proposal_totals, record_activity
 from .store import BusinessStore, Query, open_business_store
 
@@ -88,6 +90,8 @@ class ChangeOrderView(ChangeOrder):
     issues: list[str] = Field(default_factory=list)
     current_version: int | None = None
     stale: bool = False
+    # What the customer decided in their portal about this exact change order.
+    portal_decision: PortalDecisionSummary | None = None
 
 
 def _current_version(store: BusinessStore, project: Project) -> ProposalVersion:
@@ -105,7 +109,8 @@ def _settled_positions(store: BusinessStore, project: Project) -> tuple[list[Mil
 
 def change_view(store: BusinessStore, order: ChangeOrder) -> ChangeOrderView:
     project = store.get("projects", order.project_id)
-    view = ChangeOrderView(**order.model_dump(), project_name=project.name if project else "")
+    view = ChangeOrderView(**order.model_dump(), project_name=project.name if project else "",
+                           portal_decision=decision_summary(store, DecisionSubject.CHANGE_ORDER, order.id, order.content_hash))
     if project is None or order.status not in OPEN_CHANGE_ORDER_STATES:
         return view
     base = _current_version(store, project)

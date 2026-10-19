@@ -536,3 +536,8 @@ Platform behaviour
 - [ ] File upload uses the system picker; download uses the save picker; both work with large files on mobile data.
 - [ ] Tablets switch to the navigation rail at 840 logical pixels in both orientations; iPad split view and Android multi-window do not break layout.
 - [ ] Safe areas: nothing is hidden under the notch, Dynamic Island, gesture bar or keyboard.
+
+## Business invoices and the customer portal
+
+Business has an **Invoices** section (`lib/features/business/invoices.dart`): totals per currency, the paged list with status, overdue and search filters, a new-invoice form (milestones, contract share, billable costs, an offer, written lines), the invoice with the actions the server allows (`can`), manual payments, void, the billing profile and "Print or PDF". The phone cannot put a token in a URL, so print fetches the printable page with the session header and saves it as an HTML file through the system save dialog; open it in a browser and choose Print, then Save as PDF. The **Clients** tab lists accounts and, per contact, the customer portal links (owners create and turn them off; the link is shown once). **Customer portal** (`lib/features/portal/`) is opened from the sign-in screen through `PortalEntryScope`: paste the link, the token stays in memory and is sent only as a bearer header to the configured API. See [the customer portal](business-portal.md) and [Business](business.md#invoices).
+

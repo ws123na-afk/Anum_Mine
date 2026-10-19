@@ -183,6 +183,11 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         **{name: "0082_business_pipeline" for name in (
             "business_outreach_settings", "business_target_profiles", "business_observations",
             "business_pipeline_runs", "business_outbox", "business_replies")},
+        "business_invoices": "0089_business_invoices_portal",
+        "business_invoice_payments": "0089_business_invoices_portal",
+        "business_invoice_counters": "0089_business_invoices_portal",
+        "business_portal_access": "0089_business_invoices_portal",
+        "business_portal_decisions": "0089_business_invoices_portal",
     }
     for table, revision in later.items():
         text = (API_ROOT / "migrations" / "versions" / f"{revision}.py").read_text(encoding="utf-8")

@@ -151,8 +151,9 @@ class SettingsUpdate(BaseModel):
 def put_settings(payload: SettingsUpdate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> BusinessSettings:
     manage(context)
     with open_business_store(context) as store:
-        # The support policy is saved on its own route (PUT /support/policy) and kept here.
-        value = BusinessSettings(**payload.model_dump(), support_policy=store.get_settings().support_policy, updated_by=context.user_id, updated_at=utc_now())
+        # The support policy and the billing profile are saved on their own routes and kept here.
+        current = store.get_settings()
+        value = BusinessSettings(**payload.model_dump(), support_policy=current.support_policy, billing=current.billing, updated_by=context.user_id, updated_at=utc_now())
         store.save_settings(value)
     audit(repository, context, "business.settings.updated", context.workspace_id, metadata=payload.model_dump())
     return value
@@ -592,6 +593,8 @@ def delete_account(account_id: str, context: TenantContext = Depends(tenant_cont
             raise http_error(409, "This account has leads or opportunities. Delete those first.")
         if store.count("tickets", Query(where={"account_id": account_id})):
             raise http_error(409, "This account has support tickets, which are kept as records. Close them instead of deleting the account.")
+        if store.count("invoices", Query(where={"account_id": account_id})):
+            raise http_error(409, "This account has invoices, which are kept as records. Delete the drafts and void the rest; an account with invoices is not deleted.")
         store.delete("accounts", account_id)
     audit(repository, context, "business.account.deleted", account_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -19,6 +19,8 @@ import { CatalogTab } from './BusinessCatalog';
 import { ProspectingTab } from './BusinessProspecting';
 import { OutreachTab } from './BusinessOutreach';
 import { SupportPolicySection, SupportTab } from './BusinessSupport';
+import { InvoicesTab } from './BusinessInvoices';
+import { BillingProfileSection } from './BusinessBilling';
 import './business.css';
 
 type State = { kind: 'loading' } | { kind: 'ready'; setup: BusinessSetup } | { kind: 'denied'; text: string } | { kind: 'error'; text: string };
@@ -79,6 +81,7 @@ export function BusinessView() {
     {tab === 'pipeline' && <PipelineTab setup={setup} openId={id} onOpen={(item) => go('pipeline', item)} onOpenProposal={(item) => go('proposals', item)} onGoLeads={() => go('leads')} onChanged={changed} />}
     {tab === 'proposals' && <ProposalsTab setup={setup} openId={id} onOpen={(item) => go('proposals', item)} onOpenProject={(item) => go('projects', item)} onGoPipeline={() => go('pipeline')} onChanged={changed} />}
     {tab === 'projects' && <ProjectsTab setup={setup} openId={id} onOpen={(item) => go('projects', item)} onGoProposals={() => go('proposals')} />}
+    {tab === 'invoices' && <InvoicesTab setup={setup} openId={id} onOpen={(item) => go('invoices', item)} onChanged={changed} />}
     {tab === 'support' && <SupportTab setup={setup} products={products} openId={id} onOpen={(item) => go('support', item)} onChanged={changed} />}
     {tab === 'catalog' && <CatalogTab setup={setup} products={products} loading={productsLoad.loading} error={productsLoad.error} onReload={() => void loadProducts()} />}
     {tab === 'settings' && <SettingsTab setup={setup} onSaved={() => void loadSetup()} />}
@@ -167,6 +170,7 @@ function SettingsTab({ setup, onSaved }: { setup: BusinessSetup; onSaved: () => 
         <div><dt>{t('biz.settings.decide')}</dt><dd>{setup.permissions.decide ? t('biz.settings.youDecide') : t('biz.settings.ownerDecides')}</dd></div>
       </dl>
     </section>
+    <BillingProfileSection setup={setup} />
     <SupportPolicySection />
   </div>;
 }

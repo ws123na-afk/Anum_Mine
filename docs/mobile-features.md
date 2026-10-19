@@ -35,6 +35,7 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | [Notifications and push](#notifications-and-push) | Done in the app; needs the owner's Firebase setup to deliver | Settings › Notifications, Phone push card |
 | [Settings, language and right to left](#settings-language-and-right-to-left) | Partial | Settings, Language menu |
 | [Integrations and skills](#integrations-and-skills) | Partial (connectors in progress) | Resources › Skills, Resources › Services, Home › Connected services |
+| [Commerce](#commerce) | Done for everything an operator does; connecting a channel and alert rules are web only | Home › Sales and orders |
 | [Business](#business) | Done on the phone for everything the desk edits; research, drafts, CSV import and proposal writing are web only | More › Business |
 
 ## Sign-in and accounts
@@ -280,6 +281,25 @@ Screen: **Settings › Notifications** with the **Phone push** card. Without the
 
 Details: [Skills](skills.md), [Tools and integrations](tools-and-integrations.md#workspace-configuration).
 
+## Commerce
+
+Amazon, noon and the owner's store ([Commerce](commerce.md)). Anyone with a role in the workspace reads; `commerce:operate` (owners and members) and `commerce:manage` (owners) decide what else shows, and the server checks both again.
+
+| What you can do | State |
+| --- | --- |
+| Sales summary for a period, by marketplace, top products, low stock, the order list with filters, paging and order detail | Done |
+| Catalogue: search and page, open a product with its listings per channel | Done |
+| Catalogue: add a product by SKU, edit its titles, brand, cost (with a currency) and low-stock level, delete it (the server refuses while a channel lists the SKU) | Done (owners and members) |
+| Prices and stock: search listings, propose a new price or quantity; nothing reaches the channel until it is approved in Approvals (a link opens them) | Done (owners and members) |
+| Returns for the last 7, 30 or 90 days, paged | Done |
+| Alerts: Open, Acknowledged and Resolved lists; acknowledge an open alert | Done (acknowledge: owners and members) |
+| Channels: health, last sync and last error; sync now | Done (sync: owners and members) |
+| Channels: test the connection, turn off or on, remove (with confirmation) | Done (owners) |
+| Stock changes on listings fulfilled by Amazon or noon are not offered (the channel owns that stock) | Done |
+| Connect a channel, replace credentials, alert rules, buyer details, tyre attributes of a product (size, load and speed index, DOT, season; the size in a title is read when a product is created) | Web only |
+
+Screen: **Home › Sales and orders** with the tabs Sales, Catalogue, Prices and stock, Returns, Alerts and Channels (`apps/mobile/lib/features/commerce/`, English and Arabic; tests in `test/commerce_test.dart` and `test/commerce_ops_test.dart` cover every list state, the role differences, validation, the server's refusals and 320 and 390 point widths).
+
 ## Business
 
 The internal sales desk ([Business](business.md)). Owners and members read it; viewers are told who can. Every change below goes to the API, which checks the role again: the phone hides controls the role cannot use and shows the server's sentence when it still refuses.
@@ -310,7 +330,6 @@ Work on other branches. None of it is in the app yet; each item is marked done h
 | --- | --- | --- |
 | Email inbox | Read and answer Gmail, Outlook and Zoho Mail through the assistant; every sent email goes through approvals | In progress |
 | WhatsApp | Connect WhatsApp Business through the official API; read chats and send replies after approval | In progress |
-| Commerce | Amazon.sa, Amazon.ae, Noon Saudi and UAE and the owner's own store: orders, listings, prices and stock, with changes approved first | In progress |
 | Tyre planning | Work with the owner's tyre planning data (TyrePulse, Supabase and Firebase) from the assistant | In progress |
 | Marketing | Draft and schedule marketing content, published only after approval | In progress |
 | Autonomy | Let the assistant carry out longer jobs on its own within the approval rules | In progress |
