@@ -607,7 +607,14 @@ class _AllInboxTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AnumSpacing.xs),
-            Text(mailWhen(context, m.date), style: theme.textTheme.bodySmall),
+            // Loose, so a long localized date at large text sizes ellipsizes
+            // instead of pushing the row past the card.
+            Flexible(
+              child: Text(mailWhen(context, m.date),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall),
+            ),
           ],
         ),
         subtitle: Column(
