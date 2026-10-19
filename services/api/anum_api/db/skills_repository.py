@@ -132,6 +132,16 @@ class SqlAlchemySkillStore:
         ).all()
         return [_key(record) for record in records]
 
+    def get_publisher_key_for_update(self, context: TenantContext, key_id: str) -> PublisherKey | None:
+        """The key row locked until the unit of work ends, so key state transitions serialize."""
+        record = self.session.scalar(
+            select(SkillPublisherKeyRecord)
+            .where(SkillPublisherKeyRecord.tenant_id == context.tenant_id, SkillPublisherKeyRecord.id == key_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return None if record is None else _key(record)
+
     def add_publisher_key(self, key: PublisherKey) -> PublisherKey:
         tenant_id = key.tenant_id or ""
         require_tenant(self.session, tenant_id)

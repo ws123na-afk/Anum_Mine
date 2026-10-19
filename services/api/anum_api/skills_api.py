@@ -237,6 +237,7 @@ class SkillRegistryStore(Protocol):
     def list_publisher_keys(self, context: TenantContext) -> list[PublisherKey]: ...
     def get_signing_settings(self, context: TenantContext) -> SigningSettings | None: ...
     def save_signing_settings(self, context: TenantContext, value: SigningSettings) -> SigningSettings: ...
+    def get_publisher_key_for_update(self, context: TenantContext, key_id: str) -> PublisherKey | None: ...
     def add_publisher_key(self, key: PublisherKey) -> PublisherKey: ...
     def save_publisher_key(self, key: PublisherKey) -> PublisherKey: ...
     def set_signature(
@@ -276,6 +277,11 @@ class SkillStore:
         with self._lock:
             keys = [k.model_copy() for (tenant, _), k in self.publisher_keys.items() if tenant == context.tenant_id]
         return sorted(keys, key=lambda k: (k.created_at, k.id))
+
+    def get_publisher_key_for_update(self, context: TenantContext, key_id: str) -> PublisherKey | None:
+        with self._lock:
+            found = self.publisher_keys.get((context.tenant_id, key_id))
+            return found.model_copy() if found else None
 
     def add_publisher_key(self, key: PublisherKey) -> PublisherKey:
         with self._lock:
@@ -546,6 +552,8 @@ def list_publisher_keys(context: TenantContext = Depends(tenant_context)) -> Pub
 
 
 def _new_key(context: TenantContext, key_id: str, publisher: str, public_key: str, existing: list[PublisherKey]) -> PublisherKey:
+    if not publisher.strip():
+        raise HTTPException(422, "Publisher name: 1 to 160 characters, not only spaces")
     try:
         normalized = normalize_public_key(public_key)
     except SigningError as exc:
@@ -585,8 +593,9 @@ def rotate_publisher_key(key_id: str, payload: PublisherKeyRotate, context: Tena
     require_permission(context, Permission.ORG_POLICY_MANAGE)
     try:
         with open_skill_store(context) as store:
+            # Locked so a concurrent rotation or revocation waits and then sees this one's result.
+            old = store.get_publisher_key_for_update(context, key_id)
             existing = store.list_publisher_keys(context)
-            old = next((key for key in existing if key.id == key_id), None)
             if old is None:
                 raise HTTPException(404, "Publisher key not found")
             if old.status != PublisherKeyStatus.ACTIVE:
@@ -619,7 +628,8 @@ def revoke_publisher_key(key_id: str, payload: PublisherKeyRevoke, context: Tena
         signed_packages = {p.id for p in scale.catalog(context)
                            if requires_signature(p) and p.signature is not None and p.signature.key_id == key_id}
     with open_skill_store(context) as store:
-        old = next((key for key in store.list_publisher_keys(context) if key.id == key_id), None)
+        # Locked: a concurrent rotation can never overwrite this revocation with a stale "rotated".
+        old = store.get_publisher_key_for_update(context, key_id)
         if old is None:
             raise HTTPException(404, "Publisher key not found")
         if old.status == PublisherKeyStatus.REVOKED:

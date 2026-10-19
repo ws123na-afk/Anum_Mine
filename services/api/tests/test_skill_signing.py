@@ -352,3 +352,20 @@ def test_migration_is_expand_only_with_forced_tenant_rls() -> None:
     assert "grant select (tenant_id, workspace_id, package_id, enabled) on marketplace_installs to anum_maintenance" in upgrade
     assert upgrade.count("grant ") == 2 and "approved_tools" not in upgrade.split("grant ", 1)[1]
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_whitespace_publisher_is_a_validation_error_not_a_crash(client: TestClient) -> None:
+    response = client.post(KEYS, headers=ADMIN, json={"id": "acme-2026", "publisher": "   ", "public_key": public_key()})
+    assert response.status_code == 422 and "not only spaces" in response.json()["error"]["message"]
+
+
+def test_a_rotated_key_can_still_be_revoked_and_a_revoked_key_cannot_be_rotated(client: TestClient) -> None:
+    trust(client, ADMIN)
+    client.post(VERSIONS, headers=ADMIN, json={**skill(), "signature": sign(skill())})
+    assert install(client, "1.0.0").status_code == 201
+    client.post(f"{KEYS}/test-publisher/rotate", headers=ADMIN, json={"new_id": "test-publisher-2", "public_key": public_key(private_key("r"))})
+    revoked = client.post(f"{KEYS}/test-publisher/revoke", headers=ADMIN, json={"reason": "Old laptop leaked"})
+    assert revoked.status_code == 200 and revoked.json()["key"]["status"] == "revoked"
+    assert client.post(f"{KEYS}/test-publisher/rotate", headers=ADMIN, json={"new_id": "test-publisher-3", "public_key": public_key(private_key("s"))}).status_code == 409
+    [installed] = client.get(INSTALLS, headers=OWNER).json()
+    assert installed["verification"]["status"] == "revoked" and installed["enabled"] is False

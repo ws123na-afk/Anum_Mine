@@ -193,6 +193,9 @@ test('an org admin adds, rotates and revokes publisher keys', async ({ page }) =
   await rotate.getByRole('button', { name: 'Rotate key' }).click();
   await expect(panel.getByText('Key acme-2026 rotated to acme-2027.')).toBeVisible();
   await expect(panel.getByText(/replaced by acme-2027/)).toBeVisible();
+  // A rotated key can no longer rotate, but can still be revoked if its old private key leaks.
+  await expect(panel.getByRole('button', { name: 'Rotate acme-2026' })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Revoke acme-2026' })).toBeVisible();
 
   await panel.getByRole('button', { name: 'Revoke beta-2026' }).click();
   const revoke = page.getByRole('dialog', { name: 'Revoke beta-2026?' });

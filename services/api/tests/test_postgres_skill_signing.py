@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from skill_signing_support import KEYS, private_key, public_key, sign, sign_package, trust
 from sqlalchemy import Engine, event, text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from anum_api.db import session as db_session
 from anum_api.governance import governance_store
@@ -180,3 +180,26 @@ def test_revocation_disables_signed_installs_in_every_workspace_under_rls(db: No
     # Turning one back on is explicit.
     assert client.patch(f"{INSTALLS}/acme.notes", headers=A2, json={"enabled": True}).status_code == 409
     assert ok(client.patch(f"{INSTALLS}/acme.notes", headers=A2, json={"enabled": True, "acknowledge_flagged": True}))["enabled"] is True
+
+
+def test_key_state_transitions_lock_the_key_row(db: None, database_engine: Engine) -> None:
+    """A rotation or revocation holds the key row, so a concurrent one waits instead of writing a stale state."""
+    from anum_api.db.skills_repository import SqlAlchemySkillStore
+    from anum_api.schemas import TenantContext
+
+    trust(client, A)
+    context = TenantContext(tenant_id=TENANT_A, workspace_id=WORKSPACE_A, user_id="admin_test", roles=["owner"])
+    first, second = database_engine.connect(), database_engine.connect()
+    try:
+        first_tx = first.begin()
+        _scoped(first, TENANT_A)
+        holder = SqlAlchemySkillStore(Session(bind=first))
+        assert holder.get_publisher_key_for_update(context, "test-publisher") is not None
+        with pytest.raises(DBAPIError), second.begin():
+            _scoped(second, TENANT_A)
+            second.execute(text("set local lock_timeout = '200ms'"))
+            SqlAlchemySkillStore(Session(bind=second)).get_publisher_key_for_update(context, "test-publisher")
+        first_tx.rollback()
+    finally:
+        first.close()
+        second.close()

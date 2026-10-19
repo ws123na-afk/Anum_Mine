@@ -121,8 +121,9 @@ function KeyRow({ k, manage, onRotate, onRevoke }: { k: PublisherKey; manage: bo
       {k.status === 'rotated' && k.rotated_at && <small>{t('keys.rotatedTo', { time: formatDateTime(k.rotated_at), id: k.replaced_by ?? '-' })}</small>}
       {k.status === 'revoked' && k.revoked_at && <small dir="auto">{t('keys.revokedBecause', { user: k.revoked_by ?? '-', time: formatDateTime(k.revoked_at), reason: k.revoke_reason ?? '-' })}</small>}
     </div>
-    {manage && k.status === 'active' && <div className="publisherKeyActions">
-      <button type="button" className="secondary" aria-label={t('keys.rotateNamed', { id: k.id })} onClick={onRotate}><RotateCw size={15} aria-hidden="true" />{t('keys.rotate')}</button>
+    {/* Rotate only an active key; revoke a rotated one too (its old private key may leak later). */}
+    {manage && k.status !== 'revoked' && <div className="publisherKeyActions">
+      {k.status === 'active' && <button type="button" className="secondary" aria-label={t('keys.rotateNamed', { id: k.id })} onClick={onRotate}><RotateCw size={15} aria-hidden="true" />{t('keys.rotate')}</button>}
       <button type="button" className="secondary dangerText" aria-label={t('keys.revokeNamed', { id: k.id })} onClick={onRevoke}><ShieldOff size={15} aria-hidden="true" />{t('keys.revoke')}</button>
     </div>}
   </li>;
