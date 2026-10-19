@@ -15,7 +15,8 @@ export default defineConfig({
   },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], ...(process.platform === 'win32' ? { channel: 'msedge' as const } : {}) } },
-    { name: 'mobile', use: { ...devices['Pixel 7'], ...(process.platform === 'win32' ? { channel: 'msedge' as const } : {}) } },
+    // The @gate sweeps (page-layout, accessibility, journey) set the five gate sizes themselves: desktop runs them once and mobile leaves them out.
+    { name: 'mobile', grepInvert: /@gate/, use: { ...devices['Pixel 7'], ...(process.platform === 'win32' ? { channel: 'msedge' as const } : {}) } },
   ],
   webServer: [
     {

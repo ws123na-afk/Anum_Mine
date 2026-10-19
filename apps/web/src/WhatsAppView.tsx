@@ -21,6 +21,7 @@ import { firstUnread } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { PageHeader, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import './whatsapp.css';
+import { HelpLink } from './HelpLink';
 
 type Tab = 'inbox' | 'templates' | 'setup';
 type Load = { kind: 'loading' } | { kind: 'denied' } | { kind: 'error'; message: string } | { kind: 'ready'; account: WaAccount };
@@ -155,7 +156,7 @@ function InboxView({ account, owner, onOpenApprovals, onOpenBudgets, onOpenTempl
       <h2 id="wa-list-heading" className="visuallyHidden">{t('wa.list.heading')}</h2>
       <form className="waSearch" role="search" onSubmit={(e) => { e.preventDefault(); setApplied(query); }}>
         <label className="visuallyHidden" htmlFor={searchId}>{t('wa.list.search')}</label>
-        <input id={searchId} type="search" value={query} placeholder={t('wa.list.search')} onChange={(e) => setQuery(e.target.value)} />
+        <input id={searchId} type="search" required value={query} placeholder={t('wa.list.search')} onChange={(e) => { setQuery(e.target.value); if (!e.target.value) setApplied(''); }} />
         <button type="submit" className="secondary iconOnly" aria-label={t('common.search')} title={t('common.search')}><Search aria-hidden="true" /></button>
       </form>
       <div className="waFilters" role="group" aria-label={t('wa.list.filters')}>
@@ -166,7 +167,7 @@ function InboxView({ account, owner, onOpenApprovals, onOpenBudgets, onOpenTempl
       {state === 'ready' && items.length === 0 && <div className="emptyState waListEmpty">
         <Inbox aria-hidden="true" />
         <h3>{applied || filter !== 'all' ? t('wa.list.noMatch') : t('wa.list.empty')}</h3>
-        <p>{applied || filter !== 'all' ? t('wa.list.noMatchText') : t('wa.list.emptyText', { number: account.display_phone_number ?? account.phone_number_id ?? '' })}</p>
+        <p>{applied || filter !== 'all' ? t('wa.list.noMatchText') : t('wa.list.emptyText', { number: account.display_phone_number ?? account.phone_number_id ?? '' })}</p><HelpLink />
         {(applied || filter !== 'all') && <div className="actions waCenter"><button type="button" className="secondary" onClick={() => { setQuery(''); setApplied(''); setFilter('all'); }}>{t('wa.list.showAll')}</button></div>}
       </div>}
       {items.length > 0 && <ul className="waConversations" aria-label={t('wa.list.heading')}>

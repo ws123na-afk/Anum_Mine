@@ -16,6 +16,7 @@ import { viewLabel } from './lib/shell';
 import { PageHeader } from './PageParts';
 import './autonomy.css';
 import './adminPages.css';
+import { HelpLink } from './HelpLink';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
 type Flash = { text: string; error?: boolean } | null;
@@ -166,7 +167,7 @@ export function ActivityView({ onOpenSettings }: { onOpenSettings: () => void })
       {load.kind === 'forbidden' && <ReadOnly title={t('activity.forbiddenTitle')}>{t('activity.forbidden', { detail: load.detail })}</ReadOnly>}
       {load.kind === 'ready' && items.length === 0 && (filtersActive(filters)
         ? <div className="emptyState"><Search aria-hidden="true" /><h3>{t('activity.noMatchTitle')}</h3><p>{t('activity.noMatch')}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setQuery(''); setFilters(EMPTY_FILTERS); }}>{t('activity.clearFilters')}</button></div></div>
-        : <div className="emptyState"><Bell aria-hidden="true" /><h3>{t('activity.emptyTitle')}</h3><p>{t('activity.empty')}</p><div className="actions"><button type="button" onClick={onOpenSettings}><ShieldCheck aria-hidden="true" />{t('activity.openSettings')}</button></div></div>)}
+        : <div className="emptyState"><Bell aria-hidden="true" /><h3>{t('activity.emptyTitle')}</h3><p>{t('activity.empty')}</p><HelpLink /><div className="actions"><button type="button" onClick={onOpenSettings}><ShieldCheck aria-hidden="true" />{t('activity.openSettings')}</button></div></div>)}
       {load.kind === 'ready' && items.length > 0 && <ul className="autonomyList" aria-label={t('activity.feedTitle')}>{items.map((action) => {
         const status = undoStatus(action, now);
         const asks = action.patternLevel === 'ask_always';

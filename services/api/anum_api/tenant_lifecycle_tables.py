@@ -8,7 +8,7 @@ object storage, the column holding the object key.
 ``tests/test_tenant_lifecycle.py`` replays the migrations and fails when a table with a
 ``tenant_id`` column is missing here (or listed here but gone); the PostgreSQL test does
 the same against ``information_schema``. A new tenant table therefore needs an entry here
-and, in its migration, the purge policy and grants of migration ``0081_tenant_lifecycle``.
+and, in its migration, the purge policy and grants of migration ``0079_tenant_lifecycle``.
 
 The order is a safe delete order (children before parents) used by the in-memory backend
 and as the fallback; with PostgreSQL the purge orders tables from the foreign keys in the
@@ -238,6 +238,7 @@ _ORDER = (
     "meetings",
     "meeting_connector_accounts",
     "calendar_events",
+    "demo_records",
     "home_insight_states",
     "home_pins",
     "home_profiles",

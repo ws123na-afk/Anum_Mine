@@ -69,7 +69,7 @@ grant anum_membership_reader to anum_app with inherit false, set true;
 -- docs/customer-organisations.md): their policies span tenants, so SET ROLE only.
 grant anum_platform_reader to anum_app with inherit false, set true;
 grant anum_tenant_directory to anum_app with inherit false, set true;
--- The organisation purge (migration 0081_tenant_lifecycle, docs/organisation-lifecycle.md):
+-- The organisation purge (migration 0079_tenant_lifecycle, docs/organisation-lifecycle.md):
 -- it may delete rows of a tenant whose deletion is purging, so SET ROLE only.
 grant anum_tenant_purger to anum_app with inherit false, set true;
 

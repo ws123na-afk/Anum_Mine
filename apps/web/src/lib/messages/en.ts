@@ -18,6 +18,7 @@ import { businessEn } from './business.en.ts';
 import { businessSupportEn } from './businessSupport.en.ts';
 import { brevoEn } from './brevo.en.ts';
 import { lifecycleEn } from './lifecycle.en.ts';
+import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
@@ -59,6 +60,7 @@ export const en = {
   ...businessSupportEn,
   ...brevoEn,
   ...lifecycleEn,
+  ...helpEn,
   ...publicSiteEn,
   ...agentSkillsEn,
   ...orgChartEn,

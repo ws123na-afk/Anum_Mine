@@ -607,8 +607,8 @@ class _AllInboxTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AnumSpacing.xs),
-            // A full date at 200% text on a narrow phone may not fit beside
-            // the sender: it shrinks and ends with an ellipsis instead.
+            // Loose, so a long localized date at large text sizes ellipsizes
+            // instead of pushing the row past the card.
             Flexible(
               child: Text(mailWhen(context, m.date),
                   maxLines: 1,

@@ -2,7 +2,7 @@
 
 An organisation (tenant) can take all of its data out of ANUM and can leave ANUM for good. A workspace can be deleted on its own. This is what a customer company needs before ANUM is offered as a hosted service (P4 SaaS, [Business gap register](business/ANUM_BUSINESS_GAP_REGISTER.md)); a person's own data stays under [Privacy](privacy.md).
 
-Implemented in `services/api/anum_api/tenant_lifecycle.py` (routes, jobs, the background runner), `tenant_lifecycle_tables.py` (the registry of every tenant table), `db/tenant_lifecycle_repository.py` (PostgreSQL), migration `0081_tenant_lifecycle`; web `apps/web/src/DataLifecycle.tsx` under Settings > Workspace; Flutter `apps/mobile/lib/features/lifecycle/` under Settings > Data export and deletion (English and Arabic, `lifecycle_strings.dart`; the Flutter Privacy screen is now in both languages too, `privacy/privacy_strings.dart`); the platform console's **Deleted organisations** pane (`apps/web/src/DeletedOrganisationsPane.tsx`); Keycloak account cleanup in `anum_api/keycloak_admin.py`.
+Implemented in `services/api/anum_api/tenant_lifecycle.py` (routes, jobs, the background runner), `tenant_lifecycle_tables.py` (the registry of every tenant table), `db/tenant_lifecycle_repository.py` (PostgreSQL), migration `0079_tenant_lifecycle`; web `apps/web/src/DataLifecycle.tsx` under Settings > Workspace; Flutter `apps/mobile/lib/features/lifecycle/` under Settings > Data export and deletion (English and Arabic, `lifecycle_strings.dart`; the Flutter Privacy screen is now in both languages too, `privacy/privacy_strings.dart`); the platform console's **Deleted organisations** pane (`apps/web/src/DeletedOrganisationsPane.tsx`); Keycloak account cleanup in `anum_api/keycloak_admin.py`.
 
 ## Who may do what
 
@@ -50,7 +50,7 @@ How it runs (the event-loop lessons in `CLAUDE.md`): the route only inserts the 
 
 The archive is kept for `ANUM_TENANT_EXPORT_RETENTION_HOURS` (default 168); then the runner deletes it and the job becomes `expired`. Rows are read batch by batch, so the archive is not a point-in-time snapshot of a busy organisation.
 
-Finding the workspaces of an organisation needs one read across workspaces: `anum_maintenance` gets a select policy on `workspaces (tenant_id, id)` that admits only organisations with an export `running` (migration `0081`). Every row read after that runs as the application role inside each workspace.
+Finding the workspaces of an organisation needs one read across workspaces: `anum_maintenance` gets a select policy on `workspaces (tenant_id, id)` that admits only organisations with an export `running` (migration `0079`). Every row read after that runs as the application role inside each workspace.
 
 ## Deletion
 
@@ -65,11 +65,11 @@ Finding the workspaces of an organisation needs one read across workspaces: `anu
 
 Deleting a workspace removes every row with that `workspace_id` and its files; organisation-wide rows (branding, policies, the suppression list) stay.
 
-`deleted_organizations` (migration `0081`) is the console receipt: written by the application role in the tenant's context when the purge starts (copying the operator, name and plan from `platform_organizations` before that row is purged) and completed when it ends. It is never exported or purged. Forced RLS on `anum.tenant_id`; `anum_platform_reader` reads it where `operator_user_id = anum.user_id`; `anum_maintenance` sees only the scope and status columns of receipts whose Keycloak cleanup is pending.
+`deleted_organizations` (migration `0079`) is the console receipt: written by the application role in the tenant's context when the purge starts (copying the operator, name and plan from `platform_organizations` before that row is purged) and completed when it ends. It is never exported or purged. Forced RLS on `anum.tenant_id`; `anum_platform_reader` reads it where `operator_user_id = anum.user_id`; `anum_maintenance` sees only the scope and status columns of receipts whose Keycloak cleanup is pending.
 
 ### How the purge stays inside RLS
 
-The purge never uses `BYPASSRLS` or a `SECURITY DEFINER` function. It follows the [maintenance role](multi-tenancy.md#maintenance-role) pattern with one more narrow role, `anum_tenant_purger` (migration `0081`):
+The purge never uses `BYPASSRLS` or a `SECURITY DEFINER` function. It follows the [maintenance role](multi-tenancy.md#maintenance-role) pattern with one more narrow role, `anum_tenant_purger` (migration `0079`):
 
 - `NOLOGIN`, no `BYPASSRLS`. Privileges: `DELETE`, and `SELECT` only on the scope columns (`tenant_id`, `ctid`, `workspace_id`, and `storage_key` of the two file tables), on every tenant table. PostgreSQL also checks privileges on tables that other row policies and triggers look into, so it may read a few lookup columns: `agent_profiles (id, tenant_id, workspace_id)`, `mail_account_grants (account_id, grantee_user_id, access)` and `retrieval_sources (source_type, source_id)` (`POLICY_LOOKUPS` in the migration; the PostgreSQL test fails when a new policy looks into another table).
 - One policy per table, `lifecycle_purge_<table>`, `for all to anum_tenant_purger`, that admits a row only when its tenant is the session's `anum.tenant_id` **and** that tenant has a lifecycle job in status `purging` that covers the row (an organisation deletion, or a workspace deletion of the row's `workspace_id`). Without a purging job it admits nothing.
@@ -86,7 +86,7 @@ Finding due jobs across organisations uses `anum_maintenance` with column grants
 - `tests/test_tenant_lifecycle.py::test_every_tenant_table_is_listed_for_export_and_purge` replays every migration with a recording stand-in for Alembic's `op` and compares the tables with a `tenant_id` column against the registry.
 - `tests/test_postgres_tenant_lifecycle.py` compares the registry with `information_schema` of the migrated database, checks that every listed table has its purge policy and every restrictive policy admits the purger, and runs an export and both purges as the application role: tenant B keeps every row, and the purged tenant keeps only the tombstones and the receipt.
 
-A new tenant table therefore needs a registry entry and, in its migration, the purge policy and grants (copy `_purge_policy` from migration `0081`).
+A new tenant table therefore needs a registry entry and, in its migration, the purge policy and grants (copy `_purge_policy` from migration `0079`).
 
 ## Audit
 

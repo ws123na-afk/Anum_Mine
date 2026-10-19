@@ -1121,25 +1121,35 @@ class _MessageTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             if (label != null) MailLabelChips(label: label!),
-            // The date and markers sit under the subject, not in a trailing
-            // column: an older message shows a full date, which at 200% text
-            // on a narrow phone would take the whole tile width.
-            Wrap(
-              spacing: AnumSpacing.xs,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text(mailWhen(context, message.date),
-                    style: Theme.of(context).textTheme.bodySmall),
-                if (message.maybeAttachments)
-                  const Icon(Icons.attach_file, size: 16),
-                if (message.flagged)
-                  Icon(Icons.star,
-                      size: 16,
-                      semanticLabel: l.t('mc.starred'),
-                      color: Theme.of(context).colorScheme.tertiary),
-              ],
-            ),
           ],
+        ),
+        // At most a third of the screen: a long localized date at large text
+        // sizes ellipsizes instead of taking the whole tile.
+        trailing: ConstrainedBox(
+          constraints:
+              BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width / 3),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(mailWhen(context, message.date),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message.maybeAttachments)
+                    const Icon(Icons.attach_file, size: 16),
+                  if (message.flagged)
+                    Icon(Icons.star,
+                        size: 16,
+                        semanticLabel: l.t('mc.starred'),
+                        color: Theme.of(context).colorScheme.tertiary),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

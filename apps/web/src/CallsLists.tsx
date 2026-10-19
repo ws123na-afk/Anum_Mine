@@ -57,7 +57,7 @@ export function RecentsTab({ refresh, setup, selected, onSelect, onDial, onCallI
       <div className="paneHead callsListHead">
         <form className="toolbar callsToolbar" role="search" aria-label={t('calls.recents.search')} onSubmit={submit}>
           <label className="visuallyHidden" htmlFor={`${ids}-q`}>{t('calls.recents.search')}</label>
-          <input id={`${ids}-q`} type="search" value={draft} placeholder={t('calls.recents.search')} maxLength={200} onChange={(event) => { setDraft(event.target.value); if (!event.target.value) { setQuery(''); setOffset(0); } }} />
+          <input id={`${ids}-q`} type="search" required value={draft} placeholder={t('calls.recents.search')} maxLength={200} onChange={(event) => { setDraft(event.target.value); if (!event.target.value) { setQuery(''); setOffset(0); } }} />
           <button type="submit" className="secondary iconOnly" aria-label={t('common.search')} title={t('common.search')}><Search aria-hidden="true" /></button>
           <label className="visuallyHidden" htmlFor={`${ids}-dir`}>{t('calls.recents.direction')}</label>
           <select id={`${ids}-dir`} value={direction} onChange={(event) => { setOffset(0); setDirection(event.target.value as Direction | ''); }}>
@@ -302,7 +302,7 @@ export function ContactsTab({ refresh, setup, selected, onSelect, onDial, onCall
       <div className="paneHead callsListHead">
         <form className="toolbar callsToolbar" role="search" aria-label={t('calls.contacts.search')} onSubmit={(event) => { event.preventDefault(); setOffset(0); setQuery(draft.trim()); }}>
           <label className="visuallyHidden" htmlFor={`${ids}-q`}>{t('calls.contacts.search')}</label>
-          <input id={`${ids}-q`} type="search" value={draft} placeholder={t('calls.contacts.search')} maxLength={200} onChange={(event) => { setDraft(event.target.value); if (!event.target.value) { setQuery(''); setOffset(0); } }} />
+          <input id={`${ids}-q`} type="search" required value={draft} placeholder={t('calls.contacts.search')} maxLength={200} onChange={(event) => { setDraft(event.target.value); if (!event.target.value) { setQuery(''); setOffset(0); } }} />
           <button type="submit" className="secondary iconOnly" aria-label={t('common.search')} title={t('common.search')}><Search aria-hidden="true" /></button>
           <label className="checkRow callsMine"><input type="checkbox" checked={favourites} onChange={(event) => { setOffset(0); setFavourites(event.target.checked); }} />{t('calls.contacts.favourites')}</label>
         </form>
