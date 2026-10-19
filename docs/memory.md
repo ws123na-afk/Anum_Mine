@@ -22,7 +22,7 @@ Retrieval is tenant-scoped, workspace-aware, permission-filtered and explainable
 
 | Table (migration `0014_retrieval_index`) | Holds |
 |---|---|
-| `retrieval_sources` | One row per memory note or file: `source_type` (`memory`, `file`), `source_id`, status (`indexed`, `failed`, `skipped`), error code (`embedding_failed`, `budget_exceeded`, `empty`, `not_text`, `not_utf8`, `too_large`, and for documents `encrypted`, `malformed`, `too_complex`, `timeout`; [Document text extraction](files.md#document-text-extraction)), chunk count, embedding model, SHA-256 of the indexed text (of the file bytes for a PDF, DOCX, XLSX or PPTX), the memory's expiry. Never text. |
+| `retrieval_sources` | One row per memory note or file: `source_type` (`memory`, `file`), `source_id`, status (`indexed`, `failed`, `skipped`), error code (`embedding_failed`, `budget_exceeded`, `empty`, `not_text`, `not_utf8`, `too_large`, and for documents `encrypted`, `malformed`, `too_complex`, `no_text_layer` (a scanned PDF, no OCR), `timeout`; [Document text extraction](files.md#document-text-extraction)), chunk count, embedding model, SHA-256 of the indexed text (of the file bytes for a PDF, Office or OpenDocument file), the memory's expiry. Never text. |
 | `retrieval_chunks` | Chunk text (about 1,200 characters with 150 of overlap, at most 200 chunks per source), its embedding (pgvector `vector`), `embedding_model` and `dimensions`. Cascades from its source row. |
 
 Both tables force RLS on `anum.tenant_id` and `anum.workspace_id`, like every workspace table, and the store also names the tenant and workspace in every statement. The embedding column is untyped because models differ in dimension; a check ties it to `dimensions`, and a search only compares chunks of the query's model and dimension. Search uses cosine distance, bounded to one workspace and model by `ix_retrieval_chunks_scope_model`, and may use an approximate index ([Vector search](#vector-search)). With `ANUM_REPOSITORY_BACKEND=memory` the same index lives in process memory.
@@ -131,7 +131,7 @@ Users need ways to inspect, edit, disable, and delete memory. Memories should ha
 
 ## Now
 
-Task-linked notes with retention and deletion, chunked embeddings in pgvector for memories, text files and PDF, DOCX, XLSX and PPTX text, scoped retrieval into task prompts with provenance labels, per-run source records, and private long-term memory from assistant chats (extraction, dedupe by embedding, recall into the chat, deletion from the Memory view).
+Task-linked notes with retention and deletion, chunked embeddings in pgvector for memories, text files and PDF, Office and OpenDocument text, scoped retrieval into task prompts with provenance labels, per-run source records, and private long-term memory from assistant chats (extraction, dedupe by embedding, recall into the chat, deletion from the Memory view).
 
 ## Later
 

@@ -15,7 +15,7 @@ Code: `services/api/anum_api/knowledge_base.py`, `favorites.py`,
 | Thing | Stored as | Indexed by retrieval |
 | --- | --- | --- |
 | Collection | `kb_collections` row: name, description, owner (null = shared) | n/a |
-| Document | a [workspace file](files.md) plus a `kb_items` row (`kind=file`) | text files and PDF, DOCX, XLSX and PPTX files, as for any upload ([Document text extraction](files.md#document-text-extraction)) |
+| Document | a [workspace file](files.md) plus a `kb_items` row (`kind=file`) | text files and PDF, DOCX, XLSX, PPTX, ODT, ODS and ODP files, as for any upload ([Document text extraction](files.md#document-text-extraction)) |
 | Note | a [memory](memory.md) (`source_type=knowledge_base`, retention indefinite) plus a `kb_items` row (`kind=note`) | yes, on create and on edit |
 
 - A collection is **shared with the workspace** or **private to its creator**. A note in
@@ -58,10 +58,11 @@ from the visible collections, wraps each with `label_untrusted` (provenance `fil
 ([threat model](threat-model.md)), and asks the workspace model (fast route, budgeted) to
 answer only from them and cite `[n]`. The answer comes back with `citations`: number,
 item, collection, title, kind, provenance, chunk and a snippet. A passage from a PDF,
-DOCX, XLSX or PPTX also carries where it is: `page` (the number), `page_unit` (`page`,
+DOCX, XLSX, PPTX or OpenDocument file also carries where it is: `page` (the number), `page_unit` (`page`,
 `slide` or `sheet`) and `page_label` (the sheet name). The model sees the same location
 in each passage's heading (`[2] manual.pdf, page 3`), and the web shows it next to the
-collection name ("page 3", "sheet 1 (Budget)"). A DOCX without page marks is cited by
+collection name ("page 3", "sheet 1 (Budget)"), and so does the Flutter app after the
+title ("[2] manual.pdf, page 3"). A DOCX without page marks is cited by
 file name alone. Snippets never include the location line. No passage, no model call:
 `status=no_sources`. A failed model call returns `status=unavailable` with the citations
 found. With the mock provider (local development) the answer is the best passages quoted
@@ -72,7 +73,9 @@ with their numbers.
 Each item shows its retrieval state: **Indexed**, **Not indexed yet**, **Index failed**
 (often the model was unavailable, or a document took too long to read) or **Not searchable**
 (a file type retrieval does not index, or a document that is password protected, damaged
-or too complex to read safely; it is still found by title and tags). `POST /collections/{id}/reindex` re-indexes
+or too complex to read safely; it is still found by title and tags). A scanned PDF with
+no text layer shows **No extractable text, OCR not available** instead, on the web and in
+Flutter: there is no OCR. `POST /collections/{id}/reindex` re-indexes
 the collection's missing, failed or changed sources (unchanged ones are reused, so no
 budget is spent on them) and returns the new states.
 

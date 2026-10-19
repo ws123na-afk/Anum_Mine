@@ -1,6 +1,6 @@
 """Retrieval of workspace memories and files into agent prompts (threat model G5).
 
-Indexing: a memory note, an uploaded text file or the text of a PDF, DOCX, XLSX or PPTX
+Indexing: a memory note, an uploaded text file or the text of a PDF, DOCX, XLSX, PPTX, ODT, ODS or ODP
 (extracted by :mod:`anum_api.doc_extract`, chunked per page, slide or sheet with a
 ``[name, page n]`` first line) is split into chunks, each chunk is
 embedded, and the chunks are stored with their vectors in the RLS-protected
@@ -541,7 +541,7 @@ class RetrievalIndexer:
         return await self.index_text(context, SourceType.FILE, record.id, text, name=record.name)
 
     async def _index_document(self, context: TenantContext, record: Any, content: bytes, fmt: DocumentFormat) -> IndexOutcome:
-        """A PDF, DOCX, XLSX or PPTX: extracted off the event loop, chunked per page, slide or
+        """A PDF, Office or OpenDocument file: extracted off the event loop, chunked per page, slide or
         sheet, each chunk starting with its ``[name, page n]`` line (doc_extract.py)."""
         model = self.embedder.model_name
         existing = self.store.get_source(context, SourceType.FILE, record.id)

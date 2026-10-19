@@ -250,6 +250,11 @@ void main() {
           'Not indexed: this file type is not indexed.');
       expect(
           indexDescription(const FileIndexState(
+                  status: 'skipped', error: 'no_text_layer'))
+              .$3,
+          'Not indexed: no extractable text, OCR not available.');
+      expect(
+          indexDescription(const FileIndexState(
                   status: 'failed', error: 'model_unavailable'))
               .$3,
           'Indexing failed (model unavailable). Re-index to try again.');

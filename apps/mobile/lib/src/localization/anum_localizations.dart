@@ -812,6 +812,10 @@ class AnumLocalizations {
     'libIndex_failed': 'Index failed',
     'libIndex_skipped': 'Not searchable',
     'libIndex_gone': 'Missing',
+    'libIndex_noTextLayer': 'No extractable text, OCR not available',
+    'libPlace_page': 'page {n}',
+    'libPlace_slide': 'slide {n}',
+    'libPlace_sheet': 'sheet {n}',
     // Reports, calendar and email summary (ANUM 360).
     'toolsCancel': 'Cancel',
     'toolsSave': 'Save',
@@ -2216,6 +2220,11 @@ class AnumLocalizations {
     'libIndex_failed': 'فشلت الفهرسة',
     'libIndex_skipped': 'غير قابل للبحث',
     'libIndex_gone': 'مفقود',
+    'libIndex_noTextLayer':
+        'لا يوجد نص قابل للاستخراج، والتعرف الضوئي على النص غير متاح',
+    'libPlace_page': 'صفحة {n}',
+    'libPlace_slide': 'شريحة {n}',
+    'libPlace_sheet': 'ورقة {n}',
     // Reports, calendar and email summary (ANUM 360).
     'toolsCancel': 'إلغاء',
     'toolsSave': 'حفظ',

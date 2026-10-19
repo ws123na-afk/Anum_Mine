@@ -4,7 +4,7 @@ See docs/knowledge-base.md. The knowledge base is an organisation layer over wha
 already stores and indexes:
 
 * a **document** is a workspace file (``/api/v1/files``), uploaded into a collection or
-  linked from Files; text files, and the text of PDF, DOCX, XLSX and PPTX files
+  linked from Files; text files, and the text of PDF, Office and OpenDocument files
   (``doc_extract.py``), are chunked and embedded by the retrieval index, and a passage
   of a document is cited with its page, slide or sheet;
 * a **note** is a memory (``source_type=knowledge_base``) written in the collection,

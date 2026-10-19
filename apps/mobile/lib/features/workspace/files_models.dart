@@ -149,6 +149,7 @@ const _skipReasons = {
   'encrypted': 'it is password protected',
   'malformed': 'it is damaged or could not be read',
   'too_complex': 'it is too complex to read safely',
+  'no_text_layer': 'no extractable text, OCR not available',
 };
 
 /// The retrieval index state as a label, a tone and a sentence.

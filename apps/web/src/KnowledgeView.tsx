@@ -9,6 +9,7 @@ import type { KnowledgeAnswer, KnowledgeCollection, KnowledgeItem, KnowledgeItem
 import { ConfirmDialog, Drawer, Modal } from './Dialog';
 import { StarButton, useStars } from './Favorites';
 import { getFiles } from './lib/api';
+import { skipReason } from './lib/files';
 import { ApiError, describeError, isBudgetExceeded, isPermissionDenied, budgetMessage } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { ITEMS_PAGE, citationPlace, fileSize, parseTags } from './lib/library';
@@ -30,7 +31,11 @@ const failure = (e: unknown, denied: MessageKey): string => isPermissionDenied(e
 function IndexBadge({ item }: { item: KnowledgeItem }) {
   if (!item.available) return <span className="statusBadge dangerTone">{t('kb.index.gone')}</span>;
   const tone = item.index.state === 'indexed' ? 'success' : item.index.state === 'failed' ? 'dangerTone' : item.index.state === 'skipped' ? 'neutral' : 'warning';
-  return <span className={`statusBadge ${tone}`} title={item.index.error ?? undefined}>{t(`kb.index.${item.index.state}` as MessageKey)}</span>;
+  // A scanned PDF has no text layer and there is no OCR: say so instead of a plain "Not searchable".
+  if (item.index.state === 'skipped' && item.index.error === 'no_text_layer') {
+    return <span className="statusBadge warning" title={skipReason(item.index.error)}>{t('kb.index.noTextLayer')}</span>;
+  }
+  return <span className={`statusBadge ${tone}`} title={item.index.error ? skipReason(item.index.error) : undefined}>{t(`kb.index.${item.index.state}` as MessageKey)}</span>;
 }
 
 export function KnowledgeView({ initialCollectionId }: { initialCollectionId?: string | null }) {

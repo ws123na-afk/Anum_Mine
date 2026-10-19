@@ -59,6 +59,7 @@ describe('indexBadge and canReindex', () => {
   test('every state has a label, a tone and a sentence', () => {
     assert.deepEqual(indexBadge({ ...base, status: 'indexed', chunk_count: 1 }), { label: 'Indexed', tone: 'success', detail: 'Tasks can use this file (1 passage).' });
     assert.equal(indexBadge({ ...base, status: 'skipped', error: 'not_text' }).detail, 'Not indexed: this file type is not indexed.');
+    assert.equal(indexBadge({ ...base, status: 'skipped', error: 'no_text_layer' }).detail, 'Not indexed: no extractable text, OCR not available.');
     assert.equal(indexBadge({ ...base, status: 'failed', error: 'model_budget_exceeded' }).detail, 'Indexing failed (model budget exceeded). Re-index to try again.');
     assert.equal(indexBadge({ ...base, status: 'stale' }).tone, 'warning');
     assert.equal(indexBadge({ ...base, status: 'pending' }).label, 'Not indexed yet');

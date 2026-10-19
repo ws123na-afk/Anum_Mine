@@ -1,15 +1,20 @@
-"""Text extraction from PDF, DOCX, XLSX and PPTX files for retrieval (docs/files.md#retrieval).
+"""Text extraction from PDF, DOCX, XLSX, PPTX, ODT, ODS and ODP files for retrieval
+(docs/files.md#document-text-extraction).
 
 Uploaded documents are hostile input. Extraction therefore:
 
 * refuses input over :attr:`ExtractionLimits.max_input_bytes`;
-* checks every OOXML (DOCX, XLSX, PPTX) zip before reading it: entry count, the total
+* checks every OOXML (DOCX, XLSX, PPTX) and OpenDocument (ODT, ODS, ODP) zip before
+  reading it: entry count, the total
   uncompressed size, the per-entry compression ratio (zip bombs) and the encryption flag,
   and reads each XML part with a bounded read. XML parts that declare a ``DOCTYPE`` are
   refused, so no entity can be declared or expanded (OOXML never uses one);
 * refuses password-protected files: an encrypted Office file is an OLE container, not a
-  zip, and a PDF that does not open with the empty password is refused (a PDF that only
-  carries permission flags opens with it and is read);
+  zip, an encrypted OpenDocument file lists ``encryption-data`` in its manifest, and a
+  PDF that does not open with the empty password is refused (a PDF that only carries
+  permission flags opens with it and is read);
+* reports a PDF whose pages carry no text layer (usually a scan) as ``no_text_layer``:
+  there is no OCR, and the file says so instead of silently indexing nothing;
 * stops reading after :attr:`max_pages` PDF pages or PPTX slides, :attr:`max_sheets`
   sheets, :attr:`max_rows_per_sheet` rows and :attr:`max_chars` characters, and marks the
   result ``truncated``;
@@ -56,6 +61,9 @@ class DocumentFormat(StrEnum):
     DOCX = "docx"
     XLSX = "xlsx"
     PPTX = "pptx"
+    ODT = "odt"
+    ODS = "ods"
+    ODP = "odp"
 
 
 DOCUMENT_SUFFIXES: dict[str, DocumentFormat] = {
@@ -63,12 +71,18 @@ DOCUMENT_SUFFIXES: dict[str, DocumentFormat] = {
     ".docx": DocumentFormat.DOCX,
     ".xlsx": DocumentFormat.XLSX,
     ".pptx": DocumentFormat.PPTX,
+    ".odt": DocumentFormat.ODT,
+    ".ods": DocumentFormat.ODS,
+    ".odp": DocumentFormat.ODP,
 }
 DOCUMENT_CONTENT_TYPES: dict[str, DocumentFormat] = {
     "application/pdf": DocumentFormat.PDF,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": DocumentFormat.DOCX,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": DocumentFormat.XLSX,
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": DocumentFormat.PPTX,
+    "application/vnd.oasis.opendocument.text": DocumentFormat.ODT,
+    "application/vnd.oasis.opendocument.spreadsheet": DocumentFormat.ODS,
+    "application/vnd.oasis.opendocument.presentation": DocumentFormat.ODP,
 }
 
 
@@ -102,6 +116,7 @@ TOO_COMPLEX = "too_complex"
 ENCRYPTED = "encrypted"
 MALFORMED = "malformed"
 TIMEOUT = "timeout"
+NO_TEXT_LAYER = "no_text_layer"
 
 
 class ExtractionError(Exception):
@@ -202,6 +217,10 @@ def _extract_pdf(data: bytes, budget: _Budget, result: ExtractedDocument) -> Non
             result.sections.append(Section(budget.take(text), index + 1, LocationUnit.PAGE))
     if page_count > budget.limits.max_pages:
         budget.truncated = True
+    if page_count and not result.sections:
+        raise ExtractionError(
+            NO_TEXT_LAYER, "This PDF has no extractable text (it may be a scan), and OCR is not available."
+        )
 
 
 # --------------------------------------------------------------------------- OOXML
@@ -245,15 +264,15 @@ class _Package:
             raise ExtractionError(TOO_COMPLEX, "A part of this document is too large to read safely.")
         return data
 
-    def events(self, name: str) -> Iterator[tuple[str, _Element]]:
-        """``end`` events of one XML part (an absent part yields nothing)."""
+    def events(self, name: str, kinds: tuple[str, ...] = ("end",)) -> Iterator[tuple[str, _Element]]:
+        """Parse events (``end`` by default) of one XML part (an absent part yields nothing)."""
         data = self.read(name)
         if data is None:
             return
         if _DECLARATION.search(data):
             raise ExtractionError(MALFORMED, "This document contains XML that is not allowed.")
         try:
-            for event, element in iterparse(io.BytesIO(data), events=("end",), forbid_dtd=True):
+            for event, element in iterparse(io.BytesIO(data), events=kinds, forbid_dtd=True):
                 yield event, element
         except (ParseError, DefusedXmlException) as exc:
             raise ExtractionError(MALFORMED, "This document is damaged.") from exc
@@ -442,6 +461,162 @@ def _extract_xlsx(package: _Package, budget: _Budget, result: ExtractedDocument)
             result.sections.append(Section(budget.take(text), number, LocationUnit.SHEET, sheet_name[:100] or None))
 
 
+# --------------------------------------------------------------------------- OpenDocument
+
+# A repeated cell or row with content is expanded at most this many times (an empty
+# repeat, often a million columns or rows, is never expanded).
+ODF_MAX_REPEAT = 100
+
+
+def _odf_text(element: _Element) -> str:
+    """The text of one ``text:p`` or ``text:h``: mixed content with spaces, tabs and breaks."""
+    parts: list[str] = [element.text or ""]
+    for child in element:
+        name = _local(child.tag)
+        if name == "s":
+            try:
+                count = int(_attr(child, "c") or "1")
+            except ValueError:
+                count = 1
+            parts.append(" " * max(1, min(count, 100)))
+        elif name == "tab":
+            parts.append("\t")
+        elif name == "line-break":
+            parts.append("\n")
+        elif name not in {"annotation", "note-citation"}:
+            parts.append(_odf_text(child))
+        parts.append(child.tail or "")
+    return "".join(parts)
+
+
+def _odf_paragraphs(element: _Element) -> list[str]:
+    """The paragraphs under ``element`` (a paragraph inside a paragraph is part of it)."""
+    found: list[str] = []
+    for child in element:
+        name = _local(child.tag)
+        if name in {"p", "h"}:
+            found.append(_odf_text(child))
+        elif name not in {"notes", "annotation"}:  # speaker notes and comments stay out
+            found.extend(_odf_paragraphs(child))
+    return found
+
+
+def _odf_check(package: _Package) -> None:
+    manifest = package.read("META-INF/manifest.xml") or b""
+    if b"encryption-data" in manifest:
+        raise ExtractionError(ENCRYPTED, "This document is password protected.")
+    if "content.xml" not in package.names:
+        raise ExtractionError(MALFORMED, "This document is damaged or is not an OpenDocument file.")
+
+
+def _repeat(element: _Element, name: str) -> int:
+    try:
+        return max(1, int(_attr(element, name) or "1"))
+    except ValueError:
+        return 1
+
+
+def _extract_odt(package: _Package, budget: _Budget, result: ExtractedDocument) -> None:
+    _odf_check(package)
+    page = 1
+    page_marks = 0
+    pending_breaks = 0
+    lines: list[str] = []
+    sections: list[Section] = []
+
+    def flush() -> None:
+        text = _clean("\n".join(lines))
+        lines.clear()
+        if text:
+            sections.append(Section(budget.take(text), page, LocationUnit.PAGE))
+
+    in_body = False
+    for event, element in package.events("content.xml", ("start", "end")):
+        name = _local(element.tag)
+        if name == "text" and event == "start":
+            in_body = True  # office:text, the document body
+        if event != "end" or not in_body:
+            continue
+        if name == "soft-page-break":
+            # Where LibreOffice last broke pages, like Word's lastRenderedPageBreak.
+            pending_breaks += 1
+        elif name in {"p", "h"}:
+            budget.check()
+            if pending_breaks:
+                flush()
+                page += pending_breaks
+                page_marks += pending_breaks
+                pending_breaks = 0
+            lines.append(_odf_text(element))
+            element.clear()
+            if budget.full:
+                budget.truncated = True
+                break
+            if sum(len(line) for line in lines) > 50_000:
+                flush()
+    flush()
+    if page_marks == 0:
+        sections = [Section(section.text) for section in sections]
+    result.sections.extend(sections)
+
+
+def _extract_ods(package: _Package, budget: _Budget, result: ExtractedDocument) -> None:
+    _odf_check(package)
+    rows: list[str] = []
+    sheets = 0
+    for _, element in package.events("content.xml"):
+        name = _local(element.tag)
+        if name == "table-row":
+            if len(rows) >= budget.limits.max_rows_per_sheet:
+                budget.truncated = True
+                element.clear()
+                continue
+            row_repeat = min(_repeat(element, "number-rows-repeated"), ODF_MAX_REPEAT)
+            values: list[str] = []
+            for cell in element:
+                if _local(cell.tag) not in {"table-cell", "covered-table-cell"}:
+                    continue
+                text = "\n".join(_odf_paragraphs(cell)).strip()
+                repeat = min(_repeat(cell, "number-columns-repeated"), ODF_MAX_REPEAT) if text else 1
+                values.extend([text] * repeat)
+            element.clear()
+            line = "\t".join(values).rstrip("\t")
+            if line.strip():
+                for _ in range(min(row_repeat, budget.limits.max_rows_per_sheet - len(rows))):
+                    rows.append(line)
+            if len(rows) % 500 == 0:
+                budget.check()
+        elif name == "table":
+            budget.check()
+            sheets += 1
+            text = _clean("\n".join(rows))
+            rows = []
+            if sheets > budget.limits.max_sheets or budget.full:
+                budget.truncated = True
+                break
+            if text:
+                sheet_name = (_attr(element, "name") or "")[:100] or None
+                result.sections.append(Section(budget.take(text), sheets, LocationUnit.SHEET, sheet_name))
+            element.clear()
+
+
+def _extract_odp(package: _Package, budget: _Budget, result: ExtractedDocument) -> None:
+    _odf_check(package)
+    slides = 0
+    for _, element in package.events("content.xml"):
+        if _local(element.tag) != "page":
+            continue
+        budget.check()
+        slides += 1
+        if slides > budget.limits.max_pages or budget.full:
+            budget.truncated = True
+            break
+        text = _clean("\n".join(_odf_paragraphs(element)))
+        element.clear()
+        if text:
+            result.sections.append(Section(budget.take(text), slides, LocationUnit.SLIDE))
+
+
 # --------------------------------------------------------------------------- entry points
 
 
@@ -466,6 +641,9 @@ def extract_document(
                 DocumentFormat.DOCX: _extract_docx,
                 DocumentFormat.XLSX: _extract_xlsx,
                 DocumentFormat.PPTX: _extract_pptx,
+                DocumentFormat.ODT: _extract_odt,
+                DocumentFormat.ODS: _extract_ods,
+                DocumentFormat.ODP: _extract_odp,
             }[fmt](package, budget, result)
     except ExtractionError:
         raise

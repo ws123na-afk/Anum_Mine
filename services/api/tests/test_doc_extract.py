@@ -50,8 +50,9 @@ from anum_api.schemas import TenantContext, utc_now
 # --------------------------------------------------------------------------- fixtures
 
 
-def make_pdf(pages: list[str]) -> bytes:
-    """A minimal valid PDF with one line of Helvetica text per page."""
+def make_pdf(pages: list[str], *, scanned: bool = False) -> bytes:
+    """A minimal valid PDF with one line of Helvetica text per page (``scanned``: only a
+    filled rectangle per page, no text layer, like a scan)."""
     count = len(pages)
     font_id = 3 + 2 * count
     objects: list[bytes] = [
@@ -67,7 +68,7 @@ def make_pdf(pages: list[str]) -> bytes:
             f"/Resources << /Font << /F1 {font_id} 0 R >> >> >>".encode()
         )
         safe = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
-        stream = f"BT /F1 12 Tf 72 720 Td ({safe}) Tj ET".encode()
+        stream = b"0 0 300 300 re f" if scanned else f"BT /F1 12 Tf 72 720 Td ({safe}) Tj ET".encode()
         objects.append(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
     objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
     out = io.BytesIO()
@@ -158,6 +159,56 @@ def make_xlsx(sheets: dict[str, list[list[str | int]]]) -> bytes:
     return make_zip(parts)
 
 
+OFFICE = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"'
+TEXT = 'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"'
+TABLE = 'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"'
+DRAW = 'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"'
+PRES = 'xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0"'
+
+
+def make_odf(kind: str, body: str, *, encrypted: bool = False) -> bytes:
+    content = (
+        f'<?xml version="1.0" encoding="UTF-8"?><office:document-content {OFFICE} {TEXT} {TABLE} {DRAW} {PRES}>'
+        f"<office:body><office:{kind}>{body}</office:{kind}></office:body></office:document-content>"
+    )
+    manifest = "<manifest:manifest>" + ("<manifest:encryption-data/>" if encrypted else "") + "</manifest:manifest>"
+    return make_zip({
+        "mimetype": f"application/vnd.oasis.opendocument.{kind}",
+        "META-INF/manifest.xml": manifest,
+        "content.xml": content,
+    })
+
+
+def make_odt(paragraphs: list[str], *, page_break_before: int | None = None) -> bytes:
+    body = "".join(
+        ("<text:soft-page-break/>" if index == page_break_before else "") + f"<text:p>{escape(text)}</text:p>"
+        for index, text in enumerate(paragraphs)
+    )
+    return make_odf("text", body)
+
+
+def make_ods(sheets: dict[str, list[list[str]]]) -> bytes:
+    tables = []
+    for name, rows in sheets.items():
+        xml_rows = "".join(
+            "<table:table-row>" + "".join(f"<table:table-cell><text:p>{escape(v)}</text:p></table:table-cell>" for v in row)
+            + "</table:table-row>"
+            for row in rows
+        )
+        tables.append(f'<table:table table:name="{escape(name)}">{xml_rows}</table:table>')
+    return make_odf("spreadsheet", "".join(tables))
+
+
+def make_odp(slides: list[str]) -> bytes:
+    pages = "".join(
+        f'<draw:page draw:name="p{n}"><draw:frame><draw:text-box><text:p>{escape(text)}</text:p></draw:text-box></draw:frame>'
+        f"<presentation:notes><draw:frame><draw:text-box><text:p>speaker note</text:p></draw:text-box></draw:frame></presentation:notes>"
+        "</draw:page>"
+        for n, text in enumerate(slides, start=1)
+    )
+    return make_odf("presentation", pages)
+
+
 def refused(data: bytes, fmt: DocumentFormat, limits: ExtractionLimits | None = None) -> str:
     with pytest.raises(ExtractionError) as caught:
         extract_document(data, fmt, limits or ExtractionLimits())
@@ -224,6 +275,72 @@ def test_page_sheet_row_and_character_limits_truncate() -> None:
     assert rows.sections[0].text.count("\n") == 2 and rows.truncated
     chars = extract_document(make_docx(["x" * 500]), DocumentFormat.DOCX, ExtractionLimits(max_chars=100))
     assert chars.char_count == 100 and chars.truncated
+
+
+def test_opendocument_formats_by_extension_and_content_type() -> None:
+    assert document_format("minutes.ODT", "") == DocumentFormat.ODT
+    assert document_format("budget.ods", "application/octet-stream") == DocumentFormat.ODS
+    assert document_format("upload", "application/vnd.oasis.opendocument.presentation") == DocumentFormat.ODP
+
+
+def test_odt_paragraphs_spaces_and_pages() -> None:
+    plain = extract_document(make_odt(["Winter tyres", "Fit them from November."]), DocumentFormat.ODT)
+    assert len(plain.sections) == 1 and plain.sections[0].number is None
+    assert plain.sections[0].text == "Winter tyres\nFit them from November."
+    paged = extract_document(make_odt(["First page", "Second page"], page_break_before=1), DocumentFormat.ODT)
+    assert [(s.number, s.unit, s.text) for s in paged.sections] == [
+        (1, LocationUnit.PAGE, "First page"), (2, LocationUnit.PAGE, "Second page"),
+    ]
+    spaced = make_odf("text", '<text:p>a<text:s text:c="3"/>b<text:tab/>c<text:line-break/>d</text:p>')
+    assert extract_document(spaced, DocumentFormat.ODT).sections[0].text == "a   b\tc\nd"
+
+
+def test_ods_sheets_rows_and_repeats() -> None:
+    document = extract_document(
+        make_ods({"Budget": [["Item", "Cost"], ["Tyres", "4200"]], "Notes": [["Approved"]]}), DocumentFormat.ODS
+    )
+    assert [(s.number, s.unit, s.label) for s in document.sections] == [
+        (1, LocationUnit.SHEET, "Budget"), (2, LocationUnit.SHEET, "Notes"),
+    ]
+    assert document.sections[0].text == "Item\tCost\nTyres\t4200"
+    # A million repeated empty columns and rows are never expanded; a repeated value is capped.
+    sheet = (
+        '<table:table table:name="Big"><table:table-row table:number-rows-repeated="1000000">'
+        '<table:table-cell table:number-columns-repeated="16384"/></table:table-row>'
+        '<table:table-row table:number-rows-repeated="5000"><table:table-cell><text:p>x</text:p></table:table-cell></table:table-row>'
+        "</table:table>"
+    )
+    big = extract_document(make_odf("spreadsheet", sheet), DocumentFormat.ODS)
+    assert big.sections[0].text.count("x") == doc_extract.ODF_MAX_REPEAT
+
+
+def test_odp_slides_without_speaker_notes() -> None:
+    document = extract_document(make_odp(["Quarterly review", "Costs & margins"]), DocumentFormat.ODP)
+    assert [(s.number, s.unit, s.text) for s in document.sections] == [
+        (1, LocationUnit.SLIDE, "Quarterly review"), (2, LocationUnit.SLIDE, "Costs & margins"),
+    ]
+
+
+def test_opendocument_limits_and_hostile_files() -> None:
+    assert len(extract_document(make_odp(["a", "b", "c"]), DocumentFormat.ODP, ExtractionLimits(max_pages=2)).sections) == 2
+    sheets = extract_document(make_ods({"A": [["x"]], "B": [["y"]], "C": [["z"]]}), DocumentFormat.ODS, ExtractionLimits(max_sheets=2))
+    assert [s.label for s in sheets.sections] == ["A", "B"] and sheets.truncated
+    rows = extract_document(make_ods({"A": [[f"r{n}"] for n in range(10)]}), DocumentFormat.ODS, ExtractionLimits(max_rows_per_sheet=3))
+    assert rows.sections[0].text.count("\n") == 2 and rows.truncated
+    assert refused(make_odf("text", "<text:p>x</text:p>", encrypted=True), DocumentFormat.ODT) == "encrypted"
+    assert refused(make_zip({"mimetype": "application/vnd.oasis.opendocument.text"}), DocumentFormat.ODT) == "malformed"
+    bomb = make_zip({"META-INF/manifest.xml": "<m/>", "content.xml": b"<x>" + b" " * (4 * 1024 * 1024) + b"</x>"})
+    assert refused(bomb, DocumentFormat.ODS) == "too_complex"
+    laughs = '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "lol">]><x>&a;</x>'
+    assert refused(make_zip({"META-INF/manifest.xml": "<m/>", "content.xml": laughs}), DocumentFormat.ODP) == "malformed"
+    assert refused(make_odt(["slow"]), DocumentFormat.ODT, ExtractionLimits(max_seconds=0.0)) == "timeout"
+
+
+def test_scanned_pdf_is_reported_as_having_no_text_layer() -> None:
+    assert refused(make_pdf(["", ""], scanned=True), DocumentFormat.PDF) == "no_text_layer"
+    # One page of text is enough to index the file.
+    mixed = make_pdf(["Typed page"])
+    assert extract_document(mixed, DocumentFormat.PDF).sections[0].text == "Typed page"
 
 
 # --------------------------------------------------------------------------- hostile input
@@ -373,6 +490,18 @@ def test_indexer_records_why_a_document_was_not_indexed() -> None:
     assert source is not None and source.status == IndexStatus.SKIPPED and source.error == "malformed"
     blank = asyncio.run(indexer.index_file(context, _Record("file_blank", "blank.xlsx"), make_xlsx({"A": []})))
     assert blank.error == "empty"
+    scan = asyncio.run(indexer.index_file(context, _Record("file_scan", "scan.pdf"), make_pdf(["x"], scanned=True)))
+    assert (scan.status, scan.error) == (IndexStatus.SKIPPED, "no_text_layer")
+
+
+def test_indexer_takes_opendocument_files_with_locations() -> None:
+    store = InMemoryRetrievalStore()
+    context = _context()
+    indexer = RetrievalIndexer(store, LocalEmbedder())
+    outcome = asyncio.run(indexer.index_file(context, _Record("file_ods", "loads.ods"), make_ods({"Loads": [["91", "615 kg"]]})))
+    assert outcome.status == IndexStatus.INDEXED
+    found = store.search(context, local_embedding("615 kg"), LOCAL_EMBEDDING_MODEL, 5, utc_now())
+    assert found[0].content.split("\n", 1)[0] == "[loads.ods, sheet 1 (Loads)]"
 
 
 def test_a_slow_document_is_failed_so_it_is_tried_again(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -455,3 +584,22 @@ def test_a_hostile_document_uploads_but_is_not_indexed(client: TestClient) -> No
     files = client.get("/api/v1/files", headers=H).json()
     index = next(f["index"] for f in files if f["name"] == "bomb.docx")
     assert index["status"] == "skipped" and index["error"] == "too_complex"
+
+
+def test_a_scanned_pdf_upload_says_no_text_layer(client: TestClient) -> None:
+    upload = client.post("/api/v1/files", headers=H, params={"name": "scan.pdf"}, content=make_pdf(["x"], scanned=True))
+    assert upload.status_code == 201, upload.text
+    assert upload.json()["index"] == {**upload.json()["index"], "status": "skipped", "error": "no_text_layer"}
+
+
+def test_opendocument_upload_is_indexed_and_cited_with_its_page(client: TestClient) -> None:
+    collection = client.post("/api/v1/knowledge/collections", headers=H, json={"name": "Decks"}).json()
+    upload = client.post(
+        f"/api/v1/knowledge/collections/{collection['id']}/documents", headers=H, params={"name": "review.odp"},
+        content=make_odp(["Warranty covers five years.", "Load index 91 carries 615 kg per tyre."]),
+    )
+    assert upload.status_code == 201, upload.text
+    assert upload.json()["index"]["state"] == "indexed"
+    answer = client.post("/api/v1/knowledge/ask", headers=H, json={"question": "What does load index 91 carry?"}).json()
+    cited = next(c for c in answer["citations"] if c["title"] == "review.odp")
+    assert cited["page_unit"] == "slide" and cited["page"] in {1, 2}
