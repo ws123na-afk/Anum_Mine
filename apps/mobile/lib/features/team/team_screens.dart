@@ -10,6 +10,7 @@ import '../../src/localization/anum_localizations.dart';
 import '../admin/owned_controller.dart';
 import '../team_calls/call_screens.dart';
 import '../team_calls/call_strings.dart';
+import '../mail_center/mail_domains.dart';
 import '../mail_center/mail_health.dart';
 import 'team_controllers.dart';
 import 'team_models.dart';
@@ -137,8 +138,11 @@ class TeamHubCard extends StatelessWidget {
             OrganisationsScreen(
               repository: repository,
               mailHealth: switch (repository) {
-                ApiTeamRepository(:final api) => () =>
-                    MailHealthScreen(repository: ApiMailHealthRepository(api)),
+                ApiTeamRepository(:final api) => () => MailHealthScreen(
+                      repository: ApiMailHealthRepository(api),
+                      domains: () => MailDomainsScreen(
+                          repository: ApiMailDomainsRepository(api)),
+                    ),
                 _ => null,
               },
             ),
