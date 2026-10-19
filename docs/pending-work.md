@@ -23,6 +23,8 @@ State at handoff: every PR from the 18 October session is merged into `main` (#1
 9. **Codex review limit** is used up; reviews resume when the owner adds credits.
 10. **Organisation export and deletion** (`docs/organisation-lifecycle.md`, migration `0079_tenant_lifecycle`): the new NOLOGIN role `anum_tenant_purger` must exist before that migration runs. The Oracle update does it (`db-init` runs `bootstrap-database.sql` first); on Render or Kubernetes re-run `infra/helm/bootstrap-database.sql` as the database admin before deploying.
 
+11. **Invitation and notification email** (`docs/notifications.md#email`, `docs/identity.md#invitation-email`): invitations and every Email switch send through ANUM's system mail. Fill `ANUM_SMTP_HOST`, `ANUM_SMTP_PORT`, `ANUM_SMTP_USERNAME`, `ANUM_SMTP_FROM` in `infra/oracle/.env` and put the mailbox's app password in `ANUM_SMTP_PASSWORD` (typed on the VM with `read -s`, never in chat), then `docker compose up -d api` and press **Send me a test email** in Settings, Notifications. Until then the invite form says ANUM cannot email and the owner copies the link.
+
 ## Build work still open (with reasons)
 
 - **Team calls:** no real-device call yet; no CallKit/ConnectionService screens, group calls, video switch mid-call or screen sharing; signaling polls the database instead of the event bus.

@@ -3,8 +3,8 @@
 // approve-to-send and message templates. Owners connect the number under Setup; members read
 // and ask to send; owners approve sends with the payload hash shown here.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { ArrowLeft, CheckCircle2, CircleDot, Clock, Copy, FileText, Fingerprint, Globe, Inbox, Lock, MessageCircle, Paperclip, Plug, RefreshCw, Search, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2, XCircle } from 'lucide-react';
-import type { Approval } from '@anum/contracts';
+import { ArrowLeft, CheckCircle2, CircleDot, Clock, Copy, FileText, Fingerprint, Globe, Inbox, LifeBuoy, Lock, MessageCircle, Paperclip, Plug, RefreshCw, Search, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2, XCircle } from 'lucide-react';
+import type { Approval, TicketDetail } from '@anum/contracts';
 import * as api from './lib/api';
 import { mapApproval, type ApiApproval } from './lib/api';
 import { argumentRows, expiryLabel, shortHash } from './lib/approvals';
@@ -20,6 +20,7 @@ import { useIsOwner } from './useIsOwner';
 import { firstUnread } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { PageHeader, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
+import { CreateTicketDialog, TicketCreatedNotice } from './TicketFromMessage';
 import './whatsapp.css';
 import { HelpLink } from './HelpLink';
 
@@ -213,6 +214,8 @@ function ThreadView({ conversationId, owner, onBack, onChanged, onOpenApprovals,
   const [draft, setDraft] = useState('');
   const [suggestion, setSuggestion] = useState<WaSuggestion | null>(null);
   const [mode, setMode] = useState<'text' | 'template'>('text');
+  const [ticketOpen, setTicketOpen] = useState(false);
+  const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const heading = useRef<HTMLHeadingElement | null>(null);
   const composer = useRef<HTMLTextAreaElement | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
@@ -317,7 +320,10 @@ function ThreadView({ conversationId, owner, onBack, onChanged, onOpenApprovals,
         <small className="muted"><bdi dir="ltr">+{conversation.wa_id}</bdi>{conversation.category && <> · {categoryLabel(conversation.category)}</>}</small>
       </div>
       <span className={`waWindow ${replyWindow.open ? 'open' : 'closed'}`} role="status"><Clock aria-hidden="true" />{windowLabel(conversation, now)}</span>
+      <button type="button" className="secondary" aria-haspopup="dialog" onClick={() => setTicketOpen(true)}><LifeBuoy aria-hidden="true" />{t('tfm.button')}</button>
     </header>
+    {ticket && <TicketCreatedNotice ticket={ticket} />}
+    {ticketOpen && <CreateTicketDialog source="whatsapp" refId={conversation.id} defaultTitle="" onClose={() => setTicketOpen(false)} onCreated={(created) => { setTicket(created); setTicketOpen(false); }} />}
     {state === 'error' && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{t('wa.thread.refreshFailed', { message: error ?? '' })}</p>}
 
     {!railShown && suggestionPanel}

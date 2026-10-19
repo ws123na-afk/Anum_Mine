@@ -36,10 +36,10 @@ export const templates = [
   { name: 'summer_sale', language: 'ar', status: 'PENDING', category: 'MARKETING', body: 'عرض الصيف', parameter_count: 0, header: null, footer: null, buttons: [], auto_send: false },
 ];
 
-export interface WaMockOptions { role?: string; account?: Record<string, unknown>; conversations?: Record<string, unknown>[]; failList?: boolean }
+export interface WaMockOptions { role?: string; account?: Record<string, unknown>; conversations?: Record<string, unknown>[]; failList?: boolean; ticketConflict?: boolean }
 
-export async function mockWhatsApp(page: Page, { role = 'owner', account = connected, conversations = [ahmed, sara], failList = false }: WaMockOptions = {}) {
-  const sent: { sends: unknown[]; decisions: unknown[]; saves: Record<string, unknown>[]; drafts: number } = { sends: [], decisions: [], saves: [], drafts: 0 };
+export async function mockWhatsApp(page: Page, { role = 'owner', account = connected, conversations = [ahmed, sara], failList = false, ticketConflict = false }: WaMockOptions = {}) {
+  const sent: { sends: unknown[]; decisions: unknown[]; saves: Record<string, unknown>[]; drafts: number; tickets: unknown[] } = { sends: [], decisions: [], saves: [], drafts: 0, tickets: [] };
   let messages: Record<string, unknown>[] = [inbound('m1', 'السلام عليكم', 8), inbound('m2', 'بكم كفر 205/55R16؟ متوفر؟', 5)];
   let currentAccount = account;
   let listFails = failList;
@@ -92,6 +92,12 @@ export async function mockWhatsApp(page: Page, { role = 'owner', account = conne
       return json({ approval: { ...approval, status: 'approved' }, task: { id: 'task_wa', title: 'Reply', prompt: 'Reply', status: 'completed', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', created_at: minutesAgo(0), updated_at: minutesAgo(0) }, run: { id: 'run_wa', task_id: 'task_wa', status: 'completed', steps: [], result: 'Sent the WhatsApp reply.' } });
     }
     if (path === '/api/v1/whatsapp/templates') return json({ templates, fetched_at: minutesAgo(0) });
+    // Business support: a ticket from this conversation (docs/business.md#tickets-from-an-inbox).
+    if (path === '/api/v1/business/support/tickets/from-message' && method === 'POST') {
+      sent.tickets.push(request.postDataJSON());
+      if (ticketConflict) return json({ error: { code: 'conflict', message: 'This whatsapp is already linked to open ticket T-9Z8Y7X (bst_wa_open).', correlation_id: 'c' } }, 409);
+      return json({ id: 'bst_wa_1', reference: 'T-4D5E6F', title: 'Support request from أحمد', source: 'whatsapp', source_ref: 'wacv_ahmed', severity: 'normal', status: 'new', replies: [], activities: [], can_reply: true, reply_channel: 'whatsapp' }, 201);
+    }
     return route.abort();
   });
   return sent;

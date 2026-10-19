@@ -392,6 +392,15 @@ class AuthRepository {
         await api.request('GET', '/api/v1/notification-preferences'),
       );
 
+  /// What the Email switch can do for the caller (a mail server, an address).
+  Future<NotificationChannels> notificationChannels() async =>
+      NotificationChannels.fromJson(
+          await api.request('GET', '/api/v1/notification-channels'));
+
+  /// Emails the caller a test message through ANUM's system mail.
+  Future<EmailTestResult> sendTestEmail() async => EmailTestResult.fromJson(
+      await api.request('POST', '/api/v1/notification-channels/email-test'));
+
   /// The caller's own "Remember things from my chats" switch.
   Future<ChatMemoryPreference> chatMemoryPreference() async =>
       ChatMemoryPreference.fromJson(
