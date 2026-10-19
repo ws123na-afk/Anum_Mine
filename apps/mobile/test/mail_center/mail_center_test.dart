@@ -4,6 +4,7 @@
 // from a 320 px phone at 200 percent text to 1440 px, in English and Arabic.
 // Every address and password is a plainly fake fixture.
 import 'package:anum_mobile/data/api_client.dart';
+import 'package:anum_mobile/features/mail_center/mail_all_inboxes.dart';
 import 'package:anum_mobile/features/mail_center/mail_center_controller.dart';
 import 'package:anum_mobile/features/mail_center/mail_center_models.dart';
 import 'package:anum_mobile/features/mail_center/mail_center_repository.dart';
@@ -2179,6 +2180,7 @@ void main() {
       }
     });
   }
+  _allInboxesGroup();
 }
 
 class FakeHealth implements MailHealthRepository {
@@ -2214,4 +2216,224 @@ class FakeHealth implements MailHealthRepository {
         },
         'mailcow': {'state': 'off'},
       }));
+}
+
+// -- All inboxes (docs/email.md#all-inboxes) ---------------------------------
+
+Map<String, Object?> _shared() => {
+      ..._account(),
+      'id': 'mailbox_2',
+      'address': 'sales@example.test',
+      'display_name': 'Sales',
+      'access': 'read',
+      'owner_user_id': 'user_other',
+      'grant_id': 'grant_1',
+    };
+
+Map<String, Object?> _allItem(int uid, String accountId) => {
+      ..._message(uid),
+      'subject': 'Mail $uid',
+      'account_id': accountId,
+      'account_address':
+          accountId == 'mailbox_1' ? _address : 'sales@example.test',
+      'account_name': accountId == 'mailbox_1' ? null : 'Sales',
+      'access': accountId == 'mailbox_1' ? 'owner' : 'read',
+    };
+
+class FakeAllInboxes implements MailAllInboxesRepository {
+  final queries = <Map<String, String>>[];
+  final stars = <String>[];
+  Object? error;
+  bool offlineSales = false;
+  bool empty = false;
+
+  @override
+  Future<MailAllInboxPage> page(MailAllInboxFilters filters,
+      {String? cursor}) async {
+    queries.add(filters.toQuery(cursor: cursor));
+    if (error != null) throw error!;
+    final all = empty
+        ? <Map<String, Object?>>[]
+        : [
+            for (var i = 0; i < 30; i++)
+              _allItem(200 - i, i.isEven ? 'mailbox_1' : 'mailbox_2')
+          ];
+    final wanted = filters.accountId == null
+        ? all
+        : all.where((m) => m['account_id'] == filters.accountId).toList();
+    final start = int.tryParse(cursor ?? '') ?? 0;
+    final end = (start + 25).clamp(0, wanted.length);
+    return MailAllInboxPage.fromJson(JsonReader({
+      'items': wanted.sublist(start, end),
+      'total': wanted.length - start,
+      'next_cursor': end < wanted.length ? '$end' : null,
+      'mailboxes': [
+        if (offlineSales)
+          {
+            'account_id': 'mailbox_2',
+            'address': 'sales@example.test',
+            'state': 'offline',
+            'error': 'The mail server did not answer.',
+          }
+      ],
+    }));
+  }
+
+  @override
+  Future<void> setFlag(String accountId, int uid,
+      {required String flag, required bool value}) async {
+    stars.add('$accountId:$uid:$flag:$value');
+  }
+}
+
+Finder _badge(String label) => find
+    .byWidgetPredicate((w) => w is Semantics && w.properties.label == label);
+
+Future<void> pumpAll(WidgetTester tester, MailCenterController controller,
+    {Size size = const Size(390, 844),
+    double textScale = 1,
+    Locale locale = const Locale('en')}) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  await controller.loadSetup();
+  await tester.pumpWidget(MaterialApp(
+    key: ObjectKey(controller),
+    theme: AnumTheme.dark(),
+    locale: locale,
+    supportedLocales: const [Locale('en'), Locale('ar')],
+    localizationsDelegates: const [
+      AnumLocalizations.delegate,
+      ...GlobalMaterialLocalizations.delegates
+    ],
+    builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+            disableAnimations: true, textScaler: TextScaler.linear(textScale)),
+        child: child!),
+    home: MailAllInboxesScreen(
+        controller: controller.allInboxes!, mail: controller),
+  ));
+  await tester.pumpAndSettle();
+}
+
+void _allInboxesGroup() {
+  group('All inboxes', () {
+    late FakeMailRepository repo;
+    late FakeAllInboxes all;
+    late MailCenterController c;
+    setUp(() {
+      repo = FakeMailRepository()
+        ..setupJson = _setup(accounts: [_account(), _shared()]);
+      all = FakeAllInboxes();
+      c = MailCenterController(repo, allInboxesRepository: all);
+    });
+
+    test('the query sends only what is set', () {
+      final q = MailAllInboxFilters(
+        query: ' tyre ',
+        unread: true,
+        accountId: 'mailbox_2',
+        since: DateTime(2026, 10, 1),
+        until: DateTime(2026, 10, 14),
+      ).toQuery(cursor: 'abc');
+      expect(q, {
+        'limit': '25',
+        'q': 'tyre',
+        'unread': 'true',
+        'account_id': 'mailbox_2',
+        'since': '2026-10-01',
+        'until': '2026-10-14',
+        'cursor': 'abc',
+      });
+      expect(const MailAllInboxFilters().toQuery(), {'limit': '25'});
+      expect(const MailAllInboxFilters().active, isFalse);
+    });
+
+    testWidgets('the mailbox list offers All inboxes with two mailboxes',
+        (tester) async {
+      await pumpMail(tester, c);
+      expect(find.text(_en('mc.all.title')), findsOneWidget);
+      await tester.tap(find.text(_en('mc.all.title')));
+      await tester.pumpAndSettle();
+      expect(find.text('Mail 200'), findsOneWidget);
+    });
+
+    testWidgets('one list with a mailbox badge per message, paging',
+        (tester) async {
+      await pumpAll(tester, c);
+      expect(find.text('Mail 200'), findsOneWidget);
+      expect(_badge('Mailbox: $_address'), findsWidgets);
+      expect(_badge('Mailbox: Sales (shared with you)'), findsWidgets);
+      expect(find.text('25 of 30'), findsOneWidget);
+      await tapVisible(tester, find.text(_en('mc.all.more')));
+      expect(c.allInboxes!.items, hasLength(30));
+      expect(all.queries.last['cursor'], '25');
+      expect(find.text(_en('mc.all.more')), findsNothing);
+    });
+
+    testWidgets('a read share cannot star; the own mailbox can',
+        (tester) async {
+      await pumpAll(tester, c);
+      // Rows alternate: own (star), shared to read (no star).
+      expect(find.byTooltip(_en('mc.star')), findsWidgets);
+      await tester.tap(find.byTooltip(_en('mc.star')).first);
+      await tester.pumpAndSettle();
+      expect(all.stars, ['mailbox_1:200:flagged:true']);
+    });
+
+    testWidgets('filter by mailbox goes to the server', (tester) async {
+      await pumpAll(tester, c);
+      await tester.tap(find.text(_en('mc.all.everyMailbox')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('sales@example.test (shared with you)').last);
+      await tester.pumpAndSettle();
+      expect(all.queries.last['account_id'], 'mailbox_2');
+      expect(
+          c.allInboxes!.items.every((m) => m.accountId == 'mailbox_2'), isTrue);
+      expect(find.text(_en('mc.all.clear')), findsOneWidget);
+    });
+
+    testWidgets('a message opens in its own mailbox', (tester) async {
+      await pumpAll(tester, c);
+      await tester.tap(find.text('Mail 199'));
+      await tester.pumpAndSettle();
+      expect(c.account?.id, 'mailbox_2');
+      expect(c.folder?.role, 'inbox');
+      expect(c.detail?.message.uid, 199);
+    });
+
+    testWidgets('a mailbox that could not be read is named', (tester) async {
+      all.offlineSales = true;
+      await pumpAll(tester, c);
+      expect(find.textContaining('sales@example.test could not be read'),
+          findsOneWidget);
+    });
+
+    testWidgets('empty, failure and denied states', (tester) async {
+      all.empty = true;
+      await pumpAll(tester, c);
+      expect(find.text(_en('mc.all.empty')), findsOneWidget);
+      expect(find.text(_en('mc.all.check')), findsOneWidget);
+      all
+        ..empty = false
+        ..error = const ApiException(500, 'Something failed.');
+      await c.allInboxes!.load();
+      await tester.pumpAndSettle();
+      expect(find.text(_en('mc.errorTitle')), findsOneWidget);
+      all.error = const ApiException(403, 'no');
+      await c.allInboxes!.load();
+      await tester.pumpAndSettle();
+      expect(find.text(_en('mc.denied')), findsOneWidget);
+    });
+
+    for (final width in [320.0, 390.0, 768.0, 1440.0]) {
+      testWidgets('fits $width px at 200 percent text in Arabic',
+          (tester) async {
+        all.offlineSales = true;
+        await pumpAll(tester, c,
+            size: Size(width, 900), textScale: 2, locale: const Locale('ar'));
+        expect(tester.takeException(), isNull);
+      });
+    }
+  });
 }

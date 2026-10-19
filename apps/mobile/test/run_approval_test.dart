@@ -245,7 +245,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('task-approval')), findsOneWidget);
-    expect(find.text('Waiting for a decision'), findsOneWidget);
+    // Decided right on the task, with the same card as Approvals.
+    expect(find.widgetWithText(FilledButton, 'Approve'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Reject'), findsOneWidget);
     expect(
         find.byKey(const Key('approval-progress-approval_1')), findsOneWidget);
     expect(find.text('0 of 2 approvals'), findsOneWidget);

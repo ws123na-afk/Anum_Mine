@@ -16,6 +16,7 @@ import { teamAr } from './team.ar.ts';
 import { appCallsAr } from './appCalls.ar.ts';
 import { marketingAr } from './marketing.ar.ts';
 import { businessAr } from './business.ar.ts';
+import { businessSupportAr } from './businessSupport.ar.ts';
 import { brevoAr } from './brevo.ar.ts';
 import { publicSiteAr } from './publicSite.ar.ts';
 import { ownerAr } from './ar.owner.ts';
@@ -30,6 +31,7 @@ import { mailCenterAr } from './mailCenter.ar.ts';
 import { mailOutgoingAr } from './mailOutgoing.ar.ts';
 import { mailAiAr } from './mailAi.ar.ts';
 import { mailShareAr } from './mailShare.ar.ts';
+import { mailAllAr } from './mailAll.ar.ts';
 import { mailRulesAr } from './mailRules.ar.ts';
 import { mailOpsAr } from './mailOps.ar.ts';
 import { mailAr } from './mail.ar.ts';
@@ -54,6 +56,7 @@ export const ar: Record<MessageKey, Message> = {
   ...appCallsAr,
   ...marketingAr,
   ...businessAr,
+  ...businessSupportAr,
   ...brevoAr,
   ...publicSiteAr,
   ...agentSkillsAr,
@@ -62,6 +65,7 @@ export const ar: Record<MessageKey, Message> = {
   ...mailOutgoingAr,
   ...mailAiAr,
   ...mailShareAr,
+  ...mailAllAr,
   ...mailRulesAr,
   ...mailOpsAr,
   ...mailAr,

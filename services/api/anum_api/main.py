@@ -151,6 +151,7 @@ from .finance.intel_api import router as finance_intel_router
 from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
 from .mailbox.ai_api import router as mail_ai_router
+from .mailbox.all_inboxes import router as mail_all_inboxes_router
 from .mailbox.api import router as mail_router
 from .mailbox.sharing_api import router as mail_sharing_router
 from .mailbox.operator_api import router as mail_operator_router
@@ -367,6 +368,7 @@ app.include_router(whatsapp_router)
 app.include_router(email_router)
 app.include_router(mail_ai_router)
 app.include_router(mail_router)
+app.include_router(mail_all_inboxes_router)
 # Phone calls (docs/calls.md): contacts, the call log, the voice provider and its webhooks.
 app.include_router(calls_router)
 app.include_router(calls_webhook_router)

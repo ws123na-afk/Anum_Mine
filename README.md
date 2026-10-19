@@ -154,6 +154,7 @@ x-user-roles: owner,member
 - [Desktop](docs/desktop.md)
 - [Android](docs/android.md)
 - [Flutter mobile](docs/mobile.md)
+- [Mobile journey tests](docs/mobile-journeys.md)
 - [Mobile app features](docs/mobile-features.md)
 - [Infrastructure](docs/infrastructure.md)
 - [Deployment (Kubernetes and Helm)](docs/deployment.md)

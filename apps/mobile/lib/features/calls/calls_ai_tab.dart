@@ -173,6 +173,7 @@ class _AiTabState extends State<_AiTab> {
                     child: Text(l.t('calls.more')),
                   ),
                 ),
+              _OptOutsSection(controller: c),
             ],
           ),
         );
@@ -183,7 +184,10 @@ class _AiTabState extends State<_AiTab> {
 
 class _AiSection extends StatelessWidget {
   const _AiSection(
-      {required this.title, required this.icon, required this.children});
+      {required this.title,
+      required this.icon,
+      required this.children,
+      super.key});
   final String title;
   final IconData icon;
   final List<Widget> children;
@@ -230,8 +234,8 @@ class _Blocked extends StatelessWidget {
 }
 
 /// The voice provider's status. Owners see the account (GET /provider);
-/// members see what GET /setup reports. Connecting or changing it is done on
-/// the web, where the secrets are typed.
+/// members see what GET /setup reports. Owners open ProviderScreen to connect,
+/// change, check or disconnect it (calls_admin.dart).
 class _ProviderCard extends StatelessWidget {
   const _ProviderCard({required this.controller});
   final CallsController controller;
@@ -276,11 +280,7 @@ class _ProviderCard extends StatelessWidget {
       body = [
         Text(l.t('calls.provider.notConfiguredText'),
             key: const Key('provider-off')),
-        Text(
-            owner
-                ? l.t('calls.provider.onWeb')
-                : l.t('calls.provider.askOwner'),
-            style: small),
+        if (!owner) Text(l.t('calls.provider.askOwner'), style: small),
       ];
     } else {
       final checked = account?.lastCheckedAt;
@@ -317,7 +317,6 @@ class _ProviderCard extends StatelessWidget {
           ),
         ],
         if (problem != null) _Note(text: problem, error: true),
-        if (owner) Text(l.t('calls.provider.onWeb'), style: small),
       ];
     }
 
@@ -348,6 +347,22 @@ class _ProviderCard extends StatelessWidget {
         for (final child in body) ...[
           const SizedBox(height: AnumSpacing.xs),
           child,
+        ],
+        if (owner) ...[
+          const SizedBox(height: AnumSpacing.sm),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: FilledButton.tonalIcon(
+              key: const Key('provider-manage'),
+              onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                      builder: (_) => ProviderScreen(controller: controller))),
+              icon: const Icon(Icons.settings_outlined),
+              label: Text(l.t(connected
+                  ? 'calls.provider.manage'
+                  : 'calls.provider.connect')),
+            ),
+          ),
         ],
       ]),
     );
