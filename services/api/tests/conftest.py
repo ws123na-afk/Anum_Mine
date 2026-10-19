@@ -43,6 +43,7 @@ TABLES_IN_DELETE_ORDER = (
     "billing_number_sequences",
     "billing_webhook_events",
     "billing_signups",
+    "demo_records",
     "app_call_signals",
     "app_calls",
     "call_ai_requests",

@@ -36,6 +36,7 @@ from .dependencies import (
     require_owner_or_org_admin,
     tenant_context,
 )
+from .demo import is_reserved_workspace_id
 from .events import CanonicalEventName
 from .identity import is_valid_scope_id
 from .repository import AnumRepository
@@ -138,6 +139,9 @@ async def create_workspace_in_organization(
 
     await asyncio.to_thread(require_capacity, context, "workspaces", 1)
     workspace_id = payload.workspace_id or generated_workspace_id(payload.name)
+    if is_reserved_workspace_id(workspace_id):
+        # The demo workspace's id space (docs/demo-workspace.md): only POST /demo/reset uses it.
+        raise HTTPException(status_code=422, detail="Workspace IDs starting with ws_demo_ are reserved for the demo workspace")
     if workspace_id == context.workspace_id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That workspace ID is already in use")
     now = utc_now()

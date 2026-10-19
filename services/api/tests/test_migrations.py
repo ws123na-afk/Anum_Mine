@@ -1136,9 +1136,7 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
     assert 'revision = "0076_business_support"' in revision_text and len("0076_business_support") <= 32
     assert 'down_revision = "0075_file_scan_status"' in revision_text
     others = [path for path in versions.glob("*.py") if path.name != "0076_business_support.py"]
-    # One head: only customer billing (0083) chains onto it.
-    extending = [path.name for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
-    assert extending in ([], ["0085_customer_billing.py"])
+    assert [path.name for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")] in ([], ["0078_demo_records.py"])
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 2
     assert '"business_support_tickets"' in revision_text and '"business_ticket_replies"' in revision_text
@@ -1149,3 +1147,16 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
     assert "alter_column" not in upgrade and "drop " not in upgrade and "op.drop" not in upgrade
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "uq_business_support_tickets_open_source" in upgrade
+
+
+def test_demo_records_migration_is_expand_only_with_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0078_demo_records.py").read_text(encoding="utf-8")
+    assert 'revision = "0078_demo_records"' in revision_text and len("0078_demo_records") <= 32
+    assert 'down_revision = "0076_business_support"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0078_demo_records.py"]
+    assert not [path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert '"demo_records"' in upgrade and "force row level security" in upgrade
+    assert "create policy tenant_isolation_demo_records" in upgrade
+    assert "drop " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade

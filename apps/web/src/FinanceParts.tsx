@@ -4,6 +4,7 @@ import { CircleDot, Lock, RefreshCw } from 'lucide-react';
 import { amountTone, formatAmount } from './lib/finance';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { t } from './lib/i18n';
+import { HelpLink } from './HelpLink';
 
 export type Load<T> = { kind: 'loading' } | { kind: 'ready'; value: T } | { kind: 'denied'; message: string } | { kind: 'error'; message: string };
 export const failed = (e: unknown): Load<never> => (isPermissionDenied(e) ? { kind: 'denied', message: describeError(e) } : { kind: 'error', message: describeError(e) });
@@ -18,7 +19,7 @@ export function Denied() {
   return <section className="surface cmPanel cmDenied" aria-labelledby="fin-denied"><Lock aria-hidden="true" /><div><h2 id="fin-denied">{t('finance.denied.title')}</h2><p className="muted">{t('finance.denied.text')}</p></div></section>;
 }
 export function Empty({ icon, title, text, action }: { icon: ReactNode; title: string; text: string; action?: ReactNode }) {
-  return <div className="emptyState">{icon}<h3>{title}</h3><p>{text}</p>{action}</div>;
+  return <div className="emptyState">{icon}<h3>{title}</h3><p>{text}</p><HelpLink />{action}</div>;
 }
 export function Money({ value, currency, signed }: { value: string; currency: string; signed?: boolean }) {
   return <span className={`finMoney ${signed ? amountTone(value) : ''}`} dir="ltr">{formatAmount(value, currency)}</span>;

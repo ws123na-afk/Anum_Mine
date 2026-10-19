@@ -26,6 +26,7 @@ import { NAV, badgeText, initials, isPaletteShortcut, matchViews, moveActive, no
 import { Modal } from './Dialog';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { TeamNotificationsSection, type TeamNotifications } from './NotificationBell';
+import { HelpButton } from './HelpLink';
 
 const ICONS: Record<View, ReactNode> = {
   home: <House />, command: <Sparkles />, assistant: <MessageSquare />, agents: <Bot />, voice: <Mic />, call: <Phone />, calls: <PhoneOutgoing />, tyre: <Disc3 />, meetings: <PhoneCall />, calendar: <CalendarDays />, commerce: <ShoppingCart />, finance: <Wallet />, marketing: <Megaphone />, business: <Handshake />, learning: <GraduationCap />, automation: <Workflow />, tasks: <ListTodo />,
@@ -210,6 +211,7 @@ export function TopBar({ tenantId, workspaceId, onSwitchWorkspace, onSwitchOrgan
     <div className="topActions">
       <WorkspaceSwitcher tenantId={tenantId} workspaceId={workspaceId} onSwitch={onSwitchWorkspace} onSwitchOrganisation={onSwitchOrganisation} />
       <button type="button" className="iconButton" title={t('shell.refresh')} aria-label={t('shell.refresh')} onClick={onRefresh}><RefreshCw aria-hidden="true" /></button>
+      <HelpButton />
       {bell}
       {user}
     </div>
