@@ -9,7 +9,6 @@ const src = new URL('../src/', import.meta.url);
 
 // Stylesheets still on raw sizes. Only ever shrinks; a new stylesheet must use the tokens.
 const PENDING = new Set([
-  'model-settings.css',
 ]);
 
 // Raw sizes that are justified: none yet. Format 'file.css:selector fragment', with a reason.
