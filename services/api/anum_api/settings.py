@@ -431,6 +431,10 @@ class Settings(BaseSettings):
     microsoft_tenant: str = Field(default="organizations", pattern=r"^[A-Za-z0-9.\-]{1,100}$")
     meetings_oauth_redirect_uri: str = Field(default="", max_length=500, pattern=r"^(|https?://\S+)$")
 
+    # First-party skill signing keys (docs/skills.md#signing): "key-id=BASE64,key-id2=BASE64",
+    # raw 32-byte Ed25519 public keys. Malformed entries are ignored with a warning.
+    skill_platform_keys: str = Field(default="", max_length=4000)
+
     model_config = SettingsConfigDict(
         env_prefix="ANUM_",
         env_file=".env",

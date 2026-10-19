@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../../src/localization/anum_localizations.dart';
@@ -159,16 +160,19 @@ class _MailNoticesState extends State<MailNotices> {
   Widget build(BuildContext context) => widget.child;
 }
 
+/// When a message arrived, as short as it can be: the time today, the month
+/// and day this year, the full short date before that. "Now" comes from
+/// `package:clock`, so tests pin the date (`withClock`) instead of depending
+/// on the day they run.
 String mailWhen(BuildContext context, DateTime value) {
   final local = value.toLocal();
   final m = MaterialLocalizations.of(context);
-  final now = DateTime.now();
-  final today = now.year == local.year &&
-      now.month == local.month &&
-      now.day == local.day;
-  return today
-      ? m.formatTimeOfDay(TimeOfDay.fromDateTime(local))
-      : m.formatShortDate(local);
+  final now = clock.now().toLocal();
+  if (now.year != local.year) return m.formatShortDate(local);
+  if (now.month == local.month && now.day == local.day) {
+    return m.formatTimeOfDay(TimeOfDay.fromDateTime(local));
+  }
+  return m.formatShortMonthDay(local);
 }
 
 // ============================================================================

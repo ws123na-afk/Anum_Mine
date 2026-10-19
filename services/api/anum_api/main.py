@@ -1345,7 +1345,9 @@ async def cancel_task(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> Task:
-    task, run = cancel_task_record(task_id, context, repository)
+    # The row lock and writes run in a worker thread: on the event loop they stalled every other
+    # request (even /health) for as long as the database took (docs/realtime.md#event-loop).
+    task, run = await asyncio.to_thread(cancel_task_record, task_id, context, repository)
     if run_dispatcher is not None and run is not None:
         await run_dispatcher.cancelled(context, task.id)
     return task

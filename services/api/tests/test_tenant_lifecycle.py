@@ -174,7 +174,12 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     in_migration = set(module._all_tables())
-    assert in_migration == {t.name for t in PURGED_TABLES}
+    # Tables added after 0079 bring their own purge policy in their own migration.
+    later = {"skill_publisher_keys": "0083_skill_signing", "skill_signing_settings": "0083_skill_signing"}
+    for table, revision in later.items():
+        text = (API_ROOT / "migrations" / "versions" / f"{revision}.py").read_text(encoding="utf-8")
+        assert table in text and "create policy lifecycle_purge_{table}" in text
+    assert in_migration | set(later) == {t.name for t in PURGED_TABLES}
     assert LIFECYCLE_JOBS_TABLE not in in_migration
     assert len(module.revision) <= 32 and module.down_revision == "0078_demo_records"
     for name in in_migration:

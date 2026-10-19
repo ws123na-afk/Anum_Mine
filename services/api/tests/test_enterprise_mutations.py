@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from skill_signing_support import signed
 
 import anum_api.automation as automation_module
 from anum_api.automation import LocalAutomationEngine
@@ -30,7 +31,7 @@ def test_schedule_full_lifecycle(tmp_path: Path, monkeypatch) -> None:
 
 def test_skill_installation_disable_and_uninstall() -> None:
     client = TestClient(app)
-    published = client.post("/api/v1/skills/versions", headers=OWNER, json={"skill_id": "operations.review", "version": "1.0.0", "name": "Operations review", "description": "Review operations", "instructions": "Review safely", "required_tools": ["memory.read"], "risk_level": "low"})
+    published = client.post("/api/v1/skills/versions", headers=OWNER, json=signed(client, OWNER, {"skill_id": "operations.review", "version": "1.0.0", "name": "Operations review", "description": "Review operations", "instructions": "Review safely", "required_tools": ["memory.read"], "risk_level": "low"}))
     assert published.status_code == 201
     installed = client.post("/api/v1/skills/installations", headers=OWNER, json={"skill_id": "operations.review", "version": "1.0.0", "approved_tools": ["memory.read"]})
     assert installed.status_code == 201
