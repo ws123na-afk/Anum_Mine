@@ -1,4 +1,5 @@
 import 'catalog_strings.dart';
+import 'deals_strings.dart';
 import 'support_strings.dart';
 
 /// Business screen strings (docs/business.md), English and Arabic. Looked up by
@@ -7,6 +8,7 @@ import 'support_strings.dart';
 const businessEn = <String, String>{
   ...supportEn,
   ...catalogEn,
+  ...dealsEn,
   'biz.title': 'Business',
   'biz.subtitle': 'Leads, pipeline, proposals and projects for your own sales',
   'biz.sendingOff':
@@ -44,8 +46,7 @@ const businessEn = <String, String>{
   'biz.leads.search': 'Search company or lead',
   'biz.leads.all': 'All',
   'biz.leads.empty': 'No leads yet',
-  'biz.leads.emptyText':
-      'Add leads on the web (Business, then Leads) or import a CSV there.',
+  'biz.leads.emptyText': 'Add a lead here, or import a CSV on the web.',
   'biz.leads.noMatch': 'No lead matches. Try another name or status.',
   'biz.leads.noOffer': 'No offer chosen',
   'biz.leads.dnc': 'Do not contact',
@@ -203,6 +204,7 @@ const businessEn = <String, String>{
 const businessAr = <String, String>{
   ...supportAr,
   ...catalogAr,
+  ...dealsAr,
   'biz.title': 'الأعمال',
   'biz.subtitle': 'العملاء المحتملون والفرص والعروض والمشاريع لمبيعاتك',
   'biz.sendingOff':
@@ -240,8 +242,7 @@ const businessAr = <String, String>{
   'biz.leads.search': 'ابحث عن شركة أو عميل محتمل',
   'biz.leads.all': 'الكل',
   'biz.leads.empty': 'لا عملاء محتملين بعد',
-  'biz.leads.emptyText':
-      'أضف العملاء المحتملين على الويب (الأعمال ثم العملاء المحتملون) أو استورد ملف CSV هناك.',
+  'biz.leads.emptyText': 'أضف عميلاً محتملاً هنا، أو استورد ملف CSV على الويب.',
   'biz.leads.noMatch': 'لا يوجد عميل محتمل مطابق. جرّب اسمًا أو حالة أخرى.',
   'biz.leads.noOffer': 'لم يُختر عرض',
   'biz.leads.dnc': 'لا تتواصل',
