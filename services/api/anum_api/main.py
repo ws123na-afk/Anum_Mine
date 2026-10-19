@@ -154,6 +154,7 @@ from .mailbox.ai_api import router as mail_ai_router
 from .mailbox.all_inboxes import router as mail_all_inboxes_router
 from .mailbox.api import router as mail_router
 from .mailbox.sharing_api import router as mail_sharing_router
+from .mailbox.domains_api import router as mail_domains_router
 from .mailbox.operator_api import router as mail_operator_router
 from .mailbox.outgoing import build_schedule_runner
 from .mailbox.settings_api import router as mail_settings_router
@@ -394,6 +395,7 @@ app.include_router(calls_webhook_router)
 app.include_router(mail_sharing_router)
 app.include_router(mail_settings_router)
 app.include_router(mail_operator_router)
+app.include_router(mail_domains_router)
 app.include_router(calendar_router)
 app.include_router(calendar_sync_router)
 app.include_router(calendar_invitations_router)

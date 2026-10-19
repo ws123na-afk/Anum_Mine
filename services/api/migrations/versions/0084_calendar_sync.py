@@ -21,7 +21,7 @@ Organisation and workspace deletion may remove the rows (0079's purge policy). G
 
 Expand only: two new tables and nullable columns; the previous release ignores them.
 
-Numbered 0088 and chained after ``0083_skill_signing``, the head of ``main`` when written;
+Numbered 0084 and chained after ``0080_business_change_orders``, the head of ``main`` when written;
 renumber at merge if another migration lands first.
 """
 
@@ -29,8 +29,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0088_calendar_sync"
-down_revision = "0083_skill_signing"
+revision = "0084_calendar_sync"
+down_revision = "0080_business_change_orders"
 branch_labels = None
 depends_on = None
 

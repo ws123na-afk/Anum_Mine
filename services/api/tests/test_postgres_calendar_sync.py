@@ -1,4 +1,4 @@
-"""Calendar sync in PostgreSQL (migration 0088_calendar_sync, docs/calendar.md#sync).
+"""Calendar sync in PostgreSQL (migration 0084_calendar_sync, docs/calendar.md#sync).
 
 The API runs as the non-owner ``anum_test_app`` role against fake Google and Microsoft
 calendars. Connections, pending connections and the links on events are scoped to their
