@@ -45,6 +45,7 @@ import '../features/business/accounts_data.dart';
 import '../features/business/business_controller.dart';
 import '../features/business/business_repository.dart';
 import '../features/business/catalog_data.dart';
+import '../features/business/project_money.dart';
 import '../features/business/support_controller.dart';
 import '../features/business/support_repository.dart';
 import '../features/brevo/brevo_data.dart';
@@ -373,6 +374,7 @@ class _AnumAppState extends State<AnumApp> {
         brevo: BrevoController(ApiBrevoRepository(api)));
     // Business, the internal sales desk (docs/business.md).
     business = BusinessController(ApiBusinessRepository(api),
+        money: ApiProjectMoney(api),
         support: SupportController(ApiSupportRepository(api)),
         catalog: CatalogController(ApiCatalogRepository(api)),
         accounts: AccountsController(ApiAccountsRepository(api)));
