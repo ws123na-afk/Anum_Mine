@@ -8,14 +8,14 @@
 .intChips { border: 0; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; min-width: 0; padding: 0; }
 .intChip {
   align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line-strong); border-radius: 999px; color: var(--d-text); cursor: pointer;
-  display: inline-flex; font-size: 14px; font-weight: 600; gap: var(--d-s2); min-height: 40px; padding: 0 var(--d-s2) 0 var(--d-s3); position: relative;
+  display: inline-flex; font-size: var(--text-md); font-weight: 600; gap: var(--d-s2); min-height: 40px; padding: 0 var(--d-s2) 0 var(--d-s3); position: relative;
 }
 .intChip:hover { border-color: var(--d-line-hover); }
 .intChipInput { cursor: pointer; height: 100%; inset: 0; margin: 0; min-height: 0; opacity: 0; padding: 0; position: absolute; width: 100%; }
 .intChip:has(input:focus-visible) { outline: 2px solid var(--d-sky); outline-offset: 2px; }
 .intChip.active { background: var(--d-primary-grad); border-color: transparent; color: #fff; }
 .intChipCount {
-  background: var(--d-glass-2); border-radius: 999px; font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 700; line-height: 1;
+  background: var(--d-glass-2); border-radius: 999px; font-size: var(--text-xs); font-variant-numeric: tabular-nums; font-weight: 700; line-height: 1;
   min-width: 26px; padding: 5px var(--d-s2); text-align: center;
 }
 .intChip.active .intChipCount { background: rgb(255 255 255 / .22); color: #fff; }
@@ -25,7 +25,7 @@
 .intSearch { align-items: center; display: flex; flex: 1 1 260px; min-width: 0; position: relative; }
 .intSearch svg { color: var(--d-faint); height: 16px; inset-inline-start: var(--d-s3); pointer-events: none; position: absolute; width: 16px; }
 .intSearch input { min-height: 40px; padding-inline-start: calc(var(--d-s3) * 2 + 16px); width: 100%; }
-.intSummary { color: var(--d-muted); flex-basis: 100%; font-size: 13px; margin: 0; }
+.intSummary { color: var(--d-muted); flex-basis: 100%; font-size: var(--text-sm); margin: 0; }
 .intSummary:empty { display: none; }
 
 .intProblem { display: grid; gap: var(--d-s2); justify-items: start; }
@@ -43,8 +43,8 @@
 .intChevron { color: var(--d-muted); flex: none; height: 18px; transition: transform 160ms var(--d-ease); width: 18px; }
 .intSectionHead button[aria-expanded="false"] .intChevron { transform: rotate(-90deg); }
 [dir="rtl"] .intSectionHead button[aria-expanded="false"] .intChevron { transform: rotate(90deg); }
-.intSectionName { font-size: 15px; font-weight: 700; }
-.intSectionCount { color: var(--d-muted); font-size: 13px; font-weight: 500; margin-inline-start: auto; text-align: end; }
+.intSectionName { font-size: var(--text-base); font-weight: 700; }
+.intSectionCount { color: var(--d-muted); font-size: var(--text-sm); font-weight: 500; margin-inline-start: auto; text-align: end; }
 
 /* Rows: icon, name + one-line purpose, status, one action. */
 .intList { border-top: 1px solid var(--d-line); list-style: none; margin: 0; padding: 0; }
@@ -61,10 +61,10 @@
 .intIcon svg { height: 18px; width: 18px; }
 .intRow-error .intIcon { background: rgb(var(--c-stop) / .12); border-color: rgb(var(--c-stop) / .3); color: var(--d-stop); }
 .intMain { min-width: 0; }
-.intMain h4 { font-size: 15px; font-weight: 650; line-height: 1.3; margin: 0; overflow-wrap: anywhere; }
-.intPurpose { color: var(--d-muted); font-size: 13px; margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.intMain h4 { font-size: var(--text-base); font-weight: 650; line-height: 1.3; margin: 0; overflow-wrap: anywhere; }
+.intPurpose { color: var(--d-muted); font-size: var(--text-sm); margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .intRow > .statusBadge { display: inline-block; justify-self: end; }
-.intAction { font-size: 14px; min-height: 40px; padding: 0 var(--d-s3); width: 100%; }
+.intAction { font-size: var(--text-md); min-height: 40px; padding: 0 var(--d-s3); width: 100%; }
 .intActionPrimary {
   align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow);
   color: #fff; cursor: pointer; display: inline-flex; font-weight: 650; justify-content: center;

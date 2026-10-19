@@ -1,11 +1,11 @@
 /* Settings > Model gateway (ModelSettings.tsx). Spacing from the shared --d-s* tokens. */
-.modelSettings .field > label { color: var(--d-muted); font-size: 13px; font-weight: 600; }
-.modelSettings .field > small { font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.modelSettings .field > label { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; }
+.modelSettings .field > small { font-size: var(--text-xs); line-height: 1.4; overflow-wrap: anywhere; }
 .modelSettings .fieldError { color: var(--d-stop); }
 .modelSettings [aria-invalid="true"] { border-color: var(--d-stop); }
 .modelSettings form > p.muted:first-child { margin-top: var(--d-s2); }
 .modelRoutes { border: 1px solid var(--d-line); border-radius: 12px; margin: var(--d-s5) 0 0; min-width: 0; padding: var(--d-s3) var(--d-s4) var(--d-s4); }
-.modelRoutes legend { color: var(--d-text); font-size: 14px; font-weight: 700; padding: 0 var(--d-s1); }
+.modelRoutes legend { color: var(--d-text); font-size: var(--text-md); font-weight: 700; padding: 0 var(--d-s1); }
 .modelRoutes > p.muted { margin-top: var(--d-s1); }
 .modelRoutes > p.muted:last-child { margin-top: var(--d-s4); }
 .modelSettings .adminForbidden { margin-top: var(--d-s4); }
