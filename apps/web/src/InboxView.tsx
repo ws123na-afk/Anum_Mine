@@ -28,6 +28,7 @@ import { Drawer } from './Dialog';
 import { PageHeader, PageSummary, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import { useIsOwner } from './useIsOwner';
 import './inbox.css';
+import { HelpLink } from './HelpLink';
 
 type LoadState = 'loading' | 'ready' | 'error' | 'denied';
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'error' };
@@ -253,7 +254,7 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
           {listState === 'loading' && <p className="muted inboxPad" role="status">{t('email.list.loading')}</p>}
           {listState === 'error' && <div className="inboxPad"><Notice error>{t('email.list.failed', { reason: listError ?? '' })}</Notice><div className="actions"><button type="button" onClick={() => void loadMessages(filters)}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div></div>}
           {listState === 'ready' && items.length === 0 && <div className="paneEmpty"><Inbox aria-hidden="true" />{hasFilters(filters)
-            ? <><h3>{t('email.list.noMatch')}</h3><p>{t('email.list.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setQueryDraft(''); applyFilters(EMPTY_FILTERS); }}>{t('email.list.clearFilters')}</button></div></>
+            ? <><h3>{t('email.list.noMatch')}</h3><p>{t('email.list.noMatchText')}</p><HelpLink /><div className="actions"><button type="button" className="secondary" onClick={() => { setQueryDraft(''); applyFilters(EMPTY_FILTERS); }}>{t('email.list.clearFilters')}</button></div></>
             : <><h3>{t('email.list.empty')}</h3><p>{t('email.list.emptyText')}</p></>}</div>}
           {items.length > 0 && <ul className="inboxMessages">{items.map((message) => <li key={message.id}>
             <button type="button" className={`inboxRow ${selected === message.id ? 'selected' : ''} ${message.is_read ? '' : 'unread'}`} aria-current={selected === message.id ? 'true' : undefined} onClick={() => pick(message.id)}>

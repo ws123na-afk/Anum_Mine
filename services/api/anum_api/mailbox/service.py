@@ -377,6 +377,12 @@ async def deliver(
 
     ``identity`` is the sender identity the approval named (None: the mailbox address).
     """
+    from ..demo import send_refusal
+
+    refusal = send_refusal(owner)  # nothing leaves a demo workspace (docs/demo-workspace.md)
+    if refusal:
+        record_send(owner, draft.id, DraftStatus.FAILED, refusal)
+        return _failed(refusal, draft_id=draft.id)
     from_address, from_name = sender_of(account, identity)
     from .outgoing import AttachmentGone, read_attachment
 

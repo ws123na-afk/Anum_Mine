@@ -1314,6 +1314,9 @@ async def test_account(
 ) -> dict[str, str]:
     """Send a template to the owner's own number (Meta's sample ``hello_world`` by default)."""
     require_permission(context, Permission.WHATSAPP_MANAGE)
+    from .demo import refuse_send_in_demo
+
+    refuse_send_in_demo(context)
     payload = payload or TestSend()
     if not TEMPLATE_NAME.match(payload.template) or not LANGUAGE_CODE.match(payload.language):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Enter a template name and a language code such as en_US.")

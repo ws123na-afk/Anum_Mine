@@ -91,6 +91,11 @@ async def publish(context: TenantContext, post_id: str) -> Post | None:
         audit(None, context, "marketing.post.not_published", post.id, outcome="denied", metadata={"reason": post.last_error.code if post.last_error else None}, actor=PUBLISHER_ACTOR)
         return post
 
+    from ..demo import is_demo
+
+    if is_demo(context):  # nothing is published from a demo workspace (docs/demo-workspace.md)
+        error = PlatformError(code="demo_workspace", message="Nothing is published from the demo workspace.", fix="Publish from a real workspace.")
+        return _finish_failed(context, post.id, error, retry=False)
     if governance_denies_publish(context):
         error = PlatformError(code="policy_denied", message="An organization policy pack now denies publishing.", fix="Ask an organization admin to change the policy, then retry.")
         return _finish_failed(context, post.id, error, retry=False)
