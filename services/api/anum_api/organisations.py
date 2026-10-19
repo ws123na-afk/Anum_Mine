@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -43,6 +44,7 @@ from .team_models import OPEN_STATUSES, clean_email
 from .team_store import memory_team_store
 
 router = APIRouter(prefix="/api/v1", tags=["organisations"])
+logger = logging.getLogger("anum.organisations")
 
 LOGO_MAX_BYTES = 256 * 1024
 LOGO_TYPES = {"image/png": b"\x89PNG\r\n\x1a\n", "image/jpeg": b"\xff\xd8\xff", "image/webp": b"RIFF"}
@@ -323,7 +325,22 @@ async def set_logo(request: Request, context: TenantContext = Depends(tenant_con
             "updated_by_user_id": context.user_id, "updated_at": utc_now(),
         })
         _audit(context, unit.repository, "organization.logo.update", context.tenant_id, {"bytes": len(content), "content_type": content_type})
-        return _branding_view(context.tenant_id, _read_branding(session, context.tenant_id), None)
+        view = _branding_view(context.tenant_id, _read_branding(session, context.tenant_id), None)
+    # The public, content-addressed copy for email headers; a failure here never undoes the
+    # upload (``logo_link`` publishes it again when an email needs it).
+    import asyncio
+
+    await asyncio.to_thread(_publish_quietly, context.tenant_id, content, content_type)
+    return view
+
+
+def _publish_quietly(tenant_id: str, content: bytes, content_type: str) -> None:
+    from .public_logos import publish
+
+    try:
+        publish(tenant_id, content, content_type)
+    except Exception as exc:  # noqa: BLE001 - logged; the next email publishes it
+        logger.warning("public_logo_publish_failed", extra={"anum_branding": {"event": "publish_failed", "error_class": type(exc).__name__}})
 
 
 @router.delete("/organization/branding/logo", response_model=Branding)
@@ -350,6 +367,26 @@ def get_logo(context: TenantContext = Depends(tenant_context)) -> Response:
         content=bytes(row["logo"]), media_type=row["logo_content_type"],
         headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'"},
     )
+
+
+def logo_link(context: TenantContext) -> str | None:
+    """The public address of the organisation's current logo, for email headers
+    (docs/brevo.md#the-full-email); None without a logo or a public API address.
+
+    Content-addressed (``public_logos``): no secret is involved, so the address outlives
+    key rotation, and a later logo gets a new address while this one keeps serving.
+    Its own short unit of work: call it in a thread."""
+    from .marketing.config import marketing_settings
+    from .public_logos import EXTENSIONS, publish
+
+    base = marketing_settings.public_api_url.strip().rstrip("/")
+    if not base.startswith(("https://", "http://localhost", "http://127.0.0.1")):
+        return None
+    with _session(context) as session:
+        row = _read_branding(session, context.tenant_id)
+    if row is None or row.get("logo") is None or row.get("logo_content_type") not in EXTENSIONS:
+        return None
+    return f"{base}{publish(context.tenant_id, bytes(row['logo']), str(row['logo_content_type']))}"
 
 
 # ----------------------------------------------------------------------------- my organisations
