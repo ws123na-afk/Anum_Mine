@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show listEquals;
+
 import '../../data/json_read.dart';
 import '../workspace/api_workspace_repository.dart';
 import '../workspace/workspace_models.dart';
@@ -102,7 +104,13 @@ class EmailMessage {
       );
 }
 
-/// A reply draft, with who wrote it (provenance) and its send approval.
+List<String> _strings(JsonReader j, String key) => [
+      for (final value in j.optList(key) ?? const [])
+        if (value is String) value,
+    ];
+
+/// A draft (a reply to a message, or a new email), with who wrote it
+/// (provenance) and its send approval.
 class EmailDraft {
   const EmailDraft({
     required this.id,
@@ -111,6 +119,11 @@ class EmailDraft {
     required this.body,
     required this.status,
     required this.source,
+    this.cc = const [],
+    this.bcc = const [],
+    this.kind = 'reply',
+    this.accountId,
+    this.messageId,
     this.modelName,
     this.approval,
     this.approvalNote,
@@ -118,7 +131,11 @@ class EmailDraft {
   });
 
   final String id, subject, body, status, source;
-  final List<String> to;
+  final List<String> to, cc, bcc;
+
+  /// `new` (composed from scratch, no [messageId]) or `reply`.
+  final String kind;
+  final String? accountId, messageId;
   final String? modelName, approvalNote, error;
 
   /// The pending send approval, when one is waiting (approve with its hash).
@@ -126,13 +143,49 @@ class EmailDraft {
 
   bool get byModel => source == 'model';
   bool get sent => status == 'sent';
+  bool get isNew => kind == 'new';
+
+  /// Still to be finished by a person: not sent, not thrown away.
+  bool get waiting =>
+      status == 'draft' || status == 'pending_approval' || status == 'failed';
+
+  /// The fields a compose screen shows for this draft.
+  EmailDraftFields get fields => EmailDraftFields(
+        accountId: accountId ?? '',
+        to: to,
+        cc: cc,
+        bcc: bcc,
+        subject: subject,
+        body: body,
+      );
+
+  EmailDraft copyWith({String? status, WorkspaceApproval? approval}) =>
+      EmailDraft(
+        id: id,
+        to: to,
+        subject: subject,
+        body: body,
+        status: status ?? this.status,
+        source: source,
+        cc: cc,
+        bcc: bcc,
+        kind: kind,
+        accountId: accountId,
+        messageId: messageId,
+        modelName: modelName,
+        approval: approval ?? this.approval,
+        approvalNote: approvalNote,
+        error: error,
+      );
 
   factory EmailDraft.fromJson(JsonReader j) => EmailDraft(
         id: j.string('id'),
-        to: [
-          for (final value in j.optList('to') ?? const [])
-            if (value is String) value,
-        ],
+        to: _strings(j, 'to'),
+        cc: _strings(j, 'cc'),
+        bcc: _strings(j, 'bcc'),
+        kind: j.optString('kind') ?? 'reply',
+        accountId: j.optString('account_id'),
+        messageId: j.optString('message_id'),
         subject: j.optString('subject') ?? '',
         body: j.optString('body') ?? '',
         status: j.optString('status') ?? 'draft',
@@ -144,6 +197,65 @@ class EmailDraft {
         approvalNote: j.optString('approval_note'),
         error: j.optString('error'),
       );
+}
+
+/// What a new email says, as `POST /email/drafts` and `PATCH
+/// /email/drafts/{id}` take it (docs/email.md). The API caps each address
+/// list at [maxAddresses], the subject at [maxSubject] and the body at
+/// [maxBody] characters.
+class EmailDraftFields {
+  const EmailDraftFields({
+    required this.accountId,
+    this.to = const [],
+    this.cc = const [],
+    this.bcc = const [],
+    this.subject = '',
+    this.body = '',
+  });
+
+  static const maxAddresses = 50, maxSubject = 500, maxBody = 20000;
+
+  final String accountId, subject, body;
+  final List<String> to, cc, bcc;
+
+  /// The PATCH body: everything but the mailbox, which a draft keeps.
+  Map<String, Object?> toPatch() => {
+        'to': to,
+        'cc': cc,
+        'bcc': bcc,
+        'subject': subject,
+        'body': body,
+      };
+
+  Map<String, Object?> toCreate() => {'account_id': accountId, ...toPatch()};
+
+  @override
+  bool operator ==(Object other) =>
+      other is EmailDraftFields &&
+      other.accountId == accountId &&
+      other.subject == subject &&
+      other.body == body &&
+      listEquals(other.to, to) &&
+      listEquals(other.cc, cc) &&
+      listEquals(other.bcc, bcc);
+
+  @override
+  int get hashCode => Object.hash(accountId, subject, body, Object.hashAll(to),
+      Object.hashAll(cc), Object.hashAll(bcc));
+}
+
+final _address = RegExp(r'^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;".]+$');
+
+/// Splits a To, Cc or Bcc field on commas and semicolons: the addresses and
+/// the entries that are not a plain e-mail address.
+({List<String> valid, List<String> invalid}) splitAddresses(String text) {
+  final valid = <String>[], invalid = <String>[];
+  for (final part in text.split(RegExp('[,;]'))) {
+    final value = part.trim();
+    if (value.isEmpty) continue;
+    (_address.hasMatch(value) ? valid : invalid).add(value);
+  }
+  return (valid: valid, invalid: invalid);
 }
 
 /// An opened message: its text (plain, capped by the API), the drafts.

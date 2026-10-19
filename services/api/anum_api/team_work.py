@@ -203,10 +203,13 @@ class TeamUnit:
     def notify(self, user_id: str, kind: str, title: str, body: str, item_id: str | None) -> None:
         from .notifications import create_notification
 
-        profile = self.store.list_profiles(self.context).get(user_id)
+        from .notifications import address_in_unit
+
+        # The profile email, else the verified email of the invitation they accepted.
+        address = address_in_unit(self.store, self.repository, self.context, user_id)
         notification = create_notification(
             self.store, self.context, user_id=user_id, kind=kind, title=title, body=body,
-            work_item_id=item_id, email=profile.email if profile else None,
+            work_item_id=item_id, email=address,
         )
         if notification.email_status == EmailStatus.PENDING:
             self.pending_email.append((user_id, notification.id))

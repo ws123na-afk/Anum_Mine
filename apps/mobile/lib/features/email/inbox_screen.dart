@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
+import '../business/ticket_from_message.dart';
 import '../workspace/workspace_models.dart';
+import 'compose_email_screen.dart';
 import 'email_controller.dart';
 import 'email_models.dart';
 
@@ -48,6 +50,18 @@ class _InboxScreenState extends State<InboxScreen> {
           ),
         ],
       ),
+      floatingActionButton: ListenableBuilder(
+        listenable: c,
+        builder: (context, _) =>
+            c.phase == InboxPhase.ready && c.accounts.isNotEmpty
+                ? FloatingActionButton.extended(
+                    key: const Key('inbox-compose'),
+                    onPressed: () => _compose(context, c),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: Text(l.t('inbox.compose.new')),
+                  )
+                : const SizedBox.shrink(),
+      ),
       body: ListenableBuilder(
         listenable: c,
         builder: (context, _) => SafeArea(
@@ -61,6 +75,19 @@ class _InboxScreenState extends State<InboxScreen> {
       ),
     );
   }
+
+  Future<void> _compose(BuildContext context, EmailController c,
+          [EmailDraft? draft]) =>
+      Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => ComposeEmailScreen(
+            repository: c.repository,
+            accounts: c.accounts,
+            initialDraft: draft,
+          ),
+        ),
+      ).then((_) => c.loadDrafts());
 
   Widget _body(BuildContext context, AnumLocalizations l, EmailController c) {
     if (c.phase == InboxPhase.loading && c.messages.isEmpty) {
@@ -100,7 +127,9 @@ class _InboxScreenState extends State<InboxScreen> {
     return RefreshIndicator(
       onRefresh: c.load,
       child: ListView(
-        padding: const EdgeInsets.all(AnumSpacing.md),
+        // The bottom room keeps the last message clear of the compose button.
+        padding: const EdgeInsets.fromLTRB(AnumSpacing.md, AnumSpacing.md,
+            AnumSpacing.md, AnumSpacing.huge + AnumSpacing.lg),
         children: [
           Text(
             l.f('inboxAccounts', {
@@ -114,6 +143,39 @@ class _InboxScreenState extends State<InboxScreen> {
             }),
             style: Theme.of(context).textTheme.bodySmall,
           ),
+          if (c.newDrafts.isNotEmpty) ...[
+            const SizedBox(height: AnumSpacing.sm),
+            Text(
+              l.f('inbox.drafts.title', {'count': c.newDrafts.length}),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            for (final draft in c.newDrafts)
+              Card(
+                margin: const EdgeInsets.only(top: AnumSpacing.xs),
+                child: ListTile(
+                  key: ValueKey('new-draft-${draft.id}'),
+                  leading: const Icon(Icons.edit_note),
+                  title: Text(
+                    draft.subject.isEmpty
+                        ? l.t('inboxNoSubject')
+                        : draft.subject,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    draft.to.isEmpty
+                        ? l.t('inbox.drafts.noRecipient')
+                        : draft.to.join(', '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: draft.status == 'pending_approval'
+                      ? Text(l.t('inbox.drafts.waiting'))
+                      : null,
+                  onTap: () => _compose(context, c, draft),
+                ),
+              ),
+          ],
           const SizedBox(height: AnumSpacing.sm),
           TextField(
             controller: _search,
@@ -322,7 +384,36 @@ class _EmailThreadScreenState extends State<EmailThreadScreen> {
     final l = AnumLocalizations.maybeOf(context);
     final c = widget.controller;
     return Scaffold(
-      appBar: AppBar(title: Text(l.t('inboxMessage'))),
+      appBar: AppBar(
+        title: Text(l.t('inboxMessage')),
+        actions: [
+          if (c.support case final support?)
+            ListenableBuilder(
+              listenable: c,
+              builder: (context, _) {
+                final message = c.detail?.message;
+                return IconButton(
+                  key: const Key('inbox-create-ticket'),
+                  tooltip: l.t('biz.fromMessage.action'),
+                  icon: const Icon(Icons.confirmation_number_outlined),
+                  onPressed: message == null
+                      ? null
+                      : () => createTicketFromMessage(
+                            context,
+                            support: support,
+                            source: 'email',
+                            refId: message.id,
+                            // A subject too short for a title is left
+                            // to the API's default.
+                            title: message.subject.trim().length >= 3
+                                ? message.subject.trim()
+                                : null,
+                          ),
+                );
+              },
+            ),
+        ],
+      ),
       body: ListenableBuilder(
         listenable: c,
         builder: (context, _) {
@@ -462,9 +553,10 @@ class _EmailThreadScreenState extends State<EmailThreadScreen> {
                       ),
                     ),
                     if (c.draftApproval case final approval?)
-                      _ApprovalCard(
+                      EmailApprovalCard(
                         key: const Key('inbox-draft-approval'),
-                        controller: c,
+                        enabled: c.busy == null,
+                        onApprove: () => c.approve(approval),
                         approval: approval,
                         title: l.t('inboxDraftApprovalTitle'),
                         approveLabel: l.t('inboxApproveDraft'),
@@ -555,7 +647,11 @@ class _DraftCardState extends State<DraftCard>
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               if (approval != null && approval.status == 'pending')
-                _ApprovalCard(controller: c, approval: approval)
+                EmailApprovalCard(
+                  approval: approval,
+                  enabled: c.busy == null,
+                  onApprove: () => c.approve(approval),
+                )
               else
                 Align(
                   alignment: AlignmentDirectional.centerStart,
@@ -575,24 +671,43 @@ class _DraftCardState extends State<DraftCard>
   }
 }
 
-class _ApprovalCard extends StatelessWidget {
-  const _ApprovalCard(
-      {required this.controller,
-      required this.approval,
-      this.title,
-      this.approveLabel,
-      super.key});
-  final EmailController controller;
+/// An approval waiting for an owner: what it covers (from, to, cc, bcc,
+/// subject), its payload hash shortened, and Approve. The API answers 403
+/// for anyone but an owner; that sentence is shown by the caller.
+class EmailApprovalCard extends StatelessWidget {
+  const EmailApprovalCard({
+    required this.approval,
+    required this.enabled,
+    required this.onApprove,
+    this.title,
+    this.approveLabel,
+    super.key,
+  });
   final WorkspaceApproval approval;
+
+  /// False while another action runs.
+  final bool enabled;
+  final VoidCallback onApprove;
 
   /// Defaults to the send approval's wording.
   final String? title, approveLabel;
+
+  static String _list(Object? value) =>
+      value is List ? value.join(', ') : '${value ?? ''}';
+
+  static String shortHash(String hash) => hash.length > 18
+      ? '${hash.substring(0, 12)}…${hash.substring(hash.length - 6)}'
+      : hash;
 
   @override
   Widget build(BuildContext context) {
     final l = AnumLocalizations.maybeOf(context);
     final hash = approval.payloadHash ?? '';
-    final to = approval.arguments['to'];
+    final args = approval.arguments;
+    final to = args['to'];
+    final cc = _list(args['cc']);
+    final bcc = _list(args['bcc']);
+    final subject = args['subject'];
     return Semantics(
       container: true,
       label: l.t('inboxApproval'),
@@ -610,24 +725,19 @@ class _ApprovalCard extends StatelessWidget {
               title ?? l.t('inboxApprovalTitle'),
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-            if (approval.arguments['from'] case final Object from)
+            if (args['from'] case final Object from)
               Text(l.f('inboxFrom', {'from': '$from'})),
-            if (to != null)
-              Text(l.f('inboxTo', {'to': to is List ? to.join(', ') : '$to'})),
-            Text(
-              l.f('inboxHash', {
-                'hash': hash.length > 18
-                    ? '${hash.substring(0, 12)}…${hash.substring(hash.length - 6)}'
-                    : hash,
-              }),
-            ),
+            if (to != null) Text(l.f('inboxTo', {'to': _list(to)})),
+            if (cc.isNotEmpty) Text(l.f('inbox.approval.cc', {'cc': cc})),
+            if (bcc.isNotEmpty) Text(l.f('inbox.approval.bcc', {'bcc': bcc})),
+            if (subject is String && subject.isNotEmpty)
+              Text(l.f('inbox.approval.subject', {'subject': subject})),
+            Text(l.f('inboxHash', {'hash': shortHash(hash)})),
             const SizedBox(height: AnumSpacing.xs),
             Align(
               alignment: AlignmentDirectional.centerStart,
               child: FilledButton.icon(
-                onPressed: controller.busy == null && hash.isNotEmpty
-                    ? () => controller.approve(approval)
-                    : null,
+                onPressed: enabled && hash.isNotEmpty ? onApprove : null,
                 icon: const Icon(Icons.verified_outlined),
                 label: Text(approveLabel ?? l.t('inboxApprove')),
               ),

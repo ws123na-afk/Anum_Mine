@@ -171,6 +171,7 @@ export interface WorkspaceInfo { id: string; tenant_id: string; name: string; cr
 export interface OnboardingStatus { complete: boolean; tenant: { id: string; name: string } | null; workspace: WorkspaceInfo | null; membership: { role: string } | null; model_configured: boolean; }
 export type { ModelConfig, ModelConnectionTest } from './modelConfig';
 export type NotificationPreferences = push.NotificationPreferences;
+import { announcePreferences } from './desktopEvents';
 
 /** Local development session; a no-op when the app signs in through OIDC. */
 export async function ensureLocalSession(): Promise<void> {
@@ -193,11 +194,21 @@ export async function getModelConfig(): Promise<ModelConfig> { return request('/
 export async function saveModelConfigBody(body: ModelConfigBody): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'PUT', body: JSON.stringify(body) }); }
 export async function testModelConfig(): Promise<ModelConnectionTest> { return request('/api/v1/model-config/test', { method: 'POST' }); }
 export async function getNotificationPreferences(): Promise<NotificationPreferences> { return request('/api/v1/notification-preferences', { method: 'GET' }); }
-export async function saveNotificationPreferences(value: NotificationPreferences): Promise<NotificationPreferences> { return request('/api/v1/notification-preferences', { method: 'PUT', body: JSON.stringify(value) }); }
+export async function saveNotificationPreferences(value: NotificationPreferences): Promise<NotificationPreferences> {
+  const saved = await request<NotificationPreferences>('/api/v1/notification-preferences', { method: 'PUT', body: JSON.stringify(value) });
+  announcePreferences(saved);
+  return saved;
+}
+/** Sends the caller a test email (the Email switch's proof); the answer says sent, failed, not configured or no address. */
+export async function sendTestEmail(): Promise<push.EmailTestResult> { return request('/api/v1/notification-channels/email-test', { method: 'POST' }); }
+/** What the Email switch can do for the caller now (a mail server, an address). */
+export async function getNotificationChannels(): Promise<push.NotificationChannels> { return request('/api/v1/notification-channels', { method: 'GET' }); }
 
 /** One task by id (a run's "Open task" link). */
 export async function getTask(taskId: string): Promise<Task> { return mapTask(await request<ApiTask>(`/api/v1/tasks/${encodeURIComponent(taskId)}`, { method: 'GET' })); }
 export async function getTasks(): Promise<Task[]> { return (await request<ApiTask[]>('/api/v1/tasks', { method: 'GET' })).map(mapTask); }
+/** One approval by id (an owner's desktop alert checks who requested it). */
+export async function getApproval(approvalId: string): Promise<Approval> { return mapApproval(await request<ApiApproval>(`/api/v1/approvals/${encodeURIComponent(approvalId)}`, { method: 'GET' })); }
 export async function getApprovals(): Promise<Approval[]> { return (await request<ApiApproval[]>('/api/v1/approvals', { method: 'GET' })).map(mapApproval); }
 /** One page of `GET /api/v1/tasks` after `cursor` (the last task id already shown; the API answers 400 for an unknown one), newest first. */
 export async function getTaskPage(cursor: string, limit = 50): Promise<Task[]> {

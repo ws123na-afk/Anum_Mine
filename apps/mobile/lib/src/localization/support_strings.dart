@@ -36,7 +36,20 @@ const supportEn = <String, String>{
   'biz.support.sort.created': 'Newest',
   'biz.support.empty': 'No tickets yet',
   'biz.support.emptyText':
-      'Open a ticket when a customer asks for help, or create one from an email or WhatsApp conversation on the web.',
+      'Open a ticket when a customer asks for help, or use Create ticket on an email in the Inbox or a WhatsApp conversation.',
+  'biz.fromMessage.action': 'Create ticket',
+  'biz.fromMessage.title': 'Create a support ticket',
+  'biz.fromMessage.intro.email':
+      'The ticket links to this email and copies who wrote in. The text stays in the inbox.',
+  'biz.fromMessage.intro.whatsapp':
+      'The ticket links to this conversation and copies who wrote in. The messages stay in WhatsApp.',
+  'biz.fromMessage.titleHint.email': 'Leave empty to use the email subject.',
+  'biz.fromMessage.titleHint.whatsapp':
+      'Leave empty to name it after the customer.',
+  'biz.fromMessage.create': 'Create ticket',
+  'biz.fromMessage.creating': 'Creating...',
+  'biz.fromMessage.done': 'Ticket {reference} created.',
+  'biz.fromMessage.open': 'Open',
   'biz.support.emptyReadOnly':
       'No tickets yet. Owners and members open tickets.',
   'biz.support.noMatch': 'No ticket matches',
@@ -217,7 +230,19 @@ const supportAr = <String, String>{
   'biz.support.sort.created': 'الأحدث إنشاءً',
   'biz.support.empty': 'لا توجد تذاكر بعد',
   'biz.support.emptyText':
-      'افتح تذكرة عندما يطلب عميل المساعدة، أو أنشئها من محادثة بريد أو واتساب على الويب.',
+      'افتح تذكرة عندما يطلب عميل المساعدة، أو استخدم «إنشاء تذكرة» على رسالة في البريد أو محادثة واتساب.',
+  'biz.fromMessage.action': 'إنشاء تذكرة',
+  'biz.fromMessage.title': 'إنشاء تذكرة دعم',
+  'biz.fromMessage.intro.email':
+      'ترتبط التذكرة بهذه الرسالة وتنسخ اسم المرسل. يبقى النص في صندوق البريد.',
+  'biz.fromMessage.intro.whatsapp':
+      'ترتبط التذكرة بهذه المحادثة وتنسخ اسم المرسل. تبقى الرسائل في واتساب.',
+  'biz.fromMessage.titleHint.email': 'اتركه فارغًا لاستخدام عنوان الرسالة.',
+  'biz.fromMessage.titleHint.whatsapp': 'اتركه فارغًا لتسميتها باسم العميل.',
+  'biz.fromMessage.create': 'إنشاء تذكرة',
+  'biz.fromMessage.creating': 'جارٍ الإنشاء...',
+  'biz.fromMessage.done': 'أُنشئت التذكرة {reference}.',
+  'biz.fromMessage.open': 'فتح',
   'biz.support.emptyReadOnly':
       'لا توجد تذاكر بعد. يفتح المالكون والأعضاء التذاكر.',
   'biz.support.noMatch': 'لا توجد تذكرة مطابقة',

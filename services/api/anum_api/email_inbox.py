@@ -341,6 +341,7 @@ class EmailDraft(BaseModel):
     thread_id: str | None = None
     to: list[str] = Field(default_factory=list)
     cc: list[str] = Field(default_factory=list)
+    bcc: list[str] = Field(default_factory=list)
     subject: str = ""
     body: str = ""
     status: DraftStatus = DraftStatus.DRAFT
@@ -1299,6 +1300,7 @@ def outgoing_for(draft: EmailDraft, account: EmailAccount, original: EmailMessag
         from_address=account.address,
         to=tuple(draft.to),
         cc=tuple(draft.cc),
+        bcc=tuple(draft.bcc),
         subject=draft.subject,
         body=draft.body,
         reply_to=original.provider_message_id if original is not None else None,
@@ -1359,6 +1361,55 @@ async def create_draft(
         if not draft.body:
             raise EmailError(502, "The model returned an empty reply; try again or write the reply yourself.")
     draft.provider_draft_id, warning = await save_provider_draft(context, account, draft, message)
+    with open_email_store(context) as store:
+        store.add_draft(draft)
+    return draft, warning
+
+
+async def create_new_draft(
+    context: TenantContext,
+    *,
+    account_id: str,
+    to: list[str],
+    cc: list[str],
+    bcc: list[str],
+    subject: str,
+    body: str,
+) -> tuple[EmailDraft, str | None]:
+    """A brand-new message (not a reply) from one of the caller's visible mailboxes.
+
+    Written by a person, never by the model; it sends nothing. Sending is the same
+    ``send_email`` approval as a reply (docs/email.md#composing-a-new-message)."""
+    with open_email_store(context) as store:
+        account = store.get_account(account_id)
+    if account is None or not can_see(account, context):
+        raise EmailError(404, "Mailbox not found.")
+    if account.status == AccountStatus.REAUTH_REQUIRED:
+        raise EmailError(409, "Reconnect this mailbox before writing from it.")
+    if not provider_enabled_here(account.provider, context):
+        raise EmailError(409, f"{PROVIDER_NAMES[account.provider]} is turned off or not set up for this workspace.")
+    to_list, cc_list, bcc_list = valid_addresses(to), valid_addresses(cc), valid_addresses(bcc)
+    if len(to_list) + len(cc_list) + len(bcc_list) > 50:
+        raise EmailError(422, "At most 50 recipients.")
+    now = utc_now()
+    draft = EmailDraft(
+        id=new_id("edr"),
+        tenant_id=context.tenant_id,
+        workspace_id=context.workspace_id,
+        account_id=account.id,
+        message_id=None,
+        thread_id=None,
+        to=to_list,
+        cc=cc_list,
+        bcc=bcc_list,
+        subject=" ".join(subject.split())[:500],
+        body=body.strip()[:MAX_DRAFT_BODY],
+        source="person",
+        created_by=context.user_id,
+        created_at=now,
+        updated_at=now,
+    )
+    draft.provider_draft_id, warning = await save_provider_draft(context, account, draft, None)
     with open_email_store(context) as store:
         store.add_draft(draft)
     return draft, warning
@@ -1548,7 +1599,42 @@ async def unarchive_email(call: ToolCall, context: TenantContext) -> ToolResult:
     )
 
 
+def _address_list(value: Any) -> list[str]:
+    return [str(item) for item in value] if isinstance(value, list) else []
+
+
+async def _draft_new(call: ToolCall, context: TenantContext) -> ToolResult:
+    """``draft_reply`` with ``account_id`` and no ``message_id``: a new message as written."""
+    args = call.arguments
+    try:
+        draft, warning = await create_new_draft(
+            context,
+            account_id=str(args.get("account_id") or ""),
+            to=_address_list(args.get("to")),
+            cc=_address_list(args.get("cc")),
+            bcc=_address_list(args.get("bcc")),
+            subject=str(args.get("subject") or ""),
+            body=str(args.get("body") or ""),
+        )
+    except EmailError as exc:
+        return _failed(exc.message)
+    summary = "Saved a new email draft. Review it in the Inbox and approve to send."
+    if warning:
+        summary += f" {warning}"
+    return ToolResult(
+        status="succeeded",
+        summary=summary,
+        output={
+            "draft_id": draft.id, "to": draft.to, "subject": draft.subject, "body": draft.body,
+            "source": draft.source, "warning": warning,
+        },
+        audit_metadata={"tool": DRAFT_TOOL, "draft_id": draft.id, "source": draft.source, "kind": "new", "body_chars": len(draft.body)},
+    )
+
+
 async def draft_reply(call: ToolCall, context: TenantContext) -> ToolResult:
+    if not call.arguments.get("message_id") and call.arguments.get("account_id"):
+        return await _draft_new(call, context)
     message_id = str(call.arguments.get("message_id") or "")
     instructions = str(call.arguments.get("instructions") or "").strip()[:MAX_INSTRUCTIONS] or None
     body = call.arguments.get("body")
@@ -1581,6 +1667,7 @@ def send_arguments(draft: EmailDraft, account: EmailAccount, original: EmailMess
         "from": account.address,
         "to": list(draft.to),
         "cc": list(draft.cc),
+        "bcc": list(draft.bcc),
         "subject": draft.subject,
         "body": draft.body,
         "in_reply_to": original.id if original is not None else None,
@@ -1605,6 +1692,7 @@ async def send_email(call: ToolCall, context: TenantContext) -> ToolResult:
     try:
         to = valid_addresses([str(v) for v in args.get("to") or []])
         cc = valid_addresses([str(v) for v in args.get("cc") or []])
+        bcc = valid_addresses([str(v) for v in args.get("bcc") or []])
     except EmailError as exc:
         return _failed(f"Not sent: {exc.message}")
     if not to:
@@ -1613,7 +1701,7 @@ async def send_email(call: ToolCall, context: TenantContext) -> ToolResult:
     body = str(args.get("body") or "")
     if not body.strip():
         return _failed("Not sent: the message is empty.")
-    approved = draft.model_copy(update={"to": to, "cc": cc, "subject": subject, "body": body})
+    approved = draft.model_copy(update={"to": to, "cc": cc, "bcc": bcc, "subject": subject, "body": body})
     outgoing = outgoing_for(approved, account, original)
 
     def record(status: DraftStatus, error: str | None) -> None:
@@ -1625,7 +1713,7 @@ async def send_email(call: ToolCall, context: TenantContext) -> ToolResult:
             stored.error = error
             if status == DraftStatus.SENT:
                 stored.sent_at = utc_now()
-                stored.to, stored.cc, stored.subject, stored.body = to, cc, subject, body
+                stored.to, stored.cc, stored.bcc, stored.subject, stored.body = to, cc, bcc, subject, body
             stored.updated_at = utc_now()
             store.save_draft(stored)
 
@@ -1648,8 +1736,8 @@ async def send_email(call: ToolCall, context: TenantContext) -> ToolResult:
     return ToolResult(
         status="succeeded",
         summary=f"Sent to {', '.join(to)} from {account.address}: {subject or '(no subject)'}",
-        output={"draft_id": draft.id, "to": to, "cc": cc, "subject": subject},
-        audit_metadata={"tool": SEND_TOOL, "draft_id": draft.id, "recipients": len(to) + len(cc), "body_chars": len(body)},
+        output={"draft_id": draft.id, "to": to, "cc": cc, "bcc": bcc, "subject": subject},
+        audit_metadata={"tool": SEND_TOOL, "draft_id": draft.id, "recipients": len(to) + len(cc) + len(bcc), "body_chars": len(body)},
     )
 
 
@@ -1743,7 +1831,10 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
     (
         ToolDefinition(
             name=DRAFT_TOOL,
-            description="Draft a reply (written by the model unless a body is given) and save it to the provider's Drafts. Sends nothing.",
+            description=(
+                "Draft a reply (written by the model unless a body is given), or with account_id and no message_id a new "
+                "email exactly as given, and save it to the provider's Drafts. Sends nothing."
+            ),
             risk_level=RiskLevel.MEDIUM,
             required_roles=_PEOPLE,
             timeout_seconds=120,
@@ -1755,7 +1846,7 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
     (
         ToolDefinition(
             name=SEND_TOOL,
-            description="Send an approved email reply from a connected mailbox.",
+            description="Send an approved email (a reply or a new message) from a connected mailbox.",
             risk_level=RiskLevel.HIGH,
             required_roles=_PEOPLE,
             timeout_seconds=60,
