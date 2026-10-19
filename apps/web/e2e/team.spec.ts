@@ -126,6 +126,33 @@ test('platform console: onboard a customer company and see the one-time invitati
   await expect(orgsTable.getByRole('rowheader', { name: /^Acme Tyres/ })).toBeVisible();
 });
 
+test('platform console lists deleted organisations as read-only receipts', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await page.goto('/#organisations');
+  const pane = page.getByRole('region', { name: 'Deleted organisations' });
+  await expect(pane.getByRole('rowheader', { name: /^Old Traders/ })).toBeVisible();
+  await expect(pane.getByText('52 rows, 2 files')).toBeVisible();
+  await expect(pane.getByText('3 removed, 1 kept for their other organisations')).toBeVisible();
+  await expect(pane.getByRole('row', { name: /^Leaving Co/ }).getByText('Being deleted').first()).toBeVisible();
+  await pane.getByText('Rows per table (2)').click();
+  await expect(pane.getByText('work_items')).toBeVisible();
+  // Read only: nothing in the pane changes anything.
+  await expect(pane.getByRole('button')).toHaveCount(0);
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});
+
+test('deleted organisations: empty state', async ({ page }) => {
+  await mockWorkspaceApi(page, { deletedOrgs: 'empty' });
+  await page.goto('/#organisations');
+  await expect(page.getByRole('heading', { name: 'No organisation you onboarded has been deleted.' })).toBeVisible();
+});
+
+test('deleted organisations: error state with a retry', async ({ page }) => {
+  await mockWorkspaceApi(page, { deletedOrgs: 'fail' });
+  await page.goto('/#organisations');
+  await expect(page.getByText(/Couldn't load deleted organisations/)).toBeVisible();
+});
+
 test('platform console explains who may use it', async ({ page }) => {
   await mockWorkspaceApi(page, { denyOrganisations: true });
   await page.goto('/#organisations');
