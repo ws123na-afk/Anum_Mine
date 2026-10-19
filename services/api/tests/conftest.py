@@ -33,6 +33,7 @@ TABLES_IN_DELETE_ORDER = (
     "agent_usage_monthly",
     "agent_cost_caps",
     "agent_emergency_stops",
+    "demo_records",
     "app_call_signals",
     "app_calls",
     "call_ai_requests",

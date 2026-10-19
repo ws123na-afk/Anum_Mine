@@ -1,58 +1,13 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
+import { GATE_PAGES, GATE_SIZES, settle, type GatePage } from './support/gatePages';
 
-// Accessibility gate (docs/web-localization.md#accessibility): axe-core over the main views in
-// English and Arabic. Serious and critical violations fail the run; the message lists each rule,
-// its help text and the offending selectors so the fix is clear from the CI log.
-const views: { hash: string; ready: (page: Page) => Promise<void> }[] = [
-  { hash: 'home', ready: (page) => expect(page.locator('.commandPanel .listRow').first()).toBeVisible() },
-  { hash: 'assistant', ready: (page) => expect(page.locator('.chatTurn.assistant').first()).toBeVisible() },
-  { hash: 'inbox', ready: async (page) => { await page.locator('.inboxRow').first().click(); await expect(page.locator('.inboxDraftCard').first()).toBeVisible(); } },
-  { hash: 'tasks', ready: (page) => expect(page.locator('.recordButton').first()).toBeVisible() },
-  { hash: 'approvals', ready: (page) => expect(page.locator('.approvalDetail').first()).toBeVisible() },
-  { hash: 'memory', ready: (page) => expect(page.locator('.memoryRow').first()).toBeVisible() },
-  { hash: 'meetings', ready: (page) => expect(page.locator('.meetingRows li').first()).toBeVisible() },
-  { hash: 'meetings?meeting=meeting_pmv', ready: (page) => expect(page.locator('.transcriptLines li').first()).toBeVisible() },
-  { hash: 'files', ready: (page) => expect(page.locator('.filesTable tbody tr').first()).toBeVisible() },
-  { hash: 'commerce', ready: (page) => expect(page.locator('.cmChart svg')).toBeVisible() },
-  { hash: 'finance', ready: (page) => expect(page.locator('.finChart svg')).toBeVisible() },
-  { hash: 'finance-transactions', ready: (page) => expect(page.locator('.finTxTable tbody tr').first()).toBeVisible() },
-  { hash: 'finance-import', ready: (page) => expect(page.locator('.finMapping, input[type="file"]').first()).toBeVisible() },
-  { hash: 'finance-safe', ready: (page) => expect(page.locator('.finBuild').first()).toBeVisible() },
-  { hash: 'finance-guardian', ready: (page) => expect(page.locator('.finRules').first()).toBeVisible() },
-  { hash: 'finance-connections', ready: (page) => expect(page.locator('.finSource').first()).toBeVisible() },
-  { hash: 'finance-trading', ready: (page) => expect(page.locator('.finTradeTable tbody tr').first()).toBeVisible() },
-  { hash: 'finance-execution', ready: (page) => expect(page.locator('.finPreconditions li').first()).toBeVisible() },
-  { hash: 'settings', ready: (page) => expect(page.locator('.chatMemorySetting input[type="checkbox"]')).toBeVisible() },
-  { hash: 'notifications', ready: (page) => expect(page.locator('.phoneList .phoneRow')).toHaveCount(1) },
-  { hash: 'language', ready: (page) => expect(page.locator('.languageChoices')).toBeVisible() },
-  { hash: 'privacy', ready: (page) => expect(page.locator('#privacy-stored')).toBeVisible() },
-  { hash: 'call', ready: (page) => expect(page.locator('.callStart')).toBeVisible() },
-  { hash: 'team', ready: (page) => expect(page.locator('.workRow').first()).toBeVisible() },
-  { hash: 'assistants', ready: (page) => expect(page.locator('.assistantsTable tbody tr').first()).toBeVisible() },
-  { hash: 'organisations', ready: (page) => expect(page.locator('.orgsTable tbody tr').first()).toBeVisible() },
-  { hash: 'audit', ready: (page) => expect(page.locator('.auditTable')).toBeVisible() },
-  { hash: 'integrations', ready: (page) => expect(page.locator('li.intRow').first()).toBeVisible() },
-  { hash: 'skills', ready: (page) => expect(page.locator('article.catalogCard').first()).toBeVisible() },
-  { hash: 'agents', ready: (page) => expect(page.locator('.agentRow').first()).toBeVisible() },
-  { hash: 'favorites', ready: (page) => expect(page.locator('.favoritesTable tbody tr').first()).toBeVisible() },
-  { hash: 'knowledge', ready: (page) => expect(page.locator('.kbCollectionButton').first()).toBeVisible() },
-  { hash: 'reports', ready: (page) => expect(page.locator('.reportRow').first()).toBeVisible() },
-  { hash: 'reports/report_tyre', ready: (page) => expect(page.locator('.reportTable')).toBeVisible() },
-  { hash: 'enterprise', ready: (page) => expect(page.locator('.marketRow').first()).toBeVisible() },
-  { hash: 'automation', ready: (page) => expect(page.locator('.autoRows')).toBeVisible() },
-  { hash: 'activity', ready: (page) => expect(page.locator('.autonomyRow').first()).toBeVisible() },
-  { hash: 'autonomy', ready: (page) => expect(page.locator('.autonomyPanel').first()).toBeVisible() },
-  { hash: 'learning', ready: (page) => expect(page.locator('.learningRoutine').first()).toBeVisible() },
-  { hash: 'members', ready: (page) => expect(page.locator('.memberRow').first()).toBeVisible() },
-  { hash: 'budgets', ready: (page) => expect(page.locator('.budgetCard').first()).toBeVisible() },
-  { hash: 'policy', ready: (page) => expect(page.locator('.policySwitch').first()).toBeVisible() },
-  { hash: 'suppressions', ready: (page) => expect(page.locator('.suppRow').first()).toBeVisible() },
-  { hash: 'governance', ready: (page) => expect(page.locator('.govRow').first()).toBeVisible() },
-  { hash: 'setup', ready: (page) => expect(page.locator('.planRollout')).toBeVisible() },
-  { hash: 'voice', ready: (page) => expect(page.locator('.voiceSpaceTalk')).toBeVisible() },
-];
+// Accessibility gate (docs/web-localization.md#accessibility): axe-core over every page the app can
+// open (support/gatePages.ts) in English and Arabic at the five gate sizes, and in the light theme.
+// Serious and critical violations fail the run; the message lists each rule, its help text and the
+// offending selectors so the fix is clear from the CI log. The sizes are set here, so the mobile
+// project leaves the @gate tests out (playwright.config.ts).
 
 async function seriousViolations(page: Page): Promise<string[]> {
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze();
@@ -61,30 +16,45 @@ async function seriousViolations(page: Page): Promise<string[]> {
     .map((violation) => `${violation.id} (${violation.impact}): ${violation.help}\n  ${violation.nodes.slice(0, 5).map((node) => node.target.join(' ')).join('\n  ')}`);
 }
 
+/** Opens the page with its data showing; the Inbox also opens a message so its draft cards are checked. */
+async function open(page: Page, item: GatePage) {
+  await page.goto(`/#${item.hash}`);
+  await expect(page.locator(item.ready).first(), item.hash).toBeVisible();
+  if (item.hash === 'inbox') {
+    await page.locator('.inboxRow').first().click();
+    await expect(page.locator('.inboxDraftCard').first()).toBeVisible();
+  }
+  await settle(page);
+}
+
 // The light theme (Settings > Appearance, docs/design/anum360.md#theme) gets the same gate in English.
 test.describe('light theme', () => {
-  for (const view of views) {
-    test(`#${view.hash} has no serious or critical axe violations`, async ({ page }) => {
-      await mockWorkspaceApi(page);
+  for (const item of GATE_PAGES) {
+    test(`#${item.hash} has no serious or critical axe violations`, async ({ page }) => {
+      await item.mock(page);
       await page.addInitScript(() => { try { localStorage.setItem('anum.theme', 'light'); } catch { /* storage blocked */ } });
-      await page.goto(`/#${view.hash}`);
+      await open(page, item);
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-      await view.ready(page);
       expect(await seriousViolations(page)).toEqual([]);
     });
   }
 });
 
-for (const locale of ['en', 'ar'] as const) {
-  test.describe(`${locale} interface`, () => {
-    for (const view of views) {
-      test(`#${view.hash} has no serious or critical axe violations`, async ({ page }) => {
-        await mockWorkspaceApi(page);
-        await useSavedLocale(page, locale);
-        await page.goto(`/#${view.hash}`);
-        await expect(page.locator('html')).toHaveAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
-        await view.ready(page);
-        expect(await seriousViolations(page)).toEqual([]);
+for (const size of GATE_SIZES) {
+  test.describe(`at ${size.width}x${size.height} @gate`, () => {
+    test.use({ viewport: size });
+    for (const item of GATE_PAGES) {
+      test(`#${item.hash} has no serious or critical axe violations, in English and Arabic`, async ({ page }) => {
+        test.setTimeout(90_000);
+        for (const locale of ['en', 'ar'] as const) {
+          const tab = await page.context().newPage();
+          await item.mock(tab);
+          await useSavedLocale(tab, locale);
+          await open(tab, item);
+          await expect(tab.locator('html')).toHaveAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
+          expect(await seriousViolations(tab), `${item.hash} ${locale}`).toEqual([]);
+          await tab.close();
+        }
       });
     }
   });

@@ -607,9 +607,9 @@ class _AllInboxTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AnumSpacing.xs),
-            // Bounded: a short date (not today) at 200% text is wider than a time.
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 96),
+            // Loose, so a long localized date at large text sizes ellipsizes
+            // instead of pushing the row past the card.
+            Flexible(
               child: Text(mailWhen(context, m.date),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

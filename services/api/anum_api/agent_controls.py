@@ -33,7 +33,7 @@ The workspace and organization budgets still apply on top.
 
 ``ANUM_REPOSITORY_BACKEND=memory`` keeps everything in process memory; with ``postgresql``
 it lives in ``agent_emergency_stops``, ``agent_cost_caps`` and ``agent_usage_monthly``
-(migration ``0080_agent_controls``, forced RLS).
+(migration ``0086_agent_controls``, forced RLS).
 """
 
 from __future__ import annotations

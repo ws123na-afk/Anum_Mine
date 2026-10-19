@@ -1097,11 +1097,11 @@ def test_mail_writers_migration_is_expand_only() -> None:
 
 def test_agent_controls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0080_agent_controls.py").read_text(encoding="utf-8")
-    assert 'revision = "0080_agent_controls"' in revision_text and len("0080_agent_controls") <= 32
-    assert 'down_revision = "0076_business_support"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0080_agent_controls.py"]
-    assert not [path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0086_agent_controls.py").read_text(encoding="utf-8")
+    assert 'revision = "0086_agent_controls"' in revision_text and len("0086_agent_controls") <= 32
+    assert 'down_revision = "0078_demo_records"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0086_agent_controls.py"]
+    assert not [path for path in others if 'down_revision = "0078_demo_records"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 3
     for table in ("agent_emergency_stops", "agent_cost_caps", "agent_usage_monthly"):
@@ -1139,6 +1139,7 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
     others = [path for path in versions.glob("*.py") if path.name != "0076_business_support.py"]
     # One chain: at most one later migration follows it (no second head).
     assert len([path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]) <= 1
+    assert [path.name for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")] in ([], ["0078_demo_records.py"])
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 2
     assert '"business_support_tickets"' in revision_text and '"business_ticket_replies"' in revision_text
@@ -1149,3 +1150,16 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
     assert "alter_column" not in upgrade and "drop " not in upgrade and "op.drop" not in upgrade
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "uq_business_support_tickets_open_source" in upgrade
+
+
+def test_demo_records_migration_is_expand_only_with_forced_rls() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0078_demo_records.py").read_text(encoding="utf-8")
+    assert 'revision = "0078_demo_records"' in revision_text and len("0078_demo_records") <= 32
+    assert 'down_revision = "0076_business_support"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0078_demo_records.py"]
+    assert not [path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert '"demo_records"' in upgrade and "force row level security" in upgrade
+    assert "create policy tenant_isolation_demo_records" in upgrade
+    assert "drop " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade

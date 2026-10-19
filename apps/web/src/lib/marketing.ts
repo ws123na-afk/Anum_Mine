@@ -285,3 +285,7 @@ export function postsPath(filter: PostFilter = {}): string {
   if (filter.to) params.set('to', filter.to);
   return `/api/v1/marketing/posts?${params.toString()}`;
 }
+
+/** The Marketing tabs; each one but Posts is a deep link (#marketing-calendar). */
+export type MarketingTab = 'posts' | 'calendar' | 'campaigns' | 'email' | 'accounts' | 'analytics';
+export const MARKETING_TABS: readonly MarketingTab[] = ['posts', 'calendar', 'campaigns', 'email', 'accounts', 'analytics'];

@@ -20,6 +20,7 @@ import { figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { PageHeader, PageSummary, SplitView } from './PageParts';
 import './tasks.css';
+import { HelpLink } from './HelpLink';
 
 export interface TasksViewProps {
   /** The workspace's newest tasks (`GET /api/v1/tasks`), reloaded by the shell on task events. */
@@ -462,7 +463,7 @@ function Expandable({ text, limit, className }: { text: string; limit: number; c
 
 function Status({ value }: { value: string }) { return <span className={`statusBadge ${value === 'completed' || value === 'approved' ? 'success' : ['failed', 'cancelled', 'rejected', 'expired'].includes(value) ? 'dangerTone' : 'warning'}`}>{statusLabel(value)}</span>; }
 function Notice({ children, error }: { children: ReactNode; error?: boolean }) { return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>; }
-function Empty({ title, text, children }: { title: string; text: string; children?: ReactNode }) { return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p>{children}</div>; }
+function Empty({ title, text, children }: { title: string; text: string; children?: ReactNode }) { return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p><HelpLink />{children}</div>; }
 const date = (v: string) => formatDateTime(v);
 const time = (v: string) => formatDateTime(v, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const EVENTS_DENIED = () => t('tasks.activity.denied');
