@@ -163,7 +163,8 @@ test('platform console explains who may use it', async ({ page }) => {
 test('the switcher offers my other organisations', async ({ page }) => {
   await mockWorkspaceApi(page);
   await page.goto('/#team');
-  await page.getByRole('button', { name: /tenant_local \/ workspace_foundation/ }).click();
+  // The organisation's display name and the workspace's name, never the ids.
+  await page.getByRole('button', { name: 'Tyre House / Foundation' }).click();
   await expect(page.getByRole('list', { name: 'Your other organisations' }).getByRole('button', { name: /Gulf Tyres/ })).toBeVisible();
 });
 

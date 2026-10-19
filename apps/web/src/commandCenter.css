@@ -12,7 +12,8 @@
 /* ---- Shared buttons */
 .primaryButton {
   align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow);
-  color: #fff; display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 44px; padding: 0 var(--d-s4);
+  color: var(--d-on-primary); display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s4);
+  transition: background var(--d-fast) var(--d-ease), transform var(--d-fast) var(--d-ease);
 }
 .primaryButton.smallButton { font-size: 13px; min-height: 36px; padding: 0 var(--d-s3); }
 .primaryButton:hover:not(:disabled) { background: var(--d-primary-grad-hover); }
@@ -51,27 +52,27 @@
   border-radius: 16px; box-shadow: var(--d-elev-1); color: var(--d-text); display: inline-flex; font-size: 14px; font-weight: 600; gap: var(--d-s3); min-height: 48px;
   padding-block: var(--d-s1); padding-inline: var(--d-s2) var(--d-s4); transition: border-color 160ms var(--d-ease), transform 160ms var(--d-ease);
 }
-.orbChip:hover:not(:disabled) { border-color: rgb(var(--c-violet) / .6); transform: translateY(-1px); }
-.chipIcon { align-items: center; background: linear-gradient(135deg, rgba(79, 139, 255, .28), rgba(181, 107, 255, .28)); border-radius: 10px; color: var(--d-accent-text); display: inline-flex; flex: none; height: 32px; justify-content: center; width: 32px; }
+.orbChip:hover:not(:disabled) { border-color: var(--d-line-hover); }
+.chipIcon { align-items: center; background: rgb(var(--c-accent) / .12); border-radius: var(--d-r-control); color: var(--d-accent-text); display: inline-flex; flex: none; height: 32px; justify-content: center; width: 32px; }
 .chipIcon svg { height: 18px; width: 18px; }
 .orbColumn { align-items: center; display: grid; gap: var(--d-s3); justify-items: center; position: relative; }
 .commandOrb {
-  align-items: center; background: radial-gradient(circle at 50% 32%, #1d2b74 0%, #0d1540 52%, #070b1c 100%); border: 0; border-radius: 50%;
-  box-shadow: 0 0 0 2px rgba(111, 141, 255, .65), 0 0 36px rgba(99, 102, 241, .55), 0 0 90px rgba(139, 92, 246, .32), inset 0 0 44px rgba(79, 70, 229, .5);
-  /* The orb is the ANUM mark's midnight object in both themes, so its text is fixed light (16:1). */
+  align-items: center; background: radial-gradient(circle at 50% 30%, #1f2a2c 0%, #12171b 55%, #0b0d12 100%); border: 0; border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(95, 224, 198, .38), 0 18px 48px rgba(3, 5, 9, .45), inset 0 1px 0 rgba(255, 255, 255, .08);
+  /* The orb is the ANUM mark's graphite object in both themes, so its text is fixed light (16:1). */
   color: #eef1f8; display: flex; flex-direction: column; gap: var(--d-s1); height: 224px; justify-content: center; position: relative; width: 224px;
 }
 .commandOrb:disabled { cursor: default; opacity: 1; }
-.commandOrb:focus-visible { outline: 3px solid var(--d-sky); outline-offset: 6px; }
+.commandOrb:focus-visible { outline: 3px solid var(--d-accent); outline-offset: 6px; }
 .orbHalo {
-  background: conic-gradient(from 0deg, rgba(79, 139, 255, .0), rgba(79, 139, 255, .55), rgba(181, 107, 255, .55), rgba(79, 139, 255, .0));
+  background: conic-gradient(from 0deg, rgba(69, 208, 181, 0), rgba(69, 208, 181, .45), rgba(69, 208, 181, 0));
   border-radius: 50%; filter: blur(14px); inset: -14px; opacity: .55; pointer-events: none; position: absolute; z-index: -1;
 }
 .commandOrb.listening .orbHalo { animation: orbSpin 3.2s linear infinite; opacity: .9; }
 .commandOrb.working .orbHalo { animation: orbSpin 6s linear infinite; opacity: .75; }
-.orbMark { filter: drop-shadow(0 6px 18px rgba(111, 107, 255, .55)); }
+.orbMark { filter: none; }
 .orbWave { align-items: center; display: flex; gap: 3px; height: 36px; }
-.orbWave i { background: linear-gradient(180deg, #a5f3fc, #818cf8 55%, #c084fc); border-radius: 2px; display: block; height: 30px; transform: scaleY(.18); transform-origin: center; width: 3px; }
+.orbWave i { background: #5fe0c6; border-radius: 2px; display: block; height: 30px; transform: scaleY(.18); transform-origin: center; width: 3px; }
 .orbWave i:nth-child(4n + 1) { transform: scaleY(.32); }
 .orbWave i:nth-child(6n + 3) { transform: scaleY(.5); }
 .orbWave i:nth-child(12) { transform: scaleY(.7); }
@@ -173,9 +174,8 @@
 .activityList { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
 .progress { background: var(--d-glass-3); border-radius: 999px; height: 6px; overflow: hidden; }
 .progress.mini { height: 4px; margin-top: 2px; width: 100%; }
-.progress span { background: linear-gradient(90deg, #3b82f6, #8b5cf6); border-radius: 999px; display: block; height: 100%; transition: width 300ms var(--d-ease); }
-[dir="rtl"] .progress span { background: linear-gradient(270deg, #3b82f6, #8b5cf6); }
-.listRow .progress { background: rgb(15 23 42 / .1); }
+.progress span { background: var(--d-accent); border-radius: 999px; display: block; height: 100%; transition: width 300ms var(--d-ease); }
+.listRow .progress { background: var(--d-glass-3); }
 
 /* Light row cards inside the panels */
 .rowList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
@@ -184,20 +184,20 @@
   grid-template-columns: 32px minmax(0, 1fr) auto; min-height: 52px; padding: var(--d-s2) var(--d-s3); text-align: start; width: 100%;
 }
 .listRow:hover { background: var(--l-card-hover); }
-.listRow.selected { border-color: rgb(var(--c-violet) / .8); box-shadow: 0 0 0 1px rgb(var(--c-violet) / .6); }
+.listRow.selected { border-color: rgb(var(--c-accent) / .7); box-shadow: 0 0 0 1px rgb(var(--c-accent) / .45); }
 .rowText { display: grid; gap: 2px; justify-items: start; min-width: 0; }
 .rowText strong { color: var(--l-text); font-size: 13.5px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rowText small { color: var(--l-muted); font-size: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rowIcon { align-items: center; background: #e0e7ff; border-radius: 10px; color: var(--l-info); display: inline-flex; height: 32px; justify-content: center; width: 32px; }
+.rowIcon { align-items: center; background: rgb(var(--c-accent) / .12); border-radius: var(--d-r-control); color: var(--l-info); display: inline-flex; height: 32px; justify-content: center; width: 32px; }
 .rowIcon svg { height: 18px; width: 18px; }
-.rowIcon.success { background: #dcfce7; color: var(--l-ok); }
-.rowIcon.warning { background: #fef3c7; color: var(--l-warn); }
-.rowIcon.dangerTone, .rowIcon.danger { background: #ffe4e6; color: var(--l-stop); }
-.rowIcon.neutral { background: #e2e8f0; color: #334155; }
-.listRow .statusBadge.success { background: #dcfce7; border-color: #bbf7d0; color: var(--l-ok); }
-.listRow .statusBadge.warning { background: #fef3c7; border-color: #fde68a; color: var(--l-warn); }
-.listRow .statusBadge.dangerTone { background: #ffe4e6; border-color: #fecdd3; color: var(--l-stop); }
-.listRow .statusBadge.neutral { background: #e2e8f0; border-color: #cbd5e1; color: #334155; }
+.rowIcon.success { background: rgb(var(--c-ok) / .12); color: var(--l-ok); }
+.rowIcon.warning { background: rgb(var(--c-warn) / .12); color: var(--l-warn); }
+.rowIcon.dangerTone, .rowIcon.danger { background: rgb(var(--c-stop) / .12); color: var(--l-stop); }
+.rowIcon.neutral { background: var(--d-glass-2); color: var(--d-muted); }
+.listRow .statusBadge.success { background: rgb(var(--c-ok) / .12); border-color: rgb(var(--c-ok) / .25); color: var(--l-ok); }
+.listRow .statusBadge.warning { background: rgb(var(--c-warn) / .12); border-color: rgb(var(--c-warn) / .25); color: var(--l-warn); }
+.listRow .statusBadge.dangerTone { background: rgb(var(--c-stop) / .12); border-color: rgb(var(--c-stop) / .28); color: var(--l-stop); }
+.listRow .statusBadge.neutral { background: var(--d-glass-2); border-color: var(--d-line); color: var(--d-muted); }
 .riskBadge.risk-low { background: var(--d-glass-2); border-color: var(--d-line); color: var(--d-muted); }
 .riskBadge.risk-medium { background: rgb(var(--c-warn) / .12); border-color: rgb(var(--c-warn) / .3); color: var(--d-warn); }
 
@@ -207,20 +207,12 @@
 .tiles { display: grid; gap: var(--d-s3); grid-auto-columns: minmax(112px, 1fr); grid-auto-flow: column; list-style: none; margin: 0; overflow-x: auto; padding: 2px 2px var(--d-s1); scroll-snap-type: x proximity; scrollbar-width: thin; }
 .tiles li { scroll-snap-align: start; }
 .tile {
-  align-items: center; background: linear-gradient(180deg, var(--d-surface-2), var(--d-surface-1)); border: 1px solid var(--d-line); border-radius: 16px; color: var(--d-text);
+  align-items: center; background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); color: var(--d-text);
   display: grid; font-size: 13px; font-weight: 600; gap: var(--d-s2); justify-items: center; min-height: 92px; padding: var(--d-s3) var(--d-s2); text-align: center; width: 100%;
 }
-.tile:hover:not(:disabled) { border-color: rgb(var(--c-violet) / .55); box-shadow: var(--d-glow); }
-.tileIcon { align-items: center; border-radius: 12px; color: #fff; display: inline-flex; height: 40px; justify-content: center; width: 40px; }
+.tile:hover:not(:disabled) { border-color: var(--d-line-hover); }
+.tileIcon { align-items: center; background: rgb(var(--c-accent) / .12); border-radius: var(--d-r-control); color: var(--d-accent); display: inline-flex; height: 40px; justify-content: center; width: 40px; }
 .tileIcon svg { height: 22px; width: 22px; }
-.tile-email .tileIcon { background: linear-gradient(135deg, #2563eb, #3b82f6); }
-.tile-analysis .tileIcon { background: linear-gradient(135deg, #7c3aed, #a855f7); }
-.tile-reports .tileIcon { background: linear-gradient(135deg, #047857, #10b981); }
-.tile-voice .tileIcon { background: linear-gradient(135deg, #be123c, #f43f5e); }
-.tile-whatsapp .tileIcon { background: linear-gradient(135deg, #15803d, #22c55e); }
-.tile-tasks .tileIcon { background: linear-gradient(135deg, #1d4ed8, #0ea5e9); }
-.tile-research .tileIcon { background: linear-gradient(135deg, #4338ca, #6366f1); }
-.tile-automations .tileIcon { background: linear-gradient(135deg, #b45309, #f59e0b); }
 
 /* ---- The command ANUM is on: a step timeline */
 .trackerCommand { -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--d-muted); display: -webkit-box; font-size: 13px; overflow: hidden; overflow-wrap: anywhere; }

@@ -161,7 +161,7 @@
 .skillLoad.is-needs_tools, .skillLoad.is-disabled { --skill-tone: rgba(252, 211, 141, .6); }
 .skillLoad.is-blocked, .skillLoad.is-unavailable { --skill-tone: rgba(253, 164, 175, .6); }
 .skillLoadIcon {
-  align-items: center; background: linear-gradient(135deg, rgba(79, 139, 255, .22), rgba(181, 107, 255, .22)); border: 1px solid var(--d-line-strong);
+  align-items: center; background: rgb(var(--c-accent) / .12); border: 1px solid var(--d-line-strong);
   border-radius: 10px; color: var(--d-text); display: inline-flex; height: 40px; justify-content: center; width: 40px;
 }
 .skillLoadIcon svg { height: 18px; width: 18px; }
