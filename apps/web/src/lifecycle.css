@@ -1,0 +1,22 @@
+/* Settings > Workspace: data export and deletion (docs/organisation-lifecycle.md). */
+.lifecycleBanner { align-items: flex-start; border-color: rgb(var(--c-warn) / .55); margin: 0; }
+.lifecycleBanner svg { color: var(--d-warn); }
+.lifecycleBanner > div { display: grid; gap: var(--d-s1); min-width: 0; }
+.lifecycleBanner p { margin: 0; overflow-wrap: anywhere; }
+.lifecycleBanner .actions { margin-top: var(--d-s1); }
+.lifecycleCards { display: grid; gap: var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.lifecycleCard { align-content: start; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
+.lifecycleCard h3 { align-items: center; display: flex; font-size: 15px; gap: var(--d-s2); margin: 0; }
+.lifecycleCard h3 svg { flex: none; height: 18px; width: 18px; }
+.lifecycleCard p { margin: 0; overflow-wrap: anywhere; }
+.lifecycleCard .notice { margin: 0; }
+.lifecycleList { color: var(--d-muted); display: grid; gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s4); }
+.lifecycleExports { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.lifecycleExport { border: 1px solid var(--d-line); border-radius: 8px; display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
+.lifecycleExportHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.lifecycleExportFacts { display: grid; gap: var(--d-s2); grid-template-columns: repeat(auto-fit, minmax(min(100%, 110px), 1fr)); margin: 0; }
+.lifecycleExportFacts > div { display: grid; gap: 2px; min-width: 0; }
+.lifecycleExportFacts dt { color: var(--d-muted); font-size: 12px; font-weight: 700; }
+.lifecycleExportFacts dd { margin: 0; overflow-wrap: anywhere; }
+.lifecycleError { color: var(--d-error-text); }
+.lifecycle .dialogBody code { overflow-wrap: anywhere; }

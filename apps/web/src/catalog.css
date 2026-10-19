@@ -93,7 +93,7 @@
 .skillBuiltin p { color: var(--d-muted); font-size: 13.5px; margin-top: 4px; overflow-wrap: anywhere; }
 .skillBuiltin p.skillUsedBy { font-size: 12.5px; margin-top: var(--d-s2); }
 .skillBuiltin .tagRow { margin-top: var(--d-s2); }
-.skillBuiltinIcon { align-items: center; background: linear-gradient(135deg, rgba(79, 139, 255, .2), rgba(181, 107, 255, .2)); border: 1px solid var(--d-line-strong); border-radius: 10px; display: inline-flex; height: 36px; justify-content: center; width: 36px; }
+.skillBuiltinIcon { align-items: center; background: rgb(var(--c-accent) / .12); border: 1px solid var(--d-line-strong); border-radius: 10px; display: inline-flex; height: 36px; justify-content: center; width: 36px; }
 .skillBuiltinIcon svg { height: 16px; width: 16px; }
 
 @media (max-width: 640px) {

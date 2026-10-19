@@ -87,6 +87,11 @@ export interface KnowledgeCitation {
   chunk_index: number;
   score: number;
   snippet: string;
+  /** PDF page, slide or sheet number of a document passage; null for notes and text files. */
+  page?: number | null;
+  page_unit?: 'page' | 'slide' | 'sheet' | null;
+  /** The sheet name of a spreadsheet passage. */
+  page_label?: string | null;
 }
 
 export interface KnowledgeAnswer {

@@ -247,7 +247,12 @@ void main() {
           indexDescription(
                   const FileIndexState(status: 'skipped', error: 'not_text'))
               .$3,
-          'Not indexed: only text files are indexed.');
+          'Not indexed: this file type is not indexed.');
+      expect(
+          indexDescription(const FileIndexState(
+                  status: 'skipped', error: 'no_text_layer'))
+              .$3,
+          'Not indexed: no extractable text, OCR not available.');
       expect(
           indexDescription(const FileIndexState(
                   status: 'failed', error: 'model_unavailable'))

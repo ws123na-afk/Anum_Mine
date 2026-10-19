@@ -8,7 +8,7 @@
 .adminFields .wide { grid-column: span 2; }
 .adminIcon, .adminAvatar {
   align-items: center; background: linear-gradient(135deg, rgb(var(--c-sky) / .22), rgb(var(--c-violet) / .22)); border-radius: 12px;
-  box-shadow: 0 1px 0 var(--d-edge) inset, 0 6px 16px rgba(139, 124, 246, .25); color: var(--d-text); display: inline-flex; flex: none;
+  box-shadow: 0 1px 0 var(--d-edge) inset, 0 1px 2px rgba(3, 5, 9, .25); color: var(--d-text); display: inline-flex; flex: none;
   font-size: 13px; font-weight: 800; height: 40px; justify-content: center; width: 40px;
 }
 .adminIcon svg { height: 19px; width: 19px; }
@@ -108,6 +108,11 @@
   display: grid; gap: 10px; padding: 14px; position: absolute; inset-inline-end: 0; top: calc(100% + 8px); width: min(360px, calc(100vw - 32px)); z-index: 20;
 }
 .workspacePanel h2 { font-size: 15px; }
+/* The ids behind the names in the top bar, for support and the API. */
+.workspaceIds { display: grid; gap: 2px var(--d-s3); grid-template-columns: auto minmax(0, 1fr); margin: 0; }
+.workspaceIds div { display: contents; }
+.workspaceIds dt { color: var(--d-muted); font-size: 12.5px; font-weight: 500; }
+.workspaceIds dd { font-size: 12.5px; font-weight: 500; margin: 0; overflow-wrap: anywhere; }
 .workspaceOptions { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
 .workspaceOption { align-items: center; display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr) auto; }
 .workspaceOption > button:first-child {
