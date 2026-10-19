@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
+import '../business/support_controller.dart';
 import '../workspace/workspace_models.dart';
 import 'whatsapp_models.dart';
 import 'whatsapp_repository.dart';
@@ -11,8 +12,12 @@ enum WaPhase { initial, loading, ready, notConnected, denied, error }
 /// with filter, search and paging, and the caller's role (owners approve).
 /// Mirrors the web `WhatsAppView`.
 class WhatsAppController extends ChangeNotifier {
-  WhatsAppController(this.repository);
+  WhatsAppController(this.repository, {this.support});
   final WhatsAppRepository repository;
+
+  /// Business support tickets, when wired: "Create ticket" on a conversation
+  /// (docs/business.md#tickets-from-an-inbox). Null hides the action.
+  final SupportController? support;
 
   static const pageSize = 30;
 
@@ -138,8 +143,11 @@ class WhatsAppController extends ChangeNotifier {
 /// reply sent for approval, and approve or reject for owners.
 class WhatsAppThreadController extends ChangeNotifier {
   WhatsAppThreadController(this.repository, this.conversationId,
-      {required this.owner, this.onChanged});
+      {required this.owner, this.onChanged, this.support});
   final WhatsAppRepository repository;
+
+  /// Business support tickets, when wired (see [WhatsAppController.support]).
+  final SupportController? support;
   final String conversationId;
   final bool owner;
   final void Function(WaConversation)? onChanged;

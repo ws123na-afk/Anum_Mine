@@ -113,6 +113,7 @@ class EmailDraftRecord(Base, WorkspaceScopedMixin):
     thread_id: Mapped[str | None] = mapped_column(String(300))
     to: Mapped[list[str]] = mapped_column("to_addresses", JSONB, nullable=False, default=list)
     cc: Mapped[list[str]] = mapped_column("cc_addresses", JSONB, nullable=False, default=list)
+    bcc: Mapped[list[str]] = mapped_column("bcc_addresses", JSONB, nullable=False, default=list)  # 0087
     subject: Mapped[str] = mapped_column(Text, nullable=False, default="")
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -158,7 +159,7 @@ _MESSAGE_FIELDS = (
     "bulk", "category", "priority", "summary", "triage_source", "triage_model", "triaged_at", "created_at", "updated_at",
 )
 _DRAFT_FIELDS = (
-    "account_id", "message_id", "thread_id", "to", "cc", "subject", "body", "status", "source", "model_provider",
+    "account_id", "message_id", "thread_id", "to", "cc", "bcc", "subject", "body", "status", "source", "model_provider",
     "model_name", "provider_draft_id", "approval_id", "task_id", "created_by", "error", "sent_at", "created_at", "updated_at",
 )
 _PENDING_FIELDS = ("user_id", "provider", "visibility", "code_verifier_enc", "code_enc", "error", "created_at", "expires_at")

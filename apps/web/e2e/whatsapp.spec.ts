@@ -62,6 +62,34 @@ test('outside the 24-hour window only a template can be sent, with its values fi
   await expect.poll(() => sent.sends).toEqual([{ template: { name: 'order_update', language: 'en_US', parameters: ['Sara', 'A-1001'] } }]);
 });
 
+test('a support ticket is created from a conversation and links to it', async ({ page }) => {
+  const sent = await mockApi(page);
+  await openInbox(page);
+  await page.locator('.waConversation').filter({ hasText: 'أحمد' }).click();
+  const thread = page.locator('.waThread');
+  await thread.getByRole('button', { name: 'Create ticket' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Create a support ticket' });
+  await expect(dialog.getByLabel('Title')).toHaveValue('');
+  await expect(dialog.getByLabel('Title')).toHaveAttribute('placeholder', /For example/);
+  await dialog.getByRole('button', { name: 'Create ticket' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(thread.getByRole('status').filter({ hasText: 'Ticket T-4D5E6F created.' })).toBeVisible();
+  await expect(thread.getByRole('link', { name: 'Open ticket' })).toHaveAttribute('href', '#business-support/bst_wa_1');
+  expect(sent.tickets).toEqual([{ source: 'whatsapp', ref_id: 'wacv_ahmed', severity: 'normal' }]);
+});
+
+test('a conversation that already has an open ticket links to it instead', async ({ page }) => {
+  await mockApi(page, { ticketConflict: true });
+  await openInbox(page);
+  await page.locator('.waConversation').filter({ hasText: 'أحمد' }).click();
+  await page.locator('.waThread').getByRole('button', { name: 'Create ticket' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Create a support ticket' });
+  await dialog.getByLabel('Title').fill('Price question for 205/55R16');
+  await dialog.getByRole('button', { name: 'Create ticket' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('already linked to open ticket T-9Z8Y7X');
+  await expect(dialog.getByRole('link', { name: 'Open T-9Z8Y7X' })).toHaveAttribute('href', '#business-support/bst_wa_open');
+});
+
 test('search, filters, and a failed load that can be retried', async ({ page }) => {
   await mockApi(page, { failList: true });
   await openInbox(page);
