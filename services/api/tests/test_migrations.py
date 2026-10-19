@@ -1177,7 +1177,8 @@ def test_approvals_paging_migration_only_adds_concurrent_indexes() -> None:
     assert 'revision = "0088_approvals_paging"' in revision_text and len("0088_approvals_paging") <= 32
     assert 'down_revision = "0087_email_draft_bcc"' in revision_text
     others = [path for path in versions.glob("*.py") if path.name != "0088_approvals_paging.py"]
-    assert not [path for path in others if 'down_revision = "0088_approvals_paging"' in path.read_text(encoding="utf-8")]
+    followers = [path.name for path in others if 'down_revision = "0088_approvals_paging"' in path.read_text(encoding="utf-8")]
+    assert followers in ([], ["0089_business_invoices_portal.py"])
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert "autocommit_block()" in upgrade and upgrade.count("create index concurrently if not exists") == 2
     assert "where status = 'pending'" in upgrade
