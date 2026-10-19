@@ -14,6 +14,9 @@
   computed on every read, never stored.
 * ``skill_installations`` and ``marketplace_installs`` gain ``disabled_reason``: why the API
   turned an installation off.
+* Organisation deletion (migration ``0079_tenant_lifecycle``): both new tables get the
+  ``anum_tenant_purger`` grants and purge policy (``lifecycle_purge_<table>``), copied from
+  0079's ``_purge_policy`` for organisation-wide tables.
 * Revocation finds the installations to turn off in the tenant's other workspaces as
   ``anum_maintenance``: a column grant of scope, id, version and the enabled flag only (never
   approved tools or anything else) and a select policy for that role. The change itself runs
@@ -22,7 +25,7 @@
 Expand only: new tables, nullable columns, two column grants and two policies. The previous
 release ignores them.
 
-Numbered 0083 and chained after ``0078_demo_records``, the head of ``main`` when written;
+Numbered 0083 and chained after ``0079_tenant_lifecycle``, the head of ``main`` when written;
 renumber at merge if another migration lands first.
 """
 
@@ -30,7 +33,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0083_skill_signing"
-down_revision = "0078_demo_records"
+down_revision = "0079_tenant_lifecycle"
 branch_labels = None
 depends_on = None
 
@@ -39,6 +42,8 @@ SIGNED = ("skill_versions", "marketplace_packages")
 INSTALLS = ("skill_installations", "marketplace_installs")
 TS = sa.DateTime(timezone=True)
 PREDICATE = "tenant_id = nullif(current_setting('anum.tenant_id', true), '')"
+PURGER = "anum_tenant_purger"
+JOBS = "tenant_lifecycle_jobs"
 KEY_STATUSES = ("active", "rotated", "revoked")
 
 
@@ -59,6 +64,25 @@ def _enable_rls(table: str) -> None:
           {PREDICATE}
         )
         """
+    )
+
+
+def _purge_policy(table: str) -> None:
+    """Organisation deletion may remove these rows (0079's ``_purge_policy``, organisation wide)."""
+    op.execute(f"grant select (tenant_id, ctid), delete on {table} to {PURGER}")
+    op.execute(
+        f"""
+        create policy lifecycle_purge_{table} on {table}
+        for all to {PURGER}
+        using (
+          {PREDICATE}
+          and exists (
+            select 1 from {JOBS} j
+            where j.tenant_id = {table}.tenant_id and j.status = 'purging' and j.kind = 'organisation_deletion'
+          )
+        )
+        with check (false)
+        """  # nosec B608 - fixed table names
     )
 
 
@@ -105,6 +129,7 @@ def upgrade() -> None:
         op.add_column(table, sa.Column("disabled_reason", sa.String(300), nullable=True))
     for table in TABLES:
         _enable_rls(table)
+        _purge_policy(table)
     # Revocation discovers enabled installations in the tenant's other workspaces.
     op.execute(
         "grant select (tenant_id, workspace_id, skill_id, version, enabled) on skill_installations to anum_maintenance"
@@ -129,6 +154,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    for table in TABLES:
+        op.execute(f"drop policy if exists lifecycle_purge_{table} on {table}")
     op.execute("drop policy if exists maintenance_marketplace_installs on marketplace_installs")
     op.execute("drop policy if exists maintenance_skill_installations on skill_installations")
     op.execute(

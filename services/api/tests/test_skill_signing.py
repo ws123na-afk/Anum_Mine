@@ -351,6 +351,8 @@ def test_migration_is_expand_only_with_forced_tenant_rls() -> None:
     assert "grant select (tenant_id, workspace_id, skill_id, version, enabled) on skill_installations to anum_maintenance" in upgrade
     assert "grant select (tenant_id, workspace_id, package_id, enabled) on marketplace_installs to anum_maintenance" in upgrade
     assert upgrade.count("grant ") == 2 and "approved_tools" not in upgrade.split("grant ", 1)[1]
+    # Organisation deletion can purge both new tables (the 0079 pattern).
+    assert "_purge_policy(table)" in upgrade and "create policy lifecycle_purge_{table}" in text and "with check (false)" in text
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
 
 
