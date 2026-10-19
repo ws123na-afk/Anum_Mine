@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'calls_strings.dart';
@@ -2884,8 +2885,13 @@ class _AnumDelegate extends LocalizationsDelegate<AnumLocalizations> {
   bool isSupported(Locale locale) =>
       const {'en', 'ar'}.contains(locale.languageCode);
   @override
-  Future<AnumLocalizations> load(Locale locale) =>
-      SynchronousFuture(AnumLocalizations(locale));
+  Future<AnumLocalizations> load(Locale locale) {
+    // Keeps intl's default locale on the app's language (not the device's),
+    // so formatters called without a context (money, numbers) follow the
+    // language the person picked.
+    Intl.defaultLocale = locale.languageCode;
+    return SynchronousFuture(AnumLocalizations(locale));
+  }
   @override
   bool shouldReload(_AnumDelegate old) => false;
 }

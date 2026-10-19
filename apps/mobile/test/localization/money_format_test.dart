@@ -3,7 +3,11 @@
 import 'package:anum_mobile/features/business/business_screen.dart' show money;
 import 'package:anum_mobile/features/commerce/commerce_models.dart' as commerce;
 import 'package:anum_mobile/features/finance/finance_models.dart';
+import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/localization/money_format.dart';
+import 'package:flutter/material.dart' show MaterialApp;
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/intl.dart' show Intl;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -69,5 +73,35 @@ void main() {
     expect(money(null, 'SAR'), '-');
     expect(commerce.formatMoney(41250.5, 'SAR'), 'SAR 41,250.50');
     expect(formatAmount('2500', 'SAR'), 'SAR 2,500');
+  });
+
+  group('follows the app language, not the device', () {
+    tearDown(() => Intl.defaultLocale = null);
+
+    Future<String> shown(WidgetTester tester, Locale locale) async {
+      Intl.defaultLocale = 'de';
+      late String text;
+      await tester.pumpWidget(MaterialApp(
+        locale: locale,
+        supportedLocales: const [_en, _ar],
+        localizationsDelegates: const [
+          AnumLocalizations.delegate,
+          ...GlobalMaterialLocalizations.delegates
+        ],
+        home: Builder(builder: (context) {
+          text = formatMoney(-2500, 'SAR');
+          return const SizedBox();
+        }),
+      ));
+      return text;
+    }
+
+    testWidgets('English app on a German device', (tester) async {
+      expect(await shown(tester, _en), 'SAR -2,500.00');
+    });
+
+    testWidgets('Arabic app on a German device', (tester) async {
+      expect(await shown(tester, _ar), 'SAR $_lrm-2,500.00');
+    });
   });
 }

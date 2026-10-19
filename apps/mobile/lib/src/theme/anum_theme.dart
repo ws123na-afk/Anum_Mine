@@ -19,10 +19,10 @@ abstract final class AnumBreakpoints {
 
 /// Corner radii: quiet, slightly rounded cards and controls, pill chips.
 abstract final class AnumRadius {
-  static const sm = 8.0;
-  static const md = 10.0;
-  static const lg = 14.0;
-  static const xl = 20.0;
+  static const sm = 6.0;
+  static const md = 8.0;
+  static const lg = 12.0;
+  static const xl = 16.0;
   static const pill = 999.0;
 }
 
@@ -31,8 +31,8 @@ abstract final class AnumRadius {
 /// (`MediaQuery.disableAnimations`): [of] returns zero then.
 abstract final class AnumMotion {
   static const quick = Duration(milliseconds: 150);
-  static const standard = Duration(milliseconds: 200);
-  static const page = Duration(milliseconds: 200);
+  static const standard = Duration(milliseconds: 180);
+  static const page = Duration(milliseconds: 180);
   static const curve = Curves.easeOutCubic;
 
   /// One full cycle of the orb's waveform (the orb is the brand object and
@@ -46,8 +46,9 @@ abstract final class AnumMotion {
           : duration;
 }
 
-/// The ANUM palette (docs/design/anum360.md#theme): a calm, premium
-/// enterprise look. A restrained neutral base, one brand accent (ANUM iris)
+/// The ANUM palette, graphite and jade (docs/design/visual-identity.md, the
+/// same values as the web's tokens in apps/web/src/styles.css): a calm, premium
+/// enterprise look. A restrained neutral base, one brand accent (jade)
 /// for primary actions, links, focus and selection, semantic colours only
 /// for real status, hairline borders ([line]) and soft depth ([shadow]).
 /// No gradient text; the brand gradient ([brandStart] to [brandEnd]) is kept
@@ -78,14 +79,14 @@ class AnumPalette extends ThemeExtension<AnumPalette> {
     required this.stop,
     required this.shadow,
     required this.accentSoft,
-    this.accentStart = const Color(0xFF5145CD),
-    this.accentEnd = const Color(0xFF5145CD),
+    this.accentStart = const Color(0xFF0F7A69),
+    this.accentEnd = const Color(0xFF0F7A69),
     this.onAccent = const Color(0xFFFFFFFF),
-    this.glow = const Color(0xFF5145CD),
-    this.glass = const Color(0xFAFFFFFF),
-    this.brandStart = const Color(0xFF4F8BFF),
-    this.brandMiddle = const Color(0xFF6A5CFF),
-    this.brandEnd = const Color(0xFF9B6BFF),
+    this.glow = const Color(0xFF23A990),
+    this.glass = const Color(0xF7FFFFFF),
+    this.brandStart = const Color(0xFF5FE0C6),
+    this.brandMiddle = const Color(0xFF23A990),
+    this.brandEnd = const Color(0xFF0F7A69),
   });
 
   /// Page, then raised surfaces (cards, sheets) and the well or hover step.
@@ -131,49 +132,46 @@ class AnumPalette extends ThemeExtension<AnumPalette> {
       colors: [accentStart, accentEnd]);
 
   static const dark = AnumPalette(
-    background: Color(0xFF0B0B0F),
-    surface1: Color(0xFF131318),
-    surface2: Color(0xFF17171D),
-    surface3: Color(0xFF1E1E25),
-    line: Color(0xFF2A2A33),
-    lineStrong: Color(0xFF3A3A45),
+    background: Color(0xFF0B0D12),
+    surface1: Color(0xFF12151C),
+    surface2: Color(0xFF171B24),
+    surface3: Color(0xFF1F2430),
+    line: Color(0x13FFFFFF),
+    lineStrong: Color(0x21FFFFFF),
     edge: Color(0x00000000),
-    text: Color(0xFFEDEDF0),
-    muted: Color(0xFFA1A1AA),
-    faint: Color(0xFF8B8B95),
-    sky: Color(0xFFA9A4FF),
-    violet: Color(0xFFA9A4FF),
-    rose: Color(0xFFA9A4FF),
-    ok: Color(0xFF6EE7A0),
-    warn: Color(0xFFFBBF24),
-    stop: Color(0xFFF87171),
-    shadow: Color(0x66000000),
-    accentSoft: Color(0xFF24223D),
-    accentStart: Color(0xFF5B50E0),
-    accentEnd: Color(0xFF5B50E0),
-    glow: Color(0xFF5B50E0),
-    glass: Color(0xFA131318),
+    text: Color(0xFFECEEF3),
+    muted: Color(0xFFA2A8B6),
+    faint: Color(0xFF868D9C),
+    sky: Color(0xFF45D0B5),
+    violet: Color(0xFF45D0B5),
+    rose: Color(0xFF45D0B5),
+    ok: Color(0xFF6FD39A),
+    warn: Color(0xFFF2C46B),
+    stop: Color(0xFFF59AA6),
+    shadow: Color(0x8C030509),
+    accentSoft: Color(0xFF192F31),
+    glass: Color(0xF512151C),
   );
 
   static const light = AnumPalette(
-    background: Color(0xFFF7F7F8),
+    background: Color(0xFFF7F8FA),
     surface1: Color(0xFFFFFFFF),
     surface2: Color(0xFFFFFFFF),
-    surface3: Color(0xFFF1F1F3),
-    line: Color(0xFFE4E4E7),
-    lineStrong: Color(0xFFD4D4D8),
+    surface3: Color(0xFFF1F3F6),
+    line: Color(0x1712151C),
+    lineStrong: Color(0x2912151C),
     edge: Color(0x00FFFFFF),
-    text: Color(0xFF18181B),
-    muted: Color(0xFF52525B),
-    faint: Color(0xFF6B6B74),
-    sky: Color(0xFF5145CD),
-    violet: Color(0xFF5145CD),
-    rose: Color(0xFF5145CD),
-    ok: Color(0xFF166534),
-    warn: Color(0xFF92400E),
+    text: Color(0xFF12151C),
+    muted: Color(0xFF4A5162),
+    faint: Color(0xFF626A7B),
+    sky: Color(0xFF0B7564),
+    violet: Color(0xFF0B7564),
+    rose: Color(0xFF0B7564),
+    ok: Color(0xFF11652F),
+    warn: Color(0xFF94500C),
     stop: Color(0xFFB42335),
-    shadow: Color(0x1418181B),
-    accentSoft: Color(0xFFEEEDFB),
+    shadow: Color(0x1412151C),
+    accentSoft: Color(0xFFE7F1F0),
   );
 
   @override
