@@ -1,4 +1,4 @@
-"""File versions in PostgreSQL (migration 0085_file_versions): versions persist, count against
+"""File versions in PostgreSQL (migration 0088_file_versions): versions persist, count against
 the quota under the workspace lock, stay inside their workspace under forced RLS, and go with
 their file, all as the non-owner app role."""
 

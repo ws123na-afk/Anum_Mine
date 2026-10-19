@@ -1173,10 +1173,10 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
 
 def test_file_versions_migration_is_expand_only_with_forced_rls_and_a_scoped_reference() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0085_file_versions.py").read_text(encoding="utf-8")
-    assert 'revision = "0085_file_versions"' in revision_text and len("0085_file_versions") <= 32
+    revision_text = (versions / "0088_file_versions.py").read_text(encoding="utf-8")
+    assert 'revision = "0088_file_versions"' in revision_text and len("0088_file_versions") <= 32
     assert 'down_revision = "0080_business_change_orders"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0085_file_versions.py"]
+    others = [path for path in versions.glob("*.py") if path.name != "0088_file_versions.py"]
     assert not [path for path in others if 'down_revision = "0080_business_change_orders"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 1 and upgrade.count("op.add_column(") == 1
