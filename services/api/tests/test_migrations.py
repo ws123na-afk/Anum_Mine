@@ -1114,11 +1114,11 @@ def test_file_scan_status_migration_is_expand_only_with_a_discovery_only_policy(
 
 def test_customer_billing_migration_is_expand_only_with_narrow_reader_policies() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0083_customer_billing.py").read_text(encoding="utf-8")
-    assert 'revision = "0083_customer_billing"' in revision_text and len("0083_customer_billing") <= 32
-    assert 'down_revision = "0076_business_support"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0083_customer_billing.py"]
-    assert not [path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0085_customer_billing.py").read_text(encoding="utf-8")
+    assert 'revision = "0085_customer_billing"' in revision_text and len("0085_customer_billing") <= 32
+    assert 'down_revision = "0078_demo_records"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0085_customer_billing.py"]
+    assert not [path for path in others if 'down_revision = "0078_demo_records"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert "drop " not in upgrade and "alter_column" not in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
@@ -1138,7 +1138,7 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
     others = [path for path in versions.glob("*.py") if path.name != "0076_business_support.py"]
     # One head: only customer billing (0083) chains onto it.
     extending = [path.name for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
-    assert extending in ([], ["0083_customer_billing.py"])
+    assert extending in ([], ["0085_customer_billing.py"])
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 2
     assert '"business_support_tickets"' in revision_text and '"business_ticket_replies"' in revision_text
