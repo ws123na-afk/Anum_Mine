@@ -6,6 +6,7 @@ import 'accounts_data.dart';
 import 'business_repository.dart';
 import 'catalog_data.dart';
 import 'deals_data.dart';
+import 'project_money.dart';
 import 'support_controller.dart';
 
 enum BusinessLoad { idle, loading, ready, denied, error }
@@ -27,6 +28,7 @@ class PagedList<T> {
 class BusinessController extends ChangeNotifier {
   BusinessController(
     this.repository, {
+    this.money,
     this.support,
     this.catalog,
     this.accounts,
@@ -52,6 +54,9 @@ class BusinessController extends ChangeNotifier {
   }
 
   final BusinessRepository repository;
+
+  /// Change orders, the ledger and profitability of a project (null hides them).
+  final ProjectMoneyRepository? money;
 
   /// Support tickets (docs/business.md#support-tickets), when wired.
   final SupportController? support;
@@ -205,6 +210,9 @@ class BusinessController extends ChangeNotifier {
     await Future.wait([first(opportunities), first(leads)]);
     return item;
   }
+
+  /// After an approved change order: the project's contract total and milestones changed.
+  Future<void> refreshProjects() => first(projects);
 
   Future<BusinessProject> milestone(String id, String status) async {
     final project = await repository.updateMilestone(id, status);

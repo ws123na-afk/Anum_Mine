@@ -13,6 +13,7 @@ import 'catalog_screen.dart';
 import 'deals_data.dart';
 import 'deals_screen.dart';
 import 'desk_widgets.dart';
+import 'project_money.dart';
 import 'support_screen.dart';
 
 /// Business on the phone (docs/business.md): the owner's summary, leads with
@@ -609,6 +610,25 @@ class _ProjectCard extends StatelessWidget {
                     },
                   ),
                 ],
+              ),
+            ),
+          if (controller.money != null && controller.setup != null)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                key: Key('biz-project-money-${project.id}'),
+                icon: const Icon(Icons.request_quote_outlined),
+                label: Text(l.t('biz.money.open')),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ProjectMoneyScreen(
+                      repository: controller.money!,
+                      project: project,
+                      permissions: controller.setup!.permissions,
+                      onContractChanged: controller.refreshProjects,
+                    ),
+                  ),
+                ),
               ),
             ),
         ],
