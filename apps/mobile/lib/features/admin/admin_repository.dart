@@ -11,6 +11,9 @@ abstract interface class AdminRepository {
   Future<WorkspaceMember> setActive(String userId, {required bool active});
   Future<List<WorkspaceInvitation>> invitations();
   Future<CreatedInvitation> createInvitation(InvitationDraft draft);
+
+  /// Whether the server can email invitations (a mail server is set up).
+  Future<InvitationEmailSetup> invitationEmailSetup();
   Future<WorkspaceInvitation> revokeInvitation(String id);
 
   /// A new token for a pending or expired invitation; the old one stops working.
@@ -73,7 +76,17 @@ class ApiAdminRepository implements AdminRepository {
       invitation:
           WorkspaceInvitation.fromJson(invitation.json, invitation.path),
       token: value.string('token'),
+      email: InvitationEmail.fromJson(value.json['email']),
     );
+  }
+
+  @override
+  Future<InvitationEmailSetup> invitationEmailSetup() async {
+    final value = JsonReader(
+        await api.request('GET', '/api/v1/workspace-invitations/email-status'));
+    return InvitationEmailSetup(
+        configured: value.boolean('configured'),
+        linkBase: value.optString('link_base'));
   }
 
   @override
@@ -91,6 +104,7 @@ class ApiAdminRepository implements AdminRepository {
       invitation:
           WorkspaceInvitation.fromJson(invitation.json, invitation.path),
       token: value.string('token'),
+      email: InvitationEmail.fromJson(value.json['email']),
     );
   }
 

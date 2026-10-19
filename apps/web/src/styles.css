@@ -848,3 +848,9 @@ code { unicode-bidi: isolate; }
 @media (max-width: 360px) {
   .brandName { clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
 }
+
+/* Why a notification switch does or does not deliver (Settings, Notifications). */
+.channelHint { font-size: 14px; margin-top: var(--d-s2); }
+.channelHint.warning { color: var(--d-warn); }
+.channelHint.ok { color: var(--d-ok); }
+.channelHint.neutral { color: var(--d-muted); }

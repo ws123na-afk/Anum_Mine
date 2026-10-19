@@ -4,12 +4,17 @@ import * as api from './lib/api';
 import { describeError } from './lib/errors';
 import { formatDateTime, t } from './lib/i18n';
 import {
+  desktopHint,
+  emailHint,
+  emailTestNotice,
   notificationSwitches,
   deviceTitle,
   lastSentText,
   pushSummary,
   sortDevices,
   withDefaults,
+  type ChannelHint,
+  type NotificationChannels,
   type NotificationPreferences,
   type PushDevice,
   type PushStatus,
@@ -33,6 +38,19 @@ function NotificationSwitches({ onSaved }: { onSaved: (value: NotificationPrefer
   const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
   const id = useId();
+  // What Email and Desktop can do here: a mail server and an address, the browser's permission. Unknown channels show no hint.
+  const [channels, setChannels] = useState<NotificationChannels | null>(null);
+  const [permission, setPermission] = useState<string>(() => (typeof Notification === 'undefined' ? 'unsupported' : Notification.permission));
+  const [testing, setTesting] = useState(false), [testResult, setTestResult] = useState<{ tone: 'ok' | 'warning'; text: string } | null>(null);
+  const loadChannels = useCallback(() => { void api.getNotificationChannels().then(setChannels).catch(() => setChannels(null)); }, []);
+  useEffect(() => { loadChannels(); }, [loadChannels]);
+
+  async function sendTest() {
+    setTesting(true); setTestResult(null);
+    try { setTestResult(emailTestNotice(await api.sendTestEmail())); }
+    catch (e) { setTestResult({ tone: 'warning', text: t('settings.notifications.test.error', { error: describeError(e) }) }); }
+    finally { setTesting(false); }
+  }
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -54,11 +72,24 @@ function NotificationSwitches({ onSaved }: { onSaved: (value: NotificationPrefer
     <p className="eyebrow">{t('settings.notifications.eyebrow')}</p>
     <h2 id={`${id}-title`}>{t('settings.notifications.title')}</h2>
     {loading && !prefs && <p className="muted" role="status">{t('settings.notifications.loading')}</p>}
-    {prefs && notificationSwitches().map((item) => <label className="settingToggle" key={item.key}>
-      <div><strong>{item.label}</strong><p id={`${id}-${item.key}`}>{item.description}</p></div>
-      <input type="checkbox" checked={prefs[item.key]} disabled={saving} aria-describedby={`${id}-${item.key}`}
-        onChange={(e) => { setNote(null); setPrefs({ ...prefs, [item.key]: e.target.checked }); }} />
-    </label>)}
+    {prefs && notificationSwitches().map((item) => {
+      const hint: ChannelHint | null = item.key === 'email_enabled' ? emailHint(prefs, channels) : item.key === 'desktop_enabled' ? desktopHint(prefs, permission) : null;
+      return <div key={item.key}>
+        <label className="settingToggle">
+          <div><strong>{item.label}</strong><p id={`${id}-${item.key}`}>{item.description}</p></div>
+          <input type="checkbox" checked={prefs[item.key]} disabled={saving} aria-describedby={`${id}-${item.key}${hint ? ` ${id}-${item.key}-state` : ''}`}
+            onChange={(e) => { setNote(null); setPrefs({ ...prefs, [item.key]: e.target.checked }); }} />
+        </label>
+        {hint && <p id={`${id}-${item.key}-state`} className={`channelHint ${hint.tone}`}>{hint.text}</p>}
+        {item.key === 'email_enabled' && channels?.email.configured && channels.email.address_known && <div className="actions">
+          <button type="button" className="secondary" disabled={testing} onClick={() => void sendTest()}>{testing ? t('settings.notifications.test.sending') : t('settings.notifications.test.send')}</button>
+        </div>}
+        {item.key === 'email_enabled' && testResult && <p className={`notice ${testResult.tone === 'warning' ? 'errorNotice' : ''}`} role={testResult.tone === 'warning' ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{testResult.text}</p>}
+        {item.key === 'desktop_enabled' && permission === 'default' && <div className="actions">
+          <button type="button" className="secondary" onClick={() => void Notification.requestPermission().then(setPermission)}>{t('settings.notifications.desktop.allow')}</button>
+        </div>}
+      </div>;
+    })}
     {error && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{error}</p>}
     {note && <p className="notice" role="status" aria-live="polite"><CircleDot aria-hidden="true" />{note}</p>}
     <div className="actions">
