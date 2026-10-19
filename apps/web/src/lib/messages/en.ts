@@ -15,7 +15,9 @@ import { teamEn } from './team.en.ts';
 import { appCallsEn } from './appCalls.en.ts';
 import { marketingEn } from './marketing.en.ts';
 import { businessEn } from './business.en.ts';
+import { businessSupportEn } from './businessSupport.en.ts';
 import { brevoEn } from './brevo.en.ts';
+import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { setupPlanEn } from './setupPlan.en.ts';
@@ -28,6 +30,7 @@ import { mailCenterEn } from './mailCenter.en.ts';
 import { mailOutgoingEn } from './mailOutgoing.en.ts';
 import { mailAiEn } from './mailAi.en.ts';
 import { mailShareEn } from './mailShare.en.ts';
+import { mailAllEn } from './mailAll.en.ts';
 import { mailRulesEn } from './mailRules.en.ts';
 import { mailOpsEn } from './mailOps.en.ts';
 import { mailEn } from './mail.en.ts';
@@ -52,13 +55,16 @@ export const en = {
   ...appCallsEn,
   ...marketingEn,
   ...businessEn,
+  ...businessSupportEn,
   ...brevoEn,
+  ...publicSiteEn,
   ...agentSkillsEn,
   ...orgChartEn,
   ...mailCenterEn,
   ...mailOutgoingEn,
   ...mailAiEn,
   ...mailShareEn,
+  ...mailAllEn,
   ...mailRulesEn,
   ...mailOpsEn,
   ...mailEn,
@@ -1148,6 +1154,9 @@ export const en = {
   'files.listChanged': 'The list changed while you were reading it, so it was reloaded.',
   'files.loadMoreFailed': 'Could not load more files: {message}',
   'files.readDenied': 'Seeing files needs a viewer, member or owner role in this workspace. Ask a workspace owner for access.',
+  'files.quarantined': 'Quarantined',
+  'files.quarantinedDetail': 'The malware scanner found {signature} in this file, so it cannot be opened, previewed or shared. Delete it.',
+  'files.quarantinedUnknown': 'a threat',
   'files.manageNote': 'Only the person who uploaded this file or a workspace owner can rename or delete it.',
   'files.loadFailed': 'Could not load files: {message} Check the connection to the API, then retry.',
   'files.searchLabel': 'Search files by name',

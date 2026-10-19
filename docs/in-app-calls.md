@@ -45,9 +45,27 @@ Rings past their timeout and silent calls are settled lazily by the next read of
 
 ## Signaling
 
-Setup messages never travel on the workspace event stream: they are rows in `app_call_signals` that only the two participants can read, and the call stream delivers each one to the device it is addressed to. Following the rule for streams ("Streaming responses outlive request dependencies", CLAUDE.md), the stream checks the membership in a short unit of work before it starts, then every poll opens its own short session in a worker thread with the participant's tenant, workspace and user set. It polls every `ANUM_CALLS_POLL_SECONDS` (1 s) while idle and every `ANUM_CALLS_ACTIVE_POLL_SECONDS` (0.25 s) while the person has a call ringing or in progress: one small indexed query per poll. It sends `retry: 1000` and a keep-alive comment every 15 s; clients reconnect with backoff (0.5 s after a clean end, then 1 s doubling to 15 s). Because the state lives in PostgreSQL, this works across API replicas without the event bus.
+Setup messages never travel on the workspace event stream: they are rows in `app_call_signals` that only the two participants can read, and the call stream delivers each one to the device it is addressed to. Following the rule for streams ("Streaming responses outlive request dependencies", CLAUDE.md), the stream route checks the membership with `Depends(repository_context, scope="function")` (a short unit of work, closed before the body starts), then every read opens its own short session in a worker thread with the participant's tenant, workspace and user set (`read_snapshot`, `asyncio.to_thread`). No session is opened or held on the event loop. It sends `retry: 1000` and a keep-alive comment every 15 s; clients reconnect with backoff (0.5 s after a clean end, then 1 s doubling to 15 s).
 
-The workspace event stream only sees `app_call.ringing` (the call id and the person rung, as `notification.created` names its recipient) and the `missed_call` notification event ([Events](events.md)).
+**When the stream reads: bus wake-ups, poll as fallback** (`services/api/anum_api/app_call_wake.py`). The database stays the source of truth; the event bus says when to read it. Every change a stream must show records an event in the same transaction as the change, so with PostgreSQL it is a durable outbox row that the relay publishes:
+
+| Event | Recorded when | Payload |
+| --- | --- | --- |
+| `app_call.ringing` | a call is placed (and is not busy) | the call id and the person rung |
+| `app_call.updated` | a call is answered, ended, settled as missed or dropped, recorded as busy, or ended as failed by Delete my data | the call id |
+| `app_call.signaled` | an offer, answer or ICE batch is stored | the call id |
+
+Each open call stream registers with the process's call wake hub (keyed by tenant and workspace) before its first read. A setup message (`app_call.signaled`) makes the stream re-read at once only when it names a call the stream already shows. A ring or a state change (`app_call.ringing`, `app_call.updated`) makes every call stream of the workspace re-read, because the stream may not know the call yet: the callee and the caller's other devices learn a new call id from the ring, and the caller's other devices learn a busy call, which never rang, from its `app_call.updated`. That is a few reads per stream per call; setup messages, many per call, stay targeted. A wake-up that reaches a stream it does not concern costs one read and shows nothing, because the read runs under the participant's row policies; no call data travels in the events.
+
+- `ANUM_EVENT_BUS=nats` (PostgreSQL + NATS): the process's single JetStream consumer feeds the realtime hub ([Realtime](realtime.md)), which validates each message's subject against its event and hands call events to the wake hub, so a change committed on any replica wakes the streams on every replica. While NATS delivers, the stream's fallback poll slows to `ANUM_CALLS_BUS_FALLBACK_POLL_SECONDS` (10 s).
+- `ANUM_EVENT_BUS=memory` (local, and the Oracle VM's single API process), or while NATS is down: committed events reach the wake hub in process (the in-memory bus), and the stream also keeps polling every `ANUM_CALLS_POLL_SECONDS` (1 s) while idle and every `ANUM_CALLS_ACTIVE_POLL_SECONDS` (0.25 s) while the person has a call ringing or in progress, so a change committed by another replica still shows. The in-process feed is skipped while NATS is live, so a change is not read twice.
+- Either way the wait never runs past the next ring timeout or heartbeat timeout of a call the stream shows, so missed and dropped calls are still settled on time. A lost wake-up delays a frame only until the next poll.
+
+### Events
+
+The workspace event stream only sees `app_call.ringing` (the call id and the person rung, as `notification.created` names its recipient) and the `missed_call` notification event ([Events](events.md)). `app_call.updated` and `app_call.signaled` are published to the bus and stored in the event history like every event, but `GET /api/v1/events` and `/api/v1/events/stream` leave them out: they carry nothing a workspace member needs, and open tabs would otherwise reload for every ICE batch. A call stores a handful of these events (one per answer, end and setup message batch).
+
+`app_call_wake.py` does not use `list_events_for_stream`: the call stream never replays event history, it reads the current calls and signals, so a missed or duplicated event cannot lose or repeat a frame (signals are de-duplicated by id). Delete my data records `app_call.updated` for each call it ends (one still ringing or in progress, now `failed`), in the same transaction as the rewrite, inside the other participant's RLS context, so that person's devices show the end at once; calls that had already ended record nothing.
 
 ## Storage
 
@@ -83,7 +101,7 @@ WebRTC connects directly when it can. Behind strict NATs and firewalls (many off
 | `ANUM_CALLS_TURN_SECRET` | coturn's `static-auth-secret`, 32 or more characters. Never in source: `.env` on the VM (generated by `install.sh`), a secret store elsewhere. |
 | `ANUM_CALLS_STUN_URLS` | Comma-separated `stun:` URLs. Default with a relay: the relay hosts on port 3478. |
 | `ANUM_CALLS_ALLOW_STUN_ONLY` | `true` turns calls on without a relay. |
-| `ANUM_CALLS_TURN_TTL_SECONDS`, `ANUM_CALLS_RING_TIMEOUT_SECONDS`, `ANUM_CALLS_VIDEO_ENABLED`, `ANUM_CALLS_POLL_SECONDS`, `ANUM_CALLS_ACTIVE_POLL_SECONDS`, `ANUM_CALLS_RETENTION_DAYS` | Limits described above. |
+| `ANUM_CALLS_TURN_TTL_SECONDS`, `ANUM_CALLS_RING_TIMEOUT_SECONDS`, `ANUM_CALLS_VIDEO_ENABLED`, `ANUM_CALLS_POLL_SECONDS`, `ANUM_CALLS_ACTIVE_POLL_SECONDS`, `ANUM_CALLS_BUS_FALLBACK_POLL_SECONDS`, `ANUM_CALLS_RETENTION_DAYS` | Limits described above. |
 
 Modes (`GET /api/v1/app-calls/config`):
 
@@ -135,6 +153,6 @@ Other hosts (Render, Kubernetes): run coturn anywhere with a public address and 
 
 ## Tests
 
-- API: `services/api/tests/test_app_calls.py` (configuration modes, TURN credentials minted and expired, same-workspace only, the lifecycle, signals reaching the bound device only, the stream, push intents) and `test_postgres_app_calls.py` (row policies: nobody rings a person of another workspace or tenant, non-participants see and write nothing, forged rows refused, the busy check in the callee's context). `test_migrations.py` checks the migration's shape; `test_oracle_compose.py` the relay service and `calls.sh`.
+- API: `services/api/tests/test_app_calls.py` (configuration modes, TURN credentials minted and expired, same-workspace only, the lifecycle, signals reaching the bound device only, the stream, push intents) and `test_postgres_app_calls.py` (row policies: nobody rings a person of another workspace or tenant, non-participants see and write nothing, forged rows refused, the busy check in the callee's context). `test_app_call_wake.py` (wake-ups reach only their own tenant and workspace, in process and through the realtime hub; the in-process feed is skipped while the bus is live; NATS mode end to end on the in-memory bus), `test_app_calls_off_event_loop.py` (the stream route and its woken reads, polls and settles open no store on the event loop) and `test_nats_integration.py::test_call_events_wake_call_streams_through_nats_only_in_their_scope` (a real JetStream wakes the call stream long before its poll, not other tenants or workspaces; CI's API integration job, no skip). `test_migrations.py` checks the migration's shape; `test_oracle_compose.py` the relay service and `calls.sh`.
 - Web: `apps/web/test/appCalls.test.ts` (unit) and `apps/web/e2e/app-calls.spec.ts`: two browser contexts with Chromium's fake microphone and camera make real WebRTC calls through a signaling stand-in (voice with mute and hang up, video with the remote picture, decline, cancel and the missed call, a refused microphone, calls off, offline, Arabic, and the call screens at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 without horizontal scroll).
 - Flutter: `apps/mobile/test/calls/app_calls_test.dart` (strings, outcomes, push routing, incoming, answer, mute, hang up, decline, answered elsewhere, placing a call, a refused microphone, calls off, history, Arabic, and the call screen at four sizes at 200% text).

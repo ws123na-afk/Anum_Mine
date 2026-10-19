@@ -281,7 +281,10 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
         BusinessScreen(
           controller: widget.businessController!,
           onOpenApprovals: () {
-            Navigator.of(context).pop();
+            // Business may have a ticket or lead open on top: back to home.
+            final home = ModalRoute.of(context);
+            Navigator.of(context)
+                .popUntil((route) => route == home || route.isFirst);
             _select(WorkspaceDestination.approvals);
           },
         ),
@@ -344,7 +347,9 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
         KnowledgeScreen(
           repository: widget.library!,
           onOpenMemories: () {
-            Navigator.of(context).popUntil((route) => route.isFirst);
+            final home = ModalRoute.of(context);
+            Navigator.of(context)
+                .popUntil((route) => route == home || route.isFirst);
             _select(WorkspaceDestination.resources);
           },
         ),

@@ -6,11 +6,16 @@ account", and where the privacy policy lives. It returns deployment configuratio
 (``ANUM_SIGN_IN_PROVIDERS``, ``ANUM_SELF_SIGN_UP``, ``ANUM_PRIVACY_POLICY_URL``), never
 anything about a tenant or a user. A button the configuration offers but Keycloak does not
 have simply lands on Keycloak's own sign-in page: Keycloak decides every sign-in.
+
+With ``ANUM_PRIVACY_POLICY_URL`` empty, the policy defaults to the web app's own public page,
+``<web origin>/legal/privacy`` (docs/legal-pages.md), where the web origin is the first public
+``https`` origin in ``ANUM_CORS_ORIGINS``. Local and test origins (http, localhost) give none.
 """
 
 from __future__ import annotations
 
 from typing import Literal
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Response
 from pydantic import BaseModel
@@ -21,6 +26,28 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 ProviderId = Literal["google", "apple"]
 LABELS: dict[str, str] = {"google": "Google", "apple": "Apple"}
+PRIVACY_POLICY_PATH = "/legal/privacy"
+
+
+def _public_web_origin(origins: list[str]) -> str | None:
+    for origin in origins:
+        parts = urlsplit(origin.strip())
+        host = (parts.hostname or "").lower()
+        if parts.scheme != "https" or not host or parts.path not in ("", "/"):
+            continue
+        if host == "localhost" or host.endswith(".localhost") or host in ("127.0.0.1", "::1"):
+            continue
+        return f"https://{parts.netloc}"
+    return None
+
+
+def effective_privacy_policy_url() -> str | None:
+    """``ANUM_PRIVACY_POLICY_URL``, else the web app's /legal/privacy page, else none."""
+    configured = settings.privacy_policy_url.strip()
+    if configured:
+        return configured
+    origin = _public_web_origin(settings.cors_origins)
+    return f"{origin}{PRIVACY_POLICY_PATH}" if origin else None
 
 
 class SignInProvider(BaseModel):
@@ -40,7 +67,7 @@ def current_sign_in_options() -> SignInOptions:
     return SignInOptions(
         identity_providers=[SignInProvider(id=name, label=LABELS[name]) for name in names],  # type: ignore[arg-type]
         self_sign_up=settings.self_sign_up,
-        privacy_policy_url=settings.privacy_policy_url.strip() or None,
+        privacy_policy_url=effective_privacy_policy_url(),
     )
 
 

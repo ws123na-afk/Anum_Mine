@@ -13,6 +13,8 @@ export interface ApiFile {
   id: string; name: string; content_type: string; size_bytes: number; sha256: string;
   created_by: string; created_at: string; updated_by?: string | null; updated_at?: string | null;
   kind?: FileKind | null; previewable?: boolean; can_manage?: boolean; index?: ApiFileIndex | null;
+  /** Malware scan: null until scanned; `infected` files are quarantined (listed, never served). */
+  scan_status?: 'clean' | 'infected' | null; scan_signature?: string | null; scanned_at?: string | null;
 }
 
 /** `GET /api/v1/files/usage`. */
@@ -88,6 +90,19 @@ function skipReason(error: string | null): string {
 }
 
 /** The retrieval index state of a file as a badge and a sentence (docs/memory.md#retrieval). */
+/** True when the malware scanner found something in the file (docs/files.md#malware-scanning). */
+export function isQuarantined(file: Pick<ApiFile, 'scan_status'>): boolean {
+  return file.scan_status === 'infected';
+}
+
+/** The list badge: quarantine wins over the retrieval index state. */
+export function fileBadge(file: Pick<ApiFile, 'index' | 'scan_status' | 'scan_signature'>): { label: string; tone: Tone; detail: string } {
+  if (isQuarantined(file)) {
+    return { label: t('files.quarantined'), tone: 'dangerTone', detail: t('files.quarantinedDetail', { signature: file.scan_signature || t('files.quarantinedUnknown') }) };
+  }
+  return indexBadge(file.index);
+}
+
 export function indexBadge(index: ApiFileIndex | null | undefined): { label: string; tone: Tone; detail: string } {
   if (!index) return { label: t('files.index.unknown'), tone: 'neutral', detail: t('files.index.unknownDetail') };
   switch (index.status) {

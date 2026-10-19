@@ -253,7 +253,7 @@ iOS. The bundle identifier is `com.anum.app`; the redirect scheme and the microp
 | Run | Missing secrets or variables | Result |
 | --- | --- | --- |
 | Manual, "upload" unticked (build only) | all signing secrets, or a production URL | Passes with a notice: Android builds nothing, iOS runs an unsigned compile check. Lets the workflow be tried before the secrets exist. |
-| Release tag, or manual with "upload" | anything the store upload needs: the signing secrets, `PLAY_SERVICE_ACCOUNT_JSON` (Android), `ANUM_PRODUCTION_API_URL`, `ANUM_PRODUCTION_OIDC_ISSUER` | Fails with "Android release not configured" or "iOS release not configured", naming every missing name. |
+| Release tag, or manual with "upload" | anything the store upload needs: the signing secrets, Play credentials (Android: `PLAY_SERVICE_ACCOUNT_JSON`, or the Workload Identity Federation provider and service account in `release-android.yml`), `ANUM_PRODUCTION_API_URL`, `ANUM_PRODUCTION_OIDC_ISSUER` | Fails with "Android release not configured" or "iOS release not configured", naming every missing name. |
 | Any | some but not all of one platform's four signing secrets | Fails with "signing incomplete", naming the missing ones. |
 | Any | a production URL variable set without `https://` | Fails: that is a mistake, not a missing credential. |
 
@@ -282,7 +282,7 @@ Repository secrets (names only here; values never go into the repository, an iss
 | --- | --- |
 | `ANUM_ANDROID_KEYSTORE_BASE64` | The upload keystore in base64 (`[Convert]::ToBase64String([IO.File]::ReadAllBytes("<path>\anum-upload.jks"))` in PowerShell, `base64 -w0 anum-upload.jks` on Linux). |
 | `ANUM_ANDROID_KEYSTORE_PASSWORD`, `ANUM_ANDROID_KEY_ALIAS`, `ANUM_ANDROID_KEY_PASSWORD` | Keystore password, key alias and key password. |
-| `PLAY_SERVICE_ACCOUNT_JSON` | Optional. JSON key of a Google Cloud service account invited in Play Console (Users and permissions) with release rights for `com.anum.app`. Without it the bundle is built but not uploaded. |
+| `PLAY_SERVICE_ACCOUNT_JSON` | Optional. JSON key of a Google Cloud service account invited in Play Console (Users and permissions) with release rights for `com.anum.app`. Without it the bundle is built but not uploaded. `.github/workflows/release-android.yml` does not need it: its `android` job (the only one with `id-token: write`) federates to the service account in `ANUM_PLAY_SERVICE_ACCOUNT` through the provider in `ANUM_PLAY_WORKLOAD_IDENTITY_PROVIDER` (repository variables; the workflow carries the current values as defaults), and the preflight accepts either the key or both of those. |
 | `ANUM_ANDROID_GOOGLE_SERVICES_JSON` | Optional. The whole `google-services.json` of the Firebase Android app `com.anum.app` ([Owner steps: Firebase project](#owner-steps-firebase-project)). Without it the Android builds have no phone push. |
 | `ANUM_IOS_GOOGLE_SERVICE_INFO_PLIST` | Optional. The whole `GoogleService-Info.plist` of the Firebase iOS app `com.anum.app`. Without it the iOS build has no phone push. |
 | `APPLE_TEAM_ID` | The ten-character Apple Developer team ID. |

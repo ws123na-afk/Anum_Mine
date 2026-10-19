@@ -35,6 +35,53 @@ abstract interface class CallsRepository {
   Future<CallEntry> summarize(String id);
   Future<CallEntry> saveFollowUp(String id, String text, String? dueDate);
   Future<CallEntry> followUpTask(String id);
+
+  /// The voice provider as an owner sees it (call:manage). The provider is
+  /// connected and changed on the web; the phone shows its status.
+  Future<ProviderStatus> provider();
+
+  /// AI call requests, newest first, with their approval state.
+  Future<CallsPage<AiCallRequest>> aiCalls({int offset});
+  Future<AiCallRequest> aiCall(String id);
+
+  /// Asks for an AI call. Nothing is dialled: the request waits for a
+  /// workspace owner's approval of the exact number, purpose and script.
+  Future<AiCallRequest> requestAiCall({
+    required String contactId,
+    required String purpose,
+    required String script,
+    required String language,
+    required int maxSeconds,
+  });
+
+  /// Cancels a request still waiting for approval (its approval is withdrawn).
+  Future<AiCallRequest> cancelAiCall(String id);
+
+  Future<CallContact> contact(String id);
+
+  /// Records that the person agreed to AI calls (owners, call:manage). The
+  /// owner confirms it; the API refuses a number on the opt-out list.
+  Future<CallContact> recordConsent(String contactId,
+      {required String method, String? note});
+
+  /// Withdraws the consent (call:log: it only stops calls).
+  Future<CallContact> withdrawConsent(String contactId);
+
+  Future<CallsPage<OptOutEntry>> optOuts({int offset});
+
+  /// Adds a number to the opt-out list (call:log).
+  Future<OptOutEntry> addOptOut(String phone, {String? note});
+
+  /// Lifts an opt-out (owners, call:manage) with a reason of 5 or more
+  /// characters, only when the person asked to be called again.
+  Future<void> removeOptOut(String id, String reason);
+
+  /// Connects or changes the provider (call:manage). The API checks the
+  /// account with Twilio before saving; secrets are stored encrypted and
+  /// never returned. The body is never logged.
+  Future<ProviderStatus> saveProvider(Map<String, Object?> body);
+  Future<ProviderStatus> checkProvider();
+  Future<void> deleteProvider();
 }
 
 class ApiCallsRepository implements CallsRepository {
@@ -159,6 +206,104 @@ class ApiCallsRepository implements CallsRepository {
   @override
   Future<CallEntry> followUpTask(String id) async =>
       _call(await api.request('POST', _one('log', id, '/follow-up/task')));
+
+  AiCallRequest _ai(JsonMap body) => AiCallRequest.fromJson(JsonReader(body));
+
+  @override
+  Future<ProviderStatus> provider() async => ProviderStatus.fromJson(
+      JsonReader(await api.request('GET', '$_base/provider')));
+
+  @override
+  Future<CallsPage<AiCallRequest>> aiCalls({int offset = 0}) async {
+    final j = JsonReader(await api.request(
+        'GET',
+        _path('$_base/ai-calls',
+            {'limit': '$callsPageSize', 'offset': '$offset'})));
+    return CallsPage(
+        j.optObjects('items', AiCallRequest.fromJson), j.optInt('total') ?? 0);
+  }
+
+  @override
+  Future<AiCallRequest> aiCall(String id) async =>
+      _ai(await api.request('GET', _one('ai-calls', id)));
+
+  @override
+  Future<AiCallRequest> requestAiCall({
+    required String contactId,
+    required String purpose,
+    required String script,
+    required String language,
+    required int maxSeconds,
+  }) async =>
+      _ai(await api.request('POST', '$_base/ai-calls', body: {
+        'contact_id': contactId,
+        'purpose': purpose.trim(),
+        'script': script.trim(),
+        'language': language,
+        'max_seconds': maxSeconds,
+      }));
+
+  @override
+  Future<AiCallRequest> cancelAiCall(String id) async =>
+      _ai(await api.request('POST', _one('ai-calls', id, '/cancel')));
+
+  ProviderStatus _provider(JsonMap body) =>
+      ProviderStatus.fromJson(JsonReader(body));
+
+  @override
+  Future<CallContact> contact(String id) async =>
+      _contact(await api.request('GET', _one('contacts', id)));
+
+  @override
+  Future<CallContact> recordConsent(String contactId,
+          {required String method, String? note}) async =>
+      _contact(await api
+          .request('PUT', _one('contacts', contactId, '/ai-consent'), body: {
+        'method': method,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+        'confirmed': true,
+      }));
+
+  @override
+  Future<CallContact> withdrawConsent(String contactId) async => _contact(
+      await api.request('DELETE', _one('contacts', contactId, '/ai-consent')));
+
+  @override
+  Future<CallsPage<OptOutEntry>> optOuts({int offset = 0}) async {
+    final j = JsonReader(await api.request(
+        'GET',
+        _path('$_base/opt-outs',
+            {'limit': '$callsPageSize', 'offset': '$offset'})));
+    return CallsPage(
+        j.optObjects('items', OptOutEntry.fromJson), j.optInt('total') ?? 0);
+  }
+
+  @override
+  Future<OptOutEntry> addOptOut(String phone, {String? note}) async =>
+      OptOutEntry.fromJson(
+          JsonReader(await api.request('POST', '$_base/opt-outs', body: {
+        'phone': phone.trim(),
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      })));
+
+  @override
+  Future<void> removeOptOut(String id, String reason) async {
+    await api.request('DELETE', _one('opt-outs', id),
+        body: {'reason': reason.trim()});
+  }
+
+  @override
+  Future<ProviderStatus> saveProvider(Map<String, Object?> body) async =>
+      _provider(await api.request('PUT', '$_base/provider', body: body));
+
+  @override
+  Future<ProviderStatus> checkProvider() async =>
+      _provider(await api.request('POST', '$_base/provider/check'));
+
+  @override
+  Future<void> deleteProvider() async {
+    await api.request('DELETE', '$_base/provider');
+  }
 }
 
 /// Opens the phone's own dialer with a number (a `tel:` link). The phone

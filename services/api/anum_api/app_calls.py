@@ -23,7 +23,10 @@ and busy rings leave the callee an in-app notification (kind ``missed_call``).
 Signaling stream. ``GET /app-calls/stream?client_id=`` is a per-device SSE stream of the
 caller's call states and the signals addressed to that device. Like the workspace event
 stream it never reads through the request's session (CLAUDE.md, "Streaming responses
-outlive request dependencies"): every poll opens its own short session in a worker thread.
+outlive request dependencies"): every read opens its own short session in a worker thread.
+It reads when a call event wakes it (``app_call.ringing``, ``app_call.updated``,
+``app_call.signaled``, recorded in the same transaction as the change and published
+through the outbox; ``app_call_wake.py``) and polls as a fallback.
 
 ICE servers. ``GET /app-calls/ice-servers`` returns the STUN URLs and, in ``turn`` mode,
 short-lived TURN credentials in coturn's REST scheme (``use-auth-secret``): the username
@@ -52,9 +55,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .app_call_wake import CallWakeHub, CallWakeListener, call_wake_hub
 from .audit import AuditRecord
 from .authorization import Permission
-from .dependencies import require_permission, tenant_context
+from .dependencies import repository_context, require_permission, tenant_context
 from .events import CanonicalEventName, create_event
 from .schemas import TenantContext, new_id, utc_now
 from .settings import settings
@@ -552,10 +556,10 @@ class CallUnit:
 
 
 @contextmanager
-def open_call_unit(context: TenantContext) -> Iterator[CallUnit]:
+def open_call_unit(context: TenantContext, *, require_membership: bool = True) -> Iterator[CallUnit]:
     from .team_work import open_team_unit
 
-    with open_team_unit(context, require_membership=True) as team:
+    with open_team_unit(context, require_membership=require_membership) as team:
         session = team.session
         calls: CallStore = _sql_store(session) if session is not None else memory_call_store
         if session is None:
@@ -601,9 +605,14 @@ def delete_my_app_calls(context: TenantContext) -> int:
                 peers.append((call.id, peer))
     for call_id, peer in peers:
         peer_context = context.model_copy(update={"user_id": peer})
-        with open_call_store(peer_context) as store:
-            if store.forget_side(peer_context, call_id, context.user_id, f"{DELETED_PREFIX}{secrets.token_hex(8)}"):
+        # A call unit, so a call that was still ringing or in progress (now ended as
+        # failed) wakes the other person's devices in the same transaction.
+        with open_call_unit(peer_context, require_membership=False) as unit:
+            before = unit.calls.get(peer_context, call_id)
+            if unit.calls.forget_side(peer_context, call_id, context.user_id, f"{DELETED_PREFIX}{secrets.token_hex(8)}"):
                 forgotten += 1
+                if before is not None and before.status != CallStatus.ENDED:
+                    _wake(unit, CanonicalEventName.APP_CALL_UPDATED, before)
     return forgotten
 
 
@@ -683,6 +692,13 @@ def _audit(unit: CallUnit, action: str, call: AppCall, **metadata: Any) -> None:
     )
 
 
+def _wake(unit: CallUnit, name: CanonicalEventName, call: AppCall) -> None:
+    """Records a call stream wake-up in the change's own transaction (an outbox row with
+    PostgreSQL). The call id only: who called whom and the setup messages stay in the
+    participants-only tables."""
+    unit.team.repository.record_event(create_event(name, unit.context, call.id, {"call_id": call.id}).event)
+
+
 def _finish(unit: CallUnit, call: AppCall, outcome: CallOutcome, *, at: datetime, by: str | None) -> AppCall:
     call.status = CallStatus.ENDED
     call.outcome = outcome
@@ -693,6 +709,7 @@ def _finish(unit: CallUnit, call: AppCall, outcome: CallOutcome, *, at: datetime
     unit.calls.save(unit.context, call)
     unit.calls.delete_signals(unit.context, call.id)
     _audit(unit, "app_call.ended", call, outcome=outcome.value, duration_seconds=call.duration_seconds)
+    _wake(unit, CanonicalEventName.APP_CALL_UPDATED, call)
     if outcome in MISSED_OUTCOMES:
         _notify_missed(unit, call)
     return call
@@ -902,6 +919,7 @@ def accept_call(call_id: str, body: AcceptCall, context: TenantContext = Depends
         call.callee_client_id = body.client_id
         unit.calls.save(unit.context, call)
         _audit(unit, "app_call.answered", call)
+        _wake(unit, CanonicalEventName.APP_CALL_UPDATED, call)
         return view_of(call, context, body.client_id)
 
 
@@ -948,7 +966,10 @@ def send_signal(call_id: str, body: SignalBody, context: TenantContext = Depends
     """An offer (caller), an answer (callee) or ICE candidates, for the other side's device."""
     require_permission(context, Permission.CALL_USE)
     payload = body.payload()
-    with open_call_store(context) as store:
+    # A call unit, not a bare store: the wake-up event is stored with the signal. Membership
+    # is not re-checked here; the row policies admit only the call's two participants.
+    with open_call_unit(context, require_membership=False) as unit:
+        store = unit.calls
         call = store.get(context, call_id)
         if call is None:
             raise HTTPException(status_code=404, detail="Call not found")
@@ -972,6 +993,7 @@ def send_signal(call_id: str, body: SignalBody, context: TenantContext = Depends
             created_at=utc_now(),
         )
         store.add_signal(context, signal)
+        _wake(unit, CanonicalEventName.APP_CALL_SIGNALED, call)
     return {"id": signal.id}
 
 
@@ -994,6 +1016,19 @@ class Snapshot:
     @property
     def live(self) -> bool:
         return any(call.status != CallStatus.ENDED for call in self.calls)
+
+    def seconds_to_deadline(self, now: datetime) -> float | None:
+        """Until the next ring times out or a connected call goes silent, so the stream
+        settles it on time even when it polls slowly."""
+        deadlines: list[datetime] = []
+        for call in self.calls:
+            if call.status == CallStatus.RINGING:
+                deadlines.append(ring_expires_at(call))
+            elif call.status == CallStatus.ACCEPTED:
+                deadlines.append((call.heartbeat_at or call.created_at) + HEARTBEAT_TIMEOUT)
+        if not deadlines:
+            return None
+        return max(0.0, (min(deadlines) - now).total_seconds())
 
 
 def read_snapshot(context: TenantContext, client_id: str) -> Snapshot:
@@ -1019,6 +1054,26 @@ def _frame(event: str, event_id: str, data: str) -> str:
     return f"id: {event_id}\nevent: {event}\ndata: {data}\n\n"
 
 
+def poll_interval(snapshot: Snapshot, *, bus_live: bool) -> float:
+    """The fallback poll: slow while NATS delivers the wake-ups, the old pace otherwise."""
+    if bus_live:
+        return settings.calls_bus_fallback_poll_seconds
+    return settings.calls_active_poll_seconds if snapshot.live else settings.calls_poll_seconds
+
+
+async def _wait_for_wake(listener: CallWakeListener, timeout: float, known: set[str]) -> bool:
+    """Whether a wake-up that concerns this stream arrived within ``timeout``."""
+    loop = asyncio.get_running_loop()
+    end = loop.time() + timeout
+    while (remaining := end - loop.time()) > 0:
+        wake = await listener.wait(remaining)
+        if wake is None:
+            return False
+        if wake.concerns(known):
+            return True
+    return False
+
+
 async def call_event_source(
     context: TenantContext,
     client_id: str,
@@ -1027,49 +1082,63 @@ async def call_event_source(
     read: Callable[[TenantContext, str], Snapshot] = read_snapshot,
     settle: Callable[[TenantContext], None] = settle_for_stream,
     follow: bool = True,
+    wakes: CallWakeHub | None = None,
 ) -> AsyncIterator[str]:
-    """``call`` events (a call's state changed) and ``signal`` events (for this device)."""
+    """``call`` events (a call's state changed) and ``signal`` events (for this device).
+
+    Every frame comes from ``read`` in a worker thread (its own short session). The stream
+    reads when a call event wakes it and otherwise polls (``poll_interval``). The listener
+    is registered before the first read, so a change stored during a read wakes the next
+    wait at once.
+    """
+    hub = wakes or call_wake_hub
     yield "retry: 1000\n\n"
     known: dict[str, tuple[Any, ...]] = {}
     seen: set[str] = set()
-    idle = 0.0
     last_settle = 0.0
-    while True:
-        snapshot = await asyncio.to_thread(read, context, client_id)
-        if snapshot.stale(utc_now()) and time.monotonic() - last_settle >= 2.0:
-            last_settle = time.monotonic()
-            try:
-                await asyncio.to_thread(settle, context)
-            except Exception:  # a failed settle never ends the stream; the next poll retries
-                logger.exception("app_call_settle_failed")
+    last_sent = time.monotonic()
+    async with hub.listen(context) as listener:
+        while True:
             snapshot = await asyncio.to_thread(read, context, client_id)
-        frames: list[str] = []
-        for call in snapshot.calls:
-            key = (call.status, call.outcome, call.callee_client_id, call.answered_at, call.ended_at)
-            if known.get(call.id) != key:
-                known[call.id] = key
-                view = view_of(call, context, client_id)
-                frames.append(_frame("call", f"{call.id}:{call.status.value}", view.model_dump_json()))
-        for signal in snapshot.signals:
-            if signal.id not in seen:
-                seen.add(signal.id)
-                data = {"id": signal.id, "call_id": signal.call_id, "kind": signal.kind.value, "payload": signal.payload}
-                frames.append(_frame("signal", signal.id, _json(data)))
-        live_ids = {call.id for call in snapshot.calls}
-        for call_id in [k for k in known if k not in live_ids]:
-            known.pop(call_id, None)
-        if len(seen) > 5000:
-            seen = {signal.id for signal in snapshot.signals}
-        for frame in frames:
-            yield frame
-        if not follow or await is_disconnected():
-            return
-        interval = settings.calls_active_poll_seconds if snapshot.live else settings.calls_poll_seconds
-        await asyncio.sleep(interval)
-        idle = 0.0 if frames else idle + interval
-        if idle >= KEEPALIVE_SECONDS:
-            idle = 0.0
-            yield ": keep-alive\n\n"
+            if snapshot.stale(utc_now()) and time.monotonic() - last_settle >= 2.0:
+                last_settle = time.monotonic()
+                try:
+                    await asyncio.to_thread(settle, context)
+                except Exception:  # a failed settle never ends the stream; the next read retries
+                    logger.exception("app_call_settle_failed")
+                snapshot = await asyncio.to_thread(read, context, client_id)
+            frames: list[str] = []
+            for call in snapshot.calls:
+                key = (call.status, call.outcome, call.callee_client_id, call.answered_at, call.ended_at)
+                if known.get(call.id) != key:
+                    known[call.id] = key
+                    view = view_of(call, context, client_id)
+                    frames.append(_frame("call", f"{call.id}:{call.status.value}", view.model_dump_json()))
+            for signal in snapshot.signals:
+                if signal.id not in seen:
+                    seen.add(signal.id)
+                    data = {"id": signal.id, "call_id": signal.call_id, "kind": signal.kind.value, "payload": signal.payload}
+                    frames.append(_frame("signal", signal.id, _json(data)))
+            live_ids = {call.id for call in snapshot.calls}
+            for call_id in [k for k in known if k not in live_ids]:
+                known.pop(call_id, None)
+            if len(seen) > 5000:
+                seen = {signal.id for signal in snapshot.signals}
+            for frame in frames:
+                yield frame
+            if frames:
+                last_sent = time.monotonic()
+            if not follow or await is_disconnected():
+                return
+            wait = poll_interval(snapshot, bus_live=hub.live)
+            deadline = snapshot.seconds_to_deadline(utc_now())
+            if deadline is not None:
+                wait = min(wait, deadline + 0.05)
+            wait = max(0.05, min(wait, KEEPALIVE_SECONDS - (time.monotonic() - last_sent)))
+            await _wait_for_wake(listener, wait, set(known))
+            if time.monotonic() - last_sent >= KEEPALIVE_SECONDS:
+                last_sent = time.monotonic()
+                yield ": keep-alive\n\n"
 
 
 def _json(data: dict[str, Any]) -> str:
@@ -1078,24 +1147,18 @@ def _json(data: dict[str, Any]) -> str:
     return json.dumps(data, separators=(",", ":"), ensure_ascii=False)
 
 
-def _check_member(context: TenantContext) -> None:
-    from .dependencies import _unit_of_work
-
-    with _unit_of_work(context, require_membership=True):
-        pass
-
-
 @router.get("/app-calls/stream")
 async def call_stream(
     request: Request,
     client_id: str = Query(pattern=CLIENT_ID_PATTERN),
     follow: bool = True,
     context: TenantContext = Depends(tenant_context),
+    # The membership check, in a short unit of work closed before the body starts
+    # (scope="function"; docs/realtime.md). The body reads in its own short sessions.
+    _membership: Any = Depends(repository_context, scope="function"),
 ) -> StreamingResponse:
     """This device's call states and signals as server-sent events (``call``, ``signal``)."""
     require_permission(context, Permission.CALL_USE)
-    # Checked once, in a short unit of work that ends before the body starts.
-    await asyncio.to_thread(_check_member, context)
     return StreamingResponse(
         call_event_source(context, client_id, request.is_disconnected, follow=follow),
         media_type="text/event-stream",
