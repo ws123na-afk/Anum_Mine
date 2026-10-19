@@ -35,7 +35,9 @@ export interface MessagePage { items: EmailMessage[]; next_cursor: string | null
 export interface InboxSummary { accounts: number; unread: number; high_priority_unread: number; by_category: Partial<Record<Category, number>>; needs_attention: EmailMessage[] }
 export interface ApiApprovalLike { id: string; payload_hash?: string | null; status: string; expires_at?: string | null; arguments?: Record<string, unknown>; [key: string]: unknown }
 export interface EmailDraft {
-  id: string; account_id: string; message_id: string | null; to: string[]; cc: string[]; subject: string; body: string; status: DraftStatus;
+  id: string; account_id: string; message_id: string | null; to: string[]; cc: string[]; bcc: string[]; subject: string; body: string; status: DraftStatus;
+  /** `new` for an email composed from scratch (no message_id), `reply` for an answer to a message. */
+  kind: 'new' | 'reply';
   source: 'model' | 'person'; model_provider: string | null; model_name: string | null; saved_in_provider: boolean; error: string | null;
   approval: ApiApprovalLike | null; approval_note: string | null; created_by: string; created_at: string; updated_at: string; sent_at: string | null;
 }
@@ -98,6 +100,42 @@ export function parseRecipients(text: string): { ok: true; value: string[] } | {
   }
   if (out.length > 50) return { ok: false, error: t('email.draft.tooManyRecipients') };
   return { ok: true, value: out };
+}
+
+/** A new email as typed in the compose form (before validation). */
+export interface ComposeForm { accountId: string; to: string; cc: string; bcc: string; subject: string; body: string }
+export const EMPTY_COMPOSE: ComposeForm = { accountId: '', to: '', cc: '', bcc: '', subject: '', body: '' };
+/** `POST /api/v1/email/drafts`: a new email draft in one mailbox. */
+export interface NewDraftRequest { account_id: string; to: string[]; cc: string[]; bcc: string[]; subject: string; body: string }
+export const MAX_SUBJECT_CHARS = 500;
+
+/**
+ * The POST /email/drafts body, or what to fix. Saving a draft may leave To and the message empty;
+ * asking to send (`forSending`) needs at least one To address and some text, as the API does.
+ */
+export function composeRequest(form: ComposeForm, forSending = false): { ok: true; value: NewDraftRequest } | { ok: false; error: string } {
+  if (!form.accountId) return { ok: false, error: t('email.compose.needMailbox') };
+  const lists: Record<'to' | 'cc' | 'bcc', string[]> = { to: [], cc: [], bcc: [] };
+  for (const field of ['to', 'cc', 'bcc'] as const) {
+    const parsed = parseRecipients(form[field]);
+    if (!parsed.ok) return parsed;
+    lists[field] = parsed.value;
+  }
+  if (form.subject.length > MAX_SUBJECT_CHARS) return { ok: false, error: t('email.compose.subjectTooLong', { max: MAX_SUBJECT_CHARS }) };
+  if (form.body.length > MAX_DRAFT_CHARS) return { ok: false, error: t('email.compose.bodyTooLong', { max: MAX_DRAFT_CHARS }) };
+  if (forSending && !lists.to.length) return { ok: false, error: t('email.draft.needRecipient') };
+  if (forSending && !form.body.trim()) return { ok: false, error: t('email.compose.needBody') };
+  return { ok: true, value: { account_id: form.accountId, ...lists, subject: form.subject.trim(), body: form.body } };
+}
+
+/** Mailboxes a new email can be written from (connected ones) and the ones that must be reconnected first. */
+export function composeMailboxes(accounts: EmailAccount[]): { usable: EmailAccount[]; blocked: EmailAccount[] } {
+  return { usable: accounts.filter((a) => a.status !== 'reauth_required'), blocked: accounts.filter((a) => a.status === 'reauth_required') };
+}
+
+/** A draft written from scratch (not a reply): it opens in the compose drawer, not on a message. */
+export function isNewEmailDraft(draft: Pick<EmailDraft, 'kind' | 'message_id'>): boolean {
+  return draft.kind === 'new' || !draft.message_id;
 }
 
 /** Who wrote the draft, for the provenance label next to it. */

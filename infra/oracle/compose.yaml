@@ -339,6 +339,8 @@ services:
       ANUM_SMTP_USERNAME: ${ANUM_SMTP_USERNAME:-}
       ANUM_SMTP_PASSWORD: ${ANUM_SMTP_PASSWORD:-}
       ANUM_SMTP_FROM: ${ANUM_SMTP_FROM:-}
+      # Where the accept link in invitation emails points (docs/identity.md#invitation-email).
+      ANUM_PUBLIC_APP_URL: https://${ANUM_WEB_HOST:?set ANUM_WEB_HOST in infra/oracle/.env}/
       # Email Center: the own mail server over IMAPS and SMTP (docs/email.md#email-center).
       ANUM_MAILSERVER_ENABLED: ${ANUM_MAILSERVER_ENABLED:-false}
       ANUM_MAILSERVER_IMAP_HOST: ${ANUM_MAILSERVER_IMAP_HOST:-}

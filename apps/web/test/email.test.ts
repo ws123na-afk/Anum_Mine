@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  EMPTY_FILTERS, accountStatus, connectErrorText, draftProvenance, formatSize, hasFilters, isStale, messagesQuery, parseRecipients,
+  EMPTY_COMPOSE, EMPTY_FILTERS, accountStatus, composeMailboxes, composeRequest, connectErrorText, isNewEmailDraft, draftProvenance, formatSize, hasFilters, isStale, messagesQuery, parseRecipients,
   priorityTone, readConnectReturn, senderName, syncedLabel, type EmailAccount,
 } from '../src/lib/email.ts';
 import { setLocale } from '../src/lib/i18n.ts';
@@ -98,5 +98,40 @@ describe('connect return', () => {
     assert.match(connectErrorText('invalid_state'), /expired/);
     assert.match(connectErrorText('unknown_request'), /already finished/);
     assert.match(connectErrorText('weird'), /\(weird\)/);
+  });
+});
+
+describe('compose a new email', () => {
+  test('a draft may be saved without recipients or text, but not without a mailbox', () => {
+    setLocale('en');
+    const none = composeRequest(EMPTY_COMPOSE);
+    assert.equal(none.ok, false);
+    assert.match(none.ok ? '' : none.error, /mailbox/);
+    assert.deepEqual(composeRequest({ ...EMPTY_COMPOSE, accountId: 'emb_1' }), { ok: true, value: { account_id: 'emb_1', to: [], cc: [], bcc: [], subject: '', body: '' } });
+  });
+  test('builds the POST /email/drafts body with every list parsed and deduplicated', () => {
+    const result = composeRequest({ accountId: 'emb_1', to: 'Sara@Example.com; sara@example.com', cc: 'b@example.com', bcc: '<c@example.com>', subject: '  Hello  ', body: 'Hi Sara' }, true);
+    assert.deepEqual(result, { ok: true, value: { account_id: 'emb_1', to: ['sara@example.com'], cc: ['b@example.com'], bcc: ['c@example.com'], subject: 'Hello', body: 'Hi Sara' } });
+  });
+  test('asking to send needs a To address and some text; a bad address names itself', () => {
+    const noTo = composeRequest({ ...EMPTY_COMPOSE, accountId: 'emb_1', body: 'Hi' }, true);
+    assert.match(noTo.ok ? '' : noTo.error, /at least one recipient/);
+    const noBody = composeRequest({ ...EMPTY_COMPOSE, accountId: 'emb_1', to: 'a@example.com', body: '   ' }, true);
+    assert.match(noBody.ok ? '' : noBody.error, /Write the message/);
+    const bad = composeRequest({ ...EMPTY_COMPOSE, accountId: 'emb_1', bcc: 'not-an-address' });
+    assert.match(bad.ok ? '' : bad.error, /not-an-address/);
+    const long = composeRequest({ ...EMPTY_COMPOSE, accountId: 'emb_1', subject: 'x'.repeat(501) });
+    assert.match(long.ok ? '' : long.error, /500/);
+  });
+  test('mailboxes that need reconnecting cannot be written from', () => {
+    const blocked = { ...account, id: 'emb_2', address: 'old@example.com', status: 'reauth_required' as const };
+    const { usable, blocked: needs } = composeMailboxes([account, blocked]);
+    assert.deepEqual(usable.map((a) => a.id), ['emb_1']);
+    assert.deepEqual(needs.map((a) => a.id), ['emb_2']);
+  });
+  test('a new-email draft is told apart from a reply', () => {
+    assert.equal(isNewEmailDraft({ kind: 'new', message_id: null }), true);
+    assert.equal(isNewEmailDraft({ kind: 'reply', message_id: 'eml_1' }), false);
+    assert.equal(isNewEmailDraft({ kind: undefined as unknown as 'reply', message_id: null }), true);
   });
 });

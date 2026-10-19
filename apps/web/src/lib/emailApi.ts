@@ -4,7 +4,7 @@ import { apiBaseUrl, apiRequest, authHeaders, mapApproval, type ApiApproval } fr
 import { apiErrorFromResponse } from './errors';
 import {
   messagesQuery, type ActionResult, type AnalyzeResult, type ApiApprovalLike, type DraftCreateResult, type EmailAccount, type EmailDraft,
-  type EmailProvider, type EmailSetup, type Filters, type InboxSummary, type MessageDetail, type MessagePage,
+  type EmailProvider, type EmailSetup, type Filters, type InboxSummary, type MessageDetail, type MessagePage, type NewDraftRequest,
 } from './email';
 
 const base = '/api/v1/email';
@@ -14,7 +14,7 @@ export const getEmailSetup = (): Promise<EmailSetup> => apiRequest(`${base}/setu
 export const listEmailAccounts = (): Promise<EmailAccount[]> => apiRequest(`${base}/accounts`, { method: 'GET' });
 /** Unread, high-priority and per-category counts for the summary band. */
 export const getEmailSummary = (): Promise<InboxSummary> => apiRequest(`${base}/summary`, { method: 'GET' });
-/** Recent reply drafts across the visible mailboxes, newest first (the API allows at most 100). */
+/** Recent drafts (replies and new emails) across the visible mailboxes, newest first (the API allows at most 100). */
 export const listEmailDrafts = (limit = 50): Promise<EmailDraft[]> => apiRequest(`${base}/drafts?limit=${limit}`, { method: 'GET' });
 export const syncEmailAccount = (accountId: string): Promise<EmailAccount> => apiRequest(`${base}/accounts/${id(accountId)}/sync`, { method: 'POST' });
 export const disconnectEmailAccount = (accountId: string): Promise<{ revoked_at_provider: boolean; detail: string }> =>
@@ -34,7 +34,10 @@ export const archiveEmail = (messageId: string): Promise<ActionResult> => apiReq
 export const analyzeEmail = (messageId: string): Promise<AnalyzeResult> => apiRequest(`${base}/messages/${id(messageId)}/analyze`, { method: 'POST' });
 export const createEmailDraft = (messageId: string, body: { body?: string; instructions?: string }): Promise<DraftCreateResult> =>
   apiRequest(`${base}/messages/${id(messageId)}/drafts`, { method: 'POST', body: JSON.stringify(body) });
-export const updateEmailDraft = (draftId: string, body: { to?: string[]; cc?: string[]; subject?: string; body?: string }): Promise<EmailDraft> =>
+/** A brand-new email (not a reply) as a draft in one mailbox; sending still needs an owner's approval. */
+export const createNewEmailDraft = (body: NewDraftRequest): Promise<DraftCreateResult> =>
+  apiRequest(`${base}/drafts`, { method: 'POST', body: JSON.stringify(body) });
+export const updateEmailDraft = (draftId: string, body: { to?: string[]; cc?: string[]; bcc?: string[]; subject?: string; body?: string }): Promise<EmailDraft> =>
   apiRequest(`${base}/drafts/${id(draftId)}`, { method: 'PATCH', body: JSON.stringify(body) });
 export async function discardEmailDraft(draftId: string): Promise<void> {
   const response = await fetch(`${apiBaseUrl}${base}/drafts/${id(draftId)}`, { method: 'DELETE', headers: await authHeaders() });
