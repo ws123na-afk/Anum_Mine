@@ -7,7 +7,7 @@ Expand only: one JSONB column, not null with a server default of an empty list, 
 previous release inserts (which never name the column) get ``[]``. No grant, no policy: the
 table's forced RLS already covers the new column.
 
-Numbered 0087 and chained after ``0083_skill_signing``, the head of ``main``.
+Numbered 0087 and chained after ``0080_business_change_orders``, the head of ``main``.
 """
 
 import sqlalchemy as sa
@@ -15,7 +15,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0087_email_draft_bcc"
-down_revision = "0083_skill_signing"
+down_revision = "0080_business_change_orders"
 branch_labels = None
 depends_on = None
 
