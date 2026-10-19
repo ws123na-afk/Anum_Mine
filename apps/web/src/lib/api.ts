@@ -207,6 +207,8 @@ export async function getNotificationChannels(): Promise<push.NotificationChanne
 /** One task by id (a run's "Open task" link). */
 export async function getTask(taskId: string): Promise<Task> { return mapTask(await request<ApiTask>(`/api/v1/tasks/${encodeURIComponent(taskId)}`, { method: 'GET' })); }
 export async function getTasks(): Promise<Task[]> { return (await request<ApiTask[]>('/api/v1/tasks', { method: 'GET' })).map(mapTask); }
+/** One approval by id (an owner's desktop alert checks who requested it). */
+export async function getApproval(approvalId: string): Promise<Approval> { return mapApproval(await request<ApiApproval>(`/api/v1/approvals/${encodeURIComponent(approvalId)}`, { method: 'GET' })); }
 export async function getApprovals(): Promise<Approval[]> { return (await request<ApiApproval[]>('/api/v1/approvals', { method: 'GET' })).map(mapApproval); }
 /** One page of `GET /api/v1/tasks` after `cursor` (the last task id already shown; the API answers 400 for an unknown one), newest first. */
 export async function getTaskPage(cursor: string, limit = 50): Promise<Task[]> {

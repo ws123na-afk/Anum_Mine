@@ -252,14 +252,21 @@ def recipient_address(context: TenantContext, user_id: str) -> str | None:
 
     recipient = context.model_copy(update={"user_id": user_id})
     with open_team_unit(recipient) as unit:
-        profile = unit.store.list_profiles(recipient).get(user_id)
-        if profile is not None and profile.email:
-            return profile.email
-        from .schemas import InvitationStatus
+        return address_in_unit(unit.store, unit.repository, recipient, user_id)
 
-        for invitation in unit.repository.list_invitations(recipient):
-            if invitation.status == InvitationStatus.ACCEPTED and invitation.accepted_by_user_id == user_id and invitation.invitee_email:
-                return invitation.invitee_email
+
+def address_in_unit(store: TeamStore, repository: Any, context: TenantContext, user_id: str) -> str | None:
+    """Profile email, else the verified email of the invitation ``user_id`` accepted, inside an
+    open unit of work. Every path that emails a person (the notification row, the event
+    listener, the test email, Settings' hint) resolves the address here, so they agree."""
+    from .schemas import InvitationStatus
+
+    profile = store.list_profiles(context).get(user_id)
+    if profile is not None and profile.email:
+        return profile.email
+    for invitation in repository.list_invitations(context):
+        if invitation.status == InvitationStatus.ACCEPTED and invitation.accepted_by_user_id == user_id and invitation.invitee_email:
+            return invitation.invitee_email
     return None
 
 
@@ -304,8 +311,8 @@ def deliver_pending_email(context: TenantContext, pending: Iterable[tuple[str, s
         recipient = context.model_copy(update={"user_id": user_id})
         try:
             with open_team_unit(recipient) as unit:
-                profile = unit.store.list_profiles(recipient).get(user_id)
-                deliver_email(unit.store, recipient, notification_id, profile.email if profile else None)
+                address = address_in_unit(unit.store, unit.repository, recipient, user_id)
+                deliver_email(unit.store, recipient, notification_id, address)
         except Exception:  # never fail the caller's request after it committed
             logger.exception("Notification email delivery failed", extra={"anum_notification_id": notification_id})
 

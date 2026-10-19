@@ -26,31 +26,61 @@ export interface DesktopNotice {
   tag: string;
 }
 
+/** What the client needs to know about an approval to apply the server's recipient rule. */
+export interface ApprovalFacts {
+  riskLevel: string;
+  requestedBy?: string | null;
+  taskId: string;
+}
+
 export interface DesktopEventContext {
   preferences: NotificationPreferences | null;
   /** The signed-in user's id. */
   userId: string | null;
   /** Only owners can decide approvals, so only they are told one is waiting. */
   isOwner: boolean;
-  /** Who created the task, from the loaded task list (undefined when unknown). */
-  taskCreator(taskId: string): string | null | undefined;
+  /** Who created the task: from the loaded list when it is there, else fetched. undefined when it cannot be found. */
+  taskCreator(taskId: string): Promise<string | null | undefined>;
+  /** The approval behind an `approval.requested` event (null when it cannot be read). */
+  approval(approvalId: string): Promise<ApprovalFacts | null>;
+  /** Whether the workspace's two-person rule is on (false when it cannot be read). */
+  twoPersonRule(): Promise<boolean>;
 }
 
-/** The notice for an event, or null when the person's switches, role or the event's owner say no. */
-export function desktopNoticeFor(event: Pick<DomainEvent, 'id' | 'type' | 'subject' | 'payload'>, context: DesktopEventContext): DesktopNotice | null {
+/** Risk levels the two-person rule covers: the same set as the server (push.TWO_PERSON_RISK_LEVELS). */
+const TWO_PERSON_RISK_LEVELS = new Set(['high']);
+
+/**
+ * The notice for an event, or null when the person's switches, role or the event's owner say no.
+ * Approvals follow the server's push recipient rule: an owner who requested the approval or created
+ * its task is not told when the two-person rule covers its risk, because they cannot decide it.
+ * An approval or task the client cannot look up still notifies / stays quiet as described on each case.
+ */
+export async function desktopNoticeFor(event: Pick<DomainEvent, 'id' | 'type' | 'subject' | 'payload'>, context: DesktopEventContext): Promise<DesktopNotice | null> {
   const prefs = context.preferences;
   if (!prefs || !prefs.desktop_enabled) return null;
   const taskId = typeof event.payload?.task_id === 'string' ? event.payload.task_id : null;
   switch (event.type) {
-    case 'approval.requested':
+    case 'approval.requested': {
       if (!prefs.approval_required || !context.isOwner) return null;
+      const approval = await context.approval(event.subject);
+      // Not readable: tell the owner; the server still decides who may act.
+      if (approval && TWO_PERSON_RISK_LEVELS.has(approval.riskLevel) && await context.twoPersonRule()) {
+        const creator = await context.taskCreator(approval.taskId);
+        if (context.userId && (approval.requestedBy === context.userId || creator === context.userId)) return null;
+      }
       return { title: t('desktop.approval.title'), body: t('desktop.approval.body'), tag: event.subject || event.id };
+    }
     case 'agent_run.completed':
-      if (!prefs.task_completed || !taskId || !context.userId || context.taskCreator(taskId) !== context.userId) return null;
-      return { title: t('desktop.completed.title'), body: t('desktop.completed.body'), tag: event.subject || event.id };
-    case 'agent_run.failed':
-      if (!prefs.run_failed || !taskId || !context.userId || context.taskCreator(taskId) !== context.userId) return null;
-      return { title: t('desktop.failed.title'), body: t('desktop.failed.body'), tag: event.subject || event.id };
+    case 'agent_run.failed': {
+      const completed = event.type === 'agent_run.completed';
+      if (!(completed ? prefs.task_completed : prefs.run_failed) || !taskId || !context.userId) return null;
+      // Only the task's creator is told; an unknown task (not in the loaded list) is looked up, and one that cannot be found stays quiet.
+      if ((await context.taskCreator(taskId)) !== context.userId) return null;
+      return completed
+        ? { title: t('desktop.completed.title'), body: t('desktop.completed.body'), tag: event.subject || event.id }
+        : { title: t('desktop.failed.title'), body: t('desktop.failed.body'), tag: event.subject || event.id };
+    }
     default:
       return null;
   }

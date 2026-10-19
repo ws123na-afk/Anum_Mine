@@ -70,30 +70,57 @@ describe('channel hints', () => {
 describe('desktop notices for approvals and task results', () => {
   const event = (type: string, payload: Record<string, unknown> = {}) => ({ id: 'e1', type, subject: 's1', payload });
   const context = (overrides: Partial<DesktopEventContext> = {}): DesktopEventContext => ({
-    preferences: prefs, userId: 'me', isOwner: true, taskCreator: (id) => (id === 'task_mine' ? 'me' : 'someone'), ...overrides,
+    preferences: prefs, userId: 'me', isOwner: true,
+    taskCreator: async (id) => (id === 'task_mine' ? 'me' : 'someone'),
+    approval: async () => ({ riskLevel: 'high', requestedBy: 'someone', taskId: 'task_other' }),
+    twoPersonRule: async () => false,
+    ...overrides,
   });
 
-  test('approvals reach owners who kept the switches on', () => {
-    assert.deepEqual(desktopNoticeFor(event('approval.requested'), context()), { title: 'Approval needed', body: 'An action is waiting for your decision.', tag: 's1' });
-    assert.equal(desktopNoticeFor(event('approval.requested'), context({ isOwner: false })), null);
-    assert.equal(desktopNoticeFor(event('approval.requested'), context({ preferences: { ...prefs, approval_required: false } })), null);
-    assert.equal(desktopNoticeFor(event('approval.requested'), context({ preferences: { ...prefs, desktop_enabled: false } })), null);
-    assert.equal(desktopNoticeFor(event('approval.requested'), context({ preferences: null })), null);
+  test('approvals reach owners who kept the switches on', async () => {
+    assert.deepEqual(await desktopNoticeFor(event('approval.requested'), context()), { title: 'Approval needed', body: 'An action is waiting for your decision.', tag: 's1' });
+    assert.equal(await desktopNoticeFor(event('approval.requested'), context({ isOwner: false })), null);
+    assert.equal(await desktopNoticeFor(event('approval.requested'), context({ preferences: { ...prefs, approval_required: false } })), null);
+    assert.equal(await desktopNoticeFor(event('approval.requested'), context({ preferences: { ...prefs, desktop_enabled: false } })), null);
+    assert.equal(await desktopNoticeFor(event('approval.requested'), context({ preferences: null })), null);
   });
 
-  test('task results reach the task creator only, each with its own switch', () => {
-    assert.equal(desktopNoticeFor(event('agent_run.completed', { task_id: 'task_mine' }), context())?.title, 'Task finished');
-    assert.equal(desktopNoticeFor(event('agent_run.failed', { task_id: 'task_mine' }), context())?.title, 'Task failed');
-    assert.equal(desktopNoticeFor(event('agent_run.completed', { task_id: 'task_other' }), context()), null);
-    assert.equal(desktopNoticeFor(event('agent_run.completed', { task_id: 'task_unknown' }), context({ taskCreator: () => undefined })), null);
-    assert.equal(desktopNoticeFor(event('agent_run.completed', { task_id: 'task_mine' }), context({ preferences: { ...prefs, task_completed: false } })), null);
-    assert.equal(desktopNoticeFor(event('agent_run.failed', { task_id: 'task_mine' }), context({ preferences: { ...prefs, run_failed: false } })), null);
-    assert.equal(desktopNoticeFor(event('agent_run.completed'), context()), null);
-    assert.equal(desktopNoticeFor(event('task.created'), context()), null);
+  test('under the two-person rule the requester and the task creator are not told', async () => {
+    const rule = { twoPersonRule: async () => true };
+    // I requested it.
+    assert.equal(await desktopNoticeFor(event('approval.requested'), context({ ...rule, approval: async () => ({ riskLevel: 'high', requestedBy: 'me', taskId: 'task_other' }) })), null);
+    // I created its task (a task outside the loaded list is looked up).
+    assert.equal(await desktopNoticeFor(event('approval.requested'), context({ ...rule, approval: async () => ({ riskLevel: 'high', requestedBy: 'someone', taskId: 'task_mine' }) })), null);
+    // Another owner is still told.
+    assert.ok(await desktopNoticeFor(event('approval.requested'), context({ ...rule })));
+    // The rule covers high risk only, and only while it is on.
+    assert.ok(await desktopNoticeFor(event('approval.requested'), context({ ...rule, approval: async () => ({ riskLevel: 'medium', requestedBy: 'me', taskId: 'task_mine' }) })));
+    assert.ok(await desktopNoticeFor(event('approval.requested'), context({ approval: async () => ({ riskLevel: 'high', requestedBy: 'me', taskId: 'task_mine' }) })));
+    // An approval that cannot be read still notifies; the server decides who may act.
+    assert.ok(await desktopNoticeFor(event('approval.requested'), context({ ...rule, approval: async () => null })));
   });
 
-  test('the notice text is fixed: it never carries a task title', () => {
-    const notice = desktopNoticeFor(event('agent_run.completed', { task_id: 'task_mine', title: 'Secret board deck' }), context());
+  test('task results reach the task creator only, each with its own switch', async () => {
+    assert.equal((await desktopNoticeFor(event('agent_run.completed', { task_id: 'task_mine' }), context()))?.title, 'Task finished');
+    assert.equal((await desktopNoticeFor(event('agent_run.failed', { task_id: 'task_mine' }), context()))?.title, 'Task failed');
+    assert.equal(await desktopNoticeFor(event('agent_run.completed', { task_id: 'task_other' }), context()), null);
+    assert.equal(await desktopNoticeFor(event('agent_run.completed', { task_id: 'task_mine' }), context({ preferences: { ...prefs, task_completed: false } })), null);
+    assert.equal(await desktopNoticeFor(event('agent_run.failed', { task_id: 'task_mine' }), context({ preferences: { ...prefs, run_failed: false } })), null);
+    assert.equal(await desktopNoticeFor(event('agent_run.completed'), context()), null);
+    assert.equal(await desktopNoticeFor(event('task.created'), context()), null);
+  });
+
+  test('a task outside the loaded list is resolved, not treated as someone else\'s', async () => {
+    const looked: string[] = [];
+    const fetched = context({ taskCreator: async (id) => { looked.push(id); return 'me'; } });
+    assert.equal((await desktopNoticeFor(event('agent_run.completed', { task_id: 'task_old' }), fetched))?.title, 'Task finished');
+    assert.deepEqual(looked, ['task_old']);
+    // Not found anywhere: quiet.
+    assert.equal(await desktopNoticeFor(event('agent_run.failed', { task_id: 'task_gone' }), context({ taskCreator: async () => undefined })), null);
+  });
+
+  test('the notice text is fixed: it never carries a task title', async () => {
+    const notice = await desktopNoticeFor(event('agent_run.completed', { task_id: 'task_mine', title: 'Secret board deck' }), context());
     assert.ok(notice && !JSON.stringify(notice).includes('Secret'));
   });
 
