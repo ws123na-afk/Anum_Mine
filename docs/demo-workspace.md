@@ -36,7 +36,7 @@ Every record title starts with `Demo: ` and uses `example.com` addresses:
 
 ## The demo tag and reset
 
-- Every sample record is tagged in `demo_records` (migration `0076_demo_records`, forced RLS on `anum.tenant_id` and `anum.workspace_id`): the module and the record's id.
+- Every sample record is tagged in `demo_records` (migration `0078_demo_records`, forced RLS on `anum.tenant_id` and `anum.workspace_id`): the module and the record's id.
 - Tags are written ahead: each record's tag is committed before the record itself. A seed that fails part way never leaves an untagged sample record; the next reset removes what was written (a tag whose record never got written is skipped) and seeds again from the start, without duplicates.
 - Reset removes exactly the tagged records, inside the Demo workspace's tenant context, through each module's own service and store functions (`business.store`, `calendar_api`, `email_inbox`, `files`, `knowledge_base`, `marketing.store`). Records somebody added to the Demo workspace by hand stay.
 - Tasks and approvals have no delete in ANUM: reset archives demo tasks and expires their pending approvals, so they leave the active lists.

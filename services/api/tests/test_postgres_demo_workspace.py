@@ -1,4 +1,4 @@
-"""Sales demo workspace in PostgreSQL (migration ``0076_demo_records``), as the non-owner app role.
+"""Sales demo workspace in PostgreSQL (migration ``0078_demo_records``), as the non-owner app role.
 
 Seeding and reset run through the modules' own stores under forced RLS, inside the Demo
 workspace's tenant context: tenant A's demo records and tags are invisible to tenant B, a

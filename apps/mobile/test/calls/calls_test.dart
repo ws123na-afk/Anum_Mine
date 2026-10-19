@@ -142,6 +142,13 @@ class FakeCallsRepository implements CallsRepository {
     if (failProvider) {
       throw const ApiException(503, 'The database did not answer.');
     }
+    if (deniedProvider) {
+      throw const ApiException(
+          403, 'Only a workspace owner manages the voice provider.');
+    }
+    if (providerJson != null) {
+      return ProviderStatus.fromJson(JsonReader(providerJson!));
+    }
     return ProviderStatus.fromJson(JsonReader(aiReady
         ? {
             'connected': true,
@@ -154,6 +161,141 @@ class FakeCallsRepository implements CallsRepository {
             'webhooks_ready': true,
           }
         : {'connected': false, 'webhooks_ready': false}));
+  }
+
+  // -- owner tools: provider, consent, opt-outs --------------------------------
+  Map<String, Object?>? providerJson;
+  bool failSave = false, failOptOuts = false, deniedProvider = false;
+  final savedBodies = <Map<String, Object?>>[];
+  final consents = <Map<String, Object?>>[];
+  final withdrawn = <String>[];
+  final optOutsAdded = <Map<String, Object?>>[];
+  final optOutsLifted = <Map<String, String>>[];
+  var checks = 0, disconnects = 0;
+  List<Map<String, Object?>> optItems = [];
+  final _contactOverrides = <String, Map<String, Object?>>{};
+
+  Map<String, Object?> _contactJson(String id) =>
+      _contactOverrides[id] ??
+      (id == 'c2'
+          ? _contact('c2', 'عمر المثال', '+971502223333', consent: true)
+          : _contact(id, 'Sara Example', '+971501234567'));
+
+  static Map<String, Object?> connectedProvider({String check = 'ok'}) => {
+        'connected': true,
+        'account_sid': 'ACexample',
+        'from_number': '+971500000000',
+        'credential_hint': '…mple',
+        'business_name': 'Example Trading',
+        'recording_enabled': true,
+        'transcription_enabled': false,
+        'recording_retention_days': 30,
+        'ai_calls_enabled': true,
+        'cost_per_minute_cents': 5,
+        'last_check_status': check,
+        'last_check_detail': check == 'ok'
+            ? 'Account example is active.'
+            : 'Twilio refused the credentials.',
+        'last_checked_at': _now.toIso8601String(),
+        'voice_url':
+            'https://api.example.test/api/v1/calls/webhooks/twilio/r1/voice',
+        'status_url':
+            'https://api.example.test/api/v1/calls/webhooks/twilio/r1/status',
+        'webhooks_ready': true,
+        'limits': {'ai_max_seconds': 600, 'ai_max_cost_cents': 500},
+      };
+
+  @override
+  Future<CallContact> contact(String id) async =>
+      CallContact.fromJson(JsonReader(_contactJson(id)));
+
+  @override
+  Future<CallContact> recordConsent(String contactId,
+      {required String method, String? note}) async {
+    consents.add({'contact_id': contactId, 'method': method, 'note': note});
+    _contactOverrides[contactId] = {
+      ..._contactJson(contactId),
+      'ai_consent': {
+        'granted_at': _now.toIso8601String(),
+        'recorded_by': 'owner',
+        'method': method,
+        'note': note,
+      },
+    };
+    return contact(contactId);
+  }
+
+  @override
+  Future<CallContact> withdrawConsent(String contactId) async {
+    withdrawn.add(contactId);
+    _contactOverrides[contactId] = {
+      ..._contactJson(contactId),
+      'ai_consent': null
+    };
+    return contact(contactId);
+  }
+
+  @override
+  Future<CallsPage<OptOutEntry>> optOuts({int offset = 0}) async {
+    if (failOptOuts) {
+      throw const ApiException(503, 'Opt-outs are unavailable.');
+    }
+    return CallsPage(
+        [for (final item in optItems) OptOutEntry.fromJson(JsonReader(item))],
+        optItems.length);
+  }
+
+  @override
+  Future<OptOutEntry> addOptOut(String phone, {String? note}) async {
+    optOutsAdded.add({'phone': phone, 'note': note});
+    final item = {
+      'id': 'opt_new',
+      'masked': '+971•••12',
+      'source': 'owner',
+      'note': note,
+      'created_at': _now.toIso8601String(),
+    };
+    optItems = [item, ...optItems];
+    return OptOutEntry.fromJson(JsonReader(item));
+  }
+
+  @override
+  Future<void> removeOptOut(String id, String reason) async {
+    optOutsLifted.add({'id': id, 'reason': reason});
+    optItems = [
+      for (final item in optItems)
+        if (item['id'] != id) item
+    ];
+  }
+
+  @override
+  Future<ProviderStatus> saveProvider(Map<String, Object?> body) async {
+    savedBodies.add(body);
+    if (failSave) {
+      throw const ApiException(
+          422, 'Not saved: Twilio refused the credentials.');
+    }
+    providerJson = connectedProvider();
+    aiReady = true;
+    return provider();
+  }
+
+  @override
+  Future<ProviderStatus> checkProvider() async {
+    checks++;
+    providerJson = connectedProvider(check: 'failed');
+    return provider();
+  }
+
+  @override
+  Future<void> deleteProvider() async {
+    disconnects++;
+    providerJson = {
+      'connected': false,
+      'webhooks_ready': true,
+      'limits': {'ai_max_seconds': 600, 'ai_max_cost_cents': 500},
+    };
+    aiReady = false;
   }
 
   @override
@@ -611,9 +753,16 @@ void main() {
       final repo = FakeCallsRepository()
         ..aiReady = true
         ..owner = true
-        ..aiItems = [
-          _aiItem('aicall_1'),
-          _aiItem('aicall_2', status: 'failed')
+        ..aiItems = [_aiItem('aicall_1'), _aiItem('aicall_2', status: 'failed')]
+        ..optItems = [
+          {
+            'id': 'opt1',
+            'masked': '+971•••67',
+            'source': 'inbound',
+            'note':
+                'Asked on a call in to never be called by the assistant again',
+            'created_at': _now.toIso8601String(),
+          }
         ];
       await _pump(tester, CallsController(repo),
           size: size, textScale: scale, locale: locale);
@@ -637,6 +786,10 @@ void main() {
       await tester.scrollUntilVisible(find.byKey(const Key('ai-form')), 300,
           scrollable: list);
       await tester.scrollUntilVisible(find.byKey(const Key('ai-aicall_2')), 300,
+          scrollable: list);
+      expect(tester.takeException(), isNull);
+      await tester.scrollUntilVisible(
+          find.byKey(const Key('opt-out-lift-opt1')), 300,
           scrollable: list);
       expect(tester.takeException(), isNull);
       if (locale.languageCode == 'ar') {
@@ -767,7 +920,7 @@ void main() {
       expect(find.text('Number: +971500000000'), findsOneWidget);
       expect(find.text(_en('calls.provider.aiOn')), findsOneWidget);
       expect(find.textContaining('Last check passed'), findsOneWidget);
-      expect(find.text(_en('calls.provider.onWeb')), findsOneWidget);
+      expect(find.text(_en('calls.provider.manage')), findsOneWidget);
     });
 
     testWidgets('viewers are told they cannot ask, and no form is shown',
@@ -830,6 +983,395 @@ void main() {
           tester, find.text('Ask a workspace owner to make you a member.'));
     });
   });
+
+  group('owner tools', () {
+    Future<void> openAi(WidgetTester tester) async {
+      await tester.ensureVisible(find.text(_en('calls.tab.ai')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(_en('calls.tab.ai')));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> openProvider(WidgetTester tester) async {
+      await openAi(tester);
+      await tester.tap(find.byKey(const Key('provider-manage')));
+      await tester.pumpAndSettle();
+    }
+
+    test('the provider body leaves out empty secrets, as the web does', () {
+      final form = ProviderForm.of(ProviderStatus.fromJson(
+          JsonReader(FakeCallsRepository.connectedProvider())))
+        ..greeting = '  '
+        ..transcriptionEnabled = true
+        ..recordingEnabled = false;
+      final body = form.body();
+      expect(body.containsKey('auth_token'), isFalse);
+      expect(body.containsKey('api_key_secret'), isFalse);
+      expect(body.containsKey('api_key_sid'), isFalse);
+      expect(body.containsKey('greeting'), isFalse);
+      expect(body['transcription_enabled'], isFalse);
+      form.authToken = 'example';
+      expect(form.body()['auth_token'], 'example');
+      form.clearSecrets();
+      expect(form.authToken, isEmpty);
+      expect(form.body().containsKey('auth_token'), isFalse);
+    });
+
+    testWidgets(
+        'an owner connects the provider; secrets are obscured, required and cleared after the request',
+        (tester) async {
+      final repo = FakeCallsRepository()..owner = true;
+      final controller = CallsController(repo);
+      await _pump(tester, controller, size: const Size(768, 3000));
+      await openAi(tester);
+      expect(find.text(_en('calls.provider.connect')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('provider-manage')));
+      await tester.pumpAndSettle();
+      expect(find.text(_en('calls.provider.state.off')), findsOneWidget);
+      final token = find.byKey(const Key('provider-authToken'));
+      final field = tester.widget<TextField>(token);
+      expect(field.obscureText, isTrue);
+      expect(field.enableSuggestions, isFalse);
+      expect(field.autocorrect, isFalse);
+      expect(
+          tester
+              .widget<TextField>(find.byKey(const Key('provider-apiKeySecret')))
+              .obscureText,
+          isTrue);
+
+      Future<void> save() async {
+        await tester.ensureVisible(find.byKey(const Key('provider-save')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('provider-save')));
+        await tester.pumpAndSettle();
+      }
+
+      await save();
+      expect(find.text(_en('calls.provider.required')), findsOneWidget);
+      await tester.enterText(
+          find.byKey(const Key('provider-accountSid')), 'ACexample');
+      await tester.enterText(
+          find.byKey(const Key('provider-fromNumber')), '+971500000000');
+      await tester.enterText(
+          find.byKey(const Key('provider-businessName')), 'Example Trading');
+      await save();
+      expect(find.text(_en('calls.provider.tokenRequired')), findsOneWidget);
+      await tester.enterText(
+          find.byKey(const Key('provider-apiKeySid')), 'SKexample');
+      await tester.enterText(token, 'example-token');
+      await save();
+      expect(find.text(_en('calls.provider.keyPair')), findsOneWidget);
+      expect(repo.savedBodies, isEmpty);
+      await tester.enterText(find.byKey(const Key('provider-apiKeySid')), '');
+      await tester.enterText(token, 'example-token');
+      await save();
+      expect(repo.savedBodies.single['auth_token'], 'example-token');
+      expect(repo.savedBodies.single.containsKey('api_key_secret'), isFalse);
+      expect(repo.savedBodies.single['account_sid'], 'ACexample');
+      expect(find.text(_en('calls.provider.saved')), findsOneWidget);
+      expect(find.text(_en('calls.provider.state.on')), findsOneWidget);
+      // The secret is gone from the form, and only the hint is shown.
+      expect(tester.widget<TextField>(token).controller!.text, isEmpty);
+      expect(find.text('example-token'), findsNothing);
+      expect(find.textContaining('…mple'), findsOneWidget);
+      // The Calls screen now knows the provider works.
+      expect(controller.setup!.aiCalls, isTrue);
+      expect(controller.provider!.connected, isTrue);
+    });
+
+    testWidgets('a refused save says why and still forgets the secret',
+        (tester) async {
+      final repo = FakeCallsRepository()
+        ..owner = true
+        ..failSave = true;
+      await _pump(tester, CallsController(repo), size: const Size(768, 3000));
+      await openProvider(tester);
+      await tester.enterText(
+          find.byKey(const Key('provider-accountSid')), 'ACexample');
+      await tester.enterText(
+          find.byKey(const Key('provider-fromNumber')), '+971500000000');
+      await tester.enterText(
+          find.byKey(const Key('provider-businessName')), 'Example Trading');
+      await tester.enterText(
+          find.byKey(const Key('provider-authToken')), 'example-token');
+      await tester.ensureVisible(find.byKey(const Key('provider-save')));
+      await tester.tap(find.byKey(const Key('provider-save')));
+      await tester.pumpAndSettle();
+      expect(find.text('Not saved: Twilio refused the credentials.'),
+          findsOneWidget);
+      expect(
+          tester
+              .widget<TextField>(find.byKey(const Key('provider-authToken')))
+              .controller!
+              .text,
+          isEmpty);
+    });
+
+    testWidgets('an owner checks again and disconnects after confirming',
+        (tester) async {
+      final repo = FakeCallsRepository()
+        ..owner = true
+        ..aiReady = true
+        ..providerJson = FakeCallsRepository.connectedProvider();
+      await _pump(tester, CallsController(repo), size: const Size(768, 3000));
+      await openProvider(tester);
+      expect(find.text(_en('calls.provider.state.on')), findsOneWidget);
+      expect(find.textContaining('webhooks/twilio/r1/voice'), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('provider-check')));
+      await tester.tap(find.byKey(const Key('provider-check')));
+      await tester.pumpAndSettle();
+      expect(repo.checks, 1);
+      expect(find.text(_en('calls.provider.state.failed')), findsOneWidget);
+      expect(
+          find.textContaining('Twilio refused the credentials.'), findsWidgets);
+
+      await tester.ensureVisible(find.byKey(const Key('provider-disconnect')));
+      await tester.tap(find.byKey(const Key('provider-disconnect')));
+      await tester.pumpAndSettle();
+      expect(find.text(_en('calls.provider.disconnectTitle')), findsOneWidget);
+      await tester.tap(find.text(_en('calls.cancel')).last);
+      await tester.pumpAndSettle();
+      expect(repo.disconnects, 0);
+      await tester.ensureVisible(find.byKey(const Key('provider-disconnect')));
+      await tester.tap(find.byKey(const Key('provider-disconnect')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.descendant(
+          of: find.byType(AlertDialog), matching: find.byType(FilledButton)));
+      await tester.pumpAndSettle();
+      expect(repo.disconnects, 1);
+      expect(find.text(_en('calls.provider.disconnected')), findsOneWidget);
+      expect(find.text(_en('calls.provider.state.off')), findsOneWidget);
+    });
+
+    testWidgets('members see the state only; the page explains who can manage',
+        (tester) async {
+      await _pump(tester, CallsController(FakeCallsRepository()));
+      await openAi(tester);
+      expect(find.byKey(const Key('provider-manage')), findsNothing);
+      expect(find.text(_en('calls.provider.askOwner')), findsOneWidget);
+
+      final denied = FakeCallsRepository()..deniedProvider = true;
+      await _pumpPage(
+          tester, ProviderScreen(controller: CallsController(denied)));
+      expect(find.text(_en('calls.provider.ownerOnly')), findsOneWidget);
+
+      final failing = FakeCallsRepository()..failProvider = true;
+      await _pumpPage(
+          tester, ProviderScreen(controller: CallsController(failing)));
+      expect(
+          find.textContaining('The database did not answer.'), findsOneWidget);
+      failing.failProvider = false;
+      await tester.tap(find.text(_en('calls.retry')));
+      await tester.pumpAndSettle();
+      expect(find.text(_en('calls.provider.state.off')), findsOneWidget);
+    });
+
+    Future<void> openContact(WidgetTester tester, String name) async {
+      await tester.tap(find.text(name).first);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.byKey(const Key('consent')), 200,
+          scrollable: find.byType(Scrollable).first);
+    }
+
+    testWidgets(
+        'an owner records consent only after confirming it; the method is sent',
+        (tester) async {
+      final repo = FakeCallsRepository()
+        ..owner = true
+        ..aiReady = true;
+      await _pump(tester, CallsController(repo), size: const Size(768, 3000));
+      await openContact(tester, 'Sara Example');
+      expect(find.text(_en('calls.consent.none')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('consent-record')));
+      await tester.pumpAndSettle();
+      final save = find.byKey(const Key('consent-save'));
+      expect(tester.widget<FilledButton>(save).onPressed, isNull);
+      await tester.tap(find.byKey(const Key('consent-method')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(_en('calls.consent.method.written')).last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('consent-note')), 'Signed form on 18 October');
+      await tester.tap(find.byKey(const Key('consent-confirm')));
+      await tester.pump();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      expect(repo.consents.single, {
+        'contact_id': 'c1',
+        'method': 'written',
+        'note': 'Signed form on 18 October',
+      });
+      expect(find.text(_en('calls.consent.recorded')), findsOneWidget);
+      expect(find.textContaining('In writing'), findsOneWidget);
+    });
+
+    testWidgets(
+        'members cannot record consent but can withdraw it (it only stops calls)',
+        (tester) async {
+      final repo = FakeCallsRepository()..aiReady = true;
+      await _pump(tester, CallsController(repo), size: const Size(768, 3000));
+      await openContact(tester, 'Sara Example');
+      expect(find.byKey(const Key('consent-record')), findsNothing);
+      expect(find.text(_en('calls.consent.ownerOnly')), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await openContact(tester, 'عمر المثال');
+      await tester.ensureVisible(find.byKey(const Key('consent-withdraw')));
+      await tester.tap(find.byKey(const Key('consent-withdraw')));
+      await tester.pumpAndSettle();
+      expect(repo.withdrawn, ['c2']);
+      expect(find.text(_en('calls.consent.withdrawn')), findsOneWidget);
+      expect(find.text(_en('calls.consent.none')), findsOneWidget);
+    });
+
+    testWidgets('a member adds an opt-out but cannot lift one', (tester) async {
+      final repo = FakeCallsRepository()
+        ..optItems = [
+          {
+            'id': 'opt1',
+            'masked': '+971•••67',
+            'source': 'keypad',
+            'created_at': _now.toIso8601String(),
+          }
+        ];
+      await _pump(tester, CallsController(repo), size: const Size(768, 3000));
+      await openAi(tester);
+      await _see(tester, find.byKey(const Key('opt-out-add')));
+      expect(find.text(_en('calls.optOuts.source.keypad')), findsNothing);
+      expect(find.textContaining(_en('calls.optOuts.source.keypad')),
+          findsOneWidget);
+      await tester.enterText(find.byKey(const Key('opt-out-phone')), 'no');
+      await tester.tap(find.byKey(const Key('opt-out-add')));
+      await tester.pumpAndSettle();
+      expect(find.text(_en('calls.contact.badPhone')), findsOneWidget);
+      await tester.enterText(
+          find.byKey(const Key('opt-out-phone')), '+971 55 444 1212');
+      await tester.enterText(
+          find.byKey(const Key('opt-out-note')), 'Asked by email');
+      await tester.tap(find.byKey(const Key('opt-out-add')));
+      await tester.pumpAndSettle();
+      expect(repo.optOutsAdded.single,
+          {'phone': '+971 55 444 1212', 'note': 'Asked by email'});
+      expect(find.text(_en('calls.optOuts.added')), findsOneWidget);
+      await _see(tester, find.byKey(const Key('opt-out-opt1')));
+      expect(find.byKey(const Key('opt-out-lift-opt1')), findsNothing);
+      expect(find.text(_en('calls.optOuts.ownerOnly')), findsOneWidget);
+    });
+
+    testWidgets('an owner lifts an opt-out only with a reason', (tester) async {
+      final repo = FakeCallsRepository()
+        ..owner = true
+        ..optItems = [
+          {
+            'id': 'opt1',
+            'masked': '+971•••67',
+            'source': 'speech',
+            'created_at': _now.toIso8601String(),
+          }
+        ];
+      await _pump(tester, CallsController(repo), size: const Size(768, 3000));
+      await openAi(tester);
+      await _see(tester, find.byKey(const Key('opt-out-lift-opt1')));
+      await tester.tap(find.byKey(const Key('opt-out-lift-opt1')));
+      await tester.pumpAndSettle();
+      final confirm = find.byKey(const Key('opt-out-lift-confirm'));
+      await tester.enterText(find.byKey(const Key('opt-out-reason')), 'yes');
+      await tester.pump();
+      expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
+      await tester.enterText(
+          find.byKey(const Key('opt-out-reason')), 'Asked to be called again');
+      await tester.pump();
+      await tester.tap(confirm);
+      await tester.pumpAndSettle();
+      expect(repo.optOutsLifted.single,
+          {'id': 'opt1', 'reason': 'Asked to be called again'});
+      expect(find.text(_en('calls.optOuts.removed')), findsOneWidget);
+      expect(find.text(_en('calls.optOuts.empty')), findsOneWidget);
+    });
+
+    testWidgets('opt-outs: a failed list retries', (tester) async {
+      final repo = FakeCallsRepository()..failOptOuts = true;
+      await _pump(tester, CallsController(repo), size: const Size(768, 3000));
+      await openAi(tester);
+      await _see(tester, find.byKey(const Key('opt-outs-retry')));
+      expect(find.textContaining('Opt-outs are unavailable.'), findsOneWidget);
+      repo.failOptOuts = false;
+      await tester.tap(find.byKey(const Key('opt-outs-retry')));
+      await tester.pumpAndSettle();
+      expect(find.text(_en('calls.optOuts.empty')), findsOneWidget);
+    });
+
+    for (final (size, scale, locale) in [
+      (const Size(320, 640), 2.0, const Locale('en')),
+      (const Size(390, 844), 2.0, const Locale('ar')),
+      (const Size(1440, 900), 1.0, const Locale('ar')),
+    ]) {
+      testWidgets(
+          'owner pages lay out at ${size.width.toInt()} px, ${scale}x text, ${locale.languageCode}',
+          (tester) async {
+        final repo = FakeCallsRepository()
+          ..owner = true
+          ..aiReady = true
+          ..providerJson = FakeCallsRepository.connectedProvider();
+        final controller = CallsController(repo);
+        await controller.load();
+        await _pumpPage(tester, ProviderScreen(controller: controller),
+            size: size, textScale: scale, locale: locale);
+        final list = find.byType(Scrollable).first;
+        await tester.scrollUntilVisible(
+            find.byKey(const Key('provider-save')), 300,
+            scrollable: list);
+        expect(tester.takeException(), isNull);
+        if (locale.languageCode == 'ar') {
+          expect(
+              Directionality.of(
+                  tester.element(find.byKey(const Key('provider-save')))),
+              TextDirection.rtl);
+        }
+        await _pumpPage(
+            tester,
+            ContactDetailScreen(
+                controller: controller,
+                contactId: 'c1',
+                onDial: (_, __) async {}),
+            size: size,
+            textScale: scale,
+            locale: locale);
+        await tester.scrollUntilVisible(
+            find.byKey(const Key('consent-record')), 300,
+            scrollable: find.byType(Scrollable).first);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  });
+}
+
+Future<void> _pumpPage(
+  WidgetTester tester,
+  Widget page, {
+  Size size = const Size(768, 1024),
+  double textScale = 1,
+  Locale locale = const Locale('en'),
+}) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  await tester.pumpWidget(MaterialApp(
+    key: UniqueKey(),
+    theme: AnumTheme.dark(),
+    locale: locale,
+    supportedLocales: const [Locale('en'), Locale('ar')],
+    localizationsDelegates: const [
+      AnumLocalizations.delegate,
+      ...GlobalMaterialLocalizations.delegates
+    ],
+    builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+            disableAnimations: true, textScaler: TextScaler.linear(textScale)),
+        child: child!),
+    home: page,
+  ));
+  await tester.pumpAndSettle();
 }
 
 /// The AI calls tab's own list (its first scrollable).

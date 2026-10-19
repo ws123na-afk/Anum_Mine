@@ -605,9 +605,14 @@ def delete_my_app_calls(context: TenantContext) -> int:
                 peers.append((call.id, peer))
     for call_id, peer in peers:
         peer_context = context.model_copy(update={"user_id": peer})
-        with open_call_store(peer_context) as store:
-            if store.forget_side(peer_context, call_id, context.user_id, f"{DELETED_PREFIX}{secrets.token_hex(8)}"):
+        # A call unit, so a call that was still ringing or in progress (now ended as
+        # failed) wakes the other person's devices in the same transaction.
+        with open_call_unit(peer_context, require_membership=False) as unit:
+            before = unit.calls.get(peer_context, call_id)
+            if unit.calls.forget_side(peer_context, call_id, context.user_id, f"{DELETED_PREFIX}{secrets.token_hex(8)}"):
                 forgotten += 1
+                if before is not None and before.status != CallStatus.ENDED:
+                    _wake(unit, CanonicalEventName.APP_CALL_UPDATED, before)
     return forgotten
 
 

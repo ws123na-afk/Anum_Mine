@@ -78,11 +78,14 @@ class CallsController extends ChangeNotifier {
         (query, offset) => repository.calls(query: query, offset: offset));
     aiCalls = CallsList<AiCallRequest>(
         (_, offset) => repository.aiCalls(offset: offset));
+    optOuts = CallsList<OptOutEntry>(
+        (_, offset) => repository.optOuts(offset: offset));
   }
   final CallsRepository repository;
   late final CallsList<CallContact> contacts;
   late final CallsList<CallEntry> recents;
   late final CallsList<AiCallRequest> aiCalls;
+  late final CallsList<OptOutEntry> optOuts;
   CallsSetup? setup;
   String? setupError;
   bool setupDenied = false;
@@ -101,6 +104,7 @@ class CallsController extends ChangeNotifier {
     }
     await Future.wait([
       aiCalls.load(),
+      optOuts.load(),
       if (owner) _loadProvider(),
     ]);
   }
@@ -144,6 +148,20 @@ class CallsController extends ChangeNotifier {
     }
   }
 
+  /// After the provider changed: what works now (GET /setup) and the
+  /// provider the owner sees.
+  Future<void> providerChanged(ProviderStatus? saved) async {
+    provider = saved;
+    providerError = null;
+    _notify();
+    try {
+      setup = await repository.setup();
+    } on Object {
+      // The tab keeps the previous setup; the next load refreshes it.
+    }
+    _notify();
+  }
+
   void dialed(String phone, CallContact? contact, DateTime at) {
     pending = PendingDial(phone: phone, contact: contact, startedAt: at);
     _notify();
@@ -167,6 +185,7 @@ class CallsController extends ChangeNotifier {
     contacts.dispose();
     recents.dispose();
     aiCalls.dispose();
+    optOuts.dispose();
     super.dispose();
   }
 }

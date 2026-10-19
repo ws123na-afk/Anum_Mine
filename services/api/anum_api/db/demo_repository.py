@@ -1,4 +1,4 @@
-"""PostgreSQL store for the demo tag (migration ``0076_demo_records``, docs/demo-workspace.md).
+"""PostgreSQL store for the demo tag (migration ``0078_demo_records``, docs/demo-workspace.md).
 
 The session carries the tenant and workspace RLS context (``open_scoped_store``); every
 query also filters on the scope explicitly.
