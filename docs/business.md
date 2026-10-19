@@ -5,7 +5,7 @@ Business is roadmap P1 "Internal sales MVP" ([ANUM OS business and product roadm
 - API: `services/api/anum_api/business/` under `/api/v1/business`.
 - Storage: migrations `0070_business` (16 tables), `0076_business_support` (support tickets), `0080_business_change_orders` (change orders and the usage ledger) and `0082_business_pipeline` (6 tables: prospecting and the outbox), memory store for local runs and tests.
 - Web: Business in the main navigation (`apps/web/src/BusinessView.tsx` and its tabs), English and Arabic.
-- Flutter: Business in the menu (`apps/mobile/lib/features/business/`), English and Arabic.
+- Flutter: Business in the menu (`apps/mobile/lib/features/business/`), English and Arabic; the phone edits the catalog, accounts, contacts and support tickets ([Mobile features](mobile-features.md#business)).
 - Contracts: `packages/contracts/src/business.ts`.
 
 ## What it does

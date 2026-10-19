@@ -6,11 +6,13 @@ import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
+import 'accounts_screen.dart';
 import 'business_controller.dart';
 import 'business_models.dart';
 import 'business_pipeline_repository.dart';
 import 'business_pipeline_screen.dart';
 import 'business_repository.dart';
+import 'catalog_screen.dart';
 import 'project_money.dart';
 import 'support_screen.dart';
 
@@ -33,7 +35,16 @@ class BusinessScreen extends StatefulWidget {
   State<BusinessScreen> createState() => _BusinessScreenState();
 }
 
-enum _Section { overview, leads, pipeline, proposals, projects, support }
+enum _Section {
+  overview,
+  leads,
+  pipeline,
+  proposals,
+  projects,
+  catalog,
+  accounts,
+  support,
+}
 
 String money(double? amount, String currency) => formatMoney(amount, currency);
 
@@ -83,6 +94,12 @@ class _BusinessScreenState extends State<BusinessScreen> {
         c.first(c.projects);
       case _Section.leads:
         if (c.leads.state == BusinessLoad.idle) c.first(c.leads);
+      case _Section.catalog:
+        final catalog = c.catalog;
+        catalog?.load();
+      case _Section.accounts:
+        final accounts = c.accounts;
+        accounts?.load();
       case _Section.support:
         final support = c.support;
         if (support != null && support.state != BusinessLoad.ready) {
@@ -106,9 +123,10 @@ class _BusinessScreenState extends State<BusinessScreen> {
             onRefresh: c.load,
             children: [
               // The app bar already says "Business"; only the subtitle here.
-              Text(l.t('biz.subtitle'),
-                  style:
-                      TextStyle(color: context.palette.muted, fontSize: 13.5)),
+              Text(
+                l.t('biz.subtitle'),
+                style: TextStyle(color: context.palette.muted, fontSize: 13.5),
+              ),
               ...switch (c.setupState) {
                 BusinessLoad.idle || BusinessLoad.loading => [
                     AnumFeedback(
@@ -158,8 +176,12 @@ class _BusinessScreenState extends State<BusinessScreen> {
                       runSpacing: 8,
                       children: [
                         for (final item in _Section.values.where(
-                          (item) =>
-                              item != _Section.support || c.support != null,
+                          (item) => switch (item) {
+                            _Section.support => c.support != null,
+                            _Section.catalog => c.catalog != null,
+                            _Section.accounts => c.accounts != null,
+                            _ => true,
+                          },
                         ))
                           ChoiceChip(
                             key: Key('biz-tab-${item.name}'),
@@ -262,6 +284,19 @@ class _BusinessScreenState extends State<BusinessScreen> {
             'biz.projects',
             (item) => _ProjectCard(project: item, controller: c),
           ),
+        _Section.catalog => [
+            CatalogView(
+              controller: c.catalog!,
+              canManage: c.setup?.permissions.manage ?? false,
+            ),
+          ],
+        _Section.accounts => [
+            AccountsView(
+              controller: c.accounts!,
+              canWrite: c.setup?.permissions.write ?? false,
+              canManage: c.setup?.permissions.manage ?? false,
+            ),
+          ],
         _Section.support => [
             SupportTicketsView(
               controller: c.support!,
