@@ -56,7 +56,7 @@ function MarketData({ venues, instruments, retry, onChanged }: {
     {(instruments.kind === 'error' || instruments.kind === 'denied') && <LoadError message={t('finance.intel.data.error', { message: instruments.message })} retry={retry} />}
     {instruments.kind === 'ready' && instruments.value.length === 0 && !adding && <Empty icon={<Database aria-hidden="true" />} title={t('finance.intel.data.none')}
       text={t('finance.intel.data.noneText')} action={<button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('finance.intel.data.add')}</button>} />}
-    {instruments.kind === 'ready' && instruments.value.length > 0 && <div className="cmTableWrap"><table className="cmTable finTable finIntelCards" aria-label={t('finance.intel.data.table')}>
+    {instruments.kind === 'ready' && instruments.value.length > 0 && <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finIntelCards" aria-label={t('finance.intel.data.table')}>
       <thead><tr><th scope="col">{t('finance.intel.symbol')}</th><th scope="col">{t('finance.intel.venue')}</th><th scope="col">{t('finance.intel.data.bars')}</th>
         <th scope="col">{t('finance.intel.data.source')}</th><th scope="col"><span className="visuallyHidden">{t('finance.intel.data.import')}</span></th></tr></thead>
       <tbody>{instruments.value.map((i) => <tr key={i.id}>
