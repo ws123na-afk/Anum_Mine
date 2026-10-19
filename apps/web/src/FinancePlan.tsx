@@ -576,7 +576,7 @@ function Rates({ version }: { version: number }) {
     {state.kind === 'ready' && (state.value.length === 0 ? <Empty icon={<Scale aria-hidden="true" />} title={t('finance.rates.empty')} text={t('finance.rates.emptyText')} />
       : <>
         <label className="cmInline cmSearch finRateFilter"><span>{t('finance.rates.filter')}</span><input type="search" value={filter} onChange={(e) => setFilter(e.target.value)} maxLength={3} dir="ltr" placeholder="USD" /></label>
-        <div className="cmTableWrap"><table className="cmTable finTable finRateTable">
+        <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finRateTable">
           <thead><tr><th scope="col">{t('finance.rates.pair')}</th><th scope="col" className="num">{t('finance.rates.rate')}</th><th scope="col">{t('finance.col.date')}</th><th scope="col">{t('finance.rates.source')}</th><th scope="col"><span className="visuallyHidden">{t('finance.col.actions')}</span></th></tr></thead>
           <tbody>{shown.map((r) => <tr key={r.id}>
             <td><bdi dir="ltr">1 {r.base} = {r.quote}</bdi></td>
