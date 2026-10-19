@@ -28,11 +28,8 @@ class AnumLocalizations {
       (isArabic ? businessAr : businessEn)[key] ??
       (isArabic ? brevoAr : brevoEn)[key] ??
       (isArabic ? orgAdminAr : orgAdminEn)[key] ??
-<<<<<<< HEAD
       (isArabic ? calendarSyncAr : calendarSyncEn)[key] ??
-=======
       (isArabic ? inboxAr : inboxEn)[key] ??
->>>>>>> origin/main
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
@@ -40,11 +37,8 @@ class AnumLocalizations {
       businessEn[key] ??
       brevoEn[key] ??
       orgAdminEn[key] ??
-<<<<<<< HEAD
       calendarSyncEn[key] ??
-=======
       inboxEn[key] ??
->>>>>>> origin/main
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.
