@@ -152,7 +152,7 @@ errors that name what failed with Try again; permission denied that says who can
 long lists paged ("Show more") and filtered (title, tag, kind; type for favorites).
 English and Arabic, right to left. Covered by `services/api/tests/test_library.py`,
 `test_postgres_library.py`, `apps/web/test/library.test.ts`, `apps/web/e2e/library.spec.ts`
-(and the axe gate in `accessibility.spec.ts`) and `apps/mobile/test/library_test.dart`.
+(and the axe gate in `ui-gate.spec.ts`) and `apps/mobile/test/library_test.dart`.
 
 ## Not in this change
 

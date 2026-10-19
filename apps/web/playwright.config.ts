@@ -5,9 +5,9 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
-  // In CI the HTML report is written too (never opened); the workflow uploads it with the traces
-  // when the job fails.
-  reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
+  // CI runs the suite in shards (.github/workflows/ci.yml, `--shard`): each shard writes a blob
+  // report, and the "Browser end-to-end" job merges them into one HTML report.
+  reporter: process.env.CI ? [['github'], ['blob']] : 'list',
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'retain-on-failure',
@@ -15,7 +15,7 @@ export default defineConfig({
   },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], ...(process.platform === 'win32' ? { channel: 'msedge' as const } : {}) } },
-    // The @gate sweeps (page-layout, accessibility, journey) set the five gate sizes themselves: desktop runs them once and mobile leaves them out.
+    // The @gate sweeps (ui-gate, journey) set their sizes themselves: desktop runs them once and mobile leaves them out.
     { name: 'mobile', grepInvert: /@gate/, use: { ...devices['Pixel 7'], ...(process.platform === 'win32' ? { channel: 'msedge' as const } : {}) } },
   ],
   webServer: [
