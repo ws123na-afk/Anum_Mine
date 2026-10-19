@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 import { BellOff, CheckCircle2, Clock, Fingerprint, Globe, Route, Search, ShieldCheck, UserX, Users, XCircle } from 'lucide-react';
 import type { Approval } from '@anum/contracts';
 import * as api from './lib/api';
-import { APPROVAL_FILTERS, APPROVAL_PAGE_SIZE, APPROVAL_SEARCH_DELAY_MS, emptyKind, mergeApprovals, searchText, splitApprovals, summaryTotal } from './lib/approvalPaging';
+import { APPROVAL_FILTERS, approvalSignal,APPROVAL_PAGE_SIZE, APPROVAL_SEARCH_DELAY_MS, emptyKind, mergeApprovals, searchText, splitApprovals, summaryTotal } from './lib/approvalPaging';
 import { REASON_MAX_CHARS, approvalProgress, argumentRows, canApprove, decisionSummary, effectiveStatus, expiryLabel, hasApproved, joinNames, normalizeReason, shortHash } from './lib/approvals';
 import { mayApprove, mayReject, routingView, suppressedText } from './lib/approvalRules';
 import { describeError, isPermissionDenied } from './lib/errors';
@@ -50,7 +50,7 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOp
   const [pagingError, setPagingError] = useState<string | null>(null);
   const request = useRef(0);
   const searchId = useId();
-  const signal = items.map((a) => `${a.id}:${a.status}`).join(',');
+  const signal = approvalSignal(items);
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(searchText(typed)), APPROVAL_SEARCH_DELAY_MS);

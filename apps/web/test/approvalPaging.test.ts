@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { Approval } from '@anum/contracts';
-import { APPROVAL_SEARCH_MAX_CHARS, emptyKind, mergeApprovals, searchText, splitApprovals, summaryTotal } from '../src/lib/approvalPaging.ts';
+import { APPROVAL_SEARCH_MAX_CHARS, approvalSignal, collectPages, emptyKind, mergeApprovals, searchText, splitApprovals, summaryTotal } from '../src/lib/approvalPaging.ts';
 
 const now = new Date('2026-10-06T12:00:00Z');
 
@@ -57,5 +57,42 @@ describe('searchText and summaryTotal', () => {
     assert.equal(summaryTotal(summary, 'decided'), 8);
     assert.equal(summaryTotal(summary, 'all'), 10);
     assert.equal(summaryTotal(null, 'all'), null);
+  });
+});
+
+describe('approvalSignal', () => {
+  test('changes when step one of a chain is completed by someone else, though the status stays pending', () => {
+    const before = approval('chain', { requiredApprovals: 2, approvers: [], routing: { currentStep: 0, canApprove: true, canReject: true } as Approval['routing'] });
+    const after = approval('chain', {
+      requiredApprovals: 2,
+      approvers: [{ userId: 'owner_b', approvedAt: '2026-10-06T10:00:00Z', reason: null }],
+      routing: { currentStep: 1, canApprove: false, canReject: true, refusal: 'not_listed' } as Approval['routing'],
+    });
+    assert.equal(before.status, after.status);
+    assert.notEqual(approvalSignal([before]), approvalSignal([after]));
+  });
+  test('is stable for identical data and changes for a new approval', () => {
+    assert.equal(approvalSignal([approval('a')]), approvalSignal([approval('a')]));
+    assert.notEqual(approvalSignal([approval('a')]), approvalSignal([approval('a'), approval('b')]));
+  });
+});
+
+describe('collectPages', () => {
+  test('follows the cursor until the list ends, so a task with more than one page keeps every approval', async () => {
+    const pages: Record<string, { items: number[]; nextCursor: string | null }> = {
+      start: { items: [1, 2], nextCursor: 'p2' },
+      p2: { items: [3, 4], nextCursor: 'p3' },
+      p3: { items: [5], nextCursor: null },
+    };
+    const seen: (string | null)[] = [];
+    const all = await collectPages<number>(async (cursor) => { seen.push(cursor); return pages[cursor ?? 'start']!; });
+    assert.deepEqual(all.items, [1, 2, 3, 4, 5]);
+    assert.equal(all.complete, true);
+    assert.deepEqual(seen, [null, 'p2', 'p3']);
+  });
+  test('stops at the page cap and says it is incomplete', async () => {
+    const all = await collectPages<number>(async () => ({ items: [1], nextCursor: 'more' }), 3);
+    assert.equal(all.items.length, 3);
+    assert.equal(all.complete, false);
   });
 });

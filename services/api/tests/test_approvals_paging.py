@@ -16,7 +16,7 @@ from anum_api.approval_paging import (
     page_in_memory,
     summary_in_memory,
 )
-from anum_api.schemas import Approval, ApprovalStatus, RiskLevel
+from anum_api.schemas import Approval, ApprovalStatus, RiskLevel, utc_now
 from anum_api.store import store
 
 HEADERS = {
@@ -185,17 +185,20 @@ def test_legacy_list_keeps_its_shape() -> None:
 
 
 def test_cursor_round_trip_and_rejects_foreign_values() -> None:
-    cursor = encode_cursor(1, BASE, "apr_1")
-    assert decode_cursor(cursor) == (1, BASE, "apr_1")
+    cursor = encode_cursor(1, BASE, "apr_1", BASE + timedelta(hours=1))
+    assert decode_cursor(cursor) == ((1, BASE, "apr_1"), BASE + timedelta(hours=1))
     for bad in ("", "!!", "bm9wZQ"):
         with pytest.raises(ValueError):
             decode_cursor(bad)
     import base64
 
-    naive = base64.urlsafe_b64encode(b"0|2026-10-01T09:00:00|apr").decode()
+    naive = base64.urlsafe_b64encode(b"0|2026-10-01T09:00:00|apr|2026-10-01T09:00:00+00:00").decode()
     with pytest.raises(ValueError):
         decode_cursor(naive)
-    wrong_group = base64.urlsafe_b64encode(b"7|2026-10-01T09:00:00+00:00|apr").decode()
+    wrong_group = base64.urlsafe_b64encode(b"7|2026-10-01T09:00:00+00:00|apr|2026-10-01T09:00:00+00:00").decode()
+    no_as_of = base64.urlsafe_b64encode(b"0|2026-10-01T09:00:00+00:00|apr").decode()
+    with pytest.raises(ValueError):
+        decode_cursor(no_as_of)
     with pytest.raises(ValueError):
         decode_cursor(wrong_group)
 
@@ -227,3 +230,63 @@ def test_legacy_list_accepts_status_and_limit_and_stays_a_plain_list() -> None:
     pending = client.get("/api/v1/approvals", headers=HEADERS, params={"status": "pending", "limit": 1}).json()
     assert [a["id"] for a in pending] == ["apr_b"]
     assert client.get("/api/v1/approvals", headers=HEADERS, params={"limit": 0}).status_code == 422
+
+
+def _walk(limit: int, between: list | None = None) -> list[str]:
+    """Walk every page, calling each ``between`` step after the first page and so on."""
+    seen: list[str] = []
+    cursor = None
+    steps = list(between or [])
+    while True:
+        params: dict[str, object] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        body = _page(**params)
+        seen += [item["id"] for item in body["items"]]
+        cursor = body["next_cursor"]
+        if not cursor:
+            return seen
+        if steps:
+            steps.pop(0)()
+
+
+def test_decisions_between_pages_neither_repeat_nor_skip_a_row() -> None:
+    task = _task()
+    for n in range(1, 7):
+        _approval(f"apr_p{n}", task, minutes=n)
+    _approval("apr_old_done", task, minutes=0, status=ApprovalStatus.APPROVED)
+    baseline = _walk(2)
+    assert baseline == ["apr_p6", "apr_p5", "apr_p4", "apr_p3", "apr_p2", "apr_p1", "apr_old_done"]
+
+    def decide(approval_id: str) -> None:
+        current = store.approvals[approval_id]
+        store.approvals[approval_id] = current.model_copy(
+            update={"status": ApprovalStatus.APPROVED, "decided_at": utc_now() + timedelta(seconds=1)}
+        )
+
+    # After page one, decide a row already shown (p5) and one not yet shown (p2).
+    walked = _walk(2, [lambda: (decide("apr_p5"), decide("apr_p2"))])
+    assert walked == baseline
+    assert len(walked) == len(set(walked))
+
+
+def test_a_row_created_during_a_walk_waits_for_the_next_refresh() -> None:
+    task = _task()
+    for n in range(1, 5):
+        _approval(f"apr_n{n}", task, minutes=n)
+    first = _page(limit=2)
+    fresh = _approval("apr_fresh", task, minutes=0)
+    store.approvals["apr_fresh"] = fresh.model_copy(update={"created_at": utc_now() + timedelta(seconds=5)})
+    second = _page(limit=2, cursor=first["next_cursor"])
+    ids = [i["id"] for i in first["items"]] + [i["id"] for i in second["items"]]
+    assert ids == ["apr_n4", "apr_n3", "apr_n2", "apr_n1"]
+
+
+def test_expiry_after_the_walk_began_does_not_move_a_row() -> None:
+    from anum_api.approval_paging import group_of
+
+    task = _task()
+    soon = BASE + timedelta(minutes=30)
+    approval = _approval("apr_exp", task, minutes=1, expires_at=soon)
+    assert group_of(approval, soon - timedelta(minutes=1)) == 0
+    assert group_of(approval, soon + timedelta(minutes=1)) == 1

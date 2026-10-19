@@ -5,6 +5,7 @@ import {
 import type { AgentRun, Approval, DomainEvent, Task, TaskBulkAction, TaskSummary } from '@anum/contracts';
 import * as api from './lib/api';
 import * as tasksApi from './lib/tasksApi';
+import { collectPages } from './lib/approvalPaging';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { SourcesUsed, type MemoryTarget } from './SourcesUsed';
 import { AiAnswer } from './AiAnswer';
@@ -280,7 +281,7 @@ function TaskDetail({ taskId, listed, recentRun, approvals: pendingForTask, puls
   useEffect(() => {
     let live = true;
     tasksApi.getTask(taskId).then((t) => { if (live) { setFetched(t); setTaskError(null); } }, (e: unknown) => { if (live) setTaskError(e); });
-    api.getApprovalPage({ taskId, limit: 100 }).then((page) => { if (live) setTaskApprovals({ id: taskId, items: page.items }); }, () => undefined);
+    collectPages((cursor) => api.getApprovalPage({ taskId, cursor, limit: 100 })).then((all) => { if (live) setTaskApprovals({ id: taskId, items: all.items }); }, () => undefined);
     setRunsLoading(true);
     tasksApi.listTaskRuns(taskId).then(
       (page) => { if (live) { setRuns(page); setRunsMore(page.length >= RUN_PAGE_SIZE); setRunsError(null); } },

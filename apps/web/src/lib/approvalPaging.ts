@@ -44,3 +44,40 @@ export function summaryTotal(summary: ApprovalSummary | null, filter: ApprovalFi
   const decided = summary.approved + summary.rejected + summary.expired;
   return filter === 'pending' ? summary.pending : filter === 'decided' ? decided : summary.pending + decided;
 }
+
+/**
+ * A fingerprint of the shell's pending approvals that changes whenever a card would look or act
+ * differently: status, who has approved, the chain's step, and what this person may do. The
+ * Approvals page reloads its first page when it changes.
+ */
+export function approvalSignal(items: readonly Approval[]): string {
+  return items
+    .map((a) => [
+      a.id,
+      a.status,
+      a.requiredApprovals,
+      (a.approvers ?? []).map((approver) => approver.userId).join('+'),
+      a.routing?.currentStep ?? '',
+      a.routing?.canApprove ?? '',
+      a.routing?.canReject ?? '',
+      a.routing?.refusal ?? '',
+      a.expiresAt ?? '',
+    ].join(':'))
+    .join(',');
+}
+
+/** Read every page of a cursor-paged list, up to `maxPages` (a safety stop). */
+export async function collectPages<T>(
+  fetchPage: (cursor: string | null) => Promise<{ items: T[]; nextCursor: string | null }>,
+  maxPages = 20,
+): Promise<{ items: T[]; complete: boolean }> {
+  const items: T[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < maxPages; page += 1) {
+    const result = await fetchPage(cursor);
+    items.push(...result.items);
+    cursor = result.nextCursor;
+    if (!cursor) return { items, complete: true };
+  }
+  return { items, complete: false };
+}

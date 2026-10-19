@@ -54,27 +54,50 @@ def is_pending_now(approval: Approval, now: datetime) -> bool:
     )
 
 
-def group_of(approval: Approval, now: datetime) -> int:
-    return 0 if is_pending_now(approval, now) else 1
+def was_pending_at(approval: Approval, as_of: datetime) -> bool:
+    """Whether the approval was waiting for a decision at ``as_of``.
+
+    The grouping basis of a paged walk: a cursor carries the time its first page was read, and
+    every later page groups rows as they were then (a decision or an expiry after ``as_of``
+    does not move a row to the other group), so a walk neither repeats nor skips a row.
+    """
+    if approval.created_at > as_of:
+        return False
+    if approval.decided_at is not None:
+        undecided = approval.decided_at > as_of
+    else:
+        undecided = approval.status == ApprovalStatus.PENDING
+    return undecided and (approval.expires_at is None or approval.expires_at > as_of)
 
 
-def encode_cursor(group: int, created_at: datetime, approval_id: str) -> str:
-    raw = f"{group}|{created_at.isoformat()}|{approval_id}".encode()
+def group_of(approval: Approval, as_of: datetime) -> int:
+    return 0 if was_pending_at(approval, as_of) else 1
+
+
+def encode_cursor(group: int, created_at: datetime, approval_id: str, as_of: datetime) -> str:
+    raw = f"{group}|{created_at.isoformat()}|{approval_id}|{as_of.isoformat()}".encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
-def decode_cursor(value: str) -> ApprovalCursor:
-    """The (group, created_at, id) a cursor names; ``ValueError`` for anything this API did not issue."""
+def decode_cursor(value: str) -> tuple[ApprovalCursor, datetime]:
+    """The ((group, created_at, id), as_of) a cursor names; ``ValueError`` for anything this API did not issue."""
     try:
         raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)).decode()
-        group_text, stamp, approval_id = raw.split("|", 2)
+        group_text, stamp, approval_id, as_of_text = raw.split("|", 3)
         group = int(group_text)
         when = datetime.fromisoformat(stamp)
+        as_of = datetime.fromisoformat(as_of_text)
     except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
         raise ValueError("Invalid cursor") from exc
-    if group not in (0, 1) or when.tzinfo is None or not approval_id or len(approval_id) > 80:
+    if (
+        group not in (0, 1)
+        or when.tzinfo is None
+        or as_of.tzinfo is None
+        or not approval_id
+        or len(approval_id) > 80
+    ):
         raise ValueError("Invalid cursor")
-    return group, when, approval_id
+    return (group, when, approval_id), as_of
 
 
 def normalize_query(query: str | None) -> str | None:
@@ -102,6 +125,8 @@ def page_in_memory(
     """The memory repository's page: the same order and filters as the SQL query."""
     rows = []
     for approval in approvals:
+        if approval.created_at > now:  # created after the walk began: a refresh shows it
+            continue
         group = group_of(approval, now)
         if status == ApprovalFilter.PENDING and group != 0:
             continue

@@ -1623,13 +1623,15 @@ async def list_approvals_page(
     """Approvals pending first, then newest first, filtered and searched, one keyset page at a time."""
     require_permission(context, Permission.APPROVAL_READ)
     try:
-        after = decode_approval_cursor(cursor) if cursor else None
+        after, walk_started = decode_approval_cursor(cursor) if cursor else (None, None)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor") from exc
     now = utc_now()
+    # Every page of one walk groups rows as they were when its first page was read.
+    as_of = walk_started or now
     rows, more = repository.list_approvals_page(
         context,
-        now=now,
+        now=as_of,
         status=status_filter,
         query=normalize_approval_query(query),
         task_id=task_id or None,
@@ -1638,7 +1640,7 @@ async def list_approvals_page(
     )
     items = _with_progress([as_viewed(approval, now) for approval in rows], context, repository)
     next_cursor = (
-        encode_approval_cursor(approval_group(rows[-1], now), rows[-1].created_at, rows[-1].id)
+        encode_approval_cursor(approval_group(rows[-1], as_of), rows[-1].created_at, rows[-1].id, as_of)
         if more and rows
         else None
     )

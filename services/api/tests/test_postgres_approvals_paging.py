@@ -129,3 +129,32 @@ def test_the_plain_list_accepts_status_and_limit(postgres_client: TestClient) ->
     assert [item["id"] for item in everything] == [first["id"], second["id"]]
     newest = postgres_client.get("/api/v1/approvals", headers=HEADERS, params={"status": "pending", "limit": 1}).json()
     assert [item["id"] for item in newest] == [second["id"]]
+
+
+def test_decisions_between_pages_neither_repeat_nor_skip_a_row(postgres_client: TestClient) -> None:  # noqa: F811
+    client = postgres_client
+    created = [_waiting(client, f"Launch {n}") for n in range(5)]
+    expected = [approval["id"] for approval in reversed(created)]
+    seen: list[str] = []
+    cursor = None
+    decided = False
+    while True:
+        params: dict[str, object] = {"limit": 2}
+        if cursor:
+            params["cursor"] = cursor
+        body = client.get("/api/v1/approvals/page", headers=HEADERS, params=params).json()
+        seen += [item["id"] for item in body["items"]]
+        cursor = body["next_cursor"]
+        if not cursor:
+            break
+        if not decided:
+            decided = True
+            # One row already shown and one not yet shown are decided between the pages.
+            for target in (created[4], created[1]):
+                sent = client.post(
+                    f"/api/v1/approvals/{target['id']}/reject",
+                    headers=HEADERS,
+                    json={"payload_hash": target["payload_hash"]},
+                )
+                assert sent.status_code == 200, sent.text
+    assert seen == expected

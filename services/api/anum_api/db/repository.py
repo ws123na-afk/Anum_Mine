@@ -800,15 +800,21 @@ class SqlAlchemyRepository(AnumRepository):
         limit: int,
     ) -> tuple[list[Approval], bool]:
         """One page, pending first then newest first (``anum_api.approval_paging``)."""
+        # ``now`` is the time the walk's first page was read (the cursor carries it): a row is
+        # grouped as it was then, so a decision or an expiry between pages cannot move it.
+        undecided = case(
+            (ApprovalRecord.decided_at.is_not(None), ApprovalRecord.decided_at > now),
+            else_=ApprovalRecord.status == ApprovalStatus.PENDING.value,
+        )
         pending_now = and_(
-            ApprovalRecord.status == ApprovalStatus.PENDING.value,
+            undecided,
             or_(ApprovalRecord.expires_at.is_(None), ApprovalRecord.expires_at > now),
         )
         group = case((pending_now, 0), else_=1)
         statement = (
             select(ApprovalRecord)
             .join(TaskRecord, ApprovalRecord.task_id == TaskRecord.id)
-            .where(*self._approval_scope(context))
+            .where(*self._approval_scope(context), ApprovalRecord.created_at <= now)
         )
         if status == ApprovalFilter.PENDING:
             statement = statement.where(pending_now)
