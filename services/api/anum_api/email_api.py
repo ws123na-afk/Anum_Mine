@@ -188,8 +188,11 @@ class DraftView(BaseModel):
     id: str
     account_id: str
     message_id: str | None
+    # "new": a message written from scratch; "reply": an answer to a message in its thread.
+    kind: Literal["new", "reply"]
     to: list[str]
     cc: list[str]
+    bcc: list[str]
     subject: str
     body: str
     status: DraftStatus
@@ -239,6 +242,17 @@ class DraftCreate(BaseModel):
     instructions: str | None = Field(default=None, max_length=MAX_INSTRUCTIONS)
 
 
+class ComposeCreate(BaseModel):
+    """A new email (not a reply) from one of the caller's visible mailboxes."""
+
+    account_id: str = Field(min_length=1, max_length=80)
+    to: list[str] = Field(default_factory=list, max_length=50)
+    cc: list[str] = Field(default_factory=list, max_length=50)
+    bcc: list[str] = Field(default_factory=list, max_length=50)
+    subject: str = Field(default="", max_length=500)
+    body: str = Field(default="", max_length=MAX_DRAFT_BODY)
+
+
 class DraftCreateResult(BaseModel):
     status: Literal["done", "waiting_approval", "failed"]
     summary: str
@@ -250,6 +264,7 @@ class DraftCreateResult(BaseModel):
 class DraftUpdate(BaseModel):
     to: list[str] | None = Field(default=None, max_length=50)
     cc: list[str] | None = Field(default=None, max_length=50)
+    bcc: list[str] | None = Field(default=None, max_length=50)
     subject: str | None = Field(default=None, max_length=500)
     body: str | None = Field(default=None, max_length=MAX_DRAFT_BODY)
 
@@ -314,13 +329,15 @@ def _draft_view(draft: EmailDraft, repository: AnumRepository, context: TenantCo
             shown = DraftStatus.DRAFT
             note = (
                 f"The send approval was {found.status.value}." if found is not None else "The send approval is gone."
-            ) + " Edit the reply if needed and ask for approval again."
+            ) + " Edit the message if needed and ask for approval again."
     return DraftView(
         id=draft.id,
         account_id=draft.account_id,
         message_id=draft.message_id,
+        kind="reply" if draft.message_id or draft.thread_id else "new",
         to=draft.to,
         cc=draft.cc,
+        bcc=draft.bcc,
         subject=draft.subject,
         body=draft.body,
         status=shown,
@@ -418,7 +435,7 @@ async def _mediated(
         repository,
         context,
         f"email.{call.name}",
-        str(call.arguments.get("message_id") or call.arguments.get("draft_id") or ""),
+        str(call.arguments.get("message_id") or call.arguments.get("draft_id") or call.arguments.get("account_id") or ""),
         "success" if result.status == "succeeded" else "failure",
         {**result.audit_metadata, "summary": result.summary[:200] if result.status != "succeeded" else None},
     )
@@ -986,6 +1003,10 @@ async def update_draft(
             draft.to = valid_addresses(payload.to)
         if payload.cc is not None:
             draft.cc = valid_addresses(payload.cc)
+        if payload.bcc is not None:
+            draft.bcc = valid_addresses(payload.bcc)
+        if len(draft.to) + len(draft.cc) + len(draft.bcc) > 50:
+            raise EmailError(422, "At most 50 recipients.")
     except EmailError as exc:
         raise _http(exc) from None
     if payload.subject is not None:
@@ -1071,19 +1092,19 @@ async def request_send_approval(
             existing is not None
             and existing.status == ApprovalStatus.PENDING
             and (existing.expires_at is None or existing.expires_at > utc_now())
-            and existing.arguments.get("body") == arguments["body"]
-            and existing.arguments.get("to") == arguments["to"]
+            and all(existing.arguments.get(key) == arguments[key] for key in ("to", "cc", "bcc", "subject", "body"))
         ):
             return SendApprovalResponse(draft=_draft_view(draft, repository, context), approval=existing)
         _retire(repository, context, draft)
     call = ToolCall(name=SEND_TOOL, arguments=arguments)
     recipients = ", ".join(draft.to)
+    what = "the reply" if original is not None or draft.thread_id else "the new email"
     task, approval = _pause_for_approval(
         repository,
         context,
         call,
         f"Send email to {recipients}"[:160],
-        f"Send the reply '{draft.subject}' from {account.address} to {recipients}.",
+        f"Send {what} '{draft.subject}' from {account.address} to {recipients}.",
     )
     draft.status = DraftStatus.PENDING_APPROVAL
     draft.approval_id, draft.task_id = approval.id, task.id
@@ -1093,9 +1114,45 @@ async def request_send_approval(
         store.save_draft(draft)
     _audit(
         repository, context, "email.send.requested", draft.id,
-        metadata={"approval_id": approval.id, "task_id": task.id, "recipients": len(draft.to) + len(draft.cc), "payload_hash": approval.payload_hash},
+        metadata={
+            "approval_id": approval.id, "task_id": task.id, "recipients": len(draft.to) + len(draft.cc) + len(draft.bcc),
+            "payload_hash": approval.payload_hash,
+        },
     )
     return SendApprovalResponse(draft=_draft_view(draft, repository, context), approval=approval)
+
+
+@router.post("/drafts", response_model=DraftCreateResult, status_code=status.HTTP_201_CREATED)
+async def compose_draft(
+    payload: ComposeCreate,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> DraftCreateResult:
+    """A new email (not a reply), saved as a draft exactly as written; it sends nothing.
+
+    Runs the ``draft_reply`` tool under the same policy as reply drafts; sending is the
+    same ``send_email`` approval (``POST /drafts/{id}/send-approval``)."""
+    _require(context, Permission.EMAIL_ACT, ACT_DENIED)
+    account = _get_account(context, payload.account_id)
+    try:
+        to, cc, bcc = valid_addresses(payload.to), valid_addresses(payload.cc), valid_addresses(payload.bcc)
+        if len(to) + len(cc) + len(bcc) > 50:
+            raise EmailError(422, "At most 50 recipients.")
+    except EmailError as exc:
+        raise _http(exc) from None
+    arguments: dict[str, Any] = {
+        "account_id": account.id, "to": to, "cc": cc, "bcc": bcc, "subject": payload.subject, "body": payload.body,
+    }
+    result, approval = await _mediated(repository, context, ToolCall(name=DRAFT_TOOL, arguments=arguments), "Draft a new email")
+    if approval is not None:
+        return DraftCreateResult(status="waiting_approval", summary="Drafting waits for approval (workspace policy).", approval=approval)
+    if result is None:  # pragma: no cover - _mediated returns one of the two
+        raise HTTPException(status_code=500, detail="The action returned nothing")
+    if result.status != "succeeded":
+        raise HTTPException(status_code=409, detail=result.summary)
+    _, draft, _ = load_draft(context, str(result.output.get("draft_id")))
+    warning = result.output.get("warning") or None
+    return DraftCreateResult(status="done", summary=result.summary, draft=_draft_view(draft, repository, context), warning=warning)
 
 
 @router.get("/drafts", response_model=list[DraftView])

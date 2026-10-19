@@ -12,6 +12,7 @@ import type {
   WorkspacePermissions,
   BudgetScope,
   CreatedInvitation,
+  InvitationEmailSetup,
   InvitationRequest,
   ModelBudgetLimits,
   ModelBudgetOverview,
@@ -98,7 +99,19 @@ export async function getInvitations(status: InvitationStatusFilter = 'all'): Pr
 
 /** New token for a pending or expired invitation; the old token stops working at once. */
 export async function resendInvitation(invitationId: string, ttlHours?: number): Promise<CreatedInvitation> {
-  return mapCreatedInvitation(await apiRequest<ApiInvitationCreated>(`/api/v1/workspace-invitations/${id(invitationId)}/resend`, { method: 'POST', body: JSON.stringify(ttlHours ? { ttl_hours: ttlHours } : {}) }));
+  const body = { ...(ttlHours ? { ttl_hours: ttlHours } : {}), app_url: appAddress() };
+  return mapCreatedInvitation(await apiRequest<ApiInvitationCreated>(`/api/v1/workspace-invitations/${id(invitationId)}/resend`, { method: 'POST', body: JSON.stringify(body) }));
+}
+
+/** Where this app is open (no fragment): the server puts it in the invitation email's link when it is an allowed origin. */
+function appAddress(): string {
+  return `${location.origin}${location.pathname}`;
+}
+
+/** Can this server email invitations? Asked before the invite form so it can say what will happen. */
+export async function getInvitationEmailSetup(): Promise<InvitationEmailSetup> {
+  const value = await apiRequest<{ configured: boolean; link_base: string | null }>(`/api/v1/workspace-invitations/email-status?app_url=${encodeURIComponent(appAddress())}`, { method: 'GET' });
+  return { configured: value.configured === true, linkBase: value.link_base ?? null };
 }
 
 // ------------------------------------------------------------------ audit log
@@ -155,7 +168,7 @@ export async function createWorkspace(name: string, workspaceId: string | null):
 }
 
 export async function createInvitation(request: InvitationRequest): Promise<CreatedInvitation> {
-  return mapCreatedInvitation(await apiRequest<ApiInvitationCreated>('/api/v1/workspace-invitations', { method: 'POST', body: JSON.stringify(invitationBody(request)) }));
+  return mapCreatedInvitation(await apiRequest<ApiInvitationCreated>('/api/v1/workspace-invitations', { method: 'POST', body: JSON.stringify(invitationBody({ appUrl: appAddress(), ...request })) }));
 }
 
 export async function revokeInvitation(invitationId: string): Promise<WorkspaceInvitation> {

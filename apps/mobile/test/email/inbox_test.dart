@@ -37,7 +37,11 @@ Map<String, Object?> _message(String id,
       'to': ['shop@example.com'],
     };
 
-Map<String, Object?> _approval() => {
+Map<String, Object?> approvalJson(
+        {List<String> cc = const [],
+        List<String> bcc = const [],
+        String? subject}) =>
+    {
       'id': 'approval_send',
       'task_id': 'task_send',
       'action': 'send_email',
@@ -49,9 +53,14 @@ Map<String, Object?> _approval() => {
       'arguments': {
         'from': 'shop@example.com',
         'to': ['sara@example.com'],
+        if (cc.isNotEmpty) 'cc': cc,
+        if (bcc.isNotEmpty) 'bcc': bcc,
+        if (subject != null) 'subject': subject,
         'body': 'Yes, in stock.'
       },
     };
+
+Map<String, Object?> _approval() => approvalJson();
 
 class FakeEmailRepository implements EmailRepository {
   int failAccounts = 0;
@@ -69,6 +78,29 @@ class FakeEmailRepository implements EmailRepository {
     'model_name': 'claude-sonnet-5-5',
   }));
   bool sent = false;
+
+  /// New emails: what `createDraft` and field saves were called with.
+  final created = <EmailDraftFields>[];
+  final fieldEdits = <EmailDraftFields>[];
+
+  /// Drafting a new email waits for an owner's approval (workspace policy).
+  bool draftingWaits = false;
+
+  /// What the paused drafting would save once approved.
+  EmailDraftFields? _waitingFields;
+
+  /// The drafts the server lists (GET /email/drafts), newest first.
+  List<EmailDraft> serverDrafts = [];
+  final discarded = <String>[];
+
+  /// Asking to send answers this refusal instead.
+  ApiException? askError;
+
+  /// Approving answers this refusal instead (a member, not an owner).
+  ApiException? approveError;
+
+  /// Mailboxes `accounts` lists after the connected one.
+  List<Map<String, Object?>> extraAccounts = const [];
 
   @override
   Future<List<EmailAccount>> accounts() async {
@@ -88,7 +120,9 @@ class FakeEmailRepository implements EmailRepository {
         'status': 'connected',
         'visibility': 'workspace',
         'unread_count': 1,
-      }))
+      })),
+      for (final account in extraAccounts)
+        EmailAccount.fromJson(JsonReader(account)),
     ];
   }
 
@@ -149,29 +183,90 @@ class FakeEmailRepository implements EmailRepository {
       draft;
 
   @override
-  Future<EmailDraft> updateDraft(String draftId, {required String body}) async {
-    edits.add(body);
+  Future<EmailDraft> createDraft(EmailDraftFields fields) async {
+    created.add(fields);
+    if (draftingWaits) {
+      _waitingFields = fields;
+      throw DraftWaitsForApproval(
+          'Drafting waits for approval.',
+          workspaceApprovalFromJson(JsonReader({
+            ...approvalJson(),
+            'id': 'approval_draft',
+            'action': 'draft_email',
+          })));
+    }
+    draft = _newDraft(fields);
+    return draft;
+  }
+
+  EmailDraft _newDraft(EmailDraftFields fields) => EmailDraft(
+      id: 'edr_new',
+      to: fields.to,
+      cc: fields.cc,
+      bcc: fields.bcc,
+      subject: fields.subject,
+      body: fields.body,
+      status: 'draft',
+      source: 'person',
+      kind: 'new',
+      accountId: fields.accountId);
+
+  @override
+  Future<EmailDraft> updateDraft(String draftId,
+      {String? body, EmailDraftFields? fields}) async {
+    if (fields != null) {
+      fieldEdits.add(fields);
+      draft = _newDraft(fields);
+      return draft;
+    }
+    edits.add(body ?? '');
     return draft;
   }
 
   @override
   Future<EmailDraft> askToSend(String draftId) async {
     asked.add(draftId);
+    if (askError case final error?) throw error;
     draft = EmailDraft(
         id: draft.id,
         to: draft.to,
+        cc: draft.cc,
+        bcc: draft.bcc,
+        kind: draft.kind,
         subject: draft.subject,
         body: draft.body,
         status: 'pending_approval',
         source: draft.source,
         modelName: draft.modelName,
-        approval: workspaceApprovalFromJson(JsonReader(_approval())));
+        approval: workspaceApprovalFromJson(JsonReader(approvalJson(
+            cc: draft.cc,
+            bcc: draft.bcc,
+            subject: draft.isNew ? draft.subject : null))));
     return draft;
   }
 
   @override
+  Future<List<EmailDraft>> drafts() async => serverDrafts;
+
+  @override
+  Future<void> discardDraft(String draftId) async {
+    discarded.add(draftId);
+    serverDrafts = [
+      for (final d in serverDrafts)
+        if (d.id != draftId) d
+    ];
+  }
+
+  @override
   Future<String?> approve(WorkspaceApproval approval) async {
+    if (approveError case final error?) throw error;
     approved.add(approval.payloadHash);
+    if (approval.action == 'draft_email') {
+      // Approving the paused tool created the draft on the server.
+      draftingWaits = false;
+      serverDrafts = [_newDraft(_waitingFields!), ...serverDrafts];
+      return 'Draft saved.';
+    }
     sent = true;
     return 'Sent to sara@example.com';
   }

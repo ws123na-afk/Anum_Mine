@@ -5,7 +5,7 @@ Business is roadmap P1 "Internal sales MVP" ([ANUM OS business and product roadm
 - API: `services/api/anum_api/business/` under `/api/v1/business`.
 - Storage: migrations `0070_business` (16 tables), `0076_business_support` (support tickets) and `0080_business_change_orders` (change orders and the usage ledger), memory store for local runs and tests.
 - Web: Business in the main navigation (`apps/web/src/BusinessView.tsx` and its tabs), English and Arabic.
-- Flutter: Business in the menu (`apps/mobile/lib/features/business/`), English and Arabic.
+- Flutter: Business in the menu (`apps/mobile/lib/features/business/`), English and Arabic; the phone edits the catalog, accounts, contacts, leads, opportunities and support tickets ([Mobile features](mobile-features.md#business)).
 - Contracts: `packages/contracts/src/business.ts`.
 
 ## What it does
@@ -133,7 +133,7 @@ On the web these are three blocks of the project drawer (`apps/web/src/BusinessP
 
 ## Support tickets
 
-Roadmap 4.D and P2 ("support ticket"), section 6 `Support`: requester identity, entitlement, severity, escalations and resolution audit. Routes are under `/api/v1/business/support` (`anum_api/business/api_support.py`, rules in `support.py`, inbox links in `support_channels.py`). Web: Business, Support tab (`#business-support`, policy under Business, Settings). Flutter: Business, Support (list, create, detail, replies; the support plan entitlement, tickets from a message and the policy editor are on the web only). Tickets from a message are created through the API today; a "make a ticket" button in the Email and WhatsApp views is still to come.
+Roadmap 4.D and P2 ("support ticket"), section 6 `Support`: requester identity, entitlement, severity, escalations and resolution audit. Routes are under `/api/v1/business/support` (`anum_api/business/api_support.py`, rules in `support.py`, inbox links in `support_channels.py`). Web: Business, Support tab (`#business-support`, policy under Business, Settings). Flutter: Business, Support (list, create, detail, replies; the support plan entitlement, and the policy editor are on the web only). Tickets from a message are created with **Create ticket** on an email in the Inbox and on a WhatsApp conversation, on the web and on the phone (title and severity, then a link to the new ticket); a second request for a message that already has an open ticket answers 409 and the screen says which ticket. Web: `apps/web/src/TicketFromMessage.tsx`; Flutter: the Inbox message and WhatsApp conversation screens.
 
 A ticket holds:
 

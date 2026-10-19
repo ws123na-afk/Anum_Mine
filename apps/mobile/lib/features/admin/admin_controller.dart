@@ -93,13 +93,18 @@ class MembersController extends ChangeNotifier {
 
   Future<bool> invite(InvitationDraft draft) => _act(() async {
         created = await repository.createInvitation(draft);
-        return 'Invitation created. Copy the token now: it is shown only once.';
+        final email = created!.email;
+        return email.sent
+            ? 'Invitation created and emailed to ${email.to}. The token is also shown below, once, in case you want to pass it on yourself.'
+            : 'Invitation created. Copy the token now: it is shown only once.';
       });
 
   /// New token for a pending or expired invitation, shown once like a new one.
   Future<bool> resend(WorkspaceInvitation invitation) => _act(() async {
         created = await repository.resendInvitation(invitation.id);
-        return 'New token issued for ${invitation.invitee}. The previous one no longer works. Copy the new one now: it is shown only once.';
+        return created!.email.sent
+            ? 'New invitation emailed for ${invitation.invitee}. The previous token no longer works. The new token is also shown below, once.'
+            : 'New token issued for ${invitation.invitee}. The previous one no longer works. Copy the new one now: it is shown only once.';
       });
 
   Future<bool> revoke(WorkspaceInvitation invitation) => _act(() async {

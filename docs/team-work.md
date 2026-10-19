@@ -75,6 +75,8 @@ Why a separate SMTP sender rather than the [email inbox](email.md) module: the i
 | `ANUM_SMTP_HOST`, `ANUM_SMTP_PORT` (587) | SMTP server. Unset host: email is `not_configured`. |
 | `ANUM_SMTP_SECURITY` | `starttls` (default; refuses to send if the server does not offer it), `tls` (implicit TLS, port 465), `none` (honoured only with `ANUM_ENVIRONMENT=local` or `test`). |
 | `ANUM_SMTP_USERNAME`, `ANUM_SMTP_PASSWORD`, `ANUM_SMTP_FROM` | Credentials and sender; the password comes from the secret store. |
+| `ANUM_SMTP_RETRY_BACKOFF_SECONDS` (1) | First wait before ANUM retries a system email that failed for a transient reason (unreachable server, 4xx); doubles each time, three attempts in all. |
+| `ANUM_PUBLIC_APP_URL` | The web app's public address (for example `https://anum-app.example.com/`), used for the accept link in [invitation emails](identity.md#invitation-email). Empty: the link uses the inviting browser's address when it is in `ANUM_CORS_ORIGINS`, else the email carries the token to paste. The Oracle compose file sets it from `ANUM_WEB_HOST`. |
 
 Owner setup with Gmail, Outlook or Zoho: create an app password (Google Account › Security › App passwords; Microsoft account › Security › App passwords, or an SMTP AUTH-enabled mailbox in Microsoft 365; Zoho Mail › Security › App passwords), then set `ANUM_SMTP_HOST` (`smtp.gmail.com`, `smtp.office365.com`, `smtp.zoho.com`), `ANUM_SMTP_USERNAME` (the mailbox), `ANUM_SMTP_PASSWORD` (the app password) and `ANUM_SMTP_FROM` in the deployment's secret store.
 

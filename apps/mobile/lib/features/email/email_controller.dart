@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
+import '../business/support_controller.dart';
 import '../workspace/workspace_models.dart';
 import 'email_models.dart';
 import 'email_repository.dart';
@@ -10,8 +13,12 @@ enum InboxPhase { idle, loading, ready, error, denied }
 /// The inbox's state (docs/email.md): mailboxes, the unified list with paging
 /// and search, and one opened message with its drafts.
 class EmailController extends ChangeNotifier {
-  EmailController(this.repository);
+  EmailController(this.repository, {this.support});
   final EmailRepository repository;
+
+  /// Business support tickets, when wired: "Create ticket" on a message
+  /// (docs/business.md#tickets-from-an-inbox). Null hides the action.
+  final SupportController? support;
 
   InboxPhase phase = InboxPhase.idle;
   String? error;
@@ -21,6 +28,10 @@ class EmailController extends ChangeNotifier {
   bool loadingMore = false;
   String query = '';
   bool unreadOnly = false;
+
+  /// New emails saved as drafts and not sent yet (best effort: a failure
+  /// leaves the list as it was).
+  List<EmailDraft> newDrafts = const [];
 
   EmailDetail? detail;
   bool detailLoading = false;
@@ -39,6 +50,12 @@ class EmailController extends ChangeNotifier {
 
   bool get hasFilters => query.trim().isNotEmpty || unreadOnly;
 
+  /// Mailboxes a new email can be sent from (not waiting for a reconnect).
+  List<EmailAccount> get sendableAccounts => [
+        for (final account in accounts)
+          if (!account.needsReconnect) account,
+      ];
+
   String _describe(Object e) => e is ApiException ? e.message : '$e';
 
   Future<void> load() async {
@@ -54,12 +71,25 @@ class EmailController extends ChangeNotifier {
       messages = page.items;
       nextCursor = page.nextCursor;
       phase = InboxPhase.ready;
+      unawaited(loadDrafts());
     } on ApiException catch (e) {
       phase = e.statusCode == 403 ? InboxPhase.denied : InboxPhase.error;
       error = e.message;
     } on Object catch (e) {
       phase = InboxPhase.error;
       error = _describe(e);
+    }
+    notifyListeners();
+  }
+
+  Future<void> loadDrafts() async {
+    try {
+      newDrafts = [
+        for (final d in await repository.drafts())
+          if (d.isNew && d.waiting) d
+      ];
+    } on Object {
+      // The drafts list is a shortcut; the inbox works without it.
     }
     notifyListeners();
   }
@@ -206,5 +236,150 @@ class EmailController extends ChangeNotifier {
 
   void clearNotice() {
     notice = null;
+  }
+}
+
+/// A brand-new email (docs/email.md): saved as a draft in one mailbox, then
+/// sent only after an owner approves the exact message with its payload hash.
+class ComposeController extends ChangeNotifier {
+  ComposeController(this.repository);
+  final EmailRepository repository;
+
+  /// The saved draft; null until the first save.
+  EmailDraft? draft;
+
+  /// What the paused drafting was asked to save, to find the draft again once
+  /// an owner approves it.
+  EmailDraftFields? _pendingFields;
+
+  /// Continues a draft saved earlier (opened from the inbox's drafts list).
+  void adopt(EmailDraft existing) {
+    draft = existing;
+    saved = existing.fields;
+  }
+
+  /// Throws the saved draft away. True when it is gone.
+  Future<bool> discard() => _run('discard', () async {
+        final current = draft;
+        if (current == null) return true;
+        await repository.discardDraft(current.id);
+        draft = null;
+        saved = null;
+        return true;
+      });
+
+  /// The fields as last saved, to tell whether the screen has unsaved edits.
+  EmailDraftFields? saved;
+
+  /// The approval drafting waits for (a workspace policy); null otherwise.
+  WorkspaceApproval? draftApproval;
+
+  /// The run's sentence once drafting itself was approved.
+  String? draftingResult;
+
+  /// `save`, `ask` or `approve` while that action runs.
+  String? busy;
+
+  /// The last failure, as the API said it.
+  String? error;
+
+  /// The approved run's sentence once the email is sent.
+  String? result;
+
+  bool _disposed = false;
+
+  bool get sent => draft?.sent ?? false;
+
+  /// The pending send approval, when one waits for an owner.
+  WorkspaceApproval? get sendApproval {
+    final approval = draft?.approval;
+    return approval != null && approval.status == 'pending' ? approval : null;
+  }
+
+  /// Creates the draft on the first save, then saves edits. True when the
+  /// draft now holds [fields].
+  Future<bool> save(EmailDraftFields fields) =>
+      _run('save', () => _save(fields));
+
+  /// Saves [fields] when they changed, then asks to send.
+  Future<bool> askToSend(EmailDraftFields fields) => _run('ask', () async {
+        if (!await _save(fields)) return false;
+        draft = await repository.askToSend(draft!.id);
+        return true;
+      });
+
+  Future<bool> approve(WorkspaceApproval approval) => _run('approve', () async {
+        final sentence = await repository.approve(approval);
+        if (draftApproval?.id == approval.id) {
+          draftApproval = null;
+          draftingResult = sentence ?? '';
+          await _recoverDraft();
+          return true;
+        }
+        result = sentence;
+        draft = draft?.copyWith(status: 'sent');
+        return true;
+      });
+
+  /// Approving the paused drafting created the draft on the server: find it
+  /// so the next save edits it instead of creating a second one.
+  Future<void> _recoverDraft() async {
+    final wanted = _pendingFields;
+    if (wanted == null) return;
+    final found = (await repository.drafts()).where(
+      (d) => d.isNew && d.waiting && d.fields == wanted,
+    );
+    if (found.isEmpty) return;
+    adopt(found.first);
+    _pendingFields = null;
+  }
+
+  Future<bool> _save(EmailDraftFields fields) async {
+    final current = draft;
+    if (current != null && saved == fields) return true;
+    if (current == null) {
+      draftApproval = null;
+      draftingResult = null;
+      try {
+        draft = await repository.createDraft(fields);
+      } on DraftWaitsForApproval catch (waiting) {
+        // Not a failure: the approval card says what happens next.
+        draftApproval = waiting.approval;
+        _pendingFields = fields;
+        return false;
+      }
+    } else {
+      draft = await repository.updateDraft(current.id, fields: fields);
+    }
+    saved = fields;
+    return true;
+  }
+
+  Future<bool> _run(String kind, Future<bool> Function() action) async {
+    if (busy != null) return false;
+    busy = kind;
+    error = null;
+    _notify();
+    var ok = false;
+    try {
+      ok = await action();
+    } on ApiException catch (e) {
+      error = e.readable;
+    } on Object catch (e) {
+      error = '$e';
+    }
+    busy = null;
+    _notify();
+    return ok;
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 }

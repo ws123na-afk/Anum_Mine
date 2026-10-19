@@ -89,9 +89,36 @@ class AdminTransport implements ApiTransport {
       {this.forbidden = false,
       this.role = 'owner',
       this.policyForbidden = false,
-      this.orgAdmin = false})
+      this.orgAdmin = false,
+      this.mail = 'sent'})
       : budgets = {..._budgets, 'can_manage_tenant_budget': orgAdmin};
   final bool forbidden;
+
+  /// What the mock mail server does with an invitation email: `sent`,
+  /// `failed` or `off` (no mail server on the API).
+  final String mail;
+
+  JsonMap _email(Object? to, Object? wanted) {
+    if (to == null || wanted == false) {
+      return {'status': 'not_requested', 'to': to, 'attempts': 0};
+    }
+    return switch (mail) {
+      'off' => {
+          'status': 'not_configured',
+          'to': to,
+          'attempts': 0,
+          'error': 'No mail server is set up on this ANUM server'
+        },
+      'failed' => {
+          'status': 'failed',
+          'to': to,
+          'attempts': 3,
+          'error': 'The mail server could not be reached (TimeoutError)',
+          'link_included': true
+        },
+      _ => {'status': 'sent', 'to': to, 'attempts': 1, 'link_included': true},
+    };
+  }
 
   /// The caller is an organization administrator (`org_admin`): the API lets
   /// it change the organization budget and says so in the overview.
@@ -158,10 +185,24 @@ class AdminTransport implements ApiTransport {
     if (path.endsWith('/workspace-invitations') && r.method == 'GET') {
       return ok(invitations);
     }
+    if (path.endsWith('/workspace-invitations/email-status')) {
+      return ok({'configured': mail != 'off', 'link_base': null});
+    }
     if (path.endsWith('/workspace-invitations') && r.method == 'POST') {
       final created = {..._invitation(id: 'invitation_new'), ...?r.body};
       invitations = [created, ...invitations];
-      return ok({'invitation': created, 'token': _token});
+      return ok({
+        'invitation': created,
+        'token': _token,
+        'email': _email(r.body?['invitee_email'], r.body?['send_email']),
+      });
+    }
+    if (path.endsWith('/invitation_1/resend')) {
+      return ok({
+        'invitation': invitations.first,
+        'token': '${_token}_resent',
+        'email': _email(invitations.first['invitee_email'], true),
+      });
     }
     if (path.endsWith('/invitation_1/revoke')) {
       invitations = [_invitation(status: 'revoked')];
@@ -598,6 +639,136 @@ void main() {
       expect(controller.notices['tenant'],
           startsWith('Not allowed: Organization administrator role required'));
       expect(controller.overview!.tenant.budget, isNull);
+    });
+  });
+
+  group('invitation email', () {
+    test('the draft sends send_email only when it is turned off', () {
+      const draft = InvitationDraft(role: 'member', email: 'a@b.co');
+      expect(draft.toJson().containsKey('send_email'), isFalse);
+      expect(draft.withSendEmail(false).toJson()['send_email'], isFalse);
+    });
+
+    test('every outcome says what happened and what to do next', () {
+      InvitationEmail email(String status, {String? to = 'ana@example.com'}) =>
+          InvitationEmail.fromJson({
+            'status': status,
+            'to': to,
+            'attempts': 3,
+            'error': 'down',
+            'link_included': true
+          });
+      expect(email('sent').notice, contains('Emailed to ana@example.com'));
+      expect(email('failed').notice, contains('after 3 tries: down'));
+      expect(email('failed').notice, contains('send it yourself'));
+      expect(email('not_configured').notice, contains('no mail server'));
+      expect(email('not_requested').notice, contains('as you chose'));
+      expect(email('not_requested', to: null).notice,
+          contains('no email address'));
+      // An older server sends no email block at all.
+      expect(InvitationEmail.fromJson(null).status, 'not_requested');
+      expect(InvitationEmail.fromJson({'status': 'bogus'}).status,
+          'not_requested');
+    });
+
+    test('the controller reports emailed, failed and resent invitations',
+        () async {
+      for (final (mode, emailed) in [('sent', true), ('failed', false)]) {
+        final transport = AdminTransport(mail: mode);
+        final controller =
+            MembersController(ApiAdminRepository(await _api(transport)));
+        addTearDown(controller.dispose);
+        await controller.load();
+        expect(
+            await controller.invite(const InvitationDraft(
+                role: 'member', email: 'ana@example.com')),
+            isTrue);
+        expect(controller.created!.email.sent, emailed);
+        expect(
+            controller.notice,
+            startsWith(emailed
+                ? 'Invitation created and emailed to ana@example.com'
+                : 'Invitation created. Copy the token now'));
+        expect(await controller.resend(controller.invitations.last), isTrue);
+        expect(controller.created!.token, '${_token}_resent');
+      }
+    });
+
+    testWidgets('the invite form offers the email switch and sends the choice',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 2600);
+      addTearDown(tester.view.reset);
+      final transport = AdminTransport(mail: 'sent');
+      final repo = ApiAdminRepository(await _api(transport));
+      final controller = MembersController(repo);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_app(MembersScreen(
+          controller: controller,
+          repository: repo,
+          currentWorkspaceId: 'workspace_test')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Invite'));
+      await tester.tap(find.text('Invite'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('invite-needs-address')), findsOneWidget);
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Email'), 'ana@example.com');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('invite-send-email')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('invite-send-email')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Create invitation'));
+      await tester.tap(find.text('Create invitation'));
+      await tester.pumpAndSettle();
+      final post = transport.requests.firstWhere((r) =>
+          r.method == 'POST' && r.uri.path.endsWith('/workspace-invitations'));
+      expect(post.body!['send_email'], isFalse);
+      expect(find.byKey(const Key('invitation-email-notice')), findsOneWidget);
+      expect(find.textContaining('Not emailed, as you chose'), findsOneWidget);
+      expect(find.byKey(const Key('invitation-token')), findsOneWidget);
+    });
+
+    testWidgets('a failed email tells the owner to send the link themselves',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 2600);
+      addTearDown(tester.view.reset);
+      final repo =
+          ApiAdminRepository(await _api(AdminTransport(mail: 'failed')));
+      final controller = MembersController(repo);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_app(MembersScreen(
+          controller: controller,
+          repository: repo,
+          currentWorkspaceId: 'workspace_test')));
+      await tester.pumpAndSettle();
+      await controller.invite(
+          const InvitationDraft(role: 'member', email: 'ana@example.com'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('could not be sent after 3 tries'),
+          findsOneWidget);
+      expect(find.textContaining('send it yourself'), findsOneWidget);
+    });
+
+    testWidgets('without a mail server the form says ANUM cannot email',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 2600);
+      addTearDown(tester.view.reset);
+      final repo = ApiAdminRepository(await _api(AdminTransport(mail: 'off')));
+      final controller = MembersController(repo);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_app(MembersScreen(
+          controller: controller,
+          repository: repo,
+          currentWorkspaceId: 'workspace_test')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Invite'));
+      await tester.tap(find.text('Invite'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Email'), 'ana@example.com');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('invite-server-off')), findsOneWidget);
+      expect(find.byKey(const Key('invite-send-email')), findsNothing);
     });
   });
 

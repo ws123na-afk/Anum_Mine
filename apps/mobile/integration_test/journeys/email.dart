@@ -118,6 +118,8 @@ class InboxState {
               'approval': null,
               'message': {...message(), 'is_read': true},
             }));
+    // The drafts the inbox offers to finish (new emails saved earlier): none.
+    api.get('/api/v1/email/drafts', (_) => FakeResponse.json(<Object?>[]));
     api.post('/api/v1/email/messages/{id}/drafts', (_) {
       final created = draft();
       drafts.add(created);

@@ -1,0 +1,5 @@
+/* "Create ticket" from an email or a WhatsApp conversation (src/TicketFromMessage.tsx). */
+.ticketFromMessageForm { display: grid; gap: var(--d-s3); min-width: 0; }
+.ticketFromMessageForm .field { margin-top: 0; }
+.ticketFromMessageForm .notice { margin: 0; overflow-wrap: anywhere; }
+.ticketFromMessageForm .actions { margin-top: 0; }

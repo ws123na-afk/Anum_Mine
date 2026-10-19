@@ -1,3 +1,5 @@
+import 'catalog_strings.dart';
+import 'deals_strings.dart';
 import 'support_strings.dart';
 
 /// Business screen strings (docs/business.md), English and Arabic. Looked up by
@@ -5,10 +7,12 @@ import 'support_strings.dart';
 /// catalog (apps/web/src/lib/messages/business.*.ts).
 const businessEn = <String, String>{
   ...supportEn,
+  ...catalogEn,
+  ...dealsEn,
   'biz.title': 'Business',
   'biz.subtitle': 'Leads, pipeline, proposals and projects for your own sales',
   'biz.sendingOff':
-      'Sending is off: ANUM never contacts anyone from Business. Products, prices and proposals are edited on the web.',
+      'Sending is off: ANUM never contacts anyone from Business. Proposals are written on the web.',
   'biz.tab.overview': 'Overview',
   'biz.tab.leads': 'Leads',
   'biz.tab.pipeline': 'Pipeline',
@@ -42,8 +46,7 @@ const businessEn = <String, String>{
   'biz.leads.search': 'Search company or lead',
   'biz.leads.all': 'All',
   'biz.leads.empty': 'No leads yet',
-  'biz.leads.emptyText':
-      'Add leads on the web (Business, then Leads) or import a CSV there.',
+  'biz.leads.emptyText': 'Add a lead here, or import a CSV on the web.',
   'biz.leads.noMatch': 'No lead matches. Try another name or status.',
   'biz.leads.noOffer': 'No offer chosen',
   'biz.leads.dnc': 'Do not contact',
@@ -200,10 +203,12 @@ const businessEn = <String, String>{
 
 const businessAr = <String, String>{
   ...supportAr,
+  ...catalogAr,
+  ...dealsAr,
   'biz.title': 'الأعمال',
   'biz.subtitle': 'العملاء المحتملون والفرص والعروض والمشاريع لمبيعاتك',
   'biz.sendingOff':
-      'الإرسال متوقف: لا يتواصل ANUM مع أحد من قسم الأعمال. تُعدَّل المنتجات والأسعار والعروض على الويب.',
+      'الإرسال متوقف: لا يتواصل ANUM مع أحد من قسم الأعمال. تُكتب العروض على الويب.',
   'biz.tab.overview': 'نظرة عامة',
   'biz.tab.leads': 'العملاء المحتملون',
   'biz.tab.pipeline': 'الفرص',
@@ -237,8 +242,7 @@ const businessAr = <String, String>{
   'biz.leads.search': 'ابحث عن شركة أو عميل محتمل',
   'biz.leads.all': 'الكل',
   'biz.leads.empty': 'لا عملاء محتملين بعد',
-  'biz.leads.emptyText':
-      'أضف العملاء المحتملين على الويب (الأعمال ثم العملاء المحتملون) أو استورد ملف CSV هناك.',
+  'biz.leads.emptyText': 'أضف عميلاً محتملاً هنا، أو استورد ملف CSV على الويب.',
   'biz.leads.noMatch': 'لا يوجد عميل محتمل مطابق. جرّب اسمًا أو حالة أخرى.',
   'biz.leads.noOffer': 'لم يُختر عرض',
   'biz.leads.dnc': 'لا تتواصل',
