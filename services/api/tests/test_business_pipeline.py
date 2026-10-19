@@ -22,6 +22,7 @@ from collections.abc import Iterator
 from datetime import date, timedelta
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -307,6 +308,15 @@ def test_detectors_read_only_what_the_page_shows() -> None:
     assert signals.company_name("Gulf Mixers | Ready-mix", "gulfmixers.example") == "Gulf Mixers"
 
 
+def test_scripts_and_styles_are_dropped_by_a_real_parser() -> None:
+    page = ("<p>Hello</p><SCRIPT type='x'>var a = 'info@leak.example';</script >"
+            "<ScRiPt>hidden()</SCRIPT\n><style>p{}</STYLE ><!-- note info@comment.example --><p>World &amp; more</p><br/>")
+    assert signals.visible_text(page) == "Hello World & more"
+    stripped = signals.strip_code(page)
+    assert "leak" not in stripped and "hidden" not in stripped and "comment" not in stripped and "<p>Hello</p>" in stripped
+    assert signals.business_emails(page.replace("leak.example", "acme.example"), "acme.example") == []  # an address inside a script is code
+
+
 def _obs(code: str, num: float | None = None, text: str = "", day: date = date(2026, 10, 1), oid: str = "o") -> Observation:
     now = utc_now()
     return Observation(id=f"{oid}-{code}", tenant_id=TENANT, workspace_id=WORKSPACE, lead_id="l", account_id="a", evidence_id=f"e-{code}", signal_code=code,
@@ -409,7 +419,7 @@ def test_profile_collects_confirmed_signals_with_url_excerpt_and_day(search: Fak
     assert codes == ["CONTACT_FORM", "HIRING_ROLE", "NO_SCHEMA_MARKUP", "PUBLISHED_BUSINESS_EMAIL", "RUNNING_GOOGLE_ADS", "SITE_PAGE_COUNT", "TECH_STACK"]
     assert "INCUMBENT_AGENCY" not in codes  # on the page, but not confirmed: never collected
     for item in done["observations"]:
-        assert item["url"].startswith("https://gulfmixers.example") and item["excerpt"] and item["observed_on"] == utc_now().date().isoformat()
+        assert urlsplit(item["url"]).hostname == "gulfmixers.example" and item["excerpt"] and item["observed_on"] == utc_now().date().isoformat()
         assert item["evidence_id"]
     assert done["used"]["page_fetches"] <= done["estimate"]["page_fetches"]
     assert not [item for item in web.requests if item.startswith("desertblocks.example/") and not item.endswith("robots.txt")]

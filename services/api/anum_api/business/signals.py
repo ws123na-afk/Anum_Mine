@@ -22,6 +22,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from html import unescape
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -97,16 +98,68 @@ def pages_needed(confirmed: Iterable[str], cap: int) -> int:
 # -- HTML helpers --------------------------------------------------------------------------------
 
 
+_CODE_TAGS = frozenset({"script", "style", "noscript", "template"})
+
+
+class _Markup(HTMLParser):
+    """The stdlib HTML parser, not a regex: it ends a script at ``</script >`` or ``</SCRIPT\\n>`` as a
+    browser does. ``keep_tags`` re-emits the markup without scripts, styles and comments (later
+    detectors read tags and attributes); otherwise only the visible text is collected."""
+
+    def __init__(self, keep_tags: bool) -> None:
+        super().__init__(convert_charrefs=not keep_tags)
+        self.keep_tags = keep_tags
+        self.parts: list[str] = []
+        self.depth = 0  # inside script, style, noscript or template
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in _CODE_TAGS:
+            self.depth += 1
+        elif not self.depth and self.keep_tags:
+            self.parts.append(self.get_starttag_text() or "")
+        elif not self.depth:
+            self.parts.append(" ")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if not self.depth:
+            self.parts.append((self.get_starttag_text() or "") if self.keep_tags else " ")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _CODE_TAGS:
+            self.depth = max(0, self.depth - 1)
+        elif not self.depth:
+            self.parts.append(f"</{tag}>" if self.keep_tags else " ")
+
+    def handle_data(self, data: str) -> None:
+        if not self.depth:
+            self.parts.append(data)
+
+    def handle_entityref(self, name: str) -> None:
+        if not self.depth:
+            self.parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        if not self.depth:
+            self.parts.append(f"&#{name};")
+
+
+def _parse(html: str, keep_tags: bool) -> str:
+    parser = _Markup(keep_tags)
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception:  # malformed markup: keep what was parsed so far
+        pass
+    return "".join(parser.parts)
+
+
 def strip_code(html: str) -> str:
-    """Scripts, styles and comments out before any text regex (minified code is not prose)."""
-    html = re.sub(r"(?is)<script\b.*?</script>", " ", html)
-    html = re.sub(r"(?is)<style\b.*?</style>", " ", html)
-    return re.sub(r"(?s)<!--.*?-->", " ", html)
+    """The markup without scripts, styles and comments, so detectors never read code as prose."""
+    return _parse(html, keep_tags=True)
 
 
 def visible_text(html: str, limit: int = 20000) -> str:
-    text = re.sub(r"(?s)<[^>]+>", " ", strip_code(html))
-    return " ".join(unescape(text).split())[:limit]
+    return " ".join(_parse(html, keep_tags=False).split())[:limit]
 
 
 def page_title(html: str) -> str:
@@ -196,7 +249,8 @@ def detect_agency(html: str, domain: str) -> tuple[str, str] | None:
         href = link.group(1)
         anchor = " ".join(unescape(re.sub(r"(?s)<[^>]+>", " ", link.group(2))).split())
         host = (urlsplit(href).hostname or "").lower().removeprefix("www.")
-        if not host or not anchor or len(anchor) > 80 or host.endswith(domain) or domain.endswith(host):
+        same_site = host == domain or host.endswith("." + domain) or domain.endswith("." + host)
+        if not host or not anchor or len(anchor) > 80 or same_site:
             continue
         if any(benign in host for benign in BENIGN_HOSTS):
             continue
