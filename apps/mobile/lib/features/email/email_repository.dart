@@ -31,7 +31,19 @@ abstract interface class EmailRepository {
 
   /// Throws [DraftWaitsForApproval] when drafting itself needs approval.
   Future<EmailDraft> draftReply(String messageId, {String? instructions});
-  Future<EmailDraft> updateDraft(String draftId, {required String body});
+
+  /// Starts a brand-new email in [EmailDraftFields.accountId]'s mailbox.
+  /// Empty To and body are allowed here; asking to send refuses them.
+  /// Throws [DraftWaitsForApproval] when drafting itself needs approval.
+  Future<EmailDraft> createDraft(EmailDraftFields fields);
+
+  /// Saves the reply text ([body]) or, for a new email, every field
+  /// ([fields]).
+  Future<EmailDraft> updateDraft(
+    String draftId, {
+    String? body,
+    EmailDraftFields? fields,
+  });
 
   /// Asks to send: the pending approval to show (tool, arguments, hash).
   Future<EmailDraft> askToSend(String draftId);
@@ -110,6 +122,11 @@ class ApiEmailRepository implements EmailRepository {
         },
       ),
     );
+    return _drafted(value);
+  }
+
+  /// The drafting answer: the draft, or the approval drafting waits for.
+  static EmailDraft _drafted(JsonReader value) {
     final draft = value.optObject('draft');
     final approval = value.optObject('approval');
     if (draft == null && approval != null) {
@@ -128,16 +145,27 @@ class ApiEmailRepository implements EmailRepository {
   }
 
   @override
+  Future<EmailDraft> createDraft(EmailDraftFields fields) async => _drafted(
+        JsonReader(
+          await api.request('POST', '$_base/drafts', body: fields.toCreate()),
+        ),
+      );
+
+  @override
   Future<EmailDraft> updateDraft(
     String draftId, {
-    required String body,
+    String? body,
+    EmailDraftFields? fields,
   }) async =>
       EmailDraft.fromJson(
         JsonReader(
           await api.request(
             'PATCH',
             '$_base/drafts/${_id(draftId)}',
-            body: {'body': body},
+            body: {
+              ...?fields?.toPatch(),
+              if (body != null) 'body': body,
+            },
           ),
         ),
       );

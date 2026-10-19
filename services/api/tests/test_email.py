@@ -226,6 +226,11 @@ class FakeMail:
             return httpx.Response(202)
         if path.endswith("/createReply"):
             return httpx.Response(201, json={"id": "graph-draft-1"})
+        if path == "/v1.0/me/sendMail" and request.method == "POST":
+            self.graph_sent.append(json.loads(request.content))
+            return httpx.Response(202)
+        if path == "/v1.0/me/messages" and request.method == "POST":
+            return httpx.Response(201, json={"id": "graph-draft-new"})
         if path.startswith("/v1.0/me/messages/") and request.method == "GET":
             return httpx.Response(200, json={"body": {"contentType": "text", "content": "Where is my order 77?"}})
         if path.startswith("/v1.0/me/messages/") and request.method in {"PATCH", "DELETE"}:
@@ -968,6 +973,11 @@ def test_every_state_changing_email_route_is_audited_without_tokens_or_text(fake
     probe.call("PATCH", f"/api/v1/email/drafts/{draft['id']}", MEMBER, sent=[body, "team@shop.example"], json={"body": body, "cc": ["team@shop.example"]})
     probe.call("POST", f"/api/v1/email/drafts/{draft['id']}/send-approval", MEMBER)
     probe.call("DELETE", f"/api/v1/email/drafts/{draft['id']}", MEMBER)
+    composed = probe.call(
+        "POST", "/api/v1/email/drafts", MEMBER, sent=["New price list", "Our new prices are attached below.", "buyer@shop.example"],
+        json={"account_id": account_id, "to": ["buyer@shop.example"], "bcc": ["boss@shop.example"], "subject": "New price list", "body": "Our new prices are attached below."},
+    ).json()["draft"]
+    probe.call("PATCH", f"/api/v1/email/drafts/{composed['id']}", MEMBER, sent=["audit@shop.example"], json={"bcc": ["audit@shop.example"]})
     probe.call("POST", f"/api/v1/email/messages/{first['id']}/archive", OWNER)
     probe.call("DELETE", f"/api/v1/email/accounts/{account_id}", OWNER)
     probe.assert_covered()
@@ -980,3 +990,109 @@ def test_message_bodies_are_never_stored() -> None:
 
     stored = set(EmailMessage.model_fields) | {column.name for column in EmailMessageRecord.__table__.columns}
     assert not {"body", "body_text", "body_html", "html", "content", "raw"} & stored
+
+
+# -- composing a new message (docs/email.md#composing-a-new-message) ----------------------------
+
+
+def compose(account_id: str, who: dict[str, str] = MEMBER, **fields: Any) -> Any:
+    body = {"account_id": account_id, "to": ["buyer@shop.example"], "subject": "New price list", "body": "Our new prices start on Sunday.", **fields}
+    return client.post("/api/v1/email/drafts", headers=who, json=body)
+
+
+def test_a_new_email_is_drafted_as_written_and_sent_only_after_approval_with_bcc(fake: FakeMail) -> None:
+    account = connect("gmail")
+    created = compose(account["id"], cc=["Team@Shop.example"], bcc=["boss@shop.example", "boss@shop.example"])
+    assert created.status_code == 201, created.text
+    result = created.json()
+    draft = result["draft"]
+    assert result["status"] == "done" and result["warning"] is None
+    assert draft["kind"] == "new" and draft["message_id"] is None and draft["source"] == "person"
+    assert draft["to"] == ["buyer@shop.example"] and draft["cc"] == ["team@shop.example"] and draft["bcc"] == ["boss@shop.example"]
+    assert draft["subject"] == "New price list" and draft["saved_in_provider"] is True
+    # The copy in Gmail's Drafts is a new message: no thread, Bcc in the raw message.
+    saved = next(iter(fake.gmail_drafts.values()))["message"]
+    assert "threadId" not in saved and b"Bcc: boss@shop.example" in base64.urlsafe_b64decode(saved["raw"])
+    assert fake.gmail_sent == []
+    # Listed with the other drafts waiting.
+    listed = client.get("/api/v1/email/drafts", headers=MEMBER).json()
+    assert [(d["id"], d["kind"]) for d in listed] == [(draft["id"], "new")]
+
+    asked = client.post(f"/api/v1/email/drafts/{draft['id']}/send-approval", headers=MEMBER)
+    assert asked.status_code == 200, asked.text
+    approval = asked.json()["approval"]
+    assert approval["arguments"]["bcc"] == ["boss@shop.example"] and approval["arguments"]["cc"] == ["team@shop.example"]
+    assert approval["arguments"]["in_reply_to"] is None and approval["arguments"]["from"] == "shop@example.com"
+    assert fake.gmail_sent == []
+    # A member cannot approve; the owner approves with the hash shown.
+    denied = client.post(f"/api/v1/approvals/{approval['id']}/approve", headers=MEMBER, json={"payload_hash": approval["payload_hash"]})
+    assert denied.status_code == 403
+    sent = client.post(f"/api/v1/approvals/{approval['id']}/approve", headers=OWNER, json={"payload_hash": approval["payload_hash"]})
+    assert sent.status_code == 200, sent.text
+    assert len(fake.gmail_sent) == 1 and "threadId" not in fake.gmail_sent[0]
+    raw = base64.urlsafe_b64decode(fake.gmail_sent[0]["raw"])
+    assert b"To: buyer@shop.example" in raw and b"Cc: team@shop.example" in raw and b"Bcc: boss@shop.example" in raw
+    assert b"In-Reply-To" not in raw and b"Subject: New price list" in raw
+    after = client.get("/api/v1/email/drafts", headers=MEMBER).json()[0]
+    assert after["status"] == "sent" and after["bcc"] == ["boss@shop.example"]
+
+
+def test_a_new_email_from_outlook_and_zoho_names_bcc_and_is_not_a_reply(fake: FakeMail) -> None:
+    outlook = connect("outlook")
+    draft = compose(outlook["id"], bcc=["audit@shop.example"]).json()["draft"]
+    approval = client.post(f"/api/v1/email/drafts/{draft['id']}/send-approval", headers=OWNER).json()["approval"]
+    assert client.post(f"/api/v1/approvals/{approval['id']}/approve", headers=OWNER, json={"payload_hash": approval["payload_hash"]}).status_code == 200
+    message = fake.graph_sent[-1]["message"]
+    assert fake.graph_sent[-1]["saveToSentItems"] is True and message["subject"] == "New price list"
+    assert message["bccRecipients"] == [{"emailAddress": {"address": "audit@shop.example"}}]
+
+    zoho = connect("zoho")
+    draft = compose(zoho["id"], bcc=["audit@shop.sa"]).json()["draft"]
+    approval = client.post(f"/api/v1/email/drafts/{draft['id']}/send-approval", headers=OWNER).json()["approval"]
+    assert client.post(f"/api/v1/approvals/{approval['id']}/approve", headers=OWNER, json={"payload_hash": approval["payload_hash"]}).status_code == 200
+    sent = [item for item in fake.zoho_sent if item.get("mode") != "draft"][-1]
+    assert sent["path"] == "/api/accounts/123/messages" and "action" not in sent
+    assert sent["bccAddress"] == "audit@shop.sa" and sent["toAddress"] == "buyer@shop.example"
+
+
+def test_composing_checks_the_role_the_mailbox_and_the_addresses(fake: FakeMail) -> None:
+    account = connect("gmail")
+    assert compose(account["id"], who=VIEWER).status_code == 403
+    assert compose("eac_missing").status_code == 404
+    bad = compose(account["id"], bcc=["not an address"])
+    assert bad.status_code == 422 and "Not an email address" in bad.json()["error"]["message"]
+    too_many = compose(account["id"], to=[f"p{i}@shop.example" for i in range(30)], cc=[f"c{i}@shop.example" for i in range(21)])
+    assert too_many.status_code == 422
+    # An empty message can be saved, but not sent.
+    empty = compose(account["id"], to=[], body="").json()["draft"]
+    assert client.post(f"/api/v1/email/drafts/{empty['id']}/send-approval", headers=MEMBER).status_code == 422
+    client.patch(f"/api/v1/email/drafts/{empty['id']}", headers=MEMBER, json={"to": ["buyer@shop.example"]})
+    assert client.post(f"/api/v1/email/drafts/{empty['id']}/send-approval", headers=MEMBER).status_code == 422
+    assert fake.gmail_sent == []
+
+
+def test_a_private_mailbox_is_composed_from_only_by_the_person_who_connected_it(fake: FakeMail) -> None:
+    private = connect("gmail", who=MEMBER, visibility="private")
+    assert compose(private["id"], who=OWNER).status_code == 404
+    assert compose(private["id"], who=MEMBER).status_code == 201
+
+
+def test_changing_the_blind_copies_withdraws_the_pending_send_approval(fake: FakeMail) -> None:
+    account = connect("gmail")
+    draft = compose(account["id"], bcc=["boss@shop.example"]).json()["draft"]
+    first = client.post(f"/api/v1/email/drafts/{draft['id']}/send-approval", headers=MEMBER).json()["approval"]
+    edited = client.patch(f"/api/v1/email/drafts/{draft['id']}", headers=MEMBER, json={"bcc": []})
+    assert edited.status_code == 200 and edited.json()["bcc"] == [] and edited.json()["status"] == "draft"
+    stale = client.post(f"/api/v1/approvals/{first['id']}/approve", headers=OWNER, json={"payload_hash": first["payload_hash"]})
+    assert stale.status_code in {409, 410}
+    second = client.post(f"/api/v1/email/drafts/{draft['id']}/send-approval", headers=MEMBER).json()["approval"]
+    assert second["id"] != first["id"] and second["arguments"]["bcc"] == []
+    assert fake.gmail_sent == []
+
+
+def test_a_mailbox_needing_reconnecting_cannot_compose(fake: FakeMail) -> None:
+    account = connect("gmail")
+    email_backend.accounts[account["id"]].status = email_inbox.AccountStatus.REAUTH_REQUIRED
+    refused = compose(account["id"])
+    assert refused.status_code == 409 and "Reconnect" in refused.json()["error"]["message"]
+    assert fake.gmail_drafts == {}

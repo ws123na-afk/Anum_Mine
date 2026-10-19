@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { SupportPolicy } from '@anum/contracts';
 import {
-  defaultFilters, emptyTicketDraft, filtersActive, filtersToQuery, policyBody, policyDraft, resolveProblem, severityTone, slaBadge, slaLabel, slaTone, sourceHref,
-  ticketBody, ticketQuery, ticketStatusLabel, ticketStatusTone, workingTimeText,
+  defaultFilters, emptyTicketDraft, filtersActive, filtersToQuery, openTicketFromConflict, policyBody, policyDraft, resolveProblem, severityTone, slaBadge, slaLabel, slaTone, sourceHref,
+  ticketBody, ticketFromMessageBody, ticketHref, ticketQuery, ticketStatusLabel, ticketStatusTone, workingTimeText,
 } from '../src/lib/businessSupport.ts';
 import { tabFromHash } from '../src/lib/business.ts';
 import { setLocale } from '../src/lib/i18n.ts';
@@ -106,5 +106,28 @@ describe('business support', () => {
   test('the working time reads as days and hours in the time zone', () => {
     setLocale('en');
     assert.equal(workingTimeText(policy), 'Monday, Tuesday, Wednesday, Thursday, Sunday, 9:00 to 17:00 (Asia/Riyadh)');
+  });
+});
+
+describe('tickets from an inbox', () => {
+  test('an empty title is left out so the API uses the subject; a short one is refused', () => {
+    setLocale('en');
+    assert.deepEqual(ticketFromMessageBody('email', 'eml_1', '   ', 'normal'), { ok: true, value: { source: 'email', ref_id: 'eml_1', severity: 'normal' } });
+    assert.deepEqual(ticketFromMessageBody('whatsapp', 'wacv_1', '  Order   late ', 'high'), { ok: true, value: { source: 'whatsapp', ref_id: 'wacv_1', severity: 'high', title: 'Order late' } });
+    const short = ticketFromMessageBody('email', 'eml_1', 'ab', 'normal');
+    assert.equal(short.ok, false);
+    assert.match(short.ok ? '' : short.error, /at least 3 characters/);
+    const long = ticketFromMessageBody('email', 'eml_1', 'x'.repeat(300), 'low');
+    assert.equal(long.ok && long.value.title?.length, 200);
+  });
+  test('the 409 sentence names the open ticket to link to', () => {
+    assert.deepEqual(openTicketFromConflict('This email is already linked to open ticket T-1A2B3C (bst_abc123).'), { reference: 'T-1A2B3C', id: 'bst_abc123' });
+    assert.deepEqual(openTicketFromConflict('ANUM API request failed: 409: This whatsapp is already linked to open ticket TKT-12 (bst_x-9).'), { reference: 'TKT-12', id: 'bst_x-9' });
+    assert.equal(openTicketFromConflict('Only an open ticket can be escalated or de-escalated.'), null);
+    assert.equal(openTicketFromConflict(null), null);
+  });
+  test('a ticket link opens the Business support tab on that ticket', () => {
+    assert.equal(ticketHref('bst_1'), '#business-support/bst_1');
+    assert.equal(ticketHref('a/b'), '#business-support/a%2Fb');
   });
 });

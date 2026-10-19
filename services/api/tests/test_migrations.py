@@ -1118,7 +1118,7 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
     assert 'revision = "0076_business_support"' in revision_text and len("0076_business_support") <= 32
     assert 'down_revision = "0075_file_scan_status"' in revision_text
     others = [path for path in versions.glob("*.py") if path.name != "0076_business_support.py"]
-    assert not [path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
+    assert not [path for path in others if 'down_revision = "0075_file_scan_status"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 2
     assert '"business_support_tickets"' in revision_text and '"business_ticket_replies"' in revision_text
@@ -1129,3 +1129,20 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
     assert "alter_column" not in upgrade and "drop " not in upgrade and "op.drop" not in upgrade
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "uq_business_support_tickets_open_source" in upgrade
+
+
+def test_email_draft_bcc_migration_adds_one_defaulted_column_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0087_email_draft_bcc.py").read_text(encoding="utf-8")
+    assert 'revision = "0087_email_draft_bcc"' in revision_text and len("0087_email_draft_bcc") <= 32
+    assert 'down_revision = "0076_business_support"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0087_email_draft_bcc.py"]
+    # The head: nothing else extends 0076 or this revision.
+    assert not [path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
+    assert not [path for path in others if 'down_revision = "0087_email_draft_bcc"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: one not-null column with a server default the previous release never has to name.
+    assert upgrade.count("op.add_column(") == 1 and '"email_drafts"' in upgrade and '"bcc_addresses"' in upgrade
+    assert "server_default=sa.text(\"'[]'::jsonb\")" in upgrade
+    assert "op.create_table(" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade

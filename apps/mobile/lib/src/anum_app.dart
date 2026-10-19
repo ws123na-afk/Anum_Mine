@@ -383,8 +383,10 @@ class _AnumAppState extends State<AnumApp> {
     voiceDeveloper.announce = (text) => voice.sayLocal(text);
     voice.developer = voiceDeveloper;
     // WhatsApp inbox (docs/whatsapp.md): owners and members; owners approve.
-    whatsapp = WhatsAppController(ApiWhatsAppRepository(api));
-    email = EmailController(ApiEmailRepository(api));
+    // Both can open a support ticket from a message (docs/business.md).
+    whatsapp = WhatsAppController(ApiWhatsAppRepository(api),
+        support: business.support);
+    email = EmailController(ApiEmailRepository(api), support: business.support);
     // ANUM Command (docs/command.md): app-wide, so a command keeps being
     // followed after "Keep working in background".
     command = CommandController(

@@ -174,6 +174,33 @@ export function policyBody(draft: PolicyDraft): Check<SupportPolicy> {
   return { ok: true, value: { timezone, work_days: [...new Set(draft.workDays)].sort((a, b) => a - b), start_hour: start, end_hour: end, targets, note: draft.note.trim() } };
 }
 
+// -- tickets from an inbox (docs/business.md#tickets-from-an-inbox) ----------------------------
+
+export type MessageSource = 'email' | 'whatsapp';
+export interface TicketFromMessageRequest extends TicketFields { source: MessageSource; ref_id: string }
+
+/**
+ * The POST /support/tickets/from-message body, or what to fix. An empty title is left out so the
+ * API uses the email subject (or names who wrote in); a title given must have at least 3 characters.
+ */
+export function ticketFromMessageBody(source: MessageSource, refId: string, title: string, severity: TicketSeverity): Check<TicketFromMessageRequest> {
+  const clean = title.replace(/\s+/g, ' ').trim();
+  if (clean && clean.length < 3) return { ok: false, error: t('biz.sup.form.titleRequired') };
+  return { ok: true, value: { source, ref_id: refId, severity, ...(clean ? { title: clean.slice(0, 200) } : {}) } };
+}
+
+/**
+ * The open ticket a 409 names ("... already linked to open ticket T-1A2B3C (bst_abc)."), so the
+ * page can link to it. Null when the sentence names no ticket id.
+ */
+export function openTicketFromConflict(detail: string | null | undefined): { reference: string; id: string } | null {
+  const match = /open ticket\s+(\S+)\s+\(([A-Za-z0-9_-]{1,80})\)/.exec(detail ?? '');
+  return match ? { reference: match[1], id: match[2] } : null;
+}
+
+/** Where the Business page opens one ticket. */
+export const ticketHref = (ticketId: string) => `#business-support/${encodeURIComponent(ticketId)}`;
+
 /** "Sunday to Thursday, 9:00 to 17:00 (Asia/Riyadh)" style summary of the working time. */
 export function workingTimeText(policy: SupportPolicy): string {
   const days = WEEKDAYS.filter((day) => policy.work_days.includes(day)).map(weekdayLabel).join(', ');
