@@ -23,7 +23,10 @@ from __future__ import annotations
 import logging
 import smtplib
 import ssl
-from collections.abc import Iterable
+import sys
+import time
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from email.message import EmailMessage
 from typing import Any
 
@@ -105,7 +108,37 @@ def create_notification(
 
 
 class EmailRefused(RuntimeError):
-    """The SMTP server could not be used safely or refused the message."""
+    """The SMTP server could not be used safely or refused the message.
+
+    ``transient`` is true when trying again later can help: the server was unreachable,
+    hung up, or answered with a 4xx code. Configuration problems and 5xx refusals are
+    permanent and are not retried.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
+
+
+def _unreachable(exc: OSError) -> EmailRefused:
+    return EmailRefused(f"The mail server could not be reached ({type(exc).__name__})", transient=True)
+
+
+def _smtp_failure(exc: smtplib.SMTPException) -> EmailRefused:
+    """A short sentence safe to show (never the server's raw answer), and whether to retry."""
+    name = type(exc).__name__
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return EmailRefused("The mail server refused ANUM's sign-in (check ANUM_SMTP_USERNAME and ANUM_SMTP_PASSWORD)")
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return EmailRefused("The mail server refused the recipient address")
+    if isinstance(exc, (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError)):
+        return EmailRefused(f"The mail server could not be reached ({name})", transient=True)
+    code = getattr(exc, "smtp_code", None)
+    if isinstance(code, int) and 400 <= code < 500:
+        return EmailRefused(f"The mail server asked to try again later ({code})", transient=True)
+    if isinstance(code, int):
+        return EmailRefused(f"The mail server refused the message ({code})")
+    return EmailRefused(f"The mail server refused the message ({name})")
 
 
 def send_email(to: str, subject: str, text: str) -> None:
@@ -124,10 +157,15 @@ def send_email(to: str, subject: str, text: str) -> None:
     if security == "none" and not is_local_environment(settings.environment):
         raise EmailRefused("Unencrypted SMTP is allowed only in local and test")
     client: smtplib.SMTP
-    if security == "tls":
-        client = smtplib.SMTP_SSL(host, settings.smtp_port, timeout=timeout, context=context)
-    else:
-        client = smtplib.SMTP(host, settings.smtp_port, timeout=timeout)
+    try:
+        if security == "tls":
+            client = smtplib.SMTP_SSL(host, settings.smtp_port, timeout=timeout, context=context)
+        else:
+            client = smtplib.SMTP(host, settings.smtp_port, timeout=timeout)
+    except smtplib.SMTPException as exc:
+        raise _smtp_failure(exc) from exc
+    except OSError as exc:
+        raise _unreachable(exc) from exc
     try:
         if security == "starttls":
             client.ehlo()
@@ -140,13 +178,87 @@ def send_email(to: str, subject: str, text: str) -> None:
         if login and secret:
             client.login(login, secret)
         client.send_message(message)
+    except EmailRefused:
+        raise
     except smtplib.SMTPException as exc:
-        raise EmailRefused(type(exc).__name__) from exc
+        raise _smtp_failure(exc) from exc
+    except OSError as exc:
+        raise _unreachable(exc) from exc
     finally:
         try:
             client.quit()
         except (smtplib.SMTPException, OSError):
             pass
+
+
+@dataclass(frozen=True)
+class MailOutcome:
+    """What happened to one system email (an invitation, a notice, a test message).
+
+    ``status``: ``sent``; ``failed`` (refused, or still failing after ``attempts`` tries);
+    ``not_configured`` (no ``ANUM_SMTP_HOST``/``ANUM_SMTP_FROM``); ``no_address`` (the
+    recipient has no email address ANUM knows); ``not_requested`` (nobody asked for it).
+    ``error`` is a sentence safe to show, never the server's raw answer or a credential.
+    """
+
+    status: str
+    attempts: int = 0
+    error: str | None = None
+
+
+def send_with_retries(
+    to: str,
+    subject: str,
+    text: str,
+    *,
+    attempts: int = MAX_EMAIL_ATTEMPTS,
+    backoff_seconds: float | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> MailOutcome:
+    """Send one system email now, retrying transient failures with exponential backoff.
+
+    Blocking (SMTP is a network call): run it in a worker thread, never on the event loop,
+    and never while a database transaction is open (docs/notifications.md#email).
+    """
+    if not email_configured():
+        return MailOutcome("not_configured", 0, "No mail server is set up on this ANUM server (ANUM_SMTP_HOST and ANUM_SMTP_FROM)")
+    delay = settings.smtp_retry_backoff_seconds if backoff_seconds is None else backoff_seconds
+    error = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            # Looked up on the module so tests can replace ``send_email``.
+            sys.modules[__name__].send_email(to, subject, text)
+        except EmailRefused as exc:
+            error = str(exc)[:300]
+            if not exc.transient or attempt >= attempts:
+                return MailOutcome("failed", attempt, error)
+        except OSError as exc:
+            error = _unreachable(exc).args[0]
+            if attempt >= attempts:
+                return MailOutcome("failed", attempt, error)
+        else:
+            return MailOutcome("sent", attempt, None)
+        sleep(delay * (2 ** (attempt - 1)))
+    return MailOutcome("failed", attempts, error)  # pragma: no cover - the loop always returns
+
+
+def recipient_address(context: TenantContext, user_id: str) -> str | None:
+    """The address ANUM emails ``user_id`` at in this workspace: the email in their team
+    profile, else the verified email of the invitation they accepted. Read in the
+    recipient's own RLS context, in its own short unit of work (call it in a thread)."""
+    from .team_work import open_team_unit
+
+    recipient = context.model_copy(update={"user_id": user_id})
+    with open_team_unit(recipient) as unit:
+        profile = unit.store.list_profiles(recipient).get(user_id)
+        if profile is not None and profile.email:
+            return profile.email
+        from .schemas import InvitationStatus
+
+        for invitation in unit.repository.list_invitations(recipient):
+            if invitation.status == InvitationStatus.ACCEPTED and invitation.accepted_by_user_id == user_id and invitation.invitee_email:
+                return invitation.invitee_email
+    return None
 
 
 def _email_text(notification: UserNotification) -> str:
