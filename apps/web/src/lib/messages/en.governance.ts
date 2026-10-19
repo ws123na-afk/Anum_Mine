@@ -4,7 +4,11 @@ import type { Message } from './types.ts';
 
 export const governanceEn = {
   // ---- Tenant-wide write access (shared with budgets and the marketplace) ----
-  'gov.readOnly': 'Read only: {subject} apply to every workspace in this organization, so only an organization administrator can change them. Owning this workspace is not enough. To become one, ask the administrator of your ANUM sign-in (Keycloak) to assign you the realm role org_admin (on a self-hosted server they run: infra/oracle/keycloak-2fa.sh grant-org-admin <your username>), then sign out and sign in again. Until then, an organization administrator can make the change for you.',
+  'gov.readOnly': 'Read only: {subject} apply to every workspace in this organization, so only an organization administrator can change them.',
+  'gov.readOnlyHowTitle': 'How to get access',
+  'gov.readOnlyHow': 'Owning this workspace is not enough. Ask the administrator of your ANUM sign-in (Keycloak) to assign you the realm role org_admin, then sign out and sign in again. Until then, an organization administrator can make the change for you.',
+  'gov.readOnlyHowServer': 'On a self-hosted server, they run:',
+  'gov.readOnlyHowCommand': 'infra/oracle/keycloak-2fa.sh grant-org-admin <your username>',
   'gov.subject.policy': 'policy packs, role templates and approval rules',
   'gov.subject.enterprise': 'routing targets and the marketplace catalog',
 
@@ -13,9 +17,10 @@ export const governanceEn = {
   'gov.metric.active': 'Active policies',
   'gov.metric.templates': 'Role templates',
   'gov.metric.rules': 'Approval rules',
-  'gov.metric.detail': 'Tenant control plane',
-  'gov.eyebrow': 'Organization controls',
-  'gov.title': 'Governance center',
+  'gov.metric.packsDetail': 'Every stored version, active or archived',
+  'gov.metric.activeDetail': 'Enforced in every workspace now',
+  'gov.metric.templatesDetail': 'Permission sets to give people',
+  'gov.metric.rulesDetail': 'Sign-offs risky actions need',
   'gov.intro': 'Versioned policy, retention, roles, approvals, and immutable audit export.',
   'gov.addBaseline': 'Add baseline',
   'gov.exportAudit': 'Export audit',

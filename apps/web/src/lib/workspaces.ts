@@ -143,3 +143,30 @@ export function membershipLabel(option: WorkspaceOption): string | null {
   const parts = [option.name && option.name !== option.id ? option.name : null, option.role ? t('switcher.yourRole', { role: option.role }) : null, option.archived ? t('switcher.archived') : null].filter(Boolean);
   return parts.length ? parts.join(' · ') : t('switcher.source.member');
 }
+
+/**
+ * A readable stand-in for an id when no display name is known: the scope prefix dropped, words
+ * split and the first letter capitalised (`workspace_foundation` to "Foundation"). The id itself
+ * is still shown inside the switcher panel.
+ */
+export function readableId(id: string): string {
+  const words = id.replace(/^(tenant|org|organisation|organization|workspace|ws)[_-]+(?=.)/i, '').split(/[_-]+/).filter(Boolean).join(' ');
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : id;
+}
+
+export interface ScopeDirectoryEntry {
+  tenant_id: string;
+  name: string | null;
+  display_name: string | null;
+  workspaces: readonly { workspace_id: string; workspace_name: string | null }[];
+}
+
+/** What the top-bar switcher shows: the organisation's and the workspace's display names, never raw ids. */
+export function scopeNames(tenantId: string, workspaceId: string, organisations: readonly ScopeDirectoryEntry[] | null, memberships: readonly MembershipEntry[] | null = null): { organisation: string; workspace: string } {
+  const current = organisations?.find((org) => org.tenant_id === tenantId);
+  const organisation = current?.display_name?.trim() || current?.name?.trim() || readableId(tenantId);
+  const workspace = current?.workspaces.find((entry) => entry.workspace_id === workspaceId)?.workspace_name?.trim()
+    || memberships?.find((entry) => entry.workspaceId === workspaceId)?.workspaceName
+    || readableId(workspaceId);
+  return { organisation, workspace };
+}

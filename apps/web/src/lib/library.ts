@@ -1,7 +1,7 @@
 // Pure helpers for Favorites, the Knowledge base and Reports (docs/knowledge-base.md,
 // docs/reports.md): labels, deep links, the chat report block, metric formatting.
 // No browser APIs, so `pnpm test:unit` exercises them directly.
-import type { FavoriteType, ReportCard, ReportCreatedByKind, ReportMetric } from '@anum/contracts';
+import type { FavoriteType, KnowledgeCitation, ReportCard, ReportCreatedByKind, ReportMetric } from '@anum/contracts';
 import { formatDateTime, t, type MessageKey } from './i18n.ts';
 
 export const FAVORITE_TYPES: FavoriteType[] = ['conversation', 'task', 'report', 'collection', 'file', 'memory', 'automation', 'agent'];
@@ -9,6 +9,14 @@ export const FAVORITES_PAGE = 30;
 export const REPORTS_PAGE = 20;
 export const ITEMS_PAGE = 50;
 export const KNOWN_REPORT_TYPES = ['tyre', 'commerce', 'commerce_summary', 'tyre_summary', 'task_summary', 'automation_summary', 'marketing', 'custom'] as const;
+
+/** Where in a document a cited passage is: "page 3", "slide 2", "sheet 1 (Budget)"; empty for notes and text. */
+export function citationPlace(citation: Pick<KnowledgeCitation, 'page' | 'page_unit' | 'page_label'>): string {
+  const { page, page_unit: unit, page_label: label } = citation;
+  if (page == null || !unit) return '';
+  const place = t(`kb.location.${unit}` as MessageKey, { n: page });
+  return label ? `${place} (${label})` : place;
+}
 
 export function favoriteTypeLabel(type: FavoriteType): string {
   return t(`library.type.${type}` as MessageKey);

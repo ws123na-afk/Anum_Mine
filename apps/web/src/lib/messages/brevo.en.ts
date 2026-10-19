@@ -13,7 +13,7 @@ export const brevoEn = {
   'brevo.deniedTitle': 'Email campaigns are for workspace members',
   'brevo.deniedText': 'Ask a workspace owner to add you to this workspace.',
   'brevo.errorTitle': "Couldn't load email campaigns",
-  'brevo.errorText': '{message} Check your connection, then try again.',
+  'brevo.errorText': '{message}. Try again in a moment.',
   'brevo.denied': 'Not allowed: {message}',
   'brevo.failed': "Couldn't {what}: {message}",
   'brevo.needsKey': 'Brevo refused the saved API key. An owner saves a new key under Connection.',

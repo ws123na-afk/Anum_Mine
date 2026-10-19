@@ -11,6 +11,7 @@ import { viewLabel } from './lib/shell';
 import { PageHeader, PaneProblem } from './PageParts';
 import './library.css';
 import './adminPages.css';
+import { HelpLink } from './HelpLink';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'error'; detail: string };
 
@@ -93,7 +94,7 @@ export function FavoritesView({ onOpen }: { onOpen: (favorite: Favorite) => void
       {load.kind === 'error' && <div className="paneBody"><PaneProblem text={t('favorites.loadFailed', { message: load.detail })} onRetry={() => void fetchFirst(type)} /></div>}
       {load.kind === 'ready' && items.length === 0 && <div className="paneEmpty">
         <Star aria-hidden="true" /><h3>{type ? t('favorites.emptyType', { type: favoriteTypeLabel(type) }) : t('favorites.empty')}</h3>
-        <p>{t('favorites.emptyText')}</p>
+        <p>{t('favorites.emptyText')}</p><HelpLink />
         {type && <div className="actions"><button type="button" className="secondary" onClick={() => setType(null)}>{t('pages2.favorites.showAll')}</button></div>}
       </div>}
       {load.kind === 'ready' && items.length > 0 && <div className="dataTableWrap"><table className="dataTable favoritesTable">

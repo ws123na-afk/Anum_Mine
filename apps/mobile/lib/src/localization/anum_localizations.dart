@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'calls_strings.dart';
@@ -815,6 +816,10 @@ class AnumLocalizations {
     'libIndex_failed': 'Index failed',
     'libIndex_skipped': 'Not searchable',
     'libIndex_gone': 'Missing',
+    'libIndex_noTextLayer': 'No extractable text, OCR not available',
+    'libPlace_page': 'page {n}',
+    'libPlace_slide': 'slide {n}',
+    'libPlace_sheet': 'sheet {n}',
     // Reports, calendar and email summary (ANUM 360).
     'toolsCancel': 'Cancel',
     'toolsSave': 'Save',
@@ -2222,6 +2227,11 @@ class AnumLocalizations {
     'libIndex_failed': 'فشلت الفهرسة',
     'libIndex_skipped': 'غير قابل للبحث',
     'libIndex_gone': 'مفقود',
+    'libIndex_noTextLayer':
+        'لا يوجد نص قابل للاستخراج، والتعرف الضوئي على النص غير متاح',
+    'libPlace_page': 'صفحة {n}',
+    'libPlace_slide': 'شريحة {n}',
+    'libPlace_sheet': 'ورقة {n}',
     // Reports, calendar and email summary (ANUM 360).
     'toolsCancel': 'إلغاء',
     'toolsSave': 'حفظ',
@@ -2893,8 +2903,14 @@ class _AnumDelegate extends LocalizationsDelegate<AnumLocalizations> {
   bool isSupported(Locale locale) =>
       const {'en', 'ar'}.contains(locale.languageCode);
   @override
-  Future<AnumLocalizations> load(Locale locale) =>
-      SynchronousFuture(AnumLocalizations(locale));
+  Future<AnumLocalizations> load(Locale locale) {
+    // Keeps intl's default locale on the app's language (not the device's),
+    // so formatters called without a context (money, numbers) follow the
+    // language the person picked.
+    Intl.defaultLocale = locale.languageCode;
+    return SynchronousFuture(AnumLocalizations(locale));
+  }
+
   @override
   bool shouldReload(_AnumDelegate old) => false;
 }

@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from skill_signing_support import signed
 
 from anum_api.files import FileStore, LocalObjectStorage, file_store, router as files_router
 from anum_api.skills_api import router as skills_router, skill_store
@@ -30,8 +31,8 @@ def _skill(risk: str = "medium") -> dict:
 
 
 def test_skill_versions_installations_and_resolution_are_governed() -> None:
-    assert client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json=_skill()).status_code == 201
-    assert client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json=_skill()).status_code == 409
+    assert client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json=signed(client, ORG_ADMIN, _skill())).status_code == 201
+    assert client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json=signed(client, ORG_ADMIN, _skill())).status_code == 409
     installed = client.post("/api/v1/skills/installations", headers=OWNER, json={
         "skill_id": "acme.research", "version": "1.0.0", "approved_tools": ["web.search"]})
     assert installed.status_code == 201
@@ -49,7 +50,7 @@ def test_only_an_org_admin_publishes_skill_versions() -> None:
     # Nothing was published; every role can still read the (empty) list.
     assert client.get("/api/v1/skills/versions", headers=OWNER).json() == []
     member_admin = {**OWNER, "x-user-id": "member_a", "x-user-roles": "member,org_admin"}
-    assert client.post("/api/v1/skills/versions", headers=member_admin, json=_skill()).status_code == 201
+    assert client.post("/api/v1/skills/versions", headers=member_admin, json=signed(client, member_admin, _skill())).status_code == 201
     # Installing stays a workspace-owner action: org_admin alone does not grant it.
     install = {"skill_id": "acme.research", "version": "1.0.0", "approved_tools": []}
     assert client.post("/api/v1/skills/installations", headers=member_admin, json=install).status_code == 403
@@ -57,7 +58,7 @@ def test_only_an_org_admin_publishes_skill_versions() -> None:
 
 
 def test_skill_resolution_enforces_scope_tools_and_risk() -> None:
-    client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json=_skill("high"))
+    client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json=signed(client, ORG_ADMIN, _skill("high")))
     client.post("/api/v1/skills/installations", headers=OWNER, json={
         "skill_id": "acme.research", "version": "1.0.0", "approved_tools": ["web.search"]})
     assert client.post("/api/v1/skills/resolve", headers=OWNER, json={

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../src/localization/anum_localizations.dart';
+import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'tyre_controller.dart';
@@ -203,9 +204,8 @@ class _Dashboard extends StatelessWidget {
             ),
             AnumMetric(
               label: l.f('tyreCost', {'currency': s.currency}),
-              value: s.costPer1000Km == null
-                  ? '-'
-                  : s.costPer1000Km!.toStringAsFixed(2),
+              value: formatMoney(s.costPer1000Km, null,
+                  locale: Localizations.localeOf(context)),
               icon: Icons.payments_outlined,
             ),
           ],

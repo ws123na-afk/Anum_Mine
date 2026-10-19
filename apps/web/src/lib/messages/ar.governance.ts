@@ -5,7 +5,11 @@ import type { Message } from './types.ts';
 
 export const governanceAr: Record<keyof typeof governanceEn, Message> = {
   // ---- Tenant-wide write access ----
-  'gov.readOnly': 'للقراءة فقط: هذه الإعدادات ({subject}) تسري على كل مساحات العمل في هذه المؤسسة، لذا لا يغيّرها إلا مسؤول المؤسسة. لا يكفي أن تكون مالك مساحة العمل هذه. لتصبح مسؤولًا، اطلب من مسؤول حساب تسجيل الدخول إلى ANUM (Keycloak) أن يمنحك دور النطاق org_admin (على خادم مستضاف ذاتيًا يشغّل: infra/oracle/keycloak-2fa.sh grant-org-admin <اسم المستخدم>)، ثم سجّل الخروج وسجّل الدخول مرة أخرى. وحتى ذلك الحين، يستطيع مسؤول المؤسسة إجراء التغيير نيابةً عنك.',
+  'gov.readOnly': 'للقراءة فقط: هذه الإعدادات ({subject}) تسري على كل مساحات العمل في هذه المؤسسة، لذا لا يغيّرها إلا مسؤول المؤسسة.',
+  'gov.readOnlyHowTitle': 'كيف تحصل على الصلاحية',
+  'gov.readOnlyHow': 'لا يكفي أن تكون مالك مساحة العمل هذه. اطلب من مسؤول حساب تسجيل الدخول إلى ANUM (Keycloak) أن يمنحك دور النطاق org_admin، ثم سجّل الخروج وسجّل الدخول مرة أخرى. وحتى ذلك الحين، يستطيع مسؤول المؤسسة إجراء التغيير نيابةً عنك.',
+  'gov.readOnlyHowServer': 'على خادم مستضاف ذاتيًا يشغّل:',
+  'gov.readOnlyHowCommand': 'infra/oracle/keycloak-2fa.sh grant-org-admin <اسم المستخدم>',
   'gov.subject.policy': 'حزم السياسات وقوالب الأدوار وقواعد الموافقة',
   'gov.subject.enterprise': 'أهداف التوجيه وكتالوج السوق',
 
@@ -14,9 +18,10 @@ export const governanceAr: Record<keyof typeof governanceEn, Message> = {
   'gov.metric.active': 'السياسات النشطة',
   'gov.metric.templates': 'قوالب الأدوار',
   'gov.metric.rules': 'قواعد الموافقة',
-  'gov.metric.detail': 'لوحة تحكم المؤسسة',
-  'gov.eyebrow': 'ضوابط المؤسسة',
-  'gov.title': 'مركز الحوكمة',
+  'gov.metric.packsDetail': 'كل إصدار محفوظ، نشطًا كان أو مؤرشفًا',
+  'gov.metric.activeDetail': 'مطبّقة الآن في كل مساحة عمل',
+  'gov.metric.templatesDetail': 'مجموعات صلاحيات تمنحها للأشخاص',
+  'gov.metric.rulesDetail': 'الموافقات التي تحتاجها الإجراءات الخطرة',
   'gov.intro': 'سياسات بإصدارات، والاحتفاظ بالبيانات، والأدوار، والموافقات، وتصدير سجل تدقيق غير قابل للتعديل.',
   'gov.addBaseline': 'إضافة الأساس',
   'gov.exportAudit': 'تصدير سجل التدقيق',

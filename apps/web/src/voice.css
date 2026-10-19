@@ -141,15 +141,15 @@
 .workspace.view-voice > :not(.topbar):not(.voiceSpace) { flex: none; margin: 0 var(--d-s6) var(--d-s3); }
 .voiceSpace {
   /* The dark theme's tokens: text and controls stay readable (AA) on the dark scene in both themes. */
-  --c-hi: 255 255 255; --c-sky: 125 211 252; --c-violet: 167 139 250; --c-warn: 252 211 141; --c-stop: 253 164 175; --c-ok: 134 239 172;
-  --d-bg: #070b1a; --d-surface-1: #0e1530; --d-surface-2: rgba(20, 29, 59, .86); --d-surface-3: #1b2649;
-  --d-glass: rgba(9, 15, 34, .82); --d-glass-1: rgb(255 255 255 / .06); --d-glass-2: rgb(255 255 255 / .09); --d-glass-3: rgb(255 255 255 / .13);
-  --d-line: rgba(148, 163, 255, .16); --d-line-strong: rgba(170, 182, 255, .28); --d-edge: rgba(255, 255, 255, .10);
-  --d-text: #eef1f8; --d-muted: #b3bbd0; --d-faint: #98a1b8;
-  --d-sky: #7dd3fc; --d-violet: #a78bfa; --d-rose: #f9a8d4; --d-ok: #86efac; --d-warn: #fcd38d; --d-stop: #fda4af;
-  --d-field: rgba(2, 6, 23, .5); --d-well: rgba(2, 6, 23, .55); --d-chip: rgba(17, 26, 61, .85); --d-chrome: rgba(12, 19, 48, .8);
+  --c-hi: 255 255 255; --c-accent: 69 208 181; --c-sky: 69 208 181; --c-violet: 69 208 181; --c-warn: 242 196 107; --c-stop: 245 154 166; --c-ok: 111 211 154;
+  --d-bg: #0b0d12; --d-surface-1: #12151c; --d-surface-2: rgba(23, 27, 36, .88); --d-surface-3: #1f2430;
+  --d-glass: rgba(14, 17, 23, .84); --d-glass-1: rgb(255 255 255 / .05); --d-glass-2: rgb(255 255 255 / .08); --d-glass-3: rgb(255 255 255 / .12);
+  --d-line: rgba(255, 255, 255, .1); --d-line-strong: rgba(255, 255, 255, .18); --d-edge: rgba(255, 255, 255, .06);
+  --d-text: #eceef3; --d-muted: #b0b6c3; --d-faint: #969dab;
+  --d-accent: #45d0b5; --d-sky: #45d0b5; --d-violet: #45d0b5; --d-rose: #45d0b5; --d-ok: #6fd39a; --d-warn: #f2c46b; --d-stop: #f59aa6;
+  --d-field: rgba(3, 5, 9, .5); --d-well: rgba(3, 5, 9, .55); --d-chip: rgba(26, 30, 40, .88); --d-chrome: rgba(18, 21, 28, .82);
   --d-elev-2: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 18px 48px rgba(0, 0, 0, .5);
-  --v-glass: rgba(6, 11, 26, .72); --v-glass-line: rgba(134, 186, 255, .2);
+  --v-glass: rgba(11, 13, 18, .74); --v-glass-line: rgba(255, 255, 255, .14);
   color: var(--d-text); color-scheme: dark; flex: 1 1 auto; min-height: 0; position: relative;
 }
 .voiceSpace h2, .voiceSpace strong { color: var(--d-text); }
