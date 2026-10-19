@@ -59,7 +59,7 @@ export function LeadsTab({ setup, products, openLeadId, onOpenLead, onOpenOpport
       <h2 id="bz-leads-title" className="visuallyHidden">{t('biz.tab.leads')}</h2>
       <form className="bzSearch" role="search" onSubmit={(event) => { event.preventDefault(); setSearch(q.trim()); }}>
         <label className="visuallyHidden" htmlFor={ids.q}>{t('biz.search')}</label>
-        <input id={ids.q} type="search" value={q} placeholder={t('biz.leads.searchPlaceholder')} onChange={(event) => setQ(event.target.value)} />
+        <input id={ids.q} type="search" required value={q} placeholder={t('biz.leads.searchPlaceholder')} onChange={(event) => { setQ(event.target.value); if (!event.target.value) setSearch(''); }} />
         <button type="submit" className="secondary"><Search aria-hidden="true" />{t('biz.find')}</button>
       </form>
       <label className="bzCompact" htmlFor={ids.state}><span>{t('biz.leads.state')}</span>

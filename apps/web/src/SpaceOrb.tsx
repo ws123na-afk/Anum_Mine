@@ -70,7 +70,7 @@ export function SpaceOrb({ mode, variant, getLevel, fallback, orbAnchor, floorAn
     <button type="button" aria-pressed={paused} title={paused ? t('voice.space.resume') : t('voice.space.pause')} onClick={() => { const next = !paused; setPaused(next); scene.current?.setPaused(next); }}>
       {paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}<span>{paused ? t('voice.space.resume') : t('voice.space.pause')}</span>
     </button>
-    <button type="button" disabled={paused || reduced} title={paused || reduced ? t('voice.space.meteorPaused') : t('voice.space.meteor')}
+    <button type="button" data-draws disabled={paused || reduced} title={paused || reduced ? t('voice.space.meteorPaused') : t('voice.space.meteor')}
       onClick={() => scene.current?.shootingStar()}>
       <Sparkles aria-hidden="true" /><span>{t('voice.space.meteor')}</span>
     </button>

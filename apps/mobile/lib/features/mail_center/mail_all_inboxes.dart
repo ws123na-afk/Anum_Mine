@@ -607,13 +607,12 @@ class _AllInboxTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AnumSpacing.xs),
-            // A date (not today's time) at 200% text must not push the row
-            // past the tile: one line, fading at its end.
+            // Loose, so a long localized date at large text sizes ellipsizes
+            // instead of pushing the row past the card.
             Flexible(
               child: Text(mailWhen(context, m.date),
                   maxLines: 1,
-                  softWrap: false,
-                  overflow: TextOverflow.fade,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall),
             ),
           ],

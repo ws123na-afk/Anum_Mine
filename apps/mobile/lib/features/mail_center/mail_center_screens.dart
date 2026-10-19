@@ -1123,34 +1123,33 @@ class _MessageTile extends StatelessWidget {
             if (label != null) MailLabelChips(label: label!),
           ],
         ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            // One line, at most a third of the row: a date (not today's
-            // time) at 200% text would otherwise take the whole tile.
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                  maxWidth: MediaQuery.sizeOf(context).width / 3),
-              child: Text(mailWhen(context, message.date),
+        // At most a third of the screen: a long localized date at large text
+        // sizes ellipsizes instead of taking the whole tile.
+        trailing: ConstrainedBox(
+          constraints:
+              BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width / 3),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(mailWhen(context, message.date),
                   maxLines: 1,
-                  softWrap: false,
-                  overflow: TextOverflow.fade,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall),
-            ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (message.maybeAttachments)
-                  const Icon(Icons.attach_file, size: 16),
-                if (message.flagged)
-                  Icon(Icons.star,
-                      size: 16,
-                      semanticLabel: l.t('mc.starred'),
-                      color: Theme.of(context).colorScheme.tertiary),
-              ],
-            ),
-          ],
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message.maybeAttachments)
+                    const Icon(Icons.attach_file, size: 16),
+                  if (message.flagged)
+                    Icon(Icons.star,
+                        size: 16,
+                        semanticLabel: l.t('mc.starred'),
+                        color: Theme.of(context).colorScheme.tertiary),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
