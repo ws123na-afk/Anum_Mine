@@ -117,7 +117,7 @@ test('a failing API says what failed and offers a retry', async ({ page }) => {
   await mockWorkspaceApi(page);
   await page.route('http://localhost:8000/api/v1/tyre/**', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'unavailable', message: 'Database unavailable' } }) }));
   await page.goto('/#tyre');
-  await expect(page.getByRole('alert')).toContainText('Tyre planning could not be loaded: Database unavailable');
+  await expect(page.getByRole('alert')).toContainText('Tyre planning could not be loaded: The server could not reach its database');
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
 });
 

@@ -152,7 +152,7 @@ test('empty and error states say what to do next', async ({ page }) => {
   await mockApi(page, { failFeed: true });
   await page.goto('/#activity');
   await page.reload();
-  await expect(page.getByRole('alert').filter({ hasText: 'The activity could not be loaded. Database unavailable' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'The activity could not be loaded. The server could not reach its database' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 });
 

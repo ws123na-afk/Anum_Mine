@@ -32,7 +32,12 @@ export function organizationPolicyAccess(summary: Pick<GovernanceSummary, 'can_m
   return tenantWriteAccess(summary ? summary.can_manage_organization_policy ?? false : null, t('gov.subject.policy'));
 }
 
-export interface TenantWriteAccess { canManage: boolean; notice: string | null }
+/**
+ * `notice` is the one line that says what is read only and why; `howTo` is the longer way to get
+ * the role (shown behind a "How to get access" disclosure), with the self-hosted shell command
+ * apart so it can be shown as code.
+ */
+export interface TenantWriteAccess { canManage: boolean; notice: string | null; howTo: { text: string; server: string; command: string } | null }
 
 /**
  * Who may make a tenant-wide write (organization budget, routing targets, the marketplace
@@ -41,11 +46,12 @@ export interface TenantWriteAccess { canManage: boolean; notice: string | null }
  * is explained yet. `subject` names what is read only, in plain words ("routing targets").
  */
 export function tenantWriteAccess(canManage: boolean | null, subject: string): TenantWriteAccess {
-  if (canManage === null) return { canManage: false, notice: null };
-  if (canManage) return { canManage: true, notice: null };
+  if (canManage === null) return { canManage: false, notice: null, howTo: null };
+  if (canManage) return { canManage: true, notice: null, howTo: null };
   return {
     canManage: false,
     notice: t('gov.readOnly', { subject }, { isolate: false }),
+    howTo: { text: t('gov.readOnlyHow'), server: t('gov.readOnlyHowServer'), command: t('gov.readOnlyHowCommand') },
   };
 }
 

@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import pytest
 from conftest import APP_ROLE, TENANT_A, TENANT_B, WORKSPACE_A, WORKSPACE_A2, WORKSPACE_B, tenant_context
 from fastapi.testclient import TestClient
+from skill_signing_support import signed
 from sqlalchemy import Engine, event, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
@@ -181,8 +182,8 @@ def test_agents_load_installed_skills_on_postgresql(client: TestClient) -> None:
     org_admin = headers("user_admin", "owner,org_admin")
     published = client.post(
         "/api/v1/skills/versions", headers=org_admin,
-        json={"skill_id": "acme.pg-notes", "version": "1.0.0", "name": "Notes", "description": "House style",
-              "instructions": "Write one line per change.", "required_tools": ["anum.respond"]},
+        json=signed(client, org_admin, {"skill_id": "acme.pg-notes", "version": "1.0.0", "name": "Notes", "description": "House style",
+                                        "instructions": "Write one line per change.", "required_tools": ["anum.respond"]}),
     )
     assert published.status_code == 201, published.text
     installed = client.post(

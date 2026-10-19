@@ -13,7 +13,7 @@ export const THEME_STORAGE_KEY = 'anum.theme';
 /** The default: the ANUM 360 look is designed dark first. */
 export const DEFAULT_THEME_CHOICE: ThemeChoice = 'dark';
 /** The browser chrome colour (meta theme-color) for each theme: its page background. */
-export const THEME_COLORS: Record<Theme, string> = { dark: '#070b1a', light: '#f4f6fb' };
+export const THEME_COLORS: Record<Theme, string> = { dark: '#0b0d12', light: '#f7f8fa' };
 
 export function isThemeChoice(value: unknown): value is ThemeChoice {
   return typeof value === 'string' && (THEME_CHOICES as readonly string[]).includes(value);

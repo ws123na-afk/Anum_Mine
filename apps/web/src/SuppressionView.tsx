@@ -13,6 +13,7 @@ import {
 import * as api from './lib/suppressionApi';
 import './admin.css';
 import './suppression.css';
+import { HelpLink } from './HelpLink';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
 type Flash = { text: string; error?: boolean } | null;
@@ -170,7 +171,7 @@ export function SuppressionView() {
           <h3 className="suppCount">{t(filtered ? 'supp.countFiltered' : 'supp.count', { count: total })}</h3>
           {!items.length && (filtered
             ? <div className="emptyState"><Search aria-hidden="true" /><h3>{t('supp.noMatchTitle')}</h3><p>{t('supp.noMatchText')}</p><button type="button" className="secondary" onClick={clear}>{t('supp.clear')}</button></div>
-            : <div className="emptyState"><BellOff aria-hidden="true" /><h3>{t('supp.emptyTitle')}</h3><p>{t('supp.emptyText')}</p></div>)}
+            : <div className="emptyState"><BellOff aria-hidden="true" /><h3>{t('supp.emptyTitle')}</h3><p>{t('supp.emptyText')}</p><HelpLink /></div>)}
           {items.length > 0 && <ul className="suppRows">
             {items.map((entry) => <li className="suppRow" key={entry.id}>
               <div className="suppMain">

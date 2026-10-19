@@ -200,7 +200,15 @@ class FakeLibrary implements LibraryRepository {
                 title: 'Winter policy',
                 provenance: 'memory',
                 snippet: 'Fit winter tyres from November.',
-                score: 0.9)
+                score: 0.9),
+            Citation(
+                n: 2,
+                title: 'manual.pdf',
+                provenance: 'file',
+                snippet: 'Load index 91 carries 615 kg.',
+                score: 0.8,
+                page: 3,
+                pageUnit: 'page'),
           ]);
 }
 
@@ -231,6 +239,45 @@ Future<void> _pump(WidgetTester tester, Widget home,
 
 void main() {
   group('rules', () {
+    test('citations name the page, slide or sheet of a document', () {
+      final cited = Citation.fromReader(JsonReader({
+        'n': 1,
+        'title': 'loads.xlsx',
+        'provenance': 'file',
+        'snippet': 'Load index 91',
+        'score': 0.8,
+        'page': 2,
+        'page_unit': 'sheet',
+        'page_label': 'Budget',
+      }));
+      const en = AnumLocalizations(Locale('en'));
+      const ar = AnumLocalizations(Locale('ar'));
+      expect(citationPlace(cited, en.t), 'sheet 2 (Budget)');
+      expect(citationPlace(cited, ar.t), 'ورقة 2 (Budget)');
+      final note = Citation.fromReader(JsonReader(
+          {'n': 2, 'title': 'Winter', 'provenance': 'memory', 'score': 0.5}));
+      expect(note.page, isNull);
+      expect(citationPlace(note, en.t), '');
+    });
+
+    test('a scanned PDF says it has no extractable text', () {
+      KnowledgeItem item(String state, String? error) =>
+          KnowledgeItem.fromReader(JsonReader({
+            'id': 'item_1',
+            'collection_id': 'c',
+            'kind': 'file',
+            'title': 'scan.pdf',
+            'index': {'state': state, 'error': error},
+            'created_at': '2026-10-19T10:00:00Z',
+          }));
+      const en = AnumLocalizations(Locale('en'));
+      expect(en.t(item('skipped', 'no_text_layer').indexLabelKey),
+          'No extractable text, OCR not available');
+      expect(
+          en.t(item('skipped', 'encrypted').indexLabelKey), 'Not searchable');
+      expect(en.t(item('indexed', null).indexLabelKey), 'Indexed');
+    });
+
     test('the report block is hidden, also while it streams', () {
       expect(visibleReply('Rose 8%.\n```anum-report\n{"title":"x"}\n```'),
           'Rose 8%.');
@@ -414,6 +461,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('November to March [1]'), findsOneWidget);
       expect(find.textContaining('[1] Winter policy · Note'), findsOneWidget);
+      expect(find.textContaining('[2] manual.pdf, page 3 · Document'),
+          findsOneWidget);
     });
 
     testWidgets('the chat card opens the full report', (tester) async {

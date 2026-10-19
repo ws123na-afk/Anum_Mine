@@ -12,6 +12,7 @@ import pytest
 from conftest import APP_ROLE, TENANT_A, TENANT_B, WORKSPACE_A, WORKSPACE_A2, WORKSPACE_B, tenant_context
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
+from skill_signing_support import signed
 from sqlalchemy import Engine, event, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
@@ -180,7 +181,7 @@ def test_skill_rollback_and_history_persist(client: tuple[TestClient, Probe], da
     api, _ = client
     for version, tools in (("1.0.0", ["anum.respond"]), ("1.1.0", ["anum.respond", "external.action"])):
         assert api.post("/api/v1/skills/versions", headers=headers(),
-                        json={**SKILL, "version": version, "required_tools": tools}).status_code == 201
+                        json=signed(api, headers(), {**SKILL, "version": version, "required_tools": tools})).status_code == 201
     assert api.post("/api/v1/skills/installations", headers=headers(), json={
         "skill_id": "acme.notes", "version": "1.1.0", "approved_tools": ["anum.respond", "external.action"]}).status_code == 201
     owner_only = headers(roles="owner")
