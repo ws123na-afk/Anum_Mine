@@ -117,8 +117,12 @@ class GitHubClient:
         api_url: str = "https://api.github.com",
         workflow_file: str = "anum-developer.yml",
         transport: httpx.AsyncBaseTransport | None = None,
+        read_only: bool = False,
     ) -> None:
         self.repository = repository
+        # A demo workspace's client (docs/demo-workspace.md#sending): reads only, so no route
+        # can push, dispatch, open, merge or close anything in GitHub from sample data.
+        self.read_only = read_only
         self.owner = repository.split("/", 1)[0]
         self.api_url = api_url.rstrip("/")
         self.workflow_file = workflow_file
@@ -142,6 +146,8 @@ class GitHubClient:
         url: str | None = None,
         allow: frozenset[int] = frozenset(),
     ) -> tuple[int, Any]:
+        if self.read_only and method.upper() not in ("GET", "HEAD"):
+            raise GitHubError(403, "Not sent: this is the demo workspace, where nothing leaves ANUM.")
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": API_VERSION,

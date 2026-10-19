@@ -128,6 +128,12 @@ class ToolRegistry:
         # (docs/privacy.md#contact-suppression).
         from .suppression import audit_refusal, refusal_reason, suppressed_for_call
 
+        # Nothing leaves a demo workspace (docs/demo-workspace.md#sending).
+        from .demo import send_refusal
+
+        demo_refusal = send_refusal(context, call.name, self._definitions.get(call.name), call.arguments)
+        if demo_refusal:
+            return ToolResult(status="blocked", summary=demo_refusal, audit_metadata={"outcome": "demo_workspace"})
         hits = suppressed_for_call(context, call.name, call.arguments, self._definitions.get(call.name))
         if hits:
             audit_refusal(context, call.name, hits, "execute")

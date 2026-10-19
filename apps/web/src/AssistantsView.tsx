@@ -13,6 +13,7 @@ import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { loadFailure, PageHeader, PageSummary, PaneDenied, PaneProblem } from './PageParts';
 import './team.css';
+import { HelpLink } from './HelpLink';
 
 const DEPARTMENTS: Department[] = ['sales', 'support', 'operations', 'finance', 'tyre_engineering', 'custom'];
 const AUTONOMY: Autonomy[] = ['observe', 'suggest', 'act_low_risk'];
@@ -98,7 +99,7 @@ export function AssistantsView({ onOpenWork }: { onOpenWork?(itemId: string): vo
         <h2 id="assistants-table-title">{t('pages2.assistants.tableTitle', { count: list.length })}</h2>
         {list.length > 4 && <div className="toolbar"><label className="visuallyHidden" htmlFor="assistants-search">{t('pages2.assistants.search')}</label><input id="assistants-search" type="search" value={query} placeholder={t('pages2.assistants.search')} onChange={(e) => setQuery(e.target.value)} /></div>}
       </div>
-      {!list.length && <div className="paneEmpty"><Bot aria-hidden="true" /><h3>{t('assistants.empty')}</h3><p>{t('assistants.emptyText')}</p><div className="actions"><button type="button" onClick={() => setChoosing(true)}><Plus aria-hidden="true" />{t('assistants.new')}</button></div></div>}
+      {!list.length && <div className="paneEmpty"><Bot aria-hidden="true" /><h3>{t('assistants.empty')}</h3><p>{t('assistants.emptyText')}</p><HelpLink /><div className="actions"><button type="button" onClick={() => setChoosing(true)}><Plus aria-hidden="true" />{t('assistants.new')}</button></div></div>}
       {list.length > 0 && !shown.length && <div className="paneEmpty"><Search aria-hidden="true" /><h3>{t('pages2.assistants.noMatch')}</h3><div className="actions"><button type="button" className="secondary" onClick={() => setQuery('')}>{t('common.clear')}</button></div></div>}
       {shown.length > 0 && <div className="dataTableWrap"><table className="dataTable assistantsTable">
         <thead><tr>
