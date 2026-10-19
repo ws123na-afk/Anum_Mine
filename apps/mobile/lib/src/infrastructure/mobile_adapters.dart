@@ -10,6 +10,8 @@ import 'package:http/http.dart' as http;
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../../data/session_store.dart';
+import '../../features/files/file_versions_models.dart';
+import '../../features/files/file_versions_repository.dart';
 import '../../features/mail_center/mail_center_transfer.dart';
 import '../../features/mail_center/mail_directory_models.dart';
 import '../../features/meetings/meetings_repository.dart';
@@ -165,12 +167,22 @@ class SecureWorkspacePreferenceStore implements WorkspacePreferenceStore {
           iOptions: deviceOnlyKeychain);
 }
 
+/// "plan (version 2).txt": the name a saved older version gets, so it never
+/// overwrites the current file.
+String _versionFileName(String name, int version) {
+  final dot = name.lastIndexOf('.');
+  return dot > 0
+      ? '${name.substring(0, dot)} (version $version)${name.substring(dot)}'
+      : '$name (version $version)';
+}
+
 /// Workspace file bytes (docs/files.md#mobile): streamed uploads with
 /// progress and cancel, previews and downloads through short-lived links.
 class HttpWorkspaceFileTransfer
     implements
         WorkspaceFileTransfer,
         FileStreamTransfer,
+        FileVersionTransfer,
         MeetingUploadTransfer {
   HttpWorkspaceFileTransfer({
     required this.baseUri,
@@ -216,6 +228,36 @@ class HttpWorkspaceFileTransfer
   }) =>
       uploadTo('api/v1/files', {'name': name}, path,
           onProgress: onProgress, cancellation: cancellation);
+
+  @override
+  Future<JsonMap> uploadVersion(
+    String fileId,
+    String path, {
+    required void Function(int sent, int total) onProgress,
+    required UploadCancellation cancellation,
+  }) =>
+      uploadTo('api/v1/files/${Uri.encodeComponent(fileId)}/versions', const {},
+          path,
+          onProgress: onProgress, cancellation: cancellation);
+
+  /// An older version, fetched with the bearer token (the version routes
+  /// need no link) and saved with the system dialog.
+  @override
+  Future<void> saveVersion(WorkspaceFile file, FileVersion version) async {
+    final response = await _client.get(
+      baseUri.resolve(
+          'api/v1/files/${Uri.encodeComponent(file.id)}/versions/${Uri.encodeComponent(version.id)}/content'),
+      headers: await _headers(),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException(response.statusCode, _detail(response.body));
+    }
+    await FilePicker.platform.saveFile(
+      dialogTitle: 'Save ${file.name}',
+      fileName: _versionFileName(file.name, version.version),
+      bytes: response.bodyBytes,
+    );
+  }
 
   /// Streams the file at [path] to [endpoint] (Files, or a meeting
   /// recording or transcript import, docs/meetings.md) with progress.

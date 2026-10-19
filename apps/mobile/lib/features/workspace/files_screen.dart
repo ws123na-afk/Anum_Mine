@@ -4,6 +4,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../src/theme/anum_theme.dart';
+import '../files/file_strings.dart';
+import '../files/file_versions_controller.dart';
+import '../files/file_versions_section.dart';
+import '../files/storage_screen.dart';
 import '../../src/widgets/depth.dart';
 import 'files_controller.dart';
 import 'files_models.dart';
@@ -80,6 +84,21 @@ class _FilesTabState extends State<FilesTab> {
     }
   }
 
+  /// A file picked on the storage screen: close it and open the file.
+  Future<void> _openFromStorage(String fileId) async {
+    final navigator = Navigator.of(context);
+    final known = widget.controller.items.where((f) => f.id == fileId);
+    if (known.isEmpty) {
+      await widget.controller.load();
+    }
+    final file = widget.controller.items.where((f) => f.id == fileId);
+    if (file.isEmpty || !mounted) return;
+    navigator.pop();
+    // ignore: use_build_context_synchronously
+    await openFileDetail(context, widget.controller, file.first,
+        currentUserId: widget.currentUserId);
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: widget.controller,
@@ -103,11 +122,20 @@ class _FilesTabState extends State<FilesTab> {
               const AnumHeader(
                   title: 'Files',
                   subtitle: 'Text files are indexed so tasks can use them.'),
-              FilledButton.icon(
-                onPressed: c.canUpload ? _upload : null,
-                icon: const Icon(Icons.upload_rounded),
-                label: const Text('Upload'),
-              ),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                if (c.versions != null)
+                  OutlinedButton.icon(
+                    onPressed: () => openStorageScreen(context, c.versions!,
+                        onOpenFile: _openFromStorage),
+                    icon: const Icon(Icons.storage_outlined),
+                    label: Text(FileStrings.of(context).t('stor.open')),
+                  ),
+                FilledButton.icon(
+                  onPressed: c.canUpload ? _upload : null,
+                  icon: const Icon(Icons.upload_rounded),
+                  label: const Text('Upload'),
+                ),
+              ]),
             ],
           ),
           if (usage != null) ...[
@@ -331,14 +359,15 @@ class _UploadRow extends StatelessWidget {
 
 Future<void> openFileDetail(
         BuildContext context, FilesController controller, WorkspaceFile file,
-        {String? currentUserId}) =>
+        {String? currentUserId, FilePickerFn pick = pickDeviceFiles}) =>
     Navigator.push(
         context,
         MaterialPageRoute<void>(
             builder: (_) => FileDetailScreen(
                 controller: controller,
                 file: file,
-                currentUserId: currentUserId)));
+                currentUserId: currentUserId,
+                pick: pick)));
 
 /// One file: what it is, who uploaded it, its index state, a preview (text
 /// or image), and download, rename, re-index and delete for those allowed.
@@ -347,10 +376,12 @@ class FileDetailScreen extends StatefulWidget {
       {required this.controller,
       required this.file,
       this.currentUserId,
+      this.pick = pickDeviceFiles,
       super.key});
   final FilesController controller;
   final WorkspaceFile file;
   final String? currentUserId;
+  final FilePickerFn pick;
 
   @override
   State<FileDetailScreen> createState() => _FileDetailScreenState();
@@ -362,11 +393,37 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
   bool busy = false;
   Future<FilePreviewText>? _text;
   Future<Uint8List>? _image;
+  FileVersionsController? versions;
 
   @override
   void initState() {
     super.initState();
+    final repository = widget.controller.versions;
+    if (repository != null) {
+      versions = FileVersionsController(repository, file,
+          usage: widget.controller.usage,
+          onFileChanged: _versionChangedFile,
+          onUsageChanged: widget.controller.loadUsage);
+    }
     _loadPreview();
+  }
+
+  /// A new version or restore: the file, its size, index state and preview change.
+  void _versionChangedFile(WorkspaceFile updated) {
+    widget.controller.fileChanged(updated);
+    if (!mounted) return;
+    setState(() {
+      file = updated;
+      _text = null;
+      _image = null;
+      _loadPreview();
+    });
+  }
+
+  @override
+  void dispose() {
+    versions?.dispose();
+    super.dispose();
   }
 
   void _loadPreview() {
@@ -476,6 +533,9 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
               Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             meta('Kind',
                 '${fileTypeLabel(file.contentType)} (${file.contentType})'),
+            if (widget.controller.versions != null)
+              meta(FileStrings.of(context).t('detail.version'),
+                  '${file.version}'),
             meta('Size', formatBytes(file.sizeBytes)),
             meta('Uploaded', exactTime(file.createdAt)),
             meta('Uploaded by',
@@ -526,6 +586,13 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
             ],
           ]),
         ),
+        if (versions case final versionsController?) ...[
+          const SizedBox(height: 12),
+          FileVersionsSection(
+              controller: versionsController,
+              currentUserId: widget.currentUserId,
+              pick: widget.pick),
+        ],
         const SizedBox(height: 12),
         AnumSurface(child: _preview(p)),
       ]),

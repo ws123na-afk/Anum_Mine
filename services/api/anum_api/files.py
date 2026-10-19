@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -51,6 +52,7 @@ class ObjectStorage(Protocol):
     def delete(self, key: str) -> None: ...
 
 
+logger = logging.getLogger(__name__)
 _KEY_PART = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}")
 
 
@@ -1216,8 +1218,8 @@ def _delete_objects(keys: list[str]) -> None:
     for key in keys:
         try:
             file_store.storage.delete(key)
-        except Exception:  # noqa: BLE001 - the metadata is gone, so the bytes are unreachable either way.
-            continue
+        except Exception as exc:  # noqa: BLE001 - the metadata is gone, so the bytes are unreachable either way.
+            logger.warning("file_object_delete_failed error_class=%s", type(exc).__name__)
 
 
 def _manageable(context: TenantContext, file_id: str) -> FileRecord:
