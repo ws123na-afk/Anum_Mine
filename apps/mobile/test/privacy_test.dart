@@ -8,6 +8,9 @@ import 'package:anum_mobile/features/privacy/privacy_controller.dart';
 import 'package:anum_mobile/features/privacy/privacy_models.dart';
 import 'package:anum_mobile/features/privacy/privacy_repository.dart';
 import 'package:anum_mobile/features/privacy/privacy_screen.dart';
+import 'package:anum_mobile/features/privacy/privacy_strings.dart';
+import 'package:anum_mobile/src/localization/anum_localizations.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:anum_mobile/features/settings/settings.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
 import 'package:flutter/material.dart';
@@ -446,6 +449,44 @@ void main() {
     final delete =
         transport.requests.singleWhere((r) => r.uri.path.endsWith('/delete'));
     expect(delete.body, {'confirm': 'DELETE MY DATA'});
+  });
+
+  test('English and Arabic Privacy strings have the same keys', () {
+    expect(PrivacyStrings.ar.keys.toSet(), PrivacyStrings.en.keys.toSet());
+    for (final text in [
+      ...PrivacyStrings.en.values,
+      ...PrivacyStrings.ar.values
+    ]) {
+      expect(text.contains('—') || text.contains('–'), isFalse, reason: text);
+    }
+    const ar = PrivacyStrings(true);
+    expect(ar.count('result.deleted', 16), 'حُذف 16 عنصرًا خاصًا.');
+    expect(ar.count('result.stays', 7), 'تبقى 7 سجلات مشتركة في مساحة العمل.');
+  });
+
+  testWidgets('Arabic: Privacy reads right to left in Arabic', (tester) async {
+    final transport = _PrivacyTransport();
+    final controller = PrivacyController(await _repository(transport));
+    await tester.binding.setSurfaceSize(const Size(390, 3800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+        locale: const Locale('ar'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: const [
+          AnumLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: PrivacyScreen(controller: controller)));
+    await tester.pumpAndSettle();
+    expect(find.text('الخصوصية'), findsOneWidget);
+    expect(find.text('ما يحفظه ANUM عنك'), findsOneWidget);
+    expect(find.text('خاص بك'), findsOneWidget);
+    expect(find.text('محادثات المساعد'), findsWidgets);
+    expect(Directionality.of(tester.element(find.text('ما يحفظه ANUM عنك'))),
+        TextDirection.rtl);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('the policy opens in the browser, https only, copy otherwise',

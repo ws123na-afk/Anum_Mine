@@ -164,6 +164,25 @@ class Settings(BaseSettings):
     # larger export is refused with 413 rather than truncated.
     privacy_policy_url: str = Field(default="", max_length=2048, pattern=r"^(|https?://\S+)$")
     privacy_export_max_bytes: int = Field(default=25 * 1024 * 1024, ge=64 * 1024, le=512 * 1024 * 1024)
+    # Organisation export and deletion (docs/organisation-lifecycle.md): the background
+    # runner, the cooling-off period before a purge, the signed download link, how long a
+    # finished archive is kept, its largest size and the batch sizes of each short
+    # transaction.
+    tenant_lifecycle_enabled: bool = True
+    tenant_lifecycle_poll_seconds: float = Field(default=30.0, gt=0)
+    tenant_deletion_cooling_off_hours: int = Field(default=168, ge=1, le=2160)
+    tenant_export_link_ttl_seconds: int = Field(default=900, ge=60, le=86400)
+    tenant_export_retention_hours: int = Field(default=168, ge=1, le=2160)
+    tenant_export_max_bytes: int = Field(default=512 * 1024 * 1024, ge=1024 * 1024, le=4 * 1024 * 1024 * 1024)
+    tenant_export_batch_rows: int = Field(default=500, ge=10, le=10000)
+    tenant_purge_batch_rows: int = Field(default=1000, ge=10, le=50000)
+    # Removing a deleted organisation's Keycloak accounts (anum_api/keycloak_admin.py): a
+    # confidential service-account client with realm-management view-users and
+    # manage-users only. All three unset: off, and the operator removes the accounts.
+    keycloak_admin_url: str | None = Field(default=None, pattern=r"^https?://\S+$")
+    keycloak_admin_realm: str = Field(default="anum", pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    keycloak_admin_client_id: str | None = Field(default=None, max_length=200)
+    keycloak_admin_client_secret: SecretStr | None = None
     # Sign-in options the clients offer before anyone is signed in
     # (GET /api/v1/auth/sign-in-options, docs/identity.md#google-and-apple-sign-in):
     # the Keycloak identity providers configured in realm anum ("google", "apple",
