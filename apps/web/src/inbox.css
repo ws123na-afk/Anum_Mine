@@ -83,7 +83,7 @@
 .inboxComposeForm .actions { margin-top: 0; }
 .inboxComposeCopies { display: grid; gap: var(--d-s3); }
 .inboxComposeCopies[hidden] { display: none; }
-.inboxKind { font-size: 11px; margin-inline-end: var(--d-s2); padding: 1px 8px; }
+.inboxKind { font-size: var(--text-2xs); margin-inline-end: var(--d-s2); padding: 1px 8px; }
 
 @media (max-width: 1023px) {
   .inboxSplit[data-show="detail"] > .inboxNav { display: none; }
