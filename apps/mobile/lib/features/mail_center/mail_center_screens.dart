@@ -1123,25 +1123,33 @@ class _MessageTile extends StatelessWidget {
             if (label != null) MailLabelChips(label: label!),
           ],
         ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(mailWhen(context, message.date),
-                style: Theme.of(context).textTheme.bodySmall),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (message.maybeAttachments)
-                  const Icon(Icons.attach_file, size: 16),
-                if (message.flagged)
-                  Icon(Icons.star,
-                      size: 16,
-                      semanticLabel: l.t('mc.starred'),
-                      color: Theme.of(context).colorScheme.tertiary),
-              ],
-            ),
-          ],
+        // A date ("19 Oct 2026") is wider than a time at 200% text: cap the
+        // trailing column so the tile never runs out of width.
+        trailing: ConstrainedBox(
+          constraints:
+              BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(mailWhen(context, message.date),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message.maybeAttachments)
+                    const Icon(Icons.attach_file, size: 16),
+                  if (message.flagged)
+                    Icon(Icons.star,
+                        size: 16,
+                        semanticLabel: l.t('mc.starred'),
+                        color: Theme.of(context).colorScheme.tertiary),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
