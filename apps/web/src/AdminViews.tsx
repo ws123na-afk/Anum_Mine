@@ -31,7 +31,6 @@ import { AccessNotice } from './PageParts';
 import type { TenantWriteAccess } from './lib/governance';
 import { tenantWriteAccess } from './lib/governance';
 import './admin.css';
-import { HelpLink } from './HelpLink';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
 type Flash = { text: string; error?: boolean } | null;
@@ -601,7 +600,7 @@ function AdminMetric({ icon, label, value, detail }: { icon: ReactNode; label: s
 }
 
 function Empty({ title, text }: { title: string; text: string }) {
-  return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p><HelpLink /></div>;
+  return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p></div>;
 }
 
 /** Shown where a task run is refused with 402: the API's sentence names the reset date. */

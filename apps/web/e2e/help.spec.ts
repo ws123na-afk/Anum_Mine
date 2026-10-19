@@ -63,8 +63,6 @@ test('an owner creates the demo workspace from Settings', async ({ page }) => {
   await card.getByRole('button', { name: 'Reset demo data' }).click();
   await page.getByRole('alertdialog', { name: 'Reset the demo data?' }).getByRole('button', { name: 'Reset demo data' }).click();
   await expect(card.getByText('The demo workspace now holds 31 sample records.')).toBeVisible();
-  await card.getByRole('button', { name: 'How this page works' }).click();
-  await expect(page.getByRole('dialog', { name: 'Help' }).getByRole('article', { name: 'Demo workspace' })).toBeVisible();
 });
 
 test('a member sees who can create the demo workspace', async ({ page }) => {

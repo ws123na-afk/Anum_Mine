@@ -17,7 +17,6 @@ import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { readerDocument } from './lib/mail';
 import { Drawer } from './Dialog';
 import './brevo.css';
-import { HelpLink } from './HelpLink';
 
 type Section = 'campaigns' | 'drafts' | 'connection';
 const SECTIONS: Section[] = ['campaigns', 'drafts', 'connection'];
@@ -28,7 +27,7 @@ function Note({ children, error }: { children: ReactNode; error?: boolean }) {
 }
 function Badge({ tone, children }: { tone: string; children: ReactNode }) { return <span className={`statusBadge ${tone}`}>{children}</span>; }
 function Empty({ title, text, action }: { title: string; text: string; action?: ReactNode }) {
-  return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p><HelpLink />{action && <div className="actions mkInline mkCenter">{action}</div>}</div>;
+  return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p>{action && <div className="actions mkInline mkCenter">{action}</div>}</div>;
 }
 const failure = (e: unknown, what: string) => isPermissionDenied(e) ? t('brevo.denied', { message: describeError(e) }) : t('brevo.failed', { what, message: describeError(e) });
 
