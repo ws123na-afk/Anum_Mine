@@ -108,6 +108,13 @@ void installCalls(FakeAnumApi api) {
             'call_busy' => FakeResponse.json(_busy),
             _ => FakeResponse.error(404, 'not_found', 'Call not found'),
           });
+  // The owner's AI calls, opt-outs and provider screens load these too (#154).
+  api.get('/api/v1/calls/ai-calls', (_) => FakeResponse.json(page([])));
+  api.get('/api/v1/calls/opt-outs', (_) => FakeResponse.json(page([])));
+  api.get(
+      '/api/v1/calls/provider',
+      (_) =>
+          const FakeResponse.json({'connected': false, 'provider': 'twilio'}));
 }
 
 void callsJourneys() => group('Phone calls', () {
