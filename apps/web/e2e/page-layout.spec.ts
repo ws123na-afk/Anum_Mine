@@ -1,13 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
-import { DEEP_LINKS, GATE_PAGES, GATE_SIZES, clippedControls, settle } from './support/gatePages';
-import { VIEWS, viewFromHash } from '../src/lib/shell.ts';
+import { mockWorkspaceApi } from './support/workspaceApi';
 import { mockWhatsApp } from './support/whatsappApi';
 
 // The shared page layout (docs/design/anum360.md#page-layout): summary bands from the API, split
 // views that open on the first unread or newest record, the AI Chat context rail, share links in the
-// Documents preview.
-const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+// Documents preview. The layout gate over every page and size is e2e/ui-gate.spec.ts.
 const wide = (page: Page) => (page.viewportSize()?.width ?? 0) >= 1024;
 
 test('AI Chat shows what the open conversation used and saved, next to the thread', async ({ page }) => {
@@ -72,39 +69,3 @@ test('WhatsApp opens on the first unread conversation on a wide screen', async (
   if (wide(page)) await expect(page.locator('.waThread').getByRole('heading', { name: 'أحمد' })).toBeVisible();
   else await expect(page.locator('.waConversation')).toHaveCount(2);
 });
-
-// The Responsive UI quality gate (CLAUDE.md) on every page the app can open (support/gatePages.ts):
-// at each of the five sizes, in English and Arabic, nothing scrolls sideways and no control is cut
-// off. The sizes are set here, so the mobile project leaves these @gate tests out (playwright.config.ts).
-test('the gate list covers every view and every deep-linked tab', () => {
-  // DEEP_LINKS comes from the source (shell.ts views and the modules' TABS lists); the shell's own
-  // routing must agree with it, and each one must have a gate entry.
-  expect(VIEWS.filter((view) => !DEEP_LINKS.includes(view))).toEqual([]);
-  for (const link of DEEP_LINKS) expect(VIEWS, link).toContain(viewFromHash(`#${link}`));
-  const gated = new Set(GATE_PAGES.map((item) => item.hash.split('?')[0]));
-  expect(DEEP_LINKS.filter((link) => !gated.has(link))).toEqual([]);
-  for (const item of GATE_PAGES) expect(viewFromHash(`#${item.hash}`), item.hash).toBe(item.view);
-});
-
-for (const size of GATE_SIZES) {
-  test.describe(`at ${size.width}x${size.height} @gate`, () => {
-    test.use({ viewport: size });
-    for (const item of GATE_PAGES) {
-      test(`#${item.hash} fits without overflow or clipped controls, in English and Arabic`, async ({ page }) => {
-        test.setTimeout(90_000);
-        for (const locale of ['en', 'ar'] as const) {
-          const tab = await page.context().newPage();
-          await item.mock(tab);
-          await useSavedLocale(tab, locale);
-          await tab.goto(`/#${item.hash}`);
-          await expect(tab.locator('html')).toHaveAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
-          await expect(tab.locator(item.ready).first(), `${item.hash} ${locale}`).toBeVisible();
-          await settle(tab);
-          expect(await overflow(tab), `${item.hash} ${locale}: horizontal overflow`).toBeLessThanOrEqual(0);
-          expect(await clippedControls(tab), `${item.hash} ${locale}: clipped controls`).toEqual([]);
-          await tab.close();
-        }
-      });
-    }
-  });
-}

@@ -77,9 +77,16 @@ jobs:
       - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
       - run: python -m pytest services/api -m "not database"
 
-  browser-e2e:
-    name: Browser end-to-end
+  # The Playwright suite in six shards, each on its own runner with the fixed ports 4173, 4174 and
+  # 4175 (apps/web/playwright.config.ts). "Browser end-to-end" below is the one required check: it
+  # passes only when every shard passed, and merges the shards' reports into one HTML report.
+  browser-e2e-shard:
+    name: Browser end-to-end (shard ${{ matrix.shard }}/6)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -90,19 +97,63 @@ jobs:
           node-version: 22
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @anum/web exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
-      # Evidence for a red run: the HTML report and the traces and screenshots Playwright keeps
-      # for failed tests (apps/web/playwright.config.ts). Only uploads; never changes the result.
-      - name: Upload Playwright report and traces
+      - run: pnpm --filter @anum/web exec playwright test --shard=${{ matrix.shard }}/6
+      # The shard's blob report, merged by "Browser end-to-end". Only uploads; never changes the result.
+      - name: Upload the shard's blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: apps/web/blob-report/
+          retention-days: 7
+          if-no-files-found: ignore
+      # Evidence for a red run: the traces and screenshots Playwright keeps for failed tests.
+      - name: Upload traces
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
-          path: |
-            apps/web/playwright-report/
-            apps/web/test-results/
+          name: playwright-traces-${{ matrix.shard }}
+          path: apps/web/test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+  browser-e2e:
+    name: Browser end-to-end
+    runs-on: ubuntu-latest
+    needs: browser-e2e-shard
+    if: ${{ always() }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 9.12.3
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - name: Download the shards' blob reports
+        if: ${{ !cancelled() }}
+        uses: actions/download-artifact@v8
+        with:
+          path: apps/web/all-blob-reports
+          pattern: blob-report-*
+          merge-multiple: true
+      - name: Merge the reports
+        if: ${{ !cancelled() }}
+        working-directory: apps/web
+        run: pnpm exec playwright merge-reports --reporter html ./all-blob-reports
+      - name: Upload the merged Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Every shard passed
+        run: |
+          echo "Shards: ${{ needs.browser-e2e-shard.result }}"
+          test "${{ needs.browser-e2e-shard.result }}" = "success"
 
   api-persistence:
     name: API PostgreSQL persistence tests
