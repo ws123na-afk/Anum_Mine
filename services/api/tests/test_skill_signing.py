@@ -334,7 +334,7 @@ def test_shipped_blueprint_skills_are_first_party_without_a_signature(client: Te
 
 def test_migration_is_expand_only_with_forced_tenant_rls() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    name = "0082_skill_signing"
+    name = "0083_skill_signing"
     text = (versions / f"{name}.py").read_text(encoding="utf-8")
     assert f'revision = "{name}"' in text and len(name) <= 32
     down = text.split('down_revision = "', 1)[1].split('"', 1)[0]

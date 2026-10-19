@@ -4,7 +4,7 @@ Runs after the revocation commits, when the tenant's ``disable_flagged`` setting
 default). Installations live per workspace under RLS, so the workspaces that hold an affected
 installation are found the maintenance way (``anum_api/maintenance.py``): one discovery query
 as ``anum_maintenance``, which may read only scope, id, version and the enabled flag of
-enabled installations (migration ``0082_skill_signing``). Each workspace is then changed in
+enabled installations (migration ``0083_skill_signing``). Each workspace is then changed in
 its own short unit of work as the application role inside that workspace's RLS context: the
 installation is turned off with the reason, the change is audited there, and the workspace's
 owners get a notification. Turning one back on is an explicit owner decision

@@ -22,15 +22,15 @@
 Expand only: new tables, nullable columns, two column grants and two policies. The previous
 release ignores them.
 
-Numbered 0082 and chained after ``0076_business_support``, the head of ``main`` when written;
+Numbered 0083 and chained after ``0078_demo_records``, the head of ``main`` when written;
 renumber at merge if another migration lands first.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0082_skill_signing"
-down_revision = "0076_business_support"
+revision = "0083_skill_signing"
+down_revision = "0078_demo_records"
 branch_labels = None
 depends_on = None
 

@@ -1,4 +1,4 @@
-"""Skill signing in PostgreSQL (migration ``0082_skill_signing``), as the non-owner app role.
+"""Skill signing in PostgreSQL (migration ``0083_skill_signing``), as the non-owner app role.
 
 ``skill_publisher_keys`` is under forced tenant RLS: another tenant never sees, revokes or
 rotates a tenant's keys, and raw writes into another tenant are refused by the row policy.

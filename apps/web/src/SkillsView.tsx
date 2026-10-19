@@ -19,6 +19,7 @@ import { flagged, installable, signatureBody, verificationLabel, verificationTon
 import './features.css';
 import './catalog.css';
 import './adminPages.css';
+import { HelpLink } from './HelpLink';
 
 const PAGE = 12;
 const agentsCalls = agentsApi(api.apiRequest, api.apiRequestVoid);
@@ -363,7 +364,7 @@ export function SkillsView({ onOpenAgents }: { onOpenAgents?: () => void } = {})
     </section>}
     {remaining > 0 && <div className="catalogMore"><button type="button" className="secondary" onClick={() => setPages(pages + 1)}>{t('skills.showMore', { count: Math.min(remaining, PAGE) })}</button></div>}
     {!s.loading && !s.error && !groups.length && filter !== 'builtin' && <div className="emptyState"><Search aria-hidden="true" /><h3>{t('skills.emptyTitle')}</h3>
-      {admin ? <><p>{t('skills.emptyAdmin')}</p><button type="button" onClick={() => setPublishing(true)}><Plus aria-hidden="true" />{t('skills.publish')}</button></>
+      {admin ? <><p>{t('skills.emptyAdmin')}</p><HelpLink /><button type="button" onClick={() => setPublishing(true)}><Plus aria-hidden="true" />{t('skills.publish')}</button></>
         : <p>{t('skills.emptyOther')}</p>}</div>}
     {(groups.length > 0 || filter === 'builtin') && !filtered.length && !builtins.length && <div className="emptyState"><Search aria-hidden="true" /><h3>{t('skills.noMatchTitle')}</h3><p>{t('skills.noMatchText', { query })}</p><button type="button" className="secondary" onClick={() => { setQuery(''); setFilter('all'); }}>{t('skills.clearSearch')}</button></div>}
     {installing && <InstallDialog group={installing.group} version={installing.version} busy={s.busy} onCancel={() => setInstalling(null)} onConfirm={(tools) => void install(installing.group, installing.version, tools)} />}

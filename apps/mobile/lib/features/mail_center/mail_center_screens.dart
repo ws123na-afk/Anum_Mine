@@ -166,11 +166,8 @@ String mailWhen(BuildContext context, DateTime value) {
   final today = now.year == local.year &&
       now.month == local.month &&
       now.day == local.day;
-  // Short forms so the list's date column fits narrow phones at 200% text:
-  // the time today, month and day this year, the full short date otherwise.
-  if (today) return m.formatTimeOfDay(TimeOfDay.fromDateTime(local));
-  return now.year == local.year
-      ? m.formatShortMonthDay(local)
+  return today
+      ? m.formatTimeOfDay(TimeOfDay.fromDateTime(local))
       : m.formatShortDate(local);
 }
 
@@ -1126,33 +1123,33 @@ class _MessageTile extends StatelessWidget {
             if (label != null) MailLabelChips(label: label!),
           ],
         ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            // Never wider than a fixed share of the tile, so the trailing
-            // column cannot take the whole row (an older date is longer).
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 96),
-              child: Text(mailWhen(context, message.date),
+        // At most a third of the screen: a long localized date at large text
+        // sizes ellipsizes instead of taking the whole tile.
+        trailing: ConstrainedBox(
+          constraints:
+              BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width / 3),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(mailWhen(context, message.date),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.end,
                   style: Theme.of(context).textTheme.bodySmall),
-            ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (message.maybeAttachments)
-                  const Icon(Icons.attach_file, size: 16),
-                if (message.flagged)
-                  Icon(Icons.star,
-                      size: 16,
-                      semanticLabel: l.t('mc.starred'),
-                      color: Theme.of(context).colorScheme.tertiary),
-              ],
-            ),
-          ],
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message.maybeAttachments)
+                    const Icon(Icons.attach_file, size: 16),
+                  if (message.flagged)
+                    Icon(Icons.star,
+                        size: 16,
+                        semanticLabel: l.t('mc.starred'),
+                        color: Theme.of(context).colorScheme.tertiary),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
