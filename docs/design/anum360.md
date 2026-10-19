@@ -12,8 +12,8 @@ The owner's mockups for the ANUM 360 redesign are in [`anum360-mockups/`](anum36
 
 ## Visual language
 
-- A deep midnight navy background with a blue-to-violet aurora glow behind the command orb; content cards are raised surfaces (dark on command screens, light cards on report and list screens).
-- One accent gradient (blue to violet) for primary actions and the orb; status colours for state (green done, amber pending, red high or stop), always with a text label too.
+- A calm, premium enterprise look (owner, 19 Oct 2026): a graphite neutral base, one brand accent (jade) for primary actions, links, focus and selection, and semantic colours only for real status (green done, amber pending, red stop), always with a text label too.
+- Hairline borders with soft depth, no gradient text, first-class light and dark themes. The ANUM mark and the orb are drawn in three steps of jade.
 - The orb (the ANUM "A" mark with a live waveform) is the centre of the bottom navigation and of the command screens.
 - Every colour, spacing and type value comes from the app's tokens (`AnumPalette`, `AnumSpacing`, the theme). Mockup values are mapped to the nearest token, never copied.
 
@@ -64,6 +64,25 @@ The web's colours, type, shape and motion are defined in [ANUM visual identity: 
 All colour lives in the token block at the top of `apps/web/src/styles.css`; the light theme is one `:root[data-theme="light"]` block that redefines the same tokens, and no view stylesheet has a colour of its own except data colours (chart series, agent avatars, workspace dots). A button with no class is primary by default: a zero-specificity rule in `styles.css` that leaves out containers drawing their own buttons.
 
 Tests: `test/theme.test.ts` (the choice rules, the pre-paint script agreeing with them, the graphite and jade palette with every accent alias resolving to the one accent, and AA for text, links and status colours on every surface of both themes), `e2e/theme.spec.ts` (Settings > Appearance, reload, "Match my device", the user menu in Arabic, no horizontal overflow at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844) and the light-theme axe pass in `e2e/accessibility.spec.ts`.
+
+### Flutter tokens (graphite and jade)
+
+`AnumPalette` in `apps/mobile/lib/src/theme/anum_theme.dart` holds the app's tokens, with the same values as the web's graphite and jade identity (`docs/design/visual-identity.md` and the token block in `apps/web/src/styles.css`, from the web branch `claude/design-shell-fixes`). The theme (ColorScheme, TextTheme, buttons, inputs, chips, list tiles, tabs, app bars, navigation bar and rail, dialogs, sheets, snack bars, tooltips, switches) and the shared widgets (`AnumSurface`, `AnumMetric`, `AnumMetricGrid`, `AnumIconChip`, `AnumPill`, `AnumEmpty`, `AnumFeedback`, `AnumSkeleton`, `AnumGradientButton`, the bottom navigation and menu drawer) read only these, so every screen inherits the look. Old field names stay: `sky`, `violet` and `rose` are all the accent, and `accentGradient` is a flat primary fill.
+
+| Token | Dark | Light |
+|---|---|---|
+| `background`, `surface1`, `surface2`, `surface3` | `#0b0d12`, `#12151c`, `#171b24`, `#1f2430` | `#f7f8fa`, white, white, `#f1f3f6` |
+| `line`, `lineStrong` (hairlines) | white at 7.5 and 13 % | graphite at 9 and 16 % |
+| `text`, `muted`, `faint` | `#eceef3`, `#a2a8b6`, `#868d9c` | `#12151c`, `#4a5162`, `#626a7b` |
+| Accent as text and icons (`violet`, `sky`, `rose`) | `#45d0b5` | `#0b7564` |
+| Primary fill (`accentStart` = `accentEnd`), `onAccent` | `#0f7a69`, white (5.2:1) | the same |
+| `accentSoft` (selected chips, rows, navigation indicator) | jade at 14 % on a panel | jade at 10 % on white |
+| `ok`, `warn`, `stop` | `#6fd39a`, `#f2c46b`, `#f59aa6` | `#11652f`, `#94500c`, `#b42335` |
+| `brandStart`, `brandMiddle`, `brandEnd` (mark and orb only) | `#5fe0c6`, `#23a990`, `#0f7a69` | the same |
+
+Radii: 8 (controls), 12 (panels), 16 (sheets, dialogs), pill. Type: Inter with Noto Sans Arabic (both bundled; IBM Plex Sans Arabic would need the owner's approval to add the font files), Material 3 sizes and line heights, tighter tracking and weights on headings; KPI values are solid `text` at 26 px. Motion: 150 ms (`AnumMotion.quick`) and 180 ms (`standard`, `page`) on state changes only, zero with reduced motion (`AnumMotion.of`); the loading skeleton's sweep stops too. Loading states show a skeleton (`AnumSkeleton`) with the message instead of a spinner.
+
+Screenshots at 390x844, light and dark, rendered with the bundled fonts and the icon font: [`screens/flutter/`](screens/flutter/) (`home-*.png`, `business-*.png`, `email-*.png`, `settings-*.png`). Tests: `apps/mobile/test/widgets/theme_identity_test.dart` (AA for every text and status colour on every surface in both themes, one accent, solid controls, hairline cards, motion durations, the skeleton with reduced motion, and the shared states at 320 to 1440 px, 200 % text, RTL and dark).
 
 ### Shell
 

@@ -22,10 +22,10 @@ class AnumLogoMark extends StatelessWidget {
     final mark = CustomPaint(
       size: Size(size, size * 0.7),
       painter: AnumLogoPainter(
-          start: p.sky,
-          middle: p.accentStart,
-          end: p.violet,
-          highlight: p.rose),
+          start: p.brandStart,
+          middle: p.brandMiddle,
+          end: p.brandEnd,
+          highlight: p.brandEnd),
     );
     return semanticLabel == null
         ? ExcludeSemantics(child: mark)
@@ -227,13 +227,13 @@ class _AnumOrbState extends State<AnumOrb> with SingleTickerProviderStateMixin {
             painter: AnumOrbPainter(
               phase: running ? _clock.value : 0.2,
               level: running ? (level?.value ?? 0.55) : 0.35,
-              ringStart: p.sky,
-              ringMiddle: p.accentStart,
-              ringEnd: p.violet,
+              ringStart: p.brandStart,
+              ringMiddle: p.brandMiddle,
+              ringEnd: p.brandEnd,
               glow: p.glow,
               core: p.background,
-              wave: p.sky,
-              waveEnd: p.violet,
+              wave: p.brandStart,
+              waveEnd: p.brandEnd,
             ),
             child: child,
           ),
@@ -364,7 +364,7 @@ class AnumOrbPainter extends CustomPainter {
       old.core != core;
 }
 
-/// The primary action: the accent gradient with white text, 48 px minimum,
+/// The primary action: the solid brand accent with white text, 48 px minimum,
 /// keyboard and screen reader support from [FilledButton]. Shows a spinner
 /// while [busy]; disabled when [onPressed] is null.
 class AnumGradientButton extends StatelessWidget {
@@ -410,14 +410,6 @@ class AnumGradientButton extends StatelessWidget {
         borderRadius: radius,
         gradient: enabled || busy ? p.accentGradient : null,
         color: enabled || busy ? null : p.surface3,
-        boxShadow: enabled
-            ? [
-                BoxShadow(
-                    color: p.glow.withValues(alpha: 0.35),
-                    blurRadius: 18,
-                    offset: const Offset(0, 6))
-              ]
-            : null,
       ),
       child: FilledButton(
         onPressed: enabled ? onPressed : null,
@@ -431,8 +423,11 @@ class AnumGradientButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(
               horizontal: AnumSpacing.lg, vertical: AnumSpacing.sm),
           shape: RoundedRectangleBorder(borderRadius: radius),
-          textStyle:
-              const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5),
+          textStyle: const TextStyle(
+              fontFamily: AnumTheme.fontFamily,
+              fontFamilyFallback: AnumTheme.fontFamilyFallback,
+              fontWeight: FontWeight.w600,
+              fontSize: 15),
         ),
         child: child,
       ),
@@ -464,18 +459,11 @@ class AnumGlassPanel extends StatelessWidget {
     final p = context.palette;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: p.glass,
-        gradient: highlight
-            ? LinearGradient(colors: [
-                Color.alphaBlend(
-                    p.accentStart.withValues(alpha: 0.22), p.glass),
-                Color.alphaBlend(p.accentEnd.withValues(alpha: 0.22), p.glass),
-              ])
-            : null,
+        color: highlight ? p.accentSoft : p.glass,
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: highlight ? p.edge : p.line),
+        border: Border.all(color: p.line),
         boxShadow: [
-          BoxShadow(color: p.shadow, blurRadius: 20, offset: const Offset(0, 8))
+          BoxShadow(color: p.shadow, blurRadius: 16, offset: const Offset(0, 4))
         ],
       ),
       child: Padding(padding: padding, child: child),

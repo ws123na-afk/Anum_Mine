@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../src/localization/anum_localizations.dart';
+import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
@@ -28,8 +29,7 @@ class BusinessScreen extends StatefulWidget {
 
 enum _Section { overview, leads, pipeline, proposals, projects, support }
 
-String money(double? amount, String currency) =>
-    amount == null ? '-' : '$currency ${amount.toStringAsFixed(2)}';
+String money(double? amount, String currency) => formatMoney(amount, currency);
 
 AnumTone stateTone(String state) => switch (state) {
       'won' => AnumTone.ok,
@@ -90,7 +90,10 @@ class _BusinessScreenState extends State<BusinessScreen> {
           body: AnumPage(
             onRefresh: c.load,
             children: [
-              AnumHeader(eyebrow: l.t('biz.subtitle'), title: l.t('biz.title')),
+              // The app bar already says "Business"; only the subtitle here.
+              Text(l.t('biz.subtitle'),
+                  style:
+                      TextStyle(color: context.palette.muted, fontSize: 13.5)),
               ...switch (c.setupState) {
                 BusinessLoad.idle || BusinessLoad.loading => [
                     AnumFeedback(
