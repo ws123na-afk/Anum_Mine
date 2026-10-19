@@ -29,7 +29,7 @@ the ``anum_tenant_purger`` grants (scope columns only, plus delete) and the purg
 Expand only: five new tables, one nullable column and indexes. The previous release
 ignores them.
 
-Numbered 0088 and chained after ``0087_email_draft_bcc``, the head of ``main`` (it builds on
+Numbered 0089 and chained after ``0088_approvals_paging``, the head of ``main`` (it builds on
 ``0080_business_change_orders``, already in that chain).
 """
 
@@ -37,8 +37,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0088_business_invoices_portal"
-down_revision = "0087_email_draft_bcc"
+revision = "0089_business_invoices_portal"
+down_revision = "0088_approvals_paging"
 branch_labels = None
 depends_on = None
 

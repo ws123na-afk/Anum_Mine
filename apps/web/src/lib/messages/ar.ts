@@ -31,6 +31,7 @@ import { voiceAr } from './ar.voice.ts';
 import { voiceActionsAr } from './ar.voiceActions.ts';
 import { agentSkillsAr } from './agentSkills.ar.ts';
 import { skillSigningAr } from './skillSigning.ar.ts';
+import { approvalPagingAr } from './approvalPaging.ar.ts';
 import { orgChartAr } from './orgChart.ar.ts';
 import { mailCenterAr } from './mailCenter.ar.ts';
 import { mailOutgoingAr } from './mailOutgoing.ar.ts';
@@ -72,6 +73,7 @@ export const ar: Record<MessageKey, Message> = {
   ...publicSiteAr,
   ...agentSkillsAr,
   ...skillSigningAr,
+  ...approvalPagingAr,
   ...orgChartAr,
   ...mailCenterAr,
   ...mailOutgoingAr,

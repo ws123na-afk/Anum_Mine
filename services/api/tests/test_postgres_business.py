@@ -1,4 +1,4 @@
-"""Business in PostgreSQL (migrations ``0070_business``, ``0080_business_change_orders`` and ``0088_business_invoices_portal``), as
+"""Business in PostgreSQL (migrations ``0070_business``, ``0080_business_change_orders`` and ``0089_business_invoices_portal``), as
 the non-owner app role.
 
 Every table is under forced RLS: tenant A's rows are invisible to tenant B and to A's other

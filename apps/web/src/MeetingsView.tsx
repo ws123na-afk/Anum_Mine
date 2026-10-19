@@ -16,7 +16,6 @@ import { Drawer } from './Dialog';
 import { PageHeader, PageSummary, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import './admin.css';
 import './meetings.css';
-import { HelpLink } from './HelpLink';
 
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'denied' } | { state: 'error'; message: string };
 const fail = <T,>(e: unknown): Load<T> => isPermissionDenied(e) ? { state: 'denied' } : { state: 'error', message: describeError(e) };
@@ -188,7 +187,7 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
           </nav>}
           {page.state === 'ready' && !page.value.items.length && (searching
             ? <div className="paneEmpty"><Search aria-hidden="true" /><h3>{t('meetings.noMatch')}</h3><p>{t('meetings.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setDraft(''); setQuery(''); setStatus(''); setOffset(0); }}>{t('meetings.clearSearch')}</button></div></div>
-            : <div className="paneEmpty"><PhoneCall aria-hidden="true" /><h3>{t('meetings.empty')}</h3><p>{canCreate ? t('meetings.emptyText') : t('meetings.emptyReadOnly')}</p><HelpLink />{canCreate && <div className="actions"><button type="button" onClick={() => setImporting(true)}><Upload aria-hidden="true" />{t('meetings.importFirst')}</button></div>}</div>)}
+            : <div className="paneEmpty"><PhoneCall aria-hidden="true" /><h3>{t('meetings.empty')}</h3><p>{canCreate ? t('meetings.emptyText') : t('meetings.emptyReadOnly')}</p>{canCreate && <div className="actions"><button type="button" onClick={() => setImporting(true)}><Upload aria-hidden="true" />{t('meetings.importFirst')}</button></div>}</div>)}
         </>}
         {listTab === 'connectors' && <div className="paneBody meetingConnectors">
           {setup.state === 'loading' && <Notice>{t('pages.meetings.connectorsLoading')}</Notice>}
