@@ -366,6 +366,28 @@ def test_email_follows_the_recipients_preference_and_is_sent_after_commit(client
     assert inbox(client, SARA)["items"][0]["email_status"] == "not_requested"
 
 
+def test_email_uses_the_accepted_invitations_address_when_the_profile_has_none(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.schemas import InvitationStatus, WorkspaceInvitation
+
+    now = utc_now()
+    memory_repository.save_invitation(
+        WorkspaceInvitation(
+            id="invitation_sara", tenant_id=TENANT, workspace_id=WORKSPACE, role="member", invitee_email="sara@invited.example",
+            token_hash="h", created_by_user_id="owner_1", expires_at=now + timedelta(days=1), created_at=now, updated_at=now,
+            status=InvitationStatus.ACCEPTED, accepted_by_user_id="user_sara", accepted_at=now,
+        )
+    )
+    ctx = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="user_sara", roles=["member"])
+    _notifications.save(ctx, NotificationPreferences(email_enabled=True))
+    sent: list[str] = []
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "smtp_from", "anum@example.com")
+    monkeypatch.setattr(notifications_module, "send_email", lambda to, subject, text: sent.append(to))
+    create(client, title="Invited address", assignee={"type": "user", "id": "user_sara"})
+    assert sent == ["sara@invited.example"]
+    assert inbox(client, SARA)["items"][0]["email_status"] == "sent"
+
+
 def test_failed_email_is_retried_by_the_sweep_then_marked_failed(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="user_ahmed", roles=["member"])
     _notifications.save(ctx, NotificationPreferences(email_enabled=True))

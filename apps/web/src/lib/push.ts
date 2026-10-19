@@ -74,6 +74,48 @@ export function withDefaults(value: NotificationPreferences): Required<Notificat
   return { ...value, push_enabled: value.push_enabled ?? true, commerce_alerts: value.commerce_alerts ?? true, tyre_alerts: value.tyre_alerts ?? true };
 }
 
+/** GET /api/v1/notification-channels: what the Email switch can do for the caller right now. */
+export interface NotificationChannels {
+  email: { configured: boolean; address_known: boolean };
+  push_configured: boolean;
+}
+
+export interface EmailTestResult {
+  status: 'sent' | 'failed' | 'not_configured' | 'no_address' | string;
+  to: string | null;
+  attempts: number;
+  error: string | null;
+}
+
+/** One sentence for the test email's outcome. */
+export function emailTestNotice(result: EmailTestResult): { tone: 'ok' | 'warning'; text: string } {
+  if (result.status === 'sent') return { tone: 'ok', text: t('settings.notifications.test.sent', { to: result.to ?? '' }) };
+  if (result.status === 'not_configured') return { tone: 'warning', text: t('settings.notifications.email.serverOff') };
+  if (result.status === 'no_address') return { tone: 'warning', text: t('settings.notifications.email.noAddress') };
+  return { tone: 'warning', text: t('settings.notifications.test.failed', { attempts: result.attempts, error: result.error ?? t('invite.email.unknownError') }) };
+}
+
+export interface ChannelHint {
+  tone: 'ok' | 'warning' | 'neutral';
+  text: string;
+}
+
+/** Why the Email switch does or does not deliver: it is only a promise when the server has a mail server and an address. */
+export function emailHint(prefs: Pick<NotificationPreferences, 'email_enabled'>, channels: NotificationChannels | null): ChannelHint | null {
+  if (!channels) return null;
+  if (!channels.email.configured) return { tone: 'warning', text: t('settings.notifications.email.serverOff') };
+  if (!channels.email.address_known) return { tone: prefs.email_enabled ? 'warning' : 'neutral', text: t('settings.notifications.email.noAddress') };
+  return { tone: prefs.email_enabled ? 'ok' : 'neutral', text: t(prefs.email_enabled ? 'settings.notifications.email.on' : 'settings.notifications.email.ready') };
+}
+
+/** What the Desktop switch can do in this browser or the desktop app: it needs the system's permission. */
+export function desktopHint(prefs: Pick<NotificationPreferences, 'desktop_enabled'>, permission: string): ChannelHint {
+  if (permission === 'unsupported') return { tone: 'warning', text: t('settings.notifications.desktop.unsupported') };
+  if (permission === 'denied') return { tone: 'warning', text: t('settings.notifications.desktop.denied') };
+  if (permission === 'default') return { tone: prefs.desktop_enabled ? 'warning' : 'neutral', text: t('settings.notifications.desktop.ask') };
+  return { tone: prefs.desktop_enabled ? 'ok' : 'neutral', text: t(prefs.desktop_enabled ? 'settings.notifications.desktop.on' : 'settings.notifications.desktop.ready') };
+}
+
 export interface PushSummary {
   badge: string;
   tone: 'success' | 'neutral' | 'warning';

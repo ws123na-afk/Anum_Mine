@@ -36,7 +36,7 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | [Settings, language and right to left](#settings-language-and-right-to-left) | Partial | Settings, Language menu |
 | [Integrations and skills](#integrations-and-skills) | Partial (connectors in progress) | Resources › Skills, Resources › Services, Home › Connected services |
 | [Commerce](#commerce) | Done for everything an operator does; connecting a channel and alert rules are web only | Home › Sales and orders |
-| [Business](#business) | Partial: catalog, accounts, contacts and support are editable; leads and opportunities are not yet | More › Business |
+| [Business](#business) | Done on the phone for everything the desk edits; research, drafts, CSV import and proposal writing are web only | More › Business |
 
 ## Sign-in and accounts
 
@@ -314,11 +314,13 @@ The internal sales desk ([Business](business.md)). Owners and members read it; v
 | Accounts: delete an account | Done (owners, with confirmation; the server refuses when other records depend on it) |
 | Contacts: add, edit and delete a contact with its consent basis; a contact with an unknown basis is shown as blocked | Done (add and edit: owners and members; delete: owners) |
 | Support tickets: list, filter, open, create, edit, change status, escalate, notes, replies waiting for approval, delete | Done |
-| Create, edit and delete a lead; create and edit an opportunity | Not built on mobile yet (web only) |
+| Leads: create (for a new or an existing company, with an optional contact and offer), edit title, offer, contact and next step | Done (owners and members) |
+| Leads: delete | Done (owners, with confirmation; the server refuses when the lead has an opportunity) |
+| Opportunities: open one from a qualified lead, edit value, probability (your assumptions), note, next step and decision date, move between stages (lost needs a reason) | Done (owners and members); won comes only from an accepted proposal and is final |
 | Research, drafts, CSV import, writing proposals, the support policy | Web only |
 | Sending anything | Off by design: ANUM never contacts anyone from Business |
 
-Screens: **More › Business** with the tabs Overview, Leads, Pipeline, Proposals, Projects, Catalog, Accounts and Support (`apps/mobile/lib/features/business/`, English and Arabic). Tests: `test/business_test.dart`, `test/business_support_test.dart` and `test/business_catalog_accounts_test.dart` (every list state, create, edit and delete with the server's refusals, member against owner controls, Arabic and 320 and 390 point widths).
+Screens: **More › Business** with the tabs Overview, Leads, Pipeline, Proposals, Projects, Catalog, Accounts and Support (`apps/mobile/lib/features/business/`, English and Arabic). Tests: `test/business_test.dart`, `test/business_support_test.dart` and `test/business_catalog_accounts_test.dart` and `test/business_deals_edit_test.dart` (every list state, create, edit and delete with the server's refusals, member against owner controls, Arabic and 320 and 390 point widths).
 
 ## Coming next
 
