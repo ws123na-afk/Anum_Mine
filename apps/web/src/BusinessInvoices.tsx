@@ -40,7 +40,7 @@ export function InvoicesTab({ setup, openId, onOpen, onChanged }: { setup: Busin
   return <section className="bzSection" aria-label={t('biz.tab.invoices')}>
     <SummaryBand reload={tick} />
     <div className="bzToolbar">
-      <form className="bzSearch" role="search" onSubmit={(event) => { event.preventDefault(); setSearch(filters.q.trim()); }}>
+      <form className="bzSearch" role="search" onSubmit={(event) => { event.preventDefault(); setSearch(filters.q.trim()); setTick((value) => value + 1); }}>
         <label className="visuallyHidden" htmlFor={searchId}>{t('inv.search')}</label>
         <input id={searchId} type="search" value={filters.q} placeholder={t('inv.search')} onChange={(event) => { setFilters({ ...filters, q: event.target.value }); if (!event.target.value) setSearch(''); }} />
         <button type="submit" className="secondary"><Search aria-hidden="true" />{t('biz.find')}</button>
