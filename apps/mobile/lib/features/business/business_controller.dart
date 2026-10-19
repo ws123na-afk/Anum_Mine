@@ -2,7 +2,9 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
 import 'business_models.dart';
+import 'accounts_data.dart';
 import 'business_repository.dart';
+import 'catalog_data.dart';
 import 'project_money.dart';
 import 'support_controller.dart';
 
@@ -23,7 +25,13 @@ class PagedList<T> {
 
 /// State of the phone's Business screen (docs/business.md).
 class BusinessController extends ChangeNotifier {
-  BusinessController(this.repository, {this.money, this.support}) {
+  BusinessController(
+    this.repository, {
+    this.money,
+    this.support,
+    this.catalog,
+    this.accounts,
+  }) {
     leads = PagedList(
       (offset) => repository.leads(
         query: query,
@@ -50,6 +58,10 @@ class BusinessController extends ChangeNotifier {
 
   /// Support tickets (docs/business.md#support-tickets), when wired.
   final SupportController? support;
+
+  /// Catalog and accounts with contacts (docs/business.md), when wired.
+  final CatalogController? catalog;
+  final AccountsController? accounts;
   static const pageSize = 20;
 
   BusinessLoad setupState = BusinessLoad.idle;
@@ -178,6 +190,8 @@ class BusinessController extends ChangeNotifier {
     }
     setupState = kpiState = BusinessLoad.idle;
     support?.reset();
+    catalog?.reset();
+    accounts?.reset();
     notifyListeners();
   }
 }

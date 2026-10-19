@@ -15,6 +15,9 @@ interface MockState {
   deletes: string[];
   failDelete?: boolean;
   failStatus?: boolean;
+  channels?: { email: { configured: boolean; address_known: boolean }; push_configured: boolean } | null;
+  testResult?: Record<string, unknown>;
+  tests?: number;
 }
 
 async function mockApi(page: Page, options: Partial<MockState> = {}): Promise<MockState> {
@@ -22,7 +25,7 @@ async function mockApi(page: Page, options: Partial<MockState> = {}): Promise<Mo
     available: true,
     devices: [phone('device_pixel', 'Pixel 8', 'android', '1a2b'), phone('device_ipad', null, 'ios', '9z8y')],
     prefs: { task_completed: true, approval_required: true, run_failed: true, automation_failed: true, email_enabled: false, desktop_enabled: true, push_enabled: true },
-    puts: [], deletes: [], ...options,
+    puts: [], deletes: [], tests: 0, channels: { email: { configured: true, address_known: true }, push_configured: true }, ...options,
   };
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
@@ -35,6 +38,11 @@ async function mockApi(page: Page, options: Partial<MockState> = {}): Promise<Mo
       state.puts.push(request.postDataJSON());
       state.prefs = request.postDataJSON() as Record<string, boolean>;
       return json(state.prefs);
+    }
+    if (path === '/api/v1/notification-channels') return state.channels ? json(state.channels) : route.abort();
+    if (path === '/api/v1/notification-channels/email-test') {
+      state.tests = (state.tests ?? 0) + 1;
+      return json(state.testResult ?? { status: 'sent', to: 'me@example.com', attempts: 1, error: null });
     }
     if (path === '/api/v1/push/status') {
       if (state.failStatus) return json({ error: { code: 'internal_error', message: 'The server could not answer' } }, 500);
@@ -117,4 +125,42 @@ test('a failed removal keeps the phone and says what failed', async ({ page }) =
   await push.getByRole('button', { name: 'Remove Pixel 8 (Android, ends in 1a2b)' }).click();
   await expect(push.getByRole('alert')).toContainText('Pixel 8 (Android, ends in 1a2b) was not removed. Device not found Try again.');
   await expect(push.getByRole('list', { name: 'My registered phones' }).getByRole('listitem')).toHaveCount(2);
+});
+
+
+test('the Email switch says what it can do and the test email proves it', async ({ page }) => {
+  const state = await mockApi(page);
+  await page.goto('/#notifications');
+  const settings = page.getByRole('region', { name: 'Notifications' });
+  await expect(settings.getByText('Ready. Switch it on and save to get emails.')).toBeVisible();
+  await settings.getByRole('checkbox', { name: 'Email', exact: false }).check();
+  await expect(settings.getByText(/^On\. You get an email for the kinds you switched on above/)).toBeVisible();
+  await settings.getByRole('button', { name: 'Send me a test email' }).click();
+  await expect(settings.getByRole('status').filter({ hasText: 'Test email sent to me@example.com.' })).toBeVisible();
+  expect(state.tests).toBe(1);
+});
+
+test('a failed test email is reported with what to do', async ({ page }) => {
+  await mockApi(page, { testResult: { status: 'failed', to: 'me@example.com', attempts: 3, error: 'The mail server could not be reached (TimeoutError)' } });
+  await page.goto('/#notifications');
+  const settings = page.getByRole('region', { name: 'Notifications' });
+  await settings.getByRole('button', { name: 'Send me a test email' }).click();
+  await expect(settings.getByRole('alert')).toContainText('could not be sent after 3 tries');
+});
+
+test('Email explains a server without a mail server or a person without an address', async ({ page }) => {
+  await mockApi(page, { channels: { email: { configured: false, address_known: false }, push_configured: false } });
+  await page.goto('/#notifications');
+  const settings = page.getByRole('region', { name: 'Notifications' });
+  await expect(settings.getByText(/This server has no mail server set up, so ANUM cannot email you yet/)).toBeVisible();
+  await expect(settings.getByRole('button', { name: 'Send me a test email' })).toHaveCount(0);
+});
+
+test('Email asks for an address when ANUM has none, and nothing breaks if the channels cannot be read', async ({ page }) => {
+  await mockApi(page, { channels: { email: { configured: true, address_known: false }, push_configured: true } });
+  await page.goto('/#notifications');
+  await expect(page.getByRole('region', { name: 'Notifications' }).getByText(/ANUM has no email address for you/)).toBeVisible();
+  await mockApi(page, { channels: null });
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Notifications' }).getByRole('checkbox', { name: 'Email' })).toBeVisible();
 });

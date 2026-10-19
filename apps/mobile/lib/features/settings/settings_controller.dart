@@ -112,6 +112,39 @@ class SettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// What the Email switch can do here; null while unknown (not loaded, or the
+  /// server could not say), in which case no hint is shown.
+  NotificationChannels? channels;
+  EmailTestResult? emailTest;
+  String? emailTestError;
+  bool emailTestBusy = false;
+
+  Future<void> loadChannels() async {
+    try {
+      channels = await repository.notificationChannels();
+    } on Object {
+      channels = null;
+    }
+    notifyListeners();
+  }
+
+  /// Sends the caller a test email; the result (or why it failed) is shown in
+  /// the notification card.
+  Future<void> sendTestEmail() async {
+    emailTestBusy = true;
+    emailTest = null;
+    emailTestError = null;
+    notifyListeners();
+    try {
+      emailTest = await repository.sendTestEmail();
+    } on Object catch (error) {
+      emailTestError = 'The test email was not sent. ${_describe(error)}';
+    } finally {
+      emailTestBusy = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> _loadChatMemory() async {
     try {
       chatMemory = await repository.chatMemoryPreference();

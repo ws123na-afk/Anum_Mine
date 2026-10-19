@@ -100,11 +100,80 @@ class WorkspaceInvitation {
       [inviteeUserId, inviteeEmail].whereType<String>().join(' · ');
 }
 
+/// What happened to the invitation email (docs/identity.md#invitation-email):
+/// `sent`, `failed` (refused, or still failing after [attempts] tries),
+/// `not_configured` (no mail server on this ANUM server) or `not_requested`.
+class InvitationEmail {
+  const InvitationEmail({
+    this.status = 'not_requested',
+    this.to,
+    this.attempts = 0,
+    this.error,
+    this.linkIncluded = false,
+  });
+
+  /// Older servers send no `email`: nothing was emailed.
+  factory InvitationEmail.fromJson(Object? value) {
+    if (value is! Map<String, dynamic>) return const InvitationEmail();
+    final status = value['status'];
+    return InvitationEmail(
+      status: const {'sent', 'failed', 'not_configured', 'not_requested'}
+              .contains(status)
+          ? status as String
+          : 'not_requested',
+      to: value['to'] as String?,
+      attempts: (value['attempts'] as num?)?.toInt() ?? 0,
+      error: value['error'] as String?,
+      linkIncluded: value['link_included'] == true,
+    );
+  }
+
+  final String status;
+  final String? to;
+  final int attempts;
+  final String? error;
+
+  /// False when the email carried the token to paste instead of a link.
+  final bool linkIncluded;
+
+  bool get sent => status == 'sent';
+
+  /// True when the owner has to pass the invitation on themselves.
+  bool get needsManualDelivery => !sent;
+
+  /// One sentence for the outcome, always saying what the owner does next.
+  String get notice => switch (status) {
+        'sent' => linkIncluded
+            ? 'Emailed to ${to ?? 'the invitee'} with a link to accept. You can still copy the link below.'
+            : 'Emailed to ${to ?? 'the invitee'} with the token to paste. You can still copy the token below.',
+        'failed' =>
+          'The email to ${to ?? 'the invitee'} could not be sent after $attempts tries: ${error ?? 'unknown error'}. Copy the link below and send it yourself.',
+        'not_configured' =>
+          'Not emailed: this server has no mail server set up. Copy the link below and send it to ${to ?? 'the invitee'} yourself.',
+        _ => to == null
+            ? 'Not emailed: this invitation has no email address. Copy the link below and send it yourself.'
+            : 'Not emailed, as you chose. Copy the link below and send it yourself.',
+      };
+}
+
+/// Whether this server can email invitations at all
+/// (`GET /api/v1/workspace-invitations/email-status`).
+class InvitationEmailSetup {
+  const InvitationEmailSetup({required this.configured, this.linkBase});
+  final bool configured;
+  final String? linkBase;
+}
+
 /// The token is returned exactly once: the API stores only its hash.
 class CreatedInvitation {
-  const CreatedInvitation({required this.invitation, required this.token});
+  const CreatedInvitation({
+    required this.invitation,
+    required this.token,
+    this.email = const InvitationEmail(),
+  });
   final WorkspaceInvitation invitation;
   final String token;
+  final InvitationEmail email;
 }
 
 class AcceptedInvitation {
@@ -119,16 +188,28 @@ class InvitationDraft {
     this.userId,
     this.email,
     this.ttlHours = defaultInvitationTtlHours,
+    this.sendEmail = true,
   });
   final String role;
   final String? userId, email;
   final int ttlHours;
+
+  /// Email the invitee the accept link (only with an email address).
+  final bool sendEmail;
+
+  InvitationDraft withSendEmail(bool value) => InvitationDraft(
+      role: role,
+      userId: userId,
+      email: email,
+      ttlHours: ttlHours,
+      sendEmail: value);
 
   JsonMap toJson() => {
         'role': role,
         if (userId != null) 'invitee_user_id': userId,
         if (email != null) 'invitee_email': email,
         'ttl_hours': ttlHours,
+        if (!sendEmail) 'send_email': false,
       };
 }
 

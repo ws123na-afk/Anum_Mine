@@ -386,6 +386,74 @@ class NotificationPreferences {
       };
 }
 
+/// What the Email switch can do for the caller right now
+/// (`GET /api/v1/notification-channels`, docs/notifications.md#email).
+class NotificationChannels {
+  const NotificationChannels(
+      {required this.emailConfigured, required this.emailAddressKnown});
+
+  factory NotificationChannels.fromJson(JsonMap json) {
+    final email = JsonReader(json).object('email');
+    return NotificationChannels(
+      emailConfigured: email.boolean('configured'),
+      emailAddressKnown: email.boolean('address_known'),
+    );
+  }
+
+  /// The server has a mail server.
+  final bool emailConfigured;
+
+  /// ANUM has an address for the caller (team profile, else an accepted invitation).
+  final bool emailAddressKnown;
+
+  /// Why the Email switch delivers nothing, or what it will do. Always a sentence.
+  String emailHint({required bool switchedOn}) {
+    if (!emailConfigured) {
+      return 'This server has no mail server set up, so ANUM cannot email you yet. Ask the person who runs ANUM to set ANUM_SMTP_HOST and ANUM_SMTP_FROM.';
+    }
+    if (!emailAddressKnown) {
+      return 'ANUM has no email address for you. Add one to your team profile and email will start.';
+    }
+    return switchedOn
+        ? 'On. You get an email for the kinds you switched on above, and for team work.'
+        : 'Ready. Switch it on to get emails.';
+  }
+}
+
+/// The answer to `POST /api/v1/notification-channels/email-test`.
+class EmailTestResult {
+  const EmailTestResult(
+      {required this.status, this.to, this.attempts = 0, this.error});
+
+  factory EmailTestResult.fromJson(JsonMap json) {
+    final r = JsonReader(json);
+    return EmailTestResult(
+      status: r.string('status'),
+      to: r.optString('to'),
+      attempts: (json['attempts'] as num?)?.toInt() ?? 0,
+      error: r.optString('error'),
+    );
+  }
+
+  /// `sent`, `failed`, `not_configured` or `no_address`.
+  final String status;
+  final String? to;
+  final int attempts;
+  final String? error;
+
+  bool get sent => status == 'sent';
+
+  String get notice => switch (status) {
+        'sent' => 'Test email sent to ${to ?? 'you'}. Check your inbox.',
+        'not_configured' =>
+          'This server has no mail server set up, so ANUM cannot email you yet.',
+        'no_address' =>
+          'ANUM has no email address for you. Add one to your team profile and try again.',
+        _ =>
+          'The test email could not be sent after $attempts tries: ${error ?? 'unknown error'}. Ask the person who runs ANUM to check the mail server.',
+      };
+}
+
 /// "Remember things from my chats" (`GET/PUT /api/v1/me/preferences`,
 /// docs/memory.md#from-conversations): the caller's own switch, and whether
 /// chat memory is on for them and, if not, why.
