@@ -169,14 +169,14 @@ def test_every_tenant_table_is_listed_for_export_and_purge() -> None:
 
 
 def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
-    spec = importlib.util.spec_from_file_location("lifecycle_0078", API_ROOT / "migrations" / "versions" / "0078_tenant_lifecycle.py")
+    spec = importlib.util.spec_from_file_location("lifecycle_0081", API_ROOT / "migrations" / "versions" / "0081_tenant_lifecycle.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     in_migration = set(module._all_tables())
     assert in_migration == {t.name for t in PURGED_TABLES}
     assert LIFECYCLE_JOBS_TABLE not in in_migration
-    assert len(module.revision) <= 32 and module.down_revision == "0075_file_scan_status"
+    assert len(module.revision) <= 32 and module.down_revision == "0076_business_support"
     for name in in_migration:
         predicate = module._purge_predicate(name)
         assert "anum.tenant_id" in predicate and "status = 'purging'" in predicate
@@ -345,8 +345,14 @@ def test_cancel_during_the_cooling_off_keeps_everything(client: TestClient) -> N
 
 
 def test_organisation_purge_removes_every_row_and_file_and_keeps_a_receipt(client: TestClient) -> None:
+    from anum_api import public_logos
+
     key_a = _put_file(TENANT_A, WORKSPACE_A2, "a.txt", b"a")
     key_b = _put_file(TENANT_B, WORKSPACE_B, "b.txt", b"b")
+    png = b"\x89PNG\r\n\x1a\n" + b"logo"
+    logo_a = public_logos.publish(TENANT_A, png, "image/png")
+    logo_a2 = public_logos.publish(TENANT_A, png + b"-v2", "image/png")
+    logo_b = public_logos.publish(TENANT_B, png, "image/png")
     client.post("/api/v1/organization/lifecycle/exports", headers=ADMIN_A)
     lifecycle.run_lifecycle_pass()
     archive_key = next(iter(lifecycle.memory_lifecycle_store.jobs.values())).archive_key
@@ -377,6 +383,11 @@ def test_organisation_purge_removes_every_row_and_file_and_keeps_a_receipt(clien
     assert len([t for t in store.tasks.values() if t.tenant_id == TENANT_B]) == b_tasks
     assert file_store.storage.get(key_b) == b"b"
     assert store.tenants[TENANT_B].status == "active"
+    # Every public logo version of tenant A is gone; tenant B's still serves.
+    for path in (logo_a, logo_a2):
+        assert client.get(path).status_code == 404
+    assert client.get(logo_b).status_code == 200
+    assert public_logos.purge(TENANT_A) == 0
 
 
 def test_workspace_deletion_removes_only_that_workspace(client: TestClient) -> None:

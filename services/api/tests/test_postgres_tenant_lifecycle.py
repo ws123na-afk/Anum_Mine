@@ -134,7 +134,7 @@ def test_registry_matches_the_database_and_every_table_has_its_purge_policy(data
         ).all()
         bypass = connection.execute(text("select rolbypassrls, rolcanlogin from pg_roles where rolname = 'anum_tenant_purger'")).one()
         # Policies that apply to every role and look rows up in another table: the purger
-        # needs those lookup columns (migration 0078, POLICY_LOOKUPS).
+        # needs those lookup columns (migration 0081, POLICY_LOOKUPS).
         lookups = {
             row.looked_up
             for row in connection.execute(

@@ -24,16 +24,16 @@
 Expand only: two new tables, new policies, grants to two NOLOGIN roles and a widened
 restrictive predicate that admits only the purger. The previous release ignores them.
 
-Numbered 0078 and chained after ``0075_file_scan_status``, the head of ``main``; parallel branches use 0076 and
-0077, so the owner renumbers at merge.
+Numbered 0081 and chained after ``0076_business_support``, the head of ``main``; the owner
+re-chains it at merge if another migration lands first.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0078_tenant_lifecycle"
-down_revision = "0075_file_scan_status"
+revision = "0081_tenant_lifecycle"
+down_revision = "0076_business_support"
 branch_labels = None
 depends_on = None
 
@@ -66,7 +66,7 @@ WORKSPACE_TABLES = (
     "business_activities", "business_contacts", "business_drafts", "business_evidence", "business_inferences",
     "business_leads", "business_milestones", "business_offers", "business_opportunities", "business_products",
     "business_projects", "business_proposal_versions", "business_proposals", "business_research_runs",
-    "business_settings", "calendar_events", "call_ai_requests", "call_contacts", "call_log", "call_opt_outs",
+    "business_settings", "business_support_tickets", "business_ticket_replies", "calendar_events", "call_ai_requests", "call_contacts", "call_log", "call_opt_outs",
     "call_provider_accounts", "commands", "commerce_alerts", "commerce_connectors", "commerce_customers",
     "commerce_fees", "commerce_listings", "commerce_order_lines", "commerce_orders", "commerce_products",
     "commerce_returns", "commerce_settings", "conversation_turns", "conversations", "developer_projects",

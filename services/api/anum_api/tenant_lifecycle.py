@@ -997,6 +997,12 @@ def run_purge(job: LifecycleJob, data: TenantData) -> None:
             file_store.storage.delete(key)
     counts: dict[str, int] = dict(job.counts)
     files = job.file_count
+    if job.kind == JobKind.ORGANISATION_DELETION:
+        # Every public logo version the organisation published for email headers
+        # (public_logos.py): they are served without sign-in, so they go first. Idempotent.
+        from . import public_logos
+
+        files += public_logos.purge(job.tenant_id)
     order = data.purge_order()
     for _ in range(5):
         removed_this_pass = 0
