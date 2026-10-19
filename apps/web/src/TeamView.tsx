@@ -16,7 +16,6 @@ import { Modal } from './Dialog';
 import { CallButtons } from './AppCalls';
 import { CallHistory } from './CallHistory';
 import './team.css';
-import { HelpLink } from './HelpLink';
 
 // The board and the workload table are one "Team dashboard" tab (docs/team-work.md#dashboard).
 type Tab = 'mine' | 'board' | 'activity' | 'people' | 'calls';
@@ -33,7 +32,7 @@ function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
 }
 
 function Empty({ icon, title, text, action }: { icon: ReactNode; title: string; text: string; action?: ReactNode }) {
-  return <div className="emptyState">{icon}<h3>{title}</h3><p>{text}</p><HelpLink />{action}</div>;
+  return <div className="emptyState">{icon}<h3>{title}</h3><p>{text}</p>{action}</div>;
 }
 
 function StatusBadge({ status }: { status: WorkStatus }) {

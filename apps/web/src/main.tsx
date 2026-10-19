@@ -46,7 +46,6 @@ const MeetingsView=lazy(()=>import('./MeetingsView').then(m=>({default:m.Meeting
 const PublicSite=lazy(()=>import('./PublicSite').then(m=>({default:m.PublicSite})));
 import { budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } from './lib/errors';
 import { noticeFromEvent, type ActionNotice } from './lib/autonomy';
-import { HelpLink } from './HelpLink';
 
 // The shell's views, sidebar groups and hash routing live in lib/shell.ts; the chrome in Shell.tsx.
 const err=(e:unknown)=>e instanceof Error?e.message:t('common.operationFailed');
@@ -151,7 +150,7 @@ function KnowledgeTabs({view,onPick}:{view:View;onPick:(view:View)=>void}){retur
 function Metric({icon,label,value,detail}:{icon:ReactNode;label:string;value:string;detail:string}){return <article className="metric"><div className="metricTop"><span>{label}</span><div className="metricIcon">{icon}</div></div><strong>{value}</strong><small>{detail}</small></article>}
 function Status({value}:{value:string}){return <span className={`statusBadge ${value==='completed'?'success':value==='failed'||value==='cancelled'?'dangerTone':'warning'}`}>{statusLabel(value)}</span>}
 function Notice({children,error}:{children:ReactNode;error?:boolean}){return <p className={`notice ${error?'errorNotice':''}`} role={error?'alert':'status'} aria-live={error?undefined:'polite'}><CircleDot aria-hidden="true"/>{children}</p>}
-function Empty({title,text}:{title:string;text:string}){return <div className="emptyState"><Search aria-hidden="true"/><h3>{title}</h3><p>{text}</p><HelpLink /></div>}
+function Empty({title,text}:{title:string;text:string}){return <div className="emptyState"><Search aria-hidden="true"/><h3>{title}</h3><p>{text}</p></div>}
 const date=(v:string)=>formatDateTime(v);const time=(v:string)=>formatDateTime(v,{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 // Signs in through Keycloak when VITE_ANUM_OIDC_ISSUER is set; otherwise renders the app on the local development session.
 function AuthGate(){const [status,setStatus]=useState<auth.AuthStatus|null>(null);useEffect(()=>{let live=true;const off=auth.onAuthChange(s=>{if(live)setStatus(s)});void auth.initAuth().then(s=>{if(live)setStatus(s)});return()=>{live=false;off()}},[]);

@@ -21,7 +21,6 @@ import { firstUnread } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { PageHeader, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import './whatsapp.css';
-import { HelpLink } from './HelpLink';
 
 type Tab = 'inbox' | 'templates' | 'setup';
 type Load = { kind: 'loading' } | { kind: 'denied' } | { kind: 'error'; message: string } | { kind: 'ready'; account: WaAccount };
@@ -167,7 +166,7 @@ function InboxView({ account, owner, onOpenApprovals, onOpenBudgets, onOpenTempl
       {state === 'ready' && items.length === 0 && <div className="emptyState waListEmpty">
         <Inbox aria-hidden="true" />
         <h3>{applied || filter !== 'all' ? t('wa.list.noMatch') : t('wa.list.empty')}</h3>
-        <p>{applied || filter !== 'all' ? t('wa.list.noMatchText') : t('wa.list.emptyText', { number: account.display_phone_number ?? account.phone_number_id ?? '' })}</p><HelpLink />
+        <p>{applied || filter !== 'all' ? t('wa.list.noMatchText') : t('wa.list.emptyText', { number: account.display_phone_number ?? account.phone_number_id ?? '' })}</p>
         {(applied || filter !== 'all') && <div className="actions waCenter"><button type="button" className="secondary" onClick={() => { setQuery(''); setApplied(''); setFilter('all'); }}>{t('wa.list.showAll')}</button></div>}
       </div>}
       {items.length > 0 && <ul className="waConversations" aria-label={t('wa.list.heading')}>
