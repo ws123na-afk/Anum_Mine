@@ -1,6 +1,6 @@
 """PostgreSQL store for the internal sales MVP (migrations ``0070_business``,
 ``0076_business_support``, ``0080_business_change_orders`` and
-``0087_business_invoices_portal``).
+``0088_business_invoices_portal``).
 
 The session carries the tenant and workspace RLS context (``open_scoped_store``); every
 query also filters on the scope explicitly, so a guessed id from another workspace reads

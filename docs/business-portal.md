@@ -3,7 +3,7 @@
 The portal is a customer-facing view of one client account in the owner's Business workspace ([Business](business.md), roadmap P2). A customer opens a link the owner gave them and sees the offers sent to them, the change orders waiting for them, their invoices and their support requests; they can approve or decline an offer or a change order and open a support request. It is not a second ANUM login and it never gives a customer a workspace role.
 
 - API: `services/api/anum_api/business/portal.py` (the customer's routes, `/api/v1/portal`), `portal_auth.py` (the link and its checks) and `api_portal_admin.py` (the owner's routes, `/api/v1/business/portal`).
-- Storage: migration `0087_business_invoices_portal` (`business_portal_access`, `business_portal_decisions`, with the invoice tables), memory store for local runs and tests.
+- Storage: migration `0088_business_invoices_portal` (`business_portal_access`, `business_portal_decisions`, with the invoice tables), memory store for local runs and tests.
 - Web: the public page `/portal` (`apps/web/src/PortalApp.tsx`), reached by the link, English and Arabic; the owner manages links in Business, Accounts and contacts.
 - Flutter: the customer portal screen on the phone (`apps/mobile/lib/features/portal/`), opened from the sign-in screen with the same link, English and Arabic; the owner's invoice screens are in Business (`apps/mobile/lib/features/business/invoices.dart`).
 - Contracts: `packages/contracts/src/business.ts` (`Portal*` types).
@@ -64,7 +64,7 @@ Owners: Business, Accounts and contacts, a contact's "Customer portal" block. Cr
 
 ## Storage
 
-Migration `0087_business_invoices_portal` creates `business_portal_access` (the contact's link: SHA-256 of the secret, expiry, revocation, last use) and `business_portal_decisions` (one decision per exact version) under forced row-level security with scoped composite foreign keys, plus the purge grants and policies of organisation and workspace deletion ([lifecycle](organisation-lifecycle.md)). `token_hash` is never exported. Expand only.
+Migration `0088_business_invoices_portal` creates `business_portal_access` (the contact's link: SHA-256 of the secret, expiry, revocation, last use) and `business_portal_decisions` (one decision per exact version) under forced row-level security with scoped composite foreign keys, plus the purge grants and policies of organisation and workspace deletion ([lifecycle](organisation-lifecycle.md)). `token_hash` is never exported. Expand only.
 
 ## Tests
 
