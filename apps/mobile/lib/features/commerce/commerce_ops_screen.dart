@@ -16,6 +16,16 @@ import 'commerce_strings.dart';
 
 enum CommerceSection { catalogue, listings, returns, alerts, channels }
 
+/// Reloads one section (pull to refresh).
+Future<void> refreshCommerceSection(CommerceOps ops, CommerceSection s) =>
+    switch (s) {
+      CommerceSection.catalogue => ops.first(ops.products),
+      CommerceSection.listings => ops.first(ops.listings),
+      CommerceSection.returns => ops.first(ops.returns),
+      CommerceSection.alerts => ops.first(ops.alerts),
+      CommerceSection.channels => ops.loadChannels(),
+    };
+
 Future<bool> _confirm(
   BuildContext context,
   CommerceStrings s, {
@@ -42,6 +52,12 @@ Future<bool> _confirm(
       ),
     ) ??
     false;
+
+/// An amount with its currency; without one, just the number (never a guess).
+String _money(double amount, String? currency) =>
+    currency == null || currency.isEmpty
+        ? amount.toStringAsFixed(2)
+        : formatMoney(amount, currency);
 
 void _say(BuildContext context, String text) {
   final messenger = ScaffoldMessenger.of(context);
@@ -134,6 +150,11 @@ class _CommerceOpsViewState extends State<CommerceOpsView> {
   @override
   void initState() {
     super.initState();
+    search.text = switch (widget.section) {
+      CommerceSection.catalogue => ops.productQuery ?? '',
+      CommerceSection.listings => ops.listingQuery ?? '',
+      _ => '',
+    };
     _load();
   }
 
@@ -141,7 +162,11 @@ class _CommerceOpsViewState extends State<CommerceOpsView> {
   void didUpdateWidget(CommerceOpsView old) {
     super.didUpdateWidget(old);
     if (old.section != widget.section) {
-      search.clear();
+      search.text = switch (widget.section) {
+        CommerceSection.catalogue => ops.productQuery ?? '',
+        CommerceSection.listings => ops.listingQuery ?? '',
+        _ => '',
+      };
       _load();
     }
   }
@@ -311,9 +336,8 @@ class _CommerceOpsViewState extends State<CommerceOpsView> {
             detail:
                 '${r.status.replaceAll('_', ' ')} · ${local.formatMediumDate(r.returnedAt.toLocal())}',
             icon: Icons.assignment_return_outlined,
-            trailing: r.amount == null
-                ? null
-                : Text(formatMoney(r.amount!, r.currency ?? 'SAR')),
+            trailing:
+                r.amount == null ? null : Text(_money(r.amount!, r.currency)),
           ),
         ),
       ],
@@ -481,7 +505,7 @@ class ListingCard extends StatelessWidget {
           detail: [
             listing.price == null
                 ? s.t('ops.noPrice')
-                : formatMoney(listing.price!, listing.currency ?? 'SAR'),
+                : _money(listing.price!, listing.currency),
             if (listing.quantity != null)
               s.t('ops.stock', {'n': listing.quantity!}),
             if (listing.buyBoxWinner == false) s.t('ops.buyBoxLost'),
@@ -495,11 +519,12 @@ class ListingCard extends StatelessWidget {
               onPressed: () => _change(context, price: true),
               child: Text(s.t('ops.changePrice')),
             ),
-            TextButton(
-              key: Key('ops-stock-${listing.id}'),
-              onPressed: () => _change(context, price: false),
-              child: Text(s.t('ops.changeStock')),
-            ),
+            if (listing.stockEditable)
+              TextButton(
+                key: Key('ops-stock-${listing.id}'),
+                onPressed: () => _change(context, price: false),
+                child: Text(s.t('ops.changeStock')),
+              ),
           ]),
       ],
     );
@@ -781,10 +806,8 @@ class _ProductScreenState extends State<ProductScreen> {
               ),
               if (product.costPrice != null)
                 Text(
-                    s.t('ops.cost', {
-                      'cost': formatMoney(
-                          product.costPrice!, product.currency ?? 'SAR')
-                    }),
+                    s.t('ops.cost',
+                        {'cost': _money(product.costPrice!, product.currency)}),
                     style: muted),
               if (product.lowStockThreshold != null)
                 Text(s.t('ops.threshold', {'n': product.lowStockThreshold!}),
@@ -846,6 +869,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       text: p?.costPrice == null ? '' : '${p!.costPrice}');
   late final low = TextEditingController(
       text: p?.lowStockThreshold == null ? '' : '${p!.lowStockThreshold}');
+  late String currency = p?.currency ?? 'SAR';
   bool busy = false;
   String? error;
 
@@ -870,6 +894,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       'title_ar': text(titleAr),
       'brand': text(brand),
       'cost_price': double.tryParse(cost.text.trim()),
+      if (double.tryParse(cost.text.trim()) != null) 'currency': currency,
       'low_stock_threshold': int.tryParse(low.text.trim()),
       if (p == null) 'sku': sku.text.trim(),
     };
@@ -951,6 +976,16 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                     final n = double.tryParse(t);
                     return n == null || n < 0 ? s.t('ops.priceBad') : null;
                   },
+                ),
+                DropdownButtonFormField<String>(
+                  key: const Key('ops-currency'),
+                  initialValue: currency,
+                  decoration: InputDecoration(labelText: s.t('ops.currency')),
+                  items: [
+                    for (final c in ['SAR', 'AED', 'USD'])
+                      DropdownMenuItem(value: c, child: Text(c)),
+                  ],
+                  onChanged: (v) => setState(() => currency = v ?? currency),
                 ),
                 TextFormField(
                   key: const Key('ops-low'),

@@ -100,6 +100,7 @@ const commerceOpsEn = <String, String>{
   'ops.titleAr': 'Title in Arabic',
   'ops.brand': 'Brand',
   'ops.costPrice': 'Cost price',
+  'ops.currency': 'Currency',
   'ops.lowThreshold': 'Low-stock alert at (units)',
   'ops.save': 'Save',
 };
@@ -202,6 +203,7 @@ const commerceOpsAr = <String, String>{
   'ops.titleAr': 'العنوان بالعربية',
   'ops.brand': 'العلامة التجارية',
   'ops.costPrice': 'سعر التكلفة',
+  'ops.currency': 'العملة',
   'ops.lowThreshold': 'تنبيه المخزون المنخفض عند (وحدات)',
   'ops.save': 'حفظ',
 };

@@ -47,7 +47,9 @@ class _CommerceScreenState extends State<CommerceScreen> {
         return Scaffold(
           appBar: AppBar(title: Text(s.t('title'))),
           body: AnumPage(
-            onRefresh: c.load,
+            onRefresh: section != null && c.ops != null
+                ? () => refreshCommerceSection(c.ops!, section!)
+                : c.load,
             children: [
               AnumHeader(
                   eyebrow: s.t('subtitle'),

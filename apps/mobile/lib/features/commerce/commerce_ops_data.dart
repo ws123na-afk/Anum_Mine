@@ -27,8 +27,13 @@ class CommerceListing {
     this.quantity,
     this.buyBoxWinner,
     this.lowestCompetitorPrice,
+    this.fulfillment,
   });
   final String id, connectorId, sku, marketplace, title, status;
+  final String? fulfillment;
+
+  /// Stock of a listing fulfilled by Amazon or noon is theirs to change.
+  bool get stockEditable => fulfillment == null || fulfillment == 'merchant';
   final double? price, lowestCompetitorPrice;
   final String? currency;
   final int? quantity;
@@ -46,6 +51,7 @@ class CommerceListing {
         quantity: r.optInt('quantity'),
         buyBoxWinner: r.optBool('buy_box_winner'),
         lowestCompetitorPrice: r.optNumber('lowest_competitor_price'),
+        fulfillment: r.optString('fulfillment'),
       );
 }
 
@@ -430,7 +436,7 @@ class CommerceOps extends ChangeNotifier {
         list.total = page.total;
       }
     } catch (e) {
-      list.error = _message(e);
+      if (generation == list.generation) list.error = _message(e);
     } finally {
       list.loadingMore = false;
       notifyListeners();

@@ -287,13 +287,14 @@ Amazon, noon and the owner's store ([Commerce](commerce.md)). Anyone with a role
 | --- | --- |
 | Sales summary for a period, by marketplace, top products, low stock, the order list with filters, paging and order detail | Done |
 | Catalogue: search and page, open a product with its listings per channel | Done |
-| Catalogue: add a product by SKU, edit its titles, brand, cost and low-stock level, delete it (the server refuses while a channel lists the SKU) | Done (owners and members) |
+| Catalogue: add a product by SKU, edit its titles, brand, cost (with a currency) and low-stock level, delete it (the server refuses while a channel lists the SKU) | Done (owners and members) |
 | Prices and stock: search listings, propose a new price or quantity; nothing reaches the channel until it is approved in Approvals (a link opens them) | Done (owners and members) |
 | Returns for the last 7, 30 or 90 days, paged | Done |
 | Alerts: Open, Acknowledged and Resolved lists; acknowledge an open alert | Done (acknowledge: owners and members) |
 | Channels: health, last sync and last error; sync now | Done (sync: owners and members) |
 | Channels: test the connection, turn off or on, remove (with confirmation) | Done (owners) |
-| Connect a channel, replace credentials, alert rules, buyer details | Web only |
+| Stock changes on listings fulfilled by Amazon or noon are not offered (the channel owns that stock) | Done |
+| Connect a channel, replace credentials, alert rules, buyer details, tyre attributes of a product (size, load and speed index, DOT, season; the size in a title is read when a product is created) | Web only |
 
 Screen: **Home › Sales and orders** with the tabs Sales, Catalogue, Prices and stock, Returns, Alerts and Channels (`apps/mobile/lib/features/commerce/`, English and Arabic; tests in `test/commerce_test.dart` and `test/commerce_ops_test.dart` cover every list state, the role differences, validation, the server's refusals and 320 and 390 point widths).
 

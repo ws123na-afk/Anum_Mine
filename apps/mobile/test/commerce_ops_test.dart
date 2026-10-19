@@ -2,6 +2,7 @@ import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/json_read.dart';
 import 'package:anum_mobile/features/commerce/commerce_controller.dart';
 import 'package:anum_mobile/features/commerce/commerce_ops_data.dart';
+import 'package:anum_mobile/features/commerce/commerce_ops_screen.dart';
 import 'package:anum_mobile/features/commerce/commerce_screen.dart';
 import 'package:anum_mobile/features/commerce/commerce_strings.dart';
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
@@ -29,6 +30,7 @@ Map<String, Object?> listingJson(int i) => {
       'quantity': 12,
       'status': 'active',
       'buy_box_winner': i.isOdd ? false : true,
+      'fulfillment': i == 7 ? 'amazon' : 'merchant',
     };
 
 Map<String, Object?> productJson(int i) => {
@@ -58,6 +60,7 @@ class FakeOps implements CommerceOpsRepository {
   final calls = <String>[];
   final bodies = <Map<String, Object?>>[];
   String? refuse;
+  bool failNextProducts = false;
   var channelList = <Map<String, Object?>>[channelJson()];
   var alertOpen = true;
 
@@ -89,6 +92,10 @@ class FakeOps implements CommerceOpsRepository {
       {String? query, required int offset, int limit = 20}) async {
     calls.add('products $query $offset');
     gate();
+    if (failNextProducts && offset > 0) {
+      await Future<void>.delayed(Duration.zero);
+      throw const ApiException(503, 'Old page failed.');
+    }
     return page(offset, limit,
         (i) => CommerceProduct.fromJson(JsonReader.of(productJson(i))));
   }
@@ -299,6 +306,72 @@ Future<CommerceController> open(
 }
 
 void main() {
+  testWidgets('an Amazon-fulfilled listing offers no stock change',
+      (tester) async {
+    await phone(tester);
+    final ops = FakeOps(total: 10);
+    await open(tester, ops, tab: 'listings');
+    expect(find.byKey(const Key('ops-stock-clist_0')), findsOneWidget);
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -2000));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('ops-price-clist_7')), findsOneWidget);
+    expect(find.byKey(const Key('ops-stock-clist_7')), findsNothing);
+  });
+
+  testWidgets('pull to refresh reloads the selected section', (tester) async {
+    await phone(tester);
+    final ops = FakeOps();
+    final c = await open(tester, ops, tab: 'returns');
+    final before = ops.calls.where((x) => x.startsWith('returns')).length;
+    await refreshCommerceSection(c.ops!, CommerceSection.returns);
+    expect(ops.calls.where((x) => x.startsWith('returns')).length, before + 1);
+  });
+
+  testWidgets('a search survives switching tabs and stays visible',
+      (tester) async {
+    await phone(tester);
+    final ops = FakeOps();
+    await open(tester, ops);
+    await tester.enterText(find.byKey(const Key('ops-product-search')), 'MX-3');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    await tap(tester, 'commerce-tab-returns');
+    await tap(tester, 'commerce-tab-catalogue');
+    expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('ops-product-search')))
+            .controller!
+            .text,
+        'MX-3');
+  });
+
+  testWidgets('a product cost is sent with its currency; none is invented',
+      (tester) async {
+    await phone(tester);
+    final ops = FakeOps();
+    await open(tester, ops);
+    await tap(tester, 'ops-product-new');
+    await enter(tester, 'ops-sku', 'MX-9');
+    await tap(tester, 'ops-save');
+    expect(ops.bodies.last.containsKey('currency'), isFalse);
+    await tap(tester, 'ops-product-new');
+    await enter(tester, 'ops-sku', 'MX-10');
+    await enter(tester, 'ops-cost', '310');
+    await tap(tester, 'ops-save');
+    expect(ops.bodies.last['currency'], 'SAR');
+  });
+
+  test('a stale failed page does not set an error', () async {
+    final repo = FakeOps();
+    final ops = CommerceOps(repo);
+    await ops.first(ops.products);
+    repo.failNextProducts = true;
+    final more = ops.more(ops.products);
+    await ops.first(ops.products);
+    await more;
+    expect(ops.products.error, isNull);
+  });
+
   test('the catalogs have the same keys', () {
     expect(CommerceStrings.catalogsMatch, isTrue);
   });
