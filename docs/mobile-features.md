@@ -36,6 +36,7 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | [Settings, language and right to left](#settings-language-and-right-to-left) | Partial | Settings, Language menu |
 | [Tyre planning](#tyre-planning) | Done for everything an operator does; connecting the source is web only | Home › Tyre planning |
 | [Integrations and skills](#integrations-and-skills) | Partial (connectors in progress) | Resources › Skills, Resources › Services, Home › Connected services |
+| [Business](#business) | Partial: catalog, accounts, contacts and support are editable; leads and opportunities are not yet | More › Business |
 
 ## Sign-in and accounts
 
@@ -297,6 +298,26 @@ The owner's fleet tyre data ([Tyre planning](tyre-planning.md)). Everyone with a
 | Connect the source, mapping, assumptions, CSV and PDF downloads, reopen an alert, schedule delivery to a recipient | Web only |
 
 Screen: **Home > Tyre planning** with the tabs Dashboard, Due, Alerts, Plan and Reports (`apps/mobile/lib/features/tyre/`, English and Arabic; `test/tyre/tyre_test.dart` and `test/tyre/tyre_ops_test.dart` cover every state, the role differences, validation, the server's refusals and 320 and 390 point widths).
+
+## Business
+
+The internal sales desk ([Business](business.md)). Owners and members read it; viewers are told who can. Every change below goes to the API, which checks the role again: the phone hides controls the role cannot use and shows the server's sentence when it still refuses.
+
+| What you can do | State |
+| --- | --- |
+| Overview figures, leads (search, status filter, paging, evidence, moving a lead through its states with a reason, recording what happened), pipeline, proposals waiting for acceptance, projects and milestone status | Done |
+| Catalog: search products and service packages, filter by maturity, page through them; open one to see every priced version with cost, margin and a warning when the price is under the cost | Done |
+| Catalog: create and edit a product, add and edit a draft version, activate it (the active one retires), retire or discard a version, delete a product (with confirmation; the server refuses when a lead, opportunity or support plan uses it) | Done (owners; members read only, with a notice) |
+| Accounts: search, page, open one with its contacts and leads; create and edit an account | Done (owners and members) |
+| Accounts: mark an account or a contact do not contact (with a reason) | Done (owners and members); clearing the mark is owners only |
+| Accounts: delete an account | Done (owners, with confirmation; the server refuses when other records depend on it) |
+| Contacts: add, edit and delete a contact with its consent basis; a contact with an unknown basis is shown as blocked | Done (add and edit: owners and members; delete: owners) |
+| Support tickets: list, filter, open, create, edit, change status, escalate, notes, replies waiting for approval, delete | Done |
+| Create, edit and delete a lead; create and edit an opportunity | Not built on mobile yet (web only) |
+| Research, drafts, CSV import, writing proposals, the support policy | Web only |
+| Sending anything | Off by design: ANUM never contacts anyone from Business |
+
+Screens: **More › Business** with the tabs Overview, Leads, Pipeline, Proposals, Projects, Catalog, Accounts and Support (`apps/mobile/lib/features/business/`, English and Arabic). Tests: `test/business_test.dart`, `test/business_support_test.dart` and `test/business_catalog_accounts_test.dart` (every list state, create, edit and delete with the server's refusals, member against owner controls, Arabic and 320 and 390 point widths).
 
 ## Coming next
 
