@@ -19,13 +19,18 @@ approved change order that produced a version. The locked-version trigger from 0
 refuses any update of a locked version; a new version is a new row.
 
 References carry the scope (``(tenant_id, workspace_id, <id>)`` composite foreign keys),
-so a row can never point into another tenant or workspace. No role is granted anything.
+so a row can never point into another tenant or workspace.
+
+Organisation and workspace deletion (migration ``0079_tenant_lifecycle``): both tables get
+the ``anum_tenant_purger`` grants (scope columns only, plus delete) and the purge policy
+``lifecycle_purge_<table>``, copied from 0079's ``_purge_policy`` for workspace tables. No
+other role is granted anything.
 
 Expand only: two new tables, one nullable column and indexes. The previous release
 ignores them.
 
-Numbered 0080 and chained after ``0078_demo_records``, the head of ``main`` (0079 is taken by
-another branch and is renumbered at its merge).
+Numbered 0080 and chained after ``0083_skill_signing``, the head of ``main`` (0081 and 0082 are
+taken by other branches).
 """
 
 import sqlalchemy as sa
@@ -33,7 +38,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0080_business_change_orders"
-down_revision = "0078_demo_records"
+down_revision = "0083_skill_signing"
 branch_labels = None
 depends_on = None
 
@@ -42,6 +47,8 @@ PREDICATE = (
     "          and workspace_id = nullif(current_setting('anum.workspace_id', true), '')"
 )
 TABLES = ("business_change_orders", "business_usage_ledger")
+PURGER = "anum_tenant_purger"
+JOBS = "tenant_lifecycle_jobs"
 TS = sa.DateTime(timezone=True)
 MONEY = sa.Numeric(14, 2)
 CURRENCIES = ("SAR", "AED", "USD")
@@ -85,6 +92,27 @@ def _enable_rls(table: str) -> None:
           {PREDICATE}
         )
         """
+    )
+
+
+def _purge_policy(table: str) -> None:
+    """Deletion of the organisation or of one workspace may remove these rows (0079's ``_purge_policy``)."""
+    op.execute(f"grant select (tenant_id, ctid, workspace_id), delete on {table} to {PURGER}")
+    op.execute(
+        f"""
+        create policy lifecycle_purge_{table} on {table}
+        for all to {PURGER}
+        using (
+          tenant_id = nullif(current_setting('anum.tenant_id', true), '')
+          and exists (
+            select 1 from {JOBS} j
+            where j.tenant_id = {table}.tenant_id and j.status = 'purging'
+              and (j.kind = 'organisation_deletion'
+                   or (j.kind = 'workspace_deletion' and j.workspace_id = {table}.workspace_id))
+          )
+        )
+        with check (false)
+        """  # nosec B608 - fixed table names
     )
 
 
@@ -174,9 +202,12 @@ def upgrade() -> None:
 
     for table in TABLES:
         _enable_rls(table)
+        _purge_policy(table)
 
 
 def downgrade() -> None:
+    for table in TABLES:
+        op.execute(f"drop policy if exists lifecycle_purge_{table} on {table}")
     for table in reversed(TABLES):
         op.drop_table(table)
     op.drop_column("business_proposal_versions", "change_order_id")

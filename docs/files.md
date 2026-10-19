@@ -1,6 +1,6 @@
 # Workspace Files
 
-Files are tenant- and workspace-scoped objects: the bytes live in object storage, the metadata in PostgreSQL under row-level security, and text files are indexed for retrieval into task prompts. Code: `services/api/anum_api/files.py` (stores and routes), `anum_api/file_policy.py` (accepted types, content checks, download names, signed links, the malware-scan hook), `anum_api/file_scanner_clamav.py` (the ClamAV scanner), `anum_api/db/workspace_settings_repository.py` (PostgreSQL metadata).
+Files are tenant- and workspace-scoped objects: the bytes live in object storage, the metadata in PostgreSQL under row-level security, and text files and the text of PDF, DOCX, XLSX, PPTX and OpenDocument files are indexed for retrieval into task prompts. Code: `services/api/anum_api/files.py` (stores and routes), `anum_api/file_policy.py` (accepted types, content checks, download names, signed links, the malware-scan hook), `anum_api/file_scanner_clamav.py` (the ClamAV scanner), `anum_api/db/workspace_settings_repository.py` (PostgreSQL metadata).
 
 ## API
 
@@ -106,7 +106,47 @@ With `ANUM_REPOSITORY_BACKEND=postgresql` file metadata lives in the `workspace_
 
 ## Retrieval
 
-Text files (`text/*`, JSON, YAML, XML, CSV, or a `.txt`/`.md`/`.csv`/`.json`/`.yaml`/`.xml`/`.log`/`.rst` name) up to 2 MiB of UTF-8 are indexed for retrieval into task prompts right after their metadata is committed; other files get a `skipped` index row (`not_text`, `not_utf8`, `too_large`). Indexing is best effort: a failed embedding is recorded on the index row and never fails the upload. Each file row reports `index`: `status` (`indexed`, `stale` when indexed with an earlier embedding model, `failed`, `skipped`, or `pending` when no index row exists), `error`, `chunk_count`, `embedding_model` and `indexed_at` (`index` is null if the index could not be read; the list still answers). `POST /api/v1/files/{id}/reindex` retries one file and `POST /api/v1/retrieval/index` the whole workspace. Deleting a file removes its chunks, and search ignores chunks of a file without metadata in any case. See [Memory](memory.md#retrieval).
+Text files (`text/*`, JSON, YAML, XML, CSV, or a `.txt`/`.md`/`.csv`/`.json`/`.yaml`/`.xml`/`.log`/`.rst` name) up to 2 MiB of UTF-8, and PDF, DOCX, XLSX, PPTX, ODT, ODS and ODP files (see [Document text extraction](#document-text-extraction)), are indexed for retrieval into task prompts right after their metadata is committed; other files (images, video, archives) get a `skipped` index row (`not_text`, `not_utf8`, `too_large`, `empty`, or a document's `encrypted`, `malformed`, `too_complex`, `no_text_layer`). Indexing is best effort: a failed embedding is recorded on the index row and never fails the upload. Each file row reports `index`: `status` (`indexed`, `stale` when indexed with an earlier embedding model, `failed`, `skipped`, or `pending` when no index row exists), `error`, `chunk_count`, `embedding_model` and `indexed_at` (`index` is null if the index could not be read; the list still answers). `POST /api/v1/files/{id}/reindex` retries one file and `POST /api/v1/retrieval/index` the whole workspace. Deleting a file removes its chunks, and search ignores chunks of a file without metadata in any case. See [Memory](memory.md#retrieval).
+
+### Document text extraction
+
+`services/api/anum_api/doc_extract.py` reads the text of documents for the index. The extension decides the format (the content type only for a name without one).
+
+| Format | Read with | Sections | Citation |
+|---|---|---|---|
+| PDF | pypdf | one per page | `page n` |
+| DOCX | `zipfile` and defusedxml | split where Word last broke pages (`w:lastRenderedPageBreak`) or at manual page breaks | `page n`, or the file name alone when the file has no page marks |
+| PPTX | `zipfile` and defusedxml | one per slide, in presentation order | `slide n` |
+| XLSX | `zipfile` and defusedxml | one per sheet, a row per line, cells separated by tabs | `sheet n (name)` |
+| ODT | `zipfile` and defusedxml (`content.xml`) | split where LibreOffice last broke pages (`text:soft-page-break`) | `page n`, or the file name alone without page marks |
+| ODS | `zipfile` and defusedxml | one per sheet (`table:table`), a row per line; a repeated cell or row with content is expanded at most 100 times and an empty repeat never | `sheet n (name)` |
+| ODP | `zipfile` and defusedxml | one per slide (`draw:page`), speaker notes left out | `slide n` |
+
+Each section is chunked on its own, so a chunk never spans two pages, and every chunk starts with a location line such as `[manual.pdf, page 3]`. Prompts therefore show the model the file and page, and the knowledge base returns `page`, `page_unit` and `page_label` on each citation ([Knowledge base](knowledge-base.md#search-and-ask-the-knowledge-base)). Only the unit and number of that line are read back; the name in it is never trusted. A run's `retrieval` step records the page of each document chunk it used.
+
+Uploads are hostile input, so extraction has hard limits (`ExtractionLimits`):
+
+| Limit | Value | Over it |
+|---|---|---|
+| Input size | 25 MiB | refused, `too_large` |
+| PDF pages, PPTX or ODP slides read | 300 | the rest is not read |
+| Sheets read | 50 | the rest is not read |
+| Rows read per sheet | 20,000 | the rest is not read |
+| Characters kept | 500,000 | the rest is not read (indexing also stops at 200 chunks) |
+| Wall time | 20 seconds, checked between pages, slides, rows and paragraphs | `failed`, `timeout`, so a re-index tries again |
+| Zip entries | 2,000 | refused, `too_complex` |
+| Uncompressed size, all entries | 128 MiB | refused, `too_complex` |
+| Compression ratio of an entry over 1 MiB | 200 to 1 | refused as a zip bomb, `too_complex` |
+| One XML part | 32 MiB, read with a bounded read | refused, `too_complex` |
+
+- **Encrypted files** are refused with `encrypted`: an Office file saved with a password is an OLE container rather than a zip, a zip entry with the encryption flag is refused, an OpenDocument file whose manifest lists `encryption-data` is refused, and a PDF that does not open with the empty password is refused. A PDF that only carries permission flags opens with the empty password and is read.
+- **Damaged files** (a broken zip, broken XML, a PDF pypdf cannot parse, nesting deep enough to hit Python's recursion limit) are refused with `malformed`. An XML part that contains a `DOCTYPE` or `ENTITY` declaration is refused too, both by a check before parsing and by defusedxml with DTDs, entities and external references forbidden, so no entity can be expanded (OOXML never declares one). pypdf also caps every stream it decompresses (75 MB per stream by default).
+- **Scanned PDFs.** A PDF with pages but no text layer on any of them (usually a scan) is recorded as `skipped` with `no_text_layer`, not as a silent `empty`. ANUM has no OCR: the Files view says "Not indexed: no extractable text, OCR not available.", the knowledge base badge says "No extractable text, OCR not available" (web and Flutter), and the file is still found by name, title and tags. Adding OCR (for example Tesseract) is a separate decision and is not part of this change.
+- **Off the event loop.** Extraction runs on its own two-thread pool (`anum-doc-extract`), not on the event loop and not in the default executor that database calls share, and the caller stops waiting after three times the wall time. A running Python thread cannot be killed, so the cooperative deadline inside the extractor is what ends a slow file and the pool size bounds how many run at once.
+- **Reuse.** A document whose bytes and embedding model have not changed is not extracted or embedded again on re-index.
+- **Licences.** pypdf 6.21.1 (BSD-3-Clause) and defusedxml 0.7.1 (Python Software Foundation License) are pure Python with no required dependencies on Python 3.11+. python-docx, openpyxl and python-pptx were not used: python-docx and python-pptx need lxml (native code) and python-pptx also Pillow, and reading the few OOXML parts directly keeps every zip read under the limits above.
+
+Tests: `services/api/tests/test_doc_extract.py` builds every fixture in memory (tiny PDFs, a scanned PDF, DOCX, XLSX, PPTX, ODT, ODS and ODP zips) and covers each format, OpenDocument repeats, encryption and limits, the scanned PDF's `no_text_layer`, the page, sheet, row and character limits, a zip bomb, an entity declaration, encrypted PDF and Office files, damaged files, oversized input, the deadline, the extraction pool, the location lines, the index rows and knowledge base citations with file name and page.
 
 ## Web Files view
 
@@ -141,5 +181,5 @@ The Flutter app's Resources, Files tab (`apps/mobile/lib/features/workspace/file
 - Malware scanning is off by default outside the compose files (`ANUM_FILE_SCANNER=off`); Kubernetes and Render deployments must run their own clamd to turn it on ([Malware scanning](#malware-scanning)). Files stored before scanning was turned on are scanned only when an operator runs the [rescan job](#rescanning-older-files); there is no schedule for it. The phone app shows no quarantine badge yet (a quarantined file's download answers `409` with the reason).
 - The quota is one value for every workspace (`ANUM_FILES_WORKSPACE_QUOTA_BYTES`); there is no per-workspace override or owner screen for it.
 - Name search is a bounded `ILIKE` scan within one workspace; very large workspaces would want a trigram index.
-- Office documents, archives and (on mobile) PDFs have no in-app preview, and only text files are indexed for retrieval.
+- Office documents, archives and (on mobile) PDFs have no in-app preview. Images and archives are not indexed for retrieval, and there is no OCR: a scanned PDF is flagged `no_text_layer` ("no extractable text, OCR not available"). DOCX and ODT headers, footers, footnotes and comments, PPTX and ODP speaker notes and XLSX formulas (only their cached values) are not extracted.
 - Files have no versions: an upload with the same name is a new file; replacing content means delete and upload.

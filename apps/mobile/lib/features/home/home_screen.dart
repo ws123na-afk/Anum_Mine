@@ -15,9 +15,9 @@ Future<bool> _launch(Uri uri) =>
     launchUrl(uri, mode: LaunchMode.externalApplication);
 
 /// The ANUM 360 Home (docs/home.md, mockups "Home / Command" and "Home
-/// Dashboard"): greeting, ask box with mic, Work/Personal/Custom quick
-/// commands, shortcut tiles, "Your AI agent is ready", Today's Focus,
-/// Recent Activity and pinned apps. Everything comes from the API; the
+/// Dashboard"): greeting, ask box with mic, Today's Focus, Recent Activity,
+/// Work/Personal/Custom quick commands, shortcut tiles, "Your AI agent is
+/// ready" and pinned apps (two columns from 840 px). Everything comes from the API; the
 /// shell decides where each feature opens through the callbacks.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -196,44 +196,54 @@ class _HomeScreenState extends State<HomeScreen> {
                 _InsightsEntry(controller: c, onOpen: _openInsights),
               ],
             );
-      final left = <Widget>[
-        _AskSection(
-          ask: _ask,
-          onSubmit: _submit,
-          onVoice: widget.onVoice,
-        ),
-        _CommandSection(controller: c, onCommand: widget.onCommand),
-        _shortcuts(t),
-        _AgentReady(onTap: widget.onVoice),
-      ];
-      final right = <Widget>[
-        _FocusSection(
-          controller: c,
-          onOpen: _open,
-          onCommand: () => widget.onCommand(null),
-          canOpenTasks: _can('tasks'),
-          now: widget.clock(),
-        ),
-        ...widget.sections,
-        _ActivitySection(
-          controller: c,
-          onOpen: _open,
-          onCommand: () => widget.onCommand(null),
-          canOpenTasks: _can('tasks'),
-          now: widget.clock(),
-        ),
-        _PinnedSection(
-          controller: c,
-          onOpenPin: _openPin,
-          onAdd: () => showPinEditor(context, c,
-              availableFeatures: widget.availableFeatures),
-          onManage: () => showPinManager(context, c),
-        ),
-      ];
+      final ask = _AskSection(
+        ask: _ask,
+        onSubmit: _submit,
+        onVoice: widget.onVoice,
+      );
+      final commands =
+          _CommandSection(controller: c, onCommand: widget.onCommand);
+      final shortcuts = _shortcuts(t);
+      final agentReady = _AgentReady(onTap: widget.onVoice);
+      final focus = _FocusSection(
+        controller: c,
+        onOpen: _open,
+        onCommand: () => widget.onCommand(null),
+        canOpenTasks: _can('tasks'),
+        now: widget.clock(),
+      );
+      final activity = _ActivitySection(
+        controller: c,
+        onOpen: _open,
+        onCommand: () => widget.onCommand(null),
+        canOpenTasks: _can('tasks'),
+        now: widget.clock(),
+      );
+      final pinned = _PinnedSection(
+        controller: c,
+        onOpenPin: _openPin,
+        onAdd: () => showPinEditor(context, c,
+            availableFeatures: widget.availableFeatures),
+        onManage: () => showPinManager(context, c),
+      );
       if (!wide) {
-        return AnumPage(
-            onRefresh: c.load, children: [greeting, ...left, ...right]);
+        // One column leads with what needs a decision, as the web Home does:
+        // Today's Focus (approvals waiting first) sits right under the ask
+        // box, and the shortcut tiles come after it, never above the fold.
+        return AnumPage(onRefresh: c.load, children: [
+          greeting,
+          ask,
+          focus,
+          ...widget.sections,
+          activity,
+          commands,
+          shortcuts,
+          agentReady,
+          pinned,
+        ]);
       }
+      final left = <Widget>[ask, commands, shortcuts, agentReady];
+      final right = <Widget>[focus, ...widget.sections, activity, pinned];
       Widget column(List<Widget> items) => Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [

@@ -25,7 +25,7 @@ export const businessEn = {
   'biz.denied': 'Not allowed: {message}',
   'biz.failed': '{what} failed: {message}',
   'biz.errorTitle': 'Business could not be loaded',
-  'biz.errorText': '{message} Check your connection and try again.',
+  'biz.errorText': '{message}. Try again in a moment.',
   'biz.sendingOff': 'Sending is off: ANUM drafts messages and records what you did, but it never contacts anyone from Business.',
 
   'biz.kpi.label': 'Sales summary',

@@ -26,7 +26,7 @@ export const businessAr: Record<keyof typeof businessEn, Message> = {
   'biz.denied': 'غير مسموح: {message}',
   'biz.failed': 'تعذّر {what}: {message}',
   'biz.errorTitle': 'تعذّر تحميل الأعمال',
-  'biz.errorText': '{message} تحقّق من الاتصال وحاول مرة أخرى.',
+  'biz.errorText': '{message}. حاول مرة أخرى بعد قليل.',
   'biz.sendingOff': 'الإرسال متوقف: يكتب ANUM مسودات الرسائل ويسجّل ما فعلته، لكنه لا يتواصل مع أحد من قسم الأعمال.',
 
   'biz.kpi.label': 'ملخص المبيعات',

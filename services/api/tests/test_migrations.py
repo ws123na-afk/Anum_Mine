@@ -1095,6 +1095,23 @@ def test_mail_writers_migration_is_expand_only() -> None:
     assert "grant select (updated_at) on mail_drafts to anum_maintenance" in upgrade
 
 
+def test_tenant_lifecycle_migration_is_expand_only_with_a_narrow_purge_role() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0079_tenant_lifecycle.py").read_text(encoding="utf-8")
+    assert 'revision = "0079_tenant_lifecycle"' in revision_text and len("0079_tenant_lifecycle") <= 32
+    assert 'down_revision = "0078_demo_records"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2 and "force row level security" in upgrade
+    assert "create role {purger} nologin" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "op.drop" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    # The purger reads scope columns only (never content) and may delete; the job table is
+    # changed only by the application role.
+    assert 'columns = ["tenant_id", "ctid"]' in revision_text
+    assert "grant select ({', '.join(columns)}), delete on {table} to {PURGER}" in revision_text
+    assert "with check (false)" in revision_text and "_purge_policy(table)" in upgrade
+
+
 def test_business_change_orders_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0080_business_change_orders.py").read_text(encoding="utf-8")
@@ -1111,7 +1128,9 @@ def test_business_change_orders_migration_is_expand_only_with_forced_rls_and_sco
     # Expand only: one nullable column on the proposal versions, nothing altered or dropped.
     assert upgrade.count("op.add_column(") == 1 and "nullable=true" in upgrade.split("op.add_column(", 1)[1].split("\n", 1)[0]
     assert "alter_column" not in upgrade and "drop " not in upgrade
-    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    # The only grant is the purger's (scope columns and delete) with its purge policy.
+    assert revision_text.lower().count("op.execute(f\"grant ") == 1 and "to {PURGER}" in revision_text and "create policy lifecycle_purge_{table}" in revision_text
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
     # An approved change order names who approved it and the version it produced.
     assert "status <> 'approved' or (decided_by is not null and decided_at is not null and result_version is not null)" in upgrade
 
