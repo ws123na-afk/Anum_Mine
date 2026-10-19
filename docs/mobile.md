@@ -172,7 +172,11 @@ The owner's mockups (`docs/design/anum360-mockups/mobile-14-screens.jpg`, screen
 
 ## Home and ANUM Proactive
 
-The ANUM 360 Home (`lib/features/home/`, [home.md](home.md)) reads one summary call (`GET /api/v1/home/summary`), the caller's pins and quick commands, and the insights list. Pins open a web app in the browser (https only), switch to a pinned workspace or open a feature; quick commands and insight commands are handed to ANUM Command, which shows the plan before anything runs. Tests: `test/home/home_test.dart` (parsing, controller states, main paths, 320-1440 px at 200 % text in English and Arabic, tap-target and label guidelines).
+The ANUM 360 Home (`lib/features/home/`, [home.md](home.md)) reads one summary call (`GET /api/v1/home/summary`), the caller's pins and quick commands, and the insights list. Pins open a web app in the browser (https only), switch to a pinned workspace or open a feature; quick commands and insight commands are handed to ANUM Command, which shows the plan before anything runs. On a phone, Today's Focus comes before the quick commands and shortcut tiles ([home.md](home.md#the-app)). Tests: `test/home/home_test.dart` (parsing, controller states, main paths, the order of the sections, 320-1440 px at 200 % text in English and Arabic, tap-target and label guidelines).
+
+## Money and KPI tiles
+
+Every amount goes through one formatter, `lib/src/localization/money_format.dart`: `formatMoney(amount, currency)` writes the currency code and the amount with thousands separators and two decimals (`SAR 2,500.00`, `SAR -1,234.50`, `-` when unknown) through intl's `NumberFormat` for the app's locale, and `formatMoneyText` does the same for the decimal strings Finance keeps from the API, keeping their decimals exactly. Arabic keeps Western digits and separators, as on the web ([Web localization](web-localization.md#numbers-and-dates)). Business, Commerce, Finance, Tyre planning and the model budget meters use it. KPI tiles (`AnumMetric`) show their value in the solid text colour, with the accent on the icon, and `AnumMetricGrid` spreads tiles evenly over rows of at most 2 on phones and 4 from 760 px, so 5 tiles are 3 + 2 on a wide screen and 2 + 2 + 1 (the last spanning the row) on a phone. Tests: `test/localization/money_format_test.dart` (English, Arabic and another locale) and `test/metric_grid_test.dart` (5 tiles at 390 and 1024 px).
 
 ## Email Center
 
@@ -185,6 +189,8 @@ The ANUM 360 Home (`lib/features/home/`, [home.md](home.md)) reads one summary c
 ## Dependencies
 
 `clock` (pure Dart, already in the lock through `flutter_test`) is a direct dependency so date labels read "now" from `clock.now()` instead of `DateTime.now()`. Widget tests pin it with `withClock(Clock.fixed(...))`, so a layout test never passes or fails depending on the day it runs. Mail Center message dates (`mailWhen`) use it: the time today, the month and day this year, the short date before that; `test/mail_center/mail_center_test.dart` runs its layout tests with the widest label, a date from an earlier year.
+
+`intl` (`^0.20.2`, the range `flutter_localizations` pins) is a direct dependency for money formatting ([Money and KPI tiles](#money-and-kpi-tiles)); it was already in the build through `flutter_localizations`.
 
 `firebase_core` 4.15 and `firebase_messaging` 16.7 (phone push) were checked against `android.builtInKotlin=false` before adding them: `firebase_messaging`'s Android code is Java only, and `firebase_core` applies `kotlin-android` itself when built-in Kotlin is off, so neither needs a pin.
 

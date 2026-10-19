@@ -68,12 +68,6 @@ class AnumBottomNav extends StatelessWidget {
             decoration: BoxDecoration(
               color: p.glass,
               border: Border(top: BorderSide(color: p.line)),
-              boxShadow: [
-                BoxShadow(
-                    color: p.shadow,
-                    blurRadius: 24,
-                    offset: const Offset(0, -6))
-              ],
             ),
             child: SafeArea(
               top: false,
@@ -180,12 +174,13 @@ class _NavButton extends StatelessWidget {
                 // The selected item also carries a bar, so the state is not
                 // conveyed by colour alone.
                 AnimatedContainer(
-                  duration: AnumMotion.quick,
+                  duration: AnumMotion.of(context, AnumMotion.quick),
+                  curve: AnumMotion.curve,
                   margin: const EdgeInsets.only(top: AnumSpacing.xxs),
                   width: selected ? 18 : 0,
                   height: 3,
                   decoration: BoxDecoration(
-                      gradient: p.accentGradient,
+                      color: p.accentStart,
                       borderRadius: BorderRadius.circular(AnumRadius.pill)),
                 ),
               ],
@@ -230,8 +225,8 @@ class _OrbButton extends StatelessWidget {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                        color: p.glow.withValues(alpha: selected ? 0.7 : 0.45),
-                        blurRadius: selected ? 22 : 14)
+                        color: p.glow.withValues(alpha: selected ? 0.4 : 0.22),
+                        blurRadius: selected ? 16 : 10)
                   ],
                 ),
                 child: const AnumOrb(size: AnumBottomNav.orbSize),
@@ -347,8 +342,8 @@ class _MenuTile extends StatelessWidget {
       child: ListTile(
         key: entry.key,
         selected: entry.selected,
-        selectedColor: p.sky,
-        selectedTileColor: p.accentStart.withValues(alpha: 0.16),
+        selectedColor: p.violet,
+        selectedTileColor: p.accentSoft,
         iconColor: p.muted,
         textColor: p.text,
         minTileHeight: 48,

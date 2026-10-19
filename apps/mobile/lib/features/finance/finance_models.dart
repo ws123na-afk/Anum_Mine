@@ -1,4 +1,5 @@
 import '../../data/json_read.dart';
+import '../../src/localization/money_format.dart';
 
 /// Finance (docs/finance.md): what the phone reads from `/api/v1/finance`.
 /// Money stays a decimal string next to its currency, exactly as the API sends
@@ -6,17 +7,8 @@ import '../../data/json_read.dart';
 
 /// A wire amount ("1234.50") shown with its currency code and grouping,
 /// for display only: `AED 1,234.50`, `AED -45.00`.
-String formatAmount(String value, String currency) {
-  final match = RegExp(r'^(-?)(\d+)(?:\.(\d+))?$').firstMatch(value.trim());
-  if (match == null) return '-';
-  final whole = match
-      .group(2)!
-      .replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
-  final fraction = match.group(3);
-  final number =
-      fraction == null || fraction.isEmpty ? whole : '$whole.$fraction';
-  return '$currency ${match.group(1)}$number';
-}
+String formatAmount(String value, String currency) =>
+    formatMoneyText(value, currency);
 
 /// Per-currency figures side by side, never summed: `AED 10.00 · USD 5.00`.
 String formatAmounts(List<CurrencyAmount> amounts) => amounts.isEmpty

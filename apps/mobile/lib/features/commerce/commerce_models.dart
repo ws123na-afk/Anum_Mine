@@ -1,5 +1,7 @@
 import '../../data/json_read.dart';
 
+export '../../src/localization/money_format.dart' show formatMoney;
+
 /// Commerce (docs/commerce.md): what the summary dashboard and the order list
 /// read from `/api/v1/commerce`.
 
@@ -190,16 +192,6 @@ class SalesSummary {
   const SalesSummary(this.text);
   final String text;
   factory SalesSummary.fromJson(JsonReader r) => SalesSummary(r.string('text'));
-}
-
-/// Money in the interface's digits: "SAR 1,234.50".
-String formatMoney(double amount, String? currency) {
-  final fixed = amount.abs().toStringAsFixed(2);
-  final parts = fixed.split('.');
-  final whole =
-      parts[0].replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
-  final sign = amount < 0 ? '-' : '';
-  return '${currency ?? ''} $sign$whole.${parts[1]}'.trim();
 }
 
 /// Date range for a period name, as the API's `from`/`to` (local days).

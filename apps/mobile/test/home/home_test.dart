@@ -466,14 +466,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(calls.voice, 1);
 
-      await tester.tap(find.text('Check my emails'));
-      await tester.pumpAndSettle();
+      // The quick commands sit after Today's Focus on a phone.
+      await _tapVisible(tester, find.text('Check my emails'));
       expect(calls.commands.last,
           'Check my emails, find today\'s urgent items and summarize them.');
-      await tester.tap(find.text('Custom'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Tyre stock'));
-      await tester.pumpAndSettle();
+      await _tapVisible(tester, find.text('Custom'));
+      await _tapVisible(tester, find.text('Tyre stock'));
       expect(calls.commands.last, 'Check tyre stock on Noon');
 
       await _tapVisible(tester, find.bySemanticsLabel('ANUM Command'));
@@ -623,6 +621,35 @@ void main() {
       await tester.pumpAndSettle();
       expect(repo.savedName, 'Shahzeb Rahman');
       expect(find.text('Shahzeb Rahman 👋'), findsOneWidget);
+    });
+
+    testWidgets(
+        'on a phone, decisions and focus come before the shortcuts and the '
+        'approvals are above the fold', (tester) async {
+      await pumpHome(tester, HomeController(FakeHomeRepository()));
+      double top(String text) => tester.getTopLeft(find.text(text)).dy;
+      final focus = top("Today's Focus");
+      expect(top('Ask ANUM anything…'), lessThan(focus));
+      expect(focus, lessThan(top('Approvals waiting: 2')));
+      expect(top('Approvals waiting: 2'), lessThan(top('Recent Activity')));
+      expect(top('Recent Activity'), lessThan(top('Check my emails')));
+      expect(top('Check my emails'), lessThan(top('Shortcuts')));
+      expect(top('Shortcuts'), lessThan(top('Your AI agent is ready')));
+      expect(top('Your AI agent is ready'), lessThan(top('Pinned')));
+      // Approvals waiting is on the first screen of a 390 x 844 phone,
+      // without scrolling.
+      expect(tester.getBottomLeft(find.text('Approvals waiting: 2')).dy,
+          lessThan(844));
+    });
+
+    testWidgets('wide screens keep the two columns, focus on the right',
+        (tester) async {
+      await pumpHome(tester, HomeController(FakeHomeRepository()),
+          size: const Size(1440, 900));
+      final focus = tester.getTopLeft(find.text("Today's Focus"));
+      final shortcuts = tester.getTopLeft(find.text('Shortcuts'));
+      expect(focus.dx, greaterThan(shortcuts.dx));
+      expect(focus.dy, lessThan(shortcuts.dy));
     });
 
     testWidgets('meets the tap target and label guidelines', (tester) async {
