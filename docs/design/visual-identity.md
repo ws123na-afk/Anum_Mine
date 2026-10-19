@@ -44,14 +44,23 @@ All ratios come from the relative-luminance formula and are checked for every te
 
 Inter for Latin and Noto Sans Arabic for Arabic, both self-hosted variable fonts (`apps/web/public/fonts`, the owner's 12 October decision in [web localization](../web-localization.md#fonts)). Headings use a display setting of the same family rather than a second typeface: optical sizing, tighter tracking and balanced line breaks; Arabic keeps zero tracking and more leading so letters join.
 
-| Role | Size and weight |
+| Role | Token (size) and weight |
 |---|---|
-| Page title (`h1`) | 28 px, 650, tracking -0.026 em (26 px on phones and in page headers) |
-| Section title (`h2`) | 17 px, 600 |
-| Card title (`h3`) | 15 px, 600 |
-| Body | 14 to 15 px, 400, line height 1.5 |
-| Labels and meta | 12.5 to 13 px, 500 |
-| Figures | 22 to 28 px, 650, tabular numbers |
+| Page title (`h1`) | `--text-5xl` (28 px), 650, tracking -0.026 em (26 px on phones and in page headers) |
+| Section title (`h2`) | `--text-xl` (18 px), 600 |
+| Card title (`h3`) | `--text-base` (15 px), 600 |
+| Body | `--text-md` to `--text-base` (14 to 15 px), 400, line height 1.5 |
+| Labels and meta | `--text-xs` to `--text-sm` (12 to 13 px), 500 |
+| Figures | `--text-3xl` to `--text-5xl` (22 to 28 px), 650, tabular numbers |
+
+### Type tokens
+
+`apps/web/src/typography.css` is the only place a font size is written. Twelve steps in rem (so browser text-size settings apply; the pixel values are at the default 16 px root): `--text-2xs` 11, `-xs` 12, `-sm` 13, `-md` 14, `-base` 15, `-lg` 16, `-xl` 18, `-2xl` 20, `-3xl` 22, `-4xl` 24, `-5xl` 28, `-6xl` 32; six fluid `--text-fluid-*` sizes for display headings and stat figures; `--leading-*` and `--weight-*` for line height and weight. Under `lang="ar"` the two smallest steps rise one step (Noto Sans Arabic sets smaller than Inter) and leading grows so letters join.
+
+- Write `font-size: var(--text-sm)`, never `13px`. `em`, `%` and `pt` (print) stay allowed because they are relative or for paper.
+- The 2026-10 migration snapped the old values to the nearest step (a tie rounds up): 11.5 to 12, 12.5 to 13, 13.5 to 14, 14.5 to 15, 17 to 18, 21 to 22, 26 to 28, 30 to 32. Everything else was already on a step.
+- `node apps/web/scripts/type-scale-codemod.mjs src/<file>.css` migrates a stylesheet, and it is safe to re-run after a merge conflict.
+- `apps/web/test/typeScale.test.ts` fails on a raw size in any stylesheet not in its `PENDING` list (stylesheets still to migrate; the list only shrinks) and on an inline pixel `fontSize`. The standalone policy pages in `public/policies` cannot load the app CSS and keep their own sizes.
 
 A distinct display face with Arabic support (for example IBM Plex Sans Arabic beside a Latin display face) would need new font files; that is a download the owner has to approve, so it is listed as a follow-up rather than done here.
 
