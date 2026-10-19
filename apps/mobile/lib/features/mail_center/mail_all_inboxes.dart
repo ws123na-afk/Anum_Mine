@@ -607,7 +607,14 @@ class _AllInboxTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AnumSpacing.xs),
-            Text(mailWhen(context, m.date), style: theme.textTheme.bodySmall),
+            // A full date at 200% text on a narrow phone may not fit beside
+            // the sender: it shrinks and ends with an ellipsis instead.
+            Flexible(
+              child: Text(mailWhen(context, m.date),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall),
+            ),
           ],
         ),
         subtitle: Column(
