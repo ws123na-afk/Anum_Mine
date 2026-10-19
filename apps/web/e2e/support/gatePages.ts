@@ -7,13 +7,22 @@ import { mockBusiness } from './businessApi';
 import { mockTyre } from './tyreApi';
 import { mockMailApi } from './mailApi';
 import { mockDeveloper } from './developerApi';
+import { mockBrevo } from './brevoApi';
+import { VIEWS } from '../../src/lib/shell.ts';
+import { TABS as BUSINESS_TABS } from '../../src/lib/business.ts';
+import { TABS as CALLS_TABS } from '../../src/lib/calls.ts';
+import { COMMERCE_TABS } from '../../src/lib/commerce.ts';
+import { FINANCE_TABS } from '../../src/lib/finance.ts';
+import { MARKETING_TABS } from '../../src/lib/marketing.ts';
 
-// Every page the web app can open (src/lib/shell.ts VIEWS), plus the tabs and deep links that draw a
-// different layout, for the UI quality gates: e2e/page-layout.spec.ts (overflow and clipped controls),
-// e2e/accessibility.spec.ts (axe) and e2e/journey.spec.ts (no dead buttons). Each entry names the mock
-// that fills the page and a selector that is only visible once the page shows its data, so a check
-// never runs against a loading state. gate-coverage in page-layout.spec.ts fails when a view in
-// shell.ts has no entry here.
+// Every page the web app can open, for the UI quality gates: e2e/page-layout.spec.ts (overflow and
+// clipped controls), e2e/accessibility.spec.ts (axe) and e2e/journey.spec.ts (no dead buttons).
+// DEEP_LINKS is generated from the source: every view in src/lib/shell.ts, every tab a module opens by
+// link (the TABS lists in src/lib/business.ts, calls.ts, commerce.ts, finance.ts and marketing.ts) and
+// the Settings and Integrations links viewFromHash understands. The hand-written entries below name a
+// selector that is only visible once the page shows its data; any deep link without one is added
+// with the module's mock and waits for the page heading and its requests. The coverage test in
+// page-layout.spec.ts fails when a deep link has no entry.
 export interface GatePage {
   /** The URL hash without "#". */
   hash: string;
@@ -98,6 +107,42 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'organisations', view: 'organisations', mock: workspace, ready: '.orgsTable tbody tr' },
 ];
 
+const brevo = async (page: Page) => { await mockMarketing(page); await mockBrevo(page); };
+
+/** Tab links: `<view>-<tab>` for every tab but the module's first, which is the plain view hash. */
+const tabLinks = (view: string, tabs: readonly string[]) => tabs.slice(1).map((tab) => `${view}-${tab}`);
+
+/** Every hash the app opens as its own page or tab, from the source. */
+export const DEEP_LINKS: readonly string[] = [
+  ...VIEWS,
+  ...tabLinks('business', BUSINESS_TABS),
+  ...tabLinks('calls', CALLS_TABS),
+  ...tabLinks('commerce', COMMERCE_TABS),
+  ...tabLinks('finance', FINANCE_TABS),
+  ...tabLinks('marketing', MARKETING_TABS),
+  // Settings sections and the Integrations connection setup (shell.ts viewFromHash).
+  'notifications', 'language', 'privacy', 'appearance', 'connections',
+];
+
+/** The page a deep link belongs to, and the mock that fills it. */
+function familyOf(link: string): { view: string; mock: (page: Page) => Promise<unknown> } {
+  if (link === 'marketing-email') return { view: 'marketing', mock: brevo };
+  if (link.startsWith('marketing-')) return { view: 'marketing', mock: mockMarketing };
+  if (link.startsWith('business-')) return { view: 'business', mock: mockBusiness };
+  if (link.startsWith('calls-')) return { view: 'calls', mock: callsWithProvider };
+  if (link.startsWith('commerce-')) return { view: 'commerce', mock: workspace };
+  if (link.startsWith('finance-')) return { view: 'finance', mock: workspace };
+  if (link === 'connections') return { view: 'integrations', mock: workspace };
+  if (['notifications', 'language', 'privacy', 'appearance'].includes(link)) return { view: 'settings', mock: workspace };
+  return { view: link, mock: workspace };
+}
+
+const pathOf = (hash: string) => hash.split('?')[0];
+for (const link of DEEP_LINKS) {
+  if (GATE_PAGES.some((item) => pathOf(item.hash) === link)) continue;
+  GATE_PAGES.push({ hash: link, ...familyOf(link), ready: 'main h1' });
+}
+
 /** The gate's five sizes (CLAUDE.md, Responsive UI quality gate). */
 export const GATE_SIZES = [
   { width: 1440, height: 900 },
@@ -110,56 +155,69 @@ export const GATE_SIZES = [
 /** Let the page finish its requests after the ready selector shows (bounded: a page may poll). */
 export async function settle(page: Page): Promise<void> {
   await page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => undefined);
+  await page.waitForFunction(() => !document.querySelector('main [aria-busy="true"]'), null, { timeout: 5_000 }).catch(() => undefined);
 }
 
 /** How many pixels the document scrolls sideways; 0 when nothing overflows. */
 export const horizontalOverflow = (page: Page): Promise<number> => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
 /**
- * Visible controls (buttons, links, fields) that are cut off: outside the viewport sideways, or cut
- * by an ancestor that hides its overflow without scrolling. A control inside a container that
- * scrolls sideways (a tab strip, a wide table) can be scrolled to, so it is not clipped. Each entry
+ * Visible controls (buttons, links, fields) that are cut off, on either axis: outside the screen
+ * sideways, above the top of the page, cut at the bottom of a fixed bar, or cut by an ancestor that
+ * hides its overflow (`overflow-x` or `overflow-y` hidden or clip) without scrolling. A control inside
+ * a container that really scrolls on that axis (a tab strip, a wide table, a scrolling list) can be
+ * scrolled to, so it is not clipped on that axis. Sideways, any part outside counts; vertically a
+ * control that is only partly cut counts, since a control moved wholly out of sight on purpose (a
+ * collapsed panel, the skip link before it is focused) is hidden rather than clipped. Each entry
  * names the control so the CI log says what to fix.
  */
 export const clippedControls = (page: Page): Promise<string[]> => page.evaluate(() => {
   const found: string[] = [];
   const width = document.documentElement.clientWidth;
+  const height = window.innerHeight;
   const describe = (el: Element) => {
     const name = (el.getAttribute('aria-label') || (el as HTMLElement).innerText || el.getAttribute('placeholder') || el.getAttribute('name') || '').trim().replace(/\s+/g, ' ').slice(0, 40);
     const cls = typeof el.className === 'string' && el.className ? `.${el.className.trim().split(/\s+/).slice(0, 2).join('.')}` : '';
     return `${el.tagName.toLowerCase()}${cls} "${name}"`;
   };
-  const scrollsSideways = (el: Element) => {
-    const style = getComputedStyle(el);
-    return (style.overflowX === 'auto' || style.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 1;
-  };
+  const scrolls = (overflow: string, size: number, client: number) => (overflow === 'auto' || overflow === 'scroll') && size > client + 1;
+  const hides = (overflow: string) => overflow === 'hidden' || overflow === 'clip';
+  /** Partly inside and partly outside [start, end]. */
+  const partlyOut = (low: number, high: number, start: number, end: number) => (low < start - 1 && high > start + 1) || (high > end + 1 && low < end - 1);
   const controls = document.querySelectorAll('button, a[href], input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="tab"]');
   for (const el of controls) {
     const box = el.getBoundingClientRect();
     if (box.width <= 2 || box.height <= 2) continue; // visually hidden (sr-only) or collapsed
     // Not drawn: display none, visibility hidden, transparent, or inside a closed <details>.
     if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) continue;
-    const style = getComputedStyle(el);
     if (el.closest('[hidden], [inert], [aria-hidden="true"], details:not([open]) > :not(summary), dialog:not([open])')) continue;
-    let scrolled = false;
-    let clipped = false;
-    let fixed = false;
+    let fixed = getComputedStyle(el).position === 'fixed';
     for (let parent = el.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
       if (getComputedStyle(parent).position === 'fixed') fixed = true;
     }
-    // A closed drawer (the narrow-screen sidebar) waits off screen; it is not a clipped control.
-    if ((fixed || style.position === 'fixed') && (box.right <= 0 || box.left >= width)) continue;
-    for (let parent = el.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
-      if (scrollsSideways(parent)) { scrolled = true; break; }
-      const parentStyle = getComputedStyle(parent);
-      if (parentStyle.overflowX === 'hidden' || parentStyle.overflowX === 'clip') {
-        const clip = parent.getBoundingClientRect();
-        if (box.left < clip.left - 1 || box.right > clip.right + 1) { clipped = true; break; }
+    // A closed drawer (the narrow-screen sidebar) or a hidden toast waits off screen; it is not clipped.
+    if (fixed && (box.right <= 0 || box.left >= width || box.bottom <= 0 || box.top >= height)) continue;
+    let checkX = true;
+    let checkY = true;
+    let problem = '';
+    for (let parent = el.parentElement; parent && parent !== document.body && (checkX || checkY); parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      const clip = parent.getBoundingClientRect();
+      if (checkX) {
+        if (scrolls(style.overflowX, parent.scrollWidth, parent.clientWidth)) checkX = false;
+        else if (hides(style.overflowX) && (box.left < clip.left - 1 || box.right > clip.right + 1)) { problem = 'is cut off sideways by its container'; break; }
+      }
+      if (checkY) {
+        if (scrolls(style.overflowY, parent.scrollHeight, parent.clientHeight)) checkY = false;
+        else if (hides(style.overflowY) && partlyOut(box.top, box.bottom, clip.top, clip.bottom)) { problem = 'is cut off at the top or bottom by its container'; break; }
       }
     }
-    if (scrolled) continue;
-    if (clipped) { found.push(`${describe(el)} is cut off by its container`); continue; }
-    if (box.left < -1 || box.right > width + 1) found.push(`${describe(el)} runs past the screen edge (${Math.round(box.left)} to ${Math.round(box.right)} of ${width})`);
+    if (!problem && checkX && (box.left < -1 || box.right > width + 1)) problem = `runs past the screen edge (${Math.round(box.left)} to ${Math.round(box.right)} of ${width})`;
+    // The page scrolls down, so only the top of the page and a fixed bar's bottom edge can cut a control.
+    const top = box.top + window.scrollY;
+    if (!problem && checkY && top < -1 && top + box.height > 1) problem = `starts above the top of the page (${Math.round(top)})`;
+    if (!problem && checkY && fixed && partlyOut(box.top, box.bottom, 0, height)) problem = `is cut off by the screen's top or bottom edge (${Math.round(box.top)} to ${Math.round(box.bottom)} of ${height})`;
+    if (problem) found.push(`${describe(el)} ${problem}`);
   }
   return found;
 });

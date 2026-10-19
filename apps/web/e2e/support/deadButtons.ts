@@ -70,7 +70,7 @@ function scan({ key, shell }: { key: string | null; shell: boolean }): Scan {
     // Draws on a canvas (the Voice page's shooting star): no DOM change to see, so not judged here.
     if (el.hasAttribute('data-draws')) continue;
     // Already the current choice: pressing it again rightly changes nothing.
-    if (el.getAttribute('aria-pressed') === 'true' || el.getAttribute('aria-selected') === 'true' || el.hasAttribute('aria-current')) continue;
+    if (el.getAttribute('aria-pressed') === 'true' || el.getAttribute('aria-selected') === 'true' || el.getAttribute('aria-checked') === 'true' || el.hasAttribute('aria-current')) continue;
     const label = (el.getAttribute('aria-label') || el.innerText || el.textContent || el.getAttribute('title') || '').trim().replace(/\s+/g, ' ').slice(0, 60);
     const cls = typeof el.className === 'string' ? el.className.trim() : '';
     const group = `${el.tagName}.${cls}`;
@@ -121,24 +121,26 @@ export async function auditButtons(page: Page, url: string, ready: string, { she
   const { list } = await page.evaluate(scan, { key: null, shell });
   const dead: string[] = [];
   let fresh = true;
-  for (const candidate of list) {
+  /** Presses one button; 'gone' when it is not on the page as opened (reachable only after another action). */
+  const press = async (candidate: Candidate): Promise<'acted' | 'dead' | 'gone' | string> => {
     let target = await page.evaluate(scan, { key: candidate.key, shell });
     if (!target.found && !fresh) {
       await open();
       fresh = true;
       target = await page.evaluate(scan, { key: candidate.key, shell });
     }
-    if (!target.found) continue; // only reachable after another action; covered by the journeys
+    if (!target.found) return 'gone';
     const before = { ...(await counters(page)), requests, events, url: page.url() };
     try {
       await page.locator('[data-anum-audit="1"]').click({ timeout: 3_000 });
     } catch {
       // Covered by something another click opened: start clean and try once more.
       await open();
-      if (!(await page.evaluate(scan, { key: candidate.key, shell })).found) continue;
+      fresh = true;
+      target = await page.evaluate(scan, { key: candidate.key, shell });
+      if (!target.found) return 'gone';
       try { await page.locator('[data-anum-audit="1"]').click({ timeout: 3_000 }); } catch (error) {
-        dead.push(`"${candidate.label}" cannot be clicked: ${String(error).split('\n')[0]}`);
-        continue;
+        return `cannot be clicked: ${String(error).split('\n')[0]}`;
       }
     }
     fresh = false;
@@ -148,10 +150,25 @@ export async function auditButtons(page: Page, url: string, ready: string, { she
       acted = page.url() !== before.url || now.mutations > before.mutations || now.effects > before.effects || requests > before.requests || events > before.events;
       if (!acted) await page.waitForTimeout(100);
     }
-    if (!acted) dead.push(`"${candidate.label}" does nothing`);
-    // Back to the page as it opened when the click left it or covered it.
-    const covered = await page.locator('dialog[open], [role="dialog"]:visible, [role="alertdialog"]:visible').count().catch(() => 1);
-    if (page.url() !== start || covered > 0) { await open(); fresh = true; }
+    return acted ? 'acted' : 'dead';
+  };
+  const navigated = (error: unknown) => /Execution context was destroyed|navigat|Target page, context or browser has been closed/i.test(String(error));
+  for (const candidate of list) {
+    let result: string;
+    try {
+      result = await press(candidate);
+    } catch (error) {
+      // The click (or one before it) moved the page somewhere else, which is an action: start again.
+      if (!navigated(error)) throw error;
+      result = 'acted';
+    }
+    if (result === 'dead') dead.push(`"${candidate.label}" does nothing`);
+    else if (result !== 'acted' && result !== 'gone') dead.push(`"${candidate.label}" ${result}`);
+    // Start clean when the click left the page, covered it, or showed a message: the next button
+    // could repeat the same message and look as if it did nothing.
+    const left = await page.evaluate(() => location.href).catch(() => '');
+    const covered = await page.locator('dialog[open], [role="dialog"]:visible, [role="alertdialog"]:visible, [role="alert"]:visible, [role="status"]:visible').count().catch(() => 1);
+    if (left !== start || covered > 0) { await open(); fresh = true; }
   }
   return dead;
 }

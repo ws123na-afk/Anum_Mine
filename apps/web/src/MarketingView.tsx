@@ -12,6 +12,7 @@ import {
   CAMPAIGN_STATUSES, PLATFORMS, POST_STATUSES, accountStatusName, accountTone, campaignStatusName, change, checkDraft, composeText, dayKey, fromLocalInput,
   isLink, monthGrid, moveToDay, oauthCallback, parseHashtags, platformName, postActions, postsByDay, rate, slotLabel, statusName, statusTone, toLocalInput, when, withUtm,
   type Account, type Campaign, type CampaignStatus, type IdeasResult, type Language, type MediaFile, type Platform, type Post, type PostStatus, type Preferences, type Provider, type Setup, type Summary, type TimeSlot, type WeeklyReport, type ChannelResult,
+  MARKETING_TABS, type MarketingTab,
 } from './lib/marketing';
 import * as m from './lib/marketingApi';
 import { listConversations } from './lib/whatsappApi';
@@ -24,8 +25,8 @@ import { viewLabel } from './lib/shell';
 import { PageHeader, PageSummary } from './PageParts';
 import './marketing.css';
 
-type Tab = 'posts' | 'calendar' | 'campaigns' | 'email' | 'accounts' | 'analytics';
-const TABS: Tab[] = ['posts', 'calendar', 'campaigns', 'email', 'accounts', 'analytics'];
+type Tab = MarketingTab;
+const TABS = MARKETING_TABS;
 const PAGE = 20;
 
 function Note({ children, error, id }: { children: ReactNode; error?: boolean; id?: string }) {
@@ -567,7 +568,7 @@ function CampaignsTab({ setup, accounts, owner, onChanged, onNotice }: { setup: 
       <div className="actions"><button type="submit" disabled={busy}>{t('marketing.campaigns.create')}</button><button type="button" className="secondary" onClick={() => setForm(null)}>{t('common.cancel')}</button></div>
     </form>}
     <form className="surface mkFilters" role="search" onSubmit={(event) => { event.preventDefault(); setQuery(draftQuery.trim()); }}>
-      <label className="field"><span>{t('marketing.filter.search')}</span><input type="search" value={draftQuery} onChange={(event) => setDraftQuery(event.target.value)} /></label>
+      <label className="field"><span>{t('marketing.filter.search')}</span><input type="search" required value={draftQuery} onChange={(event) => { setDraftQuery(event.target.value); if (!event.target.value) setQuery(''); }} /></label>
       <label className="field"><span>{t('marketing.filter.status')}</span><select value={status} onChange={(event) => setStatus(event.target.value as CampaignStatus | '')}><option value="">{t('marketing.filter.all')}</option>{CAMPAIGN_STATUSES.map((value) => <option key={value} value={value}>{campaignStatusName(value)}</option>)}</select></label>
       <div className="actions mkInline"><button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button></div>
     </form>

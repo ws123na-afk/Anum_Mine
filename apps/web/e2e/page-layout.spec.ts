@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
-import { GATE_PAGES, GATE_SIZES, clippedControls, settle } from './support/gatePages';
-import { VIEWS } from '../src/lib/shell.ts';
+import { DEEP_LINKS, GATE_PAGES, GATE_SIZES, clippedControls, settle } from './support/gatePages';
+import { VIEWS, viewFromHash } from '../src/lib/shell.ts';
 import { mockWhatsApp } from './support/whatsappApi';
 
 // The shared page layout (docs/design/anum360.md#page-layout): summary bands from the API, split
@@ -76,10 +76,14 @@ test('WhatsApp opens on the first unread conversation on a wide screen', async (
 // The Responsive UI quality gate (CLAUDE.md) on every page the app can open (support/gatePages.ts):
 // at each of the five sizes, in English and Arabic, nothing scrolls sideways and no control is cut
 // off. The sizes are set here, so the mobile project leaves these @gate tests out (playwright.config.ts).
-test('the gate list covers every view in the shell', () => {
-  const covered = new Set(GATE_PAGES.map((item) => item.view));
-  expect(VIEWS.filter((view) => !covered.has(view))).toEqual([]);
-  for (const item of GATE_PAGES) expect(VIEWS, item.hash).toContain(item.view);
+test('the gate list covers every view and every deep-linked tab', () => {
+  // DEEP_LINKS comes from the source (shell.ts views and the modules' TABS lists); the shell's own
+  // routing must agree with it, and each one must have a gate entry.
+  expect(VIEWS.filter((view) => !DEEP_LINKS.includes(view))).toEqual([]);
+  for (const link of DEEP_LINKS) expect(VIEWS, link).toContain(viewFromHash(`#${link}`));
+  const gated = new Set(GATE_PAGES.map((item) => item.hash.split('?')[0]));
+  expect(DEEP_LINKS.filter((link) => !gated.has(link))).toEqual([]);
+  for (const item of GATE_PAGES) expect(viewFromHash(`#${item.hash}`), item.hash).toBe(item.view);
 });
 
 for (const size of GATE_SIZES) {

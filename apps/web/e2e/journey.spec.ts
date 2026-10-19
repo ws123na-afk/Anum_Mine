@@ -68,7 +68,7 @@ test('Developer projects: create, read, update and delete a project', async ({ p
   const form = page.getByRole('form', { name: 'Add a project' });
   await form.getByLabel('Name').fill('TyrePulse');
   await form.getByLabel('GitHub repository').fill('acme/tyrepulse');
-  await form.getByLabel('Fine-grained token').fill('example');
+  await form.getByLabel('Fine-grained token').fill('example-fine-grained-value');
   await form.getByRole('button', { name: 'Save project' }).click();
   await expect(page.getByText(/Added TyrePulse\./)).toBeVisible();
   const card = page.getByRole('article', { name: 'Project TyrePulse' });

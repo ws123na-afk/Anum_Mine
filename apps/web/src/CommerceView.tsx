@@ -21,14 +21,14 @@ import {
 import { shortHash } from './lib/approvals';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, getLocale, t, type MessageKey } from './lib/i18n';
-import { stockAndPrices, summaryFigures, type SummaryNumbers } from './lib/commerce';
+import { COMMERCE_TABS, stockAndPrices, summaryFigures, type CommerceTab, type SummaryNumbers } from './lib/commerce';
 import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { PageHeader, PageSummary } from './PageParts';
 import './commerce.css';
 
-type Tab = 'overview' | 'orders' | 'returns' | 'catalog' | 'alerts' | 'connections';
-const TABS: Tab[] = ['overview', 'orders', 'returns', 'catalog', 'alerts', 'connections'];
+type Tab = CommerceTab;
+const TABS = COMMERCE_TABS;
 const PAGE = 20;
 const when = (value: string | null | undefined) => (value ? formatDateTime(value) : '-');
 
@@ -289,7 +289,7 @@ function Orders({ canSeeBuyers }: { canSeeBuyers: boolean }) {
         {(['open', 'pending', 'unshipped', 'shipped', 'delivered', 'cancelled', 'returned'] as const).map((s) => <option key={s} value={s}>{orderStatusLabel(s)}</option>)}
       </select></label>
       <label className="cmInline"><span>{t('commerce.overview.channel')}</span><select value={channel} onChange={(e) => { setOffset(0); setChannel(e.target.value); }}><option value="">{t('commerce.channel.all')}</option>{CHANNELS.map((id) => <option key={id} value={id}>{channelLabel(id)}</option>)}</select></label>
-      <label className="cmSearch"><span className="visuallyHidden">{t('commerce.orders.search')}</span><input type="search" value={draft} placeholder={t('commerce.orders.search')} onChange={(e) => setDraft(e.target.value)} /></label>
+      <label className="cmSearch"><span className="visuallyHidden">{t('commerce.orders.search')}</span><input type="search" required value={draft} placeholder={t('commerce.orders.search')} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) { setOffset(0); setQ(''); } }} /></label>
       <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
     </form>
     {state.kind === 'loading' && <Notice busy>{t('commerce.orders.loading')}</Notice>}
@@ -381,7 +381,7 @@ function Catalog({ permissions, onOpenApprovals }: { permissions: CommerceSetup[
         {permissions.operate ? <button type="button" className="cmPrimary" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('commerce.catalog.add')}</button> : <span className="muted">{t('commerce.catalog.readOnly')}</span>}
       </div>
       <form className="cmFilters" role="search" onSubmit={(e) => { e.preventDefault(); setOffset(0); setQ(draft); }}>
-        <label className="cmSearch"><span className="visuallyHidden">{t('commerce.catalog.search')}</span><input type="search" value={draft} placeholder={t('commerce.catalog.search')} onChange={(e) => setDraft(e.target.value)} /></label>
+        <label className="cmSearch"><span className="visuallyHidden">{t('commerce.catalog.search')}</span><input type="search" required value={draft} placeholder={t('commerce.catalog.search')} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) { setOffset(0); setQ(''); } }} /></label>
         <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
       </form>
       {notice && <Notice error={notice.error}>{notice.text}</Notice>}
