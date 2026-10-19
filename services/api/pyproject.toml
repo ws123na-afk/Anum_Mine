@@ -12,11 +12,11 @@ description = "ANUM FastAPI backend foundation"
 requires-python = ">=3.11"
 dependencies = [
   "alembic==1.20.0",
-  "boto3==1.43.111",
+  "boto3==1.43.114",
   "cryptography==50.0.2",
   "defusedxml==0.7.1",
-  "dnspython==2.8.0",
-  "fastapi==0.143.0",
+  "dnspython==2.9.0",
+  "fastapi==0.143.3",
   "httpx==0.28.1",
   "nats-py==2.16.0",
   "opentelemetry-api==1.45.1",
@@ -26,13 +26,13 @@ dependencies = [
   "opentelemetry-instrumentation-sqlalchemy==0.66b1",
   "opentelemetry-sdk==1.45.1",
   "psycopg[binary]==3.3.6",
-  "pydantic-settings==2.15.0",
+  "pydantic-settings==2.16.0",
   "pypdf==6.21.1",
   "PyJWT[crypto]==2.15.1",
   "redis==8.1.0",
-  "sentry-sdk==2.71.0",
+  "sentry-sdk==2.72.0",
   "sqlalchemy==2.1.4",
-  "starlette==1.7.0",
+  "starlette==1.8.0",
   "temporalio==1.34.0",
   "uvicorn[standard]==0.54.0"
 ]
