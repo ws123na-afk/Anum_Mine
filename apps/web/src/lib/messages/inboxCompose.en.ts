@@ -1,0 +1,42 @@
+// Unified inbox: a new email from scratch and "Create ticket" from an email or a WhatsApp
+// conversation (InboxView.tsx, TicketFromMessage.tsx, docs/email.md, docs/business.md), English.
+// Spread into en.ts; inboxCompose.ar.ts must have exactly these keys and placeholders.
+import type { Message } from './types.ts';
+
+export const inboxComposeEn = {
+  'email.compose.button': 'New email',
+  'email.compose.title': 'New email',
+  'email.compose.needMailbox': 'Choose the mailbox to send from.',
+  'email.compose.subjectTooLong': 'The subject can have at most {max} characters.',
+  'email.compose.bodyTooLong': 'The message can have at most {max} characters.',
+  'email.compose.needBody': 'Write the message before asking to send it.',
+  'email.compose.allNeedReconnect': 'Every mailbox needs reconnecting before you can write from it. An owner reconnects it under Mailboxes.',
+  'email.compose.discarded': 'Draft discarded.',
+  'email.compose.kindNew': 'New',
+  'email.compose.saving': 'Saving...',
+  'email.compose.asking': 'Asking...',
+  'email.compose.savedNotAsked': 'The draft is saved, but asking to send failed: {reason}',
+  'email.compose.askedOwner': 'Saved. Check the message below, then approve sending.',
+  'email.compose.askedMember': 'Saved and sent to Approvals. A workspace owner approves sending.',
+  'email.compose.closeConfirm': 'Close without saving? What you typed is lost.',
+  'email.compose.skipped': 'Not listed because they need reconnecting: {addresses}',
+  'email.compose.toPlaceholder': 'name@example.com, another@example.com',
+  'email.compose.showCopies': 'Add Cc or Bcc',
+  'email.compose.hideCopies': 'Hide Cc and Bcc',
+  'email.compose.approvalNote': 'Nothing is sent until a workspace owner approves this exact message.',
+  'email.compose.noAttachments': 'To send attachments, use the Email Center.',
+  'email.compose.saveDraft': 'Save draft',
+  'email.draft.bcc': 'Bcc',
+  'tfm.button': 'Create ticket',
+  'tfm.title': 'Create a support ticket',
+  'tfm.introEmail': 'The ticket links to this email and copies who wrote in. The text stays in the inbox.',
+  'tfm.introWhatsApp': 'The ticket links to this conversation and copies who wrote in. The messages stay in WhatsApp.',
+  'tfm.titleLabel': 'Title',
+  'tfm.titlePlaceholderEmail': 'Leave empty to use the email subject',
+  'tfm.titlePlaceholderWhatsApp': 'For example: Order A-1001 has not arrived',
+  'tfm.create': 'Create ticket',
+  'tfm.creating': 'Creating...',
+  'tfm.openExisting': 'Open {reference}',
+  'tfm.created': 'Ticket {reference} created.',
+  'tfm.openTicket': 'Open ticket',
+} satisfies Record<string, Message>;

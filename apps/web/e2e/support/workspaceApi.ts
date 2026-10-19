@@ -151,7 +151,7 @@ export const emailSetup = {
   redirect_uri: 'https://api.example.com/api/v1/email/oauth/callback', can_connect: true, can_act: true,
 };
 export const emailDraft = {
-  id: 'edr_1', account_id: 'emb_shop', message_id: 'eml_question', to: ['sara@example.com'], cc: [], subject: 'Re: Do you have 205/55R16 in stock?',
+  id: 'edr_1', account_id: 'emb_shop', message_id: 'eml_question', kind: 'reply', to: ['sara@example.com'], cc: [], bcc: [] as string[], subject: 'Re: Do you have 205/55R16 in stock?',
   body: 'Hello Sara,\n\nYes, 205/55R16 is in stock and ships tomorrow.', status: 'draft', source: 'model', model_provider: 'anthropic', model_name: 'claude-sonnet-5-5',
   saved_in_provider: true, error: null, approval: null, approval_note: null, created_by: 'user_local', created_at: now, updated_at: now, sent_at: null,
 };

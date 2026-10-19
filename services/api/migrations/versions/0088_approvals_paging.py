@@ -13,15 +13,15 @@ Both are built ``CONCURRENTLY`` so a large ``approvals`` table is never locked a
 writes. Expand only: two indexes, nothing dropped or altered, no grant; the previous release
 ignores them.
 
-Numbered 0087 and chained after ``0080_business_change_orders``, the head of ``main`` when this was
+Numbered 0088 and chained after ``0087_email_draft_bcc``, the head of ``main`` when this was
 written (renumber at merge if another migration lands first).
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0087_approvals_paging"
-down_revision = "0080_business_change_orders"
+revision = "0088_approvals_paging"
+down_revision = "0087_email_draft_bcc"
 branch_labels = None
 depends_on = None
 
