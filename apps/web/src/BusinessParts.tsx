@@ -9,7 +9,6 @@ import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import type { Tone } from './lib/business';
 import { Modal } from './Dialog';
-import { HelpLink } from './HelpLink';
 
 export function Note({ children, error, id }: { children: ReactNode; error?: boolean; id?: string }) {
   return <p id={id} className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>;
@@ -20,7 +19,7 @@ export function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
 }
 
 export function Empty({ title, text, action }: { title: string; text: string; action?: ReactNode }) {
-  return <div className="emptyState bzEmpty"><Inbox aria-hidden="true" /><h3>{title}</h3><p>{text}</p><HelpLink />{action && <div className="bzInline bzCenter">{action}</div>}</div>;
+  return <div className="emptyState bzEmpty"><Inbox aria-hidden="true" /><h3>{title}</h3><p>{text}</p>{action && <div className="bzInline bzCenter">{action}</div>}</div>;
 }
 
 export function Denied({ text }: { text: string }) {

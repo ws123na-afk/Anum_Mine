@@ -1,5 +1,13 @@
+from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
+from .approval_paging import (
+    ApprovalCursor,
+    ApprovalFilter,
+    ApprovalSummary,
+    page_in_memory,
+    summary_in_memory,
+)
 from .audit import (
     AuditCursor,
     AuditFilter,
@@ -100,6 +108,18 @@ class AnumRepository(Protocol):
     ) -> Approval | None: ...
     def list_approvals(self, context: TenantContext) -> list[Approval]: ...
     def list_approvals_for_update(self, context: TenantContext) -> list[Approval]: ...
+    def list_approvals_page(
+        self,
+        context: TenantContext,
+        *,
+        now: datetime,
+        status: ApprovalFilter,
+        query: str | None,
+        task_id: str | None,
+        cursor: ApprovalCursor | None,
+        limit: int,
+    ) -> tuple[list[Approval], bool]: ...
+    def summarize_approvals(self, context: TenantContext, now: datetime) -> ApprovalSummary: ...
     def list_events(self, context: TenantContext) -> list[DomainEvent]: ...
     def list_events_after(self, context: TenantContext, event_id: str) -> list[DomainEvent]: ...
     def record_event(self, event: DomainEvent) -> DomainEvent: ...
@@ -448,6 +468,35 @@ class InMemoryRepository:
 
     def list_approvals_for_update(self, context: TenantContext) -> list[Approval]:
         return self.list_approvals(context)
+
+    def list_approvals_page(
+        self,
+        context: TenantContext,
+        *,
+        now: datetime,
+        status: ApprovalFilter,
+        query: str | None,
+        task_id: str | None,
+        cursor: ApprovalCursor | None,
+        limit: int,
+    ) -> tuple[list[Approval], bool]:
+        def title(task_id: str) -> str | None:
+            task = self.get_task(task_id, context)
+            return task.title if task else None
+
+        return page_in_memory(
+            self.list_approvals(context),
+            now=now,
+            status=status,
+            query=query,
+            task_id=task_id,
+            cursor=cursor,
+            limit=limit,
+            task_title=title,
+        )
+
+    def summarize_approvals(self, context: TenantContext, now: datetime) -> ApprovalSummary:
+        return summary_in_memory(self.list_approvals(context), now)
 
     def record_event(self, event: DomainEvent) -> DomainEvent:
         self.store.events.append(event)

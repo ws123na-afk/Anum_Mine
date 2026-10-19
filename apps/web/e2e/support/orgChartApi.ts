@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { approvalPagesResponse } from './approvalPages';
 
 // A stateful mock of what the AI team org chart reads (docs/org-chart.md): agents, assistants,
 // people, open and failed tasks, approvals, connection setup, the agent catalog and the approval
@@ -161,6 +162,7 @@ export async function mockOrgChart(page: Page, options: OrgMockOptions = {}) {
       { user_id: 'user_omar', role: 'member', display_name: 'Omar Saleh', has_profile: true, email: null, department: 'finance', job_title: 'Accountant', capacity_hours: 30, timezone: 'Asia/Dubai', assignable: true },
     ]);
     if (path === '/api/v1/approvals') return options.approvalsDenied ? envelope(403, 'forbidden', 'Only approvers can see approvals.') : json(approvals);
+    if (path === '/api/v1/approvals/page' || path === '/api/v1/approvals/summary') return options.approvalsDenied ? envelope(403, 'forbidden', 'Only approvers can see approvals.') : json(approvalPagesResponse(new URL(request.url()), approvals));
     if (path === '/api/v1/approval-policy') return json({ two_person_rule: false, medium_risk_requires_approval: true });
     if (path === '/api/v1/integrations/setup') {
       if (options.setupFails) return envelope(503, 'unavailable', 'Setup status is not reachable.');

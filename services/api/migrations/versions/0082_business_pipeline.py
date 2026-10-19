@@ -30,7 +30,7 @@ other role is granted anything.
 Expand only: new tables, indexes and the purger's grants and policies. The previous release
 ignores them.
 
-Numbered 0082 and chained after ``0087_email_draft_bcc``, the head of ``main``; renumber and re-chain at
+Numbered 0082 and chained after ``0088_approvals_paging``, the head of ``main``; renumber and re-chain at
 merge if another migration lands first.
 """
 
@@ -39,7 +39,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0082_business_pipeline"
-down_revision = "0087_email_draft_bcc"
+down_revision = "0088_approvals_paging"
 branch_labels = None
 depends_on = None
 
