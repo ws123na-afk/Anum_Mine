@@ -228,7 +228,7 @@ class FileRecord(BaseModel):
     scan_status: Literal["clean", "infected"] | None = None
     scan_signature: str | None = None
     scanned_at: datetime | None = None
-    # The current version number (migration 0089_file_versions, docs/files.md#versions).
+    # The current version number (migration 0090_file_versions, docs/files.md#versions).
     version: int = 1
 
 

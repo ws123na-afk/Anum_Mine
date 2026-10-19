@@ -809,7 +809,7 @@ class WorkspaceFileRecord(Base, WorkspaceScopedMixin):
     scan_status: Mapped[str | None] = mapped_column(String(16))
     scan_signature: Mapped[str | None] = mapped_column(String(200))
     scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # The current version number (migration 0089_file_versions); older versions live in
+    # The current version number (migration 0090_file_versions); older versions live in
     # workspace_file_versions.
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)
 
@@ -820,13 +820,13 @@ class WorkspaceFileRecord(Base, WorkspaceScopedMixin):
         # Keyset paging by name and by size (migration 0029_file_management).
         Index("ix_workspace_files_scope_name", "tenant_id", "workspace_id", text('(lower(name) collate "C")'), "id"),
         Index("ix_workspace_files_scope_size", "tenant_id", "workspace_id", "size_bytes", "id"),
-        # Target of the scoped foreign key from workspace_file_versions (migration 0089_file_versions).
+        # Target of the scoped foreign key from workspace_file_versions (migration 0090_file_versions).
         Index("uq_workspace_files_scope_id", "tenant_id", "workspace_id", "id", unique=True),
     )
 
 
 class WorkspaceFileVersionRecord(Base, WorkspaceScopedMixin):
-    """An earlier version of a workspace file (migration 0089_file_versions, docs/files.md#versions).
+    """An earlier version of a workspace file (migration 0090_file_versions, docs/files.md#versions).
 
     The bytes stay in object storage under ``storage_key``; a key can be shared with the current
     version or another old version of the same file when the content is identical (a restore).

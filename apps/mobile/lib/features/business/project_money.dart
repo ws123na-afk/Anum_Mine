@@ -7,6 +7,8 @@ import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'business_models.dart';
+import 'invoice_models.dart' show PortalDecisionSummary;
+import 'portal_access.dart' show PortalDecisionLine;
 
 /// A project's money on the phone (docs/business.md#change-orders): the
 /// profitability (revenue and cash collected kept apart), change orders (an
@@ -37,7 +39,11 @@ class ChangeOrder {
     this.baseVersion,
     this.resultVersion,
     this.decisionNote = '',
+    this.portalDecision,
   });
+
+  /// What the customer decided in their portal about this change order.
+  final PortalDecisionSummary? portalDecision;
   final String id, title, status, currency, decisionNote;
   final int number, timelineDays;
   final double? totalDelta;
@@ -60,6 +66,7 @@ class ChangeOrder {
         decisionNote: r.optString('decision_note') ?? '',
         issues: r.strings('issues'),
         stale: r.boolean('stale'),
+        portalDecision: PortalDecisionSummary.maybe(r),
       );
 }
 
@@ -437,6 +444,8 @@ class _ProjectMoneyScreenState extends State<ProjectMoneyScreen> {
               if (c.decisionNote.isNotEmpty)
                 Text(c.decisionNote,
                     style: TextStyle(color: context.palette.muted)),
+              if (c.portalDecision != null)
+                PortalDecisionLine(decision: c.portalDecision!),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,

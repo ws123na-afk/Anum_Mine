@@ -34,6 +34,7 @@ import '../features/email/email_controller.dart';
 import '../features/email/email_repository.dart';
 import '../features/email/inbox_screen.dart';
 import '../features/commerce/commerce_controller.dart';
+import '../features/commerce/commerce_ops_data.dart';
 import '../features/commerce/commerce_repository.dart';
 import '../features/finance/finance_controller.dart';
 import '../features/finance/finance_intel_models.dart';
@@ -49,6 +50,11 @@ import '../features/business/deals_data.dart';
 import '../features/business/project_money.dart';
 import '../features/business/support_controller.dart';
 import '../features/business/support_repository.dart';
+import '../features/business/invoice_controller.dart';
+import '../features/business/invoice_repository.dart';
+import '../features/portal/portal_controller.dart';
+import '../features/portal/portal_repository.dart';
+import '../features/portal/portal_screens.dart';
 import '../features/brevo/brevo_data.dart';
 import '../features/brevo/brevo_screen.dart';
 import '../features/marketing/marketing_controller.dart';
@@ -211,6 +217,11 @@ class _AnumAppState extends State<AnumApp> {
   late final DeveloperController developer;
   late final MarketingController marketing;
   late final BusinessController business;
+
+  /// A customer's portal session from a link's token (docs/business-portal.md):
+  /// calls the configured API with the token as a bearer header, no
+  /// workspace header, and keeps the token in memory only.
+  late final PortalSessionFactory _portalSessions;
   late final DeveloperAssist chatDeveloper;
   late final DeveloperAssist voiceDeveloper;
   late final LibraryRepository library;
@@ -355,7 +366,8 @@ class _AnumAppState extends State<AnumApp> {
     // Developer mode (docs/developer-mode.md): the screen, plus "build ..." in
     // the Assistant and "developer, ..." by voice. The role is checked once.
     // Commerce (docs/commerce.md): sales summary and orders, read-only here.
-    commerce = CommerceController(ApiCommerceRepository(api));
+    commerce = CommerceController(ApiCommerceRepository(api),
+        ops: CommerceOps(ApiCommerceOpsRepository(api)));
     // Finance (docs/finance.md): the person's own ledger, read only.
     finance = FinanceController(ApiFinanceRepository(api),
         intelRepository: ApiFinanceIntelRepository(api));
@@ -379,9 +391,12 @@ class _AnumAppState extends State<AnumApp> {
     business = BusinessController(ApiBusinessRepository(api),
         money: ApiProjectMoney(api),
         support: SupportController(ApiSupportRepository(api)),
+        invoices: InvoicesController(ApiInvoicesRepository(api)),
         catalog: CatalogController(ApiCatalogRepository(api)),
         accounts: AccountsController(ApiAccountsRepository(api)),
         deals: ApiDealsRepository(api));
+    _portalSessions =
+        (token) => PortalController(ApiPortalRepository(api, token));
     chatDeveloper = DeveloperAssist(
       repository: developerRepository,
       source: 'text',
@@ -638,8 +653,11 @@ class _AnumAppState extends State<AnumApp> {
           ],
           onGenerateRoute: _onGenerateRoute,
           // The ring and the call in progress stay above every screen.
-          builder: (context, child) => AppCallOverlay(
-              controller: appCalls, child: child ?? const SizedBox.shrink()),
+          builder: (context, child) => PortalEntryScope(
+            open: _openPortal,
+            child: AppCallOverlay(
+                controller: appCalls, child: child ?? const SizedBox.shrink()),
+          ),
           home: ListenableBuilder(
             listenable: auth,
             builder: (context, _) => auth.phase == AuthPhase.ready
@@ -671,6 +689,15 @@ class _AnumAppState extends State<AnumApp> {
           ),
         ),
       );
+
+  /// "Customer portal" on the sign-in screen: paste the link a business sent.
+  void _openPortal() {
+    _navigator.currentState?.push(
+      MaterialPageRoute<void>(
+        builder: (_) => PortalEntryScreen(createSession: _portalSessions),
+      ),
+    );
+  }
 
   Route<void>? _onGenerateRoute(RouteSettings settings) {
     final name = settings.name;

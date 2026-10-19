@@ -71,6 +71,13 @@ class HttpApiTransport implements ApiTransport {
         if (response.statusCode >= 400) {
           return ApiResponse(statusCode: response.statusCode, body: null);
         }
+        // A printable page (an invoice's HTML copy) is text, not JSON: hand
+        // it over as `{"html": ...}` so the caller can save or preview it.
+        final type = response.headers['content-type'] ?? '';
+        if (type.startsWith('text/html')) {
+          return ApiResponse(
+              statusCode: response.statusCode, body: {'html': bodyText});
+        }
         rethrow;
       }
       body = decoded is Map<String, dynamic> ? decoded : {'data': decoded};

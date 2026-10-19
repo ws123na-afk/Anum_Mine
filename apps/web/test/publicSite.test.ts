@@ -30,6 +30,18 @@ test('main.tsx renders the public pages without the sign-in gate', () => {
   assert.match(main, /return publicPage\?<Suspense fallback=\{null\}><PublicSite route=\{publicPage\}\/><\/Suspense>:<AuthGate\/>/);
 });
 
+test('main.tsx opens the customer portal before the sign-in gate, with no signed-in code on its path', () => {
+  const main = read('apps/web/src/main.tsx');
+  assert.match(main, /render\(isPortalPath\(window\.location\.pathname\)\?<PortalRoot\/>:<Root\/>\)/);
+  const portal = read('apps/web/src/PortalApp.tsx');
+  const api = read('apps/web/src/lib/portalApi.ts');
+  for (const source of [portal, api]) {
+    assert.doesNotMatch(source, /from '\.\/(lib\/)?(api|auth|adminApi|teamApi)'/, 'the portal imports nothing of the signed-in app');
+    assert.doesNotMatch(source, /x-workspace-id|x-tenant-id|x-user-id/i);
+  }
+  assert.match(api, /authorization: `Bearer \$\{link\}`/);
+});
+
 test('the build flag lists published documents; unknown names are ignored', () => {
   assert.deepEqual([...parsePublished(undefined)], []);
   assert.deepEqual([...parsePublished('')], []);

@@ -4,6 +4,7 @@ import '../../data/api_client.dart';
 import 'business_models.dart';
 import 'accounts_data.dart';
 import 'business_repository.dart';
+import 'invoice_controller.dart';
 import 'catalog_data.dart';
 import 'deals_data.dart';
 import 'project_money.dart';
@@ -30,6 +31,7 @@ class BusinessController extends ChangeNotifier {
     this.repository, {
     this.money,
     this.support,
+    this.invoices,
     this.catalog,
     this.accounts,
     this.deals,
@@ -60,6 +62,9 @@ class BusinessController extends ChangeNotifier {
 
   /// Support tickets (docs/business.md#support-tickets), when wired.
   final SupportController? support;
+
+  /// Invoices, the billing profile and portal links (docs/business.md#invoices).
+  final InvoicesController? invoices;
 
   /// Catalog and accounts with contacts (docs/business.md), when wired.
   final CatalogController? catalog;
@@ -96,6 +101,7 @@ class BusinessController extends ChangeNotifier {
     notifyListeners();
     try {
       setup = await repository.setup();
+      invoices?.permissions = setup!.permissions;
       setupState = BusinessLoad.ready;
     } catch (error) {
       setupState = _stateOf(error);
@@ -233,6 +239,7 @@ class BusinessController extends ChangeNotifier {
     }
     setupState = kpiState = BusinessLoad.idle;
     support?.reset();
+    invoices?.reset();
     catalog?.reset();
     accounts?.reset();
     notifyListeners();
