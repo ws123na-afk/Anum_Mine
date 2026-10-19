@@ -607,7 +607,16 @@ class _AllInboxTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AnumSpacing.xs),
-            Text(mailWhen(context, m.date), style: theme.textTheme.bodySmall),
+            // The date keeps its natural width so the sender gets the rest
+            // of the row, capped (as in the mailbox list) because a short
+            // date at 200% text in Arabic is wider than a 390 px row allows.
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 88),
+              child: Text(mailWhen(context, m.date),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall),
+            ),
           ],
         ),
         subtitle: Column(

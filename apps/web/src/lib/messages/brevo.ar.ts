@@ -14,7 +14,7 @@ export const brevoAr: Record<keyof typeof brevoEn, Message> = {
   'brevo.deniedTitle': 'حملات البريد لأعضاء مساحة العمل',
   'brevo.deniedText': 'اطلب من مالك مساحة العمل إضافتك إليها.',
   'brevo.errorTitle': 'تعذّر تحميل حملات البريد',
-  'brevo.errorText': '{message} تحقق من اتصالك ثم حاول مرة أخرى.',
+  'brevo.errorText': '{message}. حاول مرة أخرى بعد قليل.',
   'brevo.denied': 'غير مسموح: {message}',
   'brevo.failed': 'تعذّر {what}: {message}',
   'brevo.needsKey': 'رفض Brevo مفتاح API المحفوظ. يحفظ المالك مفتاحًا جديدًا في قسم الاتصال.',

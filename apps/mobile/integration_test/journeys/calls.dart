@@ -101,6 +101,17 @@ void installCalls(FakeAnumApi api) {
             }
           ])));
   api.get('/api/v1/calls/log', (_) => FakeResponse.json(page([_quote, _busy])));
+  // The owner's sections (provider, AI calls and opt-outs) load with the page:
+  // no provider connected yet, and nothing in either list.
+  api.get(
+      '/api/v1/calls/provider',
+      (_) => const FakeResponse.json({
+            'connected': false,
+            'provider': 'twilio',
+            'problem': 'No voice provider is connected.',
+          }));
+  api.get('/api/v1/calls/ai-calls', (_) => FakeResponse.json(page([])));
+  api.get('/api/v1/calls/opt-outs', (_) => FakeResponse.json(page([])));
   api.get(
       '/api/v1/calls/log/{id}',
       (r) => switch (r.params['id']) {

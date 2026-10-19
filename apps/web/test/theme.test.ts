@@ -108,8 +108,19 @@ function block(selector: string): Record<string, string> {
   const body = css.slice(start, css.indexOf('\n}', start));
   return Object.fromEntries([...body.matchAll(/(--[a-z0-9-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
 }
-const dark = block(':root');
-const light = { ...dark, ...block(':root[data-theme="light"]') };
+/** Tokens with `var(--x)` references resolved within the same theme (the accent aliases point at --d-accent). */
+function resolved(tokens: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  const get = (name: string, depth = 0): string => {
+    const value = tokens[name] ?? '';
+    return depth > 8 ? value : value.replace(/var\((--[a-z0-9-]+)\)/g, (_, ref: string) => get(ref, depth + 1));
+  };
+  for (const name of Object.keys(tokens)) out[name] = get(name);
+  return out;
+}
+const darkRaw = block(':root');
+const dark = resolved(darkRaw);
+const light = resolved({ ...darkRaw, ...block(':root[data-theme="light"]') });
 
 function luminance(hex: string): number {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
@@ -122,14 +133,16 @@ function contrast(a: string, b: string): number {
 
 describe('theme tokens (src/styles.css)', () => {
   test('the light theme only redefines tokens the dark theme has', () => {
-    for (const name of Object.keys(block(':root[data-theme="light"]'))) assert.ok(name in dark, `${name} is not a dark token`);
+    for (const name of Object.keys(block(':root[data-theme="light"]'))) assert.ok(name in darkRaw, `${name} is not a dark token`);
   });
 
-  test('the dark palette is the app\'s AnumPalette.dark', () => {
-    assert.deepEqual([dark['--d-bg'], dark['--d-surface-1'], dark['--d-surface-2'], dark['--d-surface-3']], ['#070b1a', '#0e1530', '#141d3b', '#1b2649']);
-    assert.deepEqual([dark['--d-text'], dark['--d-muted'], dark['--d-faint']], ['#eef1f8', '#a3abc2', '#8790a8']);
-    assert.equal(light['--d-bg'], '#f4f6fb');
-    assert.equal(light['--d-text'], '#0e1424');
+  test('the palette is graphite and jade (docs/design/visual-identity.md)', () => {
+    assert.deepEqual([dark['--d-bg'], dark['--d-surface-1'], dark['--d-surface-2'], dark['--d-surface-3']], ['#0b0d12', '#12151c', '#171b24', '#1f2430']);
+    assert.deepEqual([dark['--d-text'], dark['--d-muted'], dark['--d-faint']], ['#eceef3', '#a2a8b6', '#868d9c']);
+    assert.equal(light['--d-bg'], '#f7f8fa');
+    assert.equal(light['--d-text'], '#12151c');
+    // One accent: every older accent alias resolves to it, in both themes.
+    for (const theme of [dark, light]) for (const alias of ['--d-sky', '--d-violet', '--d-blue', '--d-rose']) assert.equal(theme[alias], theme['--d-accent'], alias);
     assert.equal(THEME_COLORS.dark, dark['--d-bg']);
     assert.equal(THEME_COLORS.light, light['--d-bg']);
   });
@@ -137,7 +150,7 @@ describe('theme tokens (src/styles.css)', () => {
   for (const [name, theme] of [['dark', dark], ['light', light]] as const) {
     test(`${name}: text, links and status colours pass AA on the page and on panels`, () => {
       for (const surface of ['--d-bg', '--d-surface-1', '--d-surface-2', '--d-surface-3']) {
-        for (const text of ['--d-text', '--d-muted', '--d-faint', '--d-sky', '--d-violet', '--d-blue', '--d-ok', '--d-warn', '--d-stop']) {
+        for (const text of ['--d-text', '--d-muted', '--d-faint', '--d-accent', '--d-ok', '--d-warn', '--d-stop']) {
           const ratio = contrast(theme[text], theme[surface]);
           assert.ok(ratio >= 4.5, `${name} ${text} ${theme[text]} on ${surface} ${theme[surface]} is ${ratio.toFixed(2)}:1`);
         }
@@ -145,8 +158,8 @@ describe('theme tokens (src/styles.css)', () => {
     });
   }
 
-  test('white text passes AA on both ends of the accent gradient and on the danger button', () => {
-    for (const colour of [...dark['--d-primary-grad'].matchAll(/#[0-9a-f]{6}/g)].map((m) => m[0])) assert.ok(contrast('#ffffff', colour) >= 4.5, colour);
+  test('white text passes AA on the primary button (and its hover) and on the danger button', () => {
+    for (const colour of [dark['--d-primary'], dark['--d-primary-hover'], ...[...dark['--d-primary-grad'].matchAll(/#[0-9a-f]{6}/g)].map((m) => m[0])]) assert.ok(contrast('#ffffff', colour) >= 4.5, colour);
     assert.ok(contrast('#ffffff', dark['--d-danger']) >= 4.5);
   });
 });

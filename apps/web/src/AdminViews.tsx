@@ -26,8 +26,11 @@ import { describeError, isPermissionDenied } from './lib/errors';
 import { isOnlyActiveOwner, type InvitationStatusFilter, type MemberStatusFilter } from './lib/audit';
 import { ConfirmDialog } from './Dialog';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { AccessNotice } from './PageParts';
+import type { TenantWriteAccess } from './lib/governance';
 import { tenantWriteAccess } from './lib/governance';
 import './admin.css';
+import { HelpLink } from './HelpLink';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
 type Flash = { text: string; error?: boolean } | null;
@@ -427,14 +430,14 @@ export function BudgetsView() {
     {overview && load.kind !== 'forbidden' && <>
       {exceeded && <Notice error>{t('budgets.exceeded', { reset: formatResetDate(overview.resetsOn) })}</Notice>}
       <div className="budgetGrid">
-        <BudgetCard scope="tenant" title={t('budgets.tenant.title')} subtitle={t('budgets.tenant.subtitle')} view={overview.tenant} onSaved={setOverview} readOnlyNotice={tenantAccess.notice} />
+        <BudgetCard scope="tenant" title={t('budgets.tenant.title')} subtitle={t('budgets.tenant.subtitle')} view={overview.tenant} onSaved={setOverview} access={tenantAccess} />
         <BudgetCard scope="workspace" title={t('budgets.workspace.title')} subtitle={t('budgets.workspace.subtitle')} view={overview.workspace} onSaved={setOverview} />
       </div>
     </>}
   </>;
 }
 
-function BudgetCard({ scope, title, subtitle, view, onSaved, readOnlyNotice = null }: { scope: BudgetScope; title: string; subtitle: string; view: ModelBudgetScopeView; onSaved: (next: ModelBudgetOverview) => void; readOnlyNotice?: string | null }) {
+function BudgetCard({ scope, title, subtitle, view, onSaved, access = null }: { scope: BudgetScope; title: string; subtitle: string; view: ModelBudgetScopeView; onSaved: (next: ModelBudgetOverview) => void; access?: TenantWriteAccess | null }) {
   const [draft, setDraft] = useState<LimitDraft>(() => limitDraft(view.budget));
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<Flash>(null);
@@ -467,7 +470,7 @@ function BudgetCard({ scope, title, subtitle, view, onSaved, readOnlyNotice = nu
     </dl>
     {view.usage.unpricedCalls > 0 && <p className="muted">{t('budgets.unpricedHint')}</p>}
     {view.budget && <p className="muted">{t('budgets.lastChanged', { when: when(view.budget.updatedAt), user: view.budget.updatedBy })}</p>}
-    {readOnlyNotice ? <Notice>{readOnlyNotice}</Notice> : <form className="budgetForm" aria-label={t('budgets.editLimits', { title: title.toLowerCase() }, { isolate: false })} onSubmit={(event) => { event.preventDefault(); save(draft); }}>
+    {access?.notice ? <AccessNotice notice={access.notice} howTo={access.howTo} /> : <form className="budgetForm" aria-label={t('budgets.editLimits', { title: title.toLowerCase() }, { isolate: false })} onSubmit={(event) => { event.preventDefault(); save(draft); }}>
       <label className="field"><span>{t('budgets.costLimit')}</span><input dir="ltr" inputMode="decimal" value={draft.cost} onChange={(event) => setDraft({ ...draft, cost: event.target.value })} placeholder={t('budgets.noLimit')} /></label>
       <label className="field"><span>{t('budgets.tokenLimit')}</span><input dir="ltr" inputMode="numeric" value={draft.tokens} onChange={(event) => setDraft({ ...draft, tokens: event.target.value })} placeholder={t('budgets.noLimit')} /></label>
       {flash && <Notice error={flash.error}>{flash.text}</Notice>}
@@ -584,7 +587,7 @@ function AdminMetric({ icon, label, value, detail }: { icon: ReactNode; label: s
 }
 
 function Empty({ title, text }: { title: string; text: string }) {
-  return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p></div>;
+  return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p><HelpLink /></div>;
 }
 
 /** Shown where a task run is refused with 402: the API's sentence names the reset date. */

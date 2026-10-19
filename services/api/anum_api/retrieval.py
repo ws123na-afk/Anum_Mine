@@ -1,6 +1,8 @@
 """Retrieval of workspace memories and files into agent prompts (threat model G5).
 
-Indexing: a memory note or an uploaded text file is split into chunks, each chunk is
+Indexing: a memory note, an uploaded text file or the text of a PDF, DOCX, XLSX, PPTX, ODT, ODS or ODP
+(extracted by :mod:`anum_api.doc_extract`, chunked per page, slide or sheet with a
+``[name, page n]`` first line) is split into chunks, each chunk is
 embedded, and the chunks are stored with their vectors in the RLS-protected
 ``retrieval_sources`` and ``retrieval_chunks`` tables (migration ``0014_retrieval_index``;
 an in-memory store for ``ANUM_REPOSITORY_BACKEND=memory``). Embeddings come through the
@@ -38,6 +40,16 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from .authorization import ROLE_PERMISSIONS, Permission, Role
+from .doc_extract import TIMEOUT as EXTRACT_TIMEOUT
+from .doc_extract import (
+    DocumentFormat,
+    ExtractedDocument,
+    ExtractionError,
+    document_format,
+    extract_document_async,
+    location_header,
+    parse_location,
+)
 from .model_gateway import (
     LOCAL_EMBEDDING_MODEL,
     MAX_EMBEDDING_BATCH,
@@ -272,6 +284,19 @@ def chunk_text(
     return chunks
 
 
+def document_chunks(name: str, document: ExtractedDocument) -> list[str]:
+    """Chunks of an extracted document, never spanning two pages, slides or sheets; each
+    starts with its location line so prompts and citations name the file and page."""
+    pieces: list[str] = []
+    for section in document.sections:
+        header = location_header(name, section)
+        for piece in chunk_text(section.text, size=max(CHUNK_CHARS - len(header) - 1, 200)):
+            if len(pieces) >= MAX_CHUNKS_PER_SOURCE:
+                return pieces
+            pieces.append(f"{header}\n{piece}")
+    return pieces
+
+
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -502,6 +527,9 @@ class RetrievalIndexer:
     async def index_file(self, context: TenantContext, record: Any, content: bytes) -> IndexOutcome:
         if (record.tenant_id, record.workspace_id) != (context.tenant_id, context.workspace_id):
             raise ValueError("file belongs to another tenant or workspace")
+        fmt = document_format(record.name, record.content_type)
+        if fmt is not None:
+            return await self._index_document(context, record, content, fmt)
         if not is_text_file(record.name, record.content_type):
             return self._record_skip(context, SourceType.FILE, record.id, record.sha256, "not_text", record.name)
         if len(content) > MAX_INDEXED_FILE_BYTES:
@@ -511,6 +539,50 @@ class RetrievalIndexer:
         except UnicodeDecodeError:
             return self._record_skip(context, SourceType.FILE, record.id, record.sha256, "not_utf8", record.name)
         return await self.index_text(context, SourceType.FILE, record.id, text, name=record.name)
+
+    async def _index_document(self, context: TenantContext, record: Any, content: bytes, fmt: DocumentFormat) -> IndexOutcome:
+        """A PDF, Office or OpenDocument file: extracted off the event loop, chunked per page, slide or
+        sheet, each chunk starting with its ``[name, page n]`` line (doc_extract.py)."""
+        model = self.embedder.model_name
+        existing = self.store.get_source(context, SourceType.FILE, record.id)
+        if (
+            existing is not None
+            and existing.status == IndexStatus.INDEXED
+            and existing.content_sha256 == record.sha256
+            and existing.embedding_model == model
+            and existing.owner_user_id is None
+        ):
+            return IndexOutcome(
+                source_type=SourceType.FILE, source_id=record.id, status=IndexStatus.INDEXED,
+                chunk_count=existing.chunk_count, reused=True,
+            )
+        try:
+            document = await extract_document_async(content, fmt)
+        except ExtractionError as exc:
+            logger.info(
+                "retrieval_extract_refused format=%s reason=%s",
+                fmt.value,
+                exc.reason,
+                extra={"anum_retrieval": {"event": "extract_refused", "format": fmt.value, "reason": exc.reason}},
+            )
+            if exc.reason == EXTRACT_TIMEOUT:
+                # Load can make a file slow; failed (not skipped) so a re-index tries again.
+                self.store.save_source(
+                    context,
+                    self._source(
+                        context, SourceType.FILE, record.id, record.sha256, IndexStatus.FAILED, record.name,
+                        model, None, error=exc.reason,
+                    ),
+                    [],
+                )
+                return IndexOutcome(
+                    source_type=SourceType.FILE, source_id=record.id, status=IndexStatus.FAILED, error=exc.reason
+                )
+            return self._record_skip(context, SourceType.FILE, record.id, record.sha256, exc.reason, record.name)
+        return await self._index_pieces(
+            context, SourceType.FILE, record.id, record.sha256, document_chunks(record.name, document),
+            name=record.name,
+        )
 
     async def index_text(
         self,
@@ -542,7 +614,24 @@ class RetrievalIndexer:
                 chunk_count=existing.chunk_count,
                 reused=True,
             )
-        pieces = chunk_text(text)
+        return await self._index_pieces(
+            context, source_type, source_id, digest, chunk_text(text),
+            name=name, expires_at=expires_at, owner_user_id=owner_user_id,
+        )
+
+    async def _index_pieces(
+        self,
+        context: TenantContext,
+        source_type: SourceType,
+        source_id: str,
+        digest: str,
+        pieces: list[str],
+        *,
+        name: str | None = None,
+        expires_at: datetime | None = None,
+        owner_user_id: str | None = None,
+    ) -> IndexOutcome:
+        model = self.embedder.model_name
         if not pieces:
             return self._record_skip(context, source_type, source_id, digest, "empty", name, owner_user_id)
         try:
@@ -661,6 +750,9 @@ class UsedChunk(BaseModel):
     chunk_index: int
     score: float
     truncated: bool = False
+    # The page, slide or sheet of a document chunk (doc_extract.py); None for text.
+    page: int | None = None
+    page_unit: str | None = None
 
 
 class RetrievalStatus(StrEnum):
@@ -812,6 +904,7 @@ class Retriever:
                 max_chars=limit,
             )
             remaining -= min(len(chunk.content), limit)
+            location = parse_location(chunk.content)[0] if chunk.source_type == SourceType.FILE else None
             result.truncated = result.truncated or truncated
             result.blocks.append(block)
             result.used.append(
@@ -822,6 +915,8 @@ class Retriever:
                     chunk_index=chunk.chunk_index,
                     score=round(chunk.score, 4),
                     truncated=truncated,
+                    page=location.number if location else None,
+                    page_unit=location.unit.value if location else None,
                 )
             )
         if result.used:

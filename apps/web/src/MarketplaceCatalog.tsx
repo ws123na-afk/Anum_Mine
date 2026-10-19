@@ -4,7 +4,8 @@ import { describeError, isPermissionDenied } from './lib/errors';
 import { emptyMarketFilter, emptyPackageDraft, filterPackages, installSummary, packageBody, packageDraft, pageOf, type MarketFilter, type MarketPackage, type PackageDraft, type PackageInstall } from './lib/catalog';
 import * as catalog from './lib/catalogApi';
 import { joinList, t } from './lib/i18n';
-import { Dialog } from './SkillsView';
+import { Dialog, SignatureBadge, SignaturePanel } from './SkillsView';
+import { flagged, installable } from './lib/skillSigning';
 import './catalog.css';
 
 const PAGE = 20;
@@ -42,6 +43,11 @@ export function MarketplaceCatalog({ owner, canManage, onChanged }: { owner: boo
     catch (e) { setFlash({ text: failure(e, who), error: true }); return false; } finally { setBusy(false); }
   };
   const installedIds = new Set(installs.map((i) => i.package_id));
+  const installOf = (packageId: string) => installs.find((i) => i.package_id === packageId) ?? null;
+  const setEnabled = (item: MarketPackage, enabled: boolean, acknowledge = false) => void act(async () => {
+    await catalog.setPackageEnabled(item.id, enabled, acknowledge); setConfirm(null);
+    return t(enabled ? 'signing.packageOn' : 'signing.packageOff', { name: item.name });
+  }, ownersOnly());
   const filtered = filterPackages(packages, installs, filter);
   const { shown, remaining } = pageOf(filtered, pages, PAGE);
   const set = <K extends keyof MarketFilter>(key: K, value: MarketFilter[K]) => setFilter({ ...filter, [key]: value });
@@ -65,12 +71,20 @@ export function MarketplaceCatalog({ owner, canManage, onChanged }: { owner: boo
     {packages.length > 0 && filtered.length === 0 && <div className="emptyState"><Store aria-hidden="true" /><h3>{t('market.noMatch')}</h3><button type="button" className="secondary" onClick={() => setFilter(emptyMarketFilter())}>{t('market.clearFilters')}</button></div>}
     {shown.map((item) => {
       const installed = installedIds.has(item.id);
+      const install = installOf(item.id);
       return <div className="catalogRow marketRow" key={item.id}>
         <PackageCheck aria-hidden="true" />
-        <div><strong>{item.name}</strong> {item.verified ? <span className="statusBadge success"><BadgeCheck size={13} aria-hidden="true" />{t('market.verified')}</span> : <span className="statusBadge warning">{t('market.unverified')}</span>} {installed && <span className="statusBadge success">{t('market.installed')}</span>}
-          <p>{t('market.rowMeta', { kind: t(`market.kindName.${item.kind}`), version: item.version, publisher: item.publisher, permissions: item.permissions.length ? joinList(item.permissions) : t('market.noPermissions') })}</p></div>
+        <div><strong>{item.name}</strong> {item.verified ? <span className="statusBadge success"><BadgeCheck size={13} aria-hidden="true" />{t('market.verified')}</span> : <span className="statusBadge warning">{t('market.unverified')}</span>} {installed && <span className={`statusBadge ${install?.enabled === false ? 'warning' : 'success'}`}>{install?.enabled === false ? t('signing.installOff') : t('market.installed')}</span>} <SignatureBadge v={item.verification} />
+          <p>{t('market.rowMeta', { kind: t(`market.kindName.${item.kind}`), version: item.version, publisher: item.publisher, permissions: item.permissions.length ? joinList(item.permissions) : t('market.noPermissions') })}</p>
+          {install?.enabled === false && install.disabled_reason && <p className="featureMeta skillFlag" dir="auto">{install.disabled_reason}</p>}
+          {install && flagged(install) && <p className="notice errorNotice skillFlag" role="alert"><ShieldAlert aria-hidden="true" />{t('signing.flagged', { detail: install.verification!.detail })}</p>}
+          {!installed && owner && item.verification && !installable(item) && <p className="featureMeta skillFlag">{t('signing.cannotInstall', { version: item.version, detail: item.verification.detail })}</p>}
+          {canManage && item.verification && !item.verification.installable && <SignaturePanel version={item.version} name={item.name} v={item.verification} admin={canManage} onSign={(body) => catalog.signPackage(item.id, body)} onSigned={(text) => { setFlash({ text }); void load(); }} />}</div>
         <div className="marketActions">
-          {owner && !installed && <button type="button" disabled={busy} aria-label={t('market.installNamed', { name: item.name })} onClick={() => setReviewing(item)}>{t('market.install')}</button>}
+          {owner && !installed && <button type="button" disabled={busy || !installable(item)} aria-label={t('market.installNamed', { name: item.name })} onClick={() => setReviewing(item)}>{t('market.install')}</button>}
+          {owner && install && (confirm === `enable-${item.id}`
+            ? <span className="featureConfirm"><span className="skillAffects">{t('signing.enableFlaggedConfirm')}</span><button type="button" className="danger" disabled={busy} onClick={() => setEnabled(item, true, true)}>{t('signing.enableAnyway')}</button><button type="button" className="secondary" onClick={() => setConfirm(null)}>{t('market.cancel')}</button></span>
+            : <button type="button" className="secondary" disabled={busy} onClick={() => install.enabled ? setEnabled(item, false) : flagged(install) ? setConfirm(`enable-${item.id}`) : setEnabled(item, true)}>{install.enabled ? t('signing.turnOff') : t('signing.turnOn')}</button>)}
           {owner && installed && (confirm === `uninstall-${item.id}`
             ? <span className="featureConfirm"><button type="button" className="danger" disabled={busy} onClick={() => void act(async () => { await catalog.uninstallPackage(item.id); setConfirm(null); return t('market.uninstalled', { name: item.name }); }, ownersOnly())}>{t('market.uninstall')}</button><button type="button" className="secondary" onClick={() => setConfirm(null)}>{t('market.cancel')}</button></span>
             : <button type="button" className="secondary" disabled={busy} onClick={() => setConfirm(`uninstall-${item.id}`)}>{t('market.uninstall')}</button>)}
@@ -83,7 +97,7 @@ export function MarketplaceCatalog({ owner, canManage, onChanged }: { owner: boo
     })}
     {remaining > 0 && <div className="catalogMore"><button type="button" className="secondary" onClick={() => setPages(pages + 1)}>{t('skills.showMore', { count: Math.min(remaining, PAGE) })}</button></div>}
     {reviewing && <InstallReview item={reviewing} busy={busy} onCancel={() => setReviewing(null)} onConfirm={() => void act(async () => { await catalog.installPackage(reviewing.id, reviewing.version); setReviewing(null); return t('market.installedDone', { name: reviewing.name }); }, ownersOnly())} />}
-    {editing && <PackageForm draft={editing.draft} isNew={editing.isNew} existing={packages} onClose={() => setEditing(null)} onSave={(pkg) => act(async () => { const saved = await catalog.savePackage(pkg); setEditing(null); return t(editing.isNew ? 'market.savedPublished' : 'market.savedUpdated', { name: saved.name, version: saved.version }); }, adminsOnly())} />}
+    {editing && <PackageForm draft={editing.draft} isNew={editing.isNew} existing={packages} onClose={() => setEditing(null)} onSave={(pkg) => act(async () => { const signature = packages.find((p) => p.id === pkg.id)?.signature ?? null; const saved = await catalog.savePackage(editing.isNew ? pkg : { ...pkg, signature }); setEditing(null); return t(editing.isNew ? 'market.savedPublished' : 'market.savedUpdated', { name: saved.name, version: saved.version }); }, adminsOnly())} />}
   </section>;
 }
 

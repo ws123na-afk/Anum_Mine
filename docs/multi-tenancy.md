@@ -35,7 +35,7 @@ With `ANUM_REPOSITORY_BACKEND=postgresql` every control-plane store is a tenant 
 
 | Scope | Tables | RLS predicate |
 |---|---|---|
-| Tenant | `skill_versions`, `policy_packs`, `role_templates`, `approval_rules`, `memory_governance`, `marketplace_packages`, `routing_targets` | `tenant_id` |
+| Tenant | `skill_versions`, `skill_publisher_keys` and `skill_signing_settings` (migration `0083_skill_signing`, public keys only, [Skills: Signing](skills.md#signing)), `policy_packs`, `role_templates`, `approval_rules`, `memory_governance`, `marketplace_packages`, `routing_targets` | `tenant_id` |
 | Workspace | `skill_installations`, `marketplace_installs`, `integration_configurations`, `integration_health_checks`, `integration_credentials` (migration `0030_integration_health`; `anum_maintenance` sees only the scope columns of credentials, for key rotation), `workspace_files`, `notification_preferences` (per user), `automation_workflows`, `automation_schedules`, `automation_runs` (migration `0011_voice_automation`), `automation_triggers` (migration `0049_automation_triggers`), `retrieval_sources`, `retrieval_chunks` (migration `0014_retrieval_index`, [Memory](memory.md#retrieval)) | `tenant_id` and `workspace_id` |
 | User | `voice_sessions`, `voice_transcript_segments` (migration `0011_voice_automation`), `conversations`, `conversation_turns` (migration `0018_conversations`), `push_devices` (migration `0027_push_devices`, [Notifications](notifications.md#devices)), `learning_signals`, `learning_profiles`, `learning_preferences`, `learning_routines`, `learning_notes`, `learning_suggestions` (migration `0036_learning`, [What ANUM learned](learning.md)) | `tenant_id`, `workspace_id` and `user_id` |
 | User | `voice_sessions`, `voice_transcript_segments` (migration `0011_voice_automation`), `conversations`, `conversation_turns` (migration `0018_conversations`), `push_devices` (migration `0027_push_devices`, [Notifications](notifications.md#devices)) | `tenant_id`, `workspace_id` and `user_id` |
@@ -94,6 +94,8 @@ They follow one pattern (`anum_api/maintenance.py`, migration `0011_voice_automa
    | `automation_triggers` (`0049`, `0050`) | `id`, `tenant_id`, `workspace_id`, `kind`, `enabled` | enabled event triggers (scheduler pass) or `secret_ciphertext is not null` (key rotation, `0050`); never the secret |
    | `finance_connections` (`0057`) | `id`, `tenant_id`, `workspace_id`, `owner_user_id`, `enabled`, `status`, `next_sync_at` | `enabled and status <> 'disconnected' and next_sync_at <= now()` (background sync) or `credentials_encrypted is not null` (key rotation); never the credentials, label or settings. The table's restrictive owner policy also admits the session whose `current_user` is `anum_maintenance` (a login that merely inherits the role never is), and the sync and rotation then act in each owner's own scope ([Finance](finance.md#sync)) |
    | `whatsapp_conversations` (`0050`) | `tenant_id`, `workspace_id`, `created_at` | `created_at < now() - interval '1 day'` (the retention purge; the retention itself is read as the application role) |
+   | `tenant_lifecycle_jobs` (`0079`) | `id`, `tenant_id`, `workspace_id`, `kind`, `status`, `purge_after`, `lease_until`, `expires_at` | queued, running or purging jobs, scheduled deletions past `purge_after`, ready exports past `expires_at` ([Organisation export and deletion](organisation-lifecycle.md)) |
+   | `workspaces` (`0079`) | `tenant_id`, `id` | only workspaces of an organisation whose export is `running` |
 
 2. **Act.** Each discovered scope gets its own transaction as the application role, with that tenant, workspace (and user) set as RLS context. Every content read (transcript text, workflow steps, ciphertexts) and every write is checked by the normal tenant-isolation policies. Audit records are written there too.
 
@@ -134,7 +136,7 @@ Cross-tenant analytics should use aggregated, non-sensitive data only. Product t
 
 ## Tenant Lifecycle
 
-The platform should define tenant creation, suspension, export, deletion, and recovery flows. Deletion must cover relational data, vector records, object storage, cached state, scheduled workflows, and integration tokens.
+Export and deletion of a whole organisation (and deletion of one workspace) are implemented: an owner-requested background export to a signed, short-lived download, and a deletion with typed confirmation, a cooling-off period with cancel, a batched purge of every tenant table and stored file, and a receipt in the audit trail ([Organisation export and deletion](organisation-lifecycle.md)). The purge runs inside the tenant's context through one more narrow NOLOGIN role, `anum_tenant_purger` (migration `0079_tenant_lifecycle`): `DELETE` and scope columns only, and policies that admit nothing unless that tenant has a job in `purging`; granted `WITH INHERIT FALSE, SET TRUE`. Suspension and recovery are not built yet.
 
 ## Now
 

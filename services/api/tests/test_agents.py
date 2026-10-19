@@ -9,6 +9,7 @@ from contextlib import nullcontext
 
 import pytest
 from fastapi.testclient import TestClient
+from skill_signing_support import signed
 
 from anum_api import agent_profiles
 from anum_api.agent_policy import AgentRunProfile, apply_agent_policy
@@ -519,10 +520,10 @@ def test_catalog_lists_builtin_and_installed_skills(client: TestClient) -> None:
     published = client.post(
         "/api/v1/skills/versions",
         headers=org_admin,
-        json={
+        json=signed(client, org_admin, {
             "skill_id": "acme.invoices", "version": "1.0.0", "name": "Invoices", "description": "Reads invoices",
             "instructions": "Read invoices", "required_tools": ["anum.respond"],
-        },
+        }),
     )
     assert published.status_code == 201, published.text
     installed = client.post(

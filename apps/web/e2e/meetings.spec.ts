@@ -206,7 +206,7 @@ test('viewers read meetings but are told who can import; failures say what faile
   await page.goto('/#meetings');
   await expect(page.getByText('You can read meetings. Importing and editing them needs a member or owner role')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Import a meeting' })).toHaveCount(0);
-  await expect(page.getByRole('alert').filter({ hasText: 'Meetings could not be loaded: Database unavailable' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'Meetings could not be loaded: The server could not reach its database' })).toBeVisible();
   await page.getByRole('button', { name: 'Retry' }).click();
   await expect(page.locator('.meetingRows li')).toHaveCount(1);
   await page.locator('.meetingRows').getByRole('button', { name: 'Open PMV meeting' }).click();

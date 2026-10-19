@@ -64,6 +64,7 @@ import '../features/voice/voice_repository.dart';
 import '../features/settings/profile_screen.dart';
 import '../features/settings/settings_controller.dart';
 import '../features/admin/admin_repository.dart';
+import '../features/lifecycle/lifecycle_repository.dart';
 import '../features/admin/org_admin_repository.dart';
 import '../features/learning/learning_repository.dart';
 import '../features/privacy/privacy_repository.dart';
@@ -327,6 +328,7 @@ class _AnumAppState extends State<AnumApp> {
       push: push,
       learning: ApiLearningRepository(api),
       team: ApiTeamRepository(api),
+      lifecycle: ApiLifecycleRepository(api),
     );
     workspace.onApprovalDecided = _offerPushAfterApproval;
     // In-app calls between teammates (docs/in-app-calls.md#flutter).

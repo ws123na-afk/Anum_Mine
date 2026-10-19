@@ -215,7 +215,7 @@ test('Governance, Enterprise and Voice read in Arabic, right to left', async ({ 
   await useSavedLocale(page, 'ar');
 
   await page.goto('/#governance');
-  await expect(page.getByRole('heading', { name: 'مركز الحوكمة' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'الحوكمة' })).toBeVisible();
   await expect(page.getByText(/3 قواعد/)).toBeVisible();
   // The rules panel names the two-step approvers ("two different owners").
   await expect(page.getByText(/مالكان مختلفان/)).toBeVisible();
