@@ -184,6 +184,8 @@ The ANUM 360 Home (`lib/features/home/`, [home.md](home.md)) reads one summary c
 
 ## Dependencies
 
+`clock` (pure Dart, already in the lock through `flutter_test`) is a direct dependency so date labels read "now" from `clock.now()` instead of `DateTime.now()`. Widget tests pin it with `withClock(Clock.fixed(...))`, so a layout test never passes or fails depending on the day it runs. Mail Center message dates (`mailWhen`) use it: the time today, the month and day this year, the short date before that; `test/mail_center/mail_center_test.dart` runs its layout tests with the widest label, a date from an earlier year.
+
 `firebase_core` 4.15 and `firebase_messaging` 16.7 (phone push) were checked against `android.builtInKotlin=false` before adding them: `firebase_messaging`'s Android code is Java only, and `firebase_core` applies `kotlin-android` itself when built-in Kotlin is off, so neither needs a pin.
 
 `url_launcher` opens pull request and run links in the browser. `url_launcher_android` is held at 6.3.29, the last release written in Java: 6.3.30 and later rely on AGP 9 built-in Kotlin like `file_picker` 11 (below) and would not compile while `android.builtInKotlin=false`. `AndroidManifest.xml` declares the `https` VIEW intent in `<queries>` for Android 11 package visibility.

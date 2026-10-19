@@ -20,11 +20,25 @@ import 'package:anum_mobile/features/workspace/workspace_models.dart';
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/localization/mail_center_strings.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final _now = DateTime.utc(2026, 10, 18, 9);
+
+/// "Now" for message date labels (`mailWhen`). Pinned so no test depends on
+/// the day it runs: the fixture messages arrived on `_now`, so by default the
+/// list shows their month and day. Layout tests pin a year later, the widest
+/// label (the full short date).
+final _dayAfter = _now.add(const Duration(days: 1));
+final _aYearLater = DateTime.utc(2027, 10, 19, 9);
+
+void testMail(String description, WidgetTesterCallback body, {DateTime? now}) =>
+    testWidgets(
+        description,
+        (tester) =>
+            withClock(Clock.fixed(now ?? _dayAfter), () => body(tester)));
 const _hash =
     '7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a';
 const _address = 'owner@example.test';
@@ -924,6 +938,21 @@ void main() {
     }
   });
 
+  testWidgets('a message date is the time today, month and day this year',
+      (tester) async {
+    late BuildContext context;
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (c) {
+      context = c;
+      return const SizedBox();
+    })));
+    final arrived = DateTime(2026, 10, 18, 9, 30);
+    String at(DateTime now) =>
+        withClock(Clock.fixed(now), () => mailWhen(context, arrived));
+    expect(at(DateTime(2026, 10, 18, 23)), '9:30 AM');
+    expect(at(DateTime(2026, 10, 19, 1)), 'Oct 18');
+    expect(at(DateTime(2027, 1, 2)), 'Oct 18, 2026');
+  });
+
   test('parses the API shapes; HTML-only mail becomes plain text', () {
     final setup = MailSetup.fromJson(JsonReader(_setup()));
     expect(setup.available, isTrue);
@@ -984,7 +1013,7 @@ void main() {
         RegExp(r'^[A-Za-z0-9._:-]{8,120}$').hasMatch(repo.keys.first), isTrue);
   });
 
-  testWidgets('mailboxes, folders, paging, plain text, reply and approve',
+  testMail('mailboxes, folders, paging, plain text, reply and approve',
       (tester) async {
     final repo = FakeMailRepository();
     final c = MailCenterController(repo);
@@ -1033,7 +1062,7 @@ void main() {
     expect(find.text(_en('mc.d.sentText')), findsOneWidget);
   });
 
-  testWidgets('a move archives and returns to the list', (tester) async {
+  testMail('a move archives and returns to the list', (tester) async {
     final repo = FakeMailRepository();
     final c = MailCenterController(repo);
     await c.loadSetup();
@@ -1055,7 +1084,7 @@ void main() {
     expect(find.text(_en('mc.n.archived')), findsOneWidget);
   });
 
-  testWidgets('every state says what failed and what to do', (tester) async {
+  testMail('every state says what failed and what to do', (tester) async {
     final repo = FakeMailRepository()
       ..setupError = const ApiException(403, 'Reading email needs a role.');
     await pumpMail(tester, MailCenterController(repo));
@@ -1101,8 +1130,7 @@ void main() {
     expect(find.text(_en('mc.emptyFolder')), findsOneWidget);
   });
 
-  testWidgets('connect checks the form, then lists the mailbox',
-      (tester) async {
+  testMail('connect checks the form, then lists the mailbox', (tester) async {
     final repo = FakeMailRepository()..setupJson = _setup(accounts: []);
     await pumpMail(tester, MailCenterController(repo));
     expect(find.text(_en('mc.noMailboxTitle')), findsOneWidget);
@@ -1128,7 +1156,7 @@ void main() {
     expect(find.text('example-app-password'), findsNothing);
   });
 
-  testWidgets('a refused password offers to enter it again', (tester) async {
+  testMail('a refused password offers to enter it again', (tester) async {
     final repo = FakeMailRepository()
       ..setupJson = _setup(accounts: [_account(status: 'auth_failed')]);
     await pumpMail(tester, MailCenterController(repo));
@@ -1136,7 +1164,7 @@ void main() {
     expect(find.text(_en('mc.enterPassword')), findsOneWidget);
   });
 
-  testWidgets('an unknown send says to check Sent and cannot be sent again',
+  testMail('an unknown send says to check Sent and cannot be sent again',
       (tester) async {
     final repo = FakeMailRepository()..draftStatus = 'unknown';
     final c = MailCenterController(repo);
@@ -1150,7 +1178,9 @@ void main() {
   });
 
   for (final width in [320.0, 390.0, 768.0, 1024.0, 1440.0]) {
-    testWidgets('lays out at $width px with 200% text, English and Arabic',
+    testMail(
+        now: _aYearLater,
+        'lays out at $width px with 200% text, English and Arabic',
         (tester) async {
       for (final locale in const [Locale('en'), Locale('ar')]) {
         final c = MailCenterController(FakeMailRepository());
@@ -1218,7 +1248,7 @@ void main() {
     expect(problems.map((p) => p.key), ['type', 'empty', 'size']);
   });
 
-  testWidgets('attaches files, says what was refused, downloads and removes',
+  testMail('attaches files, says what was refused, downloads and removes',
       (tester) async {
     final repo = FakeMailRepository();
     final transfer = FakeMailTransfer(repo)
@@ -1253,7 +1283,7 @@ void main() {
     expect(find.text('quote.pdf'), findsNothing);
   });
 
-  testWidgets('a received attachment downloads; a failure says why',
+  testMail('a received attachment downloads; a failure says why',
       (tester) async {
     final repo = FakeMailRepository();
     final transfer = FakeMailTransfer(repo);
@@ -1277,7 +1307,7 @@ void main() {
     expect(find.text('This attachment is too large.'), findsOneWidget);
   });
 
-  testWidgets('send later asks for approval of the time; the list cancels',
+  testMail('send later asks for approval of the time; the list cancels',
       (tester) async {
     final repo = FakeMailRepository();
     final c = MailCenterController(repo, clock: () => _now.toLocal());
@@ -1322,8 +1352,7 @@ void main() {
     expect(find.text(_en('mc.offline')), findsOneWidget);
   });
 
-  testWidgets('delete for good waits for approval with the hash',
-      (tester) async {
+  testMail('delete for good waits for approval with the hash', (tester) async {
     final repo = FakeMailRepository();
     final c = MailCenterController(repo);
     await pumpMail(tester, c);
@@ -1363,8 +1392,7 @@ void main() {
     expect(find.text('Quote request 30'), findsNothing);
   });
 
-  testWidgets('shared mailboxes: sections, read only, and leave',
-      (tester) async {
+  testMail('shared mailboxes: sections, read only, and leave', (tester) async {
     final repo = FakeMailRepository()
       ..setupJson = _setup(accounts: [
         {..._account(), 'access': 'owner', 'shared_with': 2},
@@ -1408,7 +1436,7 @@ void main() {
     expect(repo.removedGrants, ['grant_9']);
   });
 
-  testWidgets('the owner shares a mailbox and adds a send as address',
+  testMail('the owner shares a mailbox and adds a send as address',
       (tester) async {
     final repo = FakeMailRepository();
     final c = MailCenterController(repo);
@@ -1452,7 +1480,7 @@ void main() {
     expect(find.text('help@example.test'), findsOneWidget);
   });
 
-  testWidgets('From picks a sender identity and contacts are suggested',
+  testMail('From picks a sender identity and contacts are suggested',
       (tester) async {
     final repo = FakeMailRepository();
     final c = MailCenterController(repo);
@@ -1479,7 +1507,7 @@ void main() {
     expect(find.text('Omar Example'), findsNothing);
   });
 
-  testWidgets('contacts: list, search, add with checks, delete, empty',
+  testMail('contacts: list, search, add with checks, delete, empty',
       (tester) async {
     final repo = FakeMailRepository();
     final c = MailCenterController(repo);
@@ -1527,7 +1555,7 @@ void main() {
     expect(find.text(_en('mc.c.empty')), findsOneWidget);
   });
 
-  testWidgets('AI summarizes, labels, labels the page and drafts a reply',
+  testMail('AI summarizes, labels, labels the page and drafts a reply',
       (tester) async {
     final repo = FakeMailRepository();
     final c = MailCenterController(repo);
@@ -1567,7 +1595,7 @@ void main() {
     expect(find.text(_en('mc.askToSend')), findsOneWidget);
   });
 
-  testWidgets('AI states: not set up, a failure, and a draft that waits',
+  testMail('AI states: not set up, a failure, and a draft that waits',
       (tester) async {
     final repo = FakeMailRepository()..aiAvailable = false;
     final off = MailCenterController(repo);
@@ -1605,7 +1633,8 @@ void main() {
   });
 
   for (final width in [320.0, 390.0, 768.0, 1024.0, 1440.0]) {
-    testWidgets(
+    testMail(
+        now: _aYearLater,
         'new screens lay out at $width px with 200% text, English and Arabic',
         (tester) async {
       for (final locale in const [Locale('en'), Locale('ar')]) {
@@ -1695,7 +1724,7 @@ void main() {
     expect(c.forwardDraft?.waiting, isTrue);
   });
 
-  testWidgets('select several: flags, moves, archive and export with approval',
+  testMail('select several: flags, moves, archive and export with approval',
       (tester) async {
     final repo = FakeMailRepository();
     final transfer = FakeMailTransfer(repo);
@@ -1743,7 +1772,7 @@ void main() {
     expect(transfer.saved.last, 'mail-export.mbox');
   });
 
-  testWidgets(
+  testMail(
       'bulk delete for good in Trash; shared mailboxes see no owner actions',
       (tester) async {
     final repo = FakeMailRepository();
@@ -1781,8 +1810,7 @@ void main() {
     expect(find.textContaining('(.mbox)'), findsNothing);
   });
 
-  testWidgets('forward with a note waits for the send approval',
-      (tester) async {
+  testMail('forward with a note waits for the send approval', (tester) async {
     final repo = FakeMailRepository();
     final c = MailCenterController(repo);
     await pumpMail(tester, c);
@@ -1863,8 +1891,7 @@ void main() {
         org('quiet', 'Quiet Co', 'quiet'),
       ];
 
-    testWidgets('attention first, search, period, server status',
-        (tester) async {
+    testMail('attention first, search, period, server status', (tester) async {
       final repo = sample();
       await pumpHealth(tester, repo);
       final zeta = tester.getTopLeft(find.text('Zeta Fleet')).dy;
@@ -1883,7 +1910,7 @@ void main() {
       expect(repo.days.last, 30);
     });
 
-    testWidgets('denied, offline and no organisations', (tester) async {
+    testMail('denied, offline and no organisations', (tester) async {
       await pumpHealth(
           tester,
           FakeHealth()
@@ -1900,7 +1927,9 @@ void main() {
     });
 
     for (final width in [320.0, 390.0, 768.0, 1024.0, 1440.0]) {
-      testWidgets('lays out at $width px, 200% text, English and Arabic',
+      testMail(
+          now: _aYearLater,
+          'lays out at $width px, 200% text, English and Arabic',
           (tester) async {
         for (final locale in const [Locale('en'), Locale('ar')]) {
           await pumpHealth(tester, sample(),
@@ -1912,7 +1941,8 @@ void main() {
   });
 
   for (final width in [320.0, 390.0, 768.0, 1024.0, 1440.0]) {
-    testWidgets(
+    testMail(
+        now: _aYearLater,
         'selection and forward lay out at $width px, 200% text, English and Arabic',
         (tester) async {
       for (final locale in const [Locale('en'), Locale('ar')]) {
@@ -1963,7 +1993,7 @@ void main() {
             of: card.first, matching: find.text(_en('mc.settings'))));
   }
 
-  testWidgets('retention: ask to change, approve in place, withdraw',
+  testMail('retention: ask to change, approve in place, withdraw',
       (tester) async {
     final repo = FakeMailRepository();
     final c = MailCenterController(repo);
@@ -1999,7 +2029,7 @@ void main() {
     expect(find.text(_en('mc.rs.approvalTitle')), findsNothing);
   });
 
-  testWidgets('retention: a change made first elsewhere is said and reloaded',
+  testMail('retention: a change made first elsewhere is said and reloaded',
       (tester) async {
     final repo = FakeMailRepository()
       ..changeError = const ApiException(
@@ -2028,7 +2058,7 @@ void main() {
     expect(find.text('The server is busy.'), findsWidgets);
   });
 
-  testWidgets('a shared mailbox shows retention read only and no rules',
+  testMail('a shared mailbox shows retention read only and no rules',
       (tester) async {
     final repo = FakeMailRepository()
       ..setupJson = _setup(accounts: [
@@ -2057,7 +2087,7 @@ void main() {
     expect(dropdown.onChanged, isNull);
   });
 
-  testWidgets('forwarding rules: checks, approval, pause, resume, remove',
+  testMail('forwarding rules: checks, approval, pause, resume, remove',
       (tester) async {
     final repo = FakeMailRepository();
     final c = MailCenterController(repo);
@@ -2110,7 +2140,7 @@ void main() {
     expect(find.text(_en('mc.fr.none')), findsOneWidget);
   });
 
-  testWidgets('a paused rule says why it stopped', (tester) async {
+  testMail('a paused rule says why it stopped', (tester) async {
     final repo = FakeMailRepository()
       ..ruleRows = [
         {
@@ -2140,7 +2170,8 @@ void main() {
   });
 
   for (final width in [320.0, 390.0, 768.0, 1024.0, 1440.0]) {
-    testWidgets(
+    testMail(
+        now: _aYearLater,
         'retention and rules lay out at $width px, 200% text, English and Arabic',
         (tester) async {
       for (final locale in const [Locale('en'), Locale('ar')]) {
@@ -2349,7 +2380,7 @@ void _allInboxesGroup() {
       expect(const MailAllInboxFilters().active, isFalse);
     });
 
-    testWidgets('the mailbox list offers All inboxes with two mailboxes',
+    testMail('the mailbox list offers All inboxes with two mailboxes',
         (tester) async {
       await pumpMail(tester, c);
       expect(find.text(_en('mc.all.title')), findsOneWidget);
@@ -2358,7 +2389,7 @@ void _allInboxesGroup() {
       expect(find.text('Mail 200'), findsOneWidget);
     });
 
-    testWidgets('one list with a mailbox badge per message, paging',
+    testMail('one list with a mailbox badge per message, paging',
         (tester) async {
       await pumpAll(tester, c);
       expect(find.text('Mail 200'), findsOneWidget);
@@ -2371,8 +2402,7 @@ void _allInboxesGroup() {
       expect(find.text(_en('mc.all.more')), findsNothing);
     });
 
-    testWidgets('a read share cannot star; the own mailbox can',
-        (tester) async {
+    testMail('a read share cannot star; the own mailbox can', (tester) async {
       await pumpAll(tester, c);
       // Rows alternate: own (star), shared to read (no star).
       expect(find.byTooltip(_en('mc.star')), findsWidgets);
@@ -2381,7 +2411,7 @@ void _allInboxesGroup() {
       expect(all.stars, ['mailbox_1:200:flagged:true']);
     });
 
-    testWidgets('filter by mailbox goes to the server', (tester) async {
+    testMail('filter by mailbox goes to the server', (tester) async {
       await pumpAll(tester, c);
       await tester.tap(find.text(_en('mc.all.everyMailbox')));
       await tester.pumpAndSettle();
@@ -2393,7 +2423,7 @@ void _allInboxesGroup() {
       expect(find.text(_en('mc.all.clear')), findsOneWidget);
     });
 
-    testWidgets('a message opens in its own mailbox', (tester) async {
+    testMail('a message opens in its own mailbox', (tester) async {
       await pumpAll(tester, c);
       await tester.tap(find.text('Mail 199'));
       await tester.pumpAndSettle();
@@ -2402,14 +2432,14 @@ void _allInboxesGroup() {
       expect(c.detail?.message.uid, 199);
     });
 
-    testWidgets('a mailbox that could not be read is named', (tester) async {
+    testMail('a mailbox that could not be read is named', (tester) async {
       all.offlineSales = true;
       await pumpAll(tester, c);
       expect(find.textContaining('sales@example.test could not be read'),
           findsOneWidget);
     });
 
-    testWidgets('empty, failure and denied states', (tester) async {
+    testMail('empty, failure and denied states', (tester) async {
       all.empty = true;
       await pumpAll(tester, c);
       expect(find.text(_en('mc.all.empty')), findsOneWidget);
@@ -2427,7 +2457,7 @@ void _allInboxesGroup() {
     });
 
     for (final width in [320.0, 390.0, 768.0, 1440.0]) {
-      testWidgets('fits $width px at 200 percent text in Arabic',
+      testMail(now: _aYearLater, 'fits $width px at 200 percent text in Arabic',
           (tester) async {
         all.offlineSales = true;
         await pumpAll(tester, c,

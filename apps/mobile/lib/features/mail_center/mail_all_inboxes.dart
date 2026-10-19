@@ -607,7 +607,14 @@ class _AllInboxTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AnumSpacing.xs),
-            Text(mailWhen(context, m.date), style: theme.textTheme.bodySmall),
+            // Flexible: a date at 200% text in Arabic on a 390 px phone is
+            // wider than the room the sender leaves it.
+            Flexible(
+              child: Text(mailWhen(context, m.date),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall),
+            ),
           ],
         ),
         subtitle: Column(
