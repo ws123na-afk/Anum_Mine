@@ -188,6 +188,8 @@ Every amount goes through one formatter, `lib/src/localization/money_format.dart
 
 ## Dependencies
 
+`clock` (pure Dart, already in the lock through `flutter_test`) is a direct dependency so date labels read "now" from `clock.now()` instead of `DateTime.now()`. Widget tests pin it with `withClock(Clock.fixed(...))`, so a layout test never passes or fails depending on the day it runs. Mail Center message dates (`mailWhen`) use it: the time today, the month and day this year, the short date before that; `test/mail_center/mail_center_test.dart` runs its layout tests with the widest label, a date from an earlier year.
+
 `intl` (`^0.20.2`, the range `flutter_localizations` pins) is a direct dependency for money formatting ([Money and KPI tiles](#money-and-kpi-tiles)); it was already in the build through `flutter_localizations`.
 
 `firebase_core` 4.15 and `firebase_messaging` 16.7 (phone push) were checked against `android.builtInKotlin=false` before adding them: `firebase_messaging`'s Android code is Java only, and `firebase_core` applies `kotlin-android` itself when built-in Kotlin is off, so neither needs a pin.
