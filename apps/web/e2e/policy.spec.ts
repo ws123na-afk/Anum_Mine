@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { approvalPagesResponse } from './support/approvalPages';
 
 // Workspace approval policy, the two-person refusal on the approval card, and the workspace
 // switcher, against a mocked API (docs/approvals-and-risk.md, Workspace Approval Policy;
@@ -47,6 +48,8 @@ async function mockApi(page: Page, options: Options = {}) {
     if (path === '/api/v1/auth/local/session') return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
     if (path === '/api/v1/tasks') return json(options.twoPerson ? [task] : []);
     if (path === '/api/v1/approvals') return json(options.twoPerson ? [approval] : []);
+    const paged = approvalPagesResponse(new URL(request.url()), options.twoPerson ? [approval] : []);
+    if (paged !== undefined) return json(paged);
     if (path === '/api/v1/approvals/approval_mine/approve') return json(envelope('forbidden', twoPersonMessage), 403);
     if (path === '/api/v1/workspace-memberships/current') {
       if (!workspace || !memberOf.includes(workspace)) return json(envelope('forbidden', 'Active workspace membership required'), 403);

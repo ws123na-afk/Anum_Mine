@@ -2,7 +2,10 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
 import 'business_models.dart';
+import 'accounts_data.dart';
 import 'business_repository.dart';
+import 'catalog_data.dart';
+import 'deals_data.dart';
 import 'project_money.dart';
 import 'support_controller.dart';
 
@@ -23,7 +26,14 @@ class PagedList<T> {
 
 /// State of the phone's Business screen (docs/business.md).
 class BusinessController extends ChangeNotifier {
-  BusinessController(this.repository, {this.money, this.support}) {
+  BusinessController(
+    this.repository, {
+    this.money,
+    this.support,
+    this.catalog,
+    this.accounts,
+    this.deals,
+  }) {
     leads = PagedList(
       (offset) => repository.leads(
         query: query,
@@ -50,6 +60,13 @@ class BusinessController extends ChangeNotifier {
 
   /// Support tickets (docs/business.md#support-tickets), when wired.
   final SupportController? support;
+
+  /// Catalog and accounts with contacts (docs/business.md), when wired.
+  final CatalogController? catalog;
+  final AccountsController? accounts;
+
+  /// Lead and opportunity writes, when wired.
+  final DealsRepository? deals;
   static const pageSize = 20;
 
   BusinessLoad setupState = BusinessLoad.idle;
@@ -156,6 +173,44 @@ class BusinessController extends ChangeNotifier {
     return detail;
   }
 
+  Future<LeadDetail> createLead(Map<String, Object?> fields) async {
+    final detail = await deals!.createLead(fields);
+    await first(leads);
+    return detail;
+  }
+
+  Future<LeadDetail> updateLead(String id, Map<String, Object?> fields) async {
+    final detail = await deals!.updateLead(id, fields);
+    await first(leads);
+    return detail;
+  }
+
+  Future<void> deleteLead(String id) async {
+    await deals!.deleteLead(id);
+    await first(leads);
+  }
+
+  Future<BusinessOpportunity> createOpportunity(
+      Map<String, Object?> fields) async {
+    final item = await deals!.createOpportunity(fields);
+    await first(opportunities);
+    return item;
+  }
+
+  Future<BusinessOpportunity> updateOpportunity(
+      String id, Map<String, Object?> fields) async {
+    final item = await deals!.updateOpportunity(id, fields);
+    await first(opportunities);
+    return item;
+  }
+
+  Future<BusinessOpportunity> moveStage(
+      String id, String to, String reason) async {
+    final item = await deals!.moveStage(id, to, reason);
+    await Future.wait([first(opportunities), first(leads)]);
+    return item;
+  }
+
   /// After an approved change order: the project's contract total and milestones changed.
   Future<void> refreshProjects() => first(projects);
 
@@ -178,6 +233,8 @@ class BusinessController extends ChangeNotifier {
     }
     setupState = kpiState = BusinessLoad.idle;
     support?.reset();
+    catalog?.reset();
+    accounts?.reset();
     notifyListeners();
   }
 }

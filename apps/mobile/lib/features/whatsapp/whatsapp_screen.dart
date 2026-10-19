@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import '../business/ticket_from_message.dart';
 import '../workspace/workspace_models.dart';
 import 'whatsapp_controller.dart';
 import 'whatsapp_models.dart';
@@ -50,7 +51,9 @@ class _WhatsAppScreenState extends State<WhatsAppScreen> {
           builder: (_) => WhatsAppThreadScreen(
               controller: WhatsAppThreadController(
                   c.repository, conversation.id,
-                  owner: c.owner ?? false, onChanged: c.replace),
+                  owner: c.owner ?? false,
+                  onChanged: c.replace,
+                  support: c.support),
               title: conversation.label)));
 
   @override
@@ -293,7 +296,17 @@ class _WhatsAppThreadScreenState extends State<WhatsAppThreadScreen> {
     final l = context.anum;
     final p = context.palette;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: AppBar(title: Text(widget.title), actions: [
+        if (c.support case final support?)
+          IconButton(
+              key: const Key('wa-create-ticket'),
+              tooltip: l.t('biz.fromMessage.action'),
+              icon: const Icon(Icons.confirmation_number_outlined),
+              onPressed: () => createTicketFromMessage(context,
+                  support: support,
+                  source: 'whatsapp',
+                  refId: c.conversationId)),
+      ]),
       body: ListenableBuilder(
         listenable: c,
         builder: (context, _) {

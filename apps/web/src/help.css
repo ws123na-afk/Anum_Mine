@@ -16,9 +16,6 @@
 .helpArticle h3 { font-size: var(--text-2xl); margin: 0; }
 .helpArticle .mdBody { overflow-wrap: anywhere; }
 .helpBack { align-items: center; display: inline-flex; gap: var(--d-s2); justify-self: start; }
-.helpBack svg, .helpDocs svg, .helpLink svg, .helpEmpty a svg { height: 16px; width: 16px; }
+.helpBack svg, .helpDocs svg, .helpEmpty a svg { height: 16px; width: 16px; }
 [dir="rtl"] .helpBack svg { transform: scaleX(-1); }
 .helpDocs, .helpEmpty a { align-items: center; color: var(--d-sky); display: inline-flex; font-weight: 600; gap: var(--d-s1); }
-.helpLink { align-items: center; display: inline-flex; gap: var(--d-s1); justify-self: center; }
-.emptyState .helpLink svg, .paneEmpty .helpLink svg, .panelEmpty .helpLink svg { color: inherit; height: 16px; width: 16px; }
-.demoCard .helpLink { justify-self: start; }

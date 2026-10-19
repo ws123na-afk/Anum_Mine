@@ -188,6 +188,23 @@ class FakeSupport implements SupportRepository {
     return detail();
   }
 
+  /// What `fromMessage` was called with, and the refusal to answer, if any.
+  final fromMessages = <String>[];
+  ApiException? fromMessageError;
+
+  @override
+  Future<TicketDetail> fromMessage({
+    required String source,
+    required String refId,
+    String? title,
+    String? severity,
+  }) async {
+    fromMessages.add('$source $refId $title $severity');
+    if (fromMessageError case final error?) throw error;
+    total += 1;
+    return detail();
+  }
+
   @override
   Future<TicketDetail> ticket(String id) async {
     requests.add('ticket $id');

@@ -3,7 +3,7 @@
 // caller's persisted membership role), never guessed from the token here.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowRightLeft, Ban, CircleDot, Copy, Gauge, KeyRound, Link2, Lock, MailPlus, RefreshCw, RotateCcw, Save, Scale, Search, Send, ShieldCheck, Ticket, UserCheck, Users, XCircle } from 'lucide-react';
-import type { CreatedInvitation, MembersSummary, ModelBudgetOverview, ModelBudgetScopeView, WorkspaceApprovalPolicy, WorkspaceInvitation, WorkspaceMember, WorkspaceRole, BudgetScope } from '@anum/contracts';
+import type { CreatedInvitation, InvitationEmailSetup, MembersSummary, ModelBudgetOverview, ModelBudgetScopeView, WorkspaceApprovalPolicy, WorkspaceInvitation, WorkspaceMember, WorkspaceRole, BudgetScope } from '@anum/contracts';
 import * as admin from './lib/adminApi';
 import { currentScope, getCurrentMembership, rememberWorkspace } from './lib/api';
 import { POLICY_SWITCHES, policyChanged, policyDraft, policyUpdatedLabel, twoPersonWarning, type PolicyDraft } from './lib/policy';
@@ -14,6 +14,7 @@ import {
   expiryLabel,
   formatResetDate,
   formatTokens,
+  invitationEmailNotice,
   invitationLink,
   invitationRequest,
   inviteeLabel,
@@ -30,7 +31,6 @@ import { AccessNotice } from './PageParts';
 import type { TenantWriteAccess } from './lib/governance';
 import { tenantWriteAccess } from './lib/governance';
 import './admin.css';
-import { HelpLink } from './HelpLink';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
 type Flash = { text: string; error?: boolean } | null;
@@ -229,7 +229,7 @@ export function MembersView({ workspaceId, onSwitchWorkspace, onSwitchOrganisati
         <InviteForm busy={busy !== null} onCreate={(request) => act('invite', async () => {
           const result = await admin.createInvitation(request);
           setCreated(result);
-          return t('memberPage.invitationCreated');
+          return t(result.email.status === 'sent' ? 'memberPage.invitationEmailed' : 'memberPage.invitationCreated', { to: result.email.to ?? '' });
         })} />
         {created && <TokenReveal created={created} onDone={() => setCreated(null)} />}
       </div>
@@ -255,7 +255,7 @@ export function MembersView({ workspaceId, onSwitchWorkspace, onSwitchOrganisati
                     <button type="button" className="secondary" disabled={busy !== null} onClick={() => void act(`invitation:${invitation.id}`, async () => {
                       const result = await admin.resendInvitation(invitation.id);
                       setCreated(result);
-                      return t('members.resent', { invitee: inviteeLabel(invitation) });
+                      return t(result.email.status === 'sent' ? 'members.resentEmailed' : 'members.resent', { invitee: inviteeLabel(invitation) });
                     })}><Send aria-hidden="true" />{invitation.status === 'expired' ? t('members.renew') : t('members.resend')}</button>
                     {invitation.status === 'pending' && <button type="button" className="danger" disabled={busy !== null} onClick={() => setPendingChange({ kind: 'revoke', invitation })}><XCircle aria-hidden="true" />{t('memberPage.revoke')}</button>}
                   </div>
@@ -298,12 +298,17 @@ function InviteForm({ busy, onCreate }: { busy: boolean; onCreate: (request: Par
   const [email, setEmail] = useState('');
   const [ttl, setTtl] = useState(String(DEFAULT_TTL_HOURS));
   const [error, setError] = useState<string | null>(null);
+  const [sendEmail, setSendEmail] = useState(true);
+  // Whether this server can email invitations; unknown (null) until asked or when asking failed.
+  const [setup, setSetup] = useState<InvitationEmailSetup | null>(null);
+  useEffect(() => { void admin.getInvitationEmailSetup().then(setSetup).catch(() => setSetup(null)); }, []);
+  const hasEmail = email.trim().length > 0;
   return <form className="surface adminPanel" aria-label={t('invite.title')} noValidate onSubmit={(event) => {
     event.preventDefault();
     const result = invitationRequest({ role, userId, email, ttlHours: ttl });
     if (!result.ok) { setError(result.error); return; }
     setError(null);
-    void onCreate(result.value).then((ok) => { if (ok) { setUserId(''); setEmail(''); } });
+    void onCreate(sendEmail ? result.value : { ...result.value, sendEmail: false }).then((ok) => { if (ok) { setUserId(''); setEmail(''); } });
   }}>
     <div className="sectionHeader"><div><p className="eyebrow">{t('invite.eyebrow')}</p><h2>{t('invite.title')}</h2></div></div>
     <p className="muted">{t('invite.help')}</p>
@@ -313,6 +318,12 @@ function InviteForm({ busy, onCreate }: { busy: boolean; onCreate: (request: Par
       <label className="field"><span>{t('invite.role')}</span><select value={role} onChange={(event) => setRole(event.target.value as WorkspaceRole)}>{ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></label>
       <label className="field"><span>{t('invite.ttl')}</span><input inputMode="numeric" value={ttl} onChange={(event) => setTtl(event.target.value)} /></label>
     </div>
+    {hasEmail && setup?.configured && <div className="settingToggle inviteEmailToggle">
+      <div><label htmlFor="invite-send-email"><strong>{t('invite.email.toggle')}</strong></label><p id="invite-send-email-hint">{setup.linkBase ? t('invite.email.toggleHint') : t('invite.email.toggleHintToken')}</p></div>
+      <input id="invite-send-email" type="checkbox" checked={sendEmail} aria-describedby="invite-send-email-hint" onChange={(event) => setSendEmail(event.target.checked)} />
+    </div>}
+    {hasEmail && setup && !setup.configured && <Notice>{t('invite.email.serverOff')}</Notice>}
+    {!hasEmail && <p className="muted">{t('invite.email.needsAddress')}</p>}
     {error && <Notice error>{error}</Notice>}
     <div className="actions"><button type="submit" disabled={busy}><MailPlus aria-hidden="true" />{t('invite.create')}</button></div>
   </form>;
@@ -321,9 +332,11 @@ function InviteForm({ busy, onCreate }: { busy: boolean; onCreate: (request: Par
 function TokenReveal({ created, onDone }: { created: CreatedInvitation; onDone: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
   const link = invitationLink(`${location.origin}${location.pathname}`, created.token, created.invitation.workspaceId);
+  const emailNotice = invitationEmailNotice(created.email);
   const copy = async (done: string, text: string) => setCopied(await copyText(text) ? done : t('invite.copyBlocked'));
   return <section className="surface adminPanel tokenReveal" aria-label={t('invite.tokenRegion')}>
     <div className="sectionHeader"><div><p className="eyebrow">{t('invite.shownOnce')}</p><h2>{t('invite.sendTo', { invitee: inviteeLabel(created.invitation) })}</h2></div><span className="statusBadge warning">{expiryLabel(created.invitation.expiresAt)}</span></div>
+    <Notice error={emailNotice.tone === 'warning'}>{emailNotice.text}</Notice>
     <p className="tokenWarning"><KeyRound aria-hidden="true" />{t('invite.tokenWarning')}</p>
     <label className="field"><span>{t('invite.token')}</span><code className="tokenValue" dir="ltr" data-testid="invitation-token">{created.token}</code></label>
     <label className="field"><span>{t('invite.link')}</span><code className="tokenValue" dir="ltr">{link}</code></label>
@@ -587,7 +600,7 @@ function AdminMetric({ icon, label, value, detail }: { icon: ReactNode; label: s
 }
 
 function Empty({ title, text }: { title: string; text: string }) {
-  return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p><HelpLink /></div>;
+  return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p></div>;
 }
 
 /** Shown where a task run is refused with 402: the API's sentence names the reset date. */

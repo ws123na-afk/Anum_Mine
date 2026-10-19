@@ -3,10 +3,12 @@ import 'package:flutter/widgets.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'approvals_strings.dart';
 import 'calls_strings.dart';
 import 'brevo_strings.dart';
 import 'org_admin_strings.dart';
 import 'business_strings.dart';
+import 'inbox_strings.dart';
 import 'mail_center_strings.dart';
 import 'marketing_strings.dart';
 import 'developer_autonomy_messages.dart';
@@ -26,6 +28,8 @@ class AnumLocalizations {
       (isArabic ? businessAr : businessEn)[key] ??
       (isArabic ? brevoAr : brevoEn)[key] ??
       (isArabic ? orgAdminAr : orgAdminEn)[key] ??
+      (isArabic ? approvalsAr : approvalsEn)[key] ??
+      (isArabic ? inboxAr : inboxEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
@@ -33,6 +37,8 @@ class AnumLocalizations {
       businessEn[key] ??
       brevoEn[key] ??
       orgAdminEn[key] ??
+      approvalsEn[key] ??
+      inboxEn[key] ??
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.

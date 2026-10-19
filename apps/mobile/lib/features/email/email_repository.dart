@@ -31,10 +31,29 @@ abstract interface class EmailRepository {
 
   /// Throws [DraftWaitsForApproval] when drafting itself needs approval.
   Future<EmailDraft> draftReply(String messageId, {String? instructions});
-  Future<EmailDraft> updateDraft(String draftId, {required String body});
+
+  /// Starts a brand-new email in [EmailDraftFields.accountId]'s mailbox.
+  /// Empty To and body are allowed here; asking to send refuses them.
+  /// Throws [DraftWaitsForApproval] when drafting itself needs approval.
+  Future<EmailDraft> createDraft(EmailDraftFields fields);
+
+  /// Saves the reply text ([body]) or, for a new email, every field
+  /// ([fields]).
+  Future<EmailDraft> updateDraft(
+    String draftId, {
+    String? body,
+    EmailDraftFields? fields,
+  });
 
   /// Asks to send: the pending approval to show (tool, arguments, hash).
   Future<EmailDraft> askToSend(String draftId);
+
+  /// Recent drafts (new emails and replies) in the visible mailboxes, newest
+  /// first.
+  Future<List<EmailDraft>> drafts();
+
+  /// Throws the draft away (the copy in the provider's Drafts goes too).
+  Future<void> discardDraft(String draftId);
 
   /// Approves with the displayed payload hash; the run's result sentence.
   Future<String?> approve(WorkspaceApproval approval);
@@ -110,6 +129,11 @@ class ApiEmailRepository implements EmailRepository {
         },
       ),
     );
+    return _drafted(value);
+  }
+
+  /// The drafting answer: the draft, or the approval drafting waits for.
+  static EmailDraft _drafted(JsonReader value) {
     final draft = value.optObject('draft');
     final approval = value.optObject('approval');
     if (draft == null && approval != null) {
@@ -128,19 +152,39 @@ class ApiEmailRepository implements EmailRepository {
   }
 
   @override
+  Future<EmailDraft> createDraft(EmailDraftFields fields) async => _drafted(
+        JsonReader(
+          await api.request('POST', '$_base/drafts', body: fields.toCreate()),
+        ),
+      );
+
+  @override
   Future<EmailDraft> updateDraft(
     String draftId, {
-    required String body,
+    String? body,
+    EmailDraftFields? fields,
   }) async =>
       EmailDraft.fromJson(
         JsonReader(
           await api.request(
             'PATCH',
             '$_base/drafts/${_id(draftId)}',
-            body: {'body': body},
+            body: {
+              ...?fields?.toPatch(),
+              if (body != null) 'body': body,
+            },
           ),
         ),
       );
+
+  @override
+  Future<List<EmailDraft>> drafts() async =>
+      JsonReader(await api.request('GET', '$_base/drafts?limit=50'))
+          .objects('data', EmailDraft.fromJson);
+
+  @override
+  Future<void> discardDraft(String draftId) =>
+      api.request('DELETE', '$_base/drafts/${_id(draftId)}');
 
   @override
   Future<EmailDraft> askToSend(String draftId) async => EmailDraft.fromJson(

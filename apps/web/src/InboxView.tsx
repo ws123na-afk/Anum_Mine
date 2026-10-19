@@ -5,19 +5,19 @@
 // chip, and three panes that fill the window (filters and the drafts waiting, the list, the message).
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  Archive, ArrowLeft, CheckCircle2, CircleDot, Download, Fingerprint, Inbox, Lock, Mail, MailOpen, Paperclip, PenLine, Plug, RefreshCw, Search, Send, Sparkles, Trash2, Unplug,
+  Archive, ArrowLeft, CheckCircle2, CircleDot, Download, Fingerprint, Inbox, LifeBuoy, Lock, Mail, MailOpen, Paperclip, PenLine, SquarePen, Plug, RefreshCw, Search, Send, Sparkles, Trash2, Unplug,
 } from 'lucide-react';
-import type { Approval } from '@anum/contracts';
+import type { Approval, TicketDetail } from '@anum/contracts';
 import * as api from './lib/api';
 import { expiryLabel, shortHash } from './lib/approvals';
 import {
-  CATEGORIES, CONNECT_STORAGE_KEY, EMPTY_FILTERS, MAX_DRAFT_CHARS, MAX_INSTRUCTION_CHARS, PRIORITIES,
-  accountStatus, categoryLabel, connectErrorText, draftProvenance, draftStatusLabel, formatSize, hasFilters, isStale, parseRecipients,
+  CATEGORIES, CONNECT_STORAGE_KEY, EMPTY_COMPOSE, EMPTY_FILTERS, MAX_DRAFT_CHARS, MAX_INSTRUCTION_CHARS, MAX_SUBJECT_CHARS, PRIORITIES,
+  accountStatus, categoryLabel, composeMailboxes, composeRequest, connectErrorText, draftProvenance, draftStatusLabel, formatSize, hasFilters, isNewEmailDraft, isStale, parseRecipients,
   priorityLabel, priorityTone, senderName, syncedLabel,
-  type EmailAccount, type EmailDraft, type EmailMessage, type EmailProvider, type EmailSetup, type Filters, type InboxSummary, type MessageDetail,
+  type ComposeForm, type EmailAccount, type EmailDraft, type EmailMessage, type EmailProvider, type EmailSetup, type Filters, type InboxSummary, type MessageDetail,
 } from './lib/email';
 import {
-  analyzeEmail, archiveEmail, completeEmailConnect, createEmailDraft, disconnectEmailAccount, discardEmailDraft, downloadAttachment, getEmailMessage, getEmailSummary,
+  analyzeEmail, archiveEmail, completeEmailConnect, createEmailDraft, createNewEmailDraft, disconnectEmailAccount, discardEmailDraft, downloadAttachment, getEmailMessage, getEmailSummary,
   getEmailSetup, listEmailAccounts, listEmailDrafts, listEmailMessages, markEmailRead, requestSendApproval, startEmailConnect, syncEmailAccount, toApproval, updateEmailDraft,
 } from './lib/emailApi';
 import { budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } from './lib/errors';
@@ -25,10 +25,10 @@ import { formatDateTime, formatNumber, t } from './lib/i18n';
 import { figure, firstUnread, waitingDrafts } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { Drawer } from './Dialog';
+import { CreateTicketDialog, TicketCreatedNotice } from './TicketFromMessage';
 import { PageHeader, PageSummary, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import { useIsOwner } from './useIsOwner';
 import './inbox.css';
-import { HelpLink } from './HelpLink';
 
 type LoadState = 'loading' | 'ready' | 'error' | 'denied';
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'error' };
@@ -63,6 +63,8 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
   const [mailboxesOpen, setMailboxesOpen] = useState(false);
   const [summary, setSummary] = useState<Load<InboxSummary>>({ state: 'loading' });
   const [drafts, setDrafts] = useState<Load<EmailDraft[]>>({ state: 'loading' });
+  // The compose drawer: open on a blank new email (null draft) or on a new-email draft from the queue.
+  const [compose, setCompose] = useState<{ draft: EmailDraft | null } | null>(null);
   const autoSynced = useRef(false);
   const autoPicked = useRef(Boolean(initialMessageId));
   const searchId = useId();
@@ -205,6 +207,7 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
   const summaryValue = summary.state === 'ready' ? summary.value : null;
   const waiting = drafts.state === 'ready' ? waitingDrafts(drafts.value) : [];
   const pendingApproval = waiting.filter((d) => d.status === 'pending_approval').length;
+  const mailboxes = composeMailboxes(accounts);
   const setupPanel = <MailboxSetup accounts={accounts} setup={setup} canConnect={canConnect} busy={busy} privateConnect={privateConnect} onPrivate={setPrivateConnect} onConnect={(p) => void connect(p)} onSync={(a) => void sync(a)} onDisconnect={(a) => void disconnect(a)} />;
   const figures = [
     figure('unread', t('pages.inbox.fig.unread'), summary, () => ({ value: formatNumber(summaryValue!.unread), hint: t('pages.inbox.fig.unreadHint', { count: summaryValue!.accounts }), tone: summaryValue!.unread ? 'accent' : '' })),
@@ -216,6 +219,7 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
     <button type="button" className={`chipButton ${chipTone}`} aria-haspopup="dialog" onClick={() => setMailboxesOpen(true)}>
       <span className="chipDot" aria-hidden="true" /><span>{accounts.length ? t('pages.inbox.mailboxChip', { count: accounts.length, synced: syncedLabel(lastSync) }) : t('pages.inbox.noMailbox')}</span>{attention > 0 && <span className="statusBadge warning">{t('pages.inbox.needsAttention', { count: attention })}</span>}
     </button>
+    {canAct && accounts.length > 0 && <button type="button" aria-haspopup="dialog" disabled={!mailboxes.usable.length} title={mailboxes.usable.length ? undefined : t('email.compose.allNeedReconnect')} onClick={() => setCompose({ draft: null })}><SquarePen aria-hidden="true" />{t('email.compose.button')}</button>}
     <button type="button" className="secondary" disabled={!accounts.length || busy !== null} onClick={() => void Promise.all(accounts.map((a) => syncEmailAccount(a.id).catch(() => a))).then((fresh) => { setAccounts(fresh); loadSummary(); return loadMessages(filters); })}><RefreshCw aria-hidden="true" />{t('email.syncAll')}</button>
   </>} />;
 
@@ -224,6 +228,8 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     {budget && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{t('common.budgetReached', { message: budget })}{onOpenBudgets && <button type="button" className="secondary inboxInlineButton" onClick={onOpenBudgets}>{t('email.openBudgets')}</button>}</p>}
     {mailboxesOpen && <Drawer title={t('email.accounts.title')} onClose={() => setMailboxesOpen(false)}>{setupPanel}</Drawer>}
+    {compose && <ComposeDrawer key={compose.draft?.id ?? 'new'} accounts={accounts} initialDraft={compose.draft} owner={owner === true} onClose={() => setCompose(null)} onChanged={loadSummary} onOpenApprovals={onOpenApprovals}
+      onDiscarded={() => { setCompose(null); setNotice({ text: t('email.compose.discarded') }); }} />}
 
     {accounts.length === 0 && <section className="surface inboxStart" aria-labelledby="inbox-start">
       <div className="inboxStartText"><Mail aria-hidden="true" /><h2 id="inbox-start">{t('pages.inbox.startTitle')}</h2><p className="muted">{canConnect ? t('email.accounts.emptyOwner') : t('email.accounts.emptyMember')}</p></div>
@@ -247,14 +253,14 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
               {hasFilters(filters) && <button type="button" className="secondary" onClick={() => { setQueryDraft(''); applyFilters(EMPTY_FILTERS); }}>{t('common.clear')}</button>}
             </div>
           </form>
-          <DraftsQueue drafts={drafts} waiting={waiting} open={widest} selected={selected} onOpen={(draft) => { if (draft.message_id) pick(draft.message_id); }} onRetry={loadSummary} />
+          <DraftsQueue drafts={drafts} waiting={waiting} open={widest} selected={compose?.draft?.id ?? selected} onOpen={(draft) => { if (isNewEmailDraft(draft)) { if (canAct) setCompose({ draft }); } else if (draft.message_id) pick(draft.message_id); }} onRetry={loadSummary} />
         </aside>
         <section data-pane="list" className="pane inboxList" aria-labelledby="inbox-list-title" aria-busy={listState === 'loading'}>
           <div className="paneHead"><h2 id="inbox-list-title">{filters.archived ? t('pages.inbox.archivedTitle') : t('email.list.title')}</h2>{listState === 'ready' && <span className="muted">{t('pages.inbox.shown', { count: items.length })}</span>}</div>
           {listState === 'loading' && <p className="muted inboxPad" role="status">{t('email.list.loading')}</p>}
           {listState === 'error' && <div className="inboxPad"><Notice error>{t('email.list.failed', { reason: listError ?? '' })}</Notice><div className="actions"><button type="button" onClick={() => void loadMessages(filters)}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div></div>}
           {listState === 'ready' && items.length === 0 && <div className="paneEmpty"><Inbox aria-hidden="true" />{hasFilters(filters)
-            ? <><h3>{t('email.list.noMatch')}</h3><p>{t('email.list.noMatchText')}</p><HelpLink /><div className="actions"><button type="button" className="secondary" onClick={() => { setQueryDraft(''); applyFilters(EMPTY_FILTERS); }}>{t('email.list.clearFilters')}</button></div></>
+            ? <><h3>{t('email.list.noMatch')}</h3><p>{t('email.list.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setQueryDraft(''); applyFilters(EMPTY_FILTERS); }}>{t('email.list.clearFilters')}</button></div></>
             : <><h3>{t('email.list.empty')}</h3><p>{t('email.list.emptyText')}</p></>}</div>}
           {items.length > 0 && <ul className="inboxMessages">{items.map((message) => <li key={message.id}>
             <button type="button" className={`inboxRow ${selected === message.id ? 'selected' : ''} ${message.is_read ? '' : 'unread'}`} aria-current={selected === message.id ? 'true' : undefined} onClick={() => pick(message.id)}>
@@ -311,7 +317,7 @@ function MailboxSetup({ accounts, setup, canConnect, busy, privateConnect, onPri
   </div>;
 }
 
-/** Reply drafts still waiting for a person (GET /email/drafts): open one to finish or approve it. */
+/** Drafts still waiting for a person (GET /email/drafts): a reply opens on its message, a new email in the compose drawer. */
 function DraftsQueue({ drafts, waiting, open, selected, onOpen, onRetry }: { drafts: Load<EmailDraft[]>; waiting: EmailDraft[]; open: boolean; selected: string | null; onOpen: (draft: EmailDraft) => void; onRetry: () => void }) {
   return <details className="inboxQueue" open={open || undefined}>
     <summary><PenLine aria-hidden="true" />{t('pages.inbox.queueTitle')}{drafts.state === 'ready' && <span className="inboxQueueCount">{formatNumber(waiting.length)}</span>}</summary>
@@ -319,8 +325,8 @@ function DraftsQueue({ drafts, waiting, open, selected, onOpen, onRetry }: { dra
     {drafts.state === 'error' && <p className="muted">{t('pages.inbox.queueFailed')} <button type="button" className="linkButton" onClick={onRetry}>{t('pages.inbox.queueRetry')}</button></p>}
     {drafts.state === 'ready' && waiting.length === 0 && <p className="muted">{t('pages.inbox.queueEmpty')}</p>}
     {waiting.length > 0 && <ul className="railList">{waiting.map((draft) => <li key={draft.id}>
-      <button type="button" className="railItem" disabled={!draft.message_id} aria-current={draft.message_id && draft.message_id === selected ? 'true' : undefined} onClick={() => onOpen(draft)}>
-        <strong dir="auto">{draft.subject || t('email.noSubject')}</strong>
+      <button type="button" className="railItem" aria-current={selected !== null && (draft.message_id === selected || draft.id === selected) ? 'true' : undefined} onClick={() => onOpen(draft)}>
+        <strong dir="auto">{isNewEmailDraft(draft) && <span className="statusBadge neutral inboxKind">{t('email.compose.kindNew')}</span>}{draft.subject || t('email.noSubject')}</strong>
         <small><span className={`statusBadge ${draft.status === 'failed' ? 'dangerTone' : draft.status === 'pending_approval' ? 'warning' : 'neutral'}`}>{draftStatusLabel(draft.status)}</span> {draft.to.join(', ') || t('pages.inbox.noRecipient')}</small>
       </button>
     </li>)}</ul>}
@@ -339,6 +345,8 @@ function MessagePanel({ messageId, canAct, owner, focusSignal, onBack, onChanged
   const [suggested, setSuggested] = useState<{ reply: string; model: string } | null>(null);
   const [instructions, setInstructions] = useState('');
   const [manual, setManual] = useState(false);
+  const [ticketOpen, setTicketOpen] = useState(false);
+  const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const instructionsId = useId();
 
@@ -376,6 +384,7 @@ function MessagePanel({ messageId, canAct, owner, focusSignal, onBack, onChanged
       {canAct && <div className="inboxMessageActions">
         <button type="button" className="secondary" disabled={busy !== null} onClick={() => void act('read', async () => actionResult(await markEmailRead(message.id, !message.is_read)))}>{message.is_read ? <Mail aria-hidden="true" /> : <MailOpen aria-hidden="true" />}{message.is_read ? t('email.detail.markUnread') : t('email.detail.markRead')}</button>
         {!message.is_archived && <button type="button" className="secondary" disabled={busy !== null} onClick={() => void act('archive', async () => actionResult(await archiveEmail(message.id)))}><Archive aria-hidden="true" />{t('email.detail.archive')}</button>}
+        <button type="button" className="secondary" aria-haspopup="dialog" disabled={busy !== null} onClick={() => setTicketOpen(true)}><LifeBuoy aria-hidden="true" />{t('tfm.button')}</button>
       </div>}
     </div>
     <header className="inboxMessageHeader">
@@ -389,6 +398,8 @@ function MessagePanel({ messageId, canAct, owner, focusSignal, onBack, onChanged
       <div className="inboxBadges"><span className="statusBadge neutral">{categoryLabel(message.category)}</span>{message.priority && <span className={`statusBadge ${priorityTone(message.priority)}`}>{priorityLabel(message.priority)}</span>}<small className="muted">{message.triage_source === 'model' ? t('email.detail.triageModel', { model: message.triage_model ?? '' }) : t('email.detail.triageRules')}</small></div>
     </header>
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
+    {ticket && <TicketCreatedNotice ticket={ticket} />}
+    {ticketOpen && <CreateTicketDialog source="email" refId={message.id} defaultTitle={message.subject} onClose={() => setTicketOpen(false)} onCreated={(created) => { setTicket(created); setTicketOpen(false); }} />}
 
     {message.summary && <section className="inboxSummary" aria-label={t('email.detail.summaryLabel')}><Sparkles aria-hidden="true" /><div><strong>{t('email.detail.summary')}</strong><p dir="auto">{message.summary}</p></div></section>}
 
@@ -435,30 +446,47 @@ function NewDraft({ messageId, onCancel, onCreated, onError }: { messageId: stri
   </form>;
 }
 
-function DraftCard({ draft, owner, onChange, onSent, onOpenApprovals }: { draft: EmailDraft; owner: boolean; onChange: (draft: EmailDraft | null) => void; onSent: () => void; onOpenApprovals?: () => void }) {
+
+function DraftCard({ draft, owner, onChange, onSent, onOpenApprovals, onDirty }: { draft: EmailDraft; owner: boolean; onChange: (draft: EmailDraft | null) => void; onSent: () => void; onOpenApprovals?: () => void; onDirty?: (dirty: boolean) => void }) {
+  const savedBcc = (draft.bcc ?? []).join(', ');
   const [to, setTo] = useState(draft.to.join(', '));
   const [cc, setCc] = useState(draft.cc.join(', '));
+  const [bcc, setBcc] = useState(savedBcc);
   const [subject, setSubject] = useState(draft.subject);
   const [body, setBody] = useState(draft.body);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
-  const ids = { to: useId(), cc: useId(), subject: useId(), body: useId() };
+  const ids = { to: useId(), cc: useId(), bcc: useId(), subject: useId(), body: useId() };
+  const isNew = isNewEmailDraft(draft);
   const editable = draft.status === 'draft' || draft.status === 'failed' || draft.status === 'pending_approval';
-  const dirty = to !== draft.to.join(', ') || cc !== draft.cc.join(', ') || subject !== draft.subject || body !== draft.body;
+  const dirty = to !== draft.to.join(', ') || cc !== draft.cc.join(', ') || bcc !== savedBcc || subject !== draft.subject || body !== draft.body;
   const approval: Approval | null = useMemo(() => draft.approval ? toApproval(draft.approval) : null, [draft.approval]);
+  // The compose drawer asks before closing over edits that are not saved.
+  useEffect(() => { onDirty?.(dirty && editable); return () => onDirty?.(false); }, [dirty, editable, onDirty]);
+  const list = (value: unknown) => Array.isArray(value) ? value.map(String) : [];
+  const approvalCc = list(approval?.arguments?.cc), approvalBcc = list(approval?.arguments?.bcc);
 
   async function run(kind: string, fn: () => Promise<void>) {
     setBusy(kind); setNotice(null);
     try { await fn(); } catch (e) { setNotice({ text: describeError(e), error: true }); } finally { setBusy(null); }
   }
-  async function save(): Promise<EmailDraft | null> {
-    const toList = parseRecipients(to), ccList = parseRecipients(cc);
+  // A new email may be saved without a recipient yet; a reply always has one, and asking to send needs one.
+  async function save(forSending: boolean): Promise<EmailDraft | null> {
+    const toList = parseRecipients(to), ccList = parseRecipients(cc), bccList = parseRecipients(bcc);
     if (!toList.ok) { setNotice({ text: toList.error, error: true }); return null; }
     if (!ccList.ok) { setNotice({ text: ccList.error, error: true }); return null; }
-    if (!toList.value.length) { setNotice({ text: t('email.draft.needRecipient'), error: true }); return null; }
-    const saved = await updateEmailDraft(draft.id, { to: toList.value, cc: ccList.value, subject, body });
+    if (!bccList.ok) { setNotice({ text: bccList.error, error: true }); return null; }
+    if (!toList.value.length && (forSending || !isNew)) { setNotice({ text: t('email.draft.needRecipient'), error: true }); return null; }
+    const saved = await updateEmailDraft(draft.id, { to: toList.value, cc: ccList.value, bcc: bccList.value, subject, body });
     onChange(saved);
     return saved;
+  }
+  async function ask() {
+    const current = dirty ? await save(true) : draft;
+    if (!current) return;
+    if (!current.to.length) { setNotice({ text: t('email.draft.needRecipient'), error: true }); return; }
+    const result = await requestSendApproval(current.id);
+    onChange(result.draft);
   }
 
   if (draft.status === 'sent') return <div className="inboxDraftCard sent"><p><CheckCircle2 aria-hidden="true" /> {t('email.draft.sentTo', { to: draft.to.join(', '), when: draft.sent_at ? when(draft.sent_at) : '' })}</p><div className="inboxBodyText" dir="auto">{draft.body}</div></div>;
@@ -468,9 +496,10 @@ function DraftCard({ draft, owner, onChange, onSent, onOpenApprovals }: { draft:
     {draft.error && <Notice error>{t('email.draft.lastError', { reason: draft.error })}</Notice>}
     {draft.approval_note && <Notice>{draft.approval_note}</Notice>}
     <div className="inboxDraftFields">
-      <label className="field" htmlFor={ids.to}><span>{t('email.draft.to')}</span><input id={ids.to} value={to} disabled={!editable} onChange={(e) => setTo(e.target.value)} /></label>
-      <label className="field" htmlFor={ids.cc}><span>{t('email.draft.cc')}</span><input id={ids.cc} value={cc} disabled={!editable} onChange={(e) => setCc(e.target.value)} /></label>
-      <label className="field inboxWide" htmlFor={ids.subject}><span>{t('email.draft.subject')}</span><input id={ids.subject} dir="auto" value={subject} maxLength={500} disabled={!editable} onChange={(e) => setSubject(e.target.value)} /></label>
+      <label className="field" htmlFor={ids.to}><span>{t('email.draft.to')}</span><input id={ids.to} inputMode="email" autoComplete="off" value={to} disabled={!editable} onChange={(e) => setTo(e.target.value)} /></label>
+      <label className="field" htmlFor={ids.cc}><span>{t('email.draft.cc')}</span><input id={ids.cc} inputMode="email" autoComplete="off" value={cc} disabled={!editable} onChange={(e) => setCc(e.target.value)} /></label>
+      <label className="field" htmlFor={ids.bcc}><span>{t('email.draft.bcc')}</span><input id={ids.bcc} inputMode="email" autoComplete="off" value={bcc} disabled={!editable} onChange={(e) => setBcc(e.target.value)} /></label>
+      <label className="field inboxWide" htmlFor={ids.subject}><span>{t('email.draft.subject')}</span><input id={ids.subject} dir="auto" value={subject} maxLength={MAX_SUBJECT_CHARS} disabled={!editable} onChange={(e) => setSubject(e.target.value)} /></label>
       <label className="field inboxWide" htmlFor={ids.body}><span>{t('email.draft.body')}</span><textarea id={ids.body} dir="auto" value={body} maxLength={MAX_DRAFT_CHARS} disabled={!editable} onChange={(e) => setBody(e.target.value)} /></label>
     </div>
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
@@ -478,7 +507,9 @@ function DraftCard({ draft, owner, onChange, onSent, onOpenApprovals }: { draft:
       <p><Send aria-hidden="true" /> <strong>{t('email.approval.title')}</strong></p>
       <dl className="inboxMeta">
         <div><dt>{t('email.detail.from')}</dt><dd>{String(approval.arguments?.from ?? '')}</dd></div>
-        <div><dt>{t('email.detail.to')}</dt><dd>{(approval.arguments?.to as string[] | undefined)?.join(', ')}</dd></div>
+        <div><dt>{t('email.detail.to')}</dt><dd>{list(approval.arguments?.to).join(', ')}</dd></div>
+        {approvalCc.length > 0 && <div><dt>{t('email.detail.cc')}</dt><dd>{approvalCc.join(', ')}</dd></div>}
+        {approvalBcc.length > 0 && <div><dt>{t('email.draft.bcc')}</dt><dd>{approvalBcc.join(', ')}</dd></div>}
         <div><dt>{t('approvals.payloadHash')}</dt><dd><code title={approval.payloadHash ?? ''}>{shortHash(approval.payloadHash)}</code></dd></div>
         <div><dt>{t('email.approval.expires')}</dt><dd>{expiryLabel(approval) || '-'}</dd></div>
       </dl>
@@ -490,9 +521,106 @@ function DraftCard({ draft, owner, onChange, onSent, onOpenApprovals }: { draft:
       </div>
     </div> : null}
     {editable && <div className="actions">
-      <button type="button" className="secondary" disabled={busy !== null || !dirty} onClick={() => void run('save', async () => { if (await save()) setNotice({ text: t('email.draft.saved') }); })}>{t('email.draft.save')}</button>
-      {(!approval || approval.status !== 'pending' || dirty) && <button type="button" disabled={busy !== null || !body.trim()} onClick={() => void run('ask', async () => { const current = dirty ? await save() : draft; if (!current) return; const result = await requestSendApproval(current.id); onChange(result.draft); })}><Send aria-hidden="true" />{t('email.draft.askToSend')}</button>}
+      <button type="button" className="secondary" disabled={busy !== null || !dirty} onClick={() => void run('save', async () => { if (await save(false)) setNotice({ text: t('email.draft.saved') }); })}>{busy === 'save' ? t('email.compose.saving') : t('email.draft.save')}</button>
+      {(!approval || approval.status !== 'pending' || dirty) && <button type="button" disabled={busy !== null || !body.trim()} onClick={() => void run('ask', ask)}><Send aria-hidden="true" />{busy === 'ask' ? t('email.compose.asking') : t('email.draft.askToSend')}</button>}
       <button type="button" className="secondary danger" disabled={busy !== null} onClick={() => { if (!window.confirm(t('email.draft.discardConfirm'))) return; void run('discard', async () => { await discardEmailDraft(draft.id); onChange(null); }); }}><Trash2 aria-hidden="true" />{t('email.draft.discard')}</button>
     </div>}
   </div>;
+}
+
+/**
+ * A brand-new email (POST /email/drafts): pick the mailbox, write it, save it as a draft or ask to
+ * send. Sending waits for an owner's approval of the exact message (payload hash), like a reply.
+ * Once the draft exists the drawer shows it in the same card replies use. No attachments here:
+ * this mailbox send path carries text only.
+ */
+function ComposeDrawer({ accounts, initialDraft, owner, onClose, onChanged, onDiscarded, onOpenApprovals }: {
+  accounts: EmailAccount[]; initialDraft: EmailDraft | null; owner: boolean; onClose: () => void; onChanged: () => void; onDiscarded: () => void; onOpenApprovals?: () => void;
+}) {
+  const { usable, blocked } = composeMailboxes(accounts);
+  const [draft, setDraft] = useState<EmailDraft | null>(initialDraft);
+  const [form, setForm] = useState<ComposeForm>(() => ({ ...EMPTY_COMPOSE, accountId: usable[0]?.id ?? '' }));
+  const [copies, setCopies] = useState(false);
+  const [busy, setBusy] = useState<'save' | 'ask' | null>(null);
+  const [paused, setPaused] = useState(false);
+  const [cardDirty, setCardDirty] = useState(false);
+  const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  const ids = { from: useId(), to: useId(), cc: useId(), bcc: useId(), subject: useId(), body: useId(), copies: useId() };
+  const set = (patch: Partial<ComposeForm>) => setForm((current) => ({ ...current, ...patch }));
+  const typed = Boolean(form.to.trim() || form.cc.trim() || form.bcc.trim() || form.subject.trim() || form.body.trim());
+  const unsaved = draft ? cardDirty : typed && !paused;
+  const close = () => { if (unsaved && !window.confirm(t('email.compose.closeConfirm'))) return; onClose(); };
+
+  async function create(forSending: boolean) {
+    const request = composeRequest(form, forSending);
+    if (!request.ok) { setNotice({ text: request.error, error: true }); return; }
+    setBusy(forSending ? 'ask' : 'save'); setNotice(null);
+    try {
+      const result = await createNewEmailDraft(request.value);
+      onChanged();
+      if (!result.draft) {
+        // Workspace policy holds drafting until an owner approves it in Approvals.
+        if (result.status === 'waiting_approval') { setPaused(true); setNotice({ text: t('email.detail.waitingApproval') }); }
+        else setNotice({ text: result.summary || t('common.operationFailed'), error: true });
+        return;
+      }
+      setDraft(result.draft);
+      if (forSending) {
+        try {
+          const asked = await requestSendApproval(result.draft.id);
+          setDraft(asked.draft); onChanged();
+        } catch (e) { setNotice({ text: t('email.compose.savedNotAsked', { reason: describeError(e) }), error: true }); return; }
+      }
+      setNotice(result.warning ? { text: result.warning } : { text: forSending ? (owner ? t('email.compose.askedOwner') : t('email.compose.askedMember')) : t('email.draft.saved') });
+    } catch (e) {
+      setNotice({ text: isPermissionDenied(e) ? t('email.detail.notAllowed', { reason: describeError(e) }) : describeError(e), error: true });
+    } finally { setBusy(null); }
+  }
+
+  async function refreshAfterSend(id: string) {
+    onChanged();
+    try {
+      const found = (await listEmailDrafts()).find((item) => item.id === id);
+      setDraft((current) => found ?? (current ? { ...current, approval: null } : current));
+    } catch { setDraft((current) => current ? { ...current, approval: null } : current); }
+  }
+
+  const fromAddress = draft ? accounts.find((a) => a.id === draft.account_id)?.address ?? draft.account_id : null;
+  return <Drawer title={t('email.compose.title')} onClose={close}>
+    <div className="inboxCompose">
+      {notice && <Notice error={notice.error}>{notice.text}</Notice>}
+      {draft ? <>
+        <dl className="inboxMeta"><div><dt>{t('email.detail.from')}</dt><dd>{fromAddress}</dd></div></dl>
+        <DraftCard key={draft.id} draft={draft} owner={owner} onOpenApprovals={onOpenApprovals} onSent={() => void refreshAfterSend(draft.id)}
+          onDirty={setCardDirty} onChange={(next) => { onChanged(); if (next) setDraft(next); else onDiscarded(); }} />
+        <div className="actions"><button type="button" className="secondary" onClick={close}>{t('dialog.close')}</button></div>
+      </> : paused ? <div className="actions">
+        {onOpenApprovals && <button type="button" onClick={onOpenApprovals}>{t('email.approval.openApprovals')}</button>}
+        <button type="button" className="secondary" onClick={onClose}>{t('dialog.close')}</button>
+      </div> : usable.length === 0 ? <>
+        <Notice error>{t('email.compose.allNeedReconnect')}</Notice>
+        <div className="actions"><button type="button" className="secondary" onClick={onClose}>{t('dialog.close')}</button></div>
+      </> : <form className="inboxComposeForm" aria-busy={busy !== null} onSubmit={(e) => { e.preventDefault(); void create(true); }}>
+        <label className="field" htmlFor={ids.from}><span>{t('email.detail.from')}</span>
+          <select id={ids.from} value={form.accountId} onChange={(e) => set({ accountId: e.target.value })}>{usable.map((a) => <option key={a.id} value={a.id}>{a.address}</option>)}</select>
+        </label>
+        {blocked.length > 0 && <small className="muted">{t('email.compose.skipped', { addresses: blocked.map((a) => a.address).join(', ') })}</small>}
+        <label className="field" htmlFor={ids.to}><span>{t('email.draft.to')}</span><input id={ids.to} inputMode="email" autoComplete="off" value={form.to} placeholder={t('email.compose.toPlaceholder')} onChange={(e) => set({ to: e.target.value })} /></label>
+        <button type="button" className="linkButton" aria-expanded={copies} aria-controls={ids.copies} onClick={() => setCopies((value) => !value)}>{copies ? t('email.compose.hideCopies') : t('email.compose.showCopies')}</button>
+        <div id={ids.copies} className="inboxComposeCopies" hidden={!copies}>
+          <label className="field" htmlFor={ids.cc}><span>{t('email.draft.cc')}</span><input id={ids.cc} inputMode="email" autoComplete="off" value={form.cc} onChange={(e) => set({ cc: e.target.value })} /></label>
+          <label className="field" htmlFor={ids.bcc}><span>{t('email.draft.bcc')}</span><input id={ids.bcc} inputMode="email" autoComplete="off" value={form.bcc} onChange={(e) => set({ bcc: e.target.value })} /></label>
+        </div>
+        <label className="field" htmlFor={ids.subject}><span>{t('email.draft.subject')}</span><input id={ids.subject} dir="auto" value={form.subject} maxLength={MAX_SUBJECT_CHARS} onChange={(e) => set({ subject: e.target.value })} /></label>
+        <label className="field" htmlFor={ids.body}><span>{t('email.draft.body')}</span><textarea id={ids.body} dir="auto" rows={8} value={form.body} maxLength={MAX_DRAFT_CHARS} onChange={(e) => set({ body: e.target.value })} /></label>
+        <small className="muted">{t('email.compose.approvalNote')}</small>
+        <small className="muted">{t('email.compose.noAttachments')}</small>
+        <div className="actions">
+          <button type="submit" disabled={busy !== null}><Send aria-hidden="true" />{busy === 'ask' ? t('email.compose.asking') : t('email.draft.askToSend')}</button>
+          <button type="button" className="secondary" disabled={busy !== null} onClick={() => void create(false)}>{busy === 'save' ? t('email.compose.saving') : t('email.compose.saveDraft')}</button>
+          <button type="button" className="secondary" disabled={busy !== null} onClick={close}>{t('common.cancel')}</button>
+        </div>
+      </form>}
+    </div>
+  </Drawer>;
 }

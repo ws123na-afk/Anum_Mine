@@ -72,6 +72,19 @@
 @media (min-width: 1280px) {
   .splitView.inboxSplit { grid-template-columns: minmax(200px, 230px) minmax(300px, 360px) minmax(0, 1fr); }
 }
+/* A new email (the compose drawer) */
+.inboxCompose { display: grid; gap: var(--d-s4); min-width: 0; }
+.inboxCompose > .notice, .inboxCompose .notice { margin: 0; }
+.inboxCompose .inboxDraftFields { grid-template-columns: minmax(0, 1fr); }
+.inboxComposeForm { display: grid; gap: var(--d-s3); min-width: 0; }
+.inboxComposeForm .field { margin-top: 0; }
+.inboxComposeForm textarea { min-height: 200px; }
+.inboxComposeForm .linkButton { justify-self: start; }
+.inboxComposeForm .actions { margin-top: 0; }
+.inboxComposeCopies { display: grid; gap: var(--d-s3); }
+.inboxComposeCopies[hidden] { display: none; }
+.inboxKind { font-size: var(--text-2xs); margin-inline-end: var(--d-s2); padding: 1px 8px; }
+
 @media (max-width: 1023px) {
   .inboxSplit[data-show="detail"] > .inboxNav { display: none; }
   .inboxFilters { align-items: center; display: flex; flex-wrap: wrap; }

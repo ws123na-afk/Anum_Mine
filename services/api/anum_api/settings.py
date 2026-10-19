@@ -334,6 +334,15 @@ class Settings(BaseSettings):
     smtp_password: SecretStr | None = None
     smtp_from: str | None = None
     smtp_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
+    # System email sent at once (invitations, notification email, the test message;
+    # docs/notifications.md#email): a transient failure (unreachable server, 4xx) is tried
+    # again after this many seconds, doubling each time, up to three attempts.
+    smtp_retry_backoff_seconds: float = Field(default=1.0, ge=0, le=30)
+    # The web app's public address (for example https://anum-app.example.com), used for the
+    # accept link in invitation emails. Empty: the link uses the address the inviting
+    # browser was on when that origin is in ANUM_CORS_ORIGINS, else the email carries the
+    # token and says where to paste it (docs/identity.md#invitation-email).
+    public_app_url: str = Field(default="", max_length=2048, pattern=r"^(|https?://\S+)$")
     # HTTP hardening (anum_api/hardening.py, docs/security.md). Uploads to
     # /api/v1/files get max_upload_body_bytes; every other request gets the general limit.
     max_request_body_bytes: int = 1_048_576
