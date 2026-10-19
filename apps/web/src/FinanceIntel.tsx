@@ -108,7 +108,7 @@ function Venues({ overview: o }: { overview: FinanceIntelOverview }) {
   return <section className="surface cmPanel" aria-labelledby="fin-intel-venues">
     <div className="sectionHeader"><h2 id="fin-intel-venues"><Clock aria-hidden="true" className="cmInlineIcon" />{t('finance.intel.venues')}</h2></div>
     <p className="muted finHelp">{t('finance.intel.venuesHelp')}</p>
-    <div className="cmTableWrap"><table className="cmTable finTable finIntelVenues finIntelCardsSm" aria-label={t('finance.intel.venues')}>
+    <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finIntelVenues finIntelCardsSm" aria-label={t('finance.intel.venues')}>
       <thead><tr><th scope="col">{t('finance.intel.venue')}</th><th scope="col">{t('finance.intel.session')}</th><th scope="col">{t('finance.intel.localTime')}</th><th scope="col">{t('finance.intel.why')}</th></tr></thead>
       <tbody>{venues.map((v) => <tr key={v.code}>
         <th scope="row"><span dir="auto">{v.name}</span></th>
@@ -147,7 +147,7 @@ function Strategies({ counts, portfolios, refresh, onChanged, onOpen }: {
       : <Empty icon={<LineChart aria-hidden="true" />} title={t('finance.intel.noStrategies')} text={t('finance.intel.noStrategiesText')}
         action={<button type="button" className="secondary" onClick={() => onOpen('trading')}>{t('finance.intel.openPaper')}</button>} />)}
     {page.kind === 'ready' && page.value.items.length > 0 && <>
-      <div className="cmTableWrap"><table className="cmTable finTable finIntelStrategies finIntelCards" aria-label={t('finance.intel.strategiesTable')}>
+      <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finIntelStrategies finIntelCards" aria-label={t('finance.intel.strategiesTable')}>
         <thead><tr><th scope="col">{t('finance.intel.strategy')}</th><th scope="col">{t('finance.intel.state')}</th><th scope="col">{t('finance.intel.instruments')}</th><th scope="col">{t('finance.intel.params')}</th><th scope="col">{t('finance.intel.updated')}</th><th scope="col"><span className="visuallyHidden">{t('finance.intel.results')}</span></th></tr></thead>
         <tbody>{page.value.items.map((s) => <tr key={s.id} aria-current={selected?.id === s.id ? 'true' : undefined}>
           <th scope="row"><span dir="auto">{s.name}</span> <small className="muted">{t('finance.intel.version', { version: s.version })}</small>
@@ -203,7 +203,7 @@ function RunCard({ run }: { run: FinanceStrategyRun }) {
     {run.warnings.length > 0 && <div className="notice finIntelWarnings" role="note"><strong>{t('finance.intel.warnings')}</strong>
       <ul className="finIntelReasons">{run.warnings.map((w, i) => <li key={i} dir="auto">{w}</li>)}</ul></div>}
     {run.folds.length > 0 && <details className="cmChartTable"><summary>{t('finance.intel.folds', { count: run.folds.length })}</summary>
-      <div className="cmTableWrap"><table className="cmTable finTable finIntelCards" aria-label={t('finance.intel.foldsTable')}>
+      <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finIntelCards" aria-label={t('finance.intel.foldsTable')}>
         <thead><tr><th scope="col">#</th><th scope="col">{t('finance.intel.train')}</th><th scope="col">{t('finance.intel.test')}</th>{foldKeys.map((k) => <th key={k} scope="col">{metricLabel(k)}</th>)}</tr></thead>
         <tbody>{run.folds.map((f) => <tr key={f.index}><th scope="row">{f.index + 1}</th>
           <td data-label={t('finance.intel.train')}><span dir="ltr">{f.train_start ?? '-'} / {f.train_end ?? '-'}</span></td>
@@ -238,7 +238,7 @@ function PortfolioBook({ portfolio: p, onOpen }: { portfolio: FinanceIntelPortfo
     {p.unpriced.length > 0 && <p className="notice" role="note">{t('finance.intel.unpriced', { list: isolate(p.unpriced.join(', ')) })}</p>}
     {p.holdings.length === 0
       ? <p className="muted">{t('finance.intel.noHoldings')}</p>
-      : <div className="cmTableWrap"><table className="cmTable finTable finIntelCards" aria-label={t('finance.intel.holdingsOf', { name: p.name })}>
+      : <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finIntelCards" aria-label={t('finance.intel.holdingsOf', { name: p.name })}>
         <thead><tr><th scope="col">{t('finance.intel.symbol')}</th><th scope="col">{t('finance.intel.quantity')}</th><th scope="col">{t('finance.intel.average')}</th><th scope="col">{t('finance.intel.price')}</th><th scope="col">{t('finance.intel.value')}</th><th scope="col">{t('finance.intel.unrealised')}</th></tr></thead>
         <tbody>{p.holdings.map((h) => <tr key={`${h.instrument_kind}-${h.symbol}-${h.currency}`}>
           <th scope="row" dir="ltr">{h.symbol}</th>

@@ -928,6 +928,9 @@ def prepare_browser_call(payload: BrowserCallCreate, context: TenantContext = De
     access token for the provider's browser SDK. The provider then asks ANUM (signed webhook)
     what to dial, and ANUM dials only the number prepared here."""
     require(context, Permission.CALL_LOG)
+    from ..demo import refuse_send_in_demo
+
+    refuse_send_in_demo(context)
     if payload.record and not payload.recording_consent:
         raise HTTPException(status_code=422, detail="Recording needs your confirmation that the other side will hear the recording notice and that recording this call is lawful.")
     now = utc_now()

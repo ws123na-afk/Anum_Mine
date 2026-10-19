@@ -70,7 +70,7 @@ The API answers in the page language for the sentences the web shows: the web se
 
 ## Accessibility
 
-`apps/web/e2e/accessibility.spec.ts` runs axe-core (`@axe-core/playwright`, pinned exactly) over the Command Center home, AI Chat (Assistant), Tasks, Approvals, Memory, Files, Settings, Language, Privacy, Notifications, the Audit log, Integrations, Skills, Agents, Enterprise, Automations, Activity, Autonomy, What ANUM learned, Members, Budgets, the Approval policy, Governance and Voice, in English and in Arabic, on the desktop and mobile Playwright projects, with the WCAG 2.0/2.1 A and AA rules plus best practices. A serious or critical violation fails CI and the failure lists the rule and the offending selectors. The same spec checks:
+`apps/web/e2e/accessibility.spec.ts` runs axe-core (`@axe-core/playwright`, pinned exactly) over every page the web app can open: each view in `src/lib/shell.ts` plus the tabs and deep links that draw their own layout, listed once in `e2e/support/gatePages.ts` (a test fails when a view has no entry there). Each page is checked in English and in Arabic at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844, and in the light theme, with the WCAG 2.0/2.1 A and AA rules plus best practices. A serious or critical violation fails CI and the failure lists the rule and the offending selectors. The same spec checks:
 
 - a "Skip to content" link is the first Tab stop and moves focus into the page, past the navigation;
 - there is exactly one `main` landmark, named by the page title, and a labelled primary navigation (the sidebar is a sibling of `main`, not inside it).

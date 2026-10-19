@@ -3,7 +3,7 @@
 Business is roadmap P1 "Internal sales MVP" ([ANUM OS business and product roadmap](ANUM_OS_Business_and_Product_Master_Roadmap.md), sections 4B, 6, 7 P1 and 8 Sales). It is where the owner keeps what they sell, who they want to sell it to, what they know about those companies, the deals in progress, the proposals and the projects that follow. It runs inside the owner's own workspace; nothing in it is seeded, and nothing in it sends a message without an owner's approval of that exact message (sending is off by default).
 
 - API: `services/api/anum_api/business/` under `/api/v1/business`.
-- Storage: migrations `0070_business` (16 tables), `0076_business_support` (support tickets) and `0079_business_pipeline` (6 tables: prospecting and the outbox), memory store for local runs and tests.
+- Storage: migrations `0070_business` (16 tables), `0076_business_support` (support tickets) and `0082_business_pipeline` (6 tables: prospecting and the outbox), memory store for local runs and tests.
 - Web: Business in the main navigation (`apps/web/src/BusinessView.tsx` and its tabs), English and Arabic.
 - Flutter: Business in the menu (`apps/mobile/lib/features/business/`), English and Arabic.
 - Contracts: `packages/contracts/src/business.ts`.

@@ -26,6 +26,7 @@ import { formatDateTime, t } from './lib/i18n';
 import { rich } from './rich';
 import { useIsOwner } from './useIsOwner';
 import './developer.css';
+import { HelpLink } from './HelpLink';
 
 const PAGE = 20;
 const LAST_PROJECT_KEY = 'anum.developer.lastProject';
@@ -452,7 +453,7 @@ function ProjectsPanel({ projects, setup, onChanged, onNotice }: {
     {projects.length === 0 && !editing && <section className="surface emptyState">
       <FolderGit2 aria-hidden="true" />
       <h3>{t('dev.projects.empty.title')}</h3>
-      <p>{t('dev.projects.empty.text')}</p>
+      <p>{t('dev.projects.empty.text')}</p><HelpLink />
       <div className="actions devExamples"><button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('dev.projects.add')}</button></div>
     </section>}
     {projects.length > 0 && shown.length === 0 && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('dev.projects.noMatch', { query })}</p>}

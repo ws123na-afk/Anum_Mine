@@ -1,4 +1,4 @@
-"""PostgreSQL rows of the prospecting pipeline and the outbox (migration ``0079_business_pipeline``).
+"""PostgreSQL rows of the prospecting pipeline and the outbox (migration ``0082_business_pipeline``).
 
 The generic :class:`~anum_api.db.business_repository.SqlAlchemyBusinessStore` reads and writes
 them like every other business kind, inside the caller's tenant and workspace (RLS).

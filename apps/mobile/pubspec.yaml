@@ -58,6 +58,8 @@ flutter:
   # from assets/fonts/OFL-*.txt). Weights the app uses: 400 to 800 (900 falls
   # back to 800).
   assets:
+    # In-app help articles, copied from docs/help by scripts/sync-help.mjs (docs/help.md).
+    - assets/help/
     - assets/fonts/OFL-Inter.txt
     - assets/fonts/OFL-NotoSansArabic.txt
   fonts:
