@@ -16,6 +16,7 @@ import * as lib from './lib/libraryApi';
 import { KnowledgeSummary, useRetrievalStatus } from './MemoryView';
 import { DialogButton, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import './library.css';
+import { HelpLink } from './HelpLink';
 
 type Flash = { text: string; error?: boolean } | null;
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
@@ -244,7 +245,7 @@ function CollectionDetail({ collection, starred, onStar, onBack, onChanged, onCo
       <Notice flash={flash} />
       <form className="toolbar kbItemFilters" role="search" onSubmit={(e) => { e.preventDefault(); setFilters({ ...filters, q: draft.trim() || undefined }); }}>
         <label className="visuallyHidden" htmlFor="kb-filter-q">{t('kb.filterItems')}</label>
-        <input id="kb-filter-q" type="search" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={t('kb.filterItems')} maxLength={200} dir="auto" />
+        <input id="kb-filter-q" type="search" required value={draft} onChange={(e) => { setDraft(e.target.value); if (!e.target.value && filters.q) setFilters({ ...filters, q: undefined }); }} placeholder={t('kb.filterItems')} maxLength={200} dir="auto" />
         <label className="visuallyHidden" htmlFor="kb-filter-kind">{t('kb.kind')}</label>
         <select id="kb-filter-kind" value={filters.kind ?? ''} onChange={(e) => setFilters({ ...filters, kind: e.target.value as KnowledgeItemKind | '' })}><option value="">{t('kb.anyKind')}</option><option value="file">{t('kb.kind.file')}</option><option value="note">{t('kb.kind.note')}</option></select>
         <label className="visuallyHidden" htmlFor="kb-filter-tag">{t('kb.tag')}</label>
@@ -256,7 +257,7 @@ function CollectionDetail({ collection, starred, onStar, onBack, onChanged, onCo
         <h3 id="kb-items" className="kbItemsHead">{t('kb.items')}{page ? <span className="muted"> · {t('kb.itemCount', { n: page.total })}</span> : null}</h3>
         {state === 'loading' && <p className="muted" role="status">{t('kb.loadingItems')}</p>}
         {typeof state === 'object' && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('kb.itemsFailed', { message: state.error })}</span><button type="button" className="secondary" onClick={() => void fetchItems(filters)}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
-        {state === 'ready' && items.length === 0 && <div className="paneEmpty"><BookOpen aria-hidden="true" /><h3>{filtered ? t('kb.noItemsMatch') : t('kb.noItems')}</h3><p>{t('kb.noItemsText')}</p><div className="actions">{filtered ? <button type="button" className="secondary" onClick={() => { setDraft(''); setFilters({}); }}>{t('common.clear')}</button> : <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('pages.kb.addItem')}</button>}</div></div>}
+        {state === 'ready' && items.length === 0 && <div className="paneEmpty"><BookOpen aria-hidden="true" /><h3>{filtered ? t('kb.noItemsMatch') : t('kb.noItems')}</h3><p>{t('kb.noItemsText')}</p><HelpLink /><div className="actions">{filtered ? <button type="button" className="secondary" onClick={() => { setDraft(''); setFilters({}); }}>{t('common.clear')}</button> : <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('pages.kb.addItem')}</button>}</div></div>}
         {state === 'ready' && items.length > 0 && <div className="dataTableWrap"><table className="dataTable kbItemsTable">
           <caption className="visuallyHidden">{t('kb.items')}</caption>
           <thead><tr><th scope="col">{t('pages.kb.col.title')}</th><th scope="col" className="optional">{t('pages.kb.col.tags')}</th><th scope="col">{t('pages.kb.col.index')}</th><th scope="col" className="optional num">{t('pages.files.col.size')}</th><th scope="col" className="optional">{t('pages.kb.col.added')}</th></tr></thead>

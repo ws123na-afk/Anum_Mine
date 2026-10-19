@@ -607,11 +607,12 @@ class _AllInboxTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AnumSpacing.xs),
-            // A date (not today's time) is wider: at 200% text it wraps instead of overflowing.
+            // Loose, so a long localized date at large text sizes ellipsizes
+            // instead of pushing the row past the card.
             Flexible(
               child: Text(mailWhen(context, m.date),
-                  maxLines: 2,
-                  textAlign: TextAlign.end,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall),
             ),
           ],

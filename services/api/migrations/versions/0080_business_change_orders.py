@@ -24,15 +24,16 @@ so a row can never point into another tenant or workspace. No role is granted an
 Expand only: two new tables, one nullable column and indexes. The previous release
 ignores them.
 
-Numbered 0077 and chained after ``0076_business_support``, the head of ``main``.
+Numbered 0080 and chained after ``0078_demo_records``, the head of ``main`` (0079 is taken by
+another branch and is renumbered at its merge).
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0077_business_change_orders"
-down_revision = "0076_business_support"
+revision = "0080_business_change_orders"
+down_revision = "0078_demo_records"
 branch_labels = None
 depends_on = None
 

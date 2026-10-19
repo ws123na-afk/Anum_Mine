@@ -442,7 +442,7 @@ class ProposalVersion(ProposalContent):
     version: int = Field(ge=1)
     content_hash: str
     locked: bool = False
-    # Set on a version an approved change order produced (migration 0077); the version it
+    # Set on a version an approved change order produced (migration 0080); the version it
     # amends stays as it was.
     change_order_id: str | None = None
     created_by: str
