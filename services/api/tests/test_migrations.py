@@ -1118,7 +1118,8 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
     assert 'revision = "0076_business_support"' in revision_text and len("0076_business_support") <= 32
     assert 'down_revision = "0075_file_scan_status"' in revision_text
     others = [path for path in versions.glob("*.py") if path.name != "0076_business_support.py"]
-    assert not [path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]
+    # One chain: at most one later revision builds on it (it stops being the head once one lands).
+    assert len([path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]) <= 1
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 2
     assert '"business_support_tickets"' in revision_text and '"business_ticket_replies"' in revision_text
