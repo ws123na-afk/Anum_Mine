@@ -9,13 +9,15 @@ import type { KnowledgeAnswer, KnowledgeCollection, KnowledgeItem, KnowledgeItem
 import { ConfirmDialog, Drawer, Modal } from './Dialog';
 import { StarButton, useStars } from './Favorites';
 import { getFiles } from './lib/api';
+import { skipReason } from './lib/files';
 import { ApiError, describeError, isBudgetExceeded, isPermissionDenied, budgetMessage } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
-import { ITEMS_PAGE, fileSize, parseTags } from './lib/library';
+import { ITEMS_PAGE, citationPlace, fileSize, parseTags } from './lib/library';
 import * as lib from './lib/libraryApi';
 import { KnowledgeSummary, useRetrievalStatus } from './MemoryView';
 import { DialogButton, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import './library.css';
+import { HelpLink } from './HelpLink';
 
 type Flash = { text: string; error?: boolean } | null;
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
@@ -30,7 +32,11 @@ const failure = (e: unknown, denied: MessageKey): string => isPermissionDenied(e
 function IndexBadge({ item }: { item: KnowledgeItem }) {
   if (!item.available) return <span className="statusBadge dangerTone">{t('kb.index.gone')}</span>;
   const tone = item.index.state === 'indexed' ? 'success' : item.index.state === 'failed' ? 'dangerTone' : item.index.state === 'skipped' ? 'neutral' : 'warning';
-  return <span className={`statusBadge ${tone}`} title={item.index.error ?? undefined}>{t(`kb.index.${item.index.state}` as MessageKey)}</span>;
+  // A scanned PDF has no text layer and there is no OCR: say so instead of a plain "Not searchable".
+  if (item.index.state === 'skipped' && item.index.error === 'no_text_layer') {
+    return <span className="statusBadge warning" title={skipReason(item.index.error)}>{t('kb.index.noTextLayer')}</span>;
+  }
+  return <span className={`statusBadge ${tone}`} title={item.index.error ? skipReason(item.index.error) : undefined}>{t(`kb.index.${item.index.state}` as MessageKey)}</span>;
 }
 
 export function KnowledgeView({ initialCollectionId }: { initialCollectionId?: string | null }) {
@@ -161,7 +167,7 @@ function AskPanel({ collections, selected, action }: { collections: KnowledgeCol
         {answer.status === 'answered' && <p className="kbAnswerText" dir="auto">{answer.answer}</p>}
         {answer.citations.length > 0 && <><h3>{t('kb.sources')}</h3><ol className="kbCitations">{answer.citations.map((c) => <li key={c.n} value={c.n}>
           <strong dir="auto">{c.title}</strong> <span className="statusBadge neutral">{c.provenance === 'file' ? t('kb.provenance.file') : t('kb.provenance.memory')}</span>
-          <small>{names.get(c.collection_id) ?? ''} · {t('kb.match', { score: Math.round(c.score * 100) })}</small>
+          <small>{names.get(c.collection_id) ?? ''}{citationPlace(c) ? <> · <bdi>{citationPlace(c)}</bdi></> : null} · {t('kb.match', { score: Math.round(c.score * 100) })}</small>
           <q dir="auto">{c.snippet}</q>
         </li>)}</ol><p className="muted kbUntrusted">{t('kb.untrusted')}</p></>}
       </div>}
@@ -256,7 +262,7 @@ function CollectionDetail({ collection, starred, onStar, onBack, onChanged, onCo
         <h3 id="kb-items" className="kbItemsHead">{t('kb.items')}{page ? <span className="muted"> · {t('kb.itemCount', { n: page.total })}</span> : null}</h3>
         {state === 'loading' && <p className="muted" role="status">{t('kb.loadingItems')}</p>}
         {typeof state === 'object' && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('kb.itemsFailed', { message: state.error })}</span><button type="button" className="secondary" onClick={() => void fetchItems(filters)}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
-        {state === 'ready' && items.length === 0 && <div className="paneEmpty"><BookOpen aria-hidden="true" /><h3>{filtered ? t('kb.noItemsMatch') : t('kb.noItems')}</h3><p>{t('kb.noItemsText')}</p><div className="actions">{filtered ? <button type="button" className="secondary" onClick={() => { setDraft(''); setFilters({}); }}>{t('common.clear')}</button> : <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('pages.kb.addItem')}</button>}</div></div>}
+        {state === 'ready' && items.length === 0 && <div className="paneEmpty"><BookOpen aria-hidden="true" /><h3>{filtered ? t('kb.noItemsMatch') : t('kb.noItems')}</h3><p>{t('kb.noItemsText')}</p><HelpLink /><div className="actions">{filtered ? <button type="button" className="secondary" onClick={() => { setDraft(''); setFilters({}); }}>{t('common.clear')}</button> : <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('pages.kb.addItem')}</button>}</div></div>}
         {state === 'ready' && items.length > 0 && <div className="dataTableWrap"><table className="dataTable kbItemsTable">
           <caption className="visuallyHidden">{t('kb.items')}</caption>
           <thead><tr><th scope="col">{t('pages.kb.col.title')}</th><th scope="col" className="optional">{t('pages.kb.col.tags')}</th><th scope="col">{t('pages.kb.col.index')}</th><th scope="col" className="optional num">{t('pages.files.col.size')}</th><th scope="col" className="optional">{t('pages.kb.col.added')}</th></tr></thead>

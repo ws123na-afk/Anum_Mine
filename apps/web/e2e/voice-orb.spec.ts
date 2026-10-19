@@ -368,10 +368,10 @@ test('the scene stays dark and readable in the light theme', async ({ page }) =>
   const voice = await openVoice(page);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   // The panel text uses the dark theme's colours on the dark glass in both themes.
-  expect(await voice.getByRole('status').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(125, 211, 252)');
-  expect(await voice.locator('.voiceCaption').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(179, 187, 208)');
+  expect(await voice.getByRole('status').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(69, 208, 181)');
+  expect(await voice.locator('.voiceCaption').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(176, 182, 195)');
   // The page chrome keeps the light theme.
-  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(244, 246, 251)');
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(247, 248, 250)');
 });
 
 const SIZES = [[320, 640], [390, 844], [768, 1024], [1024, 768], [1366, 768], [1440, 900], [1280, 720], [1920, 1080], [412, 915]] as const;

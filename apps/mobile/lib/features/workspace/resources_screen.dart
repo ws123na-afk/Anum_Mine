@@ -394,14 +394,45 @@ class _SkillsTab extends StatelessWidget {
                             style: TextStyle(color: p.faint, fontSize: 12)),
                         const SizedBox(height: 6),
                         // Under the name so it never squeezes it on narrow screens.
-                        AnumPill(
-                            label: '${s.risk} risk', tone: riskTone(s.risk)),
+                        Wrap(spacing: 6, runSpacing: 6, children: [
+                          AnumPill(
+                              label: '${s.risk} risk', tone: riskTone(s.risk)),
+                          if (s.signature != null)
+                            AnumPill(
+                                label: s.signature!.label,
+                                tone: _signatureTone(s.signature!),
+                                icon: s.signature!.verified
+                                    ? Icons.verified_user_outlined
+                                    : Icons.gpp_maybe_outlined),
+                        ]),
                       ]),
                 ),
               ]),
               const SizedBox(height: 10),
               Text(s.description,
                   style: TextStyle(color: p.muted, fontSize: 13.5)),
+              if (s.installed && !s.enabled && s.disabledReason != null) ...[
+                const SizedBox(height: 8),
+                Text(s.disabledReason!,
+                    style: TextStyle(color: p.muted, fontSize: 12.5)),
+              ],
+              if (s.signature != null && !s.signature!.verified) ...[
+                const SizedBox(height: 8),
+                // Installed but no longer verifies (a revoked key): flagged.
+                Text(
+                    s.installed
+                        ? 'Flagged: ${s.signature!.detail}'
+                        : s.signature!.detail,
+                    style: TextStyle(
+                        color: anumToneColor(
+                            context, _signatureTone(s.signature!)),
+                        fontSize: 12.5)),
+              ] else if (s.signature?.fingerprint != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                    'Key ${s.signature!.keyId}, fingerprint ${s.signature!.fingerprint}',
+                    style: TextStyle(color: p.faint, fontSize: 12)),
+              ],
               if (s.tools.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text('Can use', style: TextStyle(color: p.faint, fontSize: 12)),
@@ -439,7 +470,8 @@ class _SkillsTab extends StatelessWidget {
                     if (s.hasInstall)
                       AnumPill(label: 'v${s.installedVersion} installed'),
                     FilledButton(
-                      onPressed: controller.mutating
+                      // Only a verified version installs; the API refuses the rest.
+                      onPressed: controller.mutating || !s.installable
                           ? null
                           : () => controller.installSkill(s),
                       child: Text(
@@ -452,6 +484,12 @@ class _SkillsTab extends StatelessWidget {
           ),
     ]);
   }
+
+  static AnumTone _signatureTone(SkillSignature s) => switch (s.status) {
+        'verified' => AnumTone.ok,
+        'unsigned' => AnumTone.warn,
+        _ => AnumTone.stop,
+      };
 
   Future<void> _confirmUninstall(BuildContext context, WorkspaceSkill s) async {
     final yes = await showDialog<bool>(

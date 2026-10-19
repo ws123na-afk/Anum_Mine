@@ -305,7 +305,16 @@ WORKSPACE_ARCHIVED = (
     "administrator can restore it in Settings > Workspace."
 )
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-_ARCHIVE_EXEMPT_PATHS = frozenset({"/api/v1/workspaces/current/restore"})
+_ARCHIVE_EXEMPT_PATHS = frozenset(
+    {
+        "/api/v1/workspaces/current/restore",
+        # Deleting an archived workspace, or cancelling that (docs/organisation-lifecycle.md).
+        "/api/v1/workspaces/current/deletion",
+        "/api/v1/workspaces/current/deletion/cancel",
+    }
+)
+# The organisation's export and deletion work from any of its workspaces, archived too.
+_ARCHIVE_EXEMPT_PREFIXES = ("/api/v1/organization/lifecycle/",)
 
 
 def workspace_archived(context: TenantContext) -> bool:
@@ -330,7 +339,11 @@ def workspace_archived(context: TenantContext) -> bool:
 
 
 def refuse_writes_to_archived_workspace(request: Request, context: TenantContext) -> None:
-    if request.method in _SAFE_METHODS or request.url.path in _ARCHIVE_EXEMPT_PATHS:
+    if (
+        request.method in _SAFE_METHODS
+        or request.url.path in _ARCHIVE_EXEMPT_PATHS
+        or request.url.path.startswith(_ARCHIVE_EXEMPT_PREFIXES)
+    ):
         return
     if workspace_archived(context):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=WORKSPACE_ARCHIVED)

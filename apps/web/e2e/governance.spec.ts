@@ -85,10 +85,19 @@ test('a workspace owner who is not an organization administrator reads tenant-wi
   const calls = await mockApi(page, { canManage: false });
   await page.goto('/#governance');
 
-  await expect(page.getByRole('heading', { name: 'Governance center' })).toBeVisible();
-  await expect(page.getByText(/Read only: policy packs, role templates and approval rules apply to every workspace in this organization/)).toBeVisible();
-  await expect(page.getByText(/Owning this workspace is not enough/)).toBeVisible();
-  await expect(page.getByText(/assign you the realm role org_admin/)).toBeVisible();
+  // One heading: the page title.
+  await expect(page.getByRole('heading', { level: 1, name: 'Governance' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Governance center' })).toHaveCount(0);
+  // Each figure says what it counts.
+  await expect(page.getByText('Enforced in every workspace now')).toBeVisible();
+  // One line says what is read only; how to get the role waits behind a disclosure.
+  const notice = page.getByRole('note').filter({ hasText: 'Read only: policy packs, role templates and approval rules apply to every workspace in this organization, so only an organization administrator can change them.' });
+  await expect(notice).toBeVisible();
+  await expect(notice.getByText(/Owning this workspace is not enough/)).toBeHidden();
+  await notice.getByText('How to get access').click();
+  await expect(notice.getByText(/Owning this workspace is not enough/)).toBeVisible();
+  await expect(notice.getByText(/assign you the realm role org_admin/)).toBeVisible();
+  await expect(notice.locator('code')).toHaveText('infra/oracle/keycloak-2fa.sh grant-org-admin <your username>');
   // Everything is still listed.
   await expect(page.getByText('Organization baseline')).toBeVisible();
   await expect(page.getByText('Operator')).toBeVisible();

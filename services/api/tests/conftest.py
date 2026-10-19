@@ -30,6 +30,7 @@ WORKSPACE_A2 = "workspace_test_a2"
 WORKSPACE_B = "workspace_test_b"
 
 TABLES_IN_DELETE_ORDER = (
+    "demo_records",
     "app_call_signals",
     "app_calls",
     "call_ai_requests",
@@ -178,6 +179,7 @@ TABLES_IN_DELETE_ORDER = (
     "approval_rules",
     "role_templates",
     "policy_packs",
+    "skill_publisher_keys",
     "skill_installations",
     "skill_versions",
     "audit_records",
@@ -192,6 +194,8 @@ TABLES_IN_DELETE_ORDER = (
     "tasks",
     "workspace_memberships",
     "workspaces",
+    "tenant_lifecycle_jobs",
+    "deleted_organizations",
     "tenants",
 )
 

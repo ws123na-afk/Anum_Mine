@@ -27,6 +27,7 @@ import { Note, SetupDetails, type SetupFlash } from './ConnectionSetup';
 import './governance.css';
 import './catalog.css';
 import './integrations.css';
+import { HelpLink } from './HelpLink';
 
 const serviceIcons: Record<string, ReactNode> = { postgresql: <Database />, keycloak: <KeyRound />, nats: <GitBranch />, temporal: <Workflow />, valkey: <MemoryStick />, minio: <FileText />, s3: <FileText />, searxng: <Search />, 'external-webhook': <Webhook /> };
 const kindIcons: Record<string, ReactNode> = { email: <Mail />, search: <Search />, tool: <Webhook />, database: <Database />, identity: <KeyRound />, cache: <MemoryStick />, object_storage: <FileText />, workflow: <Workflow />, event_bus: <GitBranch /> };
@@ -158,7 +159,7 @@ export function IntegrationsView({ onGo }: { onGo?: (view: View) => void } = {})
     {setupState === 'ready' && setup && setup.items.length === 0 && <div className="emptyState"><Plug aria-hidden="true" /><h3>{t('setup.emptyTitle')}</h3><p>{t('setup.emptyText')}</p><button type="button" onClick={() => void loadSetup()}>{t('setup.tryAgain')}</button></div>}
     {servicesLoading && !services.length && <Note>{t('integrations.loading')}</Note>}
     {servicesError && <Note error>{servicesError}</Note>}
-    {!servicesLoading && !servicesError && !services.length && <div className="emptyState"><Plug aria-hidden="true" /><h3>{t('integrations.emptyTitle')}</h3><p>{t('integrations.emptyText')}</p></div>}
+    {!servicesLoading && !servicesError && !services.length && <div className="emptyState"><Plug aria-hidden="true" /><h3>{t('integrations.emptyTitle')}</h3><p>{t('integrations.emptyText')}</p><HelpLink /></div>}
 
     {hasRows && shownCount === 0 && <div className="emptyState"><Search aria-hidden="true" /><h3>{t('setup.noMatchTitle')}</h3><p>{t('setup.noMatchText')}</p><button type="button" className="secondary" onClick={clear}>{t('setup.clear')}</button></div>}
 

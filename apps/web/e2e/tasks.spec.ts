@@ -144,7 +144,7 @@ test('a failed list load says what failed and retries', async ({ page }) => {
   await page.goto('/#tasks');
   await history(page).getByLabel('Search tasks').fill('launch');
   const alert = history(page).getByRole('alert');
-  await expect(alert).toContainText('Could not load tasks: Database unavailable');
+  await expect(alert).toContainText('Could not load tasks: The server could not reach its database');
   api.recover();
   await alert.getByRole('button', { name: 'Try again' }).click();
   await expect(history(page).getByRole('button', { name: /Launch checklist/ })).toBeVisible();

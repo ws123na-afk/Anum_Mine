@@ -158,7 +158,7 @@ test('a failed load says what failed and retries', async ({ page }) => {
   await mockApi(page, { failFirst: true });
   await page.goto('/#audit');
   await expect(page.getByRole('heading', { name: 'The audit log could not be loaded' })).toBeVisible();
-  await expect(page.getByText('The database is unavailable')).toBeVisible();
+  await expect(page.getByText('The server could not reach its database')).toBeVisible();
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByRole('heading', { name: '50 records loaded' })).toBeVisible();
 });
@@ -203,7 +203,7 @@ test('an owner renames, archives with the typed name, restores and creates a wor
   await create.getByRole('button', { name: 'Create workspace' }).click();
   await expect(panel.getByText('Workspace Finance created. You are its owner.')).toBeVisible();
   await panel.getByRole('button', { name: 'Switch to Finance' }).click();
-  await expect(page.getByRole('button', { name: /tenant_local \/ ws_finance_1a2b3c4d/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Local / Finance 1a2b3c4d' })).toBeVisible();
 });
 
 test('a viewer sees the workspace read-only with who can change it', async ({ page }) => {

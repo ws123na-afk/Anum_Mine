@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { WorkspaceMember } from '@anum/contracts';
 import { approvalPolicyBody, mapApprovalPolicy, policyChanged, policyDraft, policyUpdatedLabel, POLICY_SWITCHES, twoPersonWarning } from '../src/lib/policy.ts';
-import { EMPTY_MEMORY, forget, isWorkspaceId, membershipEntries, membershipLabel, memoryKey, readMemory, remember, resolveWorkspace, select, workspaceOptions, writeMemory, type KeyValueStorage } from '../src/lib/workspaces.ts';
+import { EMPTY_MEMORY, forget, isWorkspaceId, membershipEntries, membershipLabel, memoryKey, readableId, readMemory, remember, resolveWorkspace, scopeNames, select, workspaceOptions, writeMemory, type KeyValueStorage } from '../src/lib/workspaces.ts';
 
 const member = (userId: string, role: WorkspaceMember['role'], active = true): WorkspaceMember => ({
   tenantId: 't', workspaceId: 'w', userId, role, active, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
@@ -123,5 +123,22 @@ describe('workspace selection', () => {
     assert.equal(membershipLabel(options[2]), null);
     // Without the list (it could not be loaded) the options are what the client knows.
     assert.deepEqual(workspaceOptions('workspace_foundation', ['workspace_foundation'], EMPTY_MEMORY, null), [{ id: 'workspace_foundation', current: true, source: 'default' }]);
+  });
+});
+
+describe('switcher names', () => {
+  test('ids read as words when no name is known', () => {
+    assert.equal(readableId('workspace_foundation'), 'Foundation');
+    assert.equal(readableId('tenant_local'), 'Local');
+    assert.equal(readableId('gulf_tyres_main'), 'Gulf tyres main');
+    assert.equal(readableId('workspace_'), 'Workspace');
+  });
+  test('the top bar shows the organisation and workspace display names, not ids', () => {
+    const orgs = [{ tenant_id: 'tenant_local', name: 'ANUM', display_name: 'Tyre House', workspaces: [{ workspace_id: 'workspace_foundation', workspace_name: 'Foundation' }] }];
+    assert.deepEqual(scopeNames('tenant_local', 'workspace_foundation', orgs), { organisation: 'Tyre House', workspace: 'Foundation' });
+    // The legal name stands in for a missing display name; the membership list for a missing workspace name.
+    assert.deepEqual(scopeNames('tenant_local', 'workspace_sales', [{ ...orgs[0], display_name: null }], [{ workspaceId: 'workspace_sales', workspaceName: 'Sales', role: 'member' }]), { organisation: 'ANUM', workspace: 'Sales' });
+    // Nothing loaded yet: readable words, never the raw ids.
+    assert.deepEqual(scopeNames('tenant_local', 'workspace_foundation', null), { organisation: 'Local', workspace: 'Foundation' });
   });
 });
