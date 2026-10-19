@@ -18,6 +18,7 @@ import { businessEn } from './business.en.ts';
 import { businessPipelineEn } from './businessPipeline.en.ts';
 import { businessSupportEn } from './businessSupport.en.ts';
 import { brevoEn } from './brevo.en.ts';
+import { lifecycleEn } from './lifecycle.en.ts';
 import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
@@ -27,6 +28,7 @@ import { routingEn } from './routing.en.ts';
 import { voiceEn } from './en.voice.ts';
 import { voiceActionsEn } from './en.voiceActions.ts';
 import { agentSkillsEn } from './agentSkills.en.ts';
+import { skillSigningEn } from './skillSigning.en.ts';
 import { orgChartEn } from './orgChart.en.ts';
 import { mailCenterEn } from './mailCenter.en.ts';
 import { mailOutgoingEn } from './mailOutgoing.en.ts';
@@ -35,6 +37,7 @@ import { mailShareEn } from './mailShare.en.ts';
 import { mailAllEn } from './mailAll.en.ts';
 import { mailRulesEn } from './mailRules.en.ts';
 import { mailOpsEn } from './mailOps.en.ts';
+import { mailDomainsEn } from './mailDomains.en.ts';
 import { mailEn } from './mail.en.ts';
 import { callsEn } from './calls.en.ts';
 import { chatEn } from './chat.en.ts';
@@ -60,9 +63,11 @@ export const en = {
   ...businessPipelineEn,
   ...businessSupportEn,
   ...brevoEn,
+  ...lifecycleEn,
   ...helpEn,
   ...publicSiteEn,
   ...agentSkillsEn,
+  ...skillSigningEn,
   ...orgChartEn,
   ...mailCenterEn,
   ...mailOutgoingEn,
@@ -71,6 +76,7 @@ export const en = {
   ...mailAllEn,
   ...mailRulesEn,
   ...mailOpsEn,
+  ...mailDomainsEn,
   ...mailEn,
   ...callsEn,
   ...chatEn,
@@ -89,6 +95,7 @@ export const en = {
   'common.clear': 'Clear',
   'common.loading': 'Loading...',
   'common.operationFailed': 'Operation failed.',
+  'common.databaseUnavailable': 'The server could not reach its database',
   'common.requestFailed': 'Request failed.',
   'common.signInExpired': 'Your sign-in expired. Sign in again.',
   'common.budgetReached': 'Monthly model budget reached. {message}',
@@ -193,6 +200,8 @@ export const en = {
   'switcher.button': 'Switch workspace',
   'switcher.eyebrow': 'Workspace',
   'switcher.intro': 'Every request names the selected workspace. Your role and the data you see follow it.',
+  'switcher.organisationId': 'Organisation ID',
+  'switcher.workspaceId': 'Workspace ID',
   'switcher.loading': 'Loading your workspaces...',
   'switcher.list': 'Workspaces',
   'switcher.current': 'Current workspace',
@@ -1249,10 +1258,14 @@ export const en = {
   'files.index.skippedDetail': 'Not indexed: {reason}.',
   'files.index.pending': 'Not indexed yet',
   'files.index.pendingDetail': 'This file has not been indexed yet. Re-index so tasks can use it.',
-  'files.skip.not_text': 'only text files are indexed',
+  'files.skip.not_text': 'this file type is not indexed',
   'files.skip.too_large': 'it has more than 2 MiB of text',
   'files.skip.not_utf8': 'it is not UTF-8 text',
   'files.skip.empty': 'it has no text',
+  'files.skip.encrypted': 'it is password protected',
+  'files.skip.malformed': 'it is damaged or could not be read',
+  'files.skip.too_complex': 'it is too complex to read safely',
+  'files.skip.no_text_layer': 'no extractable text, OCR not available',
   'files.skip.other': 'not indexable',
   'files.check.empty': '{name} is empty. Choose a file with content.',
   'files.check.tooLarge': '{name} is {size}; files can be at most {max}. Split or compress it.',
@@ -3476,6 +3489,10 @@ export const en = {
   'kb.provenance.file': 'Document',
   'kb.provenance.memory': 'Note',
   'kb.match': '{score}% match',
+  'kb.location.page': 'page {n}',
+  'kb.index.noTextLayer': 'No extractable text, OCR not available',
+  'kb.location.slide': 'slide {n}',
+  'kb.location.sheet': 'sheet {n}',
   'kb.untrusted': 'Passages are given to the model as labelled, untrusted data: they cannot change tools, approvals or permissions.',
   'kb.semanticNoIndex': 'Nothing is indexed yet, so only titles, tags and note text were searched.',
   'kb.semanticUnavailable': 'Meaning search is unavailable right now; showing word matches only.',

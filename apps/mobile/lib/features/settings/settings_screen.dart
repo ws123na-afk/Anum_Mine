@@ -14,6 +14,10 @@ import '../autonomy/autonomy_repository.dart';
 import '../autonomy/autonomy_screens.dart';
 import '../learning/learning_controller.dart';
 import '../learning/learning_screen.dart';
+import '../lifecycle/lifecycle_controller.dart';
+import '../lifecycle/lifecycle_screen.dart';
+import '../lifecycle/lifecycle_strings.dart';
+import '../privacy/privacy_strings.dart';
 import '../privacy/privacy_controller.dart';
 import '../privacy/privacy_screen.dart';
 import '../push/push_settings_card.dart';
@@ -286,9 +290,9 @@ class _Content extends StatelessWidget {
               Card(
                   child: ListTile(
                       leading: const Icon(Icons.privacy_tip_outlined),
-                      title: const Text('Your data and privacy'),
-                      subtitle: const Text(
-                          'See what is stored, download it or delete it.'),
+                      title: Text(PrivacyStrings.of(context).t('tile.title')),
+                      subtitle:
+                          Text(PrivacyStrings.of(context).t('tile.subtitle')),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.push(
                           context,
@@ -298,6 +302,24 @@ class _Content extends StatelessWidget {
                                       PrivacyController(controller.privacy!),
                                   onOpenChatMemory: () =>
                                       _openChatMemory(context)))))),
+            ],
+            if (controller.lifecycle != null) ...[
+              if (controller.privacy == null)
+                _Heading('Privacy', key: sections[SettingsSection.privacy]),
+              Card(
+                  child: ListTile(
+                      key: const Key('settings-lifecycle'),
+                      leading: const Icon(Icons.inventory_2_outlined),
+                      title: Text(LifecycleStrings.of(context).t('tile.title')),
+                      subtitle:
+                          Text(LifecycleStrings.of(context).t('tile.subtitle')),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) => LifecycleScreen(
+                                  controller: LifecycleController(
+                                      controller.lifecycle!)))))),
             ],
             _Heading('Security', key: sections[SettingsSection.security]),
             Card(

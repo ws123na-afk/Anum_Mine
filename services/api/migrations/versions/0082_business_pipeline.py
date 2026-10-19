@@ -24,7 +24,7 @@ No role is granted anything and no discovery role reads these tables.
 
 Expand only: new tables and indexes. The previous release ignores them.
 
-Numbered 0082 and chained after ``0078_demo_records``, the head of ``main``; parallel branches use
+Numbered 0082 and chained after ``0080_business_change_orders``, the head of ``main``; parallel branches use
 0079 to 0081, and the owner re-chains at merge.
 """
 
@@ -33,7 +33,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0082_business_pipeline"
-down_revision = "0078_demo_records"
+down_revision = "0080_business_change_orders"
 branch_labels = None
 depends_on = None
 

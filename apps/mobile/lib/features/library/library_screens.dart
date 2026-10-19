@@ -1127,7 +1127,7 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
                     Padding(
                       padding: const EdgeInsets.only(top: AnumSpacing.xs),
                       child: Text(
-                        '[${c.n}] ${c.title} · ${c.provenance == 'file' ? l.t('libDocument') : l.t('libNote')}\n${c.snippet}',
+                        '[${c.n}] ${c.title}${citationPlace(c, l.t).isEmpty ? '' : ', ${citationPlace(c, l.t)}'} · ${c.provenance == 'file' ? l.t('libDocument') : l.t('libNote')}\n${c.snippet}',
                         style: TextStyle(color: p.muted, fontSize: 13),
                       ),
                     ),
@@ -1305,9 +1305,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
     }
   }
 
-  String _state(AnumLocalizations l, KnowledgeItem item) => item.available
-      ? l.t('libIndex_${item.indexState}')
-      : l.t('libIndex_gone');
+  String _state(AnumLocalizations l, KnowledgeItem item) =>
+      l.t(item.indexLabelKey);
 
   @override
   Widget build(BuildContext context) {

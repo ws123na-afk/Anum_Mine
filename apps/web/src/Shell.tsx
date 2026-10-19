@@ -25,6 +25,7 @@ import { searchEmails, searchFiles, searchTasks } from './lib/commandApi';
 import { NAV, badgeText, initials, isPaletteShortcut, matchViews, moveActive, notificationCount, viewLabel, type NavGroup, type PaletteItem, type View } from './lib/shell';
 import { Modal } from './Dialog';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
+import { getPeople } from './lib/teamApi';
 import { TeamNotificationsSection, type TeamNotifications } from './NotificationBell';
 import { HelpButton } from './HelpLink';
 
@@ -210,7 +211,7 @@ export function TopBar({ tenantId, workspaceId, onSwitchWorkspace, onSwitchOrgan
     </button>
     <div className="topActions">
       <WorkspaceSwitcher tenantId={tenantId} workspaceId={workspaceId} onSwitch={onSwitchWorkspace} onSwitchOrganisation={onSwitchOrganisation} />
-      <button type="button" className="iconButton" title={t('shell.refresh')} aria-label={t('shell.refresh')} onClick={onRefresh}><RefreshCw aria-hidden="true" /></button>
+      <button type="button" className="iconButton refreshButton" title={t('shell.refresh')} aria-label={t('shell.refresh')} onClick={onRefresh}><RefreshCw aria-hidden="true" /></button>
       <HelpButton />
       {bell}
       {user}
@@ -278,7 +279,20 @@ export function UserMenu({ name, userId, role, signOut, onGo }: {
   const [open, setOpen] = useState(false);
   const root = usePopover(open, setOpen);
   const panelId = useId();
-  const shown = name ?? userId ?? t('user.unknown');
+  // Without a name in the sign-in token (development sessions), the person's team profile names them,
+  // so the menu shows "Omar Owner" rather than an id such as user_local.
+  const [profileName, setProfileName] = useState<string | null>(null);
+  useEffect(() => {
+    if (name || !userId) return undefined;
+    let live = true;
+    getPeople().then((people) => {
+      if (!Array.isArray(people)) return;
+      const own = people.find((person) => person.user_id === userId)?.display_name?.trim();
+      if (live && own && own !== userId) setProfileName(own);
+    }).catch(() => undefined);
+    return () => { live = false; };
+  }, [name, userId]);
+  const shown = name ?? profileName ?? userId ?? t('user.unknown');
   const roleText = role ? t(`workspaceAdmin.role.${role}` as MessageKey) : null;
   const pick = (target: 'settings' | 'language' | 'appearance' | 'notifications' | 'privacy') => { setOpen(false); onGo(target); };
   return <div className="popoverRoot" ref={root}>

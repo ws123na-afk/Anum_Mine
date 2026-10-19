@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../src/localization/anum_localizations.dart';
+import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
@@ -10,6 +11,7 @@ import 'business_models.dart';
 import 'business_pipeline_repository.dart';
 import 'business_pipeline_screen.dart';
 import 'business_repository.dart';
+import 'project_money.dart';
 import 'support_screen.dart';
 
 /// Business on the phone (docs/business.md): the owner's summary, leads with
@@ -33,8 +35,7 @@ class BusinessScreen extends StatefulWidget {
 
 enum _Section { overview, leads, pipeline, proposals, projects, support }
 
-String money(double? amount, String currency) =>
-    amount == null ? '-' : '$currency ${amount.toStringAsFixed(2)}';
+String money(double? amount, String currency) => formatMoney(amount, currency);
 
 AnumTone stateTone(String state) => switch (state) {
       'won' => AnumTone.ok,
@@ -104,7 +105,10 @@ class _BusinessScreenState extends State<BusinessScreen> {
           body: AnumPage(
             onRefresh: c.load,
             children: [
-              AnumHeader(eyebrow: l.t('biz.subtitle'), title: l.t('biz.title')),
+              // The app bar already says "Business"; only the subtitle here.
+              Text(l.t('biz.subtitle'),
+                  style:
+                      TextStyle(color: context.palette.muted, fontSize: 13.5)),
               ...switch (c.setupState) {
                 BusinessLoad.idle || BusinessLoad.loading => [
                     AnumFeedback(
@@ -574,6 +578,25 @@ class _ProjectCard extends StatelessWidget {
                     },
                   ),
                 ],
+              ),
+            ),
+          if (controller.money != null && controller.setup != null)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                key: Key('biz-project-money-${project.id}'),
+                icon: const Icon(Icons.request_quote_outlined),
+                label: Text(l.t('biz.money.open')),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ProjectMoneyScreen(
+                      repository: controller.money!,
+                      project: project,
+                      permissions: controller.setup!.permissions,
+                      onContractChanged: controller.refreshProjects,
+                    ),
+                  ),
+                ),
               ),
             ),
         ],

@@ -9,6 +9,7 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from skill_signing_support import signed, signed_package
 
 from anum_api import main
 from anum_api.dependencies import memory_repository
@@ -40,11 +41,11 @@ def clean() -> Iterator[None]:
 
 
 def _publish(client: TestClient, version: str, tools: list[str], name: str = "Release notes", risk: str = "medium") -> None:
-    response = client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json={
+    response = client.post("/api/v1/skills/versions", headers=ORG_ADMIN, json=signed(client, ORG_ADMIN, {
         "skill_id": "acme.release-notes", "version": version, "name": name,
         "description": "Drafts release notes from merged work", "instructions": "Summarize changes.",
         "required_tools": tools, "risk_level": risk,
-    })
+    }))
     assert response.status_code == 201, response.text
 
 
@@ -119,9 +120,11 @@ def test_rollback_is_for_org_admins_never_widens_grants_and_is_audited() -> None
     assert client.post("/api/v1/skills/installations/acme.other/rollback", headers=ORG_ADMIN,
                        json=body).status_code == 404
 
-    actions = [r.action for r in governance_store.query_audit(CONTEXT)]
+    # Trusting the test publisher key is audited on its own target (skill_publisher_key:...).
+    records = [r for r in governance_store.query_audit(CONTEXT) if r.target.startswith("skill:")]
+    actions = [r.action for r in records]
     assert actions == ["skill.published", "skill.published", "skill.installed", "skill.disabled", "skill.rolled_back"]
-    rollback = governance_store.query_audit(CONTEXT)[-1]
+    rollback = records[-1]
     assert dict(rollback.metadata)["from_version"] == "2.0.0" and rollback.actor == "owner_sk"
 
 
@@ -141,7 +144,9 @@ PACKAGE = {"id": "acme.crm-sync", "name": "CRM sync", "kind": "integration", "ve
 
 def test_marketplace_search_filters_validation_and_audit() -> None:
     client = TestClient(main.app)
-    assert client.put("/api/v1/marketplace/packages/acme.crm-sync", headers=ORG_ADMIN, json=PACKAGE).status_code == 200
+    # Integration packages are signed (docs/governance-and-scale.md#package-signing).
+    assert client.put("/api/v1/marketplace/packages/acme.crm-sync", headers=ORG_ADMIN,
+                      json=signed_package(client, ORG_ADMIN, PACKAGE)).status_code == 200
     second = {**PACKAGE, "id": "beta.notes", "name": "Notes", "kind": "skill", "publisher": "Beta", "verified": False}
     assert client.put("/api/v1/marketplace/packages/beta.notes", headers=ORG_ADMIN, json=second).status_code == 200
     bad = {**PACKAGE, "id": "Bad Id", "version": "one"}
@@ -160,10 +165,10 @@ def test_marketplace_search_filters_validation_and_audit() -> None:
     assert client.post("/api/v1/marketplace/packages/acme.crm-sync/install", headers=OWNER, json={}).status_code == 201
     assert client.delete("/api/v1/marketplace/packages/acme.crm-sync/install", headers=OWNER).status_code == 204
     assert client.put("/api/v1/marketplace/packages/acme.crm-sync", headers=ORG_ADMIN,
-                      json={**PACKAGE, "version": "1.1.0"}).status_code == 200
+                      json=signed_package(client, ORG_ADMIN, {**PACKAGE, "version": "1.1.0"})).status_code == 200
     assert client.delete("/api/v1/marketplace/packages/beta.notes", headers=ORG_ADMIN).status_code == 204
 
-    actions = [(r.action, r.target) for r in governance_store.query_audit(CONTEXT)]
+    actions = [(r.action, r.target) for r in governance_store.query_audit(CONTEXT) if r.target.startswith("marketplace_package:")]
     assert actions == [
         ("marketplace.package_published", "marketplace_package:acme.crm-sync"),
         ("marketplace.package_published", "marketplace_package:beta.notes"),

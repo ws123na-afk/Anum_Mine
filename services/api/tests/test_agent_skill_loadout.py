@@ -8,6 +8,7 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from skill_signing_support import signed
 
 from anum_api.agent_policy import LOADED_SKILL_CHARS, AgentRunProfile, LoadedSkill
 from anum_api.agent_profiles import agent_store, configure_runtime_catalog, load_agent
@@ -62,8 +63,8 @@ def _publish(client: TestClient, skill_id: str, version: str, tools: list[str], 
     response = client.post(
         "/api/v1/skills/versions",
         headers=ORG_ADMIN,
-        json={"skill_id": skill_id, "version": version, "name": skill_id.split(".")[-1].title(), "description": "A skill",
-              "instructions": instructions, "required_tools": tools, "risk_level": risk},
+        json=signed(client, ORG_ADMIN, {"skill_id": skill_id, "version": version, "name": skill_id.split(".")[-1].title(), "description": "A skill",
+                                        "instructions": instructions, "required_tools": tools, "risk_level": risk}),
     )
     assert response.status_code == 201, response.text
 

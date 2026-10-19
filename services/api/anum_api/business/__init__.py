@@ -10,13 +10,16 @@ an owner confirmed); an opportunity pipeline with assumed values; versioned prop
 acceptance is an owner approval bound to the exact version; projects and milestones from an
 accepted proposal; outbound drafts and the outreach outbox (a deterministic gate, an
 approval bound to the payload hash for every message, sending off by default, quotas,
-stop-on-reply and a bounce kill switch); the owner's KPI summary; and support tickets with a
-working-hours SLA whose replies go through the inboxes' own approval paths.
+stop-on-reply and a bounce kill switch); the owner's KPI summary; change orders that amend
+an accepted contract only with an owner's approval; a client usage and cost ledger with a
+profitability view per project (revenue and cash collected kept apart); and support tickets
+with a working-hours SLA whose replies go through the inboxes' own approval paths.
 """
 
 from fastapi import APIRouter
 
 from .api import router as _records_router
+from .api_changes import router as _changes_router
 from .api_deals import router as _deals_router
 from .api_outreach import router as _outreach_router
 from .api_pipeline import router as _pipeline_router
@@ -28,6 +31,7 @@ router.include_router(_records_router)
 router.include_router(_deals_router)
 router.include_router(_pipeline_router)
 router.include_router(_outreach_router)
+router.include_router(_changes_router)
 router.include_router(_support_router)
 
 __all__ = ["register_business_tools", "router"]

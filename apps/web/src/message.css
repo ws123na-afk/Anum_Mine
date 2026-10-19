@@ -8,7 +8,7 @@
 }
 .msgAction svg { flex: none; height: 16px; width: 16px; }
 .msgAction:hover:not(:disabled), .msgAction:focus-visible { background: var(--d-glass-2); color: var(--d-text); }
-.msgAction[aria-pressed="true"] { background: var(--d-glass-3); border-color: rgba(167, 139, 250, .5); color: var(--d-text); }
+.msgAction[aria-pressed="true"] { background: var(--d-glass-3); border-color: rgb(var(--c-accent) / .5); color: var(--d-text); }
 .msgAction[aria-expanded="true"] { background: var(--d-glass-2); color: var(--d-text); }
 .msgAction:disabled { cursor: not-allowed; opacity: .45; }
 .msgAction.labelled { padding: 0 var(--d-s3) 0 var(--d-s2); }

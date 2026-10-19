@@ -101,7 +101,7 @@ test('a failed load says what failed and offers a retry', async ({ page }) => {
   await mockPipeline(page, { status: 500 });
   await page.goto('/#business-prospecting');
   await expect(page.getByRole('heading', { name: 'Business could not be loaded' })).toBeVisible();
-  await expect(page.getByText(/Database unavailable/)).toBeVisible();
+  await expect(page.getByText(/The server could not reach its database/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 });
 

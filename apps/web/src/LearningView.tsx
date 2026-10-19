@@ -128,7 +128,10 @@ function StyleCard({ overview, onSaved }: { overview: LearningOverview; onSaved:
   const [form, setForm] = useState<StyleForm>(() => styleForm(profile));
   const [saving, setSaving] = useState(false), [outcome, setOutcome] = useState<Outcome>(null), [confirmReset, setConfirmReset] = useState(false);
   const id = useId();
-  useEffect(() => { setForm(styleForm(overview.profile)); }, [overview.profile]);
+  // Reset the form only when the saved profile itself changes: a reload that returns the same
+  // profile (turning learning off and on refreshes the overview) must not discard the person's edits.
+  const profileKey = JSON.stringify(overview.profile);
+  useEffect(() => { setForm(styleForm(overview.profile)); }, [profileKey]);
   const set = <K extends keyof StyleForm>(key: K, value: StyleForm[K]) => setForm((current) => ({ ...current, [key]: value }));
   const learnedText = (value: string | null | undefined, label?: (v: string) => string) => value ? t('learning.style.learned', { value: label ? label(value) : value }) : t('learning.style.notLearned');
 

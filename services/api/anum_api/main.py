@@ -154,6 +154,7 @@ from .mailbox.ai_api import router as mail_ai_router
 from .mailbox.all_inboxes import router as mail_all_inboxes_router
 from .mailbox.api import router as mail_router
 from .mailbox.sharing_api import router as mail_sharing_router
+from .mailbox.domains_api import router as mail_domains_router
 from .mailbox.operator_api import router as mail_operator_router
 from .mailbox.outgoing import build_schedule_runner
 from .mailbox.settings_api import router as mail_settings_router
@@ -209,6 +210,7 @@ from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
 from .audit_log import router as audit_log_router
 from .workspace_admin import router as workspace_admin_router
+from .tenant_lifecycle import build_lifecycle_runner, router as tenant_lifecycle_router
 from .sign_in_options import router as sign_in_options_router
 from .integration_setup import router as integration_setup_router
 from .identity import validate_auth_configuration
@@ -261,9 +263,15 @@ async def lifespan(_: FastAPI):
     reminders = build_team_reminder_scheduler(settings)
     if reminders is not None:
         reminders.start()
+    # Organisation exports, expired archives and due purges (docs/organisation-lifecycle.md).
+    lifecycle = build_lifecycle_runner(settings)
+    if lifecycle is not None:
+        lifecycle.start()
     try:
         yield
     finally:
+        if lifecycle is not None:
+            await lifecycle.stop()
         if reminders is not None:
             await reminders.stop()
         if finance_scheduler is not None:
@@ -364,6 +372,7 @@ app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
 app.include_router(audit_log_router)
 app.include_router(workspace_admin_router)
+app.include_router(tenant_lifecycle_router)
 app.include_router(model_budget_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
@@ -377,6 +386,7 @@ app.include_router(calls_webhook_router)
 app.include_router(mail_sharing_router)
 app.include_router(mail_settings_router)
 app.include_router(mail_operator_router)
+app.include_router(mail_domains_router)
 app.include_router(calendar_router)
 app.include_router(marketing_router)
 app.include_router(business_router)
@@ -1335,7 +1345,9 @@ async def cancel_task(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> Task:
-    task, run = cancel_task_record(task_id, context, repository)
+    # The row lock and writes run in a worker thread: on the event loop they stalled every other
+    # request (even /health) for as long as the database took (docs/realtime.md#event-loop).
+    task, run = await asyncio.to_thread(cancel_task_record, task_id, context, repository)
     if run_dispatcher is not None and run is not None:
         await run_dispatcher.cancelled(context, task.id)
     return task

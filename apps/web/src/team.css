@@ -118,6 +118,11 @@
 .orgActions { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
 .orgActions .actions { margin-top: 0; }
 .orgPrivacy { max-width: 70ch; }
+.deletedOrgsPane > .muted { margin: 0 0 var(--d-s3); max-width: 70ch; }
+.deletedOrgCounts { margin-top: var(--d-s1); }
+.deletedOrgCounts summary { cursor: pointer; color: var(--d-muted); font-size: 13px; }
+.deletedOrgCounts ul { display: grid; gap: var(--d-s1); grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); margin: var(--d-s2) 0 0; max-block-size: 240px; overflow: auto; padding: 0; list-style: none; }
+.deletedOrgCounts li { display: flex; gap: var(--d-s2); justify-content: space-between; overflow-wrap: anywhere; }
 .inviteReveal input { font-family: var(--d-mono); font-size: 13px; }
 .brandingRow { align-items: end; display: grid; gap: var(--d-s4); grid-template-columns: 72px minmax(0, 1fr); }
 .logoPreview { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); block-size: 72px; color: var(--d-muted); display: flex; inline-size: 72px; justify-content: center; overflow: hidden; }
@@ -221,3 +226,35 @@
 .mailServerCard h3 { font-size: 14px; font-weight: 650; }
 .mailServerCard p { overflow-wrap: anywhere; }
 .mailcowFacts { display: grid; gap: var(--d-s1); margin: 0; overflow-wrap: anywhere; padding-inline-start: var(--d-s4); }
+
+/* Mail domains in the platform console (MailDomains.tsx, docs/email.md#mail-domains). */
+.mailDomainsPane .paneHead h2, .mailDomainAliases h4 { align-items: center; display: inline-flex; gap: var(--d-s2); }
+.mailDomainsPane .paneHead h2 svg, .mailDomainAliases h4 svg { height: 18px; width: 18px; }
+.mailDomainsToolbar { flex: 1 1 280px; justify-content: flex-end; }
+.mailDomainsToolbar input[type="search"] { max-width: 260px; width: 100%; }
+.mailDomainsIntro { max-width: 70ch; }
+.mailDomainList, .mailDomainsPending ul, .mailDnsChecks, .mailDomainAliases ul { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.mailDomainCard { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3) var(--d-s4); }
+.mailDomainCard p { margin: 0; overflow-wrap: anywhere; }
+.mailDomainHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.mailDomainHead h3 { font-size: 16px; font-weight: 650; margin: 0; overflow-wrap: anywhere; }
+.mailDomainBadges, .mailDomainsActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.mailDomainsPending h3 { font-size: 14px; font-weight: 650; margin: 0 0 var(--d-s2); }
+.mailDomainApproval { background: rgb(var(--c-warn) / .07); border: 1px solid rgb(var(--c-warn) / .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3) var(--d-s4); }
+.mailDomainHash { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; }
+.mailDnsPanel { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s2); }
+.mailDnsPanel h4, .mailDomainAliases h4, .mailAliasForm h4 { font-size: 14px; font-weight: 650; margin: 0; }
+.mailDnsChecks { gap: var(--d-s2); }
+.mailDnsChecks li { align-items: baseline; display: grid; gap: var(--d-s1) var(--d-s2); grid-template-columns: 4.5em auto minmax(0, 1fr); }
+.mailDnsMessage { overflow-wrap: anywhere; }
+.mailDnsFound { grid-column: 1 / -1; overflow-wrap: anywhere; white-space: pre-wrap; }
+.mailDnsRecords code { overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-all; }
+.mailDnsRecords td small { display: block; }
+.mailDomainAliases { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-top: var(--d-s2); }
+.mailDomainAliases li { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; overflow-wrap: anywhere; }
+.mailDomainAliases li > span:first-child { flex: 1 1 220px; min-width: 0; }
+.mailAliasForm { display: grid; gap: var(--d-s1); max-width: 520px; }
+.mailAliasName { align-items: center; display: flex; gap: var(--d-s1); min-width: 0; }
+.mailAliasName input { flex: 1 1 auto; min-width: 0; }
+.mailAliasName span { overflow-wrap: anywhere; }
+@media (max-width: 560px) { .mailDnsChecks li { grid-template-columns: auto minmax(0, 1fr); } .mailDnsMessage { grid-column: 1 / -1; } }

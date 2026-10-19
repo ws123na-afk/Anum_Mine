@@ -81,6 +81,8 @@ class FakeServer:
     password: str = PASSWORD
     offline: bool = False
     send_error: Exception | None = None
+    # Every ``messages_after`` floor the background forwarding asked for (tests read it).
+    reads_after: list[int] = field(default_factory=list)
 
     def _gate(self, password: str) -> None:
         if self.offline:
@@ -129,6 +131,16 @@ class Bound:
             for i in page
         ]
         return Page(items=parse_fetch(fetch), total=len(items), next_before=page[-1].uid if len(items) > limit else None)
+
+    def messages_after(self, folder: str, *, after: int, limit: int) -> Page:
+        self.fake.reads_after.append(after)
+        newer = sorted((i for i in self._folder(folder) if i.uid > after), key=lambda i: i.uid)
+        page = newer[:limit]
+        fetch = [
+            (f"1 (UID {i.uid} FLAGS ({' '.join(sorted(i.flags))}) RFC822.SIZE {len(i.raw)})".encode(), i.raw.split(b"\n\n", 1)[0] + b"\n\n")
+            for i in page
+        ]
+        return Page(items=sorted(parse_fetch(fetch), key=lambda item: item.uid), total=len(newer), next_before=None)
 
     def fetch(self, folder: str, uid: int, *, mark_seen: bool, max_bytes: int) -> bytes:
         found = next((i for i in self._folder(folder) if i.uid == uid), None)

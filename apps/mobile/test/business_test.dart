@@ -262,7 +262,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.text('Leads created'), findsOneWidget);
-      expect(find.text('SAR 2500.00'), findsOneWidget);
+      // The title is said once, in the app bar.
+      expect(find.text('Business'), findsOneWidget);
+      expect(find.text('SAR 2,500.00'), findsOneWidget);
       expect(find.textContaining('Sending is off'), findsOneWidget);
     });
   }
