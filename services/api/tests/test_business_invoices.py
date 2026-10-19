@@ -229,6 +229,15 @@ def test_a_milestone_is_billed_once_until_the_invoice_is_voided() -> None:
     assert create(project_id=project["id"], milestone_ids=milestone_ids(project)[:1]).status_code == 201
 
 
+def test_an_account_with_invoices_is_not_deleted() -> None:
+    project = make_project(total=1000, tax=0)
+    set_profile()
+    drafted = ok(create(project_id=project["id"], milestone_ids=milestone_ids(project)[:1]), 201)
+    refused = client.delete(f"{BASE}/accounts/{project['account_id']}", headers=OWNER)
+    assert refused.status_code == 409
+    assert drafted["id"]
+
+
 def test_a_draft_can_be_deleted_and_frees_its_milestones() -> None:
     project = make_project(total=2000, tax=0)
     set_profile()

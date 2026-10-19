@@ -179,6 +179,14 @@ def test_use_is_recorded_without_a_write_on_every_request() -> None:
 # -- the home page ----------------------------------------------------------------------------------------
 
 
+def test_portal_answers_are_never_cached() -> None:
+    project = make_project(total=1000, tax=0)
+    token = grant(project["account_id"])["token"]
+    for path in ("/me", "/offers", "/invoices", "/tickets"):
+        response = client.get(f"{PORTAL}{path}", headers=bearer(token))
+        assert response.headers["cache-control"] == "no-store" and response.headers["referrer-policy"] == "no-referrer"
+
+
 def test_me_names_the_customer_and_counts_what_needs_them() -> None:
     set_profile()
     project = make_project(total=2000, tax=0)
@@ -220,6 +228,7 @@ def test_approving_an_offer_records_a_decision_for_the_owner_who_still_confirms(
     detail = get(token, f"/offers/{pending['id']}")
     assert decision(token, f"/offers/{pending['id']}", "f" * 64).status_code == 409  # not the version shown
     assert decision(token, f"/offers/{pending['id']}", detail["content_hash"], name="S").status_code == 422
+    assert decision(token, f"/offers/{pending['id']}", detail["content_hash"], name="    ").status_code == 422
     approved = decision(token, f"/offers/{pending['id']}", detail["content_hash"], note="Looks good, go ahead")
     assert approved.status_code == 200, approved.text
     body = approved.json()
@@ -411,6 +420,7 @@ def test_a_customer_opens_a_request_that_reaches_the_support_desk() -> None:
     token = grant(project["account_id"])["token"]
     assert get(token, "/tickets") == []
     assert client.post(f"{PORTAL}/tickets", headers=bearer(token), json={"title": "Hi", "description": "x"}).status_code == 422
+    assert client.post(f"{PORTAL}/tickets", headers=bearer(token), json={"title": "    ab", "description": "Something is wrong"}).status_code == 422
     assert client.post(f"{PORTAL}/tickets", headers=bearer(token), json={"title": "Report is wrong", "description": "Totals differ.", "severity": "critical"}).status_code == 422
     opened = ok(client.post(f"{PORTAL}/tickets", headers=bearer(token), json={"title": "Report is wrong", "description": "Totals differ from our books.", "severity": "high",
                                                                             "project_id": project["id"]}), 201)

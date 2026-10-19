@@ -14,6 +14,7 @@ import {
 import { shortHash } from './lib/approvals';
 import * as b from './lib/businessApi';
 import { Modal } from './Dialog';
+import { PortalDecisionNote } from './BusinessPortalAdmin';
 import { Badge, Empty, Note, Pager, ReasonDialog, day, failure, when } from './BusinessParts';
 
 const PAGE = 25;
@@ -132,6 +133,7 @@ function ChangeOrdersBlock({ setup, project, onContractChanged }: { setup: Busin
       {item.request && <p className="muted" dir="auto">{item.request}</p>}
       {item.lines.length > 0 && <ul className="bzBullets">{item.lines.map((line, index) => <li key={index} dir="auto">
         {t(line.action === 'remove' ? 'biz.change.lineRemoved' : 'biz.change.lineAdded', { description: line.description, quantity: line.quantity, price: moneyOrDash(line.unit_price, item.currency) })}</li>)}</ul>}
+      <PortalDecisionNote decision={item.portal_decision ?? null} />
       {item.issues.length > 0 && <ul className="bzIssues">{item.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>}
       {item.status === 'pending_approval' && !item.stale && <div className="bzApproval" role="group" aria-label={t('biz.change.approvalLabel', { number: item.number })}>
         <p className="bzHash"><Fingerprint aria-hidden="true" />{t('biz.change.binds', { version: item.base_version ?? 0 })} <code title={item.content_hash ?? ''}>{shortHash(item.content_hash)}</code></p>

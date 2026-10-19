@@ -8,6 +8,8 @@ import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'business_controller.dart';
 import 'business_models.dart';
+import 'invoices.dart';
+import 'portal_access.dart';
 import 'project_money.dart';
 import 'support_screen.dart';
 
@@ -28,7 +30,16 @@ class BusinessScreen extends StatefulWidget {
   State<BusinessScreen> createState() => _BusinessScreenState();
 }
 
-enum _Section { overview, leads, pipeline, proposals, projects, support }
+enum _Section {
+  overview,
+  leads,
+  pipeline,
+  proposals,
+  projects,
+  invoices,
+  clients,
+  support
+}
 
 String money(double? amount, String currency) => formatMoney(amount, currency);
 
@@ -69,6 +80,16 @@ class _BusinessScreenState extends State<BusinessScreen> {
         c.first(c.projects);
       case _Section.leads:
         if (c.leads.state == BusinessLoad.idle) c.first(c.leads);
+      case _Section.invoices:
+        final invoices = c.invoices;
+        if (invoices != null && invoices.state != BusinessLoad.ready) {
+          invoices.load();
+        }
+      case _Section.clients:
+        final invoices = c.invoices;
+        if (invoices != null && invoices.clients.state == BusinessLoad.idle) {
+          invoices.firstClients();
+        }
       case _Section.support:
         final support = c.support;
         if (support != null && support.state != BusinessLoad.ready) {
@@ -126,8 +147,13 @@ class _BusinessScreenState extends State<BusinessScreen> {
                       runSpacing: 8,
                       children: [
                         for (final item in _Section.values.where(
-                          (item) =>
-                              item != _Section.support || c.support != null,
+                          (item) => switch (item) {
+                            _Section.support => c.support != null,
+                            _Section.invoices ||
+                            _Section.clients =>
+                              c.invoices != null,
+                            _ => true,
+                          },
                         ))
                           ChoiceChip(
                             key: Key('biz-tab-${item.name}'),
@@ -207,6 +233,8 @@ class _BusinessScreenState extends State<BusinessScreen> {
                       ),
                     ),
                     if (item.decisionNote.isNotEmpty) Text(item.decisionNote),
+                    if (item.portalDecision != null)
+                      PortalDecisionLine(decision: item.portalDecision!),
                     if (item.approvalState == 'pending') ...[
                       Text(l.t('biz.proposals.waiting')),
                       if (widget.onOpenApprovals != null)
@@ -230,6 +258,13 @@ class _BusinessScreenState extends State<BusinessScreen> {
             'biz.projects',
             (item) => _ProjectCard(project: item, controller: c),
           ),
+        _Section.invoices => [
+            InvoicesView(
+              controller: c.invoices!,
+              onOpenApprovals: widget.onOpenApprovals,
+            ),
+          ],
+        _Section.clients => [ClientsView(controller: c.invoices!)],
         _Section.support => [
             SupportTicketsView(
               controller: c.support!,

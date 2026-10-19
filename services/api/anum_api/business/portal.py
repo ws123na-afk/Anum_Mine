@@ -50,7 +50,15 @@ from .portal_service import latest_decision
 from .service import audit, http_error, proposal_totals, record_activity
 from .store import BusinessStore, Query, open_business_store
 
-router = APIRouter(prefix="/api/v1/portal", tags=["portal"])
+
+
+def _no_store(response: Response) -> None:
+    """A customer's offers, invoices and requests are never cached by a browser or a proxy."""
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+
+
+router = APIRouter(prefix="/api/v1/portal", tags=["portal"], dependencies=[Depends(_no_store)])
 
 PRINT_HEADERS = {"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"}
 NO_DECISION = "This link can read but not approve. Ask the business to turn on approvals for you."
@@ -381,11 +389,14 @@ def _record_decision(store: BusinessStore, session: PortalSession, kind: Decisio
         if existing.decision == payload.decision:
             return existing, False
         raise http_error(409, f"You already {existing.decision} this {label}. Contact the business to change it.")
+    signer = " ".join(plain_dashes(payload.signer_name).split())
+    if len(signer) < 2:
+        raise http_error(422, "Type your full name to confirm who is deciding.")
     now = utc_now()
     decision = PortalDecision(
         id=new_id("bpdec"), tenant_id=session.context.tenant_id, workspace_id=session.context.workspace_id, access_id=session.access.id, account_id=session.account.id,
         contact_id=session.contact.id, subject_kind=kind, subject_id=subject_id, version=version, content_hash=shown_hash, decision=payload.decision,
-        signer_name=" ".join(plain_dashes(payload.signer_name).split()), note=" ".join(plain_dashes(payload.note).split()), decided_at=now, created_at=now, updated_at=now,
+        signer_name=signer, note=" ".join(plain_dashes(payload.note).split()), decided_at=now, created_at=now, updated_at=now,
     )
     store.add("portal_decisions", decision)
     record_activity(store, session.context, f"portal_{kind.value}_{payload.decision}", f"{session.contact.name} {payload.decision} the {label} in the customer portal.",
@@ -575,8 +586,11 @@ def open_ticket(payload: TicketInput, session: PortalSession = Depends(portal_se
                 raise http_error(404, "Project not found")
         if store.count("tickets", Query(where={"created_by": session.context.user_id}, created_from=now - timedelta(days=1))) >= TICKETS_PER_DAY:
             raise http_error(429, f"You can open {TICKETS_PER_DAY} requests a day from this link. Add to an earlier one, or call the business.")
+        title, details = " ".join(plain_dashes(payload.title).split()), plain_dashes(payload.description).strip()
+        if len(title) < 3 or len(details) < 3:
+            raise http_error(422, "Give the request a short title and say what you need.")
         fields = TicketFields(
-            title=" ".join(plain_dashes(payload.title).split()), description=plain_dashes(payload.description).strip(), severity=Severity(payload.severity),
+            title=title, description=details, severity=Severity(payload.severity),
             account_id=session.account.id, contact_id=session.contact.id, project_id=payload.project_id, requester_name=session.contact.name,
             requester_email=session.contact.email, requester_phone=session.contact.phone,
         )
