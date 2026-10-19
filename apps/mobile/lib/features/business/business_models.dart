@@ -1,4 +1,5 @@
 import '../../data/json_read.dart';
+import 'invoice_models.dart' show PortalDecisionSummary;
 
 /// Business, the internal sales desk (docs/business.md): what the phone reads
 /// from `/api/v1/business`. The same wire shapes as packages/contracts
@@ -260,7 +261,11 @@ class BusinessProposal {
     required this.approvalState,
     required this.decisionNote,
     required this.issues,
+    this.portalDecision,
   });
+
+  /// What the customer decided in their portal about the version waiting.
+  final PortalDecisionSummary? portalDecision;
   final String id, title, status, accountName, currency, approvalState;
   final String decisionNote;
   final int version;
@@ -279,6 +284,7 @@ class BusinessProposal {
       approvalState: r.string('approval_state'),
       decisionNote: r.string('decision_note'),
       issues: current.strings('issues'),
+      portalDecision: PortalDecisionSummary.maybe(r),
     );
   }
 }

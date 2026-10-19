@@ -32,6 +32,6 @@ State at handoff: every PR from the 18 October session is merged into `main` (#1
 - **Brevo:** untested against a real Brevo account; no planner skill turns plain words ("send the winter newsletter") into the Brevo tools; webhooks, contacts and templates out of scope.
 - **Email:** more than 1000 new messages between two background checks are not forwarded (the rule reports it).
 - **Finance:** market-data fetch waits on the provider decision.
-- **Business (roadmap P2 and later):** human-approved sending, change orders, invoices, support tickets, customer portal; per-agent cost caps and a general agent kill switch (gap register `docs/business/ANUM_BUSINESS_GAP_REGISTER.md`).
+- **Business (roadmap P3 and later):** human-approved sending of outbound messages, online payment and credit notes for invoices, customers replying inside a portal request, a customer one-time code sign-in; per-agent cost caps and a general agent kill switch (gap register `docs/business/ANUM_BUSINESS_GAP_REGISTER.md`).
 - **Email domains page in ANUM** (adding Mailcow domains from ANUM with approvals) was offered, not started.
 - **"All inboxes" view**: built (docs/email.md#all-inboxes); each inbox is read live per page with an 8 second timeout; a slow one is left out of that page and flagged.

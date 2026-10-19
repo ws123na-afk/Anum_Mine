@@ -9,6 +9,8 @@ import '../../src/widgets/depth.dart';
 import 'accounts_screen.dart';
 import 'business_controller.dart';
 import 'business_models.dart';
+import 'invoices.dart';
+import 'portal_access.dart';
 import 'catalog_screen.dart';
 import 'deals_data.dart';
 import 'deals_screen.dart';
@@ -41,6 +43,8 @@ enum _Section {
   projects,
   catalog,
   accounts,
+  invoices,
+  clients,
   support,
 }
 
@@ -83,6 +87,16 @@ class _BusinessScreenState extends State<BusinessScreen> {
         c.first(c.projects);
       case _Section.leads:
         if (c.leads.state == BusinessLoad.idle) c.first(c.leads);
+      case _Section.invoices:
+        final invoices = c.invoices;
+        if (invoices != null && invoices.state != BusinessLoad.ready) {
+          invoices.load();
+        }
+      case _Section.clients:
+        final invoices = c.invoices;
+        if (invoices != null && invoices.clients.state == BusinessLoad.idle) {
+          invoices.firstClients();
+        }
       case _Section.catalog:
         final catalog = c.catalog;
         catalog?.load();
@@ -149,6 +163,9 @@ class _BusinessScreenState extends State<BusinessScreen> {
                         for (final item in _Section.values.where(
                           (item) => switch (item) {
                             _Section.support => c.support != null,
+                            _Section.invoices ||
+                            _Section.clients =>
+                              c.invoices != null,
                             _Section.catalog => c.catalog != null,
                             _Section.accounts => c.accounts != null,
                             _ => true,
@@ -244,6 +261,8 @@ class _BusinessScreenState extends State<BusinessScreen> {
                       ),
                     ),
                     if (item.decisionNote.isNotEmpty) Text(item.decisionNote),
+                    if (item.portalDecision != null)
+                      PortalDecisionLine(decision: item.portalDecision!),
                     if (item.approvalState == 'pending') ...[
                       Text(l.t('biz.proposals.waiting')),
                       if (widget.onOpenApprovals != null)
@@ -267,6 +286,13 @@ class _BusinessScreenState extends State<BusinessScreen> {
             'biz.projects',
             (item) => _ProjectCard(project: item, controller: c),
           ),
+        _Section.invoices => [
+            InvoicesView(
+              controller: c.invoices!,
+              onOpenApprovals: widget.onOpenApprovals,
+            ),
+          ],
+        _Section.clients => [ClientsView(controller: c.invoices!)],
         _Section.catalog => [
             CatalogView(
               controller: c.catalog!,

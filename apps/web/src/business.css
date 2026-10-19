@@ -138,3 +138,32 @@
 .bzSupportToolbar .bzCompact select { max-width: 200px; }
 .bzSupportToolbar > .bzCheck { margin-top: 0; padding-block-end: var(--d-s2); }
 .bzCard .dataTable input { max-width: 120px; min-width: 0; }
+
+/* Invoices (BusinessInvoices.tsx, BusinessPortalAdmin.tsx). */
+.invSummary { display: grid; gap: var(--d-s3); min-width: 0; }
+.invCurrency { display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3) var(--d-s4); }
+.invCurrency h3 { font-size: 13px; margin: 0; }
+.invTiles { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 0; }
+.invTile { display: grid; gap: 2px; min-width: 0; }
+.invTile dt { color: var(--d-muted); font-size: 12px; font-weight: 600; }
+.invTile dd { display: grid; gap: 2px; margin: 0; }
+.invTile strong { font-size: 18px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.invTile small { color: var(--d-muted); font-size: 12px; }
+.invTile.danger strong { color: var(--d-stop); }
+.invTile.ok strong { color: var(--d-ok); }
+.invBadges { display: flex; flex-wrap: wrap; gap: var(--d-s1); }
+.invPicks { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.invPicks .bzCheck { flex-wrap: wrap; margin-top: 0; }
+.invPicks small { display: block; padding-inline-start: 26px; }
+.invLines th[scope="row"] small { color: var(--d-muted); display: block; font-weight: 400; }
+.invAddress { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.invParty { color: var(--d-muted); font-size: 12px; margin: 0 0 var(--d-s1); }
+.bzSpanAll { grid-column: 1 / -1; }
+@media (min-width: 640px) { .invLineRow { grid-template-columns: minmax(0, 3fr) minmax(0, 1.4fr) minmax(0, .8fr) minmax(0, 1.1fr) minmax(0, .9fr) 40px; } }
+.invAccess > li { display: grid; gap: 2px; }
+/* The global input rule makes inputs full width; a checkbox keeps its own size. */
+.bzCheck input[type="checkbox"] { accent-color: var(--d-violet); flex: none; height: 18px; margin: 0; min-height: 0; padding: 0; width: 18px; }
+.bzToolbar .bzCheck { margin-top: 0; padding-block-end: var(--d-s2); white-space: nowrap; }
+.invLines { font-size: 13px; }
+.invLines th[scope="row"] { min-width: 0; }
+.invLines td { white-space: nowrap; }

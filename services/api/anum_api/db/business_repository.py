@@ -1,5 +1,6 @@
 """PostgreSQL store for the internal sales MVP (migrations ``0070_business``,
-``0076_business_support`` and ``0080_business_change_orders``).
+``0076_business_support``, ``0080_business_change_orders`` and
+``0089_business_invoices_portal``).
 
 The session carries the tenant and workspace RLS context (``open_scoped_store``); every
 query also filters on the scope explicitly, so a guessed id from another workspace reads
@@ -16,7 +17,7 @@ from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String, Text, 
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.business.models import BusinessSettings, SupportPolicy
+from anum_api.business.models import BillingProfile, BusinessSettings, SupportPolicy
 from anum_api.business.store import KINDS, Query, plain
 from anum_api.schemas import TenantContext
 
@@ -404,6 +405,94 @@ class BusinessUsageEntryRecord(Base, _Updated):
     created_by: Mapped[str] = mapped_column(String(160))
 
 
+class BusinessInvoiceRecord(Base, _Updated):
+    __tablename__ = "business_invoices"
+    account_id: Mapped[str] = mapped_column(String(80))
+    project_id: Mapped[str | None] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(20))
+    currency: Mapped[str] = mapped_column(String(3))
+    lines: Mapped[list[Any]] = mapped_column(JSONB)
+    subtotal: Mapped[Decimal] = mapped_column(MONEY)
+    tax: Mapped[Decimal] = mapped_column(MONEY)
+    total: Mapped[Decimal] = mapped_column(MONEY)
+    amount_paid: Mapped[Decimal] = mapped_column(MONEY)
+    due_in_days: Mapped[int] = mapped_column(Integer)
+    seq: Mapped[int | None] = mapped_column(Integer)
+    number: Mapped[str | None] = mapped_column(String(40))
+    issue_date: Mapped[date | None] = mapped_column(Date)
+    due_date: Mapped[date | None] = mapped_column(Date)
+    customer_reference: Mapped[str] = mapped_column(String(120))
+    notes: Mapped[str] = mapped_column(Text)
+    payment_terms: Mapped[str] = mapped_column(Text)
+    bill_to_name: Mapped[str] = mapped_column(String(200))
+    bill_to_address: Mapped[str] = mapped_column(Text)
+    bill_to_email: Mapped[str] = mapped_column(String(254))
+    bill_to_tax_number: Mapped[str] = mapped_column(String(60))
+    seller: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    requested_hash: Mapped[str | None] = mapped_column(String(64))
+    approval_id: Mapped[str | None] = mapped_column(String(80))
+    approval_task_id: Mapped[str | None] = mapped_column(String(80))
+    requested_by: Mapped[str | None] = mapped_column(String(160))
+    requested_at: Mapped[datetime | None] = mapped_column(TS)
+    sent_by: Mapped[str | None] = mapped_column(String(160))
+    sent_at: Mapped[datetime | None] = mapped_column(TS)
+    paid_at: Mapped[datetime | None] = mapped_column(TS)
+    voided_by: Mapped[str | None] = mapped_column(String(160))
+    voided_at: Mapped[datetime | None] = mapped_column(TS)
+    void_reason: Mapped[str] = mapped_column(String(300))
+    marked_milestones: Mapped[list[Any]] = mapped_column(JSONB)
+    decision_note: Mapped[str] = mapped_column(String(500))
+    created_by: Mapped[str] = mapped_column(String(160))
+
+
+class BusinessInvoicePaymentRecord(Base, _Updated):
+    __tablename__ = "business_invoice_payments"
+    invoice_id: Mapped[str] = mapped_column(String(80))
+    amount: Mapped[Decimal] = mapped_column(MONEY)
+    paid_on: Mapped[date] = mapped_column(Date)
+    method: Mapped[str] = mapped_column(String(20))
+    reference: Mapped[str] = mapped_column(String(120))
+    note: Mapped[str] = mapped_column(String(300))
+    recorded_by: Mapped[str] = mapped_column(String(160))
+
+
+class BusinessInvoiceCounterRecord(Base, _Updated):
+    __tablename__ = "business_invoice_counters"
+    year: Mapped[int] = mapped_column(Integer)
+    last_seq: Mapped[int] = mapped_column(Integer)
+
+
+class BusinessPortalAccessRecord(Base, _Updated):
+    __tablename__ = "business_portal_access"
+    account_id: Mapped[str] = mapped_column(String(80))
+    contact_id: Mapped[str] = mapped_column(String(80))
+    contact_name: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(20))
+    token_hash: Mapped[str] = mapped_column(String(64))
+    can_decide: Mapped[bool] = mapped_column(Boolean)
+    expires_at: Mapped[datetime] = mapped_column(TS)
+    last_used_at: Mapped[datetime | None] = mapped_column(TS)
+    revoked_at: Mapped[datetime | None] = mapped_column(TS)
+    revoked_by: Mapped[str | None] = mapped_column(String(160))
+    created_by: Mapped[str] = mapped_column(String(160))
+
+
+class BusinessPortalDecisionRecord(Base, _Updated):
+    __tablename__ = "business_portal_decisions"
+    access_id: Mapped[str] = mapped_column(String(80))
+    account_id: Mapped[str] = mapped_column(String(80))
+    contact_id: Mapped[str] = mapped_column(String(80))
+    subject_kind: Mapped[str] = mapped_column(String(20))
+    subject_id: Mapped[str] = mapped_column(String(80))
+    version: Mapped[int | None] = mapped_column(Integer)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    decision: Mapped[str] = mapped_column(String(10))
+    signer_name: Mapped[str] = mapped_column(String(160))
+    note: Mapped[str] = mapped_column(String(500))
+    decided_at: Mapped[datetime] = mapped_column(TS)
+
+
 class BusinessSettingsRecord(Base):
     __tablename__ = "business_settings"
     tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
@@ -411,6 +500,7 @@ class BusinessSettingsRecord(Base):
     research_runs_per_day: Mapped[int] = mapped_column(Integer)
     research_searches_per_day: Mapped[int] = mapped_column(Integer)
     support_policy: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    billing_profile: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     updated_by: Mapped[str | None] = mapped_column(String(160))
     updated_at: Mapped[datetime] = mapped_column(TS)
 
@@ -435,6 +525,11 @@ RECORDS: dict[str, Any] = {
     "usage_ledger": BusinessUsageEntryRecord,
     "tickets": BusinessSupportTicketRecord,
     "ticket_replies": BusinessTicketReplyRecord,
+    "invoices": BusinessInvoiceRecord,
+    "invoice_payments": BusinessInvoicePaymentRecord,
+    "invoice_counters": BusinessInvoiceCounterRecord,
+    "portal_access": BusinessPortalAccessRecord,
+    "portal_decisions": BusinessPortalDecisionRecord,
 }
 if set(RECORDS) != set(KINDS):  # pragma: no cover - import-time wiring check
     raise RuntimeError("business record types and kinds differ")
@@ -562,6 +657,7 @@ class SqlAlchemyBusinessStore:
         return BusinessSettings(
             research_runs_per_day=found.research_runs_per_day, research_searches_per_day=found.research_searches_per_day,
             support_policy=SupportPolicy.model_validate(found.support_policy) if found.support_policy else SupportPolicy(),
+            billing=BillingProfile.model_validate(found.billing_profile) if found.billing_profile else BillingProfile(),
             updated_by=found.updated_by, updated_at=found.updated_at,
         )
 
@@ -574,6 +670,7 @@ class SqlAlchemyBusinessStore:
         found.research_runs_per_day = value.research_runs_per_day
         found.research_searches_per_day = value.research_searches_per_day
         found.support_policy = value.support_policy.model_dump(mode="json")
+        found.billing_profile = value.billing.model_dump(mode="json")
         found.updated_by = value.updated_by
         found.updated_at = value.updated_at or datetime.now().astimezone()
         self.session.flush()

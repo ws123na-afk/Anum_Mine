@@ -625,6 +625,7 @@ def test_every_state_changing_route_is_audited_without_contact_details_or_text(s
     sent = [email, phone, body, "Huda Ali"]
     call = lambda method, path, **kwargs: probe.call(method, f"{BASE}{path}", OWNER, sent=sent, **kwargs)  # noqa: E731
     call("PUT", "/settings", json={"research_runs_per_day": 10, "research_searches_per_day": 30})
+    call("PUT", "/billing-profile", json={"legal_name": "Anum Technologies LLC", "invoice_prefix": "INV"})
     prod = call("POST", "/products", json={"kind": "service_package", "name": "Automation Starter"}).json()
     call("PATCH", f"/products/{prod['id']}", json={"maturity": "pilot"})
     detail = call("POST", f"/products/{prod['id']}/versions", json={"price_type": "fixed", "price_min": 900}).json()
