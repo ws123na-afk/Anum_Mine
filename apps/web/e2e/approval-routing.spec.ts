@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { approvalPagesResponse } from './support/approvalPages';
 
 // Approval routing by AED amount (docs/approvals-and-risk.md#approval-routing): the Approvals cards
 // say who may approve each item and why, only eligible people get Approve, and organization
@@ -52,6 +53,8 @@ async function mockApprovals(page: Page, approvals: Json[]) {
     if (path === '/api/v1/auth/local/session') return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
     if (path === '/api/v1/tasks') return json([task]);
     if (path === '/api/v1/approvals') return json(list);
+    const paged = approvalPagesResponse(new URL(request.url()), list);
+    if (paged !== undefined) return json(paged);
     if (path.startsWith('/api/v1/approvals/') && request.method() === 'POST') {
       decisions.push({ path, body: request.postDataJSON() });
       const id = path.split('/')[4];

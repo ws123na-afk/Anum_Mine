@@ -4,7 +4,7 @@
 .cmLayout > .settingsTabs { margin-bottom: 0; }
 .cmLayout .notice { margin: 0; }
 .cmPanel { align-content: start; display: grid; gap: var(--d-s3); min-width: 0; padding: var(--d-s4) var(--d-s5); }
-.cmPanel > h2, .cmPanel .sectionHeader h2 { font-size: 16px; }
+.cmPanel > h2, .cmPanel .sectionHeader h2 { font-size: var(--text-lg); }
 .cmPanel .emptyState { padding-block: var(--d-s4); }
 .cmDenied, .cmWelcome, .cmPending { align-items: flex-start; grid-template-columns: 28px minmax(0, 1fr); }
 .cmDenied > svg, .cmWelcome > svg, .cmPending > svg { color: var(--d-violet); height: 24px; width: 24px; }
@@ -21,18 +21,18 @@
 /* Filters: one row above the content, wrapping on narrow screens. */
 .cmFilters { align-items: flex-end; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
 .cmInline { display: grid; gap: var(--d-s1); min-width: 0; }
-.cmInline > span { color: var(--d-muted); font-size: 12px; font-weight: 600; }
+.cmInline > span { color: var(--d-muted); font-size: var(--text-xs); font-weight: 600; }
 .cmInline select { min-width: 150px; }
 .cmSearch { flex: 1 1 240px; min-width: 0; }
 .cmFilters button { min-height: 44px; }
 .cmSegment { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; }
-.cmSegment button { background: transparent; border: 0; border-radius: calc(var(--d-r-control) - 2px); color: var(--d-muted); font-size: 14px; font-weight: 600; min-height: 40px; padding: 0 var(--d-s3); }
+.cmSegment button { background: transparent; border: 0; border-radius: calc(var(--d-r-control) - 2px); color: var(--d-muted); font-size: var(--text-md); font-weight: 600; min-height: 40px; padding: 0 var(--d-s3); }
 .cmSegment button[aria-checked="true"] { background: var(--d-glass-3); color: var(--d-text); }
 .cmSegment button:hover { color: var(--d-text); }
 
 .cmMetrics { margin-bottom: 0; }
 .cmMetrics .metric { padding: var(--d-s4); }
-.cmMetrics .metric > strong { font-size: 26px; overflow-wrap: anywhere; }
+.cmMetrics .metric > strong { font-size: var(--text-5xl); overflow-wrap: anywhere; }
 .cmMetricDanger { border-color: rgb(var(--c-stop) / .35); }
 
 .cmGrid { display: grid; gap: var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
@@ -41,8 +41,8 @@
 
 /* Tables scroll inside their own box on narrow screens, never the page. */
 .cmTableWrap { max-width: 100%; overflow-x: auto; }
-.cmTable { border-collapse: collapse; font-size: 14px; width: 100%; }
-.cmTable th { color: var(--d-faint); font-size: 12px; font-weight: 600; padding: var(--d-s2); text-align: start; white-space: nowrap; }
+.cmTable { border-collapse: collapse; font-size: var(--text-md); width: 100%; }
+.cmTable th { color: var(--d-faint); font-size: var(--text-xs); font-weight: 600; padding: var(--d-s2); text-align: start; white-space: nowrap; }
 .cmTable td { border-top: 1px solid var(--d-line); padding: var(--d-s2); vertical-align: middle; }
 .cmTable .num, .cmRank .num, .cmListing .num { font-variant-numeric: tabular-nums; text-align: end; white-space: nowrap; }
 .cmOrders td:first-child, .cmTable td:first-child { white-space: nowrap; }
@@ -53,30 +53,30 @@
 .cmRank li, .cmList li { align-items: center; border-top: 1px solid var(--d-line); display: flex; gap: var(--d-s3); justify-content: space-between; min-width: 0; padding-top: var(--d-s2); }
 .cmRank li:first-child, .cmList li:first-child { border-top: 0; padding-top: 0; }
 .cmRank li > div, .cmList li > div { min-width: 0; }
-.cmRank strong, .cmList strong { display: block; font-size: 14px; overflow-wrap: anywhere; }
-.cmRank small, .cmList small, .cmRank .num small { color: var(--d-faint); display: block; font-size: 12px; overflow-wrap: anywhere; }
-.cmPriceNote { color: var(--d-warn); font-size: 13px; text-align: end; }
+.cmRank strong, .cmList strong { display: block; font-size: var(--text-md); overflow-wrap: anywhere; }
+.cmRank small, .cmList small, .cmRank .num small { color: var(--d-faint); display: block; font-size: var(--text-xs); overflow-wrap: anywhere; }
+.cmPriceNote { color: var(--d-warn); font-size: var(--text-sm); text-align: end; }
 
 .cmFacts { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); margin: 0; }
 .cmFacts code { overflow-wrap: anywhere; }
 
 /* Sales chart: thin stacked bars, recessive grid, hover tooltip and a table view. */
 .cmChartPanel .sectionHeader { align-items: flex-start; }
-.cmLegend { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 13px; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.cmLegend { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
 .cmLegend li { align-items: center; display: inline-flex; }
 .cmChart { position: relative; }
 .cmChart svg { display: block; height: auto; max-height: 260px; width: 100%; }
 .cmGridLine { stroke: var(--d-line); stroke-width: 1; }
 .cmAxis { stroke: var(--d-line-strong); stroke-width: 1; }
 .cmHit { fill: transparent; }
-.cmTick { fill: var(--d-faint); font-size: 11px; }
-.cmTooltip { background: var(--d-surface-3); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); box-shadow: var(--d-elev-2); display: grid; font-size: 13px; gap: 2px; inset-block-start: var(--d-s2); inset-inline-end: var(--d-s2); padding: var(--d-s2) var(--d-s3); pointer-events: none; position: absolute; }
-.cmChartTable summary { color: var(--d-sky); cursor: pointer; font-size: 14px; min-height: 32px; }
+.cmTick { fill: var(--d-faint); font-size: var(--text-2xs); }
+.cmTooltip { background: var(--d-surface-3); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); box-shadow: var(--d-elev-2); display: grid; font-size: var(--text-sm); gap: 2px; inset-block-start: var(--d-s2); inset-inline-end: var(--d-s2); padding: var(--d-s2) var(--d-s3); pointer-events: none; position: absolute; }
+.cmChartTable summary { color: var(--d-sky); cursor: pointer; font-size: var(--text-md); min-height: 32px; }
 
 .cmDetail { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); padding-top: var(--d-s4); }
-.cmDetail h4 { font-size: 14px; margin: 0; }
+.cmDetail h4 { font-size: var(--text-md); margin: 0; }
 
-.cmPrimary { align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s4); }
+.cmPrimary { align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s4); }
 .cmPrimary:hover { background: var(--d-primary-grad-hover); }
 
 .cmProduct { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-top: var(--d-s3); }
@@ -84,31 +84,31 @@
 .cmProductHead { align-items: flex-start; display: flex; gap: var(--d-s3); justify-content: space-between; min-width: 0; }
 .cmProductHead > div:first-child { min-width: 0; }
 .cmProductHead strong { display: block; overflow-wrap: anywhere; }
-.cmProductHead small { color: var(--d-faint); display: block; font-size: 12px; overflow-wrap: anywhere; }
+.cmProductHead small { color: var(--d-faint); display: block; font-size: var(--text-xs); overflow-wrap: anywhere; }
 .cmProductActions { align-items: center; display: flex; flex: none; gap: var(--d-s1); }
 .cmProductActions .muted { margin-inline-end: var(--d-s2); }
 .cmListing { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s2) var(--d-s3); }
-.cmListingMain { align-items: center; display: flex; flex-wrap: wrap; font-size: 14px; gap: var(--d-s2) var(--d-s4); }
+.cmListingMain { align-items: center; display: flex; flex-wrap: wrap; font-size: var(--text-md); gap: var(--d-s2) var(--d-s4); }
 .cmListingWhere { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .cmListingWhere small { color: var(--d-faint); }
 .cmListingButtons { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.cmListingButtons button { border-radius: var(--d-r-control); font-size: 13px; font-weight: 600; min-height: 36px; padding: 0 var(--d-s3); }
+.cmListingButtons button { border-radius: var(--d-r-control); font-size: var(--text-sm); font-weight: 600; min-height: 36px; padding: 0 var(--d-s3); }
 .cmChangeForm { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.cmChangeForm label { color: var(--d-muted); font-size: 13px; font-weight: 600; }
+.cmChangeForm label { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; }
 .cmChangeForm input { flex: 0 1 160px; min-width: 0; }
 .cmChangeForm button { border-radius: var(--d-r-control); min-height: 44px; padding: 0 var(--d-s3); }
 .cmChangeForm button:not(.secondary) { background: var(--d-primary-grad); border: 1px solid transparent; color: #fff; font-weight: 650; }
 .cmChangeForm small { flex-basis: 100%; }
-.cmFieldError { color: var(--d-stop); font-size: 13px; margin: 0; }
+.cmFieldError { color: var(--d-stop); font-size: var(--text-sm); margin: 0; }
 
 .cmForm { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s4); }
-.cmForm h3 { font-size: 15px; }
+.cmForm h3 { font-size: var(--text-base); }
 .cmForm .actions { margin-top: var(--d-s2); }
 .cmFormGrid { display: grid; gap: 0 var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
 .cmFormGrid .field { margin-top: var(--d-s3); }
 .cmChoice { border: 0; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); margin: var(--d-s3) 0 0; min-width: 0; padding: 0; }
-.cmChoice legend { color: var(--d-muted); font-size: 13px; font-weight: 600; margin-bottom: var(--d-s2); padding: 0; }
-.cmChoice label { align-items: center; display: inline-flex; font-size: 14px; gap: var(--d-s2); min-height: 44px; }
+.cmChoice legend { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--d-s2); padding: 0; }
+.cmChoice label { align-items: center; display: inline-flex; font-size: var(--text-md); gap: var(--d-s2); min-height: 44px; }
 .cmChoice input { accent-color: var(--d-violet); height: 18px; min-height: 0; width: 18px; }
 .cmHelp { overflow-wrap: anywhere; }
 .cmToggle { grid-column: 1 / -1; margin-top: var(--d-s3); }
@@ -120,7 +120,7 @@
 .cmAlert.warning > svg { color: var(--d-warn); }
 .cmAlert.info > svg { color: var(--d-sky); }
 .cmAlert strong, .cmAlert small { display: block; overflow-wrap: anywhere; }
-.cmAlert small { color: var(--d-muted); font-size: 13px; }
+.cmAlert small { color: var(--d-muted); font-size: var(--text-sm); }
 .cmAlert > button { border-radius: var(--d-r-control); grid-column: 2 / -1; justify-self: start; min-height: 40px; padding: 0 var(--d-s3); }
 
 .cmConnector { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); padding-top: var(--d-s4); }
@@ -128,11 +128,11 @@
 .cmConnectorHead { align-items: flex-start; display: flex; gap: var(--d-s3); justify-content: space-between; }
 .cmConnectorHead > div { min-width: 0; }
 .cmConnectorHead strong { align-items: center; display: flex; overflow-wrap: anywhere; }
-.cmConnectorHead small { color: var(--d-faint); display: block; font-size: 12px; overflow-wrap: anywhere; }
+.cmConnectorHead small { color: var(--d-faint); display: block; font-size: var(--text-xs); overflow-wrap: anywhere; }
 .actions.cmConnectorActions { margin-top: 0; }
-.cmProblem { background: rgb(var(--c-stop) / .08); border: 1px solid rgb(var(--c-stop) / .28); border-radius: var(--d-r-control); color: var(--d-error-text); font-size: 13px; margin: 0; overflow-wrap: anywhere; padding: var(--d-s2) var(--d-s3); }
+.cmProblem { background: rgb(var(--c-stop) / .08); border: 1px solid rgb(var(--c-stop) / .28); border-radius: var(--d-r-control); color: var(--d-error-text); font-size: var(--text-sm); margin: 0; overflow-wrap: anywhere; padding: var(--d-s2) var(--d-s3); }
 .cmSecret code { background: var(--d-field); border-radius: 6px; padding: 2px 6px; }
-.cmPagerText { font-size: 13px; }
+.cmPagerText { font-size: var(--text-sm); }
 .cmPager { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: space-between; }
 .cmPager button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s1); min-height: 40px; padding: 0 var(--d-s3); }
 
@@ -156,9 +156,9 @@
   .cmOverviewGrid > .cmWide { grid-column: span 2; }
 }
 .cmMoney { border-top: 1px solid var(--d-line); padding-top: var(--d-s3); }
-.cmMoney dt { color: var(--d-faint); font-size: 12px; }
+.cmMoney dt { color: var(--d-faint); font-size: var(--text-xs); }
 .cmMoney dd { font-variant-numeric: tabular-nums; margin: 2px 0 0; }
-.cmTable td small { color: var(--d-faint); display: block; font-size: 12px; }
+.cmTable td small { color: var(--d-faint); display: block; font-size: var(--text-xs); }
 .cmTable td strong { font-weight: 600; }
 .cmReturns td { white-space: nowrap; }
 .cmReturns td:nth-child(5) { min-width: 160px; white-space: normal; }

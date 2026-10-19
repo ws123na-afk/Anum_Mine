@@ -23,7 +23,6 @@ import { SyncPanel } from './CalendarSync';
 import { loadFailure, PageHeader, PageSummary, PaneDenied, PaneProblem, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import './admin.css';
 import './calendar.css';
-import { HelpLink } from './HelpLink';
 
 const MODE_KEY = 'anum.calendar.mode';
 const readMode = (): CalendarMode => { try { return localStorage.getItem(MODE_KEY) === 'day' ? 'day' : 'week'; } catch { return 'week'; } };
@@ -199,7 +198,7 @@ export function CalendarView({ onOpenTask, onOpenInbox, onOpenApprovals, onOpenM
           {page.state === 'error' && <div className="paneBody"><PaneProblem text={t('calendar.loadFailed', { reason: page.message })} onRetry={loadEvents} /></div>}
           {value?.truncated && <div className="paneBody"><p className="notice" role="status">{t('calendar.truncated')}</p></div>}
           {page.state === 'ready' && !events.length && <div className="paneEmpty"><CalendarDays aria-hidden="true" /><h3>{mode === 'week' ? t('calendar.empty.week') : t('calendar.empty.day')}</h3>
-            <p>{canWrite ? t('calendar.empty.text') : t('calendar.empty.readOnly')}</p><HelpLink />
+            <p>{canWrite ? t('calendar.empty.text') : t('calendar.empty.readOnly')}</p>
             {canWrite && <div className="actions"><button type="button" onClick={() => setForm({ event: null, day: mode === 'day' ? anchor : startOfDay(now) })}><Plus aria-hidden="true" />{t('calendar.new')}</button></div>}</div>}
           {page.state === 'ready' && events.length > 0 && !shown.length && <div className="paneEmpty"><Search aria-hidden="true" /><h3>{t('calendar.noMatch')}</h3><p>{t('calendar.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={() => setSearch('')}>{t('calendar.clearSearch')}</button></div></div>}
           {page.state === 'ready' && shown.length > 0 && <ol className="calendarDays">

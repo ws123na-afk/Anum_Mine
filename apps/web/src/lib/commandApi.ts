@@ -75,7 +75,7 @@ export const recentFiles = (limit: number): Promise<api.FileRecord[]> => api.get
 /** Open tasks (created, queued, running or waiting for approval), the newest first, for Current tasks. */
 export const openTasks = (limit: number): Promise<Task[]> => listTasks({ ...EMPTY_QUERY, status: 'active' }, null, limit);
 /** How many approvals wait in this workspace, for "Suggestions for you". */
-export const pendingApprovals = async (): Promise<number> => (await api.getApprovals()).filter((a) => a.status === 'pending').length;
+export const pendingApprovals = async (): Promise<number> => (await api.getPendingApprovals()).length;
 
 /** Unread mail across the connected mailboxes; null when the inbox is not available to this person. */
 export async function inboxSummary(): Promise<{ mailboxes: number; unread: number } | null> {

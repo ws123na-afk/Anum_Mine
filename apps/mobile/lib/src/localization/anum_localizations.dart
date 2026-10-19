@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'approvals_strings.dart';
 import 'calls_strings.dart';
 import 'brevo_strings.dart';
 import 'calendar_sync_strings.dart';
@@ -29,6 +30,7 @@ class AnumLocalizations {
       (isArabic ? brevoAr : brevoEn)[key] ??
       (isArabic ? orgAdminAr : orgAdminEn)[key] ??
       (isArabic ? calendarSyncAr : calendarSyncEn)[key] ??
+      (isArabic ? approvalsAr : approvalsEn)[key] ??
       (isArabic ? inboxAr : inboxEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
@@ -38,6 +40,7 @@ class AnumLocalizations {
       brevoEn[key] ??
       orgAdminEn[key] ??
       calendarSyncEn[key] ??
+      approvalsEn[key] ??
       inboxEn[key] ??
       key;
 

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { approvalPagesResponse } from './support/approvalPages';
 
 // Approval integrity in the web client (docs/approvals-and-risk.md): the card shows the exact
 // tool and arguments, approving sends back the displayed payload hash, history shows the decider.
@@ -35,6 +36,8 @@ async function mockApi(page: Page, overrides: Record<string, unknown> = {}) {
     if (path === '/api/v1/auth/local/session') return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
     if (path === '/api/v1/tasks') return json([task]);
     if (path === '/api/v1/approvals') return json([approval]);
+    const paged = approvalPagesResponse(new URL(route.request().url()), [approval]);
+    if (paged !== undefined) return json(paged);
     if (path === '/api/v1/approvals/approval_e2e/approve') {
       const sent = route.request().postDataJSON() as { reason?: string };
       decisions.push(sent);
@@ -93,6 +96,8 @@ test('an approval chain shows its progress and who approved, and stays pending u
     if (path === '/api/v1/auth/local/session') return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
     if (path === '/api/v1/tasks') return json([task]);
     if (path === '/api/v1/approvals') return json([approval]);
+    const paged = approvalPagesResponse(new URL(route.request().url()), [approval]);
+    if (paged !== undefined) return json(paged);
     if (path === '/api/v1/approvals/approval_e2e/approve') {
       decisions.push(route.request().postDataJSON());
       // Two of three: still pending, the run keeps waiting.
