@@ -20,15 +20,15 @@ key, with the purge policy ``lifecycle_purge_workspace_file_versions`` (copied f
 Expand only: one defaulted column, one concurrently built index and one new table. The previous
 release ignores all three; a file it deletes takes its versions with it.
 
-Numbered 0088 and chained after ``0087_email_draft_bcc``, the head of ``main``; renumbered at
+Numbered 0089 and chained after ``0088_approvals_paging``, the head of ``main``; renumbered at
 merge if other migrations land first.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0088_file_versions"
-down_revision = "0087_email_draft_bcc"
+revision = "0089_file_versions"
+down_revision = "0088_approvals_paging"
 branch_labels = None
 depends_on = None
 

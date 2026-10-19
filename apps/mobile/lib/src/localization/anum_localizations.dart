@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'approvals_strings.dart';
 import 'calls_strings.dart';
 import 'brevo_strings.dart';
 import 'org_admin_strings.dart';
@@ -27,6 +28,7 @@ class AnumLocalizations {
       (isArabic ? businessAr : businessEn)[key] ??
       (isArabic ? brevoAr : brevoEn)[key] ??
       (isArabic ? orgAdminAr : orgAdminEn)[key] ??
+      (isArabic ? approvalsAr : approvalsEn)[key] ??
       (isArabic ? inboxAr : inboxEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
@@ -35,6 +37,7 @@ class AnumLocalizations {
       businessEn[key] ??
       brevoEn[key] ??
       orgAdminEn[key] ??
+      approvalsEn[key] ??
       inboxEn[key] ??
       key;
 
