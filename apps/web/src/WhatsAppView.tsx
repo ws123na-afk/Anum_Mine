@@ -155,7 +155,7 @@ function InboxView({ account, owner, onOpenApprovals, onOpenBudgets, onOpenTempl
       <h2 id="wa-list-heading" className="visuallyHidden">{t('wa.list.heading')}</h2>
       <form className="waSearch" role="search" onSubmit={(e) => { e.preventDefault(); setApplied(query); }}>
         <label className="visuallyHidden" htmlFor={searchId}>{t('wa.list.search')}</label>
-        <input id={searchId} type="search" value={query} placeholder={t('wa.list.search')} onChange={(e) => setQuery(e.target.value)} />
+        <input id={searchId} type="search" required value={query} placeholder={t('wa.list.search')} onChange={(e) => { setQuery(e.target.value); if (!e.target.value) setApplied(''); }} />
         <button type="submit" className="secondary iconOnly" aria-label={t('common.search')} title={t('common.search')}><Search aria-hidden="true" /></button>
       </form>
       <div className="waFilters" role="group" aria-label={t('wa.list.filters')}>

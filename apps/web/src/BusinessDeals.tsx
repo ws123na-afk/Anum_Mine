@@ -44,7 +44,7 @@ function SearchBar({ label, value, onChange, onSubmit, children }: { label: stri
   return <div className="bzToolbar">
     <form className="bzSearch" role="search" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
       <label className="visuallyHidden" htmlFor={id}>{label}</label>
-      <input id={id} type="search" value={value} placeholder={label} onChange={(event) => onChange(event.target.value)} />
+      <input id={id} type="search" required value={value} placeholder={label} onChange={(event) => onChange(event.target.value)} />
       <button type="submit" className="secondary"><Search aria-hidden="true" />{t('biz.find')}</button>
     </form>
     {children}
@@ -70,7 +70,7 @@ export function PipelineTab({ setup, openId, onOpen, onOpenProposal, onGoLeads, 
   const stageId = useId();
   const filtered = Boolean(search || stage);
   return <section className="bzSection" aria-label={t('biz.tab.pipeline')}>
-    <SearchBar label={t('biz.pipeline.search')} value={q} onChange={setQ} onSubmit={() => setSearch(q.trim())}>
+    <SearchBar label={t('biz.pipeline.search')} value={q} onChange={(value) => { setQ(value); if (!value) setSearch(''); }} onSubmit={() => setSearch(q.trim())}>
       <label className="bzCompact" htmlFor={stageId}><span>{t('biz.pipeline.stage')}</span><select id={stageId} value={stage} onChange={(event) => setStage(event.target.value as OpportunityStage | '')}>
         <option value="">{t('biz.pipeline.allStages')}</option>{STAGES.map((item) => <option key={item} value={item}>{stageLabel(item)}</option>)}</select></label>
     </SearchBar>
@@ -175,7 +175,7 @@ export function ProposalsTab({ setup, openId, onOpen, onOpenProject, onGoPipelin
   const [q, setQ] = useState(''), [search, setSearch] = useState('');
   const list = usePaged((offset) => b.listProposals({ q: search, limit: PAGE_SIZE, offset }), [search]);
   return <section className="bzSection" aria-label={t('biz.tab.proposals')}>
-    <SearchBar label={t('biz.proposal.search')} value={q} onChange={setQ} onSubmit={() => setSearch(q.trim())} />
+    <SearchBar label={t('biz.proposal.search')} value={q} onChange={(value) => { setQ(value); if (!value) setSearch(''); }} onSubmit={() => setSearch(q.trim())} />
     <ListState load={list.load} empty={list.items.length === 0} filtered={Boolean(search)} onRetry={() => void list.first()} onClear={() => { setQ(''); setSearch(''); }} />
     {list.load.kind === 'ready' && list.items.length === 0 && !search && <Empty title={t('biz.proposal.emptyTitle')} text={t('biz.proposal.emptyText')} action={<button type="button" className="secondary" onClick={onGoPipeline}>{t('biz.proposal.goPipeline')}</button>} />}
     {list.load.kind === 'ready' && list.items.length > 0 && <>
@@ -343,7 +343,7 @@ export function ProjectsTab({ setup, openId, onOpen, onGoProposals }: { setup: B
   const list = usePaged((offset) => b.listProjects({ q: search, limit: PAGE_SIZE, offset }), [search]);
   const open = list.items.find((item) => item.id === openId) ?? null;
   return <section className="bzSection" aria-label={t('biz.tab.projects')}>
-    <SearchBar label={t('biz.project.search')} value={q} onChange={setQ} onSubmit={() => setSearch(q.trim())} />
+    <SearchBar label={t('biz.project.search')} value={q} onChange={(value) => { setQ(value); if (!value) setSearch(''); }} onSubmit={() => setSearch(q.trim())} />
     <ListState load={list.load} empty={list.items.length === 0} filtered={Boolean(search)} onRetry={() => void list.first()} onClear={() => { setQ(''); setSearch(''); }} />
     {list.load.kind === 'ready' && list.items.length === 0 && !search && <Empty title={t('biz.project.emptyTitle')} text={t('biz.project.emptyText')} action={<button type="button" className="secondary" onClick={onGoProposals}>{t('biz.project.goProposals')}</button>} />}
     {list.load.kind === 'ready' && list.items.length > 0 && <>
