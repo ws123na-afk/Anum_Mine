@@ -263,7 +263,7 @@ function PreferencesCard({ version, onChanged }: { version: number; onChanged: (
     <h2 id={`${id}-title`}>{t('learning.prefs.title')}</h2>
     <p className="muted">{t('learning.prefs.intro')}</p>
     <form className="learningSearch" role="search" onSubmit={(e) => { e.preventDefault(); setOffset(0); setApplied(query.trim()); }}>
-      <input type="search" value={query} maxLength={200} aria-label={t('learning.prefs.search')} placeholder={t('learning.prefs.search')} onChange={(e) => setQuery(e.target.value)} dir="auto" />
+      <input type="search" required value={query} maxLength={200} aria-label={t('learning.prefs.search')} placeholder={t('learning.prefs.search')} onChange={(e) => { setQuery(e.target.value); if (!e.target.value) { setOffset(0); setApplied(''); } }} dir="auto" />
       <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
     </form>
     {state === 'loading' && items.length === 0 && <p className="muted" role="status">{t('common.loading')}</p>}
@@ -473,7 +473,7 @@ function SignalsCard({ version, onChanged }: { version: number; onChanged: () =>
       <select aria-label={t('learning.signals.filter')} value={kind} onChange={(e) => { setOffset(0); setKind(e.target.value); }}>
         <option value="">{t('learning.signals.all')}</option>{SIGNAL_KINDS.map((k) => <option key={k} value={k}>{kindLabel(k)}</option>)}
       </select>
-      <input type="search" value={query} maxLength={200} aria-label={t('learning.signals.search')} placeholder={t('learning.signals.search')} onChange={(e) => setQuery(e.target.value)} dir="auto" />
+      <input type="search" required value={query} maxLength={200} aria-label={t('learning.signals.search')} placeholder={t('learning.signals.search')} onChange={(e) => { setQuery(e.target.value); if (!e.target.value) { setOffset(0); setApplied(''); } }} dir="auto" />
       <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
     </form>
     {state === 'loading' && items.length === 0 && <p className="muted" role="status">{t('common.loading')}</p>}

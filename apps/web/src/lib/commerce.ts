@@ -250,3 +250,7 @@ export function summaryFigures(data: Record<string, unknown>): SummaryNumbers {
   const top = Array.isArray(data.top_skus) && Array.isArray(data.top_skus[0]) ? data.top_skus[0] as unknown[] : null;
   return { orders: num(data.orders), units: num(data.units), revenue, topSku: top && typeof top[0] === 'string' ? top[0] : null, topUnits: top ? num(top[1]) : 0 };
 }
+
+/** The Commerce tabs; each one but the overview is a deep link (#commerce-orders). */
+export type CommerceTab = 'overview' | 'orders' | 'returns' | 'catalog' | 'alerts' | 'connections';
+export const COMMERCE_TABS: readonly CommerceTab[] = ['overview', 'orders', 'returns', 'catalog', 'alerts', 'connections'];

@@ -151,7 +151,7 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
           </div>
           {listTab === 'meetings' && page.state !== 'loading' && (total > 0 || searching) && <form className="toolbar meetingsListToolbar" role="search" onSubmit={submitSearch}>
             <label className="visuallyHidden" htmlFor={`${searchId}-q`}>{t('meetings.searchLabel')}</label>
-            <input id={`${searchId}-q`} type="search" value={draft} placeholder={t('meetings.searchLabel')} maxLength={200} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) { setQuery(''); setOffset(0); } }} />
+            <input id={`${searchId}-q`} type="search" required value={draft} placeholder={t('meetings.searchLabel')} maxLength={200} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) { setQuery(''); setOffset(0); } }} />
             <button type="submit" className="secondary iconOnly" aria-label={t('common.search')} title={t('common.search')}><Search aria-hidden="true" /></button>
             <label className="visuallyHidden" htmlFor={`${searchId}-status`}>{t('meetings.statusFilter')}</label>
             <select id={`${searchId}-status`} value={status} onChange={(e) => { setOffset(0); setStatus(e.target.value as MeetingStatus | ''); }}>
@@ -520,7 +520,7 @@ function Transcript({ meeting }: { meeting: ApiMeeting }) {
     <h3 id={`${ids}-h`}>{t('meetings.transcript.title', { count: meeting.segment_count })}</h3>
     <form className="actions meetingsToolbar" role="search" onSubmit={(e) => { e.preventDefault(); setOffset(0); setQuery(draft.trim()); }}>
       <label className="visuallyHidden" htmlFor={`${ids}-q`}>{t('meetings.transcript.search')}</label>
-      <input id={`${ids}-q`} type="search" value={draft} dir="auto" placeholder={t('meetings.transcript.search')} maxLength={200} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) { setQuery(''); setOffset(0); } }} />
+      <input id={`${ids}-q`} type="search" required value={draft} dir="auto" placeholder={t('meetings.transcript.search')} maxLength={200} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) { setQuery(''); setOffset(0); } }} />
       <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
       {value && value.speakers.length > 0 && <><label className="visuallyHidden" htmlFor={`${ids}-s`}>{t('meetings.transcript.speaker')}</label>
         <select id={`${ids}-s`} value={speaker} onChange={(e) => { setOffset(0); setSpeaker(e.target.value); }}><option value="">{t('meetings.transcript.allSpeakers')}</option>{value.speakers.map((name) => <option key={name} value={name}>{name}</option>)}</select></>}

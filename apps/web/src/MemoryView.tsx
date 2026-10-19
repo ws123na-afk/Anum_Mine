@@ -117,7 +117,7 @@ export function MemoryView({ tasks, onOpenConversation, initialOnlyChats = false
     <div className="kbBar">
       <form className="toolbar kbSearch" role="search" onSubmit={e => { e.preventDefault(); setApplied(query.trim()); }}>
         <label className="visuallyHidden" htmlFor="memory-search">{t('memory.search')}</label>
-        <input id="memory-search" type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder={t('memory.searchPlaceholder')} />
+        <input id="memory-search" type="search" required value={query} onChange={e => { setQuery(e.target.value); if (!e.target.value) setApplied(''); }} placeholder={t('memory.searchPlaceholder')} />
         <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
         {applied && <button type="button" className="secondary" onClick={() => { setQuery(''); setApplied(''); }}>{t('common.clear')}</button>}
       </form>
