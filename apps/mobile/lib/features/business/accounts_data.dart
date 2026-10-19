@@ -238,7 +238,10 @@ class AccountsController extends ChangeNotifier {
   String? error, query;
   bool get hasMore => items.length < total;
 
+  int _generation = 0;
+
   Future<void> load() async {
+    final generation = ++_generation;
     state = BusinessLoad.loading;
     error = null;
     notifyListeners();
@@ -248,12 +251,14 @@ class AccountsController extends ChangeNotifier {
         offset: 0,
         limit: pageSize,
       );
+      if (generation != _generation) return;
       items
         ..clear()
         ..addAll(page.items);
       total = page.total;
       state = BusinessLoad.ready;
     } catch (e) {
+      if (generation != _generation) return;
       state = e is ApiException && e.isPermissionDenied
           ? BusinessLoad.denied
           : BusinessLoad.error;
@@ -269,6 +274,7 @@ class AccountsController extends ChangeNotifier {
 
   Future<void> more() async {
     if (loadingMore || !hasMore) return;
+    final generation = _generation;
     loadingMore = true;
     notifyListeners();
     try {
@@ -277,6 +283,7 @@ class AccountsController extends ChangeNotifier {
         offset: items.length,
         limit: pageSize,
       );
+      if (generation != _generation) return;
       items.addAll(page.items);
       total = page.total;
     } catch (e) {

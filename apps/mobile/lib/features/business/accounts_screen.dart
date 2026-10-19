@@ -253,7 +253,7 @@ class _AccountScreenState extends State<AccountScreen> {
         ),
       ),
     );
-    if (next == true) await load();
+    if (next == true) await Future.wait([load(), c.load()]);
   }
 
   Future<void> toggleContactDnc(AccountContact contact) async {
@@ -267,7 +267,7 @@ class _AccountScreenState extends State<AccountScreen> {
     if (reason == null) return;
     await run(() async {
       await c.repository.contactDnc(contact.id, on, reason);
-      await load();
+      await Future.wait([load(), c.load()]);
     });
   }
 
@@ -282,7 +282,7 @@ class _AccountScreenState extends State<AccountScreen> {
     if (!ok) return;
     await run(() async {
       await c.repository.deleteContact(contact.id);
-      await load();
+      await Future.wait([load(), c.load()]);
     });
   }
 

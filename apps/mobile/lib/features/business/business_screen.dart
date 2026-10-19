@@ -84,14 +84,10 @@ class _BusinessScreenState extends State<BusinessScreen> {
         if (c.leads.state == BusinessLoad.idle) c.first(c.leads);
       case _Section.catalog:
         final catalog = c.catalog;
-        if (catalog != null && catalog.state != BusinessLoad.ready) {
-          catalog.load();
-        }
+        catalog?.load();
       case _Section.accounts:
         final accounts = c.accounts;
-        if (accounts != null && accounts.state != BusinessLoad.ready) {
-          accounts.load();
-        }
+        accounts?.load();
       case _Section.support:
         final support = c.support;
         if (support != null && support.state != BusinessLoad.ready) {

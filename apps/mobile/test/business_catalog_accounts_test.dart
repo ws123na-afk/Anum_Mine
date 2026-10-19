@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/json_read.dart';
 import 'package:anum_mobile/features/business/accounts_data.dart';
@@ -752,4 +754,66 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  group('review fixes', () {
+    test('an older catalog response never replaces a newer filter', () async {
+      final repo = SlowCatalog();
+      final c = CatalogController(repo);
+      final older = c.filter(maturity: 'live');
+      final newer = c.filter(maturity: 'pilot');
+      repo.pilot.complete(const BusinessPage<CatalogProduct>([], 0));
+      await newer;
+      repo.live.complete(BusinessPage(
+          [CatalogProduct.fromJson(JsonReader.of(productJson(1)))], 1));
+      await older;
+      expect(c.maturity, 'pilot');
+      expect(c.items, isEmpty);
+      expect(c.state, BusinessLoad.ready);
+    });
+
+    testWidgets('deleting a contact refreshes the account list counts',
+        (tester) async {
+      await phone(tester);
+      final repo = FakeAccounts();
+      final c = AccountsController(repo);
+      await tester.pumpWidget(accountsPage(c));
+      await c.load();
+      await tester.pumpAndSettle();
+      final before = repo.calls.where((x) => x.startsWith('list')).length;
+      await tester.tap(find.byKey(const Key('acct-row-bacct_1')));
+      await tester.pumpAndSettle();
+      await tap(tester, 'contact-bcont_1-delete');
+      await tap(tester, 'desk-confirm');
+      final after = repo.calls.where((x) => x.startsWith('list')).length;
+      expect(after, greaterThan(before));
+    });
+
+    testWidgets('reopening the Catalog tab loads it again', (tester) async {
+      await phone(tester);
+      final catalog = FakeCatalog();
+      final c = BusinessController(FakeBusiness(),
+          catalog: CatalogController(catalog));
+      await tester.pumpWidget(app(BusinessScreen(controller: c)));
+      await tester.pumpAndSettle();
+      await tap(tester, 'biz-tab-catalog');
+      await tap(tester, 'biz-tab-overview');
+      await tap(tester, 'biz-tab-catalog');
+      expect(catalog.calls.where((x) => x.startsWith('list')).length, 2);
+    });
+  });
+}
+
+class SlowCatalog extends FakeCatalog {
+  final live = Completer<BusinessPage<CatalogProduct>>();
+  final pilot = Completer<BusinessPage<CatalogProduct>>();
+
+  @override
+  Future<BusinessPage<CatalogProduct>> products({
+    String? query,
+    String? kind,
+    String? maturity,
+    required int offset,
+    int limit = 20,
+  }) =>
+      maturity == 'live' ? live.future : pilot.future;
 }
