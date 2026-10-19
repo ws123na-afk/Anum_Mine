@@ -40,6 +40,21 @@ class ToolDefinition(BaseModel):
     # Never lowered by workspace autonomy: every call waits for a person's approval, whatever
     # the autonomy level or rules (the Email Center's send, delete, bulk archive and export).
     always_ask: bool = False
+    # A tenant-wide permission the actor must hold through an organization role (for example
+    # "platform:operate"), checked whenever the call is planned or decided. A workspace role
+    # never grants it; the tool's handler checks it again when it runs.
+    required_organization_permission: str | None = None
+
+
+def holds_organization_permission(context: TenantContext, permission: str) -> bool:
+    """Whether the actor holds ``permission`` through an organization role of their tenant."""
+    from .authorization import AuthorizationError, Permission, policy
+
+    try:
+        policy.require_organization(context, Permission(permission))
+    except (AuthorizationError, ValueError):
+        return False
+    return True
 
 
 class ToolCall(BaseModel):
@@ -182,6 +197,12 @@ class ToolPolicy:
             return ToolPolicyDecision(
                 outcome=ToolPolicyOutcome.BLOCK,
                 reason="The actor does not have a role required by this tool.",
+                risk_level=RiskLevel.BLOCKED,
+            )
+        if definition.required_organization_permission and not holds_organization_permission(context, definition.required_organization_permission):
+            return ToolPolicyDecision(
+                outcome=ToolPolicyOutcome.BLOCK,
+                reason=f"The actor does not hold {definition.required_organization_permission}, which this tool needs.",
                 risk_level=RiskLevel.BLOCKED,
             )
         if definition.risk_level == RiskLevel.BLOCKED:

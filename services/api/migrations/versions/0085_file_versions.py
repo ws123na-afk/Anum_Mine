@@ -17,15 +17,15 @@ granted anything and no discovery role reads it.
 Expand only: one defaulted column, one concurrently built index and one new table. The previous
 release ignores all three; a file it deletes takes its versions with it.
 
-Numbered 0084 and chained after ``0083_skill_signing``, the head of ``main``; renumbered at
+Numbered 0085 and chained after ``0080_business_change_orders``, the head of ``main``; renumbered at
 merge if other migrations land first.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0084_file_versions"
-down_revision = "0083_skill_signing"
+revision = "0085_file_versions"
+down_revision = "0080_business_change_orders"
 branch_labels = None
 depends_on = None
 

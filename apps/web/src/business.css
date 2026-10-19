@@ -98,6 +98,7 @@
 .bzRows { display: grid; gap: var(--d-s2); }
 .bzRow { align-items: end; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr) 40px; }
 @media (min-width: 640px) {
+  .bzChangeRow { grid-template-columns: minmax(0, 1fr) minmax(0, 2.4fr) minmax(0, 1.3fr) minmax(0, .8fr) minmax(0, 1.1fr) 40px; }
   .bzLineRow { grid-template-columns: minmax(0, 3fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.2fr) 40px; }
   .bzMilestoneRow { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr) 40px; }
 }
@@ -126,6 +127,10 @@
 .bzArgs dd { margin: 0; overflow-wrap: anywhere; }
 .bzHash { align-items: center; display: flex; font-size: 13px; gap: var(--d-s2); margin: 0; }
 
+/* Change orders and the ledger (docs/business.md#change-orders). */
+.bzSubhead { font-size: 13px; margin: 0; }
+.bzForm.bzGrid3 { align-items: end; }
+.bzBlock .bzInline > h3 { font-size: 15px; margin: 0; }
 /* Support tickets (BusinessSupport.tsx). */
 .bzRef { color: var(--d-muted); font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
 .bzEscalated { align-items: center; color: var(--d-stop); display: inline-flex; font-size: 13px; font-weight: 600; gap: var(--d-s1); }

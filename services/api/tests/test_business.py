@@ -11,6 +11,7 @@ summary and the main path end to end.
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 from collections.abc import Iterator
 from typing import Any
 
@@ -663,6 +664,26 @@ def test_every_state_changing_route_is_audited_without_contact_details_or_text(s
     project = call("POST", "/projects", json={"proposal_id": proposal["id"]}).json()
     call("PATCH", f"/projects/{project['id']}", json={"status": "active"})
     call("PATCH", f"/milestones/{project['milestones'][0]['id']}", json={"status": "in_progress"})
+    # Change orders, the usage ledger and the AI usage import (docs/business.md#change-orders).
+    change = call("POST", f"/projects/{project['id']}/change-orders", json={"title": "Extra report", "lines": [{"description": "Extra report", "unit_price": 100}]}).json()
+    call("PATCH", f"/change-orders/{change['id']}", json={"timeline_days": 5})
+    sent_change = call("POST", f"/change-orders/{change['id']}/submit").json()
+    call("POST", f"/change-orders/{change['id']}/approve", json={"content_hash": sent_change["content_hash"]})
+    second_change = call("POST", f"/projects/{project['id']}/change-orders", json={"title": "Training", "timeline_days": 2}).json()
+    call("POST", f"/change-orders/{second_change['id']}/submit")
+    call("POST", f"/change-orders/{second_change['id']}/reject", json={"reason": "Not needed"})
+    third_change = call("POST", f"/projects/{project['id']}/change-orders", json={"title": "Later", "timeline_days": 1}).json()
+    call("POST", f"/change-orders/{third_change['id']}/withdraw", json={"reason": "Next phase"})
+    entry = call("POST", "/usage", json={"project_id": project["id"], "kind": "labour", "description": "Build", "occurred_on": "2026-10-01", "quantity": 2, "unit_cost": 50}).json()
+    call("PATCH", f"/usage/{entry['id']}", json={"billable": True})
+    call("DELETE", f"/usage/{entry['id']}")
+    from anum_api.model_budget import UsageDelta, memory_model_budget_store
+
+    memory_model_budget_store.record_usage(CONTEXT, date(2025, 1, 1), UsageDelta(100, 50, 1.5), utc_now())
+    try:
+        call("POST", "/usage/import-ai", json={"project_id": project["id"], "month": "2025-01"})
+    finally:
+        memory_model_budget_store._usage.clear()
     # A second, withdrawn proposal; a do-not-contact mark; and the deletions.
     other = call("POST", "/leads", json={"title": "Second", "account": {"name": "Second Co"}}).json()
     call("POST", f"/accounts/{other['account']['id']}/do-not-contact", json={"on": True, "reason": "Asked us not to"})
