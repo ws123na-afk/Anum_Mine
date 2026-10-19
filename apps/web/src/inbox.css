@@ -17,7 +17,7 @@
 .inboxStart { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); padding: var(--d-s5); }
 .inboxStartText { display: grid; gap: var(--d-s2); }
 .inboxStartText > svg { color: var(--d-violet); height: 28px; width: 28px; }
-.inboxStartText h2 { font-size: 18px; }
+.inboxStartText h2 { font-size: var(--text-xl); }
 .inboxAccounts { display: grid; gap: var(--d-s3); min-width: 0; }
 .inboxAccountList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
 .inboxAccount {
@@ -26,19 +26,19 @@
 }
 .inboxAccount > svg { color: var(--d-sky); height: 18px; width: 18px; }
 .inboxAccountText { display: grid; gap: 2px; min-width: 0; }
-.inboxAccountText strong { font-size: 14px; overflow-wrap: anywhere; }
-.inboxAccountText small { color: var(--d-muted); font-size: 12px; overflow-wrap: anywhere; }
+.inboxAccountText strong { font-size: var(--text-md); overflow-wrap: anywhere; }
+.inboxAccountText small { color: var(--d-muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .inboxAccountText .inboxAccountError { color: var(--d-warn); }
 .inboxAccountActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
 .inboxAccountActions button, .inboxConnectButtons button, .inboxFilters button, .inboxMessageBar button, .inboxAttachments button, .inboxReply button, .inboxDraftCard button {
-  align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 14px; font-weight: 600; gap: var(--d-s2); min-height: 40px; padding: var(--d-s2) var(--d-s3);
+  align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: var(--text-md); font-weight: 600; gap: var(--d-s2); min-height: 40px; padding: var(--d-s2) var(--d-s3);
 }
 .inboxConnect { display: grid; gap: var(--d-s2); }
 .inboxConnectButtons { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .inboxConnectButtons button:not(.secondary) { background: var(--d-primary-grad); border: 1px solid transparent; color: #fff; }
 .inboxConnectButtons button:not(.secondary):hover:not(:disabled) { background: var(--d-primary-grad-hover); }
-.inboxSetupNote { flex: 1 1 100%; font-size: 13px; overflow-wrap: anywhere; }
-.inboxCheck { align-items: center; color: var(--d-muted); display: inline-flex; font-size: 14px; gap: var(--d-s2); min-height: 40px; }
+.inboxSetupNote { flex: 1 1 100%; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.inboxCheck { align-items: center; color: var(--d-muted); display: inline-flex; font-size: var(--text-md); gap: var(--d-s2); min-height: 40px; }
 .inboxCheck input { accent-color: var(--d-violet); height: 16px; margin: 0; min-height: 0; width: 16px; }
 
 /* Filters and the drafts waiting: a pane on the start side from 1280px, a row above the panes below. */
@@ -52,13 +52,13 @@
 .inboxChecks { align-items: center; display: flex; flex-wrap: wrap; gap: 0 var(--d-s3); }
 .inboxChecks button { margin-inline-start: auto; }
 .inboxQueue { border-top: 1px solid var(--d-line); min-width: 0; padding-top: var(--d-s2); }
-.inboxQueue summary { align-items: center; cursor: pointer; display: flex; font-size: 13.5px; font-weight: 650; gap: var(--d-s2); list-style: none; min-height: 36px; }
+.inboxQueue summary { align-items: center; cursor: pointer; display: flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); list-style: none; min-height: 36px; }
 .inboxQueue summary::-webkit-details-marker { display: none; }
 .inboxQueue summary svg { color: var(--d-violet); height: 16px; width: 16px; }
-.inboxQueue > p { font-size: 13px; padding: var(--d-s1) 0; }
-.inboxQueueCount { background: var(--d-glass-3); border-radius: 999px; color: var(--d-text); font-size: 12px; margin-inline-start: auto; min-width: 24px; padding: 1px var(--d-s2); text-align: center; }
+.inboxQueue > p { font-size: var(--text-sm); padding: var(--d-s1) 0; }
+.inboxQueueCount { background: var(--d-glass-3); border-radius: 999px; color: var(--d-text); font-size: var(--text-xs); margin-inline-start: auto; min-width: 24px; padding: 1px var(--d-s2); text-align: center; }
 .inboxQueue .railItem small { align-items: center; display: flex; flex-wrap: wrap; gap: 4px; }
-.inboxQueue .statusBadge { font-size: 11px; padding: 0 6px; }
+.inboxQueue .statusBadge { font-size: var(--text-2xs); padding: 0 6px; }
 @media (min-width: 1024px) and (max-width: 1279px) {
   .splitView.inboxSplit { grid-template-columns: minmax(300px, 2fr) minmax(0, 3fr); grid-template-rows: auto minmax(0, 1fr); }
   .inboxSplit > .inboxNav { grid-column: 1 / -1; overflow: visible; }
@@ -89,15 +89,15 @@
 .inboxRow:hover { background: var(--d-glass-1); }
 .inboxRow.selected { background: var(--d-glass-2); border-color: rgb(var(--c-violet) / .4); }
 .inboxRowTop { align-items: baseline; display: flex; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
-.inboxRowTop strong { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inboxRowTop time { color: var(--d-faint); flex: none; font-size: 12px; }
+.inboxRowTop strong { font-size: var(--text-md); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inboxRowTop time { color: var(--d-faint); flex: none; font-size: var(--text-xs); }
 .inboxRow.unread .inboxRowTop strong, .inboxRow.unread .inboxRowSubject { font-weight: 700; }
-.inboxRowSubject { align-items: center; display: flex; font-size: 14px; gap: var(--d-s2); min-width: 0; overflow-wrap: anywhere; }
+.inboxRowSubject { align-items: center; display: flex; font-size: var(--text-md); gap: var(--d-s2); min-width: 0; overflow-wrap: anywhere; }
 .inboxUnreadDot { background: var(--d-sky); border-radius: 50%; flex: none; height: 8px; width: 8px; }
-.inboxRowSnippet { color: var(--d-muted); display: -webkit-box; font-size: 13px; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.inboxRowSnippet { color: var(--d-muted); display: -webkit-box; font-size: var(--text-sm); overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .inboxBadges { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s1); }
 .inboxBadges svg { color: var(--d-faint); height: 14px; width: 14px; }
-.inboxBadges .statusBadge { font-size: 11px; padding: 1px 8px; }
+.inboxBadges .statusBadge { font-size: var(--text-2xs); padding: 1px 8px; }
 
 /* The open message */
 .inboxMessage { display: grid; gap: var(--d-s4); padding: var(--d-s4) var(--d-s5) var(--d-s5); min-width: 0; }
@@ -106,28 +106,28 @@
 .inboxMessageActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-inline-start: auto; }
 .inboxBack { display: none !important; }
 .inboxMessageHeader { display: grid; gap: var(--d-s3); }
-.inboxMessageHeader h2 { font-size: 20px; overflow-wrap: anywhere; }
+.inboxMessageHeader h2 { font-size: var(--text-2xl); overflow-wrap: anywhere; }
 .inboxMessageHeader h2:focus { outline: none; }
 .inboxMessageHeader h2:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
 .inboxMeta { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); margin: 0; }
 .inboxMeta dd { font-weight: 500; }
 .inboxSummary { align-items: flex-start; background: rgb(var(--c-violet) / .08); border: 1px solid rgb(var(--c-violet) / .25); border-radius: var(--d-r-control); display: flex; gap: var(--d-s2); padding: var(--d-s3); }
 .inboxSummary svg { color: var(--d-violet); flex: none; height: 18px; margin-top: 2px; width: 18px; }
-.inboxSummary p { color: var(--d-text); font-size: 14px; margin-top: 2px; }
+.inboxSummary p { color: var(--d-text); font-size: var(--text-md); margin-top: 2px; }
 .inboxBody { display: grid; gap: var(--d-s3); }
 .inboxBody > .notice { margin: 0; }
-.inboxUntrusted { align-items: center; color: var(--d-faint); display: flex; font-size: 12px; gap: var(--d-s2); }
+.inboxUntrusted { align-items: center; color: var(--d-faint); display: flex; font-size: var(--text-xs); gap: var(--d-s2); }
 .inboxUntrusted svg { flex: none; height: 14px; width: 14px; }
 .inboxBodyText {
-  background: var(--d-field); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); font-size: 14px;
+  background: var(--d-field); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); font-size: var(--text-md);
   line-height: 1.6; overflow-wrap: anywhere; padding: var(--d-s3) var(--d-s4); unicode-bidi: plaintext; white-space: pre-wrap;
 }
 .inboxAttachments { display: flex; flex-wrap: wrap; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
 .inboxAttachments button { max-width: 100%; overflow-wrap: anywhere; text-align: start; }
-.inboxThread h3, .inboxReply h3 { font-size: 15px; margin-bottom: var(--d-s2); }
+.inboxThread h3, .inboxReply h3 { font-size: var(--text-base); margin-bottom: var(--d-s2); }
 .inboxThread ol { display: grid; gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s5); }
 .inboxThreadLink { background: none; border: 0; color: var(--d-sky); min-height: 32px; padding: 0; text-align: start; text-decoration: underline; }
-.inboxThreadCurrent { color: var(--d-muted); font-size: 14px; }
+.inboxThreadCurrent { color: var(--d-muted); font-size: var(--text-md); }
 
 /* Replies */
 .inboxReply { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); padding-top: var(--d-s4); }
@@ -143,14 +143,14 @@
 .inboxDraftCard .actions { margin-top: 0; }
 .inboxDraftCard .field { margin-top: 0; }
 .inboxDraftCard textarea { min-height: 140px; }
-.inboxDraftCard.sent p { align-items: center; color: var(--d-ok); display: flex; gap: var(--d-s2); font-size: 14px; }
+.inboxDraftCard.sent p { align-items: center; color: var(--d-ok); display: flex; gap: var(--d-s2); font-size: var(--text-md); }
 .inboxDraftCard.sent svg { height: 16px; width: 16px; }
 .inboxDraftFields { display: grid; gap: var(--d-s3); grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .inboxWide { grid-column: 1 / -1; }
 .inboxApproval { background: rgb(var(--c-warn) / .07); border: 1px solid rgb(var(--c-warn) / .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
-.inboxApproval > p { align-items: center; display: flex; gap: var(--d-s2); font-size: 14px; }
+.inboxApproval > p { align-items: center; display: flex; gap: var(--d-s2); font-size: var(--text-md); }
 .inboxApproval > p svg { color: var(--d-warn); height: 16px; width: 16px; }
-.inboxApproval code { font-size: 13px; }
+.inboxApproval code { font-size: var(--text-sm); }
 
 @media (max-width: 1023px) {
   /* One pane at a time: the list, or the open message with a way back (SplitView data-show). */
