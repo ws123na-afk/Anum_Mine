@@ -6,10 +6,12 @@ import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
+import 'accounts_screen.dart';
 import 'business_controller.dart';
 import 'business_models.dart';
 import 'invoices.dart';
 import 'portal_access.dart';
+import 'catalog_screen.dart';
 import 'project_money.dart';
 import 'support_screen.dart';
 
@@ -36,9 +38,11 @@ enum _Section {
   pipeline,
   proposals,
   projects,
+  catalog,
+  accounts,
   invoices,
   clients,
-  support
+  support,
 }
 
 String money(double? amount, String currency) => formatMoney(amount, currency);
@@ -90,6 +94,12 @@ class _BusinessScreenState extends State<BusinessScreen> {
         if (invoices != null && invoices.clients.state == BusinessLoad.idle) {
           invoices.firstClients();
         }
+      case _Section.catalog:
+        final catalog = c.catalog;
+        catalog?.load();
+      case _Section.accounts:
+        final accounts = c.accounts;
+        accounts?.load();
       case _Section.support:
         final support = c.support;
         if (support != null && support.state != BusinessLoad.ready) {
@@ -113,9 +123,10 @@ class _BusinessScreenState extends State<BusinessScreen> {
             onRefresh: c.load,
             children: [
               // The app bar already says "Business"; only the subtitle here.
-              Text(l.t('biz.subtitle'),
-                  style:
-                      TextStyle(color: context.palette.muted, fontSize: 13.5)),
+              Text(
+                l.t('biz.subtitle'),
+                style: TextStyle(color: context.palette.muted, fontSize: 13.5),
+              ),
               ...switch (c.setupState) {
                 BusinessLoad.idle || BusinessLoad.loading => [
                     AnumFeedback(
@@ -152,6 +163,8 @@ class _BusinessScreenState extends State<BusinessScreen> {
                             _Section.invoices ||
                             _Section.clients =>
                               c.invoices != null,
+                            _Section.catalog => c.catalog != null,
+                            _Section.accounts => c.accounts != null,
                             _ => true,
                           },
                         ))
@@ -265,6 +278,19 @@ class _BusinessScreenState extends State<BusinessScreen> {
             ),
           ],
         _Section.clients => [ClientsView(controller: c.invoices!)],
+        _Section.catalog => [
+            CatalogView(
+              controller: c.catalog!,
+              canManage: c.setup?.permissions.manage ?? false,
+            ),
+          ],
+        _Section.accounts => [
+            AccountsView(
+              controller: c.accounts!,
+              canWrite: c.setup?.permissions.write ?? false,
+              canManage: c.setup?.permissions.manage ?? false,
+            ),
+          ],
         _Section.support => [
             SupportTicketsView(
               controller: c.support!,

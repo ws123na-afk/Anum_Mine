@@ -1,5 +1,6 @@
 import 'invoice_strings.dart';
 import 'portal_strings.dart';
+import 'catalog_strings.dart';
 import 'support_strings.dart';
 
 /// Business screen strings (docs/business.md), English and Arabic. Looked up by
@@ -9,10 +10,11 @@ const businessEn = <String, String>{
   ...supportEn,
   ...invoiceEn,
   ...portalEn,
+  ...catalogEn,
   'biz.title': 'Business',
   'biz.subtitle': 'Leads, pipeline, proposals and projects for your own sales',
   'biz.sendingOff':
-      'Sending is off: ANUM never contacts anyone from Business. Products, prices and proposals are edited on the web.',
+      'Sending is off: ANUM never contacts anyone from Business. Proposals are written on the web.',
   'biz.tab.overview': 'Overview',
   'biz.tab.leads': 'Leads',
   'biz.tab.pipeline': 'Pipeline',
@@ -206,10 +208,11 @@ const businessAr = <String, String>{
   ...supportAr,
   ...invoiceAr,
   ...portalAr,
+  ...catalogAr,
   'biz.title': 'الأعمال',
   'biz.subtitle': 'العملاء المحتملون والفرص والعروض والمشاريع لمبيعاتك',
   'biz.sendingOff':
-      'الإرسال متوقف: لا يتواصل ANUM مع أحد من قسم الأعمال. تُعدَّل المنتجات والأسعار والعروض على الويب.',
+      'الإرسال متوقف: لا يتواصل ANUM مع أحد من قسم الأعمال. تُكتب العروض على الويب.',
   'biz.tab.overview': 'نظرة عامة',
   'biz.tab.leads': 'العملاء المحتملون',
   'biz.tab.pipeline': 'الفرص',

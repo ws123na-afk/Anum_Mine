@@ -41,8 +41,10 @@ import '../features/finance/finance_repository.dart';
 import '../features/finance/finance_screen.dart';
 import '../features/team/team_screens.dart' show NotificationsScreen;
 import '../features/reports/workspace_tool_routes.dart';
+import '../features/business/accounts_data.dart';
 import '../features/business/business_controller.dart';
 import '../features/business/business_repository.dart';
+import '../features/business/catalog_data.dart';
 import '../features/business/project_money.dart';
 import '../features/business/support_controller.dart';
 import '../features/business/support_repository.dart';
@@ -384,7 +386,9 @@ class _AnumAppState extends State<AnumApp> {
     business = BusinessController(ApiBusinessRepository(api),
         money: ApiProjectMoney(api),
         support: SupportController(ApiSupportRepository(api)),
-        invoices: InvoicesController(ApiInvoicesRepository(api)));
+        invoices: InvoicesController(ApiInvoicesRepository(api)),
+        catalog: CatalogController(ApiCatalogRepository(api)),
+        accounts: AccountsController(ApiAccountsRepository(api)));
     _portalSessions =
         (token) => PortalController(ApiPortalRepository(api, token));
     chatDeveloper = DeveloperAssist(
