@@ -72,6 +72,10 @@ The API container defaults to `ANUM_ENVIRONMENT=production`, so these checks app
 
 The web image's nginx sends a CSP of `default-src 'self'` with these exceptions: `script-src 'wasm-unsafe-eval'` and one jsdelivr folder, `cdn.jsdelivr.net/npm/@huggingface/transformers@<locked version>/dist/` (also in `connect-src`), plus `connect-src` to `huggingface.co` for the in-browser Kokoro voice (ONNX runtime loader and model weights). The CSP names that versioned path rather than the whole CDN, which serves any npm package and would let an injected tag load arbitrary script; `tests/test_render_blueprint.py` fails when the path and the version in `pnpm-lock.yaml` differ; `connect-src` also lists `ANUM_CSP_CONNECT_SRC` (the API origin) and, only in an image built with `VITE_SENTRY_DSN`, that DSN's origin for browser error reports ([Observability](observability.md#browser-errors-web-app)); `style-src 'unsafe-inline'` for React style attributes; `frame-ancestors 'none'`, `object-src 'none'`. It also sends HSTS, `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and a `Permissions-Policy` that allows only the microphone (voice) for the page's own origin.
 
+## Vulnerability disclosure
+
+[SECURITY.md](../SECURITY.md) at the repository root says how to report a vulnerability privately (email, no public issue). The public [Trust page](legal-pages.md#trust-page) at `/trust` repeats the contact and summarizes the measures on this page; both say ANUM holds no third-party certification and has had no external penetration test yet.
+
 ## Scanning in CI
 
 The **Security scans** job in `.github/workflows/ci.yml` fails the build on:

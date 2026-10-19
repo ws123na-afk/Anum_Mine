@@ -554,6 +554,9 @@ class AnumLocalizations {
     'inboxHash': 'Payload hash: {hash}',
     'inboxApprove': 'Approve and send',
     'inboxApproveOwners': 'Only workspace owners can approve sending.',
+    'inboxDraftApprovalTitle':
+        'Drafting this reply waits for approval (workspace policy).',
+    'inboxApproveDraft': 'Approve drafting',
     // Calls & Meetings (lib/features/meetings, docs/meetings.md).
     "cancel": "Cancel",
     "meetings": "Meetings",
@@ -1968,6 +1971,9 @@ class AnumLocalizations {
     'inboxHash': 'بصمة الحمولة: {hash}',
     'inboxApprove': 'الموافقة والإرسال',
     'inboxApproveOwners': 'يوافق على الإرسال مالكو مساحة العمل فقط.',
+    'inboxDraftApprovalTitle':
+        'كتابة هذا الرد تنتظر الموافقة (سياسة مساحة العمل).',
+    'inboxApproveDraft': 'الموافقة على كتابة الرد',
     // Calls & Meetings (lib/features/meetings, docs/meetings.md).
     "cancel": "إلغاء",
     "meetings": "الاجتماعات",

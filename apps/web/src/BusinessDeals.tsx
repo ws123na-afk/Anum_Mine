@@ -20,7 +20,7 @@ import { AcceptanceApproval, Badge, Empty, Note, Pager, ReasonDialog, day, failu
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'error'; text: string };
 
 /** A paged, searchable list: first page on filter change, "show more" after. */
-function usePaged<T>(fetch: (offset: number) => Promise<BusinessPage<T>>, deps: unknown[]) {
+export function usePaged<T>(fetch: (offset: number) => Promise<BusinessPage<T>>, deps: unknown[]) {
   const [items, setItems] = useState<T[]>([]), [total, setTotal] = useState(0), [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [more, setMore] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const request = useRef(0);
@@ -51,7 +51,7 @@ function SearchBar({ label, value, onChange, onSubmit, children }: { label: stri
   </div>;
 }
 
-function ListState({ load, empty, filtered, onRetry, onClear }: { load: Load; empty: boolean; filtered: boolean; onRetry: () => void; onClear: () => void } & { emptyTitle?: string }) {
+export function ListState({ load, empty, filtered, onRetry, onClear }: { load: Load; empty: boolean; filtered: boolean; onRetry: () => void; onClear: () => void } & { emptyTitle?: string }) {
   if (load.kind === 'loading') return <Note>{t('biz.loading')}</Note>;
   if (load.kind === 'error') return <Note error>{load.text} <button type="button" className="secondary" onClick={onRetry}>{t('common.tryAgain')}</button></Note>;
   if (empty && filtered) return <Empty title={t('biz.noMatch')} text={t('biz.noMatchText')} action={<button type="button" className="secondary" onClick={onClear}>{t('biz.clearFilters')}</button>} />;

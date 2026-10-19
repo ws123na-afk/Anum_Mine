@@ -8,6 +8,7 @@ import 'mail_center_models.dart';
 import 'mail_directory.dart';
 import 'mail_directory_models.dart';
 import 'mail_outgoing.dart';
+import 'mail_all_inboxes.dart';
 import 'mail_assist.dart';
 import 'mail_bulk.dart';
 
@@ -276,6 +277,23 @@ class _MailCenterScreenState extends State<MailCenterScreen> {
           Text(l.t('mc.subtitle'),
               style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: AnumSpacing.sm),
+          if (c.allInboxes != null && setup.accounts.length > 1)
+            Card(
+              margin: const EdgeInsets.only(bottom: AnumSpacing.sm),
+              child: ListTile(
+                leading: const Icon(Icons.all_inbox_outlined),
+                title: Text(l.t('mc.all.title')),
+                subtitle:
+                    Text(l.f('mc.all.entry', {'count': setup.accounts.length})),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                      builder: (_) => MailAllInboxesScreen(
+                          controller: c.allInboxes!, mail: c)),
+                ),
+              ),
+            ),
           for (final (title, list) in [
             (l.t('mc.yourMailboxes'), c.ownAccounts),
             (l.t('mc.sharedWithYou'), c.sharedAccounts),
