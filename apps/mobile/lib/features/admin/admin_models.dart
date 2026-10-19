@@ -1,4 +1,7 @@
+import 'dart:ui' show Locale;
+
 import '../../data/api_models.dart';
+import '../../src/localization/money_format.dart';
 
 /// Members, invitations and monthly model budgets, as the API returns them.
 /// docs/identity.md (Invitations and Membership Management) and
@@ -425,9 +428,8 @@ String formatTokens(num value) => _grouped(value.round().toString());
 
 String formatUsd(num value) {
   if (value > 0 && value < 0.01) return '< \$0.01';
-  final fixed = value.toStringAsFixed(2);
-  final dot = fixed.indexOf('.');
-  return '\$${_grouped(fixed.substring(0, dot))}${fixed.substring(dot)}';
+  final number = formatMoney(value.abs(), null, locale: const Locale('en'));
+  return value < 0 ? '-\$$number' : '\$$number';
 }
 
 const _months = [

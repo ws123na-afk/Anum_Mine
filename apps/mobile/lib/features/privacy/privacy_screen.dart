@@ -6,6 +6,7 @@ import '../developer/developer_models.dart' show safeLink;
 import '../developer/developer_screen.dart' show LinkOpener, openInBrowser;
 import 'privacy_controller.dart';
 import 'privacy_models.dart';
+import 'privacy_strings.dart';
 
 /// Settings -> Privacy (docs/privacy.md): what ANUM stores about you in this
 /// workspace, how long it is kept, where messages go, and the two rights
@@ -40,6 +41,13 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The controller writes its result sentences in the app's language.
+    widget.controller.strings = PrivacyStrings.of(context);
+  }
+
+  @override
   void dispose() {
     _typed.dispose();
     super.dispose();
@@ -55,25 +63,26 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
       listenable: widget.controller,
       builder: (context, _) {
         final c = widget.controller;
+        final p = PrivacyStrings.of(context);
         return Scaffold(
-            appBar: AppBar(title: const Text('Privacy')),
+            appBar: AppBar(title: Text(p.t('title'))),
             body: switch (c.phase) {
-              PrivacyPhase.loading => const _Status(
+              PrivacyPhase.loading => _Status(
                   icon: Icons.privacy_tip_outlined,
-                  title: 'Loading your privacy summary',
+                  title: p.t('loading'),
                   loading: true),
-              PrivacyPhase.permissionDenied => const _Status(
+              PrivacyPhase.permissionDenied => _Status(
                   icon: Icons.lock_outline,
-                  title: 'Permission required',
-                  message: privacyPermissionMessage),
+                  title: p.t('permissionTitle'),
+                  message: p.t('permission')),
               PrivacyPhase.offline => _Status(
                   icon: Icons.cloud_off_outlined,
-                  title: 'You are offline',
-                  message: 'Reconnect to see and manage your data.',
+                  title: p.t('offlineTitle'),
+                  message: p.t('offlineText'),
                   retry: c.load),
               PrivacyPhase.error => _Status(
                   icon: Icons.error_outline,
-                  title: 'Privacy summary unavailable',
+                  title: p.t('unavailable'),
                   message: c.loadError,
                   retry: c.load),
               PrivacyPhase.ready => _content(context, c, c.summary!),
@@ -82,6 +91,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
 
   Widget _content(BuildContext context, PrivacyController c, PrivacySummary s) {
     final theme = Theme.of(context);
+    final p = PrivacyStrings.of(context);
     final privateTotal = totalOf(s.private), sharedTotal = totalOf(s.shared);
     final ready = s.matches(_typed.text) && !c.deleting;
     return Center(
@@ -91,35 +101,47 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                 padding: const EdgeInsetsDirectional.fromSTEB(AnumSpacing.md,
                     AnumSpacing.sm, AnumSpacing.md, AnumSpacing.xl),
                 children: [
-                  _Heading('What ANUM stores about you'),
+                  _Heading(p.t('storesHeading')),
                   Text(
-                      'Signed in as ${s.userId}${s.role == null ? '' : ' (${s.role})'} in ${s.workspaceId}. Other workspaces keep their own data.',
+                      p.t('signedIn', {
+                        'user': s.userId,
+                        'role': s.role == null
+                            ? ''
+                            : p.t('role', {'role': s.role!}),
+                        'workspace': s.workspaceId
+                      }),
                       style: theme.textTheme.bodySmall),
                   const SizedBox(height: AnumSpacing.xs),
-                  _Counts(title: 'Private to you', counts: s.private),
+                  _Counts(
+                      title: p.t('privateTitle'),
+                      group: 'private',
+                      counts: s.private),
                   if (privateTotal == 0)
-                    const Padding(
-                        padding: EdgeInsets.only(top: AnumSpacing.xs),
-                        child: Text(
-                            'Nothing private is stored for you here yet.')),
-                  _Counts(title: 'Shared with the workspace', counts: s.shared),
+                    Padding(
+                        padding: const EdgeInsets.only(top: AnumSpacing.xs),
+                        child: Text(p.t('nothingPrivate'))),
+                  _Counts(
+                      title: p.t('sharedTitle'),
+                      group: 'shared',
+                      counts: s.shared),
                   Padding(
                       padding: const EdgeInsets.only(top: AnumSpacing.xs),
                       child:
                           Text(s.sharedNote, style: theme.textTheme.bodySmall)),
-                  _Heading('How long it is kept, and where it goes'),
+                  _Heading(p.t('keptHeading')),
                   Card(
                       child: Column(children: [
-                    for (final (label, value) in s.retention)
+                    for (final (label, value) in s.retentionIn(p))
                       ListTile(
                           dense: true,
                           title: Text(label),
                           subtitle: Text(value)),
                   ])),
                   const SizedBox(height: AnumSpacing.xs),
-                  Text(s.providerSentence, style: theme.textTheme.bodySmall),
+                  Text(s.providerSentenceIn(p),
+                      style: theme.textTheme.bodySmall),
                   const SizedBox(height: AnumSpacing.xs),
-                  Text(s.memorySentence,
+                  Text(s.memorySentenceIn(p),
                       key: const Key('privacy-memory'),
                       style: theme.textTheme.bodySmall),
                   if (s.offerChatMemorySwitch &&
@@ -129,33 +151,32 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                         child: TextButton.icon(
                             onPressed: widget.onOpenChatMemory,
                             icon: const Icon(Icons.tune),
-                            label: const Text(
-                                'Change Remember things from my chats'))),
+                            label: Text(p.t('changeMemory')))),
                   const SizedBox(height: AnumSpacing.xs),
                   _PolicyLink(url: s.policyUrl, open: widget.openLink),
-                  _Heading('Download my data'),
-                  Text(
-                      'A JSON file with your profile in this workspace, conversations, private memories, voice transcripts, tasks you created, approvals you decided, notification preferences, your preferences, the list of files you uploaded, what ANUM learned from you, the mailboxes you connected with your email drafts, the WhatsApp messages you sent, the actions ANUM took for you, your team work, and the tyre reports and sales channels you set up. Up to ${formatBytes(s.exportMaxBytes)}.'),
+                  _Heading(p.t('downloadHeading')),
+                  Text(p.t(
+                      'downloadText', {'max': formatBytes(s.exportMaxBytes)})),
                   const SizedBox(height: AnumSpacing.sm),
                   Align(
                       alignment: AlignmentDirectional.centerStart,
                       child: FilledButton.icon(
                           onPressed: c.exporting ? null : c.exportMyData,
                           icon: const Icon(Icons.download_outlined),
-                          label: Text(c.exporting
-                              ? 'Preparing download...'
-                              : 'Download my data'))),
+                          label: Text(
+                              p.t(c.exporting ? 'preparing' : 'download')))),
                   if (c.exportMessage != null)
                     _Message(text: c.exportMessage!, error: c.exportFailed),
-                  _Heading('Delete my data'),
-                  Text(
-                      'Permanently deletes your conversations, private memories (and their search index entries), voice sessions and transcripts, notification preferences, what ANUM learned from you, the private mailboxes you connected (ANUM also withdraws its access at the provider) the email drafts you never sent, your team notifications and team profile, and your private agents with their memories in this workspace, and resets your preferences (such as Remember things from my chats) in every workspace of this organization. This cannot be undone.'),
+                  _Heading(p.t('deleteHeading')),
+                  Text(p.t('deleteText')),
                   const SizedBox(height: AnumSpacing.xs),
                   Text(
-                      'Kept: ${sharedTotal == 0 ? 'shared workspace records (none created by you)' : '$sharedTotal shared workspace ${sharedTotal == 1 ? 'record' : 'records'} you created or decided'}. A workspace owner can remove them.',
+                      sharedTotal == 0
+                          ? p.t('keptNone')
+                          : p.count('kept', sharedTotal),
                       style: theme.textTheme.bodySmall),
                   const SizedBox(height: AnumSpacing.xs),
-                  Text('Your account: ${s.accountNote}',
+                  Text(p.t('account', {'note': s.accountNote}),
                       style: theme.textTheme.bodySmall),
                   const SizedBox(height: AnumSpacing.sm),
                   TextField(
@@ -166,10 +187,11 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                       enableSuggestions: false,
                       textCapitalization: TextCapitalization.characters,
                       decoration: InputDecoration(
-                          labelText: 'Type ${s.confirmation} to confirm',
+                          labelText:
+                              p.t('typeToConfirm', {'phrase': s.confirmation}),
                           helperText: privateTotal == 0
-                              ? 'Nothing private is stored for you right now.'
-                              : '$privateTotal private ${privateTotal == 1 ? 'item' : 'items'} will be deleted.')),
+                              ? p.t('nothingNow')
+                              : p.count('willDelete', privateTotal))),
                   const SizedBox(height: AnumSpacing.sm),
                   Align(
                       alignment: AlignmentDirectional.centerStart,
@@ -179,8 +201,8 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                               foregroundColor: theme.colorScheme.onError),
                           onPressed: ready ? _delete : null,
                           icon: const Icon(Icons.delete_forever_outlined),
-                          label: Text(
-                              c.deleting ? 'Deleting...' : 'Delete my data'))),
+                          label:
+                              Text(p.t(c.deleting ? 'deleting' : 'delete')))),
                   if (c.deleteMessage != null)
                     _Message(text: c.deleteMessage!, error: c.deleteFailed),
                 ])));
@@ -188,22 +210,35 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
 }
 
 class _Counts extends StatelessWidget {
-  const _Counts({required this.title, required this.counts});
+  const _Counts(
+      {required this.title, required this.group, required this.counts});
   final String title;
+
+  /// `private` or `shared`: the catalog prefix of the count labels.
+  final String group;
   final List<PrivacyCount> counts;
   @override
-  Widget build(BuildContext context) => Card(
-      margin: const EdgeInsets.only(top: AnumSpacing.xs),
-      child: Column(children: [
-        ListTile(
-            title: Text(title, style: Theme.of(context).textTheme.titleSmall)),
-        for (final item in counts)
+  Widget build(BuildContext context) {
+    final p = PrivacyStrings.of(context);
+    String label(PrivacyCount item) {
+      final key = '$group.${item.key}';
+      return PrivacyStrings.en.containsKey(key) ? p.t(key) : item.label;
+    }
+
+    return Card(
+        margin: const EdgeInsets.only(top: AnumSpacing.xs),
+        child: Column(children: [
           ListTile(
-              dense: true,
-              title: Text(item.label),
-              trailing: Text('${item.value}',
-                  style: Theme.of(context).textTheme.titleSmall)),
-      ]));
+              title:
+                  Text(title, style: Theme.of(context).textTheme.titleSmall)),
+          for (final item in counts)
+            ListTile(
+                dense: true,
+                title: Text(label(item)),
+                trailing: Text('${item.value}',
+                    style: Theme.of(context).textTheme.titleSmall)),
+        ]));
+  }
 }
 
 class _PolicyLink extends StatelessWidget {
@@ -225,33 +260,27 @@ class _PolicyLink extends StatelessWidget {
     final uri = safeLink(link);
     final opened = uri != null && await open(uri);
     if (!opened && context.mounted) {
-      await _copy(
-          context,
-          link,
-          uri == null
-              ? 'The policy link is not an https address, so it was copied instead of opened.'
-              : 'The browser could not open the policy. The link was copied; paste it into a browser.');
+      final p = PrivacyStrings.of(context);
+      await _copy(context, link,
+          p.t(uri == null ? 'policyNotHttps' : 'policyBrowserFailed'));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final link = url;
-    if (link == null) {
-      return const Text(
-          'Your organization has not published a privacy policy link yet. Ask the workspace owner for it.');
-    }
+    final p = PrivacyStrings.of(context);
+    if (link == null) return Text(p.t('noPolicy'));
     return Card(
         child: ListTile(
             leading: const Icon(Icons.policy_outlined),
-            title: const Text('Read the privacy policy'),
+            title: Text(p.t('readPolicy')),
             subtitle: Text(link, textDirection: TextDirection.ltr),
             onTap: () => _open(context, link),
             trailing: IconButton(
-                tooltip: 'Copy privacy policy link',
+                tooltip: p.t('copyPolicy'),
                 icon: const Icon(Icons.copy),
-                onPressed: () =>
-                    _copy(context, link, 'Privacy policy link copied.'))));
+                onPressed: () => _copy(context, link, p.t('policyCopied')))));
   }
 }
 
@@ -322,7 +351,7 @@ class _Status extends StatelessWidget {
                   OutlinedButton.icon(
                       onPressed: retry,
                       icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'))
+                      label: Text(PrivacyStrings.of(context).t('retry')))
                 ]
               ]))));
 }

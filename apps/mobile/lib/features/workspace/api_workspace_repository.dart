@@ -329,8 +329,21 @@ class ApiWorkspaceRepository
         tools: j.optStrings('required_tools') ?? const [],
         installed: install != null && install['version'] == j['version'],
         installedVersion: install?.optString('version'),
-        enabled: install?.optBool('enabled') ?? false);
+        enabled: install?.optBool('enabled') ?? false,
+        signature: _signature(j.optObject('verification')),
+        disabledReason: install?.optString('disabled_reason'));
   }
+
+  SkillSignature? _signature(JsonReader? j) => j == null
+      ? null
+      : SkillSignature(
+          status: j.string('status'),
+          installable: j.boolean('installable'),
+          detail: j.string('detail'),
+          signer: j.optString('signer'),
+          keyId: j.optString('key_id'),
+          keySource: j.optString('key_source'),
+          fingerprint: j.optString('fingerprint'));
 
   WorkspaceIntegration _integration(JsonReader j) => WorkspaceIntegration(
       id: j.string('id'),

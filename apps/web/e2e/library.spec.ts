@@ -190,7 +190,7 @@ test('reports: generate now and schedule as an automation', async ({ page }) => 
 test('reports: permission denied, a failed load with retry, and a refused generate explain what to do', async ({ page }) => {
   await mockLibrary(page, { reportsFailOnce: true, generateForbidden: true });
   await page.goto('/#reports');
-  await expect(page.getByRole('alert')).toContainText("Couldn't load reports: The database is unavailable");
+  await expect(page.getByRole('alert')).toContainText("Couldn't load reports: The server could not reach its database");
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.locator('.reportRow').first()).toBeVisible();
   await page.getByRole('button', { name: 'Generate now' }).click();

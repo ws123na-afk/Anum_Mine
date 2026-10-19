@@ -18,6 +18,8 @@ import { marketingAr } from './marketing.ar.ts';
 import { businessAr } from './business.ar.ts';
 import { businessSupportAr } from './businessSupport.ar.ts';
 import { brevoAr } from './brevo.ar.ts';
+import { lifecycleAr } from './lifecycle.ar.ts';
+import { helpAr } from './help.ar.ts';
 import { publicSiteAr } from './publicSite.ar.ts';
 import { ownerAr } from './ar.owner.ts';
 import { governanceAr } from './ar.governance.ts';
@@ -26,6 +28,7 @@ import { routingAr } from './routing.ar.ts';
 import { voiceAr } from './ar.voice.ts';
 import { voiceActionsAr } from './ar.voiceActions.ts';
 import { agentSkillsAr } from './agentSkills.ar.ts';
+import { skillSigningAr } from './skillSigning.ar.ts';
 import { orgChartAr } from './orgChart.ar.ts';
 import { mailCenterAr } from './mailCenter.ar.ts';
 import { mailOutgoingAr } from './mailOutgoing.ar.ts';
@@ -58,8 +61,11 @@ export const ar: Record<MessageKey, Message> = {
   ...businessAr,
   ...businessSupportAr,
   ...brevoAr,
+  ...lifecycleAr,
+  ...helpAr,
   ...publicSiteAr,
   ...agentSkillsAr,
+  ...skillSigningAr,
   ...orgChartAr,
   ...mailCenterAr,
   ...mailOutgoingAr,
@@ -86,6 +92,7 @@ export const ar: Record<MessageKey, Message> = {
   'common.clear': 'مسح',
   'common.loading': 'جارٍ التحميل...',
   'common.operationFailed': 'تعذّر تنفيذ العملية.',
+  'common.databaseUnavailable': 'تعذّر على الخادم الوصول إلى قاعدة بياناته',
   'common.requestFailed': 'تعذّر تنفيذ الطلب.',
   'common.signInExpired': 'انتهت صلاحية تسجيل دخولك. سجّل الدخول مرة أخرى.',
   'common.budgetReached': 'تم بلوغ ميزانية النموذج الشهرية. {message}',
@@ -190,6 +197,8 @@ export const ar: Record<MessageKey, Message> = {
   'switcher.button': 'تبديل مساحة العمل',
   'switcher.eyebrow': 'مساحة العمل',
   'switcher.intro': 'كل طلب يحدد مساحة العمل المختارة. دورك والبيانات التي تراها يتبعانها.',
+  'switcher.organisationId': 'معرّف المؤسسة',
+  'switcher.workspaceId': 'معرّف مساحة العمل',
   'switcher.loading': 'جارٍ تحميل مساحات عملك...',
   'switcher.list': 'مساحات العمل',
   'switcher.current': 'مساحة العمل الحالية',
@@ -1246,10 +1255,14 @@ export const ar: Record<MessageKey, Message> = {
   'files.index.skippedDetail': 'غير مفهرس: {reason}.',
   'files.index.pending': 'لم يُفهرس بعد',
   'files.index.pendingDetail': 'لم يُفهرس هذا الملف بعد. أعد الفهرسة لتستخدمه المهام.',
-  'files.skip.not_text': 'تُفهرس الملفات النصية فقط',
+  'files.skip.not_text': 'لا يُفهرس هذا النوع من الملفات',
   'files.skip.too_large': 'فيه أكثر من 2 ميبيبايت من النص',
   'files.skip.not_utf8': 'ليس نصًا بترميز UTF-8',
   'files.skip.empty': 'لا يحتوي على نص',
+  'files.skip.encrypted': 'محمي بكلمة مرور',
+  'files.skip.malformed': 'تالف أو تعذرت قراءته',
+  'files.skip.too_complex': 'معقد جدًا لقراءته بأمان',
+  'files.skip.no_text_layer': 'لا يوجد نص قابل للاستخراج، والتعرف الضوئي على النص غير متاح',
   'files.skip.other': 'غير قابل للفهرسة',
   'files.check.empty': '{name} فارغ. اختر ملفًا له محتوى.',
   'files.check.tooLarge': 'حجم {name} هو {size}؛ والحد الأقصى للملف {max}. قسّمه أو اضغطه.',
@@ -3487,6 +3500,10 @@ export const ar: Record<MessageKey, Message> = {
   'kb.provenance.file': 'مستند',
   'kb.provenance.memory': 'ملاحظة',
   'kb.match': 'تطابق {score}٪',
+  'kb.location.page': 'صفحة {n}',
+  'kb.index.noTextLayer': 'لا يوجد نص قابل للاستخراج، والتعرف الضوئي على النص غير متاح',
+  'kb.location.slide': 'شريحة {n}',
+  'kb.location.sheet': 'ورقة {n}',
   'kb.untrusted': 'تُمرَّر المقاطع إلى النموذج كبيانات موسومة غير موثوقة؛ ولا يمكنها تغيير الأدوات أو الموافقات أو الصلاحيات.',
   'kb.semanticNoIndex': 'لم يُفهرس شيء بعد، لذا بُحث في العناوين والوسوم ونص الملاحظات فقط.',
   'kb.semanticUnavailable': 'البحث بالمعنى غير متاح الآن؛ تُعرض مطابقات الكلمات فقط.',
