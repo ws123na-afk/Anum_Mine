@@ -94,6 +94,7 @@ class FakeCalendars:
         self.graph_changes: list[dict[str, Any]] = []
         self.graph_writes: list[dict[str, Any]] = []
         self.graph_calls: list[str] = []
+        self.graph_params: list[dict[str, str]] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         host, path = request.url.host, request.url.path
@@ -160,6 +161,7 @@ class FakeCalendars:
         if path == "":
             return httpx.Response(200, json={"mail": "owner@contoso.example", "displayName": "Owner Two"})
         if path == "/calendarView/delta":
+            self.graph_params.append(params)
             if "$deltatoken" in params:
                 items, link = self.graph_changes, "d2"
                 self.graph_changes = []
@@ -314,13 +316,13 @@ def test_google_connect_imports_events_and_stores_tokens_encrypted(fake: FakeCal
     assert connection["last_summary"]["created"] == 2
     row = stored(connection["id"])
     assert "google-access" not in (row.access_token_enc or "") and "google-refresh" not in (row.refresh_token_enc or "")
-    assert row.sync_cursor == "sync:S1"
+    assert row.sync_cursor.startswith("sync:S1|")
     review = by_title("Fleet review")
     assert review["external_id"] == "g1" and review["sync_state"] == "synced" and review["connection_id"] == connection["id"]
     # The room resource is not an attendee; the address is lower-cased; the reply is mapped.
     assert [(a["email"], a["response"]) for a in review["attendees"]] == [("sajid@example.com", "accepted")]
     assert review["external_etag"] is None and review["invites_hash"] is None and review["invitations_pending"] is False  # the provider already holds these people
-    assert fake.google_query[0]["singleEvents"] == "true" and "timeMin" in fake.google_query[0]
+    assert fake.google_query[0]["singleEvents"] == "true" and "timeMin" in fake.google_query[0] and "timeMax" in fake.google_query[0]
 
 
 def test_google_incremental_sync_uses_the_token_and_applies_changes(fake: FakeCalendars) -> None:
@@ -334,7 +336,7 @@ def test_google_incremental_sync_uses_the_token_and_applies_changes(fake: FakeCa
     assert fake.google_query[-1]["syncToken"] == "S1" and "timeMin" not in fake.google_query[-1]
     assert (summary["created"], summary["updated"], summary["deleted"]) == (1, 1, 1)
     assert sorted(e["title"] for e in events()) == ["Fleet review (moved)", "New workshop"]
-    assert stored(connection["id"]).sync_cursor == "sync:S2"
+    assert stored(connection["id"]).sync_cursor.startswith("sync:S2|")
 
 
 def test_google_expired_sync_token_falls_back_to_a_full_sync(fake: FakeCalendars) -> None:
@@ -617,3 +619,73 @@ def test_the_invitation_hash_changes_with_the_people_and_the_time() -> None:
     assert invitation_hash(event) == first  # a display name does not change who is invited
     event.starts_at += timedelta(minutes=5)
     assert invitation_hash(event) != first
+
+
+# -- review fixes: moving horizon, Teams body, held changes -------------------------------------------
+
+
+def test_google_window_is_bounded_and_renewed_so_later_events_come_into_range(fake: FakeCalendars) -> None:
+    connection = connect()
+    row = stored(connection["id"])
+    assert "timeMax" in fake.google_query[0]
+    # A token from a window that no longer reaches far enough ahead is renewed with a full sync,
+    # which also picks up an event that has since moved into range.
+    token, _, _ = row.sync_cursor.partition("|")
+    row.sync_cursor = f"{token}|{stamp(24 * 100)}"
+    fake.google_items = [*fake.google_items, google_item("g_far", "Far workshop", 24 * 300)]
+    result = sync(connection["id"])
+    assert result["summary"]["full"] is True and "syncToken" not in fake.google_query[-1]
+    assert by_title_in_window("Far workshop")["external_id"] == "g_far"
+    # A window that still reaches far enough keeps using the token.
+    again = sync(connection["id"])
+    assert again["summary"]["full"] is False and fake.google_query[-1]["syncToken"].startswith("S1")
+
+
+def by_title_in_window(title: str) -> dict[str, Any]:
+    response = client.get("/api/v1/calendar/events", headers=OWNER, params={"start": stamp(24 * 290), "end": stamp(24 * 310)})
+    return next(e for e in response.json()["items"] if e["title"] == title)
+
+
+def test_graph_delta_window_is_renewed_as_the_horizon_moves(fake: FakeCalendars) -> None:
+    connection = connect("microsoft")
+    row = stored(connection["id"])
+    state = json.loads(row.sync_cursor)
+    assert len(fake.graph_params) == 2 and "startDateTime" in fake.graph_params[0]
+    sync(connection["id"])
+    assert "$deltatoken" in fake.graph_params[-1] and "startDateTime" not in fake.graph_params[-1]
+    row = stored(connection["id"])
+    state = json.loads(row.sync_cursor)
+    state["until"] = stamp(24 * 100)
+    row.sync_cursor = json.dumps(state)
+    result = sync(connection["id"])
+    assert result["summary"]["full"] is True and "startDateTime" in fake.graph_params[-2]
+
+
+def test_updating_a_teams_meeting_never_replaces_its_body(fake: FakeCalendars) -> None:
+    connection = connect("microsoft")
+    teams = by_title("Teams stand-up")
+    assert teams["conference_url"]
+    client.patch(f"/api/v1/calendar/events/{teams['id']}", headers=OWNER, json={"attendees": [], "description": "Agenda"})
+    patch = [w for w in fake.graph_writes if w["method"] == "PATCH"][-1]
+    assert "body" not in patch
+    plain = new_event("Plain meeting")
+    client.patch(f"/api/v1/calendar/events/{plain['id']}", headers=OWNER, json={"description": "Notes"})
+    assert [w for w in fake.graph_writes if w["method"] == "PATCH"][-1]["body"]["content"] == "Notes"
+    assert connection["id"]
+
+
+def test_a_graph_change_to_an_event_with_people_waits_for_approval(fake: FakeCalendars) -> None:
+    connection = connect("microsoft")
+    stand_up = by_title("Teams stand-up")
+    assert stand_up["attendees"] and stand_up["invitations_pending"] is False
+    edited = client.patch(f"/api/v1/calendar/events/{stand_up['id']}", headers=OWNER, json={"title": "Teams stand-up (new time)"})
+    assert edited.json()["sync_state"] == "pending_push"
+    assert not [w for w in fake.graph_writes if w["method"] == "PATCH"]  # Graph would tell the attendees on its own
+    held = sync(connection["id"])
+    assert held["summary"]["held"] == 1 and held["connection"]["status"] == "connected"
+    assert not [w for w in fake.graph_writes if w["method"] == "PATCH"]
+    approval = client.post(f"/api/v1/calendar/events/{stand_up['id']}/invitations", headers=OWNER).json()["approval"]
+    client.post(f"/api/v1/approvals/{approval['id']}/approve", headers=OWNER, json={"payload_hash": approval["payload_hash"]})
+    patch = [w for w in fake.graph_writes if w["method"] == "PATCH"][-1]
+    assert patch["subject"] == "Teams stand-up (new time)" and patch["attendees"][0]["emailAddress"]["address"] == "vinay@contoso.example"
+    assert by_title("Teams stand-up (new time)")["sync_state"] == "synced"

@@ -118,6 +118,9 @@ class OutgoingEvent:
     description: str | None = None
     location: str | None = None
     attendees: tuple[tuple[str, str], ...] | None = None  # (email, name); None leaves them unchanged
+    # The event carries an online meeting (Teams): its join details live in the body, so an update
+    # must not replace the body.
+    online_meeting: bool = False
 
 
 @dataclass(frozen=True)
@@ -135,6 +138,19 @@ def _path_id(value: str | None) -> str:
     if not valid_event_id(value):
         raise MailProviderError(409, "The stored provider event id is not valid; sync the calendar again.")
     return quote(str(value), safe="")
+
+
+def window_stale(window_end: datetime | None, until: datetime) -> bool:
+    """Whether a stored sync window no longer reaches far enough ahead and needs a full refresh.
+
+    A sync token or delta link only reports changes inside the window it was started with, so
+    the window is renewed (a full sync) once its end is more than a margin behind the moving
+    horizon ``until``: events that later come into range are then picked up."""
+    if window_end is None:
+        return True
+    ahead = until - datetime.now(timezone.utc)
+    margin = min(timedelta(days=30), max(ahead, timedelta(0)) / 2)
+    return window_end < until - margin
 
 
 def _clean(value: Any, limit: int) -> str:
@@ -183,6 +199,9 @@ class CalendarProviderClient:
     label: str
     scopes: tuple[str, ...]
     uses_pkce: bool = True
+    # True when the provider tells the attendees about every change the organiser makes (Graph has
+    # no switch like Google's sendUpdates), so a change to an event with people waits for approval.
+    notifies_on_update: bool = False
 
     def __init__(self, oauth: OAuthClient, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self.oauth = oauth
@@ -345,14 +364,20 @@ class GoogleCalendarClient(CalendarProviderClient):
     async def changes(self, token: str, cursor: str | None, *, since: datetime, until: datetime) -> CalendarDelta:
         delta = CalendarDelta(full=True)
         params: dict[str, str] = {"singleEvents": "true", "showDeleted": "true", "maxResults": "250"}
-        if cursor and cursor.startswith("sync:") and _GOOGLE_TOKEN.fullmatch(cursor[5:]):
-            params["syncToken"] = cursor[5:]
+        kind, _, rest = (cursor or "").partition(":")
+        value, _, end_text = rest.partition("|")
+        window_end = _parse_iso(end_text)
+        if kind == "sync" and _GOOGLE_TOKEN.fullmatch(value) and not window_stale(window_end, until):
+            # The token reports changes inside the window it was started with (timeMax below).
+            params["syncToken"] = value
             delta.full = False
-        elif cursor and cursor.startswith("page:") and _GOOGLE_TOKEN.fullmatch(cursor[5:]):
-            # A full sync that stopped at the page limit resumes where it stopped.
-            params.update(timeMin=_iso(since), pageToken=cursor[5:])
+        elif kind == "page" and _GOOGLE_TOKEN.fullmatch(value) and window_end is not None:
+            # A full sync that stopped at the page limit resumes where it stopped, in its own window.
+            until = window_end
+            params.update(timeMin=_iso(since), timeMax=_iso(until), pageToken=value)
         else:
-            params["timeMin"] = _iso(since)
+            params.update(timeMin=_iso(since), timeMax=_iso(until))
+        window = _iso(until)
         for _ in range(MAX_PAGES):
             status, body = await self.http.request("GET", self.EVENTS, token=token, params=params, allow=frozenset({410}))
             if status == 410:
@@ -362,7 +387,7 @@ class GoogleCalendarClient(CalendarProviderClient):
             for item in body.get("items") or []:
                 if isinstance(item, dict):
                     found = google_event(item)
-                    if found is not None and (found.cancelled or found.starts_at < until):
+                    if found is not None:
                         delta.events.append(found)
             page = body.get("nextPageToken")
             if isinstance(page, str) and _GOOGLE_TOKEN.fullmatch(page):
@@ -370,10 +395,12 @@ class GoogleCalendarClient(CalendarProviderClient):
                 params["pageToken"] = page
                 continue
             sync = body.get("nextSyncToken")
-            delta.cursor = f"sync:{sync}" if isinstance(sync, str) and _GOOGLE_TOKEN.fullmatch(sync) else None
+            if isinstance(sync, str) and _GOOGLE_TOKEN.fullmatch(sync):
+                # Keep the window's end: a token from an older, shorter window is renewed in time.
+                delta.cursor = f"sync:{sync}|{window if delta.full else (end_text or window)}"
             return delta
         delta.more = True
-        delta.cursor = f"page:{params['pageToken']}"
+        delta.cursor = f"page:{params['pageToken']}|{window}"
         return delta
 
     @staticmethod
@@ -497,6 +524,7 @@ def _graph_delta_query(link: str) -> str | None:
 class MicrosoftCalendarClient(CalendarProviderClient):
     provider = CalendarProvider.MICROSOFT
     label = "Microsoft Graph"
+    notifies_on_update = True
     scopes = MICROSOFT_SCOPES
     API = "https://graph.microsoft.com/v1.0/me"
     HEADERS = {"prefer": 'outlook.timezone="UTC", odata.maxpagesize=50'}
@@ -569,7 +597,7 @@ class MicrosoftCalendarClient(CalendarProviderClient):
         window_end = _parse_iso(state.get("until")) if isinstance(state, dict) else None
         resumed = _graph_delta_query(str(state.get("link") or "")) if isinstance(state, dict) else None
         # The delta window is fixed when it starts; start a new window before it runs out.
-        if resumed is not None and window_end is not None and window_end > datetime.now(timezone.utc) + timedelta(days=30):
+        if resumed is not None and not window_stale(window_end, until):
             url: str | None = f"{delta_url}?{resumed}"
             params: dict[str, str] | None = None
             result = CalendarDelta(full=False)
@@ -615,14 +643,16 @@ class MicrosoftCalendarClient(CalendarProviderClient):
         return result
 
     @staticmethod
-    def _body(event: OutgoingEvent) -> dict[str, Any]:
+    def _body(event: OutgoingEvent, *, update: bool = False) -> dict[str, Any]:
         body: dict[str, Any] = {
             "subject": event.title,
-            "body": {"contentType": "text", "content": event.description or ""},
             "location": {"displayName": event.location or ""},
             "start": {"dateTime": event.starts_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "UTC"},
             "end": {"dateTime": event.ends_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "UTC"},
         }
+        # Replacing the body of a Teams meeting would drop its join details: leave it alone then.
+        if not (update and event.online_meeting):
+            body["body"] = {"contentType": "text", "content": event.description or ""}
         if event.attendees is not None:
             body["attendees"] = [
                 {"emailAddress": {"address": email, "name": name}, "type": "required"} for email, name in event.attendees
@@ -644,7 +674,7 @@ class MicrosoftCalendarClient(CalendarProviderClient):
 
     async def update(self, token: str, external_id: str, event: OutgoingEvent, *, notify: bool) -> PushResult:
         _, body = await self.http.request(
-            "PATCH", f"{self.API}/events/{_path_id(external_id)}", token=token, json_body=self._body(event), headers=self.HEADERS
+            "PATCH", f"{self.API}/events/{_path_id(external_id)}", token=token, json_body=self._body(event, update=True), headers=self.HEADERS
         )
         return self._pushed(body)
 

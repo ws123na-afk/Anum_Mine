@@ -488,6 +488,7 @@ class SyncSummary(BaseModel):
     deleted: int = 0
     skipped: int = 0
     pushed: int = 0
+    held: int = 0
     push_failed: int = 0
     conflicts_remote_won: int = 0
     conflicts_local_won: int = 0
@@ -576,6 +577,7 @@ def outgoing_for(event: CalendarEvent) -> tuple[OutgoingEvent, bool]:
             description=event.description,
             location=event.location,
             attendees=attendees,
+            online_meeting=bool(event.conference_url),
         ),
         approved,
     )
@@ -584,6 +586,10 @@ def outgoing_for(event: CalendarEvent) -> tuple[OutgoingEvent, bool]:
 async def push_event(client: CalendarProviderClient, token: str, event: CalendarEvent) -> CalendarEvent:
     """Send one ANUM event to the provider and return it with its link fields updated (not saved)."""
     outgoing, notify = outgoing_for(event)
+    if client.notifies_on_update and event.external_id and event.status != EventStatus.CANCELLED and not notify and any(a.email for a in event.attendees):
+        # The provider would tell the attendees about this change on its own: hold it until an owner
+        # approves the event as it now is (docs/calendar.md#invitations). It stays queued.
+        return event
     if event.status == EventStatus.CANCELLED:
         if event.external_id:
             await client.delete(token, event.external_id, notify=notify)
@@ -651,6 +657,9 @@ async def sync_connection(connection_id: str, context: TenantContext, *, force: 
                 failures.append(exc.message)
                 if exc.reauth:
                     raise
+                continue
+            if pushed.sync_state == "pending_push":
+                summary.held += 1  # waiting for the owner's approval of the changed event
                 continue
             with open_calendar_store(context) as events:
                 current = events.get(event.id)
