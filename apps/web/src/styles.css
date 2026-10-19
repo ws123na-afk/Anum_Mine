@@ -18,8 +18,8 @@
    Dark  text 16.7:1, muted 8.2:1, faint 5.8:1 on --d-bg; muted 7.2:1, faint 5.2:1 on --d-surface-2;
          accent text 10.1:1 on --d-bg, 9.0:1 on --d-surface-2; ok 9.4:1, warn 10.6:1, stop 8.3:1 on
          --d-surface-2; white on the primary button 5.2:1 (hover 6.5:1); white on danger 5.7:1.
-   Light text 17.2:1, muted 7.5:1, faint 5.1:1 on --d-bg (5.4:1 on white); accent text 5.6:1 on
-         white, 5.3:1 on --d-bg; ok 7.2:1, warn 6.2:1, stop 6.5:1 on white (each stays AA on its own 12 % tint). */
+   Light text 17.2:1, muted 7.5:1, faint 5.1:1 on --d-bg (5.4:1 on white); accent text 6.7:1 on
+         white, 6.3:1 on --d-bg (5.4:1 on its own 16 % tint); ok 7.2:1, warn 6.2:1, stop 6.5:1 on white (each stays AA on its own 12 % tint). */
 :root {
   /* Channels for tints and overlays. --c-hi is the overlay ink: white on dark, graphite on light.
      The accent channels (--c-sky, --c-violet, --c-blue, --c-indigo, --c-rose) are all jade. */
@@ -82,7 +82,7 @@
 /* Light: cool paper, white panels, the same jade. */
 :root[data-theme="light"] {
   --c-hi: 18 21 28; --c-shade: 18 21 28;
-  --c-accent: 11 117 100;
+  --c-accent: 9 104 90;
   --c-ok: 17 101 47; --c-warn: 148 80 12; --c-stop: 180 35 53; --c-danger: 196 37 63;
   --d-bg: #f7f8fa;
   --d-surface-1: #ffffff; --d-surface-2: #ffffff; --d-surface-3: #f1f3f6;
@@ -90,9 +90,9 @@
   --d-glass-1: rgb(var(--c-hi) / .03); --d-glass-2: rgb(var(--c-hi) / .05); --d-glass-3: rgb(var(--c-hi) / .08);
   --d-line: rgba(18, 21, 28, .09); --d-line-strong: rgba(18, 21, 28, .16); --d-line-hover: rgba(18, 21, 28, .28); --d-edge: rgba(255, 255, 255, .9);
   --d-text: #12151c; --d-muted: #4a5162; --d-faint: #626a7b;
-  --d-accent: #0b7564;
+  --d-accent: #09685a;
   --d-ok: #11652f; --d-warn: #94500c; --d-stop: #b42335; --d-on-stop: #ffffff;
-  --d-notice-text: #0b4a40; --d-error-text: #8a1c2b; --d-accent-text: #095e51; --d-accent-soft: #0b7564; --d-violet-text: #095e51;
+  --d-notice-text: #0b4a40; --d-error-text: #8a1c2b; --d-accent-text: #095e51; --d-accent-soft: #09685a; --d-violet-text: #095e51;
   --d-on-primary-soft: #d7f5ee;
   --d-glow: 0 0 0 1px rgb(var(--c-accent) / .3);
   --d-button-shadow: 0 1px 0 rgba(255, 255, 255, .18) inset, 0 1px 2px rgba(18, 21, 28, .14);

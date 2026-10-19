@@ -19,7 +19,7 @@ A calm enterprise tool in the spirit of Linear, Vercel and the Stripe dashboard:
 | `--d-surface-1`, `-2`, `-3` | Panels, raised panels, wells and the selected tab | `#12151c`, `#171b24`, `#1f2430` | white, white, `#f1f3f6` |
 | `--d-line`, `--d-line-strong`, `--d-line-hover` | Hairlines | white at 7.5, 13 and 22 % | graphite at 9, 16 and 28 % |
 | `--d-text`, `--d-muted`, `--d-faint` | Text | `#eceef3`, `#a2a8b6`, `#868d9c` | `#12151c`, `#4a5162`, `#626a7b` |
-| `--d-accent` | Links, focus, icons, the current page marker | `#45d0b5` | `#0b7564` |
+| `--d-accent` | Links, focus, icons, the current page marker | `#45d0b5` | `#09685a` |
 | `--d-primary`, `--d-primary-hover` | Filled primary buttons (white text) | `#0f7a69`, `#0c6a5b` | the same |
 | `--d-ok`, `--d-warn`, `--d-stop` | Labelled status | `#6fd39a`, `#f2c46b`, `#f59aa6` | `#11652f`, `#94500c`, `#b42335` |
 | `--d-danger` | Destructive buttons (white text) | `#c4253f` | the same |
@@ -35,7 +35,7 @@ All ratios come from the relative-luminance formula and are checked for every te
 | Text on the page | 16.7:1 | 17.2:1 |
 | Muted on the page / on a panel | 8.2:1 / 7.2:1 | 7.5:1 / 7.9:1 |
 | Faint on the page / on a panel | 5.8:1 / 5.2:1 | 5.1:1 / 5.4:1 |
-| Accent text on the page / on a panel | 10.1:1 / 9.0:1 | 5.3:1 / 5.6:1 |
+| Accent text on the page / on a panel | 10.1:1 / 9.0:1 | 6.3:1 / 6.7:1 (5.4:1 on its own tint) |
 | Ok, warn, stop on a panel | 9.4:1, 10.6:1, 8.3:1 | 7.2:1, 6.2:1, 6.5:1 (6.1:1, 5.2:1, 5.3:1 on their own badge tints) |
 | White on primary (hover) | 5.2:1 (6.5:1) | the same |
 | White on danger | 5.7:1 | the same |
