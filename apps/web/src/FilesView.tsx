@@ -1,5 +1,5 @@
 import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { CircleDot, Copy, Download, FileText, Image as ImageIcon, Link2, Lock, Pencil, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { CircleDot, Copy, Database, Download, FileText, Image as ImageIcon, Link2, Lock, Pencil, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import * as api from './lib/api';
 import type { RetrievalIndexStatus } from './lib/capabilities';
 import { describeError, isPermissionDenied, ApiError } from './lib/errors';
@@ -16,6 +16,8 @@ import { rich } from './rich';
 import './admin.css';
 import './files.css';
 import { HelpLink } from './HelpLink';
+import { FileStorage } from './FileStorage';
+import { FileVersions } from './FileVersions';
 
 const PdfPreview = lazy(() => import('./PdfPreview'));
 
@@ -45,6 +47,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [note, setNote] = useState<string | null>(null), [problem, setProblem] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [storageOpen, setStorageOpen] = useState(false), [storageKey, setStorageKey] = useState(0);
   // Moves focus into the preview pane only when a person picked the file (not the default pick).
   const [picked, setPicked] = useState(() => (focusFileId ? 1 : 0));
   // A file opened by link ("Sources used") counts as the pick: closing it never reopens the first file.
@@ -102,7 +105,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
         setUploads((u) => u.filter((x) => x.key !== key));
         setNote(t('files.uploaded', { name: created.name, detail: indexBadge(created.index).detail }));
         if (limits) limits = { ...limits, used_bytes: limits.used_bytes + created.size_bytes, file_count: limits.file_count + 1 };
-        await Promise.all([load(), loadUsage(), loadIndex()]);
+        await Promise.all([load(), loadUsage(), loadIndex()]); setStorageKey((n) => n + 1);
       } catch (e) {
         const cancelled = e instanceof DOMException && e.name === 'AbortError';
         setUploads((u) => u.map((x) => x.key === key ? { ...x, state: cancelled ? 'cancelled' : 'failed', error: cancelled ? t('files.uploadCancelled') : uploadError(e) } : x));
@@ -115,10 +118,12 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
     setConfirming(null);
     setNote(t('files.deleted', { name: file.name }));
     if (focusFileId === file.id) onFocusChange(null);
-    await Promise.all([load(), loadUsage(), loadIndex()]);
+    await Promise.all([load(), loadUsage(), loadIndex()]); setStorageKey((n) => n + 1);
   }
 
   function replaceFile(file: ApiFile) { setItems((current) => current.map((x) => x.id === file.id ? file : x)); void loadIndex(); }
+  // Versions and deletes change what the workspace stores: refresh the figures and the storage screen.
+  const usageChanged = useCallback(() => { void loadUsage(); setStorageKey((n) => n + 1); }, [loadUsage]);
   function open(id: string) { setPicked((n) => n + 1); onFocusChange(id); }
 
   const usageValue = usage.state === 'ready' ? usage.value : null;
@@ -138,6 +143,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
 
   return <>
     <PageHeader title={viewLabel('files')} subtitle={t('files.intro.text')} actions={<>
+      <button type="button" className="secondary" aria-expanded={storageOpen} onClick={() => setStorageOpen((open) => !open)}><Database aria-hidden="true" />{t('files.stor.open')}</button>
       <button type="button" className="uploadButton" disabled={!canUpload} aria-describedby={!canUpload ? 'files-upload-denied' : undefined} onClick={() => picker.current?.click()}><Upload aria-hidden="true" />{t('files.upload')}</button>
     </>} />
     <input ref={picker} type="file" multiple hidden aria-label={t('files.uploadInput')} accept={usageValue?.accepted_extensions.join(',')} onChange={(e) => { const chosen = [...(e.target.files ?? [])]; e.target.value = ''; if (chosen.length) void startUploads(chosen); }} />
@@ -147,6 +153,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
         <div className={`meterTrack ${meter.tone === 'ok' ? '' : meter.tone}`} role="progressbar" aria-label={t('files.storageMeter')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(meter.percent)} aria-valuetext={meter.text}><span style={{ width: `${meter.percent}%` }} /></div>
         <small>{t('files.limits', { size: formatBytes(usageValue.max_upload_bytes), accepted: usageValue.accepted })}</small>
       </div> : undefined} />}
+    {storageOpen && <FileStorage refreshKey={storageKey} onClose={() => setStorageOpen(false)} onOpenFile={(id) => { setStorageOpen(false); open(id); }} />}
     {uploads.length > 0 && <section className="surface uploadQueue" aria-label={t('files.uploads')}>
       {uploads.map((u) => <div className="uploadItem" key={u.key}>
         <div className="uploadItemTop"><strong dir="auto">{u.name}</strong>
@@ -208,7 +215,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
       </section>
       <section data-pane="detail" className="pane filesDetailPane" aria-label={focusFileId ? undefined : t('files.detail.title')}>
         {focusFileId
-          ? <FileDetail key={focusFileId} fileId={focusFileId} me={me} canUpload={canUpload} linkTtl={usageValue?.link_ttl_seconds ?? null} focusSignal={picked} onClose={() => onFocusChange(null)} onDelete={remove} onChange={replaceFile} />
+          ? <FileDetail key={focusFileId} fileId={focusFileId} me={me} canUpload={canUpload} usage={usageValue} onUsage={usageChanged} linkTtl={usageValue?.link_ttl_seconds ?? null} focusSignal={picked} onClose={() => onFocusChange(null)} onDelete={remove} onChange={replaceFile} />
           : <div className="paneEmpty"><FileText aria-hidden="true" /><h3>{t('pages.files.pickTitle')}</h3><p>{items.length ? t('pages.files.pickText') : t('pages.files.pickEmpty')}</p></div>}
       </section>
     </SplitView>}
@@ -221,8 +228,8 @@ function uploadError(e: unknown): string {
   return describeError(e);
 }
 
-function FileDetail({ fileId, me, canUpload, linkTtl, focusSignal, onClose, onDelete, onChange }: {
-  fileId: string; me: string | null; canUpload: boolean; linkTtl: number | null; focusSignal: number; onClose(): void; onDelete(file: ApiFile): Promise<void>; onChange(file: ApiFile): void;
+function FileDetail({ fileId, me, canUpload, usage, onUsage, linkTtl, focusSignal, onClose, onDelete, onChange }: {
+  fileId: string; me: string | null; canUpload: boolean; usage: ApiFileUsage | null; onUsage(): void; linkTtl: number | null; focusSignal: number; onClose(): void; onDelete(file: ApiFile): Promise<void>; onChange(file: ApiFile): void;
 }) {
   const [detail, setDetail] = useState<Detail>({ state: 'loading' });
   const [attempt, setAttempt] = useState(0), [confirming, setConfirming] = useState(false), [busy, setBusy] = useState<null | 'delete' | 'rename' | 'reindex' | 'link'>(null);
@@ -285,6 +292,7 @@ function FileDetail({ fileId, me, canUpload, linkTtl, focusSignal, onClose, onDe
         {file && badge && <>
           <dl className="taskMeta">
             <div><dt>{t('files.detail.kind')}</dt><dd>{fileTypeLabel(file.content_type)} <small className="muted">({file.content_type})</small></dd></div>
+            {file.version !== undefined && <div><dt>{t('files.detail.version')}</dt><dd>{file.version}</dd></div>}
             <div><dt>{t('files.detail.size')}</dt><dd><bdi>{formatBytes(file.size_bytes)}</bdi></dd></div>
             <div><dt>{t('files.detail.uploaded')}</dt><dd><time dateTime={file.created_at}>{date(file.created_at)}</time></dd></div>
             <div><dt>{t('files.detail.uploadedBy')}</dt><dd>{file.created_by === me ? t('files.you') : <code dir="ltr">{file.created_by}</code>}</dd></div>
@@ -317,6 +325,7 @@ function FileDetail({ fileId, me, canUpload, linkTtl, focusSignal, onClose, onDe
             <small className="muted">{t('pages.files.share.expires', { when: formatDateTime(link.expires_at, { timeStyle: 'short' }), minutes: Math.max(1, Math.round((linkTtl ?? 300) / 60)) })}</small>
           </div>}
           {!file.can_manage && <p className="muted filesNote"><Lock aria-hidden="true" />{t('files.manageNote')}</p>}
+          <FileVersions file={file} me={me} usage={usage} onChange={update} onUsage={onUsage} />
           <FilePreview key={`${file.id}-${file.sha256}`} file={file} />
         </>}
       </div>

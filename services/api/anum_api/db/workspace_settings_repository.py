@@ -9,7 +9,20 @@ from sqlalchemy import delete, func, select, text, tuple_, update
 from sqlalchemy.orm import Session
 
 from anum_api.audit import AuditRecord
-from anum_api.files import FilePageQuery, FileRecord, FileSort, FileUsage, StorageQuotaExceeded
+from anum_api.files import (
+    FileContent,
+    FileContentChanged,
+    FilePageQuery,
+    FileRecord,
+    FileSort,
+    FileUsage,
+    FileVersionRecord,
+    StorageByType,
+    StorageFile,
+    StorageQuotaExceeded,
+    StorageReport,
+    previous_version,
+)
 from anum_api.integrations import IntegrationCheck, IntegrationConfiguration, IntegrationStatus, StoredCredential
 from anum_api.onboarding import NotificationPreferences
 from anum_api.schemas import TenantContext, utc_now
@@ -20,6 +33,7 @@ from .models import (
     IntegrationHealthCheckRecord,
     NotificationPreferenceRecord,
     WorkspaceFileRecord,
+    WorkspaceFileVersionRecord,
 )
 from .scope import require_workspace
 
@@ -157,12 +171,7 @@ class SqlAlchemyFileMetadataStore:
     def add(self, record: FileRecord, quota_bytes: int | None = None) -> FileRecord:
         require_workspace(self.session, record.tenant_id, record.workspace_id)
         if quota_bytes is not None:
-            # One upload at a time per workspace decides against the quota; the lock is
-            # released when this unit of work commits or rolls back.
-            self.session.execute(
-                text("select pg_advisory_xact_lock(hashtextextended(:scope, 0))"),
-                {"scope": f"anum.files.quota:{record.tenant_id}:{record.workspace_id}"},
-            )
+            self._lock_quota(record.tenant_id, record.workspace_id)
             scope = TenantContext(tenant_id=record.tenant_id, workspace_id=record.workspace_id, user_id=record.created_by)
             current = self.usage(scope)
             if current.used_bytes + record.size_bytes > quota_bytes:
@@ -232,12 +241,21 @@ class SqlAlchemyFileMetadataStore:
         return [_file(row) for row in rows]
 
     def usage(self, context: TenantContext) -> FileUsage:
-        used, count = self.session.execute(
+        current, count = self.session.execute(
             select(func.coalesce(func.sum(WorkspaceFileRecord.size_bytes), 0), func.count()).where(
                 *self._scope(context)
             )
         ).one()
-        return FileUsage(used_bytes=int(used), file_count=int(count))
+        used = self.session.execute(_USAGE_SQL, {"t": context.tenant_id, "w": context.workspace_id}).scalar_one()
+        versions = self.session.scalar(
+            select(func.count()).select_from(WorkspaceFileVersionRecord).where(
+                WorkspaceFileVersionRecord.tenant_id == context.tenant_id,
+                WorkspaceFileVersionRecord.workspace_id == context.workspace_id,
+            )
+        )
+        return FileUsage(
+            used_bytes=int(used), file_count=int(count), version_bytes=int(used) - int(current), version_count=int(versions or 0)
+        )
 
     def rename(self, context: TenantContext, file_id: str, name: str) -> FileRecord | None:
         row = self._row(context, file_id)
@@ -254,6 +272,149 @@ class SqlAlchemyFileMetadataStore:
             delete(WorkspaceFileRecord).where(*self._scope(context), WorkspaceFileRecord.id == file_id)
         )
         return bool(result.rowcount)
+
+    def _lock_quota(self, tenant_id: str, workspace_id: str) -> None:
+        # One upload at a time per workspace decides against the quota; the lock is released when
+        # this unit of work commits or rolls back.
+        self.session.execute(
+            text("select pg_advisory_xact_lock(hashtextextended(:scope, 0))"),
+            {"scope": f"anum.files.quota:{tenant_id}:{workspace_id}"},
+        )
+
+    def _version_rows(self, context: TenantContext, file_id: str):  # type: ignore[no-untyped-def]
+        return (
+            WorkspaceFileVersionRecord.tenant_id == context.tenant_id,
+            WorkspaceFileVersionRecord.workspace_id == context.workspace_id,
+            WorkspaceFileVersionRecord.file_id == file_id,
+        )
+
+    def added_bytes(self, context: TenantContext, file_id: str, sha256: str, size: int) -> int:
+        row = self._row(context, file_id)
+        if row is not None and row.sha256 == sha256:
+            return 0
+        known = self.session.scalar(
+            select(func.count()).select_from(WorkspaceFileVersionRecord).where(
+                *self._version_rows(context, file_id), WorkspaceFileVersionRecord.sha256 == sha256
+            )
+        )
+        return 0 if known else size
+
+    def replace_content(
+        self, context: TenantContext, file_id: str, expected_sha256: str, content: FileContent,
+        quota_bytes: int | None = None,
+    ) -> FileRecord:
+        self._lock_quota(context.tenant_id, context.workspace_id)
+        row = self.session.scalar(
+            select(WorkspaceFileRecord).where(*self._scope(context), WorkspaceFileRecord.id == file_id).with_for_update()
+        )
+        if row is None or row.sha256 != expected_sha256:
+            raise FileContentChanged(file_id)
+        if quota_bytes is not None:
+            current = self.usage(context)
+            if current.used_bytes + self.added_bytes(context, file_id, content.sha256, content.size_bytes) > quota_bytes:
+                raise StorageQuotaExceeded(current)
+        old = previous_version(_file(row), context.user_id)
+        self.session.add(WorkspaceFileVersionRecord(**old.model_dump()))
+        row.content_type = content.content_type
+        row.size_bytes = content.size_bytes
+        row.sha256 = content.sha256
+        row.storage_key = content.storage_key
+        row.created_by = content.created_by
+        row.created_at = content.created_at
+        row.scan_status = content.scan_status
+        row.scan_signature = content.scan_signature
+        row.scanned_at = content.scanned_at
+        row.version = row.version + 1
+        self.session.flush()
+        return _file(row)
+
+    def list_versions(
+        self, context: TenantContext, file_id: str, limit: int, offset: int
+    ) -> tuple[list[FileVersionRecord], int]:
+        total = self.session.scalar(
+            select(func.count()).select_from(WorkspaceFileVersionRecord).where(*self._version_rows(context, file_id))
+        )
+        rows = self.session.scalars(
+            select(WorkspaceFileVersionRecord).where(*self._version_rows(context, file_id))
+            .order_by(WorkspaceFileVersionRecord.version.desc()).limit(limit).offset(offset)
+        ).all()
+        return [_file_version(row) for row in rows], int(total or 0)
+
+    def _version_row(self, context: TenantContext, file_id: str, version_id: str) -> WorkspaceFileVersionRecord | None:
+        return self.session.scalar(
+            select(WorkspaceFileVersionRecord).where(
+                *self._version_rows(context, file_id), WorkspaceFileVersionRecord.id == version_id
+            )
+        )
+
+    def get_version(self, context: TenantContext, file_id: str, version_id: str) -> FileVersionRecord | None:
+        row = self._version_row(context, file_id, version_id)
+        return None if row is None else _file_version(row)
+
+    def delete_version(self, context: TenantContext, file_id: str, version_id: str) -> FileVersionRecord | None:
+        row = self._version_row(context, file_id, version_id)
+        if row is None:
+            return None
+        found = _file_version(row)
+        self.session.delete(row)
+        self.session.flush()
+        return found
+
+    def key_in_use(self, context: TenantContext, file_id: str, storage_key: str) -> bool:
+        current = self.session.scalar(
+            select(func.count()).select_from(WorkspaceFileRecord).where(
+                *self._scope(context), WorkspaceFileRecord.id == file_id, WorkspaceFileRecord.storage_key == storage_key
+            )
+        )
+        older = self.session.scalar(
+            select(func.count()).select_from(WorkspaceFileVersionRecord).where(
+                *self._version_rows(context, file_id), WorkspaceFileVersionRecord.storage_key == storage_key
+            )
+        )
+        return bool(current or older)
+
+    def storage_keys(self, context: TenantContext, file_id: str) -> list[str]:
+        row = self._row(context, file_id)
+        keys = [row.storage_key] if row is not None else []
+        keys += list(self.session.scalars(
+            select(WorkspaceFileVersionRecord.storage_key).where(*self._version_rows(context, file_id))
+        ).all())
+        return list(dict.fromkeys(keys))
+
+    def storage_report(self, context: TenantContext, largest: int) -> StorageReport:
+        usage = self.usage(context)
+        types = self.session.execute(
+            select(WorkspaceFileRecord.content_type, func.count(), func.coalesce(func.sum(WorkspaceFileRecord.size_bytes), 0))
+            .where(*self._scope(context)).group_by(WorkspaceFileRecord.content_type)
+        ).all()
+        by_type = [StorageByType(content_type=kind, file_count=int(count), bytes=int(size)) for kind, count, size in types]
+        by_type.sort(key=lambda item: (-item.bytes, item.content_type))
+        extra = self.session.execute(
+            text(
+                """
+                select v.file_id, count(*) as versions,
+                       coalesce(sum(v.size_bytes) filter (where v.first), 0) as extra_bytes
+                from (
+                  select ver.file_id, ver.size_bytes,
+                         ver.sha256 <> f.sha256
+                           and row_number() over (partition by ver.file_id, ver.sha256 order by ver.version) = 1 as first
+                  from workspace_file_versions ver
+                  join workspace_files f
+                    on f.tenant_id = ver.tenant_id and f.workspace_id = ver.workspace_id and f.id = ver.file_id
+                  where ver.tenant_id = :t and ver.workspace_id = :w
+                ) v group by v.file_id
+                """
+            ),
+            {"t": context.tenant_id, "w": context.workspace_id},
+        ).all()
+        extras = {file_id: (int(count), int(size)) for file_id, count, size in extra}
+        rows = self.session.scalars(select(WorkspaceFileRecord).where(*self._scope(context))).all()
+        files = []
+        for row in rows:
+            count, size = extras.get(row.id, (0, 0))
+            files.append(StorageFile(record=_file(row), version_count=count, version_bytes=size, total_bytes=row.size_bytes + size))
+        files.sort(key=lambda item: (-item.total_bytes, item.record.id))
+        return StorageReport(usage=usage, by_type=by_type, largest=files[:largest])
 
     def record_scan(self, context: TenantContext, file_id: str, sha256: str, status: str, signature: str | None) -> bool:
         result = self.session.execute(
@@ -360,4 +521,28 @@ def _file(row: WorkspaceFileRecord) -> FileRecord:
         scan_status=row.scan_status,  # type: ignore[arg-type]
         scan_signature=row.scan_signature,
         scanned_at=row.scanned_at,
+        version=row.version,
     )
+
+
+def _file_version(row: WorkspaceFileVersionRecord) -> FileVersionRecord:
+    return FileVersionRecord(
+        id=row.id, tenant_id=row.tenant_id, workspace_id=row.workspace_id, file_id=row.file_id, version=row.version,
+        content_type=row.content_type, size_bytes=row.size_bytes, sha256=row.sha256, storage_key=row.storage_key,
+        created_by=row.created_by, created_at=row.created_at, replaced_by=row.replaced_by, replaced_at=row.replaced_at,
+        scan_status=row.scan_status,  # type: ignore[arg-type]
+        scan_signature=row.scan_signature, scanned_at=row.scanned_at,
+    )
+
+
+_USAGE_SQL = text(
+    """
+    select coalesce(sum(size_bytes), 0) as used from (
+      select distinct file_id, sha256, size_bytes from (
+        select id as file_id, sha256, size_bytes from workspace_files where tenant_id = :t and workspace_id = :w
+        union all
+        select file_id, sha256, size_bytes from workspace_file_versions where tenant_id = :t and workspace_id = :w
+      ) as every
+    ) as distinct_bytes
+    """
+)

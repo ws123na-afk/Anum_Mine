@@ -185,7 +185,7 @@ test('the catalog searches, filters and pages, and says when nothing matches or 
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(page.getByRole('status').filter({ hasText: '30 products' })).toBeVisible();
 
-  await page.getByLabel('Maturity', { exact: true }).selectOption('live');
+  await page.getByRole('combobox', { name: /^Maturity/ }).selectOption('live');
   await expect(page.getByRole('status').filter({ hasText: '10 products' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Show more/ })).toHaveCount(0);
 

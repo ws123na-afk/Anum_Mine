@@ -60,3 +60,23 @@ button.secondary.dangerText { color: var(--d-stop); }
   .filesToolbar select { flex: 1 1 calc(50% - var(--d-s2)); }
   .filesTable .num { display: none; }
 }
+
+/* Versions of one file and the storage screen (docs/files.md#versions). */
+.fileVersions { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); margin-top: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
+.fileVersions h3 { font-size: 16px; }
+.fileVersionsHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+.fileVersionsHead button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s2); margin-inline-start: auto; }
+.fileVersionsEmpty { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); padding: var(--d-s3); }
+.fileVersionsEmpty p { margin: 0; }
+.fileVersionList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.fileVersionList li { align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: space-between; min-width: 0; padding: var(--d-s3); }
+.fileVersionInfo { display: grid; gap: var(--d-s1); min-width: 0; overflow-wrap: anywhere; }
+.fileVersionList .cellActions button.secondary, .fileVersionList .cellActions button.danger { align-items: center; display: inline-flex; gap: var(--d-s2); }
+.fileStorage { display: grid; gap: var(--d-s3); margin-bottom: var(--d-s4); min-width: 0; padding: var(--d-s4) var(--d-s5); }
+.fileStorageHead { align-items: center; display: flex; gap: var(--d-s3); justify-content: space-between; }
+.fileStorageUse { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); }
+.fileStorage .meterTrack { max-width: 520px; }
+.fileStorage p { margin: 0; }
+.fileStorageGrid { display: grid; gap: var(--d-s4); min-width: 0; }
+@media (min-width: 1024px) { .fileStorageGrid { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); } .fileStorageGrid > p { grid-column: 1 / -1; } }
+.fileStorage caption { color: var(--d-muted); font-size: 13px; font-weight: 600; padding-bottom: var(--d-s2); text-align: start; }
