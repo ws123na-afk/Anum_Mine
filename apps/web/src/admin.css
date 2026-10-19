@@ -1,7 +1,7 @@
 /* Members, invitations and model budgets (owner screens). Uses the depth tokens from styles.css. */
 .adminPanel { margin-top: var(--d-s5); padding: var(--d-s5); }
 /* Labels that carry information (scope, "shown once") stay visible; decorative section labels are hidden in styles.css. */
-.tokenReveal .eyebrow, .budgetCard .eyebrow { color: var(--d-muted); display: block; font-size: 13px; font-weight: 600; }
+.tokenReveal .eyebrow, .budgetCard .eyebrow { color: var(--d-muted); display: block; font-size: var(--text-sm); font-weight: 600; }
 .tokenReveal .eyebrow { color: var(--d-warn); }
 .adminGrid { display: grid; gap: 0 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); }
 .adminFields { display: grid; gap: 0 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
@@ -9,7 +9,7 @@
 .adminIcon, .adminAvatar {
   align-items: center; background: linear-gradient(135deg, rgb(var(--c-sky) / .22), rgb(var(--c-violet) / .22)); border-radius: 12px;
   box-shadow: 0 1px 0 var(--d-edge) inset, 0 1px 2px rgba(3, 5, 9, .25); color: var(--d-text); display: inline-flex; flex: none;
-  font-size: 13px; font-weight: 800; height: 40px; justify-content: center; width: 40px;
+  font-size: var(--text-sm); font-weight: 800; height: 40px; justify-content: center; width: 40px;
 }
 .adminIcon svg { height: 19px; width: 19px; }
 .adminForbidden { align-items: flex-start; display: flex; gap: 14px; margin-top: 16px; padding: 18px; }
@@ -21,7 +21,7 @@
 .memberRow.inactive .memberMain, .memberRow.inactive .adminAvatar { opacity: .6; }
 .memberMain { display: grid; gap: 2px; min-width: 0; }
 .memberMain strong { overflow-wrap: anywhere; }
-.memberMain small { color: var(--d-faint); font-size: 12px; }
+.memberMain small { color: var(--d-faint); font-size: var(--text-xs); }
 .memberMain .memberHint { color: var(--d-warn); }
 .memberRole select { padding: 7px 9px; }
 .memberRow > button { align-items: center; border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 44px; padding: 8px 14px; }
@@ -33,15 +33,15 @@
 .invitationActions button.secondary { background: var(--d-glass-2); border: 1px solid var(--d-line); color: var(--d-text); }
 .invitationActions button:disabled, .memberRow > button:disabled { cursor: not-allowed; opacity: .55; }
 .segmented { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 12px; display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; }
-.segmented button { background: none; border: 0; border-radius: 9px; color: var(--d-muted); font-size: 13px; font-weight: 600; min-height: 36px; padding: 6px 12px; }
+.segmented button { background: none; border: 0; border-radius: 9px; color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; min-height: 36px; padding: 6px 12px; }
 .segmented button[aria-pressed="true"] { background: var(--d-glass-3); color: var(--d-text); }
 .segmented button:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 1px; }
 .tokenReveal { border-color: rgb(var(--c-warn) / .45); box-shadow: var(--d-elev-2), 0 0 0 1px rgb(var(--c-warn) / .15), 0 10px 40px rgb(var(--c-warn) / .12); }
-.tokenWarning { align-items: flex-start; color: var(--d-warn); display: flex; font-size: 13px; gap: 8px; margin-top: 10px; }
+.tokenWarning { align-items: flex-start; color: var(--d-warn); display: flex; font-size: var(--text-sm); gap: 8px; margin-top: 10px; }
 .tokenWarning svg { flex: none; height: 17px; margin-top: 2px; width: 17px; }
 .tokenValue {
   background: var(--d-well); border: 1px solid var(--d-line); border-radius: 12px; box-shadow: var(--d-well-inset);
-  color: var(--d-text); display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; overflow-wrap: anywhere; padding: 10px 12px; user-select: all;
+  color: var(--d-text); display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-sm); overflow-wrap: anywhere; padding: 10px 12px; user-select: all;
 }
 .sectionIcon { color: var(--d-violet); height: 22px; width: 22px; }
 .budgetGrid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); margin-top: 16px; }
@@ -49,9 +49,9 @@
 .budgetCard.exceeded { border-color: rgb(var(--c-stop) / .45); box-shadow: var(--d-elev-1), 0 10px 36px rgb(var(--c-stop) / .12); }
 .budgetMeter { display: grid; gap: 6px; }
 .budgetMeterTop { align-items: baseline; display: flex; gap: 10px; justify-content: space-between; }
-.budgetMeterTop span { color: var(--d-muted); font-size: 12px; font-weight: 700; }
-.budgetMeterTop strong { font-size: 18px; }
-.budgetMeterTop small { color: var(--d-muted); font-size: 12px; font-weight: 600; }
+.budgetMeterTop span { color: var(--d-muted); font-size: var(--text-xs); font-weight: 700; }
+.budgetMeterTop strong { font-size: var(--text-xl); }
+.budgetMeterTop small { color: var(--d-muted); font-size: var(--text-xs); font-weight: 600; }
 .meterTrack { background: var(--d-well); border: 1px solid var(--d-line); border-radius: 999px; box-shadow: var(--d-well-inset); height: 12px; overflow: hidden; }
 .meterTrack span { background: linear-gradient(90deg, var(--d-sky), var(--d-violet)); border-radius: inherit; box-shadow: 0 0 14px rgb(var(--c-violet) / .5); display: block; height: 100%; transition: width 400ms var(--d-ease); }
 .meterTrack.warn span { background: linear-gradient(90deg, #fbbf24, var(--d-warn)); box-shadow: 0 0 14px rgb(var(--c-warn) / .5); }
@@ -62,7 +62,7 @@
 .budgetForm > .notice, .budgetForm > p, .budgetForm > .actions { grid-column: 1 / -1; }
 .budgetForm > p.muted { margin-top: 10px; }
 .budgetAlert { align-items: center; border-color: rgb(var(--c-stop) / .45); display: grid; gap: 14px; grid-template-columns: 40px minmax(0, 1fr) auto; margin-bottom: 16px; padding: 16px 18px; }
-.budgetAlert p { color: var(--d-muted); font-size: 13px; margin-top: 2px; }
+.budgetAlert p { color: var(--d-muted); font-size: var(--text-sm); margin-top: 2px; }
 .budgetAlertActions { display: flex; flex-wrap: wrap; gap: 8px; }
 .budgetAlertActions button { align-items: center; background: var(--d-primary-grad); border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 700; gap: 6px; min-height: 44px; padding: 8px 14px; }
 .budgetAlertActions button.secondary, .memberRow > button.secondary { background: var(--d-glass-2); border: 1px solid var(--d-line); color: var(--d-text); }
@@ -84,19 +84,19 @@
 .policySwitch input[type="checkbox"]:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
 .policySwitch input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .55; }
 .policyExplain { display: grid; gap: 4px; list-style: none; margin: 0; padding: 0; }
-.policyExplain li { color: var(--d-faint); font-size: 12.5px; }
+.policyExplain li { color: var(--d-faint); font-size: var(--text-sm); }
 .policyExplain li.active { color: var(--d-text); }
 .policyExplain li span { color: var(--d-muted); display: inline-block; font-weight: 700; margin-inline-end: 6px; min-width: 64px; }
 /* A refused decision on an approval card (403, e.g. the two-person rule) */
 .approvalRefusal { align-items: flex-start; background: rgb(var(--c-stop) / .08); border: 1px solid rgb(var(--c-stop) / .4); border-radius: 12px; display: flex; gap: 10px; margin-top: 10px; padding: 10px 12px; }
 .approvalRefusal svg { color: var(--d-stop); flex: none; height: 18px; margin-top: 2px; width: 18px; }
-.approvalRefusal strong { color: var(--d-stop); display: block; font-size: 13px; }
-.approvalRefusal p { color: var(--d-text) !important; font-size: 13px; margin: 2px 0 0; }
+.approvalRefusal strong { color: var(--d-stop); display: block; font-size: var(--text-sm); }
+.approvalRefusal p { color: var(--d-text) !important; font-size: var(--text-sm); margin: 2px 0 0; }
 /* Approval chains (docs/approvals-and-risk.md, Approval chains): "1 of 3 approvals" and who approved. */
-.approvalProgress { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: 6px; margin-top: 6px; }
-.approvalProgress strong { color: var(--d-text); font-size: 13px; }
+.approvalProgress { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-xs); gap: 6px; margin-top: 6px; }
+.approvalProgress strong { color: var(--d-text); font-size: var(--text-sm); }
 .approvalProgress meter { height: 8px; width: 96px; }
-.approvalProgressNote { color: var(--d-muted); font-size: 12px; margin: 4px 0 0; }
+.approvalProgressNote { color: var(--d-muted); font-size: var(--text-xs); margin: 4px 0 0; }
 /* Workspace switcher in the top bar */
 .workspaceSwitcher { min-width: 0; position: relative; }
 .topbar > div:first-child { min-width: 0; }
@@ -107,19 +107,19 @@
   backdrop-filter: blur(18px); background: var(--d-glass); border: 1px solid var(--d-line-strong); border-radius: var(--d-radius); box-shadow: var(--d-elev-2);
   display: grid; gap: 10px; padding: 14px; position: absolute; inset-inline-end: 0; top: calc(100% + 8px); width: min(360px, calc(100vw - 32px)); z-index: 20;
 }
-.workspacePanel h2 { font-size: 15px; }
+.workspacePanel h2 { font-size: var(--text-base); }
 /* The ids behind the names in the top bar, for support and the API. */
 .workspaceIds { display: grid; gap: 2px var(--d-s3); grid-template-columns: auto minmax(0, 1fr); margin: 0; }
 .workspaceIds div { display: contents; }
-.workspaceIds dt { color: var(--d-muted); font-size: 12.5px; font-weight: 500; }
-.workspaceIds dd { font-size: 12.5px; font-weight: 500; margin: 0; overflow-wrap: anywhere; }
+.workspaceIds dt { color: var(--d-muted); font-size: var(--text-sm); font-weight: 500; }
+.workspaceIds dd { font-size: var(--text-sm); font-weight: 500; margin: 0; overflow-wrap: anywhere; }
 .workspaceOptions { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
 .workspaceOption { align-items: center; display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr) auto; }
 .workspaceOption > button:first-child {
   background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: 12px; color: var(--d-text); display: grid; gap: 1px; min-height: 44px; padding: 8px 12px; text-align: start;
 }
 .workspaceOption > button:first-child[aria-current="true"] { border-color: var(--d-violet); box-shadow: 0 0 0 1px rgb(var(--c-violet) / .35); }
-.workspaceOption small { color: var(--d-faint); font-size: 11.5px; }
+.workspaceOption small { color: var(--d-faint); font-size: var(--text-xs); }
 .workspaceOption strong { overflow-wrap: anywhere; }
 .workspaceOption .iconButton { height: 36px; width: 36px; }
 .workspacePanel form { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }

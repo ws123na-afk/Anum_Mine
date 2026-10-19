@@ -35,6 +35,7 @@ import '../features/email/email_controller.dart';
 import '../features/email/email_repository.dart';
 import '../features/email/inbox_screen.dart';
 import '../features/commerce/commerce_controller.dart';
+import '../features/commerce/commerce_ops_data.dart';
 import '../features/commerce/commerce_repository.dart';
 import '../features/finance/finance_controller.dart';
 import '../features/finance/finance_intel_models.dart';
@@ -354,7 +355,8 @@ class _AnumAppState extends State<AnumApp> {
     // Developer mode (docs/developer-mode.md): the screen, plus "build ..." in
     // the Assistant and "developer, ..." by voice. The role is checked once.
     // Commerce (docs/commerce.md): sales summary and orders, read-only here.
-    commerce = CommerceController(ApiCommerceRepository(api));
+    commerce = CommerceController(ApiCommerceRepository(api),
+        ops: CommerceOps(ApiCommerceOpsRepository(api)));
     // Finance (docs/finance.md): the person's own ledger, read only.
     finance = FinanceController(ApiFinanceRepository(api),
         intelRepository: ApiFinanceIntelRepository(api));

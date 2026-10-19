@@ -5,20 +5,28 @@ import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'commerce_controller.dart';
 import 'commerce_models.dart';
+import 'commerce_ops_screen.dart';
 import 'commerce_strings.dart';
 
 /// Commerce on the phone (docs/commerce.md): a sales summary for a period and
 /// the order list. Read-only: changes are proposed on the web and approved in
 /// Approvals, where every client shows them.
 class CommerceScreen extends StatefulWidget {
-  const CommerceScreen({required this.controller, super.key});
+  const CommerceScreen({
+    required this.controller,
+    this.onOpenApprovals,
+    super.key,
+  });
   final CommerceController controller;
+  final VoidCallback? onOpenApprovals;
 
   @override
   State<CommerceScreen> createState() => _CommerceScreenState();
 }
 
 class _CommerceScreenState extends State<CommerceScreen> {
+  CommerceSection? section; // null is the sales summary
+
   @override
   void initState() {
     super.initState();
@@ -39,16 +47,43 @@ class _CommerceScreenState extends State<CommerceScreen> {
         return Scaffold(
           appBar: AppBar(title: Text(s.t('title'))),
           body: AnumPage(
-            onRefresh: c.load,
+            onRefresh: section != null && c.ops != null
+                ? () => refreshCommerceSection(c.ops!, section!)
+                : c.load,
             children: [
               AnumHeader(
                   eyebrow: s.t('subtitle'),
                   title: c.summaryText ?? s.t('title')),
-              _Periods(controller: c, strings: s),
-              ..._summary(context, c, s),
-              ..._orders(context, c, s),
-              Text(s.t('changesOnWeb'),
-                  style: TextStyle(color: context.palette.muted)),
+              if (c.ops != null)
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  ChoiceChip(
+                    key: const Key('commerce-tab-sales'),
+                    label: Text(s.t('ops.tab.sales')),
+                    selected: section == null,
+                    onSelected: (_) => setState(() => section = null),
+                  ),
+                  for (final item in CommerceSection.values)
+                    ChoiceChip(
+                      key: Key('commerce-tab-${item.name}'),
+                      label: Text(s.t('ops.tab.${item.name}')),
+                      selected: section == item,
+                      onSelected: (_) => setState(() => section = item),
+                    ),
+                ]),
+              if (section != null && c.ops != null)
+                CommerceOpsView(
+                  ops: c.ops!,
+                  section: section!,
+                  onOpenApprovals: widget.onOpenApprovals,
+                )
+              else ...[
+                _Periods(controller: c, strings: s),
+                ..._summary(context, c, s),
+                ..._orders(context, c, s),
+                if (c.ops == null)
+                  Text(s.t('changesOnWeb'),
+                      style: TextStyle(color: context.palette.muted)),
+              ],
             ],
           ),
         );

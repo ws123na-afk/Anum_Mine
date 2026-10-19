@@ -8,7 +8,7 @@
 .checkRow { align-items: center; display: flex; gap: var(--d-s2); margin-top: var(--d-s3); min-width: 0; overflow-wrap: anywhere; }
 .checkRow input[type="checkbox"], .callsChoice input[type="radio"] { accent-color: var(--d-violet); flex: none; height: 20px; min-height: 0; padding: 0; width: 20px; }
 .callsChoice { border: 0; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); margin: var(--d-s4) 0 0; min-width: 0; padding: 0; }
-.callsChoice legend { color: var(--d-muted); font-size: 13px; font-weight: 600; margin-bottom: var(--d-s2); padding: 0; width: 100%; }
+.callsChoice legend { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--d-s2); padding: 0; width: 100%; }
 .callsChoice label { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 32px; }
 
 /* List pane: search and filters stay on top while the rows scroll. */
@@ -31,12 +31,12 @@
 .callsRowIcon svg { height: 18px; width: 18px; }
 .callsAvatar {
   align-items: center; background: rgb(var(--c-violet) / .16); border: 1px solid rgb(var(--c-violet) / .35); border-radius: 999px; color: var(--d-violet-text);
-  display: inline-flex; flex: none; font-size: 13px; font-weight: 700; height: 36px; justify-content: center; width: 36px;
+  display: inline-flex; flex: none; font-size: var(--text-sm); font-weight: 700; height: 36px; justify-content: center; width: 36px;
 }
 .callsRowText { display: grid; gap: 2px; min-width: 0; }
 .callsRowTop { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
-.callsRowTop strong { font-size: 14.5px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
-.callsRow small { color: var(--d-faint); font-size: 12.5px; overflow-wrap: anywhere; }
+.callsRowTop strong { font-size: var(--text-base); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.callsRow small { color: var(--d-faint); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .callsSnippet { -webkit-box-orient: vertical; -webkit-line-clamp: 1; color: var(--d-muted) !important; display: -webkit-box; overflow: hidden; }
 .callsStar { color: var(--d-faint); flex: none; }
 .callsStar.on { color: var(--d-amber, #f5b942); }
@@ -53,30 +53,30 @@
 .callsFollowUp { align-items: end; display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
 .callsFollowUp .field { margin-top: 0; }
 .callsFollowUp .actions, .callsFollowUp p { grid-column: 1 / -1; }
-.callsTranscript { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-family: inherit; font-size: 13.5px; margin: 0; max-height: 320px; overflow: auto; overflow-wrap: anywhere; padding: var(--d-s3); white-space: pre-wrap; }
+.callsTranscript { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-family: inherit; font-size: var(--text-md); margin: 0; max-height: 320px; overflow: auto; overflow-wrap: anywhere; padding: var(--d-s3); white-space: pre-wrap; }
 .callsDetail blockquote, .callsConsent blockquote { border-inline-start: 3px solid rgb(var(--c-violet) / .5); color: var(--d-muted); margin: 0; overflow-wrap: anywhere; padding: var(--d-s1) var(--d-s3); }
 .callsDanger { border-top: 1px solid var(--d-line); margin-top: var(--d-s2); padding-top: var(--d-s3); }
 
 /* Dialpad */
 .callsDial { justify-self: center; max-width: 440px; width: 100%; }
 .callsDialNumber { align-items: center; display: flex; gap: var(--d-s2); }
-.callsDialNumber input { flex: 1 1 auto; font-size: 22px; font-variant-numeric: tabular-nums; letter-spacing: .04em; min-width: 0; text-align: center; }
+.callsDialNumber input { flex: 1 1 auto; font-size: var(--text-3xl); font-variant-numeric: tabular-nums; letter-spacing: .04em; min-width: 0; text-align: center; }
 .callsDialKnown { margin: 0; text-align: center; }
 .callsKeypad { display: grid; gap: var(--d-s2); grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .callsKey {
   align-items: center; background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); cursor: pointer;
-  display: grid; font-size: 22px; font-weight: 600; justify-items: center; min-height: 56px; padding: var(--d-s1); touch-action: manipulation; user-select: none;
+  display: grid; font-size: var(--text-3xl); font-weight: 600; justify-items: center; min-height: 56px; padding: var(--d-s1); touch-action: manipulation; user-select: none;
 }
 .callsKey:hover { background: var(--d-glass-3); }
 .callsKey:focus-visible { outline: 2px solid rgb(var(--c-sky) / .6); outline-offset: 2px; }
-.callsKey small { color: var(--d-faint); font-size: 12px; line-height: 1; }
+.callsKey small { color: var(--d-faint); font-size: var(--text-xs); line-height: 1; }
 .callsDialActions { justify-content: center; margin-top: var(--d-s2); }
 .buttonLink.primaryLink { background: var(--d-primary-grad); border: 1px solid transparent; color: #fff; }
 .buttonLink.primaryLink:hover { background: var(--d-primary-grad-hover); }
 
 /* Live call and consent */
 .callsLiveWho { display: grid; gap: 2px; margin: 0; }
-.callsLiveWho strong { font-size: 18px; overflow-wrap: anywhere; }
+.callsLiveWho strong { font-size: var(--text-xl); overflow-wrap: anywhere; }
 .callsConsent { display: grid; gap: var(--d-s2); }
 
 /* AI calls, opt-outs and provider: columns that wrap to one on narrow screens. */
@@ -94,5 +94,5 @@
 .callsSteps li { overflow-wrap: anywhere; }
 .callsUrl { align-items: center; display: grid; gap: var(--d-s1) var(--d-s2); grid-template-columns: minmax(0, 1fr) auto; min-width: 0; }
 .callsUrl > span { grid-column: 1 / -1; }
-.callsUrl code { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-size: 12.5px; min-width: 0; overflow-wrap: anywhere; padding: var(--d-s1) var(--d-s2); }
+.callsUrl code { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-size: var(--text-sm); min-width: 0; overflow-wrap: anywhere; padding: var(--d-s1) var(--d-s2); }
 p.statusBadge { justify-self: start; margin: 0; width: fit-content; }

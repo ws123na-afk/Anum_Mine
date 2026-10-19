@@ -3,20 +3,20 @@
 .mailAi { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
 .mailAiHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
 .mailAiHead h3 { margin-inline-end: var(--d-s2) !important; }
-.mailAiHead h3 { align-items: center; display: flex; font-size: 14px; gap: var(--d-s2); margin: 0; }
+.mailAiHead h3 { align-items: center; display: flex; font-size: var(--text-md); gap: var(--d-s2); margin: 0; }
 .mailAiHead h3 svg { color: var(--d-violet); height: 16px; width: 16px; }
 .mailAiChips { display: flex; flex-wrap: wrap; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
-.mailAiChips .statusBadge { font-size: 12px; }
+.mailAiChips .statusBadge { font-size: var(--text-xs); }
 .mailAiNote { margin: 0; }
 .mailAiNote p { margin: 0; }
 .mailAiNote > button { margin-top: var(--d-s2); }
 .mailAiActions { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: var(--d-s1); min-width: 0; }
 .mailAiActions button, .mailAiNote > button {
-  align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 13.5px; font-weight: 600; gap: var(--d-s1); min-height: 40px; padding: var(--d-s1) var(--d-s2);
+  align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: var(--text-md); font-weight: 600; gap: var(--d-s1); min-height: 40px; padding: var(--d-s1) var(--d-s2);
 }
 .mailAiActions svg, .mailAiNote > button svg, .mailAiDraft svg { height: 16px; width: 16px; }
 .mailAiDraft { display: grid; gap: var(--d-s2); min-width: 0; }
-.mailAiDraft label { font-size: 13.5px; font-weight: 600; }
+.mailAiDraft label { font-size: var(--text-md); font-weight: 600; }
 .mailAiDraft textarea { min-height: 64px; width: 100%; }
 .mailAiDraft .actions { align-items: center; flex-wrap: wrap; gap: var(--d-s2); margin-top: 0; }
 .mailAiCheck { align-items: center; display: inline-flex; font-weight: 500 !important; gap: var(--d-s1); margin-inline-end: auto; min-height: 40px; }
@@ -24,16 +24,16 @@
 .mailAiWarn { align-items: center; display: flex; gap: var(--d-s2); margin: 0; }
 .mailAiWarn svg { color: var(--d-warn); flex: none; height: 16px; width: 16px; }
 .mailAiSummary { background: var(--d-glass-1); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); min-width: 0; padding: var(--d-s3); }
-.mailAiSummary h4 { font-size: 14px; margin: 0; }
-.mailAiSummary h5 { font-size: 13px; margin: var(--d-s1) 0 0; }
-.mailAiSummary p { font-size: 14px; line-height: 1.55; margin: 0; overflow-wrap: anywhere; }
-.mailAiSummary ul { display: grid; font-size: 14px; gap: 2px; margin: 0; padding-inline-start: var(--d-s4); }
+.mailAiSummary h4 { font-size: var(--text-md); margin: 0; }
+.mailAiSummary h5 { font-size: var(--text-sm); margin: var(--d-s1) 0 0; }
+.mailAiSummary p { font-size: var(--text-md); line-height: 1.55; margin: 0; overflow-wrap: anywhere; }
+.mailAiSummary ul { display: grid; font-size: var(--text-md); gap: 2px; margin: 0; padding-inline-start: var(--d-s4); }
 .mailAiSummary li { overflow-wrap: anywhere; }
 /* The list: label chips under a row's subject, and the AI and approvals bar over the list. */
 .mailAiRowLabels { display: flex; flex-wrap: wrap; gap: var(--d-s1); min-width: 0; }
-.mailAiRowLabels .statusBadge { font-size: 11px; line-height: 18px; padding: 0 6px; }
+.mailAiRowLabels .statusBadge { font-size: var(--text-2xs); line-height: 18px; padding: 0 6px; }
 .mailAiList { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s1); min-width: 0; padding: var(--d-s1) var(--d-s3); }
-.mailAiList button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: 13px; font-weight: 600; gap: var(--d-s1); min-height: 40px; padding: var(--d-s1) var(--d-s2); }
+.mailAiList button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: var(--text-sm); font-weight: 600; gap: var(--d-s1); min-height: 40px; padding: var(--d-s1) var(--d-s2); }
 .mailAiList svg { flex: none; height: 16px; width: 16px; }
 .mailAiListNote { margin: var(--d-s2) var(--d-s3) 0 !important; }
 .mailAiFrom { display: grid; gap: var(--d-s1); min-width: 0; }

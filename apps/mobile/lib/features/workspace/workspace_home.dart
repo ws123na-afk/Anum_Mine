@@ -483,7 +483,17 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
           ),
         );
       case 'commerce' when widget.commerceController != null:
-        _push(CommerceScreen(controller: widget.commerceController!));
+        _push(
+          CommerceScreen(
+            controller: widget.commerceController!,
+            onOpenApprovals: () {
+              final home = ModalRoute.of(context);
+              Navigator.of(context)
+                  .popUntil((route) => route == home || route.isFirst);
+              _select(WorkspaceDestination.approvals);
+            },
+          ),
+        );
       case 'finance' when widget.financeController != null:
         _openFinance();
       case 'marketing' when widget.marketingController != null:
