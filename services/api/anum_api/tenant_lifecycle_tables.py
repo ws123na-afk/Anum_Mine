@@ -179,6 +179,8 @@ _ORDER = (
     "finance_goals",
     "finance_accounts",
     "finance_settings",
+    "business_usage_ledger",
+    "business_change_orders",
     "business_ticket_replies",
     "business_support_tickets",
     "business_research_runs",

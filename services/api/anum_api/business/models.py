@@ -442,6 +442,9 @@ class ProposalVersion(ProposalContent):
     version: int = Field(ge=1)
     content_hash: str
     locked: bool = False
+    # Set on a version an approved change order produced (migration 0080); the version it
+    # amends stays as it was.
+    change_order_id: str | None = None
     created_by: str
     created_at: datetime
 
@@ -510,6 +513,102 @@ class Milestone(Scoped):
     paid_amount: Money | None = None
     paid_on: date | None = None
     notes: str = Field(default="", max_length=1000)
+
+
+# -- change orders and the usage and cost ledger (roadmap P2, docs/business.md#change-orders) ----
+
+
+SignedMoney = Annotated[
+    Decimal,
+    Field(ge=Decimal("-999999999999.99"), le=Decimal("999999999999.99"), max_digits=14, decimal_places=2),
+    PlainSerializer(lambda value: float(value), return_type=float, when_used="json"),
+]
+
+
+class ChangeOrderStatus(StrEnum):
+    DRAFT = "draft"
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    WITHDRAWN = "withdrawn"
+
+
+OPEN_CHANGE_ORDER_STATES = frozenset({ChangeOrderStatus.DRAFT, ChangeOrderStatus.PENDING_APPROVAL})
+
+
+class ChangeAction(StrEnum):
+    ADD = "add"
+    REMOVE = "remove"
+
+
+class ChangeOrderLine(LineItem):
+    """One line of the scope delta: a line added to the contract, or an existing line of
+    the version it amends removed (matched exactly on description, kind, quantity and price)."""
+
+    action: ChangeAction = ChangeAction.ADD
+
+
+class ChangeOrder(Scoped):
+    """A change to an accepted proposal and its project. Approving it (an owner, with the
+    hash they were shown) creates a new locked proposal version; the amended one stays."""
+
+    project_id: str
+    proposal_id: str
+    account_id: str
+    number: int = Field(ge=1)
+    title: str = Field(min_length=2, max_length=200)
+    request: str = Field(default="", max_length=2000)
+    requested_by: str = Field(default="", max_length=160)
+    lines: list[ChangeOrderLine] = Field(default_factory=list, max_length=40)
+    timeline_days: int = Field(default=0, ge=-3650, le=3650)
+    internal_cost_delta: SignedMoney = Decimal("0")
+    status: ChangeOrderStatus = ChangeOrderStatus.DRAFT
+    currency: Currency = Currency.SAR
+    base_version: int | None = None
+    base_hash: str | None = None
+    content_hash: str | None = None
+    subtotal_delta: SignedMoney | None = None
+    tax_delta: SignedMoney | None = None
+    total_delta: SignedMoney | None = None
+    result_version: int | None = None
+    submitted_by: str | None = None
+    submitted_at: datetime | None = None
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+    decision_note: str = Field(default="", max_length=500)
+    created_by: str
+
+
+class UsageKind(StrEnum):
+    LABOUR = "labour"
+    AI_USAGE = "ai_usage"
+    HOSTING = "hosting"
+    MESSAGING = "messaging"
+    OTHER = "other"
+
+
+class UsageSource(StrEnum):
+    MANUAL = "manual"
+    MODEL_BUDGET = "model_budget"
+
+
+class UsageEntry(Scoped):
+    """One cost or labour line for a client account (and optionally one of its projects).
+    Labour is hours times an hourly cost; the rest is an amount. Never a payment."""
+
+    account_id: str
+    project_id: str | None = None
+    kind: UsageKind
+    description: str = Field(min_length=2, max_length=300)
+    occurred_on: date
+    quantity: Annotated[Decimal, Field(gt=0, le=100000, max_digits=10, decimal_places=2), PlainSerializer(float, return_type=float, when_used="json")] = Decimal("1")
+    unit_cost: Money = Decimal("0")
+    amount: Money = Decimal("0")
+    currency: Currency = Currency.SAR
+    billable: bool = False
+    source: UsageSource = UsageSource.MANUAL
+    external_ref: str | None = Field(default=None, max_length=160)
+    created_by: str
 
 
 # -- outbound drafts and research ------------------------------------------------------------------
