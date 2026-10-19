@@ -13,7 +13,7 @@
 .mailrRule bdi { overflow-wrap: anywhere; }
 .mailrError { color: var(--d-warn, var(--d-muted)); }
 .mailrRuleForm { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
-.mailrRuleForm h4 { font-size: 14px; margin: 0; }
+.mailrRuleForm h4 { font-size: var(--text-md); margin: 0; }
 .mailrRuleForm .field { margin-top: 0; min-width: 0; }
 .mailrRuleForm .notice { margin: 0; }
 .mailrRuleForm .actions { margin: 0; }
