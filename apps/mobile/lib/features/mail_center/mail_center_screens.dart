@@ -1127,8 +1127,18 @@ class _MessageTile extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(mailWhen(context, message.date),
-                style: Theme.of(context).textTheme.bodySmall),
+            // An older message shows a full date; at large text it must not
+            // take the whole tile, so it scales down within a share of the width.
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                  maxWidth: MediaQuery.sizeOf(context).width * 0.25),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerEnd,
+                child: Text(mailWhen(context, message.date),
+                    maxLines: 1, style: Theme.of(context).textTheme.bodySmall),
+              ),
+            ),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [

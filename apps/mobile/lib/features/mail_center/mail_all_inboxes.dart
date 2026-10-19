@@ -607,7 +607,17 @@ class _AllInboxTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AnumSpacing.xs),
-            Text(mailWhen(context, m.date), style: theme.textTheme.bodySmall),
+            // A full date at large text scales down instead of overflowing.
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                  maxWidth: MediaQuery.sizeOf(context).width * 0.25),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerEnd,
+                child: Text(mailWhen(context, m.date),
+                    maxLines: 1, style: theme.textTheme.bodySmall),
+              ),
+            ),
           ],
         ),
         subtitle: Column(
