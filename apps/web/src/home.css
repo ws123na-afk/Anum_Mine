@@ -14,6 +14,9 @@
 .homeHeaderActions .smallButton { min-height: 44px; }
 
 /* ---- Today at a glance */
+/* The cards follow the width of the main column, not the window: the sidebar keeps 248px of a
+   tablet-wide window, so a viewport breakpoint squeezed four cards into too little room. */
+.glance { container-type: inline-size; }
 .glanceGrid { display: grid; gap: var(--d-s3); grid-template-columns: repeat(7, minmax(0, 1fr)); list-style: none; margin: 0; padding: 0; }
 .glanceGrid li { display: flex; min-width: 0; }
 .glanceCard {
@@ -28,7 +31,7 @@
 .glanceCard.ok .glanceIcon { background: rgb(var(--c-ok) / .12); color: var(--d-ok); }
 .glanceCard.warning { border-color: rgb(var(--c-warn) / .35); }
 .glanceCard.danger { border-color: rgb(var(--c-stop) / .4); }
-.glanceLabel { align-self: center; grid-column: 1; grid-row: 1; color: var(--d-muted); font-size: 13px; font-weight: 600; }
+.glanceLabel { align-self: center; grid-column: 1; grid-row: 1; color: var(--d-muted); font-size: 13px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .glanceValue { align-items: baseline; grid-column: 1 / -1; display: flex; font-size: 26px; font-variant-numeric: tabular-nums; font-weight: 800; gap: var(--d-s1); line-height: 1.15; min-height: 30px; }
 .glanceValue small { color: var(--d-muted); font-size: 13px; font-weight: 600; }
 .glanceDetail { color: var(--d-faint); font-size: 12px; grid-column: 1 / -1; overflow-wrap: anywhere; }
@@ -52,7 +55,8 @@
 /* Today's meetings */
 .meetingList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
 .meetingList li { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto; padding: var(--d-s2) var(--d-s3); }
-.meetingList li.done { opacity: .7; }
+.meetingList li.done { background: transparent; }
+.meetingList li.done .meetingBody strong { color: var(--d-muted); font-weight: 500; }
 .meetingTime { display: grid; white-space: nowrap; font-size: 14px; font-variant-numeric: tabular-nums; font-weight: 700; }
 .meetingTime small { color: var(--d-faint); font-size: 12px; font-weight: 500; }
 .meetingBody { align-items: center; display: flex; flex-wrap: wrap; gap: 2px var(--d-s2); min-width: 0; }
@@ -97,10 +101,14 @@
 .quickLinkIcon { align-items: center; background: var(--d-glass-2); border-radius: 9px; color: var(--d-accent-soft); display: inline-flex; height: 32px; justify-content: center; width: 32px; }
 .quickLinkIcon svg { height: 17px; width: 17px; }
 
-/* Seven cards: one row on wide screens, then four a row (the last one wider) and two on phones. */
-@media (max-width: 1500px) {
+/* Seven cards: one row when the column is wide, then four a row (the last one wider), then two. */
+@container (max-width: 1180px) {
   .glanceGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .glanceGrid li:last-child { grid-column: span 2; }
+}
+@container (max-width: 640px) {
+  .glanceGrid { gap: var(--d-s2); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .glanceGrid li:last-child { grid-column: 1 / -1; }
 }
 @media (max-width: 1100px) {
   .homeGrid { grid-template-columns: minmax(0, 1fr); }
@@ -114,7 +122,6 @@
   .homePage { gap: var(--d-s4); }
   .homeHeaderActions { width: 100%; }
   .homeHeaderActions > * { flex: 1; }
-  .glanceGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--d-s2); }
   .glanceCard { padding: var(--d-s3); }
   .glanceIcon { height: 28px; width: 28px; }
   .glanceValue { font-size: 22px; }

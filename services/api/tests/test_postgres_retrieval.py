@@ -459,7 +459,7 @@ def test_injected_memory_stays_inside_its_labelled_block_and_the_step_records_on
     assert stored.step_metadata["status"] == RetrievalStatus.OK.value
     assert [entry["source_id"] for entry in stored.step_metadata["sources"]] == [evil.id]
     assert set(stored.step_metadata["sources"][0]) == {
-        "chunk_id", "source_type", "source_id", "chunk_index", "score", "truncated"
+        "chunk_id", "source_type", "source_id", "chunk_index", "score", "truncated", "page", "page_unit"
     }
     assert "SYSTEM" not in json.dumps(stored.step_metadata) and "SYSTEM" not in stored.summary
 

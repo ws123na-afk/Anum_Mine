@@ -17,7 +17,7 @@ export const marketingAr: Record<keyof typeof marketingEn, string> = {
   'marketing.deniedTitle': 'التسويق غير متاح لك هنا',
   'marketing.deniedText': 'يرى أعضاء مساحة العمل خطط التسويق ونتائجه. اطلب من مالك مساحة العمل إضافتك.',
   'marketing.errorTitle': 'تعذّر تحميل التسويق',
-  'marketing.errorText': '{message} تحقّق من اتصالك ثم حاول مرة أخرى.',
+  'marketing.errorText': '{message}. حاول مرة أخرى بعد قليل.',
   'marketing.denied': 'غير مسموح: {message} يكتب الأعضاء المسودات، ويربط المالكون الحسابات ويوافقون على النشر.',
   'marketing.failed': 'تعذّر {what}: {message}',
   'marketing.noAccountsOwner': 'لا يوجد حساب مرتبط بعد. افتح الحسابات واربط فيسبوك أو إنستغرام أو لينكدإن أو إكس أو تيك توك أو يوتيوب للبدء.',
