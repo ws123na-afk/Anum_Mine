@@ -408,6 +408,61 @@ def test_more_new_mail_than_one_page_is_all_forwarded(fake: FakeServer, monkeypa
     assert uids[0] < uids[-1]
 
 
+def test_a_burst_of_2500_messages_is_forwarded_over_several_passes_each_once(fake: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+    account = connect()
+    approve(new_rule(account, from_contains="", subject_contains="Order").json()["approval"])
+    run_sync()  # starts after uid 30
+    monkeypatch.setattr(mail_settings, "forward_per_pass", 200)
+    monkeypatch.setattr(mail_settings, "send_per_hour", 10_000)
+    # 2500 new messages between two checks; every fifth one does not match the rule.
+    burst = [arrive(fake, f"Order {n}" if n % 5 else f"Newsletter {n}") for n in range(2500)]
+    expected = [f"Fwd: Order {n}" for n in range(2500) if n % 5]
+    fake.reads_after.clear()
+    passes = 0
+    while True:
+        due_again()
+        run_sync()
+        passes += 1
+        state = automation_backend.sync[account["id"]]
+        if state.next_sync_at - utc_now() > timedelta(minutes=1):
+            break  # caught up: back to the normal interval
+        assert passes < 40, "the backlog never caught up"
+    forwarded = [BytesParser(policy=policy.default).parsebytes(raw)["Subject"] for _, _, raw in fake.sent]
+    # Every matching message once, oldest first; nothing skipped, nothing twice.
+    assert forwarded == expected
+    # Bounded batches: each pass read at most sync.SCAN headers, and needed more than one pass.
+    assert passes >= len(expected) // 200 and max(fake.reads_after) < burst[-1]
+    rule = client.get(f"{MAIL}/accounts/{account['id']}/rules", headers=OWNER).json()[0]
+    assert rule["forwarded_count"] == len(expected) and rule["last_error"] is None
+    # A pass that dies after sending but before saving its cursor sends nothing again.
+    with automation_backend.lock:
+        rule_id = rule["id"]
+        automation_backend.rules[rule_id] = automation_backend.rules[rule_id].model_copy(update={"last_uid": burst[-300]})
+    due_again()
+    run_sync()
+    assert len(fake.sent) == len(expected)
+    assert automation_backend.rules[rule_id].last_uid == burst[-1]
+
+
+def test_a_pass_never_reads_more_than_one_batch(fake: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+    account = connect()
+    approve(new_rule(account, from_contains="", subject_contains="Nothing matches").json()["approval"])
+    run_sync()
+    for n in range(sync.SCAN * 2 + 5):
+        arrive(fake, f"Update {n}")
+    due_again()
+    run_sync()
+    rule = automation_backend.rules[client.get(f"{MAIL}/accounts/{account['id']}/rules", headers=OWNER).json()[0]["id"]]
+    # The cursor moved one batch forward, and the mailbox is due again soon to read the rest.
+    assert rule.last_uid == 100 + sync.SCAN
+    assert automation_backend.sync[account["id"]].next_sync_at - utc_now() < timedelta(seconds=30)
+    due_again()
+    run_sync()
+    due_again()
+    run_sync()
+    assert automation_backend.rules[rule.id].last_uid == fake.next_uid
+
+
 def test_only_sent_or_maybe_sent_forwards_count_toward_the_limit(fake: FakeServer) -> None:
     from anum_api.mailbox.automation import ForwardLog
 

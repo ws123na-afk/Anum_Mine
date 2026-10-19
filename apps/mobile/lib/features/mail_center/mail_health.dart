@@ -178,8 +178,11 @@ List<MailOrgHealth> sortedForAttention(List<MailOrgHealth> list) {
 }
 
 class MailHealthScreen extends StatefulWidget {
-  const MailHealthScreen({super.key, required this.repository});
+  const MailHealthScreen({super.key, required this.repository, this.domains});
   final MailHealthRepository repository;
+
+  /// Opens the read-only mail domains screen, when the app can reach the API.
+  final Widget Function()? domains;
 
   @override
   State<MailHealthScreen> createState() => _MailHealthScreenState();
@@ -235,6 +238,13 @@ class _MailHealthScreenState extends State<MailHealthScreen> {
       appBar: AppBar(
         title: Text(l.t('mc.op.title')),
         actions: [
+          if (widget.domains != null)
+            IconButton(
+              onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => widget.domains!())),
+              tooltip: l.t('mc.dom.title'),
+              icon: const Icon(Icons.dns_outlined),
+            ),
           IconButton(
             onPressed: _phase == MailPhase.loading ? null : _load,
             tooltip: l.t('refresh'),
