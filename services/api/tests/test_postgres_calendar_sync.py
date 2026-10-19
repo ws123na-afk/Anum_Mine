@@ -102,7 +102,7 @@ def test_connection_events_and_links_persist_encrypted_and_scoped(client: TestCl
     with database_engine.connect() as raw:
         row = raw.execute(text("select access_token_enc, refresh_token_enc, sync_cursor, status from calendar_connections")).one()
     assert "google-" not in row.access_token_enc and secret_cipher().decrypt(row.refresh_token_enc) == "google-refresh-1"
-    assert row.sync_cursor == "sync:S1" and row.status == "connected"
+    assert row.sync_cursor.startswith("sync:S1|") and row.status == "connected"
     assert _count(database_engine, "select count(*) from calendar_events where connection_id is not null and external_id is not null") == 2
     assert _count(database_engine, "select count(*) from calendar_oauth_requests") == 0  # single use
     calendar_backend.clear()
