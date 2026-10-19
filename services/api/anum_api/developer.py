@@ -41,6 +41,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from .agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
 from .audit import AuditRecord
 from .authorization import Permission
+from .demo import is_demo_workspace, refuse_send_in_demo
 from .dependencies import _unit_of_work, repository_context, require_permission, tenant_context
 from .developer_github import ChecksState, GitHubClient, GitHubError, PullRequest, WorkflowRun
 from .developer_projects import (
@@ -350,6 +351,7 @@ def github_client(project: DeveloperProject) -> GitHubClient:
         api_url=developer_settings.github_api_url,
         workflow_file=project.workflow_file,
         transport=github_transport,
+        read_only=is_demo_workspace(project.tenant_id, project.workspace_id),
     )
 
 
@@ -1311,6 +1313,7 @@ async def install_project_workflow(
     The owner reviews and merges it in GitHub; nothing here merges. Returns the open pull
     request if one is already waiting."""
     _require_owner(context)
+    refuse_send_in_demo(context)
     _require_enabled(context)
     project = _project_or_404(context, project_id)
     client = github_client(project)
@@ -1419,6 +1422,7 @@ async def create_request(
     repository: AnumRepository = Depends(repository_context),
 ) -> DeveloperRequestView:
     _require_owner(context)
+    refuse_send_in_demo(context)
     _require_enabled(context)
     text = clean_text(payload.text)
     if len(text) < MIN_TEXT:
