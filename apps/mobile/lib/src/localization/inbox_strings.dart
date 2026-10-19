@@ -3,6 +3,13 @@
 /// test checks both catalogs have the same keys and placeholders.
 const inboxEn = <String, String>{
   'inbox.compose.new': 'New email',
+  'inbox.compose.discardDraft': 'Discard draft',
+  'inbox.compose.discardDraftTitle': 'Discard this draft?',
+  'inbox.compose.discardDraftText':
+      'The draft is deleted from ANUM and from the mailbox\'s Drafts. This cannot be undone.',
+  'inbox.drafts.title': 'Drafts to finish ({count})',
+  'inbox.drafts.noRecipient': 'No recipient yet',
+  'inbox.drafts.waiting': 'Waiting for approval',
   'inbox.compose.title': 'New email',
   'inbox.compose.from': 'From',
   'inbox.compose.to': 'To',
@@ -42,6 +49,13 @@ const inboxEn = <String, String>{
 
 const inboxAr = <String, String>{
   'inbox.compose.new': 'رسالة جديدة',
+  'inbox.compose.discardDraft': 'حذف المسودة',
+  'inbox.compose.discardDraftTitle': 'حذف هذه المسودة؟',
+  'inbox.compose.discardDraftText':
+      'ستُحذف المسودة من أنوم ومن مسودات صندوق البريد. لا يمكن التراجع عن ذلك.',
+  'inbox.drafts.title': 'مسودات للإكمال ({count})',
+  'inbox.drafts.noRecipient': 'لا يوجد مستلم بعد',
+  'inbox.drafts.waiting': 'بانتظار الموافقة',
   'inbox.compose.title': 'رسالة جديدة',
   'inbox.compose.from': 'من',
   'inbox.compose.to': 'إلى',

@@ -297,6 +297,25 @@ test('a new-email draft in the queue opens in the compose drawer', async ({ page
   await expect(drawer).toHaveCount(0);
 });
 
+test('closing the drawer over unsaved edits of a reopened draft asks first', async ({ page }) => {
+  const waiting = { ...newDraftBase, to: ['lina@example.com'], subject: 'Quote follow-up', body: 'Hello again', status: 'draft', approval: null };
+  await mockInbox(page, { drafts: [waiting, emailDraft] });
+  await page.goto('/#inbox');
+  const queue = page.locator('.inboxQueue');
+  if ((await queue.getAttribute('open')) === null) await queue.locator('summary').click();
+  await queue.getByRole('button', { name: /Quote follow-up/ }).click();
+  const drawer = page.getByRole('dialog', { name: 'New email' });
+  await drawer.getByLabel('Subject').fill('Quote follow-up, edited');
+  // Keep editing: the confirm is dismissed and the drawer stays with the edit.
+  page.once('dialog', (dialog) => { expect(dialog.message()).toContain('Close without saving'); void dialog.dismiss(); });
+  await drawer.getByRole('button', { name: 'Close' }).first().click();
+  await expect(drawer.getByLabel('Subject')).toHaveValue('Quote follow-up, edited');
+  // The footer Close button asks too, and closing is allowed once confirmed.
+  page.once('dialog', (dialog) => { void dialog.accept(); });
+  await drawer.getByRole('button', { name: 'Close' }).last().click();
+  await expect(drawer).toHaveCount(0);
+});
+
 // ---- Create a support ticket from an email --------------------------------------------------
 
 test('a ticket is created from an email and links to it', async ({ page }) => {

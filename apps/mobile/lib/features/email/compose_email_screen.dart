@@ -17,10 +17,14 @@ class ComposeEmailScreen extends StatefulWidget {
   const ComposeEmailScreen({
     required this.repository,
     required this.accounts,
+    this.initialDraft,
     super.key,
   });
   final EmailRepository repository;
   final List<EmailAccount> accounts;
+
+  /// A draft saved earlier, to finish, send or throw away.
+  final EmailDraft? initialDraft;
 
   @override
   State<ComposeEmailScreen> createState() => _ComposeEmailScreenState();
@@ -47,6 +51,16 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
   @override
   void initState() {
     super.initState();
+    final existing = widget.initialDraft;
+    if (existing != null) {
+      c.adopt(existing);
+      _accountId = existing.accountId ?? _accountId;
+      _to.text = existing.to.join(', ');
+      _cc.text = existing.cc.join(', ');
+      _bcc.text = existing.bcc.join(', ');
+      _subject.text = existing.subject;
+      _body.text = existing.body;
+    }
     for (final field in _fieldsControllers) {
       field.addListener(_edited);
     }
@@ -129,6 +143,28 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
   Future<void> _ask(AnumLocalizations l) async {
     if (!_validate(l, sending: true)) return;
     await c.askToSend(_fields());
+  }
+
+  Future<void> _discard(AnumLocalizations l) async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l.t('inbox.compose.discardDraftTitle')),
+        content: Text(l.t('inbox.compose.discardDraftText')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l.t('inbox.compose.keep')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l.t('inbox.compose.discardDraft')),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    if (await c.discard() && mounted) Navigator.of(context).pop();
   }
 
   Future<void> _confirmLeave() async {
@@ -327,6 +363,16 @@ class _ComposeEmailScreenState extends State<ComposeEmailScreen> {
             onApprove: () => c.approve(approval),
           ),
         ],
+        if (c.draft != null && !c.sent && !busy)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              key: const Key('compose-discard'),
+              onPressed: () => _discard(l),
+              icon: const Icon(Icons.delete_outline),
+              label: Text(l.t('inbox.compose.discardDraft')),
+            ),
+          ),
         if (c.sent)
           Semantics(
             liveRegion: true,

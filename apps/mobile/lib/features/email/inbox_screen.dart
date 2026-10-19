@@ -76,16 +76,18 @@ class _InboxScreenState extends State<InboxScreen> {
     );
   }
 
-  Future<void> _compose(BuildContext context, EmailController c) =>
+  Future<void> _compose(BuildContext context, EmailController c,
+          [EmailDraft? draft]) =>
       Navigator.push(
         context,
         MaterialPageRoute<void>(
           builder: (_) => ComposeEmailScreen(
             repository: c.repository,
             accounts: c.accounts,
+            initialDraft: draft,
           ),
         ),
-      );
+      ).then((_) => c.loadDrafts());
 
   Widget _body(BuildContext context, AnumLocalizations l, EmailController c) {
     if (c.phase == InboxPhase.loading && c.messages.isEmpty) {
@@ -141,6 +143,39 @@ class _InboxScreenState extends State<InboxScreen> {
             }),
             style: Theme.of(context).textTheme.bodySmall,
           ),
+          if (c.newDrafts.isNotEmpty) ...[
+            const SizedBox(height: AnumSpacing.sm),
+            Text(
+              l.f('inbox.drafts.title', {'count': c.newDrafts.length}),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            for (final draft in c.newDrafts)
+              Card(
+                margin: const EdgeInsets.only(top: AnumSpacing.xs),
+                child: ListTile(
+                  key: ValueKey('new-draft-${draft.id}'),
+                  leading: const Icon(Icons.edit_note),
+                  title: Text(
+                    draft.subject.isEmpty
+                        ? l.t('inboxNoSubject')
+                        : draft.subject,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    draft.to.isEmpty
+                        ? l.t('inbox.drafts.noRecipient')
+                        : draft.to.join(', '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: draft.status == 'pending_approval'
+                      ? Text(l.t('inbox.drafts.waiting'))
+                      : null,
+                  onTap: () => _compose(context, c, draft),
+                ),
+              ),
+          ],
           const SizedBox(height: AnumSpacing.sm),
           TextField(
             controller: _search,

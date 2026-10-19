@@ -86,6 +86,13 @@ class FakeEmailRepository implements EmailRepository {
   /// Drafting a new email waits for an owner's approval (workspace policy).
   bool draftingWaits = false;
 
+  /// What the paused drafting would save once approved.
+  EmailDraftFields? _waitingFields;
+
+  /// The drafts the server lists (GET /email/drafts), newest first.
+  List<EmailDraft> serverDrafts = [];
+  final discarded = <String>[];
+
   /// Asking to send answers this refusal instead.
   ApiException? askError;
 
@@ -179,6 +186,7 @@ class FakeEmailRepository implements EmailRepository {
   Future<EmailDraft> createDraft(EmailDraftFields fields) async {
     created.add(fields);
     if (draftingWaits) {
+      _waitingFields = fields;
       throw DraftWaitsForApproval(
           'Drafting waits for approval.',
           workspaceApprovalFromJson(JsonReader({
@@ -238,9 +246,27 @@ class FakeEmailRepository implements EmailRepository {
   }
 
   @override
+  Future<List<EmailDraft>> drafts() async => serverDrafts;
+
+  @override
+  Future<void> discardDraft(String draftId) async {
+    discarded.add(draftId);
+    serverDrafts = [
+      for (final d in serverDrafts)
+        if (d.id != draftId) d
+    ];
+  }
+
+  @override
   Future<String?> approve(WorkspaceApproval approval) async {
     if (approveError case final error?) throw error;
     approved.add(approval.payloadHash);
+    if (approval.action == 'draft_email') {
+      // Approving the paused tool created the draft on the server.
+      draftingWaits = false;
+      serverDrafts = [_newDraft(_waitingFields!), ...serverDrafts];
+      return 'Draft saved.';
+    }
     sent = true;
     return 'Sent to sara@example.com';
   }

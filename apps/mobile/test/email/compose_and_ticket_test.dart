@@ -358,6 +358,70 @@ void main() {
     expect(find.textContaining('Drafting was approved.'), findsOneWidget);
   });
 
+  testWidgets(
+      'after the paused drafting is approved, saving again edits that draft, not a copy',
+      (tester) async {
+    final repo = FakeEmailRepository()..draftingWaits = true;
+    await _pumpCompose(tester, repo);
+    await tester.enterText(
+        find.byKey(const Key('compose-to')), 'sara@example.com');
+    await tester.enterText(find.byKey(const Key('compose-subject')), 'Quote');
+    await _tapKey(tester, 'compose-save');
+    await _tapKey(tester, 'compose-draft-approval');
+    await tester.tap(find.text('Approve drafting'));
+    await tester.pumpAndSettle();
+    expect(repo.created, hasLength(1));
+    expect(repo.serverDrafts, hasLength(1));
+    await tester.enterText(find.byKey(const Key('compose-subject')), 'Quote 2');
+    await tester.pumpAndSettle();
+    await _tapKey(tester, 'compose-save');
+    expect(repo.created, hasLength(1), reason: 'no second draft is created');
+    expect(repo.fieldEdits, hasLength(1));
+    expect(repo.fieldEdits.single.subject, 'Quote 2');
+    expect(find.byKey(const Key('compose-discard')), findsOneWidget);
+  });
+
+  testWidgets(
+      'a saved new email is listed in the inbox and can be reopened and discarded',
+      (tester) async {
+    final repo = FakeEmailRepository();
+    final saved = await repo.createDraft(const EmailDraftFields(
+        accountId: 'emb_1',
+        to: ['sara@example.com'],
+        subject: 'Quote',
+        body: 'Hello Sara'));
+    repo.serverDrafts = [saved];
+    await pumpInbox(tester, EmailController(repo));
+    expect(find.text('Drafts to finish (1)'), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('new-draft-${saved.id}')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ComposeEmailScreen), findsOneWidget);
+    expect(find.text('Hello Sara'), findsOneWidget);
+    expect(find.text('sara@example.com'), findsOneWidget);
+    await _tapKey(tester, 'compose-discard');
+    await tester.tap(find.text('Discard draft').last);
+    await tester.pumpAndSettle();
+    expect(repo.discarded, [saved.id]);
+    expect(find.byType(ComposeEmailScreen), findsNothing);
+    expect(find.text('Drafts to finish (1)'), findsNothing);
+  });
+
+  testWidgets('a reopened draft can be sent for approval', (tester) async {
+    final repo = FakeEmailRepository();
+    final saved = await repo.createDraft(const EmailDraftFields(
+        accountId: 'emb_1',
+        to: ['sara@example.com'],
+        subject: 'Quote',
+        body: 'Hello Sara'));
+    repo.serverDrafts = [saved];
+    await pumpInbox(tester, EmailController(repo));
+    await tester.tap(find.byKey(ValueKey('new-draft-${saved.id}')));
+    await tester.pumpAndSettle();
+    await _tapKey(tester, 'compose-ask');
+    expect(repo.asked, [saved.id]);
+    expect(find.byKey(const Key('compose-send-approval')), findsOneWidget);
+  });
+
   testWidgets('leaving with unsaved edits asks before discarding',
       (tester) async {
     final repo = FakeEmailRepository();

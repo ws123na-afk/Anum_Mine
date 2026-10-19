@@ -448,7 +448,7 @@ function NewDraft({ messageId, onCancel, onCreated, onError }: { messageId: stri
 }
 
 
-function DraftCard({ draft, owner, onChange, onSent, onOpenApprovals }: { draft: EmailDraft; owner: boolean; onChange: (draft: EmailDraft | null) => void; onSent: () => void; onOpenApprovals?: () => void }) {
+function DraftCard({ draft, owner, onChange, onSent, onOpenApprovals, onDirty }: { draft: EmailDraft; owner: boolean; onChange: (draft: EmailDraft | null) => void; onSent: () => void; onOpenApprovals?: () => void; onDirty?: (dirty: boolean) => void }) {
   const savedBcc = (draft.bcc ?? []).join(', ');
   const [to, setTo] = useState(draft.to.join(', '));
   const [cc, setCc] = useState(draft.cc.join(', '));
@@ -462,6 +462,8 @@ function DraftCard({ draft, owner, onChange, onSent, onOpenApprovals }: { draft:
   const editable = draft.status === 'draft' || draft.status === 'failed' || draft.status === 'pending_approval';
   const dirty = to !== draft.to.join(', ') || cc !== draft.cc.join(', ') || bcc !== savedBcc || subject !== draft.subject || body !== draft.body;
   const approval: Approval | null = useMemo(() => draft.approval ? toApproval(draft.approval) : null, [draft.approval]);
+  // The compose drawer asks before closing over edits that are not saved.
+  useEffect(() => { onDirty?.(dirty && editable); return () => onDirty?.(false); }, [dirty, editable, onDirty]);
   const list = (value: unknown) => Array.isArray(value) ? value.map(String) : [];
   const approvalCc = list(approval?.arguments?.cc), approvalBcc = list(approval?.arguments?.bcc);
 
@@ -542,11 +544,13 @@ function ComposeDrawer({ accounts, initialDraft, owner, onClose, onChanged, onDi
   const [copies, setCopies] = useState(false);
   const [busy, setBusy] = useState<'save' | 'ask' | null>(null);
   const [paused, setPaused] = useState(false);
+  const [cardDirty, setCardDirty] = useState(false);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const ids = { from: useId(), to: useId(), cc: useId(), bcc: useId(), subject: useId(), body: useId(), copies: useId() };
   const set = (patch: Partial<ComposeForm>) => setForm((current) => ({ ...current, ...patch }));
   const typed = Boolean(form.to.trim() || form.cc.trim() || form.bcc.trim() || form.subject.trim() || form.body.trim());
-  const close = () => { if (!draft && typed && !paused && !window.confirm(t('email.compose.closeConfirm'))) return; onClose(); };
+  const unsaved = draft ? cardDirty : typed && !paused;
+  const close = () => { if (unsaved && !window.confirm(t('email.compose.closeConfirm'))) return; onClose(); };
 
   async function create(forSending: boolean) {
     const request = composeRequest(form, forSending);
@@ -589,8 +593,8 @@ function ComposeDrawer({ accounts, initialDraft, owner, onClose, onChanged, onDi
       {draft ? <>
         <dl className="inboxMeta"><div><dt>{t('email.detail.from')}</dt><dd>{fromAddress}</dd></div></dl>
         <DraftCard key={draft.id} draft={draft} owner={owner} onOpenApprovals={onOpenApprovals} onSent={() => void refreshAfterSend(draft.id)}
-          onChange={(next) => { onChanged(); if (next) setDraft(next); else onDiscarded(); }} />
-        <div className="actions"><button type="button" className="secondary" onClick={onClose}>{t('dialog.close')}</button></div>
+          onDirty={setCardDirty} onChange={(next) => { onChanged(); if (next) setDraft(next); else onDiscarded(); }} />
+        <div className="actions"><button type="button" className="secondary" onClick={close}>{t('dialog.close')}</button></div>
       </> : paused ? <div className="actions">
         {onOpenApprovals && <button type="button" onClick={onOpenApprovals}>{t('email.approval.openApprovals')}</button>}
         <button type="button" className="secondary" onClick={onClose}>{t('dialog.close')}</button>

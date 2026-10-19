@@ -145,6 +145,20 @@ class EmailDraft {
   bool get sent => status == 'sent';
   bool get isNew => kind == 'new';
 
+  /// Still to be finished by a person: not sent, not thrown away.
+  bool get waiting =>
+      status == 'draft' || status == 'pending_approval' || status == 'failed';
+
+  /// The fields a compose screen shows for this draft.
+  EmailDraftFields get fields => EmailDraftFields(
+        accountId: accountId ?? '',
+        to: to,
+        cc: cc,
+        bcc: bcc,
+        subject: subject,
+        body: body,
+      );
+
   EmailDraft copyWith({String? status, WorkspaceApproval? approval}) =>
       EmailDraft(
         id: id,

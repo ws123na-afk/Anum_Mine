@@ -48,6 +48,13 @@ abstract interface class EmailRepository {
   /// Asks to send: the pending approval to show (tool, arguments, hash).
   Future<EmailDraft> askToSend(String draftId);
 
+  /// Recent drafts (new emails and replies) in the visible mailboxes, newest
+  /// first.
+  Future<List<EmailDraft>> drafts();
+
+  /// Throws the draft away (the copy in the provider's Drafts goes too).
+  Future<void> discardDraft(String draftId);
+
   /// Approves with the displayed payload hash; the run's result sentence.
   Future<String?> approve(WorkspaceApproval approval);
 }
@@ -169,6 +176,15 @@ class ApiEmailRepository implements EmailRepository {
           ),
         ),
       );
+
+  @override
+  Future<List<EmailDraft>> drafts() async =>
+      JsonReader(await api.request('GET', '$_base/drafts?limit=50'))
+          .objects('data', EmailDraft.fromJson);
+
+  @override
+  Future<void> discardDraft(String draftId) =>
+      api.request('DELETE', '$_base/drafts/${_id(draftId)}');
 
   @override
   Future<EmailDraft> askToSend(String draftId) async => EmailDraft.fromJson(
