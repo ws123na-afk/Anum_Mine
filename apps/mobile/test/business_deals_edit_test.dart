@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'business_catalog_accounts_test.dart' show FakeAccounts, FakeCatalog;
-import 'business_test.dart' show FakeBusiness, app, leadJson;
+import 'business_test.dart' show FakeBusiness, app, detailJson, leadJson;
 
 // Lead and opportunity editing on the phone (docs/business.md): create, edit
 // and delete with the server's own answers, owner against member controls,
@@ -250,7 +250,9 @@ void main() {
     expect(deals.calls, ['updateLead blead_0']);
     expect(deals.bodies.single['title'], 'Fleet reporting v2');
     expect(deals.bodies.single['next_step'], 'Send the quote');
-    expect(deals.bodies.single['product_id'], 'bprod_0');
+    // Unchanged associations are not sent, so they can never be cleared.
+    expect(deals.bodies.single.containsKey('product_id'), isFalse);
+    expect(deals.bodies.single.containsKey('contact_id'), isFalse);
   });
 
   testWidgets('an owner deletes a lead; a refusal is shown first',
@@ -409,4 +411,58 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('an offer that did not load is kept by an unrelated edit',
+      (tester) async {
+    await phone(tester);
+    final deals = FakeDeals();
+    final c = make(deals);
+    await c.load();
+    final far = BusinessLead.fromJson(JsonReader.of({
+      ...leadJson(0, state: 'qualified'),
+      'account_id': 'bacct_1',
+      'product_id': 'bprod_999',
+      'contact_id': 'bcont_999',
+      'next_step': '',
+    }));
+    await tester.pumpWidget(app(LeadFormScreen(controller: c, lead: far)));
+    await tester.pumpAndSettle();
+    await enter(tester, 'lead-title', 'Renamed');
+    await tap(tester, 'desk-save');
+    expect(deals.bodies.single, {'title': 'Renamed', 'next_step': ''});
+  });
+
+  testWidgets('the company picker can search beyond the first page',
+      (tester) async {
+    await phone(tester);
+    final accounts = FakeAccounts();
+    final c = BusinessController(FakeBusiness(),
+        accounts: AccountsController(accounts), deals: FakeDeals());
+    await c.load();
+    await tester.pumpWidget(app(LeadFormScreen(controller: c)));
+    await tester.pumpAndSettle();
+    expect(find.text('A new company'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('lead-account-search')), 'zed');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(accounts.calls.last, 'list zed 0');
+  });
+
+  testWidgets('a lead that already has an opportunity cannot open another',
+      (tester) async {
+    await phone(tester);
+    final repo = WithOpportunity()..state = 'qualified';
+    final c = BusinessController(repo, deals: FakeDeals());
+    await c.load();
+    await tester.pumpWidget(app(LeadScreen(controller: c, leadId: 'blead_0')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('lead-edit')), findsOneWidget);
+    expect(find.byKey(const Key('lead-open-opportunity')), findsNothing);
+  });
+}
+
+class WithOpportunity extends FakeBusiness {
+  @override
+  Future<LeadDetail> lead(String id) async => LeadDetail.fromJson(
+      JsonReader.of({...detailJson(state), 'opportunity_id': 'bopp_1'}));
 }

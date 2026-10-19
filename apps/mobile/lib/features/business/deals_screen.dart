@@ -64,12 +64,7 @@ class _LeadFormScreenState extends State<LeadFormScreen> {
 
   Future<void> _loadChoices() async {
     try {
-      if (c.accounts != null && !editing) {
-        final page =
-            await c.accounts!.repository.accounts(offset: 0, limit: 100);
-        accounts = [for (final a in page.items) (a.id, a.name)];
-        if (accounts.isNotEmpty) account = accounts.first.$1;
-      }
+      if (c.accounts != null && !editing) await _findAccounts(null);
       if (c.catalog != null) {
         final page = await c.catalog!.repository.products(
           offset: 0,
@@ -80,11 +75,40 @@ class _LeadFormScreenState extends State<LeadFormScreen> {
             if (p.maturity != 'retired') (p.id, p.name),
         ];
         final wanted = widget.lead?.productId;
-        if (wanted != null && products.any((p) => p.$1 == wanted)) {
+        if (wanted != null) {
+          // Keep a retired or far-down offer selectable under its own name.
+          if (!products.any((p) => p.$1 == wanted)) {
+            products.add((wanted, widget.lead?.productName ?? wanted));
+          }
           product = wanted;
         }
       }
       await _loadContacts();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.readable);
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// The company choices matching [text] (the first 50 by name); searching
+  /// reaches companies beyond that. The chosen company stays selectable.
+  Future<void> _findAccounts(String? text) async {
+    final page = await c.accounts!.repository.accounts(
+      query: text,
+      offset: 0,
+      limit: 50,
+    );
+    final kept = accounts.where((a) => a.$1 == account).toList();
+    accounts = [
+      ...kept,
+      for (final a in page.items)
+        if (a.id != account) (a.id, a.name),
+    ];
+  }
+
+  Future<void> _search(String text) async {
+    try {
+      await _findAccounts(text.trim().isEmpty ? null : text.trim());
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.readable);
     }
@@ -98,9 +122,10 @@ class _LeadFormScreenState extends State<LeadFormScreen> {
     final detail = await c.accounts!.repository.account(id);
     contacts = [for (final p in detail.contacts) (p.id, p.name)];
     final wanted = widget.lead?.contactId;
-    if (contact == _none &&
-        wanted != null &&
-        contacts.any((p) => p.$1 == wanted)) {
+    if (editing && wanted != null && contact == _none) {
+      if (!contacts.any((p) => p.$1 == wanted) && mounted) {
+        contacts.add((wanted, context.anum.t('biz.deal.lead.currentContact')));
+      }
       contact = wanted;
     } else if (!contacts.any((p) => p.$1 == contact)) {
       contact = _none;
@@ -119,8 +144,12 @@ class _LeadFormScreenState extends State<LeadFormScreen> {
       if (editing) {
         saved = await c.updateLead(widget.lead!.id, {
           'title': title.text.trim(),
-          'product_id': product == _none ? null : product,
-          'contact_id': contact == _none ? null : contact,
+          // Only what the person changed: an offer or contact that did not
+          // load into the list is never cleared by an unrelated edit.
+          if (product != (widget.lead!.productId ?? _none))
+            'product_id': product == _none ? null : product,
+          if (contact != (widget.lead!.contactId ?? _none))
+            'contact_id': contact == _none ? null : contact,
           'next_step': nextStep.text.trim(),
         });
       } else {
@@ -174,6 +203,16 @@ class _LeadFormScreenState extends State<LeadFormScreen> {
               ? l.t('biz.deal.lead.titleNeeded')
               : null,
         ),
+        if (!editing && c.accounts != null)
+          TextField(
+            key: const Key('lead-account-search'),
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              labelText: l.t('biz.deal.lead.findCompany'),
+              prefixIcon: const Icon(Icons.search),
+            ),
+            onSubmitted: _search,
+          ),
         if (!editing)
           Padding(
             padding: const EdgeInsets.only(top: AnumSpacing.xs),

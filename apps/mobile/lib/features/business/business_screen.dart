@@ -864,7 +864,9 @@ class _LeadScreenState extends State<LeadScreen> {
                       icon: const Icon(Icons.edit_outlined),
                       label: Text(l.t('biz.form.edit')),
                     ),
-                  if (write && opportunityReadyStates.contains(d.lead.state))
+                  if (write &&
+                      d.opportunityId == null &&
+                      opportunityReadyStates.contains(d.lead.state))
                     OutlinedButton.icon(
                       key: const Key('lead-open-opportunity'),
                       onPressed: busy ? null : openOpportunity,

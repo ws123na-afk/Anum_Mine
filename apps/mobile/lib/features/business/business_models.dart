@@ -190,9 +190,10 @@ class LeadDetail {
     required this.gaps,
     required this.transitions,
     this.consentGap,
+    this.opportunityId,
   });
   final BusinessLead lead;
-  final String? website, contactName, consentGap;
+  final String? website, contactName, consentGap, opportunityId;
   final List<BusinessEvidence> evidence;
   final List<BusinessInference> inferences;
   final List<BusinessActivity> activities;
@@ -208,6 +209,7 @@ class LeadDetail {
         gaps: r.strings('qualification_gaps'),
         transitions: r.strings('allowed_transitions'),
         consentGap: r.optString('consent_gap'),
+        opportunityId: r.optString('opportunity_id'),
       );
 }
 
