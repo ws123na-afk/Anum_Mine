@@ -63,7 +63,7 @@ button.secondary.dangerText { color: var(--d-stop); }
 
 /* Versions of one file and the storage screen (docs/files.md#versions). */
 .fileVersions { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); margin-top: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
-.fileVersions h3 { font-size: 16px; }
+.fileVersions h3 { font-size: var(--text-lg); }
 .fileVersionsHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
 .fileVersionsHead button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s2); margin-inline-start: auto; }
 .fileVersionsEmpty { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); padding: var(--d-s3); }
@@ -79,4 +79,4 @@ button.secondary.dangerText { color: var(--d-stop); }
 .fileStorage p { margin: 0; }
 .fileStorageGrid { display: grid; gap: var(--d-s4); min-width: 0; }
 @media (min-width: 1024px) { .fileStorageGrid { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); } .fileStorageGrid > p { grid-column: 1 / -1; } }
-.fileStorage caption { color: var(--d-muted); font-size: 13px; font-weight: 600; padding-bottom: var(--d-s2); text-align: start; }
+.fileStorage caption { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; padding-bottom: var(--d-s2); text-align: start; }
