@@ -31,7 +31,13 @@ export const DEFAULT_RELEASE_ENV = Object.freeze({
   VITE_ANUM_OIDC_CLIENT_ID: 'anum-desktop',
 });
 
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
+/** The Twilio hosts the web calls client needs, per CSP directive (docs/calls.md#browser-calls). */
+export const TWILIO_CSP = Object.freeze({
+  'connect-src': Object.freeze(['wss://*.twilio.com', 'https://eventgw.twilio.com']),
+  'media-src': Object.freeze(['https://sdk.twilio.com']),
+});
+
+const LOCAL_HOSTS =new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
 
 function parse(value, name) {
   try {
@@ -111,7 +117,12 @@ export function releaseConfig(env, base) {
     origin(webEnv.VITE_ANUM_API_URL, 'VITE_ANUM_API_URL'),
     origin(webEnv.VITE_ANUM_API_URL, 'VITE_ANUM_API_URL').replace(/^https:/, 'wss:'),
   ];
-  config.app = { security: { csp: extendCsp(base.app.security.csp, 'connect-src', connect) } };
+  // Calls through ANUM (docs/calls.md#browser-calls) use Twilio's Voice SDK: its signalling and
+  // media gateways over WebSocket, its event gateway, and its ringtone and sound files. These are
+  // the same hosts the web CSP allows (apps/web/nginx/default.conf.template) and nothing more.
+  let csp = extendCsp(base.app.security.csp, 'connect-src', [...connect, ...TWILIO_CSP['connect-src']]);
+  csp = extendCsp(csp, 'media-src', TWILIO_CSP['media-src']);
+  config.app = { security: { csp } };
 
   const pubkey = env.ANUM_TAURI_UPDATER_PUBKEY?.trim();
   if (pubkey) {

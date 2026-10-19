@@ -4,7 +4,7 @@ import * as api from './lib/api';
 import type { RetrievalIndexStatus } from './lib/capabilities';
 import { describeError, isPermissionDenied, ApiError } from './lib/errors';
 import {
-  sortOptions, canReindex, fileTypeLabel, formatBytes, indexBadge, mergePage, parseMarkdown, previewMode, progressText,
+  sortOptions, canReindex, fileBadge, fileTypeLabel, formatBytes, indexBadge, isQuarantined, mergePage, parseMarkdown, previewMode, progressText,
   renameProblem, uploadProblem, uploaderLabel, usageMeter, PAGE_SIZE, type ApiFile, type ApiFileLink, type ApiFileUsage, type Block, type Inline, type SortValue,
 } from './lib/files';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
@@ -181,7 +181,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
           <caption className="visuallyHidden">{t('files.list')}</caption>
           <thead><tr><th scope="col">{t('pages.files.col.name')}</th><th scope="col" className="num">{t('pages.files.col.size')}</th><th scope="col">{t('pages.files.col.index')}</th><th scope="col"><span className="visuallyHidden">{t('pages.files.col.actions')}</span></th></tr></thead>
           <tbody>{shown.map((x) => {
-            const badge = indexBadge(x.index);
+            const badge = fileBadge(x);
             return <tr key={x.id} className={x.id === focusFileId ? 'selected' : undefined}>
               <th scope="row"><button type="button" className="cellButton" aria-label={t('files.showDetails', { name: x.name })} aria-current={x.id === focusFileId ? 'true' : undefined} onClick={() => open(x.id)}>
                 <strong dir="auto">{x.kind === 'image' ? <ImageIcon aria-hidden="true" className="cellIcon" /> : <FileText aria-hidden="true" className="cellIcon" />}{x.name}</strong>
@@ -193,7 +193,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
                 {confirming === x.id
                   ? <><span className="visuallyHidden" role="status">{t('files.confirmDeletePrompt', { name: x.name })}</span><button type="button" className="danger" aria-label={t('files.confirmDeleteOf', { name: x.name })} onClick={() => void remove(x).catch((e) => { setConfirming(null); setProblem(isPermissionDenied(e) ? t('files.manageNote') : t('files.deleteFailed', { name: x.name, message: describeError(e) })); })}>{t('common.delete')}</button><button type="button" className="secondary" aria-label={t('files.keepOf', { name: x.name })} onClick={() => setConfirming(null)}>{t('files.keep')}</button></>
                   : <>
-                    <button type="button" className="iconButton" title={t('files.download')} aria-label={t('files.downloadOf', { name: x.name })} onClick={() => void api.downloadFile(x.id, x.name).catch((e) => setProblem(t('files.downloadFailed', { name: x.name, message: describeError(e) })))}><Download aria-hidden="true" /></button>
+                    {!isQuarantined(x) && <button type="button" className="iconButton" title={t('files.download')} aria-label={t('files.downloadOf', { name: x.name })} onClick={() => void api.downloadFile(x.id, x.name).catch((e) => setProblem(t('files.downloadFailed', { name: x.name, message: describeError(e) })))}><Download aria-hidden="true" /></button>}
                     {x.can_manage && <button type="button" className="iconButton" title={t('common.delete')} aria-label={t('files.deleteOf', { name: x.name })} onClick={() => setConfirming(x.id)}><Trash2 aria-hidden="true" /></button>}
                   </>}
               </div></td>
@@ -292,6 +292,7 @@ function FileDetail({ fileId, me, canUpload, linkTtl, focusSignal, onClose, onDe
             <div><dt>{t('files.detail.fileId')}</dt><dd><code dir="ltr">{file.id}</code></dd></div>
             <div className="wideMeta"><dt>{t('files.detail.sha')}</dt><dd><code dir="ltr">{file.sha256}</code></dd></div>
           </dl>
+          {isQuarantined(file) && <Notice error>{t('files.quarantinedDetail', { signature: file.scan_signature || t('files.quarantinedUnknown') })}</Notice>}
           {actionError && <Notice error>{actionError}</Notice>}
           {actionNote && <Notice>{actionNote}</Notice>}
           {renaming !== null
@@ -301,10 +302,10 @@ function FileDetail({ fileId, me, canUpload, linkTtl, focusSignal, onClose, onDe
               <div className="actions"><button type="submit" disabled={Boolean(renameIssue) || busy !== null}>{busy === 'rename' ? t('files.detail.saving') : t('files.detail.saveName')}</button><button type="button" className="secondary" onClick={() => setRenaming(null)}>{t('common.cancel')}</button></div>
             </form>
             : <div className="actions fileActions">
-              <button type="button" onClick={() => { setActionError(null); void api.downloadFile(file.id, file.name).catch((e) => setActionError(t('files.detail.downloadFailed', { message: describeError(e) }))); }}><Download aria-hidden="true" />{t('files.download')}</button>
-              <button type="button" className="secondary" disabled={busy !== null} onClick={() => void share(file)}><Link2 aria-hidden="true" />{busy === 'link' ? t('pages.files.share.creating') : link ? t('pages.files.share.again') : t('pages.files.share.create')}</button>
+              {!isQuarantined(file) && <><button type="button" onClick={() => { setActionError(null); void api.downloadFile(file.id, file.name).catch((e) => setActionError(t('files.detail.downloadFailed', { message: describeError(e) }))); }}><Download aria-hidden="true" />{t('files.download')}</button>
+              <button type="button" className="secondary" disabled={busy !== null} onClick={() => void share(file)}><Link2 aria-hidden="true" />{busy === 'link' ? t('pages.files.share.creating') : link ? t('pages.files.share.again') : t('pages.files.share.create')}</button></>}
               {file.can_manage && <button type="button" className="secondary" onClick={() => { setRenaming(file.name); setConfirming(false); }}><Pencil aria-hidden="true" />{t('files.detail.rename')}</button>}
-              {canUpload && canReindex(file.index) && <button type="button" className="secondary" disabled={busy !== null} onClick={() => void act('reindex', () => api.reindexFile(file.id), (f) => indexBadge(f.index).detail)}><RefreshCw aria-hidden="true" />{busy === 'reindex' ? t('files.detail.reindexing') : t('files.detail.reindex')}</button>}
+              {canUpload && !isQuarantined(file) && canReindex(file.index) && <button type="button" className="secondary" disabled={busy !== null} onClick={() => void act('reindex', () => api.reindexFile(file.id), (f) => indexBadge(f.index).detail)}><RefreshCw aria-hidden="true" />{busy === 'reindex' ? t('files.detail.reindexing') : t('files.detail.reindex')}</button>}
               {file.can_manage && (confirming
                 ? <><button type="button" className="danger" disabled={busy !== null} onClick={() => { setBusy('delete'); setActionError(null); void onDelete(file).catch((e) => { setActionError(isPermissionDenied(e) ? t('files.manageNote') : describeError(e)); setBusy(null); }); }} aria-label={t('files.confirmDeleteOf', { name: file.name })}>{busy === 'delete' ? t('files.detail.deleting') : t('files.detail.deletePermanently')}</button><button type="button" className="secondary" onClick={() => setConfirming(false)}>{t('files.keep')}</button></>
                 : <button type="button" className="secondary dangerText" onClick={() => setConfirming(true)}><Trash2 aria-hidden="true" />{t('files.detail.delete')}</button>)}

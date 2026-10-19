@@ -119,7 +119,9 @@ The contact suppression list is the tenant's record of people who asked not to b
 - **API.** `GET /api/v1/contact-suppressions` (search by a full number or address, which is hashed, or by masked text, reason or source; filter by channel; `limit` up to 200 and `offset`), `POST /api/v1/contact-suppressions` (`recipient`, `channel`, `purpose`, `reason` of 3 to 300 characters; `201`, or `200` when already listed), `DELETE /api/v1/contact-suppressions/{id}` with a `reason`, and `GET /api/v1/contact-suppressions/export` (CSV of the masked list, cells guarded against spreadsheet formulas). Workspace owners (`suppression:manage`) and organization administrators may view, add and remove; only owners (`suppression:export`) export. Each change writes `suppression.added`, `suppression.removed` or `suppression.exported`.
 - **Web.** The **Contact opt-outs** page (`apps/web/src/SuppressionView.tsx`, helpers `src/lib/suppression.ts`, messages `src/lib/messages/routing.{en,ar}.ts`) lists entries with paging and search, adds one with a channel, purpose and reason, removes one after a confirmation with a reason, exports for owners, and explains the empty, permission-denied and error states. Tests: `services/api/tests/test_suppression.py`, `test_setup_plan_pilot_checks.py` (CC04), `test_postgres_routing_suppression.py`, `apps/web/test/suppression.test.ts`, `apps/web/e2e/suppression.spec.ts`.
 
-Not done yet: no Flutter screen for the list, no reply to the contact confirming the opt-out, and no consent records for campaigns.
+- **Flutter.** Settings › Workspace administration › **Contact opt-outs** (`apps/mobile/lib/features/admin/suppressions_screen.dart`, repository `org_admin_repository.dart`, strings `lib/src/localization/org_admin_strings.dart`) lists entries 50 at a time with "Show more", searches by full number, address or text and filters by channel on the server, adds an entry on its own page with the same client checks as the web (contact, channel against contact kind, reason of 3 to 300 characters) and says whether it was added (`201`) or already listed (`200`), and removes one after a dialog that needs a reason. A `403` shows who may use the list with the API's words; loading, empty (with Add), no match (with Clear) and error (with Try again) are handled. Export is not offered on the phone: owners are told to export on the web. Tests: `apps/mobile/test/admin/org_admin_test.dart`.
+
+Not done yet: no CSV export from Flutter, no reply to the contact confirming the opt-out, and no consent records for campaigns.
 
 ## Isolation
 
@@ -136,7 +138,7 @@ Both actions write an audit record in the caller's workspace with the caller as 
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `ANUM_PRIVACY_POLICY_URL` | empty | Public `http(s)` URL of the deployment's privacy policy, shown on the Privacy page. Empty: the page says the organization has not published one. The web host serves one at `https://<web host>/privacy` ([Public legal pages](legal-pages.md)). |
+| `ANUM_PRIVACY_POLICY_URL` | empty | Public `http(s)` URL of the deployment's privacy policy, shown on the Privacy page. Empty: the web host's own page, `https://<web host>/legal/privacy`, taken from the first public `https` origin in `ANUM_CORS_ORIGINS`; with no such origin (local, test) the page says the organization has not published one ([Public pages](legal-pages.md#anum_privacy_policy_url)). |
 | `ANUM_PRIVACY_EXPORT_MAX_BYTES` | `26214400` | Largest export the API builds. |
 | `ANUM_CONVERSATION_RETENTION_DAYS` | `30` | Shown as the conversation retention ([Conversations](conversations.md#retention)). |
 

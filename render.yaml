@@ -73,6 +73,8 @@ services:
         value: ""
       - key: ANUM_SELF_SIGN_UP
         value: "false"
+      # Empty: the API uses https://<web host>/legal/privacy, from the first public https
+      # origin in ANUM_CORS_ORIGINS (docs/legal-pages.md).
       - key: ANUM_PRIVACY_POLICY_URL
         value: ""
       - key: ANUM_REPOSITORY_BACKEND
@@ -183,6 +185,7 @@ services:
     buildFilter:
       paths:
         - apps/web/**
+        - docs/legal/**
         - packages/contracts/**
         - package.json
         - pnpm-lock.yaml
@@ -211,6 +214,10 @@ services:
         sync: false
       - key: VITE_SENTRY_ENVIRONMENT
         value: staging
+      # Legal pages shown without the DRAFT banner (docs/legal-pages.md): comma-separated
+      # ids (terms, privacy, dpa, aup, subprocessors) or all. Empty keeps every page a draft.
+      - key: VITE_ANUM_LEGAL_PUBLISHED
+        value: ""
       # Runtime: origins the page may call, "https://<API host> https://<Keycloak host>".
       - key: ANUM_CSP_CONNECT_SRC
         sync: false

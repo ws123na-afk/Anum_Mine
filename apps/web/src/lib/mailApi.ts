@@ -4,6 +4,7 @@ import type { Approval } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders, mapApproval, type ApiApproval } from './api';
 import { apiErrorFromResponse } from './errors';
 import type { MailAccount, MailDetail, MailDraft, MailDraftKind, MailFolder, MailPage, MailSendResult, MailSetup } from './mail';
+import type { AllInboxPage } from './mailAllInboxes';
 
 const base = '/api/v1/mail';
 const id = encodeURIComponent;
@@ -53,6 +54,9 @@ export const deleteMailDraft = (draftId: string): Promise<void> => apiRequestVoi
 /** Ask to send, now or at `sendAt` (ISO with a zone): answers with the approval an owner decides with the payload hash shown. */
 export const sendMailDraft = (draftId: string, idempotencyKey: string, sendAt?: string): Promise<MailSendResult> =>
   apiRequest(`${base}/drafts/${id(draftId)}/send`, { method: 'POST', body: JSON.stringify({ idempotency_key: idempotencyKey, ...(sendAt ? { send_at: sendAt } : {}) }) });
+
+/** All inboxes: newest first over every mailbox the person may read (docs/email.md#all-inboxes). */
+export const listAllInboxes = (query: string): Promise<AllInboxPage> => apiRequest(`${base}/all-inboxes?${query}`, { method: 'GET' });
 
 /** The approval in the client's shape (for api.approveTask, which sends its payload hash). */
 export function toApproval(approval: ApiApproval): Approval {

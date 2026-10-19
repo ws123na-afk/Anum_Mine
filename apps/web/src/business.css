@@ -125,3 +125,11 @@
 .bzArgs dt { color: var(--d-muted); font-size: 13px; }
 .bzArgs dd { margin: 0; overflow-wrap: anywhere; }
 .bzHash { align-items: center; display: flex; font-size: 13px; gap: var(--d-s2); margin: 0; }
+
+/* Support tickets (BusinessSupport.tsx). */
+.bzRef { color: var(--d-muted); font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.bzEscalated { align-items: center; color: var(--d-stop); display: inline-flex; font-size: 13px; font-weight: 600; gap: var(--d-s1); }
+.bzEscalated svg, .bzFlag { color: var(--d-stop); height: 14px; width: 14px; }
+.bzSupportToolbar .bzCompact select { max-width: 200px; }
+.bzSupportToolbar > .bzCheck { margin-top: 0; padding-block-end: var(--d-s2); }
+.bzCard .dataTable input { max-width: 120px; min-width: 0; }

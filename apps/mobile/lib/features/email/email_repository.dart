@@ -1,11 +1,24 @@
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
+import '../workspace/api_workspace_repository.dart'
+    show workspaceApprovalFromJson;
 import '../workspace/workspace_models.dart';
 import 'email_models.dart';
 
 /// The unified inbox over the API (docs/email.md). Owners and members read
 /// and draft; sending waits for an owner's approval of the exact message.
 /// Mailboxes are connected from the web app (the provider's sign-in).
+/// Drafting a reply is itself waiting for an owner's approval (a workspace
+/// policy on the draft tool): no draft yet, only the approval to decide.
+class DraftWaitsForApproval implements Exception {
+  const DraftWaitsForApproval(this.summary, this.approval);
+  final String summary;
+  final WorkspaceApproval approval;
+
+  @override
+  String toString() => summary;
+}
+
 abstract interface class EmailRepository {
   Future<List<EmailAccount>> accounts();
   Future<EmailPage> messages({
@@ -15,6 +28,8 @@ abstract interface class EmailRepository {
   });
   Future<EmailDetail> open(String messageId);
   Future<EmailMessage?> markRead(String messageId, bool read);
+
+  /// Throws [DraftWaitsForApproval] when drafting itself needs approval.
   Future<EmailDraft> draftReply(String messageId, {String? instructions});
   Future<EmailDraft> updateDraft(String draftId, {required String body});
 
@@ -96,6 +111,13 @@ class ApiEmailRepository implements EmailRepository {
       ),
     );
     final draft = value.optObject('draft');
+    final approval = value.optObject('approval');
+    if (draft == null && approval != null) {
+      throw DraftWaitsForApproval(
+        value.optString('summary') ?? 'Drafting waits for approval.',
+        workspaceApprovalFromJson(approval),
+      );
+    }
     if (draft == null) {
       throw ApiException(
         202,

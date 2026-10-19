@@ -3,10 +3,12 @@
 import type {
   BusinessAccountDetail, BusinessDraft, BusinessDuplicate, BusinessKpi, BusinessLead, BusinessLeadDetail, BusinessOpportunity, BusinessPage,
   BusinessProduct, BusinessProductDetail, BusinessProject, BusinessProposal, BusinessSettings, BusinessSetup, ConsentBasis, Criterion, DraftChannel,
-  ImportResult, LeadState, MilestoneStatus, OpportunityStage, ProjectStatus, ProposalContent, BusinessContact,
+  ImportResult, LeadState, MilestoneStatus, OpportunityStage, ProjectStatus, ProposalContent, BusinessContact, BusinessAccountRow, ResolutionCode,
+  SupportAssignee, SupportPolicy, SupportSetup, SupportSummary, SupportTicket, TicketDetail, TicketFields, TicketReplyRequest, TicketStatus,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
+import { ticketQuery, type TicketListQuery } from './businessSupport';
 
 const BASE = '/api/v1/business';
 const json = (method: string, body?: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -110,3 +112,30 @@ export const createProject = (proposalId: string, startOn: string | null) => api
 export const updateProject = (projectId: string, body: { status?: ProjectStatus; start_on?: string | null }) => apiRequest<BusinessProject>(`${BASE}/projects/${id(projectId)}`, json('PATCH', body));
 export const updateMilestone = (milestoneId: string, body: { status?: MilestoneStatus; paid_amount?: number | null; paid_on?: string | null; due_on?: string | null }) =>
   apiRequest<BusinessProject>(`${BASE}/milestones/${id(milestoneId)}`, json('PATCH', body));
+
+// accounts (pickers)
+export const listAccounts = (q: { q?: string; limit: number; offset: number }) => apiRequest<BusinessPage<BusinessAccountRow>>(`${BASE}/accounts${query(q)}`, { method: 'GET' });
+export const getAccount = (accountId: string) => apiRequest<BusinessAccountDetail>(`${BASE}/accounts/${id(accountId)}`, { method: 'GET' });
+
+// support tickets (/api/v1/business/support, docs/business.md#support-tickets)
+const SUPPORT = `${BASE}/support`;
+const ticketPath = (ticketId: string) => `${SUPPORT}/tickets/${id(ticketId)}`;
+
+export const getSupportSetup = () => apiRequest<SupportSetup>(`${SUPPORT}/setup`, { method: 'GET' });
+export const saveSupportPolicy = (policy: SupportPolicy) => apiRequest<SupportPolicy>(`${SUPPORT}/policy`, json('PUT', policy));
+export const listAssignees = () => apiRequest<SupportAssignee[]>(`${SUPPORT}/assignees`, { method: 'GET' });
+export const getSupportSummary = () => apiRequest<SupportSummary>(`${SUPPORT}/summary`, { method: 'GET' });
+export const listTickets = (q: TicketListQuery) => apiRequest<BusinessPage<SupportTicket>>(`${SUPPORT}/tickets${ticketQuery(q)}`, { method: 'GET' });
+export const createTicket = (body: TicketFields & { title: string }) => apiRequest<TicketDetail>(`${SUPPORT}/tickets`, json('POST', body));
+export const createTicketFromMessage = (body: TicketFields & { source: 'email' | 'whatsapp'; ref_id: string }) => apiRequest<TicketDetail>(`${SUPPORT}/tickets/from-message`, json('POST', body));
+export const getTicket = (ticketId: string) => apiRequest<TicketDetail>(ticketPath(ticketId), { method: 'GET' });
+export const updateTicket = (ticketId: string, body: TicketFields) => apiRequest<TicketDetail>(ticketPath(ticketId), json('PATCH', body));
+export const changeTicketStatus = (ticketId: string, body: { to: TicketStatus; resolution_code?: ResolutionCode | null; resolution_summary?: string | null; note?: string | null }) =>
+  apiRequest<TicketDetail>(`${ticketPath(ticketId)}/status`, json('POST', body));
+export const setEscalation = (ticketId: string, escalated: boolean, reason: string) => apiRequest<TicketDetail>(`${ticketPath(ticketId)}/escalation`, json('POST', { escalated, reason }));
+export const addTicketNote = (ticketId: string, text: string, responded: boolean) => apiRequest<TicketDetail>(`${ticketPath(ticketId)}/notes`, json('POST', { text, responded }));
+export const deleteTicket = (ticketId: string) => apiRequestVoid(ticketPath(ticketId), { method: 'DELETE' });
+export const addReply = (ticketId: string, body: string) => apiRequest<TicketDetail>(`${ticketPath(ticketId)}/replies`, json('POST', { body }));
+export const editReply = (ticketId: string, replyId: string, body: string) => apiRequest<TicketDetail>(`${ticketPath(ticketId)}/replies/${id(replyId)}`, json('PATCH', { body }));
+export const discardReply = (ticketId: string, replyId: string) => apiRequest<TicketDetail>(`${ticketPath(ticketId)}/replies/${id(replyId)}`, { method: 'DELETE' });
+export const requestReplyApproval = (ticketId: string, replyId: string) => apiRequest<TicketReplyRequest>(`${ticketPath(ticketId)}/replies/${id(replyId)}/request-approval`, json('POST'));

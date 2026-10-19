@@ -139,6 +139,18 @@ config:
   ANUM_S3_SERVER_SIDE_ENCRYPTION: AES256
   ANUM_S3_CREATE_BUCKET: "false"
 
+  # Upload malware scanning (docs/files.md#malware-scanning). clamav streams every
+  # upload to a ClamAV clamd (TCP, INSTREAM) that you run as its own Service, for
+  # example clamav/clamav:1.5.4-debian13-slim with about 2 GiB of memory (ConcurrentDatabaseReload no); the chart
+  # does not deploy it. networkPolicy.appEgress allows port 3310. With clamav,
+  # ANUM_FILE_SCAN_REQUIRED must stay true (uploads fail with 503 while clamd is down);
+  # the chart and the API refuse false. off: uploads are not scanned.
+  ANUM_FILE_SCANNER: "off"
+  ANUM_CLAMAV_HOST: ""
+  ANUM_CLAMAV_PORT: "3310"
+  ANUM_CLAMAV_TIMEOUT_SECONDS: "30"
+  ANUM_FILE_SCAN_REQUIRED: "true"
+
   # Model gateway. mock is refused when ANUM_ENVIRONMENT=production. anthropic uses the
   # native Messages API with prompt caching (base URL defaults to api.anthropic.com).
   ANUM_MODEL_PROVIDER: openai-compatible
@@ -502,6 +514,8 @@ networkPolicy:
         - { port: 443, protocol: TCP }
         - { port: 4317, protocol: TCP }
         - { port: 4318, protocol: TCP }
+        # ClamAV clamd (ANUM_FILE_SCANNER=clamav).
+        - { port: 3310, protocol: TCP }
   # Egress rules for the migration, retention and backup jobs (database only).
   jobEgress:
     - ports:

@@ -140,7 +140,7 @@ jobs:
         run: python -m pytest services/api -m database
 
   integration:
-    name: API integration (Valkey, S3, Temporal, NATS)
+    name: API integration (Valkey, S3, Temporal, NATS, ClamAV)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -152,18 +152,34 @@ jobs:
           cache-dependency-path: services/api/pyproject.toml
       - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
       - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
-      - name: Start Valkey, S3 storage and NATS
+      - name: Start Valkey, S3 storage, NATS and ClamAV
+        env:
+          # The image ships signatures; no freshclam daemon hitting the ClamAV mirrors.
+          CLAMAV_NO_FRESHCLAMD: "true"
         run: |
-          docker compose -f infra/docker/compose.yaml up -d valkey s3 nats
+          docker compose -f infra/docker/compose.yaml up -d valkey s3 nats clamd
+          ready=""
           for _ in $(seq 1 60); do
             if docker compose -f infra/docker/compose.yaml exec -T valkey valkey-cli ping | grep -q PONG \
               && curl -fsS http://127.0.0.1:9000/healthz \
               && curl -fsS "http://127.0.0.1:8222/healthz?js-enabled-only=true"; then
+              ready=yes
+              break
+            fi
+            sleep 2
+          done
+          if [ -z "$ready" ]; then
+            echo "::error::Valkey, S3 storage or NATS did not become ready"
+            exit 1
+          fi
+          # clamd loads its signatures first (about a minute); PING answers PONG once ready.
+          for _ in $(seq 1 150); do
+            if [ "$(printf 'zPING\0' | nc -w 3 127.0.0.1 3310 | tr -d '\0')" = "PONG" ]; then
               exit 0
             fi
             sleep 2
           done
-          echo "::error::Valkey, S3 storage or NATS did not become ready"
+          echo "::error::ClamAV clamd did not answer PING"
           exit 1
       - name: Run integration-marked tests (none may be skipped)
         working-directory: services/api
@@ -171,10 +187,12 @@ jobs:
           ANUM_TEST_VALKEY_URL: redis://127.0.0.1:6379/15
           ANUM_TEST_S3_ENDPOINT: http://127.0.0.1:9000
           ANUM_TEST_NATS_URL: nats://127.0.0.1:4222
+          ANUM_TEST_CLAMD_HOST: 127.0.0.1
+          ANUM_TEST_CLAMD_PORT: "3310"
           # Temporal tests start a real dev server through the SDK (downloaded on first use).
         run: |
           set -o pipefail
-          python -m pytest -m "(valkey or s3 or temporal or nats) and not database" -rs | tee integration.log
+          python -m pytest -m "(valkey or s3 or temporal or nats or clamav) and not database" -rs | tee integration.log
           if grep -q "SKIPPED" integration.log; then
             echo "::error::Integration tests were skipped; every adapter must be exercised in CI"
             exit 1
@@ -580,7 +598,7 @@ jobs:
       # After pub get, so the formatter takes the language version (and so the style)
       # from the pubspec's SDK constraint, as `dart format` does locally (docs/mobile.md).
       - name: Check Dart formatting
-        run: dart format --output=none --set-exit-if-changed lib test tool
+        run: dart format --output=none --set-exit-if-changed lib test tool integration_test
       - name: Run Flutter analyzer (infos and warnings are errors)
         run: flutter analyze --fatal-infos --fatal-warnings
       - uses: actions/setup-go@v7
@@ -600,6 +618,10 @@ jobs:
         # The JSON file reporter adds a machine-readable copy of the results; the console output
         # and the exit code are unchanged.
         run: flutter test --file-reporter=json:build/test-results/flutter-test.json
+      - name: Run Flutter journey tests (integration_test, headless)
+        # Every user journey end to end against a fake API, on the headless
+        # flutter-tester device (docs/mobile-journeys.md). No emulator needed.
+        run: flutter test integration_test -d flutter-tester --file-reporter=json:build/test-results/flutter-journeys.json
       - name: Upload Flutter test results
         if: failure()
         uses: actions/upload-artifact@v7

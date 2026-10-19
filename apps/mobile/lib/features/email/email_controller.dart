@@ -26,6 +26,10 @@ class EmailController extends ChangeNotifier {
   bool detailLoading = false;
   String? detailError;
 
+  /// The approval drafting a reply waits for (a workspace policy), shown
+  /// with its payload hash until an owner decides it; null otherwise.
+  WorkspaceApproval? draftApproval;
+
   /// The action in progress on the opened message (draft, ask, approve, read).
   String? busy;
 
@@ -88,6 +92,7 @@ class EmailController extends ChangeNotifier {
 
   Future<void> open(String messageId) async {
     detail = null;
+    draftApproval = null;
     detailError = null;
     detailLoading = true;
     notifyListeners();
@@ -128,11 +133,18 @@ class EmailController extends ChangeNotifier {
     final current = detail;
     if (current == null) return;
     await _run('draft', () async {
-      final draft = await repository.draftReply(
-        current.message.id,
-        instructions: instructions,
-      );
-      _replaceDraft(draft, insert: true);
+      draftApproval = null;
+      try {
+        final draft = await repository.draftReply(
+          current.message.id,
+          instructions: instructions,
+        );
+        _replaceDraft(draft, insert: true);
+      } on DraftWaitsForApproval catch (waiting) {
+        // Not a failure: the approval card below the reply says what to do.
+        draftApproval = waiting.approval;
+        _say(waiting.summary);
+      }
     });
   }
 
@@ -152,6 +164,7 @@ class EmailController extends ChangeNotifier {
   Future<void> approve(WorkspaceApproval approval) =>
       _run('approve:${approval.id}', () async {
         final result = await repository.approve(approval);
+        if (draftApproval?.id == approval.id) draftApproval = null;
         final opened = detail?.message.id;
         if (opened != null) detail = await repository.open(opened);
         _say(result ?? 'Sent.');

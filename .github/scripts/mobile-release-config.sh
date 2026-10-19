@@ -59,8 +59,11 @@ for name in "${missing_signing[@]}"; do
 done
 [ -n "${ANUM_PRODUCTION_API_URL:-}" ] || missing+=("ANUM_PRODUCTION_API_URL (variable, https://)")
 [ -n "${ANUM_PRODUCTION_OIDC_ISSUER:-}" ] || missing+=("ANUM_PRODUCTION_OIDC_ISSUER (variable, https://)")
-if [ "$platform" = "android" ] && [ "$upload" = "true" ] && [ -z "${PLAY_SERVICE_ACCOUNT_JSON:-}" ]; then
-  missing+=("PLAY_SERVICE_ACCOUNT_JSON (secret)")
+# Play upload: either a JSON key (PLAY_SERVICE_ACCOUNT_JSON, release-clients.yml) or Workload
+# Identity Federation (PLAY_WORKLOAD_IDENTITY_PROVIDER and PLAY_SERVICE_ACCOUNT, release-android.yml).
+if [ "$platform" = "android" ] && [ "$upload" = "true" ] && [ -z "${PLAY_SERVICE_ACCOUNT_JSON:-}" ] \
+  && { [ -z "${PLAY_WORKLOAD_IDENTITY_PROVIDER:-}" ] || [ -z "${PLAY_SERVICE_ACCOUNT:-}" ]; }; then
+  missing+=("PLAY_SERVICE_ACCOUNT_JSON (secret) or PLAY_WORKLOAD_IDENTITY_PROVIDER and PLAY_SERVICE_ACCOUNT")
 fi
 
 if [ "${#missing[@]}" -gt 0 ] && [ "$upload" = "true" ]; then
