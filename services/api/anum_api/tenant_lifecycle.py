@@ -666,6 +666,7 @@ class MemoryTenantData:
             "domain_events": ("list", store.events),
             "audit_records": ("list", store.audit_records),
             "workspace_files": ("dict", file_store.records),
+            "workspace_file_versions": ("dict", file_store.versions),
         }
 
     def workspace_ids(self, tenant_id: str) -> list[str]:

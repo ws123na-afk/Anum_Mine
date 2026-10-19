@@ -1187,7 +1187,10 @@ def test_file_versions_migration_is_expand_only_with_forced_rls_and_a_scoped_ref
     assert "current_setting('anum.tenant_id', true)" in revision_text and "current_setting('anum.workspace_id', true)" in revision_text
     assert '["tenant_id", "workspace_id", "file_id"]' in revision_text and 'ondelete="cascade"' in upgrade
     assert "alter_column" not in upgrade and "drop " not in upgrade and "op.drop" not in upgrade
-    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    # Only the organisation purge role may delete its rows (and read the scope and the object key).
+    assert "grant select (tenant_id, ctid, workspace_id, storage_key), delete on" in revision_text
+    assert "create policy lifecycle_purge_" in revision_text and "grant insert" not in revision_text and "grant update" not in revision_text
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
 
 
 def test_demo_records_migration_is_expand_only_with_forced_rls() -> None:

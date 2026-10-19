@@ -180,6 +180,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         "skill_signing_settings": "0083_skill_signing",
         "business_change_orders": "0080_business_change_orders",
         "business_usage_ledger": "0080_business_change_orders",
+        "workspace_file_versions": "0085_file_versions",
     }
     for table, revision in later.items():
         text = (API_ROOT / "migrations" / "versions" / f"{revision}.py").read_text(encoding="utf-8")

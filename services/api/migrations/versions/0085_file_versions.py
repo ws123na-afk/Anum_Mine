@@ -11,8 +11,11 @@ state. The bytes stay in object storage; identical content of one file shares on
 restore points at the bytes it restores). The table is under forced RLS on ``anum.tenant_id``
 and ``anum.workspace_id`` like ``workspace_files`` (``tenant_isolation_<table>``), and its rows
 reference their file with the scope (``(tenant_id, workspace_id, file_id)``), so a version can
-never point into another tenant or workspace; deleting a file deletes its versions. No role is
-granted anything and no discovery role reads it.
+never point into another tenant or workspace; deleting a file deletes its versions. The
+organisation and workspace purge (docs/organisation-lifecycle.md) may delete its rows: the
+``anum_tenant_purger`` role gets ``DELETE`` and ``SELECT`` on the scope columns and the object
+key, with the purge policy ``lifecycle_purge_workspace_file_versions`` (copied from 0079's
+``_purge_policy``), so the purge can remove the bytes too. No discovery role reads the table.
 
 Expand only: one defaulted column, one concurrently built index and one new table. The previous
 release ignores all three; a file it deletes takes its versions with it.
@@ -30,6 +33,8 @@ branch_labels = None
 depends_on = None
 
 TABLE = "workspace_file_versions"
+PURGER = "anum_tenant_purger"
+JOBS = "tenant_lifecycle_jobs"
 TS = sa.DateTime(timezone=True)
 PREDICATE = (
     "tenant_id = nullif(current_setting('anum.tenant_id', true), '')\n"
@@ -90,9 +95,32 @@ def upgrade() -> None:
         )
         """
     )
+    _purge_policy(TABLE)
+
+
+def _purge_policy(table: str) -> None:
+    """Deletion of the organisation or of one workspace may remove these rows (0079's ``_purge_policy``)."""
+    op.execute(f"grant select (tenant_id, ctid, workspace_id, storage_key), delete on {table} to {PURGER}")
+    op.execute(
+        f"""
+        create policy lifecycle_purge_{table} on {table}
+        for all to {PURGER}
+        using (
+          tenant_id = nullif(current_setting('anum.tenant_id', true), '')
+          and exists (
+            select 1 from {JOBS} j
+            where j.tenant_id = {table}.tenant_id and j.status = 'purging'
+              and (j.kind = 'organisation_deletion'
+                   or (j.kind = 'workspace_deletion' and j.workspace_id = {table}.workspace_id))
+          )
+        )
+        with check (false)
+        """  # nosec B608 - fixed table name
+    )
 
 
 def downgrade() -> None:
+    op.execute(f"drop policy if exists lifecycle_purge_{TABLE} on {TABLE}")
     op.drop_table(TABLE)
     with op.get_context().autocommit_block():
         op.execute("drop index concurrently if exists uq_workspace_files_scope_id")
