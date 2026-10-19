@@ -1175,9 +1175,9 @@ def test_file_versions_migration_is_expand_only_with_forced_rls_and_a_scoped_ref
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0088_file_versions.py").read_text(encoding="utf-8")
     assert 'revision = "0088_file_versions"' in revision_text and len("0088_file_versions") <= 32
-    assert 'down_revision = "0080_business_change_orders"' in revision_text
+    assert 'down_revision = "0087_email_draft_bcc"' in revision_text
     others = [path for path in versions.glob("*.py") if path.name != "0088_file_versions.py"]
-    assert not [path for path in others if 'down_revision = "0080_business_change_orders"' in path.read_text(encoding="utf-8")]
+    assert not [path for path in others if 'down_revision = "0087_email_draft_bcc"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 1 and upgrade.count("op.add_column(") == 1
     # The added column has a default, so the previous release keeps inserting rows.
@@ -1214,7 +1214,7 @@ def test_email_draft_bcc_migration_adds_one_defaulted_column_only() -> None:
     others = [path for path in versions.glob("*.py") if path.name != "0087_email_draft_bcc.py"]
     # The head: nothing else extends 0080 or this revision.
     assert not [path for path in others if 'down_revision = "0080_business_change_orders"' in path.read_text(encoding="utf-8")]
-    assert not [path for path in others if 'down_revision = "0087_email_draft_bcc"' in path.read_text(encoding="utf-8")]
+    assert [path.name for path in others if 'down_revision = "0087_email_draft_bcc"' in path.read_text(encoding="utf-8")] in ([], ["0088_file_versions.py"])
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     # Expand only: one not-null column with a server default the previous release never has to name.
     assert upgrade.count("op.add_column(") == 1 and '"email_drafts"' in upgrade and '"bcc_addresses"' in upgrade
