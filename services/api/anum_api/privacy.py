@@ -67,6 +67,7 @@ from .push import PushDevice
 from .request_context import current_correlation_id
 from .schemas import AgentRun, Approval, ApprovalApproverRecord, Task, TenantContext, WorkspaceMembership, new_id, utc_now
 from .settings import settings
+from .sign_in_options import effective_privacy_policy_url
 from .library_privacy import LibraryPrivacy, memory_library
 from .user_preferences import ConversationMemoryState, UserPreferences, conversation_memory_state
 from .meeting_connectors import StoredConnection
@@ -1412,7 +1413,7 @@ async def privacy_summary(
             conversation_memory_enabled=settings.conversation_memory_enabled,
             conversation_memory=memory,
         ),
-        privacy_policy_url=settings.privacy_policy_url.strip() or None,
+        privacy_policy_url=effective_privacy_policy_url(),
         export_max_bytes=settings.privacy_export_max_bytes,
         **_notes(language),
     )

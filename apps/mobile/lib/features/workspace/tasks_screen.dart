@@ -998,24 +998,17 @@ class _TaskDetailState extends State<TaskDetailScreen> {
               ],
             ]),
           ),
+          // The decision is made here too, with the same card as Approvals
+          // (arguments, payload hash, confirm), so the task is no dead end.
           if (approval != null)
-            AnumSurface(
+            PendingApprovalCard(
               key: const Key('task-approval'),
-              accent: p.warn,
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    AnumHeader(
-                      eyebrow: 'Needs approval',
-                      title: 'Waiting for a decision',
-                      subtitle: 'The agent will call ${approval.action} only '
-                          'after approval. Decide in Approvals.',
-                    ),
-                    if (approval.progressLabel != null) ...[
-                      const SizedBox(height: 10),
-                      ApprovalProgress(approval: approval),
-                    ],
-                  ]),
+              approval: approval,
+              controller: widget.controller,
+              showTask: false,
+              onDecided: () {
+                if (mounted) unawaited(_refresh());
+              },
             ),
           if (shownRun?.result case final result?)
             AnumSurface(

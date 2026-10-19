@@ -118,10 +118,190 @@ const callsEn = <String, String>{
   'calls.contact.noCalls': 'No calls with this contact yet.',
   'calls.contact.aiConsent': 'Agreed to AI calls',
   'calls.contact.noAiConsent':
-      'No consent to AI calls. A workspace owner records it on the web.',
+      'No consent to AI calls. A workspace owner records it on this page.',
   'calls.contact.optedOut': 'Asked not to be called by the AI.',
   'calls.contact.fromPhone': 'From your phone',
   'calls.saving': 'Saving',
+  // AI calls and the voice provider (docs/calls.md#ai-calls).
+  'calls.tab.ai': 'AI calls',
+  'calls.ai.title': 'AI call requests',
+  'calls.ai.rules':
+      'The AI calls only contacts who agreed to it, says at the start that it is an AI assistant, stops at your time and cost caps, and anyone can opt out. A workspace owner approves every call.',
+  'calls.ai.new': 'Ask the AI to call',
+  'calls.ai.contact': 'Contact',
+  'calls.ai.noConsenting':
+      'No contact has agreed to AI calls yet. A workspace owner records a contact’s consent on the contact’s page, under Contacts.',
+  'calls.ai.purpose': 'Purpose',
+  'calls.ai.purposeHint':
+      'One clear reason, for example: confirm the delivery time on Thursday.',
+  'calls.ai.script': 'Script',
+  'calls.ai.scriptHint':
+      'What the AI says or asks. The owner approves exactly this text.',
+  'calls.ai.language': 'Language',
+  'calls.ai.lang.en': 'English',
+  'calls.ai.lang.ar': 'Arabic',
+  'calls.ai.maxSeconds': 'Longest call (seconds)',
+  'calls.ai.secondsRange': 'Between 30 and 900 seconds.',
+  'calls.ai.cost': 'At most about {cost} at your provider’s rate.',
+  'calls.ai.submit': 'Send for approval',
+  'calls.ai.sent': 'Sent. The call waits for an owner’s approval.',
+  'calls.ai.openApprovals': 'Open Approvals',
+  'calls.ai.cancel': 'Cancel request',
+  'calls.ai.cancelled': 'AI call cancelled.',
+  'calls.ai.empty': 'No AI calls yet',
+  'calls.ai.emptyText':
+      'Ask the AI to call a contact who agreed; the request waits for an owner’s approval.',
+  'calls.ai.openCall': 'Open the call',
+  'calls.ai.requestedBy': 'Asked by {who}',
+  'calls.ai.purposeShort': 'Purpose: {purpose}',
+  'calls.ai.tooShort':
+      'Write a purpose of at least 5 characters and a script of at least 10.',
+  'calls.ai.status.pending_approval': 'Waiting for approval',
+  'calls.ai.status.calling': 'Calling',
+  'calls.ai.status.completed': 'Done',
+  'calls.ai.status.failed': 'Not called',
+  'calls.ai.status.cancelled': 'Cancelled',
+  'calls.ai.blocked.role':
+      'Viewers cannot ask for AI calls. Ask a workspace owner to make you a member.',
+  'calls.ai.blocked.optedOut': 'This number opted out of AI calls.',
+  'calls.ai.blocked.noConsent':
+      'Record this contact’s consent to AI calls first.',
+  'calls.ai.blocked.off': 'AI calls are off.',
+  'calls.provider.title': 'Voice provider',
+  'calls.provider.connected': 'Connected',
+  'calls.provider.notConfigured': 'Not set up',
+  'calls.provider.notConfiguredText':
+      'No voice provider is connected, so calls through ANUM and AI calls are off. Calls from your phone still work and are free.',
+  'calls.provider.askOwner':
+      'A workspace owner connects a Twilio account. Ask an owner of this workspace.',
+  'calls.provider.number': 'Number: {number}',
+  'calls.provider.checkOk': 'Last check passed: {when}',
+  'calls.provider.checkFailed': 'Last check failed: {when}. {detail}',
+  'calls.provider.neverChecked':
+      'Not checked yet. An owner uses Check again under Manage provider.',
+  'calls.provider.aiOn': 'AI calls on',
+  'calls.provider.aiOff': 'AI calls off',
+  'calls.provider.recordingOn': 'Recording on',
+  'calls.provider.recordingOff': 'Recording off',
+  'calls.provider.rate': '{cost} a minute',
+  'calls.provider.loadFailed': "Couldn't load the provider: {message}",
+  // Owner tools: provider, consent and opt-outs (docs/calls.md#clients).
+  'calls.provider.manage': 'Manage provider',
+  'calls.provider.connect': 'Connect a provider',
+  'calls.provider.loading': 'Loading the provider',
+  'calls.provider.ownerOnly':
+      'A workspace owner connects the voice provider. Ask an owner of this workspace.',
+  'calls.provider.what':
+      'Calls inside ANUM go through your own Twilio account. Twilio charges per minute and per number each month; ANUM adds no charge.',
+  'calls.provider.state.on': 'Connected',
+  'calls.provider.state.off': 'Not connected',
+  'calls.provider.state.failed': 'Check failed',
+  'calls.provider.lastCheck': 'Last check {when}: {detail}',
+  'calls.provider.account': 'Twilio account',
+  'calls.provider.secretsNote':
+      'The auth token and API key secret are checked with Twilio, stored encrypted and never shown again. Type them only here, never in chat.',
+  'calls.provider.accountSid': 'Account SID',
+  'calls.provider.authToken': 'Auth token',
+  'calls.provider.authTokenKept':
+      'Leave empty to keep the stored token ({hint}).',
+  'calls.provider.apiKeySid': 'API key SID',
+  'calls.provider.apiKeySecret': 'API key secret',
+  'calls.provider.secretKept': 'Leave empty to keep the stored secret.',
+  'calls.provider.appSid': 'TwiML app SID',
+  'calls.provider.fromNumber': 'Provider number',
+  'calls.provider.business': 'Business name the AI says',
+  'calls.provider.greeting': 'Greeting for calls in (optional)',
+  'calls.provider.recordingTitle': 'Recording',
+  'calls.provider.recording':
+      'Allow recording (each call still needs the caller’s confirmation and a spoken notice)',
+  'calls.provider.transcription':
+      'Transcribe recordings (uses the server’s transcription provider)',
+  'calls.provider.retention': 'Keep recordings (days)',
+  'calls.provider.retentionRange': 'Between 1 and 365 days.',
+  'calls.provider.aiTitle': 'AI calls',
+  'calls.provider.aiCalls': 'Allow AI calls (each one approved by an owner)',
+  'calls.provider.inboundAi':
+      'Let the AI answer calls to the number and take a message',
+  'calls.provider.aiMax': 'Longest AI call (seconds, at most {max})',
+  'calls.provider.aiCost': 'Most an AI call may cost (cents, at most {max})',
+  'calls.provider.rateField':
+      'Your provider’s price per minute (cents), for estimates',
+  'calls.provider.required':
+      'Enter the Account SID, the provider number and the business name.',
+  'calls.provider.tokenRequired': 'Enter the Twilio auth token.',
+  'calls.provider.keyPair':
+      'Browser calls need both the API key SID and the TwiML app SID, or neither.',
+  'calls.provider.save': 'Check and save',
+  'calls.provider.saved': 'Provider saved and checked.',
+  'calls.provider.check': 'Check again',
+  'calls.provider.checked': 'Checked: {detail}',
+  'calls.provider.disconnect': 'Disconnect',
+  'calls.provider.disconnectTitle': 'Disconnect the provider?',
+  'calls.provider.disconnectText':
+      'The stored credentials are deleted. Calls through ANUM and AI calls stop; the call log stays.',
+  'calls.provider.disconnected': 'Provider disconnected.',
+  'calls.provider.steps': 'What the owner does',
+  'calls.provider.step.account':
+      'Create a Twilio account and add billing: calls cost per minute.',
+  'calls.provider.step.number':
+      'Buy a phone number with voice in the Twilio console (Phone numbers).',
+  'calls.provider.step.keys':
+      'Create an API key (Account, API keys) for calls from the browser.',
+  'calls.provider.step.app':
+      'Create a TwiML app and set its voice URL to the voice URL below.',
+  'calls.provider.step.urls':
+      'On the number, set "A call comes in" to the voice URL and "Call status changes" to the status URL below.',
+  'calls.provider.step.save':
+      'Enter the Account SID, auth token, API key, TwiML app SID and number here and save. ANUM checks them with Twilio first.',
+  'calls.provider.noPublicUrl':
+      'This server has no public address for the provider yet (ANUM_CALLS_PUBLIC_BASE_URL); the operator sets it.',
+  'calls.provider.voiceUrl': 'Voice URL',
+  'calls.provider.statusUrl': 'Call status URL',
+  'calls.provider.copy': 'Copy the {what}',
+  'calls.provider.copied': 'Copied.',
+  'calls.provider.costs':
+      'Twilio charges per minute for every call and monthly for the number; recordings and transcription cost extra.',
+  'calls.consent.title': 'AI calls',
+  'calls.consent.none':
+      'No consent to AI calls. ANUM never makes AI cold calls.',
+  'calls.consent.given':
+      'Agreed to AI calls ({method}) on {date}, recorded by {who}.',
+  'calls.consent.record': 'Record consent',
+  'calls.consent.withdraw': 'Withdraw consent',
+  'calls.consent.method': 'How they agreed',
+  'calls.consent.method.verbal': 'Said yes on a call',
+  'calls.consent.method.written': 'In writing',
+  'calls.consent.method.web_form': 'On a web form',
+  'calls.consent.method.other': 'Other',
+  'calls.consent.note': 'Note (when and how)',
+  'calls.consent.confirm': '{name} agreed to be called by the AI assistant.',
+  'calls.consent.ownerOnly': 'A workspace owner records consent to AI calls.',
+  'calls.consent.optedOut':
+      'This number asked not to be called by the AI. The opt-out is honoured.',
+  'calls.consent.recorded': 'Consent recorded.',
+  'calls.consent.withdrawn': 'Consent withdrawn.',
+  'calls.optOuts.title': 'Numbers that opted out of AI calls',
+  'calls.optOuts.text':
+      'A number here is never called by the AI. People opt out by pressing 9 or saying stop on a call, or you add them.',
+  'calls.optOuts.empty': 'No opt-outs.',
+  'calls.optOuts.add': 'Add opt-out',
+  'calls.optOuts.number': 'Number',
+  'calls.optOuts.note': 'Note',
+  'calls.optOuts.added':
+      'Opt-out recorded; this number is never called by the AI.',
+  'calls.optOuts.remove': 'Lift',
+  'calls.optOuts.removeLabel': 'Lift the opt-out of {number}',
+  'calls.optOuts.removeTitle': 'Lift this opt-out?',
+  'calls.optOuts.removeText':
+      'Lift the opt-out of {number} only when the person asked to be called by the AI again. Say why:',
+  'calls.optOuts.reason': 'Reason',
+  'calls.optOuts.reasonHint': 'At least 5 characters.',
+  'calls.optOuts.removed': 'Opt-out lifted.',
+  'calls.optOuts.ownerOnly': 'Only a workspace owner can lift an opt-out.',
+  'calls.optOuts.source.keypad': 'Pressed 9 on a call',
+  'calls.optOuts.source.speech': 'Said stop on a call',
+  'calls.optOuts.source.owner': 'Added by a person',
+  'calls.optOuts.source.inbound': 'Asked on a call in',
 };
 
 const callsAr = <String, String>{
@@ -237,8 +417,187 @@ const callsAr = <String, String>{
   'calls.contact.noCalls': 'لا توجد مكالمات مع جهة الاتصال هذه بعد.',
   'calls.contact.aiConsent': 'وافق على مكالمات الذكاء الاصطناعي',
   'calls.contact.noAiConsent':
-      'لا توجد موافقة على مكالمات الذكاء الاصطناعي. يسجلها مالك مساحة العمل من الويب.',
+      'لا توجد موافقة على مكالمات الذكاء الاصطناعي. يسجلها مالك مساحة العمل في هذه الصفحة.',
   'calls.contact.optedOut': 'طلب ألا يتصل به الذكاء الاصطناعي.',
   'calls.contact.fromPhone': 'من هاتفك',
   'calls.saving': 'جار الحفظ',
+  'calls.tab.ai': 'مكالمات الذكاء الاصطناعي',
+  'calls.ai.title': 'طلبات مكالمات الذكاء الاصطناعي',
+  'calls.ai.rules':
+      'لا يتصل الذكاء الاصطناعي إلا بجهات الاتصال التي وافقت، ويقول في البداية إنه مساعد ذكاء اصطناعي، ويتوقف عند حدود الوقت والتكلفة، ويمكن لأي شخص إلغاء الاشتراك. يوافق مالك مساحة العمل على كل مكالمة.',
+  'calls.ai.new': 'اطلب من الذكاء الاصطناعي الاتصال',
+  'calls.ai.contact': 'جهة الاتصال',
+  'calls.ai.noConsenting':
+      'لم توافق أي جهة اتصال على مكالمات الذكاء الاصطناعي بعد. يسجل مالك مساحة العمل الموافقة في صفحة جهة الاتصال، ضمن جهات الاتصال.',
+  'calls.ai.purpose': 'الغرض',
+  'calls.ai.purposeHint': 'سبب واحد واضح، مثلا: تأكيد موعد التسليم يوم الخميس.',
+  'calls.ai.script': 'النص',
+  'calls.ai.scriptHint':
+      'ما يقوله الذكاء الاصطناعي أو يسأله. يوافق المالك على هذا النص بالضبط.',
+  'calls.ai.language': 'اللغة',
+  'calls.ai.lang.en': 'الإنجليزية',
+  'calls.ai.lang.ar': 'العربية',
+  'calls.ai.maxSeconds': 'أطول مدة للمكالمة (بالثواني)',
+  'calls.ai.secondsRange': 'من 30 إلى 900 ثانية.',
+  'calls.ai.cost': 'بحد أقصى نحو {cost} بسعر مزود الخدمة.',
+  'calls.ai.submit': 'أرسل للموافقة',
+  'calls.ai.sent': 'تم الإرسال. تنتظر المكالمة موافقة المالك.',
+  'calls.ai.openApprovals': 'افتح الموافقات',
+  'calls.ai.cancel': 'إلغاء الطلب',
+  'calls.ai.cancelled': 'ألغيت مكالمة الذكاء الاصطناعي.',
+  'calls.ai.empty': 'لا توجد مكالمات ذكاء اصطناعي بعد',
+  'calls.ai.emptyText':
+      'اطلب من الذكاء الاصطناعي الاتصال بجهة اتصال وافقت، وينتظر الطلب موافقة المالك.',
+  'calls.ai.openCall': 'افتح المكالمة',
+  'calls.ai.requestedBy': 'طلبها {who}',
+  'calls.ai.purposeShort': 'الغرض: {purpose}',
+  'calls.ai.tooShort':
+      'اكتب غرضا من 5 أحرف على الأقل ونصا من 10 أحرف على الأقل.',
+  'calls.ai.status.pending_approval': 'بانتظار الموافقة',
+  'calls.ai.status.calling': 'جار الاتصال',
+  'calls.ai.status.completed': 'تمت',
+  'calls.ai.status.failed': 'لم يتم الاتصال',
+  'calls.ai.status.cancelled': 'ملغاة',
+  'calls.ai.blocked.role':
+      'لا يمكن للمشاهدين طلب مكالمات الذكاء الاصطناعي. اطلب من مالك مساحة العمل أن يجعلك عضوا.',
+  'calls.ai.blocked.optedOut':
+      'ألغى هذا الرقم الاشتراك في مكالمات الذكاء الاصطناعي.',
+  'calls.ai.blocked.noConsent':
+      'سجل أولا موافقة جهة الاتصال على مكالمات الذكاء الاصطناعي.',
+  'calls.ai.blocked.off': 'مكالمات الذكاء الاصطناعي متوقفة.',
+  'calls.provider.title': 'مزود الاتصال الصوتي',
+  'calls.provider.connected': 'متصل',
+  'calls.provider.notConfigured': 'غير معد',
+  'calls.provider.notConfiguredText':
+      'لا يوجد مزود اتصال صوتي متصل، لذلك المكالمات عبر ANUM ومكالمات الذكاء الاصطناعي متوقفة. المكالمات من هاتفك تعمل مجانا.',
+  'calls.provider.askOwner':
+      'يربط مالك مساحة العمل حساب Twilio. اطلب ذلك من مالك مساحة العمل.',
+  'calls.provider.number': 'الرقم: {number}',
+  'calls.provider.checkOk': 'نجح آخر فحص: {when}',
+  'calls.provider.checkFailed': 'فشل آخر فحص: {when}. {detail}',
+  'calls.provider.neverChecked':
+      'لم يفحص بعد. يستخدم المالك «افحص مرة أخرى» في إدارة المزود.',
+  'calls.provider.aiOn': 'مكالمات الذكاء الاصطناعي مفعلة',
+  'calls.provider.aiOff': 'مكالمات الذكاء الاصطناعي متوقفة',
+  'calls.provider.recordingOn': 'التسجيل مفعل',
+  'calls.provider.recordingOff': 'التسجيل متوقف',
+  'calls.provider.rate': '{cost} للدقيقة',
+  'calls.provider.loadFailed': 'تعذر تحميل المزود: {message}',
+  'calls.provider.manage': 'إدارة المزود',
+  'calls.provider.connect': 'اربط مزودا',
+  'calls.provider.loading': 'جار تحميل المزود',
+  'calls.provider.ownerOnly':
+      'يربط مالك مساحة العمل مزود الاتصال الصوتي. اطلب ذلك من مالك مساحة العمل.',
+  'calls.provider.what':
+      'المكالمات داخل ANUM تمر عبر حساب Twilio الخاص بك. يحاسب Twilio بالدقيقة وعلى الرقم شهريا، ولا يضيف ANUM أي رسوم.',
+  'calls.provider.state.on': 'متصل',
+  'calls.provider.state.off': 'غير متصل',
+  'calls.provider.state.failed': 'فشل الفحص',
+  'calls.provider.lastCheck': 'آخر فحص {when}: {detail}',
+  'calls.provider.account': 'حساب Twilio',
+  'calls.provider.secretsNote':
+      'يُفحص رمز المصادقة وسر مفتاح API مع Twilio، ويُخزنان مشفرين ولا يظهران مرة أخرى. اكتبهما هنا فقط، وليس في المحادثة.',
+  'calls.provider.accountSid': 'معرف الحساب (Account SID)',
+  'calls.provider.authToken': 'رمز المصادقة',
+  'calls.provider.authTokenKept':
+      'اتركه فارغا للإبقاء على الرمز المخزن ({hint}).',
+  'calls.provider.apiKeySid': 'معرف مفتاح API',
+  'calls.provider.apiKeySecret': 'سر مفتاح API',
+  'calls.provider.secretKept': 'اتركه فارغا للإبقاء على السر المخزن.',
+  'calls.provider.appSid': 'معرف تطبيق TwiML',
+  'calls.provider.fromNumber': 'رقم المزود',
+  'calls.provider.business': 'اسم النشاط الذي يقوله الذكاء الاصطناعي',
+  'calls.provider.greeting': 'تحية المكالمات الواردة (اختياري)',
+  'calls.provider.recordingTitle': 'التسجيل',
+  'calls.provider.recording':
+      'السماح بالتسجيل (كل مكالمة تحتاج تأكيد المتصل وإشعارا منطوقا)',
+  'calls.provider.transcription':
+      'تفريغ التسجيلات نصيا (يستخدم مزود التفريغ في الخادم)',
+  'calls.provider.retention': 'مدة الاحتفاظ بالتسجيلات (بالأيام)',
+  'calls.provider.retentionRange': 'من 1 إلى 365 يوما.',
+  'calls.provider.aiTitle': 'مكالمات الذكاء الاصطناعي',
+  'calls.provider.aiCalls':
+      'السماح بمكالمات الذكاء الاصطناعي (يوافق المالك على كل واحدة)',
+  'calls.provider.inboundAi':
+      'دع الذكاء الاصطناعي يرد على المكالمات الواردة ويأخذ رسالة',
+  'calls.provider.aiMax': 'أطول مكالمة ذكاء اصطناعي (بالثواني، بحد أقصى {max})',
+  'calls.provider.aiCost':
+      'أقصى تكلفة لمكالمة ذكاء اصطناعي (بالسنتات، بحد أقصى {max})',
+  'calls.provider.rateField': 'سعر الدقيقة لدى مزودك (بالسنتات)، للتقديرات',
+  'calls.provider.required': 'أدخل معرف الحساب ورقم المزود واسم النشاط.',
+  'calls.provider.tokenRequired': 'أدخل رمز مصادقة Twilio.',
+  'calls.provider.keyPair':
+      'مكالمات المتصفح تحتاج معرف مفتاح API ومعرف تطبيق TwiML معا، أو لا شيء منهما.',
+  'calls.provider.save': 'افحص واحفظ',
+  'calls.provider.saved': 'حُفظ المزود وفُحص.',
+  'calls.provider.check': 'افحص مرة أخرى',
+  'calls.provider.checked': 'تم الفحص: {detail}',
+  'calls.provider.disconnect': 'افصل',
+  'calls.provider.disconnectTitle': 'فصل المزود؟',
+  'calls.provider.disconnectText':
+      'تُحذف بيانات الاعتماد المخزنة. تتوقف المكالمات عبر ANUM ومكالمات الذكاء الاصطناعي، ويبقى سجل المكالمات.',
+  'calls.provider.disconnected': 'فُصل المزود.',
+  'calls.provider.steps': 'ما يفعله المالك',
+  'calls.provider.step.account':
+      'أنشئ حساب Twilio وأضف وسيلة دفع: المكالمات تُحاسب بالدقيقة.',
+  'calls.provider.step.number':
+      'اشتر رقما يدعم الصوت من لوحة Twilio (Phone numbers).',
+  'calls.provider.step.keys':
+      'أنشئ مفتاح API (Account، API keys) لمكالمات المتصفح.',
+  'calls.provider.step.app':
+      'أنشئ تطبيق TwiML واضبط عنوان الصوت فيه على عنوان الصوت أدناه.',
+  'calls.provider.step.urls':
+      'في الرقم، اضبط "A call comes in" على عنوان الصوت و"Call status changes" على عنوان الحالة أدناه.',
+  'calls.provider.step.save':
+      'أدخل معرف الحساب ورمز المصادقة ومفتاح API ومعرف تطبيق TwiML والرقم هنا واحفظ. يفحصها ANUM مع Twilio أولا.',
+  'calls.provider.noPublicUrl':
+      'لا يملك هذا الخادم عنوانا عاما للمزود بعد (ANUM_CALLS_PUBLIC_BASE_URL)، ويضبطه المشغل.',
+  'calls.provider.voiceUrl': 'عنوان الصوت',
+  'calls.provider.statusUrl': 'عنوان حالة المكالمة',
+  'calls.provider.copy': 'انسخ {what}',
+  'calls.provider.copied': 'تم النسخ.',
+  'calls.provider.costs':
+      'يحاسب Twilio بالدقيقة على كل مكالمة وشهريا على الرقم، والتسجيل والتفريغ بتكلفة إضافية.',
+  'calls.consent.title': 'مكالمات الذكاء الاصطناعي',
+  'calls.consent.none':
+      'لا توجد موافقة على مكالمات الذكاء الاصطناعي. لا يجري ANUM مكالمات ذكاء اصطناعي دون موافقة.',
+  'calls.consent.given':
+      'وافق على مكالمات الذكاء الاصطناعي ({method}) في {date}، وسجلها {who}.',
+  'calls.consent.record': 'سجل الموافقة',
+  'calls.consent.withdraw': 'اسحب الموافقة',
+  'calls.consent.method': 'كيف وافق',
+  'calls.consent.method.verbal': 'قال نعم في مكالمة',
+  'calls.consent.method.written': 'كتابيا',
+  'calls.consent.method.web_form': 'عبر نموذج ويب',
+  'calls.consent.method.other': 'غير ذلك',
+  'calls.consent.note': 'ملاحظة (متى وكيف)',
+  'calls.consent.confirm': 'وافق {name} على أن يتصل به مساعد الذكاء الاصطناعي.',
+  'calls.consent.ownerOnly':
+      'يسجل مالك مساحة العمل الموافقة على مكالمات الذكاء الاصطناعي.',
+  'calls.consent.optedOut':
+      'طلب هذا الرقم ألا يتصل به الذكاء الاصطناعي، ويُحترم طلبه.',
+  'calls.consent.recorded': 'سُجلت الموافقة.',
+  'calls.consent.withdrawn': 'سُحبت الموافقة.',
+  'calls.optOuts.title': 'أرقام ألغت الاشتراك في مكالمات الذكاء الاصطناعي',
+  'calls.optOuts.text':
+      'لا يتصل الذكاء الاصطناعي أبدا بأي رقم هنا. يلغي الناس الاشتراك بالضغط على 9 أو بقول توقف في المكالمة، أو تضيفهم أنت.',
+  'calls.optOuts.empty': 'لا توجد أرقام ملغاة.',
+  'calls.optOuts.add': 'أضف إلغاء اشتراك',
+  'calls.optOuts.number': 'الرقم',
+  'calls.optOuts.note': 'ملاحظة',
+  'calls.optOuts.added':
+      'سُجل إلغاء الاشتراك، ولن يتصل الذكاء الاصطناعي بهذا الرقم أبدا.',
+  'calls.optOuts.remove': 'ارفع',
+  'calls.optOuts.removeLabel': 'ارفع إلغاء اشتراك {number}',
+  'calls.optOuts.removeTitle': 'رفع إلغاء الاشتراك هذا؟',
+  'calls.optOuts.removeText':
+      'ارفع إلغاء اشتراك {number} فقط إذا طلب الشخص أن يتصل به الذكاء الاصطناعي مجددا. اذكر السبب:',
+  'calls.optOuts.reason': 'السبب',
+  'calls.optOuts.reasonHint': '5 أحرف على الأقل.',
+  'calls.optOuts.removed': 'رُفع إلغاء الاشتراك.',
+  'calls.optOuts.ownerOnly': 'لا يرفع إلغاء الاشتراك إلا مالك مساحة العمل.',
+  'calls.optOuts.source.keypad': 'ضغط 9 في مكالمة',
+  'calls.optOuts.source.speech': 'قال توقف في مكالمة',
+  'calls.optOuts.source.owner': 'أضافه شخص',
+  'calls.optOuts.source.inbound': 'طلب ذلك في مكالمة واردة',
 };

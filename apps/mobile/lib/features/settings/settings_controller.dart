@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../admin/admin_repository.dart';
+import '../admin/org_admin_repository.dart';
 import '../auth/auth_repository.dart';
 import '../autonomy/autonomy_repository.dart';
 import '../learning/learning_repository.dart';
@@ -23,6 +24,7 @@ enum SettingsPhase {
 class SettingsController extends ChangeNotifier {
   SettingsController(this.repository,
       {this.admin,
+      this.orgAdmin,
       this.privacy,
       this.push,
       this.autonomy,
@@ -32,6 +34,9 @@ class SettingsController extends ChangeNotifier {
 
   /// Members, invitations and model budgets; the API decides who may use them.
   final AdminRepository? admin;
+
+  /// Contact opt-outs, this workspace, setup plans and the org chart.
+  final OrgAdminRepository? orgAdmin;
 
   /// Download my data / Delete my data (docs/privacy.md).
   final PrivacyRepository? privacy;
@@ -246,10 +251,14 @@ class SettingsController extends ChangeNotifier {
 
   void _fail(Object error) {
     final text = error.toString();
-    message = text;
-    phase = text.contains('(403,')
+    // The API's own sentence, not "ApiException(404, ...)"; status 0 is the
+    // transport's "could not be reached", which is offline.
+    message = _describe(error);
+    phase = (error is ApiException && error.isPermissionDenied) ||
+            text.contains('(403,')
         ? SettingsPhase.permissionDenied
-        : text.toLowerCase().contains('socket') ||
+        : (error is ApiException && error.statusCode == 0) ||
+                text.toLowerCase().contains('socket') ||
                 text.toLowerCase().contains('network')
             ? SettingsPhase.offline
             : SettingsPhase.error;

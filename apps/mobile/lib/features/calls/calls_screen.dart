@@ -11,6 +11,9 @@ import 'calls_controller.dart';
 import 'calls_models.dart';
 import 'calls_repository.dart';
 
+part 'calls_admin.dart';
+part 'calls_ai_tab.dart';
+
 String _outcome(AnumLocalizations l, String? outcome) =>
     l.t(outcome == null ? 'calls.outcome.none' : 'calls.outcome.$outcome');
 
@@ -30,7 +33,8 @@ String _when(BuildContext context, DateTime value) {
 String _message(Object error) =>
     error is ApiException ? error.readable : '$error';
 
-/// Phone calls (docs/calls.md#mobile): Contacts, the Dialpad and Recents.
+/// Phone calls (docs/calls.md#clients): Contacts, the Dialpad, Recents and AI
+/// calls (with the voice provider's status).
 /// "Call" opens the phone's own dialer (a `tel:` link, free); when the person
 /// comes back to ANUM it asks to log the call: direction, outcome, the time
 /// away as the duration (editable) and notes, which the workspace model can
@@ -41,6 +45,7 @@ class CallsScreen extends StatefulWidget {
     this.dialer = openPhoneDialer,
     this.pickContact = pickDeviceContact,
     this.now = DateTime.now,
+    this.openApprovals,
     super.key,
   });
   final CallsController controller;
@@ -48,13 +53,17 @@ class CallsScreen extends StatefulWidget {
   final ContactPicker pickContact;
   final DateTime Function() now;
 
+  /// Opens Approvals, where an owner approves an AI call. Defaults to the
+  /// app's `/approvals` route.
+  final VoidCallback? openApprovals;
+
   @override
   State<CallsScreen> createState() => _CallsScreenState();
 }
 
 class _CallsScreenState extends State<CallsScreen>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 3, vsync: this);
+  late final TabController _tabs = TabController(length: 4, vsync: this);
   bool _away = false, _asking = false;
   String? _note;
 
@@ -156,6 +165,7 @@ class _CallsScreenState extends State<CallsScreen>
                     Tab(text: l.t('calls.tab.contacts')),
                     Tab(text: l.t('calls.tab.dial')),
                     Tab(text: l.t('calls.tab.recents')),
+                    Tab(text: l.t('calls.tab.ai')),
                   ],
                 ),
         ),
@@ -184,6 +194,14 @@ class _CallsScreenState extends State<CallsScreen>
                       ),
                       _DialTab(controller: c, onDial: _dial),
                       _RecentsTab(controller: c, onDial: _dial),
+                      _AiTab(
+                        controller: c,
+                        onDial: _dial,
+                        onOpenContacts: () => _tabs.animateTo(0),
+                        onOpenApprovals: widget.openApprovals ??
+                            () => unawaited(
+                                Navigator.of(context).pushNamed('/approvals')),
+                      ),
                     ]),
                   ),
                 ]),
@@ -207,7 +225,7 @@ class _Centered extends StatelessWidget {
 }
 
 class _Note extends StatelessWidget {
-  const _Note({required this.text, this.error = false});
+  const _Note({required this.text, this.error = false, super.key});
   final String text;
   final bool error;
   @override
@@ -1424,14 +1442,13 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
 
   Future<void> _load() async {
     try {
-      final page = await _repo.contacts();
-      final found = page.items.where((c) => c.id == widget.contactId);
+      final found = await _repo.contact(widget.contactId);
       final calls = await _repo.calls(contactId: widget.contactId);
       if (!mounted) return;
       setState(() {
-        _contact = found.isEmpty ? null : found.first;
+        _contact = found;
         _calls = calls.items;
-        _error = found.isEmpty ? '404' : null;
+        _error = null;
       });
     } on Object catch (e) {
       if (mounted) setState(() => _error = _message(e));
@@ -1489,6 +1506,14 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
                       : contact.consent != null
                           ? l.t('calls.contact.aiConsent')
                           : l.t('calls.contact.noAiConsent'),
+                ),
+                _ConsentSection(
+                  controller: widget.controller,
+                  contact: contact,
+                  onChanged: (saved) {
+                    setState(() => _contact = saved);
+                    unawaited(widget.controller.contacts.load());
+                  },
                 ),
                 _Section(
                     title: l.f('calls.contact.calls', {'name': contact.name}),

@@ -4,6 +4,7 @@ import '../../src/widgets/brand.dart';
 import '../../src/widgets/depth.dart';
 
 import '../../src/theme/anum_theme.dart';
+import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../settings/model_choice.dart';
 import 'auth_controller.dart';
@@ -199,10 +200,21 @@ class _SignInState extends State<SignInScreen> {
 
   Future<void> _otp() async {
     if (!form.currentState!.validate()) return;
-    final challenge = await widget.controller.repository.requestOtp(
-        tenantId: tenant.text.trim(),
-        workspaceId: workspace.text.trim(),
-        userId: user.text.trim());
+    final String challenge;
+    try {
+      challenge = await widget.controller.repository.requestOtp(
+          tenantId: tenant.text.trim(),
+          workspaceId: workspace.text.trim(),
+          userId: user.text.trim());
+    } on Object catch (error) {
+      // Say why no code was sent (unknown user, codes off, offline) instead
+      // of failing silently.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'No code was sent: ${error is ApiException ? error.readable : error}')));
+      return;
+    }
     if (!mounted) return;
     await Navigator.push(
         context,

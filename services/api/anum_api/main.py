@@ -125,6 +125,7 @@ from .tasks import (
     normalize_query,
 )
 from .request_context import CORRELATION_ID_HEADER, CorrelationIdMiddleware
+from .file_scanner_clamav import install_configured_scanner
 from .hardening import BodyLimitRule, docs_routes, enforce_startup_policy, install_hardening
 from .meetings import router as meetings_router
 from .voice import router as voice_router
@@ -150,6 +151,7 @@ from .finance.intel_api import router as finance_intel_router
 from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
 from .mailbox.ai_api import router as mail_ai_router
+from .mailbox.all_inboxes import router as mail_all_inboxes_router
 from .mailbox.api import router as mail_router
 from .mailbox.sharing_api import router as mail_sharing_router
 from .mailbox.operator_api import router as mail_operator_router
@@ -168,6 +170,7 @@ from .user_preferences import router as user_preferences_router
 from .home import router as home_router
 from .setup_plans import router as setup_plans_router
 from .push import push_dispatcher, router as push_router
+from .app_call_wake import call_wake_hub, visible_on_workspace_stream
 from .developer_watch import build_developer_watcher
 from .autonomy_api import router as autonomy_router
 from .learning import SignalKind, Surface
@@ -192,6 +195,7 @@ from .assistants import router as assistants_router
 from .notifications import router as notifications_router
 from .app_calls import router as app_calls_router
 from .organisations import router as organisations_router
+from .public_logos import router as public_logos_router
 from .team_work import build_team_reminder_scheduler, router as team_router
 from .automation_dispatch import automation_dispatcher
 from .files import router as files_router
@@ -283,6 +287,8 @@ async def lifespan(_: FastAPI):
 
 
 enforce_startup_policy(settings)
+# Upload malware scanning with clamd when ANUM_FILE_SCANNER=clamav (docs/files.md#malware-scanning).
+install_configured_scanner(settings)
 # Errors to a Sentry-compatible server (GlitchTip) when ANUM_SENTRY_DSN is set; scrubbed
 # to types, frames, routes and the tenant id (anum_api/error_reporting.py).
 setup_error_reporting(settings, service_name="anum-api")
@@ -363,6 +369,7 @@ app.include_router(whatsapp_router)
 app.include_router(email_router)
 app.include_router(mail_ai_router)
 app.include_router(mail_router)
+app.include_router(mail_all_inboxes_router)
 # Phone calls (docs/calls.md): contacts, the call log, the voice provider and its webhooks.
 app.include_router(calls_router)
 app.include_router(calls_webhook_router)
@@ -384,6 +391,9 @@ app.include_router(finance_intel_router)
 app.include_router(finance_intel_control_router)
 app.include_router(tyre_router)
 event_runtime.add_listener(push_dispatcher.submit)
+# In-app call stream wake-ups: from NATS on every replica, or in-process without it
+# (docs/in-app-calls.md#signaling).
+call_wake_hub.attach(event_runtime)
 # Event triggers and steps waiting on agent tasks (docs/automation.md#triggers).
 event_runtime.add_listener(automation_dispatcher.submit_events)
 app.include_router(autonomy_router)
@@ -401,6 +411,7 @@ app.include_router(notifications_router)
 app.include_router(app_calls_router)
 app.include_router(assistants_router)
 app.include_router(organisations_router)
+app.include_router(public_logos_router)
 app.include_router(agents_router)
 app.include_router(home_router)
 app.include_router(setup_plans_router)
@@ -1459,7 +1470,7 @@ async def list_events(
     repository: AnumRepository = Depends(repository_context),
 ) -> list[DomainEvent]:
     require_permission(context, Permission.EVENT_READ)
-    return repository.list_events(context)
+    return [event for event in repository.list_events(context) if visible_on_workspace_stream(event)]
 
 
 @app.get("/api/v1/events/stream")
@@ -1492,6 +1503,7 @@ async def stream_events(
                 task_id=task_id,
                 follow=follow,
                 last_event_id=last_event_id,
+                visible=visible_on_workspace_stream,
             ),
             media_type="text/event-stream",
             headers=sse_headers,
@@ -1520,6 +1532,8 @@ async def stream_events(
                 idle_cycles = 0
                 for event in events:
                     cursor = event.id
+                    if not visible_on_workspace_stream(event):
+                        continue  # call stream wake-ups (app_call_wake.py)
                     yield (
                         f"id: {event.id}\n"
                         f"event: {event.type}\n"

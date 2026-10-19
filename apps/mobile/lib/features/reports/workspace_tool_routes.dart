@@ -12,6 +12,7 @@ import '../email/email_controller.dart';
 import '../email/email_summary.dart';
 import '../email/email_summary_screen.dart';
 import '../library/library_repository.dart';
+import '../mail_center/mail_all_inboxes.dart';
 import '../mail_center/mail_center_controller.dart';
 import '../mail_center/mail_center_repository.dart';
 import '../mail_center/mail_center_screens.dart';
@@ -53,7 +54,8 @@ class WorkspaceToolRoutes {
       CalendarController(ApiCalendarRepository(api));
   late final mailCenterController = MailCenterController(
       ApiMailCenterRepository(api),
-      transfer: mailTransfer);
+      transfer: mailTransfer,
+      allInboxesRepository: ApiMailAllInboxesRepository(api));
   late final callsController = CallsController(ApiCallsRepository(api));
 
   /// The route for [settings], wrapped by [guard] (the signed-in check), or

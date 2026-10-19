@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'calls_strings.dart';
 import 'brevo_strings.dart';
+import 'org_admin_strings.dart';
 import 'business_strings.dart';
 import 'mail_center_strings.dart';
 import 'marketing_strings.dart';
@@ -24,12 +25,14 @@ class AnumLocalizations {
       (isArabic ? callsAr : callsEn)[key] ??
       (isArabic ? businessAr : businessEn)[key] ??
       (isArabic ? brevoAr : brevoEn)[key] ??
+      (isArabic ? orgAdminAr : orgAdminEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
       callsEn[key] ??
       businessEn[key] ??
       brevoEn[key] ??
+      orgAdminEn[key] ??
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.
@@ -544,6 +547,9 @@ class AnumLocalizations {
     'inboxHash': 'Payload hash: {hash}',
     'inboxApprove': 'Approve and send',
     'inboxApproveOwners': 'Only workspace owners can approve sending.',
+    'inboxDraftApprovalTitle':
+        'Drafting this reply waits for approval (workspace policy).',
+    'inboxApproveDraft': 'Approve drafting',
     // Calls & Meetings (lib/features/meetings, docs/meetings.md).
     "cancel": "Cancel",
     "meetings": "Meetings",
@@ -1958,6 +1964,9 @@ class AnumLocalizations {
     'inboxHash': 'بصمة الحمولة: {hash}',
     'inboxApprove': 'الموافقة والإرسال',
     'inboxApproveOwners': 'يوافق على الإرسال مالكو مساحة العمل فقط.',
+    'inboxDraftApprovalTitle':
+        'كتابة هذا الرد تنتظر الموافقة (سياسة مساحة العمل).',
+    'inboxApproveDraft': 'الموافقة على كتابة الرد',
     // Calls & Meetings (lib/features/meetings, docs/meetings.md).
     "cancel": "إلغاء",
     "meetings": "الاجتماعات",

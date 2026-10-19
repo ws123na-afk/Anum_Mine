@@ -461,6 +461,14 @@ class _EmailThreadScreenState extends State<EmailThreadScreen> {
                         ),
                       ),
                     ),
+                    if (c.draftApproval case final approval?)
+                      _ApprovalCard(
+                        key: const Key('inbox-draft-approval'),
+                        controller: c,
+                        approval: approval,
+                        title: l.t('inboxDraftApprovalTitle'),
+                        approveLabel: l.t('inboxApproveDraft'),
+                      ),
                     const SizedBox(height: AnumSpacing.sm),
                     for (final draft in detail.drafts)
                       DraftCard(
@@ -568,9 +576,17 @@ class _DraftCardState extends State<DraftCard>
 }
 
 class _ApprovalCard extends StatelessWidget {
-  const _ApprovalCard({required this.controller, required this.approval});
+  const _ApprovalCard(
+      {required this.controller,
+      required this.approval,
+      this.title,
+      this.approveLabel,
+      super.key});
   final EmailController controller;
   final WorkspaceApproval approval;
+
+  /// Defaults to the send approval's wording.
+  final String? title, approveLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -591,13 +607,13 @@ class _ApprovalCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              l.t('inboxApprovalTitle'),
+              title ?? l.t('inboxApprovalTitle'),
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-            Text(
-              l.f('inboxFrom', {'from': '${approval.arguments['from'] ?? ''}'}),
-            ),
-            Text(l.f('inboxTo', {'to': to is List ? to.join(', ') : '$to'})),
+            if (approval.arguments['from'] case final Object from)
+              Text(l.f('inboxFrom', {'from': '$from'})),
+            if (to != null)
+              Text(l.f('inboxTo', {'to': to is List ? to.join(', ') : '$to'})),
             Text(
               l.f('inboxHash', {
                 'hash': hash.length > 18
@@ -613,13 +629,14 @@ class _ApprovalCard extends StatelessWidget {
                     ? () => controller.approve(approval)
                     : null,
                 icon: const Icon(Icons.verified_outlined),
-                label: Text(l.t('inboxApprove')),
+                label: Text(approveLabel ?? l.t('inboxApprove')),
               ),
             ),
-            Text(
-              l.t('inboxApproveOwners'),
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            if (approveLabel == null)
+              Text(
+                l.t('inboxApproveOwners'),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
           ],
         ),
       ),
