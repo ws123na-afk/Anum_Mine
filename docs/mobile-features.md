@@ -34,6 +34,7 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | [Privacy](#privacy) | Done | Settings › Your data and privacy |
 | [Notifications and push](#notifications-and-push) | Done in the app; needs the owner's Firebase setup to deliver | Settings › Notifications, Phone push card |
 | [Settings, language and right to left](#settings-language-and-right-to-left) | Partial | Settings, Language menu |
+| [Tyre planning](#tyre-planning) | Done for everything an operator does; connecting the source is web only | Home › Tyre planning |
 | [Integrations and skills](#integrations-and-skills) | Partial (connectors in progress) | Resources › Skills, Resources › Services, Home › Connected services |
 
 ## Sign-in and accounts
@@ -279,6 +280,24 @@ Screen: **Settings › Notifications** with the **Phone push** card. Without the
 
 Details: [Skills](skills.md), [Tools and integrations](tools-and-integrations.md#workspace-configuration).
 
+## Tyre planning
+
+The owner's fleet tyre data ([Tyre planning](tyre-planning.md)). Everyone with a role reads; `tyre:operate` (owners and members) syncs, generates, deletes, sends and schedules; connecting the source is owners on the web. The server checks every call.
+
+| What you can do | State |
+| --- | --- |
+| Dashboard figures, tyres due by month with search and paging, open alerts | Done |
+| Acknowledge an alert | Done (owners and members) |
+| Sync now (reads the mapped tables again and says how many alerts are new) | Done (owners and members) |
+| Purchase plan for 3, 6 or 12 months: tyres to buy, estimated cost, lines without a price | Done |
+| Reports: list with paging, open one (numbers, tables capped at 25 rows, notes, sending history) | Done |
+| Reports: generate any of the eight kinds for a period, delete one (with confirmation) | Done (owners and members) |
+| Reports: request sending by a connected email or WhatsApp integration; it waits in Approvals | Done (owners and members) |
+| Report schedules: list, add (daily, weekly or monthly at a time), delete | Done (owners and members) |
+| Connect the source, mapping, assumptions, CSV and PDF downloads, reopen an alert, schedule delivery to a recipient | Web only |
+
+Screen: **Home > Tyre planning** with the tabs Dashboard, Due, Alerts, Plan and Reports (`apps/mobile/lib/features/tyre/`, English and Arabic; `test/tyre/tyre_test.dart` and `test/tyre/tyre_ops_test.dart` cover every state, the role differences, validation, the server's refusals and 320 and 390 point widths).
+
 ## Coming next
 
 Work on other branches. None of it is in the app yet; each item is marked done here only after it merges with tests.
@@ -288,7 +307,6 @@ Work on other branches. None of it is in the app yet; each item is marked done h
 | Email inbox | Read and answer Gmail, Outlook and Zoho Mail through the assistant; every sent email goes through approvals | In progress |
 | WhatsApp | Connect WhatsApp Business through the official API; read chats and send replies after approval | In progress |
 | Commerce | Amazon.sa, Amazon.ae, Noon Saudi and UAE and the owner's own store: orders, listings, prices and stock, with changes approved first | In progress |
-| Tyre planning | Work with the owner's tyre planning data (TyrePulse, Supabase and Firebase) from the assistant | In progress |
 | Marketing | Draft and schedule marketing content, published only after approval | In progress |
 | Autonomy | Let the assistant carry out longer jobs on its own within the approval rules | In progress |
 | Learning | The assistant learns the owner's preferences and ways of working over time | In progress |
