@@ -83,7 +83,8 @@ export function previewMode(file: Pick<ApiFile, 'kind' | 'previewable'>): Previe
 
 /** A `.statusBadge` tone class. */
 export type Tone = 'success' | 'neutral' | 'warning' | 'dangerTone';
-function skipReason(error: string | null): string {
+/** Why a file was not indexed, as a phrase ("no extractable text, OCR not available"). */
+export function skipReason(error: string | null): string {
   const key = `files.skip.${error ?? ''}`;
   if (key in CATALOGS.en) return t(key as MessageKey);
   return error ? error.replaceAll('_', ' ') : t('files.skip.other');

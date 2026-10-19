@@ -317,6 +317,7 @@ class KnowledgeItem {
     required this.available,
     required this.createdAt,
     this.content,
+    this.indexError,
   });
 
   factory KnowledgeItem.fromReader(JsonReader r) => KnowledgeItem(
@@ -326,6 +327,7 @@ class KnowledgeItem {
         title: r.string('title'),
         tags: r.optStrings('tags') ?? const [],
         indexState: r.optObject('index')?.optString('state') ?? 'pending',
+        indexError: r.optObject('index')?.optString('error'),
         available: r.optBool('available') ?? true,
         createdAt: r.date('created_at'),
         content: r.optString('content'),
@@ -336,7 +338,18 @@ class KnowledgeItem {
   final bool available;
   final DateTime createdAt;
   final String? content;
+
+  /// Why the item is not indexed, e.g. `no_text_layer` for a scanned PDF.
+  final String? indexError;
   bool get isNote => kind == 'note';
+
+  /// The index state key for the label: a scanned PDF (no text layer) gets
+  /// its own, so it is never shown as a plain "Not searchable".
+  String get indexLabelKey => !available
+      ? 'libIndex_gone'
+      : indexState == 'skipped' && indexError == 'no_text_layer'
+          ? 'libIndex_noTextLayer'
+          : 'libIndex_$indexState';
 }
 
 class Citation {
@@ -346,6 +359,9 @@ class Citation {
     required this.provenance,
     required this.snippet,
     required this.score,
+    this.page,
+    this.pageUnit,
+    this.pageLabel,
   });
 
   factory Citation.fromReader(JsonReader r) => Citation(
@@ -354,11 +370,32 @@ class Citation {
         provenance: r.string('provenance'),
         snippet: r.optString('snippet') ?? '',
         score: r.optNumber('score') ?? 0,
+        page: r.optInt('page'),
+        pageUnit: r.optString('page_unit'),
+        pageLabel: r.optString('page_label'),
       );
 
   final int n;
   final String title, provenance, snippet;
   final double score;
+
+  /// The PDF page, slide or sheet of a document passage (null for notes and text).
+  final int? page;
+  final String? pageUnit, pageLabel;
+}
+
+/// Where in a document a cited passage is: "page 3", "slide 2",
+/// "sheet 1 (Budget)"; empty for notes and text files.
+String citationPlace(Citation c, String Function(String key) t) {
+  final unit = c.pageUnit;
+  if (c.page == null ||
+      unit == null ||
+      !{'page', 'slide', 'sheet'}.contains(unit)) {
+    return '';
+  }
+  final place = t('libPlace_$unit').replaceAll('{n}', '${c.page}');
+  final label = c.pageLabel;
+  return label == null || label.isEmpty ? place : '$place ($label)';
 }
 
 class KnowledgeAnswer {
