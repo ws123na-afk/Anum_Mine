@@ -42,8 +42,10 @@ import '../features/finance/finance_repository.dart';
 import '../features/finance/finance_screen.dart';
 import '../features/team/team_screens.dart' show NotificationsScreen;
 import '../features/reports/workspace_tool_routes.dart';
+import '../features/business/accounts_data.dart';
 import '../features/business/business_controller.dart';
 import '../features/business/business_repository.dart';
+import '../features/business/catalog_data.dart';
 import '../features/business/project_money.dart';
 import '../features/business/support_controller.dart';
 import '../features/business/support_repository.dart';
@@ -375,7 +377,9 @@ class _AnumAppState extends State<AnumApp> {
     // Business, the internal sales desk (docs/business.md).
     business = BusinessController(ApiBusinessRepository(api),
         money: ApiProjectMoney(api),
-        support: SupportController(ApiSupportRepository(api)));
+        support: SupportController(ApiSupportRepository(api)),
+        catalog: CatalogController(ApiCatalogRepository(api)),
+        accounts: AccountsController(ApiAccountsRepository(api)));
     chatDeveloper = DeveloperAssist(
       repository: developerRepository,
       source: 'text',
