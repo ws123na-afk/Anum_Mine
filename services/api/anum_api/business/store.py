@@ -1,8 +1,9 @@
 """Business storage: one generic protocol, an in-memory store and the PostgreSQL store.
 
 ``ANUM_REPOSITORY_BACKEND=memory`` (local and tests) keeps everything in this process;
-``postgresql`` uses ``anum_api.db.business_repository`` under forced RLS (migration
-``0070_business``, support tickets ``0076_business_support``). Every method works inside the caller's tenant and workspace only:
+``postgresql`` uses ``anum_api.db.business_repository`` under forced RLS (migrations
+``0070_business``, support tickets ``0076_business_support`` and change orders
+``0080_business_change_orders``). Every method works inside the caller's tenant and workspace only:
 a record of another workspace reads as missing, whatever id is asked for.
 """
 
@@ -24,6 +25,7 @@ from .models import (
     Account,
     Activity,
     BusinessSettings,
+    ChangeOrder,
     Contact,
     Draft,
     Evidence,
@@ -39,6 +41,7 @@ from .models import (
     ResearchRun,
     SupportTicket,
     TicketReply,
+    UsageEntry,
 )
 
 MAX_PAGE = 100
@@ -61,6 +64,8 @@ KINDS: dict[str, type[BaseModel]] = {
     "milestones": Milestone,
     "drafts": Draft,
     "research_runs": ResearchRun,
+    "change_orders": ChangeOrder,
+    "usage_ledger": UsageEntry,
     "tickets": SupportTicket,
     "ticket_replies": TicketReply,
 }

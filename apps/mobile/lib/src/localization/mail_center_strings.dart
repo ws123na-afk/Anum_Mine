@@ -399,6 +399,83 @@ const mailCenterEn = <String, String>{
   'mc.op.mailcow.ok': 'Mailcow answered.',
   'mc.op.mailcowOk': 'Version {version} · {queue} queued · {down}',
   'mc.op.allRunning': 'all containers running',
+  'mc.dom.title': 'Mail domains',
+  'mc.dom.text':
+      'The domains on the Mailcow server and what their DNS says right now. Read only here: add or remove domains and aliases on the web, where every change waits for an approval.',
+  'mc.dom.denied': 'Only platform operators see mail domains.',
+  'mc.dom.none': 'No mail domains yet',
+  'mc.dom.noneText':
+      'List the domains in ANUM_MAILSERVER_ALLOWED_DOMAINS, then add them to Mailcow on the web.',
+  'mc.dom.mailcowOff':
+      'The Mailcow API is off, so only the allowed domains are listed.',
+  'mc.dom.mailcowProblem': 'Mailcow could not be read: {reason}',
+  'mc.dom.inMailcow': 'In Mailcow',
+  'mc.dom.notInMailcow': 'Not in Mailcow yet',
+  'mc.dom.notAllowed': 'Not allowed: never changed from ANUM',
+  'mc.dom.mailboxes': '{count} mailboxes · {aliases} aliases',
+  'mc.dom.check': 'Check DNS',
+  'mc.dom.checking': 'Checking DNS...',
+  'mc.dom.dnsFailed': 'The DNS check failed: {reason}',
+  'mc.dom.status.ok': 'OK',
+  'mc.dom.status.warning': 'Check',
+  'mc.dom.status.danger': 'Dangerous',
+  'mc.dom.status.missing': 'Missing',
+  'mc.dom.status.error': 'Not checked',
+  'mc.dom.records': 'Records to set at your DNS host',
+  'mc.dom.pending': '{count} change(s) waiting for approval',
+  'mc.dom.code.mx_missing':
+      "No MX record: mail for this domain has nowhere to go.",
+  'mc.dom.code.mx_null': "A null MX record says this domain receives no mail.",
+  'mc.dom.code.mx_unverified':
+      "MX records exist. Set ANUM_MAILCOW_MAIL_HOST to check they point to the mail server.",
+  'mc.dom.code.mx_also_elsewhere':
+      "MX also points to {hosts}: mail may go to another server.",
+  'mc.dom.code.mx_ok': "MX points to {host}.",
+  'mc.dom.code.mx_elsewhere':
+      "MX points to {hosts}, not to the mail server {host}.",
+  'mc.dom.code.spf_missing':
+      "No SPF record: receivers cannot tell which servers may send as this domain.",
+  'mc.dom.code.spf_multiple':
+      "More than one SPF record: receivers treat SPF as broken. Keep exactly one.",
+  'mc.dom.code.spf_dangerous_all':
+      "Dangerous: '+all' lets any server on the internet send as this domain. Replace it with '~all' or '-all'.",
+  'mc.dom.code.spf_neutral_all':
+      "'?all' is neutral: it does not stop other servers sending as this domain. Use '~all' or '-all'.",
+  'mc.dom.code.spf_no_all':
+      "The SPF record has no 'all' at the end. End it with '~all' or '-all'.",
+  'mc.dom.code.spf_no_server':
+      "The SPF record does not name the mail server. Add 'mx' before the 'all'.",
+  'mc.dom.code.spf_ok': "One SPF record that ends with a safe 'all'.",
+  'mc.dom.code.dkim_missing':
+      "No DKIM record at {name}: receivers cannot verify signed mail.",
+  'mc.dom.code.dkim_empty':
+      "The DKIM record has an empty key: it revokes signing for this selector.",
+  'mc.dom.code.dkim_mismatch':
+      "The DKIM key in DNS differs from Mailcow's key. Set the value shown below.",
+  'mc.dom.code.dkim_unverified':
+      "A DKIM key is published. Mailcow's key was not read, so it was not compared.",
+  'mc.dom.code.dkim_ok': "The DKIM key in DNS matches Mailcow's key.",
+  'mc.dom.code.dmarc_missing':
+      "No DMARC record: receivers get no policy for mail that fails SPF and DKIM.",
+  'mc.dom.code.dmarc_multiple':
+      "More than one DMARC record: receivers ignore DMARC. Keep exactly one.",
+  'mc.dom.code.dmarc_ok': "DMARC policy '{policy}'.",
+  'mc.dom.code.dmarc_none':
+      "DMARC policy 'none' only reports. Move to 'quarantine' once the reports show only your servers.",
+  'mc.dom.code.dmarc_no_policy':
+      "The DMARC record has no valid policy (p=none, quarantine or reject).",
+  'mc.dom.code.lookup_timeout':
+      "The {record} lookup timed out. Check again in a moment.",
+  'mc.dom.code.lookup_failed':
+      "The {record} lookup failed. Check again in a moment.",
+  'mc.dom.code.record_mx_set_host':
+      "Set ANUM_MAILCOW_MAIL_HOST to show the real host.",
+  'mc.dom.code.record_spf_one':
+      "One SPF record only. Keep any include: the domain really sends through (for example spf.brevo.com). Never '+all'.",
+  'mc.dom.code.record_dkim_create':
+      "Create the DKIM key in Mailcow first (Configuration, ARC/DKIM keys), then check again.",
+  'mc.dom.code.record_dmarc_start':
+      "Start with p=none, then move to p=quarantine once the reports show only your servers.",
   'mc.rs.title': 'Retention and sync',
   'mc.rs.text':
       'How long ANUM keeps what it holds for this mailbox, and whether it checks the inbox in the background. Mail on the server is never touched. Every change waits for an owner to approve it.',
@@ -892,6 +969,81 @@ const mailCenterAr = <String, String>{
   'mc.op.mailcow.ok': 'استجاب Mailcow.',
   'mc.op.mailcowOk': 'الإصدار {version} · {queue} في الطابور · {down}',
   'mc.op.allRunning': 'كل الحاويات تعمل',
+  'mc.dom.title': 'نطاقات البريد',
+  'mc.dom.text':
+      'النطاقات على خادم Mailcow وما يقوله نظام DNS عنها الآن. للقراءة فقط هنا: أضف النطاقات والأسماء البديلة أو احذفها من الويب، حيث ينتظر كل تغيير موافقة.',
+  'mc.dom.denied': 'مشغّلو المنصة فقط يرون نطاقات البريد.',
+  'mc.dom.none': 'لا توجد نطاقات بريد بعد',
+  'mc.dom.noneText':
+      'اذكر النطاقات في ANUM_MAILSERVER_ALLOWED_DOMAINS، ثم أضفها إلى Mailcow من الويب.',
+  'mc.dom.mailcowOff':
+      'واجهة Mailcow متوقفة، لذا تظهر النطاقات المسموح بها فقط.',
+  'mc.dom.mailcowProblem': 'تعذّرت قراءة Mailcow: {reason}',
+  'mc.dom.inMailcow': 'في Mailcow',
+  'mc.dom.notInMailcow': 'ليس في Mailcow بعد',
+  'mc.dom.notAllowed': 'غير مسموح: لا يُغيَّر أبدًا من ANUM',
+  'mc.dom.mailboxes': '{count} صندوق بريد · {aliases} اسم بديل',
+  'mc.dom.check': 'افحص DNS',
+  'mc.dom.checking': 'جارٍ فحص DNS...',
+  'mc.dom.dnsFailed': 'فشل فحص DNS: {reason}',
+  'mc.dom.status.ok': 'سليم',
+  'mc.dom.status.warning': 'يحتاج مراجعة',
+  'mc.dom.status.danger': 'خطر',
+  'mc.dom.status.missing': 'غير موجود',
+  'mc.dom.status.error': 'لم يُفحص',
+  'mc.dom.records': 'السجلات المطلوب ضبطها لدى مزوّد DNS',
+  'mc.dom.pending': '{count} تغيير بانتظار الموافقة',
+  'mc.dom.code.mx_missing': "لا يوجد سجل MX: لا وجهة لبريد هذا النطاق.",
+  'mc.dom.code.mx_null': "سجل MX فارغ يقول إن هذا النطاق لا يستقبل بريدًا.",
+  'mc.dom.code.mx_unverified':
+      "توجد سجلات MX. اضبط ANUM_MAILCOW_MAIL_HOST للتحقق من أنها تشير إلى خادم البريد.",
+  'mc.dom.code.mx_also_elsewhere':
+      "يشير MX أيضًا إلى {hosts}: قد يذهب البريد إلى خادم آخر.",
+  'mc.dom.code.mx_ok': "يشير MX إلى {host}.",
+  'mc.dom.code.mx_elsewhere':
+      "يشير MX إلى {hosts}، وليس إلى خادم البريد {host}.",
+  'mc.dom.code.spf_missing':
+      "لا يوجد سجل SPF: لا يعرف المستلمون الخوادم المسموح لها بالإرسال باسم هذا النطاق.",
+  'mc.dom.code.spf_multiple':
+      "أكثر من سجل SPF واحد: يعدّ المستلمون SPF معطلًا. أبقِ سجلًا واحدًا فقط.",
+  'mc.dom.code.spf_dangerous_all':
+      "خطر: '+all' يسمح لأي خادم على الإنترنت بالإرسال باسم هذا النطاق. استبدله بـ '~all' أو '-all'.",
+  'mc.dom.code.spf_neutral_all':
+      "'?all' محايد: لا يمنع الخوادم الأخرى من الإرسال باسم هذا النطاق. استخدم '~all' أو '-all'.",
+  'mc.dom.code.spf_no_all':
+      "لا ينتهي سجل SPF بـ 'all'. اختمه بـ '~all' أو '-all'.",
+  'mc.dom.code.spf_no_server':
+      "لا يذكر سجل SPF خادم البريد. أضف 'mx' قبل 'all'.",
+  'mc.dom.code.spf_ok': "سجل SPF واحد ينتهي بـ 'all' آمن.",
+  'mc.dom.code.dkim_missing':
+      "لا يوجد سجل DKIM عند {name}: لا يستطيع المستلمون التحقق من البريد الموقّع.",
+  'mc.dom.code.dkim_empty':
+      "مفتاح سجل DKIM فارغ: هذا يلغي التوقيع لهذا المحدِّد.",
+  'mc.dom.code.dkim_mismatch':
+      "مفتاح DKIM في DNS يختلف عن مفتاح Mailcow. اضبط القيمة الظاهرة أدناه.",
+  'mc.dom.code.dkim_unverified':
+      "مفتاح DKIM منشور. لم يُقرأ مفتاح Mailcow، لذا لم تتم المقارنة.",
+  'mc.dom.code.dkim_ok': "مفتاح DKIM في DNS يطابق مفتاح Mailcow.",
+  'mc.dom.code.dmarc_missing':
+      "لا يوجد سجل DMARC: لا يتلقى المستلمون سياسة للبريد الذي يفشل في SPF وDKIM.",
+  'mc.dom.code.dmarc_multiple':
+      "أكثر من سجل DMARC واحد: يتجاهل المستلمون DMARC. أبقِ سجلًا واحدًا فقط.",
+  'mc.dom.code.dmarc_ok': "سياسة DMARC هي '{policy}'.",
+  'mc.dom.code.dmarc_none':
+      "سياسة DMARC 'none' للتقارير فقط. انتقل إلى 'quarantine' عندما تُظهر التقارير خوادمك وحدها.",
+  'mc.dom.code.dmarc_no_policy':
+      "لا يحتوي سجل DMARC على سياسة صالحة (p=none أو quarantine أو reject).",
+  'mc.dom.code.lookup_timeout':
+      "انتهت مهلة البحث عن {record}. افحص مرة أخرى بعد قليل.",
+  'mc.dom.code.lookup_failed': "فشل البحث عن {record}. افحص مرة أخرى بعد قليل.",
+  'mc.dom.code.record_mx_set_host':
+      "اضبط ANUM_MAILCOW_MAIL_HOST لإظهار اسم الخادم الحقيقي.",
+  'mc.dom.code.record_spf_one':
+      "سجل SPF واحد فقط. أبقِ أي include: يرسل النطاق عبره فعلًا (مثل spf.brevo.com). لا تستخدم '+all' أبدًا.",
+  'mc.dom.code.record_dkim_create':
+      "أنشئ مفتاح DKIM في Mailcow أولًا (Configuration، ARC/DKIM keys)، ثم افحص مرة أخرى.",
+  'mc.dom.code.record_dmarc_start':
+      "ابدأ بـ p=none، ثم انتقل إلى p=quarantine عندما تُظهر التقارير خوادمك وحدها.",
   'mc.rs.title': 'الاحتفاظ والمزامنة',
   'mc.rs.text':
       'المدة التي يحتفظ فيها ANUM بما لديه لصندوق البريد هذا، وهل يفحص البريد الوارد في الخلفية. لا يُمس البريد على الخادم. كل تغيير ينتظر موافقة مالك.',
