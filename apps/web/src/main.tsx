@@ -6,6 +6,7 @@ import { hashTarget } from './lib/library';
 import { publicRoute } from './lib/publicSite';
 import * as api from './lib/api';
 import * as auth from './lib/auth';
+import './typography.css';
 import './styles.css';
 import { ApprovalsView } from './ApprovalsView';
 import { ApprovalPolicyView, BudgetExceededNotice, BudgetsView, MembersView } from './AdminViews';
