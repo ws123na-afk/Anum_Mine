@@ -145,6 +145,10 @@ def _forward_raw(account: MailAccount, rule: ForwardRule, original: bytes) -> by
 
 async def _forward_one(context: TenantContext, account: MailAccount, inbox: Folder, rule: ForwardRule, item: Summary) -> str:
     """Forward one message for one rule, at most once. Returns forwarded, failed, unknown or skipped."""
+    from ..demo import is_demo
+
+    if is_demo(context):  # nothing leaves a demo workspace (docs/demo-workspace.md)
+        return "skipped"
     with open_automation_store(context) as store:
         fresh = store.get_rule(rule.id)
         if fresh is None or fresh.status != "active" or fresh.approved_hash != rule.approved_hash or hash_of(fresh) != rule.approved_hash:

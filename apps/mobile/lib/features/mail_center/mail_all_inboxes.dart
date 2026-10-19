@@ -607,16 +607,13 @@ class _AllInboxTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AnumSpacing.xs),
-            // A full date at large text scales down instead of overflowing.
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                  maxWidth: MediaQuery.sizeOf(context).width * 0.25),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: AlignmentDirectional.centerEnd,
-                child: Text(mailWhen(context, m.date),
-                    maxLines: 1, style: theme.textTheme.bodySmall),
-              ),
+            // Loose, so a long localized date at large text sizes ellipsizes
+            // instead of pushing the row past the card.
+            Flexible(
+              child: Text(mailWhen(context, m.date),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall),
             ),
           ],
         ),
