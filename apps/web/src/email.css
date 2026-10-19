@@ -138,3 +138,35 @@
   .mailReader, .mailComposer { padding: var(--d-s3); }
   .mailReaderActions { margin-inline-start: 0; }
 }
+
+/* All inboxes (MailAllInboxes.tsx, docs/email.md#all-inboxes): list and reader side by side. */
+@media (min-width: 1024px) {
+  .splitView.two.mailAll { grid-template-columns: minmax(340px, 2fr) minmax(0, 3fr); }
+}
+@media (min-width: 1280px) {
+  .splitView.two.mailAll { grid-template-columns: minmax(380px, 440px) minmax(0, 1fr); }
+}
+.mailAllIcon { height: 18px; margin-inline-end: var(--d-s2); vertical-align: -3px; width: 18px; }
+.mailAllFilters { border-bottom: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding: var(--d-s3); }
+.mailAllFilters .actions { margin-top: 0; }
+.mailAllFilters .notice { margin: 0; }
+.mailAllFields { border: 0; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); margin: 0; min-width: 0; padding: 0; }
+.mailAllFields .field:first-of-type { grid-column: 1 / -1; }
+.mailAllFilters { container-type: inline-size; }
+@container (min-width: 560px) {
+  .mailAllFields { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .mailAllFields .field:first-of-type { grid-column: auto; }
+}
+.mailAllFields .field { gap: var(--d-s1); margin: 0; }
+.mailAllFields .field > span { font-size: 12.5px; }
+.mailAllFields select, .mailAllFields input { min-width: 0; width: 100%; }
+.mailAllProblems { display: grid; gap: var(--d-s2); }
+.mailAllProblems .notice, .mailAllProblems .actions { margin: 0; }
+.mailAllBadge {
+  align-items: center; align-self: flex-start; background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: 999px; position: relative;
+  color: var(--d-muted); display: inline-flex; font-size: 12px; gap: var(--d-s1); line-height: 20px; max-width: 100%; min-width: 0; padding: 0 var(--d-s2);
+}
+.mailAllBadge > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mailAllBadge svg { flex: none; height: 12px; width: 12px; }
+.mailAllContext { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; padding: var(--d-s3) var(--d-s3) 0; }
+.mailAll .notice { min-width: 0; overflow-wrap: anywhere; }

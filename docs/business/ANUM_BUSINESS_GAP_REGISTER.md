@@ -68,7 +68,7 @@ Part of Order 001: [P0 remediation](P0_CI_REMEDIATION.md), [reuse decisions](REU
 
 | Capability | Status | Evidence | Gap or next step |
 |---|---|---|---|
-| Support tickets, bug reports, incident severity, change log, status, SLA | missing (tickets) / existing (runbooks, health) | `/health`; [Runbooks](../runbooks.md); error reporting (`error_reporting.py`, GlitchTip on the VM); no ticket record | `business_support_tickets` in P2, built on the existing WhatsApp and email inboxes |
+| Support tickets, bug reports, incident severity, change log, status, SLA | existing/working (tickets, severity, working-hours SLA) / existing (runbooks, health) / missing (change log, status page) | Business support tickets ([Business: support tickets](../business.md#support-tickets), migration `0076_business_support`): severity, status flow, assignee, entitlement, escalation, resolution audit, SLA from the owner's working-hours policy, tickets linked to inbound email and WhatsApp, replies through the inboxes' approval paths; `/health`; [Runbooks](../runbooks.md); error reporting (`error_reporting.py`) | A customer-facing status page and change log; tickets opened by customers themselves (portal, P2 at the earliest) |
 | RLS cross-tenant tests | existing/working | `tests/test_postgres_rls.py`, CI "API PostgreSQL persistence tests" | Extend to every `business_*` table |
 | OAuth state and PKCE | existing/working | journey's `check_pkce_is_required` and S256 sign-in | none |
 | Prompt-injection controls | existing/working | `prompt_provenance.py`, [Threat model](../threat-model.md) | Add scraped-page cases when the fetch tool lands |

@@ -7,7 +7,7 @@ import { test } from 'node:test';
 
 const web = new URL('../', import.meta.url);
 const read = (path: string) => readFileSync(new URL(path, web), 'utf8');
-const pages = { privacy: read('public/legal/privacy.html'), terms: read('public/legal/terms.html') };
+const pages = { privacy: read('public/policies/privacy.html'), terms: read('public/policies/terms.html') };
 const template = read('nginx/default.conf.template');
 
 /** The directives inside `location <match> { ... }` (no nested blocks in this template). */
@@ -44,7 +44,7 @@ test('nginx serves /privacy and /terms before the SPA fallback, with the full he
     for (const path of [`/${name}`, `/${name}/`]) {
       const body = locationBody(`= ${path}`);
       assert.deepEqual(headers(body), spa, `${path} repeats the security headers and no-cache`);
-      assert.match(body, new RegExp(`try_files /legal/${name}\\.html =404;`), path);
+      assert.match(body, new RegExp(`try_files /policies/${name}\\.html =404;`), path);
     }
   }
 });

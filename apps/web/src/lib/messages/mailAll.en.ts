@@ -1,0 +1,37 @@
+// All inboxes (MailAllInboxes.tsx, docs/email.md#all-inboxes), English. Spread into en.ts;
+// mailAll.ar.ts must have exactly these keys and placeholders.
+import type { Message } from './types.ts';
+
+export const mailAllEn = {
+  'maila.option': 'All inboxes',
+  'maila.title': 'All inboxes',
+  'maila.loading': 'Loading every inbox...',
+  'maila.shown': '{shown} of {total}',
+  'maila.results': { one: '{count} message matches.', other: '{count} messages match.' },
+  'maila.filters': 'Filters',
+  'maila.mailbox': 'Mailbox',
+  'maila.mailboxAll': 'Every mailbox',
+  'maila.since': 'From',
+  'maila.until': 'To',
+  'maila.badRange': 'The start date is after the end date. Pick an earlier start or a later end.',
+  'maila.clear': 'Clear search and filters',
+  'maila.empty.title': 'Nothing in any inbox',
+  'maila.empty.text': 'New mail in each of your mailboxes shows here, newest first.',
+  'maila.empty.check': 'Check again',
+  'maila.noMatch.title': 'Nothing matches in your inboxes',
+  'maila.noMatch.text': 'Try other words, a wider date range or every mailbox.',
+  'maila.failed': 'The inboxes could not be loaded: {reason}',
+  'maila.denied.title': 'Your role cannot read email',
+  'maila.denied.text': 'Owners and members of this workspace read email. Ask an owner to change your role.',
+  'maila.more': 'Load more',
+  'maila.moreFailed': 'The next messages could not be loaded: {reason}',
+  'maila.unreadable': '{address} could not be read: {reason}',
+  'maila.retry': 'Try again',
+  'maila.badge': 'Mailbox: {mailbox}',
+  'maila.badgeShared': 'Mailbox: {mailbox} (shared with you)',
+  'maila.reader.empty': 'Pick a message to read it in its own mailbox',
+  'maila.reader.text': 'Replies are written in the message\'s mailbox and sent from its address after an owner approves them.',
+  'maila.openMailbox': 'Open in {mailbox}',
+  'maila.gone': 'This mailbox is no longer available to you. Load the list again.',
+  'maila.readOnly': 'This mailbox is shared with you to read only. Ask its owner to let you send from it.',
+} satisfies Record<string, Message>;
