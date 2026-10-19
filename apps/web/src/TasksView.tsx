@@ -5,6 +5,7 @@ import {
 import type { AgentRun, Approval, DomainEvent, Task, TaskBulkAction, TaskSummary } from '@anum/contracts';
 import * as api from './lib/api';
 import * as tasksApi from './lib/tasksApi';
+import { collectPages } from './lib/approvalPaging';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { SourcesUsed, type MemoryTarget } from './SourcesUsed';
 import { AiAnswer } from './AiAnswer';
@@ -262,8 +263,11 @@ const DETAIL_TABS: readonly DetailTab[] = ['answer', 'approvals', 'runs', 'activ
 
 const newer = (a: Task | null, b: Task | null): Task | null => (!a ? b : !b ? a : b.updatedAt > a.updatedAt ? b : a);
 
-function TaskDetail({ taskId, listed, recentRun, approvals, pulse, role, userId, onBack, onChanged, openApprovals, openMemory, openFile }: DetailProps) {
-  const [tab, setTab] = useState<DetailTab>(() => (approvals.some((a) => a.status === 'pending') ? 'approvals' : 'answer'));
+function TaskDetail({ taskId, listed, recentRun, approvals: pendingForTask, pulse, role, userId, onBack, onChanged, openApprovals, openMemory, openFile }: DetailProps) {
+  const [tab, setTab] = useState<DetailTab>(() => (pendingForTask.some((a) => a.status === 'pending') ? 'approvals' : 'answer'));
+  // The shell holds only pending approvals; this task's whole history comes from its own filtered page.
+  const [taskApprovals, setTaskApprovals] = useState<{ id: string; items: Approval[] } | null>(null);
+  const approvals = taskApprovals?.id === taskId ? mergeById(pendingForTask, taskApprovals.items) : pendingForTask;
   const [fetched, setFetched] = useState<Task | null>(null), [taskError, setTaskError] = useState<unknown>(null);
   const [runs, setRuns] = useState<AgentRun[]>([]), [olderRuns, setOlderRuns] = useState<AgentRun[]>([]);
   const [runsMore, setRunsMore] = useState(false), [runsError, setRunsError] = useState<string | null>(null), [runsLoading, setRunsLoading] = useState(true);
@@ -276,6 +280,7 @@ function TaskDetail({ taskId, listed, recentRun, approvals, pulse, role, userId,
   useEffect(() => {
     let live = true;
     tasksApi.getTask(taskId).then((t) => { if (live) { setFetched(t); setTaskError(null); } }, (e: unknown) => { if (live) setTaskError(e); });
+    collectPages((cursor) => api.getApprovalPage({ taskId, cursor, limit: 100 })).then((all) => { if (live) setTaskApprovals({ id: taskId, items: all.items }); }, () => undefined);
     setRunsLoading(true);
     tasksApi.listTaskRuns(taskId).then(
       (page) => { if (live) { setRuns(page); setRunsMore(page.length >= RUN_PAGE_SIZE); setRunsError(null); } },

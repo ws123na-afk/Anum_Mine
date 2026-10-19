@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { approvalPagesResponse } from './support/approvalPages';
 
 const now = '2026-08-29T09:00:00.000Z';
 
@@ -25,8 +26,10 @@ async function mockApi(page: Page) {
       }),
     });
   });
-  await page.route('http://localhost:8000/api/v1/approvals', async (route) => {
-    await route.fulfill({ contentType: 'application/json', body: '[]' });
+  // The plain list (`?status=pending&limit=200` from the shell), the page and the summary.
+  await page.route(/^http:\/\/localhost:8000\/api\/v1\/approvals(\/page|\/summary)?(\?.*)?$/, async (route) => {
+    const paged = approvalPagesResponse(new URL(route.request().url()), []);
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(paged ?? []) });
   });
   // The detail panel refetches the selected task's latest run; the run response is the newest here.
   await page.route('http://localhost:8000/api/v1/tasks/task_e2e/latest-run', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"Agent run not found"}' }));
