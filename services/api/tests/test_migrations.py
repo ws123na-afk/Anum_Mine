@@ -1175,7 +1175,7 @@ def test_approvals_paging_migration_only_adds_concurrent_indexes() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0087_approvals_paging.py").read_text(encoding="utf-8")
     assert 'revision = "0087_approvals_paging"' in revision_text and len("0087_approvals_paging") <= 32
-    assert 'down_revision = "0083_skill_signing"' in revision_text
+    assert 'down_revision = "0080_business_change_orders"' in revision_text
     others = [path for path in versions.glob("*.py") if path.name != "0087_approvals_paging.py"]
     assert not [path for path in others if 'down_revision = "0087_approvals_paging"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
