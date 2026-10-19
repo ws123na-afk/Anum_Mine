@@ -473,6 +473,32 @@ const mailCenterEn = <String, String>{
   'mc.fr.needsApproval':
       'Saving stops the rule and asks an owner to approve it again.',
   'mc.fr.askApproval': 'Save and ask for approval',
+  'mc.all.title': 'All inboxes',
+  'mc.all.entry':
+      'Every inbox of your {count} mailboxes in one list, newest first.',
+  'mc.all.search': 'Search every inbox',
+  'mc.all.unread': 'Unread',
+  'mc.all.starred': 'Starred',
+  'mc.all.dates': 'Any date',
+  'mc.all.clearDates': 'Clear the dates',
+  'mc.all.mailbox': 'Mailbox',
+  'mc.all.everyMailbox': 'Every mailbox',
+  'mc.all.sharedOption': '{address} (shared with you)',
+  'mc.all.clear': 'Clear search and filters',
+  'mc.all.unreadable': '{address} could not be read: {reason}',
+  'mc.all.empty': 'Nothing in any inbox',
+  'mc.all.emptyText':
+      'New mail in each of your mailboxes shows here, newest first.',
+  'mc.all.check': 'Check again',
+  'mc.all.noMatch': 'Nothing matches in your inboxes',
+  'mc.all.noMatchText': 'Try other words, a wider date range or every mailbox.',
+  'mc.all.shown': '{shown} of {total}',
+  'mc.all.more': 'Load more',
+  'mc.all.moreFailed': 'The next messages could not be loaded: {reason}',
+  'mc.all.badge': 'Mailbox: {mailbox}',
+  'mc.all.badgeShared': 'Mailbox: {mailbox} (shared with you)',
+  'mc.all.gone':
+      'This mailbox is no longer available to you. Refresh the list.',
 };
 
 const mailCenterAr = <String, String>{
@@ -937,4 +963,29 @@ const mailCenterAr = <String, String>{
   'mc.fr.needsApproval':
       'الحفظ يوقف القاعدة ويطلب من مالك الموافقة عليها مجددا.',
   'mc.fr.askApproval': 'حفظ وطلب الموافقة',
+  'mc.all.title': 'كل صناديق الوارد',
+  'mc.all.entry':
+      'كل صناديق الوارد في صناديق بريدك الـ {count} في قائمة واحدة، الأحدث أولا.',
+  'mc.all.search': 'البحث في كل صناديق الوارد',
+  'mc.all.unread': 'غير المقروءة',
+  'mc.all.starred': 'المميزة بنجمة',
+  'mc.all.dates': 'أي تاريخ',
+  'mc.all.clearDates': 'مسح التواريخ',
+  'mc.all.mailbox': 'صندوق البريد',
+  'mc.all.everyMailbox': 'كل صناديق البريد',
+  'mc.all.sharedOption': '{address} (مشارك معك)',
+  'mc.all.clear': 'مسح البحث وعوامل التصفية',
+  'mc.all.unreadable': 'تعذرت قراءة {address}: {reason}',
+  'mc.all.empty': 'لا شيء في أي صندوق وارد',
+  'mc.all.emptyText': 'يظهر هنا البريد الجديد في كل صناديق بريدك، الأحدث أولا.',
+  'mc.all.check': 'تحقق مرة أخرى',
+  'mc.all.noMatch': 'لا شيء مطابق في صناديق الوارد',
+  'mc.all.noMatchText':
+      'جرب كلمات أخرى أو نطاق تواريخ أوسع أو كل صناديق البريد.',
+  'mc.all.shown': '{shown} من {total}',
+  'mc.all.more': 'تحميل المزيد',
+  'mc.all.moreFailed': 'تعذر تحميل الرسائل التالية: {reason}',
+  'mc.all.badge': 'صندوق البريد: {mailbox}',
+  'mc.all.badgeShared': 'صندوق البريد: {mailbox} (مشارك معك)',
+  'mc.all.gone': 'لم يعد صندوق البريد هذا متاحا لك. حدّث القائمة.',
 };

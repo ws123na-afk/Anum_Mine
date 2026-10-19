@@ -15,7 +15,9 @@ import { teamEn } from './team.en.ts';
 import { appCallsEn } from './appCalls.en.ts';
 import { marketingEn } from './marketing.en.ts';
 import { businessEn } from './business.en.ts';
+import { businessSupportEn } from './businessSupport.en.ts';
 import { brevoEn } from './brevo.en.ts';
+import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
 import { governanceEn } from './en.governance.ts';
 import { setupPlanEn } from './setupPlan.en.ts';
@@ -29,6 +31,7 @@ import { mailCenterEn } from './mailCenter.en.ts';
 import { mailOutgoingEn } from './mailOutgoing.en.ts';
 import { mailAiEn } from './mailAi.en.ts';
 import { mailShareEn } from './mailShare.en.ts';
+import { mailAllEn } from './mailAll.en.ts';
 import { mailRulesEn } from './mailRules.en.ts';
 import { mailOpsEn } from './mailOps.en.ts';
 import { mailEn } from './mail.en.ts';
@@ -53,7 +56,9 @@ export const en = {
   ...appCallsEn,
   ...marketingEn,
   ...businessEn,
+  ...businessSupportEn,
   ...brevoEn,
+  ...publicSiteEn,
   ...agentSkillsEn,
   ...skillSigningEn,
   ...orgChartEn,
@@ -61,6 +66,7 @@ export const en = {
   ...mailOutgoingEn,
   ...mailAiEn,
   ...mailShareEn,
+  ...mailAllEn,
   ...mailRulesEn,
   ...mailOpsEn,
   ...mailEn,
