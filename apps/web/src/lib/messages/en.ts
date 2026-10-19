@@ -27,6 +27,7 @@ import { routingEn } from './routing.en.ts';
 import { voiceEn } from './en.voice.ts';
 import { voiceActionsEn } from './en.voiceActions.ts';
 import { agentSkillsEn } from './agentSkills.en.ts';
+import { skillSigningEn } from './skillSigning.en.ts';
 import { orgChartEn } from './orgChart.en.ts';
 import { mailCenterEn } from './mailCenter.en.ts';
 import { mailOutgoingEn } from './mailOutgoing.en.ts';
@@ -63,6 +64,7 @@ export const en = {
   ...helpEn,
   ...publicSiteEn,
   ...agentSkillsEn,
+  ...skillSigningEn,
   ...orgChartEn,
   ...mailCenterEn,
   ...mailOutgoingEn,

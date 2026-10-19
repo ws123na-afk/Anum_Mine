@@ -277,9 +277,21 @@ class WorkspaceSkill {
       required this.tools,
       required this.installed,
       this.installedVersion,
-      this.enabled = false});
+      this.enabled = false,
+      this.signature,
+      this.disabledReason});
   final String id, skillId, name, version, description, risk;
   final List<String> tools;
+
+  /// The API's signature check of this version (docs/skills.md#signing); null from
+  /// an API that does not verify yet, which then decides installs itself.
+  final SkillSignature? signature;
+
+  /// Why the API turned the installation off (a revoked signing key), if it did.
+  final String? disabledReason;
+
+  /// Whether the API would install this version: only a verified signature allows it.
+  bool get installable => signature?.installable ?? true;
 
   /// This version is the one installed in the workspace.
   final bool installed;
@@ -290,6 +302,36 @@ class WorkspaceSkill {
   /// Whether the installation is enabled (agents may use it).
   final bool enabled;
   bool get hasInstall => installedVersion != null;
+}
+
+/// Who signed a skill version and whether it verifies, read only (docs/skills.md#signing).
+class SkillSignature {
+  const SkillSignature(
+      {required this.status,
+      required this.installable,
+      required this.detail,
+      this.signer,
+      this.keyId,
+      this.keySource,
+      this.fingerprint});
+
+  /// verified, unsigned, invalid, revoked or unknown_key.
+  final String status;
+  final bool installable;
+  final String detail;
+  final String? signer, keyId, keySource, fingerprint;
+
+  bool get verified => status == 'verified';
+
+  /// The short label: "Signed by Acme", "First-party", "Unsigned", "Key revoked".
+  String get label => switch (status) {
+        'verified' when keySource == 'first_party' => 'First-party',
+        'verified' => 'Signed by ${signer ?? keyId ?? '-'}',
+        'unsigned' => 'Unsigned',
+        'revoked' => 'Key revoked',
+        'unknown_key' => 'Unknown key',
+        _ => 'Signature invalid',
+      };
 }
 
 class WorkspaceIntegration {

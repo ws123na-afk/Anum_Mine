@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from skill_signing_support import signed
 from pydantic import SecretStr
 
 from anum_api import meeting_connectors, meetings, transcription
@@ -271,7 +272,7 @@ def test_agent_link_must_be_an_installed_agent(client: TestClient, gateway: Fake
         "skill_id": "pmv.planner", "version": "1.0.0", "name": "PMV planner", "description": "Plans PMV",
         "instructions": "Plan.", "required_tools": [], "risk_level": "low",
     }
-    assert client.post("/api/v1/skills/versions", headers=org_admin, json=version).status_code == 201
+    assert client.post("/api/v1/skills/versions", headers=org_admin, json=signed(client, org_admin, version)).status_code == 201
     assert client.post("/api/v1/skills/installations", headers=OWNER, json={"skill_id": "pmv.planner", "version": "1.0.0", "approved_tools": []}).status_code == 201
 
     assert _upload(client, agent_skill_id="unknown.agent").status_code == 422
