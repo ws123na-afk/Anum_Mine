@@ -1,4 +1,4 @@
-"""Business in PostgreSQL (migrations ``0070_business`` and ``0076_business_change_orders``), as
+"""Business in PostgreSQL (migrations ``0070_business`` and ``0077_business_change_orders``), as
 the non-owner app role.
 
 Every table is under forced RLS: tenant A's rows are invisible to tenant B and to A's other
@@ -200,6 +200,61 @@ def test_settings_and_activities_are_scoped(db: Engine) -> None:
     again = client.post(f"{BASE}/leads/{lead_id}/activities", headers={**A, **key}, json={"kind": "meeting_logged", "summary": "Visited the shop"})
     assert first.status_code == 201 and again.status_code == 200 and first.json()["id"] == again.json()["id"]
     assert client.post(f"{BASE}/leads/{lead_id}/activities", headers={**B, **key}, json={"kind": "note", "summary": "x y"}).status_code == 404
+
+
+SUPPORT_TABLES = ("business_support_tickets", "business_ticket_replies")
+
+
+def test_support_tickets_under_rls(db: Engine) -> None:
+    """Migration ``0076_business_support``: tickets, their trail and the policy stay in their scope."""
+    path = main_path(A)
+    account_id = path["lead"]["account"]["id"]
+    contact_id = path["lead"]["contact"]["id"]
+    policy = ok(client.get(f"{BASE}/support/setup", headers=A))["policy"]
+    ok(client.put(f"{BASE}/support/policy", headers=A, json={**policy, "start_hour": 8}))
+    assert ok(client.get(f"{BASE}/support/setup", headers=A))["policy"]["start_hour"] == 8
+    assert ok(client.get(f"{BASE}/support/setup", headers=B))["policy"]["start_hour"] == 9
+    created = ok(client.post(f"{BASE}/support/tickets", headers=MEMBER_A, json={
+        "title": "Contact form sends nothing", "severity": "high", "requester_email": "huda@sunrise-bakery.example"}), 201)
+    assert created["contact_id"] == contact_id and created["account_id"] == account_id and created["requester_verified"]
+    ticket_id = created["id"]
+    ok(client.post(f"{BASE}/support/tickets/{ticket_id}/status", headers=MEMBER_A, json={"to": "waiting_on_customer"}))
+    resolved = ok(client.post(f"{BASE}/support/tickets/{ticket_id}/status", headers=MEMBER_A, json={
+        "to": "resolved", "resolution_code": "fixed", "resolution_summary": "The form's mail relay was restored and tested."}))
+    assert resolved["sla_paused_at"] is None and len(resolved["activities"]) >= 3
+    for other in (A2, B):
+        assert ok(client.get(f"{BASE}/support/tickets", headers=other))["total"] == 0
+        assert client.get(f"{BASE}/support/tickets/{ticket_id}", headers=other).status_code == 404
+        assert client.post(f"{BASE}/support/tickets", headers=other, json={"title": "Steal", "account_id": account_id}).status_code == 404
+    with db.connect() as connection:
+        with connection.begin():
+            connection.execute(text(f"set local role {APP_ROLE}"))
+            for table in SUPPORT_TABLES:
+                assert connection.execute(text(f"select count(*) from {table}")).scalar_one() == 0, table
+        # Tenant B pointing a ticket at tenant A's account by its id: the scoped foreign key refuses it.
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_B, WORKSPACE_B)
+                connection.execute(text(
+                    "insert into business_support_tickets (id, tenant_id, workspace_id, title, severity, status, reported_at, created_by, account_id) "
+                    "values ('btkt_x', :t, :w, 'Steal', 'low', 'new', now(), 'u', :a)"), {"t": TENANT_B, "w": WORKSPACE_B, "a": account_id})
+        # A resolved ticket always carries its resolution audit.
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_A, WORKSPACE_A)
+                connection.execute(text("update business_support_tickets set resolution_code = null where id = :id"), {"id": ticket_id})
+        with connection.begin():
+            _scoped(connection, TENANT_B, WORKSPACE_B)
+            assert connection.execute(text("update business_support_tickets set title = 'pwned' where id = :id"), {"id": ticket_id}).rowcount == 0
+        # One open ticket per linked message (the partial unique index).
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_A, WORKSPACE_A)
+                for number in (1, 2):
+                    connection.execute(text(
+                        "insert into business_support_tickets (id, tenant_id, workspace_id, title, severity, status, reported_at, created_by, source, source_ref) "
+                        f"values ('btkt_dup{number}', :t, :w, 'Dup', 'low', 'new', now(), 'u', 'email', 'emsg_same')"), {"t": TENANT_A, "w": WORKSPACE_A})
+
 
 
 def test_change_orders_and_the_ledger_under_rls(db: Engine) -> None:

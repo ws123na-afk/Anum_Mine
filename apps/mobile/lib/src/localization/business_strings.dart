@@ -1,7 +1,10 @@
+import 'support_strings.dart';
+
 /// Business screen strings (docs/business.md), English and Arabic. Looked up by
 /// `AnumLocalizations.t` after the main catalogs. The terms follow the web
 /// catalog (apps/web/src/lib/messages/business.*.ts).
 const businessEn = <String, String>{
+  ...supportEn,
   'biz.title': 'Business',
   'biz.subtitle': 'Leads, pipeline, proposals and projects for your own sales',
   'biz.sendingOff':
@@ -196,6 +199,7 @@ const businessEn = <String, String>{
 };
 
 const businessAr = <String, String>{
+  ...supportAr,
   'biz.title': 'الأعمال',
   'biz.subtitle': 'العملاء المحتملون والفرص والعروض والمشاريع لمبيعاتك',
   'biz.sendingOff':

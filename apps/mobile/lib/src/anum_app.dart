@@ -44,6 +44,8 @@ import '../features/reports/workspace_tool_routes.dart';
 import '../features/business/business_controller.dart';
 import '../features/business/business_repository.dart';
 import '../features/business/project_money.dart';
+import '../features/business/support_controller.dart';
+import '../features/business/support_repository.dart';
 import '../features/brevo/brevo_data.dart';
 import '../features/brevo/brevo_screen.dart';
 import '../features/marketing/marketing_controller.dart';
@@ -77,6 +79,7 @@ import '../features/team_calls/call_screens.dart';
 import '../features/push/push_repository.dart';
 import '../features/governance/api_governance_repository.dart';
 import '../features/governance/governance_controller.dart';
+import 'app_environment.dart';
 import 'infrastructure/appauth_authenticator.dart';
 import 'infrastructure/http_event_stream.dart';
 import 'infrastructure/mobile_adapters.dart';
@@ -179,7 +182,11 @@ String? releaseApiUrlError(String apiUrl, {required bool release}) {
 }
 
 class AnumApp extends StatefulWidget {
-  const AnumApp({super.key});
+  const AnumApp({super.key, this.environment = const AnumEnvironment()});
+
+  /// What the app talks to; the default is the configured API. Journey tests
+  /// pass a fake HTTP client here (docs/mobile-journeys.md).
+  final AnumEnvironment environment;
 
   @override
   State<AnumApp> createState() => _AnumAppState();
@@ -227,10 +234,14 @@ class _AnumAppState extends State<AnumApp> {
   @override
   void initState() {
     super.initState();
+    final env = widget.environment;
     final configuredUrl = resolveApiUrl(
-      const String.fromEnvironment('ANUM_API_URL'),
+      env.apiUrl ?? const String.fromEnvironment('ANUM_API_URL'),
       release: kReleaseMode,
     );
+    // One client per call site, as before; a test environment hands out its
+    // fake. Null keeps each adapter's own default.
+    final newClient = env.httpClient;
     // Debug and profile builds without --dart-define=ANUM_OIDC_ISSUER keep
     // the local development sign-in; release builds always use Keycloak
     // (the production issuer unless the define names another).
@@ -249,14 +260,14 @@ class _AnumAppState extends State<AnumApp> {
         : OidcSessionStore(inner: secureSessions, authenticator: oidc);
     final api = AnumApiClient(
       baseUri: Uri.parse(configuredUrl),
-      transport: HttpApiTransport(),
+      transport: HttpApiTransport(client: newClient?.call()),
       sessions: sessions,
     );
     // Phone push (docs/notifications.md): off unless this build carries the
     // owner's Firebase files and the server has ANUM_FCM_SERVICE_ACCOUNT_JSON.
     push = PushController(
       repository: PushRepository(api),
-      messaging: FirebasePushMessaging(),
+      messaging: env.pushMessaging ?? FirebasePushMessaging(),
       store: SharedPreferencesPushLocalStore(),
     )
       ..onOpen = _openPush
@@ -273,6 +284,8 @@ class _AnumAppState extends State<AnumApp> {
     final fileTransfer = HttpWorkspaceFileTransfer(
       baseUri: Uri.parse(configuredUrl),
       sessions: sessions,
+      client: newClient?.call(),
+      uploadClient: newClient,
     );
     workspace = WorkspaceController(
       ApiWorkspaceRepository(api, fileTransfer: fileTransfer),
@@ -283,6 +296,7 @@ class _AnumAppState extends State<AnumApp> {
     final events = HttpEventStreamClient(
       baseUri: Uri.parse(configuredUrl),
       sessions: sessions,
+      clientFactory: newClient,
     );
     chat = ChatController(ChatRepository(api, events));
     // User-built agents (docs/agents.md) and the chat on each agent's threads.
@@ -318,7 +332,8 @@ class _AnumAppState extends State<AnumApp> {
     workspace.onApprovalDecided = _offerPushAfterApproval;
     // In-app calls between teammates (docs/in-app-calls.md#flutter).
     appCalls = calls_feature.AppCallsController(
-        repository: ApiCallRepository(api, sessions: sessions),
+        repository: ApiCallRepository(api,
+            sessions: sessions, clientFactory: newClient),
         mediaFactory: WebRtcCallMedia.new);
     governance = GovernanceController(
       ApiGovernanceRepository(
@@ -326,6 +341,7 @@ class _AnumAppState extends State<AnumApp> {
         auditExporter: HttpAuditExporter(
           baseUri: Uri.parse(configuredUrl),
           sessions: sessions,
+          client: newClient?.call(),
         ),
       ),
     );
@@ -354,7 +370,8 @@ class _AnumAppState extends State<AnumApp> {
         brevo: BrevoController(ApiBrevoRepository(api)));
     // Business, the internal sales desk (docs/business.md).
     business = BusinessController(ApiBusinessRepository(api),
-        money: ApiProjectMoney(api));
+        money: ApiProjectMoney(api),
+        support: SupportController(ApiSupportRepository(api)));
     chatDeveloper = DeveloperAssist(
       repository: developerRepository,
       source: 'text',
@@ -379,6 +396,7 @@ class _AnumAppState extends State<AnumApp> {
         baseUri: Uri.parse(configuredUrl),
         sessions: sessions,
         upload: fileTransfer.upload,
+        clientFactory: newClient,
       ),
     )..onSettled = _commandSettled;
     library = ApiLibraryRepository(api, saver: const FilePickerExportSaver());
@@ -389,7 +407,8 @@ class _AnumAppState extends State<AnumApp> {
         mailTransfer: HttpMailFileTransfer(
             baseUri: Uri.parse(configuredUrl),
             sessions: sessions,
-            files: fileTransfer));
+            files: fileTransfer,
+            client: newClient?.call()));
     locale = LocaleController()..restore();
     // Pushes use the app's language (docs/notifications.md#phone-push).
     push.languageOf = () => (locale.locale?.languageCode ??

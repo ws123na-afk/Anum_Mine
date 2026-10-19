@@ -4,6 +4,7 @@ import '../../data/api_client.dart';
 import 'business_models.dart';
 import 'business_repository.dart';
 import 'project_money.dart';
+import 'support_controller.dart';
 
 enum BusinessLoad { idle, loading, ready, denied, error }
 
@@ -22,7 +23,7 @@ class PagedList<T> {
 
 /// State of the phone's Business screen (docs/business.md).
 class BusinessController extends ChangeNotifier {
-  BusinessController(this.repository, {this.money}) {
+  BusinessController(this.repository, {this.money, this.support}) {
     leads = PagedList(
       (offset) => repository.leads(
         query: query,
@@ -46,6 +47,9 @@ class BusinessController extends ChangeNotifier {
 
   /// Change orders, the ledger and profitability of a project (null hides them).
   final ProjectMoneyRepository? money;
+
+  /// Support tickets (docs/business.md#support-tickets), when wired.
+  final SupportController? support;
   static const pageSize = 20;
 
   BusinessLoad setupState = BusinessLoad.idle;
@@ -173,6 +177,7 @@ class BusinessController extends ChangeNotifier {
       list.state = BusinessLoad.idle;
     }
     setupState = kpiState = BusinessLoad.idle;
+    support?.reset();
     notifyListeners();
   }
 }

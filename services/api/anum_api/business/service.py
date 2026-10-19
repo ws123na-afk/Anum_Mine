@@ -280,6 +280,7 @@ def record_activity(
     opportunity_id: str | None = None,
     proposal_id: str | None = None,
     project_id: str | None = None,
+    ticket_id: str | None = None,
     metadata: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
     actor: str | None = None,
@@ -291,7 +292,7 @@ def record_activity(
             return existing, False
     activity = Activity(
         id=new_id("bact"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, lead_id=lead_id, account_id=account_id,
-        opportunity_id=opportunity_id, proposal_id=proposal_id, project_id=project_id, kind=kind, summary=summary[:500],
+        opportunity_id=opportunity_id, proposal_id=proposal_id, project_id=project_id, ticket_id=ticket_id, kind=kind, summary=summary[:500],
         metadata=metadata or {}, actor=actor or context.user_id, idempotency_key=idempotency_key, created_at=utc_now(),
     )
     store.add("activities", activity)
