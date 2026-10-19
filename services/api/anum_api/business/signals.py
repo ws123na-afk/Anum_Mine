@@ -17,6 +17,7 @@ institutions) and the deterministic score suggestions read from observations.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -27,6 +28,8 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .models import Criterion
+
+logger = logging.getLogger("anum.business")
 
 
 @dataclass(frozen=True)
@@ -148,8 +151,8 @@ def _parse(html: str, keep_tags: bool) -> str:
     try:
         parser.feed(html)
         parser.close()
-    except Exception:  # malformed markup: keep what was parsed so far
-        pass
+    except Exception as exc:  # malformed markup: keep what was parsed so far
+        logger.debug("business_html_parse_partial error_class=%s", type(exc).__name__)
     return "".join(parser.parts)
 
 

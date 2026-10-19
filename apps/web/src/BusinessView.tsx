@@ -1,5 +1,5 @@
 // Business, the internal sales desk (docs/business.md): the owner's KPI summary, leads, the pipeline,
-// proposals, projects, the catalog and the research caps. Tabs and open records are URL hashes
+// proposals, projects, support tickets, the catalog and the research caps. Tabs and open records are URL hashes
 // (#business-leads/<id>), so Back, Forward and links work. Prospecting and Outreach (the Harvey
 // capabilities, docs/business/HARVEY_PARITY.md) have their own tabs; sending is off by default and every
 // message waits for an owner's approval.
@@ -18,6 +18,7 @@ import { PipelineTab, ProjectsTab, ProposalsTab } from './BusinessDeals';
 import { CatalogTab } from './BusinessCatalog';
 import { ProspectingTab } from './BusinessProspecting';
 import { OutreachTab } from './BusinessOutreach';
+import { SupportPolicySection, SupportTab } from './BusinessSupport';
 import './business.css';
 
 type State = { kind: 'loading' } | { kind: 'ready'; setup: BusinessSetup } | { kind: 'denied'; text: string } | { kind: 'error'; text: string };
@@ -78,6 +79,7 @@ export function BusinessView() {
     {tab === 'pipeline' && <PipelineTab setup={setup} openId={id} onOpen={(item) => go('pipeline', item)} onOpenProposal={(item) => go('proposals', item)} onGoLeads={() => go('leads')} onChanged={changed} />}
     {tab === 'proposals' && <ProposalsTab setup={setup} openId={id} onOpen={(item) => go('proposals', item)} onOpenProject={(item) => go('projects', item)} onGoPipeline={() => go('pipeline')} onChanged={changed} />}
     {tab === 'projects' && <ProjectsTab setup={setup} openId={id} onOpen={(item) => go('projects', item)} onGoProposals={() => go('proposals')} />}
+    {tab === 'support' && <SupportTab setup={setup} products={products} openId={id} onOpen={(item) => go('support', item)} onChanged={changed} />}
     {tab === 'catalog' && <CatalogTab setup={setup} products={products} loading={productsLoad.loading} error={productsLoad.error} onReload={() => void loadProducts()} />}
     {tab === 'settings' && <SettingsTab setup={setup} onSaved={() => void loadSetup()} />}
   </div>;
@@ -165,5 +167,6 @@ function SettingsTab({ setup, onSaved }: { setup: BusinessSetup; onSaved: () => 
         <div><dt>{t('biz.settings.decide')}</dt><dd>{setup.permissions.decide ? t('biz.settings.youDecide') : t('biz.settings.ownerDecides')}</dd></div>
       </dl>
     </section>
+    <SupportPolicySection />
   </div>;
 }

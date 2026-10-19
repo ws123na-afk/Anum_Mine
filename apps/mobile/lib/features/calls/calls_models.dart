@@ -9,14 +9,17 @@ class AiConsent {
   const AiConsent(
       {required this.grantedAt,
       required this.recordedBy,
-      required this.method});
+      required this.method,
+      this.note});
   factory AiConsent.fromJson(JsonReader j) => AiConsent(
         grantedAt: j.date('granted_at'),
         recordedBy: j.string('recorded_by'),
         method: j.string('method'),
+        note: j.optString('note'),
       );
   final DateTime grantedAt;
   final String recordedBy, method;
+  final String? note;
 }
 
 class CallContact {
@@ -182,11 +185,17 @@ class ProviderStatus {
   const ProviderStatus({
     required this.connected,
     this.provider = 'twilio',
+    this.accountSid,
+    this.apiKeySid,
+    this.twimlAppSid,
     this.fromNumber,
     this.credentialHint,
+    this.hasApiKeySecret = false,
     this.businessName,
+    this.greeting,
     this.recordingEnabled = false,
     this.transcriptionEnabled = false,
+    this.recordingRetentionDays = 30,
     this.aiCallsEnabled = false,
     this.inboundAiEnabled = false,
     this.aiMaxSeconds = 180,
@@ -195,44 +204,170 @@ class ProviderStatus {
     this.lastCheckStatus,
     this.lastCheckDetail,
     this.lastCheckedAt,
+    this.voiceUrl,
+    this.statusUrl,
     this.webhooksReady = false,
     this.problem,
+    this.limitSeconds = 600,
+    this.limitCostCents = 500,
   });
-  factory ProviderStatus.fromJson(JsonReader j) => ProviderStatus(
-        connected: j.optBool('connected') ?? false,
-        provider: j.optString('provider') ?? 'twilio',
-        fromNumber: j.optString('from_number'),
-        credentialHint: j.optString('credential_hint'),
-        businessName: j.optString('business_name'),
-        recordingEnabled: j.optBool('recording_enabled') ?? false,
-        transcriptionEnabled: j.optBool('transcription_enabled') ?? false,
-        aiCallsEnabled: j.optBool('ai_calls_enabled') ?? false,
-        inboundAiEnabled: j.optBool('inbound_ai_enabled') ?? false,
-        aiMaxSeconds: j.optInt('ai_max_seconds') ?? 180,
-        aiMaxCostCents: j.optInt('ai_max_cost_cents') ?? 100,
-        costPerMinuteCents: j.optInt('cost_per_minute_cents') ?? 5,
-        lastCheckStatus: j.optString('last_check_status'),
-        lastCheckDetail: j.optString('last_check_detail'),
-        lastCheckedAt: j.optDate('last_checked_at'),
-        webhooksReady: j.optBool('webhooks_ready') ?? false,
-        problem: j.optString('problem'),
-      );
+  factory ProviderStatus.fromJson(JsonReader j) {
+    final limits = j.optObject('limits');
+    return ProviderStatus(
+      connected: j.optBool('connected') ?? false,
+      provider: j.optString('provider') ?? 'twilio',
+      accountSid: j.optString('account_sid'),
+      apiKeySid: j.optString('api_key_sid'),
+      twimlAppSid: j.optString('twiml_app_sid'),
+      fromNumber: j.optString('from_number'),
+      credentialHint: j.optString('credential_hint'),
+      hasApiKeySecret: j.optBool('has_api_key_secret') ?? false,
+      businessName: j.optString('business_name'),
+      greeting: j.optString('greeting'),
+      recordingEnabled: j.optBool('recording_enabled') ?? false,
+      transcriptionEnabled: j.optBool('transcription_enabled') ?? false,
+      recordingRetentionDays: j.optInt('recording_retention_days') ?? 30,
+      aiCallsEnabled: j.optBool('ai_calls_enabled') ?? false,
+      inboundAiEnabled: j.optBool('inbound_ai_enabled') ?? false,
+      aiMaxSeconds: j.optInt('ai_max_seconds') ?? 180,
+      aiMaxCostCents: j.optInt('ai_max_cost_cents') ?? 100,
+      costPerMinuteCents: j.optInt('cost_per_minute_cents') ?? 5,
+      lastCheckStatus: j.optString('last_check_status'),
+      lastCheckDetail: j.optString('last_check_detail'),
+      lastCheckedAt: j.optDate('last_checked_at'),
+      voiceUrl: j.optString('voice_url'),
+      statusUrl: j.optString('status_url'),
+      webhooksReady: j.optBool('webhooks_ready') ?? false,
+      problem: j.optString('problem'),
+      limitSeconds: limits?.optInt('ai_max_seconds') ?? 600,
+      limitCostCents: limits?.optInt('ai_max_cost_cents') ?? 500,
+    );
+  }
   final bool connected,
+      hasApiKeySecret,
       recordingEnabled,
       transcriptionEnabled,
       aiCallsEnabled,
       inboundAiEnabled,
       webhooksReady;
   final String provider;
-  final String? fromNumber,
+  final String? accountSid,
+      apiKeySid,
+      twimlAppSid,
+      fromNumber,
       credentialHint,
       businessName,
+      greeting,
       lastCheckStatus,
       lastCheckDetail,
+      voiceUrl,
+      statusUrl,
       problem;
-  final int aiMaxSeconds, aiMaxCostCents, costPerMinuteCents;
+  final int recordingRetentionDays,
+      aiMaxSeconds,
+      aiMaxCostCents,
+      costPerMinuteCents,
+      limitSeconds,
+      limitCostCents;
   final DateTime? lastCheckedAt;
+
+  /// `on`, `failed` or `off`, as the web's status badge.
+  String get state => !connected
+      ? 'off'
+      : lastCheckStatus == 'failed'
+          ? 'failed'
+          : 'on';
 }
+
+/// The owner's provider form (PUT /api/v1/calls/provider). Secrets are
+/// write-only: typed here, sent once over HTTPS to the API and never read
+/// back, logged or kept after the request.
+class ProviderForm {
+  ProviderForm.of(ProviderStatus? p)
+      : accountSid = p?.accountSid ?? '',
+        apiKeySid = p?.apiKeySid ?? '',
+        twimlAppSid = p?.twimlAppSid ?? '',
+        fromNumber = p?.fromNumber ?? '',
+        businessName = p?.businessName ?? '',
+        greeting = p?.greeting ?? '',
+        recordingEnabled = p?.recordingEnabled ?? false,
+        transcriptionEnabled = p?.transcriptionEnabled ?? false,
+        recordingRetentionDays = p?.recordingRetentionDays ?? 30,
+        aiCallsEnabled = p?.aiCallsEnabled ?? false,
+        inboundAiEnabled = p?.inboundAiEnabled ?? false,
+        aiMaxSeconds = p?.aiMaxSeconds ?? 180,
+        aiMaxCostCents = p?.aiMaxCostCents ?? 100,
+        costPerMinuteCents = p?.costPerMinuteCents ?? 5;
+  String accountSid,
+      authToken = '',
+      apiKeySid,
+      apiKeySecret = '',
+      twimlAppSid,
+      fromNumber,
+      businessName,
+      greeting;
+  bool recordingEnabled, transcriptionEnabled, aiCallsEnabled, inboundAiEnabled;
+  int recordingRetentionDays, aiMaxSeconds, aiMaxCostCents, costPerMinuteCents;
+
+  /// The request body: empty secrets, keys and greeting are left out so the
+  /// stored ones stay (the same rule as the web's `providerBody`).
+  Map<String, Object?> body() {
+    String? opt(String v) => v.trim().isEmpty ? null : v.trim();
+    return {
+      'account_sid': accountSid.trim(),
+      if (opt(authToken) != null) 'auth_token': opt(authToken),
+      if (opt(apiKeySid) != null) 'api_key_sid': opt(apiKeySid),
+      if (opt(apiKeySecret) != null) 'api_key_secret': opt(apiKeySecret),
+      if (opt(twimlAppSid) != null) 'twiml_app_sid': opt(twimlAppSid),
+      'from_number': fromNumber.trim(),
+      'business_name': businessName.trim(),
+      if (opt(greeting) != null) 'greeting': opt(greeting),
+      'recording_enabled': recordingEnabled,
+      'transcription_enabled': recordingEnabled && transcriptionEnabled,
+      'recording_retention_days': recordingRetentionDays,
+      'ai_calls_enabled': aiCallsEnabled,
+      'inbound_ai_enabled': inboundAiEnabled,
+      'ai_max_seconds': aiMaxSeconds,
+      'ai_max_cost_cents': aiMaxCostCents,
+      'cost_per_minute_cents': costPerMinuteCents,
+    };
+  }
+
+  /// Forgets the typed secrets (after a save, or when the page closes).
+  void clearSecrets() {
+    authToken = '';
+    apiKeySecret = '';
+  }
+}
+
+/// How a person agreed to AI calls (ConsentMethod in the API).
+const consentMethods = ['verbal', 'written', 'web_form', 'other'];
+
+/// A number that asked not to be called by the AI. Only a masked number is
+/// ever returned (the API stores a keyed hash).
+class OptOutEntry {
+  const OptOutEntry(
+      {required this.id,
+      required this.masked,
+      required this.source,
+      required this.createdAt,
+      this.note});
+  factory OptOutEntry.fromJson(JsonReader j) => OptOutEntry(
+        id: j.string('id'),
+        masked: j.string('masked'),
+        source: j.optString('source') ?? 'owner',
+        createdAt: j.date('created_at'),
+        note: j.optString('note'),
+      );
+  final String id, masked, source;
+  final String? note;
+  final DateTime createdAt;
+}
+
+const optOutSources = ['keypad', 'speech', 'owner', 'inbound'];
+
+/// A lifted opt-out needs a reason of at least this many characters.
+const optOutReasonMin = 5;
 
 /// The statuses of an AI call request (docs/calls.md#ai-calls).
 const aiCallStatuses = [

@@ -78,7 +78,8 @@ class ApprovalsScreen extends StatelessWidget {
                 )
               else
                 for (final approval in pending)
-                  _PendingCard(approval: approval, controller: controller),
+                  PendingApprovalCard(
+                      approval: approval, controller: controller),
               if (decided.isNotEmpty)
                 AnumSurface(
                   child: Column(
@@ -115,16 +116,31 @@ class ApprovalsScreen extends StatelessWidget {
       );
 }
 
-class _PendingCard extends StatefulWidget {
-  const _PendingCard({required this.approval, required this.controller});
+/// One pending approval with everything needed to decide it: the exact
+/// arguments, the payload hash that is sent back, the reason and the
+/// Approve (with a confirm) and Reject buttons. Shown in Approvals and on the
+/// task that is waiting for it.
+class PendingApprovalCard extends StatefulWidget {
+  const PendingApprovalCard(
+      {required this.approval,
+      required this.controller,
+      this.showTask = true,
+      this.onDecided,
+      super.key});
   final WorkspaceApproval approval;
   final WorkspaceController controller;
 
+  /// Whether to link to the task that asked (off on that task's own screen).
+  final bool showTask;
+
+  /// Called after a decision was sent, whatever the API answered.
+  final VoidCallback? onDecided;
+
   @override
-  State<_PendingCard> createState() => _PendingCardState();
+  State<PendingApprovalCard> createState() => _PendingCardState();
 }
 
-class _PendingCardState extends State<_PendingCard> {
+class _PendingCardState extends State<PendingApprovalCard> {
   final _reason = TextEditingController();
 
   WorkspaceApproval get approval => widget.approval;
@@ -146,15 +162,20 @@ class _PendingCardState extends State<_PendingCard> {
     return AnumSurface(
       accent: anumToneColor(context, tone),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          AnumPill(
-              label: '${approval.risk} risk',
-              tone: tone,
-              icon: Icons.shield_outlined),
-          const Spacer(),
-          Text(relativeTime(approval.createdAt),
-              style: TextStyle(color: p.faint, fontSize: 12)),
-        ]),
+        // Wraps on a narrow phone or with large text instead of overflowing.
+        Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              AnumPill(
+                  label: '${approval.risk} risk',
+                  tone: tone,
+                  icon: Icons.shield_outlined),
+              Text(relativeTime(approval.createdAt),
+                  style: TextStyle(color: p.faint, fontSize: 12)),
+            ]),
         const SizedBox(height: 10),
         Text(approvalTitle(approval, controller.tasks),
             style: TextStyle(
@@ -203,7 +224,7 @@ class _PendingCardState extends State<_PendingCard> {
         Text(
             approvalReason(approval, approvalTitle(approval, controller.tasks)),
             style: TextStyle(color: p.muted, fontSize: 14)),
-        if (task != null) ...[
+        if (task != null && widget.showTask) ...[
           const SizedBox(height: 10),
           InkWell(
             borderRadius: BorderRadius.circular(10),
@@ -270,30 +291,27 @@ class _PendingCardState extends State<_PendingCard> {
             ),
           ),
         const SizedBox(height: 8),
-        Row(children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: controller.mutating
-                  ? null
-                  : () => controller.decide(approval,
-                      approve: false, reason: normalizeReason(_reason.text)),
-              icon: const Icon(Icons.close),
-              label: const Text('Reject'),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: FilledButton.icon(
-              onPressed: controller.mutating ||
-                      !approval.canApprove() ||
-                      alreadyApproved
-                  ? null
-                  : () => _confirmApprove(context),
-              icon: const Icon(Icons.check),
-              label: const Text('Approve'),
-            ),
-          ),
-        ]),
+        Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed:
+                    controller.mutating ? null : () => _decide(approve: false),
+                icon: const Icon(Icons.close),
+                label: const Text('Reject'),
+              ),
+              FilledButton.icon(
+                onPressed: controller.mutating ||
+                        !approval.canApprove() ||
+                        alreadyApproved
+                    ? null
+                    : () => _confirmApprove(context),
+                icon: const Icon(Icons.check),
+                label: const Text('Approve'),
+              ),
+            ]),
       ]),
     );
   }
@@ -319,10 +337,13 @@ class _PendingCardState extends State<_PendingCard> {
         ],
       ),
     );
-    if (ok == true) {
-      await controller.decide(approval,
-          approve: true, reason: normalizeReason(_reason.text));
-    }
+    if (ok == true) await _decide(approve: true);
+  }
+
+  Future<void> _decide({required bool approve}) async {
+    await controller.decide(approval,
+        approve: approve, reason: normalizeReason(_reason.text));
+    widget.onDecided?.call();
   }
 }
 

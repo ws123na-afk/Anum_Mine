@@ -41,6 +41,8 @@ from .models import MAX_HTML_CHARS
 logger = logging.getLogger("anum.brevo")
 
 MARKER = "{{ params.anum_content }}"
+# Optional: where an owner's template wants the organisation logo.
+LOGO_MARKER = "{{ params.anum_logo }}"
 MARKER_TAG = "anum"
 # A handful of templates keeps the answer well under the client's response cap.
 TEMPLATE_PAGE = 10
@@ -61,6 +63,7 @@ class Composed:
     generator: Literal["model", "template"]
     template_id: int | None
     brand_name: str
+    logo_url: str | None = None
     note: str | None = None
 
 
@@ -77,11 +80,12 @@ class _Answer(BaseModel):
 # -- brand --------------------------------------------------------------------------------------
 
 
-def _brand(context: TenantContext) -> tuple[str, str]:
-    """The organisation's display name and the brand voice (with the learned style)."""
+def _brand(context: TenantContext) -> tuple[str, str, str | None]:
+    """The organisation's display name, the brand voice (with the learned style) and a
+    long-lived public link to its logo, when it has one."""
     from ..marketing.assist import _brand_voice
     from ..marketing.service import preferences
-    from ..organisations import branding_for
+    from ..organisations import branding_for, logo_link
 
     try:
         name = branding_for(context).display_name
@@ -91,7 +95,20 @@ def _brand(context: TenantContext) -> tuple[str, str]:
         voice = _brand_voice(context, preferences(context).brand_voice)
     except Exception:  # noqa: BLE001 - nor do missing marketing preferences
         voice = ""
-    return " ".join(name.split())[:160], voice[:2000]
+    try:
+        logo = logo_link(context)
+    except Exception:  # noqa: BLE001 - nor does a logo that cannot be linked: the name heads the email
+        logo = None
+    return " ".join(name.split())[:160], voice[:2000], logo
+
+
+def logo_html(logo_url: str | None, brand: str, *, rtl: bool) -> str:
+    """The header logo with alt text, or "" without one (the brand name then heads the email)."""
+    if not logo_url:
+        return ""
+    alt = (f"شعار {brand}" if rtl else f"{brand} logo") if brand else ("الشعار" if rtl else "Logo")
+    return (f'<img src="{escape(logo_url, quote=True)}" alt="{escape(alt, quote=True)}" width="160" '
+            f'style="display:block;max-width:160px;height:auto;border:0;outline:none;text-decoration:none">')
 
 
 def pick_template(templates: list[Template]) -> Template | None:
@@ -197,7 +214,7 @@ def body_html(sections: list[_Section], button: str, *, rtl: bool) -> str:
     return "\n".join(parts)
 
 
-def layout(*, subject: str, preview_text: str, body: str, brand: str, rtl: bool) -> str:
+def layout(*, subject: str, preview_text: str, body: str, brand: str, rtl: bool, logo_url: str | None = None) -> str:
     direction = "rtl" if rtl else "ltr"
     lang = "ar" if rtl else "en"
     footer = "تصلك هذه الرسالة لأنك مشترك في قائمتنا." if rtl else "You receive this email because you subscribed to our list."
@@ -209,7 +226,7 @@ def layout(*, subject: str, preview_text: str, body: str, brand: str, rtl: bool)
         f'<div style="display:none;max-height:0;overflow:hidden">{escape(preview_text)}</div>'
         f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">'
         f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:8px">'
-        f'<tr><td style="padding:24px 24px 0;font-size:14px;font-weight:bold;color:#374151">{escape(brand)}</td></tr>'
+        f'<tr><td style="padding:24px 24px 0;font-size:14px;font-weight:bold;color:#374151">{logo_html(logo_url, brand, rtl=rtl) or escape(brand)}</td></tr>'
         f'<tr><td style="padding:8px 24px 24px" dir="{direction}"><h1 style="margin:0 0 16px;font-size:26px">{escape(subject)}</h1>\n{body}\n</td></tr>'
         f'<tr><td style="padding:16px 24px;font-size:12px;color:#6b7280;border-top:1px solid #e5e7eb">{escape(brand)}. {footer} '
         f'<a href="{{{{ unsubscribe }}}}" style="color:#6b7280">{leave}</a></td></tr>'
@@ -220,7 +237,7 @@ def layout(*, subject: str, preview_text: str, body: str, brand: str, rtl: bool)
 async def compose(context: TenantContext, client: BrevoClient, *, subject: str, preview_text: str, outline: list[str], brief: str,
                   about: str, language: str) -> Composed:
     """The full HTML email for a planned draft."""
-    brand, voice = await asyncio.to_thread(_brand, context)
+    brand, voice, logo_url = await asyncio.to_thread(_brand, context)
     rtl = language == "ar"
     note: str | None = None
     written = await _model_sections(context, subject=subject, outline=outline, brief=brief, brand=brand, voice=voice, language=language)
@@ -234,10 +251,12 @@ async def compose(context: TenantContext, client: BrevoClient, *, subject: str, 
     template = await _template(client)
     if template is not None:
         html = template.html.replace(MARKER, f'<div dir="{"rtl" if rtl else "ltr"}">{body}</div>', 1)
+        html = html.replace(LOGO_MARKER, logo_html(logo_url, brand, rtl=rtl))
     else:
-        html = layout(subject=subject, preview_text=preview_text, body=body, brand=brand, rtl=rtl)
-    return Composed(html=html[:MAX_HTML_CHARS], generator=generator, template_id=template.id if template else None, brand_name=brand, note=note)
+        html = layout(subject=subject, preview_text=preview_text, body=body, brand=brand, rtl=rtl, logo_url=logo_url)
+    return Composed(html=html[:MAX_HTML_CHARS], generator=generator, template_id=template.id if template else None, brand_name=brand, note=note,
+                    logo_url=logo_url)
 
 
 def describe(composed: Composed) -> dict[str, Any]:
-    return {"generator": composed.generator, "brevo_template_id": composed.template_id, "brand": composed.brand_name}
+    return {"generator": composed.generator, "brevo_template_id": composed.template_id, "brand": composed.brand_name, "logo": composed.logo_url is not None}

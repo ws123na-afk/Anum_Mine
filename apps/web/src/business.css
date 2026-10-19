@@ -140,3 +140,10 @@
 .bzDetails summary { cursor: pointer; font-size: 14px; }
 .bzCheck > input[type="radio"], .bzCheck > input[type="checkbox"], .bzSignal > input { block-size: 18px; flex: none; inline-size: 18px; margin: 0; }
 .bzCheck { white-space: normal; }
+/* Support tickets (BusinessSupport.tsx). */
+.bzRef { color: var(--d-muted); font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.bzEscalated { align-items: center; color: var(--d-stop); display: inline-flex; font-size: 13px; font-weight: 600; gap: var(--d-s1); }
+.bzEscalated svg, .bzFlag { color: var(--d-stop); height: 14px; width: 14px; }
+.bzSupportToolbar .bzCompact select { max-width: 200px; }
+.bzSupportToolbar > .bzCheck { margin-top: 0; padding-block-end: var(--d-s2); }
+.bzCard .dataTable input { max-width: 120px; min-width: 0; }

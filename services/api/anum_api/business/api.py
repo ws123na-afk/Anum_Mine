@@ -78,7 +78,7 @@ from .service import (
     stamp_state,
     url_key,
 )
-from .store import BusinessStore, Query, open_business_store
+from .store import MAX_SCAN, BusinessStore, Query, open_business_store
 
 router = APIRouter(prefix="/api/v1/business", tags=["business"])
 
@@ -150,8 +150,9 @@ class SettingsUpdate(BaseModel):
 @router.put("/settings", response_model=BusinessSettings)
 def put_settings(payload: SettingsUpdate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> BusinessSettings:
     manage(context)
-    value = BusinessSettings(**payload.model_dump(), updated_by=context.user_id, updated_at=utc_now())
     with open_business_store(context) as store:
+        # The support policy is saved on its own route (PUT /support/policy) and kept here.
+        value = BusinessSettings(**payload.model_dump(), support_policy=store.get_settings().support_policy, updated_by=context.user_id, updated_at=utc_now())
         store.save_settings(value)
     audit(repository, context, "business.settings.updated", context.workspace_id, metadata=payload.model_dump())
     return value
@@ -300,6 +301,9 @@ def delete_product(product_id: str, context: TenantContext = Depends(tenant_cont
         get_or_404(store, "products", product_id, "Product", for_update=True)
         if store.count("leads", Query(where={"product_id": product_id})) or store.count("opportunities", Query(where={"product_id": product_id})):
             raise http_error(409, "Leads or opportunities use this product. Mark it retired instead.")
+        offer_ids = {offer.id for offer in _offers(store, product_id)}
+        if offer_ids and store.count("tickets", Query(where={"support_offer_id": offer_ids})):
+            raise http_error(409, "Support tickets name this product as their support plan. Mark it retired instead.")
         store.delete("products", product_id)
     audit(repository, context, "business.product.deleted", product_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -586,6 +590,8 @@ def delete_account(account_id: str, context: TenantContext = Depends(tenant_cont
         get_or_404(store, "accounts", account_id, "Account", for_update=True)
         if store.count("leads", Query(where={"account_id": account_id})) or store.count("opportunities", Query(where={"account_id": account_id})):
             raise http_error(409, "This account has leads or opportunities. Delete those first.")
+        if store.count("tickets", Query(where={"account_id": account_id})):
+            raise http_error(409, "This account has support tickets, which are kept as records. Close them instead of deleting the account.")
         store.delete("accounts", account_id)
     audit(repository, context, "business.account.deleted", account_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -703,6 +709,8 @@ def delete_contact(contact_id: str, context: TenantContext = Depends(tenant_cont
         contact = get_or_404(store, "contacts", contact_id, "Contact", for_update=True)
         for lead in store.find("leads", Query(where={"contact_id": contact_id}, limit=500))[0]:
             store.save("leads", lead.model_copy(update={"contact_id": None, "updated_at": utc_now()}))
+        for ticket in store.find("tickets", Query(where={"contact_id": contact_id}, limit=MAX_SCAN))[0]:
+            store.save("tickets", ticket.model_copy(update={"contact_id": None, "updated_at": utc_now()}))
         store.delete("contacts", contact_id)
         record_activity(store, context, "contact_deleted", "A contact was deleted.", account_id=contact.account_id)
     audit(repository, context, "business.contact.deleted", contact_id)

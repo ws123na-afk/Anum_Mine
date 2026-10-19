@@ -11,6 +11,7 @@ import 'calls_controller.dart';
 import 'calls_models.dart';
 import 'calls_repository.dart';
 
+part 'calls_admin.dart';
 part 'calls_ai_tab.dart';
 
 String _outcome(AnumLocalizations l, String? outcome) =>
@@ -224,7 +225,7 @@ class _Centered extends StatelessWidget {
 }
 
 class _Note extends StatelessWidget {
-  const _Note({required this.text, this.error = false});
+  const _Note({required this.text, this.error = false, super.key});
   final String text;
   final bool error;
   @override
@@ -1441,14 +1442,13 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
 
   Future<void> _load() async {
     try {
-      final page = await _repo.contacts();
-      final found = page.items.where((c) => c.id == widget.contactId);
+      final found = await _repo.contact(widget.contactId);
       final calls = await _repo.calls(contactId: widget.contactId);
       if (!mounted) return;
       setState(() {
-        _contact = found.isEmpty ? null : found.first;
+        _contact = found;
         _calls = calls.items;
-        _error = found.isEmpty ? '404' : null;
+        _error = null;
       });
     } on Object catch (e) {
       if (mounted) setState(() => _error = _message(e));
@@ -1506,6 +1506,14 @@ class _ContactDetailScreenState extends State<ContactDetailScreen> {
                       : contact.consent != null
                           ? l.t('calls.contact.aiConsent')
                           : l.t('calls.contact.noAiConsent'),
+                ),
+                _ConsentSection(
+                  controller: widget.controller,
+                  contact: contact,
+                  onChanged: (saved) {
+                    setState(() => _contact = saved);
+                    unawaited(widget.controller.contacts.load());
+                  },
                 ),
                 _Section(
                     title: l.f('calls.contact.calls', {'name': contact.name}),

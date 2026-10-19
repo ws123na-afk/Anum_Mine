@@ -10,6 +10,7 @@ import 'business_models.dart';
 import 'business_pipeline_repository.dart';
 import 'business_pipeline_screen.dart';
 import 'business_repository.dart';
+import 'support_screen.dart';
 
 /// Business on the phone (docs/business.md): the owner's summary, leads with
 /// their evidence and state, the pipeline, proposals waiting for acceptance
@@ -30,7 +31,7 @@ class BusinessScreen extends StatefulWidget {
   State<BusinessScreen> createState() => _BusinessScreenState();
 }
 
-enum _Section { overview, leads, pipeline, proposals, projects }
+enum _Section { overview, leads, pipeline, proposals, projects, support }
 
 String money(double? amount, String currency) =>
     amount == null ? '-' : '$currency ${amount.toStringAsFixed(2)}';
@@ -81,6 +82,11 @@ class _BusinessScreenState extends State<BusinessScreen> {
         c.first(c.projects);
       case _Section.leads:
         if (c.leads.state == BusinessLoad.idle) c.first(c.leads);
+      case _Section.support:
+        final support = c.support;
+        if (support != null && support.state != BusinessLoad.ready) {
+          support.load();
+        }
       case _Section.overview:
         break;
     }
@@ -147,7 +153,10 @@ class _BusinessScreenState extends State<BusinessScreen> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        for (final item in _Section.values)
+                        for (final item in _Section.values.where(
+                          (item) =>
+                              item != _Section.support || c.support != null,
+                        ))
                           ChoiceChip(
                             key: Key('biz-tab-${item.name}'),
                             label: Text(l.t('biz.tab.${item.name}')),
@@ -249,6 +258,20 @@ class _BusinessScreenState extends State<BusinessScreen> {
             'biz.projects',
             (item) => _ProjectCard(project: item, controller: c),
           ),
+        _Section.support => [
+            SupportTicketsView(
+              controller: c.support!,
+              onOpenApprovals: widget.onOpenApprovals,
+              loadProjects: () async {
+                final page = await c.repository.projects(offset: 0, limit: 100);
+                return [
+                  for (final item in page.items)
+                    if (item.status != 'closed')
+                      (item.id, '${item.name} · ${item.accountName}'),
+                ];
+              },
+            ),
+          ],
       };
 
   List<Widget> _overview(BuildContext context, BusinessController c) {

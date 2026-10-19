@@ -44,7 +44,7 @@ from . import assist
 from .models import CONTACTABLE_BASES, Contact, Draft, DraftChannel, DraftStatus, Lead, LeadState
 from .outreach_models import OPEN_OUTBOX, SENDABLE_CHANNELS, OutboxItem, OutboxStatus, ReplyEvent, ReplyKind
 
-# Rows that hold their draft's and their step's place (the unique indexes of migration 0076).
+# Rows that hold their draft's and their step's place (the unique indexes of migration 0079).
 LIVE_OUTBOX = frozenset(set(OPEN_OUTBOX) | {OutboxStatus.SENDING, OutboxStatus.SENT, OutboxStatus.NEEDS_REVIEW})
 # A claim older than this with no provider id is an interrupted send: reviewed by a person, never resent.
 STALE_SENDING = timedelta(minutes=10)

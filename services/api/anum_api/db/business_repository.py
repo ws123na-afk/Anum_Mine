@@ -1,4 +1,4 @@
-"""PostgreSQL store for the internal sales MVP (migration ``0070_business``).
+"""PostgreSQL store for the internal sales MVP (migrations ``0070_business`` and ``0076_business_support``).
 
 The session carries the tenant and workspace RLS context (``open_scoped_store``); every
 query also filters on the scope explicitly, so a guessed id from another workspace reads
@@ -15,7 +15,7 @@ from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String, Text, 
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.business.models import BusinessSettings
+from anum_api.business.models import BusinessSettings, SupportPolicy
 from anum_api.business.store import KINDS, Query, plain
 from anum_api.schemas import TenantContext
 
@@ -164,6 +164,7 @@ class BusinessActivityRecord(Base, _Row):
     opportunity_id: Mapped[str | None] = mapped_column(String(80))
     proposal_id: Mapped[str | None] = mapped_column(String(80))
     project_id: Mapped[str | None] = mapped_column(String(80))
+    ticket_id: Mapped[str | None] = mapped_column(String(80))
     kind: Mapped[str] = mapped_column(String(60))
     summary: Mapped[str] = mapped_column(String(500))
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB)
@@ -299,12 +300,70 @@ class BusinessResearchRunRecord(Base, _Updated):
     created_by: Mapped[str] = mapped_column(String(160))
 
 
+class BusinessSupportTicketRecord(Base, _Updated):
+    __tablename__ = "business_support_tickets"
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text)
+    account_id: Mapped[str | None] = mapped_column(String(80))
+    contact_id: Mapped[str | None] = mapped_column(String(80))
+    project_id: Mapped[str | None] = mapped_column(String(80))
+    requester_name: Mapped[str] = mapped_column(String(160))
+    requester_email: Mapped[str | None] = mapped_column(String(254))
+    requester_phone: Mapped[str | None] = mapped_column(String(40))
+    requester_verified: Mapped[bool] = mapped_column(Boolean)
+    entitlement: Mapped[str] = mapped_column(String(20))
+    support_offer_id: Mapped[str | None] = mapped_column(String(80))
+    entitlement_note: Mapped[str] = mapped_column(String(300))
+    severity: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(30))
+    assignee_id: Mapped[str | None] = mapped_column(String(160))
+    source: Mapped[str] = mapped_column(String(20))
+    source_ref: Mapped[str | None] = mapped_column(String(80))
+    source_account_id: Mapped[str | None] = mapped_column(String(80))
+    reported_at: Mapped[datetime] = mapped_column(TS)
+    response_due_at: Mapped[datetime | None] = mapped_column(TS)
+    resolution_due_at: Mapped[datetime | None] = mapped_column(TS)
+    first_responded_at: Mapped[datetime | None] = mapped_column(TS)
+    sla_paused_at: Mapped[datetime | None] = mapped_column(TS)
+    sla_paused_minutes: Mapped[int] = mapped_column(Integer)
+    escalated: Mapped[bool] = mapped_column(Boolean)
+    escalation_reason: Mapped[str] = mapped_column(String(300))
+    escalated_at: Mapped[datetime | None] = mapped_column(TS)
+    escalated_by: Mapped[str | None] = mapped_column(String(160))
+    resolution_code: Mapped[str | None] = mapped_column(String(30))
+    resolution_summary: Mapped[str] = mapped_column(Text)
+    resolved_at: Mapped[datetime | None] = mapped_column(TS)
+    resolved_by: Mapped[str | None] = mapped_column(String(160))
+    closed_at: Mapped[datetime | None] = mapped_column(TS)
+    closed_by: Mapped[str | None] = mapped_column(String(160))
+    reopened_count: Mapped[int] = mapped_column(Integer)
+    created_by: Mapped[str] = mapped_column(String(160))
+
+
+class BusinessTicketReplyRecord(Base, _Updated):
+    __tablename__ = "business_ticket_replies"
+    ticket_id: Mapped[str] = mapped_column(String(80))
+    channel: Mapped[str] = mapped_column(String(20))
+    body: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20))
+    generator: Mapped[str] = mapped_column(String(20))
+    external_ref: Mapped[str | None] = mapped_column(String(80))
+    approval_id: Mapped[str | None] = mapped_column(String(80))
+    task_id: Mapped[str | None] = mapped_column(String(80))
+    error: Mapped[str] = mapped_column(String(500))
+    requested_by: Mapped[str | None] = mapped_column(String(160))
+    requested_at: Mapped[datetime | None] = mapped_column(TS)
+    sent_at: Mapped[datetime | None] = mapped_column(TS)
+    created_by: Mapped[str] = mapped_column(String(160))
+
+
 class BusinessSettingsRecord(Base):
     __tablename__ = "business_settings"
     tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
     workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
     research_runs_per_day: Mapped[int] = mapped_column(Integer)
     research_searches_per_day: Mapped[int] = mapped_column(Integer)
+    support_policy: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     updated_by: Mapped[str | None] = mapped_column(String(160))
     updated_at: Mapped[datetime] = mapped_column(TS)
 
@@ -325,6 +384,8 @@ RECORDS: dict[str, Any] = {
     "milestones": BusinessMilestoneRecord,
     "drafts": BusinessDraftRecord,
     "research_runs": BusinessResearchRunRecord,
+    "tickets": BusinessSupportTicketRecord,
+    "ticket_replies": BusinessTicketReplyRecord,
 }
 RECORDS.update(PIPELINE_RECORDS)
 if set(RECORDS) != set(KINDS):  # pragma: no cover - import-time wiring check
@@ -452,6 +513,7 @@ class SqlAlchemyBusinessStore:
             return BusinessSettings()
         return BusinessSettings(
             research_runs_per_day=found.research_runs_per_day, research_searches_per_day=found.research_searches_per_day,
+            support_policy=SupportPolicy.model_validate(found.support_policy) if found.support_policy else SupportPolicy(),
             updated_by=found.updated_by, updated_at=found.updated_at,
         )
 
@@ -463,6 +525,7 @@ class SqlAlchemyBusinessStore:
             self.session.add(found)
         found.research_runs_per_day = value.research_runs_per_day
         found.research_searches_per_day = value.research_searches_per_day
+        found.support_policy = value.support_policy.model_dump(mode="json")
         found.updated_by = value.updated_by
         found.updated_at = value.updated_at or datetime.now().astimezone()
         self.session.flush()

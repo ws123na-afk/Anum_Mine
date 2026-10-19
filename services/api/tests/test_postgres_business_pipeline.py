@@ -1,4 +1,4 @@
-"""The prospecting pipeline and outbox in PostgreSQL (migration ``0076_business_pipeline``), as the app role.
+"""The prospecting pipeline and outbox in PostgreSQL (migration ``0079_business_pipeline``), as the app role.
 
 All six tables are under forced RLS: tenant B and tenant A's other workspace see none of A's rows,
 guessed ids read as missing, a row claiming another scope is refused by the row policy, updates and

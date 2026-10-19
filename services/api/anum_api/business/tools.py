@@ -5,6 +5,11 @@
   with the payload hash they were shown, and only if the proposal still has that version
   and content hash; anything changed after the request is refused and nothing is accepted.
 
+* ``business.draft_support_reply`` (low risk; owners and members): writes a reply draft on a
+  support ticket that came from an email or WhatsApp conversation. It only drafts: the reply
+  is delivered when a person asks for it and an owner approves it in the inbox's own approval
+  path (docs/business.md#replies-and-approval).
+
 Accepting is an internal record (the client's acceptance confirmed by the owner); it sends
 nothing.
 
@@ -18,6 +23,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any
+
+from fastapi import HTTPException
 
 from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
 from ..events import CanonicalEventName, create_event
@@ -145,6 +152,48 @@ async def accept_proposal(call: ToolCall, context: TenantContext) -> ToolResult:
     )
 
 
+SUPPORT_REPLY_TOOL = "business.draft_support_reply"
+
+
+def support_reply_definition() -> ToolDefinition:
+    return ToolDefinition(
+        name=SUPPORT_REPLY_TOOL,
+        description=(
+            "Draft a reply to the requester of a Business support ticket (arguments: ticket_id, body). "
+            "The reply stays a draft until a person asks to deliver it and an owner approves it; this tool sends nothing."
+        ),
+        risk_level=RiskLevel.LOW,
+        required_roles=frozenset({"owner", "member"}),
+        timeout_seconds=30,
+        category="general",
+        action_kind="draft",
+    )
+
+
+async def draft_support_reply(call: ToolCall, context: TenantContext) -> ToolResult:
+    from .api_support import create_reply, reference
+
+    ticket_id = str(call.arguments.get("ticket_id") or "")
+    body = str(call.arguments.get("body") or "").strip()
+    if not body:
+        return _failed("Write the reply text (body); nothing was drafted.")
+    try:
+        with open_business_store(context) as store:
+            ticket = store.get("tickets", ticket_id, for_update=True)
+            if ticket is None:
+                return _failed("That ticket does not exist in this workspace; nothing was drafted.")
+            reply = create_reply(store, context, ticket, body[:4000], "agent")
+    except HTTPException as exc:
+        return _failed(f"Not drafted: {exc.detail}")
+    audit(None, context, "business.ticket.reply_drafted", ticket_id, metadata={"reply_id": reply.id, "generator": "agent", "chars": len(reply.body)})
+    return ToolResult(
+        status="succeeded",
+        summary=f"Reply drafted on ticket {reference(ticket)}. It is not sent: open the ticket, check it and ask for approval.",
+        output={"ticket_id": ticket_id, "reply_id": reply.id, "status": reply.status.value},
+        audit_metadata={"ticket_id": ticket_id, "reply_id": reply.id},
+    )
+
+
 def register_business_tools(registry: ToolRegistry) -> ToolRegistry:
     """Add the business tools to a runtime's registry (the API's and the Temporal worker's).
 
@@ -158,6 +207,8 @@ def register_business_tools(registry: ToolRegistry) -> ToolRegistry:
         registry.register(send_definition(), send_outreach)
     if FETCH_TOOL not in registry.names:
         registry.register(fetch_definition(), page_fetcher)
+    if SUPPORT_REPLY_TOOL not in registry.names:
+        registry.register(support_reply_definition(), draft_support_reply)
     research.configure(registry)
     return registry
 

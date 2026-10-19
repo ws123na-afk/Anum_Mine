@@ -55,3 +55,32 @@ def test_sign_in_providers_are_normalized(raw: str, normalized: str) -> None:
 def test_unknown_sign_in_providers_refuse_startup(raw: str) -> None:
     with pytest.raises(ValidationError, match="ANUM_SIGN_IN_PROVIDERS"):
         Settings(sign_in_providers=raw)
+
+
+def test_privacy_policy_defaults_to_the_web_apps_legal_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Unset ANUM_PRIVACY_POLICY_URL: the web host's public /legal/privacy page (docs/legal-pages.md),
+    # from the first public https origin the API allows. Local origins never count.
+    monkeypatch.setattr(settings, "privacy_policy_url", "")
+    monkeypatch.setattr(
+        settings,
+        "cors_origins",
+        ["http://localhost:5173", "https://tauri.localhost", "https://app.example.com", "https://other.example.com"],
+    )
+    body = TestClient(app).get("/api/v1/auth/sign-in-options").json()
+    assert body["privacy_policy_url"] == "https://app.example.com/legal/privacy"
+
+
+def test_an_explicit_privacy_policy_wins_over_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "privacy_policy_url", " https://example.com/policy ")
+    monkeypatch.setattr(settings, "cors_origins", ["https://app.example.com"])
+    assert TestClient(app).get("/api/v1/auth/sign-in-options").json()["privacy_policy_url"] == "https://example.com/policy"
+
+
+@pytest.mark.parametrize(
+    "origins",
+    [[], ["http://app.example.com"], ["https://localhost:5173", "https://127.0.0.1"], ["https://app.example.com/path"]],
+)
+def test_no_default_without_a_public_https_web_origin(monkeypatch: pytest.MonkeyPatch, origins: list[str]) -> None:
+    monkeypatch.setattr(settings, "privacy_policy_url", "")
+    monkeypatch.setattr(settings, "cors_origins", origins)
+    assert TestClient(app).get("/api/v1/auth/sign-in-options").json()["privacy_policy_url"] is None
