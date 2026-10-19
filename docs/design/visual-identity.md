@@ -77,7 +77,7 @@ A distinct display face with Arabic support (for example IBM Plex Sans Arabic be
 | Summary figures | Text colour; a status figure marks its label with a small dot. |
 | Empty states | The icon sits in a quiet 44 px tile, then a title and the next action. |
 | Loading | `LoadingSkeleton` (`PageParts.tsx`): bars shaped like a panel's heading and lines with a slow pulse, and a screen-reader label, instead of a "Loading..." sentence. The shell's view loader and Governance use it. |
-| Dialogs and drawers | Open with a 180 ms fade and lift (drawers slide in); the scrim fades in. |
+| Dialogs and drawers | Open with a 180 ms lift while the scrim fades in; the panel never fades, so its text is at full contrast from the first frame. |
 | Toasts | The message toast slides and fades in; tokens give it the panel surface. |
 | Tables | Dense rows on the panel surface, a sticky header, hairline row separators. |
 

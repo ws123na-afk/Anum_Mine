@@ -55,7 +55,8 @@
 /* Today's meetings */
 .meetingList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
 .meetingList li { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto; padding: var(--d-s2) var(--d-s3); }
-.meetingList li.done { opacity: .7; }
+.meetingList li.done { background: transparent; }
+.meetingList li.done .meetingBody strong { color: var(--d-muted); font-weight: 500; }
 .meetingTime { display: grid; white-space: nowrap; font-size: 14px; font-variant-numeric: tabular-nums; font-weight: 700; }
 .meetingTime small { color: var(--d-faint); font-size: 12px; font-weight: 500; }
 .meetingBody { align-items: center; display: flex; flex-wrap: wrap; gap: 2px var(--d-s2); min-width: 0; }
