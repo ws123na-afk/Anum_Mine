@@ -20,9 +20,15 @@ Six workspace tables under forced RLS on ``anum.tenant_id`` and ``anum.workspace
 
 References carry the scope (``(tenant_id, workspace_id, <id>)`` composite foreign keys onto the
 0070 tables' ``uq_<table>_scope_id``), so a row can never point into another tenant or workspace.
-No role is granted anything and no discovery role reads these tables.
+No discovery role reads these tables.
 
-Expand only: new tables and indexes. The previous release ignores them.
+Organisation and workspace deletion (migration ``0079_tenant_lifecycle``): all six tables get
+the ``anum_tenant_purger`` grants (scope columns only, plus delete) and the purge policy
+``lifecycle_purge_<table>``, copied from 0079's ``_purge_policy`` for workspace tables. No
+other role is granted anything.
+
+Expand only: new tables, indexes and the purger's grants and policies. The previous release
+ignores them.
 
 Numbered 0082 and chained after ``0080_business_change_orders``, the head of ``main``; parallel branches use
 0079 to 0081, and the owner re-chains at merge.
@@ -49,6 +55,8 @@ TABLES = (
     "business_outbox",
     "business_replies",
 )
+PURGER = "anum_tenant_purger"
+JOBS = "tenant_lifecycle_jobs"
 TS = sa.DateTime(timezone=True)
 
 
@@ -94,6 +102,27 @@ def _enable_rls(table: str) -> None:
           {PREDICATE}
         )
         """
+    )
+
+
+def _purge_policy(table: str) -> None:
+    """Deletion of the organisation or of one workspace may remove these rows (0079's ``_purge_policy``)."""
+    op.execute(f"grant select (tenant_id, ctid, workspace_id), delete on {table} to {PURGER}")
+    op.execute(
+        f"""
+        create policy lifecycle_purge_{table} on {table}
+        for all to {PURGER}
+        using (
+          tenant_id = nullif(current_setting('anum.tenant_id', true), '')
+          and exists (
+            select 1 from {JOBS} j
+            where j.tenant_id = {table}.tenant_id and j.status = 'purging'
+              and (j.kind = 'organisation_deletion'
+                   or (j.kind = 'workspace_deletion' and j.workspace_id = {table}.workspace_id))
+          )
+        )
+        with check (false)
+        """  # nosec B608 - fixed table names
     )
 
 
@@ -254,8 +283,11 @@ def upgrade() -> None:
 
     for table in TABLES:
         _enable_rls(table)
+        _purge_policy(table)
 
 
 def downgrade() -> None:
+    for table in TABLES:
+        op.execute(f"drop policy if exists lifecycle_purge_{table} on {table}")
     for table in reversed(TABLES):
         op.drop_table(table)

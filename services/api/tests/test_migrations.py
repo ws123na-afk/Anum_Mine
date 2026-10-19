@@ -1111,7 +1111,10 @@ def test_business_pipeline_migration_is_expand_only_with_forced_rls_and_scoped_r
     # Sending is off by default; one open outbox row per draft.
     assert '"sending_enabled", sa.boolean(), nullable=false, server_default=sa.false()' in upgrade
     assert "uq_business_outbox_open_draft" in upgrade and "uq_business_outbox_sequence_step" in upgrade
-    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+    # The only grant is the tenant purger's (scope columns and delete) with its purge policy, for every table.
+    assert "_purge_policy(table)" in upgrade and "grant select (tenant_id, ctid, workspace_id), delete on {table} to {purger}" in revision_text.lower().replace("{purger}", "{purger}")
+    assert "create policy lifecycle_purge_{table}" in revision_text and revision_text.lower().count("grant ") == 1
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
     assert "op.add_column(" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade
 
 def test_tenant_lifecycle_migration_is_expand_only_with_a_narrow_purge_role() -> None:
