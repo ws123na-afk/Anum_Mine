@@ -75,9 +75,8 @@ class _TyrePlanViewState extends State<TyrePlanView> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.ops.planState != OpsLoad.ready) {
-        widget.ops.loadPlan();
-      }
+      // Always reload: the data belongs to the workspace now open.
+      if (mounted) widget.ops.loadPlan();
     });
   }
 
@@ -195,8 +194,8 @@ class _TyreReportsViewState extends State<TyreReportsView> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (ops.reportsState != OpsLoad.ready) ops.loadReports();
-      if (ops.schedulesState != OpsLoad.ready) ops.loadSchedules();
+      ops.loadReports();
+      ops.loadSchedules();
     });
   }
 
@@ -281,7 +280,7 @@ class _TyreReportsViewState extends State<TyreReportsView> {
                   title: r.title,
                   subtitle: [
                     local.formatMediumDate(r.createdAt.toLocal()),
-                    if (r.source == 'scheduled') l.t('tyreOps.scheduled'),
+                    if (r.source == 'schedule') l.t('tyreOps.scheduled'),
                   ].join(' · '),
                   detail: r.highlights.isEmpty
                       ? null

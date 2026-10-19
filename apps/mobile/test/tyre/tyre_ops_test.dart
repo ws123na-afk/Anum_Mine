@@ -1,3 +1,5 @@
+import 'dart:async';
+
 // Tyre plan, reports and schedules on the phone (docs/tyre-planning.md):
 // sync now, the purchase plan, generating, reading, deleting and sending
 // reports, report schedules, with the server's own role answers.
@@ -21,7 +23,7 @@ Map<String, Object?> reportJson(int i, {bool full = false}) => {
       'period_from': null,
       'period_to': null,
       'created_at': '2026-10-18T08:00:00Z',
-      'source': i.isEven ? 'scheduled' : 'manual',
+      'source': i.isEven ? 'schedule' : 'manual',
       'deliveries': <Object?>[],
       if (!full)
         'highlights': [
@@ -432,4 +434,45 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('a scheduled report carries the Scheduled label', (tester) async {
+    await phone(tester);
+    await open(tester, FakeOps(), tab: 'Reports');
+    expect(find.textContaining('Scheduled'), findsWidgets);
+  });
+
+  test('an older plan response never replaces a newer horizon', () async {
+    final repo = SlowPlan();
+    final ops = TyreOps(repo);
+    final older = ops.setMonths(3);
+    final newer = ops.setMonths(12);
+    repo.second.complete(PurchasePlan.fromJson(JsonReader.of(
+        {'currency': 'SAR', 'total_tyres': 12, 'rows': <Object?>[]})));
+    await newer;
+    repo.first.complete(PurchasePlan.fromJson(JsonReader.of(
+        {'currency': 'SAR', 'total_tyres': 3, 'rows': <Object?>[]})));
+    await older;
+    expect(ops.months, 12);
+    expect(ops.plan!.totalTyres, 12);
+  });
+
+  testWidgets('reopening the plan and syncing reload it', (tester) async {
+    await phone(tester);
+    final ops = FakeOps();
+    await open(tester, ops, tab: 'Plan');
+    final before = ops.calls.where((x) => x.startsWith('plan')).length;
+    await tap(tester, 'tyre-sync');
+    expect(ops.calls.where((x) => x.startsWith('plan')).length, before + 1);
+    await open(tester, ops, tab: 'Plan');
+    expect(ops.calls.where((x) => x.startsWith('plan')).length, before + 2);
+  });
+}
+
+class SlowPlan extends FakeOps {
+  final first = Completer<PurchasePlan>();
+  final second = Completer<PurchasePlan>();
+  var n = 0;
+
+  @override
+  Future<PurchasePlan> plan(int months) => (n++ == 0 ? first : second).future;
 }

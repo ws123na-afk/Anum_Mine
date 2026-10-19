@@ -329,14 +329,20 @@ class TyreOps extends ChangeNotifier {
 
   Future<int> sync() => repository.sync();
 
+  int _planGeneration = 0;
+
   Future<void> loadPlan() async {
+    final generation = ++_planGeneration;
     planState = OpsLoad.loading;
     planError = null;
     notifyListeners();
     try {
-      plan = await repository.plan(months);
+      final found = await repository.plan(months);
+      if (generation != _planGeneration) return;
+      plan = found;
       planState = OpsLoad.ready;
     } catch (e) {
+      if (generation != _planGeneration) return;
       planState = _stateOf(e);
       planError = _message(e);
     }
@@ -429,6 +435,7 @@ class TyreOps extends ChangeNotifier {
 
   void reset() {
     plan = null;
+    _planGeneration++;
     planState = reportsState = schedulesState = OpsLoad.idle;
     reports.clear();
     reportsTotal = 0;

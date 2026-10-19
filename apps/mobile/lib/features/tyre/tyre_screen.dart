@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -40,6 +42,8 @@ class _TyreScreenState extends State<TyreScreen> {
     try {
       final raised = await ops.sync();
       await widget.controller.load();
+      // The synced data changes the plan: reload it when it is on show.
+      if (ops.plan != null) unawaited(ops.loadPlan());
       messenger
         ..clearSnackBars()
         ..showSnackBar(
