@@ -33,6 +33,7 @@ MODULE_PREFIXES = {
     "billing": "/api/v1/billing",
     "platform_billing": "/api/v1/platform/billing",
     "business": "/api/v1/business",
+    "business_support": "/api/v1/business/support",
     "autonomy": "/api/v1/autonomy",
     "developer": "/api/v1/developer",
     "email": "/api/v1/email",

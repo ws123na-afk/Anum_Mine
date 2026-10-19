@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import '../workspace/files_repository.dart';
 import '../workspace/workspace_models.dart';
+import 'mail_all_inboxes.dart';
 import 'mail_center_models.dart';
 import 'mail_center_repository.dart';
 import 'mail_center_transfer.dart';
@@ -60,11 +61,20 @@ mixin MailNoticeSource on ChangeNotifier {
 /// with paging and search, the opened message, and the draft being written.
 class MailCenterController extends ChangeNotifier with MailNoticeSource {
   MailCenterController(this.repository,
-      {DateTime Function()? clock, this.transfer = const NoMailFileTransfer()})
-      : _clock = clock ?? DateTime.now;
+      {DateTime Function()? clock,
+      this.transfer = const NoMailFileTransfer(),
+      MailAllInboxesRepository? allInboxesRepository})
+      : _clock = clock ?? DateTime.now,
+        allInboxes = allInboxesRepository == null
+            ? null
+            : MailAllInboxesController(allInboxesRepository);
   final MailCenterRepository repository;
   final MailFileTransfer transfer;
   final DateTime Function() _clock;
+
+  /// All inboxes over every readable mailbox (docs/email.md#all-inboxes);
+  /// null when the app was built without it.
+  final MailAllInboxesController? allInboxes;
 
   /// Contacts, shares and identities (same repository).
   late final MailDirectoryController directory =
@@ -593,6 +603,25 @@ class MailCenterController extends ChangeNotifier with MailNoticeSource {
       detailError = describe(e);
     }
     notifyListeners();
+  }
+
+  /// Opens [message] from All inboxes in its own mailbox: the mailbox's
+  /// folders, identities and AI, its inbox, then the message, so a reply is a
+  /// draft of that mailbox sent from its address after approval.
+  Future<void> openFromAllInboxes(
+      MailAccount target, MailMessage message) async {
+    detail = null;
+    detailError = null;
+    detailPhase = MailPhase.loading;
+    opened = message;
+    notifyListeners();
+    await openAccount(target);
+    folder = folderWithRole('inbox') ??
+        const MailFolder(
+            id: 'INBOX', name: 'INBOX', role: 'inbox', total: 0, unread: 0);
+    messages = [message];
+    nextBefore = null;
+    await read(message);
   }
 
   Future<void> retryRead() async {

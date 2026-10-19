@@ -57,9 +57,21 @@ The console's counts are read through `anum_platform_reader` (migration `0039_te
 |---|---|
 | `GET /api/v1/organization/branding` | every member: `{display_name, has_logo, ...}` (the tenant name until one is set) |
 | `GET /api/v1/organization/branding/logo` | every member: the image, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'` |
+| `GET /api/v1/public/logos/{org_public_id}/{sha256}.{png|jpg|webp}` | no sign-in: a published logo version for email headers ([public logos](#public-logos)) |
 | `PUT /api/v1/organization/branding {display_name}`, `PUT /api/v1/organization/branding/logo` (raw PNG, JPEG or WebP, at most 256 KiB, checked by magic bytes; SVG is refused), `DELETE .../logo` | `org_admin` |
 
 Stored in `tenant_branding` (forced RLS on `anum.tenant_id`). The web sidebar shows the organisation name and logo; Settings › Workspace has the editor. Changes are audited.
+
+### Public logos
+
+A logo is a public brand asset, so email headers link to it without any secret (`services/api/anum_api/public_logos.py`):
+
+- **Address:** `/api/v1/public/logos/{org_public_id}/{sha256}.{png|jpg|webp}`. `org_public_id` is a hash of the tenant id (stable, and the tenant id is not printed in emails); the file name is the SHA-256 of the image bytes, which cannot be guessed without the image. The response is the image with `Cache-Control: public, max-age=31536000, immutable`, `nosniff` and `default-src 'none'`; the bytes are checked against the hash on every read. Anything else is a plain 404.
+- **Survives key rotation:** nothing is signed or encrypted, so rotating `ANUM_SECRETS_KEY` never breaks a logo in an email already sent.
+- **Versions:** uploading a logo stores it in object storage under its hash (`public-logos/{org_public_id}/`), and `organisations.logo_link` publishes the current logo again if needed. A new logo gets a new address; old addresses keep serving the old image.
+- **Purge:** `public_logos.purge(tenant_id)` deletes every version the organisation published (a per-organisation manifest lists them, since the object store cannot list by prefix). ANUM has no organisation deletion yet; when one is added, it must call `purge`. Removing a logo (`DELETE .../logo`) does not purge: emails already sent keep their image.
+
+Tests: `services/api/tests/test_brevo_planning.py` (the address, rotation, versions and purge, malformed addresses).
 
 ## Switching organisations
 

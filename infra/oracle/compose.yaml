@@ -436,6 +436,9 @@ services:
         # bundle has no reporting code. Its origin is added to the CSP's connect-src at build.
         VITE_SENTRY_DSN: ${ANUM_WEB_SENTRY_DSN:-}
         VITE_SENTRY_ENVIRONMENT: ${ANUM_ENVIRONMENT:-staging}
+        # Legal pages shown without the DRAFT banner (docs/legal-pages.md): terms, privacy,
+        # dpa, aup, subprocessors (comma-separated) or all. Empty: every page is a draft.
+        VITE_ANUM_LEGAL_PUBLISHED: ${ANUM_LEGAL_PUBLISHED:-}
     image: anum/web:local
     restart: unless-stopped
     environment:

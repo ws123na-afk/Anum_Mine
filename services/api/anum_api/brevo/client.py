@@ -120,6 +120,20 @@ class Sender:
 
 
 @dataclass(frozen=True)
+class Template:
+    id: int
+    name: str
+    tag: str
+    active: bool
+    # The owner's own email layout from Brevo, kept as HTML (it goes back to Brevo as written).
+    html: str
+
+
+# Templates can be large: kept up to the draft's own HTML limit (models.MAX_HTML_CHARS).
+MAX_TEMPLATE_HTML = 512 * 1024
+
+
+@dataclass(frozen=True)
 class CampaignStats:
     sent: int = 0
     delivered: int = 0
@@ -289,6 +303,17 @@ class BrevoClient:
             id=_int(data.get("id")), name=_text(data.get("name")), subscribers=_int(data.get("uniqueSubscribers") or data.get("totalSubscribers")),
             blacklisted=_int(data.get("totalBlacklisted")), folder_id=_int(data.get("folderId")) or None,
         )
+
+    async def templates(self, *, limit: int = MAX_LIMIT) -> list[Template]:
+        """Active email templates, newest first (``GET /smtp/templates``)."""
+        params = {"templateStatus": "true", "limit": max(1, min(limit, MAX_LIMIT)), "offset": 0, "sort": "desc"}
+        data = await self._call("GET", "/smtp/templates", params=params)
+        data = data if isinstance(data, dict) else {}
+        return [
+            Template(id=_int(item.get("id")), name=_text(item.get("name"), 200), tag=_text(item.get("tag"), 100),
+                     active=item.get("isActive") is True, html=str(item.get("htmlContent") or "")[:MAX_TEMPLATE_HTML])
+            for item in (data.get("templates") or [])[:MAX_LIMIT] if isinstance(item, dict) and _int(item.get("id"))
+        ] if isinstance(data.get("templates"), list) else []
 
     async def senders(self) -> list[Sender]:
         data = await self._call("GET", "/senders")

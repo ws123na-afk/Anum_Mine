@@ -46,6 +46,10 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Journey tests in integration_test/ (docs/mobile-journeys.md), run headless
+  # with `flutter test integration_test -d flutter-tester`.
+  integration_test:
+    sdk: flutter
   flutter_lints: ^6.0.0
   mocktail: ^1.0.4
 
