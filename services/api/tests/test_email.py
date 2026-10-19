@@ -1072,9 +1072,9 @@ def test_composing_checks_the_role_the_mailbox_and_the_addresses(fake: FakeMail)
 
 
 def test_a_private_mailbox_is_composed_from_only_by_the_person_who_connected_it(fake: FakeMail) -> None:
-    private = connect("gmail", who=MEMBER, visibility="private")
-    assert compose(private["id"], who=OWNER).status_code == 404
-    assert compose(private["id"], who=MEMBER).status_code == 201
+    private = connect("gmail", who=OWNER, visibility="private")
+    assert compose(private["id"], who=MEMBER).status_code == 404
+    assert compose(private["id"], who=OWNER).status_code == 201
 
 
 def test_changing_the_blind_copies_withdraws_the_pending_send_approval(fake: FakeMail) -> None:

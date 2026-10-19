@@ -38,6 +38,12 @@ Every id that reaches a provider URL path (message, attachment, draft, folder, r
 
 `POST /api/v1/email/drafts/{id}/send-approval` creates a task paused at a `send_email` call carrying exactly the draft's sender, recipients, subject and body. Sending is high risk, so it always waits for approval; the owner approves with the payload hash shown (`POST /api/v1/approvals/{id}/approve {"payload_hash": ...}`), and only then does the runtime send that text to those recipients (Gmail `messages.send` with the thread and `In-Reply-To`, Graph `reply`/`sendMail`, Zoho `messages` with `action=reply`). Editing the draft withdraws a pending approval. Organization policy packs can deny `send_email` outright.
 
+### Composing a new message
+
+`POST /api/v1/email/drafts` `{account_id, to[], cc[], bcc[], subject, body}` (owners and members, `email:act`) saves a message written from scratch as a draft in one of the caller's visible mailboxes and in the provider's Drafts; it sends nothing. It runs the `draft_reply` tool with `account_id` and no `message_id`, so the same policy applies as for reply drafts (a paused draft answers `waiting_approval`). Addresses are checked and lower-cased, at most 50 recipients across To, Cc and Bcc; a private mailbox is invisible to others (404), a mailbox needing reconnecting answers 409. An empty recipient list or body can be saved but is refused at `send-approval` (422).
+
+Drafts carry `kind` (`new` or `reply`) and `bcc` (migration `0087_email_draft_bcc`, one defaulted column, expand only); `PATCH /drafts/{id}` also takes `bcc`. Sending is the reply path unchanged: `POST /drafts/{id}/send-approval` pauses a `send_email` call whose arguments (From, To, Cc, Bcc, subject, text, no `in_reply_to`) the payload hash covers, an owner approves with the hash, and the message goes out through Gmail `messages.send` (no thread), Graph `sendMail` or Zoho `messages` (no `action=reply`). Changing any field withdraws the pending approval. Web: **New email** in the Inbox header opens a compose drawer; Flutter: the compose button on the inbox. Tests: `services/api/tests/test_email.py` (compose tests), web `apps/web/e2e/inbox.spec.ts`, Flutter `apps/mobile/test/email/compose_and_ticket_test.dart`.
+
 ### Tools for tasks, chat and voice
 
 | Tool | Risk | What |
@@ -129,7 +135,7 @@ Until a domain is authenticated, Brevo either refuses the sender or sends throug
 ## Limits and what is not done yet
 
 - Mailboxes are connected from the web app; the Flutter app lists, reads, drafts and approves sending, and points to the web for connecting and attachment downloads.
-- Composing a brand-new message (not a reply) exists in the `send_email` tool path but has no screen yet.
+- A new message from the OAuth inbox has no attachments (the provider send paths here carry text only); attachments are in the Email Center below.
 - Zoho drafts saved by ANUM stay in Zoho's Drafts after sending or discarding (deleting them needs the drafts folder id); Zoho read-state changes to older messages are picked up only when re-read.
 - Message bodies are never stored, so retention applies to metadata only: it stays while the mailbox is connected. Privacy export and "Delete my data" cover the caller's mailboxes and drafts ([Privacy](privacy.md)); disconnecting deletes everything ANUM holds for a mailbox.
 

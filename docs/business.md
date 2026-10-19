@@ -96,7 +96,7 @@ A locked version is never edited: a change creates a new version and lapses the 
 
 ## Support tickets
 
-Roadmap 4.D and P2 ("support ticket"), section 6 `Support`: requester identity, entitlement, severity, escalations and resolution audit. Routes are under `/api/v1/business/support` (`anum_api/business/api_support.py`, rules in `support.py`, inbox links in `support_channels.py`). Web: Business, Support tab (`#business-support`, policy under Business, Settings). Flutter: Business, Support (list, create, detail, replies; the support plan entitlement, tickets from a message and the policy editor are on the web only). Tickets from a message are created through the API today; a "make a ticket" button in the Email and WhatsApp views is still to come.
+Roadmap 4.D and P2 ("support ticket"), section 6 `Support`: requester identity, entitlement, severity, escalations and resolution audit. Routes are under `/api/v1/business/support` (`anum_api/business/api_support.py`, rules in `support.py`, inbox links in `support_channels.py`). Web: Business, Support tab (`#business-support`, policy under Business, Settings). Flutter: Business, Support (list, create, detail, replies; the support plan entitlement, and the policy editor are on the web only). Tickets from a message are created with **Create ticket** on an email in the Inbox and on a WhatsApp conversation, on the web and on the phone (title and severity, then a link to the new ticket); a second request for a message that already has an open ticket answers 409 and the screen says which ticket. Web: `apps/web/src/TicketFromMessage.tsx`; Flutter: the Inbox message and WhatsApp conversation screens.
 
 A ticket holds:
 
