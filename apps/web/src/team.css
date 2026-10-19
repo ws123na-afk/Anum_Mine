@@ -2,9 +2,9 @@
    (spacing --d-s*, radii --d-r-*), logical properties for right-to-left. */
 .srOnly { block-size: 1px; clip: rect(0 0 0 0); inline-size: 1px; overflow: hidden; position: absolute; white-space: nowrap; }
 .inlineIcon { block-size: 14px; inline-size: 14px; margin-inline-end: var(--d-s1); vertical-align: -2px; }
-.fieldError { color: var(--d-stop); font-size: 13px; }
+.fieldError { color: var(--d-stop); font-size: var(--text-sm); }
 .warnText { color: var(--d-warn) !important; }
-.linkButton { align-items: center; display: inline-flex; font-size: 13px; gap: var(--d-s1); min-height: 36px; padding: var(--d-s1) var(--d-s3); border-radius: var(--d-r-control); }
+.linkButton { align-items: center; display: inline-flex; font-size: var(--text-sm); gap: var(--d-s1); min-height: 36px; padding: var(--d-s1) var(--d-s3); border-radius: var(--d-r-control); }
 .teamPanel, .commandBox, .workDetail, .assistantCard, .orgCard { padding: var(--d-s5); }
 .teamView, .assistantsView, .orgsView { display: grid; gap: var(--d-s4); min-width: 0; }
 .teamView > .moduleIntro, .assistantsView > .moduleIntro, .orgsView > .moduleIntro { margin-bottom: 0; }
@@ -27,12 +27,12 @@
 .workRowMeta { align-items: flex-end; display: grid; flex: none; gap: var(--d-s1); justify-items: end; }
 .priority.urgent { color: var(--d-stop); font-weight: 700; }
 .priority.high { color: var(--d-warn); font-weight: 650; }
-.due { color: var(--d-muted); font-size: 12px; white-space: nowrap; }
+.due { color: var(--d-muted); font-size: var(--text-xs); white-space: nowrap; }
 .due.overdue { color: var(--d-stop); font-weight: 650; }
 .due.today { color: var(--d-warn); font-weight: 650; }
 .board { display: grid; gap: var(--d-s3); grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: var(--d-s4); }
 .boardColumn { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); min-width: 0; padding: var(--d-s3); }
-.boardColumn h3 { font-size: 14px; }
+.boardColumn h3 { font-size: var(--text-md); }
 .boardColumn .workList { margin-top: var(--d-s2); }
 .boardColumn .recordButton { align-items: flex-start; flex-direction: column; }
 .boardColumn .workRowMeta { justify-items: start; }
@@ -43,21 +43,21 @@
 
 /* Workload */
 .tableScroll { margin-top: var(--d-s4); max-inline-size: 100%; overflow-x: auto; }
-.workloadTable { border-collapse: collapse; font-size: 14px; min-inline-size: 560px; width: 100%; }
+.workloadTable { border-collapse: collapse; font-size: var(--text-md); min-inline-size: 560px; width: 100%; }
 .workloadTable th, .workloadTable td { border-bottom: 1px solid var(--d-line); padding: var(--d-s2) var(--d-s3); text-align: start; }
-.workloadTable thead th { color: var(--d-faint); font-size: 12px; font-weight: 600; }
+.workloadTable thead th { color: var(--d-faint); font-size: var(--text-xs); font-weight: 600; }
 .workloadTable td { font-variant-numeric: tabular-nums; }
 .overdueCell { color: var(--d-stop); font-weight: 700; }
 .loadBar { background: var(--d-glass-2); border-radius: 999px; display: block; min-inline-size: 140px; overflow: hidden; position: relative; }
 .loadBar > span { background: var(--d-ok); display: block; block-size: 8px; }
 .loadBar.high > span { background: var(--d-warn); }
 .loadBar.over > span { background: var(--d-stop); }
-.loadBar em { color: var(--d-muted); display: block; font-size: 12px; font-style: normal; padding: 2px var(--d-s2); }
+.loadBar em { color: var(--d-muted); display: block; font-size: var(--text-xs); font-style: normal; padding: 2px var(--d-s2); }
 
 /* Activity */
 .activityList { display: grid; gap: var(--d-s2); list-style: none; margin: var(--d-s3) 0 0; padding: 0; }
 .activity { align-items: center; display: grid; gap: var(--d-s3); grid-template-columns: 28px minmax(0, 1fr) auto; }
-.activity small { color: var(--d-faint); display: block; font-size: 12px; }
+.activity small { color: var(--d-faint); display: block; font-size: var(--text-xs); }
 .activityIcon { color: var(--d-sky); display: grid; place-items: center; }
 .activity.assistant .activityIcon, .activity.anum .activityIcon { color: var(--d-violet); }
 .activityIcon svg { block-size: 18px; inline-size: 18px; }
@@ -66,7 +66,7 @@
 .peopleList, .templateList, .assistantList, .orgList, .bellList, .checklist, .attachmentList, .commentList { list-style: none; margin: 0; padding: 0; }
 .peopleList { display: grid; gap: var(--d-s2); margin-top: var(--d-s3); }
 .person { align-items: center; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; padding-top: var(--d-s3); }
-.person small { color: var(--d-muted); display: block; font-size: 13px; overflow-wrap: anywhere; }
+.person small { color: var(--d-muted); display: block; font-size: var(--text-sm); overflow-wrap: anywhere; }
 .person > button, .personActions > button { border-radius: var(--d-r-control); min-height: 40px; padding: 0 var(--d-s3); }
 .profileForm { grid-column: 1 / -1; }
 
@@ -100,17 +100,17 @@
 .comment { background: var(--d-glass-1); border-radius: var(--d-r-control); padding: var(--d-s2) var(--d-s3); }
 .comment.anum, .comment.assistant { border-inline-start: 3px solid var(--d-violet); }
 .comment > div { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.comment small { color: var(--d-faint); font-size: 12px; }
+.comment small { color: var(--d-faint); font-size: var(--text-xs); }
 .comment p { overflow-wrap: anywhere; white-space: pre-wrap; }
 .dangerZone { border-top: 1px solid var(--d-line); padding-top: var(--d-s3); }
 
 /* Assistants */
 .templateList { display: grid; gap: var(--d-s2); grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); margin-top: var(--d-s3); }
 .templateList li { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: flex; gap: var(--d-s2); justify-content: space-between; padding: var(--d-s3); }
-.templateList small { color: var(--d-muted); display: block; font-size: 12px; }
+.templateList small { color: var(--d-muted); display: block; font-size: var(--text-xs); }
 .templateList button { border-radius: var(--d-r-control); flex: none; min-height: 40px; padding: 0 var(--d-s3); }
 .assistantList, .orgList { display: grid; gap: var(--d-s4); grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
-.assistantCard .instructions { color: var(--d-text); font-size: 14px; margin-top: var(--d-s2); overflow-wrap: anywhere; }
+.assistantCard .instructions { color: var(--d-text); font-size: var(--text-md); margin-top: var(--d-s2); overflow-wrap: anywhere; }
 .assistantCard .muted { display: block; margin-top: var(--d-s1); }
 
 /* Organisations */
@@ -120,21 +120,21 @@
 .orgPrivacy { max-width: 70ch; }
 .deletedOrgsPane > .muted { margin: 0 0 var(--d-s3); max-width: 70ch; }
 .deletedOrgCounts { margin-top: var(--d-s1); }
-.deletedOrgCounts summary { cursor: pointer; color: var(--d-muted); font-size: 13px; }
+.deletedOrgCounts summary { cursor: pointer; color: var(--d-muted); font-size: var(--text-sm); }
 .deletedOrgCounts ul { display: grid; gap: var(--d-s1); grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); margin: var(--d-s2) 0 0; max-block-size: 240px; overflow: auto; padding: 0; list-style: none; }
 .deletedOrgCounts li { display: flex; gap: var(--d-s2); justify-content: space-between; overflow-wrap: anywhere; }
-.inviteReveal input { font-family: var(--d-mono); font-size: 13px; }
+.inviteReveal input { font-family: var(--d-mono); font-size: var(--text-sm); }
 .brandingRow { align-items: end; display: grid; gap: var(--d-s4); grid-template-columns: 72px minmax(0, 1fr); }
 .logoPreview { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); block-size: 72px; color: var(--d-muted); display: flex; inline-size: 72px; justify-content: center; overflow: hidden; }
 .logoPreview img { block-size: 100%; inline-size: 100%; object-fit: contain; }
 .brandLogo { block-size: 32px; border-radius: 10px; flex: none; inline-size: 32px; object-fit: contain; background: #fff; }
-.organisationOptions h3 { align-items: center; display: flex; font-size: 13px; gap: var(--d-s2); margin-bottom: var(--d-s2); }
+.organisationOptions h3 { align-items: center; display: flex; font-size: var(--text-sm); gap: var(--d-s2); margin-bottom: var(--d-s2); }
 .organisationOptions h3 svg { block-size: 14px; inline-size: 14px; }
 
 /* Team notifications inside the top bar's notifications menu (Shell.tsx) */
 .teamNotifications { border-block-start: 1px solid var(--d-line); display: grid; gap: var(--d-s2); margin-block-start: var(--d-s3); padding-block-start: var(--d-s3); }
 .teamNotifications .sectionHeader { align-items: center; display: flex; gap: var(--d-s2); justify-content: space-between; }
-.teamNotifications h3 { font-size: 14px; margin: 0; }
+.teamNotifications h3 { font-size: var(--text-md); margin: 0; }
 .teamNotifications .sectionHeader .linkButton { min-height: 32px; }
 .popoverList .bellItem { border: 1px solid transparent; }
 .popoverList .bellItem.unread { background: var(--d-glass-1); border-color: rgb(var(--c-sky) / .3); }
@@ -162,7 +162,7 @@
   .person { grid-template-columns: minmax(0, 1fr); }
   .person > button { justify-self: start; }
 }
-.loadMore { font-size: 13px; font-weight: 600; }
+.loadMore { font-size: var(--text-sm); font-weight: 600; }
 
 /* Auto-route channels in the assistant editor: a plain group, no browser fieldset frame. */
 .assistantChannels { border: 0; padding: 0; margin: var(--d-s4) 0 0; min-width: 0; }
@@ -171,11 +171,11 @@
 /* Team dashboard (docs/team-work.md#dashboard): the workload table above the board, one panel. */
 .workloadBlock { border-bottom: 1px solid var(--d-line); display: grid; gap: var(--d-s2); margin-top: var(--d-s3); padding-bottom: var(--d-s4); }
 .workloadHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
-.workloadHead h3 { font-size: 15px; }
-.workloadHead .muted { flex-basis: 100%; font-size: 13px; }
+.workloadHead h3 { font-size: var(--text-base); }
+.workloadHead .muted { flex-basis: 100%; font-size: var(--text-sm); }
 .workloadTable tbody tr.selected > * { background: var(--d-glass-2); }
 .workloadTable .cellButton strong { align-items: center; display: inline-flex; gap: var(--d-s1); }
-.boardHeading { font-size: 15px; margin-top: var(--d-s4); }
+.boardHeading { font-size: var(--text-base); margin-top: var(--d-s4); }
 .teamDashboard .board { margin-top: var(--d-s2); }
 .workDialog { max-width: 720px; }
 .workDialog .workForm { padding: 0; }
@@ -184,14 +184,14 @@
 /* Assistants (AssistantsView.tsx): one table with each assistant's queue, the route form folded away. */
 .assistantsView > .pageHeader, .assistantsView > .pageSummary { margin-bottom: 0; }
 .assistantsTable .tagRow { margin-top: 4px; }
-.assistantsTable .tagRow span { font-size: 11.5px; }
+.assistantsTable .tagRow span { font-size: var(--text-xs); }
 .assistantRoutes { display: block; max-width: 44ch; }
 .assistantsRoute { padding: 0; }
 .assistantsRoute > summary {
   align-items: center; cursor: pointer; display: flex; flex-wrap: wrap; font-weight: 650; gap: var(--d-s1) var(--d-s2); list-style: none; min-height: 52px; padding: var(--d-s3) var(--d-s4);
 }
 .assistantsRoute > summary::-webkit-details-marker { display: none; }
-.assistantsRoute > summary small { color: var(--d-muted); flex-basis: 100%; font-size: 13px; font-weight: 400; }
+.assistantsRoute > summary small { color: var(--d-muted); flex-basis: 100%; font-size: var(--text-sm); font-weight: 400; }
 .assistantsRoute[open] > summary { border-bottom: 1px solid var(--d-line); }
 .assistantsRoute .routeForm { padding: var(--d-s3) var(--d-s4) var(--d-s4); }
 .assistantDialog { max-width: 720px; }
@@ -223,7 +223,7 @@
 .mailHealthTable tbody th { min-width: 150px; }
 .mailHealthTable thead th { white-space: normal; }
 .mailServerCard { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
-.mailServerCard h3 { font-size: 14px; font-weight: 650; }
+.mailServerCard h3 { font-size: var(--text-md); font-weight: 650; }
 .mailServerCard p { overflow-wrap: anywhere; }
 .mailcowFacts { display: grid; gap: var(--d-s1); margin: 0; overflow-wrap: anywhere; padding-inline-start: var(--d-s4); }
 
@@ -237,13 +237,13 @@
 .mailDomainCard { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3) var(--d-s4); }
 .mailDomainCard p { margin: 0; overflow-wrap: anywhere; }
 .mailDomainHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
-.mailDomainHead h3 { font-size: 16px; font-weight: 650; margin: 0; overflow-wrap: anywhere; }
+.mailDomainHead h3 { font-size: var(--text-lg); font-weight: 650; margin: 0; overflow-wrap: anywhere; }
 .mailDomainBadges, .mailDomainsActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.mailDomainsPending h3 { font-size: 14px; font-weight: 650; margin: 0 0 var(--d-s2); }
+.mailDomainsPending h3 { font-size: var(--text-md); font-weight: 650; margin: 0 0 var(--d-s2); }
 .mailDomainApproval { background: rgb(var(--c-warn) / .07); border: 1px solid rgb(var(--c-warn) / .25); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3) var(--d-s4); }
 .mailDomainHash { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; }
 .mailDnsPanel { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s2); }
-.mailDnsPanel h4, .mailDomainAliases h4, .mailAliasForm h4 { font-size: 14px; font-weight: 650; margin: 0; }
+.mailDnsPanel h4, .mailDomainAliases h4, .mailAliasForm h4 { font-size: var(--text-md); font-weight: 650; margin: 0; }
 .mailDnsChecks { gap: var(--d-s2); }
 .mailDnsChecks li { align-items: baseline; display: grid; gap: var(--d-s1) var(--d-s2); grid-template-columns: 4.5em auto minmax(0, 1fr); }
 .mailDnsMessage { overflow-wrap: anywhere; }
