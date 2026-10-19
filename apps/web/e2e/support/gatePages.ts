@@ -8,6 +8,7 @@ import { mockTyre } from './tyreApi';
 import { mockMailApi } from './mailApi';
 import { mockDeveloper } from './developerApi';
 import { mockBrevo } from './brevoApi';
+import { mockBilling } from './billingApi';
 import { VIEWS } from '../../src/lib/shell.ts';
 import { TABS as BUSINESS_TABS } from '../../src/lib/business.ts';
 import { TABS as CALLS_TABS } from '../../src/lib/calls.ts';
@@ -37,6 +38,7 @@ const workspace = (page: Page) => mockWorkspaceApi(page);
 const tyre = async (page: Page) => { await mockWorkspaceApi(page); await mockTyre(page); };
 const mail = async (page: Page) => { await mockWorkspaceApi(page); await mockMailApi(page); };
 const callsWithProvider = (page: Page) => mockCallsApi(page, { provider: true });
+const billing = async (page: Page) => { await mockWorkspaceApi(page); await mockBilling(page); };
 
 export const GATE_PAGES: GatePage[] = [
   { hash: 'home', view: 'home', mock: workspace, ready: '.commandPanel .listRow' },
@@ -105,6 +107,8 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'suppressions', view: 'suppressions', mock: workspace, ready: '.suppRow' },
   { hash: 'developer', view: 'developer', mock: mockDeveloper, ready: '.devLayout' },
   { hash: 'organisations', view: 'organisations', mock: workspace, ready: '.orgsTable tbody tr' },
+  { hash: 'platformBilling', view: 'platformBilling', mock: billing, ready: '.blConsoleBar' },
+  { hash: 'billing', view: 'settings', mock: billing, ready: '.blPlanNow' },
 ];
 
 const brevo = async (page: Page) => { await mockMarketing(page); await mockBrevo(page); };
