@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import 'business_models.dart';
 import 'business_repository.dart';
+import 'support_controller.dart';
 
 enum BusinessLoad { idle, loading, ready, denied, error }
 
@@ -21,7 +22,7 @@ class PagedList<T> {
 
 /// State of the phone's Business screen (docs/business.md).
 class BusinessController extends ChangeNotifier {
-  BusinessController(this.repository) {
+  BusinessController(this.repository, {this.support}) {
     leads = PagedList(
       (offset) => repository.leads(
         query: query,
@@ -42,6 +43,9 @@ class BusinessController extends ChangeNotifier {
   }
 
   final BusinessRepository repository;
+
+  /// Support tickets (docs/business.md#support-tickets), when wired.
+  final SupportController? support;
   static const pageSize = 20;
 
   BusinessLoad setupState = BusinessLoad.idle;
@@ -166,6 +170,7 @@ class BusinessController extends ChangeNotifier {
       list.state = BusinessLoad.idle;
     }
     setupState = kpiState = BusinessLoad.idle;
+    support?.reset();
     notifyListeners();
   }
 }

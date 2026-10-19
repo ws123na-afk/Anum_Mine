@@ -43,6 +43,8 @@ import '../features/team/team_screens.dart' show NotificationsScreen;
 import '../features/reports/workspace_tool_routes.dart';
 import '../features/business/business_controller.dart';
 import '../features/business/business_repository.dart';
+import '../features/business/support_controller.dart';
+import '../features/business/support_repository.dart';
 import '../features/brevo/brevo_data.dart';
 import '../features/brevo/brevo_screen.dart';
 import '../features/marketing/marketing_controller.dart';
@@ -366,7 +368,8 @@ class _AnumAppState extends State<AnumApp> {
     marketing = MarketingController(ApiMarketingRepository(api),
         brevo: BrevoController(ApiBrevoRepository(api)));
     // Business, the internal sales desk (docs/business.md).
-    business = BusinessController(ApiBusinessRepository(api));
+    business = BusinessController(ApiBusinessRepository(api),
+        support: SupportController(ApiSupportRepository(api)));
     chatDeveloper = DeveloperAssist(
       repository: developerRepository,
       source: 'text',
