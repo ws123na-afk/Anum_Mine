@@ -198,7 +198,6 @@ export async function saveNotificationPreferences(value: NotificationPreferences
 /** One task by id (a run's "Open task" link). */
 export async function getTask(taskId: string): Promise<Task> { return mapTask(await request<ApiTask>(`/api/v1/tasks/${encodeURIComponent(taskId)}`, { method: 'GET' })); }
 export async function getTasks(): Promise<Task[]> { return (await request<ApiTask[]>('/api/v1/tasks', { method: 'GET' })).map(mapTask); }
-export async function getApprovals(): Promise<Approval[]> { return (await request<ApiApproval[]>('/api/v1/approvals', { method: 'GET' })).map(mapApproval); }
 /** Which approvals a page holds: pending now, decided (approved, rejected or expired), or both with pending first. */
 export type ApprovalFilter = 'pending' | 'decided' | 'all';
 export interface ApprovalPage { items: Approval[]; nextCursor: string | null }
@@ -216,16 +215,10 @@ export async function getApprovalPage({ status = 'all', query, taskId, cursor, l
 }
 /** How many approvals are pending, approved, rejected and expired now. */
 export async function getApprovalSummary(): Promise<ApprovalSummary> { return request<ApprovalSummary>('/api/v1/approvals/summary', { method: 'GET' }); }
-/** The pending approvals the shell shows (badge, bell, Home): at most `max`, newest first. */
+/** The pending approvals the shell shows (badge, bell, Home): the newest `max`, from the plain list route narrowed to pending. */
 export async function getPendingApprovals(max = 200): Promise<Approval[]> {
-  const items: Approval[] = [];
-  let cursor: string | null = null;
-  do {
-    const page: ApprovalPage = await getApprovalPage({ status: 'pending', cursor, limit: Math.min(100, max - items.length) });
-    items.push(...page.items);
-    cursor = page.nextCursor;
-  } while (cursor && items.length < max);
-  return items;
+  const rows = await request<ApiApproval[]>(`/api/v1/approvals?status=pending&limit=${max}`, { method: 'GET' });
+  return rows.map(mapApproval).filter((approval) => approval.status === 'pending');
 }
 /** One page of `GET /api/v1/tasks` after `cursor` (the last task id already shown; the API answers 400 for an unknown one), newest first. */
 export async function getTaskPage(cursor: string, limit = 50): Promise<Task[]> {

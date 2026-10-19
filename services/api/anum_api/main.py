@@ -1583,11 +1583,27 @@ async def stream_events(
 
 @app.get("/api/v1/approvals", response_model=list[Approval])
 async def list_approvals(
+    status_filter: ApprovalFilter | None = Query(default=None, alias="status"),
+    limit: int | None = Query(default=None, ge=1, le=APPROVAL_PAGE_MAX_LIMIT * 5),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> list[Approval]:
+    """Every approval, oldest first (the original shape). ``status`` and ``limit`` narrow it:
+    ``?status=pending&limit=200`` is the cheap list the shell uses; use ``/page`` for history."""
     require_permission(context, Permission.APPROVAL_READ)
     now = utc_now()
+    if status_filter is not None or limit is not None:
+        rows, _more = repository.list_approvals_page(
+            context,
+            now=now,
+            status=status_filter or ApprovalFilter.ALL,
+            query=None,
+            task_id=None,
+            cursor=None,
+            limit=limit or APPROVAL_PAGE_MAX_LIMIT * 5,
+        )
+        narrowed = [as_viewed(approval, now) for approval in rows]
+        return _with_progress(narrowed, context, repository)
     approvals = [as_viewed(approval, now) for approval in repository.list_approvals(context)]
     return _with_progress(approvals, context, repository, siblings=approvals)
 

@@ -98,3 +98,34 @@ def test_paging_indexes_exist(database_engine: Engine) -> None:
     assert "ix_approvals_scope_created" in indexes
     assert "ix_approvals_scope_pending" in indexes
     assert "WHERE" in indexes["ix_approvals_scope_pending"]
+
+
+def test_a_lapsed_pending_approval_counts_as_decided_and_expired(
+    postgres_client: TestClient,  # noqa: F811
+    repository_factory: Callable[..., Iterator[SqlAlchemyRepository]],
+) -> None:
+    from datetime import timedelta
+
+    approval = _waiting(postgres_client, "Lapsing launch")
+    context = tenant_context(TENANT_A, WORKSPACE_A)
+    later = utc_now() + timedelta(days=30)  # past ANUM_APPROVAL_TTL_SECONDS
+    with repository_factory(context) as repository:
+        pending, _ = repository.list_approvals_page(
+            context, now=later, status=ApprovalFilter.PENDING, query=None, task_id=None, cursor=None, limit=10
+        )
+        decided, _ = repository.list_approvals_page(
+            context, now=later, status=ApprovalFilter.DECIDED, query=None, task_id=None, cursor=None, limit=10
+        )
+        summary = repository.summarize_approvals(context, later)
+    assert pending == []
+    assert [item.id for item in decided] == [approval["id"]]
+    assert (summary.pending, summary.expired) == (0, 1)
+
+
+def test_the_plain_list_accepts_status_and_limit(postgres_client: TestClient) -> None:  # noqa: F811
+    first = _waiting(postgres_client, "First")
+    second = _waiting(postgres_client, "Second")
+    everything = postgres_client.get("/api/v1/approvals", headers=HEADERS).json()
+    assert [item["id"] for item in everything] == [first["id"], second["id"]]
+    newest = postgres_client.get("/api/v1/approvals", headers=HEADERS, params={"status": "pending", "limit": 1}).json()
+    assert [item["id"] for item in newest] == [second["id"]]

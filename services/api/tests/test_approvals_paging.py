@@ -215,3 +215,15 @@ def test_memory_helpers_page_the_same_way() -> None:
                                 cursor=(1, last.created_at, last.id), limit=3, task_title=lambda _id: None)
     assert [a.id for a in rest] == ["apr_1", "apr_0"] and not more
     assert summary_in_memory(rows, now).approved == 5
+
+
+def test_legacy_list_accepts_status_and_limit_and_stays_a_plain_list() -> None:
+    task = _task()
+    _approval("apr_a", task, minutes=1)
+    _approval("apr_b", task, minutes=2)
+    _approval("apr_c", task, minutes=3, status=ApprovalStatus.APPROVED)
+    everything = client.get("/api/v1/approvals", headers=HEADERS).json()
+    assert [a["id"] for a in everything] == ["apr_a", "apr_b", "apr_c"]
+    pending = client.get("/api/v1/approvals", headers=HEADERS, params={"status": "pending", "limit": 1}).json()
+    assert [a["id"] for a in pending] == ["apr_b"]
+    assert client.get("/api/v1/approvals", headers=HEADERS, params={"limit": 0}).status_code == 422

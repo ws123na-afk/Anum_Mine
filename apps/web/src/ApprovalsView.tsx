@@ -1,12 +1,16 @@
 // Approvals: the exact tool call, where it goes, why it stopped, when it lapses, and who decided
 // and why. See docs/approvals-and-risk.md. Approve sends back the payload hash shown here.
-import { useId, useState, type ReactNode } from 'react';
-import { BellOff, CheckCircle2, Clock, Fingerprint, Globe, Route, ShieldCheck, UserX, Users, XCircle } from 'lucide-react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { BellOff, CheckCircle2, Clock, Fingerprint, Globe, Route, Search, ShieldCheck, UserX, Users, XCircle } from 'lucide-react';
 import type { Approval } from '@anum/contracts';
+import * as api from './lib/api';
+import { APPROVAL_FILTERS, APPROVAL_PAGE_SIZE, APPROVAL_SEARCH_DELAY_MS, emptyKind, mergeApprovals, searchText, splitApprovals, summaryTotal } from './lib/approvalPaging';
 import { REASON_MAX_CHARS, approvalProgress, argumentRows, canApprove, decisionSummary, effectiveStatus, expiryLabel, hasApproved, joinNames, normalizeReason, shortHash } from './lib/approvals';
 import { mayApprove, mayReject, routingView, suppressedText } from './lib/approvalRules';
-import { formatDateTime, t } from './lib/i18n';
+import { describeError, isPermissionDenied } from './lib/errors';
+import { formatDateTime, formatNumber, t } from './lib/i18n';
 import { riskLabel, statusLabel } from './lib/labels';
+import { EmptyPanel, PanelDenied, PanelError, PanelLoading } from './Panels';
 import { rich } from './rich';
 
 /**
@@ -17,6 +21,13 @@ type Decide = (approval: Approval, decision: 'approve' | 'reject', reason?: stri
 
 const formatDate = (value: string) => formatDateTime(value);
 
+type Load = { state: 'loading' } | { state: 'ready' } | { state: 'denied' } | { state: 'error'; reason: string };
+
+/**
+ * The approval queue and its history, one keyset page at a time (docs/approvals-and-risk.md#paging-filters-and-search).
+ * `items` is the shell's pending snapshot: it is only the signal to reload the first page when an approval
+ * event arrives (the list itself is fetched here, filtered and searched on the server).
+ */
 export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOpenRules }: {
   items: Approval[];
   busy: boolean;
@@ -28,18 +39,92 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOp
   /** Opens the approval rules (Governance), where AED bands and approvers are set. */
   onOpenRules?: () => void;
 }) {
+  const [filter, setFilter] = useState<api.ApprovalFilter>('all');
+  const [typed, setTyped] = useState('');
+  const [query, setQuery] = useState('');
+  const [rows, setRows] = useState<Approval[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [load, setLoad] = useState<Load>({ state: 'loading' });
+  const [summary, setSummary] = useState<api.ApprovalSummary | null>(null);
+  const [paging, setPaging] = useState(false);
+  const [pagingError, setPagingError] = useState<string | null>(null);
+  const request = useRef(0);
+  const searchId = useId();
+  const signal = items.map((a) => `${a.id}:${a.status}`).join(',');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(searchText(typed)), APPROVAL_SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [typed]);
+
+  const fetchFirst = useCallback(async (quiet: boolean) => {
+    const mine = ++request.current;
+    if (!quiet) setLoad({ state: 'loading' });
+    try {
+      const [page, counts] = await Promise.all([
+        api.getApprovalPage({ status: filter, query, limit: APPROVAL_PAGE_SIZE }),
+        api.getApprovalSummary().catch(() => null),
+      ]);
+      if (mine !== request.current) return;
+      setRows(page.items);
+      setCursor(page.nextCursor);
+      setSummary(counts);
+      setPagingError(null);
+      setLoad({ state: 'ready' });
+    } catch (error) {
+      if (mine !== request.current) return;
+      const failed: Load = isPermissionDenied(error) ? { state: 'denied' } : { state: 'error', reason: describeError(error) };
+      // A background refresh that fails keeps the list on screen instead of replacing it with an error.
+      setLoad((current) => (quiet && current.state === 'ready' ? current : failed));
+    }
+  }, [filter, query]);
+
+  // A new filter or search starts a fresh list; an approval event refreshes the first page quietly.
+  useEffect(() => { void fetchFirst(false); }, [fetchFirst]);
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) { firstRun.current = false; return; }
+    void fetchFirst(true);
+  }, [signal]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadMore() {
+    if (!cursor || paging) return;
+    const mine = request.current;
+    setPaging(true);
+    setPagingError(null);
+    try {
+      const page = await api.getApprovalPage({ status: filter, query, cursor, limit: APPROVAL_PAGE_SIZE });
+      if (mine !== request.current) return;
+      setRows((current) => mergeApprovals(current, page.items));
+      setCursor(page.nextCursor);
+    } catch (error) {
+      if (mine === request.current) setPagingError(t('approvals.loadMoreError', { reason: describeError(error) }));
+    } finally {
+      setPaging(false);
+    }
+  }
+
+  // A decision changes the card (progress, status) even when the pending list looks the same: reload the page.
+  const decideAndRefresh: Decide = async (approval, decision, reason) => {
+    const refusal = await decide(approval, decision, reason);
+    void fetchFirst(true);
+    return refusal;
+  };
+  const clearSearch = () => { setTyped(''); setQuery(''); };
   const now = new Date();
   const status = (a: Approval) => effectiveStatus(a, now);
-  const pending = items.filter((a) => status(a) === 'pending');
-  const history = items
-    .filter((a) => status(a) !== 'pending')
-    .sort((a, b) => (b.decidedAt ?? b.createdAt).localeCompare(a.decidedAt ?? a.createdAt));
+  const { pending, history } = splitApprovals(rows, now);
+  const kind = emptyKind(filter, query);
+  const total = summaryTotal(summary, filter);
+  const searching = query !== '' || typed.trim() !== '';
+  const ready = load.state === 'ready';
+  const noMatch = <EmptyPanel icon={<Search />} title={t('approvals.empty.searchTitle')} text={t('approvals.empty.searchText', { query })} action={t('common.clear')} onAction={clearSearch} />;
   return (
     <>
       <section className="metrics three">
-        {metric(<ShieldCheck />, t('approvals.metric.pending'), String(pending.length), t('approvals.metric.pendingDetail'))}
-        {metric(<CheckCircle2 />, t('approvals.metric.approved'), String(items.filter((a) => status(a) === 'approved').length), t('approvals.metric.total'))}
-        {metric(<XCircle />, t('approvals.metric.rejected'), String(items.filter((a) => status(a) === 'rejected').length), t('approvals.metric.total'))}
+        {metric(<ShieldCheck />, t('approvals.metric.pending'), summary ? formatNumber(summary.pending) : '-', t('approvals.metric.pendingDetail'))}
+        {metric(<CheckCircle2 />, t('approvals.metric.approved'), summary ? formatNumber(summary.approved) : '-', t('approvals.metric.total'))}
+        {metric(<XCircle />, t('approvals.metric.rejected'), summary ? formatNumber(summary.rejected) : '-', t('approvals.metric.total'))}
       </section>
       {onOpenRules && (
         <p className="approvalRulesLink">
@@ -48,12 +133,31 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOp
           <button type="button" className="linkButton" onClick={onOpenRules}>{t('routing.rulesLink.open')}</button>
         </p>
       )}
-      <section className="surface approvalTable" aria-labelledby="approvals-pending-heading">
-        <h2 className="visuallyHidden" id="approvals-pending-heading">{t('approvals.pendingHeading')}</h2>
-        {pending.map((a) => <PendingApproval key={a.id} approval={a} busy={busy} decide={decide} now={now} userId={userId} />)}
-        {!pending.length && empty}
-      </section>
-      {history.length > 0 && (
+      <div className="approvalToolbar">
+        <div className="segmented" role="group" aria-label={t('approvals.filter.label')}>
+          {APPROVAL_FILTERS.map((value) => (
+            <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{t(`approvals.filter.${value}`)}</button>
+          ))}
+        </div>
+        <label className="approvalSearch" htmlFor={searchId}>
+          <span className="visuallyHidden">{t('approvals.search.label')}</span>
+          <Search aria-hidden size={16} />
+          <input id={searchId} type="search" value={typed} maxLength={200} autoComplete="off" spellCheck={false}
+            placeholder={t('approvals.search.placeholder')} onChange={(event) => setTyped(event.target.value)} />
+        </label>
+        {searching && <button type="button" className="secondary" onClick={clearSearch}>{t('common.clear')}</button>}
+      </div>
+      {load.state === 'loading' && <section className="surface approvalTable" aria-busy="true"><PanelLoading label={t('approvals.loading')} /></section>}
+      {load.state === 'denied' && <section className="surface approvalTable"><PanelDenied title={t('approvals.denied.title')} text={t('approvals.denied.text')} /></section>}
+      {load.state === 'error' && <section className="surface approvalTable"><PanelError message={t('approvals.error.text', { reason: load.reason })} onRetry={() => void fetchFirst(false)} /></section>}
+      {ready && filter !== 'decided' && (
+        <section className="surface approvalTable" aria-labelledby="approvals-pending-heading">
+          <h2 className="visuallyHidden" id="approvals-pending-heading">{t('approvals.pendingHeading')}</h2>
+          {pending.map((a) => <PendingApproval key={a.id} approval={a} busy={busy} decide={decideAndRefresh} now={now} userId={userId} />)}
+          {!pending.length && (kind === 'search' ? noMatch : empty)}
+        </section>
+      )}
+      {ready && filter !== 'pending' && history.length > 0 && (
         <section className="surface approvalTable approvalHistory" aria-label={t('approvals.history')}>
           <p className="eyebrow">{t('approvals.historyEyebrow')}</p>
           <h2>{t('approvals.decisions')}</h2>
@@ -73,6 +177,18 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOp
             </details>
           ))}
         </section>
+      )}
+      {ready && filter === 'decided' && history.length === 0 && (
+        <section className="surface approvalTable">
+          {kind === 'search' ? noMatch : <EmptyPanel icon={<ShieldCheck />} title={t('approvals.empty.decidedTitle')} text={t('approvals.empty.decidedText')} />}
+        </section>
+      )}
+      {ready && rows.length > 0 && (
+        <div className="approvalMore">
+          <small role="status">{total === null ? t('approvals.shownUnknown', { shown: formatNumber(rows.length) }) : t('approvals.shown', { shown: formatNumber(rows.length), total: formatNumber(Math.max(total, rows.length)) })}</small>
+          {pagingError && <p className="approvalWarning" role="alert">{pagingError}</p>}
+          {cursor && <button type="button" className="secondary" onClick={() => void loadMore()} disabled={paging}>{paging ? t('common.loading') : t('approvals.loadMore')}</button>}
+        </div>
       )}
     </>
   );
