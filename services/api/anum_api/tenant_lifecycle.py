@@ -875,6 +875,9 @@ def build_archive(job: LifecycleJob, data: TenantData, path: str, renew: Any = N
                             entry["rows"] += 1
                             if table.name == "workspace_files" and row.get("storage_key"):
                                 file_rows.append({**clean, "storage_key": row["storage_key"]})
+                            elif table.name == "workspace_file_versions" and row.get("storage_key"):
+                                # An older version's bytes: files/<workspace>/<file id>/versions/v<N>.
+                                file_rows.append({**clean, "storage_key": row["storage_key"], "archive_name": f"versions/v{row.get('version')}"})
                         if os.path.getsize(path) + csv_buffer.tell() > limit:
                             raise ArchiveTooLarge
             csv_buffer.seek(0)
@@ -890,7 +893,10 @@ def build_archive(job: LifecycleJob, data: TenantData, path: str, renew: Any = N
                 content = data.read_object(row["storage_key"])
             except FileNotFoundError:
                 continue
-            archive.writestr(f"files/{row.get('workspace_id')}/{row.get('id')}/{_safe_name(str(row.get('name') or 'file'))}", content)
+            if row.get("archive_name"):
+                archive.writestr(f"files/{row.get('workspace_id')}/{row.get('file_id')}/{row['archive_name']}", content)
+            else:
+                archive.writestr(f"files/{row.get('workspace_id')}/{row.get('id')}/{_safe_name(str(row.get('name') or 'file'))}", content)
             manifest["files"] += 1
             if os.path.getsize(path) > limit:
                 raise ArchiveTooLarge

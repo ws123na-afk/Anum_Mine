@@ -401,7 +401,7 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
     final repository = widget.controller.versions;
     if (repository != null) {
       versions = FileVersionsController(repository, file,
-          usage: widget.controller.usage,
+          usageOf: () => widget.controller.usage,
           onFileChanged: _versionChangedFile,
           onUsageChanged: widget.controller.loadUsage);
     }

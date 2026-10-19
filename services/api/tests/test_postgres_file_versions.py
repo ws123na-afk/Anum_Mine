@@ -91,3 +91,23 @@ def test_a_stale_replace_is_refused_and_keeps_the_winner(client: TestClient) -> 
         current = store.get(context, created["id"])
         assert current is not None and current.version == 2
         assert store.list_versions(context, created["id"], 10, 0)[1] == 1
+
+
+def test_a_restore_of_a_deleted_version_is_refused_in_the_replace_transaction(client: TestClient) -> None:  # noqa: F811
+    created = _upload(client, "r.txt", 10)
+    client.post(f"/api/v1/files/{created['id']}/versions", headers={**MEMBER, "content-type": "text/plain"}, content=b"n" * 11)
+    context = tenant_context()
+    with open_file_metadata_store(context) as store:
+        current = store.get(context, created["id"])
+        old = store.list_versions(context, created["id"], 10, 0)[0][0]
+        assert current is not None
+        store.delete_version(context, created["id"], old.id)
+    content = files_module.FileContent(
+        content_type="text/plain", size_bytes=old.size_bytes, sha256=old.sha256, storage_key=old.storage_key,
+        created_by="member_1", created_at=files_module.utc_now(),
+    )
+    with pytest.raises(files_module.FileContentChanged), open_file_metadata_store(context) as store:
+        store.replace_content(context, created["id"], current.sha256, content, 1000, old.id)
+    with open_file_metadata_store(context) as store:
+        again = store.get(context, created["id"])
+        assert again is not None and again.version == 2 and again.storage_key == current.storage_key

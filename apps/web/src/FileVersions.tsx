@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { CircleDot, Download, Lock, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react';
 import * as api from './lib/api';
 import { ApiError, describeError, isPermissionDenied } from './lib/errors';
-import { formatBytes, mergeVersions, uploaderLabel, versionProblem, type ApiFile, type ApiFileUsage, type ApiFileVersion } from './lib/files';
+import { formatBytes, mergeVersions, uploaderLabel, versionFileName, versionProblem, type ApiFile, type ApiFileUsage, type ApiFileVersion } from './lib/files';
 import { formatDateTime, t } from './lib/i18n';
 
 type Load = { state: 'loading' } | { state: 'ready' } | { state: 'denied' } | { state: 'error'; message: string };
@@ -80,7 +80,7 @@ export function FileVersions({ file, me, usage, onChange, onUsage }: {
   }, (message) => { setConfirming(null); return t('files.ver.deleteFailed', { version: item.version, message }); });
 
   const download = (item: ApiFileVersion) => run(`download-${item.id}`, async () => {
-    await api.downloadFileVersion(file.id, item.id, file.name);
+    await api.downloadFileVersion(file.id, item.id, versionFileName(file.name, item.version));
     return '';
   }, (message) => t('files.ver.downloadFailed', { version: item.version, message }));
 

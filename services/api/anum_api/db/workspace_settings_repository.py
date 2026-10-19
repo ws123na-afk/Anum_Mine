@@ -301,7 +301,7 @@ class SqlAlchemyFileMetadataStore:
 
     def replace_content(
         self, context: TenantContext, file_id: str, expected_sha256: str, content: FileContent,
-        quota_bytes: int | None = None,
+        quota_bytes: int | None = None, source_version_id: str | None = None,
     ) -> FileRecord:
         self._lock_quota(context.tenant_id, context.workspace_id)
         row = self.session.scalar(
@@ -309,6 +309,16 @@ class SqlAlchemyFileMetadataStore:
         )
         if row is None or row.sha256 != expected_sha256:
             raise FileContentChanged(file_id)
+        if source_version_id is not None:
+            # Lock the restored version's row: a concurrent delete waits for this transaction (and then
+            # finds the bytes in use), or has already removed it and the restore is refused.
+            source = self.session.scalar(
+                select(WorkspaceFileVersionRecord)
+                .where(*self._version_rows(context, file_id), WorkspaceFileVersionRecord.id == source_version_id)
+                .with_for_update()
+            )
+            if source is None:
+                raise FileContentChanged(file_id)
         if quota_bytes is not None:
             current = self.usage(context)
             if current.used_bytes + self.added_bytes(context, file_id, content.sha256, content.size_bytes) > quota_bytes:

@@ -20,14 +20,17 @@ class FileVersionsController extends ChangeNotifier {
   FileVersionsController(
     this.repository,
     this.file, {
-    this.usage,
+    this.usageOf,
     this.onFileChanged,
     this.onUsageChanged,
   });
 
   final FileVersionsRepository repository;
   WorkspaceFile file;
-  FileUsage? usage;
+
+  /// The workspace usage as the Files tab holds it now (read at each upload, so a
+  /// refresh after other changes is never missed).
+  final FileUsage? Function()? usageOf;
   final void Function(WorkspaceFile file)? onFileChanged;
   final Future<void> Function()? onUsageChanged;
 
@@ -92,7 +95,7 @@ class FileVersionsController extends ChangeNotifier {
       String path, String name, int size, FileStrings s) async {
     error = null;
     note = null;
-    final refusal = versionProblem(name, size, file, usage, s);
+    final refusal = versionProblem(name, size, file, usageOf?.call(), s);
     if (refusal != null) {
       error = refusal;
       notifyListeners();

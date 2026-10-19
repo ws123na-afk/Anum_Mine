@@ -196,3 +196,23 @@ def test_the_storage_report_splits_usage_and_lists_the_largest_files(monkeypatch
     assert kinds["text"]["bytes"] == 300 and kinds["data"]["bytes"] == 8
     other = client.get("/api/v1/files/storage", headers=who("owner_9", "owner", workspace="workspace_empty")).json()
     assert other["usage"]["used_bytes"] == 0 and other["largest"] == [] and other["by_kind"] == []
+
+
+def test_a_restore_racing_a_version_delete_is_refused_and_leaves_the_file_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    created = upload("a.txt", b"one").json()
+    new_version(created["id"], b"two!")
+    old = versions(created["id"])["items"][0]
+    real_get = file_store.storage.get
+
+    def get_then_lose_the_version(key: str) -> bytes:
+        # The delete lands after the restore read the version and before it swaps the bytes in.
+        data = real_get(key)
+        assert client.delete(f"/api/v1/files/{created['id']}/versions/{old['id']}", headers=MEMBER).status_code == 204
+        return data
+
+    with monkeypatch.context() as patched:
+        patched.setattr(file_store.storage, "get", get_then_lose_the_version)
+        refused = client.post(f"/api/v1/files/{created['id']}/versions/{old['id']}/restore", headers=MEMBER)
+    assert refused.status_code == 409 and "changed or was deleted" in message(refused)
+    assert client.get(f"/api/v1/files/{created['id']}", headers=MEMBER).json()["version"] == 2
+    assert client.get(f"/api/v1/files/{created['id']}/content", headers=MEMBER).content == b"two!"

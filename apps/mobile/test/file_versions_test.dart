@@ -1,7 +1,6 @@
 // File versions and the storage screen on mobile (docs/files.md#versions):
 // parsing and checks, the API calls, the controller, the versions section and
 // the storage screen at every supported width, at 200% text and in Arabic.
-import 'dart:async';
 
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/api_models.dart';
@@ -12,7 +11,6 @@ import 'package:anum_mobile/features/files/file_versions_models.dart';
 import 'package:anum_mobile/features/files/file_versions_repository.dart';
 import 'package:anum_mobile/features/files/file_versions_section.dart';
 import 'package:anum_mobile/features/files/storage_screen.dart';
-import 'package:anum_mobile/features/workspace/files_controller.dart';
 import 'package:anum_mobile/features/workspace/files_models.dart';
 import 'package:anum_mobile/features/workspace/files_repository.dart';
 import 'package:anum_mobile/features/workspace/workspace_models.dart';
@@ -284,11 +282,13 @@ Future<List<(String, String, int)>> _pick() async =>
 
 FileVersionsController _controller(FakeVersions repo,
         {WorkspaceFile? file,
-        FileUsage? usage = _usage,
+        FileUsage? Function()? usageOf,
         void Function(WorkspaceFile)? onFile,
         Future<void> Function()? onUsage}) =>
     FileVersionsController(repo, file ?? repo.file,
-        usage: usage, onFileChanged: onFile, onUsageChanged: onUsage);
+        usageOf: usageOf ?? () => _usage,
+        onFileChanged: onFile,
+        onUsageChanged: onUsage);
 
 void main() {
   const s = FileStrings.english;
@@ -480,6 +480,27 @@ void main() {
       expect(c.error, contains('keeps the file type'));
       expect(
           repo.calls.where((call) => call.startsWith('upload')), hasLength(1));
+    });
+
+    test('the quota check reads the usage as it is now, not as it was',
+        () async {
+      var usage = _usage;
+      final repo = FakeVersions();
+      final c = _controller(repo, usageOf: () => usage);
+      await c.load(s);
+      expect(await c.uploadVersion('/tmp/plan.txt', 'plan.txt', 50, s), isTrue);
+      // The Files tab refreshed its usage (other uploads filled the workspace).
+      usage = const FileUsage(
+          usedBytes: 990,
+          fileCount: 3,
+          quotaBytes: 1000,
+          maxUploadBytes: 500,
+          accepted: '',
+          acceptedExtensions: [],
+          canUpload: true);
+      expect(
+          await c.uploadVersion('/tmp/plan.txt', 'plan.txt', 50, s), isFalse);
+      expect(c.error, contains('every version counts'));
     });
 
     test('restore, delete and download report and reload', () async {

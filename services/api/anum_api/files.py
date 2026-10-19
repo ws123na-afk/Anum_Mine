@@ -399,13 +399,15 @@ class FileMetadataStore(Protocol):
 
     def replace_content(
         self, context: TenantContext, file_id: str, expected_sha256: str, content: FileContent,
-        quota_bytes: int | None = None,
+        quota_bytes: int | None = None, source_version_id: str | None = None,
     ) -> FileRecord:
         """Make ``content`` the current version and keep the current one as an older version.
 
         Raises :class:`FileContentChanged` when the file is gone or its bytes are no longer
         ``expected_sha256``, and :class:`StorageQuotaExceeded` past ``quota_bytes`` (checked under
-        the same per-workspace lock as uploads)."""
+        the same per-workspace lock as uploads). With ``source_version_id`` (a restore) the
+        older version must still exist in the same transaction, or :class:`FileContentChanged`
+        is raised, so a restore never makes a concurrently deleted version current."""
         ...
 
     def list_versions(
@@ -530,11 +532,13 @@ class FileStore:
 
     def replace_content(
         self, context: TenantContext, file_id: str, expected_sha256: str, content: FileContent,
-        quota_bytes: int | None = None,
+        quota_bytes: int | None = None, source_version_id: str | None = None,
     ) -> FileRecord:
         with self._lock:
             record = self.get(context, file_id)
             if record is None or record.sha256 != expected_sha256:
+                raise FileContentChanged(file_id)
+            if source_version_id is not None and self.get_version(context, file_id, source_version_id) is None:
                 raise FileContentChanged(file_id)
             if quota_bytes is not None:
                 current = self.usage(context)
@@ -1255,13 +1259,14 @@ def version_download_name(name: str, version: int) -> str:
 
 
 async def _make_current(
-    context: TenantContext, record: FileRecord, content: FileContent, data: bytes, *, key_existed: bool
+    context: TenantContext, record: FileRecord, content: FileContent, data: bytes, *, key_existed: bool,
+    source_version_id: str | None = None,
 ) -> FileRecord:
     """Swap in new current bytes under the quota; never leave unreachable bytes behind."""
     quota = settings.files_workspace_quota_bytes
     try:
         with open_file_metadata_store(context) as store:
-            updated = store.replace_content(context, record.id, record.sha256, content, quota)
+            updated = store.replace_content(context, record.id, record.sha256, content, quota, source_version_id)
     except StorageQuotaExceeded as exc:
         if not key_existed:
             file_store.storage.delete(content.storage_key)
@@ -1375,7 +1380,7 @@ async def restore_file_version(file_id: str, version_id: str, context: TenantCon
     new = FileContent(content_type=version.content_type, size_bytes=version.size_bytes, sha256=version.sha256,
                       storage_key=version.storage_key, created_by=context.user_id, created_at=utc_now(),
                       scan_status=version.scan_status, scan_signature=version.scan_signature, scanned_at=version.scanned_at)
-    updated = await _make_current(context, record, new, data, key_existed=True)
+    updated = await _make_current(context, record, new, data, key_existed=True, source_version_id=version.id)
     return _views(context, [updated])[0]
 
 

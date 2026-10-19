@@ -105,7 +105,9 @@ test('older versions list, download, restore and delete', async ({ page }) => {
   await expect(versions.getByRole('listitem')).toHaveCount(2);
   await expect(versions.getByText('Version 2', { exact: true })).toBeVisible();
 
+  const saved = page.waitForEvent('download');
   await versions.getByRole('button', { name: 'Download version 1 of plan.txt' }).click();
+  expect((await saved).suggestedFilename()).toBe('plan (version 1).txt');
   await expect.poll(() => api.calls.some((call) => call.path.endsWith('/versions/ver_1/content'))).toBe(true);
 
   await versions.getByRole('button', { name: 'Restore version 1 of plan.txt' }).click();

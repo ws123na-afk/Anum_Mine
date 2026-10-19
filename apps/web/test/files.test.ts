@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  bytesLeft, canReindex, fileBadge, fileTypeLabel, kindLabel, mergeVersions, versionProblem, versionsPath, isQuarantined, filesListPath, formatBytes, indexBadge, mergePage, parseInline, parseMarkdown, previewMode, progressText,
+  bytesLeft, canReindex, fileBadge, fileTypeLabel, kindLabel, mergeVersions, versionFileName, versionProblem, versionsPath, isQuarantined, filesListPath, formatBytes, indexBadge, mergePage, parseInline, parseMarkdown, previewMode, progressText,
   renameProblem, safeHref, uploadProblem, uploaderLabel, usageMeter, type ApiFile, type ApiFileUsage,
 } from '../src/lib/files.ts';
 
@@ -172,6 +172,12 @@ describe('file versions and storage helpers', () => {
   });
   test('merging a page keeps the first copy of a version', () => {
     assert.deepEqual(mergeVersions([ver('a'), ver('b')], [ver('b'), ver('c')]).map((item) => item.id), ['a', 'b', 'c']);
+  });
+  test('an older version is saved as "name (version N).ext"', () => {
+    assert.equal(versionFileName('plan.txt', 2), 'plan (version 2).txt');
+    assert.equal(versionFileName('notes.v2.md', 1), 'notes.v2 (version 1).md');
+    assert.equal(versionFileName('README', 3), 'README (version 3)');
+    assert.equal(versionFileName('.env', 3), '.env (version 3)');
   });
   test('bytes left never go negative', () => {
     assert.equal(bytesLeft({ used_bytes: 900, quota_bytes: 1000 }), 100);

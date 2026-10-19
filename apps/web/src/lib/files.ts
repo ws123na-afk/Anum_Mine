@@ -198,6 +198,12 @@ export function usageMeter(usage: ApiFileUsage): { percent: number; tone: 'ok' |
   };
 }
 
+/** "plan (version 2).txt": the name a saved older version gets, as the API names it, so it never overwrites the current file. */
+export function versionFileName(name: string, version: number): string {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? `${name.slice(0, dot)} (version ${version})${name.slice(dot)}` : `${name} (version ${version})`;
+}
+
 /** Bytes left under the quota (never negative). */
 export const bytesLeft = (usage: Pick<ApiFileUsage, 'used_bytes' | 'quota_bytes'>) => Math.max(0, usage.quota_bytes - usage.used_bytes);
 
