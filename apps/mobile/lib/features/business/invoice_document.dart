@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -9,7 +8,6 @@ import '../../data/api_client.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
-import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'invoice_models.dart';
 
@@ -179,9 +177,40 @@ class InvoiceDocument {
   }
 }
 
+/// A row whose status pills sit under its text. A pill in [AnumRow.trailing]
+/// is never narrower than its label, so a long status ("Waiting for
+/// approval") would overflow a phone at large text sizes; here the pills wrap.
+class PillRow extends StatelessWidget {
+  const PillRow({
+    required this.title,
+    this.subtitle,
+    this.detail,
+    this.icon,
+    this.pills = const [],
+    super.key,
+  });
+  final String title;
+  final String? subtitle, detail;
+  final IconData? icon;
+  final List<Widget> pills;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AnumRow(title: title, subtitle: subtitle, detail: detail, icon: icon),
+          if (pills.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Wrap(spacing: 8, runSpacing: 4, children: pills),
+            ),
+        ],
+      );
+}
+
 class InvoiceDocumentLine {
-  const InvoiceDocumentLine(
-      this.description, this.quantity, this.unitPrice, this.taxRatePct, this.total);
+  const InvoiceDocumentLine(this.description, this.quantity, this.unitPrice,
+      this.taxRatePct, this.total);
   final String description;
   final double quantity, unitPrice, taxRatePct, total;
 }
@@ -248,8 +277,7 @@ class _InvoicePreviewState extends State<InvoicePreviewScreen> {
 
   Future<void> _copy() async {
     final l = context.anum;
-    await Clipboard.setData(
-        ClipboardData(text: widget.document.toText(l)));
+    await Clipboard.setData(ClipboardData(text: widget.document.toText(l)));
     if (mounted) _say(l.t('biz.inv.doc.copied'));
   }
 

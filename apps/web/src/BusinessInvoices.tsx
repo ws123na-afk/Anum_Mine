@@ -364,13 +364,11 @@ function InvoiceBody({ invoice }: { invoice: BusinessInvoice }) {
     </dl>
     <section className="bzBlock" aria-labelledby={`l-${invoice.id}`}>
       <h3 id={`l-${invoice.id}`}>{t('inv.lines')}</h3>
-      <div className="pane dataTableWrap"><table className="dataTable bzTable invLines">
+      <div className="pane dataTableWrap" role="region" aria-label={t('inv.lines')} tabIndex={0}><table className="dataTable bzTable invLines">
         <caption className="visuallyHidden">{t('inv.lines')}</caption>
-        <thead><tr><th scope="col">{t('inv.col.description')}</th><th scope="col" className="num bzHideSm">{t('inv.col.qty')}</th><th scope="col" className="num bzHideSm">{t('inv.col.unit')}</th><th scope="col" className="num bzHideSm">{t('inv.col.taxPct')}</th>
-          <th scope="col" className="num">{t('inv.col.net')}</th><th scope="col" className="num">{t('inv.col.tax')}</th><th scope="col" className="num">{t('inv.col.lineTotal')}</th></tr></thead>
+        <thead><tr><th scope="col">{t('inv.col.description')}</th><th scope="col" className="num">{t('inv.col.net')}</th><th scope="col" className="num">{t('inv.col.tax')}</th><th scope="col" className="num">{t('inv.col.lineTotal')}</th></tr></thead>
         <tbody>{invoice.lines.map((line, index) => <tr key={index}>
-          <th scope="row"><span dir="auto">{line.description}</span><small>{t(`inv.source.${line.source}`)}</small></th>
-          <td className="num bzHideSm">{line.quantity}</td><td className="num bzHideSm">{money(line.unit_price, c)}</td><td className="num bzHideSm">{formatPct(line.tax_rate_pct)}</td>
+          <th scope="row"><span dir="auto">{line.description}</span><small>{t('inv.lineDetail', { source: t(`inv.source.${line.source}`), quantity: line.quantity, price: money(line.unit_price, c), rate: formatPct(line.tax_rate_pct) })}</small></th>
           <td className="num">{money(line.net, c)}</td><td className="num">{money(line.tax, c)}</td><td className="num">{money(line.total, c)}</td></tr>)}</tbody></table></div>
       <dl className="bzTotals" aria-label={t('inv.totals')}>
         <div><dt>{t('inv.f.subtotal')}</dt><dd>{money(invoice.subtotal, c)}</dd></div>

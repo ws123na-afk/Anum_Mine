@@ -119,7 +119,8 @@ export function checkSigner(input: string): Signer {
 
 /** The sentence the confirm step shows: exactly what is approved or declined, and for how much. */
 export function confirmText(kind: 'offer' | 'change', decision: 'approved' | 'declined', title: string, amount: number | null, currency: BusinessCurrency): string {
-  const money = amount === null ? t('pt.dash') : formatMoney(amount, currency);
+  // A change order moves the price up or down, so its amount keeps its sign.
+  const money = amount === null ? t('pt.dash') : kind === 'change' ? `${amount > 0 ? '+' : amount < 0 ? '-' : ''}${formatMoney(Math.abs(amount), currency)}` : formatMoney(amount, currency);
   return t(`pt.decide.confirm.${kind}.${decision}` as MessageKey, { title, amount: money });
 }
 

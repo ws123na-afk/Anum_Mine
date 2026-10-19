@@ -1,6 +1,5 @@
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
-import '../../data/json_read.dart';
 import 'business_models.dart';
 import 'invoice_models.dart';
 
@@ -139,8 +138,8 @@ class ApiInvoicesRepository implements InvoicesRepository {
 
   @override
   Future<String> printHtml(String id, String lang) async {
-    final body = await _call(
-        'GET', '/invoices/${_id(id)}/print${_q({'lang': lang})}');
+    final body =
+        await _call('GET', '/invoices/${_id(id)}/print${_q({'lang': lang})}');
     final html = body['html'];
     if (html is! String || html.isEmpty) {
       throw const ApiException(
@@ -212,8 +211,8 @@ class ApiInvoicesRepository implements InvoicesRepository {
     required int expiresInDays,
     required bool canDecide,
   }) async =>
-      PortalAccessCreated.fromJson(JsonReader.of(await _call(
-          'POST', '/portal/access', {
+      PortalAccessCreated.fromJson(
+          JsonReader.of(await _call('POST', '/portal/access', {
         'account_id': accountId,
         'contact_id': contactId,
         'expires_in_days': expiresInDays,

@@ -1,3 +1,5 @@
+import 'invoice_strings.dart';
+import 'portal_strings.dart';
 import 'support_strings.dart';
 
 /// Business screen strings (docs/business.md), English and Arabic. Looked up by
@@ -5,6 +7,8 @@ import 'support_strings.dart';
 /// catalog (apps/web/src/lib/messages/business.*.ts).
 const businessEn = <String, String>{
   ...supportEn,
+  ...invoiceEn,
+  ...portalEn,
   'biz.title': 'Business',
   'biz.subtitle': 'Leads, pipeline, proposals and projects for your own sales',
   'biz.sendingOff':
@@ -200,6 +204,8 @@ const businessEn = <String, String>{
 
 const businessAr = <String, String>{
   ...supportAr,
+  ...invoiceAr,
+  ...portalAr,
   'biz.title': 'الأعمال',
   'biz.subtitle': 'العملاء المحتملون والفرص والعروض والمشاريع لمبيعاتك',
   'biz.sendingOff':

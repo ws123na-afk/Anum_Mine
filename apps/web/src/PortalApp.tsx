@@ -31,8 +31,10 @@ const money = (value: number | null, currency: Parameters<typeof formatMoney>[1]
 
 type Loaded<T> = { kind: 'loading' } | { kind: 'ready'; value: T } | { kind: 'error'; error: unknown };
 
-function useLoad<T>(fn: () => Promise<T>, deps: readonly unknown[]): { state: Loaded<T>; reload: () => void; set: (value: T) => void } {
+function useLoad<T>(fn: () => Promise<T>, deps: readonly unknown[]): { state: Loaded<T>; reload: () => void; refresh: () => void; set: (value: T) => void } {
   const [state, setState] = useState<Loaded<T>>({ kind: 'loading' }), [tick, setTick] = useState(0);
+  const latest = useRef(fn);
+  latest.current = fn;
   useEffect(() => {
     let live = true;
     setState({ kind: 'loading' });
@@ -40,7 +42,9 @@ function useLoad<T>(fn: () => Promise<T>, deps: readonly unknown[]): { state: Lo
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick]);
-  return { state, reload: () => setTick((value) => value + 1), set: (value) => setState({ kind: 'ready', value }) };
+  // A refresh reads again without replacing what is on screen (a form keeps its text and its message).
+  const refresh = () => { latest.current().then((value) => setState({ kind: 'ready', value })).catch(() => undefined); };
+  return { state, reload: () => setTick((value) => value + 1), refresh, set: (value) => setState({ kind: 'ready', value }) };
 }
 
 const detailOf = (error: unknown) => (error instanceof ApiError ? error.detail : null);
@@ -79,9 +83,10 @@ function Friendly({ title, text, action }: { title: string; text: string; action
   return <div className="emptyState ptEmpty"><Inbox aria-hidden="true" /><h3>{title}</h3><p>{text}</p>{action && <div className="ptCenterRow">{action}</div>}</div>;
 }
 
-function useFocus<T extends HTMLElement>() {
+/** Moves focus to a detail's heading once it has loaded, so a screen reader starts reading the new page. */
+function useFocus<T extends HTMLElement>(ready = true) {
   const ref = useRef<T>(null);
-  useEffect(() => { ref.current?.focus(); }, []);
+  useEffect(() => { if (ready) ref.current?.focus(); }, [ready]);
   return ref;
 }
 
@@ -100,6 +105,7 @@ export function PortalApp() {
   const [section, setSection] = useState<Section>('overview');
   const [revoked, setRevoked] = useState<string | null>(null);
   const me = useLoad(() => p.getMe(), [link.token]);
+  const refreshMe = me.refresh;
   const mainRef = useRef<HTMLElement>(null);
   const go = useCallback((next: Section) => { setSection(next); window.setTimeout(() => mainRef.current?.focus(), 0); }, []);
   useEffect(() => { document.title = t('pt.docTitle'); }, [getLocale()]);
@@ -117,14 +123,14 @@ export function PortalApp() {
     body = <>
       {!info.can_decide && <Notice live>{t('pt.readOnly')}</Notice>}
       <ExpiryNotice expiresAt={info.expires_at} />
-      <nav className="ptTabs" aria-label={t('pt.sections')}>{SECTIONS.map((item) => <button key={item} type="button" aria-current={section === item ? 'page' : undefined} onClick={() => go(item)}>
+      <nav className="settingsTabs ptTabs" aria-label={t('pt.sections')}>{SECTIONS.map((item) => <button key={item} type="button" aria-current={section === item ? 'page' : undefined} onClick={() => go(item)}>
         {t(`pt.tab.${item}`)}{badgeCount(item, info) > 0 && <span className="ptCount" aria-label={t('pt.waitingCount', { count: badgeCount(item, info) })}>{badgeCount(item, info)}</span>}</button>)}</nav>
       <main id="portal-main" ref={mainRef} tabIndex={-1} aria-label={t(`pt.tab.${section}`)}>
         {section === 'overview' && <Overview me={info} onGo={go} />}
-        {section === 'offers' && <OffersSection me={info} onChanged={me.reload} onLinkLost={onLinkLost} />}
-        {section === 'changes' && <ChangesSection me={info} onChanged={me.reload} onLinkLost={onLinkLost} />}
+        {section === 'offers' && <OffersSection me={info} onChanged={refreshMe} onLinkLost={onLinkLost} />}
+        {section === 'changes' && <ChangesSection me={info} onChanged={refreshMe} onLinkLost={onLinkLost} />}
         {section === 'invoices' && <InvoicesSection onLinkLost={onLinkLost} />}
-        {section === 'requests' && <RequestsSection me={info} onChanged={me.reload} onLinkLost={onLinkLost} />}
+        {section === 'requests' && <RequestsSection me={info} onChanged={refreshMe} onLinkLost={onLinkLost} />}
       </main>
     </>;
   }
@@ -165,7 +171,7 @@ function ExpiryNotice({ expiresAt }: { expiresAt: string }) {
 }
 
 function Overview({ me, onGo }: { me: PortalMe; onGo: (section: Section) => void }) {
-  const rows: { section: Section; count: number; text: string; idle: string }[] = [
+  const rows: { section: Exclude<Section, 'overview'>; count: number; text: string; idle: string }[] = [
     { section: 'offers', count: me.counts.offers_waiting, text: t('pt.ov.offers', { count: me.counts.offers_waiting }), idle: t('pt.ov.offersIdle') },
     { section: 'changes', count: me.counts.change_orders_waiting, text: t('pt.ov.changes', { count: me.counts.change_orders_waiting }), idle: t('pt.ov.changesIdle') },
     { section: 'invoices', count: me.counts.invoices_open, text: t('pt.ov.invoices', { count: me.counts.invoices_open }), idle: t('pt.ov.invoicesIdle') },
@@ -305,14 +311,14 @@ function OffersSection({ me, onChanged, onLinkLost }: SectionProps & { me: Porta
 
 function OfferDetail({ id, me, onBack, onLinkLost }: { id: string; me: PortalMe; onBack: () => void; onLinkLost: (message: string | null) => void }) {
   const detail = useLoad(() => p.getOffer(id), [id]);
-  const heading = useFocus<HTMLHeadingElement>();
+  const heading = useFocus<HTMLHeadingElement>(detail.state.kind === 'ready');
   useLinkWatch(detail.state, onLinkLost);
   if (detail.state.kind === 'loading') return <section className="ptStack"><Back onClick={onBack} label={t('pt.offers.back')} /><Waiting what={t('pt.what.offer')} /></section>;
   if (detail.state.kind === 'error') return <section className="ptStack"><Back onClick={onBack} label={t('pt.offers.back')} /><Problem error={detail.state.error} onRetry={detail.reload} /></section>;
   const offer: PortalOffer = detail.state.value;
   async function decide(decision: 'approved' | 'declined', name: string, note: string) {
     try { detail.set(await p.decideOffer(offer.id, { decision, content_hash: offer.content_hash, signer_name: name, note })); }
-    catch (error) { if (statusOf(error) === 409) detail.reload(); throw error; }
+    catch (error) { if (statusOf(error) === 409) detail.refresh(); throw error; }
   }
   return <article className="ptStack" aria-labelledby="pt-offer-h">
     <Back onClick={onBack} label={t('pt.offers.back')} />
@@ -379,14 +385,14 @@ function signed(value: number | null, currency: Parameters<typeof formatMoney>[1
 
 function ChangeDetail({ id, me, onBack, onLinkLost }: { id: string; me: PortalMe; onBack: () => void; onLinkLost: (message: string | null) => void }) {
   const detail = useLoad(() => p.getChange(id), [id]);
-  const heading = useFocus<HTMLHeadingElement>();
+  const heading = useFocus<HTMLHeadingElement>(detail.state.kind === 'ready');
   useLinkWatch(detail.state, onLinkLost);
   if (detail.state.kind === 'loading') return <section className="ptStack"><Back onClick={onBack} label={t('pt.changes.back')} /><Waiting what={t('pt.what.change')} /></section>;
   if (detail.state.kind === 'error') return <section className="ptStack"><Back onClick={onBack} label={t('pt.changes.back')} /><Problem error={detail.state.error} onRetry={detail.reload} /></section>;
   const change: PortalChange = detail.state.value;
   async function decide(decision: 'approved' | 'declined', name: string, note: string) {
     try { detail.set(await p.decideChange(change.id, { decision, content_hash: change.content_hash, signer_name: name, note })); }
-    catch (error) { if (statusOf(error) === 409) detail.reload(); throw error; }
+    catch (error) { if (statusOf(error) === 409) detail.refresh(); throw error; }
   }
   const title = t('pt.changes.heading', { number: change.number, title: change.title });
   return <article className="ptStack" aria-labelledby="pt-change-h">
@@ -437,7 +443,7 @@ function InvoicesSection({ onLinkLost }: { onLinkLost: (message: string | null) 
 
 function InvoiceDetail({ id, onBack, onLinkLost }: { id: string; onBack: () => void; onLinkLost: (message: string | null) => void }) {
   const detail = useLoad(() => p.getInvoice(id), [id]);
-  const heading = useFocus<HTMLHeadingElement>();
+  const heading = useFocus<HTMLHeadingElement>(detail.state.kind === 'ready');
   const [language, setLanguage] = useState<'en' | 'ar'>(getLocale() === 'ar' ? 'ar' : 'en'), [note, setNote] = useState<string>(''), [failed, setFailed] = useState<string | null>(null);
   const langId = useId();
   useLinkWatch(detail.state, onLinkLost);
@@ -562,7 +568,7 @@ function NewRequest({ me, onBack, onCreated, onLinkLost }: { me: PortalMe; onBac
 
 function RequestDetail({ id, fresh, onBack, onLinkLost }: { id: string; fresh: string | null; onBack: () => void; onLinkLost: (message: string | null) => void }) {
   const detail = useLoad(() => p.getTicket(id), [id]);
-  const heading = useFocus<HTMLHeadingElement>();
+  const heading = useFocus<HTMLHeadingElement>(detail.state.kind === 'ready');
   useLinkWatch(detail.state, onLinkLost);
   if (detail.state.kind === 'loading') return <section className="ptStack"><Back onClick={onBack} label={t('pt.req.back')} /><Waiting what={t('pt.what.request')} /></section>;
   if (detail.state.kind === 'error') return <section className="ptStack"><Back onClick={onBack} label={t('pt.req.back')} /><Problem error={detail.state.error} onRetry={detail.reload} /></section>;

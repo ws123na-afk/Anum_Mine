@@ -8,6 +8,7 @@ import '../../src/widgets/depth.dart';
 import '../admin/admin_models.dart' show configuredWebAppUrl;
 import 'business_controller.dart';
 import 'invoice_controller.dart';
+import 'invoice_document.dart' show PillRow;
 import 'invoice_models.dart';
 import 'invoices.dart' show friendly;
 
@@ -141,7 +142,7 @@ class _ClientsViewState extends State<ClientsView> {
                           ),
                         ),
                       ),
-                      child: AnumRow(
+                      child: PillRow(
                         title: a.name,
                         subtitle: [a.city, a.country]
                             .where((e) => e.isNotEmpty)
@@ -151,11 +152,13 @@ class _ClientsViewState extends State<ClientsView> {
                           'leads': a.openLeads,
                         }),
                         icon: Icons.apartment_outlined,
-                        trailing: a.doNotContact
-                            ? AnumPill(
-                                label: l.t('biz.leads.dnc'),
-                                tone: AnumTone.stop)
-                            : null,
+                        pills: a.doNotContact
+                            ? [
+                                AnumPill(
+                                    label: l.t('biz.leads.dnc'),
+                                    tone: AnumTone.stop)
+                              ]
+                            : const [],
                       ),
                     ),
                   if (list.hasMore)
@@ -269,7 +272,10 @@ class _ClientScreenState extends State<ClientScreen> {
       );
       await _loadAccess();
     } catch (e) {
-      if (mounted) setState(() => notice = '${l.t('biz.portal.createFailed')} ${friendly(e)}');
+      if (mounted) {
+        setState(
+            () => notice = '${l.t('biz.portal.createFailed')} ${friendly(e)}');
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -281,8 +287,8 @@ class _ClientScreenState extends State<ClientScreen> {
           context: context,
           builder: (context) => AlertDialog(
             title: Text(l.t('biz.portal.revokeTitle')),
-            content: Text(
-                l.f('biz.portal.revokeBody', {'name': item.contactName})),
+            content:
+                Text(l.f('biz.portal.revokeBody', {'name': item.contactName})),
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(context, false),
@@ -352,24 +358,26 @@ class _ClientScreenState extends State<ClientScreen> {
 
   Widget _contact(BuildContext context, ClientDetail d, ClientContact contact) {
     final l = context.anum;
-    final mine = [for (final a in access) if (a.contactId == contact.id) a];
+    final mine = [
+      for (final a in access)
+        if (a.contactId == contact.id) a
+    ];
     final blocked = d.account.doNotContact || contact.doNotContact;
     return AnumSurface(
       key: Key('contact-${contact.id}'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AnumRow(
+          PillRow(
             title: contact.name,
             subtitle: [
               if (contact.roleTitle.isNotEmpty) contact.roleTitle,
               if (contact.email != null) contact.email!,
             ].join(' · '),
             icon: Icons.person_outline,
-            trailing: contact.doNotContact
-                ? AnumPill(
-                    label: l.t('biz.leads.dnc'), tone: AnumTone.stop)
-                : null,
+            pills: contact.doNotContact
+                ? [AnumPill(label: l.t('biz.leads.dnc'), tone: AnumTone.stop)]
+                : const [],
           ),
           Text(l.t('biz.portal.title'),
               style: Theme.of(context).textTheme.titleSmall),
@@ -530,8 +538,7 @@ class PortalLinkDialog extends StatelessWidget {
   Future<void> _copy(BuildContext context, String text, String done) async {
     await Clipboard.setData(ClipboardData(text: text));
     if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(done)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(done)));
     }
   }
 
@@ -545,7 +552,8 @@ class PortalLinkDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(l.f('biz.portal.linkFor', {'name': created.access.contactName}),
+            Text(
+                l.f('biz.portal.linkFor', {'name': created.access.contactName}),
                 style: const TextStyle(fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
             Text(l.t('biz.portal.linkWarning'),

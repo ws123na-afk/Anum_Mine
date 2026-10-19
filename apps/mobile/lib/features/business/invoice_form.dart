@@ -57,7 +57,8 @@ class LineDraft {
     final unit = parseNumber(price.text);
     if (unit == null || unit < 0) return (null, 'price');
     final rate = tax.text.trim().isEmpty ? null : parseNumber(tax.text);
-    if (tax.text.trim().isNotEmpty && (rate == null || rate < 0 || rate > 100)) {
+    if (tax.text.trim().isNotEmpty &&
+        (rate == null || rate < 0 || rate > 100)) {
       return (null, 'tax');
     }
     return (
@@ -158,7 +159,8 @@ class _LineEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = context.anum;
-    String? err(String key) => problem == key ? l.t('biz.inv.line.$key') : null;
+    String? err(String key) =>
+        problem == key ? l.t('biz.inv.line.err.$key') : null;
     return AnumSurface(
       key: Key('inv-line-$index'),
       child: Column(
@@ -411,13 +413,10 @@ class _AccountPickerState extends State<AccountPickerDialog> {
                                 ),
                               if (items.length < total)
                                 TextButton(
-                                  onPressed: more
-                                      ? null
-                                      : () => _load(items.length),
-                                  child: Text(l.f('biz.more', {
-                                    'shown': items.length,
-                                    'total': total
-                                  })),
+                                  onPressed:
+                                      more ? null : () => _load(items.length),
+                                  child: Text(l.f('biz.more',
+                                      {'shown': items.length, 'total': total})),
                                 ),
                             ]),
             ),
@@ -578,9 +577,8 @@ class _NewInvoiceState extends State<NewInvoiceScreen> {
     if (b.contract != null && contractAmount.text.trim().isNotEmpty) {
       final v = parseNumber(contractAmount.text);
       if (v == null || v <= 0 || v > b.contract!.remaining + 0.004) {
-        problems['contract'] = l.f('biz.inv.new.contractInvalid', {
-          'remaining': money(context, b.contract!.remaining, b.currency)
-        });
+        problems['contract'] = l.f('biz.inv.new.contractInvalid',
+            {'remaining': money(context, b.contract!.remaining, b.currency)});
       } else {
         body['contract_amount'] = v;
       }
@@ -599,7 +597,7 @@ class _NewInvoiceState extends State<NewInvoiceScreen> {
       final qty = parseNumber(offerQty.text);
       final price = parseNumber(offerPrice.text);
       if (qty == null || qty <= 0) {
-        problems['offerQty'] = l.t('biz.inv.line.qty');
+        problems['offerQty'] = l.t('biz.inv.line.err.qty');
       }
       if (offer.price == null && (price == null || price < 0)) {
         problems['offerPrice'] = l.t('biz.inv.new.offerPriceNeeded');
@@ -621,7 +619,8 @@ class _NewInvoiceState extends State<NewInvoiceScreen> {
     }
     if (manual.isNotEmpty) body['lines'] = manual;
     final rate = parseNumber(taxRate.text);
-    if (taxRate.text.trim().isNotEmpty && (rate == null || rate < 0 || rate > 100)) {
+    if (taxRate.text.trim().isNotEmpty &&
+        (rate == null || rate < 0 || rate > 100)) {
       problems['tax'] = l.t('biz.inv.profile.rateInvalid');
     } else if (rate != null && (rate - b.taxRatePct).abs() > 0.0001) {
       body['tax_rate_pct'] = rate;
@@ -639,7 +638,10 @@ class _NewInvoiceState extends State<NewInvoiceScreen> {
           ? l.t('biz.inv.new.nothing')
           : null;
     });
-    if (error != null || problems.isNotEmpty || lineProblem != null || daysBad) {
+    if (error != null ||
+        problems.isNotEmpty ||
+        lineProblem != null ||
+        daysBad) {
       setState(() {});
       return;
     }
@@ -753,7 +755,8 @@ class _NewInvoiceState extends State<NewInvoiceScreen> {
                     key: const Key('inv-new-account'),
                     onPressed: _pickAccount,
                     icon: const Icon(Icons.apartment_outlined),
-                    label: Text(account?.name ?? l.t('biz.inv.new.pickAccount')),
+                    label:
+                        Text(account?.name ?? l.t('biz.inv.new.pickAccount')),
                   ),
                   _gap(),
                   DropdownButtonFormField<String>(
@@ -810,10 +813,8 @@ class _NewInvoiceState extends State<NewInvoiceScreen> {
                       : null,
                   title: Text(x.changeOrderNumber == null
                       ? x.title
-                      : l.f('biz.inv.new.changeOrderMilestone', {
-                          'title': x.title,
-                          'number': x.changeOrderNumber!
-                        })),
+                      : l.f('biz.inv.new.changeOrderMilestone',
+                          {'title': x.title, 'number': x.changeOrderNumber!})),
                   subtitle: Text(x.billable
                       ? '${m(x.amount)}${x.dueOn == null ? '' : ', ${l.t('biz.inv.doc.due')} ${dayOf(x.dueOn)}'}'
                       : '${m(x.amount)}. ${x.reason}'),
@@ -857,8 +858,8 @@ class _NewInvoiceState extends State<NewInvoiceScreen> {
                 controlAffinity: ListTileControlAffinity.leading,
                 value: usage.contains(u.id),
                 onChanged: u.billable
-                    ? (on) => setState(() =>
-                        on == true ? usage.add(u.id) : usage.remove(u.id))
+                    ? (on) => setState(
+                        () => on == true ? usage.add(u.id) : usage.remove(u.id))
                     : null,
                 title: Text(u.description),
                 subtitle: Text(u.billable
@@ -931,12 +932,11 @@ class _NewInvoiceState extends State<NewInvoiceScreen> {
                         const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(
                         labelText: l.t('biz.inv.line.price'),
-                        helperText: b.offers
-                                    .firstWhere((o) => o.id == offerId)
-                                    .price ==
-                                null
-                            ? l.t('biz.inv.new.offerPriceNeeded')
-                            : l.t('biz.inv.new.offerPriceOptional'),
+                        helperText:
+                            b.offers.firstWhere((o) => o.id == offerId).price ==
+                                    null
+                                ? l.t('biz.inv.new.offerPriceNeeded')
+                                : l.t('biz.inv.new.offerPriceOptional'),
                         errorText: problems['offerPrice']),
                   ),
                 ],

@@ -185,8 +185,8 @@ class _BillingProfileState extends State<BillingProfileScreen> {
                           max: 200, editable: editable),
                       _field('address', address, l.t('biz.inv.profile.address'),
                           lines: 2, max: 1000, editable: editable),
-                      _field('taxLabel', taxLabel,
-                          l.t('biz.inv.profile.taxLabel'),
+                      _field(
+                          'taxLabel', taxLabel, l.t('biz.inv.profile.taxLabel'),
                           max: 60, editable: editable),
                       _field('taxNumber', taxNumber,
                           l.t('biz.inv.profile.taxNumber'),

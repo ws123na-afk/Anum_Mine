@@ -132,7 +132,8 @@ class PortalLine {
 }
 
 class PortalMilestone {
-  const PortalMilestone(this.title, this.amount, this.dueInDays, this.acceptance);
+  const PortalMilestone(
+      this.title, this.amount, this.dueInDays, this.acceptance);
   final String title, acceptance;
   final double amount;
   final int? dueInDays;
@@ -334,8 +335,8 @@ class PortalInvoiceSummary {
 }
 
 class PortalInvoiceLine {
-  const PortalInvoiceLine(
-      this.description, this.quantity, this.unitPrice, this.taxRatePct, this.total);
+  const PortalInvoiceLine(this.description, this.quantity, this.unitPrice,
+      this.taxRatePct, this.total);
   final String description;
   final double quantity, unitPrice, taxRatePct, total;
 }
@@ -444,8 +445,10 @@ class PortalInvoice extends PortalInvoiceSummary {
           : PortalSeller.fromJson(r.object('seller')),
       payments: r.optObjects(
           'payments',
-          (x) => PortalPayment(dayPart(x.optString('paid_on')),
-              x.number('amount'), x.string('method'),
+          (x) => PortalPayment(
+              dayPart(x.optString('paid_on')),
+              x.number('amount'),
+              x.string('method'),
               x.optString('reference') ?? '')),
       voidReason: r.optString('void_reason') ?? '',
     );
@@ -469,8 +472,12 @@ class PortalTicketSummary {
   final DateTime reportedAt, updatedAt;
   final bool openedHere;
 
-  bool get open => const {'new', 'triaged', 'in_progress', 'waiting_on_customer'}
-      .contains(status);
+  bool get open => const {
+        'new',
+        'triaged',
+        'in_progress',
+        'waiting_on_customer'
+      }.contains(status);
 
   factory PortalTicketSummary.fromJson(JsonReader r) => PortalTicketSummary(
         id: r.string('id'),
@@ -526,8 +533,7 @@ class PortalTicket extends PortalTicketSummary {
       description: r.optString('description') ?? '',
       resolutionSummary: r.optString('resolution_summary') ?? '',
       resolvedAt: r.optDate('resolved_at'),
-      replies: r.optObjects(
-          'replies',
+      replies: r.optObjects('replies',
           (x) => PortalReply(x.optString('body') ?? '', x.optDate('sent_at'))),
     );
   }

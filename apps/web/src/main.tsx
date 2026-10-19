@@ -182,6 +182,8 @@ initLocale({storage,languages:navigator.languages?.length?navigator.languages:[n
 initTheme({storage,root:document.documentElement,media:window.matchMedia?.('(prefers-color-scheme: light)')??null});
 // Re-renders the whole tree when the language changes, so every string and layout direction follows.
 // The public pages (/legal/*, /trust, /status, docs/legal-pages.md) need no sign-in and load on their own.
-const publicPage=publicRoute(window.location.pathname),portalPage=isPortalPath(window.location.pathname);
-function Root(){useLocale();return portalPage?<Suspense fallback={null}><PortalApp/></Suspense>:publicPage?<Suspense fallback={null}><PublicSite route={publicPage}/></Suspense>:<AuthGate/>}
-createRoot(document.getElementById('root')!).render(<Root/>);
+const publicPage=publicRoute(window.location.pathname);
+function Root(){useLocale();return publicPage?<Suspense fallback={null}><PublicSite route={publicPage}/></Suspense>:<AuthGate/>}
+// The customer portal (/portal, docs/business-portal.md) is checked first: it never reaches AuthGate, so no ANUM sign-in, OIDC redirect or workspace header is involved.
+function PortalRoot(){useLocale();return <Suspense fallback={null}><PortalApp/></Suspense>}
+createRoot(document.getElementById('root')!).render(isPortalPath(window.location.pathname)?<PortalRoot/>:<Root/>);

@@ -187,7 +187,8 @@ class _InvoicesViewState extends State<InvoicesView> {
                 label: l.t('biz.inv.sum.overdue'),
                 value: money(context, f.overdue, f.currency),
                 icon: Icons.event_busy_outlined,
-                caption: l.f('biz.inv.sum.overdueCount', {'count': f.overdueCount}),
+                caption:
+                    l.f('biz.inv.sum.overdueCount', {'count': f.overdueCount}),
                 accent: f.overdueCount > 0 ? context.palette.stop : null,
               ),
               AnumMetric(
@@ -277,8 +278,8 @@ class _InvoicesViewState extends State<InvoicesView> {
                 key: Key('inv-filter-$status'),
                 label: Text(l.t('biz.inv.status.$status')),
                 selected: f.status == status && !f.overdueOnly,
-                onSelected: (_) =>
-                    c.applyFilter(InvoiceFilter(status: status, query: f.query)),
+                onSelected: (_) => c
+                    .applyFilter(InvoiceFilter(status: status, query: f.query)),
               ),
             FilterChip(
               key: const Key('inv-filter-overdue'),
@@ -338,8 +339,8 @@ class _InvoicesViewState extends State<InvoicesView> {
         OutlinedButton(
           key: const Key('inv-more'),
           onPressed: list.loadingMore ? null : c.more,
-          child: Text(l.f('biz.more',
-              {'shown': list.items.length, 'total': list.total})),
+          child: Text(l.f(
+              'biz.more', {'shown': list.items.length, 'total': list.total})),
         ),
       if (list.error != null)
         Text(list.error!, style: TextStyle(color: context.palette.stop)),
@@ -357,7 +358,7 @@ class _InvoicesViewState extends State<InvoicesView> {
     return AnumSurface(
       key: Key('inv-row-${item.id}'),
       onTap: () => _open(item.id),
-      child: AnumRow(
+      child: PillRow(
         title: invoiceTitle(l, item.number, item.status),
         subtitle: [
           item.accountName,
@@ -371,10 +372,12 @@ class _InvoicesViewState extends State<InvoicesView> {
             l.f('biz.inv.daysOverdue', {'days': item.daysOverdue}),
         ].join(' · '),
         icon: Icons.receipt_long_outlined,
-        trailing: AnumPill(
-          label: l.t('biz.inv.status.${item.status}'),
-          tone: item.overdue ? AnumTone.stop : invoiceTone(item.status),
-        ),
+        pills: [
+          AnumPill(
+            label: l.t('biz.inv.status.${item.status}'),
+            tone: item.overdue ? AnumTone.stop : invoiceTone(item.status),
+          ),
+        ],
       ),
     );
   }
@@ -525,14 +528,17 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
 
   Future<void> _pay() async {
     final inv = invoice!;
+    final l = context.anum;
     final body = await showDialog<Map<String, Object?>>(
       context: context,
       builder: (context) => PaymentDialog(
-          balance: inv.balance, currency: inv.currency, issueDate: inv.issueDate),
+          balance: inv.balance,
+          currency: inv.currency,
+          issueDate: inv.issueDate),
     );
     if (body == null) return;
     await act(() => c.repository.recordPayment(inv.id, body),
-        context.anum.t('biz.inv.paymentRecorded'));
+        l.t('biz.inv.paymentRecorded'));
   }
 
   Future<void> _removePayment(InvoicePayment p) async {
@@ -665,7 +671,7 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
           children: [
             AnumHeader(title: l.t('biz.inv.lines')),
             for (final line in inv.lines)
-              AnumRow(
+              PillRow(
                 title: line.description,
                 subtitle:
                     '${plainNumber(line.quantity)} x ${m(line.unitPrice)}, ${l.t('biz.inv.doc.tax')} ${plainNumber(line.taxRatePct)}%',
@@ -674,9 +680,9 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
                   'tax': m(line.tax),
                   'total': m(line.total),
                 }),
-                trailing: line.manual
-                    ? null
-                    : AnumPill(label: l.t('biz.inv.source.${line.source}')),
+                pills: line.manual
+                    ? const []
+                    : [AnumPill(label: l.t('biz.inv.source.${line.source}'))],
               ),
           ],
         ),
@@ -892,8 +898,8 @@ class _ReasonDialogState extends State<ReasonDialog> {
               controller: reason,
               autofocus: true,
               maxLength: 300,
-              decoration: InputDecoration(
-                  labelText: widget.label, errorText: problem),
+              decoration:
+                  InputDecoration(labelText: widget.label, errorText: problem),
             ),
           ],
         ),
@@ -956,11 +962,15 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
   Future<void> _pick() async {
     final now = clock.now();
+    final first =
+        DateTime.tryParse(widget.issueDate ?? '') ?? DateTime(now.year - 2);
+    var initial = DateTime.tryParse(date.text.trim()) ?? now;
+    if (initial.isAfter(now)) initial = now;
+    if (initial.isBefore(first)) initial = first;
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.tryParse(date.text) ?? now,
-      firstDate: DateTime.tryParse(widget.issueDate ?? '') ??
-          DateTime(now.year - 2),
+      initialDate: initial,
+      firstDate: first,
       lastDate: now,
     );
     if (picked != null) setState(() => date.text = dayOfDate(picked));
@@ -1003,8 +1013,8 @@ class _PaymentDialogState extends State<PaymentDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(l.f('biz.inv.paymentHint', {
-              'balance': formatMoney(widget.balance, widget.currency,
-                  locale: l.locale)
+              'balance':
+                  formatMoney(widget.balance, widget.currency, locale: l.locale)
             })),
             const SizedBox(height: 12),
             TextField(
