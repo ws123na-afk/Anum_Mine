@@ -1159,3 +1159,23 @@ def test_demo_records_migration_is_expand_only_with_forced_rls() -> None:
     assert '"demo_records"' in upgrade and "force row level security" in upgrade
     assert "create policy tenant_isolation_demo_records" in upgrade
     assert "drop " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_calendar_sync_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0088_calendar_sync.py").read_text(encoding="utf-8")
+    assert 'revision = "0088_calendar_sync"' in revision_text and len("0088_calendar_sync") <= 32
+    assert 'down_revision = "0083_skill_signing"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0088_calendar_sync.py"]
+    assert not [path for path in others if 'down_revision = "0088_calendar_sync"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2
+    assert '"calendar_connections"' in revision_text and '"calendar_oauth_requests"' in revision_text
+    assert "for table in tables:\n        _enable_rls(table)" in upgrade and "force row level security" in revision_text and "with check (" in revision_text
+    # Expand only: nullable columns on calendar_events, nothing dropped or altered.
+    assert upgrade.count("op.add_column(") == 6 and "alter_column" not in upgrade and "op.drop" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # Discovery only: ids, scope and status; never a token or an address.
+    assert "grant select (id, tenant_id, workspace_id, connected_by, status, last_sync_at)" in upgrade
+    assert "to anum_maintenance" in upgrade and "grant insert" not in upgrade and "grant update" not in upgrade
+    assert "uq_calendar_events_external" in upgrade

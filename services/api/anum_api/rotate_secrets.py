@@ -19,7 +19,8 @@ every finance connection credential (``finance_connections``, migration 0057, ea
 owner's own scope because finance rows are private to one person) and every Email Center
 mailbox password (``mail_accounts``, migration 0060, also in its owner's scope) and every voice
 provider account's auth token and API key secret (``call_provider_accounts``, migration 0071)
-in every tenant, and every Brevo API key (``brevo_connections``, migration 0074).
+in every tenant, every Brevo API key (``brevo_connections``, migration 0074) and every connected
+calendar's OAuth tokens (``calendar_connections``, migration 0088).
 Pending email connections (``email_oauth_requests``) and OAuth ``state`` values live for
 minutes and expire instead; phone push tokens are re-encrypted by the phone. See
 docs/runbooks.md#rotating-anum_secrets_key.
@@ -752,6 +753,10 @@ MAIL_ACCOUNTS = _multi_store(
 CALL_PROVIDER_ACCOUNTS = _multi_store(
     "call_provider_accounts", "call_provider", ("credentials_ciphertext",), ("tenant_id", "workspace_id")
 )
+# Calendar sync (migration 0088): each connected calendar's OAuth access and refresh tokens.
+CALENDAR_CONNECTIONS = _multi_store(
+    "calendar_connections", "calendar_connection", ("access_token_enc", "refresh_token_enc"), ("tenant_id", "workspace_id", "id")
+)
 # Brevo email campaigns (migration 0074): each workspace's API key.
 BREVO_CONNECTIONS = _multi_store(
     "brevo_connections", "brevo_connection", ("api_key_ciphertext",), ("tenant_id", "workspace_id")
@@ -982,6 +987,23 @@ def rotate_brevo_keys(
     )
 
 
+def rotate_calendar_tokens(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt every connected calendar's OAuth access and refresh tokens."""
+    return _rotate_store(
+        CALENDAR_CONNECTIONS, cipher, session_factory=session_factory,
+        maintenance_session_factory=maintenance_session_factory, dry_run=dry_run, batch_size=batch_size,
+        correlation_id=correlation_id,
+    )
+
+
 def _configuration_problem() -> str | None:
     if settings.repository_backend != "postgresql":
         return "rotate_secrets needs ANUM_REPOSITORY_BACKEND=postgresql (the memory backend stores nothing at rest)"
@@ -1028,6 +1050,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ("mail_accounts", rotate_mail_passwords),
             ("call_providers", rotate_call_provider_secrets),
             ("brevo_connections", rotate_brevo_keys),
+            ("calendar_connections", rotate_calendar_tokens),
         )
     }
     # Provider keys, integration and tyre credentials at the top level (as before); the rest nested.

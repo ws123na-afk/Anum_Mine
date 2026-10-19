@@ -59,6 +59,9 @@ class CalendarEvent {
     this.phone,
     this.attendees = const [],
     this.canManage = false,
+    this.connectionId,
+    this.syncState,
+    this.invitationsPending = false,
   });
 
   final String id, title, kind, status;
@@ -66,6 +69,29 @@ class CalendarEvent {
   final DateTime startsAt, endsAt;
   final List<Attendee> attendees;
   final bool canManage;
+
+  /// Calendar sync (docs/calendar.md#sync): the connected Google or Microsoft
+  /// calendar this event mirrors, and `synced`, `pending_push` or `local`.
+  final String? connectionId, syncState;
+
+  /// Attendees with an email address have no approved invitation for the event
+  /// as it is now.
+  final bool invitationsPending;
+
+  /// `synced`, `waiting` (to be sent) or `local` (only in ANUM).
+  String get syncKind => connectionId == null
+      ? 'local'
+      : syncState == 'synced'
+          ? 'synced'
+          : syncState == 'pending_push'
+              ? 'waiting'
+              : 'local';
+
+  /// Attendees an invitation would reach.
+  List<String> get invitees => [
+        for (final a in attendees)
+          if (a.email != null && a.email!.isNotEmpty) a.email!
+      ];
 
   bool get cancelled => status == 'cancelled';
 
@@ -100,7 +126,67 @@ class CalendarEvent {
         phone: j.optString('phone'),
         attendees: j.optObjects('attendees', Attendee.fromJson),
         canManage: j.optBool('can_manage') ?? false,
+        connectionId: j.optString('connection_id'),
+        syncState: j.optString('sync_state'),
+        invitationsPending: j.optBool('invitations_pending') ?? false,
       );
+}
+
+/// One connected Google or Microsoft calendar (docs/calendar.md#sync).
+class SyncConnection {
+  const SyncConnection({
+    required this.id,
+    required this.provider,
+    required this.providerName,
+    required this.email,
+    required this.status,
+    this.lastSyncAt,
+    this.lastError,
+    this.eventsSynced = 0,
+  });
+
+  final String id, provider, providerName, email, status;
+  final DateTime? lastSyncAt;
+  final String? lastError;
+  final int eventsSynced;
+
+  bool get healthy => status == 'connected';
+  bool get needsReconnect => status == 'reauth_required';
+
+  factory SyncConnection.fromJson(JsonReader j) => SyncConnection(
+        id: j.string('id'),
+        provider: j.string('provider'),
+        providerName: j.optString('provider_name') ?? j.string('provider'),
+        email: j.string('email'),
+        status: j.optString('status') ?? 'connected',
+        lastSyncAt:
+            j.optString('last_sync_at') == null ? null : j.date('last_sync_at'),
+        lastError: j.optString('last_error'),
+        eventsSynced: j.optInt('events_synced') ?? 0,
+      );
+}
+
+/// What sync looks like to this person: the connections, and whether they
+/// may sync or change them (owners).
+class CalendarSyncStatus {
+  const CalendarSyncStatus(this.connections, {this.canManage = false});
+  final List<SyncConnection> connections;
+  final bool canManage;
+
+  /// New events go to the oldest connection that works.
+  SyncConnection? get target {
+    for (final c in connections) {
+      if (c.healthy) return c;
+    }
+    return null;
+  }
+
+  SyncConnection? get troubled {
+    for (final c in connections) {
+      if (!c.healthy) return c;
+    }
+    return null;
+  }
 }
 
 class EventPage {

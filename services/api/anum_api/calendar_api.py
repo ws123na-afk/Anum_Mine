@@ -154,6 +154,7 @@ class EventFields(BaseModel):
 
 class EventCreate(EventFields):
     attendees: list[AttendeeInput] = Field(default_factory=list, max_length=MAX_ATTENDEES)
+    sync: bool = Field(default=True, description="Send the event to the connected Google or Microsoft calendar (when one is connected)")
     source: str = Field(default="manual", max_length=40, pattern=r"^[a-z][a-z0-9_.-]*$")
     source_ref: str | None = Field(default=None, max_length=120)
 
@@ -183,10 +184,20 @@ class CalendarEvent(EventFields):
     created_at: datetime
     updated_by: str | None = None
     updated_at: datetime
+    # Calendar sync (docs/calendar.md#sync): the provider event this one mirrors.
+    connection_id: str | None = None
+    external_id: str | None = None
+    external_etag: str | None = None
+    synced_at: datetime | None = None
+    sync_state: Literal["synced", "pending_push", "local"] | None = None
+    invites_hash: str | None = None
 
 
 class EventView(CalendarEvent):
     can_manage: bool = False
+    # True when attendees with an email address have not had an invitation approved for the
+    # event as it is now (docs/calendar.md#invitations).
+    invitations_pending: bool = False
 
 
 class EventPage(BaseModel):
@@ -230,6 +241,10 @@ class CalendarStoreProtocol(Protocol):
     def save(self, event: CalendarEvent) -> CalendarEvent: ...
     def delete(self, event_id: str) -> bool: ...
     def between(self, start: datetime, end: datetime, *, include_cancelled: bool, limit: int) -> list[CalendarEvent]: ...
+    def by_external(self, connection_id: str, external_id: str) -> CalendarEvent | None: ...
+    def pending_push(self, connection_id: str, limit: int) -> list[CalendarEvent]: ...
+    def count_linked(self, connection_id: str) -> int: ...
+    def unlink(self, connection_id: str) -> int: ...
 
 
 def _order(event: CalendarEvent) -> tuple[datetime, str]:
@@ -291,6 +306,33 @@ class MemoryCalendarStore:
             ]
         items.sort(key=_order)
         return [e.model_copy(deep=True) for e in items[:limit]]
+
+    def by_external(self, connection_id: str, external_id: str) -> CalendarEvent | None:
+        with self.b.lock:
+            for e in self.b.events.values():
+                if self._mine(e) and e.connection_id == connection_id and e.external_id == external_id:
+                    return e.model_copy(deep=True)
+        return None
+
+    def pending_push(self, connection_id: str, limit: int) -> list[CalendarEvent]:
+        with self.b.lock:
+            items = [e for e in self.b.events.values() if self._mine(e) and e.connection_id == connection_id and e.sync_state == "pending_push"]
+        items.sort(key=_order)
+        return [e.model_copy(deep=True) for e in items[:limit]]
+
+    def count_linked(self, connection_id: str) -> int:
+        with self.b.lock:
+            return sum(1 for e in self.b.events.values() if self._mine(e) and e.connection_id == connection_id and e.external_id)
+
+    def unlink(self, connection_id: str) -> int:
+        count = 0
+        with self.b.lock:
+            for e in self.b.events.values():
+                if self._mine(e) and e.connection_id == connection_id:
+                    e.connection_id = e.external_id = e.external_etag = e.synced_at = e.invites_hash = None
+                    e.sync_state = None
+                    count += 1
+        return count
 
 
 calendar_backend = InMemoryCalendarBackend()
@@ -359,7 +401,12 @@ def _attendees(values: list[AttendeeInput], previous: list[Attendee] | None = No
 
 
 def _view(context: TenantContext, event: CalendarEvent) -> EventView:
-    return EventView(**event.model_dump(), can_manage=_can_manage(context, event))
+    from .calendar_sync import invitation_hash
+
+    emails = any(a.email for a in event.attendees)
+    pending = emails and event.invites_hash != invitation_hash(event)
+    data = event.model_dump(exclude={"external_etag", "invites_hash"})
+    return EventView(**data, can_manage=_can_manage(context, event), invitations_pending=bool(pending))
 
 
 def _load(store: CalendarStoreProtocol, event_id: str) -> CalendarEvent:
@@ -381,7 +428,7 @@ def _first_error(exc: ValueError) -> str:
 def create_event_for(context: TenantContext, payload: EventCreate) -> CalendarEvent:
     """Add an event to the caller's workspace calendar (modules call this; the caller checks permission)."""
     now = utc_now()
-    fields = payload.model_dump(exclude={"attendees"})
+    fields = payload.model_dump(exclude={"attendees", "sync"})
     event = CalendarEvent(
         **fields,
         id=new_id("event"),
@@ -437,6 +484,10 @@ async def create_event(
     _require(context, Permission.CALENDAR_WRITE, WRITE_DENIED)
     event = create_event_for(context, payload)
     _audit(repository, context, "calendar.event.created", event.id, {"attendees": len(event.attendees), "kind": event.kind.value})
+    if payload.sync:
+        from .calendar_sync import attach_and_push
+
+        event = await attach_and_push(context, event.id, create=True) or event
     return _view(context, event)
 
 
@@ -474,6 +525,10 @@ async def update_event(
             raise HTTPException(status_code=422, detail=_first_error(exc)) from None
         store.save(updated)
     _audit(repository, context, "calendar.event.updated", event_id, {"fields": sorted(changes)})
+    if updated.connection_id:
+        from .calendar_sync import attach_and_push
+
+        updated = await attach_and_push(context, event_id, create=False) or updated
     return _view(context, updated)
 
 
@@ -513,6 +568,17 @@ async def delete_event(
         event = _load(store, event_id)
         if not _can_manage(context, event):
             raise HTTPException(status_code=403, detail=MANAGE_DENIED)
+    if event.connection_id and event.external_id:
+        from .calendar_sync import CalendarSyncError, remove_at_provider
+
+        try:
+            await remove_at_provider(context, event)
+        except CalendarSyncError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"The event was not deleted because the connected calendar could not remove it: {exc.message} Try again, or disconnect the calendar first.",
+            ) from None
+    with open_calendar_store(context) as store:
         store.delete(event_id)
     _audit(repository, context, "calendar.event.deleted", event_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

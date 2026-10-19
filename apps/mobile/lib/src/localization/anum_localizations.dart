@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'calls_strings.dart';
 import 'brevo_strings.dart';
+import 'calendar_sync_strings.dart';
 import 'org_admin_strings.dart';
 import 'business_strings.dart';
 import 'mail_center_strings.dart';
@@ -26,6 +27,7 @@ class AnumLocalizations {
       (isArabic ? businessAr : businessEn)[key] ??
       (isArabic ? brevoAr : brevoEn)[key] ??
       (isArabic ? orgAdminAr : orgAdminEn)[key] ??
+      (isArabic ? calendarSyncAr : calendarSyncEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
@@ -33,6 +35,7 @@ class AnumLocalizations {
       businessEn[key] ??
       brevoEn[key] ??
       orgAdminEn[key] ??
+      calendarSyncEn[key] ??
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.

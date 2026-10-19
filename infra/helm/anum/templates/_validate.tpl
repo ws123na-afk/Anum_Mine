@@ -123,7 +123,7 @@ so the chart refuses the same values. OAuth client secrets belong in secrets.app
 {{- $c := .Values.config -}}
 {{- $all := merge (dict) (default (dict) .Values.extraEnv) (default (dict) $c) -}}
 {{- range $key, $value := $all -}}
-{{- if and (regexMatch "^ANUM_EMAIL_(GOOGLE|MICROSOFT|ZOHO)_CLIENT_SECRET$" (upper (toString $key))) (trim (toString (default "" $value))) -}}
+{{- if and (regexMatch "^ANUM_(EMAIL|CALENDAR)_(GOOGLE|MICROSOFT|ZOHO)_CLIENT_SECRET$" (upper (toString $key))) (trim (toString (default "" $value))) -}}
 {{- fail (printf "%s is an OAuth client secret: put it in the secrets.app Secret (listed in secrets.app.optional), never in config or extraEnv (rendered into a ConfigMap)" $key) -}}
 {{- end -}}
 {{- end -}}

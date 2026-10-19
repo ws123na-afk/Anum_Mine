@@ -114,7 +114,7 @@ refuses "ANUM_FCM_SERVICE_ACCOUNT_JSON carries" --set-string extraEnv.ANUM_FCM_S
 # WhatsApp, email and learning settings (docs/whatsapp.md, docs/email.md, docs/learning.md):
 # the API's pydantic bounds, mirrored, and OAuth client secrets only in secrets.app.
 for template in api.yaml worker.yaml; do
-  for key in ANUM_EMAIL_GOOGLE_CLIENT_SECRET ANUM_EMAIL_MICROSOFT_CLIENT_SECRET ANUM_EMAIL_ZOHO_CLIENT_SECRET; do
+  for key in ANUM_EMAIL_GOOGLE_CLIENT_SECRET ANUM_EMAIL_MICROSOFT_CLIENT_SECRET ANUM_EMAIL_ZOHO_CLIENT_SECRET ANUM_CALENDAR_GOOGLE_CLIENT_SECRET ANUM_CALENDAR_MICROSOFT_CLIENT_SECRET; do
     secret_env_reaches "$key" "$template"
   done
 done
@@ -126,6 +126,8 @@ for key in ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS ANUM_LEARNING_SIGNAL_RETENTION_D
 done
 refuses "is an OAuth client secret" --set-string config.ANUM_EMAIL_GOOGLE_CLIENT_SECRET=example
 refuses "is an OAuth client secret" --set-string extraEnv.ANUM_EMAIL_ZOHO_CLIENT_SECRET=example
+refuses "is an OAuth client secret" --set-string config.ANUM_CALENDAR_GOOGLE_CLIENT_SECRET=example
+refuses "is an OAuth client secret" --set-string extraEnv.ANUM_CALENDAR_MICROSOFT_CLIENT_SECRET=example
 refuses "ANUM_WHATSAPP_GRAPH_API_VERSION" --set-string config.ANUM_WHATSAPP_GRAPH_API_VERSION=23
 refuses "ANUM_WHATSAPP_GRAPH_API_URL must be an https URL" --set-string config.ANUM_WHATSAPP_GRAPH_API_URL=http://graph.facebook.com
 refuses "ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS" --set-string config.ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS=3651

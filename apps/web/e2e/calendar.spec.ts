@@ -111,3 +111,118 @@ test('the Calendar reads right to left in Arabic', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'حدث جديد' }).first()).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
+
+// Calendar sync with Google and Microsoft (docs/calendar.md#sync).
+const syncTab = (page: Page) => page.getByRole('tab', { name: 'Sync' });
+
+test('without a connection the Sync tab offers the calendars an owner can connect', async ({ page }) => {
+  await openCalendar(page, { sync: 'none' });
+  await expect(page.getByText('Events live in ANUM until a Google or Microsoft calendar is connected under Sync.')).toBeVisible();
+  await syncTab(page).click();
+  await expect(page.getByRole('heading', { name: 'No calendar connected yet' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Connect Google Calendar' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Connect Microsoft 365 Calendar' })).toBeVisible();
+  await expect(page.getByText('Address to register with the provider: https://api.example.com/api/v1/calendar/sync/oauth/callback')).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});
+
+test('a provider the server has no OAuth client for says which settings are missing', async ({ page }) => {
+  await openCalendar(page, { sync: 'unconfigured' });
+  await syncTab(page).click();
+  await expect(page.getByText('Not set up', { exact: true })).toBeVisible();
+  await expect(page.getByText(/ANUM_CALENDAR_GOOGLE_CLIENT_ID, ANUM_CALENDAR_GOOGLE_CLIENT_SECRET/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Connect Google Calendar' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Connect Microsoft 365 Calendar' })).toBeVisible();
+});
+
+test('connecting sends the browser to the provider and finishes the connection on return', async ({ page }) => {
+  const state = await openCalendar(page, { sync: 'none' });
+  await syncTab(page).click();
+  await page.getByRole('button', { name: 'Connect Google Calendar' }).click();
+  await expect(page.getByText('Connected owner@example.com. 3 events synced.')).toBeVisible();
+  expect(state.connectStarts).toEqual(['google']);
+  await expect(page).toHaveURL(/#calendar$/);
+  await expect(page).not.toHaveURL(/calendar_connect/);
+  const connections = page.getByRole('region', { name: 'Connected calendars' });
+  await expect(connections.getByText('owner@example.com')).toBeVisible();
+});
+
+test('a connected calendar shows its health, syncs on request and disconnects after a confirmation', async ({ page }) => {
+  const state = await openCalendar(page, { sync: 'connected' });
+  await expect(page.getByText('Synced with Google Calendar (owner@example.com). Changes go both ways.')).toBeVisible();
+  await syncTab(page).click();
+  const connections = page.getByRole('region', { name: 'Connected calendars' });
+  await expect(connections.getByText(/Last sync 5 min ago/)).toBeVisible();
+  await expect(connections.getByText('Last pass: 2 added, 1 updated, 0 removed, 1 sent. Conflicts settled: 1 by the calendar, 0 by ANUM.')).toBeVisible();
+  await connections.getByRole('button', { name: 'Sync now' }).click();
+  await expect(page.getByText('Synced owner@example.com.')).toBeVisible();
+  expect(state.syncs).toEqual(['cal_1']);
+  await connections.getByRole('button', { name: 'Disconnect' }).click();
+  const confirm = page.getByRole('alertdialog', { name: 'Disconnect this calendar?' });
+  await expect(confirm).toContainText('The events already in ANUM stay here');
+  await confirm.getByRole('button', { name: 'Disconnect' }).click();
+  await expect(page.getByText(/Google Calendar is disconnected/)).toBeVisible();
+  expect(state.disconnected).toEqual(['cal_1']);
+  await expect(page.getByRole('heading', { name: 'No calendar connected yet' })).toBeVisible();
+});
+
+test('a revoked grant says what to do and offers to connect again', async ({ page }) => {
+  await openCalendar(page, { sync: 'reauth' });
+  await expect(page.getByText(/Google Calendar sync needs attention/)).toBeVisible();
+  await syncTab(page).click();
+  const connections = page.getByRole('region', { name: 'Connected calendars' });
+  await expect(connections.getByRole('alert')).toContainText('Token has been expired or revoked.');
+  await expect(connections.getByRole('alert')).toContainText('Press Connect Google Calendar again and sign in');
+  await expect(connections.getByRole('button', { name: 'Connect Google Calendar again' })).toBeVisible();
+  await expect(connections.getByRole('button', { name: 'Sync now' })).toBeDisabled();
+});
+
+test('a synced event shows where it lives; invitations are only requested, never sent', async ({ page }) => {
+  const state = await openCalendar(page, { sync: 'connected' });
+  await agenda(page).getByRole('button', { name: /Fleet review with the team/ }).click();
+  const detail = page.getByRole('article', { name: 'Fleet review with the team' });
+  await expect(detail.getByText('Synced with Google Calendar')).toBeVisible();
+  await expect(detail.getByText(/Invitations have not been approved for this event as it is now/)).toBeVisible();
+  await detail.getByRole('button', { name: 'Ask to send invitations' }).click();
+  await expect(detail.getByText(/Waiting for an owner to approve inviting sara@example.com, omar@example.com. Nothing has been sent./)).toBeVisible();
+  expect(state.invitations).toEqual(['evt_1']);
+  await expect(detail.getByRole('button', { name: 'Ask to send invitations' })).toHaveCount(0);
+  await detail.getByRole('button', { name: 'Review approvals' }).click();
+  await expect(page).toHaveURL(/#approvals$/);
+});
+
+test('New event can stay in ANUM only when a calendar is connected', async ({ page }) => {
+  const state = await openCalendar(page, { sync: 'connected' });
+  await page.getByRole('button', { name: 'New event' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'New event' });
+  await expect(dialog.getByLabel('Also add to Google Calendar (owner@example.com)')).toBeChecked();
+  await dialog.getByLabel('Title').fill('Private planning');
+  await dialog.getByLabel('Also add to Google Calendar (owner@example.com)').uncheck();
+  await dialog.getByRole('button', { name: 'Add event' }).click();
+  await expect(page.getByText('Added "Private planning".')).toBeVisible();
+  expect((state.created[0] as { sync?: boolean }).sync).toBe(false);
+});
+
+test('a viewer sees the sync status but cannot connect or sync', async ({ page }) => {
+  await openCalendar(page, { role: 'viewer', sync: 'connected' });
+  await syncTab(page).click();
+  await expect(page.getByText('Only workspace owners can connect, sync or disconnect calendars.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sync now' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Connect / })).toHaveCount(0);
+});
+
+test('a failed sync status load is explained without breaking the agenda', async ({ page }) => {
+  await openCalendar(page, { failSync: true });
+  await expect(agenda(page).getByRole('button', { name: /Fleet review with the team/ })).toBeVisible();
+  await syncTab(page).click();
+  await expect(page.getByRole('alert')).toContainText('Could not load the calendar connections');
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+});
+
+test('the Sync tab reads right to left in Arabic without overflow', async ({ page }) => {
+  await useSavedLocale(page, 'ar');
+  await openCalendar(page, { sync: 'connected' });
+  await page.getByRole('tab', { name: 'المزامنة' }).click();
+  await expect(page.getByRole('button', { name: 'زامن الآن' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});
