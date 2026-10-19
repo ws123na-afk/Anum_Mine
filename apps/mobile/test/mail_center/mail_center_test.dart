@@ -22,6 +22,7 @@ import 'package:anum_mobile/src/localization/mail_center_strings.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -2277,6 +2278,7 @@ class FakeAllInboxes implements MailAllInboxesRepository {
   Object? error;
   bool offlineSales = false;
   bool empty = false;
+  String? senderName;
 
   @override
   Future<MailAllInboxPage> page(MailAllInboxFilters filters,
@@ -2287,7 +2289,14 @@ class FakeAllInboxes implements MailAllInboxesRepository {
         ? <Map<String, Object?>>[]
         : [
             for (var i = 0; i < 30; i++)
-              _allItem(200 - i, i.isEven ? 'mailbox_1' : 'mailbox_2')
+              {
+                ..._allItem(200 - i, i.isEven ? 'mailbox_1' : 'mailbox_2'),
+                if (senderName != null)
+                  'sender': {
+                    'name': senderName,
+                    'address': 'sara@client.example'
+                  },
+              }
           ];
     final wanted = filters.accountId == null
         ? all
@@ -2455,6 +2464,46 @@ void _allInboxesGroup() {
       await tester.pumpAndSettle();
       expect(find.text(_en('mc.denied')), findsOneWidget);
     });
+
+    for (final width in [320.0, 390.0]) {
+      testMail(
+          now: _now,
+          'at $width px a long sender gets all the room a short date leaves',
+          (tester) async {
+        // Today the date is a time, so it is short: it keeps its natural
+        // width and the sender takes the rest of the row, not half of it.
+        await pumpAll(tester, c, size: Size(width, 844));
+        Finder titleRow(Finder name) =>
+            find.ancestor(of: name, matching: find.byType(Row)).first;
+        Finder dateIn(Finder row) =>
+            find.descendant(of: row, matching: find.byType(Text)).last;
+        var name = find.text('Sara Example').first;
+        final row = titleRow(name);
+        final date = dateIn(row);
+        expect(tester.widget<Text>(date).data, isNot(contains('Oct')));
+        final rowWidth = tester.getSize(row).width;
+        final dateWidth = tester.getSize(date).width;
+        final dateNatural =
+            tester.renderObject<RenderParagraph>(date).getMaxIntrinsicWidth(0);
+        expect(dateWidth, moreOrLessEquals(dateNatural.clamp(0, 88)));
+        final room = rowWidth - dateWidth - AnumSpacing.xs;
+        expect(tester.getSize(name).width, moreOrLessEquals(room));
+
+        // A sender as long as that room allows is shown in full.
+        final glyph =
+            tester.renderObject<RenderParagraph>(name).getMaxIntrinsicWidth(0) /
+                'Sara Example'.length;
+        final fits = (room / glyph).floor();
+        final sender = 'Sara Example Trading Company'.substring(0, fits);
+        all.senderName = sender;
+        await c.allInboxes!.load();
+        await tester.pumpAndSettle();
+        name = find.text(sender).first;
+        expect(tester.renderObject<RenderParagraph>(name).didExceedMaxLines,
+            isFalse);
+        expect(tester.takeException(), isNull);
+      });
+    }
 
     for (final width in [320.0, 390.0, 768.0, 1440.0]) {
       testMail(now: _aYearLater, 'fits $width px at 200 percent text in Arabic',
