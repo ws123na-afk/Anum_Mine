@@ -148,4 +148,4 @@ When migration `0032_developer_projects` runs with `ANUM_DEVELOPER_GITHUB_REPO` 
 - Deploy after merge is each repository's own pipeline; ANUM does not report deploy progress.
 - The daily cap is per workspace, not across the tenant's workspaces (rows are workspace-scoped under RLS). Set `ANUM_DEVELOPER_WORKSPACE_ID` to keep developer mode in one workspace.
 - The Install workflow pull request is merged in GitHub, not through ANUM's approvals.
-- The Flutter developer screens are in English only (the web is English and Arabic).
+- The Flutter developer screens are in English and Arabic (right to left), like the web; Arabic is covered by `apps/mobile/test/developer/developer_arabic_test.dart`.

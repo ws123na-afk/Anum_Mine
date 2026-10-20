@@ -16,9 +16,13 @@ const autonomyPermissionMessage =
 /// Settings -> What ANUM learned (docs/learning.md).
 class LearningController extends ChangeNotifier {
   LearningController(this.repository, {String Function()? timezone})
-      : _timezone = timezone ?? (() => 'UTC');
+      : routineTimezone = timezone?.call() ?? 'UTC';
   final LearningRepository repository;
-  final String Function() _timezone;
+
+  /// The IANA zone routines are detected in (`Asia/Riyadh`); the phone has no
+  /// way to read its own IANA name, so the person can type it. The server
+  /// refuses an unknown name and says so.
+  String routineTimezone;
 
   LearningPhase phase = LearningPhase.loading;
   String? loadError;
@@ -160,7 +164,8 @@ class LearningController extends ChangeNotifier {
       });
 
   Future<void> detectRoutines() => _run('find routines', () async {
-        final (items, detected) = await repository.detectRoutines(_timezone());
+        final (items, detected) = await repository.detectRoutines(
+            routineTimezone.trim().isEmpty ? 'UTC' : routineTimezone.trim());
         routines = items;
         return switch (detected) {
           0 =>

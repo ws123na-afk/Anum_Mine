@@ -1,6 +1,8 @@
 // The WhatsApp inbox (docs/whatsapp.md, Clients): parsing, the controllers
 // against a fake repository, and the screens from a 320 px phone at 200
 // percent text to 1440 px, in English and Arabic (right to left).
+import 'dart:typed_data';
+
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/json_read.dart';
 import 'package:anum_mobile/features/whatsapp/whatsapp.dart';
@@ -60,15 +62,17 @@ Map<String, Object?> messageJson(String id,
         {bool inbound = true,
         String body = 'How much for 205/55R16?',
         String status = 'received',
+        String kind = 'text',
+        Map<String, Object?>? media,
         Map<String, Object?>? approval}) =>
     {
       'id': id,
       'conversation_id': 'wacv_1',
       'wamid': 'wamid.$id',
       'direction': inbound ? 'inbound' : 'outbound',
-      'kind': 'text',
+      'kind': kind,
       'body': body,
-      'media': null,
+      'media': media,
       'template': null,
       'status': status,
       'error': null,
@@ -92,12 +96,131 @@ class FakeWhatsApp implements WhatsAppRepository {
   final rejects = <String>[];
   final filters = <String>[];
 
+  /// Extra account fields (status, ids, auto-send list ...) for the ops tests.
+  Map<String, Object?> accountExtra = {};
+
+  /// Templates the API lists, and what the ops calls do (see
+  /// whatsapp_ops_test.dart).
+  List<Map<String, Object?>> templateRows = [];
+  ApiException? templatesError, saveError, sendTemplateError, mediaError;
+  ApiException? checkError, testError, disconnectError;
+  String templateOutcome = 'awaiting_approval';
+  final refreshes = <bool>[];
+  final savedBodies = <Map<String, Object?>>[];
+  final templateSends = <Map<String, Object?>>[];
+  final mediaIds = <String>[];
+  final savedFiles = <String>[];
+  int checks = 0, tests = 0, disconnects = 0;
+  Uint8List media = Uint8List.fromList(const [1, 2, 3]);
+
+  ApiException? accountError;
+
   @override
-  Future<WaAccount> account() async => WaAccount.fromJson(JsonReader({
+  Future<WaAccount> account() async {
+    if (accountError != null) throw accountError!;
+    return _account();
+  }
+
+  WaAccount _account() => WaAccount.fromJson(JsonReader({
         'configured': configured,
         'can_manage': role == 'owner',
         'display_phone_number': '+966 11 000 0000',
+        ...accountExtra,
       }));
+
+  @override
+  Future<WaTemplateList> templates({bool refresh = false}) async {
+    refreshes.add(refresh);
+    if (templatesError != null) throw templatesError!;
+    final auto = [...?(accountExtra['auto_send_templates'] as List<Object?>?)];
+    return WaTemplateList.fromJson(JsonReader({
+      'templates': [
+        for (final row in templateRows)
+          {...row, 'auto_send': auto.contains(row['name'])}
+      ],
+      'fetched_at': _iso(Duration.zero),
+    }));
+  }
+
+  @override
+  Future<WaSendResult> sendTemplate(
+      String id, WaTemplate template, List<String> parameters) async {
+    if (sendTemplateError != null) throw sendTemplateError!;
+    templateSends.add({
+      'name': template.name,
+      'language': template.language,
+      'parameters': parameters
+    });
+    final out = messageJson('tpl',
+        inbound: false,
+        body: fillTemplate(template.body, parameters),
+        status: templateOutcome == 'sent' ? 'sent' : 'awaiting_approval',
+        approval:
+            templateOutcome == 'awaiting_approval' ? approvalJson() : null);
+    messages = [...messages, out];
+    return WaSendResult.fromJson(JsonReader({
+      'outcome': templateOutcome,
+      'message': out,
+      'detail': templateOutcome == 'failed' ? 'Meta refused it.' : 'Done.',
+    }));
+  }
+
+  @override
+  Future<WaAccount> saveAccount(WaAccountUpdate update) async {
+    // The body is captured before the caller clears the secrets.
+    savedBodies.add(update.body());
+    if (saveError != null) throw saveError!;
+    accountExtra = {
+      ...accountExtra,
+      'phone_number_id': update.phoneNumberId,
+      'business_account_id': update.businessAccountId,
+      'owner_test_number':
+          update.ownerTestNumber.isEmpty ? null : update.ownerTestNumber,
+      'triage_enabled': update.triageEnabled,
+      'auto_send_templates': update.autoSendTemplates,
+      'status': accountExtra['status'] ?? 'connected',
+      'access_token_hint': '...1234',
+      'app_secret_set': true,
+      'verify_token_set': true,
+    };
+    configured = true;
+    return account();
+  }
+
+  @override
+  Future<WaAccount> checkAccount() async {
+    checks++;
+    if (checkError != null) throw checkError!;
+    return account();
+  }
+
+  @override
+  Future<String> sendTest() async {
+    tests++;
+    if (testError != null) throw testError!;
+    return '966500000009';
+  }
+
+  @override
+  Future<void> disconnect() async {
+    disconnects++;
+    if (disconnectError != null) throw disconnectError!;
+    configured = false;
+    accountExtra = {};
+  }
+
+  @override
+  Future<Uint8List> mediaBytes(String messageId) async {
+    mediaIds.add(messageId);
+    if (mediaError != null) throw mediaError!;
+    return media;
+  }
+
+  @override
+  Future<bool> saveMedia(String fileName, Uint8List bytes) async {
+    savedFiles.add(fileName);
+    return true;
+  }
 
   @override
   Future<List<WaConversation>> conversations(

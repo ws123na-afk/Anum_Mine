@@ -342,6 +342,51 @@ void main() {
     expect(api.calls, contains('deleteSignal:signal_0'));
   });
 
+  testWidgets('contact languages, no greeting and the routines time zone',
+      (tester) async {
+    final api = _FakeLearning();
+    await _pump(tester, LearningController(api));
+
+    Future<void> scrollTo(Finder f) async {
+      await tester.ensureVisible(f);
+      await tester.pumpAndSettle();
+    }
+
+    await scrollTo(find.byKey(const Key('contact-add')));
+    await tester.tap(find.byKey(const Key('contact-add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const Key('contact-0')), ' buyer@example.com ');
+    await tester.tap(find.byKey(const Key('contact-add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('contact-1')), '');
+    await tester.tap(find.byKey(const Key('contact-language-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('English').last);
+    await tester.pumpAndSettle();
+
+    await scrollTo(find.byKey(const Key('style-no-greeting')));
+    await tester.tap(find.byKey(const Key('style-no-greeting')));
+    await tester.pumpAndSettle();
+    await _tapText(tester, 'Save my style');
+    // A blank row is dropped, the typed one is trimmed and keeps its language.
+    expect(api.saved?.contactLanguages, {'buyer@example.com': 'en'});
+    expect(api.saved?.greeting, '');
+    expect(api.saved?.signOff, isNull);
+
+    await scrollTo(find.byKey(const Key('contact-remove-0')));
+    await tester.tap(find.byKey(const Key('contact-remove-0')));
+    await tester.pumpAndSettle();
+    await _tapText(tester, 'Save my style');
+    expect(api.saved?.contactLanguages, isNull);
+
+    await scrollTo(find.byKey(const Key('routine-timezone')));
+    await tester.enterText(
+        find.byKey(const Key('routine-timezone')), 'Asia/Riyadh');
+    await _tapText(tester, 'Find routines');
+    expect(api.calls, contains('detect:Asia/Riyadh'));
+  });
+
   testWidgets('empty lists say what to do next', (tester) async {
     await _pump(tester, LearningController(_FakeLearning(empty: true)));
     expect(find.textContaining('No preferences yet.'), findsOneWidget);

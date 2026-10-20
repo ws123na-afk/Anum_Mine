@@ -5,6 +5,7 @@
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/api_models.dart';
 import 'package:anum_mobile/data/session_store.dart';
+import 'package:anum_mobile/features/agents/agent_skills_models.dart';
 import 'package:anum_mobile/features/agents/agents_controller.dart';
 import 'package:anum_mobile/features/agents/agents_models.dart';
 import 'package:anum_mobile/features/agents/agents_repository.dart';
@@ -122,6 +123,12 @@ class FakeAgentsRepository implements AgentsRepository {
   final updates = <Map<String, Object?>>[];
   final runs = <String>[];
 
+  /// Skill states by id (see [skills]); an agent's loadout is the ones it
+  /// allows. A tool's `allowed` follows the agent's `allowed_tools`.
+  Map<String, JsonMap> skillItems = {};
+  ApiException? skillsFailure, updateFailure;
+  int skillsCalls = 0;
+
   @override
   Future<AgentCatalog> catalog() async =>
       AgentCatalog.fromReader(JsonReader(catalogJson));
@@ -164,6 +171,41 @@ class FakeAgentsRepository implements AgentsRepository {
   }
 
   @override
+  Future<AgentSkillLoadout> skills(String id) async {
+    skillsCalls++;
+    final failure = skillsFailure;
+    if (failure != null) throw failure;
+    final agent = agents.firstWhere((a) => a['id'] == id);
+    final allowedTools = (agent['allowed_tools']! as List).cast<String>();
+    final items = <JsonMap>[];
+    for (final skillId in (agent['allowed_skills']! as List).cast<String>()) {
+      final base = skillItems[skillId];
+      if (base == null) continue;
+      final tools = [
+        for (final tool in (base['tools']! as List).cast<JsonMap>())
+          {...tool, 'allowed': allowedTools.contains(tool['name'])},
+      ];
+      final ok = tools.every((t) =>
+          t['registered'] == true &&
+          t['allowed'] == true &&
+          t['granted'] != false);
+      items.add({
+        ...base,
+        'tools': tools,
+        'state': base['state'] == 'needs_tools' && ok ? 'ready' : base['state'],
+      });
+    }
+    return AgentSkillLoadout.fromReader(JsonReader({
+      'agent_id': id,
+      'agent_version': agent['version'],
+      'can_edit': agent['can_edit'],
+      'items': items,
+      'ready': items.where((i) => i['state'] == 'ready').length,
+      'attention': items.where((i) => i['state'] != 'ready').length,
+    }));
+  }
+
+  @override
   Future<AgentProfile> create(Map<String, Object?> body) async {
     created.add(body);
     final json = {...agentJson('agent_new', '${body['name']}'), ...body};
@@ -174,6 +216,8 @@ class FakeAgentsRepository implements AgentsRepository {
   @override
   Future<AgentProfile> update(String id, Map<String, Object?> body) async {
     updates.add(body);
+    final failure = updateFailure;
+    if (failure != null) throw failure;
     final index = agents.indexWhere((a) => a['id'] == id);
     final next = {...agents[index], ...body}..['version'] =
         (agents[index]['version']! as int) + 1;

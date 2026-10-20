@@ -17,6 +17,12 @@ abstract interface class AutonomyRepository {
   Future<void> decide(String proposalId, {required bool accept});
   Future<AutonomyOverview> overview();
   Future<AutonomyOverview> save(Map<String, Object?> body);
+  Future<List<AutonomyRule>> rules();
+  Future<AutonomyRule> addRule(
+      {required String tool, String? template, required String level});
+  Future<void> deleteRule(String id);
+  Future<OrgGuardrails> guardrails();
+  Future<OrgGuardrails> saveGuardrails(Map<String, Object?> body);
 }
 
 class ApiAutonomyRepository implements AutonomyRepository {
@@ -86,5 +92,40 @@ class ApiAutonomyRepository implements AutonomyRepository {
   Future<AutonomyOverview> save(Map<String, Object?> body) async =>
       AutonomyOverview.fromJson(
         JsonReader(await api.request('PUT', '$_base/settings', body: body)),
+      );
+
+  @override
+  Future<List<AutonomyRule>> rules() async =>
+      JsonReader(await api.request('GET', '$_base/rules'))
+          .optObjects('data', AutonomyRule.fromJson);
+
+  @override
+  Future<AutonomyRule> addRule(
+          {required String tool,
+          String? template,
+          required String level}) async =>
+      AutonomyRule.fromJson(
+        JsonReader(
+          await api.request(
+            'POST',
+            '$_base/rules',
+            body: {'tool': tool, 'template': template, 'level': level},
+          ),
+        ),
+      );
+
+  @override
+  Future<void> deleteRule(String id) =>
+      api.request('DELETE', '$_base/rules/${_id(id)}');
+
+  @override
+  Future<OrgGuardrails> guardrails() async => OrgGuardrails.fromJson(
+        JsonReader(await api.request('GET', '$_base/guardrails')),
+      );
+
+  @override
+  Future<OrgGuardrails> saveGuardrails(Map<String, Object?> body) async =>
+      OrgGuardrails.fromJson(
+        JsonReader(await api.request('PUT', '$_base/guardrails', body: body)),
       );
 }

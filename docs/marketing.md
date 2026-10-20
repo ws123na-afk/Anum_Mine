@@ -53,6 +53,18 @@ Email campaigns go through the owner's Brevo account and live in Marketing's **E
 
 Marketing follows the shared [page layout](design/anum360.md#page-layout): one header row with **New post**, then a summary band over every tab from `GET /marketing/analytics/summary` for the last 30 days (published with the 30 days before, reach and link clicks, engagement rate and its change, scheduled with any failed, and posts waiting for approval). **Posts** is a dense table (post, account, status, when) with search and filters; a row opens the post in a drawer with its preview, approval, schedule, retry and **Delete** (a secondary danger button). Next to it (below on narrower screens) a planning rail shows the best times to post (`GET /marketing/analytics/best-times`) and this week's report (`GET /marketing/reports/weekly`). **Accounts** lists the platforms and the connected accounts as compact tables with their state and actions.
 
+## Phone (Flutter)
+
+`apps/mobile/lib/features/marketing/` covers the working paths of the web app, on the same routes and with the server's own permission answers and messages shown:
+
+- **Posts**: the composer writes English and Arabic text, hashtags per language, a link, a video title where the platform needs one, a campaign and a time. Each platform's limits are checked as you type with `POST /posts/validate` (a failing check blocks saving; an unavailable check does not). Links get campaign tracking per platform through `POST /utm` unless switched off. Media is picked from the workspace's Files (`GET /media`, search and a growing page) and sent as `file_id` with the post. **Edit** on a post that has not gone out uses `PUT /posts/{id}` (a scheduled post goes back to draft, as the server says) and moves the time with `POST /posts/{id}/reschedule`.
+- **AI assist** in the composer: ideas (`POST /assist/ideas`) and hashtags (`POST /assist/hashtags`). Each result is labelled as written by the connected model or built from a template, and as built from pasted text when it was; Use puts an idea into the post and marks it AI generated only when a model wrote it. A used-up budget (`402`), a refusal (`403`) and a missing model (`503`) show the server's words and what to do.
+- **Campaigns**: search, status filter and paging; create and edit (name, product, objective, brief, dates, tracking name) with `PUT /campaigns/{id}`; delete with a confirmation that says its posts stay, and the server's `409` shown while posts are queued; the owner-only auto-post switch (`POST /campaigns/{id}/auto-post`: choose accounts, then the owner approval appears on the campaign; off is immediate; "activate the campaign first" and the other rules come from the server). Members see auto-post as owner only.
+- **Accounts**: brand voice, time zone and default hashtags (`GET`/`PUT /preferences`), editable by owners and read only for members.
+- **Analytics**: best times to post (`GET /analytics/best-times`) from the workspace's history or the Gulf defaults.
+
+Every section has loading, empty (with the next step), error (with Try again) and permission denied (the API's text) states; strings are in `apps/mobile/lib/src/localization/marketing_ops_strings.dart` (English and Arabic). Tests: `apps/mobile/test/marketing/marketing_ops_test.dart` (320, 390, 768 and 1440 px at 200% text, Arabic).
+
 ## AI assist
 
 `POST /assist/ideas` and `POST /assist/hashtags` (members and owners) call the workspace's model through `budgeted_model_gateway`: checked against the monthly budget before (`402` when used up) and metered after. The prompt asks for English and natural Arabic for Saudi and Emirati readers, never inventing prices or claims, and uses the brand voice (plus the owner's learned writing style: `assist.style_profile_lookup` defaults to `learning_store.learned_instructions(surface="task", tools=("marketing.draft_social_post",))`, a labelled block that is empty while learning is off or nothing was learned; see [Learning](learning.md)). Text pasted as `source_text` (a listing, a web page) is external data: it reaches the model only inside a labelled untrusted block (`prompt_provenance.label_untrusted`) and every draft built from it carries `untrusted_source`, shown as "Built from external text: review it". Without a model (the `mock` provider) or when the answer cannot be read, ideas come from bilingual templates and say so (`generator: "template"`). The ideas also return the best times to post.
@@ -109,6 +121,6 @@ Migration `0040_marketing` (re-chained by the lead when parallel branches land):
 ## Not done yet
 
 - The weekly report is delivered when someone asks (`POST /reports/weekly/deliver`), not on a weekly schedule: an unattended send would only queue an approval nobody requested.
-- Flutter's composer writes text, hashtags and a link; media, AI assist, campaigns' auto-post and the month grid are in the web app.
+- Flutter does not upload media (the Marketing API has no upload route: new files go through Files, then are picked in the composer; the phone cannot measure a video's size or length, so a video's length shows as a warning), edit a campaign's languages or platforms, or draw the month grid.
 - Platform-side deletion of a published post (ANUM removes its own record only).
 - LinkedIn member post statistics and YouTube impressions/click-through (not offered by the APIs used).

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import 'agent_skills_panel.dart';
 import 'agents_controller.dart';
 import 'agents_models.dart';
 import 'agents_strings.dart';
@@ -770,29 +771,13 @@ class _AgentDetailScreenState extends State<AgentDetailScreen>
   List<Widget> _skills(BuildContext context, AgentProfile agent) {
     final s = AgentsText.of(context);
     final p = context.palette;
-    final skills = {
-      for (final skill in widget.catalog?.skills ?? const <AgentSkill>[])
-        skill.id: skill,
-    };
     return [
-      AnumSurface(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              s.t('skills'),
-              style: TextStyle(color: p.text, fontWeight: FontWeight.w600),
-            ),
-            if (agent.allowedSkills.isEmpty)
-              Text(s.t('noSkills'), style: TextStyle(color: p.muted)),
-            for (final id in agent.allowedSkills)
-              AnumRow(
-                title: skills[id]?.name ?? id,
-                subtitle: skills[id]?.description,
-                icon: Icons.extension_outlined,
-              ),
-          ],
-        ),
+      AgentSkillsPanel(
+        agent: agent,
+        repository: widget.controller.repository,
+        catalog: widget.catalog,
+        onAgentChanged: widget.controller.applyAgent,
+        onStale: widget.controller.refreshAgent,
       ),
       AnumSurface(
         child: Column(
