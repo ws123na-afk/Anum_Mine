@@ -23,6 +23,7 @@ import { invoiceMoneyAr } from './invoiceMoney.ar.ts';
 import { invoicesAr } from './invoices.ar.ts';
 import { portalAr } from './portal.ar.ts';
 import { brevoAr } from './brevo.ar.ts';
+import { agentControlsAr } from './agentControls.ar.ts';
 import { billingAr } from './billing.ar.ts';
 import { lifecycleAr } from './lifecycle.ar.ts';
 import { helpAr } from './help.ar.ts';
@@ -75,6 +76,7 @@ export const ar: Record<MessageKey, Message> = {
   ...invoiceMoneyAr,
   ...portalAr,
   ...brevoAr,
+  ...agentControlsAr,
   ...billingAr,
   ...lifecycleAr,
   ...helpAr,
@@ -1927,6 +1929,7 @@ export const ar: Record<MessageKey, Message> = {
   'auto.outcome.workflow_paused': 'تُخطيت: الأتمتة متوقفة مؤقتًا',
   'auto.outcome.owner_inactive': 'فشلت: مالك الجدول لم يعد عضوًا',
   'auto.outcome.workspace_archived': 'تُخطيت: مساحة العمل مؤرشفة',
+  'auto.outcome.emergency_stop': 'تُخطيت: الإيقاف الطارئ مفعّل',
   'auto.sched.title': 'الجداول',
   'auto.sched.add': 'إضافة جدول',
   'auto.sched.help': 'تشغّل الجداول هذه الأتمتة باسم من أنشأ الجدول. ولا تعمل إلا عندما يكون مجدول الواجهة مفعّلًا.',
@@ -2129,6 +2132,7 @@ export const ar: Record<MessageKey, Message> = {
   'auto.trig.outcome.skipped_overlap': 'تُخطّي، ما زال هناك تشغيل نشط',
   'auto.trig.outcome.owner_inactive': 'تُخطّي، المالك لم يعد عضوًا (تولَّ ملكيته)',
   'auto.trig.outcome.workspace_archived': 'تُخطّي، مساحة العمل مؤرشفة',
+  'auto.trig.outcome.emergency_stop': 'تُخطّي، الإيقاف الطارئ مفعّل',
   'auto.trig.outcome.loop_skipped': 'تُخطّي، الحدث جاء من هذه الأتمتة نفسها',
   'auto.trig.outcome.disabled': 'رُفض، المُشغِّل متوقف',
   'auto.status.active': 'نشطة',

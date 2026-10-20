@@ -28,6 +28,8 @@ class ErrorCode(StrEnum):
     NOT_FOUND = "not_found"
     CONFLICT = "conflict"
     MODEL_BUDGET_EXCEEDED = "model_budget_exceeded"
+    # The organization's emergency stop is on (HTTP 423, docs/agent-controls.md).
+    AGENTS_STOPPED = "agents_stopped"
     # Customer billing (docs/billing.md): a plan limit would be passed by new work, the
     # organisation is read-only after an unpaid invoice's grace period, or a sign-up has
     # not verified its email address yet.

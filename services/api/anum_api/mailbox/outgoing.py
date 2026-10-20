@@ -151,9 +151,12 @@ def forget_objects(attachments: list[MailAttachment]) -> None:
 
 _DUE = text(
     "select tenant_id, workspace_id, owner_user_id, id from mail_drafts "
-    "where (status = 'scheduled' and send_at <= :now) "
+    "where ((status = 'scheduled' and send_at <= :now) "
     "or (status = 'pending_approval' and send_at is not null and send_at < :unapproved_before) "
-    "or (status = 'sending' and send_lease_until is not null and send_lease_until < :now) "
+    "or (status = 'sending' and send_lease_until is not null and send_lease_until < :now)) "
+    # A tenant whose emergency stop is on keeps its due mail held (docs/agent-controls.md).
+    "and not exists (select 1 from agent_emergency_stops stop "
+    "where stop.tenant_id = mail_drafts.tenant_id and stop.engaged) "
     "order by coalesce(send_at, send_lease_until) limit :limit"
 )
 
@@ -206,6 +209,12 @@ async def handle_due(tenant_id: str, workspace_id: str, owner_user_id: str, draf
 
     now = now or utc_now()
     context = TenantContext(tenant_id=tenant_id, workspace_id=workspace_id, user_id=owner_user_id, roles=["member"])
+    from ..agent_controls import agents_stopped
+
+    if await asyncio.to_thread(agents_stopped, context):
+        # The organization's emergency stop: the message stays scheduled and goes on a pass
+        # after an owner turns the stop off (docs/agent-controls.md).
+        return "held"
 
     def claim() -> str:
         with open_mail_store(context) as store:

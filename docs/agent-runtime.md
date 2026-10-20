@@ -80,7 +80,7 @@ A task can run as a user-built [agent](agents.md): the run's checkpoint carries 
 
 ## Guardrails
 
-The runtime must mediate every tool call. It should reject tools outside scope, redact sensitive context where possible, cap costs, time out long operations, and keep a clear audit trail. Prompt injection should be handled by isolating untrusted content from instructions and by enforcing tool policy outside the model.
+The organization's emergency stop refuses every model and tool call while it is on, and per-agent monthly cost caps refuse an agent's calls over its cap ([Agent controls](agent-controls.md)). The runtime must mediate every tool call. It should reject tools outside scope, redact sensitive context where possible, cap costs, time out long operations, and keep a clear audit trail. Prompt injection should be handled by isolating untrusted content from instructions and by enforcing tool policy outside the model.
 
 ## Now
 

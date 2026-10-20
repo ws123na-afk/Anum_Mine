@@ -77,6 +77,9 @@ When an owner approves the same pattern repeatedly (`proposal_after` times), ANU
 
 ## How it combines with the tool policy
 
+The organization's [emergency stop](agent-controls.md) overrides everything here: while it is on no tool runs, autonomous or approved.
+
+
 1. The tool policy decides first ([order](approvals-and-risk.md#organization-approval-rules-and-policy-packs)). Autonomy never unblocks.
 2. Blocked recipients and the spending limit block.
 3. If the tool policy asks: autonomy may let the call run only when approval was required **solely** by the platform's high-risk default (`ToolPolicyDecision.lowerable`): never when an organization approval rule or policy pack asks, never with the workspace's two-person rule on, never for the medium-risk approval switch.

@@ -44,6 +44,10 @@ _DISCOVER = text(
     select id, tenant_id, workspace_id
     from marketing_posts
     where status = 'scheduled' and coalesce(next_attempt_at, scheduled_at) <= :now
+      and not exists (
+        select 1 from agent_emergency_stops stop
+        where stop.tenant_id = marketing_posts.tenant_id and stop.engaged
+      )
     order by coalesce(next_attempt_at, scheduled_at)
     limit :limit
     """
@@ -66,6 +70,12 @@ def _refuse(post: Post, code: str, message: str, fix: str, status: PostStatus = 
 
 async def publish(context: TenantContext, post_id: str) -> Post | None:
     """Publish one scheduled post now. Returns the post as it ended up (None if gone)."""
+    from ..agent_controls import agents_stopped
+
+    if await asyncio.to_thread(agents_stopped, context):
+        # The organization's emergency stop holds the post: still scheduled, published on a
+        # pass after an owner turns the stop off (docs/agent-controls.md).
+        return None
     with open_marketing_store(context) as store:
         post = store.get_post(context, post_id, for_update=True)
         if post is None or post.status != PostStatus.SCHEDULED:
