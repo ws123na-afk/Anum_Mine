@@ -16,6 +16,10 @@ import 'inbox_strings.dart';
 import 'mail_center_strings.dart';
 import 'marketing_strings.dart';
 import 'developer_autonomy_messages.dart';
+import 'autonomy_policy_strings.dart';
+import 'whatsapp_ops_strings.dart';
+import 'marketing_ops_strings.dart';
+import 'agent_skills_strings.dart';
 
 class AnumLocalizations {
   const AnumLocalizations(this.locale);
@@ -38,6 +42,10 @@ class AnumLocalizations {
       (isArabic ? tyreOpsAr : tyreOpsEn)[key] ??
       (isArabic ? approvalsAr : approvalsEn)[key] ??
       (isArabic ? inboxAr : inboxEn)[key] ??
+      (isArabic ? autonomyPolicyAr : autonomyPolicyEn)[key] ??
+      (isArabic ? waOpsAr : waOpsEn)[key] ??
+      (isArabic ? mkOpsAr : mkOpsEn)[key] ??
+      (isArabic ? agentSkillsAr : agentSkillsEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
@@ -51,6 +59,10 @@ class AnumLocalizations {
       tyreOpsEn[key] ??
       approvalsEn[key] ??
       inboxEn[key] ??
+      autonomyPolicyEn[key] ??
+      waOpsEn[key] ??
+      mkOpsEn[key] ??
+      agentSkillsEn[key] ??
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.
