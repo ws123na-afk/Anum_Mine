@@ -180,6 +180,8 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         "skill_signing_settings": "0083_skill_signing",
         "business_change_orders": "0080_business_change_orders",
         "business_usage_ledger": "0080_business_change_orders",
+        "calendar_connections": "0092_calendar_sync",
+        "calendar_oauth_requests": "0092_calendar_sync",
         "workspace_file_versions": "0090_file_versions",
         **{name: "0082_business_pipeline" for name in (
             "business_outreach_settings", "business_target_profiles", "business_observations",

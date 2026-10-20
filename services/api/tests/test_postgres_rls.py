@@ -84,6 +84,8 @@ TENANT_TABLES = {
     "platform_organizations",
     "reports",
     "calendar_events",
+    "calendar_connections",
+    "calendar_oauth_requests",
     "setup_plan_checks",
     "setup_plan_items",
     "agent_profiles",

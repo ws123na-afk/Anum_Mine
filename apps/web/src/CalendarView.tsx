@@ -3,7 +3,7 @@
 // Delete through the calendar API. Times show in the browser's time zone; the API stores UTC.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
-  ArrowLeft, CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, ClipboardList, Clock, ExternalLink, FileText, Lightbulb, Mail, MapPin, Pencil, Phone,
+  ArrowLeft, CalendarCheck, CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, ClipboardList, Clock, ExternalLink, FileText, Lightbulb, Mail, MapPin, Pencil, Phone,
   Plus, RotateCcw, Search, ShieldCheck, Trash2, Users, Video, XCircle,
 } from 'lucide-react';
 import * as api from './lib/api';
@@ -11,14 +11,15 @@ import * as calendarApi from './lib/calendarApi';
 import * as meetingsApi from './lib/meetingsApi';
 import {
   ATTENDEE_RESPONSES, calendarCounts, dayKey, durationMinutes, emptyForm, EVENT_KINDS, eventBody, eventTiming, formFromEvent, formProblem, groupByDay,
-  matchesEvent, replyCounts, shiftAnchor, startOfDay, visibleRange,
-  type AttendeeResponse, type CalendarEventView, type CalendarMode, type EventForm, type EventPage, type NextStep,
+  CALENDAR_CONNECT_KEY, eventSyncKind, invitees, matchesEvent, replyCounts, shiftAnchor, startOfDay, syncTarget, visibleRange,
+  type AttendeeResponse, type CalendarEventView, type CalendarMode, type EventForm, type EventPage, type NextStep, type SyncConnection, type SyncSetup,
 } from './lib/calendar';
 import { describeError } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { figure, type Load } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
+import { SyncPanel } from './CalendarSync';
 import { loadFailure, PageHeader, PageSummary, PaneDenied, PaneProblem, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import './admin.css';
 import './calendar.css';
@@ -47,7 +48,8 @@ export function CalendarView({ onOpenTask, onOpenInbox, onOpenApprovals, onOpenM
   const [steps, setSteps] = useState<Load<NextStep[]>>({ state: 'loading' });
   const [tools, setTools] = useState<Load<{ connected: number; total: number }>>({ state: 'loading' });
   const [selected, setSelected] = useState<string | null>(null);
-  const [tab, setTab] = useState<'agenda' | 'steps'>('agenda');
+  const [tab, setTab] = useState<'agenda' | 'steps' | 'sync'>('agenda');
+  const [sync, setSync] = useState<Load<SyncSetup>>({ state: 'loading' });
   const [form, setForm] = useState<{ event: CalendarEventView | null; day: Date } | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [stepBusy, setStepBusy] = useState<string | null>(null);
@@ -73,8 +75,28 @@ export function CalendarView({ onOpenTask, onOpenInbox, onOpenApprovals, onOpenM
     setSteps({ state: 'loading' });
     calendarApi.getNextSteps().then((value) => setSteps({ state: 'ready', value: value.items }), (e: unknown) => setSteps(loadFailure(e)));
   }, []);
+  const loadSync = useCallback(() => {
+    calendarApi.getSync().then((value) => setSync({ state: 'ready', value }), (e: unknown) => setSync(loadFailure(e)));
+  }, []);
   useEffect(loadEvents, [loadEvents]);
   useEffect(loadSteps, [loadSteps]);
+  useEffect(loadSync, [loadSync]);
+  // The provider sent the browser back (main.tsx kept the connection id): finish it as this person.
+  useEffect(() => {
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem(CALENDAR_CONNECT_KEY); sessionStorage.removeItem(CALENDAR_CONNECT_KEY); } catch { raw = null; }
+    if (!raw) return;
+    let returned: { connection: string | null; error: string | null } | null = null;
+    try { returned = JSON.parse(raw) as { connection: string | null; error: string | null }; } catch { returned = null; }
+    if (!returned) return;
+    setTab('sync');
+    if (returned.error || !returned.connection) { setNote(t('calendar.sync.returnError', { code: (returned.error ?? 'unknown').slice(0, 60) })); return; }
+    setNote(t('calendar.sync.finishing'));
+    calendarApi.completeConnect(returned.connection).then(
+      (connection) => { setNote(t('calendar.sync.connected', { email: connection.email, count: connection.events_synced })); loadSync(); loadEvents(); },
+      (e: unknown) => setNote(t('calendar.sync.completeFailed', { reason: describeError(e) })),
+    );
+  }, [loadSync, loadEvents]);
   useEffect(() => {
     meetingsApi.getSetup().then(
       (setup) => setTools({ state: 'ready', value: { connected: setup.connectors.filter((c) => c.connected).length, total: setup.connectors.length } }),
@@ -90,6 +112,9 @@ export function CalendarView({ onOpenTask, onOpenInbox, onOpenApprovals, onOpenM
   const current = events.find((event) => event.id === selected) ?? null;
   const canWrite = value?.can_write ?? false;
   const stepList = steps.state === 'ready' ? steps.value : [];
+  const connections: SyncConnection[] = sync.state === 'ready' ? sync.value.connections : [];
+  const target = syncTarget(connections);
+  const troubled = connections.find((connection) => connection.status !== 'connected') ?? null;
 
   // On a wide screen the detail pane opens on the next event still to come in the range.
   useEffect(() => {
@@ -138,7 +163,9 @@ export function CalendarView({ onOpenTask, onOpenInbox, onOpenApprovals, onOpenM
 
   return <>
     {header}
-    <p className="muted calendarSyncNote"><CalendarDays aria-hidden="true" />{t('calendar.syncNote')}</p>
+    <p className="muted calendarSyncNote"><CalendarCheck aria-hidden="true" />{troubled
+      ? <>{t('calendar.syncNote.problem', { provider: troubled.provider_name })} <button type="button" className="linkButton" onClick={() => setTab('sync')}>{t('calendar.tab.sync')}</button></>
+      : target ? t('calendar.syncNote.on', { provider: target.provider_name, email: target.email }) : t('calendar.syncNote.none')}</p>
     {note && <p className="notice" role="status">{note}</p>}
     <PageSummary label={t('calendar.summary')} figures={figures} onRetry={() => { loadEvents(); loadSteps(); }} />
     <SplitView className="calendarSplit" show={selected && current ? 'detail' : 'list'} label={t('calendar.split')}>
@@ -148,6 +175,7 @@ export function CalendarView({ onOpenTask, onOpenInbox, onOpenApprovals, onOpenM
           <div className="segmented" role="tablist" aria-label={t('calendar.tabs')}>
             <button type="button" role="tab" aria-selected={tab === 'agenda'} onClick={() => setTab('agenda')}>{t('calendar.tab.agenda')}</button>
             <button type="button" role="tab" aria-selected={tab === 'steps'} onClick={() => setTab('steps')}>{t('calendar.tab.steps', { count: stepList.length })}</button>
+            <button type="button" role="tab" aria-selected={tab === 'sync'} onClick={() => setTab('sync')}>{t('calendar.tab.sync')}</button>
           </div>
           {tab === 'agenda' && <div className="segmented" role="group" aria-label={t('calendar.mode')}>
             <button type="button" aria-pressed={mode === 'week'} onClick={() => setMode('week')}>{t('calendar.mode.week')}</button>
@@ -196,6 +224,12 @@ export function CalendarView({ onOpenTask, onOpenInbox, onOpenApprovals, onOpenM
             </li>)}
           </ol>}
         </>}
+        {tab === 'sync' && <>
+          {sync.state === 'loading' && <div className="paneBody"><p className="notice" role="status">{t('calendar.sync.loading')}</p></div>}
+          {sync.state === 'error' && <div className="paneBody"><PaneProblem text={t('calendar.sync.loadFailed', { reason: sync.message })} onRetry={loadSync} /></div>}
+          {sync.state === 'denied' && <div className="paneBody"><PaneDenied title={t('calendar.denied.title')} text={sync.message} /></div>}
+          {sync.state === 'ready' && <SyncPanel setup={sync.value} onChanged={(message) => { if (message) setNote(message); loadSync(); loadEvents(); }} />}
+        </>}
         {tab === 'steps' && <div className="paneBody">
           <p className="muted">{t('calendar.steps.intro')}</p>
           {steps.state === 'loading' && <p className="notice" role="status">{t('calendar.steps.loading')}</p>}
@@ -216,20 +250,20 @@ export function CalendarView({ onOpenTask, onOpenInbox, onOpenApprovals, onOpenM
       </section>
       <section data-pane="detail" className="pane calendarDetailPane" aria-label={current ? undefined : t('calendar.detail')}>
         {current
-          ? <EventDetail key={current.id} event={current} now={now} onBack={() => setSelected(null)} onEdit={() => setForm({ event: current, day: new Date(current.starts_at) })}
+          ? <EventDetail key={current.id} event={current} now={now} connections={connections} onOpenApprovals={onOpenApprovals} onBack={() => setSelected(null)} onEdit={() => setForm({ event: current, day: new Date(current.starts_at) })}
               onChanged={changed} onCancelled={() => setIncludeCancelled(true)} onDeleted={(title) => { setSelected(null); changed(t('calendar.deleted', { title })); }} />
           : <div className="paneEmpty"><CalendarDays aria-hidden="true" /><h3>{t('calendar.pick.title')}</h3><p>{events.length ? t('calendar.pick.text') : canWrite ? t('calendar.empty.text') : t('calendar.empty.readOnly')}</p></div>}
       </section>
     </SplitView>
-    {form && <EventFormDialog event={form.event} day={form.day} onClose={() => setForm(null)} onSaved={(event, created) => {
+    {form && <EventFormDialog event={form.event} day={form.day} target={target} onClose={() => setForm(null)} onSaved={(event, created) => {
       setForm(null); setSelected(event.id); setAnchor(startOfDay(new Date(event.starts_at)));
       changed(created ? t('calendar.created', { title: event.title }) : t('calendar.saved', { title: event.title }));
     }} />}
   </>;
 }
 
-function EventDetail({ event, now, onBack, onEdit, onChanged, onCancelled, onDeleted }: {
-  event: CalendarEventView; now: Date; onBack: () => void; onEdit: () => void; onChanged: (message: string) => void; onCancelled: () => void; onDeleted: (title: string) => void;
+function EventDetail({ event, now, connections, onOpenApprovals, onBack, onEdit, onChanged, onCancelled, onDeleted }: {
+  event: CalendarEventView; now: Date; connections: SyncConnection[]; onOpenApprovals?: () => void; onBack: () => void; onEdit: () => void; onChanged: (message: string) => void; onCancelled: () => void; onDeleted: (title: string) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -237,6 +271,17 @@ function EventDetail({ event, now, onBack, onEdit, onChanged, onCancelled, onDel
   const manage = event.can_manage ?? false;
   const cancelled = event.status === 'cancelled';
   const replies = replyCounts(event);
+  const [requested, setRequested] = useState<string | null>(null);
+  const linked = connections.find((connection) => connection.id === event.connection_id) ?? null;
+  const people = invitees(event);
+
+  async function askInvitations() {
+    setBusy('invite'); setProblem(null);
+    try {
+      const result = await calendarApi.requestInvitations(event.id);
+      setRequested(t('calendar.invite.requested', { people: result.attendees.join(', ') }));
+    } catch (e) { setProblem(t('calendar.invite.failed', { reason: describeError(e) })); } finally { setBusy(null); }
+  }
 
   async function act(name: string, run: () => Promise<string>) {
     setBusy(name); setProblem(null);
@@ -265,6 +310,8 @@ function EventDetail({ event, now, onBack, onEdit, onChanged, onCancelled, onDel
         <dt>{t('calendar.kind')}</dt><dd>{t(`calendar.kind.${event.kind}` as MessageKey)}</dd>
         {event.location && <><dt><MapPin aria-hidden="true" />{t('calendar.location')}</dt><dd dir="auto">{event.location}</dd></>}
         <dt>{t('calendar.createdBy')}</dt><dd dir="auto">{event.created_by}</dd>
+        {connections.length > 0 && <><dt><CalendarCheck aria-hidden="true" />{t('calendar.tab.sync')}</dt>
+          <dd>{t(`calendar.sync.state.${eventSyncKind(event)}` as MessageKey, { provider: linked?.provider_name ?? '' })}</dd></>}
       </dl>
       {(event.conference_url || event.phone) && <div className="actions">
         {event.conference_url && <a className="calendarLink primary" href={event.conference_url} target="_blank" rel="noopener noreferrer"><Video aria-hidden="true" />{t('calendar.join')}<ExternalLink aria-hidden="true" /></a>}
@@ -286,6 +333,13 @@ function EventDetail({ event, now, onBack, onEdit, onChanged, onCancelled, onDel
           </li>)}
         </ul> : <p className="muted">{t('calendar.noAttendees')}</p>}
         <p className="muted calendarInviteNote">{t('calendar.inviteNote')}</p>
+        {people.length > 0 && event.connection_id && !cancelled && <div className="calendarInvite">
+          <p className="muted">{event.invitations_pending ? t('calendar.invite.pending') : t('calendar.invite.done')}</p>
+          {manage && event.invitations_pending && !requested && <div className="actions">
+            <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void askInvitations()}><Mail aria-hidden="true" />{busy === 'invite' ? t('calendar.invite.asking') : t('calendar.invite.ask')}</button>
+          </div>}
+          {requested && <p className="notice" role="status">{requested} <button type="button" className="linkButton" onClick={onOpenApprovals}>{t('calendar.invite.review')}</button></p>}
+        </div>}
       </section>
     </div>
     {confirmDelete && <ConfirmDialog title={t('calendar.deleteTitle')} confirmLabel={t('calendar.delete')} danger busy={busy === 'delete'} onCancel={() => setConfirmDelete(false)} onConfirm={() => {
@@ -295,11 +349,12 @@ function EventDetail({ event, now, onBack, onEdit, onChanged, onCancelled, onDel
   </article>;
 }
 
-function EventFormDialog({ event, day, onClose, onSaved }: { event: CalendarEventView | null; day: Date; onClose: () => void; onSaved: (event: CalendarEventView, created: boolean) => void }) {
+function EventFormDialog({ event, day, target, onClose, onSaved }: { event: CalendarEventView | null; day: Date; target: SyncConnection | null; onClose: () => void; onSaved: (event: CalendarEventView, created: boolean) => void }) {
   const [form, setForm] = useState<EventForm>(() => (event ? formFromEvent(event) : emptyForm(day, new Date())));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
+  const [toCalendar, setToCalendar] = useState(true);
   const id = useId();
   const problem = formProblem(form);
   const set = <K extends keyof EventForm>(key: K, value: EventForm[K]) => setForm((old) => ({ ...old, [key]: value }));
@@ -310,7 +365,7 @@ function EventFormDialog({ event, day, onClose, onSaved }: { event: CalendarEven
     if (problem) return;
     setBusy(true); setError(null);
     try {
-      const body = eventBody(form, event?.attendees ?? []);
+      const body = { ...eventBody(form, event?.attendees ?? []), ...(!event && target && !toCalendar ? { sync: false } : {}) };
       const saved = event ? await calendarApi.updateEvent(event.id, body) : await calendarApi.createEvent(body);
       onSaved(saved, !event);
     } catch (err) { setError(describeError(err)); setBusy(false); }
@@ -335,6 +390,8 @@ function EventFormDialog({ event, day, onClose, onSaved }: { event: CalendarEven
       </div>
       <label className="field"><span>{t('calendar.form.attendees')}</span><textarea dir="auto" value={form.attendees} rows={3} aria-describedby={`${id}-people`} onChange={(e) => set('attendees', e.target.value)} /></label>
       <p className="muted" id={`${id}-people`}>{t('calendar.form.attendeesHint')}</p>
+      {!event && target && <label className="calendarToggle calendarFormSync"><input type="checkbox" checked={toCalendar} onChange={(e) => setToCalendar(e.target.checked)} />{t('calendar.form.sync', { provider: target.provider_name, email: target.email })}</label>}
+      {!event && target && toCalendar && form.attendees.trim() && <p className="muted">{t('calendar.form.syncHint')}</p>}
       <label className="field"><span>{t('calendar.notes')}</span><textarea dir="auto" value={form.description} maxLength={2000} rows={3} onChange={(e) => set('description', e.target.value)} /></label>
       {touched && problem && <p className="notice errorNotice" role="alert">{t(`calendar.form.problem.${problem}` as MessageKey)}</p>}
       {error && <p className="notice errorNotice" role="alert">{t('calendar.form.failed', { reason: error })}</p>}

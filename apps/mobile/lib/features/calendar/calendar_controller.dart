@@ -28,6 +28,10 @@ class CalendarController extends ChangeNotifier {
   bool truncated = false;
   bool canWrite = false;
 
+  /// Calendar sync status (docs/calendar.md#sync); null until it loaded or
+  /// when it could not (the calendar itself still works).
+  CalendarSyncStatus? sync;
+
   List<NextStep> steps = const [];
   String? stepsError;
   bool stepsLoading = false;
@@ -79,7 +83,42 @@ class CalendarController extends ChangeNotifier {
       error = _describe(e);
     }
     notifyListeners();
-    if (phase == CalendarPhase.ready) await loadSteps();
+    if (phase == CalendarPhase.ready) {
+      await loadSteps();
+      await loadSync();
+    }
+  }
+
+  Future<void> loadSync() async {
+    try {
+      sync = await repository.sync();
+    } on Object {
+      sync = null;
+    }
+    notifyListeners();
+  }
+
+  /// "Sync now" for an owner; the connection's own state tells how it went.
+  Future<void> syncNow(SyncConnection connection) async {
+    await _run('sync:${connection.id}', () async {
+      final after = await repository.syncNow(connection.id);
+      if (!after.healthy) {
+        throw ApiException(409, after.lastError ?? after.status);
+      }
+      final page = await repository.events(
+          weekStart, weekStart.add(const Duration(days: 7)));
+      events = page.items;
+    });
+    await loadSync();
+  }
+
+  /// Asks for invitations; null on failure (the notice says why).
+  Future<List<String>?> askInvitations(CalendarEvent event) async {
+    List<String>? people;
+    await _run('invite:${event.id}', () async {
+      people = await repository.requestInvitations(event.id);
+    });
+    return people;
   }
 
   Future<void> loadSteps() async {

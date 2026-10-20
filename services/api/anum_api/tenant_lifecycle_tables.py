@@ -253,6 +253,8 @@ _ORDER = (
     "meetings",
     "meeting_connector_accounts",
     "calendar_events",
+    "calendar_connections",
+    "calendar_oauth_requests",
     "demo_records",
     "home_insight_states",
     "home_pins",
