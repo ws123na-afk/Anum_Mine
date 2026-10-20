@@ -145,7 +145,7 @@ jobs:
           python -m pip install --disable-pip-version-check -e "services/api[test]"
 
       - name: Run the developer
-        uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1.0.248
+        uses: anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967 # v1.0.252
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Read-only: the agent commits locally; the publish job pushes after checking.
