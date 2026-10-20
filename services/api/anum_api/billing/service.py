@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from ..schemas import new_id
-from .money import period_end, plan_amount, prorate, split_gross, tax_for
+from .money import normalise, period_end, plan_amount, prorate, split_gross, tax_for
 from .rows import RowConflict, Rows
 from .usage import METERS, Usage, limit_of
 
@@ -382,6 +382,9 @@ class Preview:
     total_minor: int
     credit_minor: int
     blocked_by: list[dict[str, Any]]
+    # A change between monthly and yearly starts a new period from now (the unused part of the old
+    # period is credited against the new price), instead of prorating raw per-period prices.
+    new_period: bool = False
 
 
 def preview_change(rows: Rows, sub: dict[str, Any], plan: dict[str, Any], seats: int, usage: Usage, now: datetime, when: str | None) -> Preview:
@@ -390,6 +393,16 @@ def preview_change(rows: Rows, sub: dict[str, Any], plan: dict[str, Any], seats:
     blocked = blocked_by(dict(plan.get("limits") or {}), bool(plan["per_seat"]), seats, usage)
     if sub["status"] == "trialing":
         return Preview("now", 0, 0, 0, 0, blocked)
+    if plan["interval"] != sub["interval"]:
+        # Compare like with like (per old period) to see whether this is a step up or down.
+        cheaper = normalise(new, plan["interval"], sub["interval"]) < old
+        if cheaper and when != "now":
+            return Preview("period_end", 0, 0, 0, 0, blocked)
+        unused = max(0, -prorate(old, 0, sub["current_period_start"], sub["current_period_end"], now))
+        amount = max(0, new - unused)
+        rate = tax_rate(issuer_settings(rows, sub["issuer_tenant_id"]), account.get("country") or "")
+        tax = tax_for(amount, rate)
+        return Preview("now", amount, tax, amount + tax, max(0, unused - new), blocked, new_period=True)
     if new >= old:
         amount = max(0, prorate(old, new, sub["current_period_start"], sub["current_period_end"], now))
         rate = tax_rate(issuer_settings(rows, sub["issuer_tenant_id"]), account.get("country") or "")
@@ -429,8 +442,10 @@ def change_plan(
         changes.update(pending_plan_id=plan["id"], pending_seats=seats)
     else:
         changes.update(_snapshot(plan), seats=seats)
+        if preview.new_period:
+            changes.update(current_period_start=now, current_period_end=period_end(now, plan["interval"]), trial_end=None)
         if preview.amount_minor > 0:
-            start, end = now, sub["current_period_end"]
+            start, end = now, (changes["current_period_end"] if preview.new_period else sub["current_period_end"])
             issued = issue_invoice(
                 rows, account,
                 [Line(f"Change from {sub['plan_name']} to {plan['name']}, prorated for the rest of the period", preview.amount_minor,
@@ -580,6 +595,13 @@ def _apply_pending(rows: Rows, sub: dict[str, Any], account: dict[str, Any], now
     rows.update("billing_subscriptions", {"id": sub["id"]}, changes)
 
 
+def mark_reminder_sent(rows: Rows, invoice_id: str, count: int, now: datetime) -> None:
+    """Record that reminder number ``count`` of an invoice was queued for delivery (never lowers the count)."""
+    invoice = rows.get("billing_invoices", for_update=True, id=invoice_id)
+    if invoice is not None and count > int(invoice["reminders_sent"]):
+        rows.update("billing_invoices", {"id": invoice_id}, {"reminders_sent": count, "last_reminder_at": now, "updated_at": now})
+
+
 def grace_until(settings_row: dict[str, Any], past_due_since: datetime) -> datetime:
     reminder_days = [int(d) for d in settings_row.get("reminder_days") or []]
     return past_due_since + timedelta(days=(max(reminder_days) if reminder_days else 0) + int(settings_row.get("grace_days") or 0))
@@ -604,7 +626,8 @@ def _dunning(rows: Rows, sub: dict[str, Any], account: dict[str, Any], now: date
         days_overdue = (now - invoice["due_at"]).days
         due_count = sum(1 for day in schedule if day <= days_overdue)
         if due_count > int(invoice["reminders_sent"]):
-            rows.update("billing_invoices", {"id": invoice["id"]}, {"reminders_sent": due_count, "last_reminder_at": now, "updated_at": now})
+            # Not marked sent here: the job marks it (mark_reminder_sent) once the email is queued,
+            # so a failed or impossible send is tried again on the next pass.
             to = account.get("contact_email") or ""
             result.reminders.append(Reminder(rows.tenant_id, sub["issuer_tenant_id"], invoice["id"], invoice["number"], to, due_count))
     if now >= grace and account["state"] != "read_only":

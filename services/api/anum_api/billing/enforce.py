@@ -37,12 +37,14 @@ LABELS = {
     "workspaces": ("workspaces", "workspace"),
     "agent_runs": ("agent runs this month", "agent run"),
     "storage": ("GB of storage", "upload"),
+    "messages": ("messages this month", "message"),
 }
 HINTS = {
     "seats": "Upgrade in Settings > Billing, or remove a pending invitation or a member you no longer need.",
     "workspaces": "Upgrade in Settings > Billing, or archive a workspace you no longer use.",
     "agent_runs": "Upgrade in Settings > Billing; the count starts again on the 1st of next month.",
     "storage": "Upgrade in Settings > Billing, or delete files you no longer need.",
+    "messages": "Upgrade in Settings > Billing; the count starts again on the 1st of next month.",
 }
 
 
@@ -78,7 +80,7 @@ def refuse_writes_when_read_only(method: str, path: str, context: TenantContext)
 def _limit(sub: dict[str, Any], key: str) -> int | None:
     if key == "seats" and sub["per_seat"]:
         return int(sub["seats"])
-    raw = (sub.get("limits") or {}).get({"agent_runs": "agent_runs_per_month", "storage": "storage_gb"}.get(key, key))
+    raw = (sub.get("limits") or {}).get({"agent_runs": "agent_runs_per_month", "storage": "storage_gb", "messages": "messages_per_month"}.get(key, key))
     return None if raw is None else int(raw)
 
 

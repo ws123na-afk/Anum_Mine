@@ -1004,6 +1004,14 @@ def handle_stripe_event(issuer_tenant_id: str, payload: bytes, signature: str | 
     return {"received": True, "duplicate": False, "outcome": outcome}
 
 
+def _credit_overpayment(rows: Rows, amount_minor: int, now: datetime) -> None:
+    """Add money Stripe collected beyond what was due to the organisation's credit balance."""
+    account = svc.account_of(rows)
+    if account is not None and amount_minor > 0:
+        rows.update("billing_accounts", {"tenant_id": rows.tenant_id},
+                    {"credit_balance_minor": int(account["credit_balance_minor"]) + amount_minor, "updated_at": now})
+
+
 def _apply_checkout(rows: Rows, issuer_tenant_id: str, session: dict[str, Any], now: datetime) -> str:
     metadata = session.get("metadata") or {}
     tenant_id, invoice_id = str(metadata.get("anum_tenant_id") or ""), str(metadata.get("anum_invoice_id") or "")
@@ -1016,19 +1024,40 @@ def _apply_checkout(rows: Rows, issuer_tenant_id: str, session: dict[str, Any], 
         if account is None or account["issuer_tenant_id"] != issuer_tenant_id:
             logger.warning("billing_stripe_foreign_invoice", extra={"anum_billing": {"issuer": issuer_tenant_id}})
             return "ignored"
+        # One Stripe payment is applied once, whatever event id carries it (and even when it only
+        # became credit, which leaves no payment row to find it by).
+        with rows.as_tenant(issuer_tenant_id):
+            first = rows.insert_ignore("billing_webhook_events", {
+                "tenant_id": issuer_tenant_id, "provider": "stripe", "event_id": f"payment:{provider_id}"[:200],
+                "event_type": "payment.applied", "received_at": now,
+            })
+        if not first:
+            return "duplicate_payment"
         invoice = svc.get_invoice(rows, invoice_id)
-        if invoice is None or invoice["status"] != "open":
-            return "not_open"
+        if invoice is None:
+            return "ignored"
+        if invoice["status"] != "open":
+            # Paid another way meanwhile: what Stripe collected is not dropped, it becomes credit.
+            _credit_overpayment(rows, amount, now)
+            logger.warning("billing_stripe_payment_credited", extra={"anum_billing": {"reason": "invoice_not_open", "amount_minor": amount}})
+            return "credited"
+        due = int(invoice["amount_due_minor"])
+        applied = min(amount, due)
+        excess = amount - applied
         try:
             svc.record_payment(
-                rows, invoice_id, amount_minor=min(amount, int(invoice["amount_due_minor"])), method="stripe",
-                reference=f"Stripe {provider_id}", received_at=now, now=now, actor="system:stripe", provider="stripe",
-                provider_payment_id=provider_id,
+                rows, invoice_id, amount_minor=applied, method="stripe",
+                reference=f"Stripe {provider_id}" + (f" (overpaid {excess}, credited to the account)" if excess else ""),
+                received_at=now, now=now, actor="system:stripe", provider="stripe", provider_payment_id=provider_id,
             )
         except RowConflict:
             return "duplicate_payment"
         except svc.BillingError:
-            return "refused"
+            _credit_overpayment(rows, amount, now)
+            return "credited"
+        if excess:
+            _credit_overpayment(rows, excess, now)
+            logger.warning("billing_stripe_overpayment_credited", extra={"anum_billing": {"amount_minor": excess}})
     clear_cache(tenant_id)
     return "paid"
 

@@ -995,6 +995,11 @@ async def ask_in_conversation(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Send either content or retry_turn_id",
         )
+    if payload.retry_turn_id is None:
+        # A new question is a message of the plan's monthly allowance (docs/billing.md#plans-and-limits).
+        from .billing.enforce import require_capacity
+
+        await asyncio.to_thread(require_capacity, context, "messages", 1)
     prepared = await asyncio.to_thread(_prepare_conversation_ask, conversation_id, payload, context)
     conversation, user_turn, history = prepared.conversation, prepared.user_turn, prepared.history
     runtime_config, category = prepared.runtime_config, prepared.category

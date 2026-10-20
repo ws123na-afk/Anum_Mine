@@ -75,8 +75,12 @@ def _send_reminder(reminder: svc.Reminder) -> dict[str, Any]:
             entry = {"status": "not_sent", "reason": "no email integration in the sending workspace", "reminder": reminder.reminder}
     entry["requested_at"] = utc_now().isoformat()
     entry["requested_by"] = SYSTEM_USER
+    queued = entry["status"] in ("waiting_approval", "sent")
     with open_billing(reminder.tenant_id) as rows:
         rows.update("billing_invoices", {"id": reminder.invoice_id}, {"last_email": entry, "updated_at": utc_now()})
+        if queued:
+            # Only a reminder that is queued for approval or sent counts; anything else is retried.
+            svc.mark_reminder_sent(rows, reminder.invoice_id, reminder.reminder, utc_now())
     return entry
 
 

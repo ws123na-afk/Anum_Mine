@@ -296,6 +296,9 @@ def test_trial_expiry_leads_to_dunning_then_read_only_and_a_payment_restores_wri
         assert svc.run_tenant(rows, now=trial_end + timedelta(hours=1)).reminders == []
         day1 = svc.run_tenant(rows, now=trial_end + timedelta(days=1, minutes=1))
         assert [r.reminder for r in day1.reminders] == [1]
+        # Not marked sent until the email is queued: a failed or impossible send is offered again.
+        assert [r.reminder for r in svc.run_tenant(rows, now=trial_end + timedelta(days=1, hours=2)).reminders] == [1]
+        svc.mark_reminder_sent(rows, day1.reminders[0].invoice_id, 1, trial_end + timedelta(days=1, hours=3))
         assert svc.run_tenant(rows, now=trial_end + timedelta(days=2)).reminders == []
         day7 = svc.run_tenant(rows, now=trial_end + timedelta(days=7, minutes=1))
         assert [r.reminder for r in day7.reminders] == [2] and "read_only" not in day7.transitions
@@ -555,7 +558,7 @@ def test_stripe_webhook_verifies_signatures_and_is_idempotent() -> None:
     assert again["duplicate"] is True
     # A new event id for the same payment intent does not record the payment twice.
     other = _event(invoice, "evt_2")
-    assert handle_stripe_event(ISSUER, other, providers.sign_stripe_payload(other, WEBHOOK_SECRET, int(now.timestamp())))["outcome"] == "not_open"
+    assert handle_stripe_event(ISSUER, other, providers.sign_stripe_payload(other, WEBHOOK_SECRET, int(now.timestamp())))["outcome"] == "duplicate_payment"
     with open_billing("acme-co") as rows:
         assert rows.count("billing_payments") == 1 and svc.get_invoice(rows, invoice["id"])["status"] == "paid"
     assert client.post("/api/v1/billing/webhooks/stripe/tenant_unknown", content=payload, headers={"stripe-signature": header}).status_code == 404
@@ -648,3 +651,103 @@ def test_email_check_is_linear_and_strict() -> None:
     for bad in ("", "a@b", "a@@b.c", "a b@c.d", "a@b.", "a@.b", "@b.c", "a@b.c,d@e.f", "x" * 300 + "@a.b"):
         assert not is_email(bad), bad
     assert not is_email("!" * 100_000 + "@" + "!" * 100_000)
+
+
+def test_a_yearly_switch_credits_the_unused_month_and_starts_a_new_period() -> None:
+    with open_billing("cust-year") as rows:
+        account, monthly = _customer(rows, 100, id="plan_m", code="m", limits={})
+        _, yearly = _customer(rows, 1000, id="plan_y", code="y", interval="year", limits={})
+        sub, _ = svc.start_subscription(rows, account, monthly, now=T0, actor="t", trial_days=0)
+        halfway = T0 + (sub["current_period_end"] - T0) / 2
+        # Per month the yearly plan is cheaper (83 against 100): deferred unless asked for now.
+        assert svc.preview_change(rows, sub, yearly, 1, NO_USAGE, halfway, None).effective == "period_end"
+        now_preview = svc.preview_change(rows, sub, yearly, 1, NO_USAGE, halfway, "now")
+        # 1000 for the new year, less the 50 unused of the month: 950 (not the raw-price 450).
+        assert (now_preview.effective, now_preview.amount_minor, now_preview.new_period) == ("now", 950, True)
+        changed, issued = svc.change_plan(rows, yearly, seats=None, when="now", usage=NO_USAGE, now=halfway, actor="t")
+        assert issued and issued.invoice["subtotal_minor"] == 950
+        assert changed["interval"] == "year" and changed["current_period_start"] == halfway
+        assert changed["current_period_end"] == add_months(halfway, 12)
+        # A step up from yearly to monthly: 100 a month is dearer than 83, and the unused year is credited.
+        back = svc.preview_change(rows, changed, monthly, 1, NO_USAGE, halfway, None)
+        assert back.new_period and back.amount_minor == 0 and back.credit_minor == 1000 - 100
+
+
+def test_a_stripe_overpayment_becomes_credit_and_is_applied_once() -> None:
+    invoice = _stripe_issuer()
+    with open_billing("acme-co") as rows:
+        # A partial bank payment first: 5,000 of 11,500 is paid, 6,500 still due.
+        svc.record_payment(rows, invoice["id"], amount_minor=5000, method="bank_transfer", reference="TRX", received_at=T0, now=T0, actor="t")
+    now = datetime.now(UTC)
+    payload = _event(invoice, "evt_over")  # Stripe collected the full 11,500
+    header = providers.sign_stripe_payload(payload, WEBHOOK_SECRET, int(now.timestamp()))
+    assert handle_stripe_event(ISSUER, payload, header)["outcome"] == "paid"
+    with open_billing("acme-co") as rows:
+        assert svc.get_invoice(rows, invoice["id"])["status"] == "paid"
+        assert int(svc.account_of(rows)["credit_balance_minor"]) == 5000  # nothing collected was dropped
+        stripe = [p for p in rows.select("billing_payments") if p["provider"] == "stripe"]
+        assert [p["amount_minor"] for p in stripe] == [6500] and "overpaid 5000" in stripe[0]["reference"]
+    again = _event(invoice, "evt_over_again")
+    assert handle_stripe_event(ISSUER, again, providers.sign_stripe_payload(again, WEBHOOK_SECRET, int(now.timestamp())))["outcome"] == "duplicate_payment"
+    with open_billing("acme-co") as rows:
+        assert int(svc.account_of(rows)["credit_balance_minor"]) == 5000
+
+
+def test_a_stripe_payment_for_an_invoice_paid_another_way_is_credited() -> None:
+    invoice = _stripe_issuer()
+    with open_billing("acme-co") as rows:
+        svc.record_payment(rows, invoice["id"], amount_minor=11_500, method="bank_transfer", reference="TRX", received_at=T0, now=T0, actor="t")
+    now = datetime.now(UTC)
+    payload = _event(invoice, "evt_late")
+    assert handle_stripe_event(ISSUER, payload, providers.sign_stripe_payload(payload, WEBHOOK_SECRET, int(now.timestamp())))["outcome"] == "credited"
+    with open_billing("acme-co") as rows:
+        assert int(svc.account_of(rows)["credit_balance_minor"]) == 11_500
+
+
+def test_a_reminder_is_marked_sent_only_when_it_is_queued(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.billing import jobs
+
+    plans = setup_issuer(reminder_days=[1], grace_days=30)
+    billed(plans["basic"]["id"], trial_days=14)
+    with open_billing("acme-co") as rows:
+        trial_end = svc.live_subscription(rows)["trial_end"]
+    ok(client.put("/api/v1/billing/account", headers=owner("acme-co"), json={"contact_email": "ap@acme.example"}))
+    later = trial_end + timedelta(days=2)
+    # No sending workspace and no email integration: nothing is queued, so the reminder stays due.
+    first = run_job(jobs.run_once(now=later))
+    assert first["reminders"] == 1
+    with open_billing("acme-co") as rows:
+        assert int(rows.select("billing_invoices")[0]["reminders_sent"]) == 0
+    assert run_job(jobs.run_once(now=later))["reminders"] == 1  # offered again on the next pass
+    # Once a send is queued for approval it is marked and not offered again.
+    def queued(reminder: Any) -> dict[str, Any]:
+        with open_billing(reminder.tenant_id) as rows:
+            svc.mark_reminder_sent(rows, reminder.invoice_id, reminder.reminder, later)
+        return {"status": "waiting_approval"}
+
+    monkeypatch.setattr(jobs, "_send_reminder", queued)
+    run_job(jobs.run_once(now=later))
+    with open_billing("acme-co") as rows:
+        assert int(rows.select("billing_invoices")[0]["reminders_sent"]) == 1
+    assert run_job(jobs.run_once(now=later))["reminders"] == 0
+
+
+def run_job(awaitable: Any) -> Any:
+    import asyncio
+
+    return asyncio.run(awaitable)
+
+
+def test_messages_per_month_is_enforced_on_the_chat_write_path() -> None:
+    plans = setup_issuer()
+    tiny = ok(client.post("/api/v1/platform/billing/plans", headers=OPERATOR, json=plan_body(
+        "chatty", 1000, limits={"seats": 5, "messages_per_month": 1})), 201)
+    assert plans
+    billed(tiny["id"])
+    admin = owner("acme-co")
+    conversation = ok(client.post("/api/v1/conversations", headers=admin, json={}), 201)
+    first = client.post(f"/api/v1/conversations/{conversation['id']}/ask", headers=admin, json={"content": "Hello"})
+    assert first.status_code == 200, first.text
+    second = client.post(f"/api/v1/conversations/{conversation['id']}/ask", headers=admin, json={"content": "Again"})
+    assert second.status_code == 402 and error(second)["code"] == "plan_limit_reached"
+    assert "1 messages this month" in error(second)["message"]

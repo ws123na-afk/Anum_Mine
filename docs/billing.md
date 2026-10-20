@@ -61,6 +61,7 @@ Plan limits are enforced when something new would be created, never by removing 
 | `seats` (or the subscription's `seats` on a per-seat plan) | Inviting someone or accepting an invitation: active members plus pending invitations across the organisation. |
 | `workspaces` | Creating a workspace. |
 | `agent_runs_per_month` | Creating a task (an agent run), counted per UTC month across the organisation. |
+| `messages_per_month` | Asking a new question in a conversation (a retry of a stored question is free), counted per UTC month across the organisation. |
 | `storage_gb` | Uploading a file. |
 
 A refusal is `402` with code `plan_limit_reached` and a sentence naming the limit, the current use and what to do ("Your plan allows 5 seats and 5 are in use. Upgrade in Settings > Billing, or remove a pending invitation."). An organisation without a subscription has no limits.
@@ -69,12 +70,13 @@ A refusal is `402` with code `plan_limit_reached` and a sentence naming the limi
 
 - **Trial**: a new subscription starts `trialing` for the plan's `trial_days` (14 by default for sign-ups). Changing plan during a trial costs nothing.
 - **Upgrade** (a dearer plan, or more seats): immediate. The unused part of the period on the old price is credited and the new price is charged for the rest of the period: `(new - old) x remaining seconds / period seconds`, rounded half up to a minor unit. A proration invoice is issued at once.
+- **Monthly to yearly (or back)**: raw per-period prices are never prorated against each other. Both are compared per month; a change that is cheaper per month waits for the period end unless `when: "now"` is sent. Applied now, it starts a **new period** from today at the new interval: the new price is charged less the unused part of the old period, and any surplus goes to the account's credit balance.
 - **Downgrade**: at period end by default (`pending_plan_id`), or `when: "now"` with the prorated difference added to the account's credit balance, which the next invoice uses up. A downgrade the current usage does not fit is refused with `409` listing every limit that is over (`blocked_by`), so nothing is ever deleted to fit a plan.
 - **Cancel**: `cancel_at_period_end`; the subscription ends at the period end and no further invoice is issued. **Reactivate** clears it, or starts a new period (and invoice) for a cancelled one.
 - **Pause / resume** (platform owner): a paused subscription is not invoiced; limits still apply.
 - **Renewal**: the billing job issues the next period's invoice when a period ends (applying a pending downgrade first).
 - **Trial expiry**: when the trial ends the first invoice is issued, due at once; unpaid, the subscription becomes `past_due` and dunning starts.
-- **Dunning**: an invoice past its due date makes the subscription `past_due` (`past_due_since`). Reminders are prepared on the days in `reminder_days` after the due date (default 1, 7 and 14); each is an email that waits for approval (below). After the last reminder plus `grace_days` (default 7) the grace period ends and the organisation becomes **read-only**: every write is refused with `402` `billing_read_only` except billing, sign-in and approvals, and all data stays readable and exportable. Recording a payment that settles the overdue invoices makes the subscription `active` and lifts read-only at once.
+- **Dunning**: an invoice past its due date makes the subscription `past_due` (`past_due_since`). Reminders are prepared on the days in `reminder_days` after the due date (default 1, 7 and 14); each is an email that waits for approval (below). A reminder counts as sent only once its email is queued for approval or sent; with no email integration or no sending workspace it is offered again on the next pass. After the last reminder plus `grace_days` (default 7) the grace period ends and the organisation becomes **read-only**: every write is refused with `402` `billing_read_only` except billing, sign-in and approvals, and all data stays readable and exportable. Recording a payment that settles the overdue invoices makes the subscription `active` and lifts read-only at once.
 
 ## Tax
 
@@ -88,7 +90,7 @@ The default is **manual / bank transfer** (no paid tool is needed): the invoice 
 
 - the `Stripe-Signature` header is verified (HMAC-SHA256 over `timestamp.body` with the webhook secret, 5 minute tolerance, constant-time compare); anything else is `400` and changes nothing;
 - each event id is stored once in `billing_webhook_events`; a repeated delivery answers `200` and does nothing (idempotent);
-- `checkout.session.completed` records a `stripe` payment for the invoice named in the session metadata, after checking that the invoice's organisation is billed by this issuer; the payment's provider id is unique, so a payment is never recorded twice.
+- `checkout.session.completed` records a `stripe` payment for the invoice named in the session metadata, after checking that the invoice's organisation is billed by this issuer; the payment's provider id is unique, so a payment is never recorded twice. What Stripe collects is never dropped: an amount above what was due (after a partial bank payment or a credit), or a payment for an invoice that was paid another way meanwhile, is added to the account's credit balance and logged. A payment is applied once per Stripe payment id, whatever event carries it.
 
 Test mode keys (`sk_test_...`) work the same way; the console shows whether the key is a test key.
 
@@ -171,6 +173,5 @@ Owner settings (see [Deploy on Oracle](deploy-oracle.md#self-serve-sign-up) and 
 - The billing contact and address are edited on the web only; the phone shows them.
 - Stripe was exercised only against a stand-in (signatures, idempotency, the Checkout request); the first real test-mode payment should be checked on staging. No Playwright spec drives the Stripe redirect, the console's plan editor, issuer settings form or start-billing dialog.
 - The `anum-provisioner` Keycloak client is created by hand (steps in [Deploy on Oracle](deploy-oracle.md#self-serve-sign-up)); it is not in the realm file and the linking call was tested against a stand-in of Keycloak's admin API.
-- `messages_per_month` is metered and shown but not enforced.
 - The console's MRR and totals assume one currency (SAR); plans in another currency are listed but summed as is.
 - The console's subscription list is assembled in the API process (fine for hundreds of customers, not paged in SQL).
