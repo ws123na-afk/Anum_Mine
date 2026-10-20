@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import 'business_models.dart';
@@ -27,6 +30,18 @@ abstract interface class InvoicesRepository {
   /// The printable page (`GET /invoices/{id}/print`), fetched with the
   /// session's own header: a link with a token in it is never built.
   Future<String> printHtml(String id, String lang);
+
+  /// The PDF made on the server (`GET /invoices/{id}/pdf`), as bytes.
+  Future<Uint8List> pdf(String id);
+
+  /// Credit notes (owners): `POST /invoices/{id}/credit-notes`.
+  Future<Invoice> issueCreditNote(String id,
+      {required double amount, required String reason});
+  Future<Invoice> voidCreditNote(String id, String creditNoteId, String reason);
+
+  /// A customer's payment report: confirm records a payment; reject keeps a reason.
+  Future<Invoice> confirmNotice(String id, String noticeId, {String note});
+  Future<Invoice> rejectNotice(String id, String noticeId, String reason);
 
   Future<BillingProfile> billingProfile();
   Future<BillingProfile> saveBillingProfile(BillingProfile profile);
@@ -147,6 +162,45 @@ class ApiInvoicesRepository implements InvoicesRepository {
     }
     return html;
   }
+
+  @override
+  Future<Uint8List> pdf(String id) async {
+    final body = await _call('GET', '/invoices/${_id(id)}/pdf');
+    final encoded = body['pdf_base64'];
+    if (encoded is! String || encoded.isEmpty) {
+      throw const ApiException(0, 'The PDF came back empty. Try again.');
+    }
+    return base64Decode(encoded);
+  }
+
+  @override
+  Future<Invoice> issueCreditNote(String id,
+          {required double amount, required String reason}) =>
+      _invoice('POST', '/invoices/${_id(id)}/credit-notes',
+          {'amount': amount, 'reason': reason});
+
+  @override
+  Future<Invoice> voidCreditNote(
+          String id, String creditNoteId, String reason) =>
+      _invoice(
+          'POST',
+          '/invoices/${_id(id)}/credit-notes/${_id(creditNoteId)}/void',
+          {'reason': reason});
+
+  @override
+  Future<Invoice> confirmNotice(String id, String noticeId,
+          {String note = ''}) =>
+      _invoice(
+          'POST',
+          '/invoices/${_id(id)}/payment-notices/${_id(noticeId)}/confirm',
+          {'note': note});
+
+  @override
+  Future<Invoice> rejectNotice(String id, String noticeId, String reason) =>
+      _invoice(
+          'POST',
+          '/invoices/${_id(id)}/payment-notices/${_id(noticeId)}/reject',
+          {'reason': reason});
 
   @override
   Future<BillingProfile> billingProfile() async => BillingProfile.fromJson(

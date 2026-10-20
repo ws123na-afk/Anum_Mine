@@ -7,7 +7,7 @@ Business is roadmap P1 "Internal sales MVP" ([ANUM OS business and product roadm
 Business is roadmap P1 "Internal sales MVP" ([ANUM OS business and product roadmap](ANUM_OS_Business_and_Product_Master_Roadmap.md), sections 4B, 6, 7 P1 and 8 Sales). It is where the owner keeps what they sell, who they want to sell it to, what they know about those companies, the deals in progress, the proposals and the projects that follow. It runs inside the owner's own workspace; nothing in it is seeded and nothing in it sends a message. Invoices and the customer portal ([portal](business-portal.md)) are roadmap P2.
 
 - API: `services/api/anum_api/business/` under `/api/v1/business`.
-- Storage: migrations `0070_business` (16 tables), `0076_business_support` (support tickets), `0080_business_change_orders` (change orders and the usage ledger) and `0089_business_invoices_portal` (invoices, payments, numbering and the customer portal), memory store for local runs and tests.
+- Storage: migrations `0070_business` (16 tables), `0076_business_support` (support tickets), `0080_business_change_orders` (change orders and the usage ledger) `0089_business_invoices_portal` (invoices, payments, numbering and the customer portal) and `0095_invoice_credit_notes` (credit notes and customer payment notices), memory store for local runs and tests.
 - Web: Business in the main navigation (`apps/web/src/BusinessView.tsx` and its tabs), English and Arabic.
 - Flutter: Business in the menu (`apps/mobile/lib/features/business/`), English and Arabic; the phone edits the catalog, accounts, contacts, leads, opportunities and support tickets ([Mobile features](mobile-features.md#business)).
 - Contracts: `packages/contracts/src/business.ts`.
@@ -27,7 +27,7 @@ Business is roadmap P1 "Internal sales MVP" ([ANUM OS business and product roadm
 | Projects | A project from an accepted proposal, its milestones with status, acceptance and payment received | One project per proposal; milestone titles and amounts come from the accepted version (or a version an approved change order produced) |
 | Change orders | Request a change to an accepted contract: the scope delta as line items, the price and timeline impact, the internal cost change; send it to an owner | See [change orders](#change-orders) |
 | Usage and costs | Labour hours and provider costs per client account and project (AI usage from the model budget, hosting share, messaging, other), billable or not; the project's profitability | See [usage ledger and profitability](#usage-ledger-and-profitability) |
-| Invoices | Invoices built from milestones (change order milestones included), the unbilled share of a contract, billable ledger entries, a catalog offer or lines you write; numbered and sent only after an owner approves; payments recorded by hand; void; a printable copy | See [invoices](#invoices) |
+| Invoices | Invoices built from milestones (change order milestones included), the unbilled share of a contract, billable ledger entries, a catalog offer or lines you write; numbered and sent only after an owner approves; payments recorded by hand or from a customer's report; credit notes; void; a printable copy and a PDF file | See [invoices](#invoices) |
 | Customer portal | A link per customer contact: their offers, change orders, invoices and requests, with approving an offer or a change order | See [the customer portal](business-portal.md) |
 | KPI summary | The owner's funnel and money figures for a window of days | See [KPI summary](#kpi-summary) |
 | Support | Tickets opened by hand or from an inbound email or WhatsApp conversation, with severity, status, assignee, entitlement, escalation, notes, replies and a working-hours SLA | See [support tickets](#support-tickets) |
@@ -42,7 +42,7 @@ Defined in `anum_api/authorization.py`.
 | Member | yes | yes | no | no (members draft and send change orders, draft invoices and ask for approval to send them) |
 | Viewer | no | no | no | no |
 
-Viewers are refused because the desk holds contacts' personal data; the API's 403 says who can use it, and the web and Flutter screens show that sentence. `business:manage` covers the catalog, the research caps, the support policy, the billing profile, voiding an invoice, removing a recorded payment, giving a customer a portal link and turning it off, reopening a closed ticket, deletions and clearing a do-not-contact mark.
+Viewers are refused because the desk holds contacts' personal data; the API's 403 says who can use it, and the web and Flutter screens show that sentence. `business:manage` covers the catalog, the research caps, the support policy, the billing profile, voiding an invoice, removing a recorded payment, issuing or voiding a credit note, giving a customer a portal link and turning it off, reopening a closed ticket, deletions and clearing a do-not-contact mark.
 
 ## Lead states
 
@@ -189,7 +189,7 @@ Tax is per line (the contract's rate for contract lines, the invoice's `tax_rate
 | `draft` | Being prepared; the lines, buyer, notes and terms change; no number yet | `pending_approval` (request approval), deleted |
 | `pending_approval` | Frozen with its hash and waiting for an owner in Approvals | `sent` (owner approves), `draft` (rejected, lapsed, cancelled, or edited, which lapses the request) |
 | `sent` | Issued: numbered, dated, visible in the customer's portal. Never changes | `paid` (balance reaches zero), `void` |
-| `paid` | Fully paid | `sent` (a payment is removed) |
+| `paid` | Settled: payments plus credit notes cover the total (`payment_state` says `paid`, or `credited` when no money arrived) | `sent` (a payment is removed or a credit note is voided) |
 | `void` | Cancelled by an owner; keeps its number; its lines can be invoiced again | final |
 
 Overdue is not a status: a sent invoice whose due date has passed and which has a balance is flagged `overdue` with `days_overdue`.
@@ -202,15 +202,36 @@ Numbers are `<prefix>-<year>-<4 digits>` (`INV-2026-0001`), taken from a counter
 
 ### Payments by hand
 
-`POST /invoices/{id}/payments` (members and owners): amount (not above the balance), date (not in the future, not before the issue date), method (bank transfer, cash, card, cheque, other), reference and a note. When the balance reaches zero the invoice becomes `paid` and each milestone on it is marked paid with its full amount on the payment's date (cash collected in the project and the [KPI summary](#kpi-summary)); a milestone a person had already marked paid is left alone. `DELETE /invoices/{id}/payments/{payment}` (owners) takes a payment back: the invoice returns to `sent` and the milestones it marked are unmarked. Payments on invoices without milestone lines (usage, offers, contract shares) appear in the invoice summary only; the project's cash collected stays the sum of milestone payments.
+`POST /invoices/{id}/payments` (members and owners): amount (not above the balance), date (not in the future, not before the issue date), method (bank transfer, cash, card, cheque, other), reference and a note. When the balance (total, minus payments, minus credit notes) reaches zero the invoice becomes `paid`; if no credit note was needed, each milestone on it is marked paid with its full amount on the payment's date (cash collected in the project and the [KPI summary](#kpi-summary)); a milestone a person had already marked paid is left alone. `DELETE /invoices/{id}/payments/{payment}` (owners) takes a payment back: the invoice returns to `sent` and the milestones it marked are unmarked. Payments on invoices without milestone lines (usage, offers, contract shares) appear in the invoice summary only; the project's cash collected stays the sum of milestone payments.
 
 ### Void
 
-`POST /invoices/{id}/void {reason}` (owners): only a sent invoice with no payments. Remove payments first if they were a mistake. There are no credit notes yet: void and issue again.
+`POST /invoices/{id}/void {reason}` (owners): only a sent invoice with no payments and no credit notes. Remove payments or void credit notes first if they were a mistake. To correct a price, issue a credit note, or void the invoice and issue it again.
+
+### Credit notes
+
+A credit note takes an amount off a sent invoice: a price correction, a returned item, a goodwill discount. The invoice never changes what it says (its hash and lines stay, the database trigger still freezes them); it carries `amount_credited`, and its balance is `total - amount_paid - amount_credited`. Each credit note is its own record (`business_credit_notes`): the tax-inclusive `amount`, the `subtotal` and `tax` the server splits it into, a reason (shown to the customer in the portal), an issue date and who issued it.
+
+- `POST /invoices/{id}/credit-notes {amount, reason}` (owners): only a sent invoice with a balance; the amount is above zero and at most the balance, so a credit note can never leave a customer owed a refund (a refund is outside ANUM). The number is `<invoice number>-CN<n>` (`INV-2026-0001-CN1`), `n` counting up per invoice and taken under the invoice row lock; numbers are unique and a voided one is never reused. The tax is split in the invoice's own proportion on the running total of credits, so the notes of one invoice add up to its tax exactly.
+- When payments plus credits cover the total the invoice becomes `paid` with `payment_state` `credited` if no payment was made. Credit notes stand in for cash that never came, so the milestones on it are **not** marked paid (cash collected stays what a person received).
+- `POST /invoices/{id}/credit-notes/{credit_note_id}/void {reason}` (owners): a credit note issued by mistake. The amount is owed again and a settled invoice returns to `sent`. The credit note keeps its number and shows as void; nothing is deleted.
+- `GET /invoices/{id}/credit-notes` (read): all of them, void ones included.
+- An invoice with credit notes in force cannot be voided: void the credit notes first. Credit notes appear on the printable page, in the PDF and in the customer portal, and are audited (`business.invoice.credit_note_issued`, `.credit_note_voided`, ids and amounts only, never the reason).
+
+### Payment notices from the portal
+
+A customer can tell the business they paid from their portal link ([portal](business-portal.md#reporting-a-payment)). This is a **report**, not a payment: it moves no money and changes no balance. It appears on the invoice (`payment_notices`, the Invoices list shows a "reports waiting" count and the summary `notices_pending`), with the payer's name, amount, date, method and reference as they typed them.
+
+- `POST /invoices/{id}/payment-notices/{notice_id}/confirm {note?}` (members and owners): check your bank first. This records an ordinary payment with the reported amount, date, method and reference (same rules and the same effect on milestones and status as [payments by hand](#payments-by-hand)); the payment's note says who reported it. If the invoice changed since (a credit note lowered the balance) the confirmation is refused with the reason and advice to reject and record by hand.
+- `POST /invoices/{id}/payment-notices/{notice_id}/reject {reason}` (members and owners): the money did not arrive or not as reported. The customer sees the reason on their invoice and may report again.
+- `GET /invoices/{id}/payment-notices` (read). Each decision is audited (`business.invoice.payment_notice_confirmed`, `.payment_notice_rejected`) and recorded in the account's activity.
+
 
 ### Printing and PDF
 
-`GET /invoices/{id}/print?lang=en|ar` returns one self-contained HTML page (A4 print stylesheet, right to left for Arabic, no script or external file, a strict content security policy, every value escaped). Print it or choose "Save as PDF" in any browser. A draft or a waiting invoice carries a "not sent" stamp, a void one a "void" stamp, a paid one a "paid" stamp, so an unsent copy cannot pass for the real one. A sent invoice prints the seller details it was sent with.
+`GET /invoices/{id}/print?lang=en|ar` returns one self-contained HTML page (A4 print stylesheet, right to left for Arabic, no script or external file, a strict content security policy, every value escaped). Print it or choose "Save as PDF" in any browser. A draft or a waiting invoice carries a "not sent" stamp, a void one a "void" stamp, a paid one a "paid" stamp, so an unsent copy cannot pass for the real one. A sent invoice prints the seller details it was sent with. Credit notes and the credited amount are listed.
+
+`GET /invoices/{id}/pdf` (read) returns the invoice as a PDF file made on the server (`invoice_pdf.py`, ANUM's dependency-free writer in `tyre/pdf.py`): A4, built-in Helvetica, the stored figures, the seller as sent, lines, totals, credit notes and payments. `Content-Disposition: attachment` with the invoice number as the file name (`draft-<id>.pdf` before it has one), `Cache-Control: no-store`. A draft, a waiting and a void invoice say so on their first line. **Limit:** the built-in PDF fonts cover Latin text only, so Arabic (or any character outside Latin-1) in a name or description prints as "?" in the PDF; use the printable page for Arabic, which keeps the right-to-left layout. The customer portal serves the same file for their own invoices.
 
 ### Routes
 
@@ -223,9 +244,11 @@ Numbers are `<prefix>-<year>-<4 digits>` (`INV-2026-0001`), taken from a counter
 | `POST /invoices/{id}/request-approval`, `/cancel-request` | write | Ask for approval to send; withdraw the request |
 | `POST /invoices/{id}/void` | owner | Void |
 | `POST /invoices/{id}/payments`, `DELETE .../payments/{id}` | write, owner | Record, take back |
-| `GET /invoices/{id}/print` | read | The printable copy |
+| `GET`, `POST /invoices/{id}/credit-notes`, `POST .../credit-notes/{id}/void` | read, owner | List, issue, void a credit note |
+| `GET /invoices/{id}/payment-notices`, `POST .../payment-notices/{id}/confirm`, `/reject` | read, write | A customer's payment reports: list, confirm (records a payment), reject |
+| `GET /invoices/{id}/print`, `GET /invoices/{id}/pdf` | read | The printable page, the PDF file |
 
-Every invoice response carries `can` (what the caller may do now) and `issues` (why a draft cannot be sent yet), so web and phone show the same buttons and reasons. On the web the invoices are the Invoices tab of Business (`apps/web/src/BusinessInvoices.tsx`); on the phone, Invoices in the Business screen (`apps/mobile/lib/features/business/invoices.dart`). Deleting an account that has invoices is refused: its records are kept.
+Every invoice response carries `can` (what the caller may do now) and `issues` (why a draft cannot be sent yet), so web and phone show the same buttons and reasons. On the web the invoices are the Invoices tab of Business (`apps/web/src/BusinessInvoices.tsx`); on the phone, Invoices in the Business screen (`apps/mobile/lib/features/business/invoices.dart`). Deleting an account that has invoices is refused: its records are kept. The drawer has a **Download PDF** button next to Print (web and phone), credit notes and customer reports blocks, and the Accounts tab of Business lists the client accounts with their portal links.
 
 ## KPI summary
 
@@ -295,6 +318,7 @@ Migration `0080_business_change_orders` adds `business_change_orders` and `busin
 
 Migration `0082_business_pipeline` adds `business_outreach_settings`, `business_target_profiles`, `business_observations`, `business_pipeline_runs`, `business_outbox` and `business_replies` under the same rules, with scoped foreign keys to leads, accounts, contacts, drafts and products and unique indexes (one target profile per product, one live outbox row per draft and per sequence step). Expand only; chained after `0088_approvals_paging`, the head of `main`. All six are listed in `anum_api/tenant_lifecycle_tables.py` for export and purge, and carry the `anum_tenant_purger` grants (scope columns and delete) and the `lifecycle_purge_<table>` policy, as the change-order tables do.
 Migration `0089_business_invoices_portal` adds `business_invoices`, `business_invoice_payments`, `business_invoice_counters`, `business_portal_access` and `business_portal_decisions` under the same rules, and one nullable column, `business_settings.billing_profile`. Check constraints keep totals equal to subtotal plus tax, a paid invoice fully paid and a sent invoice numbered, dated and attributed; a trigger freezes a sent invoice ([invoices](#invoices)); unique indexes back the invoice number, the per-year counter and one customer decision per exact version. Expand only; chained after `0088_approvals_paging`, the head of `main`.
+Migration `0095_invoice_credit_notes` adds `business_credit_notes` and `business_payment_notices` under the same rules (forced RLS, scoped composite foreign keys, the `anum_tenant_purger` grants and `lifecycle_purge_<table>` policies, both listed in `anum_api/tenant_lifecycle_tables.py`) and one defaulted column, `business_invoices.amount_credited`. Check constraints keep `amount_paid + amount_credited <= total`, a credit note equal to subtotal plus tax and above zero, and a decided notice naming who decided; the paid check becomes "payments plus credits equal the total". The frozen-invoice trigger is unchanged: credits never touch the fields it protects. Expand only (the previous release ignores the new column and tables and only ever sees `amount_credited = 0`); chained after `0094_customer_billing`, the head of `main`.
 
 - Every table has `tenant_id` and `workspace_id`, a foreign key to `workspaces` and forced row level security with `tenant_isolation_<table>` on `anum.tenant_id` and `anum.workspace_id` (the 0040 pattern). No role is granted anything and no discovery role reads these tables.
 - References between business tables are composite foreign keys on `(tenant_id, workspace_id, id)`, so a row can never point into another tenant or workspace by a guessed id, even though foreign key checks ignore row policies.
@@ -313,6 +337,10 @@ Every state-changing route writes an audit record with ids and counts only (neve
 - `services/api/tests/test_postgres_business.py`: the main path under forced RLS as the app role, tenant B and the other workspace cannot read or guess ids, row policies refuse writes into another scope, scoped foreign keys refuse cross-scope references, unique indexes back dedup, the locked-version trigger.
 - `services/api/tests/test_business_change_orders.py`: change orders (owner-only approval bound to the content hash, immutable accepted and amended versions, totals and rounding reconciliation with tax, milestone increases and reductions that skip settled milestones, stale change orders, reject and withdraw), the ledger, the AI usage import, profitability with revenue and cash apart, permissions and cross-workspace and cross-tenant isolation.
 - `services/api/tests/test_business_invoices.py`: the line pricing and the hash, the billing profile, a milestone invoice that reconciles with tax and waits for an owner, the approval bound to the hash (edit, reject, cancel), numbering that never reuses a number, double billing, change order milestones, billable ledger entries, a contract without milestones, offers, payments and their effect on milestones, void, overdue and the summary, the printable copy (escaping, language, stamps), permissions, isolation and the audit walk.
+- `services/api/tests/test_business_invoice_money.py`: credit notes (tax split that adds up exactly, balance, the cap at what is owed, owner-only, payments and credits settling together, `credited` state, milestones left unmarked, void and renumbering, voiding an invoice with credits, scope), the PDF (content, headers, drafts and void, permissions, scope, non-Latin text) and the owner side of customer payment notices (confirm, reject, stale balance, scope).
+- `services/api/tests/test_postgres_business.py::test_credit_notes_and_customer_payment_notices_under_rls`: credit notes and payment notices as the app role under forced RLS (scoped foreign keys, the paid check counting credits, the unique credit note number, the frozen invoice trigger).
+- `apps/web/test/businessInvoiceMoney.test.ts`, `apps/web/e2e/business-invoice-money.spec.ts` (mock in `e2e/support/businessInvoicesApi.ts`) and `apps/web/e2e/portal-payments.spec.ts`: the credit and report forms and their checks, the PDF download, credit notes, confirming and rejecting a report, the member and owner differences, the Accounts tab with its empty, failed and Arabic states, and the layout gate from 1440 to 390 wide.
+- `apps/mobile/test/business_invoice_money_test.dart` and `apps/mobile/test/portal_payments_test.dart`: the same on the phone (credit dialog, confirm and reject, the PDF save, the report form, Arabic, 320 and 768 wide with 200% text).
 - `services/api/tests/test_business_portal.py` and `docs/business-portal.md#tests`: the customer portal.
 - `services/api/tests/test_business_support.py`: the working-hours SLA arithmetic (weekends, nights, hours to midnight, pauses), policy checks, permissions, the status flow and resolution audit, escalation and notes, links and entitlements, tickets from an email or WhatsApp conversation (fake inboxes), reply checks and the hand-off to the approval path, the agent's draft tool, paging, filters and search, cross-workspace and cross-tenant isolation and the audit walk of every support route.
 - `services/api/tests/test_postgres_business.py::test_support_tickets_under_rls`: tickets under forced RLS, scoped foreign keys, the resolution check and the one-open-ticket-per-message index.
@@ -332,7 +360,7 @@ These are later roadmap phases, not missing pieces of P1:
 - GitHub linkage, invoices and payment collection (P2); cash collected is what a person records on a milestone.
 - Sending outbound messages (P3: human-approved sends) and any automation of them.
 - GitHub linkage and payment collection: ANUM takes no payments; cash collected is what a person records on a milestone or on an invoice.
-- Invoices: credit notes (void and issue again), recurring invoices, payment reminders and e-mailing an invoice from ANUM (the owner sends the printed copy or the portal link through the inbox's approved path), and a PDF file produced on the server (the printable page saves as PDF in the browser).
+- Invoices: recurring invoices, payment reminders, e-mailing an invoice from ANUM (the owner sends the PDF or the portal link through the inbox's approved path), refunds (a credit note never exceeds what is owed), credit notes for a paid invoice, an Arabic PDF (the built-in fonts are Latin only; the printable page covers Arabic) and a **payment gateway**: ANUM still collects no money. A customer's portal report is a notice an owner or member confirms after checking the bank; a card or bank-redirect payment needs a provider, its keys, webhooks and a separate decision.
 - AI usage from another workspace (for example a client's own ANUM workspace) is not linked yet: the import reads the workspace the owner works in.
 - Support: customers replying inside a request, a public status page and change log, automatic escalation or notifications on a breach, and attachments on tickets. Tickets link the inbox, which keeps any files.
 - E-signature (deferred in the roadmap's reuse register: manual signed PDFs first).

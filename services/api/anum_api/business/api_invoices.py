@@ -27,15 +27,28 @@ from ..schemas import Approval, ApprovalStatus, TenantContext, new_id, utc_now
 from .common import Page, Reason, get_or_404, manage, page_bounds, read, write
 from .invoice_models import (
     OPEN_INVOICE_STATES,
+    CreditNote,
+    CreditNoteStatus,
     Invoice,
     InvoiceLine,
     InvoicePayment,
     InvoiceStatus,
     LineSource,
     PaymentMethod,
+    PaymentNotice,
+    PaymentNoticeStatus,
 )
+from .invoice_pdf import invoice_filename, render_invoice_pdf
 from .invoice_print import render_invoice
-from .invoice_service import billed_sources, contract_billed, mark_milestones_paid, payments_of, release_milestones
+from .invoice_service import (
+    apply_payment,
+    billed_sources,
+    contract_billed,
+    credit_notes_of,
+    notices_of,
+    payments_of,
+    release_milestones,
+)
 from .invoices import apply_lines, invoice_hash, payment_state, problems
 from .models import (
     BillingProfile,
@@ -108,6 +121,9 @@ class Can(BaseModel):
     void: bool
     record_payment: bool
     remove_payment: bool
+    credit: bool
+    void_credit_note: bool
+    decide_notice: bool
 
 
 class InvoiceListItem(BaseModel):
@@ -121,13 +137,15 @@ class InvoiceListItem(BaseModel):
     currency: Currency
     total: Money
     amount_paid: Money
+    amount_credited: Money
     balance: Money
     issue_date: date | None
     due_date: date | None
     overdue: bool
     days_overdue: int
-    payment_state: Literal["unpaid", "partially_paid", "paid"]
+    payment_state: Literal["unpaid", "partially_paid", "paid", "credited"]
     customer_reference: str
+    notices_pending: int
     lines: int
     updated_at: datetime
     created_at: datetime
@@ -139,8 +157,10 @@ class InvoiceView(Invoice):
     balance: Money = Decimal("0")
     overdue: bool = False
     days_overdue: int = 0
-    payment_state: Literal["unpaid", "partially_paid", "paid"] = "unpaid"
+    payment_state: Literal["unpaid", "partially_paid", "paid", "credited"] = "unpaid"
     payments: list[InvoicePayment] = Field(default_factory=list)
+    credit_notes: list[CreditNote] = Field(default_factory=list)
+    payment_notices: list[PaymentNotice] = Field(default_factory=list)
     approval_state: ApprovalState = "none"
     approval: Approval | None = None
     # Why a draft cannot be sent for approval yet.
@@ -170,9 +190,12 @@ def _can(context: TenantContext, invoice: Invoice) -> Can:
         request_send=writer and invoice.status == InvoiceStatus.DRAFT,
         cancel_request=writer and invoice.status == InvoiceStatus.PENDING_APPROVAL,
         delete=writer and invoice.status == InvoiceStatus.DRAFT,
-        void=owner and invoice.status == InvoiceStatus.SENT and invoice.amount_paid == 0,
+        void=owner and invoice.status == InvoiceStatus.SENT and invoice.amount_paid == 0 and invoice.amount_credited == 0,
         record_payment=writer and invoice.status == InvoiceStatus.SENT,
         remove_payment=owner and invoice.status in {InvoiceStatus.SENT, InvoiceStatus.PAID},
+        credit=owner and invoice.status == InvoiceStatus.SENT and invoice.balance_due() > 0,
+        void_credit_note=owner and invoice.status in {InvoiceStatus.SENT, InvoiceStatus.PAID},
+        decide_notice=writer and invoice.status in {InvoiceStatus.SENT, InvoiceStatus.PAID},
     )
 
 
@@ -199,17 +222,19 @@ def invoice_view(store: BusinessStore, repository: AnumRepository, context: Tena
     checked = invoice.model_copy(update={"seller": invoice.seller or profile})
     return InvoiceView(
         **invoice.model_dump(), account_name=account_name, project_name=project_name, payments=payments_of(store, invoice.id),
+        credit_notes=credit_notes_of(store, invoice.id), payment_notices=notices_of(store, invoice.id),
         approval_state=state, approval=approval if state == "pending" else None,
         issues=problems(checked) if invoice.status in OPEN_INVOICE_STATES else [], can=_can(context, invoice), **payment_state(invoice, utc_now().date()),
     )
 
 
-def list_item(store: BusinessStore, invoice: Invoice, today: date, names: dict[tuple[str, str], str | None]) -> InvoiceListItem:
+def list_item(store: BusinessStore, invoice: Invoice, today: date, names: dict[tuple[str, str], str | None], pending: dict[str, int] | None = None) -> InvoiceListItem:
     account_name, project_name = _names(store, invoice, names)
     return InvoiceListItem(
         id=invoice.id, number=invoice.number, status=invoice.status, account_id=invoice.account_id, account_name=account_name, project_id=invoice.project_id,
-        project_name=project_name, currency=invoice.currency, total=invoice.total, amount_paid=invoice.amount_paid, issue_date=invoice.issue_date,
-        due_date=invoice.due_date, customer_reference=invoice.customer_reference, lines=len(invoice.lines), updated_at=invoice.updated_at,
+        project_name=project_name, currency=invoice.currency, total=invoice.total, amount_paid=invoice.amount_paid, amount_credited=invoice.amount_credited,
+        issue_date=invoice.issue_date, due_date=invoice.due_date, customer_reference=invoice.customer_reference, notices_pending=(pending or {}).get(invoice.id, 0),
+        lines=len(invoice.lines), updated_at=invoice.updated_at,
         created_at=invoice.created_at, **payment_state(invoice, today),
     )
 
@@ -524,15 +549,19 @@ def list_invoices(
     today = utc_now().date()
     names: dict[tuple[str, str], str | None] = {}
     with open_business_store(context) as store:
+        waiting, _ = store.find("payment_notices", Query(where={"status": PaymentNoticeStatus.PENDING}, order_by="created_at", limit=MAX_SCAN))
+        pending: dict[str, int] = {}
+        for notice in waiting:
+            pending[notice.invoice_id] = pending.get(notice.invoice_id, 0) + 1
         if overdue is True:
             where["status"] = {InvoiceStatus.SENT}
             items, _ = store.find("invoices", Query(where=where, order_by="due_date", descending=False, limit=MAX_SCAN))
             late = [item for item in items if item.due_date is not None and item.due_date < today]
             page = late[offset : offset + limit]
-            rows = [list_item(store, item, today, names) for item in page]
+            rows = [list_item(store, item, today, names, pending) for item in page]
             return Page[InvoiceListItem](items=rows, total=len(late), limit=limit, offset=offset)
         items, total = store.find("invoices", Query(where=where, text=q, text_fields=("number", "bill_to_name", "customer_reference"), order_by="updated_at", limit=limit, offset=offset))
-        rows = [list_item(store, item, today, names) for item in items]
+        rows = [list_item(store, item, today, names, pending) for item in items]
     return Page[InvoiceListItem](items=rows, total=total, limit=limit, offset=offset)
 
 
@@ -550,6 +579,8 @@ class InvoiceSummary(BaseModel):
     counts: dict[str, int]
     currencies: list[CurrencyFigures]
     truncated: bool
+    # Customer payment notices waiting for an owner or member to confirm or reject them.
+    notices_pending: int
     notes: list[str]
 
 
@@ -562,6 +593,7 @@ def invoice_summary(context: TenantContext = Depends(tenant_context)) -> Invoice
     with open_business_store(context) as store:
         items, total = store.find("invoices", Query(order_by="created_at", limit=MAX_SCAN))
         payments, _ = store.find("invoice_payments", Query(where={}, order_by="paid_on", limit=MAX_SCAN))
+        notices_pending = store.count("payment_notices", Query(where={"status": PaymentNoticeStatus.PENDING}))
     by_invoice = {item.id: item for item in items}
     counts = {state.value: 0 for state in InvoiceStatus}
     figures: dict[Currency, dict[str, Any]] = {}
@@ -586,7 +618,7 @@ def invoice_summary(context: TenantContext = Depends(tenant_context)) -> Invoice
         if invoice is not None and payment.paid_on >= month:
             row(invoice.currency)["collected"] += payment.amount
     return InvoiceSummary(
-        counts=counts, truncated=total > len(items),
+        counts=counts, truncated=total > len(items), notices_pending=notices_pending,
         currencies=[CurrencyFigures(currency=currency, outstanding=money(value["outstanding"]), overdue=money(value["overdue"]), overdue_count=value["overdue_count"],
                                     invoiced_this_month=money(value["invoiced"]), collected_this_month=money(value["collected"]), drafts=money(value["drafts"]))
                     for currency, value in sorted(figures.items())],
@@ -726,6 +758,8 @@ def void_invoice(invoice_id: str, payload: Reason, context: TenantContext = Depe
                              else "A paid invoice cannot be voided: remove its payments first if they were a mistake.")
         if invoice.amount_paid > 0:
             raise http_error(409, "The invoice has payments recorded. Remove them first, then void it.")
+        if invoice.amount_credited > 0:
+            raise http_error(409, "The invoice has credit notes. Void them first, then void the invoice.")
         invoice = invoice.model_copy(update={"status": InvoiceStatus.VOID, "voided_by": context.user_id, "voided_at": now, "void_reason": _clean(payload.reason, 300), "updated_at": now})
         store.save("invoices", invoice)
         record_activity(store, context, "invoice_voided", f"Invoice {invoice.number} voided: {invoice.void_reason}", account_id=invoice.account_id, project_id=invoice.project_id,
@@ -754,29 +788,8 @@ def record_payment(invoice_id: str, payload: PaymentCreate, context: TenantConte
     now = utc_now()
     with open_business_store(context) as store:
         invoice = get_or_404(store, "invoices", invoice_id, "Invoice", for_update=True)
-        if invoice.status != InvoiceStatus.SENT:
-            raise http_error(409, f"The invoice is {invoice.status.value.replace('_', ' ')}; payments are recorded on a sent invoice.")
-        if payload.amount <= 0:
-            raise http_error(422, "Enter an amount above zero.")
-        balance = invoice.balance_due()
-        if payload.amount > balance:
-            raise http_error(422, f"The payment is more than the balance of {invoice.currency.value} {balance}.")
-        if payload.paid_on > now.date():
-            raise http_error(422, "The payment date cannot be in the future.")
-        if invoice.issue_date and payload.paid_on < invoice.issue_date:
-            raise http_error(422, f"The payment date is before the invoice was issued on {invoice.issue_date}.")
-        payment = InvoicePayment(
-            id=new_id("binpay"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, invoice_id=invoice.id, amount=payload.amount, paid_on=payload.paid_on,
-            method=payload.method, reference=_clean(payload.reference, 120), note=_clean(payload.note, 300), recorded_by=context.user_id, created_at=now, updated_at=now,
-        )
-        store.add("invoice_payments", payment)
-        paid = money(invoice.amount_paid + payload.amount)
-        update: dict[str, Any] = {"amount_paid": paid, "updated_at": now}
-        if paid >= invoice.total:
-            update.update({"status": InvoiceStatus.PAID, "paid_at": now})
-            update["marked_milestones"] = mark_milestones_paid(store, invoice, payload.paid_on, now)
-        invoice = invoice.model_copy(update=update)
-        store.save("invoices", invoice)
+        invoice, payment = apply_payment(store, context, invoice, amount=payload.amount, paid_on=payload.paid_on, method=payload.method,
+                                         reference=_clean(payload.reference, 120), note=_clean(payload.note, 300), now=now)
         record_activity(store, context, "invoice_payment_recorded", f"Payment of {invoice.currency.value} {payload.amount} recorded on invoice {invoice.number}.",
                         account_id=invoice.account_id, project_id=invoice.project_id, metadata={"invoice_id": invoice.id, "payment_id": payment.id})
         view = invoice_view(store, repository, context, invoice)
@@ -822,5 +835,24 @@ def print_invoice(invoice_id: str, lang: Literal["en", "ar"] = "en", context: Te
     read(context)
     with open_business_store(context) as store:
         invoice = get_or_404(store, "invoices", invoice_id, "Invoice")
-        html = render_invoice(invoice, payments_of(store, invoice.id), store.get_settings().billing, lang)
+        html = render_invoice(invoice, payments_of(store, invoice.id), store.get_settings().billing, lang, credit_notes_of(store, invoice.id))
     return Response(content=html, media_type="text/html; charset=utf-8", headers=PRINT_HEADERS)
+
+
+# -- PDF copy ------------------------------------------------------------------------------------
+
+
+def pdf_response(invoice: Invoice, content: bytes) -> Response:
+    return Response(content=content, media_type="application/pdf", headers={
+        "Content-Disposition": f'attachment; filename="{invoice_filename(invoice)}"', "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",
+    })
+
+
+@router.get("/invoices/{invoice_id}/pdf")
+def invoice_pdf(invoice_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    """The invoice as a PDF file made on the server (Latin text only; the printable page covers Arabic). A draft says so on every page."""
+    read(context)
+    with open_business_store(context) as store:
+        invoice = get_or_404(store, "invoices", invoice_id, "Invoice")
+        content = render_invoice_pdf(invoice, payments_of(store, invoice.id), credit_notes_of(store, invoice.id), store.get_settings().billing)
+    return pdf_response(invoice, content)

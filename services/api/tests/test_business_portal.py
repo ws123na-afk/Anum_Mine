@@ -412,6 +412,162 @@ def test_a_voided_invoice_stays_visible_marked_void() -> None:
     assert get(token, "/me")["counts"]["invoices_open"] == 0
 
 
+# -- reporting a payment, credit notes and the PDF -------------------------------------------------------------
+
+
+def report(token: str, invoice_id: str, amount: float = 400, **extra: Any) -> Any:
+    body = {"payer_name": "Sara Khan", "amount": amount, "paid_on": utc_now().date().isoformat(), "method": "bank_transfer", "reference": "TRX-31", **extra}
+    return client.post(f"{PORTAL}/invoices/{invoice_id}/payment-notices", headers=bearer(token), json=body)
+
+
+def sent_for_portal(total: float = 2000, tax: float = 0) -> tuple[dict[str, Any], dict[str, Any], str]:
+    set_profile()
+    project = make_project(total=total, tax=tax)
+    invoice = send(ok(client.post(f"{BASE}/invoices", headers=MEMBER, json={"project_id": project["id"], "milestone_ids": milestone_ids(project)[:1]}), 201))
+    return project, invoice, grant(project["account_id"])["token"]
+
+
+def test_a_customer_reports_a_payment_and_nothing_changes_until_the_business_confirms() -> None:
+    _, invoice, token = sent_for_portal()
+    before = get(token, f"/invoices/{invoice['id']}")
+    assert before["can_report_payment"] is True and before["payment_notices"] == [] and before["credit_notes"] == []
+    created = report(token, invoice["id"], 400)
+    assert created.status_code == 201, created.text
+    detail = created.json()
+    assert (detail["amount_paid"], detail["balance"]) == (0, invoice["total"])
+    notice = detail["payment_notices"][0]
+    assert (notice["amount"], notice["status"], notice["reference"], notice["method"]) == (400, "pending", "TRX-31", "bank_transfer")
+    assert "payer_name" not in json.dumps(detail) and "access_id" not in json.dumps(detail) and "decided_by" not in json.dumps(detail)
+    # The business sees it on the invoice and in the account's activity.
+    owner_view = ok(client.get(f"{BASE}/invoices/{invoice['id']}", headers=OWNER))
+    assert owner_view["payment_notices"][0]["payer_name"] == "Sara Khan" and owner_view["payment_notices"][0]["status"] == "pending" and owner_view["amount_paid"] == 0
+    assert "portal_payment_reported" in [item.kind for item in business_store._rows["activities"].values()]
+    # Confirming records an ordinary payment, which the customer then sees.
+    ok(client.post(f"{BASE}/invoices/{invoice['id']}/payment-notices/{notice['id']}/confirm", headers=MEMBER, json={}))
+    after = get(token, f"/invoices/{invoice['id']}")
+    assert after["amount_paid"] == 400 and after["payments"][0]["reference"] == "TRX-31" and after["payment_notices"][0]["status"] == "confirmed"
+    assert after["payment_notices"][0]["decision_note"] == ""
+
+
+def test_a_rejected_report_shows_the_businesss_reason_and_can_be_made_again() -> None:
+    _, invoice, token = sent_for_portal()
+    notice = report(token, invoice["id"], 400).json()["payment_notices"][0]
+    ok(client.post(f"{BASE}/invoices/{invoice['id']}/payment-notices/{notice['id']}/reject", headers=OWNER, json={"reason": "Nothing arrived on that date"}))
+    shown = get(token, f"/invoices/{invoice['id']}")["payment_notices"][0]
+    assert shown["status"] == "rejected" and shown["decision_note"] == "Nothing arrived on that date"
+    assert report(token, invoice["id"], 400).status_code == 201  # a rejected report no longer counts as waiting
+
+
+def test_reporting_the_same_payment_twice_is_harmless() -> None:
+    _, invoice, token = sent_for_portal()
+    assert report(token, invoice["id"], 400).status_code == 201
+    again = report(token, invoice["id"], 400)
+    assert again.status_code == 200 and len(again.json()["payment_notices"]) == 1
+
+
+def test_a_report_is_checked_against_the_invoice() -> None:
+    _, invoice, token = sent_for_portal()
+    total = invoice["total"]
+    assert report(token, invoice["id"], 0).status_code == 422 and report(token, invoice["id"], -5).status_code == 422
+    over = report(token, invoice["id"], total + 0.01)
+    assert over.status_code == 422 and "balance" in over.text
+    assert report(token, invoice["id"], 10, paid_on="2999-01-01").status_code == 422
+    assert report(token, invoice["id"], 10, paid_on="2000-01-01").status_code == 422
+    assert report(token, invoice["id"], 10, payer_name=" a ").status_code == 422
+    assert report(token, invoice["id"], 10, method="bitcoin").status_code == 422
+    assert client.post(f"{PORTAL}/invoices/{invoice['id']}/payment-notices", headers=bearer(token), json={"amount": 10}).status_code == 422
+    # Reports that together would exceed the balance, and too many waiting at once, are refused.
+    assert report(token, invoice["id"], total - 100, reference="A").status_code == 201
+    crowded = report(token, invoice["id"], 200, reference="B")
+    assert crowded.status_code == 409 and "cover this balance" in crowded.text
+    for index in range(4):
+        assert report(token, invoice["id"], 10, reference=f"C{index}").status_code == 201
+    capped = report(token, invoice["id"], 1, reference="D")
+    assert capped.status_code == 409 and "already reported" in capped.text
+    assert len(ok(client.get(f"{BASE}/invoices/{invoice['id']}/payment-notices", headers=OWNER))) == 5
+    assert ok(client.get(f"{BASE}/invoices/{invoice['id']}", headers=OWNER))["amount_paid"] == 0
+
+
+def test_a_customer_text_is_cleaned_and_never_executes() -> None:
+    _, invoice, token = sent_for_portal()
+    created = report(token, invoice["id"], 10, payer_name="  Sara   Khan \u2013 Ltd ", reference="TRX \u2014 <script>alert(1)</script>", note="paid  today").json()
+    stored = ok(client.get(f"{BASE}/invoices/{invoice['id']}/payment-notices", headers=OWNER))[0]
+    assert stored["payer_name"] == "Sara Khan, Ltd"
+    assert "\u2014" not in stored["reference"] and "\u2014" not in created["payment_notices"][0]["reference"] and stored["note"] == "paid today"
+
+
+def test_a_read_only_link_cannot_report_a_payment() -> None:
+    project, invoice, _ = sent_for_portal()
+    token = grant(project["account_id"], can_decide=False)["token"]
+    detail = get(token, f"/invoices/{invoice['id']}")
+    assert detail["can_report_payment"] is False
+    refused = report(token, invoice["id"], 10)
+    assert refused.status_code == 403 and "can read but not act" in refused.text
+    assert business_store._rows["payment_notices"] == {}
+
+
+def test_a_payment_cannot_be_reported_on_a_paid_void_or_foreign_invoice() -> None:
+    project, invoice, token = sent_for_portal()
+    other = sent_proposal(company="Desert Tyres")
+    other_token = grant(other["account_id"])["token"]
+    assert report(other_token, invoice["id"], 10).status_code == 404  # another client's invoice looks absent
+    assert report(token, "missing", 10).status_code == 404
+    ok(client.post(f"{BASE}/invoices/{invoice['id']}/payments", headers=MEMBER, json={"amount": invoice["total"], "paid_on": utc_now().date().isoformat()}), 201)
+    paid = report(token, invoice["id"], 10)
+    assert paid.status_code == 409 and "already paid" in paid.text
+    assert get(token, f"/invoices/{invoice['id']}")["can_report_payment"] is False
+    second = send(ok(client.post(f"{BASE}/invoices", headers=MEMBER, json={"project_id": project["id"], "milestone_ids": milestone_ids(project)[1:2]}), 201))
+    ok(client.post(f"{BASE}/invoices/{second['id']}/void", headers=OWNER, json={"reason": "Wrong amount"}))
+    voided = report(token, second["id"], 10)
+    assert voided.status_code == 409 and "cancelled" in voided.text
+    # A draft is not visible to the customer at all.
+    draft = ok(client.post(f"{BASE}/invoices", headers=MEMBER, json={"account_id": project["account_id"], "lines": [{"description": "Work", "unit_price": 50}]}), 201)
+    assert report(token, draft["id"], 10).status_code == 404
+
+
+def test_an_archived_workspace_takes_no_payment_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, invoice, token = sent_for_portal()
+    monkeypatch.setattr(portal_module, "workspace_archived", lambda context: True)
+    refused = report(token, invoice["id"], 10)
+    assert refused.status_code == 403 and "paused" in refused.text
+    assert get(token, f"/invoices/{invoice['id']}")["can_report_payment"] is False
+
+
+def test_the_customer_sees_credit_notes_and_the_lower_balance() -> None:
+    _, invoice, token = sent_for_portal(total=2000, tax=15)
+    ok(client.post(f"{BASE}/invoices/{invoice['id']}/credit-notes", headers=OWNER, json={"amount": 100, "reason": "Agreed discount"}), 201)
+    detail = get(token, f"/invoices/{invoice['id']}")
+    assert detail["amount_credited"] == 100 and detail["balance"] == invoice["total"] - 100 and detail["payment_state"] == "unpaid"
+    note = detail["credit_notes"][0]
+    assert note["number"] == f"{invoice['number']}-CN1" and note["amount"] == 100 and note["reason"] == "Agreed discount" and note["status"] == "issued"
+    assert "issued_by" not in json.dumps(detail) and "subtotal" not in json.dumps(detail["credit_notes"])
+    listed = get(token, "/invoices")[0]
+    assert listed["amount_credited"] == 100 and listed["balance"] == invoice["total"] - 100
+    assert "Agreed discount" in get(token, f"/invoices/{invoice['id']}/print")
+    ok(client.post(f"{BASE}/invoices/{invoice['id']}/credit-notes", headers=OWNER, json={"amount": invoice["total"] - 100, "reason": "Rest waived"}), 201)
+    settled = get(token, f"/invoices/{invoice['id']}")
+    assert settled["status"] == "paid" and settled["payment_state"] == "credited" and settled["can_report_payment"] is False
+    assert get(token, "/me")["counts"]["invoices_open"] == 0
+
+
+def test_the_customer_downloads_a_pdf_of_their_own_invoice_only() -> None:
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    project, invoice, token = sent_for_portal()
+    response = client.get(f"{PORTAL}/invoices/{invoice['id']}/pdf", headers=bearer(token))
+    assert response.status_code == 200 and response.headers["content-type"] == "application/pdf" and response.content.startswith(b"%PDF")
+    assert response.headers["cache-control"] == "no-store" and response.headers["content-disposition"] == f'attachment; filename="{invoice["number"]}.pdf"'
+    text = "\n".join(page.extract_text() for page in PdfReader(BytesIO(response.content)).pages)
+    assert invoice["number"] in text and "Anum Technologies LLC" in text
+    draft = ok(client.post(f"{BASE}/invoices", headers=MEMBER, json={"account_id": project["account_id"], "lines": [{"description": "Work", "unit_price": 50}]}), 201)
+    assert client.get(f"{PORTAL}/invoices/{draft['id']}/pdf", headers=bearer(token)).status_code == 404
+    other_token = grant(sent_proposal(company="Desert Tyres")["account_id"])["token"]
+    assert client.get(f"{PORTAL}/invoices/{invoice['id']}/pdf", headers=bearer(other_token)).status_code == 404
+    assert client.get(f"{PORTAL}/invoices/{invoice['id']}/pdf").status_code == 401
+
+
 # -- support requests ----------------------------------------------------------------------------------------------
 
 
@@ -495,4 +651,9 @@ def test_every_state_changing_portal_route_is_audited_without_content() -> None:
     portal_probe.call("POST", f"{PORTAL}/tickets", {**bearer(fresh), **scope}, sent=["Dashboard is slow", "It takes a minute to load the page."],
                 json={"title": "Dashboard is slow", "description": "It takes a minute to load the page."})
     admin_probe.assert_covered()
+    set_profile()
+    billed = send(ok(client.post(f"{BASE}/invoices", headers=MEMBER, json={"project_id": project["id"], "milestone_ids": milestone_ids(project)[:1]}), 201))
+    reporter = grant(project["account_id"])["token"]
+    portal_probe.call("POST", f"{PORTAL}/invoices/{billed['id']}/payment-notices", {**bearer(reporter), **scope}, sent=["TRX-AUDIT-31", "Sara Khan", "paid by wire"],
+                      json={"payer_name": "Sara Khan", "amount": 10, "paid_on": utc_now().date().isoformat(), "reference": "TRX-AUDIT-31", "note": "paid by wire"})
     portal_probe.assert_covered()

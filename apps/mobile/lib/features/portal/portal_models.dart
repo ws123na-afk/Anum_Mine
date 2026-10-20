@@ -308,11 +308,12 @@ class PortalInvoiceSummary {
     required this.daysOverdue,
     required this.paymentState,
     required this.customerReference,
+    this.amountCredited = 0,
     this.issueDate,
     this.dueDate,
   });
   final String id, number, status, currency, paymentState, customerReference;
-  final double total, amountPaid, balance;
+  final double total, amountPaid, balance, amountCredited;
   final String? issueDate, dueDate;
   final bool overdue;
   final int daysOverdue;
@@ -324,6 +325,7 @@ class PortalInvoiceSummary {
         currency: r.string('currency'),
         total: r.number('total'),
         amountPaid: r.number('amount_paid'),
+        amountCredited: r.optNumber('amount_credited') ?? 0,
         balance: r.number('balance'),
         issueDate: r.optString('issue_date'),
         dueDate: r.optString('due_date'),
@@ -332,6 +334,32 @@ class PortalInvoiceSummary {
         paymentState: r.optString('payment_state') ?? 'unpaid',
         customerReference: r.optString('customer_reference') ?? '',
       );
+}
+
+/// A credit note the business issued on this invoice (the reason is theirs
+/// and is meant for the customer to read).
+class PortalCreditNote {
+  const PortalCreditNote(
+      this.number, this.issueDate, this.amount, this.reason, this.status);
+  final String number, issueDate, reason, status;
+  final double amount;
+  bool get isVoid => status == 'void';
+}
+
+/// A payment this customer reported. It changes nothing until the business
+/// confirms it.
+class PortalPaymentNotice {
+  const PortalPaymentNotice({
+    required this.id,
+    required this.amount,
+    required this.paidOn,
+    required this.method,
+    required this.reference,
+    required this.status,
+    required this.decisionNote,
+  });
+  final String id, paidOn, method, reference, status, decisionNote;
+  final double amount;
 }
 
 class PortalInvoiceLine {
@@ -399,14 +427,24 @@ class PortalInvoice extends PortalInvoiceSummary {
     required this.seller,
     required this.payments,
     required this.voidReason,
+    super.amountCredited,
     super.issueDate,
     super.dueDate,
+    this.creditNotes = const [],
+    this.paymentNotices = const [],
+    this.canReportPayment = false,
   });
   final List<PortalInvoiceLine> lines;
   final double subtotal, tax;
   final String notes, paymentTerms, billToName, billToAddress, billToTaxNumber;
   final PortalSeller seller;
   final List<PortalPayment> payments;
+  final List<PortalCreditNote> creditNotes;
+  final List<PortalPaymentNotice> paymentNotices;
+
+  /// A sent invoice with a balance, on a link that may act, in a business that
+  /// is not paused.
+  final bool canReportPayment;
   final String voidReason;
 
   factory PortalInvoice.fromJson(JsonReader r) {
@@ -423,8 +461,28 @@ class PortalInvoice extends PortalInvoiceSummary {
       daysOverdue: s.daysOverdue,
       paymentState: s.paymentState,
       customerReference: s.customerReference,
+      amountCredited: s.amountCredited,
       issueDate: s.issueDate,
       dueDate: s.dueDate,
+      creditNotes: r.optObjects(
+          'credit_notes',
+          (x) => PortalCreditNote(
+              x.string('number'),
+              dayPart(x.optString('issue_date')),
+              x.number('amount'),
+              x.optString('reason') ?? '',
+              x.optString('status') ?? 'issued')),
+      paymentNotices: r.optObjects(
+          'payment_notices',
+          (x) => PortalPaymentNotice(
+              id: x.string('id'),
+              amount: x.number('amount'),
+              paidOn: dayPart(x.optString('paid_on')),
+              method: x.optString('method') ?? 'bank_transfer',
+              reference: x.optString('reference') ?? '',
+              status: x.optString('status') ?? 'pending',
+              decisionNote: x.optString('decision_note') ?? '')),
+      canReportPayment: r.optBool('can_report_payment') ?? false,
       lines: r.optObjects(
           'lines',
           (x) => PortalInvoiceLine(

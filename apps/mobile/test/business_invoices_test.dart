@@ -49,8 +49,12 @@ Map<String, Object?> lineJson(
       'total': total,
     };
 
-Map<String, Object?> can(String status, {required bool owner, int paid = 0}) =>
+Map<String, Object?> can(String status,
+        {required bool owner, int paid = 0, bool open = true}) =>
     {
+      'credit': owner && status == 'sent' && open,
+      'void_credit_note': owner && (status == 'sent' || status == 'paid'),
+      'decide_notice': status == 'sent' || status == 'paid',
       'edit': status == 'draft' || status == 'pending_approval',
       'request_send': status == 'draft',
       'cancel_request': status == 'pending_approval',
@@ -70,8 +74,14 @@ Map<String, Object?> invoiceJson({
   double total = 1150,
   String approvalState = 'none',
   bool overdue = false,
+  List<Map<String, Object?>> credits = const [],
+  List<Map<String, Object?>> notices = const [],
 }) {
   final paid = payments.fold<double>(0, (s, p) => s + (p['amount']! as double));
+  final credited = credits
+      .where((c) => c['status'] != 'void')
+      .fold<double>(0, (s, c) => s + (c['amount']! as double));
+  final balance = total - paid - credited;
   final number = status == 'draft' || status == 'pending_approval'
       ? null
       : 'INV-2026-0001';
@@ -89,6 +99,9 @@ Map<String, Object?> invoiceJson({
     'tax': 150.0,
     'total': total,
     'amount_paid': paid,
+    'amount_credited': credited,
+    'credit_notes': credits,
+    'payment_notices': notices,
     'due_in_days': 14,
     'number': number,
     'issue_date': number == null ? null : '2026-10-05',
@@ -119,13 +132,13 @@ Map<String, Object?> invoiceJson({
     'decision_note': decisionNote,
     'account_name': 'Gulf Mixers',
     'project_name': 'Fleet reporting pilot',
-    'balance': total - paid,
+    'balance': balance,
     'overdue': overdue,
     'days_overdue': overdue ? 14 : 0,
-    'payment_state': paid == 0
-        ? 'unpaid'
-        : paid >= total
-            ? 'paid'
+    'payment_state': balance <= 0
+        ? (paid == 0 ? 'credited' : 'paid')
+        : paid == 0
+            ? 'unpaid'
             : 'partially_paid',
     'payments': payments,
     'approval_state': approvalState,
@@ -133,9 +146,42 @@ Map<String, Object?> invoiceJson({
         ? {'id': 'appr_1', 'payload_hash': 'abcdef0123456789abcdef'}
         : null,
     'issues': issues,
-    'can': can(status, owner: owner, paid: paid > 0 ? 1 : 0),
+    'can': can(status,
+        owner: owner,
+        paid: paid > 0 || credited > 0 ? 1 : 0,
+        open: balance > 0),
   };
 }
+
+Map<String, Object?> creditJson(String id, double amount,
+        {String status = 'issued', String reason = 'Agreed discount'}) =>
+    {
+      'id': id,
+      'number': 'INV-2026-0001-CN${id.split('_').last}',
+      'status': status,
+      'amount': amount,
+      'subtotal': double.parse((amount / 1.15).toStringAsFixed(2)),
+      'tax': double.parse((amount - amount / 1.15).toStringAsFixed(2)),
+      'reason': reason,
+      'issue_date': '2026-10-12',
+      'issued_by': 'owner_biz',
+      'void_reason': status == 'void' ? 'Entered twice' : '',
+    };
+
+Map<String, Object?> noticeJson(String id, double amount,
+        {String status = 'pending', String decisionNote = ''}) =>
+    {
+      'id': id,
+      'payer_name': 'Sara Khan',
+      'amount': amount,
+      'paid_on': '2026-10-11',
+      'method': 'bank_transfer',
+      'reference': 'TRX-31',
+      'note': '',
+      'status': status,
+      'decided_by': status == 'pending' ? null : 'member_biz',
+      'decision_note': decisionNote,
+    };
 
 Map<String, Object?> paymentJson(String id, double amount) => {
       'id': id,
@@ -315,6 +361,7 @@ class FakeInvoices implements InvoicesRepository {
   int total;
   bool deny, owner, noContract;
   bool failList = false;
+  int noticesPending = 0;
   final requests = <String>[];
   Map<String, Object?>? createBody, updateBody, paymentBody;
   Map<String, Object?> current = invoiceJson();
@@ -332,7 +379,8 @@ class FakeInvoices implements InvoicesRepository {
       throw const ApiException(
           403, 'Business is for workspace owners and members.');
     }
-    return InvoiceSummary.fromJson(JsonReader.of(summaryJson()));
+    return InvoiceSummary.fromJson(
+        JsonReader.of({...summaryJson(), 'notices_pending': noticesPending}));
   }
 
   @override
@@ -347,7 +395,10 @@ class FakeInvoices implements InvoicesRepository {
     final count = (total - offset).clamp(0, limit);
     return BusinessPage([
       for (var i = 0; i < count; i++)
-        InvoiceListItem.fromJson(JsonReader.of(listItem(offset + i)))
+        InvoiceListItem.fromJson(JsonReader.of({
+          ...listItem(offset + i),
+          if (offset + i == 0) 'notices_pending': noticesPending,
+        }))
     ], total);
   }
 
@@ -428,6 +479,77 @@ class FakeInvoices implements InvoicesRepository {
   Future<String> printHtml(String id, String lang) async {
     requests.add('print $id $lang');
     return '<html><body>Invoice $lang</body></html>';
+  }
+
+  final credits = <Map<String, Object?>>[];
+  final notices = <Map<String, Object?>>[];
+
+  /// The invoice again with the fake's credit notes and customer reports on it.
+  Invoice rebuild({String? status}) {
+    final now = inv;
+    current = invoiceJson(
+      status: status ?? now.status,
+      owner: owner,
+      payments: [for (final p in now.payments) paymentJson(p.id, p.amount)],
+      credits: [...credits],
+      notices: [...notices],
+    );
+    return inv;
+  }
+
+  @override
+  Future<Uint8List> pdf(String id) async {
+    requests.add('pdf $id');
+    return Uint8List.fromList(utf8.encode('%PDF-1.4 mock'));
+  }
+
+  @override
+  Future<Invoice> issueCreditNote(String id,
+      {required double amount, required String reason}) async {
+    requests.add('credit $id $amount $reason');
+    credits
+        .add(creditJson('bcrn_${credits.length + 1}', amount, reason: reason));
+    final credited =
+        credits.fold<double>(0, (s, c) => s + (c['amount']! as double));
+    final paid = inv.amountPaid;
+    return rebuild(status: paid + credited >= inv.total ? 'paid' : 'sent');
+  }
+
+  @override
+  Future<Invoice> voidCreditNote(
+      String id, String creditNoteId, String reason) async {
+    requests.add('void-credit $id $creditNoteId $reason');
+    final index = credits.indexWhere((c) => c['id'] == creditNoteId);
+    credits[index] = creditJson(
+        creditNoteId, credits[index]['amount']! as double,
+        status: 'void');
+    return rebuild(status: 'sent');
+  }
+
+  @override
+  Future<Invoice> confirmNotice(String id, String noticeId,
+      {String note = ''}) async {
+    requests.add('confirm-notice $id $noticeId');
+    final index = notices.indexWhere((n) => n['id'] == noticeId);
+    final amount = notices[index]['amount']! as double;
+    notices[index] = noticeJson(noticeId, amount, status: 'confirmed');
+    current = invoiceJson(
+        status: 'sent',
+        owner: owner,
+        payments: [paymentJson('binpay_9', amount)],
+        notices: [...notices],
+        credits: [...credits]);
+    return inv;
+  }
+
+  @override
+  Future<Invoice> rejectNotice(
+      String id, String noticeId, String reason) async {
+    requests.add('reject-notice $id $noticeId $reason');
+    final index = notices.indexWhere((n) => n['id'] == noticeId);
+    notices[index] = noticeJson(noticeId, notices[index]['amount']! as double,
+        status: 'rejected', decisionNote: reason);
+    return rebuild();
   }
 
   @override

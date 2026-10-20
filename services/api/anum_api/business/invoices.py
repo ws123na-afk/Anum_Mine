@@ -84,7 +84,8 @@ def payment_state(invoice: Invoice, today: date) -> dict[str, Any]:
     open_ = invoice.status == InvoiceStatus.SENT
     overdue = bool(open_ and invoice.due_date is not None and invoice.due_date < today and balance > 0)
     if invoice.status == InvoiceStatus.PAID or (invoice.total > 0 and balance <= 0):
-        state = "paid"
+        # Settled by credit notes alone is "credited", not "paid": no money arrived.
+        state = "credited" if invoice.amount_paid <= 0 and invoice.amount_credited > 0 else "paid"
     elif invoice.amount_paid > 0:
         state = "partially_paid"
     else:

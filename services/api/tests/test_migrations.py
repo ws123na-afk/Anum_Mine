@@ -1196,6 +1196,30 @@ def test_customer_billing_migration_is_expand_only_with_narrow_reader_policies()
         assert secret not in granted
 
 
+def test_invoice_credit_notes_migration_is_expand_only_with_forced_rls_and_purge_policies() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0095_invoice_credit_notes.py").read_text(encoding="utf-8")
+    assert 'revision = "0095_invoice_credit_notes"' in revision_text and len("0095_invoice_credit_notes") <= 32
+    assert 'down_revision = "0094_customer_billing"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0095_invoice_credit_notes.py"]
+    assert not [path for path in others if 'down_revision = "0094_customer_billing"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
+    lowered = upgrade.lower()
+    assert "bypassrls" not in lowered and "security definer" not in lowered
+    # Expand: one defaulted column and two new tables; the only constraint replaced is the paid check, loosened for credits.
+    assert lowered.count("op.add_column(") == 1 and 'server_default="0"' in upgrade and lowered.count("op.create_table(") == 2
+    assert lowered.count("op.drop_constraint(") == 1 and 'drop_constraint("ck_business_invoices_paid"' in upgrade
+    assert "amount_paid + amount_credited = total" in upgrade and "alter_column" not in lowered
+    assert "grant insert" not in lowered and "grant update" not in lowered
+    # Forced RLS and a purge policy for each new table, and a workspace and tenant scope on both.
+    assert 'TABLES = ("business_credit_notes", "business_payment_notices")' in revision_text
+    assert "force row level security" in revision_text.lower() and "_purge_policy(table)" in upgrade and "tenant_isolation_{table}" in revision_text
+    assert revision_text.count('_ref("business_credit_notes"') == 2 and revision_text.count('_ref("business_payment_notices"') == 2
+    # A credit note is never deleted with its invoice; a payment notice is.
+    assert 'cascade=False' in revision_text.split('"business_credit_notes",', 2)[2].split("sa.CheckConstraint", 1)[0]
+    assert "uq_business_credit_notes_number" in upgrade
+
+
 def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0076_business_support.py").read_text(encoding="utf-8")

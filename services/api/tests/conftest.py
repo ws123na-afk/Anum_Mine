@@ -94,6 +94,8 @@ TABLES_IN_DELETE_ORDER = (
     "finance_settings",
     "business_portal_decisions",
     "business_portal_access",
+    "business_payment_notices",
+    "business_credit_notes",
     "business_invoice_payments",
     "business_invoices",
     "business_invoice_counters",

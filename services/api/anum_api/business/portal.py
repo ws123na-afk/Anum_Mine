@@ -21,16 +21,21 @@ from ..punctuation import plain_dashes
 from ..schemas import new_id, utc_now
 from .api_changes import change_view
 from .api_support import TicketFields, _create, _new_ticket, reference
+from .api_invoices import pdf_response
 from .invoice_models import (
     ISSUED_INVOICE_STATES,
+    CreditNoteStatus,
     DecisionSubject,
     Invoice,
     InvoiceStatus,
     PaymentMethod,
+    PaymentNotice,
+    PaymentNoticeStatus,
     PortalDecision,
 )
+from .invoice_pdf import render_invoice_pdf
 from .invoice_print import render_invoice
-from .invoice_service import payments_of
+from .invoice_service import credit_notes_of, notices_of, payments_of
 from .invoices import payment_state
 from .models import (
     ChangeAction,
@@ -203,6 +208,28 @@ class PortalPayment(BaseModel):
     reference: str
 
 
+class PortalCreditNote(BaseModel):
+    number: str
+    issue_date: date
+    amount: Money
+    reason: str
+    status: CreditNoteStatus
+
+
+class PortalPaymentNotice(BaseModel):
+    """A payment this customer reported. It changes nothing until the business confirms it."""
+
+    id: str
+    amount: Money
+    paid_on: date
+    method: PaymentMethod
+    reference: str
+    status: PaymentNoticeStatus
+    # Why the business rejected it (empty otherwise).
+    decision_note: str
+    created_at: datetime
+
+
 class PortalInvoiceSummary(BaseModel):
     id: str
     number: str
@@ -210,12 +237,13 @@ class PortalInvoiceSummary(BaseModel):
     currency: Currency
     total: Money
     amount_paid: Money
+    amount_credited: Money
     balance: Money
     issue_date: date | None
     due_date: date | None
     overdue: bool
     days_overdue: int
-    payment_state: Literal["unpaid", "partially_paid", "paid"]
+    payment_state: Literal["unpaid", "partially_paid", "paid", "credited"]
     customer_reference: str
 
 
@@ -248,7 +276,20 @@ class PortalInvoice(PortalInvoiceSummary):
     bill_to_tax_number: str
     seller: PortalSeller
     payments: list[PortalPayment]
+    credit_notes: list[PortalCreditNote]
+    payment_notices: list[PortalPaymentNotice]
+    # True when this link may report a payment on this invoice now (a sent invoice with a balance, a link that may act).
+    can_report_payment: bool
     void_reason: str
+
+
+class PaymentNoticeInput(BaseModel):
+    payer_name: str = Field(min_length=2, max_length=160)
+    amount: Money
+    paid_on: date
+    method: PaymentMethod = PaymentMethod.BANK_TRANSFER
+    reference: str = Field(default="", max_length=120)
+    note: str = Field(default="", max_length=300)
 
 
 class PortalReply(BaseModel):
@@ -488,6 +529,7 @@ def decide_change(change_order_id: str, payload: DecisionInput, session: PortalS
 def _invoice_summary(invoice: Invoice, today: date) -> PortalInvoiceSummary:
     return PortalInvoiceSummary(
         id=invoice.id, number=invoice.number or "", status=invoice.status, currency=invoice.currency, total=invoice.total, amount_paid=invoice.amount_paid,
+        amount_credited=invoice.amount_credited,
         issue_date=invoice.issue_date, due_date=invoice.due_date, customer_reference=invoice.customer_reference, **payment_state(invoice, today),
     )
 
@@ -507,12 +549,11 @@ def _invoice_of(store: BusinessStore, session: PortalSession, invoice_id: str) -
     return invoice
 
 
-@router.get("/invoices/{invoice_id}", response_model=PortalInvoice)
-def get_invoice(invoice_id: str, session: PortalSession = Depends(portal_session)) -> PortalInvoice:
+def _detail(store: BusinessStore, session: PortalSession, invoice: Invoice) -> PortalInvoice:
     today = utc_now().date()
-    with open_business_store(session.context) as store:
-        invoice = _invoice_of(store, session, invoice_id)
-        payments = payments_of(store, invoice.id)
+    payments = payments_of(store, invoice.id)
+    credit_notes = credit_notes_of(store, invoice.id)
+    notices = notices_of(store, invoice.id)
     seller = invoice.seller
     return PortalInvoice(
         **_invoice_summary(invoice, today).model_dump(),
@@ -523,15 +564,95 @@ def get_invoice(invoice_id: str, session: PortalSession = Depends(portal_session
         seller=PortalSeller(legal_name=seller.legal_name, address=seller.address, tax_label=seller.tax_label, tax_number=seller.tax_number, email=seller.email,
                             phone=seller.phone, bank_details=seller.bank_details) if seller else PortalSeller(legal_name="", address="", tax_label="", tax_number="", email="", phone="", bank_details=""),
         payments=[PortalPayment(paid_on=item.paid_on, amount=item.amount, method=item.method, reference=item.reference) for item in payments],
+        credit_notes=[PortalCreditNote(number=item.number, issue_date=item.issue_date, amount=item.amount, reason=item.reason, status=item.status) for item in credit_notes],
+        payment_notices=[PortalPaymentNotice(id=item.id, amount=item.amount, paid_on=item.paid_on, method=item.method, reference=item.reference, status=item.status,
+                                             decision_note=item.decision_note, created_at=item.created_at) for item in notices],
+        can_report_payment=bool(session.access.can_decide and invoice.status == InvoiceStatus.SENT and invoice.balance_due() > 0 and not workspace_archived(session.context)),
     )
+
+
+@router.get("/invoices/{invoice_id}", response_model=PortalInvoice)
+def get_invoice(invoice_id: str, session: PortalSession = Depends(portal_session)) -> PortalInvoice:
+    with open_business_store(session.context) as store:
+        return _detail(store, session, _invoice_of(store, session, invoice_id))
+
+
+# A customer can have this many reports waiting for the business at once on one invoice.
+MAX_PENDING_NOTICES = 5
+NO_REPORT = "This link can read but not act. Ask the business to turn on approvals for you, or tell them you paid."
+
+
+def _notice_text(value: str, limit: int) -> str:
+    return " ".join(plain_dashes(value).split())[:limit]
+
+
+@router.post("/invoices/{invoice_id}/payment-notices", response_model=PortalInvoice, status_code=status.HTTP_201_CREATED)
+def report_payment(invoice_id: str, payload: PaymentNoticeInput, response: Response, session: PortalSession = Depends(portal_session)) -> PortalInvoice:
+    """Tell the business you paid. This moves no money and changes no balance: the business checks its bank and confirms or rejects the report."""
+    _writable(session)
+    if not session.access.can_decide:
+        raise http_error(403, NO_REPORT)
+    now = utc_now()
+    payer = _notice_text(payload.payer_name, 160)
+    if len(payer) < 2:
+        raise http_error(422, "Type your full name so the business knows who paid.")
+    reference = _notice_text(payload.reference, 120)
+    with open_business_store(session.context) as store:
+        found = store.get("invoices", invoice_id, for_update=True)
+        if found is None or found.account_id != session.account.id or found.status not in ISSUED_INVOICE_STATES:
+            raise http_error(404, "Invoice not found")
+        invoice: Invoice = found
+        if invoice.status == InvoiceStatus.PAID:
+            raise http_error(409, "This invoice is already paid in full.")
+        if invoice.status != InvoiceStatus.SENT:
+            raise http_error(409, "This invoice was cancelled, so there is nothing to pay.")
+        balance = invoice.balance_due()
+        if payload.amount <= 0:
+            raise http_error(422, "Enter the amount you paid, above zero.")
+        if payload.amount > balance:
+            raise http_error(422, f"The amount is more than the balance of {invoice.currency.value} {balance}.")
+        if payload.paid_on > now.date():
+            raise http_error(422, "The payment date cannot be in the future.")
+        if invoice.issue_date and payload.paid_on < invoice.issue_date:
+            raise http_error(422, f"The payment date is before the invoice was issued on {invoice.issue_date}.")
+        earlier = notices_of(store, invoice.id)
+        waiting = [item for item in earlier if item.status == PaymentNoticeStatus.PENDING]
+        repeat = next((item for item in waiting if (item.amount, item.paid_on, item.reference) == (payload.amount, payload.paid_on, reference)), None)
+        if repeat is not None:  # sending the same report twice is harmless
+            response.status_code = status.HTTP_200_OK
+            return _detail(store, session, invoice)
+        if len(waiting) >= MAX_PENDING_NOTICES:
+            raise http_error(409, f"You already reported {MAX_PENDING_NOTICES} payments that wait for the business. They will confirm them soon.")
+        if sum((item.amount for item in waiting), payload.amount) > balance:
+            raise http_error(409, "The payments you already reported cover this balance. Wait for the business to confirm them.")
+        notice = PaymentNotice(
+            id=new_id("bpnote"), tenant_id=session.context.tenant_id, workspace_id=session.context.workspace_id, invoice_id=invoice.id, account_id=invoice.account_id,
+            access_id=session.access.id, contact_id=session.contact.id, payer_name=payer, amount=payload.amount, paid_on=payload.paid_on, method=payload.method,
+            reference=reference, note=_notice_text(payload.note, 300), created_at=now, updated_at=now,
+        )
+        store.add("payment_notices", notice)
+        record_activity(store, session.context, "portal_payment_reported", f"{session.contact.name} reported a payment of {invoice.currency.value} {notice.amount} on invoice {invoice.number} in the customer portal.",
+                        account_id=invoice.account_id, project_id=invoice.project_id, metadata={"invoice_id": invoice.id, "notice_id": notice.id, "access_id": session.access.id})
+        view = _detail(store, session, invoice)
+    audit(None, session.context, "business.portal.payment_reported", invoice_id, metadata={"notice_id": notice.id, "access_id": session.access.id, "amount": str(notice.amount)})
+    return view
 
 
 @router.get("/invoices/{invoice_id}/print")
 def print_invoice(invoice_id: str, lang: Literal["en", "ar"] = "en", session: PortalSession = Depends(portal_session)) -> Response:
     with open_business_store(session.context) as store:
         invoice = _invoice_of(store, session, invoice_id)
-        html = render_invoice(invoice, payments_of(store, invoice.id), store.get_settings().billing, lang)
+        html = render_invoice(invoice, payments_of(store, invoice.id), store.get_settings().billing, lang, credit_notes_of(store, invoice.id))
     return Response(content=html, media_type="text/html; charset=utf-8", headers=PRINT_HEADERS)
+
+
+@router.get("/invoices/{invoice_id}/pdf")
+def invoice_pdf(invoice_id: str, session: PortalSession = Depends(portal_session)) -> Response:
+    """The invoice as a PDF file (Latin text only; the printable page covers Arabic)."""
+    with open_business_store(session.context) as store:
+        invoice = _invoice_of(store, session, invoice_id)
+        content = render_invoice_pdf(invoice, payments_of(store, invoice.id), credit_notes_of(store, invoice.id), store.get_settings().billing)
+    return pdf_response(invoice, content)
 
 
 # -- support requests ---------------------------------------------------------------------------------

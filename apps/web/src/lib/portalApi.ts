@@ -2,11 +2,12 @@
 // `Authorization: Bearer <link>`: no workspace, tenant or user headers, and it never imports the
 // signed-in app's client, so nothing authenticated runs on the public page.
 import type {
-  PortalChange, PortalChangeSummary, PortalDecisionInput, PortalInvoice, PortalInvoiceSummary, PortalMe, PortalOffer, PortalOfferSummary, PortalTicket,
-  PortalTicketInput, PortalTicketSummary,
+  PortalChange, PortalChangeSummary, PortalDecisionInput, PortalInvoice, PortalInvoiceSummary, PortalMe, PortalOffer, PortalOfferSummary, PortalPaymentNoticeInput,
+  PortalTicket, PortalTicketInput, PortalTicketSummary,
 } from '@anum/contracts';
 import { ApiError, apiErrorFromResponse } from './errors';
 import { getLocale } from './i18n';
+import { fileNameFromDisposition, saveBlob } from './fileSave';
 
 const BASE = `${(import.meta.env.VITE_ANUM_API_URL as string | undefined) ?? 'http://localhost:8000'}/api/v1/portal`;
 const id = (value: string) => encodeURIComponent(value);
@@ -45,4 +46,13 @@ export const createTicket = (body: PortalTicketInput) => post<PortalTicket>('/ti
 
 export async function invoicePrintable(invoiceId: string, lang: 'en' | 'ar'): Promise<Blob> {
   return (await send(`/invoices/${id(invoiceId)}/print?lang=${lang}`)).blob();
+}
+
+/** Reports a payment the customer made. It changes no balance: the business confirms or rejects it. */
+export const reportPayment = (invoiceId: string, body: PortalPaymentNoticeInput) => post<PortalInvoice>(`/invoices/${id(invoiceId)}/payment-notices`, body);
+
+/** The server-made PDF of their own invoice, saved through the link's own request. Returns the file name. */
+export async function downloadInvoicePdf(invoiceId: string): Promise<string> {
+  const response = await send(`/invoices/${id(invoiceId)}/pdf`);
+  return saveBlob(await response.blob(), fileNameFromDisposition(response.headers.get('content-disposition'), 'invoice.pdf'));
 }

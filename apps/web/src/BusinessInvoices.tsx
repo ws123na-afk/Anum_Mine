@@ -1,17 +1,19 @@
 // Business invoices (docs/business.md#invoices): the money tiles per currency, the list, the new
 // invoice flow built from milestones, billable costs, an offer and manual lines, and the invoice
 // drawer with the actions the API allows (`can`): edit a draft, ask an owner to approve sending,
-// record payments by hand, void, print. Sending is never done from here: an owner approves it
+// record payments by hand or from a customer's report, credit notes, void, print or download a PDF. Sending is never done from here: an owner approves it
 // in Approvals with the hash they were shown, and only then does the invoice get its number.
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
-import { Plus, Printer, Search, Send, Trash2 } from 'lucide-react';
-import type { Billable, BusinessAccountRow, BusinessCurrency, BusinessInvoice, BusinessProject, BusinessSetup, InvoiceSummary, PaymentMethod } from '@anum/contracts';
+import { Download, Plus, Printer, Search, Send, Trash2 } from 'lucide-react';
+import type {
+  Billable, BusinessAccountRow, BusinessCurrency, BusinessInvoice, BusinessProject, BusinessSetup, CreditNote, InvoiceSummary, PaymentMethod, PaymentNotice,
+} from '@anum/contracts';
 import { getLocale, t } from './lib/i18n';
 import { CURRENCIES, formatMoney, formatPct } from './lib/business';
 import {
-  INVOICE_STATUSES, LINE_KINDS, PAYMENT_METHODS, PRINT_LANGUAGES, createBody, defaultInvoiceFilters, emptyFields, emptyManualLine, emptyNewInvoice, emptyPayment,
-  invoiceFiltersActive, invoiceQuery, invoiceStatusLabel, invoiceTitle, invoiceTone, lineKindLabel, listDate, overdueText, paymentBody, paymentMethodLabel,
-  paymentStateLabel, summaryTiles, today, updateBody, type FieldsDraft, type InvoiceFilters, type ManualLineDraft, type NewInvoiceDraft, type PrintLanguage,
+  INVOICE_STATUSES, LINE_KINDS, PAYMENT_METHODS, PRINT_LANGUAGES, createBody, creditBody, creditNoteTone, defaultInvoiceFilters, emptyCredit, emptyFields, emptyManualLine,
+  emptyNewInvoice, emptyPayment, invoiceFiltersActive, invoiceQuery, invoiceStatusLabel, invoiceTitle, invoiceTone, lineKindLabel, listDate, noticeStatusLabel, noticeTone,
+  overdueText, paymentBody, paymentMethodLabel, paymentStateLabel, summaryTiles, today, updateBody, type FieldsDraft, type InvoiceFilters, type ManualLineDraft, type NewInvoiceDraft, type PrintLanguage,
 } from './lib/invoices';
 import { shortHash } from './lib/approvals';
 import * as b from './lib/businessApi';
@@ -62,7 +64,8 @@ export function InvoicesTab({ setup, openId, onOpen, onChanged }: { setup: Busin
         <tbody>{list.items.map((item) => <tr key={item.id} className={item.id === openId ? 'selected' : undefined}>
           <th scope="row"><button type="button" className="linkButton" onClick={() => onOpen(item.id)}><span dir="auto">{invoiceTitle(item)}</span></button><small dir="auto">{item.account_name}{item.project_name ? `, ${item.project_name}` : ''}</small></th>
           <td><div className="invBadges"><Badge tone={invoiceTone(item.status, item.overdue)}>{invoiceStatusLabel(item.status)}</Badge>
-            {item.overdue && <Badge tone="dangerTone">{overdueText(item)}</Badge>}</div></td>
+            {item.overdue && <Badge tone="dangerTone">{overdueText(item)}</Badge>}
+            {item.notices_pending > 0 && <Badge tone="warning">{t('inv.notice.badge', { count: item.notices_pending })}</Badge>}</div></td>
           <td className="num">{money(item.total, item.currency)}</td>
           <td className="num">{item.status === 'sent' || item.status === 'paid' ? money(item.balance, item.currency) : '-'}</td>
           <td className="bzHideMd nowrap">{dayText(listDate(item))}</td>
@@ -87,15 +90,17 @@ function SummaryBand({ reload }: { reload: number }) {
   if (state.kind === 'loading') return <Note>{t('biz.loading')}</Note>;
   if (state.kind === 'error') return <Note error>{state.text} <button type="button" className="secondary" onClick={() => void load()}>{t('common.tryAgain')}</button></Note>;
   const blocks = summaryTiles(state.value);
-  if (blocks.length === 0) return null;
+  const waiting = state.value.notices_pending;
+  if (blocks.length === 0 && waiting === 0) return null;
   return <section className="invSummary" aria-labelledby={heading}>
     <h2 id={heading} className="visuallyHidden">{t('inv.sum.title')}</h2>
+    {waiting > 0 && <Note>{t('inv.notice.summary', { count: waiting })}</Note>}
     {blocks.map((block) => <div key={block.currency} className="surface invCurrency" role="group" aria-label={t('inv.sum.inCurrency', { currency: block.currency })}>
       <h3>{block.currency}</h3>
       <dl className="invTiles">{block.tiles.map((tile) => <div key={tile.id} className={`invTile ${tile.tone}`}><dt>{tile.label}</dt><dd><strong>{tile.value}</strong><small>{tile.hint}</small></dd></div>)}</dl>
     </div>)}
     {state.value.truncated && <Note>{t('inv.sum.truncated')}</Note>}
-    <p className="muted bzHint">{t('inv.sum.never')}</p>
+    {blocks.length > 0 && <p className="muted bzHint">{t('inv.sum.never')}</p>}
   </section>;
 }
 
@@ -270,8 +275,8 @@ const manualOf = (invoice: BusinessInvoice): ManualLineDraft[] => invoice.lines.
 export function InvoiceDrawer({ setup, id, onClose, onChanged }: { setup: BusinessSetup; id: string; onClose: () => void; onChanged: () => void }) {
   const [item, setItem] = useState<BusinessInvoice | null>(null), [problem, setProblem] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false), [editing, setEditing] = useState(false);
-  const [asking, setAsking] = useState<'void' | 'delete' | 'payment' | { payment: string } | null>(null);
-  const [language, setLanguage] = useState<PrintLanguage>(getLocale() === 'ar' ? 'ar' : 'en'), [printNote, setPrintNote] = useState('');
+  const [asking, setAsking] = useState<'void' | 'delete' | 'payment' | 'credit' | { payment: string } | { voidCredit: CreditNote } | { confirm: PaymentNotice } | { reject: PaymentNotice } | null>(null);
+  const [language, setLanguage] = useState<PrintLanguage>(getLocale() === 'ar' ? 'ar' : 'en'), [printNote, setPrintNote] = useState(''), [pdfNote, setPdfNote] = useState('');
   const languageId = useId();
   const reload = useCallback(async () => { try { setItem(await inv.getInvoice(id)); setProblem(null); } catch (error) { setProblem(failure(error, t('inv.load'))); } }, [id]);
   useEffect(() => { void reload(); }, [reload]);
@@ -287,6 +292,11 @@ export function InvoiceDrawer({ setup, id, onClose, onChanged }: { setup: Busine
     setPrintNote(t('inv.print.opening')); setProblem(null);
     try { await printHtml(() => inv.invoicePrintable(invoice.id, language)); setPrintNote(t('inv.print.opened')); }
     catch (error) { setPrintNote(''); setProblem(failure(error, t('inv.print.button'))); }
+  }
+  async function downloadPdf() {
+    setPdfNote(t('inv.pdf.working')); setProblem(null);
+    try { setPdfNote(t('inv.pdf.saved', { name: await inv.downloadInvoicePdf(invoice.id) })); }
+    catch (error) { setPdfNote(''); setProblem(failure(error, t('inv.pdf.button'))); }
   }
   const title = invoiceTitle(invoice);
   return <Drawer title={title} onClose={onClose}>
@@ -324,6 +334,7 @@ export function InvoiceDrawer({ setup, id, onClose, onChanged }: { setup: Busine
       {!editing && invoice.status === 'draft' && can.request_send && invoice.issues.length > 0 && <p className="muted bzHint">{t('inv.requestBlocked')}</p>}
       {!editing && invoice.status === 'draft' && !can.request_send && <p className="muted bzHint">{t('inv.memberDraftOnly')}</p>}
       {!editing && invoice.status === 'sent' && !can.void && invoice.amount_paid > 0 && setup.permissions.manage && <p className="muted bzHint">{t('inv.voidHasPayments')}</p>}
+      {!editing && invoice.status === 'sent' && !can.void && invoice.amount_paid === 0 && invoice.amount_credited > 0 && setup.permissions.manage && <p className="muted bzHint">{t('inv.credit.hasCredits')}</p>}
       {!editing && invoice.status === 'sent' && !setup.permissions.manage && <p className="muted bzHint">{t('inv.ownerVoids')}</p>}
 
       <section className="bzBlock" aria-labelledby={`${languageId}-h`}>
@@ -333,11 +344,15 @@ export function InvoiceDrawer({ setup, id, onClose, onChanged }: { setup: Busine
           <label className="bzCompact" htmlFor={languageId}><span>{t('inv.print.language')}</span>
             <select id={languageId} value={language} onChange={(event) => setLanguage(event.target.value as PrintLanguage)}>{PRINT_LANGUAGES.map((code) => <option key={code} value={code}>{t(`inv.print.lang.${code}`)}</option>)}</select></label>
           <button type="button" className="secondary" onClick={() => void print()}><Printer aria-hidden="true" />{t('inv.print.button')}</button>
+          <button type="button" className="secondary" onClick={() => void downloadPdf()}><Download aria-hidden="true" />{t('inv.pdf.button')}</button>
         </div>
-        <p className="muted bzHint" role="status">{printNote}</p>
+        <p className="muted bzHint">{t('inv.pdf.help')}</p>
+        <p className="muted bzHint" role="status">{printNote || pdfNote}</p>
       </section>
 
       <PaymentsBlock invoice={invoice} canRemove={can.remove_payment} busy={busy} onRemove={(paymentId) => setAsking({ payment: paymentId })} />
+      <NoticesBlock invoice={invoice} canDecide={can.decide_notice} busy={busy} onConfirm={(notice) => setAsking({ confirm: notice })} onReject={(notice) => setAsking({ reject: notice })} />
+      <CreditNotesBlock invoice={invoice} manage={setup.permissions.manage} busy={busy} onIssue={() => setAsking('credit')} onVoid={(note) => setAsking({ voidCredit: note })} />
     </div>
 
     {asking === 'void' && <ReasonDialog title={t('inv.void.title', { number: invoice.number ?? '' })} label={t('inv.void.reason')} confirm={t('inv.void')} onCancel={() => setAsking(null)}
@@ -346,7 +361,14 @@ export function InvoiceDrawer({ setup, id, onClose, onChanged }: { setup: Busine
       onConfirm={() => { void (async () => { setBusy(true); try { await inv.deleteInvoice(invoice.id); onChanged(); onClose(); } catch (error) { setProblem(failure(error, t('inv.delete'))); setAsking(null); } finally { setBusy(false); } })(); }}>
       <p>{t('inv.delete.text')}</p></ConfirmDialog>}
     {asking === 'payment' && <PaymentDialog invoice={invoice} onCancel={() => setAsking(null)} onSaved={(next) => { setItem(next); setAsking(null); setNotice(next.status === 'paid' ? t('inv.pay.nowPaid') : t('inv.pay.saved')); onChanged(); }} />}
-    {asking !== null && typeof asking === 'object' && <ConfirmDialog title={t('inv.pay.removeTitle')} confirmLabel={t('inv.pay.remove')} danger busy={busy} onCancel={() => setAsking(null)}
+    {asking === 'credit' && <CreditDialog invoice={invoice} onCancel={() => setAsking(null)} onSaved={(next) => { setItem(next); setAsking(null); setNotice(next.balance <= 0 ? t('inv.credit.settled') : t('inv.credit.saved')); onChanged(); }} />}
+    {asking !== null && typeof asking === 'object' && 'voidCredit' in asking && <ReasonDialog title={t('inv.credit.voidTitle', { number: asking.voidCredit.number })} label={t('inv.credit.voidReason')} confirm={t('inv.credit.void')} onCancel={() => setAsking(null)}
+      onConfirm={async (reason) => { const next = await inv.voidCreditNote(invoice.id, asking.voidCredit.id, reason); setItem(next); setAsking(null); setNotice(t('inv.credit.voided')); onChanged(); }} />}
+    {asking !== null && typeof asking === 'object' && 'reject' in asking && <ReasonDialog title={t('inv.notice.rejectTitle')} label={t('inv.notice.rejectReason')} confirm={t('inv.notice.reject')} onCancel={() => setAsking(null)}
+      onConfirm={async (reason) => { const next = await inv.rejectPaymentNotice(invoice.id, asking.reject.id, reason); setItem(next); setAsking(null); setNotice(t('inv.notice.rejected')); onChanged(); }} />}
+    {asking !== null && typeof asking === 'object' && 'confirm' in asking && <ConfirmNoticeDialog invoice={invoice} notice={asking.confirm} onCancel={() => setAsking(null)}
+      onSaved={(next) => { setItem(next); setAsking(null); setNotice(next.status === 'paid' ? t('inv.notice.confirmedPaid') : t('inv.notice.confirmed')); onChanged(); }} />}
+    {asking !== null && typeof asking === 'object' && 'payment' in asking && <ConfirmDialog title={t('inv.pay.removeTitle')} confirmLabel={t('inv.pay.remove')} danger busy={busy} onCancel={() => setAsking(null)}
       onConfirm={() => { const paymentId = asking.payment; setAsking(null); void run(t('inv.pay.remove'), () => inv.removePayment(invoice.id, paymentId), t('inv.pay.removed')); }}>
       <p>{t('inv.pay.removeText')}</p></ConfirmDialog>}
   </Drawer>;
@@ -374,6 +396,7 @@ function InvoiceBody({ invoice }: { invoice: BusinessInvoice }) {
         <div><dt>{t('inv.f.subtotal')}</dt><dd>{money(invoice.subtotal, c)}</dd></div>
         <div><dt>{t('inv.f.tax')}</dt><dd>{money(invoice.tax, c)}</dd></div>
         <div><dt>{t('inv.f.total')}</dt><dd><strong>{money(invoice.total, c)}</strong></dd></div>
+        {invoice.amount_credited > 0 && <div><dt>{t('inv.f.credited')}</dt><dd>{money(-invoice.amount_credited, c)}</dd></div>}
         <div><dt>{t('inv.f.paid')}</dt><dd>{money(invoice.amount_paid, c)}</dd></div>
         <div><dt>{t('inv.f.balance')}</dt><dd><strong>{money(invoice.balance, c)}</strong></dd></div>
       </dl>
@@ -456,6 +479,90 @@ function PaymentDialog({ invoice, onCancel, onSaved }: { invoice: BusinessInvoic
       <label className="field"><span>{t('inv.pay.note')}</span><input value={draft.note} onChange={set('note')} dir="auto" /></label>
       {problem && <Note error>{problem}</Note>}
       <div className="actions"><button type="submit" disabled={busy}>{busy ? t('dialog.working') : t('inv.pay.save')}</button><button type="button" className="secondary" onClick={onCancel}>{t('common.cancel')}</button></div>
+    </form>
+  </Modal>;
+}
+
+// ---- credit notes ------------------------------------------------------------------------------
+
+function CreditNotesBlock({ invoice, manage, busy, onIssue, onVoid }: { invoice: BusinessInvoice; manage: boolean; busy: boolean; onIssue: () => void; onVoid: (note: CreditNote) => void }) {
+  if (invoice.status === 'draft' || invoice.status === 'pending_approval') return null;
+  if (invoice.status === 'void' && invoice.credit_notes.length === 0) return null;
+  const c = invoice.currency;
+  return <section className="bzBlock" aria-labelledby={`cn-${invoice.id}`}>
+    <h3 id={`cn-${invoice.id}`}>{t('inv.credit.title')}</h3>
+    {invoice.credit_notes.length === 0 ? <p className="muted">{t('inv.credit.none')}</p>
+      : <ul className="bzTrail">{invoice.credit_notes.map((note) => <li key={note.id}>
+        <div className="bzInline"><strong dir="auto">{note.number}</strong><span>{money(note.amount, c)}</span><span>{dayText(note.issue_date)}</span>
+          {note.status === 'void' && <Badge tone={creditNoteTone(note.status)}>{t('inv.credit.voidTag')}</Badge>}
+          {invoice.can.void_credit_note && note.status === 'issued' && <button type="button" className="secondary" disabled={busy} onClick={() => onVoid(note)}>{t('inv.credit.void')}</button>}</div>
+        <small dir="auto">{note.reason}</small>
+        <small>{t('inv.credit.split', { subtotal: money(note.subtotal, c), tax: money(note.tax, c) })}</small>
+        {note.status === 'void' && <small dir="auto">{t('inv.credit.voidedOn', { reason: note.void_reason })}</small>}
+        <small>{t('inv.pay.recordedBy', { by: note.issued_by })}</small></li>)}</ul>}
+    {invoice.can.credit ? <div className="bzInline"><button type="button" className="secondary" disabled={busy} onClick={onIssue}>{t('inv.credit.issue')}</button></div>
+      : invoice.status === 'sent' && !manage ? <p className="muted bzHint">{t('inv.credit.ownersOnly')}</p>
+      : invoice.status === 'sent' || invoice.status === 'paid' ? <p className="muted bzHint">{invoice.balance <= 0 ? t('inv.credit.nothingLeft') : t('inv.credit.ownersOnly')}</p> : null}
+  </section>;
+}
+
+function CreditDialog({ invoice, onCancel, onSaved }: { invoice: BusinessInvoice; onCancel: () => void; onSaved: (next: BusinessInvoice) => void }) {
+  const [draft, setDraft] = useState(() => emptyCredit(invoice.balance)), [problem, setProblem] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const body = creditBody(draft, invoice.balance, invoice.currency);
+    if (!body.ok) { setProblem(body.error); return; }
+    setBusy(true); setProblem(null);
+    try { onSaved(await inv.issueCreditNote(invoice.id, body.value)); } catch (error) { setProblem(failure(error, t('inv.credit.issue'))); setBusy(false); }
+  }
+  return <Modal title={t('inv.credit.issue')} className="formDialog" onClose={onCancel}>
+    <form onSubmit={(event) => void submit(event)} aria-label={t('inv.credit.issue')} noValidate>
+      <p className="muted bzHint">{t('inv.credit.help', { balance: money(invoice.balance, invoice.currency) })}</p>
+      <label className="field"><span>{t('inv.credit.amount')}</span><input inputMode="decimal" value={draft.amount} onChange={(event) => setDraft({ ...draft, amount: event.target.value })} data-autofocus /></label>
+      <label className="field"><span>{t('inv.credit.reason')}</span><textarea rows={2} maxLength={300} value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} dir="auto" /></label>
+      {problem && <Note error>{problem}</Note>}
+      <div className="actions"><button type="submit" disabled={busy}>{busy ? t('dialog.working') : t('inv.credit.save')}</button><button type="button" className="secondary" onClick={onCancel}>{t('common.cancel')}</button></div>
+    </form>
+  </Modal>;
+}
+
+// ---- payments the customer reported in the portal -----------------------------------------------
+
+function NoticesBlock({ invoice, canDecide, busy, onConfirm, onReject }: { invoice: BusinessInvoice; canDecide: boolean; busy: boolean; onConfirm: (notice: PaymentNotice) => void; onReject: (notice: PaymentNotice) => void }) {
+  if (invoice.status === 'draft' || invoice.status === 'pending_approval') return null;
+  if (invoice.status === 'void' && invoice.payment_notices.length === 0) return null;
+  const c = invoice.currency;
+  return <section className="bzBlock" aria-labelledby={`pn-${invoice.id}`}>
+    <h3 id={`pn-${invoice.id}`}>{t('inv.notice.title')}</h3>
+    <p className="muted bzHint">{t('inv.notice.help')}</p>
+    {invoice.payment_notices.length === 0 ? <p className="muted">{t('inv.notice.none')}</p>
+      : <ul className="bzTrail">{invoice.payment_notices.map((notice) => <li key={notice.id}>
+        <div className="bzInline"><strong>{money(notice.amount, c)}</strong><span>{day(notice.paid_on)}</span><span className="muted">{paymentMethodLabel(notice.method)}</span>
+          <Badge tone={noticeTone(notice.status)}>{noticeStatusLabel(notice.status)}</Badge>
+          {notice.status === 'pending' && canDecide && <>
+            <button type="button" disabled={busy} onClick={() => onConfirm(notice)}>{t('inv.notice.confirm')}</button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => onReject(notice)}>{t('inv.notice.reject')}</button></>}</div>
+        <small dir="auto">{[notice.reference, notice.note].filter(Boolean).join(' / ')}</small>
+        <small dir="auto">{t('inv.notice.by', { name: notice.payer_name, when: when(notice.created_at) })}</small>
+        {notice.status !== 'pending' && <small dir="auto">{[t('inv.notice.decided', { by: notice.decided_by ?? '', when: when(notice.decided_at) }), notice.decision_note].filter(Boolean).join(': ')}</small>}</li>)}</ul>}
+    {invoice.payment_notices.some((notice) => notice.status === 'pending') && !canDecide && <p className="muted bzHint">{t('inv.notice.viewOnly')}</p>}
+  </section>;
+}
+
+function ConfirmNoticeDialog({ invoice, notice, onCancel, onSaved }: { invoice: BusinessInvoice; notice: PaymentNotice; onCancel: () => void; onSaved: (next: BusinessInvoice) => void }) {
+  const [note, setNote] = useState(''), [problem, setProblem] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true); setProblem(null);
+    try { onSaved(await inv.confirmPaymentNotice(invoice.id, notice.id, note.trim())); } catch (error) { setProblem(failure(error, t('inv.notice.confirm'))); setBusy(false); }
+  }
+  return <Modal title={t('inv.notice.confirmTitle')} className="formDialog" onClose={onCancel}>
+    <form onSubmit={(event) => void submit(event)} aria-label={t('inv.notice.confirmTitle')}>
+      <p>{t('inv.notice.confirmText', { amount: money(notice.amount, invoice.currency), date: day(notice.paid_on) })}</p>
+      <p className="muted" dir="auto">{[notice.payer_name, paymentMethodLabel(notice.method), notice.reference].filter(Boolean).join(' / ')}</p>
+      <label className="field"><span>{t('inv.notice.confirmNote')}</span><input value={note} maxLength={200} onChange={(event) => setNote(event.target.value)} dir="auto" data-autofocus /></label>
+      {problem && <Note error>{problem}</Note>}
+      <div className="actions"><button type="submit" disabled={busy}>{busy ? t('dialog.working') : t('inv.notice.confirm')}</button><button type="button" className="secondary" onClick={onCancel}>{t('common.cancel')}</button></div>
     </form>
   </Modal>;
 }

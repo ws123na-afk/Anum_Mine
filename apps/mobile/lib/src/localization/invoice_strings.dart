@@ -278,6 +278,56 @@ const invoiceEn = <String, String>{
   'biz.portal.decision.note': 'Their note: {note}',
   'biz.portal.decision.hint':
       'This is the customer\'s answer. An owner still confirms in Approvals.',
+  'biz.inv.pay.credited': 'Settled by credit',
+  'biz.inv.doc.credited': 'Credit notes',
+  'biz.inv.doc.creditNotes': 'Credit notes',
+  'biz.inv.doc.pdf': 'Download PDF',
+  'biz.inv.doc.pdfSaved': 'The PDF was saved.',
+  'biz.inv.credit.title': 'Credit notes',
+  'biz.inv.credit.none':
+      'No credit note. A credit note takes an amount off this invoice without changing it.',
+  'biz.inv.credit.issue': 'Issue a credit note',
+  'biz.inv.credit.help':
+      'Takes an amount off what is still owed ({balance}). The invoice itself does not change and the reason is shown to the customer.',
+  'biz.inv.credit.amount': 'Amount, tax included',
+  'biz.inv.credit.reason': 'Reason',
+  'biz.inv.credit.save': 'Issue credit note',
+  'biz.inv.credit.saved': 'Credit note issued.',
+  'biz.inv.credit.tooMuch':
+      'A credit note is at most the balance of {balance}.',
+  'biz.inv.credit.reasonInvalid': 'Say why in at least three characters.',
+  'biz.inv.credit.split': '{subtotal} before tax and {tax} tax',
+  'biz.inv.credit.void': 'Void credit note',
+  'biz.inv.credit.voidTitle': 'Void credit note {number}?',
+  'biz.inv.credit.voidBody':
+      'Use this only for a credit note issued by mistake. The amount is owed again. The number is kept and shown as void.',
+  'biz.inv.credit.voided': 'Credit note voided.',
+  'biz.inv.credit.voidTag': 'Void',
+  'biz.inv.credit.ownersOnly': 'Only an owner can issue or void a credit note.',
+  'biz.inv.credit.nothingLeft':
+      'Nothing is owed, so there is nothing left to credit.',
+  'biz.inv.noticesWaiting':
+      'Customer payment reports waiting for you: {count}.',
+  'biz.inv.noticesPill': 'Reports: {count}',
+  'biz.inv.notice.title': 'Payments the customer reported',
+  'biz.inv.notice.help':
+      'A report is not a payment and changes no balance. Check your bank, then confirm it to record the payment, or reject it with a reason the customer will see.',
+  'biz.inv.notice.none': 'The customer has not reported a payment.',
+  'biz.inv.notice.by': 'reported by {name}',
+  'biz.inv.notice.status.pending': 'Waiting',
+  'biz.inv.notice.status.confirmed': 'Confirmed',
+  'biz.inv.notice.status.rejected': 'Rejected',
+  'biz.inv.notice.confirm': 'Confirm payment',
+  'biz.inv.notice.confirmTitle': 'Confirm this payment?',
+  'biz.inv.notice.confirmBody':
+      'This records a payment of {amount} dated {date}, as the customer reported it. Confirm only after you saw the money in your bank.',
+  'biz.inv.notice.confirmed': 'Payment recorded from the customer\'s report.',
+  'biz.inv.notice.reject': 'Reject',
+  'biz.inv.notice.rejectTitle': 'Reject this report?',
+  'biz.inv.notice.rejectReason': 'Reason (the customer sees it)',
+  'biz.inv.notice.rejected': 'Report rejected.',
+  'biz.inv.notice.viewOnly':
+      'Only members and owners can confirm or reject a report.',
 };
 
 const invoiceAr = <String, String>{
@@ -548,4 +598,53 @@ const invoiceAr = <String, String>{
   'biz.portal.decision.note': 'ملاحظته: {note}',
   'biz.portal.decision.hint':
       'هذا جواب العميل. ما زال المالك يؤكد في الموافقات.',
+  'biz.inv.pay.credited': 'مسددة بإشعار دائن',
+  'biz.inv.doc.credited': 'الإشعارات الدائنة',
+  'biz.inv.doc.creditNotes': 'الإشعارات الدائنة',
+  'biz.inv.doc.pdf': 'تنزيل PDF',
+  'biz.inv.doc.pdfSaved': 'تم حفظ ملف PDF.',
+  'biz.inv.credit.title': 'الإشعارات الدائنة',
+  'biz.inv.credit.none':
+      'لا يوجد إشعار دائن. يخصم الإشعار الدائن مبلغًا من هذه الفاتورة دون تغييرها.',
+  'biz.inv.credit.issue': 'إصدار إشعار دائن',
+  'biz.inv.credit.help':
+      'يخصم مبلغًا مما يزال مستحقًا ({balance}). لا تتغير الفاتورة نفسها ويظهر السبب للعميل.',
+  'biz.inv.credit.amount': 'المبلغ شاملًا الضريبة',
+  'biz.inv.credit.reason': 'السبب',
+  'biz.inv.credit.save': 'إصدار الإشعار الدائن',
+  'biz.inv.credit.saved': 'تم إصدار الإشعار الدائن.',
+  'biz.inv.credit.tooMuch':
+      'أقصى مبلغ للإشعار الدائن هو الرصيد المستحق {balance}.',
+  'biz.inv.credit.reasonInvalid': 'اذكر السبب في ثلاثة أحرف على الأقل.',
+  'biz.inv.credit.split': '{subtotal} قبل الضريبة و{tax} ضريبة',
+  'biz.inv.credit.void': 'إلغاء الإشعار الدائن',
+  'biz.inv.credit.voidTitle': 'هل تريد إلغاء الإشعار الدائن {number}؟',
+  'biz.inv.credit.voidBody':
+      'استخدم هذا فقط لإشعار دائن صدر بالخطأ. يصبح المبلغ مستحقًا من جديد. يبقى الرقم ويظهر كملغى.',
+  'biz.inv.credit.voided': 'تم إلغاء الإشعار الدائن.',
+  'biz.inv.credit.voidTag': 'ملغى',
+  'biz.inv.credit.ownersOnly':
+      'يستطيع المالك فقط إصدار الإشعار الدائن أو إلغاءه.',
+  'biz.inv.credit.nothingLeft': 'لا يوجد مبلغ مستحق، فلا شيء متبقٍ للخصم.',
+  'biz.inv.noticesWaiting': 'بلاغات دفع من العملاء بانتظارك: {count}.',
+  'biz.inv.noticesPill': 'البلاغات: {count}',
+  'biz.inv.notice.title': 'الدفعات التي أبلغ عنها العميل',
+  'biz.inv.notice.help':
+      'البلاغ ليس دفعة ولا يغير أي رصيد. راجع حسابك البنكي ثم أكده لتسجيل الدفعة، أو ارفضه بسبب يراه العميل.',
+  'biz.inv.notice.none': 'لم يبلغ العميل عن أي دفعة.',
+  'biz.inv.notice.by': 'أبلغ {name}',
+  'biz.inv.notice.status.pending': 'بالانتظار',
+  'biz.inv.notice.status.confirmed': 'مؤكدة',
+  'biz.inv.notice.status.rejected': 'مرفوضة',
+  'biz.inv.notice.confirm': 'تأكيد الدفعة',
+  'biz.inv.notice.confirmTitle': 'هل تريد تأكيد هذه الدفعة؟',
+  'biz.inv.notice.confirmBody':
+      'سيسجل هذا دفعة بمبلغ {amount} بتاريخ {date} كما أبلغ العميل. أكد فقط بعد أن ترى المبلغ في حسابك البنكي.',
+  'biz.inv.notice.confirmed': 'تم تسجيل الدفعة من بلاغ العميل.',
+  'biz.inv.notice.reject': 'رفض',
+  'biz.inv.notice.rejectTitle': 'هل تريد رفض هذا البلاغ؟',
+  'biz.inv.notice.rejectReason': 'السبب (يراه العميل)',
+  'biz.inv.notice.rejected': 'تم رفض البلاغ.',
+  'biz.inv.notice.viewOnly':
+      'يستطيع الأعضاء والمالكون فقط تأكيد البلاغ أو رفضه.',
 };

@@ -27,6 +27,8 @@ export interface InvoicesMock {
   /** An owner rejects the request: the invoice returns to a draft with the reason. */
   rejectSend: (invoiceId: string, reason: string) => void;
   seedSent: (fields?: Json) => string;
+  /** A customer reports a payment from the portal: a pending notice appears on the invoice. */
+  seedNotice: (invoiceId: string, fields?: Json) => string;
   accessLinks: Json[];
 }
 
@@ -41,7 +43,7 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
   const decisions: Json[] = [];
   let counter = 0, sequence = 0;
   const id = (prefix: string) => `${prefix}_${++counter}`;
-  const mock: InvoicesMock = { calls: [], approveSend: () => undefined, rejectSend: () => undefined, seedSent: () => '', accessLinks: access };
+  const mock: InvoicesMock = { calls: [], approveSend: () => undefined, rejectSend: () => undefined, seedSent: () => '', seedNotice: () => '', accessLinks: access };
   const project = {
     id: 'bprj_1', ...scope, proposal_id: 'bprop_1', proposal_version: 1, opportunity_id: 'bopp_1', account_id: 'bacc_1', name: 'Website rebuild', status: 'active', currency: 'SAR',
     contract_total: 5750, owner_id: 'user_local', start_on: null, contract_limits: '', created_by: 'user_local', created_at: now(), updated_at: now(), account_name: 'Acme Trading',
@@ -79,8 +81,10 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
     const open = status === 'draft' || status === 'pending_approval';
     return {
       edit: open, request_send: status === 'draft', cancel_request: status === 'pending_approval', delete: status === 'draft',
-      void: role === 'owner' && status === 'sent' && Number(invoice.amount_paid) === 0, record_payment: status === 'sent',
+      void: role === 'owner' && status === 'sent' && Number(invoice.amount_paid) === 0 && Number(invoice.amount_credited) === 0, record_payment: status === 'sent',
       remove_payment: role === 'owner' && (status === 'sent' || status === 'paid'),
+      credit: role === 'owner' && status === 'sent' && dueState(invoice).balance > 0, void_credit_note: role === 'owner' && (status === 'sent' || status === 'paid'),
+      decide_notice: status === 'sent' || status === 'paid',
     };
   };
   const dueState = (invoice: Json) => {
@@ -88,7 +92,9 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
     const late = invoice.status === 'sent' && due !== null && due < day(0);
     const days = late ? Math.round((Date.parse(day(0)) - Date.parse(due!)) / 86_400_000) : 0;
     const paid = Number(invoice.amount_paid);
-    return { overdue: late, days_overdue: days, balance: Math.round((Number(invoice.total) - paid) * 100) / 100, payment_state: paid <= 0 ? 'unpaid' : paid >= Number(invoice.total) ? 'paid' : 'partially_paid' };
+    const credited = Number(invoice.amount_credited ?? 0);
+    const balance = Math.round((Number(invoice.total) - paid - credited) * 100) / 100;
+    return { overdue: late && balance > 0, days_overdue: days, balance, payment_state: balance <= 0 && Number(invoice.total) > 0 ? (paid <= 0 && credited > 0 ? 'credited' : 'paid') : paid <= 0 ? 'unpaid' : 'partially_paid' };
   };
   const view = (invoice: Json) => ({
     ...invoice, account_name: 'Acme Trading', project_name: invoice.project_id ? 'Website rebuild' : null, ...dueState(invoice),
@@ -98,17 +104,17 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
   });
   const item = (invoice: Json) => ({
     id: invoice.id, number: invoice.number, status: invoice.status, account_id: invoice.account_id, account_name: 'Acme Trading', project_id: invoice.project_id, project_name: invoice.project_id ? 'Website rebuild' : null,
-    currency: invoice.currency, total: invoice.total, amount_paid: invoice.amount_paid, ...dueState(invoice), issue_date: invoice.issue_date, due_date: invoice.due_date,
-    customer_reference: invoice.customer_reference, lines: (invoice.lines as Json[]).length, updated_at: invoice.updated_at, created_at: invoice.created_at,
+    currency: invoice.currency, total: invoice.total, amount_paid: invoice.amount_paid, amount_credited: invoice.amount_credited ?? 0, ...dueState(invoice), issue_date: invoice.issue_date, due_date: invoice.due_date,
+    customer_reference: invoice.customer_reference, notices_pending: (invoice.payment_notices as Json[]).filter((n) => n.status === 'pending').length, lines: (invoice.lines as Json[]).length, updated_at: invoice.updated_at, created_at: invoice.created_at,
   });
   const send = (invoice: Json) => {
     Object.assign(invoice, { status: 'sent', number: `INV-${String(++sequence).padStart(4, '0')}`, seq: sequence, issue_date: day(0), due_date: day(Number(invoice.due_in_days)), seller: { ...profile }, content_hash: invoice.requested_hash, sent_by: 'user_owner', sent_at: now(), updated_at: now() });
   };
   const blank = (fields: Json): Json => ({
-    id: id('binv'), ...scope, account_id: 'bacc_1', project_id: null, status: 'draft', currency: 'SAR', lines: [], subtotal: 0, tax: 0, total: 0, amount_paid: 0, due_in_days: 14, seq: null, number: null,
+    id: id('binv'), ...scope, account_id: 'bacc_1', project_id: null, status: 'draft', currency: 'SAR', lines: [], subtotal: 0, tax: 0, total: 0, amount_paid: 0, amount_credited: 0, due_in_days: 14, seq: null, number: null,
     issue_date: null, due_date: null, customer_reference: '', notes: '', payment_terms: '', bill_to_name: 'Acme Trading', bill_to_address: 'Riyadh', bill_to_email: 'sara@acme.example', bill_to_tax_number: '',
     seller: null, content_hash: null, requested_hash: null, approval_id: null, requested_by: null, requested_at: null, sent_by: null, sent_at: null, paid_at: null, voided_by: null, voided_at: null,
-    void_reason: '', decision_note: '', created_by: 'user_local', created_at: now(), updated_at: now(), payments: [], ...fields,
+    void_reason: '', decision_note: '', created_by: 'user_local', created_at: now(), updated_at: now(), payments: [], credit_notes: [], payment_notices: [], ...fields,
   });
   const line = (description: string, unitPrice: number, quantity: number, tax: number, source: string, sourceId: string | null) => ({ description, kind: 'service', quantity, unit_price: unitPrice, tax_rate_pct: tax, source, source_id: sourceId, gross_total: null, net: 0, tax: 0, total: 0 });
   mock.seedSent = (fields: Json = {}) => {
@@ -117,6 +123,12 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
     Object.assign(invoice, fields);
     invoices.unshift(invoice);
     return String(invoice.id);
+  };
+  mock.seedNotice = (invoiceId, fields = {}) => {
+    const invoice = invoices.find((entry) => entry.id === invoiceId)!;
+    const notice = { id: id('bpnote'), ...scope, invoice_id: invoiceId, account_id: 'bacc_1', access_id: 'bpacc_1', contact_id: 'bcon_1', payer_name: 'Sara Khan', amount: 400, paid_on: day(-1), method: 'bank_transfer', reference: 'TRX-31', note: '', status: 'pending', decided_by: null, decided_at: null, decision_note: '', payment_id: null, created_at: now(), updated_at: now(), ...fields };
+    (invoice.payment_notices as Json[]).unshift(notice);
+    return String(notice.id);
   };
   mock.approveSend = (invoiceId) => { const invoice = invoices.find((entry) => entry.id === invoiceId)!; send(invoice); };
   mock.rejectSend = (invoiceId, reason) => { const invoice = invoices.find((entry) => entry.id === invoiceId)!; Object.assign(invoice, { status: 'draft', decision_note: `Rejected by user_owner: ${reason}`, approval_id: null, requested_hash: null }); };
@@ -186,7 +198,7 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
         counts,
         currencies: invoices.length ? [{ currency: 'SAR', outstanding: sum(sent.map((e) => ({ v: dueState(e).balance })), 'v'), overdue: sum(late.map((e) => ({ v: dueState(e).balance })), 'v'), overdue_count: late.length,
           invoiced_this_month: sum(invoices.filter((e) => e.number), 'total'), collected_this_month: sum(invoices, 'amount_paid'), drafts: sum(invoices.filter((e) => e.status === 'draft' || e.status === 'pending_approval'), 'total') }] : [],
-        truncated: false, notes: [],
+        truncated: false, notices_pending: invoices.reduce((total, entry) => total + (entry.payment_notices as Json[]).filter((n) => n.status === 'pending').length, 0), notes: [],
       });
     }
     if (path === '/invoices/billable') return json(billable(url.searchParams.get('project_id')));
@@ -255,6 +267,7 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
       if (parts[2] === 'void') {
         if (role !== 'owner') return denied('Only workspace owners can void an invoice.');
         if (status !== 'sent') return json(envelope('conflict', `The invoice is ${status}; only a sent invoice is voided.`), 409);
+        if (Number(invoice.amount_credited) > 0) return json(envelope('conflict', 'The invoice has credit notes. Void them first, then void the invoice.'), 409);
         Object.assign(invoice, { status: 'void', voided_by: 'user_owner', voided_at: now(), void_reason: body.reason });
         return json(view(invoice));
       }
@@ -266,6 +279,52 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
         invoice.amount_paid = Math.round(((invoice.payments as Json[]).reduce((sum, p) => sum + Number(p.amount), 0)) * 100) / 100;
         if (dueState(invoice).balance <= 0) Object.assign(invoice, { status: 'paid', paid_at: now() });
         return json(view(invoice), 201);
+      }
+      if (parts[2] === 'credit-notes' && parts.length === 3 && method === 'GET') return json(invoice.credit_notes);
+      if (parts[2] === 'credit-notes' && parts.length === 3 && method === 'POST') {
+        if (role !== 'owner') return denied('Only workspace owners can do this (the catalog, research caps, deletions and removing a do-not-contact mark).');
+        if (status !== 'sent') return json(envelope('conflict', `The invoice is ${status}; a credit note is issued against a sent invoice.`), 409);
+        const balance = dueState(invoice).balance;
+        if (Number(body.amount) > balance) return json(envelope('validation_error', `A credit note is at most the balance of SAR ${balance.toFixed(2)}.`), 422);
+        const notes = invoice.credit_notes as Json[];
+        const share = Number(invoice.total) > 0 ? Math.round(Number(body.amount) * Number(invoice.tax) / Number(invoice.total) * 100) / 100 : 0;
+        notes.push({ id: id('bcrn'), ...scope, invoice_id: invoice.id, account_id: 'bacc_1', seq: notes.length + 1, number: `${invoice.number}-CN${notes.length + 1}`, status: 'issued', currency: invoice.currency, amount: body.amount, subtotal: Math.round((Number(body.amount) - share) * 100) / 100, tax: share, reason: body.reason, issue_date: day(0), issued_by: 'user_owner', voided_by: null, voided_at: null, void_reason: '', created_at: now(), updated_at: now() });
+        invoice.amount_credited = Math.round((Number(invoice.amount_credited) + Number(body.amount)) * 100) / 100;
+        if (dueState(invoice).balance <= 0) Object.assign(invoice, { status: 'paid', paid_at: now() });
+        return json(view(invoice), 201);
+      }
+      if (parts[2] === 'credit-notes' && parts[4] === 'void') {
+        if (role !== 'owner') return denied();
+        const found = (invoice.credit_notes as Json[]).find((entry) => entry.id === parts[3]);
+        if (!found) return json(envelope('not_found', 'Credit note not found'), 404);
+        Object.assign(found, { status: 'void', voided_by: 'user_owner', voided_at: now(), void_reason: body.reason });
+        invoice.amount_credited = Math.round((Number(invoice.amount_credited) - Number(found.amount)) * 100) / 100;
+        if (invoice.status === 'paid') Object.assign(invoice, { status: 'sent', paid_at: null });
+        return json(view(invoice));
+      }
+      if (parts[2] === 'payment-notices' && parts.length === 3 && method === 'GET') return json(invoice.payment_notices);
+      if (parts[2] === 'payment-notices' && parts[4] === 'confirm') {
+        const found = (invoice.payment_notices as Json[]).find((entry) => entry.id === parts[3]);
+        if (!found) return json(envelope('not_found', 'Payment notice not found'), 404);
+        if (found.status !== 'pending') return json(envelope('conflict', `This notice was already ${found.status}.`), 409);
+        const balance = dueState(invoice).balance;
+        if (Number(found.amount) > balance) return json(envelope('validation_error', `The payment is more than the balance of SAR ${balance.toFixed(2)}. Reject this notice and record the payment by hand if the figures differ.`), 422);
+        const payment = { id: id('bpay'), ...scope, invoice_id: invoice.id, amount: found.amount, paid_on: found.paid_on, method: found.method, reference: found.reference, note: `Reported in the portal by ${found.payer_name}.`, recorded_by: 'user_local', created_at: now(), updated_at: now() };
+        (invoice.payments as Json[]).push(payment);
+        invoice.amount_paid = Math.round((Number(invoice.amount_paid) + Number(found.amount)) * 100) / 100;
+        if (dueState(invoice).balance <= 0) Object.assign(invoice, { status: 'paid', paid_at: now() });
+        Object.assign(found, { status: 'confirmed', decided_by: 'user_local', decided_at: now(), decision_note: body.note ?? '', payment_id: payment.id });
+        return json(view(invoice));
+      }
+      if (parts[2] === 'payment-notices' && parts[4] === 'reject') {
+        const found = (invoice.payment_notices as Json[]).find((entry) => entry.id === parts[3]);
+        if (!found) return json(envelope('not_found', 'Payment notice not found'), 404);
+        if (found.status !== 'pending') return json(envelope('conflict', `This notice was already ${found.status}.`), 409);
+        Object.assign(found, { status: 'rejected', decided_by: 'user_local', decided_at: now(), decision_note: body.reason });
+        return json(view(invoice));
+      }
+      if (parts[2] === 'pdf') {
+        return route.fulfill({ status: 200, contentType: 'application/pdf', headers: { 'content-disposition': `attachment; filename="${invoice.number ?? `draft-${invoice.id}`}.pdf"`, 'access-control-expose-headers': 'Content-Disposition' }, body: '%PDF-1.4 mock' });
       }
       if (parts[2] === 'payments' && method === 'DELETE') {
         if (role !== 'owner') return denied('Only workspace owners can remove a payment.');

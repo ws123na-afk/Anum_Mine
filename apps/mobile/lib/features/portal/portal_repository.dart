@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import 'portal_models.dart';
@@ -24,6 +27,21 @@ abstract interface class PortalRepository {
   Future<List<PortalInvoiceSummary>> invoices();
   Future<PortalInvoice> invoice(String id);
   Future<String> printHtml(String id, String lang);
+
+  /// The PDF made on the server for their own invoice, as bytes.
+  Future<Uint8List> pdf(String id);
+
+  /// Tells the business a payment was made. A report changes no balance: the
+  /// business checks its bank and confirms or rejects it.
+  Future<PortalInvoice> reportPayment(
+    String id, {
+    required String payerName,
+    required double amount,
+    required String paidOn,
+    required String method,
+    String reference,
+    String note,
+  });
   Future<List<PortalTicketSummary>> tickets();
   Future<PortalTicket> ticket(String id);
   Future<PortalTicket> openTicket({
@@ -139,6 +157,36 @@ class ApiPortalRepository implements PortalRepository {
     }
     return html;
   }
+
+  @override
+  Future<Uint8List> pdf(String id) async {
+    final body = await _call('GET', '/invoices/${_id(id)}/pdf');
+    final encoded = body['pdf_base64'];
+    if (encoded is! String || encoded.isEmpty) {
+      throw const ApiException(0, 'The PDF came back empty. Try again.');
+    }
+    return base64Decode(encoded);
+  }
+
+  @override
+  Future<PortalInvoice> reportPayment(
+    String id, {
+    required String payerName,
+    required double amount,
+    required String paidOn,
+    required String method,
+    String reference = '',
+    String note = '',
+  }) async =>
+      PortalInvoice.fromJson(JsonReader.of(
+          await _call('POST', '/invoices/${_id(id)}/payment-notices', {
+        'payer_name': payerName,
+        'amount': amount,
+        'paid_on': paidOn,
+        'method': method,
+        if (reference.isNotEmpty) 'reference': reference,
+        if (note.isNotEmpty) 'note': note,
+      })));
 
   @override
   Future<List<PortalTicketSummary>> tickets() async =>

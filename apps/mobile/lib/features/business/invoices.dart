@@ -162,13 +162,29 @@ class _InvoicesViewState extends State<InvoicesView> {
         ],
       );
     }
+    final waiting = s.noticesPending > 0
+        ? Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+                l.f('biz.inv.noticesWaiting', {'count': s.noticesPending}),
+                key: const Key('inv-notices-waiting'),
+                style: TextStyle(color: context.palette.warn)),
+          )
+        : null;
     if (s.currencies.isEmpty) {
-      return Text(l.t('biz.inv.summaryNone'),
-          style: TextStyle(color: context.palette.muted));
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (waiting != null) waiting,
+          Text(l.t('biz.inv.summaryNone'),
+              style: TextStyle(color: context.palette.muted)),
+        ],
+      );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (waiting != null) waiting,
         for (final f in s.currencies) ...[
           if (s.currencies.length > 1)
             Padding(
@@ -377,6 +393,11 @@ class _InvoicesViewState extends State<InvoicesView> {
             label: l.t('biz.inv.status.${item.status}'),
             tone: item.overdue ? AnumTone.stop : invoiceTone(item.status),
           ),
+          if (item.noticesPending > 0)
+            AnumPill(
+              label: l.f('biz.inv.noticesPill', {'count': item.noticesPending}),
+              tone: AnumTone.warn,
+            ),
         ],
       ),
     );
@@ -563,11 +584,77 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
         builder: (_) => InvoicePreviewScreen(
           document: InvoiceDocument.fromInvoice(inv, fallback: c.profile),
           loadHtml: (lang) => c.repository.printHtml(inv.id, lang),
+          loadPdf: () => c.repository.pdf(inv.id),
           saver: widget.saver,
           fileStem: inv.number ?? 'invoice-draft',
         ),
       ),
     );
+  }
+
+  Future<void> _credit() async {
+    final inv = invoice!;
+    final l = context.anum;
+    final body = await showDialog<Map<String, Object?>>(
+      context: context,
+      builder: (context) =>
+          CreditDialog(balance: inv.balance, currency: inv.currency),
+    );
+    if (body == null) return;
+    await act(
+        () => c.repository.issueCreditNote(inv.id,
+            amount: body['amount']! as double,
+            reason: body['reason']! as String),
+        l.t('biz.inv.credit.saved'));
+  }
+
+  Future<void> _voidCredit(CreditNote note) async {
+    final l = context.anum;
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) => ReasonDialog(
+        title: l.f('biz.inv.credit.voidTitle', {'number': note.number}),
+        body: l.t('biz.inv.credit.voidBody'),
+        label: l.t('biz.inv.voidReason'),
+        confirm: l.t('biz.inv.credit.void'),
+      ),
+    );
+    if (reason == null) return;
+    await act(
+        () => c.repository.voidCreditNote(widget.invoiceId, note.id, reason),
+        l.t('biz.inv.credit.voided'));
+  }
+
+  Future<void> _confirmNotice(PaymentNotice notice) async {
+    final l = context.anum;
+    final inv = invoice!;
+    if (!await _confirm(
+        l.t('biz.inv.notice.confirmTitle'),
+        l.f('biz.inv.notice.confirmBody', {
+          'amount': money(context, notice.amount, inv.currency),
+          'date': notice.paidOn,
+        }),
+        l.t('biz.inv.notice.confirm'))) {
+      return;
+    }
+    await act(() => c.repository.confirmNotice(widget.invoiceId, notice.id),
+        l.t('biz.inv.notice.confirmed'));
+  }
+
+  Future<void> _rejectNotice(PaymentNotice notice) async {
+    final l = context.anum;
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) => ReasonDialog(
+        title: l.t('biz.inv.notice.rejectTitle'),
+        label: l.t('biz.inv.notice.rejectReason'),
+        confirm: l.t('biz.inv.notice.reject'),
+      ),
+    );
+    if (reason == null) return;
+    await act(
+        () => c.repository.rejectNotice(widget.invoiceId, notice.id, reason),
+        l.t('biz.inv.notice.rejected'));
   }
 
   @override
@@ -619,7 +706,7 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
         if (inv.status == 'sent' || inv.status == 'paid')
           AnumPill(
               label: l.t('biz.inv.pay.${inv.paymentState}'),
-              tone: inv.paymentState == 'paid'
+              tone: inv.paymentState == 'paid' || inv.paymentState == 'credited'
                   ? AnumTone.ok
                   : inv.paymentState == 'partially_paid'
                       ? AnumTone.warn
@@ -741,6 +828,14 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
             ],
           ),
         ),
+      if (inv.status == 'sent' ||
+          inv.status == 'paid' ||
+          inv.creditNotes.isNotEmpty)
+        _noticesCard(context, inv),
+      if (inv.status == 'sent' ||
+          inv.status == 'paid' ||
+          inv.creditNotes.isNotEmpty)
+        _creditsCard(context, inv),
       if (inv.paymentTerms.isNotEmpty || inv.notes.isNotEmpty)
         AnumSurface(
           child: Column(
@@ -755,6 +850,123 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
         Text('${l.t('biz.inv.voidReason')}: ${inv.voidReason}',
             style: TextStyle(color: context.palette.stop)),
     ];
+  }
+
+  /// What the customer reported paying from the portal. A report is not a
+  /// payment: confirming it (after checking the bank) records one.
+  Widget _noticesCard(BuildContext context, Invoice inv) {
+    final l = context.anum;
+    String m(double v) => money(context, v, inv.currency);
+    return AnumSurface(
+      key: const Key('inv-notices'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AnumHeader(title: l.t('biz.inv.notice.title')),
+          Text(l.t('biz.inv.notice.help'),
+              style: TextStyle(color: context.palette.muted)),
+          if (inv.paymentNotices.isEmpty)
+            Text(l.t('biz.inv.notice.none'),
+                style: TextStyle(color: context.palette.muted)),
+          for (final n in inv.paymentNotices) ...[
+            PillRow(
+              key: Key('inv-notice-${n.id}'),
+              title: m(n.amount),
+              subtitle:
+                  '${n.paidOn}, ${l.t('biz.inv.method.${n.method}')} · ${l.f('biz.inv.notice.by', {
+                    'name': n.payerName
+                  })}',
+              detail: [
+                if (n.reference.isNotEmpty) n.reference,
+                if (n.note.isNotEmpty) n.note,
+                if (n.decisionNote.isNotEmpty) n.decisionNote,
+              ].join(' · '),
+              pills: [
+                AnumPill(
+                  label: l.t('biz.inv.notice.status.${n.status}'),
+                  tone: n.status == 'confirmed'
+                      ? AnumTone.ok
+                      : n.status == 'rejected'
+                          ? AnumTone.stop
+                          : AnumTone.warn,
+                ),
+              ],
+            ),
+            if (n.pending && inv.can.decideNotice)
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                FilledButton(
+                  key: Key('inv-notice-confirm-${n.id}'),
+                  onPressed: busy ? null : () => _confirmNotice(n),
+                  child: Text(l.t('biz.inv.notice.confirm')),
+                ),
+                OutlinedButton(
+                  key: Key('inv-notice-reject-${n.id}'),
+                  onPressed: busy ? null : () => _rejectNotice(n),
+                  child: Text(l.t('biz.inv.notice.reject')),
+                ),
+              ]),
+          ],
+          if (inv.paymentNotices.any((n) => n.pending) && !inv.can.decideNotice)
+            Text(l.t('biz.inv.notice.viewOnly'),
+                style: TextStyle(color: context.palette.muted)),
+        ],
+      ),
+    );
+  }
+
+  /// Credit notes: owners issue and void them; everyone who reads the invoice
+  /// sees them.
+  Widget _creditsCard(BuildContext context, Invoice inv) {
+    final l = context.anum;
+    String m(double v) => money(context, v, inv.currency);
+    return AnumSurface(
+      key: const Key('inv-credits'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AnumHeader(title: l.t('biz.inv.credit.title')),
+          if (inv.creditNotes.isEmpty)
+            Text(l.t('biz.inv.credit.none'),
+                style: TextStyle(color: context.palette.muted)),
+          for (final n in inv.creditNotes)
+            AnumRow(
+              key: Key('inv-credit-${n.id}'),
+              title: '${n.number} · ${m(n.amount)}',
+              subtitle: '${n.issueDate}, ${l.f('biz.inv.credit.split', {
+                    'subtotal': m(n.subtotal),
+                    'tax': m(n.tax)
+                  })}',
+              detail: n.isVoid
+                  ? '${n.reason} (${l.t('biz.inv.credit.voidTag')}: ${n.voidReason})'
+                  : n.reason,
+              trailing: inv.can.voidCreditNote && !n.isVoid
+                  ? IconButton(
+                      key: Key('inv-credit-void-${n.id}'),
+                      tooltip: l.t('biz.inv.credit.void'),
+                      onPressed: busy ? null : () => _voidCredit(n),
+                      icon: const Icon(Icons.undo_outlined),
+                    )
+                  : null,
+            ),
+          if (inv.can.credit)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: OutlinedButton.icon(
+                key: const Key('inv-credit'),
+                onPressed: busy ? null : _credit,
+                icon: const Icon(Icons.remove_circle_outline),
+                label: Text(l.t('biz.inv.credit.issue')),
+              ),
+            )
+          else if (inv.status == 'sent' || inv.status == 'paid')
+            Text(
+                inv.balance <= 0
+                    ? l.t('biz.inv.credit.nothingLeft')
+                    : l.t('biz.inv.credit.ownersOnly'),
+                style: TextStyle(color: context.palette.muted)),
+        ],
+      ),
+    );
   }
 
   Widget _approval(BuildContext context, Invoice inv) {
@@ -919,6 +1131,104 @@ class _ReasonDialogState extends State<ReasonDialog> {
             Navigator.pop(context, text);
           },
           child: Text(widget.confirm),
+        ),
+      ],
+    );
+  }
+}
+
+/// Takes an amount off what is still owed: tax-inclusive, at most the
+/// balance, with a reason the customer will see.
+class CreditDialog extends StatefulWidget {
+  const CreditDialog(
+      {required this.balance, required this.currency, super.key});
+  final double balance;
+  final String currency;
+
+  @override
+  State<CreditDialog> createState() => _CreditDialogState();
+}
+
+class _CreditDialogState extends State<CreditDialog> {
+  late final amount =
+      TextEditingController(text: widget.balance.toStringAsFixed(2));
+  final reason = TextEditingController();
+  String? amountError, reasonError;
+
+  @override
+  void dispose() {
+    amount.dispose();
+    reason.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final l = context.anum;
+    final value = parseNumber(amount.text);
+    final why = reason.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    setState(() {
+      amountError = value == null || value <= 0
+          ? l.t('biz.inv.amountInvalid')
+          : value > widget.balance + 0.004
+              ? l.f('biz.inv.credit.tooMuch', {
+                  'balance': formatMoney(widget.balance, widget.currency,
+                      locale: l.locale)
+                })
+              : null;
+      reasonError = why.length < 3 ? l.t('biz.inv.credit.reasonInvalid') : null;
+    });
+    if (amountError != null || reasonError != null) return;
+    Navigator.pop(context, <String, Object?>{
+      'amount': double.parse(value!.toStringAsFixed(2)),
+      'reason': why,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.anum;
+    return AlertDialog(
+      title: Text(l.t('biz.inv.credit.issue')),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(l.f('biz.inv.credit.help', {
+              'balance':
+                  formatMoney(widget.balance, widget.currency, locale: l.locale)
+            })),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('inv-credit-amount'),
+              controller: amount,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                  labelText:
+                      '${l.t('biz.inv.credit.amount')} (${widget.currency})',
+                  errorText: amountError),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('inv-credit-reason'),
+              controller: reason,
+              maxLength: 300,
+              decoration: InputDecoration(
+                  labelText: l.t('biz.inv.credit.reason'),
+                  errorText: reasonError),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l.t('biz.cancel'))),
+        FilledButton(
+          key: const Key('inv-credit-submit'),
+          onPressed: _submit,
+          child: Text(l.t('biz.inv.credit.save')),
         ),
       ],
     );

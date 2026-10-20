@@ -2,9 +2,9 @@
 // fragment and keeping it out of the address bar, status and expiry labels, the approve/decline
 // confirmation text and the owner's side of the link (building the shareable address). No browser
 // or Vite APIs, so `pnpm --filter @anum/web test:unit` covers it.
-import type { BusinessCurrency, PortalDecisionSummary } from '@anum/contracts';
+import type { BusinessCurrency, PaymentMethod, PortalDecisionSummary, PortalPaymentNoticeInput } from '@anum/contracts';
 import { t, type MessageKey } from './i18n.ts';
-import { formatMoney, type Tone } from './business.ts';
+import { formatMoney, parseAmount, type Tone } from './business.ts';
 
 const label = (key: string) => t(key as MessageKey);
 
@@ -91,6 +91,7 @@ export const REQUEST_SEVERITIES = ['low', 'normal', 'high'] as const;
 
 export function invoiceStatusText(item: { status: string; overdue: boolean; payment_state: string }): string {
   if (item.status === 'void') return t('pt.invoice.void');
+  if (item.payment_state === 'credited') return t('pt.invoice.credited');
   if (item.status === 'paid' || item.payment_state === 'paid') return t('pt.invoice.paid');
   if (item.overdue) return t('pt.invoice.overdue');
   return item.payment_state === 'partially_paid' ? t('pt.invoice.partial') : t('pt.invoice.open');
@@ -98,12 +99,37 @@ export function invoiceStatusText(item: { status: string; overdue: boolean; paym
 
 export function invoiceStatusTone(item: { status: string; overdue: boolean; payment_state: string }): Tone {
   if (item.status === 'void') return 'dangerTone';
-  if (item.status === 'paid' || item.payment_state === 'paid') return 'success';
+  if (item.status === 'paid' || item.payment_state === 'paid' || item.payment_state === 'credited') return 'success';
   return item.overdue ? 'dangerTone' : 'warning';
 }
 
+export const reportStatusLabel = (status: 'pending' | 'confirmed' | 'rejected') => label(`pt.report.status.${status}`);
+export const reportTone = (status: 'pending' | 'confirmed' | 'rejected'): Tone => (status === 'confirmed' ? 'success' : status === 'rejected' ? 'dangerTone' : 'warning');
+
 export function ticketTone(status: string): Tone {
   return status === 'resolved' || status === 'closed' ? 'success' : status === 'waiting_on_customer' ? 'warning' : 'neutral';
+}
+
+// ---- reporting a payment (a report, not a payment: the business confirms it) ----------------------
+
+/** Today as `YYYY-MM-DD` in the browser's calendar (the date a reported payment defaults to). */
+export function localToday(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+export const REPORT_METHODS: readonly PaymentMethod[] = ['bank_transfer', 'cash', 'cheque', 'card', 'other'];
+export interface ReportDraft { name: string; amount: string; paidOn: string; method: PaymentMethod; reference: string; note: string }
+export const emptyReport = (balance: number, today: string): ReportDraft => ({ name: '', amount: balance > 0 ? balance.toFixed(2) : '', paidOn: today, method: 'bank_transfer', reference: '', note: '' });
+
+/** The body of POST /invoices/{id}/payment-notices, or what to fix. The API checks the same rules again. */
+export function reportBody(draft: ReportDraft, balance: number, currency: BusinessCurrency, today: string): { ok: true; value: PortalPaymentNoticeInput } | { ok: false; error: string } {
+  const name = draft.name.replace(/\s+/g, ' ').trim();
+  if (name.length < 2 || name.length > 160 || !/\p{L}/u.test(name)) return { ok: false, error: t('pt.report.nameInvalid') };
+  const amount = parseAmount(draft.amount);
+  if (amount === null || amount <= 0) return { ok: false, error: t('pt.report.amountInvalid') };
+  if (amount > balance + 0.0001) return { ok: false, error: t('pt.report.tooMuch', { balance: formatMoney(balance, currency) }) };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.paidOn) || draft.paidOn > today) return { ok: false, error: t('pt.report.dateInvalid') };
+  return { ok: true, value: { payer_name: name, amount, paid_on: draft.paidOn, method: draft.method, reference: draft.reference.trim(), note: draft.note.trim() } };
 }
 
 // ---- decisions ---------------------------------------------------------------------------------

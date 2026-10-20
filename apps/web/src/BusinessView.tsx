@@ -20,6 +20,7 @@ import { ProspectingTab } from './BusinessProspecting';
 import { OutreachTab } from './BusinessOutreach';
 import { SupportPolicySection, SupportTab } from './BusinessSupport';
 import { InvoicesTab } from './BusinessInvoices';
+import { AccountsTab } from './BusinessAccounts';
 import { BillingProfileSection } from './BusinessBilling';
 import './business.css';
 
@@ -74,6 +75,7 @@ export function BusinessView() {
     <nav className="settingsTabs bzTabs" aria-label={t('biz.sections')}>{TABS.map((item) => <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} onClick={() => go(item)}>{t(`biz.tab.${item}`)}</button>)}</nav>
     {tab === 'overview' && <Overview key={tick} setup={setup} products={products} onGo={go} />}
     {tab === 'leads' && <LeadsTab setup={setup} products={products} openLeadId={id} onOpenLead={(leadId) => go('leads', leadId)} onOpenOpportunity={(opportunityId) => go('pipeline', opportunityId)} onChanged={changed} />}
+    {tab === 'accounts' && <AccountsTab setup={setup} openId={id} onOpen={(item) => go('accounts', item)} />}
     {tab === 'prospecting' && <ProspectingTab setup={setup} products={products} onOpenLead={(leadId) => go('leads', leadId)} />}
     {tab === 'outreach' && <OutreachTab setup={setup} onOpenLead={(leadId) => go('leads', leadId)} />}
     {tab === 'pipeline' && <PipelineTab setup={setup} openId={id} onOpen={(item) => go('pipeline', item)} onOpenProposal={(item) => go('proposals', item)} onGoLeads={() => go('leads')} onChanged={changed} />}

@@ -7,9 +7,20 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from ..schemas import TenantContext, new_id
-from .invoice_models import Invoice, InvoiceCounter, InvoicePayment, InvoiceStatus, LineSource
+from .invoice_models import (
+    CreditNote,
+    CreditNoteStatus,
+    Invoice,
+    InvoiceCounter,
+    InvoicePayment,
+    InvoiceStatus,
+    LineSource,
+    PaymentMethod,
+    PaymentNotice,
+)
 from .invoices import format_number
 from .models import Milestone, money
+from .service import http_error
 from .store import BusinessStore, Query
 
 # Rows read at most when the invoices of one account or project are scanned.
@@ -79,6 +90,63 @@ def mark_milestones_paid(store: BusinessStore, invoice: Invoice, paid_on: date, 
         store.save("milestones", milestone.model_copy(update={"paid_amount": milestone.amount, "paid_on": paid_on, "updated_at": now}))
         marked.append(milestone.id)
     return marked
+
+
+def credit_notes_of(store: BusinessStore, invoice_id: str) -> list[CreditNote]:
+    """Every credit note of the invoice, oldest first (void ones included: they keep their number)."""
+    items, _ = store.find("credit_notes", Query(where={"invoice_id": invoice_id}, order_by="seq", descending=False, limit=500))
+    return items
+
+
+def notices_of(store: BusinessStore, invoice_id: str) -> list[PaymentNotice]:
+    items, _ = store.find("payment_notices", Query(where={"invoice_id": invoice_id}, order_by="created_at", descending=True, limit=200))
+    return items
+
+
+def credit_split(invoice: Invoice, existing: list[CreditNote], amount: Decimal) -> tuple[Decimal, Decimal]:
+    """(subtotal, tax) of a credit of ``amount`` (tax inclusive). The tax follows the invoice's own
+    proportion on the running total of credits, so the notes of one invoice add up to its tax exactly."""
+    in_force = [item for item in existing if item.status == CreditNoteStatus.ISSUED]
+    credited = money(sum((item.amount for item in in_force), Decimal(0)))
+    tax_credited = money(sum((item.tax for item in in_force), Decimal(0)))
+    if invoice.total <= 0:
+        return money(amount), Decimal("0.00")
+    cumulative_tax = money((credited + amount) * invoice.tax / invoice.total)
+    tax = min(max(money(cumulative_tax - tax_credited), Decimal(0)), amount)
+    return money(amount - tax), tax
+
+
+def apply_payment(
+    store: BusinessStore, context: TenantContext, invoice: Invoice, *, amount: Decimal, paid_on: date, method: PaymentMethod, reference: str, note: str, now: datetime,
+) -> tuple[Invoice, InvoicePayment]:
+    """Record a payment on a sent invoice (the rules both the owner's form and the confirmation of a
+    customer's notice follow). The invoice is paid when payments and credits cover its total; its
+    milestones are marked paid (cash collected) only when no credit note was needed to settle it."""
+    if invoice.status != InvoiceStatus.SENT:
+        raise http_error(409, f"The invoice is {invoice.status.value.replace('_', ' ')}; payments are recorded on a sent invoice.")
+    if amount <= 0:
+        raise http_error(422, "Enter an amount above zero.")
+    balance = invoice.balance_due()
+    if amount > balance:
+        raise http_error(422, f"The payment is more than the balance of {invoice.currency.value} {balance}.")
+    if paid_on > now.date():
+        raise http_error(422, "The payment date cannot be in the future.")
+    if invoice.issue_date and paid_on < invoice.issue_date:
+        raise http_error(422, f"The payment date is before the invoice was issued on {invoice.issue_date}.")
+    payment = InvoicePayment(
+        id=new_id("binpay"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, invoice_id=invoice.id, amount=amount, paid_on=paid_on,
+        method=method, reference=reference, note=note, recorded_by=context.user_id, created_at=now, updated_at=now,
+    )
+    store.add("invoice_payments", payment)
+    paid = money(invoice.amount_paid + amount)
+    update: dict[str, object] = {"amount_paid": paid, "updated_at": now}
+    if money(paid + invoice.amount_credited) >= invoice.total:
+        update.update({"status": InvoiceStatus.PAID, "paid_at": now})
+        if invoice.amount_credited <= 0:
+            update["marked_milestones"] = mark_milestones_paid(store, invoice, paid_on, now)
+    invoice = invoice.model_copy(update=update)
+    store.save("invoices", invoice)
+    return invoice, payment
 
 
 def release_milestones(store: BusinessStore, invoice: Invoice, now: datetime) -> None:
