@@ -8,6 +8,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
 import '../../data/api_client.dart';
+import "picked_file_size.dart";
 import '../../data/api_models.dart';
 import '../../data/session_store.dart';
 import '../../features/files/file_versions_models.dart';
@@ -269,7 +270,7 @@ class HttpWorkspaceFileTransfer
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(response.statusCode, _detail(response.body));
     }
-    await FilePicker.platform.saveFile(
+    await FilePicker.saveFile(
       dialogTitle: 'Save ${file.name}',
       fileName: _versionFileName(file.name, version.version),
       bytes: response.bodyBytes,
@@ -363,7 +364,7 @@ class HttpWorkspaceFileTransfer
   @override
   Future<void> download(WorkspaceFile file) async {
     final bytes = await _fetch(await _link(file.id, 'attachment'));
-    await FilePicker.platform.saveFile(
+    await FilePicker.saveFile(
       dialogTitle: 'Save ${file.name}',
       fileName: file.name,
       bytes: bytes,
@@ -405,15 +406,14 @@ class HttpMailFileTransfer implements MailFileTransfer {
       for (final e in extensions)
         if (e.startsWith('.') && e.length > 1) e.substring(1)
     ];
-    final picked = await FilePicker.platform.pickFiles(
-      allowMultiple: true,
-      withData: false,
+    final picked = await FilePicker.pickFiles(
       type: allowed.isEmpty ? FileType.any : FileType.custom,
       allowedExtensions: allowed.isEmpty ? null : allowed,
     );
     return [
-      for (final f in picked?.files ?? const <PlatformFile>[])
-        if (f.path != null) PickedMailFile(f.path!, f.name, f.size),
+      for (final f in picked)
+        if (f.path != null)
+          PickedMailFile(f.path!, f.name, await pickedFileSize(f)),
     ];
   }
 
@@ -470,7 +470,7 @@ class HttpMailFileTransfer implements MailFileTransfer {
 
   @override
   Future<bool> save(String fileName, Uint8List bytes) async {
-    final path = await FilePicker.platform.saveFile(
+    final path = await FilePicker.saveFile(
       dialogTitle: 'Save $fileName',
       fileName: fileName,
       bytes: bytes,
@@ -500,7 +500,7 @@ class HttpAuditExporter implements AuditExporter {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(response.statusCode, 'Audit export failed');
     }
-    await FilePicker.platform.saveFile(
+    await FilePicker.saveFile(
       dialogTitle: 'Save audit export',
       fileName: 'audit-export.$format',
       bytes: response.bodyBytes,
@@ -514,7 +514,7 @@ class FilePickerExportSaver implements PrivacyExportSaver {
 
   @override
   Future<bool> save(String fileName, List<int> bytes) async {
-    final path = await FilePicker.platform.saveFile(
+    final path = await FilePicker.saveFile(
       dialogTitle: 'Save your ANUM data',
       fileName: fileName,
       bytes: Uint8List.fromList(bytes),

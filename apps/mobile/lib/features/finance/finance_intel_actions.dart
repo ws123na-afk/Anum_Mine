@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
+
+import '../../src/infrastructure/picked_file_size.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -1003,21 +1005,26 @@ class _Section extends StatelessWidget {
 
 /// The system file picker for a bars file (CSV, at most 2 MB, read as text).
 Future<BarsFile?> pickBarsFile() async {
-  final picked = await FilePicker.platform.pickFiles(
+  final file = await FilePicker.pickFile(
     type: FileType.custom,
     allowedExtensions: const ['csv', 'txt'],
-    withData: true,
   );
-  final file = picked?.files.firstOrNull;
   if (file == null) return null;
-  if (file.size == 0 || file.bytes == null) {
+  final size = await pickedFileSize(file);
+  if (size == 0) {
     return (name: file.name, text: null, problem: 'fileEmpty');
   }
-  if (file.size > maxBarsFileBytes) {
+  if (size > maxBarsFileBytes) {
     return (name: file.name, text: null, problem: 'fileTooBig');
   }
+  final Uint8List bytes;
   try {
-    return (name: file.name, text: utf8.decode(file.bytes!), problem: null);
+    bytes = await file.readAsBytes();
+  } on Object {
+    return (name: file.name, text: null, problem: 'fileEmpty');
+  }
+  try {
+    return (name: file.name, text: utf8.decode(bytes), problem: null);
   } on FormatException {
     return (name: file.name, text: null, problem: 'fileNotText');
   }

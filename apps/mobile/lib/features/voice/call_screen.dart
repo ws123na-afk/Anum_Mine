@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../src/localization/anum_localizations.dart';
@@ -16,11 +17,14 @@ import 'voice_orb.dart';
 typedef PhotoPicker = Future<(Uint8List, String)?> Function();
 
 Future<(Uint8List, String)?> pickDevicePhoto() async {
-  final picked = await FilePicker.platform
-      .pickFiles(type: FileType.image, withData: true, allowMultiple: false);
-  final file = picked?.files.singleOrNull;
-  final bytes = file?.bytes;
-  if (file == null || bytes == null) return null;
+  final file = await FilePicker.pickFile(type: FileType.image);
+  if (file == null) return null;
+  final Uint8List bytes;
+  try {
+    bytes = await file.readAsBytes();
+  } on Object {
+    return null;
+  }
   final extension = (file.extension ?? '').toLowerCase();
   final type = switch (extension) {
     'png' => 'image/png',

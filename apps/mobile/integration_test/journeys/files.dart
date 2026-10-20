@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -7,34 +9,55 @@ import '../support/fake_api.dart';
 import '../support/fixtures.dart';
 import '../support/harness.dart';
 
+/// A picked file backed by a real file on disk.
+base class DiskPlatformFile extends PlatformFile {
+  DiskPlatformFile(this._file);
+  final File _file;
+
+  @override
+  String get name => _file.uri.pathSegments.last;
+
+  @override
+  Uri get uri => _file.uri;
+
+  @override
+  XFile get xFile => XFile(_file.path);
+
+  @override
+  int? lengthSync() => _file.lengthSync();
+
+  @override
+  Future<int?> length() async => _file.length();
+
+  @override
+  Future<Uint8List> readAsBytes() => _file.readAsBytes();
+
+  @override
+  Stream<Uint8List> readAsByteStream() =>
+      _file.openRead().map(Uint8List.fromList);
+}
+
 /// The system file picker, answering with one real file on disk so the
 /// app's streamed upload reads and sends its bytes.
-class FakeFilePicker extends FilePicker {
+class FakeFilePicker extends FilePickerPlatform {
   FakeFilePicker(this.file);
   final File file;
 
   @override
-  Future<FilePickerResult?> pickFiles({
+  Future<List<PlatformFile>> pickFiles({
     String? dialogTitle,
     String? initialDirectory,
     FileType type = FileType.any,
     List<String>? allowedExtensions,
     dynamic Function(FilePickerStatus)? onFileLoading,
-    bool allowCompression = false,
     int compressionQuality = 0,
-    bool allowMultiple = false,
-    bool withData = false,
-    bool withReadStream = false,
-    bool lockParentWindow = false,
-    bool readSequential = false,
+    AndroidOptions androidOptions = const AndroidOptions(),
+    DarwinOptions darwinOptions = const DarwinOptions(),
+    WindowsOptions windowsOptions = const WindowsOptions(),
+    LinuxOptions linuxOptions = const LinuxOptions(),
+    WebOptions webOptions = const WebOptions(),
   }) async =>
-      FilePickerResult([
-        PlatformFile(
-          name: file.uri.pathSegments.last,
-          path: file.path,
-          size: file.lengthSync(),
-        )
-      ]);
+      [DiskPlatformFile(file)];
 }
 
 /// Workspace files (docs/files.md), in the API's `FileView` shape: the
@@ -97,9 +120,9 @@ void filesJourneys() => group('Files', () {
         addTearDown(() => dir.delete(recursive: true));
         final picked = File('${dir.path}/release-notes.md')
           ..writeAsStringSync('# Release notes\n\nFaster exports.\n');
-        final previous = FilePicker.platform;
-        FilePicker.platform = FakeFilePicker(picked);
-        addTearDown(() => FilePicker.platform = previous);
+        final previous = FilePickerPlatform.instance;
+        FilePickerPlatform.instance = FakeFilePicker(picked);
+        addTearDown(() => FilePickerPlatform.instance = previous);
 
         final api = FakeAnumApi();
         seedBaseline(api);
