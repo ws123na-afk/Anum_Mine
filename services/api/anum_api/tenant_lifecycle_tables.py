@@ -39,6 +39,7 @@ RECEIPT_TABLES = frozenset({LIFECYCLE_JOBS_TABLE, DELETED_ORGANIZATIONS_TABLE})
 # Organisation-wide tables (no workspace_id): a workspace deletion leaves them alone.
 _TENANT_WIDE = frozenset(
     {
+        "agent_emergency_stops",
         "billing_plans",
         "billing_settings",
         "billing_accounts",
@@ -100,6 +101,9 @@ _DOMAINS = (
     ("user_notifications", "team"),
     ("assistant_profiles", "team"),
     ("agent_profiles", "agents"),
+    ("agent_cost_caps", "agents"),
+    ("agent_usage_monthly", "agents"),
+    ("agent_emergency_stops", "agents"),
     ("agent_memories", "agents"),
     ("memor", "memory"),
     ("retrieval_", "memory"),
@@ -304,6 +308,9 @@ _ORDER = (
     "marketing_campaigns",
     "marketing_accounts",
     "marketing_preferences",
+    "agent_usage_monthly",
+    "agent_cost_caps",
+    "agent_emergency_stops",
     "agent_memories",
     "setup_plan_checks",
     "setup_plan_items",

@@ -39,6 +39,7 @@ class TriggerOutcome(StrEnum):
     SKIPPED_OVERLAP = "skipped_overlap"
     OWNER_INACTIVE = "owner_inactive"
     WORKSPACE_ARCHIVED = "workspace_archived"
+    EMERGENCY_STOP = "emergency_stop"
     LOOP_SKIPPED = "loop_skipped"
     DISABLED = "disabled"
 

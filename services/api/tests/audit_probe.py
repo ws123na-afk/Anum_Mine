@@ -27,6 +27,7 @@ from anum_api.store import store
 MUTATING = ("post", "put", "patch", "delete")
 MODULE_PREFIXES = {
     "agents": "/api/v1/agents",
+    "agent_controls": "/api/v1/agent-controls",
     "automation": "/api/v1/automation",
     "calls": "/api/v1/calls",
     "brevo": "/api/v1/brevo",

@@ -123,6 +123,8 @@ Configurations saved before the guard existed are checked on their next call; a 
 
 ## Monthly budgets
 
+Per-agent monthly cost caps and the organization's emergency stop are checked in the same place as these budgets ([Agent controls](agent-controls.md)).
+
 Owners can cap model use per UTC calendar month (threat model G4), for the organization (`tenant` scope, summed over all its workspaces) and for each workspace. Each budget has an optional estimated-cost limit in USD (`monthly_cost_limit_usd`) and an optional token limit (`monthly_token_limit`, input plus output tokens). Null means no limit; `0` blocks every call.
 
 - **Enforced before each call.** Task planning (inline and Temporal worker), voice answers and [conversations](conversations.md) use `budgeted_model_gateway`, which refuses the call before it reaches the provider once usage has reached a limit. `POST /api/v1/tasks/{id}/run` answers `402` with error code `model_budget_exceeded` and a message naming the reset date, before the task changes state. A durable run whose budget runs out after it was queued is failed with that message instead of being retried. Voice answers `200` with a short spoken sentence ("This workspace has reached its model budget for the month...", Arabic for Arabic sessions) instead of an error.
