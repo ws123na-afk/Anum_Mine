@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from datetime import timedelta
+from uuid import uuid4
 from typing import Any
 
 import pytest
@@ -24,6 +25,7 @@ from anum_api.business.models import ReplyChannel, ReplyStatus, TicketReply
 from anum_api.business.portal_auth import PREFIX, mint, parse, secret_hash
 from anum_api.business.store import business_store
 from anum_api.schemas import new_id, utc_now
+from anum_api.settings import settings
 from anum_api.suppression import suppression_store
 
 from test_business import BASE, MEMBER, OTHER_TENANT, OTHER_WORKSPACE, OWNER, TENANT, VIEWER, WORKSPACE, approve, lead, ok, proposal_body, qualify
@@ -42,6 +44,12 @@ def clean() -> Iterator[None]:
     yield
     business_store.clear()
     suppression_store.clear()
+
+
+@pytest.fixture(autouse=True)
+def credit_notes_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Credit notes are off by default until every replica knows ``amount_credited`` (docs/business.md#credit-notes)."""
+    monkeypatch.setattr(settings, "business_credit_notes_enabled", True)
 
 
 def contact_of(account_id: str) -> dict[str, Any]:
@@ -416,7 +424,7 @@ def test_a_voided_invoice_stays_visible_marked_void() -> None:
 
 
 def report(token: str, invoice_id: str, amount: float = 400, **extra: Any) -> Any:
-    body = {"payer_name": "Sara Khan", "amount": amount, "paid_on": utc_now().date().isoformat(), "method": "bank_transfer", "reference": "TRX-31", **extra}
+    body = {"idempotency_key": uuid4().hex, "payer_name": "Sara Khan", "amount": amount, "paid_on": utc_now().date().isoformat(), "method": "bank_transfer", "reference": "TRX-31", **extra}
     return client.post(f"{PORTAL}/invoices/{invoice_id}/payment-notices", headers=bearer(token), json=body)
 
 
@@ -460,9 +468,19 @@ def test_a_rejected_report_shows_the_businesss_reason_and_can_be_made_again() ->
 
 def test_reporting_the_same_payment_twice_is_harmless() -> None:
     _, invoice, token = sent_for_portal()
-    assert report(token, invoice["id"], 400).status_code == 201
-    again = report(token, invoice["id"], 400)
+    first = report(token, invoice["id"], 400, idempotency_key="submit-0001")
+    assert first.status_code == 201
+    again = report(token, invoice["id"], 400, idempotency_key="submit-0001")
     assert again.status_code == 200 and len(again.json()["payment_notices"]) == 1
+    # Two real payments of the same amount, the same day, with no reference are two reports, not one.
+    other = report(token, invoice["id"], 400, idempotency_key="submit-0002")
+    assert other.status_code == 201 and len(other.json()["payment_notices"]) == 2
+    # A retry of the first submit after the business confirmed it still finds the first report.
+    notice = ok(client.get(f"{BASE}/invoices/{invoice['id']}/payment-notices", headers=OWNER))[-1]
+    ok(client.post(f"{BASE}/invoices/{invoice['id']}/payment-notices/{notice['id']}/confirm", headers=OWNER, json={}))
+    assert report(token, invoice["id"], 400, idempotency_key="submit-0001").status_code == 200
+    assert report(token, invoice["id"], 400, idempotency_key="bad key!").status_code == 422
+    assert report(token, invoice["id"], 400, idempotency_key="short").status_code == 422
 
 
 def test_a_report_is_checked_against_the_invoice() -> None:
@@ -655,5 +673,5 @@ def test_every_state_changing_portal_route_is_audited_without_content() -> None:
     billed = send(ok(client.post(f"{BASE}/invoices", headers=MEMBER, json={"project_id": project["id"], "milestone_ids": milestone_ids(project)[:1]}), 201))
     reporter = grant(project["account_id"])["token"]
     portal_probe.call("POST", f"{PORTAL}/invoices/{billed['id']}/payment-notices", {**bearer(reporter), **scope}, sent=["TRX-AUDIT-31", "Sara Khan", "paid by wire"],
-                      json={"payer_name": "Sara Khan", "amount": 10, "paid_on": utc_now().date().isoformat(), "reference": "TRX-AUDIT-31", "note": "paid by wire"})
+                      json={"idempotency_key": "audit-key-0001", "payer_name": "Sara Khan", "amount": 10, "paid_on": utc_now().date().isoformat(), "reference": "TRX-AUDIT-31", "note": "paid by wire"})
     portal_probe.assert_covered()

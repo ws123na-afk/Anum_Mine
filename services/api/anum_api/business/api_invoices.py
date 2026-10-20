@@ -23,6 +23,7 @@ from ..authorization import Permission
 from ..dependencies import has_permission, repository_context, tenant_context
 from ..punctuation import plain_dashes
 from ..repository import AnumRepository
+from ..settings import settings
 from ..schemas import Approval, ApprovalStatus, TenantContext, new_id, utc_now
 from .common import Page, Reason, get_or_404, manage, page_bounds, read, write
 from .invoice_models import (
@@ -122,6 +123,7 @@ class Can(BaseModel):
     record_payment: bool
     remove_payment: bool
     credit: bool
+    credit_enabled: bool
     void_credit_note: bool
     decide_notice: bool
 
@@ -193,7 +195,8 @@ def _can(context: TenantContext, invoice: Invoice) -> Can:
         void=owner and invoice.status == InvoiceStatus.SENT and invoice.amount_paid == 0 and invoice.amount_credited == 0,
         record_payment=writer and invoice.status == InvoiceStatus.SENT,
         remove_payment=owner and invoice.status in {InvoiceStatus.SENT, InvoiceStatus.PAID},
-        credit=owner and invoice.status == InvoiceStatus.SENT and invoice.balance_due() > 0,
+        credit=owner and settings.business_credit_notes_enabled and invoice.status == InvoiceStatus.SENT and invoice.balance_due() > 0,
+        credit_enabled=settings.business_credit_notes_enabled,
         void_credit_note=owner and invoice.status in {InvoiceStatus.SENT, InvoiceStatus.PAID},
         decide_notice=writer and invoice.status in {InvoiceStatus.SENT, InvoiceStatus.PAID},
     )

@@ -83,7 +83,7 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
       edit: open, request_send: status === 'draft', cancel_request: status === 'pending_approval', delete: status === 'draft',
       void: role === 'owner' && status === 'sent' && Number(invoice.amount_paid) === 0 && Number(invoice.amount_credited) === 0, record_payment: status === 'sent',
       remove_payment: role === 'owner' && (status === 'sent' || status === 'paid'),
-      credit: role === 'owner' && status === 'sent' && dueState(invoice).balance > 0, void_credit_note: role === 'owner' && (status === 'sent' || status === 'paid'),
+      credit: role === 'owner' && status === 'sent' && dueState(invoice).balance > 0, credit_enabled: true, void_credit_note: role === 'owner' && (status === 'sent' || status === 'paid'),
       decide_notice: status === 'sent' || status === 'paid',
     };
   };

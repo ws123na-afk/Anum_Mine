@@ -495,6 +495,7 @@ class BusinessPaymentNoticeRecord(Base, _Updated):
     decided_at: Mapped[datetime | None] = mapped_column(TS)
     decision_note: Mapped[str] = mapped_column(String(300))
     payment_id: Mapped[str | None] = mapped_column(String(80))
+    client_key: Mapped[str | None] = mapped_column(String(80))
 
 
 class BusinessInvoiceCounterRecord(Base, _Updated):

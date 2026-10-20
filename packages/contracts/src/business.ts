@@ -361,11 +361,12 @@ export interface CreditNote extends Scoped {
 export interface PaymentNotice extends Scoped {
   invoice_id: string; account_id: string; access_id: string; contact_id: string; payer_name: string; amount: number; paid_on: string; method: PaymentMethod;
   reference: string; note: string; status: PaymentNoticeStatus; decided_by: string | null; decided_at: string | null; decision_note: string; payment_id: string | null;
+  client_key: string | null;
 }
 
 export interface InvoiceCan {
   edit: boolean; request_send: boolean; cancel_request: boolean; delete: boolean; void: boolean; record_payment: boolean; remove_payment: boolean;
-  credit: boolean; void_credit_note: boolean; decide_notice: boolean;
+  credit: boolean; credit_enabled: boolean; void_credit_note: boolean; decide_notice: boolean;
 }
 
 export interface BusinessInvoice extends Scoped {
@@ -495,7 +496,7 @@ export interface PortalInvoice extends PortalInvoiceSummary {
   can_report_payment: boolean;
   void_reason: string;
 }
-export interface PortalPaymentNoticeInput { payer_name: string; amount: number; paid_on: string; method: PaymentMethod; reference?: string; note?: string }
+export interface PortalPaymentNoticeInput { idempotency_key: string; payer_name: string; amount: number; paid_on: string; method: PaymentMethod; reference?: string; note?: string }
 export interface PortalTicketSummary {
   id: string; reference: string; title: string; severity: TicketSeverity; status: TicketStatus; project_name: string | null; reported_at: string;
   updated_at: string; opened_here: boolean;

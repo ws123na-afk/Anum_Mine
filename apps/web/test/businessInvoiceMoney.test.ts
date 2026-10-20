@@ -58,13 +58,14 @@ describe('a customer reports a payment', () => {
   const today = '2026-10-20';
 
   test('the form starts at the balance on today with a bank transfer', () => {
-    assert.deepEqual(emptyReport(750, today), { name: '', amount: '750.00', paidOn: today, method: 'bank_transfer', reference: '', note: '' });
+    assert.deepEqual(emptyReport(750, today, 'key-1'), { key: 'key-1', name: '', amount: '750.00', paidOn: today, method: 'bank_transfer', reference: '', note: '' });
+    assert.notEqual(emptyReport(750, today).key, emptyReport(750, today).key);
     assert.ok(REPORT_METHODS.includes('bank_transfer') && REPORT_METHODS.includes('cash'));
   });
 
   test('a good report becomes the request body with a cleaned name', () => {
-    const result = reportBody({ ...emptyReport(750, today), name: '  Sara   Khan ', amount: '400', reference: ' TRX-9 ', note: 'by wire' }, 750, 'SAR', today);
-    assert.deepEqual(result, { ok: true, value: { payer_name: 'Sara Khan', amount: 400, paid_on: today, method: 'bank_transfer', reference: 'TRX-9', note: 'by wire' } });
+    const result = reportBody({ ...emptyReport(750, today, 'key-1'), name: '  Sara   Khan ', amount: '400', reference: ' TRX-9 ', note: 'by wire' }, 750, 'SAR', today);
+    assert.deepEqual(result, { ok: true, value: { idempotency_key: 'key-1', payer_name: 'Sara Khan', amount: 400, paid_on: today, method: 'bank_transfer', reference: 'TRX-9', note: 'by wire' } });
   });
 
   test('each rule has its own sentence', () => {

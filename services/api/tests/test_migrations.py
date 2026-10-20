@@ -1218,6 +1218,9 @@ def test_invoice_credit_notes_migration_is_expand_only_with_forced_rls_and_purge
     # A credit note is never deleted with its invoice; a payment notice is.
     assert 'cascade=False' in revision_text.split('"business_credit_notes",', 2)[2].split("sa.CheckConstraint", 1)[0]
     assert "uq_business_credit_notes_number" in upgrade
+    # A customer's report is keyed by the form's own key, unique per invoice, and credit notes ship switched off.
+    assert "uq_business_payment_notices_key" in upgrade and "client_key is not null" in upgrade
+    assert "ANUM_BUSINESS_CREDIT_NOTES_ENABLED" in revision_text
 
 
 def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:

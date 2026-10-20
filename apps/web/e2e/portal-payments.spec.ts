@@ -66,7 +66,7 @@ test('reporting a payment is checked, sent, shown as waiting, and changes no bal
   // Nothing was marked paid: the balance is what it was.
   await expect(invoice.locator('dl[aria-label="Totals"]')).toContainText('SAR 750.00');
   expect(mock.requests.find((item) => item.method === 'POST' && item.path === '/invoices/binv_1/payment-notices')?.body)
-    .toMatchObject({ payer_name: 'Sara Khan', amount: 300, method: 'bank_transfer', reference: 'TRX-31' });
+    .toMatchObject({ idempotency_key: expect.stringMatching(/^[A-Za-z0-9_-]{8,80}$/), payer_name: 'Sara Khan', amount: 300, method: 'bank_transfer', reference: 'TRX-31' });
   expect(mock.leaks).toEqual([]);
 });
 

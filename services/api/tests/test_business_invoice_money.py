@@ -19,6 +19,7 @@ from anum_api.business.invoice_models import Invoice
 from anum_api.business.invoice_service import credit_split
 from anum_api.business.store import business_store
 from anum_api.schemas import utc_now
+from anum_api.settings import settings
 from anum_api.suppression import suppression_store
 
 from test_business import BASE, MEMBER, OTHER_TENANT, OTHER_WORKSPACE, OWNER, VIEWER, ok
@@ -37,6 +38,12 @@ def clean() -> Iterator[None]:
     yield
     business_store.clear()
     suppression_store.clear()
+
+
+@pytest.fixture(autouse=True)
+def credit_notes_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Credit notes are off by default until every replica knows ``amount_credited`` (docs/business.md#credit-notes)."""
+    monkeypatch.setattr(settings, "business_credit_notes_enabled", True)
 
 
 def manual_invoice(unit_price: float = 1000, tax: float = 15) -> dict[str, Any]:
@@ -71,6 +78,22 @@ def test_credit_split_adds_up_to_the_invoice_tax_exactly() -> None:
         notes.append(CreditNote(id=f"c{index}", tenant_id="t", workspace_id="w", invoice_id="i", account_id="a", seq=index, number=f"N-CN{index}", currency="SAR", amount=amount,
                                 subtotal=subtotal, tax=tax, reason="Correction", issue_date=now.date(), issued_by="u", created_at=now, updated_at=now))
     assert sum(item.tax for item in notes) == Decimal("150.00") and sum(item.subtotal for item in notes) == Decimal("1000.00")
+
+
+def test_credit_notes_stay_off_until_the_rollout_is_done(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Expand/contract: a replica from before migration 0096 computes a balance without credits, so no credit note may exist
+    until every replica knows ``amount_credited``. The setting is off by default and the API says why."""
+    from anum_api.settings import Settings
+
+    assert Settings.model_fields["business_credit_notes_enabled"].default is False
+    sent = manual_invoice()
+    assert sent["can"]["credit"] is True and sent["can"]["credit_enabled"] is True
+    monkeypatch.setattr(settings, "business_credit_notes_enabled", False)
+    off = ok(client.get(f"{BASE}/invoices/{sent['id']}", headers=OWNER))
+    assert off["can"]["credit"] is False and off["can"]["credit_enabled"] is False
+    refused = credit(sent["id"], 10)
+    assert refused.status_code == 409 and "not turned on yet" in refused.text
+    assert ok(client.get(f"{BASE}/invoices/{sent['id']}", headers=OWNER))["amount_credited"] == 0
 
 
 def test_a_credit_note_lowers_the_balance_keeps_the_invoice_and_splits_the_tax() -> None:

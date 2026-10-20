@@ -80,6 +80,7 @@ void main() {
     expect(find.text('Choose the date you paid (not in the future).'),
         findsOneWidget);
     expect(repo.reportBody, isNull);
+    expect(repo.reportKeys, isEmpty);
 
     await tester.enterText(
         find.byKey(const Key('portal-report-amount')), '300');
@@ -123,6 +124,16 @@ void main() {
     await tester.tap(find.byKey(const Key('portal-report-submit')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('portal-invoice-problem')), findsOneWidget);
+    // A retry of the same submit sends the same key, so the business sees one report.
+    await tester.tap(find.byKey(const Key('portal-report-open')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const Key('portal-report-name')), 'Sara Khan');
+    await tester.tap(find.byKey(const Key('portal-report-submit')));
+    await tester.pumpAndSettle();
+    expect(repo.reportKeys, hasLength(2));
+    expect(repo.reportKeys.first, repo.reportKeys.last);
+    expect(repo.reportKeys.first.length, greaterThanOrEqualTo(8));
     expect(
         find.textContaining('You already reported 5 payments'), findsOneWidget);
     expect(find.byKey(const Key('portal-report-open')), findsOneWidget);

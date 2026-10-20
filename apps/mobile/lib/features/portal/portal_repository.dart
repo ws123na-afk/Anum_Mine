@@ -35,6 +35,7 @@ abstract interface class PortalRepository {
   /// business checks its bank and confirms or rejects it.
   Future<PortalInvoice> reportPayment(
     String id, {
+    required String idempotencyKey,
     required String payerName,
     required double amount,
     required String paidOn,
@@ -171,6 +172,7 @@ class ApiPortalRepository implements PortalRepository {
   @override
   Future<PortalInvoice> reportPayment(
     String id, {
+    required String idempotencyKey,
     required String payerName,
     required double amount,
     required String paidOn,
@@ -180,6 +182,7 @@ class ApiPortalRepository implements PortalRepository {
   }) async =>
       PortalInvoice.fromJson(JsonReader.of(
           await _call('POST', '/invoices/${_id(id)}/payment-notices', {
+        'idempotency_key': idempotencyKey,
         'payer_name': payerName,
         'amount': amount,
         'paid_on': paidOn,

@@ -191,6 +191,8 @@ class PaymentNotice(Scoped):
     decided_at: datetime | None = None
     decision_note: str = Field(default="", max_length=300)
     payment_id: str | None = None
+    # Chosen by the client for one submit of the report form; a repeat of the same key is the same report.
+    client_key: str | None = Field(default=None, min_length=8, max_length=80)
 
 
 class InvoiceCounter(Scoped):

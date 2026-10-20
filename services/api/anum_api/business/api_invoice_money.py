@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from ..dependencies import repository_context, tenant_context
 from ..punctuation import plain_dashes
 from ..repository import AnumRepository
+from ..settings import settings
 from ..schemas import TenantContext, new_id, utc_now
 from .api_invoices import InvoiceView, invoice_view
 from .common import Reason, get_or_404, manage, read, write
@@ -40,6 +41,10 @@ def _clean(text: str | None, limit: int) -> str:
 
 
 # -- credit notes ----------------------------------------------------------------------------------
+
+
+CREDIT_OFF = ("Credit notes are not turned on yet. They are enabled after every server runs the release that understands them; "
+              "ask the person who runs ANUM to set ANUM_BUSINESS_CREDIT_NOTES_ENABLED.")
 
 
 class CreditNoteCreate(BaseModel):
@@ -63,6 +68,8 @@ def issue_credit_note(
     """Credit part or all of what is still owed on a sent invoice. Owners only. When the credits and payments
     cover the total the invoice is settled (status paid)."""
     manage(context)
+    if not settings.business_credit_notes_enabled:
+        raise http_error(409, CREDIT_OFF)
     now = utc_now()
     reason = _clean(payload.reason, 300)
     if len(reason) < 3:

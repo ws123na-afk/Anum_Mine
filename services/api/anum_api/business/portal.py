@@ -284,6 +284,9 @@ class PortalInvoice(PortalInvoiceSummary):
 
 
 class PaymentNoticeInput(BaseModel):
+    # Made up by the form for one submit (a UUID): sending the same submit again finds the first report, while two
+    # different payments of the same amount on the same day are two reports.
+    idempotency_key: str = Field(min_length=8, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
     payer_name: str = Field(min_length=2, max_length=160)
     amount: Money
     paid_on: date
@@ -606,6 +609,11 @@ def report_payment(invoice_id: str, payload: PaymentNoticeInput, response: Respo
             raise http_error(409, "This invoice is already paid in full.")
         if invoice.status != InvoiceStatus.SENT:
             raise http_error(409, "This invoice was cancelled, so there is nothing to pay.")
+        earlier = notices_of(store, invoice.id)
+        repeat = next((item for item in earlier if item.client_key == payload.idempotency_key), None)
+        if repeat is not None:  # the same submit sent again: harmless, and the answer is the same
+            response.status_code = status.HTTP_200_OK
+            return _detail(store, session, invoice)
         balance = invoice.balance_due()
         if payload.amount <= 0:
             raise http_error(422, "Enter the amount you paid, above zero.")
@@ -615,12 +623,7 @@ def report_payment(invoice_id: str, payload: PaymentNoticeInput, response: Respo
             raise http_error(422, "The payment date cannot be in the future.")
         if invoice.issue_date and payload.paid_on < invoice.issue_date:
             raise http_error(422, f"The payment date is before the invoice was issued on {invoice.issue_date}.")
-        earlier = notices_of(store, invoice.id)
         waiting = [item for item in earlier if item.status == PaymentNoticeStatus.PENDING]
-        repeat = next((item for item in waiting if (item.amount, item.paid_on, item.reference) == (payload.amount, payload.paid_on, reference)), None)
-        if repeat is not None:  # sending the same report twice is harmless
-            response.status_code = status.HTTP_200_OK
-            return _detail(store, session, invoice)
         if len(waiting) >= MAX_PENDING_NOTICES:
             raise http_error(409, f"You already reported {MAX_PENDING_NOTICES} payments that wait for the business. They will confirm them soon.")
         if sum((item.amount for item in waiting), payload.amount) > balance:
@@ -628,7 +631,7 @@ def report_payment(invoice_id: str, payload: PaymentNoticeInput, response: Respo
         notice = PaymentNotice(
             id=new_id("bpnote"), tenant_id=session.context.tenant_id, workspace_id=session.context.workspace_id, invoice_id=invoice.id, account_id=invoice.account_id,
             access_id=session.access.id, contact_id=session.contact.id, payer_name=payer, amount=payload.amount, paid_on=payload.paid_on, method=payload.method,
-            reference=reference, note=_notice_text(payload.note, 300), created_at=now, updated_at=now,
+            reference=reference, note=_notice_text(payload.note, 300), client_key=payload.idempotency_key, created_at=now, updated_at=now,
         )
         store.add("payment_notices", notice)
         record_activity(store, session.context, "portal_payment_reported", f"{session.contact.name} reported a payment of {invoice.currency.value} {notice.amount} on invoice {invoice.number} in the customer portal.",

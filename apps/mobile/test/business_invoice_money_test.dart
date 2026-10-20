@@ -145,6 +145,24 @@ void main() {
     expect(find.byKey(const Key('inv-pay')), findsNothing);
   });
 
+  testWidgets('credit notes that are not turned on yet say so', (tester) async {
+    sized(tester, 390, 5000);
+    final json = invoiceJson(status: 'sent');
+    final repo = FakeInvoices()
+      ..current = {
+        ...json,
+        'can': {
+          ...(json['can']! as Map<String, Object?>),
+          'credit': false,
+          'credit_enabled': false,
+        },
+      };
+    await pumpDetail(tester, repo);
+    await reveal(tester, find.byKey(const Key('inv-credit-disabled')));
+    expect(find.byKey(const Key('inv-credit')), findsNothing);
+    expect(find.textContaining('not turned on yet'), findsOneWidget);
+  });
+
   testWidgets('a member sees credit notes but cannot issue or void one',
       (tester) async {
     sized(tester, 390, 5000);

@@ -35,6 +35,7 @@ export const invoiceMoneyEn = {
   'inv.credit.voidedOn': 'Voided: {reason}',
   'inv.credit.ownersOnly': 'Only an owner can issue or void a credit note.',
   'inv.credit.hasCredits': 'This invoice has credit notes. Void them first if you need to void the invoice.',
+  'inv.credit.disabled': 'Credit notes are not turned on yet. They are enabled once every server runs the release that understands them; ask the person who runs ANUM.',
   'inv.credit.nothingLeft': 'Nothing is owed, so there is nothing left to credit.',
 
   // payments the customer reported in the portal

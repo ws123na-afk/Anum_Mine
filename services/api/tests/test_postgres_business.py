@@ -56,6 +56,7 @@ def db(database_engine: Engine, seed_scopes: None, monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(db_session, "SessionLocal", factory)
     monkeypatch.setattr(settings, "repository_backend", "postgresql")
+    monkeypatch.setattr(settings, "business_credit_notes_enabled", True)
     business_store.clear()
     yield database_engine
 
@@ -389,7 +390,7 @@ def test_credit_notes_and_customer_payment_notices_under_rls(db: Engine) -> None
     link = ok(client.post(f"{BASE}/portal/access", headers=A, json={"account_id": project["account_id"], "contact_id": contact["id"]}), 201)
     portal = {"authorization": f"Bearer {link['token']}"}
     reported = client.post(f"/api/v1/portal/invoices/{sent['id']}/payment-notices", headers=portal, json={
-        "payer_name": "Huda Saleh", "amount": 300, "paid_on": sent["issue_date"], "method": "bank_transfer", "reference": "TRX-31"})
+        "idempotency_key": "key-pg-0001", "payer_name": "Huda Saleh", "amount": 300, "paid_on": sent["issue_date"], "method": "bank_transfer", "reference": "TRX-31"})
     assert reported.status_code == 201, reported.text
     assert reported.json()["balance"] == 800.0 and reported.json()["payment_notices"][0]["status"] == "pending"
     notice = ok(client.get(f"{BASE}/invoices/{sent['id']}/payment-notices", headers=A))[0]

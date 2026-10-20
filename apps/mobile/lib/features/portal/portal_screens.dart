@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:math' show Random;
+
 import 'package:clock/clock.dart';
 
 import '../../data/api_client.dart';
@@ -1289,6 +1291,16 @@ class _PortalInvoiceState extends State<PortalInvoiceScreen>
     );
   }
 
+  /// One key per report until it is sent: a retry after a lost answer is the same report, a later payment is a new one.
+  String? _reportKey;
+
+  static String _newKey() {
+    final random = Random.secure();
+    return List.generate(
+            4, (_) => random.nextInt(1 << 32).toRadixString(16).padLeft(8, '0'))
+        .join();
+  }
+
   Future<void> _report(PortalInvoice i) async {
     final l = context.anum;
     final body = await showDialog<Map<String, Object?>>(
@@ -1303,8 +1315,10 @@ class _PortalInvoiceState extends State<PortalInvoiceScreen>
       notice = null;
     });
     try {
+      final key = _reportKey ??= _newKey();
       final next = await controller.repository.reportPayment(
         i.id,
+        idempotencyKey: key,
         payerName: body['payer_name']! as String,
         amount: body['amount']! as double,
         paidOn: body['paid_on']! as String,
@@ -1313,6 +1327,7 @@ class _PortalInvoiceState extends State<PortalInvoiceScreen>
         note: body['note']! as String,
       );
       if (!mounted) return;
+      _reportKey = null;
       setState(() {
         record = next;
         notice = l.t('portal.report.sent');

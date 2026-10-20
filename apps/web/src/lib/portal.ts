@@ -118,8 +118,10 @@ export function localToday(now: Date = new Date()): string {
 }
 
 export const REPORT_METHODS: readonly PaymentMethod[] = ['bank_transfer', 'cash', 'cheque', 'card', 'other'];
-export interface ReportDraft { name: string; amount: string; paidOn: string; method: PaymentMethod; reference: string; note: string }
-export const emptyReport = (balance: number, today: string): ReportDraft => ({ name: '', amount: balance > 0 ? balance.toFixed(2) : '', paidOn: today, method: 'bank_transfer', reference: '', note: '' });
+/** One key per opening of the form: a retry of the same submit is the same report, a second payment is a new form. */
+export const newReportKey = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`);
+export interface ReportDraft { key: string; name: string; amount: string; paidOn: string; method: PaymentMethod; reference: string; note: string }
+export const emptyReport = (balance: number, today: string, key: string = newReportKey()): ReportDraft => ({ key, name: '', amount: balance > 0 ? balance.toFixed(2) : '', paidOn: today, method: 'bank_transfer', reference: '', note: '' });
 
 /** The body of POST /invoices/{id}/payment-notices, or what to fix. The API checks the same rules again. */
 export function reportBody(draft: ReportDraft, balance: number, currency: BusinessCurrency, today: string): { ok: true; value: PortalPaymentNoticeInput } | { ok: false; error: string } {
@@ -129,7 +131,7 @@ export function reportBody(draft: ReportDraft, balance: number, currency: Busine
   if (amount === null || amount <= 0) return { ok: false, error: t('pt.report.amountInvalid') };
   if (amount > balance + 0.0001) return { ok: false, error: t('pt.report.tooMuch', { balance: formatMoney(balance, currency) }) };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.paidOn) || draft.paidOn > today) return { ok: false, error: t('pt.report.dateInvalid') };
-  return { ok: true, value: { payer_name: name, amount, paid_on: draft.paidOn, method: draft.method, reference: draft.reference.trim(), note: draft.note.trim() } };
+  return { ok: true, value: { idempotency_key: draft.key, payer_name: name, amount, paid_on: draft.paidOn, method: draft.method, reference: draft.reference.trim(), note: draft.note.trim() } };
 }
 
 // ---- decisions ---------------------------------------------------------------------------------

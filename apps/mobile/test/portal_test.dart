@@ -239,6 +239,7 @@ class FakePortal implements PortalRepository {
   ApiException? ticketError;
   ApiException? reportError;
   Map<String, Object?>? reportBody;
+  final reportKeys = <String>[];
   Completer<void>? gate;
   Map<String, Object?> offerDoc = offerJson();
   Map<String, Object?> changeDoc = changeJson();
@@ -366,6 +367,7 @@ class FakePortal implements PortalRepository {
   @override
   Future<PortalInvoice> reportPayment(
     String id, {
+    required String idempotencyKey,
     required String payerName,
     required double amount,
     required String paidOn,
@@ -374,6 +376,7 @@ class FakePortal implements PortalRepository {
     String note = '',
   }) async {
     await _enter('report $id');
+    reportKeys.add(idempotencyKey);
     reportBody = {
       'payer_name': payerName,
       'amount': amount,

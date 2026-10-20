@@ -32,6 +32,7 @@ export const invoiceMoneyAr = {
   'inv.credit.voidedOn': 'سبب الإلغاء: {reason}',
   'inv.credit.ownersOnly': 'يستطيع المالك فقط إصدار الإشعار الدائن أو إلغاءه.',
   'inv.credit.hasCredits': 'لهذه الفاتورة إشعارات دائنة. ألغها أولًا إذا أردت إلغاء الفاتورة.',
+  'inv.credit.disabled': 'الإشعارات الدائنة غير مفعلة بعد. تُفعَّل عندما تعمل كل الخوادم بالإصدار الذي يدعمها؛ اسأل من يدير ANUM.',
   'inv.credit.nothingLeft': 'لا يوجد مبلغ مستحق، فلا شيء متبقٍ للخصم.',
 
   'inv.notice.title': 'الدفعات التي أبلغ عنها العميل',

@@ -12,9 +12,16 @@ Two workspace tables under forced RLS on ``anum.tenant_id`` and ``anum.workspace
   ordinary payment) or rejects it.
 
 One new column on ``business_invoices`` (``amount_credited``, default 0) and a looser paid
-check: an invoice is paid when payments plus credits equal the total. The column and the new
-tables are ignored by the previous release; the replaced check only ever sees ``amount_credited
-= 0`` from it, so both versions agree.
+check: an invoice is paid when payments plus credits equal the total.
+
+Expand/contract: this migration only widens. A replica from before it ignores the new column and
+tables, and the looser check accepts everything the old check accepted. The one thing an old
+replica cannot read correctly is an invoice that has credits (it computes the balance as total
+minus payments). So credit notes are off (``ANUM_BUSINESS_CREDIT_NOTES_ENABLED``, default false)
+until every replica runs a release that knows ``amount_credited``; no row has a credit while the
+old code can run, whatever the rollback. Turning the setting on is the contract step
+(docs/business.md#credit-notes). Rollback never reverses this migration; with the setting off it is
+safe to leave.
 
 Organisation and workspace deletion (migration ``0079_tenant_lifecycle``): both tables get the
 ``anum_tenant_purger`` grants (scope columns only, plus delete) and the purge policy, copied
@@ -162,6 +169,7 @@ def upgrade() -> None:
         sa.Column("decided_at", TS, nullable=True),
         sa.Column("decision_note", sa.String(300), nullable=False, server_default=""),
         sa.Column("payment_id", sa.String(80), nullable=True),
+        sa.Column("client_key", sa.String(80), nullable=True),
         _ref("business_payment_notices", "invoice_id", "business_invoices", cascade=True),
         _ref("business_payment_notices", "account_id", "business_accounts", cascade=True),
         sa.CheckConstraint("amount > 0", name="ck_business_payment_notices_amount"),
@@ -173,6 +181,11 @@ def upgrade() -> None:
         sa.CheckConstraint("status <> 'confirmed' or payment_id is not null", name="ck_business_payment_notices_confirmed"),
     )
     op.create_index("ix_business_payment_notices_invoice", "business_payment_notices", ["tenant_id", "workspace_id", "invoice_id", "created_at"])
+    # One report per submit: a repeat with the same client key finds the first.
+    op.create_index(
+        "uq_business_payment_notices_key", "business_payment_notices", ["tenant_id", "workspace_id", "invoice_id", "client_key"],
+        unique=True, postgresql_where=sa.text("client_key is not null"),
+    )
     op.create_index("ix_business_payment_notices_status", "business_payment_notices", ["tenant_id", "workspace_id", "status", "created_at"])
 
     for table in TABLES:

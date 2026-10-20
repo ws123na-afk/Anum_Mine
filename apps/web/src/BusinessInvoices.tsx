@@ -501,6 +501,7 @@ function CreditNotesBlock({ invoice, manage, busy, onIssue, onVoid }: { invoice:
         {note.status === 'void' && <small dir="auto">{t('inv.credit.voidedOn', { reason: note.void_reason })}</small>}
         <small>{t('inv.pay.recordedBy', { by: note.issued_by })}</small></li>)}</ul>}
     {invoice.can.credit ? <div className="bzInline"><button type="button" className="secondary" disabled={busy} onClick={onIssue}>{t('inv.credit.issue')}</button></div>
+      : invoice.status === 'sent' && manage && !invoice.can.credit_enabled ? <p className="muted bzHint">{t('inv.credit.disabled')}</p>
       : invoice.status === 'sent' && !manage ? <p className="muted bzHint">{t('inv.credit.ownersOnly')}</p>
       : invoice.status === 'sent' || invoice.status === 'paid' ? <p className="muted bzHint">{invoice.balance <= 0 ? t('inv.credit.nothingLeft') : t('inv.credit.ownersOnly')}</p> : null}
   </section>;

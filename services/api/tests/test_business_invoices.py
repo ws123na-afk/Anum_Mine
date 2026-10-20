@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from decimal import Decimal
+from uuid import uuid4
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from anum_api.business.invoices import apply_lines, invoice_hash, problems
 from anum_api.business.models import BillingProfile
 from anum_api.business.store import business_store
 from anum_api.schemas import utc_now
+from anum_api.settings import settings
 from anum_api.suppression import suppression_store
 
 from test_business import BASE, MEMBER, OTHER_TENANT, OTHER_WORKSPACE, OWNER, VIEWER, approve, lead, ok, proposal_body, qualify
@@ -44,6 +46,12 @@ def clean() -> Iterator[None]:
     yield
     business_store.clear()
     suppression_store.clear()
+
+
+@pytest.fixture(autouse=True)
+def credit_notes_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Credit notes are off by default until every replica knows ``amount_credited`` (docs/business.md#credit-notes)."""
+    monkeypatch.setattr(settings, "business_credit_notes_enabled", True)
 
 
 def set_profile(**changes: Any) -> dict[str, Any]:
@@ -80,7 +88,7 @@ def portal_report(invoice: dict[str, Any], amount: float = 400, **extra: Any) ->
     """A customer's payment report, made through their portal link (returns the notice as the owner sees it)."""
     account = ok(client.get(f"{BASE}/accounts/{invoice['account_id']}", headers=OWNER))
     link = ok(client.post(f"{BASE}/portal/access", headers=OWNER, json={"account_id": invoice["account_id"], "contact_id": account["contacts"][0]["id"]}), 201)
-    body = {"payer_name": "Sara Khan", "amount": amount, "paid_on": utc_now().date().isoformat(), "method": "bank_transfer", "reference": "TRX-9", **extra}
+    body = {"idempotency_key": uuid4().hex, "payer_name": "Sara Khan", "amount": amount, "paid_on": utc_now().date().isoformat(), "method": "bank_transfer", "reference": "TRX-9", **extra}
     created = client.post(f"/api/v1/portal/invoices/{invoice['id']}/payment-notices", headers={"authorization": f"Bearer {link['token']}"}, json=body)
     assert created.status_code == 201, created.text
     return ok(client.get(f"{BASE}/invoices/{invoice['id']}/payment-notices", headers=OWNER))[0]

@@ -304,6 +304,8 @@ const invoiceEn = <String, String>{
   'biz.inv.credit.voided': 'Credit note voided.',
   'biz.inv.credit.voidTag': 'Void',
   'biz.inv.credit.ownersOnly': 'Only an owner can issue or void a credit note.',
+  'biz.inv.credit.disabled':
+      'Credit notes are not turned on yet. They are enabled once every server runs the release that understands them; ask the person who runs ANUM.',
   'biz.inv.credit.nothingLeft':
       'Nothing is owed, so there is nothing left to credit.',
   'biz.inv.noticesWaiting':
@@ -625,6 +627,8 @@ const invoiceAr = <String, String>{
   'biz.inv.credit.voidTag': 'ملغى',
   'biz.inv.credit.ownersOnly':
       'يستطيع المالك فقط إصدار الإشعار الدائن أو إلغاءه.',
+  'biz.inv.credit.disabled':
+      'الإشعارات الدائنة غير مفعلة بعد. تُفعَّل عندما تعمل كل الخوادم بالإصدار الذي يدعمها؛ اسأل من يدير ANUM.',
   'biz.inv.credit.nothingLeft': 'لا يوجد مبلغ مستحق، فلا شيء متبقٍ للخصم.',
   'biz.inv.noticesWaiting': 'بلاغات دفع من العملاء بانتظارك: {count}.',
   'biz.inv.noticesPill': 'البلاغات: {count}',

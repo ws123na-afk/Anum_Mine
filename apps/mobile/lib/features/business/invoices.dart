@@ -958,6 +958,10 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
                 label: Text(l.t('biz.inv.credit.issue')),
               ),
             )
+          else if (inv.status == 'sent' && !inv.can.creditEnabled)
+            Text(l.t('biz.inv.credit.disabled'),
+                key: const Key('inv-credit-disabled'),
+                style: TextStyle(color: context.palette.muted))
           else if (inv.status == 'sent' || inv.status == 'paid')
             Text(
                 inv.balance <= 0

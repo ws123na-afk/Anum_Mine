@@ -206,6 +206,7 @@ class InvoiceCan {
     this.recordPayment = false,
     this.removePayment = false,
     this.credit = false,
+    this.creditEnabled = true,
     this.voidCreditNote = false,
     this.decideNotice = false,
   });
@@ -217,6 +218,7 @@ class InvoiceCan {
       recordPayment,
       removePayment,
       credit,
+      creditEnabled,
       voidCreditNote,
       decideNotice;
   factory InvoiceCan.fromJson(JsonReader r) => InvoiceCan(
@@ -228,6 +230,7 @@ class InvoiceCan {
         recordPayment: r.boolean('record_payment'),
         removePayment: r.boolean('remove_payment'),
         credit: r.optBool('credit') ?? false,
+        creditEnabled: r.optBool('credit_enabled') ?? true,
         voidCreditNote: r.optBool('void_credit_note') ?? false,
         decideNotice: r.optBool('decide_notice') ?? false,
       );
