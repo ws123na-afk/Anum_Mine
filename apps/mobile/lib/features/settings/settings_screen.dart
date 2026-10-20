@@ -15,6 +15,10 @@ import '../autonomy/autonomy_repository.dart';
 import '../autonomy/autonomy_screens.dart';
 import '../learning/learning_controller.dart';
 import '../learning/learning_screen.dart';
+import '../lifecycle/lifecycle_controller.dart';
+import '../lifecycle/lifecycle_screen.dart';
+import '../lifecycle/lifecycle_strings.dart';
+import '../privacy/privacy_strings.dart';
 import '../privacy/privacy_controller.dart';
 import '../privacy/privacy_screen.dart';
 import '../push/push_settings_card.dart';
@@ -304,9 +308,9 @@ class _Content extends StatelessWidget {
               Card(
                   child: ListTile(
                       leading: const Icon(Icons.privacy_tip_outlined),
-                      title: const Text('Your data and privacy'),
-                      subtitle: const Text(
-                          'See what is stored, download it or delete it.'),
+                      title: Text(PrivacyStrings.of(context).t('tile.title')),
+                      subtitle:
+                          Text(PrivacyStrings.of(context).t('tile.subtitle')),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => Navigator.push(
                           context,
@@ -316,6 +320,24 @@ class _Content extends StatelessWidget {
                                       PrivacyController(controller.privacy!),
                                   onOpenChatMemory: () =>
                                       _openChatMemory(context)))))),
+            ],
+            if (controller.lifecycle != null) ...[
+              if (controller.privacy == null)
+                _Heading('Privacy', key: sections[SettingsSection.privacy]),
+              Card(
+                  child: ListTile(
+                      key: const Key('settings-lifecycle'),
+                      leading: const Icon(Icons.inventory_2_outlined),
+                      title: Text(LifecycleStrings.of(context).t('tile.title')),
+                      subtitle:
+                          Text(LifecycleStrings.of(context).t('tile.subtitle')),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) => LifecycleScreen(
+                                  controller: LifecycleController(
+                                      controller.lifecycle!)))))),
             ],
             _Heading('Security', key: sections[SettingsSection.security]),
             Card(
@@ -357,6 +379,13 @@ class _NotificationCard extends StatefulWidget {
 
 class _NotificationState extends State<_NotificationCard> {
   late NotificationPreferences value = widget.controller.notifications;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.loadChannels();
+  }
+
   void update(NotificationPreferences next) {
     setState(() => value = next);
     widget.controller.saveNotifications(next);
@@ -380,6 +409,43 @@ class _NotificationState extends State<_NotificationCard> {
           desktopEnabled: desktop ?? value.desktopEnabled,
           pushEnabled: push ?? value.pushEnabled,
           commerceAlerts: commerce ?? value.commerceAlerts);
+  Widget _emailExtras(BuildContext context) {
+    final c = widget.controller;
+    final channels = c.channels;
+    if (channels == null) return const SizedBox.shrink();
+    final warn = !channels.emailConfigured || !channels.emailAddressKnown;
+    final result = c.emailTest;
+    final failure = c.emailTestError ??
+        (result != null && !result.sent ? result.notice : null);
+    return Padding(
+      padding: const EdgeInsetsDirectional.fromSTEB(72, 0, 16, 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(channels.emailHint(switchedOn: value.emailEnabled),
+            key: const Key('email-hint'),
+            style: TextStyle(
+                fontSize: 13,
+                color: warn
+                    ? Theme.of(context).colorScheme.error
+                    : Theme.of(context).colorScheme.onSurfaceVariant)),
+        if (channels.emailConfigured && channels.emailAddressKnown)
+          Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton(
+                  key: const Key('email-test'),
+                  onPressed: c.emailTestBusy ? null : c.sendTestEmail,
+                  child: Text(c.emailTestBusy
+                      ? 'Sending...'
+                      : 'Send me a test email'))),
+        if (result != null && result.sent)
+          Text(result.notice, key: const Key('email-test-result')),
+        if (failure != null)
+          Text(failure,
+              key: const Key('email-test-failed'),
+              style: TextStyle(color: Theme.of(context).colorScheme.error)),
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Card(
           child: Column(children: [
@@ -414,8 +480,11 @@ class _NotificationState extends State<_NotificationCard> {
         SwitchListTile(
             secondary: const Icon(Icons.email_outlined),
             title: const Text('Email delivery'),
+            subtitle: const Text(
+                'Email the kinds you switched on above, and team work, to your address in ANUM.'),
             value: value.emailEnabled,
             onChanged: (v) => update(copy(email: v))),
+        _emailExtras(context),
         SwitchListTile(
             secondary: const Icon(Icons.phone_iphone),
             title: const Text('Phone push'),
@@ -426,6 +495,8 @@ class _NotificationState extends State<_NotificationCard> {
         SwitchListTile(
             secondary: const Icon(Icons.notifications_outlined),
             title: const Text('Desktop notifications'),
+            subtitle: const Text(
+                'Shown by the web and desktop apps while ANUM is in the background. This phone uses Phone push.'),
             value: value.desktopEnabled,
             onChanged: (v) => update(copy(desktop: v)))
       ]));

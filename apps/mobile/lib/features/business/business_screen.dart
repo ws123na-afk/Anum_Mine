@@ -2,11 +2,23 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../src/localization/anum_localizations.dart';
+import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
+import 'accounts_screen.dart';
 import 'business_controller.dart';
 import 'business_models.dart';
+import 'business_pipeline_repository.dart';
+import 'business_pipeline_screen.dart';
+import 'business_repository.dart';
+import 'invoices.dart';
+import 'portal_access.dart';
+import 'catalog_screen.dart';
+import 'deals_data.dart';
+import 'deals_screen.dart';
+import 'desk_widgets.dart';
+import 'project_money.dart';
 import 'support_screen.dart';
 
 /// Business on the phone (docs/business.md): the owner's summary, leads with
@@ -17,19 +29,31 @@ class BusinessScreen extends StatefulWidget {
   const BusinessScreen({
     required this.controller,
     this.onOpenApprovals,
+    this.pipelineRepository,
     super.key,
   });
   final BusinessController controller;
   final VoidCallback? onOpenApprovals;
+  final BusinessPipelineRepository? pipelineRepository;
 
   @override
   State<BusinessScreen> createState() => _BusinessScreenState();
 }
 
-enum _Section { overview, leads, pipeline, proposals, projects, support }
+enum _Section {
+  overview,
+  leads,
+  pipeline,
+  proposals,
+  projects,
+  catalog,
+  accounts,
+  invoices,
+  clients,
+  support,
+}
 
-String money(double? amount, String currency) =>
-    amount == null ? '-' : '$currency ${amount.toStringAsFixed(2)}';
+String money(double? amount, String currency) => formatMoney(amount, currency);
 
 AnumTone stateTone(String state) => switch (state) {
       'won' => AnumTone.ok,
@@ -41,6 +65,15 @@ AnumTone stateTone(String state) => switch (state) {
 class _BusinessScreenState extends State<BusinessScreen> {
   _Section section = _Section.overview;
   final search = TextEditingController();
+
+  /// Prospecting and outreach (business_pipeline_screen.dart), over the same API client.
+  BusinessPipelineRepository? get _pipeline {
+    if (widget.pipelineRepository != null) return widget.pipelineRepository;
+    final repository = widget.controller.repository;
+    return repository is ApiBusinessRepository
+        ? ApiBusinessPipelineRepository(repository.api)
+        : null;
+  }
 
   @override
   void initState() {
@@ -68,6 +101,22 @@ class _BusinessScreenState extends State<BusinessScreen> {
         c.first(c.projects);
       case _Section.leads:
         if (c.leads.state == BusinessLoad.idle) c.first(c.leads);
+      case _Section.invoices:
+        final invoices = c.invoices;
+        if (invoices != null && invoices.state != BusinessLoad.ready) {
+          invoices.load();
+        }
+      case _Section.clients:
+        final invoices = c.invoices;
+        if (invoices != null && invoices.clients.state == BusinessLoad.idle) {
+          invoices.firstClients();
+        }
+      case _Section.catalog:
+        final catalog = c.catalog;
+        catalog?.load();
+      case _Section.accounts:
+        final accounts = c.accounts;
+        accounts?.load();
       case _Section.support:
         final support = c.support;
         if (support != null && support.state != BusinessLoad.ready) {
@@ -90,7 +139,11 @@ class _BusinessScreenState extends State<BusinessScreen> {
           body: AnumPage(
             onRefresh: c.load,
             children: [
-              AnumHeader(eyebrow: l.t('biz.subtitle'), title: l.t('biz.title')),
+              // The app bar already says "Business"; only the subtitle here.
+              Text(
+                l.t('biz.subtitle'),
+                style: TextStyle(color: context.palette.muted, fontSize: 13.5),
+              ),
               ...switch (c.setupState) {
                 BusinessLoad.idle || BusinessLoad.loading => [
                     AnumFeedback(
@@ -117,13 +170,38 @@ class _BusinessScreenState extends State<BusinessScreen> {
                       l.t('biz.sendingOff'),
                       style: TextStyle(color: context.palette.muted),
                     ),
+                    if (_pipeline != null)
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: OutlinedButton.icon(
+                          key: const Key('biz-open-pipeline'),
+                          icon: const Icon(Icons.travel_explore),
+                          label: Text(l.t('biz.openPipeline')),
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => BusinessPipelineScreen(
+                                repository: _pipeline!,
+                                canWrite: c.setup?.permissions.write ?? false,
+                                onOpenApprovals: widget.onOpenApprovals,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
                         for (final item in _Section.values.where(
-                          (item) =>
-                              item != _Section.support || c.support != null,
+                          (item) => switch (item) {
+                            _Section.support => c.support != null,
+                            _Section.invoices ||
+                            _Section.clients =>
+                              c.invoices != null,
+                            _Section.catalog => c.catalog != null,
+                            _Section.accounts => c.accounts != null,
+                            _ => true,
+                          },
                         ))
                           ChoiceChip(
                             key: Key('biz-tab-${item.name}'),
@@ -168,6 +246,18 @@ class _BusinessScreenState extends State<BusinessScreen> {
                       : '${item.probability!.toStringAsFixed(0)}%',
                 }),
                 icon: Icons.trending_up,
+                trailing:
+                    c.deals == null ? null : const Icon(Icons.chevron_right),
+                onTap: c.deals == null
+                    ? null
+                    : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => OpportunityScreen(
+                              controller: c,
+                              opportunity: item,
+                            ),
+                          ),
+                        ),
               );
             },
           ),
@@ -203,6 +293,8 @@ class _BusinessScreenState extends State<BusinessScreen> {
                       ),
                     ),
                     if (item.decisionNote.isNotEmpty) Text(item.decisionNote),
+                    if (item.portalDecision != null)
+                      PortalDecisionLine(decision: item.portalDecision!),
                     if (item.approvalState == 'pending') ...[
                       Text(l.t('biz.proposals.waiting')),
                       if (widget.onOpenApprovals != null)
@@ -226,6 +318,26 @@ class _BusinessScreenState extends State<BusinessScreen> {
             'biz.projects',
             (item) => _ProjectCard(project: item, controller: c),
           ),
+        _Section.invoices => [
+            InvoicesView(
+              controller: c.invoices!,
+              onOpenApprovals: widget.onOpenApprovals,
+            ),
+          ],
+        _Section.clients => [ClientsView(controller: c.invoices!)],
+        _Section.catalog => [
+            CatalogView(
+              controller: c.catalog!,
+              canManage: c.setup?.permissions.manage ?? false,
+            ),
+          ],
+        _Section.accounts => [
+            AccountsView(
+              controller: c.accounts!,
+              canWrite: c.setup?.permissions.write ?? false,
+              canManage: c.setup?.permissions.manage ?? false,
+            ),
+          ],
         _Section.support => [
             SupportTicketsView(
               controller: c.support!,
@@ -385,6 +497,20 @@ class _BusinessScreenState extends State<BusinessScreen> {
             ),
         ],
       ),
+      if (c.deals != null && (c.setup?.permissions.write ?? false))
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: TextButton.icon(
+            key: const Key('lead-new'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => LeadFormScreen(controller: c),
+              ),
+            ),
+            icon: const Icon(Icons.add),
+            label: Text(l.t('biz.deal.lead.new')),
+          ),
+        ),
       ..._list<BusinessLead>(
         context,
         c,
@@ -544,6 +670,25 @@ class _ProjectCard extends StatelessWidget {
                 ],
               ),
             ),
+          if (controller.money != null && controller.setup != null)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                key: Key('biz-project-money-${project.id}'),
+                icon: const Icon(Icons.request_quote_outlined),
+                label: Text(l.t('biz.money.open')),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ProjectMoneyScreen(
+                      repository: controller.money!,
+                      project: project,
+                      permissions: controller.setup!.permissions,
+                      onContractChanged: controller.refreshProjects,
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -628,6 +773,66 @@ class _LeadScreenState extends State<LeadScreen> {
     }
   }
 
+  Future<void> edit() async {
+    final next = await Navigator.of(context).push<LeadDetail>(
+      MaterialPageRoute(
+        builder: (_) => LeadFormScreen(
+          controller: widget.controller,
+          lead: detail!.lead,
+        ),
+      ),
+    );
+    if (next != null && mounted) setState(() => detail = next);
+  }
+
+  Future<void> openOpportunity() async {
+    final made = await Navigator.of(context).push<BusinessOpportunity>(
+      MaterialPageRoute(
+        builder: (_) => OpportunityFormScreen(
+          controller: widget.controller,
+          lead: detail!.lead,
+        ),
+      ),
+    );
+    if (made == null || !mounted) return;
+    await load();
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => OpportunityScreen(
+          controller: widget.controller,
+          opportunity: made,
+        ),
+      ),
+    );
+  }
+
+  Future<void> remove() async {
+    final l = context.anum;
+    final ok = await confirmDestructive(
+      context,
+      title: l.f('biz.deal.lead.deleteTitle', {'name': detail!.lead.title}),
+      message: l.t('biz.deal.lead.deleteText'),
+      action: l.t('biz.deal.lead.delete'),
+    );
+    if (!ok) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      await widget.controller.deleteLead(widget.leadId);
+      if (mounted) Navigator.of(context).pop();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() {
+          error = e.readable;
+          busy = false;
+        });
+      }
+    }
+  }
+
   Future<void> record() async {
     final text = note.text.trim();
     if (text.length < 2) return;
@@ -657,6 +862,7 @@ class _LeadScreenState extends State<LeadScreen> {
     final l = context.anum;
     final d = detail;
     final write = widget.controller.setup?.permissions.write ?? false;
+    final manage = widget.controller.setup?.permissions.manage ?? false;
     return Scaffold(
       appBar: AppBar(title: Text(d?.lead.accountName ?? l.t('biz.title'))),
       body: AnumPage(
@@ -701,6 +907,36 @@ class _LeadScreenState extends State<LeadScreen> {
                       child: Text(
                         l.f('biz.lead.move', {'state': l.t('biz.state.$to')}),
                       ),
+                    ),
+                ],
+              ),
+            if (widget.controller.deals != null && (write || manage))
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (write)
+                    OutlinedButton.icon(
+                      key: const Key('lead-edit'),
+                      onPressed: busy ? null : edit,
+                      icon: const Icon(Icons.edit_outlined),
+                      label: Text(l.t('biz.form.edit')),
+                    ),
+                  if (write &&
+                      d.opportunityId == null &&
+                      opportunityReadyStates.contains(d.lead.state))
+                    OutlinedButton.icon(
+                      key: const Key('lead-open-opportunity'),
+                      onPressed: busy ? null : openOpportunity,
+                      icon: const Icon(Icons.trending_up),
+                      label: Text(l.t('biz.deal.opp.new')),
+                    ),
+                  if (manage)
+                    OutlinedButton.icon(
+                      key: const Key('lead-delete'),
+                      onPressed: busy ? null : remove,
+                      icon: const Icon(Icons.delete_outline),
+                      label: Text(l.t('biz.deal.lead.delete')),
                     ),
                 ],
               ),

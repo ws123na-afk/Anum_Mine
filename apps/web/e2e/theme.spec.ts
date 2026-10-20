@@ -9,8 +9,8 @@ test('dark is the default and the page never starts white', async ({ page }) => 
   await mockWorkspaceApi(page);
   await page.goto('/#tasks');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#070b1a');
-  expect(await background(page)).toBe('rgb(7, 11, 26)');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#0b0d12');
+  expect(await background(page)).toBe('rgb(11, 13, 18)');
 });
 
 test('Settings > Appearance switches to Light at once, keeps it after a reload, and goes back to Dark', async ({ page }) => {
@@ -21,12 +21,12 @@ test('Settings > Appearance switches to Light at once, keeps it after a reload, 
   await light.check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await expect(page.getByRole('status').filter({ hasText: 'Showing the light theme.' })).toBeVisible();
-  expect(await background(page)).toBe('rgb(244, 246, 251)');
+  expect(await background(page)).toBe('rgb(247, 248, 250)');
   expect(await page.evaluate(() => localStorage.getItem('anum.theme'))).toBe('light');
 
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f4f6fb');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f7f8fa');
   await expect(page.getByRole('radio', { name: /^Light/ })).toBeChecked();
 
   await page.getByRole('radio', { name: /^Dark/ }).check();

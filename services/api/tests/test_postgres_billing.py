@@ -1,4 +1,4 @@
-"""Customer billing in PostgreSQL (migration ``0085_customer_billing``), as the non-owner app role.
+"""Customer billing in PostgreSQL (migration ``0090_customer_billing``), as the non-owner app role.
 
 Every billing table is under forced RLS on ``anum.tenant_id``: another organisation reads
 nothing and cannot write into this one. The narrow roles see only what they must:

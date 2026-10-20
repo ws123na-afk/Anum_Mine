@@ -3,18 +3,21 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import 'privacy_models.dart';
 import 'privacy_repository.dart';
+import 'privacy_strings.dart';
 
 enum PrivacyPhase { loading, ready, permissionDenied, offline, error }
 
-const privacyPermissionMessage =
-    'Only active members of this workspace can see or change their data here. '
-    'Ask a workspace owner to restore your membership, or switch to a workspace you belong to.';
+final privacyPermissionMessage = PrivacyStrings.english.t('permission');
 
 /// Settings -> Privacy: the summary plus "Download my data" and "Delete my
 /// data" (the in-app deletion path the app stores require).
 class PrivacyController extends ChangeNotifier {
   PrivacyController(this.repository);
   final PrivacyRepository repository;
+
+  /// The language of the sentences this controller writes; the screen sets
+  /// it from the app's locale.
+  PrivacyStrings strings = PrivacyStrings.english;
 
   PrivacyPhase phase = PrivacyPhase.loading;
   PrivacySummary? summary;
@@ -30,7 +33,7 @@ class PrivacyController extends ChangeNotifier {
       summary = await repository.summary();
       phase = PrivacyPhase.ready;
     } on Object catch (error) {
-      loadError = describe(error, 'load');
+      loadError = describe(error, 'load', strings);
       phase = error is ApiException && error.isPermissionDenied
           ? PrivacyPhase.permissionDenied
           : _offline(error)
@@ -48,11 +51,11 @@ class PrivacyController extends ChangeNotifier {
       final bytes = await repository.exportMyData();
       exportFailed = false;
       exportMessage = bytes == null
-          ? 'Download cancelled. Nothing was saved.'
-          : 'Saved your data (${formatBytes(bytes)}).';
+          ? strings.t('export.cancelled')
+          : strings.t('export.saved', {'size': formatBytes(bytes)});
     } on Object catch (error) {
       exportFailed = true;
-      exportMessage = describe(error, 'export');
+      exportMessage = describe(error, 'export', strings);
     }
     exporting = false;
     notifyListeners();
@@ -67,13 +70,14 @@ class PrivacyController extends ChangeNotifier {
     try {
       final result = await repository.deleteMyData(typed);
       deleteFailed = false;
-      deleteMessage = '${result.sentence} ${result.accountNote}'.trim();
+      deleteMessage =
+          '${result.sentenceIn(strings)} ${result.accountNote}'.trim();
       ok = true;
       summary = await repository.summary();
     } on Object catch (error) {
       if (!ok) {
         deleteFailed = true;
-        deleteMessage = describe(error, 'delete');
+        deleteMessage = describe(error, 'delete', strings);
       }
     }
     deleting = false;
@@ -86,30 +90,25 @@ class PrivacyController extends ChangeNotifier {
     return text.contains('socket') || text.contains('network');
   }
 
-  /// What failed and how to fix it.
-  static String describe(Object error, String action) {
+  /// What failed and how to fix it, in [s]'s language.
+  static String describe(Object error, String action,
+      [PrivacyStrings s = PrivacyStrings.english]) {
     if (error is ApiException) {
-      if (error.isPermissionDenied) return privacyPermissionMessage;
-      if (error.statusCode == 401) {
-        return 'Your sign-in expired. Sign in again, then retry.';
-      }
+      if (error.isPermissionDenied) return s.t('permission');
+      if (error.statusCode == 401) return s.t('error.signIn');
       if (error.statusCode == 413 ||
           (error.statusCode == 422 && action == 'delete')) {
         return error.message;
       }
     }
-    if (_offline(error)) {
-      return 'You are offline. Reconnect, then try again.';
-    }
-    final what = switch (action) {
-      'load' => 'Could not load your privacy summary',
-      'export' => 'Could not prepare your download',
-      _ => 'Could not delete your data',
-    };
+    if (_offline(error)) return s.t('error.offline');
+    final what = s.t(switch (action) {
+      'load' => 'error.load',
+      'export' => 'error.export',
+      _ => 'error.delete',
+    });
     final reason = error is ApiException ? error.message : error.toString();
-    final fix = action == 'delete'
-        ? 'Reload to see what is still stored, then try again.'
-        : 'Check your connection and try again.';
-    return '$what: $reason. $fix';
+    final fix = s.t(action == 'delete' ? 'error.fixDelete' : 'error.fixOther');
+    return s.t('error.generic', {'what': what, 'reason': reason, 'fix': fix});
   }
 }

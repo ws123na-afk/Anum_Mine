@@ -25,9 +25,10 @@ owner confirms the price and activates the version in the Business catalog. When
 the product already has a draft, it is updated; when its active version already
 matches, nothing happens; otherwise a new draft version is added.
 
-The ``target_profile`` block of each entry is never sent: the API has no fields
-for it yet (the Harvey branch adds them). It is printed in the plan so the owner
-can see it.
+The ``target_profile`` block of each entry becomes the product's target customer profile
+(``PUT /api/v1/business/pipeline/products/{id}/target``): ``buyer_roles`` go to ``roles``,
+the free-text ``company_size`` is mapped to the API's size bands and kept word for word in
+``company_size_note``, and "-" means unknown (left empty). It is compared before it is sent.
 """
 
 from __future__ import annotations
@@ -141,6 +142,65 @@ def offer_payload(entry: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+SIZE_BANDS = (("micro", 10), ("small", 50), ("medium", 250), ("large", 1000), ("enterprise", 10**9))
+SIZE_WORDS = {"micro": "micro", "small": "small", "sme": "small", "medium": "medium", "mid-size": "medium", "large": "large", "enterprise": "enterprise"}
+TARGET_FIELDS = ("industries", "company_sizes", "regions", "roles", "keywords", "disqualifiers", "trigger_events", "company_size_note",
+                 "value_proposition", "value_proposition_ar")
+
+
+def _known(values: list[str] | None, limit: int = 120) -> list[str]:
+    """A list without the "-" placeholders the data file uses for "unknown"."""
+    return [value for value in clean_list(values or [], limit) if value != "-"]
+
+
+def company_sizes(text: str) -> list[str]:
+    """Free-text company size to the API's bands (micro <10, small <50, medium <250, large <1000,
+    enterprise). Numbers decide ("5 to 50 staff" is micro and small, "50 or more" is medium and up);
+    without numbers, size words do; unknown stays empty. The original text is kept as a note."""
+    lowered = text.lower()
+    numbers = [int(value) for value in re.findall(r"\d+", lowered.replace(",", ""))]
+    if numbers:
+        low, high = min(numbers), max(numbers)
+        if len(numbers) == 1 and re.search(r"\+|or more|and more|over|above|at least", lowered):
+            high = 10**9
+        elif len(numbers) == 1:
+            high = low
+        found = []
+        start = 0
+        for name, upper in SIZE_BANDS:
+            if low < upper and high >= start:
+                found.append(name)
+            start = upper
+        return found
+    return list(dict.fromkeys(name for word, name in SIZE_WORDS.items() if re.search(rf"\b{re.escape(word)}s?\b", lowered)))
+
+
+def target_payload(entry: dict[str, Any]) -> dict[str, Any] | None:
+    """Body for PUT /pipeline/products/{id}/target from the entry's ``target_profile``, or None."""
+    source = entry.get(PENDING_BLOCK)
+    if not source:
+        return None
+    size_text = " ".join(str(source.get("company_size", "")).split())
+    size_text = "" if size_text == "-" else size_text
+    product = entry.get("product", {})
+    return {
+        "industries": _known(source.get("industries")),
+        "company_sizes": company_sizes(size_text),
+        "regions": _known(source.get("regions")),
+        "roles": _known(source.get("buyer_roles")),
+        "keywords": _known(source.get("keywords")),
+        "disqualifiers": _known(source.get("disqualifiers")),
+        "trigger_events": _known(source.get("trigger_events"), 300),
+        "company_size_note": size_text[:300],
+        "value_proposition": " ".join(str(source.get("value_proposition") or product.get("summary", "")).split())[:1000],
+        "value_proposition_ar": " ".join(str(source.get("value_proposition_ar", "")).split())[:1000],
+    }
+
+
+def target_matches(existing: dict[str, Any] | None, desired: dict[str, Any]) -> bool:
+    return bool(existing and existing.get("saved")) and all(existing.get(name) == desired[name] for name in TARGET_FIELDS)  # type: ignore[union-attr]
+
+
 def offer_matches(existing: dict[str, Any], desired: dict[str, Any]) -> bool:
     current = {
         "currency": existing.get("currency"),
@@ -203,26 +263,38 @@ def seed(entries: list[dict[str, Any]], transport: Transport, *, apply: bool) ->
     """Plan (and with ``apply`` perform) the writes that bring the catalog to ``entries``."""
     report = Report()
     products = list_products(transport)
+    targets = {item["product_id"]: item for item in (transport("GET", f"{BASE}/pipeline/targets", None) or [])}
 
     def write(step: Step) -> Any:
         report.steps.append(step)
         return transport(step.method, step.path, step.body) if apply else None
 
+    def target(slug: str, product_id: str, desired: dict[str, Any] | None) -> None:
+        if desired is None:
+            return
+        if target_matches(targets.get(product_id), desired):
+            report.steps.append(Step(slug, "target profile up to date"))
+        else:
+            write(Step(slug, "set target profile", "PUT", f"{BASE}/pipeline/products/{product_id}/target", desired))
+
     for entry in entries:
         slug = entry["slug"]
         desired_product = product_payload(entry)
         desired_offer = offer_payload(entry)
+        desired_target = target_payload(entry)
         existing = match_product(entry, products)
 
         if existing is None:
             detail = write(Step(slug, "create product", "POST", f"{BASE}/products", desired_product))
+            product_id = detail["id"] if detail else "<new product id>"
+            target(slug, product_id, desired_target)
             if desired_offer is None:
                 continue
-            product_id = detail["id"] if detail else "<new product id>"
             write(Step(slug, "add draft offer", "POST", f"{BASE}/products/{product_id}/versions", desired_offer))
             continue
 
         product_id = existing["id"]
+        target(slug, product_id, desired_target)
         if existing.get("kind") != desired_product["kind"]:
             report.steps.append(Step(slug, f"kind is {existing.get('kind')}, wanted {desired_product['kind']}: the API cannot change it, left as is"))
         changes = product_changes(existing, desired_product)
@@ -291,14 +363,9 @@ def print_offline(entries: list[dict[str, Any]]) -> None:
         print("POST /products " + json.dumps(product_payload(entry), ensure_ascii=False, indent=2))
         offer = offer_payload(entry)
         print("POST /products/{id}/versions " + (json.dumps(offer, ensure_ascii=False, indent=2) if offer else "(no offer)"))
-        print_pending(entry)
+        profile = target_payload(entry)
+        print("PUT /pipeline/products/{id}/target " + (json.dumps(profile, ensure_ascii=False, indent=2) if profile else "(no target profile)"))
         print()
-
-
-def print_pending(entry: dict[str, Any]) -> None:
-    pending = entry.get(PENDING_BLOCK)
-    if pending:
-        print(f"{PENDING_BLOCK} (NOT SENT, the API has no fields for it yet): " + json.dumps(pending, ensure_ascii=False))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -324,8 +391,6 @@ def main(argv: list[str] | None = None) -> int:
     print("Applied:" if args.apply else "Dry run (use --apply to write):")
     for step in report.steps:
         print("  " + step.describe())
-    for entry in entries:
-        print_pending(entry)
     print(f"{len(report.writes)} write(s) {'made' if args.apply else 'planned'}. Offers stay drafts: confirm the price and activate them in Business > Catalog.")
     return 0
 

@@ -21,6 +21,9 @@ State at handoff: every PR from the 18 October session is merged into `main` (#1
 7. **Audit leftovers** (`docs/business/P0_CI_REMEDIATION.md`): staging smoke test, migration dry run and restore drill on the VM; turn on branch protection.
 8. **Finance** (`docs/finance-trading-readiness.md`): choose market-data providers; live trading stays off.
 9. **Codex review limit** is used up; reviews resume when the owner adds credits.
+10. **Organisation export and deletion** (`docs/organisation-lifecycle.md`, migration `0079_tenant_lifecycle`): the new NOLOGIN role `anum_tenant_purger` must exist before that migration runs. The Oracle update does it (`db-init` runs `bootstrap-database.sql` first); on Render or Kubernetes re-run `infra/helm/bootstrap-database.sql` as the database admin before deploying.
+
+11. **Invitation and notification email** (`docs/notifications.md#email`, `docs/identity.md#invitation-email`): invitations and every Email switch send through ANUM's system mail. Fill `ANUM_SMTP_HOST`, `ANUM_SMTP_PORT`, `ANUM_SMTP_USERNAME`, `ANUM_SMTP_FROM` in `infra/oracle/.env` and put the mailbox's app password in `ANUM_SMTP_PASSWORD` (typed on the VM with `read -s`, never in chat), then `docker compose up -d api` and press **Send me a test email** in Settings, Notifications. Until then the invite form says ANUM cannot email and the owner copies the link.
 
 ## Build work still open (with reasons)
 
@@ -29,6 +32,6 @@ State at handoff: every PR from the 18 October session is merged into `main` (#1
 - **Brevo:** untested against a real Brevo account; no planner skill turns plain words ("send the winter newsletter") into the Brevo tools; webhooks, contacts and templates out of scope.
 - **Email:** more than 1000 new messages between two background checks are not forwarded (the rule reports it).
 - **Finance:** market-data fetch waits on the provider decision.
-- **Business (roadmap P2 and later):** human-approved sending, change orders, invoices, support tickets, customer portal; per-agent cost caps and a general agent kill switch (gap register `docs/business/ANUM_BUSINESS_GAP_REGISTER.md`).
+- **Business (roadmap P3 and later):** human-approved sending of outbound messages, online payment and credit notes for invoices, customers replying inside a portal request, a customer one-time code sign-in; per-agent cost caps and a general agent kill switch (gap register `docs/business/ANUM_BUSINESS_GAP_REGISTER.md`).
 - **Email domains page in ANUM** (adding Mailcow domains from ANUM with approvals) was offered, not started.
 - **"All inboxes" view**: built (docs/email.md#all-inboxes); each inbox is read live per page with an 8 second timeout; a slow one is left out of that page and flagged.

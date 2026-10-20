@@ -21,7 +21,6 @@ import { formatDateTime, t } from './lib/i18n';
 import { Drawer } from './Dialog';
 import './admin.css';
 import './audit.css';
-import { HelpLink } from './HelpLink';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
 
@@ -172,7 +171,7 @@ export function AuditLogView({ onOpenMembers }: { onOpenMembers?: () => void }) 
       </div>
       {!records.length && (filtered
         ? <div className="emptyState"><Search aria-hidden="true" /><h3>{t('audit.noMatchTitle')}</h3><p>{t('audit.noMatchText')}</p><button type="button" className="secondary" onClick={reset}>{t('audit.resetFilters')}</button></div>
-        : <div className="emptyState"><ScrollText aria-hidden="true" /><h3>{t('audit.emptyTitle')}</h3><p>{t('audit.emptyText')}</p><HelpLink />{onOpenMembers && <button type="button" className="secondary" onClick={onOpenMembers}>{t('audit.manageMembers')}</button>}</div>)}
+        : <div className="emptyState"><ScrollText aria-hidden="true" /><h3>{t('audit.emptyTitle')}</h3><p>{t('audit.emptyText')}</p>{onOpenMembers && <button type="button" className="secondary" onClick={onOpenMembers}>{t('audit.manageMembers')}</button>}</div>)}
       {records.length > 0 && <div className="auditTable" role="table" aria-label={t('audit.table')} aria-rowcount={records.length + 1}>
         <div className="auditRow auditHead" role="row">
           <span role="columnheader">{t('audit.when')}</span><span role="columnheader">{t('audit.actor')}</span><span role="columnheader">{t('audit.action')}</span><span role="columnheader">{t('audit.target')}</span><span role="columnheader">{t('audit.outcome')}</span>

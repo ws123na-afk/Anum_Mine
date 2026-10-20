@@ -7,7 +7,8 @@ const now = () => new Date().toISOString();
 const later = new Date(Date.now() + 2 * 86_400_000).toISOString();
 const earlier = new Date(Date.now() - 3 * 3_600_000).toISOString();
 
-export interface TeamMockOptions { mailHealthFails?: boolean; mailcow?: 'off' | 'ok'; denyEdit?: boolean; emptyWork?: boolean; denyOrganisations?: boolean; denyAssistants?: boolean; denyAssistantChanges?: boolean }
+// Mail domains (docs/email.md#mail-domains): 'ok' is Mailcow with changes on, 'readOnly' with changes off, 'fails' a 503.
+export interface TeamMockOptions { mailDomains?: 'ok' | 'readOnly' | 'fails'; mailHealthFails?: boolean; mailcow?: 'off' | 'ok'; denyEdit?: boolean; emptyWork?: boolean; denyOrganisations?: boolean; denyAssistants?: boolean; denyAssistantChanges?: boolean; deletedOrgs?: 'empty' | 'fail' }
 
 type Item = Record<string, unknown> & { id: string; title: string; status: string; version: number; comments: Record<string, unknown>[]; checklist: Record<string, unknown>[]; attachments: Record<string, unknown>[] };
 
@@ -20,8 +21,15 @@ export function createTeamMock(options: TeamMockOptions = {}) {
   const assistants: Record<string, unknown>[] = [{ id: 'asst_sales', department: 'sales', name: 'Sales assistant', instructions: 'Draft quotes.', allowed_tools: ['anum.respond', 'team.assign_task'], routing_keywords: ['price', 'quote'], inbound_channels: ['whatsapp'], autonomy: 'suggest', enabled: true, created_by: 'user_local', created_at: now(), updated_at: now() }];
   const templates = ['sales', 'support', 'operations', 'finance', 'tyre_engineering'].map((department) => ({ department, name: `${department} assistant`, instructions: 'Help.', allowed_tools: ['anum.respond'], routing_keywords: [department], autonomy: department === 'tyre_engineering' ? 'observe' : 'suggest' }));
   const name = (type: string | null, id: string | null) => !type || !id ? null : type === 'anum' ? 'ANUM' : type === 'assistant' ? String(assistants.find((a) => a.id === id)?.name ?? id) : people.find((p) => p.user_id === id)?.display_name ?? id;
+  type MockDomain = { domain: string; in_mailcow: boolean; active: boolean; allowed: boolean; mailboxes: number; max_mailboxes: number | null; quota_used_percent: number | null; aliases: { id: string; address: string; goto: string[]; active: boolean }[] };
+  const mailDomains: MockDomain[] = [
+    { domain: 'anum360os.com', in_mailcow: true, active: true, allowed: true, mailboxes: 3, max_mailboxes: 10, quota_used_percent: 12.5, aliases: [{ id: 'alias_1', address: 'sales@anum360os.com', goto: ['omar@anum360os.com'], active: true }] },
+    { domain: 'easyvoicequote.com', in_mailcow: false, active: false, allowed: true, mailboxes: 0, max_mailboxes: null, quota_used_percent: null, aliases: [] },
+    { domain: 'legacy-shop.example', in_mailcow: true, active: true, allowed: false, mailboxes: 1, max_mailboxes: 5, quota_used_percent: null, aliases: [] },
+  ];
+  const domainChanges: { approval: Record<string, unknown> & { id: string; task_id: string }; operation: string; domain: string; address: string | null; goto: string[] }[] = [];
   let seq = 0;
-  const item = (patch: Partial<Item> & { title: string }): Item => {
+  const item =(patch: Partial<Item> & { title: string }): Item => {
     seq += 1;
     return {
       id: `work_${seq}`, tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', description: '', status: 'todo', priority: 'normal',
@@ -123,6 +131,15 @@ export function createTeamMock(options: TeamMockOptions = {}) {
       if (options.denyOrganisations) return json({ error: { code: 'forbidden', message: 'Platform operator role required: onboarding customer organisations and the platform console are for the person who runs this ANUM deployment.' } }, 403);
       return json(orgs);
     }
+    if (path === '/api/v1/platform/organizations/deleted' && method === 'GET') {
+      if (options.denyOrganisations) return json({ error: { code: 'forbidden', message: 'Platform operator role required.' } }, 403);
+      if (options.deletedOrgs === 'fail') return json({ error: { code: 'service_unavailable', message: 'The database did not answer.' } }, 503);
+      if (options.deletedOrgs === 'empty') return json([]);
+      return json([
+        { tenant_id: 'old_traders', display_name: 'Old Traders', plan: 'trial', requested_by: 'admin_old', requested_at: earlier, purge_started_at: earlier, deleted_at: now(), status: 'deleted', row_count: 52, file_count: 2, counts: { tasks: 40, work_items: 12 }, identity_cleanup: { status: 'removed', removed: 3, detached: 1, finished_at: now() } },
+        { tenant_id: 'leaving_co', display_name: 'Leaving Co', plan: 'standard', requested_by: 'admin_leave', requested_at: earlier, purge_started_at: now(), deleted_at: null, status: 'purging', row_count: 0, file_count: 0, counts: {}, identity_cleanup: { status: 'pending', removed: 0, detached: 0, finished_at: null } },
+      ]);
+    }
     if (path === '/api/v1/platform/mail/health' && method === 'GET') {
       if (options.denyOrganisations) return json({ error: { code: 'forbidden', message: 'Platform operator role required.' } }, 403);
       if (options.mailHealthFails) return json({ error: { code: 'service_unavailable', message: 'The database did not answer.' } }, 503);
@@ -138,6 +155,68 @@ export function createTeamMock(options: TeamMockOptions = {}) {
         ? { state: 'ok', message: null, version: '2026-09', containers_total: 18, containers_not_running: ['sogo-mailcow'], queue_messages: 4, domains: [{ domain: 'anum360os.com', active: true, mailboxes: 3, max_mailboxes: 10, quota_used_percent: 12.5 }] }
         : { state: 'off', message: null, version: null, containers_total: null, containers_not_running: [], queue_messages: null, domains: [] };
       return json({ server: { enabled: true, configured: true, imap_host: 'mail.anum360os.com', smtp_host: 'mail.anum360os.com', allowed_tenants: 1, send_per_hour: 30, connect_attempts_per_hour: 5 }, mailcow });
+    }
+    if (path === '/api/v1/platform/mail/domains' && method === 'GET') {
+      if (options.denyOrganisations) return json({ error: { code: 'forbidden', message: 'Platform operator role required.' } }, 403);
+      if (options.mailDomains === 'fails') return json({ error: { code: 'service_unavailable', message: 'The database did not answer.' } }, 503);
+      if (!options.mailDomains) {
+        return json({ mailcow_state: 'off', message: null, can_change: false, change_note: 'The Mailcow API is off. Set ANUM_MAILCOW_API_ENABLED=true on the API.', mail_host: 'mail.anum360os.com', allowed_domains: ['anum360os.com'],
+          domains: [{ domain: 'anum360os.com', in_mailcow: false, active: false, allowed: true, mailboxes: 0, max_mailboxes: null, quota_used_percent: null, aliases: [] }], pending: [] });
+      }
+      const writable = options.mailDomains === 'ok';
+      return json({ mailcow_state: 'ok', message: null, can_change: writable, change_note: writable ? null : 'Changes are off. Set ANUM_MAILCOW_WRITE_ENABLED=true and ANUM_MAILCOW_API_WRITE_KEY (a read-write key) on the API.',
+        mail_host: 'mail.anum360os.com', allowed_domains: mailDomains.filter((d) => d.allowed).map((d) => d.domain), domains: mailDomains, pending: domainChanges });
+    }
+    const dnsMatch = /^\/api\/v1\/platform\/mail\/domains\/([^/]+)\/dns$/.exec(path);
+    if (dnsMatch && method === 'GET') {
+      const domain = decodeURIComponent(dnsMatch[1]);
+      const risky = domain === 'easyvoicequote.com';
+      const check = (status: string, code: string, message: string, found: string[] = [], params: Record<string, string> = {}) => ({ status, code, params, message, found });
+      return json({
+        domain, checked_at: now(), mail_host: 'mail.anum360os.com',
+        mx: check('ok', 'mx_ok', 'MX points to mail.anum360os.com.', ['10 mail.anum360os.com'], { host: 'mail.anum360os.com' }),
+        spf: risky ? check('danger', 'spf_dangerous_all', "Dangerous: '+all' lets any server on the internet send as this domain. Replace it with '~all' or '-all'.", ['v=spf1 +all']) : check('ok', 'spf_ok', "One SPF record that ends with a safe 'all'.", ['v=spf1 mx ~all']),
+        dkim: risky ? check('missing', 'dkim_missing', 'No DKIM record at dkim._domainkey: receivers cannot verify signed mail.', [], { name: 'dkim._domainkey' }) : check('ok', 'dkim_ok', "The DKIM key in DNS matches Mailcow's key.", ['v=DKIM1;k=rsa;p=examplepublickey']),
+        dmarc: check('warning', 'dmarc_none', "DMARC policy 'none' only reports. Move to 'quarantine' once the reports show only your servers.", ['v=DMARC1; p=none']),
+        records: [
+          { kind: 'mx', type: 'MX', name: domain, value: '10 mail.anum360os.com.', note: null, note_code: null },
+          { kind: 'spf', type: 'TXT', name: domain, value: 'v=spf1 mx ~all', note: "One SPF record only. Never '+all'.", note_code: 'record_spf_one' },
+          { kind: 'dkim', type: 'TXT', name: `dkim._domainkey.${domain}`, value: 'v=DKIM1;k=rsa;t=s;s=email;p=examplepublickey', note: null, note_code: null },
+          { kind: 'dmarc', type: 'TXT', name: `_dmarc.${domain}`, value: `v=DMARC1; p=none; rua=mailto:postmaster@${domain}`, note: 'Start with p=none.', note_code: 'record_dmarc_start' },
+        ],
+      });
+    }
+    if (path === '/api/v1/platform/mail/domains/changes' && method === 'POST') {
+      const b = body() as { operation: string; domain?: string; address?: string; goto?: string[]; alias_id?: string };
+      const domain = b.domain ?? String(b.address ?? '').split('@')[1] ?? '';
+      const args = { operation: b.operation, domain, ...(b.address ? { address: b.address } : {}), ...(b.goto ? { goto: b.goto } : {}), ...(b.alias_id ? { alias_id: b.alias_id } : {}), requested_by: 'user_local' };
+      const approval = {
+        id: `approval_dom_${domainChanges.length + 1}`, task_id: `task_dom_${domainChanges.length + 1}`, action: 'change_mail_domains', risk_level: 'high', status: 'pending',
+        reason: 'High risk: always asked.', created_at: now(), run_id: 'run_dom', step_id: 'step_dom', arguments: args, payload_hash: 'cd'.repeat(32), expires_at: later,
+        decided_at: null, decided_by: null, required_approvals: 1, approvers: [],
+      };
+      domainChanges.push({ approval, operation: b.operation, domain, address: b.address ?? null, goto: b.goto ?? [] });
+      return json({ status: 'waiting_approval', summary: 'Waiting for approval.', approval });
+    }
+    const withdrawMatch = /^\/api\/v1\/platform\/mail\/domains\/changes\/([^/]+)$/.exec(path);
+    if (withdrawMatch && method === 'DELETE') {
+      const at = domainChanges.findIndex((c) => c.approval.id === withdrawMatch[1]);
+      if (at < 0) return json({ error: { code: 'not_found', message: 'Change not found.' } }, 404);
+      domainChanges.splice(at, 1);
+      await route.fulfill({ status: 204 });
+      return true;
+    }
+    const approveMatch = /^\/api\/v1\/approvals\/(approval_dom_\d+)\/approve$/.exec(path);
+    if (approveMatch && method === 'POST') {
+      const at = domainChanges.findIndex((c) => c.approval.id === approveMatch[1]);
+      if (at < 0) return json({ error: { code: 'not_found', message: 'Approval not found' } }, 404);
+      const [change] = domainChanges.splice(at, 1);
+      const target = mailDomains.find((d) => d.domain === change.domain);
+      if (change.operation === 'add_domain' && target) target.in_mailcow = true;
+      if (change.operation === 'add_alias' && target) target.aliases.push({ id: `alias_${target.aliases.length + 10}`, address: String(change.address), goto: change.goto, active: true });
+      if (change.operation === 'remove_alias' && target) target.aliases = target.aliases.filter((a) => a.address !== change.address);
+      const task = { id: change.approval.task_id, title: 'Mail domain change', prompt: '', status: 'completed', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', created_at: now(), updated_at: now() };
+      return json({ task, run: { id: 'run_dom', task_id: task.id, status: 'completed', result: 'Done.', created_at: now(), updated_at: now(), steps: [] }, approval: { ...change.approval, status: 'approved', decided_at: now(), decided_by: 'user_local' } });
     }
     if (path === '/api/v1/platform/organizations' && method === 'POST') {
       const b = body();

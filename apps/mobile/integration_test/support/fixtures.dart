@@ -174,6 +174,7 @@ class WorkspaceState {
     api.get('/api/v1/tasks/{id}/runs',
         (_) => FakeResponse.json([Fx.run(approved ? 'completed' : 'paused')]));
     api.get('/api/v1/approvals', (_) => FakeResponse.json([approval]));
+    seedApprovalPages(api, () => [approval]);
     api.post('/api/v1/approvals/{id}/approve', (r) {
       final hash = r.body['payload_hash'];
       if (hash is! String || !RegExp(r'^[0-9a-f]{64}$').hasMatch(hash)) {
@@ -212,6 +213,33 @@ class WorkspaceState {
 
 /// The answers every journey needs: signing in, the first workspace load
 /// and the shared lists behind Home. Journeys add their own routes on top.
+/// The paged approval routes (`/api/v1/approvals/page` and `/summary`) over
+/// [approvals], read when answered so a decision shows in the next page.
+void seedApprovalPages(FakeAnumApi api, List<Object?> Function() approvals) {
+  bool pending(Object? a) => (a as Map)['status'] == 'pending';
+  api.get('/api/v1/approvals/page', (r) {
+    final status = r.uri.queryParameters['status'] ?? 'all';
+    final rows = approvals()
+        .where((a) => status == 'pending'
+            ? pending(a)
+            : status == 'decided'
+                ? !pending(a)
+                : true)
+        .toList();
+    return FakeResponse.json({'items': rows, 'next_cursor': null});
+  });
+  api.get('/api/v1/approvals/summary', (_) {
+    int count(String s) =>
+        approvals().where((a) => (a as Map)['status'] == s).length;
+    return FakeResponse.json({
+      'pending': count('pending'),
+      'approved': count('approved'),
+      'rejected': count('rejected'),
+      'expired': count('expired'),
+    });
+  });
+}
+
 void seedBaseline(FakeAnumApi api) {
   api.post('/api/v1/auth/local/session',
       (_) => FakeResponse.json(Fx.session(), status: 201));
@@ -245,6 +273,7 @@ void seedBaseline(FakeAnumApi api) {
   ]) {
     api.get(path, (_) => const FakeResponse.json(<Object?>[]));
   }
+  seedApprovalPages(api, () => const []);
   api.get(
       '/api/v1/tasks/summary',
       (_) => const FakeResponse.json({

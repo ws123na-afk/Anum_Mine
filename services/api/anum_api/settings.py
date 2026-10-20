@@ -164,6 +164,25 @@ class Settings(BaseSettings):
     # larger export is refused with 413 rather than truncated.
     privacy_policy_url: str = Field(default="", max_length=2048, pattern=r"^(|https?://\S+)$")
     privacy_export_max_bytes: int = Field(default=25 * 1024 * 1024, ge=64 * 1024, le=512 * 1024 * 1024)
+    # Organisation export and deletion (docs/organisation-lifecycle.md): the background
+    # runner, the cooling-off period before a purge, the signed download link, how long a
+    # finished archive is kept, its largest size and the batch sizes of each short
+    # transaction.
+    tenant_lifecycle_enabled: bool = True
+    tenant_lifecycle_poll_seconds: float = Field(default=30.0, gt=0)
+    tenant_deletion_cooling_off_hours: int = Field(default=168, ge=1, le=2160)
+    tenant_export_link_ttl_seconds: int = Field(default=900, ge=60, le=86400)
+    tenant_export_retention_hours: int = Field(default=168, ge=1, le=2160)
+    tenant_export_max_bytes: int = Field(default=512 * 1024 * 1024, ge=1024 * 1024, le=4 * 1024 * 1024 * 1024)
+    tenant_export_batch_rows: int = Field(default=500, ge=10, le=10000)
+    tenant_purge_batch_rows: int = Field(default=1000, ge=10, le=50000)
+    # Removing a deleted organisation's Keycloak accounts (anum_api/keycloak_admin.py): a
+    # confidential service-account client with realm-management view-users and
+    # manage-users only. All three unset: off, and the operator removes the accounts.
+    keycloak_admin_url: str | None = Field(default=None, pattern=r"^https?://\S+$")
+    keycloak_admin_realm: str = Field(default="anum", pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    keycloak_admin_client_id: str | None = Field(default=None, max_length=200)
+    keycloak_admin_client_secret: SecretStr | None = None
     # Sign-in options the clients offer before anyone is signed in
     # (GET /api/v1/auth/sign-in-options, docs/identity.md#google-and-apple-sign-in):
     # the Keycloak identity providers configured in realm anum ("google", "apple",
@@ -315,6 +334,15 @@ class Settings(BaseSettings):
     smtp_password: SecretStr | None = None
     smtp_from: str | None = None
     smtp_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
+    # System email sent at once (invitations, notification email, the test message;
+    # docs/notifications.md#email): a transient failure (unreachable server, 4xx) is tried
+    # again after this many seconds, doubling each time, up to three attempts.
+    smtp_retry_backoff_seconds: float = Field(default=1.0, ge=0, le=30)
+    # The web app's public address (for example https://anum-app.example.com), used for the
+    # accept link in invitation emails. Empty: the link uses the address the inviting
+    # browser was on when that origin is in ANUM_CORS_ORIGINS, else the email carries the
+    # token and says where to paste it (docs/identity.md#invitation-email).
+    public_app_url: str = Field(default="", max_length=2048, pattern=r"^(|https?://\S+)$")
     # HTTP hardening (anum_api/hardening.py, docs/security.md). Uploads to
     # /api/v1/files get max_upload_body_bytes; every other request gets the general limit.
     max_request_body_bytes: int = 1_048_576
@@ -427,6 +455,9 @@ class Settings(BaseSettings):
     signup_ip_hourly_limit: int = Field(default=3, ge=1, le=100)
     keycloak_provisioner_client_id: str = Field(default="", max_length=200)
     keycloak_provisioner_client_secret: SecretStr | None = None
+    # First-party skill signing keys (docs/skills.md#signing): "key-id=BASE64,key-id2=BASE64",
+    # raw 32-byte Ed25519 public keys. Malformed entries are ignored with a warning.
+    skill_platform_keys: str = Field(default="", max_length=4000)
 
     model_config = SettingsConfigDict(
         env_prefix="ANUM_",

@@ -179,6 +179,8 @@ class OutgoingMessage:
     body: str
     reply_to: str | None = None
     thread_id: str | None = None
+    # Blind copies: delivered, never shown to the other recipients (Gmail strips the header).
+    bcc: tuple[str, ...] = ()
     in_reply_to_header: str | None = None
     references_header: str | None = None
     folder_id: str | None = None
@@ -295,6 +297,8 @@ def build_mime(message: OutgoingMessage) -> bytes:
     mime["To"] = ", ".join(message.to)
     if message.cc:
         mime["Cc"] = ", ".join(message.cc)
+    if message.bcc:
+        mime["Bcc"] = ", ".join(message.bcc)
     mime["Subject"] = message.subject
     if message.in_reply_to_header:
         mime["In-Reply-To"] = message.in_reply_to_header
@@ -988,6 +992,8 @@ class OutlookClient(MailProviderClient):
             "ccRecipients": [{"emailAddress": {"address": address}} for address in outgoing.cc],
             "body": {"contentType": "Text", "content": outgoing.body},
         }
+        if outgoing.bcc:
+            message["bccRecipients"] = [{"emailAddress": {"address": address}} for address in outgoing.bcc]
         if include_subject:
             message["subject"] = outgoing.subject
         return message
@@ -1246,6 +1252,8 @@ class ZohoClient(MailProviderClient):
         }
         if outgoing.cc:
             payload["ccAddress"] = ",".join(outgoing.cc)
+        if outgoing.bcc:
+            payload["bccAddress"] = ",".join(outgoing.bcc)
         return payload
 
     async def save_draft(self, token: str, outgoing: OutgoingMessage, *, account_ref: str | None) -> str | None:

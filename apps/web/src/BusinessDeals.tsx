@@ -16,6 +16,8 @@ import {
 import * as b from './lib/businessApi';
 import { Drawer } from './Dialog';
 import { AcceptanceApproval, Badge, Empty, Note, Pager, ReasonDialog, day, failure, when } from './BusinessParts';
+import { ProjectMoney } from './BusinessProjectMoney';
+import { PortalDecisionNote } from './BusinessPortalAdmin';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'error'; text: string };
 
@@ -257,6 +259,7 @@ function ProposalDrawer({ setup, id, onClose, onOpenProject, onChanged }: { setu
       {notice && <Note>{notice}</Note>}
       {problem && <Note error>{problem}</Note>}
       {item.status === 'accepted' && <Note>{t('biz.proposal.acceptedNote', { version: item.accepted_version ?? 0, by: item.accepted_by ?? '', when: when(item.accepted_at) })}</Note>}
+      <PortalDecisionNote decision={item.portal_decision ?? null} />
       {item.approval && <AcceptanceApproval approval={item.approval} canDecide={setup.permissions.decide} onDecided={(message) => { setNotice(message); void reload(); onChanged(); }} />}
       {current.locked && editable && <p className="muted bzHint">{t('biz.proposal.lockedHint')}</p>}
       <form className="bzProposalForm" onSubmit={(event) => { event.preventDefault(); save(); }} aria-label={t('biz.proposal.editor')}>
@@ -396,6 +399,7 @@ function ProjectDrawer({ setup, initial, id, onClose, onChanged }: { setup: Busi
           {row.paid_on && <small className="muted">{t('biz.project.paidOn', { date: day(row.paid_on) })}</small>}
         </li>)}</ol>}
       </section>
+      <ProjectMoney setup={setup} project={item} onProjectChanged={() => { void b.getProject(item.id).then(setItem).catch((error) => setProblem(failure(error, t('biz.project.load')))); onChanged(); }} />
     </div>
   </Drawer>;
 }

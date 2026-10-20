@@ -8,6 +8,7 @@ import '../auth/auth_repository.dart';
 import '../billing/billing_data.dart';
 import '../autonomy/autonomy_repository.dart';
 import '../learning/learning_repository.dart';
+import '../lifecycle/lifecycle_repository.dart';
 import '../privacy/privacy_repository.dart';
 import '../push/push_controller.dart';
 import '../team/team_repository.dart';
@@ -31,6 +32,7 @@ class SettingsController extends ChangeNotifier {
       this.autonomy,
       this.learning,
       this.team,
+      this.lifecycle,
       this.billing});
   final AuthRepository repository;
 
@@ -59,6 +61,10 @@ class SettingsController extends ChangeNotifier {
   /// The organisation's plan, usage and invoices (docs/billing.md); the API
   /// lets workspace owners and organisation administrators in.
   final BillingRepository? billing;
+
+  /// Organisation export and organisation or workspace deletion
+  /// (docs/organisation-lifecycle.md).
+  final LifecycleRepository? lifecycle;
   SettingsPhase phase = SettingsPhase.initial;
   LocalSession? session;
   ModelConfiguration? model;
@@ -110,6 +116,39 @@ class SettingsController extends ChangeNotifier {
       _fail(error);
     }
     notifyListeners();
+  }
+
+  /// What the Email switch can do here; null while unknown (not loaded, or the
+  /// server could not say), in which case no hint is shown.
+  NotificationChannels? channels;
+  EmailTestResult? emailTest;
+  String? emailTestError;
+  bool emailTestBusy = false;
+
+  Future<void> loadChannels() async {
+    try {
+      channels = await repository.notificationChannels();
+    } on Object {
+      channels = null;
+    }
+    notifyListeners();
+  }
+
+  /// Sends the caller a test email; the result (or why it failed) is shown in
+  /// the notification card.
+  Future<void> sendTestEmail() async {
+    emailTestBusy = true;
+    emailTest = null;
+    emailTestError = null;
+    notifyListeners();
+    try {
+      emailTest = await repository.sendTestEmail();
+    } on Object catch (error) {
+      emailTestError = 'The test email was not sent. ${_describe(error)}';
+    } finally {
+      emailTestBusy = false;
+      notifyListeners();
+    }
   }
 
   Future<void> _loadChatMemory() async {

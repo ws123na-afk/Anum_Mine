@@ -35,7 +35,10 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | [Privacy](#privacy) | Done | Settings › Your data and privacy |
 | [Notifications and push](#notifications-and-push) | Done in the app; needs the owner's Firebase setup to deliver | Settings › Notifications, Phone push card |
 | [Settings, language and right to left](#settings-language-and-right-to-left) | Partial | Settings, Language menu |
+| [Tyre planning](#tyre-planning) | Done for everything an operator does; connecting the source is web only | Home › Tyre planning |
 | [Integrations and skills](#integrations-and-skills) | Partial (connectors in progress) | Resources › Skills, Resources › Services, Home › Connected services |
+| [Commerce](#commerce) | Done for everything an operator does; connecting a channel and alert rules are web only | Home › Sales and orders |
+| [Business](#business) | Done on the phone for everything the desk edits; research, drafts, CSV import and proposal writing are web only | More › Business |
 
 ## Sign-in and accounts
 
@@ -284,6 +287,65 @@ Screen: **Settings › Notifications** with the **Phone push** card. Without the
 
 Details: [Skills](skills.md), [Tools and integrations](tools-and-integrations.md#workspace-configuration).
 
+## Commerce
+
+Amazon, noon and the owner's store ([Commerce](commerce.md)). Anyone with a role in the workspace reads; `commerce:operate` (owners and members) and `commerce:manage` (owners) decide what else shows, and the server checks both again.
+
+| What you can do | State |
+| --- | --- |
+| Sales summary for a period, by marketplace, top products, low stock, the order list with filters, paging and order detail | Done |
+| Catalogue: search and page, open a product with its listings per channel | Done |
+| Catalogue: add a product by SKU, edit its titles, brand, cost (with a currency) and low-stock level, delete it (the server refuses while a channel lists the SKU) | Done (owners and members) |
+| Prices and stock: search listings, propose a new price or quantity; nothing reaches the channel until it is approved in Approvals (a link opens them) | Done (owners and members) |
+| Returns for the last 7, 30 or 90 days, paged | Done |
+| Alerts: Open, Acknowledged and Resolved lists; acknowledge an open alert | Done (acknowledge: owners and members) |
+| Channels: health, last sync and last error; sync now | Done (sync: owners and members) |
+| Channels: test the connection, turn off or on, remove (with confirmation) | Done (owners) |
+| Stock changes on listings fulfilled by Amazon or noon are not offered (the channel owns that stock) | Done |
+| Connect a channel, replace credentials, alert rules, buyer details, tyre attributes of a product (size, load and speed index, DOT, season; the size in a title is read when a product is created) | Web only |
+
+Screen: **Home › Sales and orders** with the tabs Sales, Catalogue, Prices and stock, Returns, Alerts and Channels (`apps/mobile/lib/features/commerce/`, English and Arabic; tests in `test/commerce_test.dart` and `test/commerce_ops_test.dart` cover every list state, the role differences, validation, the server's refusals and 320 and 390 point widths).
+
+## Tyre planning
+
+The owner's fleet tyre data ([Tyre planning](tyre-planning.md)). Everyone with a role reads; `tyre:operate` (owners and members) syncs, generates, deletes, sends and schedules; connecting the source is owners on the web. The server checks every call.
+
+| What you can do | State |
+| --- | --- |
+| Dashboard figures, tyres due by month with search and paging, open alerts | Done |
+| Acknowledge an alert | Done (owners and members) |
+| Sync now (reads the mapped tables again and says how many alerts are new) | Done (owners and members) |
+| Purchase plan for 3, 6 or 12 months: tyres to buy, estimated cost, lines without a price | Done |
+| Reports: list with paging, open one (numbers, tables capped at 25 rows, notes, sending history) | Done |
+| Reports: generate any of the eight kinds for a period, delete one (with confirmation) | Done (owners and members) |
+| Reports: request sending by a connected email or WhatsApp integration; it waits in Approvals | Done (owners and members) |
+| Report schedules: list, add (daily, weekly or monthly at a time), delete | Done (owners and members) |
+| Connect the source, mapping, assumptions, CSV and PDF downloads, reopen an alert, schedule delivery to a recipient | Web only |
+
+Screen: **Home > Tyre planning** with the tabs Dashboard, Due, Alerts, Plan and Reports (`apps/mobile/lib/features/tyre/`, English and Arabic; `test/tyre/tyre_test.dart` and `test/tyre/tyre_ops_test.dart` cover every state, the role differences, validation, the server's refusals and 320 and 390 point widths).
+
+## Business
+
+The internal sales desk ([Business](business.md)). Owners and members read it; viewers are told who can. Every change below goes to the API, which checks the role again: the phone hides controls the role cannot use and shows the server's sentence when it still refuses.
+
+| What you can do | State |
+| --- | --- |
+| Overview figures, leads (search, status filter, paging, evidence, moving a lead through its states with a reason, recording what happened), pipeline, proposals waiting for acceptance, projects and milestone status | Done |
+| Catalog: search products and service packages, filter by maturity, page through them; open one to see every priced version with cost, margin and a warning when the price is under the cost | Done |
+| Catalog: create and edit a product, add and edit a draft version, activate it (the active one retires), retire or discard a version, delete a product (with confirmation; the server refuses when a lead, opportunity or support plan uses it) | Done (owners; members read only, with a notice) |
+| Accounts: search, page, open one with its contacts and leads; create and edit an account | Done (owners and members) |
+| Accounts: mark an account or a contact do not contact (with a reason) | Done (owners and members); clearing the mark is owners only |
+| Accounts: delete an account | Done (owners, with confirmation; the server refuses when other records depend on it) |
+| Contacts: add, edit and delete a contact with its consent basis; a contact with an unknown basis is shown as blocked | Done (add and edit: owners and members; delete: owners) |
+| Support tickets: list, filter, open, create, edit, change status, escalate, notes, replies waiting for approval, delete | Done |
+| Leads: create (for a new or an existing company, with an optional contact and offer), edit title, offer, contact and next step | Done (owners and members) |
+| Leads: delete | Done (owners, with confirmation; the server refuses when the lead has an opportunity) |
+| Opportunities: open one from a qualified lead, edit value, probability (your assumptions), note, next step and decision date, move between stages (lost needs a reason) | Done (owners and members); won comes only from an accepted proposal and is final |
+| Research, drafts, CSV import, writing proposals, the support policy | Web only |
+| Sending anything | Off by design: ANUM never contacts anyone from Business |
+
+Screens: **More › Business** with the tabs Overview, Leads, Pipeline, Proposals, Projects, Catalog, Accounts and Support (`apps/mobile/lib/features/business/`, English and Arabic). Tests: `test/business_test.dart`, `test/business_support_test.dart` and `test/business_catalog_accounts_test.dart` and `test/business_deals_edit_test.dart` (every list state, create, edit and delete with the server's refusals, member against owner controls, Arabic and 320 and 390 point widths).
+
 ## Coming next
 
 Work on other branches. None of it is in the app yet; each item is marked done here only after it merges with tests.
@@ -292,8 +354,6 @@ Work on other branches. None of it is in the app yet; each item is marked done h
 | --- | --- | --- |
 | Email inbox | Read and answer Gmail, Outlook and Zoho Mail through the assistant; every sent email goes through approvals | In progress |
 | WhatsApp | Connect WhatsApp Business through the official API; read chats and send replies after approval | In progress |
-| Commerce | Amazon.sa, Amazon.ae, Noon Saudi and UAE and the owner's own store: orders, listings, prices and stock, with changes approved first | In progress |
-| Tyre planning | Work with the owner's tyre planning data (TyrePulse, Supabase and Firebase) from the assistant | In progress |
 | Marketing | Draft and schedule marketing content, published only after approval | In progress |
 | Autonomy | Let the assistant carry out longer jobs on its own within the approval rules | In progress |
 | Learning | The assistant learns the owner's preferences and ways of working over time | In progress |

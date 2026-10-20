@@ -20,6 +20,12 @@ Cross-tenant reads never bypass RLS:
   ``anum.billing_tenant`` names it; sign-up abuse checks read the hashed IP and account
   id of recent sign-ups.
 
+Organisation deletion (migration ``0079_tenant_lifecycle``): every table gets the
+``anum_tenant_purger`` grants (scope column and delete only) and the purge policy
+``lifecycle_purge_<table>``, copied from 0079's ``_purge_policy`` for organisation-wide
+tables: only a purging organisation deletion of the same tenant admits a row. Billing is
+organisation-wide, so a workspace deletion leaves it alone. No other role is granted anything.
+
 Expand only: new tables, grants and policies. The previous release ignores them.
 """
 
@@ -27,8 +33,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0085_customer_billing"
-down_revision = "0078_demo_records"
+revision = "0090_customer_billing"
+down_revision = "0082_business_pipeline"
 branch_labels = None
 depends_on = None
 
@@ -76,6 +82,29 @@ USAGE_COLUMNS = {
     "workspace_invitations": "tenant_id, status, expires_at",
     "conversation_turns": "tenant_id, role, created_at",
 }
+
+
+PURGER = "anum_tenant_purger"
+JOBS = "tenant_lifecycle_jobs"
+
+
+def _purge_policy(table: str) -> None:
+    """Deletion of the organisation may remove these rows (0079's ``_purge_policy``, organisation-wide)."""
+    op.execute(f"grant select (tenant_id, ctid), delete on {table} to {PURGER}")
+    op.execute(
+        f"""
+        create policy lifecycle_purge_{table} on {table}
+        for all to {PURGER}
+        using (
+          tenant_id = nullif(current_setting('anum.tenant_id', true), '')
+          and exists (
+            select 1 from {JOBS} j
+            where j.tenant_id = {table}.tenant_id and j.status = 'purging' and j.kind = 'organisation_deletion'
+          )
+        )
+        with check (false)
+        """  # nosec B608 - fixed table names
+    )
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -380,6 +409,7 @@ def upgrade() -> None:
         op.execute(f"alter table {table} enable row level security")
         op.execute(f"alter table {table} force row level security")
         op.execute(f"create policy tenant_isolation_{table} on {table} using ({TENANT}) with check ({TENANT})")
+        _purge_policy(table)
 
     # Platform console and plan catalog, through anum_platform_reader (INHERIT FALSE).
     for table, columns in READER_COLUMNS.items():
@@ -424,6 +454,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    for table in TABLES:
+        op.execute(f"drop policy if exists lifecycle_purge_{table} on {table}")
     for table in USAGE_COLUMNS:
         op.execute(f"drop policy if exists billing_usage_meter on {table}")
     # Column grants stay, like the other NOLOGIN roles' grants: without these policies the billing

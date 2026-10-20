@@ -6,7 +6,7 @@ import { applyAskEvent, fromStored, PENDING_ASSISTANT, startAsk } from '../src/l
 import { setLocale } from '../src/lib/i18n.ts';
 import { NAV, navParent, viewFromHash, visibleViews } from '../src/lib/shell.ts';
 import {
-  cardsByTurn, changeLabel, changeTone, downloadName, favoriteTarget, favoriteTypeLabel, fileSize, hashTarget, metricValue,
+  cardsByTurn, changeLabel, citationPlace, changeTone, downloadName, favoriteTarget, favoriteTypeLabel, fileSize, hashTarget, metricValue,
   parseTags, periodLabel, reportTypeLabel, visibleReply,
 } from '../src/lib/library.ts';
 
@@ -14,6 +14,20 @@ const card: ReportCard = {
   report_id: 'report_1', turn_id: 'turn_a', title: 'Tyre cost', type: 'tyre', period_start: '2026-09-01', period_end: '2026-09-30',
   metrics: [{ label: 'Total', value: '12,400', unit: 'SAR', change_percent: 8 }], highlights: ['Punctures doubled'],
 };
+
+describe('citationPlace', () => {
+  test('names the page, slide or sheet of a document passage', () => {
+    setLocale('en');
+    assert.equal(citationPlace({ page: 3, page_unit: 'page', page_label: null }), 'page 3');
+    assert.equal(citationPlace({ page: 2, page_unit: 'slide' }), 'slide 2');
+    assert.equal(citationPlace({ page: 1, page_unit: 'sheet', page_label: 'Budget' }), 'sheet 1 (Budget)');
+    assert.equal(citationPlace({ page: null, page_unit: null }), '');
+    assert.equal(citationPlace({}), '');
+    setLocale('ar');
+    assert.match(citationPlace({ page: 4, page_unit: 'page' }), /^صفحة /);
+    setLocale('en');
+  });
+});
 
 describe('visibleReply', () => {
   test('hides a complete report block', () => {

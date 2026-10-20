@@ -88,41 +88,41 @@ describe('integrations', () => {
 
 describe('organization policy access', () => {
   test('nothing is editable or explained before the summary loads', () => {
-    assert.deepEqual(organizationPolicyAccess(null), { canManage: false, notice: null });
+    assert.deepEqual(organizationPolicyAccess(null), { canManage: false, notice: null, howTo: null });
   });
   test('an organization administrator manages the tenant-wide controls', () => {
-    assert.deepEqual(organizationPolicyAccess({ can_manage_organization_policy: true }), { canManage: true, notice: null });
+    assert.deepEqual(organizationPolicyAccess({ can_manage_organization_policy: true }), { canManage: true, notice: null, howTo: null });
   });
   test('anyone else, a workspace owner included, reads them with the reason and who can change them', () => {
     for (const summary of [{ can_manage_organization_policy: false }, {}]) {
       const access = organizationPolicyAccess(summary);
       assert.equal(access.canManage, false);
-      assert.match(access.notice ?? '', /every workspace in this organization/);
-      assert.match(access.notice ?? '', /organization administrator/);
-      assert.match(access.notice ?? '', /Owning this workspace is not enough/);
-      // How to get the role, not just that it is missing (an upgraded realm may have nobody holding it).
-      assert.match(access.notice ?? '', /realm role org_admin/);
-      assert.match(access.notice ?? '', /keycloak-2fa\.sh grant-org-admin <your username>/);
-      assert.match(access.notice ?? '', /sign out and sign in again/);
+      // One line: what is read only and who can change it.
+      assert.match(access.notice ?? '', /^Read only: policy packs, role templates and approval rules apply to every workspace in this organization, so only an organization administrator can change them\.$/);
+      // How to get the role, not just that it is missing (an upgraded realm may have nobody holding it), behind the disclosure.
+      assert.match(access.howTo?.text ?? '', /Owning this workspace is not enough/);
+      assert.match(access.howTo?.text ?? '', /realm role org_admin/);
+      assert.match(access.howTo?.text ?? '', /sign out and sign in again/);
+      assert.equal(access.howTo?.command, 'infra/oracle/keycloak-2fa.sh grant-org-admin <your username>');
     }
   });
 });
 
 describe('tenant-wide write access', () => {
   test('follows the API flag only, with nothing explained before it loads', () => {
-    assert.deepEqual(tenantWriteAccess(null, 'routing targets'), { canManage: false, notice: null });
-    assert.deepEqual(tenantWriteAccess(true, 'routing targets'), { canManage: true, notice: null });
+    assert.deepEqual(tenantWriteAccess(null, 'routing targets'), { canManage: false, notice: null, howTo: null });
+    assert.deepEqual(tenantWriteAccess(true, 'routing targets'), { canManage: true, notice: null, howTo: null });
     const denied = tenantWriteAccess(false, 'organization model budgets');
     assert.equal(denied.canManage, false);
     assert.match(denied.notice ?? '', /^Read only: organization model budgets apply to every workspace in this organization/);
-    assert.match(denied.notice ?? '', /realm role org_admin/);
+    assert.match(denied.howTo?.text ?? '', /realm role org_admin/);
   });
   test('routing targets and the catalog take the governance summary flag', () => {
-    assert.deepEqual(enterpriseWriteAccess(null), { canManage: false, notice: null });
+    assert.deepEqual(enterpriseWriteAccess(null), { canManage: false, notice: null, howTo: null });
     assert.equal(enterpriseWriteAccess({ can_manage_organization_policy: true }).canManage, true);
     const denied = enterpriseWriteAccess({});
     assert.equal(denied.canManage, false);
     assert.match(denied.notice ?? '', /routing targets and the marketplace catalog/);
-    assert.match(denied.notice ?? '', /Owning this workspace is not enough/);
+    assert.match(denied.howTo?.text ?? '', /Owning this workspace is not enough/);
   });
 });

@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../../src/localization/anum_localizations.dart';
+import 'commerce_ops_strings.dart';
 
 /// English and Arabic strings of the Commerce screen (docs/commerce.md). The
 /// terms follow the web catalog (apps/web/src/lib/messages/commerce.*.ts).
@@ -12,7 +13,11 @@ class CommerceStrings {
       CommerceStrings(AnumLocalizations.maybeOf(context).isArabic);
 
   String t(String key, [Map<String, Object> values = const {}]) {
-    var text = (arabic ? _ar : _en)[key] ?? _en[key] ?? key;
+    var text = (arabic ? _ar : _en)[key] ??
+        (arabic ? commerceOpsAr : commerceOpsEn)[key] ??
+        _en[key] ??
+        commerceOpsEn[key] ??
+        key;
     values
         .forEach((name, value) => text = text.replaceAll('{$name}', '$value'));
     return text;
@@ -127,8 +132,10 @@ class CommerceStrings {
         'تُقترح تغييرات السعر والمخزون على الويب وتُعتمد في الموافقات.',
   };
 
-  static Iterable<String> get keys => _en.keys;
+  static Iterable<String> get keys => [..._en.keys, ...commerceOpsEn.keys];
   static bool get catalogsMatch =>
       _en.keys.toSet().containsAll(_ar.keys) &&
-      _ar.keys.toSet().containsAll(_en.keys);
+      _ar.keys.toSet().containsAll(_en.keys) &&
+      commerceOpsEn.keys.toSet().containsAll(commerceOpsAr.keys) &&
+      commerceOpsAr.keys.toSet().containsAll(commerceOpsEn.keys);
 }

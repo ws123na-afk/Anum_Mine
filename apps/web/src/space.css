@@ -14,11 +14,11 @@
   background: radial-gradient(ellipse at 22% 35%, #0d172b 0%, #040711 55%, #010308 100%);
   border: 1px solid rgba(134, 186, 255, .14); border-radius: 18px; container-type: size; min-height: 0; overflow: hidden;
 }
-.spaceNote { color: #fcd38d; font-size: 13px; margin-inline-end: auto; }
+.spaceNote { color: #fcd38d; font-size: var(--text-sm); margin-inline-end: auto; }
 .spaceControls { display: flex; flex-wrap: wrap; gap: 8px; }
 .spaceControls button {
   align-items: center; background: rgba(12, 26, 41, .82); border: 1px solid #284b60; border-radius: 22px; color: #b8d9e7; cursor: pointer;
-  display: inline-flex; font: inherit; font-size: 13px; gap: 6px; min-height: 44px; padding: 8px 14px;
+  display: inline-flex; font: inherit; font-size: var(--text-sm); gap: 6px; min-height: 44px; padding: 8px 14px;
 }
 .spaceControls button:hover:not(:disabled) { background: #183247; color: #e8faff; }
 .spaceControls button[aria-pressed="true"] { background: #214252; border-color: #4e95ad; color: #e8faff; }

@@ -1,4 +1,5 @@
 import '../../data/json_read.dart';
+import 'invoice_models.dart' show PortalDecisionSummary;
 
 /// Business, the internal sales desk (docs/business.md): what the phone reads
 /// from `/api/v1/business`. The same wire shapes as packages/contracts
@@ -102,10 +103,15 @@ class BusinessLead {
     required this.scoreKnown,
     this.productName,
     this.blockReason,
+    this.accountId,
+    this.productId,
+    this.contactId,
+    this.nextStep = '',
   });
   final String id, title, state, accountName;
   final int scoreTotal, scoreKnown;
-  final String? productName, blockReason;
+  final String? productName, blockReason, accountId, productId, contactId;
+  final String nextStep;
 
   factory BusinessLead.fromJson(JsonReader r) => BusinessLead(
         id: r.string('id'),
@@ -116,6 +122,10 @@ class BusinessLead {
         scoreKnown: r.integer('score_known'),
         productName: r.optString('product_name'),
         blockReason: r.optString('block_reason'),
+        accountId: r.optString('account_id'),
+        productId: r.optString('product_id'),
+        contactId: r.optString('contact_id'),
+        nextStep: r.optString('next_step') ?? '',
       );
 }
 
@@ -181,9 +191,10 @@ class LeadDetail {
     required this.gaps,
     required this.transitions,
     this.consentGap,
+    this.opportunityId,
   });
   final BusinessLead lead;
-  final String? website, contactName, consentGap;
+  final String? website, contactName, consentGap, opportunityId;
   final List<BusinessEvidence> evidence;
   final List<BusinessInference> inferences;
   final List<BusinessActivity> activities;
@@ -199,6 +210,7 @@ class LeadDetail {
         gaps: r.strings('qualification_gaps'),
         transitions: r.strings('allowed_transitions'),
         consentGap: r.optString('consent_gap'),
+        opportunityId: r.optString('opportunity_id'),
       );
 }
 
@@ -212,8 +224,14 @@ class BusinessOpportunity {
     this.value,
     this.probability,
     this.weighted,
+    this.assumptionNote = '',
+    this.nextStep = '',
+    this.expectedDecisionOn,
+    this.lostReason = '',
   });
   final String id, name, stage, accountName, currency;
+  final String assumptionNote, nextStep, lostReason;
+  final String? expectedDecisionOn;
   final double? value, probability, weighted;
   factory BusinessOpportunity.fromJson(JsonReader r) => BusinessOpportunity(
         id: r.string('id'),
@@ -224,6 +242,10 @@ class BusinessOpportunity {
         value: r.optNumber('value_amount'),
         probability: r.optNumber('probability_pct'),
         weighted: r.optNumber('weighted_value'),
+        assumptionNote: r.optString('assumption_note') ?? '',
+        nextStep: r.optString('next_step') ?? '',
+        expectedDecisionOn: r.optString('expected_decision_on'),
+        lostReason: r.optString('lost_reason') ?? '',
       );
 }
 
@@ -239,7 +261,11 @@ class BusinessProposal {
     required this.approvalState,
     required this.decisionNote,
     required this.issues,
+    this.portalDecision,
   });
+
+  /// What the customer decided in their portal about the version waiting.
+  final PortalDecisionSummary? portalDecision;
   final String id, title, status, accountName, currency, approvalState;
   final String decisionNote;
   final int version;
@@ -258,6 +284,7 @@ class BusinessProposal {
       approvalState: r.string('approval_state'),
       decisionNote: r.string('decision_note'),
       issues: current.strings('issues'),
+      portalDecision: PortalDecisionSummary.maybe(r),
     );
   }
 }

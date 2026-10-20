@@ -15,7 +15,8 @@ import asyncio
 import hashlib
 import secrets
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import quote, urlsplit
 
 import base64
 import binascii
@@ -28,13 +29,16 @@ from .authorization import Permission, Role
 from .dependencies import (
     AuthenticatedIdentity,
     authenticated_identity,
+    UnitsOfWork,
     identity_repository_context,
     repository_context,
     require_permission,
     tenant_context,
+    units_of_work,
 )
 from .events import CanonicalEventName, create_event
 from .repository import AnumRepository
+from .settings import settings
 from .schemas import (
     InvitationStatus,
     TenantContext,
@@ -75,6 +79,11 @@ class InvitationCreate(BaseModel):
     invitee_user_id: str | None = Field(default=None, min_length=1, max_length=120)
     invitee_email: str | None = Field(default=None, min_length=3, max_length=320)
     ttl_hours: int = Field(default=DEFAULT_TTL_HOURS, ge=1, le=MAX_TTL_HOURS)
+    # Email the invitee the accept link (only when invitee_email is set).
+    send_email: bool = True
+    # The address the inviting app is open at, for the link in the email. Used only when
+    # ANUM_PUBLIC_APP_URL is empty and its origin is one of ANUM_CORS_ORIGINS.
+    app_url: str | None = Field(default=None, max_length=2048)
 
     @field_validator("invitee_email")
     @classmethod
@@ -110,10 +119,35 @@ class InvitationView(BaseModel):
     created_at: datetime
 
 
+class InvitationEmail(BaseModel):
+    """What happened to the invitation email.
+
+    ``sent``; ``failed`` (refused, or still failing after ``attempts`` tries; ``error``
+    says why); ``not_configured`` (this server has no mail server); ``not_requested``
+    (no invitee email, or ``send_email`` was false). In every case but ``sent`` the owner
+    passes the link on themselves.
+    """
+
+    status: Literal["sent", "failed", "not_configured", "not_requested"]
+    to: str | None = None
+    attempts: int = 0
+    error: str | None = None
+    # Whether the email carried a link (else it carried the token to paste).
+    link_included: bool = False
+
+
 class InvitationCreated(BaseModel):
     invitation: InvitationView
     # Returned exactly once. Only its hash is stored, so it cannot be shown again.
     token: str
+    email: InvitationEmail = Field(default_factory=lambda: InvitationEmail(status="not_requested"))
+
+
+class InvitationEmailStatus(BaseModel):
+    """Whether this server can email invitations (shown in the invite form)."""
+
+    configured: bool
+    link_base: str | None
 
 
 class InvitationAccept(BaseModel):
@@ -131,6 +165,8 @@ class MemberRoleUpdate(BaseModel):
 
 class InvitationResend(BaseModel):
     ttl_hours: int = Field(default=DEFAULT_TTL_HOURS, ge=1, le=MAX_TTL_HOURS)
+    send_email: bool = True
+    app_url: str | None = Field(default=None, max_length=2048)
 
 
 class MemberView(WorkspaceMembership):
@@ -246,6 +282,199 @@ def _member_or_404(
 # --------------------------------------------------------------------------- invitations
 
 
+# --------------------------------------------------------------------------- invitation email
+
+
+_ROLE_WORDS = {Role.OWNER.value: "an owner", Role.MEMBER.value: "a member", Role.VIEWER.value: "a viewer"}
+
+
+def invitation_link_base(app_url: str | None) -> str | None:
+    """Where the accept link in an invitation email points, or None for a token-only email.
+
+    ``ANUM_PUBLIC_APP_URL`` wins. Otherwise the inviting browser's address is used only
+    when its origin is one of ``ANUM_CORS_ORIGINS`` (operator-approved web origins), so a
+    caller cannot make ANUM's mail server send a link to a site of their choosing.
+    """
+    if settings.public_app_url:
+        return settings.public_app_url.split("#")[0]
+    if not app_url:
+        return None
+    try:
+        parts = urlsplit(app_url.strip())
+        hostname = parts.hostname
+    except ValueError:
+        return None
+    if parts.scheme not in {"http", "https"} or not hostname or parts.username or parts.password:
+        return None
+    origin = f"{parts.scheme}://{parts.netloc}"
+    if origin not in {allowed.rstrip("/") for allowed in settings.cors_origins}:
+        return None
+    return f"{origin}{parts.path or '/'}"
+
+
+def invitation_link(base: str, token: str, workspace_id: str) -> str:
+    """The same link the web app builds: the token travels in the fragment, which browsers
+    never send to a server (apps/web/src/lib/admin.ts ``invitationLink``)."""
+    return f"{base}#invitation={quote(token, safe='')}&workspace={quote(workspace_id, safe='')}"
+
+
+def invitation_email_text(
+    *, workspace_name: str, workspace_id: str, role: str, invitee_email: str, expires_at: datetime, token: str, link: str | None
+) -> tuple[str, str]:
+    """Subject and plain-text body of an invitation email (no tracking, no HTML)."""
+    subject = f"You are invited to {workspace_name} on ANUM"
+    lines = [f'You have been invited to join the workspace "{workspace_name}" on ANUM as {_ROLE_WORDS.get(role, role)}.', ""]
+    if link:
+        lines += ["Open this link to accept the invitation:", link, ""]
+    else:
+        lines += [
+            "To accept, sign in to ANUM, open Settings, Accept an invitation, and paste this invitation token:",
+            token,
+            f"Workspace: {workspace_id}",
+            "",
+        ]
+    lines += [
+        f"Sign in as {invitee_email}: the invitation works only for that verified email address, and only once.",
+        f"It expires on {expires_at:%d %b %Y at %H:%M} UTC.",
+        "",
+        "If you were not expecting this invitation, ignore this email. Nothing happens unless you accept it.",
+    ]
+    return subject, "\n".join(lines)
+
+
+def _audit_invitation_email(units: UnitsOfWork, context: TenantContext, invitation: WorkspaceInvitation, email: InvitationEmail) -> None:
+    """Audit one invitation email outcome in its own short unit of work (never the token)."""
+    with units(context) as repository:
+        repository.record_audit(
+            AuditRecord(
+                id=new_id("audit"),
+                tenant_id=context.tenant_id,
+                workspace_id=context.workspace_id,
+                actor=context.user_id,
+                action="workspace_invitation.email",
+                target=invitation.id,
+                outcome="success" if email.status == "sent" else "failure",
+                correlation_id=new_id("correlation"),
+                created_at=utc_now(),
+                metadata={
+                    "invitation_id": invitation.id,
+                    "status": email.status,
+                    "invitee_email": email.to,
+                    "attempts": email.attempts,
+                    "error": email.error,
+                    "link_included": email.link_included,
+                },
+            )
+        )
+
+
+async def deliver_invitation_email(
+    units: UnitsOfWork,
+    context: TenantContext,
+    invitation: WorkspaceInvitation,
+    token: str,
+    *,
+    workspace_name: str,
+    send: bool,
+    app_url: str | None,
+) -> InvitationEmail:
+    """Email the invitee after the invitation committed, then audit the outcome.
+
+    SMTP and the audit write each run in a worker thread, so nothing blocks the event loop
+    and no transaction or row lock is held across the network call (docs/realtime.md#event-loop).
+    """
+    from .notifications import email_configured, send_with_retries
+
+    if not send or not invitation.invitee_email:
+        return InvitationEmail(status="not_requested", to=invitation.invitee_email)
+    if not email_configured():
+        email = InvitationEmail(
+            status="not_configured",
+            to=invitation.invitee_email,
+            error="No mail server is set up on this ANUM server, so the invitation was not emailed. Copy the link and send it yourself.",
+        )
+    else:
+        base = invitation_link_base(app_url)
+        link = invitation_link(base, token, invitation.workspace_id) if base else None
+        subject, text = invitation_email_text(
+            workspace_name=workspace_name,
+            workspace_id=invitation.workspace_id,
+            role=invitation.role,
+            invitee_email=invitation.invitee_email,
+            expires_at=invitation.expires_at,
+            token=token,
+            link=link,
+        )
+        outcome = await asyncio.to_thread(send_with_retries, invitation.invitee_email, subject, text)
+        email = InvitationEmail(
+            status="sent" if outcome.status == "sent" else "failed",
+            to=invitation.invitee_email,
+            attempts=outcome.attempts,
+            error=outcome.error,
+            link_included=link is not None,
+        )
+    await asyncio.to_thread(_audit_invitation_email, units, context, invitation, email)
+    return email
+
+
+@router.get("/workspace-invitations/email-status", response_model=InvitationEmailStatus)
+async def invitation_email_status(
+    app_url: str | None = Query(default=None, max_length=2048),
+    context: TenantContext = Depends(tenant_context),
+) -> InvitationEmailStatus:
+    """Whether invitations are emailed here, and where their links point (owners only)."""
+    from .notifications import email_configured
+
+    _require_manager(context)
+    return InvitationEmailStatus(configured=email_configured(), link_base=invitation_link_base(app_url))
+
+
+# --------------------------------------------------------------------------- invitations
+
+
+def _create_invitation_in_own_unit(
+    units: UnitsOfWork, context: TenantContext, payload: InvitationCreate
+) -> tuple[WorkspaceInvitation, str, str]:
+    with units(context) as repository:
+        workspace = repository.get_workspace(context.workspace_id, context)
+        if workspace is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+        now = utc_now()
+        token = new_invitation_token()
+        invitation = repository.save_invitation(
+            WorkspaceInvitation(
+                id=new_id("invitation"),
+                tenant_id=context.tenant_id,
+                workspace_id=context.workspace_id,
+                role=payload.role.value,
+                invitee_user_id=payload.invitee_user_id,
+                invitee_email=payload.invitee_email,
+                token_hash=hash_invitation_token(token),
+                created_by_user_id=context.user_id,
+                expires_at=now + timedelta(hours=payload.ttl_hours),
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        _record_change(
+            repository,
+            context,
+            event_type=CanonicalEventName.WORKSPACE_INVITATION_CREATED,
+            audit_action="workspace_invitation.create",
+            target=invitation.id,
+            payload={
+                "invitation_id": invitation.id,
+                "role": invitation.role,
+                "invitee_user_id": invitation.invitee_user_id,
+                "email_bound": invitation.invitee_email is not None,
+                "expires_at": invitation.expires_at.isoformat(),
+            },
+            audit_metadata={"invitee_email": invitation.invitee_email},
+            now=now,
+        )
+        return invitation.model_copy(deep=True), token, workspace.name
+
+
 @router.post(
     "/workspace-invitations",
     response_model=InvitationCreated,
@@ -254,49 +483,19 @@ def _member_or_404(
 async def create_invitation(
     payload: InvitationCreate,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> InvitationCreated:
     _require_manager(context)
-    if repository.get_workspace(context.workspace_id, context) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     # Pending invitations count as seats of the plan (docs/billing.md#plans-and-limits).
     from .billing.enforce import require_capacity
 
     await asyncio.to_thread(require_capacity, context, "seats", 1)
-    now = utc_now()
-    token = new_invitation_token()
-    invitation = repository.save_invitation(
-        WorkspaceInvitation(
-            id=new_id("invitation"),
-            tenant_id=context.tenant_id,
-            workspace_id=context.workspace_id,
-            role=payload.role.value,
-            invitee_user_id=payload.invitee_user_id,
-            invitee_email=payload.invitee_email,
-            token_hash=hash_invitation_token(token),
-            created_by_user_id=context.user_id,
-            expires_at=now + timedelta(hours=payload.ttl_hours),
-            created_at=now,
-            updated_at=now,
-        )
+    # Commit first, in a worker thread; only then email the invitee.
+    invitation, token, workspace_name = await asyncio.to_thread(_create_invitation_in_own_unit, units, context, payload)
+    email = await deliver_invitation_email(
+        units, context, invitation, token, workspace_name=workspace_name, send=payload.send_email, app_url=payload.app_url
     )
-    _record_change(
-        repository,
-        context,
-        event_type=CanonicalEventName.WORKSPACE_INVITATION_CREATED,
-        audit_action="workspace_invitation.create",
-        target=invitation.id,
-        payload={
-            "invitation_id": invitation.id,
-            "role": invitation.role,
-            "invitee_user_id": invitation.invitee_user_id,
-            "email_bound": invitation.invitee_email is not None,
-            "expires_at": invitation.expires_at.isoformat(),
-        },
-        audit_metadata={"invitee_email": invitation.invitee_email},
-        now=now,
-    )
-    return InvitationCreated(invitation=invitation_view(invitation, now), token=token)
+    return InvitationCreated(invitation=invitation_view(invitation), token=token, email=email)
 
 
 @router.get("/workspace-invitations", response_model=list[InvitationView])
@@ -316,54 +515,70 @@ async def list_invitations(
     return views
 
 
+def _resend_invitation_in_own_unit(
+    units: UnitsOfWork, context: TenantContext, invitation_id: str, ttl_hours: int
+) -> tuple[WorkspaceInvitation, str, str]:
+    with units(context) as repository:
+        invitation = repository.get_invitation_for_update(invitation_id, context)
+        if invitation is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+        if invitation.status != InvitationStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Invitation is already {invitation.status.value}; create a new one instead",
+            )
+        now = utc_now()
+        token = new_invitation_token()
+        previous_expiry = invitation.expires_at
+        invitation = repository.save_invitation(
+            invitation.model_copy(
+                update={
+                    "token_hash": hash_invitation_token(token),
+                    "expires_at": now + timedelta(hours=ttl_hours),
+                    "updated_at": now,
+                }
+            )
+        )
+        _record_change(
+            repository,
+            context,
+            event_type=CanonicalEventName.WORKSPACE_INVITATION_RESENT,
+            audit_action="workspace_invitation.resend",
+            target=invitation.id,
+            payload={
+                "invitation_id": invitation.id,
+                "previous_expires_at": previous_expiry.isoformat(),
+                "expires_at": invitation.expires_at.isoformat(),
+            },
+            now=now,
+        )
+        workspace = repository.get_workspace(context.workspace_id, context)
+        name = workspace.name if workspace is not None else context.workspace_id
+        return invitation.model_copy(deep=True), token, name
+
+
 @router.post("/workspace-invitations/{invitation_id}/resend", response_model=InvitationCreated)
 async def resend_invitation(
     invitation_id: str,
     payload: InvitationResend | None = None,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> InvitationCreated:
     """Issue a new token for a pending (or expired) invitation and restart its expiry.
 
-    The previous token stops working at once: only the new token's hash is kept. ANUM
-    does not send email, so the owner passes the new token or link on, as at creation.
+    The previous token stops working at once: only the new token's hash is kept. The new
+    link is emailed to the invitee as at creation (after the commit, row lock released);
+    the response carries the token once more for copying.
     """
     _require_manager(context)
-    invitation = repository.get_invitation_for_update(invitation_id, context)
-    if invitation is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
-    if invitation.status != InvitationStatus.PENDING:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Invitation is already {invitation.status.value}; create a new one instead",
-        )
-    now = utc_now()
-    ttl_hours = (payload or InvitationResend()).ttl_hours
-    token = new_invitation_token()
-    previous_expiry = invitation.expires_at
-    invitation = repository.save_invitation(
-        invitation.model_copy(
-            update={
-                "token_hash": hash_invitation_token(token),
-                "expires_at": now + timedelta(hours=ttl_hours),
-                "updated_at": now,
-            }
-        )
+    body = payload or InvitationResend()
+    invitation, token, workspace_name = await asyncio.to_thread(
+        _resend_invitation_in_own_unit, units, context, invitation_id, body.ttl_hours
     )
-    _record_change(
-        repository,
-        context,
-        event_type=CanonicalEventName.WORKSPACE_INVITATION_RESENT,
-        audit_action="workspace_invitation.resend",
-        target=invitation.id,
-        payload={
-            "invitation_id": invitation.id,
-            "previous_expires_at": previous_expiry.isoformat(),
-            "expires_at": invitation.expires_at.isoformat(),
-        },
-        now=now,
+    email = await deliver_invitation_email(
+        units, context, invitation, token, workspace_name=workspace_name, send=body.send_email, app_url=body.app_url
     )
-    return InvitationCreated(invitation=invitation_view(invitation, now), token=token)
+    return InvitationCreated(invitation=invitation_view(invitation), token=token, email=email)
 
 
 @router.post("/workspace-invitations/{invitation_id}/revoke", response_model=InvitationView)

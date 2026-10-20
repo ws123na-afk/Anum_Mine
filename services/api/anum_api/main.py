@@ -28,6 +28,18 @@ from .dependencies import (
     _membership_unit_of_work as _membership_units,
 )
 from .approval_integrity import as_viewed
+from .approval_paging import (
+    APPROVAL_PAGE_DEFAULT_LIMIT,
+    APPROVAL_PAGE_MAX_LIMIT,
+    APPROVAL_QUERY_MAX_CHARS,
+    ApprovalFilter,
+    ApprovalPage,
+    ApprovalSummary,
+)
+from .approval_paging import decode_cursor as decode_approval_cursor
+from .approval_paging import encode_cursor as encode_approval_cursor
+from .approval_paging import group_of as approval_group
+from .approval_paging import normalize_query as normalize_approval_query
 from .audit import AuditRecord
 from .errors import ApplicationError, ErrorCode, application_error_handler, error_response, register_exception_handlers
 from .events import CanonicalEventName, create_event
@@ -154,6 +166,7 @@ from .mailbox.ai_api import router as mail_ai_router
 from .mailbox.all_inboxes import router as mail_all_inboxes_router
 from .mailbox.api import router as mail_router
 from .mailbox.sharing_api import router as mail_sharing_router
+from .mailbox.domains_api import router as mail_domains_router
 from .mailbox.operator_api import router as mail_operator_router
 from .mailbox.outgoing import build_schedule_runner
 from .mailbox.settings_api import router as mail_settings_router
@@ -173,6 +186,7 @@ from .billing.enforce import require_capacity
 from .user_preferences import router as user_preferences_router
 from .home import router as home_router
 from .setup_plans import router as setup_plans_router
+from . import notification_email
 from .push import push_dispatcher, router as push_router
 from .app_call_wake import call_wake_hub, visible_on_workspace_stream
 from .developer_watch import build_developer_watcher
@@ -213,6 +227,7 @@ from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
 from .audit_log import router as audit_log_router
 from .workspace_admin import router as workspace_admin_router
+from .tenant_lifecycle import build_lifecycle_runner, router as tenant_lifecycle_router
 from .sign_in_options import router as sign_in_options_router
 from .integration_setup import router as integration_setup_router
 from .identity import validate_auth_configuration
@@ -269,9 +284,15 @@ async def lifespan(_: FastAPI):
     reminders = build_team_reminder_scheduler(settings)
     if reminders is not None:
         reminders.start()
+    # Organisation exports, expired archives and due purges (docs/organisation-lifecycle.md).
+    lifecycle = build_lifecycle_runner(settings)
+    if lifecycle is not None:
+        lifecycle.start()
     try:
         yield
     finally:
+        if lifecycle is not None:
+            await lifecycle.stop()
         if reminders is not None:
             await reminders.stop()
         if billing_scheduler is not None:
@@ -292,6 +313,7 @@ async def lifespan(_: FastAPI):
             await developer_watcher.stop()
         await automation_dispatcher.stop()
         await push_dispatcher.stop()
+        await asyncio.to_thread(notification_email.shutdown)
         await event_runtime.stop()
         shutdown_telemetry()
         shutdown_error_reporting()
@@ -374,6 +396,7 @@ app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
 app.include_router(audit_log_router)
 app.include_router(workspace_admin_router)
+app.include_router(tenant_lifecycle_router)
 app.include_router(model_budget_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
@@ -387,6 +410,7 @@ app.include_router(calls_webhook_router)
 app.include_router(mail_sharing_router)
 app.include_router(mail_settings_router)
 app.include_router(mail_operator_router)
+app.include_router(mail_domains_router)
 app.include_router(calendar_router)
 app.include_router(marketing_router)
 app.include_router(business_router)
@@ -410,6 +434,8 @@ app.include_router(finance_intel_router)
 app.include_router(finance_intel_control_router)
 app.include_router(tyre_router)
 event_runtime.add_listener(push_dispatcher.submit)
+# The same events by email for people who turned Email on (docs/notifications.md#email).
+event_runtime.add_listener(notification_email.submit)
 # In-app call stream wake-ups: from NATS on every replica, or in-process without it
 # (docs/in-app-calls.md#signaling).
 call_wake_hub.attach(event_runtime)
@@ -1356,7 +1382,9 @@ async def cancel_task(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> Task:
-    task, run = cancel_task_record(task_id, context, repository)
+    # The row lock and writes run in a worker thread: on the event loop they stalled every other
+    # request (even /health) for as long as the database took (docs/realtime.md#event-loop).
+    task, run = await asyncio.to_thread(cancel_task_record, task_id, context, repository)
     if run_dispatcher is not None and run is not None:
         await run_dispatcher.cancelled(context, task.id)
     return task
@@ -1582,13 +1610,76 @@ async def stream_events(
 
 @app.get("/api/v1/approvals", response_model=list[Approval])
 async def list_approvals(
+    status_filter: ApprovalFilter | None = Query(default=None, alias="status"),
+    limit: int | None = Query(default=None, ge=1, le=APPROVAL_PAGE_MAX_LIMIT * 5),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> list[Approval]:
+    """Every approval, oldest first (the original shape). ``status`` and ``limit`` narrow it:
+    ``?status=pending&limit=200`` is the cheap list the shell uses; use ``/page`` for history."""
     require_permission(context, Permission.APPROVAL_READ)
     now = utc_now()
+    if status_filter is not None or limit is not None:
+        rows, _more = repository.list_approvals_page(
+            context,
+            now=now,
+            status=status_filter or ApprovalFilter.ALL,
+            query=None,
+            task_id=None,
+            cursor=None,
+            limit=limit or APPROVAL_PAGE_MAX_LIMIT * 5,
+        )
+        narrowed = [as_viewed(approval, now) for approval in rows]
+        return _with_progress(narrowed, context, repository)
     approvals = [as_viewed(approval, now) for approval in repository.list_approvals(context)]
     return _with_progress(approvals, context, repository, siblings=approvals)
+
+
+@app.get("/api/v1/approvals/page", response_model=ApprovalPage)
+async def list_approvals_page(
+    status_filter: ApprovalFilter = Query(default=ApprovalFilter.ALL, alias="status"),
+    query: str | None = Query(default=None, max_length=APPROVAL_QUERY_MAX_CHARS),
+    task_id: str | None = Query(default=None, max_length=80),
+    cursor: str | None = Query(default=None, max_length=400),
+    limit: int = Query(default=APPROVAL_PAGE_DEFAULT_LIMIT, ge=1, le=APPROVAL_PAGE_MAX_LIMIT),
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> ApprovalPage:
+    """Approvals pending first, then newest first, filtered and searched, one keyset page at a time."""
+    require_permission(context, Permission.APPROVAL_READ)
+    try:
+        after, walk_started = decode_approval_cursor(cursor) if cursor else (None, None)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor") from exc
+    now = utc_now()
+    # Every page of one walk groups rows as they were when its first page was read.
+    as_of = walk_started or now
+    rows, more = repository.list_approvals_page(
+        context,
+        now=as_of,
+        status=status_filter,
+        query=normalize_approval_query(query),
+        task_id=task_id or None,
+        cursor=after,
+        limit=limit,
+    )
+    items = _with_progress([as_viewed(approval, now) for approval in rows], context, repository)
+    next_cursor = (
+        encode_approval_cursor(approval_group(rows[-1], as_of), rows[-1].created_at, rows[-1].id, as_of)
+        if more and rows
+        else None
+    )
+    return ApprovalPage(items=items, next_cursor=next_cursor)
+
+
+@app.get("/api/v1/approvals/summary", response_model=ApprovalSummary)
+async def approvals_summary(
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> ApprovalSummary:
+    """How many approvals are pending, approved, rejected and expired now (the badge and metrics)."""
+    require_permission(context, Permission.APPROVAL_READ)
+    return repository.summarize_approvals(context, utc_now())
 
 
 @app.get("/api/v1/approvals/{approval_id}", response_model=Approval)

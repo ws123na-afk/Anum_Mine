@@ -5,7 +5,7 @@
 .voiceConsoleMeta { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .voiceBadge, .voicePill {
   align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted);
-  display: inline-flex; font-size: 13px; font-weight: 600; gap: 6px; min-height: 40px; padding: 6px 14px;
+  display: inline-flex; font-size: var(--text-sm); font-weight: 600; gap: 6px; min-height: 40px; padding: 6px 14px;
 }
 .voicePill { cursor: pointer; transition: background 160ms var(--d-ease), border-color 160ms var(--d-ease); }
 .voicePill:hover { background: var(--d-glass-2); color: var(--d-text); }
@@ -21,14 +21,14 @@
   background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; display: inline-flex; flex: none; gap: 2px; padding: 3px;
 }
 .voiceLangSwitch button {
-  background: transparent; border: 0; border-radius: 999px; color: var(--d-muted); cursor: pointer; font-size: 13px; font-weight: 650;
+  background: transparent; border: 0; border-radius: 999px; color: var(--d-muted); cursor: pointer; font-size: var(--text-sm); font-weight: 650;
   min-height: 36px; min-width: 44px; padding: 0 var(--d-s3);
 }
 .voiceLangSwitch button[aria-pressed="true"] { background: rgb(var(--c-sky) / .22); color: var(--d-text); }
 .voiceLangSwitch button:disabled { cursor: default; opacity: .6; }
 .voiceLangSwitch button:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 1px; }
 /* Under a reply: how long hearing, answering and speaking took (docs/voice.md#latency). */
-.voiceTiming { color: var(--d-muted); font-size: 12px; font-variant-numeric: tabular-nums; margin-top: var(--d-s1); }
+.voiceTiming { color: var(--d-muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; margin-top: var(--d-s1); }
 .voiceTurn.interim { border-style: dashed; opacity: .8; }
 
 /* Stage */
@@ -66,14 +66,14 @@
 @keyframes voiceSpin { to { transform: rotate(360deg); } }
 @keyframes voiceBreathe { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
 
-.voiceGreeting { font-size: clamp(24px, 3.4vw, 34px); font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
-.voiceStateLabel { color: var(--d-sky); font-size: 15px; font-weight: 600; margin-top: var(--d-s2); }
-.voiceCaption { color: var(--d-muted); font-size: 16px; line-height: 1.5; margin-top: var(--d-s1); max-width: 52ch; min-height: 24px; overflow-wrap: anywhere; }
-.voiceCaption.live { color: var(--d-text); font-size: 18px; }
+.voiceGreeting { font-size: var(--text-fluid-greeting); font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
+.voiceStateLabel { color: var(--d-sky); font-size: var(--text-base); font-weight: 600; margin-top: var(--d-s2); }
+.voiceCaption { color: var(--d-muted); font-size: var(--text-lg); line-height: 1.5; margin-top: var(--d-s1); max-width: 52ch; min-height: 24px; overflow-wrap: anywhere; }
+.voiceCaption.live { color: var(--d-text); font-size: var(--text-xl); }
 .voiceStageActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: center; margin-top: var(--d-s3); }
 .voiceStageActions:empty { display: none; }
 .voiceAllowMic, .voiceScope {
-  align-items: center; border-radius: 999px; display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 8px 18px;
+  align-items: center; border-radius: 999px; display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 8px 18px;
 }
 .voiceAllowMic { background: var(--d-text); border: 0; color: var(--d-bg); }
 .voiceAllowMic:hover { background: var(--d-muted); }
@@ -81,22 +81,22 @@
 
 /* Conversation */
 .voiceLog { display: flex; flex-direction: column; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
-.voiceEmpty { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 14px; gap: var(--d-s2); justify-content: center; }
+.voiceEmpty { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-md); gap: var(--d-s2); justify-content: center; }
 .voiceEmptyLead { color: var(--d-faint); flex-basis: 100%; text-align: center; }
 .voiceEmpty > span:not(.voiceEmptyLead) { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; padding: 6px 14px; }
 .voiceTurn { border-radius: 18px; max-width: min(88%, 60ch); padding: var(--d-s3) var(--d-s4); }
 .voiceTurn.you { align-self: flex-end; background: rgb(var(--c-sky) / .12); border: 1px solid rgb(var(--c-sky) / .2); border-end-end-radius: 6px; }
 .voiceTurn.assistant { align-self: flex-start; background: var(--d-surface-2); border: 1px solid var(--d-line); border-end-start-radius: 6px; }
-.voiceTurn p { font-size: 15px; line-height: 1.55; overflow-wrap: anywhere; }
-.voiceSpeaker { color: var(--d-violet); display: block; font-size: 13px; font-weight: 650; margin-bottom: 2px; }
-.voiceTier { border-radius: 999px; display: inline-block; font-size: 12px; font-weight: 650; margin-top: var(--d-s2); padding: 2px 10px; }
+.voiceTurn p { font-size: var(--text-base); line-height: 1.55; overflow-wrap: anywhere; }
+.voiceSpeaker { color: var(--d-violet); display: block; font-size: var(--text-sm); font-weight: 650; margin-bottom: 2px; }
+.voiceTier { border-radius: 999px; display: inline-block; font-size: var(--text-xs); font-weight: 650; margin-top: var(--d-s2); padding: 2px 10px; }
 .voiceTier.confirm { background: rgb(var(--c-warn) / .12); color: var(--d-warn); }
 .voiceTier.visual_only { background: rgb(var(--c-stop) / .12); color: var(--d-stop); }
 .voiceConfirm { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s3); }
 .voiceConfirm button { align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: 999px; color: #fff; display: inline-flex; font-weight: 650; gap: 6px; min-height: 44px; padding: 8px 16px; }
 .voiceConfirm button:hover { background: var(--d-primary-grad-hover); }
 .voiceConfirm button.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }
-.voiceResolved { color: var(--d-ok); display: inline-block; font-size: 13px; font-weight: 650; margin-top: var(--d-s2); }
+.voiceResolved { color: var(--d-ok); display: inline-block; font-size: var(--text-sm); font-weight: 650; margin-top: var(--d-s2); }
 
 /* Dock: stays in reach at the bottom of the viewport while the conversation scrolls. */
 .voiceDock {
@@ -111,11 +111,11 @@
 .voiceAsk { background: var(--d-text); border: 0; color: var(--d-bg); }
 .voiceAsk:disabled { opacity: .3; }
 .voiceDraft { min-width: 0; }
-.voiceDraft textarea { background: transparent; border: 0; box-shadow: none; color: var(--d-text); font-size: 16px; max-height: 160px; min-height: 44px; padding: 10px 4px; resize: none; }
+.voiceDraft textarea { background: transparent; border: 0; box-shadow: none; color: var(--d-text); font-size: var(--text-lg); max-height: 160px; min-height: 44px; padding: 10px 4px; resize: none; }
 .voiceDraft textarea:focus-visible { outline: none; }
 
 /* Settings */
-.voiceSettings { border-top: 1px solid var(--d-line); color: var(--d-muted); font-size: 14px; padding-top: var(--d-s2); }
+.voiceSettings { border-top: 1px solid var(--d-line); color: var(--d-muted); font-size: var(--text-md); padding-top: var(--d-s2); }
 .voiceSettings summary { align-items: center; border-radius: var(--d-r-control); cursor: pointer; display: inline-flex; font-weight: 600; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s2); }
 .voiceSettings summary:hover { color: var(--d-text); }
 .voiceSettingsGrid { display: grid; gap: 0 var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
@@ -141,15 +141,15 @@
 .workspace.view-voice > :not(.topbar):not(.voiceSpace) { flex: none; margin: 0 var(--d-s6) var(--d-s3); }
 .voiceSpace {
   /* The dark theme's tokens: text and controls stay readable (AA) on the dark scene in both themes. */
-  --c-hi: 255 255 255; --c-sky: 125 211 252; --c-violet: 167 139 250; --c-warn: 252 211 141; --c-stop: 253 164 175; --c-ok: 134 239 172;
-  --d-bg: #070b1a; --d-surface-1: #0e1530; --d-surface-2: rgba(20, 29, 59, .86); --d-surface-3: #1b2649;
-  --d-glass: rgba(9, 15, 34, .82); --d-glass-1: rgb(255 255 255 / .06); --d-glass-2: rgb(255 255 255 / .09); --d-glass-3: rgb(255 255 255 / .13);
-  --d-line: rgba(148, 163, 255, .16); --d-line-strong: rgba(170, 182, 255, .28); --d-edge: rgba(255, 255, 255, .10);
-  --d-text: #eef1f8; --d-muted: #b3bbd0; --d-faint: #98a1b8;
-  --d-sky: #7dd3fc; --d-violet: #a78bfa; --d-rose: #f9a8d4; --d-ok: #86efac; --d-warn: #fcd38d; --d-stop: #fda4af;
-  --d-field: rgba(2, 6, 23, .5); --d-well: rgba(2, 6, 23, .55); --d-chip: rgba(17, 26, 61, .85); --d-chrome: rgba(12, 19, 48, .8);
+  --c-hi: 255 255 255; --c-accent: 69 208 181; --c-sky: 69 208 181; --c-violet: 69 208 181; --c-warn: 242 196 107; --c-stop: 245 154 166; --c-ok: 111 211 154;
+  --d-bg: #0b0d12; --d-surface-1: #12151c; --d-surface-2: rgba(23, 27, 36, .88); --d-surface-3: #1f2430;
+  --d-glass: rgba(14, 17, 23, .84); --d-glass-1: rgb(255 255 255 / .05); --d-glass-2: rgb(255 255 255 / .08); --d-glass-3: rgb(255 255 255 / .12);
+  --d-line: rgba(255, 255, 255, .1); --d-line-strong: rgba(255, 255, 255, .18); --d-edge: rgba(255, 255, 255, .06);
+  --d-text: #eceef3; --d-muted: #b0b6c3; --d-faint: #969dab;
+  --d-accent: #45d0b5; --d-sky: #45d0b5; --d-violet: #45d0b5; --d-rose: #45d0b5; --d-ok: #6fd39a; --d-warn: #f2c46b; --d-stop: #f59aa6;
+  --d-field: rgba(3, 5, 9, .5); --d-well: rgba(3, 5, 9, .55); --d-chip: rgba(26, 30, 40, .88); --d-chrome: rgba(18, 21, 28, .82);
   --d-elev-2: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 18px 48px rgba(0, 0, 0, .5);
-  --v-glass: rgba(6, 11, 26, .72); --v-glass-line: rgba(134, 186, 255, .2);
+  --v-glass: rgba(11, 13, 18, .74); --v-glass-line: rgba(255, 255, 255, .14);
   color: var(--d-text); color-scheme: dark; flex: 1 1 auto; min-height: 0; position: relative;
 }
 .voiceSpace h2, .voiceSpace strong { color: var(--d-text); }
@@ -167,7 +167,7 @@
 .voiceSpaceBrief { display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr); justify-items: center; max-width: min(100%, 680px); min-width: 0; pointer-events: none; width: 100%; }
 .voiceBriefLine {
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); background: var(--v-glass); border: 1px solid var(--v-glass-line); border-radius: 999px;
-  color: var(--d-muted); display: flex; font-size: 15px; gap: var(--d-s2); max-width: 100%; min-height: 40px; align-items: center; padding: 8px 18px;
+  color: var(--d-muted); display: flex; font-size: var(--text-base); gap: var(--d-s2); max-width: 100%; min-height: 40px; align-items: center; padding: 8px 18px;
 }
 .voiceBriefState { color: var(--d-sky); flex: none; font-weight: 650; }
 .voiceBriefText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -176,7 +176,7 @@
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); background: rgba(6, 11, 26, .86); border: 1px solid rgb(252 211 141 / .45);
   border-radius: var(--d-r-panel); box-shadow: var(--d-elev-2); display: grid; gap: var(--d-s2); max-width: 100%; padding: var(--d-s3) var(--d-s4);
 }
-.voiceDecision p { color: var(--d-text); font-size: 15px; overflow-wrap: anywhere; }
+.voiceDecision p { color: var(--d-text); font-size: var(--text-base); overflow-wrap: anywhere; }
 .voiceDecision .voiceConfirm { margin-top: 0; }
 .voiceSpaceBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .voiceSpace :is(.voiceBadge, .voicePill, .voiceIconButton, .spaceControls button, .voiceLangSwitch) {
@@ -206,7 +206,7 @@
 .voiceSpaceScroll:empty { display: none; }
 .voiceSpaceStatus { display: grid; gap: var(--d-s1); justify-items: center; text-align: center; }
 .voiceSpaceStatus .voiceStateLabel { margin: 0; }
-.voiceSpace .voiceGreeting { font-size: clamp(20px, 2.4vw, 26px); }
+.voiceSpace .voiceGreeting { font-size: var(--text-fluid-greeting-sm); }
 .voiceSpace .voiceCaption { margin: 0; min-height: 0; }
 .voiceSpace .voiceCaption:empty { display: none; }
 .voiceSpace .voiceStageActions { margin: 0; }
@@ -240,7 +240,7 @@
   .workspace.view-voice > :not(.topbar):not(.voiceSpace) { margin: 0 var(--d-s4) var(--d-s2); }
   .voiceSpaceLayout { gap: var(--d-s2); padding: var(--d-s2) var(--d-s3) var(--d-s3); }
   .voiceSpacePanel { gap: var(--d-s2); max-height: min(42cqh, 420px); padding: var(--d-s3); }
-  .voiceSpace .voiceGreeting { font-size: 18px; }
+  .voiceSpace .voiceGreeting { font-size: var(--text-xl); }
   /* One row of controls that scrolls sideways if it must; the settings gear stays outside it so
      its card is never clipped. */
   .voiceSpace .voiceBadgeText { border: 0; clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
@@ -261,13 +261,13 @@
 .voiceSpace.focus .voiceSpaceTalk .voiceOrbIcon { opacity: 0; }
 .voiceFocusText { display: grid; gap: var(--d-s2); justify-items: center; min-height: 3.2em; pointer-events: none; text-align: center; }
 .voiceFocusCaption {
-  color: rgba(238, 241, 248, .72); display: -webkit-box; font-size: clamp(15px, 1.6vw, 19px); line-height: 1.45; max-width: min(64ch, 92vw);
+  color: rgba(238, 241, 248, .72); display: -webkit-box; font-size: var(--text-fluid-lead); line-height: 1.45; max-width: min(64ch, 92vw);
   overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; transition: opacity 600ms ease;
 }
 .voiceFocusCaption:empty { opacity: 0; }
 .voiceFocusHint {
   animation: voiceFocusHint 2.4s ease forwards; background: rgba(6, 11, 26, .6); border: 1px solid var(--v-glass-line); border-radius: 999px;
-  color: var(--d-muted); font-size: 13px; inset-block-start: var(--d-s5); inset-inline: 0; margin: 0 auto; padding: 6px 14px; position: absolute; width: max-content;
+  color: var(--d-muted); font-size: var(--text-sm); inset-block-start: var(--d-s5); inset-inline: 0; margin: 0 auto; padding: 6px 14px; position: absolute; width: max-content;
 }
 @keyframes voiceFocusHint { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
 

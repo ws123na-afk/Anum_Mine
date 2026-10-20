@@ -50,6 +50,9 @@ class Permission(StrEnum):
     AUDIT_READ = "audit:read"
     # Rename, archive and restore the request's workspace (docs/identity.md#workspace-lifecycle).
     WORKSPACE_MANAGE = "workspace:manage"
+    # Schedule or cancel deleting the request's workspace (docs/organisation-lifecycle.md):
+    # owners only.
+    WORKSPACE_DELETE = "workspace:delete"
     GOVERNANCE_MANAGE = "governance:manage"
     AUTOMATION_READ = "automation:read"
     AUTOMATION_MANAGE = "automation:manage"
@@ -100,6 +103,10 @@ class Permission(StrEnum):
     # Platform operator (docs/customer-organisations.md): onboards customer organisations
     # and reads their counts and health. Granted only by the platform_operator realm role.
     PLATFORM_OPERATE = "platform:operate"
+    # Export the whole organisation and schedule or cancel its deletion
+    # (docs/organisation-lifecycle.md). Granted only by org_admin; the routes also require
+    # the owner role in the request's workspace.
+    ORGANIZATION_LIFECYCLE = "organization:lifecycle"
     # Calendar (docs/calendar.md): the workspace's events and their attendees. Viewers
     # read the calendar; members and owners add events and change their own; owners
     # manage everyone's.
@@ -206,11 +213,13 @@ _READ_PERMISSIONS = frozenset(
     }
 )
 
-ORGANIZATION_PERMISSIONS = frozenset({Permission.ORG_POLICY_MANAGE, Permission.PLATFORM_OPERATE})
+ORGANIZATION_PERMISSIONS = frozenset(
+    {Permission.ORG_POLICY_MANAGE, Permission.PLATFORM_OPERATE, Permission.ORGANIZATION_LIFECYCLE}
+)
 
 ORGANIZATION_ROLE_PERMISSIONS: Mapping[OrganizationRole, frozenset[Permission]] = MappingProxyType(
     {
-        OrganizationRole.ADMIN: frozenset({Permission.ORG_POLICY_MANAGE}),
+        OrganizationRole.ADMIN: frozenset({Permission.ORG_POLICY_MANAGE, Permission.ORGANIZATION_LIFECYCLE}),
         OrganizationRole.PLATFORM_OPERATOR: frozenset({Permission.PLATFORM_OPERATE}),
     }
 )

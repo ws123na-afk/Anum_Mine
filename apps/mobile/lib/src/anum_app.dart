@@ -26,6 +26,7 @@ import '../features/developer/developer_assist.dart';
 import '../features/developer/developer_controller.dart';
 import '../features/developer/developer_repository.dart';
 import '../features/tyre/tyre_controller.dart';
+import '../features/tyre/tyre_ops.dart';
 import '../features/tyre/tyre_repository.dart';
 import '../features/tyre/tyre_screen.dart';
 import '../features/whatsapp/whatsapp_controller.dart';
@@ -34,6 +35,7 @@ import '../features/email/email_controller.dart';
 import '../features/email/email_repository.dart';
 import '../features/email/inbox_screen.dart';
 import '../features/commerce/commerce_controller.dart';
+import '../features/commerce/commerce_ops_data.dart';
 import '../features/commerce/commerce_repository.dart';
 import '../features/finance/finance_controller.dart';
 import '../features/finance/finance_intel_models.dart';
@@ -41,12 +43,21 @@ import '../features/finance/finance_repository.dart';
 import '../features/finance/finance_screen.dart';
 import '../features/team/team_screens.dart' show NotificationsScreen;
 import '../features/reports/workspace_tool_routes.dart';
+import '../features/business/accounts_data.dart';
 import '../features/business/business_controller.dart';
 import '../features/business/business_repository.dart';
 import '../features/billing/billing_data.dart';
 import '../features/billing/billing_screen.dart';
+import '../features/business/catalog_data.dart';
+import '../features/business/deals_data.dart';
+import '../features/business/project_money.dart';
 import '../features/business/support_controller.dart';
 import '../features/business/support_repository.dart';
+import '../features/business/invoice_controller.dart';
+import '../features/business/invoice_repository.dart';
+import '../features/portal/portal_controller.dart';
+import '../features/portal/portal_repository.dart';
+import '../features/portal/portal_screens.dart';
 import '../features/brevo/brevo_data.dart';
 import '../features/brevo/brevo_screen.dart';
 import '../features/marketing/marketing_controller.dart';
@@ -66,6 +77,7 @@ import '../features/voice/voice_repository.dart';
 import '../features/settings/profile_screen.dart';
 import '../features/settings/settings_controller.dart';
 import '../features/admin/admin_repository.dart';
+import '../features/lifecycle/lifecycle_repository.dart';
 import '../features/admin/org_admin_repository.dart';
 import '../features/learning/learning_repository.dart';
 import '../features/privacy/privacy_repository.dart';
@@ -211,6 +223,11 @@ class _AnumAppState extends State<AnumApp> {
   late final DeveloperController developer;
   late final MarketingController marketing;
   late final BusinessController business;
+
+  /// A customer's portal session from a link's token (docs/business-portal.md):
+  /// calls the configured API with the token as a bearer header, no
+  /// workspace header, and keeps the token in memory only.
+  late final PortalSessionFactory _portalSessions;
   late final DeveloperAssist chatDeveloper;
   late final DeveloperAssist voiceDeveloper;
   late final LibraryRepository library;
@@ -342,6 +359,7 @@ class _AnumAppState extends State<AnumApp> {
       learning: ApiLearningRepository(api),
       team: ApiTeamRepository(api),
       billing: billing,
+      lifecycle: ApiLifecycleRepository(api),
     );
     workspace.onApprovalDecided = _offerPushAfterApproval;
     // In-app calls between teammates (docs/in-app-calls.md#flutter).
@@ -362,7 +380,8 @@ class _AnumAppState extends State<AnumApp> {
     // Developer mode (docs/developer-mode.md): the screen, plus "build ..." in
     // the Assistant and "developer, ..." by voice. The role is checked once.
     // Commerce (docs/commerce.md): sales summary and orders, read-only here.
-    commerce = CommerceController(ApiCommerceRepository(api));
+    commerce = CommerceController(ApiCommerceRepository(api),
+        ops: CommerceOps(ApiCommerceOpsRepository(api)));
     // Finance (docs/finance.md): the person's own ledger, read only.
     finance = FinanceController(ApiFinanceRepository(api),
         intelRepository: ApiFinanceIntelRepository(api));
@@ -376,7 +395,8 @@ class _AnumAppState extends State<AnumApp> {
               builder: (_) => FinanceScreen(controller: finance)));
       await loading;
     };
-    tyre = TyreController(ApiTyreRepository(api));
+    tyre = TyreController(ApiTyreRepository(api),
+        ops: TyreOps(ApiTyreOpsRepository(api)));
     final developerRepository = ApiDeveloperRepository(api);
     developer = DeveloperController(developerRepository);
     // Social media marketing (docs/marketing.md).
@@ -384,7 +404,14 @@ class _AnumAppState extends State<AnumApp> {
         brevo: BrevoController(ApiBrevoRepository(api)));
     // Business, the internal sales desk (docs/business.md).
     business = BusinessController(ApiBusinessRepository(api),
-        support: SupportController(ApiSupportRepository(api)));
+        money: ApiProjectMoney(api),
+        support: SupportController(ApiSupportRepository(api)),
+        invoices: InvoicesController(ApiInvoicesRepository(api)),
+        catalog: CatalogController(ApiCatalogRepository(api)),
+        accounts: AccountsController(ApiAccountsRepository(api)),
+        deals: ApiDealsRepository(api));
+    _portalSessions =
+        (token) => PortalController(ApiPortalRepository(api, token));
     chatDeveloper = DeveloperAssist(
       repository: developerRepository,
       source: 'text',
@@ -398,8 +425,10 @@ class _AnumAppState extends State<AnumApp> {
     voiceDeveloper.announce = (text) => voice.sayLocal(text);
     voice.developer = voiceDeveloper;
     // WhatsApp inbox (docs/whatsapp.md): owners and members; owners approve.
-    whatsapp = WhatsAppController(ApiWhatsAppRepository(api));
-    email = EmailController(ApiEmailRepository(api));
+    // Both can open a support ticket from a message (docs/business.md).
+    whatsapp = WhatsAppController(ApiWhatsAppRepository(api),
+        support: business.support);
+    email = EmailController(ApiEmailRepository(api), support: business.support);
     // ANUM Command (docs/command.md): app-wide, so a command keeps being
     // followed after "Keep working in background".
     command = CommandController(
@@ -639,8 +668,11 @@ class _AnumAppState extends State<AnumApp> {
           ],
           onGenerateRoute: _onGenerateRoute,
           // The ring and the call in progress stay above every screen.
-          builder: (context, child) => AppCallOverlay(
-              controller: appCalls, child: child ?? const SizedBox.shrink()),
+          builder: (context, child) => PortalEntryScope(
+            open: _openPortal,
+            child: AppCallOverlay(
+                controller: appCalls, child: child ?? const SizedBox.shrink()),
+          ),
           home: ListenableBuilder(
             listenable: auth,
             builder: (context, _) => auth.phase == AuthPhase.ready
@@ -672,6 +704,15 @@ class _AnumAppState extends State<AnumApp> {
           ),
         ),
       );
+
+  /// "Customer portal" on the sign-in screen: paste the link a business sent.
+  void _openPortal() {
+    _navigator.currentState?.push(
+      MaterialPageRoute<void>(
+        builder: (_) => PortalEntryScreen(createSession: _portalSessions),
+      ),
+    );
+  }
 
   Route<void>? _onGenerateRoute(RouteSettings settings) {
     final name = settings.name;
@@ -734,11 +775,13 @@ class _AnumAppState extends State<AnumApp> {
     if (name == AnumRoutes.tyres || name == AnumRoutes.tyreAlerts) {
       return MaterialPageRoute<void>(
         settings: settings,
-        builder: (_) => _AuthenticatedDestination(
+        builder: (routeContext) => _AuthenticatedDestination(
           auth: auth,
           child: TyreScreen(
             controller: tyre,
             initialTab: name == AnumRoutes.tyreAlerts ? 2 : 0,
+            onOpenApprovals: () =>
+                Navigator.of(routeContext).pushNamed(AnumRoutes.approvals),
           ),
         ),
       );

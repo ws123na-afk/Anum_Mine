@@ -170,7 +170,7 @@ test('a failed load explains what to do and Retry recovers', async ({ page }) =>
   await page.goto('/#settings');
 
   const panel = page.getByRole('region', { name: 'Model gateway' });
-  await expect(panel.getByRole('alert')).toContainText('The model settings could not be loaded. Database unavailable');
+  await expect(panel.getByRole('alert')).toContainText('The model settings could not be loaded. The server could not reach its database');
   await panel.getByRole('button', { name: 'Retry' }).click();
   await expect(panel.getByText('server default', { exact: true })).toBeVisible();
   await expect(panel.getByLabel('Provider')).toHaveValue('');

@@ -8,8 +8,8 @@
 .blHead > div:first-child { display: grid; gap: var(--d-s1); min-width: 0; }
 .blInline { align-items: center; margin: 0; }
 .blCenter { justify-content: center; }
-.blSmall { font-size: 13px; margin: 0; }
-.blSub { font-size: 16px; }
+.blSmall { font-size: var(--text-sm); margin: 0; }
+.blSub { font-size: var(--text-lg); }
 .blInlineIcon { block-size: 16px; inline-size: 16px; margin-inline-end: var(--d-s1); vertical-align: -2px; }
 [dir="rtl"] .blFlip { transform: scaleX(-1); }
 .blDanger { color: var(--d-stop); display: block; }
@@ -21,7 +21,7 @@
 .blEmpty { margin: 0; }
 
 /* Links drawn as buttons (an <a> that navigates). */
-.blLink { align-items: center; background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); display: inline-flex; font-size: 14px; font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s3); text-decoration: none; }
+.blLink { align-items: center; background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s3); text-decoration: none; }
 .blLink:hover { background: var(--d-glass-3); }
 .blLink.primary { background: var(--d-primary-grad); border-color: transparent; color: var(--d-on-primary); }
 .blLink.primary:hover { background: var(--d-primary-grad-hover); }
@@ -30,19 +30,19 @@
 /* Plan and facts. */
 .blPlanNow { display: grid; gap: var(--d-s2); }
 .blPlanName { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.blPlanName h3 { font-size: 20px; overflow-wrap: anywhere; }
-.blPrice { font-size: 16px; font-variant-numeric: tabular-nums; font-weight: 650; margin: 0; }
+.blPlanName h3 { font-size: var(--text-2xl); overflow-wrap: anywhere; }
+.blPrice { font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 650; margin: 0; }
 .blFacts { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin: 0; }
-.blFacts dt { color: var(--d-muted); font-size: 12px; }
+.blFacts dt { color: var(--d-muted); font-size: var(--text-xs); }
 .blFacts dd { margin: 0; overflow-wrap: anywhere; }
-.blFacts code { font-size: 13px; overflow-wrap: anywhere; }
+.blFacts code { font-size: var(--text-sm); overflow-wrap: anywhere; }
 
 /* Usage meters. */
 .blMeters { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); list-style: none; margin: 0; padding: 0; }
 .blMeter { display: grid; gap: var(--d-s1); }
 .blMeterHead { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
-.blMeterHead span { color: var(--d-muted); font-size: 13px; }
-.blMeterHead strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+.blMeterHead span { color: var(--d-muted); font-size: var(--text-sm); }
+.blMeterHead strong { font-size: var(--text-md); font-variant-numeric: tabular-nums; }
 .blBar, .blProgress { background: var(--d-well); border: 1px solid var(--d-line); border-radius: 999px; block-size: 8px; overflow: hidden; }
 .blBar span, .blProgress span { background: var(--d-ok); block-size: 100%; display: block; }
 .blMeter.warn .blBar span { background: var(--d-warn); }
@@ -52,7 +52,7 @@
 /* Payment methods and bank details. */
 .blMethods { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .blMethod { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3) var(--d-s4); align-content: start; }
-.blMethod h3 { align-items: center; display: flex; font-size: 15px; gap: var(--d-s2); margin: 0; }
+.blMethod h3 { align-items: center; display: flex; font-size: var(--text-base); gap: var(--d-s2); margin: 0; }
 .blMethod h3 svg { block-size: 18px; inline-size: 18px; }
 .blMethod .statusBadge { justify-self: start; }
 .blBank { display: grid; gap: var(--d-s2); }
@@ -63,11 +63,11 @@
 .blPlan { align-content: start; display: grid; gap: var(--d-s2); padding: var(--d-s4); }
 .blPlan.current { border-color: rgb(var(--c-ok) / .45); }
 .blPlan header { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
-.blPlan h3 { font-size: 18px; margin: 0; overflow-wrap: anywhere; }
+.blPlan h3 { font-size: var(--text-xl); margin: 0; overflow-wrap: anywhere; }
 .blPlan p { margin: 0; }
-.blTrial { color: var(--d-sky); font-size: 13px; font-weight: 600; }
+.blTrial { color: var(--d-sky); font-size: var(--text-sm); font-weight: 600; }
 .blFeatures { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
-.blFeatures li { align-items: flex-start; display: flex; font-size: 14px; gap: var(--d-s2); }
+.blFeatures li { align-items: flex-start; display: flex; font-size: var(--text-md); gap: var(--d-s2); }
 .blFeatures svg { block-size: 16px; color: var(--d-ok); flex: none; inline-size: 16px; margin-top: 2px; }
 .blPlanAction { margin-top: var(--d-s2); }
 
@@ -75,7 +75,7 @@
 .blToolbar { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
 .blSearch { flex: 1 1 220px; min-width: 0; }
 .blFilter { flex: 0 1 200px; min-width: 0; }
-.blTable th small, .blTable td small { color: var(--d-faint); display: block; font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+.blTable th small, .blTable td small { color: var(--d-faint); display: block; font-size: var(--text-xs); margin-top: 2px; overflow-wrap: anywhere; }
 .blTable th strong { font-weight: 600; overflow-wrap: anywhere; }
 .blTable .num, .blLines .num { font-variant-numeric: tabular-nums; text-align: end; white-space: nowrap; }
 .blTable .iconOnly { justify-content: center; padding: 0; width: 40px; }
@@ -89,7 +89,7 @@
 .blInvoice h3, .blInvoice h4, .blInvoice p { margin: 0; }
 .blInvoiceHead { display: grid; gap: var(--d-s2); }
 .blInvoiceHead > div { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.blInvoiceHead h3 { font-size: 20px; }
+.blInvoiceHead h3 { font-size: var(--text-2xl); }
 .blParties { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 .blParties section { display: grid; gap: 2px; }
 .blPre { white-space: pre-line; }

@@ -1,8 +1,9 @@
 """Business storage: one generic protocol, an in-memory store and the PostgreSQL store.
 
 ``ANUM_REPOSITORY_BACKEND=memory`` (local and tests) keeps everything in this process;
-``postgresql`` uses ``anum_api.db.business_repository`` under forced RLS (migration
-``0070_business``, support tickets ``0076_business_support``). Every method works inside the caller's tenant and workspace only:
+``postgresql`` uses ``anum_api.db.business_repository`` under forced RLS (migrations
+``0070_business``, support tickets ``0076_business_support``, change orders
+``0080_business_change_orders`` and invoices and the portal ``0089_business_invoices_portal``). Every method works inside the caller's tenant and workspace only:
 a record of another workspace reads as missing, whatever id is asked for.
 """
 
@@ -20,10 +21,12 @@ from pydantic import BaseModel
 
 from ..schemas import TenantContext
 from ..scoped_store import open_scoped_store
+from .invoice_models import Invoice, InvoiceCounter, InvoicePayment, PortalAccess, PortalDecision
 from .models import (
     Account,
     Activity,
     BusinessSettings,
+    ChangeOrder,
     Contact,
     Draft,
     Evidence,
@@ -39,7 +42,9 @@ from .models import (
     ResearchRun,
     SupportTicket,
     TicketReply,
+    UsageEntry,
 )
+from .outreach_models import Observation, OutboxItem, OutreachSettings, PipelineRun, ReplyEvent, TargetProfile
 
 MAX_PAGE = 100
 # Rows read at most for a summary (the KPI window); more is reported as truncated.
@@ -61,8 +66,22 @@ KINDS: dict[str, type[BaseModel]] = {
     "milestones": Milestone,
     "drafts": Draft,
     "research_runs": ResearchRun,
+    # The prospecting pipeline and the outbox (migration 0082_business_pipeline).
+    "outreach_settings": OutreachSettings,
+    "observations": Observation,
+    "pipeline_runs": PipelineRun,
+    "outbox": OutboxItem,
+    "replies": ReplyEvent,
+    "target_profiles": TargetProfile,
+    "change_orders": ChangeOrder,
+    "usage_ledger": UsageEntry,
     "tickets": SupportTicket,
     "ticket_replies": TicketReply,
+    "invoices": Invoice,
+    "invoice_payments": InvoicePayment,
+    "invoice_counters": InvoiceCounter,
+    "portal_access": PortalAccess,
+    "portal_decisions": PortalDecision,
 }
 
 ModelT = TypeVar("ModelT", bound=BaseModel)

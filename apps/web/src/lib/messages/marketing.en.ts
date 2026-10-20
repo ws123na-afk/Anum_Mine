@@ -15,7 +15,7 @@ export const marketingEn = {
   'marketing.deniedTitle': 'Marketing is not available to you here',
   'marketing.deniedText': 'Members of this workspace can see marketing plans and results. Ask a workspace owner to add you.',
   'marketing.errorTitle': 'Marketing could not be loaded',
-  'marketing.errorText': '{message} Check your connection and try again.',
+  'marketing.errorText': '{message}. Try again in a moment.',
   'marketing.denied': 'Not allowed: {message} Members can draft posts; owners connect accounts and approve publishing.',
   'marketing.failed': '{what} failed: {message}',
   'marketing.noAccountsOwner': 'No account is connected yet. Open Accounts and connect Facebook, Instagram, LinkedIn, X, TikTok or YouTube to start.',

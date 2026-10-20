@@ -237,7 +237,7 @@ test('empty, error and permission states each say what to do next', async ({ pag
 test('a failed load says what failed and retries', async ({ page }) => {
   await mockApi(page, { overview: 500 });
   await page.goto('/#learning');
-  await expect(page.getByRole('alert')).toContainText('Could not load what ANUM learned: Database unavailable. Check your connection and try again.');
+  await expect(page.getByRole('alert')).toContainText('Could not load what ANUM learned: The server could not reach its database.');
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByTestId('learning-state')).toHaveText('Learning');
 });

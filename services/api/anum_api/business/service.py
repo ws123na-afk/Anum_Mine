@@ -44,6 +44,7 @@ from .store import BusinessStore, Query
 logger = logging.getLogger("anum.business")
 
 ACCEPT_TOOL = "business.accept_proposal"
+SEND_INVOICE_TOOL = "business.send_invoice"
 
 
 def http_error(code: int, detail: str) -> HTTPException:

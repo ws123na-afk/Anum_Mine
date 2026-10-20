@@ -14,6 +14,8 @@ dist/
 .vite/
 coverage/
 playwright-report/
+blob-report/
+all-blob-reports/
 test-results/
 .codex-*.png
 .anum-data/

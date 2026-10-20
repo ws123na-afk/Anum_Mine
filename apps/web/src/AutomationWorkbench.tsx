@@ -13,7 +13,6 @@ import {
 } from './lib/automation';
 import { t } from './lib/i18n';
 import './workbench.css';
-import { HelpLink } from './HelpLink';
 
 const PAGE_SIZE = 20;
 const RUN_PAGE_SIZE = 10;
@@ -83,7 +82,7 @@ export function AutomationWorkbench({ focus = null, onOpenTask, refreshSignal = 
         {list.state === 'error' && <div className="autoPad"><Notice error>{list.status === 403 ? list.message : t('auto.loadFailed', { message: list.message })}</Notice>{list.status !== 403 && <div className="actions"><button type="button" className="secondary" onClick={reload}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}</div>}
         {list.state === 'ready' && list.value.items.length === 0 && (filtered
           ? <div className="emptyState"><Search aria-hidden="true" /><h3>{t('auto.noMatches')}</h3><p>{t('auto.noMatchesText')}</p><button type="button" className="secondary autoInlineButton" onClick={() => { setQuery(''); setDebounced(''); setStatusFilter(''); setOffset(0); }}>{t('auto.clearFilters')}</button></div>
-          : <div className="emptyState"><Workflow aria-hidden="true" /><h3>{t('auto.emptyTitle')}</h3><p>{manage ? t('auto.emptyManage') : t('auto.emptyRead')}</p><HelpLink />{manage && <button type="button" className="autoInlineButton" onClick={startCreate}><Plus aria-hidden="true" />{t('auto.create')}</button>}</div>)}
+          : <div className="emptyState"><Workflow aria-hidden="true" /><h3>{t('auto.emptyTitle')}</h3><p>{manage ? t('auto.emptyManage') : t('auto.emptyRead')}</p>{manage && <button type="button" className="autoInlineButton" onClick={startCreate}><Plus aria-hidden="true" />{t('auto.create')}</button>}</div>)}
         {list.state === 'ready' && list.value.items.length > 0 && <>
           <ul className="autoRows" aria-label={t('auto.title')}>
             {list.value.items.map((item) => <li key={item.id}>

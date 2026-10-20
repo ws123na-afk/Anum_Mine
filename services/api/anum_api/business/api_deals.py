@@ -42,8 +42,11 @@ from .models import (
     ProposalStatus,
     ProposalVersion,
     Stage,
+    SignedMoney,
     money,
 )
+from .invoice_models import DecisionSubject, PortalDecisionSummary
+from .portal_service import decision_summary
 from .service import audit, content_hash, http_error, proposal_totals, record_activity, stamp_state
 from .store import MAX_SCAN, BusinessStore, Query, open_business_store
 from .tools import acceptance_arguments, request_approval, retire_approval
@@ -222,6 +225,7 @@ class VersionSummary(BaseModel):
     version: int
     content_hash: str
     locked: bool
+    change_order_id: str | None = None
     total: Money
     created_at: datetime
 
@@ -234,6 +238,8 @@ class ProposalView(Proposal):
     approval_state: ApprovalState = "none"
     approval: Approval | None = None
     project_id: str | None = None
+    # What the customer decided in their portal about the version waiting for acceptance.
+    portal_decision: PortalDecisionSummary | None = None
 
 
 class ProposalCreate(BaseModel):
@@ -273,8 +279,9 @@ def proposal_view(store: BusinessStore, repository: AnumRepository, context: Ten
     return ProposalView(
         **proposal.model_dump(), account_name=account.name if account else "", opportunity_name=opportunity.name if opportunity else "",
         current=version_view(current),
-        versions=[VersionSummary(version=item.version, content_hash=item.content_hash, locked=item.locked, total=proposal_totals(item)["total"], created_at=item.created_at) for item in versions],
+        versions=[VersionSummary(version=item.version, content_hash=item.content_hash, locked=item.locked, change_order_id=item.change_order_id, total=proposal_totals(item)["total"], created_at=item.created_at) for item in versions],
         approval_state=state, approval=approval if state == "pending" else None, project_id=project.id if project else None,
+        portal_decision=decision_summary(store, DecisionSubject.PROPOSAL, proposal.id, proposal.requested_hash or proposal.accepted_hash),
     )
 
 
@@ -484,6 +491,8 @@ def proposal_markdown(view: ProposalView) -> str:
         f"Version: {current.version} ({'accepted' if view.status == ProposalStatus.ACCEPTED else view.status.value.replace('_', ' ')})  ",
         f"Content hash: `{current.content_hash}`", "",
     ]
+    if view.status == ProposalStatus.ACCEPTED and view.accepted_version and current.version != view.accepted_version:
+        lines[-1:-1] = [f"Amends accepted version {view.accepted_version} through approved change orders.  "]
     if current.summary:
         lines += ["## Summary", "", current.summary, ""]
     if current.scope:
@@ -509,10 +518,9 @@ def proposal_markdown(view: ProposalView) -> str:
 def export_proposal(proposal_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
     read(context)
     with open_business_store(context) as store:
+        # An accepted proposal exports its contract record: the accepted version, or the
+        # newest version approved change orders produced from it (docs/business.md#change-orders).
         view = proposal_view(store, repository, context, get_or_404(store, "proposals", proposal_id, "Proposal"))
-        if view.status == ProposalStatus.ACCEPTED and view.accepted_version and view.accepted_version != view.current.version:
-            accepted = store.first("proposal_versions", proposal_id=proposal_id, version=view.accepted_version)
-            view = view.model_copy(update={"current": version_view(accepted)})
     audit(repository, context, "business.proposal.exported", proposal_id, metadata={"version": view.current.version})
     name = "".join(char if char.isalnum() else "-" for char in view.title.lower()).strip("-")[:60] or "proposal"
     return Response(content=proposal_markdown(view), media_type="text/markdown; charset=utf-8",
@@ -684,6 +692,13 @@ class MoneyFigure(BaseModel):
     amount: Money
 
 
+class SignedMoneyFigure(BaseModel):
+    """A figure that a change order can lower (a reduction approved in the window)."""
+
+    currency: Currency
+    amount: SignedMoney
+
+
 class KpiSummary(BaseModel):
     window_from: datetime
     window_to: datetime
@@ -698,7 +713,7 @@ class KpiSummary(BaseModel):
     opportunities_lost: int
     proposals_sent: int
     proposals_accepted: int
-    contracted: list[MoneyFigure]
+    contracted: list[SignedMoneyFigure]
     cash_collected: list[MoneyFigure]
     research_runs: int
     web_searches: int
@@ -715,6 +730,13 @@ def _sum_by_currency(pairs: list[tuple[Currency, Decimal]]) -> list[MoneyFigure]
     for currency, amount in pairs:
         totals[currency] = totals.get(currency, Decimal(0)) + amount
     return [MoneyFigure(currency=currency, amount=money(amount)) for currency, amount in sorted(totals.items())]
+
+
+def _signed_by_currency(pairs: list[tuple[Currency, Decimal]]) -> list[tuple[Currency, Decimal]]:
+    totals: dict[Currency, Decimal] = {}
+    for currency, amount in pairs:
+        totals[currency] = totals.get(currency, Decimal(0)) + amount
+    return sorted(totals.items())
 
 
 FUNNEL = (("created", None), ("qualified", "qualified_at"), ("contacted", "contacted_at"), ("meeting", "meeting_at"), ("offered", "offered_at"), ("won", "won_at"))
@@ -748,6 +770,11 @@ def kpi_summary(
             version = store.first("proposal_versions", proposal_id=proposal_id, version=number)
             if version is not None:
                 contracted_pairs.append((version.currency, proposal_totals(version)["total"]))
+        # Approved change orders count when they were approved (docs/business.md#kpi-summary).
+        changes, _ = store.find("change_orders", Query(where={"status": "approved"}, order_by="created_at", limit=MAX_SCAN))
+        for change in changes:
+            if change.decided_at is not None and start <= change.decided_at < end and change.total_delta is not None:
+                contracted_pairs.append((change.currency, change.total_delta))
     steps: list[FunnelStep] = []
     created = len(leads)
     previous = created
@@ -764,7 +791,7 @@ def kpi_summary(
     notes = [
         "Funnel: of the leads created in this window, how many reached each step by now (a lead counts once per step).",
         "Pipeline values and probabilities are the owner's assumptions, not forecasts.",
-        "Contracted value is accepted proposals in the window; cash collected is milestone payments recorded with a date in the window. Neither is revenue.",
+        "Contracted value is accepted proposals and approved change orders (their price change, which can be negative) in the window; cash collected is milestone payments recorded with a date in the window. Neither is revenue.",
     ]
     return KpiSummary(
         window_from=start, window_to=end, days=days, leads_created=created, funnel=steps, by_state=by_state,
@@ -776,7 +803,7 @@ def kpi_summary(
         opportunities_lost=sum(1 for item in in_window if item.stage == Stage.LOST),
         proposals_sent=sum(1 for item in proposals if item.sent_at and start <= item.sent_at < end),
         proposals_accepted=sum(1 for item in proposals if item.accepted_at and start <= item.accepted_at < end),
-        contracted=_sum_by_currency(contracted_pairs),
+        contracted=[SignedMoneyFigure(currency=item[0], amount=money(item[1])) for item in _signed_by_currency(contracted_pairs)],
         cash_collected=_sum_by_currency([(item.currency, item.paid_amount) for item in milestones
                                          if item.paid_amount is not None and item.paid_on is not None and start.date() <= item.paid_on <= end.date()]),
         research_runs=len(runs), web_searches=sum(item.queries for item in runs),

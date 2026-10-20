@@ -4,6 +4,7 @@ import { mockMarketing } from './marketingApi';
 import { mockWhatsApp } from './whatsappApi';
 import { mockCallsApi } from './callsApi';
 import { mockBusiness } from './businessApi';
+import { mockInvoices } from './businessInvoicesApi';
 import { mockTyre } from './tyreApi';
 import { mockMailApi } from './mailApi';
 import { mockDeveloper } from './developerApi';
@@ -39,6 +40,16 @@ const tyre = async (page: Page) => { await mockWorkspaceApi(page); await mockTyr
 const mail = async (page: Page) => { await mockWorkspaceApi(page); await mockMailApi(page); };
 const callsWithProvider = (page: Page) => mockCallsApi(page, { provider: true });
 const billing = async (page: Page) => { await mockWorkspaceApi(page); await mockBilling(page); };
+
+/** Invoices with every state in the list: sent and overdue, sent on time, a draft and one waiting for approval. */
+async function mockInvoicesWithData(page: Page) {
+  const mock = await mockInvoices(page);
+  mock.seedSent({ customer_reference: 'PO 17, a long customer reference to check wrapping', issue_date: '2026-01-01', due_date: '2026-01-15' });
+  mock.seedSent();
+  mock.seedSent({ status: 'draft', number: null, issue_date: null, due_date: null, seller: null });
+  mock.seedSent({ status: 'pending_approval', number: null, issue_date: null, due_date: null, seller: null });
+  return mock;
+}
 
 export const GATE_PAGES: GatePage[] = [
   { hash: 'home', view: 'home', mock: workspace, ready: '.commandPanel .listRow' },
@@ -79,7 +90,8 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'business-proposals', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-projects', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-catalog', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
-  { hash: 'business-settings', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
+  { hash: 'business-invoices', view: 'business', mock: mockInvoicesWithData, ready: '.bzTabs [aria-current="page"]' },
+  { hash: 'business-settings', view: 'business', mock: mockInvoices, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'files', view: 'files', mock: workspace, ready: '.filesTable tbody tr' },
   { hash: 'memory', view: 'memory', mock: workspace, ready: '.memoryRow' },
   { hash: 'knowledge', view: 'knowledge', mock: workspace, ready: '.kbCollectionButton' },

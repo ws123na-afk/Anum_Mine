@@ -16,6 +16,14 @@ from .dependencies import require_permission, tenant_context
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .settings import settings
+from .skill_signing import (
+    INTEGRATION_SIGNATURE_CONTEXT,
+    PublisherKey,
+    SkillSignature,
+    SkillVerification,
+    integration_digest,
+    verify_digest,
+)
 
 
 class MarketplaceKind(StrEnum):
@@ -33,6 +41,14 @@ class MarketplacePackage(BaseModel):
     # What installing grants; shown to the owner before they install.
     permissions: list[str] = Field(max_length=50)
     regions: list[str] = Field(max_length=20)
+    # Integration packages are signed like skill versions (docs/governance-and-scale.md#package-signing):
+    # Ed25519 over the canonical integration digest, by a trusted publisher or platform key.
+    signature: SkillSignature | None = None
+    # Set by the API when a new signature is stored; ignored on input.
+    signed_at: datetime | None = None
+    signed_by: str | None = None
+    # Computed on every read for integration packages; ignored on input, never stored.
+    verification: SkillVerification | None = None
 
 
 class PackageInstall(BaseModel):
@@ -43,10 +59,20 @@ class PackageInstall(BaseModel):
     enabled: bool = True
     installed_by: str
     installed_at: datetime
+    # Why the install is off, when the API turned it off (a revoked signing key).
+    disabled_reason: str | None = None
+    # The package's signature check (integration packages), computed on read.
+    verification: SkillVerification | None = None
 
 
 class InstallRequest(BaseModel):
     version: str | None = None
+
+
+class PackageInstallUpdate(BaseModel):
+    enabled: bool
+    # Required to turn on an install whose package no longer verifies (a revoked key).
+    acknowledge_flagged: bool = False
 
 
 class RegionStatus(StrEnum):
@@ -125,6 +151,42 @@ class PackageInstalledError(ValueError):
     """A package installed in any workspace of the tenant cannot leave the catalog."""
 
 
+def requires_signature(package: MarketplacePackage) -> bool:
+    """Integration packages must verify before install; skill packages are signed in the skill registry."""
+    return package.kind == MarketplaceKind.INTEGRATION
+
+
+def package_digest(package: MarketplacePackage) -> str:
+    return integration_digest(
+        package_id=package.id, name=package.name, kind=package.kind.value, version=package.version,
+        publisher=package.publisher, permissions=list(package.permissions), regions=list(package.regions),
+    )
+
+
+def package_verification(
+    package: MarketplacePackage, keys: list[PublisherKey], *, signature: SkillSignature | None = None,
+    signed_at: datetime | None = None,
+) -> SkillVerification:
+    return verify_digest(
+        digest=package_digest(package), signature=signature or package.signature,
+        signed_at=signed_at or package.signed_at, keys=keys, context=INTEGRATION_SIGNATURE_CONTEXT, what="package",
+    )
+
+
+def with_package_verification(package: MarketplacePackage, keys: list[PublisherKey]) -> MarketplacePackage:
+    if not requires_signature(package):
+        return package.model_copy(update={"verification": None})
+    return package.model_copy(update={"verification": package_verification(package, keys)})
+
+
+def tenant_trusted_keys(context: TenantContext) -> list[PublisherKey]:
+    """The tenant's publisher keys and the platform's, read in their own short unit of work."""
+    from .skills_api import open_skill_store, trusted_keys
+
+    with open_skill_store(context) as skills:
+        return trusted_keys(skills, context)
+
+
 def merge_targets(overrides: list[RoutingTarget]) -> list[RoutingTarget]:
     """The configured default target (unless overridden by id) followed by the tenant's own."""
     by_id = {target.id: target for target in overrides}
@@ -147,21 +209,31 @@ class ScaleStore(Protocol):
     def delete_package(self, context: TenantContext, package_id: str) -> bool: ...
     def installs(self, context: TenantContext) -> list[PackageInstall]: ...
     def install(self, package: MarketplacePackage, context: TenantContext, version: str | None) -> PackageInstall: ...
+    def set_install(self, context: TenantContext, install: PackageInstall) -> PackageInstall: ...
     def uninstall(self, package_id: str, context: TenantContext) -> bool: ...
     def targets(self, context: TenantContext) -> list[RoutingTarget]: ...
     def upsert_target(self, target: RoutingTarget, context: TenantContext) -> RoutingTarget: ...
     def record_audit(self, record: AuditRecord) -> AuditRecord: ...
 
 
-def _audit(store: ScaleStore, context: TenantContext, action: str, package_id: str, metadata: dict[str, object]) -> None:
+def _audit(
+    store: ScaleStore, context: TenantContext, action: str, package_id: str, metadata: dict[str, object],
+    outcome: str = "success",
+) -> None:
     store.record_audit(
         AuditRecord(
             id=new_id("audit"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
             actor=context.user_id, action=action, target=f"marketplace_package:{package_id}",
-            outcome="success", correlation_id=new_id("correlation"), created_at=utc_now(),
+            outcome=outcome, correlation_id=new_id("correlation"), created_at=utc_now(),
             metadata=metadata,
         )
     )
+
+
+def _signing_metadata(check: SkillVerification | None) -> dict[str, object]:
+    if check is None:
+        return {}
+    return {"digest": check.digest, "signature_status": check.status.value, "key_id": check.key_id, "signer": check.signer}
 
 
 def new_package_install(package: MarketplacePackage, context: TenantContext, version: str | None) -> PackageInstall:
@@ -227,6 +299,12 @@ class Phase5Store:
             self._installs[(context.tenant_id, context.workspace_id, package.id)] = item
         return item
 
+    def set_install(self, context: TenantContext, install: PackageInstall) -> PackageInstall:
+        stored = install.model_copy(update={"verification": None})
+        with self._lock:
+            self._installs[(context.tenant_id, context.workspace_id, install.package_id)] = stored
+        return install
+
     def uninstall(self, package_id: str, context: TenantContext) -> bool:
         with self._lock:
             key = (context.tenant_id, context.workspace_id, package_id)
@@ -281,8 +359,9 @@ async def list_packages(
 ) -> list[MarketplacePackage]:
     """The tenant's catalog; ``q`` matches id, name or publisher, ``verified`` filters."""
     require_permission(context, Permission.MARKETPLACE_READ)
+    keys = tenant_trusted_keys(context)
     with open_scale_store(context) as scoped:
-        catalog = scoped.catalog(context)
+        catalog = [with_package_verification(item, keys) for item in scoped.catalog(context)]
     needle = (q or "").strip().casefold()
     return [
         item for item in catalog
@@ -299,14 +378,62 @@ async def upsert_package(package_id: str, payload: MarketplacePackage, context: 
     require_permission(context, Permission.ORG_POLICY_MANAGE)
     if payload.id != package_id:
         raise HTTPException(status_code=422, detail="Marketplace package id does not match path")
+    keys = tenant_trusted_keys(context)
+    refused: SkillVerification | None = None
     with open_scale_store(context) as scoped:
-        existed = any(item.id == package_id for item in scoped.catalog(context))
-        result = scoped.upsert_package(context, payload)
-        _audit(scoped, context, "marketplace.package_updated" if existed else "marketplace.package_published", package_id, {
-            "version": payload.version, "kind": payload.kind.value, "verified": payload.verified,
-            "permissions": list(payload.permissions),
-        })
-        return result
+        existing = next((item for item in scoped.catalog(context) if item.id == package_id), None)
+        now = utc_now()
+        if payload.signature is None:
+            signed_at, signed_by = None, None
+        elif existing is not None and existing.signature == payload.signature:
+            signed_at, signed_by = existing.signed_at, existing.signed_by
+        else:
+            signed_at, signed_by = now, context.user_id
+        package = payload.model_copy(update={"signed_at": signed_at, "signed_by": signed_by, "verification": None})
+        check = package_verification(package, keys) if requires_signature(package) else None
+        new_signature = payload.signature is not None and signed_at == now
+        if check is not None and new_signature and not check.installable:
+            refused = check
+            _audit(scoped, context, "marketplace.signature_refused", package_id, {
+                "version": payload.version, **_signing_metadata(check)}, outcome="denied")
+        else:
+            result = scoped.upsert_package(context, package)
+            _audit(scoped, context, "marketplace.package_updated" if existing else "marketplace.package_published", package_id, {
+                "version": payload.version, "kind": payload.kind.value, "verified": payload.verified,
+                "permissions": list(payload.permissions), **_signing_metadata(check),
+            })
+            return result.model_copy(update={"verification": check})
+    raise HTTPException(status_code=422, detail=f"Signature refused: {refused.detail if refused else 'it does not verify'}")
+
+
+@router.put("/marketplace/packages/{package_id}/signature", response_model=MarketplacePackage)
+async def sign_package(package_id: str, payload: SkillSignature, context: TenantContext = Depends(tenant_context)) -> MarketplacePackage:
+    """Attach a signature to an integration package that is unsigned or no longer verifies."""
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
+    keys = tenant_trusted_keys(context)
+    refused: SkillVerification | None = None
+    with open_scale_store(context) as scoped:
+        package = next((item for item in scoped.catalog(context) if item.id == package_id), None)
+        if package is None:
+            raise HTTPException(status_code=404, detail="Marketplace package not found")
+        if not requires_signature(package):
+            raise HTTPException(status_code=422, detail="Only integration packages are signed here; a skill is signed in the skill registry")
+        before = package_verification(package, keys)
+        if before.installable:
+            raise HTTPException(status_code=409, detail="This package is already signed and verified")
+        now = utc_now()
+        check = package_verification(package, keys, signature=payload, signed_at=now)
+        if not check.installable:
+            refused = check
+            _audit(scoped, context, "marketplace.signature_refused", package_id, {
+                "version": package.version, **_signing_metadata(check)}, outcome="denied")
+        else:
+            signed = package.model_copy(update={"signature": payload, "signed_at": now, "signed_by": context.user_id})
+            scoped.upsert_package(context, signed)
+            _audit(scoped, context, "marketplace.package_signed", package_id, {
+                "version": package.version, "previous_status": before.status.value, **_signing_metadata(check)})
+            return signed.model_copy(update={"verification": check})
+    raise HTTPException(status_code=422, detail=f"Signature refused: {refused.detail if refused else 'it does not verify'}")
 
 
 @router.delete("/marketplace/packages/{package_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -327,8 +454,17 @@ async def delete_package(package_id: str, context: TenantContext = Depends(tenan
 @router.get("/marketplace/installs", response_model=list[PackageInstall])
 async def list_installs(context: TenantContext = Depends(tenant_context)) -> list[PackageInstall]:
     require_permission(context, Permission.MARKETPLACE_READ)
+    keys = tenant_trusted_keys(context)
     with open_scale_store(context) as scoped:
-        return scoped.installs(context)
+        packages = {item.id: item for item in scoped.catalog(context)}
+        installs = scoped.installs(context)
+    return [_install_view(install, packages.get(install.package_id), keys) for install in installs]
+
+
+def _install_view(install: PackageInstall, package: MarketplacePackage | None, keys: list[PublisherKey]) -> PackageInstall:
+    if package is None or not requires_signature(package):
+        return install
+    return install.model_copy(update={"verification": package_verification(package, keys)})
 
 
 @router.post(
@@ -342,18 +478,57 @@ async def install_package(
     context: TenantContext = Depends(tenant_context),
 ) -> PackageInstall:
     require_permission(context, Permission.MARKETPLACE_MANAGE)
+    keys = tenant_trusted_keys(context)
+    refused: tuple[MarketplacePackage, SkillVerification] | None = None
     try:
         with open_scale_store(context) as scoped:
             package = next((item for item in scoped.catalog(context) if item.id == package_id), None)
             if package is None:
                 raise HTTPException(status_code=404, detail="Marketplace package not found")
-            result = scoped.install(package, context, payload.version)
-            _audit(scoped, context, "marketplace.package_installed", package_id, {
-                "version": result.version, "permissions": list(package.permissions),
-            })
-            return result
+            check = package_verification(package, keys) if requires_signature(package) else None
+            if check is not None and not check.installable:
+                # The refusal is audited and committed, then raised.
+                refused = (package, check)
+                _audit(scoped, context, "marketplace.install_refused", package_id, {
+                    "version": package.version, **_signing_metadata(check)}, outcome="denied")
+            else:
+                result = scoped.install(package, context, payload.version)
+                _audit(scoped, context, "marketplace.package_installed", package_id, {
+                    "version": result.version, "permissions": list(package.permissions), **_signing_metadata(check),
+                })
+                return result.model_copy(update={"verification": check})
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if refused is None:  # pragma: no cover - the block above always returns or refuses
+        raise HTTPException(status_code=409, detail="Package cannot be installed")
+    package, check = refused
+    raise HTTPException(status_code=409, detail=f"Package {package.id} {package.version} cannot be installed: {check.detail}")
+
+
+@router.patch("/marketplace/packages/{package_id}/install", response_model=PackageInstall)
+async def update_package_install(
+    package_id: str, payload: PackageInstallUpdate, context: TenantContext = Depends(tenant_context),
+) -> PackageInstall:
+    """Turn this workspace's install off or on; on again for a flagged package needs ``acknowledge_flagged``."""
+    require_permission(context, Permission.MARKETPLACE_MANAGE)
+    keys = tenant_trusted_keys(context)
+    with open_scale_store(context) as scoped:
+        install = next((item for item in scoped.installs(context) if item.package_id == package_id), None)
+        if install is None:
+            raise HTTPException(status_code=404, detail="Package installation not found")
+        package = next((item for item in scoped.catalog(context) if item.id == package_id), None)
+        check = package_verification(package, keys) if package is not None and requires_signature(package) else None
+        flagged = check is not None and not check.installable
+        if payload.enabled and flagged and not payload.acknowledge_flagged:
+            raise HTTPException(status_code=409, detail=(
+                f"{package_id} no longer verifies: {check.detail if check else ''} "
+                "Confirm that you want to turn it on anyway."))
+        result = scoped.set_install(context, install.model_copy(update={
+            "enabled": payload.enabled, "disabled_reason": None if payload.enabled else "Turned off by a workspace owner.",
+        }))
+        action = ("marketplace.flagged_reenabled" if flagged else "marketplace.package_enabled") if payload.enabled else "marketplace.package_disabled"
+        _audit(scoped, context, action, package_id, {"version": install.version, **_signing_metadata(check)})
+        return result.model_copy(update={"verification": check})
 
 
 @router.delete("/marketplace/packages/{package_id}/install", status_code=status.HTTP_204_NO_CONTENT)

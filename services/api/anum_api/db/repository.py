@@ -1,9 +1,11 @@
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select, tuple_
+from sqlalchemy import and_, case, func, not_, or_, select, tuple_
 from sqlalchemy.orm import Session
 
+from anum_api.approval_paging import ApprovalCursor, ApprovalFilter, ApprovalSummary
 from anum_api.audit import AuditCursor, AuditFilter, AuditRecord, DuplicateAuditRecordError
 from anum_api.repository import AnumRepository, UnknownCursorError
 from anum_api.schemas import (
@@ -785,6 +787,108 @@ class SqlAlchemyRepository(AnumRepository):
             statement
         ).all()
         return [self._approval_from_record(record) for record in records]
+
+    def list_approvals_page(
+        self,
+        context: TenantContext,
+        *,
+        now: datetime,
+        status: ApprovalFilter,
+        query: str | None,
+        task_id: str | None,
+        cursor: ApprovalCursor | None,
+        limit: int,
+    ) -> tuple[list[Approval], bool]:
+        """One page, pending first then newest first (``anum_api.approval_paging``)."""
+        # ``now`` is the time the walk's first page was read (the cursor carries it): a row is
+        # grouped as it was then, so a decision or an expiry between pages cannot move it.
+        undecided = case(
+            (ApprovalRecord.decided_at.is_not(None), ApprovalRecord.decided_at > now),
+            else_=ApprovalRecord.status == ApprovalStatus.PENDING.value,
+        )
+        pending_now = and_(
+            undecided,
+            or_(ApprovalRecord.expires_at.is_(None), ApprovalRecord.expires_at > now),
+        )
+        group = case((pending_now, 0), else_=1)
+        statement = (
+            select(ApprovalRecord)
+            .join(TaskRecord, ApprovalRecord.task_id == TaskRecord.id)
+            .where(*self._approval_scope(context), ApprovalRecord.created_at <= now)
+        )
+        if status == ApprovalFilter.PENDING:
+            statement = statement.where(pending_now)
+        elif status == ApprovalFilter.DECIDED:
+            statement = statement.where(not_(pending_now))
+        if task_id is not None:
+            statement = statement.where(ApprovalRecord.task_id == task_id)
+        if query is not None:
+            pattern = like_pattern(query)
+            statement = statement.where(
+                or_(
+                    ApprovalRecord.id.ilike(pattern, escape="\\"),
+                    ApprovalRecord.action.ilike(pattern, escape="\\"),
+                    ApprovalRecord.reason.ilike(pattern, escape="\\"),
+                    ApprovalRecord.target.ilike(pattern, escape="\\"),
+                    TaskRecord.title.ilike(pattern, escape="\\"),
+                )
+            )
+        if cursor is not None:
+            after_group, after_created, after_id = cursor
+            statement = statement.where(
+                or_(
+                    group > after_group,
+                    and_(
+                        group == after_group,
+                        or_(
+                            ApprovalRecord.created_at < after_created,
+                            and_(ApprovalRecord.created_at == after_created, ApprovalRecord.id < after_id),
+                        ),
+                    ),
+                )
+            )
+        statement = statement.order_by(group, ApprovalRecord.created_at.desc(), ApprovalRecord.id.desc()).limit(
+            limit + 1
+        )
+        records = self.session.scalars(statement).all()
+        return [self._approval_from_record(record) for record in records[:limit]], len(records) > limit
+
+    def summarize_approvals(self, context: TenantContext, now: datetime) -> ApprovalSummary:
+        pending = ApprovalStatus.PENDING.value
+        state = case(
+            (
+                and_(
+                    ApprovalRecord.status == pending,
+                    or_(ApprovalRecord.expires_at.is_(None), ApprovalRecord.expires_at > now),
+                ),
+                pending,
+            ),
+            (ApprovalRecord.status == pending, ApprovalStatus.EXPIRED.value),
+            else_=ApprovalRecord.status,
+        )
+        rows = self.session.execute(
+            select(state, func.count())
+            .select_from(ApprovalRecord)
+            .join(TaskRecord, ApprovalRecord.task_id == TaskRecord.id)
+            .where(*self._approval_scope(context))
+            .group_by(state)
+        ).all()
+        counts = {str(name): int(count) for name, count in rows}
+        return ApprovalSummary(
+            pending=counts.get("pending", 0),
+            approved=counts.get("approved", 0),
+            rejected=counts.get("rejected", 0),
+            expired=counts.get("expired", 0),
+        )
+
+    @staticmethod
+    def _approval_scope(context: TenantContext) -> tuple[Any, ...]:
+        return (
+            ApprovalRecord.tenant_id == context.tenant_id,
+            ApprovalRecord.workspace_id == context.workspace_id,
+            TaskRecord.tenant_id == context.tenant_id,
+            TaskRecord.workspace_id == context.workspace_id,
+        )
 
     def list_events(self, context: TenantContext) -> list[DomainEvent]:
         records = self.session.scalars(

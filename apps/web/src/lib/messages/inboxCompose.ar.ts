@@ -1,0 +1,42 @@
+// Unified inbox: a new email and "Create ticket" (Arabic). Same keys and placeholders as
+// inboxCompose.en.ts; the type makes a missing key a build error.
+import type { inboxComposeEn } from './inboxCompose.en.ts';
+import type { Message } from './types.ts';
+
+export const inboxComposeAr: Record<keyof typeof inboxComposeEn, Message> = {
+  'email.compose.button': 'رسالة جديدة',
+  'email.compose.title': 'رسالة جديدة',
+  'email.compose.needMailbox': 'اختر صندوق البريد الذي ترسل منه.',
+  'email.compose.subjectTooLong': 'يمكن أن يحتوي الموضوع على {max} حرف كحد أقصى.',
+  'email.compose.bodyTooLong': 'يمكن أن تحتوي الرسالة على {max} حرف كحد أقصى.',
+  'email.compose.needBody': 'اكتب الرسالة قبل أن تطلب إرسالها.',
+  'email.compose.allNeedReconnect': 'كل صناديق البريد تحتاج إلى إعادة ربط قبل أن تكتب منها. يعيد المالك ربطها من صناديق البريد.',
+  'email.compose.discarded': 'تم تجاهل المسودة.',
+  'email.compose.kindNew': 'جديدة',
+  'email.compose.saving': 'جار الحفظ...',
+  'email.compose.asking': 'جار الطلب...',
+  'email.compose.savedNotAsked': 'تم حفظ المسودة، لكن طلب الإرسال فشل: {reason}',
+  'email.compose.askedOwner': 'تم الحفظ. راجع الرسالة أدناه ثم وافق على الإرسال.',
+  'email.compose.askedMember': 'تم الحفظ وإرسالها إلى الموافقات. يوافق مالك مساحة العمل على الإرسال.',
+  'email.compose.closeConfirm': 'الإغلاق دون حفظ؟ سيضيع ما كتبته.',
+  'email.compose.skipped': 'غير مدرجة لأنها تحتاج إلى إعادة ربط: {addresses}',
+  'email.compose.toPlaceholder': 'name@example.com, another@example.com',
+  'email.compose.showCopies': 'إضافة نسخة أو نسخة مخفية',
+  'email.compose.hideCopies': 'إخفاء النسخة والنسخة المخفية',
+  'email.compose.approvalNote': 'لا يرسل شيء حتى يوافق مالك مساحة العمل على هذه الرسالة بعينها.',
+  'email.compose.noAttachments': 'لإرسال مرفقات، استخدم مركز البريد.',
+  'email.compose.saveDraft': 'حفظ المسودة',
+  'email.draft.bcc': 'نسخة مخفية',
+  'tfm.button': 'إنشاء تذكرة',
+  'tfm.title': 'إنشاء تذكرة دعم',
+  'tfm.introEmail': 'ترتبط التذكرة بهذه الرسالة وتنسخ اسم المرسل. يبقى النص في البريد.',
+  'tfm.introWhatsApp': 'ترتبط التذكرة بهذه المحادثة وتنسخ اسم المرسل. تبقى الرسائل في واتساب.',
+  'tfm.titleLabel': 'العنوان',
+  'tfm.titlePlaceholderEmail': 'اتركه فارغا لاستخدام موضوع الرسالة',
+  'tfm.titlePlaceholderWhatsApp': 'مثال: الطلب A-1001 لم يصل',
+  'tfm.create': 'إنشاء التذكرة',
+  'tfm.creating': 'جار الإنشاء...',
+  'tfm.openExisting': 'فتح {reference}',
+  'tfm.created': 'تم إنشاء التذكرة {reference}.',
+  'tfm.openTicket': 'فتح التذكرة',
+};

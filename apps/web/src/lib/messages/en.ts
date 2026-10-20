@@ -15,9 +15,13 @@ import { teamEn } from './team.en.ts';
 import { appCallsEn } from './appCalls.en.ts';
 import { marketingEn } from './marketing.en.ts';
 import { businessEn } from './business.en.ts';
+import { businessPipelineEn } from './businessPipeline.en.ts';
 import { businessSupportEn } from './businessSupport.en.ts';
+import { invoicesEn } from './invoices.en.ts';
+import { portalEn } from './portal.en.ts';
 import { brevoEn } from './brevo.en.ts';
 import { billingEn } from './billing.en.ts';
+import { lifecycleEn } from './lifecycle.en.ts';
 import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
@@ -27,14 +31,18 @@ import { routingEn } from './routing.en.ts';
 import { voiceEn } from './en.voice.ts';
 import { voiceActionsEn } from './en.voiceActions.ts';
 import { agentSkillsEn } from './agentSkills.en.ts';
+import { skillSigningEn } from './skillSigning.en.ts';
+import { approvalPagingEn } from './approvalPaging.en.ts';
 import { orgChartEn } from './orgChart.en.ts';
 import { mailCenterEn } from './mailCenter.en.ts';
 import { mailOutgoingEn } from './mailOutgoing.en.ts';
 import { mailAiEn } from './mailAi.en.ts';
 import { mailShareEn } from './mailShare.en.ts';
 import { mailAllEn } from './mailAll.en.ts';
+import { inboxComposeEn } from './inboxCompose.en.ts';
 import { mailRulesEn } from './mailRules.en.ts';
 import { mailOpsEn } from './mailOps.en.ts';
+import { mailDomainsEn } from './mailDomains.en.ts';
 import { mailEn } from './mail.en.ts';
 import { callsEn } from './calls.en.ts';
 import { chatEn } from './chat.en.ts';
@@ -57,20 +65,28 @@ export const en = {
   ...appCallsEn,
   ...marketingEn,
   ...businessEn,
+  ...businessPipelineEn,
   ...businessSupportEn,
+  ...invoicesEn,
+  ...portalEn,
   ...brevoEn,
   ...billingEn,
+  ...lifecycleEn,
   ...helpEn,
   ...publicSiteEn,
   ...agentSkillsEn,
+  ...skillSigningEn,
+  ...approvalPagingEn,
   ...orgChartEn,
   ...mailCenterEn,
   ...mailOutgoingEn,
   ...mailAiEn,
   ...mailShareEn,
   ...mailAllEn,
+  ...inboxComposeEn,
   ...mailRulesEn,
   ...mailOpsEn,
+  ...mailDomainsEn,
   ...mailEn,
   ...callsEn,
   ...chatEn,
@@ -89,6 +105,7 @@ export const en = {
   'common.clear': 'Clear',
   'common.loading': 'Loading...',
   'common.operationFailed': 'Operation failed.',
+  'common.databaseUnavailable': 'The server could not reach its database',
   'common.requestFailed': 'Request failed.',
   'common.signInExpired': 'Your sign-in expired. Sign in again.',
   'common.budgetReached': 'Monthly model budget reached. {message}',
@@ -193,6 +210,8 @@ export const en = {
   'switcher.button': 'Switch workspace',
   'switcher.eyebrow': 'Workspace',
   'switcher.intro': 'Every request names the selected workspace. Your role and the data you see follow it.',
+  'switcher.organisationId': 'Organisation ID',
+  'switcher.workspaceId': 'Workspace ID',
   'switcher.loading': 'Loading your workspaces...',
   'switcher.list': 'Workspaces',
   'switcher.current': 'Current workspace',
@@ -234,13 +253,34 @@ export const en = {
   'settings.notifications.run_failed': 'Tasks failed',
   'settings.notifications.run_failed.hint': 'A task you started, or a developer request, could not finish.',
   'settings.notifications.automation_failed': 'Automations failed',
-  'settings.notifications.automation_failed.hint': 'A scheduled automation run failed (shown in the app; not sent to phones yet).',
+  'settings.notifications.automation_failed.hint': 'An automation run failed. It reaches you through the channels you switch on below.',
   'settings.notifications.push_enabled': 'Phone push',
   'settings.notifications.push_enabled.hint': 'Send these to the phones you registered in the ANUM app, even when it is closed.',
   'settings.notifications.desktop_enabled': 'Desktop notifications',
-  'settings.notifications.desktop_enabled.hint': 'Show them in the desktop app.',
+  'settings.notifications.desktop_enabled.hint': 'Show them as desktop notifications in the browser or desktop app while ANUM is in the background.',
   'settings.notifications.email_enabled': 'Email',
-  'settings.notifications.email_enabled.hint': 'Email delivery is saved for later; ANUM does not send email yet.',
+  'settings.notifications.email_enabled.hint': 'Email the kinds you switched on above, and team work, to your address in ANUM.',
+  'settings.notifications.email.serverOff': 'This server has no mail server set up, so ANUM cannot email you yet. Ask the person who runs ANUM to set ANUM_SMTP_HOST and ANUM_SMTP_FROM.',
+  'settings.notifications.email.noAddress': 'ANUM has no email address for you. Add one to your team profile (Team, your profile) and email will start.',
+  'settings.notifications.email.on': 'On. You get an email for the kinds you switched on above, and for team work.',
+  'settings.notifications.email.ready': 'Ready. Switch it on and save to get emails.',
+  'settings.notifications.desktop.unsupported': 'This browser cannot show desktop notifications.',
+  'settings.notifications.desktop.denied': 'Notifications are blocked for this site. Allow them in the browser settings for this site, then reload.',
+  'settings.notifications.desktop.ask': 'This browser has not allowed notifications yet.',
+  'settings.notifications.desktop.allow': 'Allow in this browser',
+  'settings.notifications.desktop.on': 'On. You get a notification while ANUM is in the background.',
+  'settings.notifications.desktop.ready': 'Ready. Switch it on and save to see notifications.',
+  'settings.notifications.test.send': 'Send me a test email',
+  'settings.notifications.test.sending': 'Sending...',
+  'settings.notifications.test.sent': 'Test email sent to {to}. Check your inbox.',
+  'settings.notifications.test.failed': 'The test email could not be sent after {attempts} tries: {error}. Ask the person who runs ANUM to check the mail server.',
+  'settings.notifications.test.error': 'The test email was not sent. {error}',
+  'desktop.approval.title': 'Approval needed',
+  'desktop.approval.body': 'An action is waiting for your decision.',
+  'desktop.completed.title': 'Task finished',
+  'desktop.completed.body': 'A task you started has finished.',
+  'desktop.failed.title': 'Task failed',
+  'desktop.failed.body': 'A task you started could not finish.',
   'settings.notifications.save': 'Save notifications',
   'settings.notifications.saving': 'Saving...',
   'settings.notifications.saved': 'Saved. These settings apply to this workspace.',
@@ -1113,6 +1153,7 @@ export const en = {
   'members.invitations.accepted': "Accepted",
   'members.invitations.revoked': "Revoked",
   'members.invitations.all': "All",
+  'members.resentEmailed': "New invitation emailed for {invitee}. The previous token no longer works. The new token is also shown below, once.",
   'members.resent': "New token issued for {invitee}. The previous one no longer works. Copy the new one now: it is shown only once.",
   'members.resend': "Resend",
   'members.renew': "Renew",
@@ -1249,10 +1290,14 @@ export const en = {
   'files.index.skippedDetail': 'Not indexed: {reason}.',
   'files.index.pending': 'Not indexed yet',
   'files.index.pendingDetail': 'This file has not been indexed yet. Re-index so tasks can use it.',
-  'files.skip.not_text': 'only text files are indexed',
+  'files.skip.not_text': 'this file type is not indexed',
   'files.skip.too_large': 'it has more than 2 MiB of text',
   'files.skip.not_utf8': 'it is not UTF-8 text',
   'files.skip.empty': 'it has no text',
+  'files.skip.encrypted': 'it is password protected',
+  'files.skip.malformed': 'it is damaged or could not be read',
+  'files.skip.too_complex': 'it is too complex to read safely',
+  'files.skip.no_text_layer': 'no extractable text, OCR not available',
   'files.skip.other': 'not indexable',
   'files.check.empty': '{name} is empty. Choose a file with content.',
   'files.check.tooLarge': '{name} is {size}; files can be at most {max}. Split or compress it.',
@@ -3476,6 +3521,10 @@ export const en = {
   'kb.provenance.file': 'Document',
   'kb.provenance.memory': 'Note',
   'kb.match': '{score}% match',
+  'kb.location.page': 'page {n}',
+  'kb.index.noTextLayer': 'No extractable text, OCR not available',
+  'kb.location.slide': 'slide {n}',
+  'kb.location.sheet': 'sheet {n}',
   'kb.untrusted': 'Passages are given to the model as labelled, untrusted data: they cannot change tools, approvals or permissions.',
   'kb.semanticNoIndex': 'Nothing is indexed yet, so only titles, tags and note text were searched.',
   'kb.semanticUnavailable': 'Meaning search is unavailable right now; showing word matches only.',

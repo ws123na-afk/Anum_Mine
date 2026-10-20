@@ -5,13 +5,24 @@
   with the payload hash they were shown, and only if the proposal still has that version
   and content hash; anything changed after the request is refused and nothing is accepted.
 
+* ``business.send_invoice`` (high risk, always asks; members ask, owners decide): issues one exact
+  invoice to the customer: it takes the next number, fixes the dates and makes the invoice
+  visible in the customer's portal. It runs only after an owner approves it with the payload
+  hash they were shown, and only if the invoice is still the one that was requested. ANUM
+  sends no e-mail and collects no payment.
+
 * ``business.draft_support_reply`` (low risk; owners and members): writes a reply draft on a
   support ticket that came from an email or WhatsApp conversation. It only drafts: the reply
   is delivered when a person asks for it and an owner approves it in the inbox's own approval
   path (docs/business.md#replies-and-approval).
 
 Accepting is an internal record (the client's acceptance confirmed by the owner); it sends
-nothing. Neither tool sends anything.
+nothing.
+
+* ``business.send_outreach`` (high risk, always asks; ``outreach.py``): sends one approved outbox
+  message after the send-time checks. Sending is off by default (docs/business.md#outreach).
+* ``web.fetch_page`` (low risk, read only; ``fetch.py``): reads one public https page for the
+  prospecting pipeline, obeying robots.txt behind the SSRF guard.
 """
 
 from __future__ import annotations
@@ -28,8 +39,11 @@ from ..repository import AnumRepository
 from ..runtime import AgentRuntime
 from ..schemas import AgentRunStep, Approval, RiskLevel, RunPhase, Task, TaskStatus, TenantContext, new_id, utc_now
 from . import research
+from .invoice_models import Invoice, InvoiceStatus
+from .invoice_service import issue
+from .invoices import invoice_hash
 from .models import OPEN_LEAD_STATES, LeadState, Proposal, ProposalStatus, ProposalVersion, Stage
-from .service import ACCEPT_TOOL, audit, http_error, proposal_totals, record_activity, stamp_state
+from .service import ACCEPT_TOOL, SEND_INVOICE_TOOL, audit, http_error, proposal_totals, record_activity, stamp_state
 from .store import open_business_store
 
 
@@ -147,6 +161,72 @@ async def accept_proposal(call: ToolCall, context: TenantContext) -> ToolResult:
     )
 
 
+def send_invoice_definition() -> ToolDefinition:
+    return ToolDefinition(
+        name=SEND_INVOICE_TOOL,
+        description="Issue one exact invoice to the customer: number it, date it and show it in their portal (sends no e-mail, collects no payment).",
+        risk_level=RiskLevel.HIGH,
+        required_roles=frozenset({"owner", "member"}),
+        timeout_seconds=30,
+        idempotent=True,
+        category="general",
+        action_kind="other",
+        always_ask=True,
+    )
+
+
+def invoice_arguments(invoice: Invoice, client: str) -> dict[str, Any]:
+    """What the approver sees and the payload hash binds: the customer, the lines and the money."""
+    return {
+        "invoice_id": invoice.id,
+        "client": client,
+        "bill_to": invoice.bill_to_name,
+        "content_hash": invoice.content_hash,
+        "currency": invoice.currency.value,
+        "subtotal": str(invoice.subtotal),
+        "tax": str(invoice.tax),
+        "total": str(invoice.total),
+        "due_in_days": invoice.due_in_days,
+        "lines": [f"{item.description}: {invoice.currency.value} {item.total}" for item in invoice.lines],
+    }
+
+
+async def send_invoice(call: ToolCall, context: TenantContext) -> ToolResult:
+    args = call.arguments
+    invoice_id = str(args.get("invoice_id", ""))
+    approved_hash = str(args.get("content_hash", ""))
+    now = utc_now()
+    with open_business_store(context) as store:
+        invoice = store.get("invoices", invoice_id, for_update=True)
+        if invoice is None:
+            return _failed("The invoice was deleted; nothing was sent.")
+        if invoice.status in {InvoiceStatus.SENT, InvoiceStatus.PAID}:
+            same = invoice.content_hash == approved_hash
+            return ToolResult(status="succeeded" if same else "failed",
+                              summary=f"Invoice {invoice.number} was already sent." if same else "Another version of this invoice was already sent; nothing changed.")
+        if invoice.status != InvoiceStatus.PENDING_APPROVAL:
+            return _failed(f"The invoice is {invoice.status.value.replace('_', ' ')}, not waiting for approval; nothing was sent.")
+        if (invoice.requested_hash != approved_hash or invoice_hash(invoice) != approved_hash or str(invoice.total) != str(args.get("total"))
+                or invoice.currency.value != args.get("currency")):
+            return _failed("The invoice changed after it was sent for approval; nothing was sent. Ask for approval again.")
+        if store.get("accounts", invoice.account_id) is None:
+            return _failed("The customer account no longer exists; nothing was sent.")
+        invoice = issue(invoice.model_copy(update={"content_hash": approved_hash}), store, context, now)
+        store.save("invoices", invoice)
+        record_activity(
+            store, context, "invoice_sent", f"Invoice {invoice.number} sent ({invoice.currency.value} {invoice.total}).",
+            account_id=invoice.account_id, project_id=invoice.project_id, metadata={"invoice_id": invoice.id, "number": invoice.number, "content_hash": approved_hash},
+            idempotency_key=f"invoice:{invoice.id}:sent",
+        )
+    audit(None, context, "business.invoice.sent", invoice.id, metadata={"number": invoice.number, "content_hash": approved_hash})
+    return ToolResult(
+        status="succeeded",
+        summary=f"Invoice {invoice.number} is issued ({invoice.currency.value} {invoice.total}, due {invoice.due_date}). Nothing was e-mailed: share the portal link or send the printed copy yourself.",
+        output={"invoice_id": invoice.id, "number": invoice.number},
+        audit_metadata={"invoice_id": invoice.id, "number": invoice.number},
+    )
+
+
 SUPPORT_REPLY_TOOL = "business.draft_support_reply"
 
 
@@ -193,31 +273,58 @@ def register_business_tools(registry: ToolRegistry) -> ToolRegistry:
     """Add the business tools to a runtime's registry (the API's and the Temporal worker's).
 
     The research skill runs its web searches through this same registry."""
+    from .fetch import FETCH_TOOL, fetch_definition, page_fetcher
+    from .outreach import SEND_TOOL, send_definition, send_outreach
+
     if ACCEPT_TOOL not in registry.names:
         registry.register(accept_definition(), accept_proposal)
+    if SEND_TOOL not in registry.names:
+        registry.register(send_definition(), send_outreach)
+    if FETCH_TOOL not in registry.names:
+        registry.register(fetch_definition(), page_fetcher)
+    if SEND_INVOICE_TOOL not in registry.names:
+        registry.register(send_invoice_definition(), send_invoice)
     if SUPPORT_REPLY_TOOL not in registry.names:
         registry.register(support_reply_definition(), draft_support_reply)
     research.configure(registry)
     return registry
 
 
-def request_approval(repository: AnumRepository, context: TenantContext, arguments: dict[str, Any], title: str) -> tuple[Task, Approval]:
-    """A paused call of ``business.accept_proposal`` waiting for an owner (as marketing does)."""
-    call = ToolCall(name=ACCEPT_TOOL, arguments=arguments)
+def _approval_registry() -> ToolRegistry:
+    """The business tools' definitions for planning an approval, without re-pointing the
+    research skill at a registry that has no ``web_search`` (``register_business_tools`` does)."""
+    from .fetch import fetch_definition, page_fetcher
+    from .outreach import send_definition, send_outreach
+
+    registry = ToolRegistry()
+    registry.register(accept_definition(), accept_proposal)
+    registry.register(send_definition(), send_outreach)
+    registry.register(fetch_definition(), page_fetcher)
+    registry.register(send_invoice_definition(), send_invoice)
+    return registry
+
+
+def request_approval(
+    repository: AnumRepository, context: TenantContext, arguments: dict[str, Any], title: str, *, tool: str = ACCEPT_TOOL, prompt: str | None = None,
+) -> tuple[Task, Approval]:
+    """A paused call of a business tool (``business.accept_proposal``, ``business.send_outreach`` or
+    ``business.send_invoice``) waiting for an owner (as marketing does)."""
+    call = ToolCall(name=tool, arguments=arguments)
     now = utc_now()
     task = Task(
-        id=new_id("task"), title=title[:160], prompt=f"Record the client's acceptance of {title}.", status=TaskStatus.CREATED,
+        id=new_id("task"), title=title[:160], prompt=prompt or f"Record the client's acceptance of {title}.", status=TaskStatus.CREATED,
         tenant_id=context.tenant_id, workspace_id=context.workspace_id, created_at=now, updated_at=now, created_by=context.user_id,
     )
     repository.create_task(task)
     repository.record_event(create_event(CanonicalEventName.TASK_CREATED, context, task.id, {"title": task.title}, correlation_id=task.id, created_at=now).event)
-    runtime = AgentRuntime(MockModelGateway(), repository, tools=register_business_tools(ToolRegistry()))
+    runtime = AgentRuntime(MockModelGateway(), repository, tools=_approval_registry())
     run = runtime.new_run(task)
     decision = runtime.evaluate(call, context)
     proposal_step = AgentRunStep(
-        id=new_id("step"), type="tool_proposal", summary=f"Proposed tool call: {ACCEPT_TOOL}", created_at=utc_now(),
-        metadata={"tool": ACCEPT_TOOL, "risk_level": decision.risk_level.value, "policy_outcome": decision.outcome.value,
-                  "governance_rules": list(decision.governance_rules), "proposal_id": arguments["proposal_id"]},
+        id=new_id("step"), type="tool_proposal", summary=f"Proposed tool call: {tool}", created_at=utc_now(),
+        metadata={"tool": tool, "risk_level": decision.risk_level.value, "policy_outcome": decision.outcome.value,
+                  "governance_rules": list(decision.governance_rules),
+                  "record_id": arguments.get("proposal_id") or arguments.get("invoice_id") or arguments.get("outbox_id")},
     )
     run.steps.append(proposal_step)
     run.checkpoint.phase = RunPhase.TOOL_READY
@@ -229,12 +336,12 @@ def request_approval(repository: AnumRepository, context: TenantContext, argumen
     repository.save_run(run)
     # The tool always asks; a governance deny (or a missing role) fails the run instead.
     if runtime.begin_execution(task, run, context) is not None:  # pragma: no cover - always_ask never runs unapproved
-        raise RuntimeError("proposal acceptance was not paused for approval")
+        raise RuntimeError("the call was not paused for approval")
     repository.save_task(task)
     repository.save_run(run)
     if run.checkpoint.phase != RunPhase.WAITING_APPROVAL or not run.checkpoint.approval_id:
         reason = run.steps[-1].summary if run.steps else "Blocked by policy."
-        raise http_error(403, f"Acceptance is blocked: {reason}")
+        raise http_error(403, f"The approval request is blocked: {reason}")
     approval = repository.get_approval(run.checkpoint.approval_id, context)
     if approval is None:  # pragma: no cover - saved just above
         raise http_error(500, "Approval was not stored")
