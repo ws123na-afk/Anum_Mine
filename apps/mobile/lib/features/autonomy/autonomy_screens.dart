@@ -4,8 +4,11 @@ import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import '../admin/admin_controller.dart' show AdminPhase;
+import '../admin/owned_controller.dart';
 import 'autonomy_controller.dart';
 import 'autonomy_models.dart';
+import 'autonomy_policy_screens.dart';
+import 'autonomy_policy_widgets.dart';
 
 String _time(DateTime value) {
   final local = value.toLocal();
@@ -372,8 +375,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
   }
 }
 
-/// The workspace's autonomy levels, thresholds and approved templates. The
-/// organization's guardrails are edited on the web by an administrator.
+/// The workspace's autonomy levels, thresholds, quiet hours, daily caps,
+/// blocked lists and approved templates, with the rules and the organization's
+/// guardrails one tap away.
 class AutonomySettingsScreen extends StatefulWidget {
   const AutonomySettingsScreen({required this.controller, super.key});
   final AutonomySettingsController controller;
@@ -516,7 +520,12 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              decoration: InputDecoration(labelText: l.t('auto.amount')),
+              decoration: InputDecoration(
+                labelText: l.t('auto.amount'),
+                helperText: o.maxAutoAmount == null
+                    ? null
+                    : l.f('ap.amountMax', {'max': _plain(o.maxAutoAmount!)}),
+              ),
               onChanged: (v) => c.amount = v,
             ),
             const SizedBox(height: AnumSpacing.sm),
@@ -533,44 +542,180 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
               ),
               onChanged: (v) => c.templates = v,
             ),
+            const SizedBox(height: AnumSpacing.sm),
+            TextFormField(
+              key: const Key('price-threshold'),
+              initialValue: c.priceChange,
+              enabled: !c.readOnly,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: InputDecoration(
+                labelText: l.t('ap.priceChange'),
+                helperText: o.maxAutoPricePercent == null
+                    ? null
+                    : l.f('ap.priceChangeMax',
+                        {'max': _plain(o.maxAutoPricePercent!)}),
+              ),
+              onChanged: (v) => c.priceChange = v,
+            ),
+            const SizedBox(height: AnumSpacing.sm),
+            TextFormField(
+              key: const Key('proposal-after'),
+              initialValue: c.proposalAfter,
+              enabled: !c.readOnly,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: l.t('ap.proposalAfter'),
+                helperText: l.t('ap.proposalAfterHelp'),
+                helperMaxLines: 3,
+              ),
+              onChanged: (v) => c.proposalAfter = v,
+            ),
             if (o.spendingLimit != null) ...[
               const SizedBox(height: AnumSpacing.sm),
               Text(
                 l.f('auto.spendingLimit', {'limit': o.spendingLimit!}),
-                style: TextStyle(color: p.muted, fontSize: 13),
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
-            const SizedBox(height: AnumSpacing.xs),
-            Text(
-              l.t('auto.webOnly'),
-              style: TextStyle(color: p.faint, fontSize: 12),
+          ],
+        ),
+      ),
+      PolicySection(
+        title: l.t('ap.quiet'),
+        subtitle: l.t('ap.quietSubtitle'),
+        children: [
+          QuietHoursEditor(
+            draft: c.policy,
+            readOnly: c.readOnly,
+            onChanged: c.changed,
+          ),
+        ],
+      ),
+      PolicySection(
+        title: l.t('ap.caps'),
+        subtitle: l.t('ap.capsSubtitle'),
+        children: [
+          CapsEditor(
+            draft: c.policy,
+            readOnly: c.readOnly,
+            onChanged: c.changed,
+          ),
+        ],
+      ),
+      PolicySection(
+        title: l.t('ap.blockedRecipients'),
+        subtitle: l.t('ap.blockedRecipientsSubtitle'),
+        children: [
+          StringListEditor(
+            id: 'blocked-recipient',
+            items: c.policy.recipients,
+            readOnly: c.readOnly,
+            fieldLabel: l.t('ap.recipientField'),
+            emptyText: l.t('ap.recipientsEmpty'),
+            onAdd: (v) {
+              final problem = c.policy.addRecipient(v, l);
+              if (problem == null) c.changed();
+              return problem;
+            },
+            onRemove: (v) {
+              c.policy.removeRecipient(v);
+              c.changed();
+            },
+          ),
+        ],
+      ),
+      PolicySection(
+        title: l.t('ap.blockedDomains'),
+        subtitle: l.t('ap.blockedDomainsSubtitle'),
+        children: [
+          StringListEditor(
+            id: 'blocked-domain',
+            items: c.policy.domains,
+            readOnly: c.readOnly,
+            fieldLabel: l.t('ap.domainField'),
+            emptyText: l.t('ap.domainsEmpty'),
+            onAdd: (v) {
+              final problem = c.policy.addDomain(v, l);
+              if (problem == null) c.changed();
+              return problem;
+            },
+            onRemove: (v) {
+              c.policy.removeDomain(v);
+              c.changed();
+            },
+          ),
+        ],
+      ),
+      if (c.notice != null || !c.readOnly)
+        AnumSurface(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (c.notice != null)
+                PolicyNotice(
+                  text: c.notice!,
+                  failed: c.noticeFailed,
+                  noticeKey: const Key('autonomy-notice'),
+                ),
+              if (c.notice != null && !c.readOnly)
+                const SizedBox(height: AnumSpacing.sm),
+              if (!c.readOnly)
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: FilledButton.icon(
+                    key: const Key('autonomy-save'),
+                    onPressed: c.saving ? null : c.save,
+                    icon: const Icon(Icons.save_outlined),
+                    label: Text(c.saving ? l.t('da.saving') : l.t('auto.save')),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      AnumSurface(
+        padding: EdgeInsets.zero,
+        child: Column(
+          children: [
+            ListTile(
+              key: const Key('open-rules'),
+              leading: const Icon(Icons.rule),
+              title: Text(l.t('ap.rulesTitle')),
+              subtitle: Text(l.t('ap.rulesTile')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => OwnedController<AutonomyRulesController>(
+                    create: () => AutonomyRulesController(c.repository),
+                    builder: (_, rules) =>
+                        AutonomyRulesScreen(controller: rules),
+                  ),
+                ),
+              ),
             ),
-            if (c.notice != null) ...[
-              const SizedBox(height: AnumSpacing.sm),
-              Semantics(
-                liveRegion: true,
-                child: Text(
-                  c.notice!,
-                  key: const Key('autonomy-notice'),
-                  style: TextStyle(color: c.noticeFailed ? p.stop : p.ok),
+            ListTile(
+              key: const Key('open-guardrails'),
+              leading: const Icon(Icons.shield_outlined),
+              title: Text(l.t('ap.guardrailsTitle')),
+              subtitle: Text(l.t('ap.guardrailsTile')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => OwnedController<GuardrailsController>(
+                    create: () => GuardrailsController(c.repository),
+                    builder: (_, g) => AutonomyGuardrailsScreen(controller: g),
+                  ),
                 ),
               ),
-            ],
-            if (!c.readOnly) ...[
-              const SizedBox(height: AnumSpacing.md),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: FilledButton.icon(
-                  key: const Key('autonomy-save'),
-                  onPressed: c.saving ? null : c.save,
-                  icon: const Icon(Icons.save_outlined),
-                  label: Text(c.saving ? l.t('da.saving') : l.t('auto.save')),
-                ),
-              ),
-            ],
+            ),
           ],
         ),
       ),
     ];
   }
 }
+
+String _plain(double v) => v == v.roundToDouble() ? '${v.round()}' : '$v';

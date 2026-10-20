@@ -12,8 +12,11 @@ enum WaPhase { initial, loading, ready, notConnected, denied, error }
 /// with filter, search and paging, and the caller's role (owners approve).
 /// Mirrors the web `WhatsAppView`.
 class WhatsAppController extends ChangeNotifier {
-  WhatsAppController(this.repository, {this.support});
+  WhatsAppController(this.repository, {this.support, this.apiBase});
   final WhatsAppRepository repository;
+
+  /// The API's public address, for the webhook URL shown on Setup.
+  final Uri? apiBase;
 
   /// Business support tickets, when wired: "Create ticket" on a conversation
   /// (docs/business.md#tickets-from-an-inbox). Null hides the action.
@@ -232,12 +235,61 @@ class WhatsAppThreadController extends ChangeNotifier {
   Future<bool> send(String text) async {
     final value = text.trim();
     if (value.isEmpty) return false;
+    return _deliver(() => repository.sendText(conversationId, value));
+  }
+
+  /// Send an approved [template] with its [parameters]. Whether it goes out
+  /// at once or waits for an owner is the server's decision (the auto-send
+  /// list, autonomy and approval rules); the outcome is shown either way.
+  /// True unless it failed.
+  Future<bool> sendTemplate(WaTemplate template, List<String> parameters) =>
+      _deliver(
+          () => repository.sendTemplate(conversationId, template, parameters));
+
+  /// The bytes of [message]'s attachment, or null after saying why not (the
+  /// server's sentence for 404, 413 and 502).
+  Future<Uint8List?> fetchMedia(WaMessage message) async {
+    busy = 'media:${message.id}';
+    notice = noticeKey = null;
+    _notify();
+    Uint8List? bytes;
+    try {
+      bytes = await repository.mediaBytes(message.id);
+    } on Object catch (e) {
+      _fail(e);
+    }
+    busy = null;
+    _notify();
+    return bytes;
+  }
+
+  /// Hand [bytes] to the platform's save dialog. True when saved.
+  Future<bool> saveMedia(WaMessage message, Uint8List bytes) async {
+    busy = 'media:${message.id}';
+    notice = noticeKey = null;
+    _notify();
+    var saved = false;
+    try {
+      saved = await repository.saveMedia(mediaFileName(message), bytes);
+      if (saved) {
+        noticeKey = 'waOps.mediaSaved';
+        noticeFailed = false;
+      }
+    } on Object catch (e) {
+      _fail(e);
+    }
+    busy = null;
+    _notify();
+    return saved;
+  }
+
+  Future<bool> _deliver(Future<WaSendResult> Function() request) async {
     busy = 'send';
     notice = noticeKey = null;
     _notify();
     var ok = false;
     try {
-      final result = await repository.sendText(conversationId, value);
+      final result = await request();
       messages = mergeMessages(messages, [result.message]);
       noticeKey = result.awaitingApproval
           ? (owner ? 'waAwaitingOwner' : 'waAwaitingMember')
@@ -294,6 +346,26 @@ class WhatsAppThreadController extends ChangeNotifier {
     _disposed = true;
     super.dispose();
   }
+}
+
+/// A file name for saving [message]'s attachment: the sender's name, else the
+/// message kind with an extension from its type.
+String mediaFileName(WaMessage message) {
+  final named = message.media?.filename?.trim() ?? '';
+  if (named.isNotEmpty) return named;
+  final extension = switch ((message.media?.mimeType ?? '').toLowerCase()) {
+    'image/jpeg' => '.jpg',
+    'image/png' => '.png',
+    'image/webp' => '.webp',
+    'image/gif' => '.gif',
+    'application/pdf' => '.pdf',
+    'audio/ogg' => '.ogg',
+    'audio/mpeg' => '.mp3',
+    'audio/mp4' => '.m4a',
+    'video/mp4' => '.mp4',
+    _ => '',
+  };
+  return '${message.kind}-${message.id}$extension';
 }
 
 /// Whether [approval] is still pending and unexpired at [now].

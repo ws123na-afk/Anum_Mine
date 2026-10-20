@@ -184,7 +184,7 @@ Every amount goes through one formatter, `lib/src/localization/money_format.dart
 
 ## WhatsApp inbox
 
-`lib/features/whatsapp/` mirrors the web inbox for owners and members ([WhatsApp](whatsapp.md)): conversations with filters, search and paging; a thread with the 24-hour window, the suggested reply with its provenance label, a reply sent for approval, and Approve & send / Reject for owners (the payload hash is sent back). It opens from the app bar on wide layouts and from More on phones. Connecting the number and template replies stay on the web. Tests: `test/whatsapp/whatsapp_test.dart` (320 to 1440 px, 200% text, English and Arabic).
+`lib/features/whatsapp/` mirrors the web inbox for owners and members ([WhatsApp](whatsapp.md)): conversations with filters, search and paging; a thread with the 24-hour window, the suggested reply with its provenance label, a reply sent for approval, and Approve & send / Reject for owners (the payload hash is sent back). It opens from the app bar on wide layouts and from More on phones. The inbox app bar opens **Templates** (search, refresh from Meta, auto-send switch for owners) and **Setup** (status and webhook URL for everyone; owners connect or update the number with obscured secret fields that are cleared after every request, Check, test message and Disconnect). A thread sends an approved template with its parameters and a filled preview, and opens attachments (images in a viewer, other types to the system save dialog); see [WhatsApp](whatsapp.md#clients). Tests: `test/whatsapp/whatsapp_test.dart` and `test/whatsapp/whatsapp_ops_test.dart` (320 to 1440 px, 200% text, English and Arabic).
 
 ## Dependencies
 

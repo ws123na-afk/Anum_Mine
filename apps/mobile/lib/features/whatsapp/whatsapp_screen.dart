@@ -8,12 +8,18 @@ import '../../src/widgets/depth.dart';
 import '../business/ticket_from_message.dart';
 import '../workspace/workspace_models.dart';
 import 'whatsapp_controller.dart';
+import 'whatsapp_media_viewer.dart';
 import 'whatsapp_models.dart';
+import 'whatsapp_ops_controller.dart';
+import 'whatsapp_setup_screen.dart';
+import 'whatsapp_template_send.dart';
+import 'whatsapp_templates_screen.dart';
 
 /// The WhatsApp inbox (docs/whatsapp.md): conversations with filter, search
 /// and paging; a thread with the 24-hour window, the suggested reply (with
-/// where it came from), a reply sent for approval, and approve or reject for
-/// owners. Connecting the number and templates live on the web Setup page.
+/// where it came from), a reply sent for approval, a template sent with its
+/// parameters, attachments opened on the phone, and approve or reject for
+/// owners. Templates and Setup open from the app bar.
 class WhatsAppScreen extends StatefulWidget {
   const WhatsAppScreen({required this.controller, super.key});
   final WhatsAppController controller;
@@ -56,11 +62,39 @@ class _WhatsAppScreenState extends State<WhatsAppScreen> {
                   support: c.support),
               title: conversation.label)));
 
+  Future<void> _openSetup() async {
+    await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+            builder: (_) => WhatsAppSetupScreen(
+                controller: WaSetupController(c.repository),
+                apiBase: c.apiBase)));
+    // Connecting or disconnecting changes what the inbox shows.
+    if (mounted) await c.load();
+  }
+
+  Future<void> _openTemplates() => Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+          builder: (_) => WhatsAppTemplatesScreen(
+              controller: WaTemplatesController(c.repository),
+              onOpenSetup: _openSetup)));
+
   @override
   Widget build(BuildContext context) {
     final l = context.anum;
     return Scaffold(
       appBar: AppBar(title: Text(l.t('whatsapp')), actions: [
+        IconButton(
+            key: const Key('wa-open-templates'),
+            onPressed: _openTemplates,
+            tooltip: l.t('waOps.templates.title'),
+            icon: const Icon(Icons.description_outlined)),
+        IconButton(
+            key: const Key('wa-open-setup'),
+            onPressed: _openSetup,
+            tooltip: l.t('waOps.setup.title'),
+            icon: const Icon(Icons.settings_outlined)),
         IconButton(
             onPressed: c.load,
             tooltip: l.t('refresh'),
@@ -102,8 +136,12 @@ class _WhatsAppScreenState extends State<WhatsAppScreen> {
               icon: Icons.power_outlined,
               title: l.t('waNotConnected'),
               message: c.account?.canManage ?? false
-                  ? l.t('waNotConnectedOwner')
-                  : l.t('waNotConnectedMember'))
+                  ? l.t('waOps.notConnectedOwner')
+                  : l.t('waNotConnectedMember'),
+              action: c.account?.canManage ?? false
+                  ? l.t('waOps.setup.open')
+                  : null,
+              onAction: _openSetup)
         ];
       case WaPhase.error:
         return [
@@ -389,8 +427,17 @@ class _WhatsAppThreadScreenState extends State<WhatsAppThreadScreen> {
             else
               AnumSurface(
                   accent: p.warn,
-                  child: Text(l.t('waClosedExplain'),
+                  child: Text(l.t('waOps.closedExplain'),
                       style: TextStyle(color: p.text))),
+            Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: (open ? OutlinedButton.icon : FilledButton.icon)(
+                    key: const Key('wa-send-template-open'),
+                    onPressed: c.busy == null
+                        ? () => showWaTemplateSend(context, c)
+                        : null,
+                    icon: const Icon(Icons.description_outlined),
+                    label: Text(l.t('waOps.send.open')))),
           ]);
         },
       ),
@@ -470,9 +517,13 @@ class _Bubble extends StatelessWidget {
     final approval = message.approval;
     final pending =
         approval != null && approvable(approval, DateTime.now().toUtc());
+    final media = message.media;
     final body = message.body.isNotEmpty
         ? message.body
-        : l.f('waUnsupported', {'kind': message.kind});
+        : media != null
+            ? (media.caption ?? '')
+            : l.f('waUnsupported', {'kind': message.kind});
+    final text = Theme.of(context).textTheme;
     return Align(
       alignment: message.inbound
           ? AlignmentDirectional.centerStart
@@ -497,10 +548,11 @@ class _Bubble extends StatelessWidget {
                     if (message.templateName != null)
                       Text(l.f('waTemplate', {'name': message.templateName!}),
                           style: TextStyle(color: p.violet, fontSize: 12)),
-                    if (message.hasMedia)
-                      Text(l.t('waMedia'),
-                          style: TextStyle(color: p.muted, fontSize: 12)),
-                    Text(body, style: TextStyle(color: p.text)),
+                    if (media != null)
+                      _MediaRow(message: message, controller: controller),
+                    if (body.isNotEmpty)
+                      Text(body,
+                          style: text.bodyMedium?.copyWith(color: p.text)),
                     const SizedBox(height: AnumSpacing.xxs),
                     Wrap(spacing: AnumSpacing.xs, children: [
                       Text(exactTime(message.timestamp),
@@ -571,6 +623,59 @@ class _ApprovalPanel extends StatelessWidget {
           Text(l.t('waOwnerApproves'),
               style: TextStyle(color: p.muted, fontSize: 12.5)),
       ]),
+    );
+  }
+}
+
+/// An attachment on a message: what it is and an Open action. Images open in
+/// a viewer; other types go to the platform's save dialog.
+class _MediaRow extends StatelessWidget {
+  const _MediaRow({required this.message, required this.controller});
+  final WaMessage message;
+  final WhatsAppThreadController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.anum;
+    final media = message.media!;
+    final kind = const {'image', 'document', 'audio', 'video', 'sticker'}
+            .contains(message.kind)
+        ? l.t('waOps.media.${message.kind}')
+        : l.t('waOps.media.file');
+    final name = (media.filename ?? '').trim();
+    final label = name.isEmpty ? kind : '$kind: $name';
+    final fetching = controller.busy == 'media:${message.id}';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AnumSpacing.xxs),
+      child: Wrap(
+          spacing: AnumSpacing.xs,
+          runSpacing: AnumSpacing.xxs,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Icon(
+                switch (message.kind) {
+                  'image' || 'sticker' => Icons.image_outlined,
+                  'audio' => Icons.audiotrack_outlined,
+                  'video' => Icons.videocam_outlined,
+                  _ => Icons.insert_drive_file_outlined,
+                },
+                size: 18),
+            Text(label,
+                style: Theme.of(context).textTheme.bodySmall, softWrap: true),
+            Semantics(
+              button: true,
+              label: l.f('waOps.media.openLabel', {'kind': kind}),
+              excludeSemantics: true,
+              child: OutlinedButton(
+                  key: Key('wa-media-open-${message.id}'),
+                  onPressed: controller.busy == null
+                      ? () => openWaMedia(context, controller, message)
+                      : null,
+                  child: Text(fetching
+                      ? l.t('waOps.media.opening')
+                      : l.t('waOps.media.open'))),
+            ),
+          ]),
     );
   }
 }

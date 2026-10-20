@@ -167,7 +167,16 @@ class AutonomyOverview {
     required this.canManageWorkspace,
     required this.canTighten,
     required this.pendingProposals,
+    this.canManageGuardrails = false,
+    this.priceChangePercentThreshold = 0,
+    this.proposalAfter = 3,
+    this.dailyCaps = const {},
+    this.quietHours,
+    this.blockedRecipients = const [],
+    this.blockedDomains = const [],
     this.maxAutoRecipients,
+    this.maxAutoAmount,
+    this.maxAutoPricePercent,
     this.spendingLimit,
   });
 
@@ -191,7 +200,17 @@ class AutonomyOverview {
       canManageWorkspace: r.boolean('can_manage_workspace'),
       canTighten: r.optBool('can_tighten') ?? false,
       pendingProposals: r.optInt('pending_proposals') ?? 0,
+      canManageGuardrails: r.optBool('can_manage_guardrails') ?? false,
+      priceChangePercentThreshold:
+          s.optNumber('price_change_percent_threshold') ?? 0,
+      proposalAfter: s.optInt('proposal_after') ?? 3,
+      dailyCaps: _caps(s.optMap('daily_caps')),
+      quietHours: _quiet(s.optMap('quiet_hours')),
+      blockedRecipients: s.optStrings('blocked_recipients') ?? const [],
+      blockedDomains: s.optStrings('blocked_domains') ?? const [],
       maxAutoRecipients: g.optInt('max_auto_recipients'),
+      maxAutoAmount: g.optNumber('max_auto_amount'),
+      maxAutoPricePercent: g.optNumber('max_auto_price_change_percent'),
       spendingLimit: g.optNumber('spending_limit'),
     );
   }
@@ -202,10 +221,14 @@ class AutonomyOverview {
   final int recipientsThreshold;
   final double amountThreshold;
   final List<String> approvedTemplates;
-  final bool canManageWorkspace, canTighten;
-  final int pendingProposals;
+  final bool canManageWorkspace, canTighten, canManageGuardrails;
+  final int pendingProposals, proposalAfter;
+  final double priceChangePercentThreshold;
+  final Map<String, int> dailyCaps;
+  final QuietHours? quietHours;
+  final List<String> blockedRecipients, blockedDomains;
   final int? maxAutoRecipients;
-  final double? spendingLimit;
+  final double? maxAutoAmount, maxAutoPricePercent, spendingLimit;
 
   /// The `PUT /autonomy/settings` body with this client's edits applied.
   Map<String, Object?> body({
@@ -213,6 +236,13 @@ class AutonomyOverview {
     required int recipientsThreshold,
     required double amountThreshold,
     required List<String> approvedTemplates,
+    double? priceChangePercentThreshold,
+    int? proposalAfter,
+    Map<String, int>? dailyCaps,
+    QuietHours? quietHours,
+    bool clearQuietHours = false,
+    List<String>? blockedRecipients,
+    List<String>? blockedDomains,
   }) {
     final next = Map<String, Object?>.from(settings)
       ..remove('updated_by')
@@ -221,6 +251,157 @@ class AutonomyOverview {
     next['recipients_threshold'] = recipientsThreshold;
     next['amount_threshold'] = amountThreshold;
     next['approved_templates'] = approvedTemplates;
+    if (priceChangePercentThreshold != null) {
+      next['price_change_percent_threshold'] = priceChangePercentThreshold;
+    }
+    if (proposalAfter != null) next['proposal_after'] = proposalAfter;
+    if (dailyCaps != null) {
+      next['daily_caps'] = Map<String, int>.from(dailyCaps);
+    }
+    if (clearQuietHours) next['quiet_hours'] = null;
+    if (quietHours != null) next['quiet_hours'] = quietHours.toJson();
+    if (blockedRecipients != null) {
+      next['blocked_recipients'] = blockedRecipients;
+    }
+    if (blockedDomains != null) next['blocked_domains'] = blockedDomains;
     return next;
   }
+}
+
+Map<String, int> _caps(Map<String, Object?>? raw) => {
+      for (final e in (raw ?? const <String, Object?>{}).entries)
+        if (e.value is num) e.key: (e.value! as num).toInt(),
+    };
+
+QuietHours? _quiet(Map<String, Object?>? raw) =>
+    raw == null ? null : QuietHours.fromJson(JsonReader(raw));
+
+/// A daily window in which nothing with an effect runs on its own.
+class QuietHours {
+  const QuietHours(
+      {required this.start, required this.end, this.timezone = 'UTC'});
+  factory QuietHours.fromJson(JsonReader r) => QuietHours(
+        start: r.string('start'),
+        end: r.string('end'),
+        timezone: r.optString('timezone') ?? 'UTC',
+      );
+  final String start, end, timezone;
+  Map<String, Object?> toJson() =>
+      {'start': start, 'end': end, 'timezone': timezone};
+}
+
+final _hhmm = RegExp(r'^([01]\d|2[0-3]):[0-5]\d$');
+final _zone = RegExp(r'^[A-Za-z][A-Za-z0-9_+\-]*(/[A-Za-z0-9_+\-]+)*$');
+
+/// HH:MM, 24-hour, like the server.
+bool validHhmm(String value) => _hhmm.hasMatch(value.trim());
+
+/// An IANA-looking zone name (the server has the final say on unknown zones).
+bool plausibleZone(String value) {
+  final v = value.trim();
+  return v.isNotEmpty && v.length <= 64 && _zone.hasMatch(v);
+}
+
+/// The server's recipient normalization: lower-case addresses, phone numbers
+/// as `+` and digits.
+String normalizeRecipient(String value) {
+  final text = value.trim().toLowerCase();
+  if (text.contains('@')) {
+    return text.replaceAll(RegExp(r'^<+|>+$'), '');
+  }
+  final digits = text.replaceAll(RegExp(r'\D'), '');
+  return digits.isEmpty ? text : '+$digits';
+}
+
+/// The server's domain normalization: lower-case, no leading `@`.
+String normalizeDomain(String value) =>
+    value.trim().toLowerCase().replaceFirst(RegExp(r'^@+'), '');
+
+/// The blocked-list limit the server keeps.
+const maxListItems = 500;
+
+/// A recipient worth storing: an address with a name and a domain, or a
+/// phone number with at least 5 digits.
+bool plausibleRecipient(String normalized) {
+  if (normalized.contains(RegExp(r'\s'))) return false;
+  if (normalized.contains('@')) {
+    return RegExp(r'^[^@]+@[^@.]+(\.[^@.]+)+$').hasMatch(normalized);
+  }
+  return RegExp(r'^\+\d{5,}$').hasMatch(normalized);
+}
+
+bool plausibleDomain(String normalized) =>
+    RegExp(r'^[a-z0-9-]+(\.[a-z0-9-]+)+$').hasMatch(normalized);
+
+/// The cap range the server accepts.
+bool validCap(int value) => value >= 0 && value <= 100000;
+
+/// One workspace rule: the level for an exact tool-and-template pattern.
+class AutonomyRule {
+  const AutonomyRule({
+    required this.id,
+    required this.tool,
+    required this.category,
+    required this.level,
+    required this.source,
+    this.template,
+  });
+  factory AutonomyRule.fromJson(JsonReader r) => AutonomyRule(
+        id: r.string('id'),
+        tool: r.string('tool'),
+        category: r.string('category'),
+        level: r.string('level'),
+        source: r.optString('source') ?? 'manual',
+        template: r.optString('template'),
+      );
+  final String id, tool, category, level, source;
+  final String? template;
+}
+
+/// The organization's floors (`/autonomy/guardrails`).
+class OrgGuardrails {
+  const OrgGuardrails({
+    this.spendingLimit,
+    this.maxAutoAmount,
+    this.maxAutoRecipients,
+    this.maxAutoPricePercent,
+    this.ceilings = const {},
+    this.dailyCaps = const {},
+    this.quietHours,
+    this.blockedRecipients = const [],
+    this.blockedDomains = const [],
+  });
+  factory OrgGuardrails.fromJson(JsonReader r) => OrgGuardrails(
+        spendingLimit: r.optNumber('spending_limit'),
+        maxAutoAmount: r.optNumber('max_auto_amount'),
+        maxAutoRecipients: r.optInt('max_auto_recipients'),
+        maxAutoPricePercent: r.optNumber('max_auto_price_change_percent'),
+        ceilings: {
+          for (final e in (r.optMap('category_ceilings') ?? const {}).entries)
+            if (e.value is String) e.key: e.value! as String,
+        },
+        dailyCaps: _caps(r.optMap('daily_caps')),
+        quietHours: _quiet(r.optMap('quiet_hours')),
+        blockedRecipients: r.optStrings('blocked_recipients') ?? const [],
+        blockedDomains: r.optStrings('blocked_domains') ?? const [],
+      );
+  final double? spendingLimit, maxAutoAmount, maxAutoPricePercent;
+  final int? maxAutoRecipients;
+  final Map<String, String> ceilings;
+  final Map<String, int> dailyCaps;
+  final QuietHours? quietHours;
+  final List<String> blockedRecipients, blockedDomains;
+
+  /// The `PUT /autonomy/guardrails` body (the server sets who and when).
+  Map<String, Object?> toBody() => {
+        'spending_limit': spendingLimit,
+        'max_auto_amount': maxAutoAmount,
+        'max_auto_recipients': maxAutoRecipients,
+        'max_auto_price_change_percent': maxAutoPricePercent,
+        'category_ceilings': ceilings,
+        'daily_caps': dailyCaps,
+        'quiet_hours': quietHours?.toJson(),
+        'blocked_recipients': blockedRecipients,
+        'blocked_domains': blockedDomains,
+      };
 }

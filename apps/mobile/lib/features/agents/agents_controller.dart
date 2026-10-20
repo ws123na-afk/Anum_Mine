@@ -151,6 +151,22 @@ class AgentDetailController extends ChangeNotifier {
     if (phase == AgentsPhase.ready) await loadTasks();
   }
 
+  /// Takes a profile the Skills tab saved (it has the new version).
+  void applyAgent(AgentProfile next) {
+    agent = next;
+    notifyListeners();
+  }
+
+  /// Reads the agent again without the loading state (after a stale edit).
+  Future<void> refreshAgent() async {
+    try {
+      agent = await repository.get(agentId);
+      notifyListeners();
+    } catch (_) {
+      // The old profile stays; the panel already shows why.
+    }
+  }
+
   Future<void> loadTasks() async {
     tasksError = null;
     try {

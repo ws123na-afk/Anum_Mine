@@ -187,6 +187,13 @@ class _Stat extends StatelessWidget {
   Widget build(BuildContext context) => Chip(label: Text('$label: $value'));
 }
 
+class _ContactRow {
+  _ContactRow(String contact, this.language)
+      : contact = TextEditingController(text: contact);
+  final TextEditingController contact;
+  String language;
+}
+
 class _StyleCard extends StatefulWidget {
   const _StyleCard({required this.controller, required this.overview});
   final LearningController controller;
@@ -208,13 +215,35 @@ class _StyleCardState extends State<_StyleCard> {
   late final _notes = TextEditingController(
     text: widget.overview.overrides.notes ?? '',
   );
+  // '' stored by the server means "no greeting" / "no sign-off".
+  late bool _noGreeting = widget.overview.overrides.greeting == '';
+  late bool _noSignOff = widget.overview.overrides.signOff == '';
+  late final List<_ContactRow> _contacts = [
+    for (final e
+        in (widget.overview.overrides.contactLanguages ?? const {}).entries)
+      _ContactRow(e.key, e.value),
+  ];
 
   @override
   void dispose() {
     _greeting.dispose();
     _signOff.dispose();
     _notes.dispose();
+    for (final row in _contacts) {
+      row.contact.dispose();
+    }
     super.dispose();
+  }
+
+  /// The contacts typed so far, newest value winning, blank rows dropped; null
+  /// when there are none (the server then keeps what it learned).
+  Map<String, String>? _contactMap() {
+    final map = <String, String>{};
+    for (final row in _contacts) {
+      final key = row.contact.text.trim();
+      if (key.isNotEmpty) map[key] = row.language;
+    }
+    return map.isEmpty ? null : map;
   }
 
   Widget _choice(
@@ -311,7 +340,9 @@ class _StyleCardState extends State<_StyleCard> {
               (v) => setState(() => _language = v),
             ),
             TextField(
+              key: const Key('style-greeting'),
               controller: _greeting,
+              enabled: !_noGreeting,
               maxLength: 80,
               decoration: InputDecoration(
                 labelText: 'Greeting',
@@ -320,8 +351,18 @@ class _StyleCardState extends State<_StyleCard> {
                     : 'Learned: ${learned.greeting}',
               ),
             ),
+            CheckboxListTile(
+              key: const Key('style-no-greeting'),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              value: _noGreeting,
+              onChanged: (v) => setState(() => _noGreeting = v ?? false),
+              title: const Text('No greeting'),
+            ),
             TextField(
+              key: const Key('style-sign-off'),
               controller: _signOff,
+              enabled: !_noSignOff,
               maxLength: 80,
               decoration: InputDecoration(
                 labelText: 'Sign-off',
@@ -330,6 +371,14 @@ class _StyleCardState extends State<_StyleCard> {
                     : 'Learned: ${learned.signOff}',
               ),
             ),
+            CheckboxListTile(
+              key: const Key('style-no-sign-off'),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              value: _noSignOff,
+              onChanged: (v) => setState(() => _noSignOff = v ?? false),
+              title: const Text('No sign-off'),
+            ),
             TextField(
               controller: _notes,
               maxLength: 500,
@@ -337,11 +386,91 @@ class _StyleCardState extends State<_StyleCard> {
               maxLines: 4,
               decoration: const InputDecoration(labelText: 'Notes for ANUM'),
             ),
+            Text(
+              'Language per contact',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
             if (learned.contactLanguages.isNotEmpty)
               Text(
-                'Language per contact: ${learned.contactLanguages.entries.map((e) => '${e.key}: ${languageLabels[e.value] ?? e.value}').join(', ')}',
+                'Learned: ${learned.contactLanguages.entries.map((e) => '${e.key}: ${languageLabels[e.value] ?? e.value}').join(', ')}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+            if (_contacts.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: AnumSpacing.xs),
+                child: Text(
+                  'No contact has its own language. Add one to always write to that email address or number in a set language.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            for (var i = 0; i < _contacts.length; i++)
+              Padding(
+                key: ObjectKey(_contacts[i]),
+                padding: const EdgeInsets.only(top: AnumSpacing.xs),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: TextField(
+                        key: Key('contact-$i'),
+                        controller: _contacts[i].contact,
+                        maxLength: 160,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'Email address or number',
+                          counterText: '',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AnumSpacing.xs),
+                    Expanded(
+                      flex: 2,
+                      child: DropdownButtonFormField<String>(
+                        key: Key('contact-language-$i'),
+                        initialValue: _contacts[i].language,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Language',
+                        ),
+                        items: [
+                          for (final entry in languageLabels.entries)
+                            DropdownMenuItem(
+                              value: entry.key,
+                              child: Text(
+                                entry.value,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: (v) => setState(
+                          () => _contacts[i].language = v ?? 'en',
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      key: Key('contact-remove-$i'),
+                      tooltip: 'Remove this contact',
+                      onPressed: () => setState(() {
+                        _contacts.removeAt(i).contact.dispose();
+                      }),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                key: const Key('contact-add'),
+                onPressed: _contacts.length >= 100
+                    ? null
+                    : () =>
+                        setState(() => _contacts.add(_ContactRow('', 'ar'))),
+                icon: const Icon(Icons.add),
+                label: const Text('Add a contact'),
+              ),
+            ),
             const SizedBox(height: AnumSpacing.sm),
             Wrap(
               spacing: AnumSpacing.xs,
@@ -355,11 +484,10 @@ class _StyleCardState extends State<_StyleCard> {
                               tone: _tone,
                               length: _length,
                               language: _language,
-                              greeting: text(_greeting),
-                              signOff: text(_signOff),
+                              greeting: _noGreeting ? '' : text(_greeting),
+                              signOff: _noSignOff ? '' : text(_signOff),
                               notes: text(_notes),
-                              contactLanguages:
-                                  widget.overview.overrides.contactLanguages,
+                              contactLanguages: _contactMap(),
                             ),
                           ),
                   icon: const Icon(Icons.check),
@@ -644,6 +772,19 @@ class _RoutinesCard extends StatelessWidget {
               'Things you do at about the same time every week or day. Create a paused automation, check it in the Workbench, then start its schedule.',
             ),
             if (!canManage) const Text(routinePermissionMessage),
+            TextFormField(
+              key: const Key('routine-timezone'),
+              initialValue: c.routineTimezone,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: const InputDecoration(
+                labelText: 'Time zone',
+                helperText:
+                    'Such as Asia/Riyadh. Routines are found in this zone.',
+                helperMaxLines: 2,
+              ),
+              onChanged: (v) => c.routineTimezone = v,
+            ),
             Align(
               alignment: AlignmentDirectional.centerStart,
               child: OutlinedButton.icon(
