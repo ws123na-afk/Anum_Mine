@@ -34,6 +34,7 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | [Privacy](#privacy) | Done | Settings › Your data and privacy |
 | [Notifications and push](#notifications-and-push) | Done in the app; needs the owner's Firebase setup to deliver | Settings › Notifications, Phone push card |
 | [Settings, language and right to left](#settings-language-and-right-to-left) | Partial | Settings, Language menu |
+| [Tyre planning](#tyre-planning) | Done for everything an operator does; connecting the source is web only | Home › Tyre planning |
 | [Integrations and skills](#integrations-and-skills) | Partial (connectors in progress) | Resources › Skills, Resources › Services, Home › Connected services |
 | [Commerce](#commerce) | Done for everything an operator does; connecting a channel and alert rules are web only | Home › Sales and orders |
 | [Business](#business) | Done on the phone for everything the desk edits; research, drafts, CSV import and proposal writing are web only | More › Business |
@@ -300,6 +301,24 @@ Amazon, noon and the owner's store ([Commerce](commerce.md)). Anyone with a role
 
 Screen: **Home › Sales and orders** with the tabs Sales, Catalogue, Prices and stock, Returns, Alerts and Channels (`apps/mobile/lib/features/commerce/`, English and Arabic; tests in `test/commerce_test.dart` and `test/commerce_ops_test.dart` cover every list state, the role differences, validation, the server's refusals and 320 and 390 point widths).
 
+## Tyre planning
+
+The owner's fleet tyre data ([Tyre planning](tyre-planning.md)). Everyone with a role reads; `tyre:operate` (owners and members) syncs, generates, deletes, sends and schedules; connecting the source is owners on the web. The server checks every call.
+
+| What you can do | State |
+| --- | --- |
+| Dashboard figures, tyres due by month with search and paging, open alerts | Done |
+| Acknowledge an alert | Done (owners and members) |
+| Sync now (reads the mapped tables again and says how many alerts are new) | Done (owners and members) |
+| Purchase plan for 3, 6 or 12 months: tyres to buy, estimated cost, lines without a price | Done |
+| Reports: list with paging, open one (numbers, tables capped at 25 rows, notes, sending history) | Done |
+| Reports: generate any of the eight kinds for a period, delete one (with confirmation) | Done (owners and members) |
+| Reports: request sending by a connected email or WhatsApp integration; it waits in Approvals | Done (owners and members) |
+| Report schedules: list, add (daily, weekly or monthly at a time), delete | Done (owners and members) |
+| Connect the source, mapping, assumptions, CSV and PDF downloads, reopen an alert, schedule delivery to a recipient | Web only |
+
+Screen: **Home > Tyre planning** with the tabs Dashboard, Due, Alerts, Plan and Reports (`apps/mobile/lib/features/tyre/`, English and Arabic; `test/tyre/tyre_test.dart` and `test/tyre/tyre_ops_test.dart` cover every state, the role differences, validation, the server's refusals and 320 and 390 point widths).
+
 ## Business
 
 The internal sales desk ([Business](business.md)). Owners and members read it; viewers are told who can. Every change below goes to the API, which checks the role again: the phone hides controls the role cannot use and shows the server's sentence when it still refuses.
@@ -330,7 +349,6 @@ Work on other branches. None of it is in the app yet; each item is marked done h
 | --- | --- | --- |
 | Email inbox | Read and answer Gmail, Outlook and Zoho Mail through the assistant; every sent email goes through approvals | In progress |
 | WhatsApp | Connect WhatsApp Business through the official API; read chats and send replies after approval | In progress |
-| Tyre planning | Work with the owner's tyre planning data (TyrePulse, Supabase and Firebase) from the assistant | In progress |
 | Marketing | Draft and schedule marketing content, published only after approval | In progress |
 | Autonomy | Let the assistant carry out longer jobs on its own within the approval rules | In progress |
 | Learning | The assistant learns the owner's preferences and ways of working over time | In progress |

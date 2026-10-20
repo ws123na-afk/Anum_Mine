@@ -14,7 +14,7 @@ ANUM only ever **reads** the source. Nothing in tyre planning writes to it.
   `infra/tyrepulse/supabase-anum-reader-extend.sql` for the operational tables (undo:
   `infra/tyrepulse/supabase-anum-reader-extend-rollback.sql`).
 - Web: **Tyre planning** in the sidebar (`apps/web/src/TyreView.tsx`).
-- Flutter: **Home > Tyre planning** (dashboard, tyres due, alerts) in `apps/mobile/lib/features/tyre/`; connecting, mapping and reports are on the web.
+- Flutter: **Home > Tyre planning** in `apps/mobile/lib/features/tyre/`: dashboard, tyres due, alerts (acknowledge), the purchase plan, reports (generate, read, delete, request sending) and report schedules, and Sync now for owners and members. Connecting the source, mapping, assumptions, CSV and PDF downloads, reopening an alert and scheduled delivery recipients are on the web.
 
 ## Who can do what
 
