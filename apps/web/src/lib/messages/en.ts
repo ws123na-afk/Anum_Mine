@@ -15,6 +15,7 @@ import { teamEn } from './team.en.ts';
 import { appCallsEn } from './appCalls.en.ts';
 import { marketingEn } from './marketing.en.ts';
 import { businessEn } from './business.en.ts';
+import { businessPipelineEn } from './businessPipeline.en.ts';
 import { businessSupportEn } from './businessSupport.en.ts';
 import { filesVersionsEn } from './filesVersions.en.ts';
 import { invoicesEn } from './invoices.en.ts';
@@ -64,6 +65,7 @@ export const en = {
   ...appCallsEn,
   ...marketingEn,
   ...businessEn,
+  ...businessPipelineEn,
   ...businessSupportEn,
   ...filesVersionsEn,
   ...invoicesEn,

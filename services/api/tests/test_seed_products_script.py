@@ -70,12 +70,30 @@ def test_every_entry_builds_payloads_the_api_accepts() -> None:
             assert "owner to confirm" in offer["notes"]
 
 
-def test_target_profile_is_never_sent() -> None:
-    for entry in seed_products.load_entries():
-        assert "target_profile" in entry
-        assert "target_profile" not in seed_products.product_payload(entry)
-        sent = json.dumps([seed_products.product_payload(entry), seed_products.offer_payload(entry)])
-        assert "trigger_events" not in sent and "disqualifiers" not in sent
+def test_target_profile_maps_onto_the_api_fields() -> None:
+    from anum_api.business.api_pipeline import TargetProfileInput
+
+    entries = {entry["slug"]: entry for entry in seed_products.load_entries()}
+    for entry in entries.values():
+        assert "target_profile" not in seed_products.product_payload(entry)  # the product body stays API-only
+        target = seed_products.target_payload(entry)
+        assert set(target) == set(TargetProfileInput.model_fields)
+        TargetProfileInput.model_validate(target)
+        assert "-" not in target["industries"] + target["roles"] + target["disqualifiers"] + target["trigger_events"]
+    tyre = seed_products.target_payload(entries["tyre-pulse"])
+    assert tyre["roles"][0] == "Fleet manager"  # buyer_roles go to roles
+    assert tyre["company_sizes"] == ["medium", "large", "enterprise"] and tyre["company_size_note"].startswith("Fleets of about 50 or more")
+    assert tyre["trigger_events"] and tyre["value_proposition"]
+    assert seed_products.target_payload(entries["anum-os"])["company_sizes"] == ["micro", "small", "medium"]
+    voice = seed_products.target_payload(entries["voicequote"])
+    assert voice["company_sizes"] == [] and voice["company_size_note"] == "" and voice["disqualifiers"] == []
+
+
+def test_company_size_words_and_numbers() -> None:
+    assert seed_products.company_sizes("20+ vehicles") == ["small", "medium", "large", "enterprise"]
+    assert seed_products.company_sizes("about 300 staff") == ["large"]
+    assert seed_products.company_sizes("SMEs and enterprise groups") == ["small", "enterprise"]
+    assert seed_products.company_sizes("") == []
 
 
 def test_unknown_product_field_is_refused() -> None:
@@ -100,11 +118,14 @@ def test_dry_run_writes_nothing_and_apply_is_idempotent() -> None:
     entries = seed_products.load_entries()
 
     plan = seed_products.seed(entries, transport, apply=False)
-    assert len(plan.writes) == 7  # four products, three offers (the store has none yet)
+    assert len(plan.writes) == 11  # four products, four target profiles, three offers (the store has none yet)
     assert transport("GET", "/api/v1/business/products", None)["total"] == 0
 
     first = seed_products.seed(entries, transport, apply=True)
-    assert len(first.writes) == 7
+    assert len(first.writes) == 11
+    targets = {item["product_name"]: item for item in transport("GET", "/api/v1/business/pipeline/targets", None)}
+    assert targets["Tyre Pulse"]["saved"] and targets["Tyre Pulse"]["roles"][0] == "Fleet manager"
+    assert targets["Tyre Pulse"]["company_sizes"] == ["medium", "large", "enterprise"] and targets["Tyre Pulse"]["trigger_events"]
     products = transport("GET", "/api/v1/business/products", None)["items"]
     assert sorted(item["name"] for item in products) == ["ANUM OS", "Anum360 Store", "Tyre Pulse", "VoiceQuote"]
     for item in products:
@@ -127,7 +148,8 @@ def test_changes_are_patched_and_an_active_offer_gets_a_new_draft() -> None:
     target["product"]["summary"] = "Changed summary."
     target["offer"]["deliverables"].append("Extra deliverable")
     report = seed_products.seed(changed, transport, apply=True)
-    assert [(step.method, step.path.split("/")[-1]) for step in report.writes] == [("PATCH", tyre["id"]), ("POST", "versions")]
+    # The summary is also the target profile's value proposition, so that is set again too.
+    assert [(step.method, step.path.split("/")[-1]) for step in report.writes] == [("PUT", "target"), ("PATCH", tyre["id"]), ("POST", "versions")]
     detail = transport("GET", f"/api/v1/business/products/{tyre['id']}", None)
     assert detail["summary"] == "Changed summary."
     assert [offer["status"] for offer in detail["offers"]] == ["draft", "active"]
@@ -154,4 +176,4 @@ def test_apply_without_a_token_fails_and_offline_dry_run_prints_payloads(monkeyp
     assert seed_products.main(["--apply"]) == 1
     assert seed_products.main([]) == 0
     out = capsys.readouterr().out
-    assert "NOT SENT" in out and "POST /products" in out
+    assert "PUT /pipeline/products/{id}/target" in out and "POST /products" in out

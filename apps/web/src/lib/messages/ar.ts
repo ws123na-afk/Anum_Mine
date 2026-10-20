@@ -16,6 +16,7 @@ import { teamAr } from './team.ar.ts';
 import { appCallsAr } from './appCalls.ar.ts';
 import { marketingAr } from './marketing.ar.ts';
 import { businessAr } from './business.ar.ts';
+import { businessPipelineAr } from './businessPipeline.ar.ts';
 import { businessSupportAr } from './businessSupport.ar.ts';
 import { filesVersionsAr } from './filesVersions.ar.ts';
 import { invoicesAr } from './invoices.ar.ts';
@@ -65,6 +66,7 @@ export const ar: Record<MessageKey, Message> = {
   ...appCallsAr,
   ...marketingAr,
   ...businessAr,
+  ...businessPipelineAr,
   ...businessSupportAr,
   ...filesVersionsAr,
   ...invoicesAr,

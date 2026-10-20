@@ -6,7 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'approvals_strings.dart';
 import 'calls_strings.dart';
 import 'brevo_strings.dart';
+import 'business_pipeline_strings.dart';
 import 'org_admin_strings.dart';
+import '../../features/tyre/tyre_ops_strings.dart';
 import 'business_strings.dart';
 import 'inbox_strings.dart';
 import 'mail_center_strings.dart';
@@ -26,8 +28,10 @@ class AnumLocalizations {
       (isArabic ? mailCenterAr : mailCenterEn)[key] ??
       (isArabic ? callsAr : callsEn)[key] ??
       (isArabic ? businessAr : businessEn)[key] ??
+      (isArabic ? businessPipelineAr : businessPipelineEn)[key] ??
       (isArabic ? brevoAr : brevoEn)[key] ??
       (isArabic ? orgAdminAr : orgAdminEn)[key] ??
+      (isArabic ? tyreOpsAr : tyreOpsEn)[key] ??
       (isArabic ? approvalsAr : approvalsEn)[key] ??
       (isArabic ? inboxAr : inboxEn)[key] ??
       _en[key] ??
@@ -35,8 +39,10 @@ class AnumLocalizations {
       mailCenterEn[key] ??
       callsEn[key] ??
       businessEn[key] ??
+      businessPipelineEn[key] ??
       brevoEn[key] ??
       orgAdminEn[key] ??
+      tyreOpsEn[key] ??
       approvalsEn[key] ??
       inboxEn[key] ??
       key;

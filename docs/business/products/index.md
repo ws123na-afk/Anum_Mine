@@ -36,7 +36,7 @@ python3 scripts/business/seed-products.py --apply
 | Changes | Changed product fields are patched (the API cannot change `kind`; the plan says so). A draft offer is updated in place; if the active version already matches, nothing happens; otherwise a new draft version is added. |
 | Prices | Every offer is `quote` and stays a **draft**: the script never activates a version. The owner sets the price and activates it in Business, Catalog. |
 | Token | Read from `ANUM_API_TOKEN` only, sent as a bearer header, never printed. Plain HTTP is refused for anything but localhost. Needs `business:manage` (an owner). |
-| Target profile | Each entry's `target_profile` block (industries, size, regions, buyer roles, trigger events, disqualifiers) is **not sent**: the API has no fields for it yet. The Harvey branch adds them; then move the block into the payload. |
+| Target profile | Each entry's `target_profile` block is sent as the product's target customer profile (`PUT /api/v1/business/pipeline/products/{id}/target`, [Business prospecting](../../business.md#prospecting-pipeline)): `buyer_roles` go to `roles`, the free-text `company_size` is mapped to the size bands (micro under 10, small under 50, medium under 250, large under 1000, enterprise) and kept word for word in `company_size_note`, `trigger_events` are kept for conversations, and `-` means unknown. |
 
 Tests: `services/api/tests/test_seed_products_script.py` checks every payload against the API's own input models and runs the seed twice in process against the app (the second run writes nothing). No network.
 

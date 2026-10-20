@@ -1095,6 +1095,32 @@ def test_mail_writers_migration_is_expand_only() -> None:
     assert "grant select (updated_at) on mail_drafts to anum_maintenance" in upgrade
 
 
+def test_business_pipeline_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0082_business_pipeline.py").read_text(encoding="utf-8")
+    assert 'revision = "0082_business_pipeline"' in revision_text and len("0082_business_pipeline") <= 32
+    assert 'down_revision = "0089_business_invoices_portal"' in revision_text
+    # One chain: nothing else extends the revision before this one, and nothing extends this one.
+    others = [path for path in versions.glob("*.py") if path.name != "0082_business_pipeline.py"]
+    assert [path.name for path in others if 'down_revision = "0089_business_invoices_portal"' in path.read_text(encoding="utf-8")] == []
+    assert [path.name for path in others if 'down_revision = "0082_business_pipeline"' in path.read_text(encoding="utf-8")] in ([], ["0090_file_versions.py"])
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    tables = revision_text.split("TABLES = (", 1)[1].split(")", 1)[0]
+    names = [name.strip().strip('"') for name in tables.split(",") if name.strip()]
+    assert names == ["business_outreach_settings", "business_target_profiles", "business_observations", "business_pipeline_runs",
+                     "business_outbox", "business_replies"]
+    assert upgrade.count("op.create_table(") == len(names) and "for table in tables:\n        _enable_rls(table)" in upgrade
+    assert "force row level security" in revision_text.lower() and "with check (" in revision_text.lower()
+    assert '["tenant_id", "workspace_id", column]' in revision_text
+    # Sending is off by default; one open outbox row per draft.
+    assert '"sending_enabled", sa.boolean(), nullable=false, server_default=sa.false()' in upgrade
+    assert "uq_business_outbox_open_draft" in upgrade and "uq_business_outbox_sequence_step" in upgrade
+    # The only grant is the tenant purger's (scope columns and delete) with its purge policy, for every table.
+    assert "_purge_policy(table)" in upgrade and "grant select (tenant_id, ctid, workspace_id), delete on {table} to {purger}" in revision_text.lower().replace("{purger}", "{purger}")
+    assert "create policy lifecycle_purge_{table}" in revision_text and revision_text.lower().count("grant ") == 1
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "op.add_column(" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade
+
 def test_tenant_lifecycle_migration_is_expand_only_with_a_narrow_purge_role() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0079_tenant_lifecycle.py").read_text(encoding="utf-8")
@@ -1191,9 +1217,9 @@ def test_file_versions_migration_is_expand_only_with_forced_rls_and_a_scoped_ref
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0090_file_versions.py").read_text(encoding="utf-8")
     assert 'revision = "0090_file_versions"' in revision_text and len("0090_file_versions") <= 32
-    assert 'down_revision = "0089_business_invoices_portal"' in revision_text
+    assert 'down_revision = "0082_business_pipeline"' in revision_text
     others = [path for path in versions.glob("*.py") if path.name != "0090_file_versions.py"]
-    assert not [path for path in others if 'down_revision = "0089_business_invoices_portal"' in path.read_text(encoding="utf-8")]
+    assert not [path for path in others if 'down_revision = "0082_business_pipeline"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 1 and upgrade.count("op.add_column(") == 1
     # The added column has a default, so the previous release keeps inserting rows.

@@ -26,6 +26,7 @@ import '../features/developer/developer_assist.dart';
 import '../features/developer/developer_controller.dart';
 import '../features/developer/developer_repository.dart';
 import '../features/tyre/tyre_controller.dart';
+import '../features/tyre/tyre_ops.dart';
 import '../features/tyre/tyre_repository.dart';
 import '../features/tyre/tyre_screen.dart';
 import '../features/whatsapp/whatsapp_controller.dart';
@@ -381,7 +382,8 @@ class _AnumAppState extends State<AnumApp> {
               builder: (_) => FinanceScreen(controller: finance)));
       await loading;
     };
-    tyre = TyreController(ApiTyreRepository(api));
+    tyre = TyreController(ApiTyreRepository(api),
+        ops: TyreOps(ApiTyreOpsRepository(api)));
     final developerRepository = ApiDeveloperRepository(api);
     developer = DeveloperController(developerRepository);
     // Social media marketing (docs/marketing.md).
@@ -760,11 +762,13 @@ class _AnumAppState extends State<AnumApp> {
     if (name == AnumRoutes.tyres || name == AnumRoutes.tyreAlerts) {
       return MaterialPageRoute<void>(
         settings: settings,
-        builder: (_) => _AuthenticatedDestination(
+        builder: (routeContext) => _AuthenticatedDestination(
           auth: auth,
           child: TyreScreen(
             controller: tyre,
             initialTab: name == AnumRoutes.tyreAlerts ? 2 : 0,
+            onOpenApprovals: () =>
+                Navigator.of(routeContext).pushNamed(AnumRoutes.approvals),
           ),
         ),
       );
