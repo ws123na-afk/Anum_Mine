@@ -878,7 +878,7 @@ def calendar_tool_registry() -> ToolRegistry:
 class CalendarSyncScheduler:
     """Syncs connected calendars every ``ANUM_CALENDAR_SYNC_INTERVAL_SECONDS`` (PostgreSQL only).
 
-    Discovery runs as ``anum_maintenance`` (migration 0091: ids and scope of connections that
+    Discovery runs as ``anum_maintenance`` (migration 0092: ids and scope of connections that
     do not need reconnecting); each sync runs as the application role inside the connection's
     tenant and workspace RLS context, like every other cross-tenant job.
     """

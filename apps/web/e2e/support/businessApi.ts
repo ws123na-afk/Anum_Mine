@@ -10,15 +10,22 @@ const scope = { tenant_id: 'tenant_local', workspace_id: 'workspace_foundation' 
 const envelope = (code: string, message: string) => ({ error: { code, message, correlation_id: 'corr_e2e', details: [] } });
 export const PAYLOAD_HASH = 'b7'.repeat(32);
 
-export interface BusinessMock { calls: { method: string; path: string; body: unknown }[]; approvals: number }
+export interface BusinessMock { calls: { method: string; path: string; body: unknown; query?: string }[]; approvals: number }
 
-export async function mockBusiness(page: Page, options: { role?: 'owner' | 'member'; status?: 403 | 500; webSearch?: boolean } = {}): Promise<BusinessMock> {
+export async function mockBusiness(page: Page, options: { role?: 'owner' | 'member'; status?: 403 | 500; webSearch?: boolean; products?: number; failProducts?: number } = {}): Promise<BusinessMock> {
   await mockWorkspaceApi(page);
   const role = options.role ?? 'owner';
   const mock: BusinessMock = { calls: [], approvals: 0 };
   const products: Json[] = [], leads: Json[] = [], opportunities: Json[] = [], proposals: Json[] = [], projects: Json[] = [];
   let counter = 0;
   const id = (prefix: string) => `${prefix}_${++counter}`;
+  // Seeded catalog rows for search and paging tests; `failProducts` makes that many Catalog tab page loads answer 500.
+  let productFailures = options.failProducts ?? 0;
+  for (let index = 1; index <= (options.products ?? 0); index += 1) {
+    const live = index % 3 === 0;
+    products.push({ id: `bprod_seed_${String(index).padStart(3, '0')}`, ...scope, kind: index % 2 ? 'service_package' : 'product', name: `Package ${String(index).padStart(3, '0')}${index === 7 ? ' Fleet dashboard' : ''}`,
+      name_ar: '', summary: index === 7 ? 'Weekly fleet reporting' : '', maturity: live ? 'live' : 'idea', integrations: [], created_by: 'user_local', created_at: now(), updated_at: now(), offers: [] });
+  }
   const page_ = (items: Json[]) => ({ items, total: items.length, limit: 25, offset: 0 });
 
   const offerView = (offer: Json) => {
@@ -66,7 +73,7 @@ export async function mockBusiness(page: Page, options: { role?: 'owner' | 'memb
     const path = url.pathname.replace('/api/v1/business', '');
     const method = request.method();
     const body = request.postData() ? request.postDataJSON() as Json : {};
-    mock.calls.push({ method, path, body });
+    mock.calls.push({ method, path, body, query: url.search });
     const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
     if (options.status === 403) return json(envelope('forbidden', 'Business is for workspace owners and members: it holds contacts\' personal data. Ask an owner to make you a member.'), 403);
     if (options.status === 500) return json(envelope('internal_error', 'Database unavailable'), 500);
@@ -98,7 +105,15 @@ export async function mockBusiness(page: Page, options: { role?: 'owner' | 'memb
     if (path === '/duplicates') return json([]);
 
     // catalog
-    if (path === '/products' && method === 'GET') return json(page_(products.map(productView)));
+    if (path === '/products' && method === 'GET') {
+      // Only the Catalog tab's pages (25 a page) fail; the 100-product picker list keeps working.
+      if (productFailures > 0 && url.searchParams.get('limit') === '25') { productFailures -= 1; return json(envelope('internal_error', 'The catalog could not be read.'), 500); }
+      const q = (url.searchParams.get('q') ?? '').toLowerCase(), kind = url.searchParams.get('kind'), maturity = url.searchParams.get('maturity');
+      const limit = Number(url.searchParams.get('limit') ?? 50), offset = Number(url.searchParams.get('offset') ?? 0);
+      const matched = products.filter((item) => (!q || `${item.name} ${item.name_ar} ${item.summary}`.toLowerCase().includes(q)) && (!kind || item.kind === kind) && (!maturity || item.maturity === maturity))
+        .sort((left, right) => String(left.name).localeCompare(String(right.name)));
+      return json({ items: matched.slice(offset, offset + limit).map(productView), total: matched.length, limit, offset });
+    }
     if (path === '/products' && method === 'POST') {
       if (role !== 'owner') return json(envelope('forbidden', 'Only workspace owners can do this.'), 403);
       const product = { id: id('bprod'), ...scope, ...body, integrations: [], created_by: 'user_local', created_at: now(), updated_at: now(), offers: [] };

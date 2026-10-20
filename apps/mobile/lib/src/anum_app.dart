@@ -60,6 +60,7 @@ import '../features/brevo/brevo_data.dart';
 import '../features/brevo/brevo_screen.dart';
 import '../features/marketing/marketing_controller.dart';
 import '../features/marketing/marketing_repository.dart';
+import '../features/files/file_versions_repository.dart';
 import '../features/workspace/api_workspace_repository.dart';
 import '../features/team/team_repository.dart';
 import '../features/workspace/destinations.dart';
@@ -306,6 +307,7 @@ class _AnumAppState extends State<AnumApp> {
     workspace = WorkspaceController(
       ApiWorkspaceRepository(api, fileTransfer: fileTransfer),
       files: ApiFilesRepository(api, transfer: fileTransfer),
+      fileVersions: ApiFileVersionsRepository(api, transfer: fileTransfer),
       meetings: ApiMeetingsRepository(api, transfer: fileTransfer),
     );
     // Streamed replies for the Assistant and voice (docs/conversations.md).

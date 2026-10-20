@@ -1,4 +1,4 @@
-"""PostgreSQL store of calendar sync connections (migration 0091_calendar_sync, docs/calendar.md#sync).
+"""PostgreSQL store of calendar sync connections (migration 0092_calendar_sync, docs/calendar.md#sync).
 
 Both tables are scoped to a tenant and workspace under forced RLS; the session already
 carries that context (``open_scoped_store``) and every query filters on it as well. Tokens
