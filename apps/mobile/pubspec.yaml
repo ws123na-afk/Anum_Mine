@@ -32,14 +32,14 @@ dependencies:
   # url_launcher_android is held at 6.3.29, the last Java release: 6.3.30+
   # rely on AGP 9 built-in Kotlin like file_picker 11 (see above).
   url_launcher: ^6.3.2
-  url_launcher_android: 6.3.29
+  url_launcher_android: 6.3.33
   # Phone push (docs/notifications.md, docs/mobile.md#phone-push). Checked for
   # AGP 9 built-in Kotlin: firebase_messaging 16.7 is Java only and
   # firebase_core 4.15 applies kotlin-android itself when
   # android.builtInKotlin=false, so neither needs a pin. The app builds and
   # runs without the owner's Firebase files; push then stays off.
-  firebase_core: ^4.15.0
-  firebase_messaging: ^16.7.0
+  firebase_core: ^5.0.0
+  firebase_messaging: ^17.0.0
   # In-app calls between teammates (docs/in-app-calls.md#flutter). Pinned: its
   # Android plugin is Java plus one Kotlin file and applies kotlin-android itself
   # while android.builtInKotlin=false (checked in its android/build.gradle, the
