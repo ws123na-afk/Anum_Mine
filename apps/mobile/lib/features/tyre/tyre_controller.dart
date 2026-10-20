@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
 import 'tyre_models.dart';
+import 'tyre_ops.dart';
 import 'tyre_repository.dart';
 
 /// One section's state: loading, failed (with the API's message), denied.
@@ -22,13 +23,16 @@ class TyreSection<T> {
 
 /// Tyre planning on the phone: dashboard, tyres due by month, alerts.
 class TyreController extends ChangeNotifier {
-  TyreController(this.repository, {DateTime Function()? clock})
+  TyreController(this.repository, {this.ops, DateTime Function()? clock})
       : _clock = clock ?? DateTime.now {
     final now = _clock();
     month = DateTime(now.year, now.month);
   }
 
   final TyreRepository repository;
+
+  /// Sync, the purchase plan, reports and schedules, when wired.
+  final TyreOps? ops;
   final DateTime Function() _clock;
 
   TyreAccess? access;
@@ -50,6 +54,7 @@ class TyreController extends ChangeNotifier {
 
   /// Forget everything (sign-out or a workspace switch).
   void reset() {
+    ops?.reset();
     access = null;
     dashboard = null;
     loading = denied = false;

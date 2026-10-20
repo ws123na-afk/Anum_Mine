@@ -1,18 +1,29 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../data/api_client.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'tyre_controller.dart';
 import 'tyre_models.dart';
+import 'tyre_ops.dart';
+import 'tyre_ops_screen.dart';
 
 /// Tyre planning (docs/tyre-planning.md): the fleet dashboard, the tyres due
 /// in a month and the open alerts. Connecting and mapping the data is done on
 /// the web; this screen says so when there is nothing synced yet.
 class TyreScreen extends StatefulWidget {
-  const TyreScreen({required this.controller, this.initialTab = 0, super.key});
+  const TyreScreen({
+    required this.controller,
+    this.initialTab = 0,
+    this.onOpenApprovals,
+    super.key,
+  });
   final TyreController controller;
+  final VoidCallback? onOpenApprovals;
 
   /// 0 dashboard, 1 due, 2 alerts (a tapped tyre alert push opens 2).
   final int initialTab;
@@ -22,6 +33,30 @@ class TyreScreen extends StatefulWidget {
 }
 
 class _TyreScreenState extends State<TyreScreen> {
+  bool _syncing = false;
+
+  Future<void> _sync(TyreOps ops) async {
+    final l = AnumLocalizations.maybeOf(context);
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _syncing = true);
+    try {
+      final raised = await ops.sync();
+      await widget.controller.load();
+      // The synced data changes the plan: reload it when it is on show.
+      if (ops.plan != null) unawaited(ops.loadPlan());
+      messenger
+        ..clearSnackBars()
+        ..showSnackBar(
+            SnackBar(content: Text(l.f('tyreOps.synced', {'n': raised}))));
+    } on ApiException catch (e) {
+      messenger
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(e.readable)));
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -31,13 +66,28 @@ class _TyreScreenState extends State<TyreScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AnumLocalizations.maybeOf(context);
+    final ops = widget.controller.ops;
+    final tabs = ops == null ? 3 : 5;
     return DefaultTabController(
-      length: 3,
-      initialIndex: widget.initialTab.clamp(0, 2),
+      length: tabs,
+      initialIndex: widget.initialTab.clamp(0, tabs - 1),
       child: Scaffold(
         appBar: AppBar(
           title: Text(l.t('tyreTitle')),
           actions: [
+            if (ops != null)
+              ListenableBuilder(
+                listenable: widget.controller,
+                builder: (context, _) =>
+                    (widget.controller.access?.canOperate ?? false)
+                        ? IconButton(
+                            key: const Key('tyre-sync'),
+                            tooltip: l.t('tyreOps.syncNow'),
+                            onPressed: _syncing ? null : () => _sync(ops),
+                            icon: const Icon(Icons.sync),
+                          )
+                        : const SizedBox.shrink(),
+              ),
             IconButton(
               tooltip: l.t('refresh'),
               onPressed: widget.controller.load,
@@ -45,11 +95,14 @@ class _TyreScreenState extends State<TyreScreen> {
             ),
           ],
           bottom: TabBar(
-            isScrollable: false,
+            isScrollable: ops != null,
+            tabAlignment: ops != null ? TabAlignment.start : null,
             tabs: [
               Tab(text: l.t('tyreDashboard')),
               Tab(text: l.t('tyreDue')),
               Tab(text: l.t('tyreAlerts')),
+              if (ops != null) Tab(text: l.t('tyreOps.tabPlan')),
+              if (ops != null) Tab(text: l.t('tyreOps.tabReports')),
             ],
           ),
         ),
@@ -90,6 +143,13 @@ class _TyreScreenState extends State<TyreScreen> {
                 _Dashboard(controller: c),
                 _Due(controller: c),
                 _Alerts(controller: c),
+                if (ops != null) TyrePlanView(ops: ops),
+                if (ops != null)
+                  TyreReportsView(
+                    ops: ops,
+                    canOperate: access.canOperate,
+                    onOpenApprovals: widget.onOpenApprovals,
+                  ),
               ],
             );
           },

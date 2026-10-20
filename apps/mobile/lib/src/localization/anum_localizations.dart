@@ -9,6 +9,7 @@ import 'brevo_strings.dart';
 import 'calendar_sync_strings.dart';
 import 'business_pipeline_strings.dart';
 import 'org_admin_strings.dart';
+import '../../features/tyre/tyre_ops_strings.dart';
 import 'business_strings.dart';
 import 'inbox_strings.dart';
 import 'mail_center_strings.dart';
@@ -32,6 +33,7 @@ class AnumLocalizations {
       (isArabic ? brevoAr : brevoEn)[key] ??
       (isArabic ? orgAdminAr : orgAdminEn)[key] ??
       (isArabic ? calendarSyncAr : calendarSyncEn)[key] ??
+      (isArabic ? tyreOpsAr : tyreOpsEn)[key] ??
       (isArabic ? approvalsAr : approvalsEn)[key] ??
       (isArabic ? inboxAr : inboxEn)[key] ??
       _en[key] ??
@@ -43,6 +45,7 @@ class AnumLocalizations {
       brevoEn[key] ??
       orgAdminEn[key] ??
       calendarSyncEn[key] ??
+      tyreOpsEn[key] ??
       approvalsEn[key] ??
       inboxEn[key] ??
       key;
