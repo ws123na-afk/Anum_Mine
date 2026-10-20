@@ -246,6 +246,10 @@ Optional; what it does and the safety rules (new accounts wait for an organizati
 
 **Letting someone in:** **Users** → search the person (accounts without a `tenant_id` attribute are the pending ones) → **Attributes**: `tenant_id` (and optionally `default_workspace_id`) → **Save**; then invite them from ANUM's **Members**. They press **Check again** in the app.
 
+### Self-serve sign-up
+
+Optional ([Customer billing](billing.md#self-serve-sign-up)). Set up Keycloak's email server, registration with **Verify email** and the `anum-provisioner` client exactly as in [Deploy on Oracle: Self-serve sign-up](deploy-oracle.md#self-serve-sign-up) steps 1 and 2. Then, in the Render dashboard, **anum-api** → **Environment** → add `ANUM_BILLING_ISSUER_TENANT_ID` (your organisation id), `ANUM_BILLING_SCHEDULER_ENABLED=true`, `ANUM_SIGNUP_ENABLED=true`, `ANUM_WEB_APP_URL` (`https://` and your web host), `ANUM_KEYCLOAK_PROVISIONER_CLIENT_ID=anum-provisioner` and `ANUM_KEYCLOAK_PROVISIONER_CLIENT_SECRET` (the client secret, as a secret value) → **Save, rebuild and deploy**. Finally fill the billing console's settings and publish the plans (step 4 of the Oracle page).
+
 ## Custom Domains
 
 For each of `anum-web`, `anum-api` and `anum-keycloak`: Dashboard → service → **Settings** → **Custom Domains** → **Add Custom Domain** → for example `app.staging.example.com`. At your DNS provider, add a `CNAME` record from that name to the service's `onrender.com` host shown by Render. Render verifies the record and issues and renews the TLS certificate. Apex domains (`example.com` without a subdomain) need an `ALIAS`/`ANAME` record or the address Render shows. Custom domains are not written into `render.yaml`, so the repository carries no environment's host names.

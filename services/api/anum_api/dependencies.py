@@ -345,8 +345,13 @@ def refuse_writes_to_archived_workspace(request: Request, context: TenantContext
         or request.url.path.startswith(_ARCHIVE_EXEMPT_PREFIXES)
     ):
         return
-    if workspace_archived(context):
+    if request.url.path not in _ARCHIVE_EXEMPT_PATHS and workspace_archived(context):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=WORKSPACE_ARCHIVED)
+    # An organisation whose unpaid invoice outlived the grace period is read-only
+    # (docs/billing.md#lifecycle): every write but billing, sign-in and approvals waits.
+    from .billing.enforce import refuse_writes_when_read_only
+
+    refuse_writes_when_read_only(request.method, request.url.path, context)
 
 
 @contextmanager

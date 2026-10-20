@@ -6,7 +6,8 @@ import { t, type MessageKey } from './i18n.ts';
 export type View =
   | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'calls' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'finance' | 'marketing' | 'business' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'email' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
-  | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'agentControls' | 'policy' | 'suppressions' | 'developer' | 'organisations';
+  | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'agentControls' | 'policy' | 'suppressions' | 'developer' | 'organisations'
+  | 'platformBilling';
 
 export type NavGroup = 'main' | 'more' | 'admin';
 
@@ -26,7 +27,7 @@ export type NavGroup = 'main' | 'more' | 'admin';
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
   { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'finance', 'marketing', 'business', 'files', 'memory', 'reports', 'skills'] },
   { group: 'more', views: ['favorites', 'inbox', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
-  { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'agentControls', 'policy', 'suppressions', 'developer', 'organisations'] },
+  { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'agentControls', 'policy', 'suppressions', 'developer', 'organisations', 'platformBilling'] },
 ];
 
 /** Views reached as a tab of a sidebar entry: they open by link and light up their parent entry. */
@@ -38,7 +39,7 @@ export const VIEWS: readonly View[] = [...NAV.flatMap((group) => group.views), .
 /** Views only an owner sees in the navigation (the view itself explains it if opened by link). */
 export const OWNER_ONLY: ReadonlySet<View> = new Set(['developer']);
 /** The platform console: only for platform operators (the API answers 403 to anyone else). */
-export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations']);
+export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations', 'platformBilling']);
 /**
  * Views that draw their own page header: the Command Center, the Voice page's full-bleed space scene,
  * and the working pages whose one header row carries their actions (PageParts.tsx PageHeader).
@@ -60,6 +61,8 @@ export function viewFromHash(hash: string): View {
   if (id.startsWith('invitation=')) return 'members';
   if (id.startsWith('meetings?')) return 'meetings';
   if (id === 'privacy' || id === 'language' || id === 'appearance' || id === 'notifications') return 'settings';
+  // Settings > Billing and its sections (#billing-plans, #billing-contact, docs/billing.md).
+  if (id === 'billing' || id.startsWith('billing-')) return 'settings';
   // Connection setup lives at the top of Integrations (docs/integrations-setup.md).
   if (id === 'connections') return 'integrations';
   // A report or collection opened by link (docs/reports.md, docs/knowledge-base.md).

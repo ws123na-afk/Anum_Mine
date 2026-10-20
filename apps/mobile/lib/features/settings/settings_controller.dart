@@ -5,6 +5,7 @@ import '../../data/api_models.dart';
 import '../admin/admin_repository.dart';
 import '../admin/org_admin_repository.dart';
 import '../auth/auth_repository.dart';
+import '../billing/billing_data.dart';
 import '../autonomy/autonomy_repository.dart';
 import '../learning/learning_repository.dart';
 import '../lifecycle/lifecycle_repository.dart';
@@ -33,7 +34,8 @@ class SettingsController extends ChangeNotifier {
       this.learning,
       this.team,
       this.agentControls,
-      this.lifecycle});
+      this.lifecycle,
+      this.billing});
   final AuthRepository repository;
 
   /// Members, invitations and model budgets; the API decides who may use them.
@@ -61,6 +63,10 @@ class SettingsController extends ChangeNotifier {
   /// The organization's emergency stop and per-agent cost caps
   /// (docs/agent-controls.md).
   final AgentControlsRepository? agentControls;
+
+  /// The organisation's plan, usage and invoices (docs/billing.md); the API
+  /// lets workspace owners and organisation administrators in.
+  final BillingRepository? billing;
 
   /// Organisation export and organisation or workspace deletion
   /// (docs/organisation-lifecycle.md).

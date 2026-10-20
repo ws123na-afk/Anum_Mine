@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'agent_controls_strings.dart';
 import 'approvals_strings.dart';
 import 'calls_strings.dart';
+import 'billing_strings.dart';
 import 'brevo_strings.dart';
 import 'calendar_sync_strings.dart';
 import 'business_pipeline_strings.dart';
@@ -33,6 +34,7 @@ class AnumLocalizations {
       (isArabic ? businessPipelineAr : businessPipelineEn)[key] ??
       (isArabic ? brevoAr : brevoEn)[key] ??
       (isArabic ? agentControlsAr : agentControlsEn)[key] ??
+      (isArabic ? billingAr : billingEn)[key] ??
       (isArabic ? orgAdminAr : orgAdminEn)[key] ??
       (isArabic ? calendarSyncAr : calendarSyncEn)[key] ??
       (isArabic ? tyreOpsAr : tyreOpsEn)[key] ??
@@ -46,6 +48,7 @@ class AnumLocalizations {
       businessPipelineEn[key] ??
       brevoEn[key] ??
       agentControlsEn[key] ??
+      billingEn[key] ??
       orgAdminEn[key] ??
       calendarSyncEn[key] ??
       tyreOpsEn[key] ??

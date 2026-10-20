@@ -186,12 +186,16 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         **{name: "0082_business_pipeline" for name in (
             "business_outreach_settings", "business_target_profiles", "business_observations",
             "business_pipeline_runs", "business_outbox", "business_replies")},
-        **{name: "0093_agent_controls" for name in ("agent_emergency_stops", "agent_cost_caps", "agent_usage_monthly")},
+        **{name: "0095_agent_controls" for name in ("agent_emergency_stops", "agent_cost_caps", "agent_usage_monthly")},
         "business_invoices": "0089_business_invoices_portal",
         "business_invoice_payments": "0089_business_invoices_portal",
         "business_invoice_counters": "0089_business_invoices_portal",
         "business_portal_access": "0089_business_invoices_portal",
         "business_portal_decisions": "0089_business_invoices_portal",
+        **{name: "0094_customer_billing" for name in (
+            "billing_plans", "billing_settings", "billing_accounts", "billing_subscriptions", "billing_seats",
+            "billing_usage", "billing_invoices", "billing_invoice_lines", "billing_credit_notes", "billing_payments",
+            "billing_number_sequences", "billing_webhook_events", "billing_signups")},
     }
     for table, revision in later.items():
         text = (API_ROOT / "migrations" / "versions" / f"{revision}.py").read_text(encoding="utf-8")

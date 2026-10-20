@@ -1,0 +1,175 @@
+/* Customer billing (src/billing): shared tokens, logical properties for right to left, content-driven heights. */
+.blPage, .blStack, .blConsole { display: grid; gap: var(--d-s4); min-width: 0; }
+.blPage > .notice, .blStack > .notice, .blConsole > .notice { margin: 0; }
+.blPanel { display: grid; gap: var(--d-s3); min-width: 0; padding: var(--d-s4) var(--d-s5); }
+.blPanel h2, .blPanel h3, .blPanel p { margin: 0; }
+.blPanel .field { margin: 0; }
+.blHead { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; }
+.blHead > div:first-child { display: grid; gap: var(--d-s1); min-width: 0; }
+.blInline { align-items: center; margin: 0; }
+.blCenter { justify-content: center; }
+.blSmall { font-size: var(--text-sm); margin: 0; }
+.blSub { font-size: var(--text-lg); }
+.blInlineIcon { block-size: 16px; inline-size: 16px; margin-inline-end: var(--d-s1); vertical-align: -2px; }
+[dir="rtl"] .blFlip { transform: scaleX(-1); }
+.blDanger { color: var(--d-stop); display: block; }
+.blProblem { align-items: flex-start; display: flex; gap: var(--d-s3); }
+.blBanner { margin: 0; }
+.blBanner.warn { border-color: rgb(var(--c-warn) / .4); color: var(--d-warn); }
+.blRetry { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.blRetry .notice { flex: 1 1 260px; margin: 0; }
+.blEmpty { margin: 0; }
+
+/* Links drawn as buttons (an <a> that navigates). */
+.blLink { align-items: center; background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s3); text-decoration: none; }
+.blLink:hover { background: var(--d-glass-3); }
+.blLink.primary { background: var(--d-primary-grad); border-color: transparent; color: var(--d-on-primary); }
+.blLink.primary:hover { background: var(--d-primary-grad-hover); }
+.blLink svg { block-size: 16px; flex: none; inline-size: 16px; }
+
+/* Plan and facts. */
+.blPlanNow { display: grid; gap: var(--d-s2); }
+.blPlanName { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.blPlanName h3 { font-size: var(--text-2xl); overflow-wrap: anywhere; }
+.blPrice { font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 650; margin: 0; }
+.blFacts { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin: 0; }
+.blFacts dt { color: var(--d-muted); font-size: var(--text-xs); }
+.blFacts dd { margin: 0; overflow-wrap: anywhere; }
+.blFacts code { font-size: var(--text-sm); overflow-wrap: anywhere; }
+
+/* Usage meters. */
+.blMeters { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); list-style: none; margin: 0; padding: 0; }
+.blMeter { display: grid; gap: var(--d-s1); }
+.blMeterHead { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.blMeterHead span { color: var(--d-muted); font-size: var(--text-sm); }
+.blMeterHead strong { font-size: var(--text-md); font-variant-numeric: tabular-nums; }
+.blBar, .blProgress { background: var(--d-well); border: 1px solid var(--d-line); border-radius: 999px; block-size: 8px; overflow: hidden; }
+.blBar span, .blProgress span { background: var(--d-ok); block-size: 100%; display: block; }
+.blMeter.warn .blBar span { background: var(--d-warn); }
+.blMeter.danger .blBar span { background: var(--d-stop); }
+.blProgress span { background: var(--d-primary-grad); }
+
+/* Payment methods and bank details. */
+.blMethods { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.blMethod { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3) var(--d-s4); align-content: start; }
+.blMethod h3 { align-items: center; display: flex; font-size: var(--text-base); gap: var(--d-s2); margin: 0; }
+.blMethod h3 svg { block-size: 18px; inline-size: 18px; }
+.blMethod .statusBadge { justify-self: start; }
+.blBank { display: grid; gap: var(--d-s2); }
+.blBank h4 { margin: 0; }
+
+/* Plan cards. */
+.blPlans { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.blPlan { align-content: start; display: grid; gap: var(--d-s2); padding: var(--d-s4); }
+.blPlan.current { border-color: rgb(var(--c-ok) / .45); }
+.blPlan header { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.blPlan h3 { font-size: var(--text-xl); margin: 0; overflow-wrap: anywhere; }
+.blPlan p { margin: 0; }
+.blTrial { color: var(--d-sky); font-size: var(--text-sm); font-weight: 600; }
+.blFeatures { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
+.blFeatures li { align-items: flex-start; display: flex; font-size: var(--text-md); gap: var(--d-s2); }
+.blFeatures svg { block-size: 16px; color: var(--d-ok); flex: none; inline-size: 16px; margin-top: 2px; }
+.blPlanAction { margin-top: var(--d-s2); }
+
+/* Tables, filters, paging. */
+.blToolbar { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
+.blSearch { flex: 1 1 220px; min-width: 0; }
+.blFilter { flex: 0 1 200px; min-width: 0; }
+.blTable th small, .blTable td small { color: var(--d-faint); display: block; font-size: var(--text-xs); margin-top: 2px; overflow-wrap: anywhere; }
+.blTable th strong { font-weight: 600; overflow-wrap: anywhere; }
+.blTable .num, .blLines .num { font-variant-numeric: tabular-nums; text-align: end; white-space: nowrap; }
+.blTable .iconOnly { justify-content: center; padding: 0; width: 40px; }
+.blPager { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
+.blBadges { display: flex; flex-wrap: wrap; gap: var(--d-s1); }
+
+/* Invoice. */
+.blDrawer, .blInvoice { display: grid; gap: var(--d-s3); min-width: 0; }
+.blDrawer > .actions { margin: 0; }
+.blDrawer > .notice { margin: 0; }
+.blInvoice h3, .blInvoice h4, .blInvoice p { margin: 0; }
+.blInvoiceHead { display: grid; gap: var(--d-s2); }
+.blInvoiceHead > div { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.blInvoiceHead h3 { font-size: var(--text-2xl); }
+.blParties { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.blParties section { display: grid; gap: 2px; }
+.blPre { white-space: pre-line; }
+.blTotals { display: grid; gap: var(--d-s1); margin: 0; }
+.blTotals div { display: flex; gap: var(--d-s3); justify-content: space-between; }
+.blTotals dt { color: var(--d-muted); }
+.blTotals dd { font-variant-numeric: tabular-nums; margin: 0; white-space: nowrap; }
+.blTotals .blGrand { border-top: 1px solid var(--d-line); font-weight: 700; padding-top: var(--d-s1); }
+.blTotals .blGrand dt { color: var(--d-text); }
+.blList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.blList li { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); padding: var(--d-s2) var(--d-s3); }
+.blList li span { overflow-wrap: anywhere; }
+
+/* Dialogs and forms. */
+.blDialog { max-inline-size: min(960px, calc(100vw - 32px)); }
+.blWideDialog { max-inline-size: min(760px, calc(100vw - 32px)); }
+.blPreview { display: grid; gap: var(--d-s3); }
+.blPreview h3, .blPreview p { margin: 0; }
+.blPreview .actions { margin-top: var(--d-s2); }
+.blBlocked { align-items: flex-start; display: flex; gap: var(--d-s2); margin: 0; }
+.blBlocked p, .blBlocked ul { margin: 0; }
+.blBlocked ul { padding-inline-start: var(--d-s4); }
+.blTwo { display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.blThree { display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.blFormGrid { gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.blFormGrid .field { margin: 0; }
+.blWide { grid-column: 1 / -1; }
+.blFieldset { border: 1px solid var(--d-line); border-radius: var(--d-r-control); margin: var(--d-s4) 0 0; min-width: 0; padding: var(--d-s2) var(--d-s3) var(--d-s3); }
+.blFieldset legend { font-weight: 600; padding: 0 var(--d-s1); }
+.blCheck { align-items: center; cursor: pointer; display: flex; gap: var(--d-s2); margin-top: var(--d-s3); min-height: 32px; }
+.blCheck input[type="checkbox"] { accent-color: var(--d-violet); flex: none; height: 18px; margin: 0; min-height: 0; padding: 0; width: 18px; }
+.blRules { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.blRules li { align-items: end; display: grid; gap: var(--d-s2); grid-template-columns: minmax(80px, 120px) minmax(80px, 140px) minmax(0, 1fr) auto; }
+.blRules .iconOnly { justify-content: center; padding: 0; width: 40px; }
+.blRuleName { align-self: center; overflow-wrap: anywhere; }
+.blSave { justify-content: flex-end; margin: 0; }
+
+/* Console. */
+.blConsoleBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; }
+.blTabs { margin: 0; }
+
+/* Onboarding checklist and the shared refusal notice. */
+.blChecklist { display: grid; gap: var(--d-s3); margin-block-end: var(--d-s4); padding: var(--d-s4) var(--d-s5); }
+.blChecklist h2, .blChecklist p { margin: 0; }
+.blSteps { display: grid; gap: var(--d-s2); margin: 0; padding-inline-start: var(--d-s5); }
+.blChecks { list-style: none; padding: 0; }
+.blChecks li { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-height: 40px; }
+.blChecks li > svg { block-size: 18px; color: var(--d-faint); flex: none; inline-size: 18px; }
+.blChecks li.done > svg { color: var(--d-ok); }
+.blChecks li.done > span { color: var(--d-muted); text-decoration: line-through; }
+.blChecks li > span { flex: 1 1 200px; min-width: 0; }
+.blRefusal { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.blRefusal > div:nth-child(2) { flex: 1 1 240px; min-width: 0; }
+.blRefusal p { margin: var(--d-s1) 0 0; }
+.blRefusalActions { align-items: center; display: flex; gap: var(--d-s2); }
+.blRefusalActions .iconOnly { justify-content: center; padding: 0; width: 40px; }
+
+/* Public pricing and sign-up. */
+.blPublicWide { max-inline-size: min(1120px, calc(100vw - 32px)); width: 100%; }
+.blPublicHead { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; }
+.blPublicHead h1, .blPublicHead p { margin: 0; }
+.blPublicPlans { margin-top: var(--d-s3); }
+.blChosen { align-items: center; display: flex; gap: var(--d-s2); }
+.blChosen svg { block-size: 18px; color: var(--d-ok); flex: none; inline-size: 18px; }
+.blHeroIcon { block-size: 32px; color: var(--d-sky); inline-size: 32px; }
+.blSignupForm .consent { margin-top: var(--d-s4); }
+
+@media (max-width: 1100px) {
+  .blTable .optional { display: none; }
+}
+@media (min-width: 561px) and (max-width: 900px) {
+  .blTable .blWideOnly { display: none; }
+}
+@media (max-width: 560px) {
+  .blTable .blWideOnly { display: none; }
+  .blTable .cellActions button.secondary:not(.iconOnly) { padding: 0 var(--d-s2); }
+}
+@media (max-width: 720px) {
+  .blPanel, .blChecklist { padding: var(--d-s3); }
+  .blTable .optional, .blLines .optional { display: none; }
+  .blRules li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .blRuleName { display: none; }
+}

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExtern
 import {
   Activity, Bell, BellOff, BookOpen, GraduationCap, Phone, ShoppingCart, Wallet, Bot, Building2, ChevronDown, CircleAlert, FileText, Gauge, Hammer, House, ListTodo, LogOut, Mail, MessageCircle,
   MessageSquare, Mic, Plug, Plus, RefreshCw, Scale, ScrollText, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Store, Users, Workflow, Disc3, PhoneCall, FileBarChart, Library, Star,
-  ClipboardCheck, ClipboardList, Building, BriefcaseBusiness, Megaphone, SunMoon, CalendarDays, AtSign, Handshake, PhoneOutgoing, ShieldAlert } from 'lucide-react';
+  ClipboardCheck, ClipboardList, Building, BriefcaseBusiness, Megaphone, SunMoon, CalendarDays, AtSign, Handshake, PhoneOutgoing, ShieldAlert, Landmark } from 'lucide-react';
 import type { Approval, Task } from '@anum/contracts';
 import type { WorkspacePermissions } from '@anum/contracts';
 import * as api from './lib/api';
@@ -34,7 +34,7 @@ const ICONS: Record<View, ReactNode> = {
   integrations: <Plug />, files: <FileText />, memory: <BookOpen />, knowledge: <Library />, reports: <FileBarChart />, favorites: <Star />, skills: <Store />, inbox: <Mail />, email: <AtSign />, whatsapp: <MessageCircle />,
   approvals: <ShieldCheck />, activity: <Activity />, autonomy: <SlidersHorizontal />, settings: <Settings />, governance: <Building2 />, setup: <ClipboardList />, suppressions: <BellOff />,
   enterprise: <Store />, members: <Users />, audit: <ScrollText />, budgets: <Gauge />, agentControls: <ShieldAlert />, policy: <Scale />, developer: <Hammer />,
-  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />,
+  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />, platformBilling: <Landmark />,
 };
 export const viewIcon = (view: View) => ICONS[view];
 

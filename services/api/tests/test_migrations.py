@@ -1178,6 +1178,24 @@ def test_file_scan_status_migration_is_expand_only_with_a_discovery_only_policy(
     assert "grant insert" not in upgrade and "grant update" not in upgrade and "grant delete" not in upgrade
 
 
+def test_customer_billing_migration_is_expand_only_with_narrow_reader_policies() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0094_customer_billing.py").read_text(encoding="utf-8")
+    assert 'revision = "0094_customer_billing"' in revision_text and len("0094_customer_billing") <= 32
+    assert 'down_revision = "0092_calendar_sync"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0094_customer_billing.py"]
+    assert not [path for path in others if 'down_revision = "0092_calendar_sync"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "grant insert" not in upgrade and "grant update" not in upgrade and "grant delete" not in upgrade
+    assert "force row level security" in upgrade
+    # The reader roles never see contacts, bill-to snapshots, proof files or Stripe ciphertexts.
+    granted = revision_text.split("READER_COLUMNS = {", 1)[1].split("def _in", 1)[0]
+    for secret in ("contact_email", "bill_to", "proof_content", "stripe_secret_ciphertext", "reference"):
+        assert secret not in granted
+
+
 def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0076_business_support.py").read_text(encoding="utf-8")
@@ -1254,8 +1272,7 @@ def test_calendar_sync_migration_is_expand_only_with_forced_rls_and_discovery_on
     assert 'revision = "0092_calendar_sync"' in revision_text and len("0092_calendar_sync") <= 32
     assert 'down_revision = "0090_file_versions"' in revision_text
     others = [path for path in versions.glob("*.py") if path.name != "0092_calendar_sync.py"]
-    # The agent controls migration chains after it (one head): nothing else may.
-    assert [path.name for path in others if 'down_revision = "0092_calendar_sync"' in path.read_text(encoding="utf-8")] in ([], ["0093_agent_controls.py"])
+    assert [path.name for path in others if 'down_revision = "0092_calendar_sync"' in path.read_text(encoding="utf-8")] in ([], ["0094_customer_billing.py"])
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 2
     assert '"calendar_connections"' in revision_text and '"calendar_oauth_requests"' in revision_text
@@ -1288,11 +1305,11 @@ def test_email_draft_bcc_migration_adds_one_defaulted_column_only() -> None:
 
 def test_agent_controls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0093_agent_controls.py").read_text(encoding="utf-8")
-    assert 'revision = "0093_agent_controls"' in revision_text and len("0093_agent_controls") <= 32
-    assert 'down_revision = "0092_calendar_sync"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0093_agent_controls.py"]
-    assert not [path for path in others if 'down_revision = "0092_calendar_sync"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0095_agent_controls.py").read_text(encoding="utf-8")
+    assert 'revision = "0095_agent_controls"' in revision_text and len("0095_agent_controls") <= 32
+    assert 'down_revision = "0094_customer_billing"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0095_agent_controls.py"]
+    assert not [path for path in others if 'down_revision = "0094_customer_billing"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 3
     for table in ("agent_emergency_stops", "agent_cost_caps", "agent_usage_monthly"):

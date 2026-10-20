@@ -123,6 +123,10 @@ class AccountPendingError(TokenValidationError):
     clients show the pending screen instead of asking the person to sign in again.
     """
 
+    subject: str | None = None
+    email: str | None = None
+    email_verified: bool = False
+
 
 class JwksUnavailableError(TokenValidationError):
     """The issuer's key set could not be fetched and no cached keys exist."""
@@ -322,10 +326,16 @@ class OidcValidator:
 
         tenant_id = payload.get("tenant_id")
         if tenant_id is None or tenant_id == "":
-            raise AccountPendingError(
+            pending = AccountPendingError(
                 "Your account is not part of an organization yet. An administrator assigns it "
                 "to your organization, then a workspace owner invites you."
             )
+            # Self-serve sign-up (docs/billing.md#self-serve-sign-up) reads who this is.
+            email = payload.get("email")
+            pending.subject = str(payload["sub"])
+            pending.email = email if isinstance(email, str) and email.strip() else None
+            pending.email_verified = payload.get("email_verified") is True
+            raise pending
         if not isinstance(tenant_id, str) or not is_valid_scope_id(tenant_id):
             raise TokenValidationError("Bearer token is missing a valid tenant_id claim")
         extra_tenants = payload.get("tenant_ids")

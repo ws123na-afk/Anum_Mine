@@ -20,14 +20,14 @@ discovery skips a stopped tenant's work without reading anything else.
 Expand only: new tables, one column grant, one policy. The previous release never reads
 them and keeps running against this schema.
 
-Chained after ``0092_calendar_sync``, the head of ``main``.
+Chained after ``0094_customer_billing``, the head of ``main``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0093_agent_controls"
-down_revision = "0092_calendar_sync"
+revision = "0095_agent_controls"
+down_revision = "0094_customer_billing"
 branch_labels = None
 depends_on = None
 

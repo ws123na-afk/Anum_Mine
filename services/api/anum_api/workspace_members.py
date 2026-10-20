@@ -486,6 +486,10 @@ async def create_invitation(
     units: UnitsOfWork = Depends(units_of_work),
 ) -> InvitationCreated:
     _require_manager(context)
+    # Pending invitations count as seats of the plan (docs/billing.md#plans-and-limits).
+    from .billing.enforce import require_capacity
+
+    await asyncio.to_thread(require_capacity, context, "seats", 1)
     # Commit first, in a worker thread; only then email the invitee.
     invitation, token, workspace_name = await asyncio.to_thread(_create_invitation_in_own_unit, units, context, payload)
     email = await deliver_invitation_email(

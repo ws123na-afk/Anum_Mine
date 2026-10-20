@@ -148,6 +148,12 @@ class Permission(StrEnum):
     BUSINESS_READ = "business:read"
     BUSINESS_WRITE = "business:write"
     BUSINESS_MANAGE = "business:manage"
+    # Customer billing (docs/billing.md#who-can-do-what): the organisation's plan, usage,
+    # invoices and billing contact. Workspace owners hold both through their role;
+    # organisation administrators reach them with an active membership. Members and viewers
+    # get neither.
+    BILLING_READ = "billing:read"
+    BILLING_MANAGE = "billing:manage"
 
 
 class OrganizationRole(StrEnum):

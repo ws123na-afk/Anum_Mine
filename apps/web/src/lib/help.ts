@@ -95,7 +95,7 @@ export function searchArticles(articles: readonly HelpArticle[], query: string):
 }
 
 /** Pages that share one article (tabs and companion settings pages). */
-const ARTICLE_OF: Partial<Record<View, string>> = { memory: 'knowledge', autonomy: 'activity', agentControls: 'agent-controls' };
+const ARTICLE_OF: Partial<Record<View, string>> = { memory: 'knowledge', autonomy: 'activity', agentControls: 'agent-controls', platformBilling: 'billing-console' };
 
 /** The help article id for a page. */
 export const articleForView = (view: View): string => ARTICLE_OF[view] ?? view;

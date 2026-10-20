@@ -301,6 +301,27 @@ Optional. People then see "Continue with Google" and "Continue with Apple" next 
 
 **Letting someone in.** `bash ~/anum/infra/oracle/keycloak-2fa.sh pending-users` lists accounts without an organization (name, email, whether it is verified, Google/Apple/password). `bash ~/anum/infra/oracle/keycloak-2fa.sh assign-tenant <username> <tenant_id> [<workspace_id>]` puts one in your organization; then, as a workspace owner, **Members** → **Invite** with their email. They press **Check again** in the app. Removing a provider: `keycloak-2fa.sh remove-provider google` (accounts stay; those people use **Forgot password** or the other provider).
 
+### Self-serve sign-up
+
+Optional: lets new companies buy ANUM from the public pricing page (`https://<WEB>/#pricing`) without you onboarding them ([Customer billing: Self-serve sign-up](billing.md#self-serve-sign-up)). Each sign-up becomes its own organisation with a trial of the plan it picked, billed by your organisation. ANUM never stores a password: the account is created on Keycloak's own registration page.
+
+1. **Keycloak can send mail and registration is on**: the realm email server and `keycloak-2fa.sh sign-up` from **Sign-up with email** above. Email verification is what stops fake sign-ups, so do not skip the email server.
+2. **A provisioning client for Keycloak**, so ANUM can link the new account to its new organisation (it sets only the account's `tenant_id` and `default_workspace_id`, and never moves an account that already has an organisation). Admin console, realm **anum** → **Clients** → **Create client**: type **OpenID Connect**, client ID `anum-provisioner` → **Next** → **Client authentication** on, **Service accounts roles** on, **Standard flow** and **Direct access grants** off → **Next** → **Save**. Then the client's **Service account roles** tab → **Assign role** → **Filter by clients** → tick `realm-management` `manage-users` and `view-users` → **Assign**. The **Credentials** tab shows the client secret.
+3. **On the VM**, `nano ~/anum/infra/oracle/.env` and add (paste the secret only into this file, never into a chat or a command line):
+
+   ```
+   ANUM_BILLING_ISSUER_TENANT_ID=<your organisation id, the tenant_id of your own account>
+   ANUM_BILLING_SCHEDULER_ENABLED=true
+   ANUM_SIGNUP_ENABLED=true
+   ANUM_KEYCLOAK_PROVISIONER_CLIENT_ID=anum-provisioner
+   ANUM_KEYCLOAK_PROVISIONER_CLIENT_SECRET=<the client secret>
+   ```
+
+   then `cd ~/anum/infra/oracle && docker compose up -d api`. `ANUM_SIGNUP_DAILY_LIMIT` (default 50) caps sign-ups per day; each network may sign up 3 times an hour.
+4. **In ANUM**, as the platform operator: **Billing console** → **Settings**: your company name, address, VAT number and bank details (they print on every invoice; customers pay by bank transfer by default), then **Plans**: create the plans and tick **Published** on those the pricing page should show.
+
+Without step 2 sign-up still works, but the new account stays on "Your account is waiting for access" until you run `keycloak-2fa.sh assign-tenant <username> <tenant_id> <tenant_id>_main` (the sign-up page shows the organisation id). Card payments through Stripe stay off until you enter Stripe keys in the billing console ([Payment collection](billing.md#payment-collection)); Stripe then needs the webhook `https://<API>/api/v1/billing/webhooks/stripe/<your organisation id>` with the event `checkout.session.completed`.
+
 ## AI Model
 
 The VM has no GPU. Staging starts with `ANUM_MODEL_PROVIDER=mock` (placeholder answers; production refuses it in the release gate). Three real options:
