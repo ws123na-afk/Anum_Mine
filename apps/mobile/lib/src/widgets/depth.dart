@@ -137,7 +137,7 @@ class AnumHeader extends StatelessWidget {
           Text(title,
               style: TextStyle(
                   color: p.text,
-                  fontSize: large ? AnumType.x6l : AnumType.xlPlus,
+                  fontSize: large ? AnumType.x5l : AnumType.xlPlus,
                   fontWeight: FontWeight.w700,
                   height: 1.15)),
           if (subtitle != null) ...[
@@ -193,7 +193,7 @@ class AnumMetric extends StatelessWidget {
           Text(value,
               style: TextStyle(
                   color: p.text,
-                  fontSize: AnumType.x5l,
+                  fontSize: AnumType.x4lPlus,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.5,
                   height: 1.1)),

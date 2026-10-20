@@ -277,7 +277,7 @@ class TeamCallScreen extends StatelessWidget {
             backgroundColor: scheme.primary,
             child: Text(_initials(name),
                 style: TextStyle(
-                    fontSize: AnumType.x7l,
+                    fontSize: AnumType.x5lPlus,
                     fontWeight: FontWeight.w800,
                     color: scheme.onPrimary)),
           );

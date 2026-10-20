@@ -336,7 +336,7 @@ class _Greeting extends StatelessWidget {
               child: Text('$name 👋',
                   style: TextStyle(
                       color: p.text,
-                      fontSize: AnumType.x5l,
+                      fontSize: AnumType.x4lPlus,
                       fontWeight: FontWeight.w800,
                       height: 1.15)),
             )

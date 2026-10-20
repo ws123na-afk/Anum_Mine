@@ -44,7 +44,12 @@ abstract final class AnumType {
   static const double x2lPlus = 21;
   static const double x3l = 22;
   static const double x4l = 24;
-  static const double x5l = 26;
-  static const double x6l = 28;
-  static const double x7l = 30;
+
+  /// 26: legacy in-between size, kept so nothing moves on screen.
+  static const double x4lPlus = 26;
+  static const double x5l = 28;
+
+  /// 30: legacy in-between size.
+  static const double x5lPlus = 30;
+  static const double x6l = 32;
 }
