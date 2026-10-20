@@ -202,9 +202,9 @@ class DraftText(BaseModel):
     body: str
 
 
-def facts_text(product: Product | None, offer: Offer | None, evidence: Sequence[Evidence], account: Account) -> str:
-    """Everything a draft may quote figures from: the catalog and the recorded sources."""
-    parts = [account.name, account.city, account.country]
+def facts_text(product: Product | None, offer: Offer | None, evidence: Sequence[Evidence], account: Account, value_proposition: str = "") -> str:
+    """Everything a draft may quote figures from: the catalog, the product's value proposition and the recorded sources."""
+    parts = [account.name, account.city, account.country, value_proposition]
     if product:
         parts += [product.name, product.name_ar, product.summary]
     if offer:
@@ -246,15 +246,18 @@ def _first_name(contact: Contact | None) -> str | None:
 
 
 def template_draft(
-    channel: DraftChannel, language: str, account: Account, contact: Contact | None, product: Product | None, evidence: Sequence[Evidence]
+    channel: DraftChannel, language: str, account: Account, contact: Contact | None, product: Product | None, evidence: Sequence[Evidence],
+    value_proposition: str | None = None,
 ) -> DraftText:
+    """``value_proposition``: the product's own pitch from its target customer profile (per language), else its summary."""
     name = _first_name(contact)
     source = evidence[0] if evidence else None
+    pitch = (value_proposition or (product.summary if product else "") or "").strip().rstrip(".")
     if language == "ar":
         offer = (product.name_ar or product.name) if product else "خدماتنا"
         lines = [
             f"مرحبًا {name}،" if name else "مرحبًا،",
-            f"أتواصل معكم بخصوص {account.name}. نقدّم {offer}" + (f": {product.summary}" if product and product.summary else "."),
+            f"أتواصل معكم بخصوص {account.name}. نقدّم {offer}" + (f": {pitch}." if pitch else "."),
         ]
         if source:
             lines.append(f"اطّلعت على ما نُشر هنا: {source.url}")
@@ -266,7 +269,7 @@ def template_draft(
         offer = product.name if product else "our services"
         lines = [
             f"Hello {name}," if name else "Hello,",
-            f"I am getting in touch about {account.name}. We offer {offer}" + (f": {product.summary}" if product and product.summary else "."),
+            f"I am getting in touch about {account.name}. We offer {offer}" + (f": {pitch}." if pitch else "."),
         ]
         if source:
             lines.append(f"I read what was published here: {source.url}")
@@ -298,14 +301,16 @@ async def draft_message(
     product: Product | None,
     offer: Offer | None,
     evidence: Sequence[Evidence],
+    value_proposition: str | None = None,
 ) -> tuple[DraftText, Literal["model", "template"], str | None]:
+    pitch = value_proposition or (product.summary if product else "")
     if model_connected(context):
         prompt = "\n".join(line for line in (
             f"Channel: {channel.value}",
             f"Language: {'Arabic' if language == 'ar' else 'English'}",
             f"Company: {account.name}",
             f"Recipient first name: {_first_name(contact) or 'unknown, greet without a name'}",
-            f"Offer: {product.name}: {product.summary}" if product else "Offer: not chosen, describe the business's services generally",
+            f"Offer: {product.name}: {pitch}" if product else "Offer: not chosen, describe the business's services generally",
             f"Catalog price: {offer.currency.value} {offer.price_min}" if offer and offer.price_min is not None else "",
             f"Limit: {CHANNEL_LIMITS[channel]} characters",
         ) if line)
@@ -324,4 +329,4 @@ async def draft_message(
         note = "The model's answer could not be used, so this draft comes from a template. Edit it before you approve it."
     else:
         note = "No model is connected, so this draft comes from a template. Connect a model in Settings for AI-written drafts."
-    return template_draft(channel, language, account, contact, product, evidence), "template", note
+    return template_draft(channel, language, account, contact, product, evidence, value_proposition), "template", note

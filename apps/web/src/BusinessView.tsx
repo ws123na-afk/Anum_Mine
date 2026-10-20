@@ -1,6 +1,8 @@
 // Business, the internal sales desk (docs/business.md): the owner's KPI summary, leads, the pipeline,
 // proposals, projects, support tickets, the catalog and the research caps. Tabs and open records are URL hashes
-// (#business-leads/<id>), so Back, Forward and links work. Sending is off: nothing here sends.
+// (#business-leads/<id>), so Back, Forward and links work. Prospecting and Outreach (the Harvey
+// capabilities, docs/business/HARVEY_PARITY.md) have their own tabs; sending is off by default and every
+// message waits for an owner's approval.
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import type { BusinessKpi, BusinessProduct, BusinessSetup } from '@anum/contracts';
 import { describeError, isPermissionDenied } from './lib/errors';
@@ -14,6 +16,8 @@ import { Denied, Empty, Failed, Note, failure, when } from './BusinessParts';
 import { LeadsTab } from './BusinessLeads';
 import { PipelineTab, ProjectsTab, ProposalsTab } from './BusinessDeals';
 import { CatalogTab } from './BusinessCatalog';
+import { ProspectingTab } from './BusinessProspecting';
+import { OutreachTab } from './BusinessOutreach';
 import { SupportPolicySection, SupportTab } from './BusinessSupport';
 import { InvoicesTab } from './BusinessInvoices';
 import { BillingProfileSection } from './BusinessBilling';
@@ -72,6 +76,8 @@ export function BusinessView() {
     <nav className="settingsTabs bzTabs" aria-label={t('biz.sections')}>{TABS.map((item) => <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} onClick={() => go(item)}>{t(`biz.tab.${item}`)}</button>)}</nav>
     {tab === 'overview' && <Overview key={tick} setup={setup} products={products} onGo={go} />}
     {tab === 'leads' && <LeadsTab setup={setup} products={products} openLeadId={id} onOpenLead={(leadId) => go('leads', leadId)} onOpenOpportunity={(opportunityId) => go('pipeline', opportunityId)} onChanged={changed} />}
+    {tab === 'prospecting' && <ProspectingTab setup={setup} products={products} onOpenLead={(leadId) => go('leads', leadId)} />}
+    {tab === 'outreach' && <OutreachTab setup={setup} onOpenLead={(leadId) => go('leads', leadId)} />}
     {tab === 'pipeline' && <PipelineTab setup={setup} openId={id} onOpen={(item) => go('pipeline', item)} onOpenProposal={(item) => go('proposals', item)} onGoLeads={() => go('leads')} onChanged={changed} />}
     {tab === 'proposals' && <ProposalsTab setup={setup} openId={id} onOpen={(item) => go('proposals', item)} onOpenProject={(item) => go('projects', item)} onGoPipeline={() => go('pipeline')} onChanged={changed} />}
     {tab === 'projects' && <ProjectsTab setup={setup} openId={id} onOpen={(item) => go('projects', item)} onGoProposals={() => go('proposals')} />}
@@ -158,7 +164,7 @@ function SettingsTab({ setup, onSaved }: { setup: BusinessSetup; onSaved: () => 
     </section>
     <section className="surface bzCard" aria-labelledby="bz-status"><h2 id="bz-status">{t('biz.settings.status')}</h2>
       <dl className="bzFacts">
-        <div><dt>{t('biz.settings.sending')}</dt><dd>{t('biz.settings.sendingOff')}</dd></div>
+        <div><dt>{t('biz.settings.sending')}</dt><dd>{setup.sending_enabled ? t('biz.settings.sendingOnApproval') : t('biz.settings.sendingOff')}</dd></div>
         <div><dt>{t('biz.settings.webSearch')}</dt><dd>{setup.web_search ? t('biz.settings.on') : t('biz.settings.webSearchOff')}</dd></div>
         <div><dt>{t('biz.settings.model')}</dt><dd>{setup.model_connected ? t('biz.settings.modelOn') : t('biz.settings.modelOff')}</dd></div>
         <div><dt>{t('biz.settings.decide')}</dt><dd>{setup.permissions.decide ? t('biz.settings.youDecide') : t('biz.settings.ownerDecides')}</dd></div>

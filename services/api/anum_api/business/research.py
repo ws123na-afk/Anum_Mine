@@ -39,7 +39,7 @@ from .models import (
     ResearchStatus,
     ResearchStep,
 )
-from .service import audit, clean_url, domain_of, record_activity, stamp_state, url_key, usage_today
+from .service import audit, clean_url, domain_of, record_activity, stamp_state, url_key
 from .store import Query, open_business_store
 
 MAX_QUERIES = 3
@@ -143,7 +143,13 @@ def _load(context: TenantContext, lead_id: str, now: datetime) -> tuple[Lead, Ac
             raise ResearchRefused(404, "The lead's account is missing")
         product = store.get("products", lead.product_id) if lead.product_id else None
         settings = store.get_settings()
-        runs, searches = usage_today(store, now)
+        from .pipeline import load_settings, usage  # lead research and pipeline runs share the daily caps
+
+        today = usage(store, now)
+        runs, searches = today["runs"], today["searches"]
+        outreach = load_settings(store, context)
+        if outreach.paused:
+            raise ResearchRefused(409, f"Business research and outreach are paused: {outreach.paused_reason or 'an owner paused them'}.")
         if runs >= settings.research_runs_per_day:
             raise ResearchRefused(429, f"Today's research cap is reached ({settings.research_runs_per_day} runs a day). An owner can change it in Business settings.")
         remaining = settings.research_searches_per_day - searches

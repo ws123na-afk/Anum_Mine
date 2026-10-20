@@ -31,6 +31,8 @@ MODULE_PREFIXES = {
     "calls": "/api/v1/calls",
     "brevo": "/api/v1/brevo",
     "business": "/api/v1/business",
+    "business_pipeline": "/api/v1/business/pipeline",
+    "business_outreach": "/api/v1/business/outreach",
     "business_support": "/api/v1/business/support",
     "business_invoices": "/api/v1/business/invoices",
     "business_portal": "/api/v1/business/portal",
