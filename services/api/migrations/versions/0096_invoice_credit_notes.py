@@ -20,14 +20,14 @@ Organisation and workspace deletion (migration ``0079_tenant_lifecycle``): both 
 ``anum_tenant_purger`` grants (scope columns only, plus delete) and the purge policy, copied
 from 0089. No other role is granted anything.
 
-Numbered 0095 and chained after ``0094_customer_billing``, the head of ``main``.
+Numbered 0096 and chained after ``0095_agent_controls``, the head of ``main``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0095_invoice_credit_notes"
-down_revision = "0094_customer_billing"
+revision = "0096_invoice_credit_notes"
+down_revision = "0095_agent_controls"
 branch_labels = None
 depends_on = None
 

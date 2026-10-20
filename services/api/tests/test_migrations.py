@@ -1198,11 +1198,11 @@ def test_customer_billing_migration_is_expand_only_with_narrow_reader_policies()
 
 def test_invoice_credit_notes_migration_is_expand_only_with_forced_rls_and_purge_policies() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0095_invoice_credit_notes.py").read_text(encoding="utf-8")
-    assert 'revision = "0095_invoice_credit_notes"' in revision_text and len("0095_invoice_credit_notes") <= 32
-    assert 'down_revision = "0094_customer_billing"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0095_invoice_credit_notes.py"]
-    assert not [path for path in others if 'down_revision = "0094_customer_billing"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0096_invoice_credit_notes.py").read_text(encoding="utf-8")
+    assert 'revision = "0096_invoice_credit_notes"' in revision_text and len("0096_invoice_credit_notes") <= 32
+    assert 'down_revision = "0095_agent_controls"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0096_invoice_credit_notes.py"]
+    assert not [path for path in others if 'down_revision = "0095_agent_controls"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
     lowered = upgrade.lower()
     assert "bypassrls" not in lowered and "security definer" not in lowered
