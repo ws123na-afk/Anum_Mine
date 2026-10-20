@@ -916,11 +916,12 @@ def describe_run_error(exc: BaseException, *, saved: bool = True) -> tuple[str, 
     """A failure while running the task, in words that say how to fix it (no internals)."""
     from fastapi import HTTPException
 
-    from .model_budget import ModelBudgetExceededError, budget_exceeded_message
+    from .model_budget import ModelBudgetExceededError
 
     then = " The task is saved in Tasks; run it again there." if saved else " Ask again in a moment."
     if isinstance(exc, ModelBudgetExceededError):
-        return "model_budget_exceeded", budget_exceeded_message(exc.scope, exc.kind, exc.resets_on)
+        # The budget sentence, an agent's cap, or the emergency stop (exc.code says which).
+        return exc.code, exc.message
     if isinstance(exc, TimeoutError):
         return "task_timeout", "The task took too long and was stopped." + then
     if isinstance(exc, HTTPException) and exc.status_code == 503:

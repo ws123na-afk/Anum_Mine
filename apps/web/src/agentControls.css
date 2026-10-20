@@ -1,0 +1,58 @@
+/* Agent controls (docs/agent-controls.md): spacing and colour come from the shared tokens. */
+.agentStopBanner { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); margin-bottom: var(--d-s4); }
+.agentStopBanner > span { flex: 1 1 240px; min-width: 0; }
+.agentControlsRetry { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); margin-top: var(--d-s4); }
+
+.stopCard { display: grid; gap: var(--d-s4); margin-top: var(--d-s4); padding: var(--d-s5); }
+.stopCard.engaged { border-color: rgb(var(--c-stop) / .45); box-shadow: var(--d-elev-1), 0 10px 36px rgb(var(--c-stop) / .12); }
+.stopCard .sectionHeader { align-items: flex-start; flex-wrap: wrap; gap: var(--d-s3); }
+.stopHeading { align-items: flex-start; display: flex; gap: var(--d-s3); min-width: 0; flex: 1 1 320px; }
+.stopHeading > div { min-width: 0; }
+.stopCard.engaged .stopHeading .adminIcon { color: var(--d-stop); }
+.stopBody { display: grid; gap: var(--d-s5); grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.stopBody h3 { font-size: var(--text-md); margin-bottom: var(--d-s2); }
+.stopList { display: grid; gap: var(--d-s2); margin: 0 0 var(--d-s3); padding-inline-start: 1.2em; }
+.stopReason { margin-top: var(--d-s2); overflow-wrap: anywhere; }
+.stopForm { align-content: start; display: grid; gap: var(--d-s3); }
+.stopForm textarea { min-height: 76px; resize: vertical; width: 100%; }
+.stopDenied { align-items: flex-start; }
+
+.capsPanel { display: grid; gap: var(--d-s4); margin-top: var(--d-s4); padding: var(--d-s5); }
+.capsSearch { max-width: 420px; }
+.capsSearchBox { align-items: center; display: flex; gap: var(--d-s2); }
+.capsSearchBox svg { color: var(--d-muted); flex: none; height: 16px; width: 16px; }
+.capsSearchBox input { flex: 1; min-width: 0; }
+.capsList { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.capRow {
+  align-items: start; border: 1px solid var(--d-line); border-radius: var(--d-radius); display: grid; gap: var(--d-s4);
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.2fr); padding: var(--d-s4);
+}
+.capRow.exceeded { border-color: rgb(var(--c-stop) / .4); }
+.capWho { display: grid; gap: var(--d-s2); min-width: 0; }
+.capWho strong { overflow-wrap: anywhere; }
+.capBadges { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.capBadges svg { height: 13px; margin-inline-end: 4px; vertical-align: -2px; width: 13px; }
+.capUsage { display: grid; gap: 6px; min-width: 0; }
+.capForm { align-items: end; display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; min-width: 0; }
+.capForm .field { margin: 0; }
+.capForm input { width: 100%; }
+.capForm > small, .capForm > .notice { grid-column: 1 / -1; }
+.capSave { margin: 0; }
+.capForm.readOnly { align-items: baseline; display: flex; gap: var(--d-s2); justify-content: space-between; }
+.capsPager { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; }
+
+.heldPanel { display: grid; gap: var(--d-s4); margin-top: var(--d-s4); padding: var(--d-s5); }
+.heldList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.heldRow { align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-radius); display: grid; gap: var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto; padding: var(--d-s3); }
+.heldText { display: grid; gap: 2px; min-width: 0; }
+.heldText strong, .heldText span { overflow-wrap: anywhere; }
+
+@media (max-width: 960px) {
+  .capRow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .capForm { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .stopCard, .capsPanel { padding: var(--d-s4); }
+  .capRow { grid-template-columns: minmax(0, 1fr); }
+  .heldRow { grid-template-columns: minmax(0, 1fr); }
+}

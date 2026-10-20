@@ -6,7 +6,10 @@ import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import '../workspace/workspace_models.dart';
 import '../brevo/brevo_screen.dart';
+import 'marketing_campaigns.dart';
+import 'marketing_composer.dart';
 import 'marketing_controller.dart';
+import 'marketing_insights.dart';
 import 'marketing_models.dart';
 
 AnumTone mkTone(String status) => switch (status) {
@@ -37,7 +40,7 @@ Future<void> _openLink(BuildContext context, Uri? link) async {
   if (!opened) messenger?.showSnackBar(SnackBar(content: Text(failed)));
 }
 
-String _when(BuildContext context, DateTime? value) {
+String mkWhen(BuildContext context, DateTime? value) {
   if (value == null) return context.anum.t('mk.notScheduled');
   final local = value.toLocal();
   final m = MaterialLocalizations.of(context);
@@ -45,7 +48,7 @@ String _when(BuildContext context, DateTime? value) {
       '${m.formatTimeOfDay(TimeOfDay.fromDateTime(local))}';
 }
 
-Future<DateTime?> _pickTime(BuildContext context, DateTime? initial) async {
+Future<DateTime?> mkPickTime(BuildContext context, DateTime? initial) async {
   final now = DateTime.now();
   final start =
       initial != null && initial.isAfter(now) ? initial.toLocal() : now;
@@ -151,7 +154,7 @@ class _MarketingScreenState extends State<MarketingScreen> {
             MkPhase.ready => TabBarView(children: [
                 _PostsTab(controller: c),
                 _CalendarTab(controller: c),
-                _CampaignsTab(controller: c),
+                CampaignsTab(controller: c),
                 _AccountsTab(controller: c),
                 _AnalyticsTab(controller: c),
               ]),
@@ -278,17 +281,20 @@ class PostTile extends StatelessWidget {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(children: [
-                    Expanded(
-                        child: Text(
+                  Wrap(
+                      spacing: AnumSpacing.xs,
+                      runSpacing: AnumSpacing.xxs,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
                             '${l.t('mk.platform.${post.platform}')} · ${post.accountName}',
-                            style: Theme.of(context).textTheme.titleSmall)),
-                    AnumPill(
-                        label: l.t('mk.status.${post.status}'),
-                        tone: mkTone(post.status)),
-                  ]),
+                            style: Theme.of(context).textTheme.titleSmall),
+                        AnumPill(
+                            label: l.t('mk.status.${post.status}'),
+                            tone: mkTone(post.status))
+                      ]),
                   const SizedBox(height: AnumSpacing.xxs),
-                  Text(_when(context, post.publishedAt ?? post.scheduledAt),
+                  Text(mkWhen(context, post.publishedAt ?? post.scheduledAt),
                       style: Theme.of(context).textTheme.bodySmall),
                   const SizedBox(height: AnumSpacing.xs),
                   Text(post.composed,
@@ -333,7 +339,7 @@ class PostTile extends StatelessWidget {
                               onPressed: c.busy
                                   ? null
                                   : () async {
-                                      final at = await _pickTime(
+                                      final at = await mkPickTime(
                                           context, post.scheduledAt);
                                       await c.schedule(
                                           post, at, l.t('mk.scheduled'));
@@ -346,7 +352,7 @@ class PostTile extends StatelessWidget {
                               onPressed: c.busy
                                   ? null
                                   : () async {
-                                      final at = await _pickTime(
+                                      final at = await mkPickTime(
                                           context, post.scheduledAt);
                                       if (at != null) {
                                         await c.reschedule(
@@ -354,6 +360,18 @@ class PostTile extends StatelessWidget {
                                       }
                                     },
                               child: Text(l.t('mk.move'))),
+                        if (c.canWrite && post.canEdit)
+                          OutlinedButton.icon(
+                              onPressed: c.busy
+                                  ? null
+                                  : () => showModalBottomSheet<void>(
+                                      context: context,
+                                      isScrollControlled: true,
+                                      useSafeArea: true,
+                                      builder: (_) => ComposeSheet(
+                                          controller: c, post: post)),
+                              icon: const Icon(Icons.edit_outlined),
+                              label: Text(l.t('mkOps.edit'))),
                         if (c.canWrite && post.canCancel)
                           OutlinedButton(
                               onPressed: c.busy
@@ -499,114 +517,6 @@ class _CalendarTab extends StatelessWidget {
   }
 }
 
-class _CampaignsTab extends StatelessWidget {
-  const _CampaignsTab({required this.controller});
-  final MarketingController controller;
-
-  Future<void> _create(BuildContext context) async {
-    final l = context.anum;
-    final name = TextEditingController(), product = TextEditingController();
-    final ok = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-                title: Text(l.t('mk.newCampaign')),
-                content: Column(mainAxisSize: MainAxisSize.min, children: [
-                  TextField(
-                      controller: name,
-                      maxLength: 160,
-                      decoration:
-                          InputDecoration(labelText: l.t('mk.campaignName'))),
-                  TextField(
-                      controller: product,
-                      maxLength: 200,
-                      decoration: InputDecoration(
-                          labelText: l.t('mk.campaignProduct'))),
-                ]),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: Text(l.t('mk.dismiss'))),
-                  FilledButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: Text(l.t('mk.create'))),
-                ]));
-    if ((ok ?? false) && name.text.trim().isNotEmpty) {
-      await controller.createCampaign(
-          name.text.trim(), product.text.trim(), l.t('mk.campaignCreated'));
-    }
-    name.dispose();
-    product.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l = context.anum;
-    final c = controller;
-    return AnumPage(onRefresh: c.load, children: [
-      AnumHeader(
-          title: l.t('mk.tab.campaigns'),
-          trailing: c.canWrite
-              ? FilledButton.icon(
-                  onPressed: () => _create(context),
-                  icon: const Icon(Icons.add),
-                  label: Text(l.t('mk.newCampaign')))
-              : null),
-      if (c.campaigns.isEmpty)
-        AnumEmpty(
-            icon: Icons.flag_outlined,
-            title: l.t('mk.campaignsEmpty'),
-            message: l.t('mk.campaignsHint'))
-      else
-        for (final campaign in c.campaigns)
-          Card(
-              child: Padding(
-                  padding: const EdgeInsets.all(AnumSpacing.md),
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(children: [
-                          Expanded(
-                              child: Text(campaign.name,
-                                  style:
-                                      Theme.of(context).textTheme.titleSmall)),
-                          AnumPill(
-                              label: l.t('mk.campaign.${campaign.status}'),
-                              tone: mkTone(campaign.status)),
-                        ]),
-                        if (campaign.product.isNotEmpty) Text(campaign.product),
-                        Text(l.f('mk.posts', {
-                          'count': campaign.counts.values
-                              .fold<int>(0, (sum, value) => sum + value)
-                        })),
-                        if (campaign.autoPost) Text(l.t('mk.autoOn')),
-                        if (campaign.approval != null)
-                          ApprovalPanel(
-                              controller: c, approval: campaign.approval!),
-                        if (c.canWrite)
-                          Wrap(spacing: AnumSpacing.xs, children: [
-                            for (final (status, label) in [
-                              ('active', 'mk.activate'),
-                              ('paused', 'mk.pause'),
-                              ('completed', 'mk.complete')
-                            ])
-                              if (status != campaign.status)
-                                OutlinedButton(
-                                    onPressed: c.busy
-                                        ? null
-                                        : () => c.setCampaignStatus(campaign,
-                                            status, l.t('mk.campaignUpdated')),
-                                    child: Text(l.t(label))),
-                          ]),
-                      ]))),
-      if (c.moreCampaigns)
-        Center(
-            child: OutlinedButton(
-                onPressed: c.busy ? null : c.loadMoreCampaigns,
-                child: Text(l.t('mk.loadMore')))),
-    ]);
-  }
-}
-
 class _AccountsTab extends StatelessWidget {
   const _AccountsTab({required this.controller});
   final MarketingController controller;
@@ -661,16 +571,19 @@ class _AccountsTab extends StatelessWidget {
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Row(children: [
-                          Expanded(
-                              child: Text(
+                        Wrap(
+                            spacing: AnumSpacing.xs,
+                            runSpacing: AnumSpacing.xxs,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
                                   '${l.t('mk.platform.${account.platform}')} · ${account.displayName}',
                                   style:
-                                      Theme.of(context).textTheme.titleSmall)),
-                          AnumPill(
-                              label: l.t('mk.account.${account.status}'),
-                              tone: mkTone(account.status)),
-                        ]),
+                                      Theme.of(context).textTheme.titleSmall),
+                              AnumPill(
+                                  label: l.t('mk.account.${account.status}'),
+                                  tone: mkTone(account.status))
+                            ]),
                         if (account.lastError != null) ...[
                           Text(account.lastError!.message),
                           Text(account.lastError!.fix),
@@ -718,6 +631,7 @@ class _AccountsTab extends StatelessWidget {
                                 child: Text(l.t('mk.disconnect'))),
                           ]),
                       ]))),
+      PreferencesCard(controller: c),
     ]);
   }
 }
@@ -814,6 +728,7 @@ class _AnalyticsTabState extends State<_AnalyticsTab> {
               'failed': summary.failed
             })),
           ],
+          BestTimesCard(controller: c),
           if (c.report != null)
             Card(
                 child: Padding(
@@ -846,135 +761,5 @@ class _AnalyticsTabState extends State<_AnalyticsTab> {
                                 style: Theme.of(context).textTheme.bodySmall),
                         ]))),
         ]);
-  }
-}
-
-/// A bilingual draft for the chosen accounts; scheduling (and approval)
-/// happens from the post afterwards.
-class ComposeSheet extends StatefulWidget {
-  const ComposeSheet({required this.controller, super.key});
-  final MarketingController controller;
-  @override
-  State<ComposeSheet> createState() => _ComposeSheetState();
-}
-
-class _ComposeSheetState extends State<ComposeSheet> {
-  final _en = TextEditingController(), _ar = TextEditingController();
-  final _tags = TextEditingController(), _link = TextEditingController();
-  final Set<String> _accounts = {};
-  String? _problem;
-
-  @override
-  void initState() {
-    super.initState();
-    final connected = widget.controller.connected;
-    if (connected.isNotEmpty) _accounts.add(connected.first.id);
-  }
-
-  @override
-  void dispose() {
-    for (final c in [_en, _ar, _tags, _link]) {
-      c.dispose();
-    }
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    final l = context.anum;
-    final c = widget.controller;
-    final texts = {
-      if (_en.text.trim().isNotEmpty) 'en': _en.text.trim(),
-      if (_ar.text.trim().isNotEmpty) 'ar': _ar.text.trim(),
-    };
-    if (_accounts.isEmpty) {
-      return setState(() => _problem = l.t('mk.pickAccount'));
-    }
-    if (texts.isEmpty) return setState(() => _problem = l.t('mk.writeText'));
-    final limits = c.setup?.limits ?? const {};
-    for (final account in c.connected.where((a) => _accounts.contains(a.id))) {
-      final limit = limits[account.platform];
-      for (final text in texts.values) {
-        if (limit != null && text.length > limit) {
-          return setState(() => _problem = l.f('mk.tooLong', {
-                'platform': l.t('mk.platform.${account.platform}'),
-                'length': text.length,
-                'limit': limit
-              }));
-        }
-      }
-    }
-    final tags = parseHashtags(_tags.text);
-    final ok = await c.create(
-        accountIds: _accounts.toList(),
-        texts: texts,
-        hashtags: {for (final language in texts.keys) language: tags},
-        link: _link.text.trim().isEmpty ? null : _link.text.trim(),
-        done: l.t('mk.saved'));
-    if (ok && mounted) Navigator.pop(context);
-    if (!ok && mounted) setState(() => _problem = c.notice);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l = context.anum;
-    final c = widget.controller;
-    return Padding(
-        padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
-            left: AnumSpacing.md,
-            right: AnumSpacing.md,
-            top: AnumSpacing.md),
-        child: SingleChildScrollView(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-              Text(l.t('mk.compose'),
-                  style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: AnumSpacing.sm),
-              Text(l.t('mk.postTo')),
-              Wrap(spacing: AnumSpacing.xs, children: [
-                for (final account in c.connected)
-                  FilterChip(
-                      selected: _accounts.contains(account.id),
-                      onSelected: (on) => setState(() => on
-                          ? _accounts.add(account.id)
-                          : _accounts.remove(account.id)),
-                      label: Text(
-                          '${l.t('mk.platform.${account.platform}')} · ${account.displayName}')),
-              ]),
-              TextField(
-                  controller: _en,
-                  minLines: 3,
-                  maxLines: 8,
-                  textDirection: TextDirection.ltr,
-                  decoration: InputDecoration(labelText: l.t('mk.english'))),
-              const SizedBox(height: AnumSpacing.sm),
-              TextField(
-                  controller: _ar,
-                  minLines: 3,
-                  maxLines: 8,
-                  textDirection: TextDirection.rtl,
-                  decoration: InputDecoration(labelText: l.t('mk.arabic'))),
-              const SizedBox(height: AnumSpacing.sm),
-              TextField(
-                  controller: _tags,
-                  decoration: InputDecoration(labelText: l.t('mk.hashtags'))),
-              const SizedBox(height: AnumSpacing.sm),
-              TextField(
-                  controller: _link,
-                  keyboardType: TextInputType.url,
-                  decoration: InputDecoration(labelText: l.t('mk.link'))),
-              if (_problem != null)
-                Padding(
-                    padding: const EdgeInsets.only(top: AnumSpacing.sm),
-                    child: Text(_problem!,
-                        style: TextStyle(
-                            color: Theme.of(context).colorScheme.error))),
-              const SizedBox(height: AnumSpacing.md),
-              FilledButton(
-                  onPressed: c.busy ? null : _save,
-                  child: Text(l.t('mk.save'))),
-              const SizedBox(height: AnumSpacing.md),
-            ])));
   }
 }

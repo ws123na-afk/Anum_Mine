@@ -12,6 +12,7 @@ import '../lifecycle/lifecycle_repository.dart';
 import '../privacy/privacy_repository.dart';
 import '../push/push_controller.dart';
 import '../team/team_repository.dart';
+import '../agent_controls/agent_controls_data.dart';
 
 enum SettingsPhase {
   initial,
@@ -32,6 +33,7 @@ class SettingsController extends ChangeNotifier {
       this.autonomy,
       this.learning,
       this.team,
+      this.agentControls,
       this.lifecycle,
       this.billing});
   final AuthRepository repository;
@@ -57,6 +59,10 @@ class SettingsController extends ChangeNotifier {
 
   /// Team work, notifications, assistants and organisations (docs/team-work.md).
   final TeamRepository? team;
+
+  /// The organization's emergency stop and per-agent cost caps
+  /// (docs/agent-controls.md).
+  final AgentControlsRepository? agentControls;
 
   /// The organisation's plan, usage and invoices (docs/billing.md); the API
   /// lets workspace owners and organisation administrators in.

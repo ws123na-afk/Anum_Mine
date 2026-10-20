@@ -150,7 +150,12 @@ Every state-changing route writes an audit record without secrets or message tex
 ## Clients
 
 - **Web** (`#whatsapp`): Inbox (list with search, filters and paging; thread with the window indicator, the suggested reply and its provenance, message bubbles that keep their own text direction, media download, inline approval cards with the payload hash, text and template composers), Templates (status, body, auto-send switch for owners) and Setup (status, callback URL to copy, the connection form, check, test, disconnect). English and Arabic, right to left. Tests: `apps/web/test/whatsapp.test.ts`, `apps/web/e2e/whatsapp.spec.ts` (including axe in both languages).
-- **Flutter**: conversations and thread with approve-to-send ([Flutter mobile](mobile.md#whatsapp-inbox)). Setup and templates are on the web.
+- **Flutter** ([Flutter mobile](mobile.md#whatsapp-inbox)): conversations and thread with approve-to-send, plus the same four jobs as the web, all against the routes above and with the server's permission checks (the app never decides who may do what):
+  - **Templates** (app bar of the inbox): `GET /templates` (`?refresh=true` from the refresh button) with status, category, language, header, body, footer and parameter count; search over name, body and language; the list pages 20 at a time. Owners get the auto-send switch on approved templates, saved as `auto_send_templates` through `PUT /account` with the rest of the saved account (ids, test number, triage, retention) unchanged and no secrets; a 403 shows the server's text and the switch stays as it was.
+  - **Send a template** (thread, "Send a template"): pick an approved template, fill one field per `parameter_count`, see the filled body, send `POST /conversations/{id}/send {"template": {name, language, parameters}}`. The outcome is shown as sent, waiting for approval (the existing approval panel on the message) or failed with Meta's text; 409, 422 and 502 show the server's sentence and keep the sheet open. The free-text reply is unchanged.
+  - **Setup** (app bar): status, quality rating, number, last check and last webhook, `deployment_problems`, the webhook URL to copy (owners and members). Owners also get the connect or update form, Check (`POST /account/check`), Send test message (`POST /account/test`, needs the saved test number) and Disconnect (`DELETE /account`, after a confirmation). The access token, app secret and verify token are obscured fields with autocorrect, suggestions and personalised learning off, sent once in the `PUT` body, cleared when the request ends (also when it fails) and never logged, shown or read back; leaving one empty keeps the saved secret. "Generate" fills a random verify token and copies it to the clipboard.
+  - **Attachments**: a message with media shows what it is and an Open button. `GET /messages/{id}/media` is fetched as bytes with the session headers (the same download call the billing PDFs use); images open in a zoomable viewer, documents, audio and video go to the system save dialog. 404, 413 and 502 show the server's sentence in the thread.
+  - Tests: `apps/mobile/test/whatsapp/whatsapp_ops_test.dart` (request shapes, the bytes download, secrets cleared, owner against member, every state, 320 to 1440 px at 200% text in English and Arabic).
 
 ## Web page layout
 
@@ -166,4 +171,4 @@ The WhatsApp page follows the shared [page layout](design/anum360.md#page-layout
 - Template parameters for headers and buttons: only body parameters are sent.
 - Template creation from ANUM: templates are created and approved in WhatsApp Manager.
 - Read receipts and typing indicators are not sent to customers.
-- Template sending and media download from the Flutter app.
+- Flutter: audio and video attachments are saved with the system dialog rather than played in the app, and the template picker is a list of approved templates without header or button parameters (the same limit as the web).

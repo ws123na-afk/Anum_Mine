@@ -24,9 +24,18 @@ import '../privacy/privacy_screen.dart';
 import '../push/push_settings_card.dart';
 import '../team/team_screens.dart';
 import '../team/team_strings.dart';
+import '../agent_controls/agent_controls_data.dart';
+import '../agent_controls/agent_controls_screen.dart';
 
 /// Parts of Settings that Profile and settings opens directly.
 enum SettingsSection { profile, notifications, privacy, security }
+
+/// An agent controls string in the page language; English where no
+/// localizations are installed (some tests pump the screen bare).
+String _acText(BuildContext context, String key) =>
+    (Localizations.of<AnumLocalizations>(context, AnumLocalizations) ??
+            const AnumLocalizations(Locale('en')))
+        .t(key);
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen(
@@ -192,6 +201,25 @@ class _Content extends StatelessWidget {
             if (controller.team != null) ...[
               _Heading(TeamText.of(context).t('section')),
               TeamHubCard(repository: controller.team!),
+            ],
+            if (controller.agentControls != null) ...[
+              _Heading(_acText(context, 'ac.heading')),
+              Card(
+                  child: ListTile(
+                      key: const Key('open-agent-controls'),
+                      leading: const Icon(Icons.gpp_maybe_outlined),
+                      title: Text(_acText(context, 'ac.open')),
+                      subtitle: Text(_acText(context, 'ac.openHint')),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  OwnedController<AgentControlsController>(
+                                      create: () => AgentControlsController(
+                                          controller.agentControls!),
+                                      builder: (_, c) => AgentControlsScreen(
+                                          controller: c)))))),
             ],
             if (controller.admin != null) ...[
               _Heading('Workspace administration'),

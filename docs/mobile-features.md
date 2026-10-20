@@ -39,6 +39,11 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | [Integrations and skills](#integrations-and-skills) | Partial (connectors in progress) | Resources › Skills, Resources › Services, Home › Connected services |
 | [Commerce](#commerce) | Done for everything an operator does; connecting a channel and alert rules are web only | Home › Sales and orders |
 | [Business](#business) | Done on the phone for everything the desk edits; research, drafts, CSV import and proposal writing are web only | More › Business |
+| [Marketing](#marketing-whatsapp-autonomy-learning-and-agents) | Done on the phone, except media upload and the month grid | Marketing (Posts, Calendar, Campaigns, Accounts, Analytics) |
+| [WhatsApp](#marketing-whatsapp-autonomy-learning-and-agents) | Done on the phone, except sending media and header or button template parameters | WhatsApp inbox, Templates, Setup |
+| [Autonomy](#marketing-whatsapp-autonomy-learning-and-agents) | Done | Settings › Autonomy (Activity, levels, quiet hours, caps, blocked lists, Rules, Organization guardrails) |
+| [Learning](#marketing-whatsapp-autonomy-learning-and-agents) | Done (English only) | Settings › What ANUM learned |
+| [Agents](#marketing-whatsapp-autonomy-learning-and-agents) | Done (knowledge sources are picked on the web) | Agents, agent page, Skills loadout |
 
 ## Sign-in and accounts
 
@@ -346,6 +351,20 @@ The internal sales desk ([Business](business.md)). Owners and members read it; v
 
 Screens: **More › Business** with the tabs Overview, Leads, Pipeline, Proposals, Projects, Catalog, Accounts and Support (`apps/mobile/lib/features/business/`, English and Arabic). Tests: `test/business_test.dart`, `test/business_support_test.dart` and `test/business_catalog_accounts_test.dart` and `test/business_deals_edit_test.dart` (every list state, create, edit and delete with the server's refusals, member against owner controls, Arabic and 320 and 390 point widths).
 
+## Marketing, WhatsApp, autonomy, learning and agents
+
+Each screen works against the same API routes as the web, in English and Arabic (learning: English), with loading, empty, error, permission-denied and long-list states.
+
+| Area | On the phone | Web only |
+| --- | --- | --- |
+| Marketing | Compose and edit posts with live limit checks, AI ideas and hashtags, tracked links and files from Files; schedule, move, cancel, publish, retry; campaigns (create, edit, delete, auto-post for owners); accounts; brand voice; analytics with best times | Media upload, month grid |
+| WhatsApp | Inbox, thread, send text and approved templates (with parameters), open media, Templates with the auto-send switch, Setup (status, connect, check, test message, disconnect) | Template header and button parameters, sending media |
+| Autonomy | Activity, levels, thresholds, quiet hours, daily caps, blocked recipients and domains, approved templates, Rules, organization guardrails | None known |
+| Learning | Switch, style (per-contact languages, no greeting, no sign-off), preferences, routines (time zone typed), notes, feedback | None known |
+| Agents | List, page, editor, memory, Skills loadout (states, tools, fixes, add and remove) | Knowledge source picking, skill count on list cards |
+
+Details: [Marketing](marketing.md), [WhatsApp](whatsapp.md), [Autonomy](autonomy.md), [Learning](learning.md), [Agents](agents.md).
+
 ## Coming next
 
 Work on other branches. None of it is in the app yet; each item is marked done here only after it merges with tests.
@@ -353,12 +372,7 @@ Work on other branches. None of it is in the app yet; each item is marked done h
 | Item | What it will do | State |
 | --- | --- | --- |
 | Email inbox | Read and answer Gmail, Outlook and Zoho Mail through the assistant; every sent email goes through approvals | In progress |
-| WhatsApp | Connect WhatsApp Business through the official API; read chats and send replies after approval | In progress |
-| Marketing | Draft and schedule marketing content, published only after approval | In progress |
-| Autonomy | Let the assistant carry out longer jobs on its own within the approval rules | In progress |
-| Learning | The assistant learns the owner's preferences and ways of working over time | In progress |
 | Team work and customer organisations | Work together in teams and manage separate customer organisations | In progress |
-| Custom agents | Create agents with their own instructions, tools and limits | In progress |
 | Google and Apple sign-in | Sign in with a Google or Apple account | In progress |
 | Favorites, knowledge base and reports | Save answers, build a knowledge base, produce reports | In progress |
 | Meeting summaries | Record or import a meeting and get a summary with actions | In progress |

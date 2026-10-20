@@ -101,7 +101,7 @@ Every route acts on the caller only: there is no user id in any path or body, an
 ## Clients
 
 - **Web** (`#learning`, "What ANUM learned" in the navigation): the switch with its state and the way to the chat memory switch; the style profile form; learned preferences with search, paging, add, edit and delete; weekly notes with Apply and Dismiss; routines with Find routines, Create paused automation, Start the schedule, Not a routine, Delete and a link to the Workbench; and the feedback list with kind filter, search, paging, the full texts on demand and delete. Loading, empty (with the next step), error (with Try again) and permission states are on every section. Strings are in the English and Arabic catalogs; the layout is logical-property RTL. The Assistant shows Helpful, Not helpful and Edit to teach under each answer.
-- **Flutter** (Settings → What ANUM learned): the same sections and actions; outcomes are announced in a snackbar.
+- **Flutter** (Settings → What ANUM learned): the same sections and actions, including the style form's per-contact languages (add, change and remove rows, up to 100), the "No greeting" and "No sign-off" choices, and the time zone routines are found in (typed as an IANA name, `UTC` by default; the server refuses an unknown name and the screen shows its answer); outcomes are announced in a snackbar. Covered by `apps/mobile/test/learning_test.dart`.
 
 Tests: `services/api/tests/test_learning.py` (pure logic, API, gating, permissions, audit), `tests/test_postgres_learning.py` (persistence, RLS on every table, routines into the PostgreSQL automation engine, autonomy apply), `tests/test_privacy.py` and `tests/test_postgres_privacy.py` (export and deletion), `apps/web/test/learning.test.ts`, `apps/web/e2e/learning.spec.ts` (every state, the main path, the Assistant feedback, Arabic, 1440x900 to 390x844 without horizontal overflow), `apps/mobile/test/learning_test.dart` (main path, states, widths 320 to 1440 at 100% and 200% text).
 
@@ -116,5 +116,5 @@ Tests: `services/api/tests/test_learning.py` (pure logic, API, gating, permissio
 
 - Email and WhatsApp drafting surfaces post their draft feedback through the same endpoint once those connectors draft; on this branch only the Assistant posts it.
 - Weekly notes are written when the user next opens the page (or refreshes); there is no push or email of the note.
-- The Flutter app shows per-contact languages but edits them only on the web, and detects routines in UTC.
+- The Flutter screen is in English only, and the phone cannot read its own IANA time zone name, so routines are found in `UTC` unless the zone is typed.
 - Rules are fixed; a model-written note (budgeted, labelled) is a later option.

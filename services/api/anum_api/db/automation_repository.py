@@ -99,6 +99,15 @@ from .models import (
 )
 from .scope import require_workspace
 
+
+def _tenant_stopped(session: Session, tenant_id: str) -> bool:
+    """Whether the tenant's emergency stop is on (``agent_emergency_stops``, docs/agent-controls.md)."""
+    return bool(
+        session.execute(
+            text("select engaged from agent_emergency_stops where tenant_id = :tenant_id"), {"tenant_id": tenant_id}
+        ).scalar()
+    )
+
 logger = logging.getLogger(__name__)
 
 W, S, R, T = AutomationWorkflowRecord, AutomationScheduleRecord, AutomationRunRecord, AutomationTriggerRecord
@@ -787,6 +796,9 @@ class PostgresAutomationEngine:
             ).scalar()
             if archived is not None:
                 outcome = ScheduleOutcome.WORKSPACE_ARCHIVED
+            elif _tenant_stopped(session, tenant_id):
+                # The organization's emergency stop: advance without running (docs/agent-controls.md).
+                outcome = ScheduleOutcome.EMERGENCY_STOP
             elif workflow_record is None or workflow_record.status != WorkflowStatus.ACTIVE.value:
                 outcome = ScheduleOutcome.WORKFLOW_PAUSED
             else:
@@ -1048,6 +1060,7 @@ class PostgresAutomationEngine:
             trigger,
             workflow,
             archived=archived is not None,
+            stopped=_tenant_stopped(session, context.tenant_id),
             actor_ok=actor_effects.actor_may_run(actor, actor.user_id),
             recent=int(recent),
             active=len(active),

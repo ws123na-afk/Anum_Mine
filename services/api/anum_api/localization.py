@@ -69,6 +69,15 @@ def scope_language(headers: Mapping[str, str] | list[tuple[bytes, bytes]]) -> La
 # Exact English messages the clients show, with their Arabic. Keep the English identical to the
 # raising code: tests/test_localization.py checks that every key is still raised somewhere.
 ARABIC_MESSAGES: dict[str, str] = {
+    # Agent controls (anum_api/agent_controls.py)
+    "The emergency stop is on for this organization: agents, automations and outbound sends are paused. The organization owner can turn it off under Agent controls.": "الإيقاف الطارئ مفعّل لهذه المؤسسة: الوكلاء والأتمتة والإرسال الخارجي متوقفة مؤقتًا. يمكن لمالك المؤسسة إيقافه من «تحكم الوكلاء».",
+    "Only a workspace owner or the organization administrator can turn on the emergency stop.": "لا يمكن تفعيل الإيقاف الطارئ إلا لمالك مساحة العمل أو مسؤول المؤسسة.",
+    "Only the organization owner (the organization administrator role) can turn the emergency stop off.": "لا يمكن إيقاف الإيقاف الطارئ إلا لمالك المؤسسة (دور مسؤول المؤسسة).",
+    "Only a workspace owner or the organization administrator can see agent cost caps.": "لا يمكن عرض حدود تكلفة الوكلاء إلا لمالك مساحة العمل أو مسؤول المؤسسة.",
+    "Only a workspace owner can change an agent's monthly cost cap.": "لا يمكن تغيير حد التكلفة الشهري للوكيل إلا لمالك مساحة العمل.",
+    "Only a workspace owner or the organization administrator can see what the emergency stop holds.": "لا يمكن عرض ما يحتجزه الإيقاف الطارئ إلا لمالك مساحة العمل أو مسؤول المؤسسة.",
+    "The emergency stop is already on.": "الإيقاف الطارئ مفعّل بالفعل.",
+    "The emergency stop is already off.": "الإيقاف الطارئ متوقف بالفعل.",
     # In-app calls (anum_api/app_calls.py)
     "Calls are off on this server until a relay (TURN) server is configured": "المكالمات متوقفة على هذا الخادم حتى يُضبط خادم ترحيل (TURN).",
     "Video calls are turned off on this server": "مكالمات الفيديو متوقفة على هذا الخادم.",

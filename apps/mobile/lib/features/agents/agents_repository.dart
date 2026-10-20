@@ -1,5 +1,6 @@
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
+import 'agent_skills_models.dart';
 import 'agents_models.dart';
 
 /// The agents API (docs/agents.md). Reading needs `task:read`; creating,
@@ -15,6 +16,9 @@ abstract interface class AgentsRepository {
     int limit = 20,
   });
   Future<AgentProfile> get(String id);
+
+  /// The skills the agent loads, with each one's state (docs/agents.md#skills).
+  Future<AgentSkillLoadout> skills(String id);
   Future<AgentProfile> create(Map<String, Object?> body);
   Future<AgentProfile> update(String id, Map<String, Object?> body);
   Future<void> delete(String id);
@@ -57,6 +61,12 @@ class ApiAgentsRepository implements AgentsRepository {
   @override
   Future<AgentProfile> get(String id) async =>
       AgentProfile.fromReader(JsonReader(await api.request('GET', _one(id))));
+
+  @override
+  Future<AgentSkillLoadout> skills(String id) async =>
+      AgentSkillLoadout.fromReader(
+        JsonReader(await api.request('GET', '${_one(id)}/skills')),
+      );
 
   @override
   Future<AgentProfile> create(Map<String, Object?> body) async =>

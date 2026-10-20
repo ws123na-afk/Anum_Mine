@@ -307,7 +307,7 @@ export const statusLabel = (status: string): string =>
   STATUS_KEYS.includes(status) ? t(`auto.status.${status}` as MessageKey) : status.replaceAll('_', ' ');
 const TRIGGER_KEYS = ['manual', 'schedule', 'retry', 'event', 'webhook'];
 export const triggerLabel = (trigger: string): string => TRIGGER_KEYS.includes(trigger) ? t(`auto.trigger.${trigger}` as MessageKey) : trigger;
-const OUTCOME_KEYS = ['fired', 'skipped_overlap', 'workflow_paused', 'owner_inactive', 'workspace_archived'];
+const OUTCOME_KEYS = ['fired', 'skipped_overlap', 'workflow_paused', 'owner_inactive', 'workspace_archived', 'emergency_stop'];
 export const outcomeLabel = (outcome: string | null): string | null =>
   outcome ? (OUTCOME_KEYS.includes(outcome) ? t(`auto.outcome.${outcome}` as MessageKey) : outcome.replaceAll('_', ' ')) : null;
 
@@ -435,7 +435,7 @@ const EVENT_KEYS = ['agent_run.completed', 'agent_run.failed', 'approval.approve
 export const eventLabel = (type: string | null, fallback?: string): string =>
   type && EVENT_KEYS.includes(type) ? t(`auto.event.${type.replace(/\./g, '_')}` as MessageKey) : fallback ?? type ?? '';
 
-const TRIGGER_OUTCOME_KEYS = ['fired', 'rate_limited', 'workflow_paused', 'skipped_overlap', 'owner_inactive', 'workspace_archived', 'loop_skipped', 'disabled'];
+const TRIGGER_OUTCOME_KEYS = ['fired', 'rate_limited', 'workflow_paused', 'skipped_overlap', 'owner_inactive', 'workspace_archived', 'emergency_stop', 'loop_skipped', 'disabled'];
 export const triggerOutcomeLabel = (outcome: string | null): string | null =>
   outcome ? (TRIGGER_OUTCOME_KEYS.includes(outcome) ? t(`auto.trig.outcome.${outcome}` as MessageKey) : outcome.replaceAll('_', ' ')) : null;
 

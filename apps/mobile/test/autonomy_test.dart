@@ -149,6 +149,24 @@ class _Fake implements AutonomyRepository {
     return AutonomyOverview.fromJson(
         JsonReader({..._overview(), 'settings': body}));
   }
+
+  @override
+  Future<List<AutonomyRule>> rules() async => const [];
+
+  @override
+  Future<AutonomyRule> addRule(
+          {required String tool, String? template, required String level}) =>
+      throw UnimplementedError('covered by autonomy_policy_test.dart');
+
+  @override
+  Future<void> deleteRule(String id) async {}
+
+  @override
+  Future<OrgGuardrails> guardrails() async => const OrgGuardrails();
+
+  @override
+  Future<OrgGuardrails> saveGuardrails(Map<String, Object?> body) async =>
+      OrgGuardrails.fromJson(JsonReader(body));
 }
 
 Future<void> _pump(WidgetTester tester, Widget child,

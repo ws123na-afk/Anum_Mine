@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import '../workspace/workspace_models.dart';
 import 'marketing_models.dart';
+import 'marketing_ops_controller.dart';
+import 'marketing_ops_models.dart';
 import 'marketing_repository.dart';
 import '../brevo/brevo_screen.dart';
 
@@ -10,8 +12,12 @@ enum MkPhase { loading, ready, denied, error }
 
 /// State of the Marketing screen (docs/marketing.md).
 class MarketingController extends ChangeNotifier {
-  MarketingController(this.repository, {this.brevo});
+  MarketingController(this.repository, {this.brevo})
+      : ops = MarketingOps(repository);
   final MarketingRepository repository;
+
+  /// AI assist, brand voice, media library and best times.
+  final MarketingOps ops;
 
   /// Email campaigns through Brevo (docs/brevo.md), opened from the app bar.
   final BrevoController? brevo;
@@ -30,6 +36,7 @@ class MarketingController extends ChangeNotifier {
   String query = '';
   List<MkCampaign> campaigns = const [];
   bool moreCampaigns = false;
+  String campaignQuery = '', campaignStatus = '';
   MkSummary? summary;
   int summaryDays = 30;
   MkReport? report;
@@ -55,7 +62,8 @@ class MarketingController extends ChangeNotifier {
         repository.setup(),
         repository.accounts(),
         repository.posts(status: statusFilter, query: query, limit: pageSize),
-        repository.campaigns(limit: pageSize),
+        repository.campaigns(
+            limit: pageSize, query: campaignQuery, status: campaignStatus),
       ]);
       setup = results[0] as MkSetup;
       accounts = results[1] as List<MkAccount>;
@@ -95,10 +103,22 @@ class MarketingController extends ChangeNotifier {
         morePosts = page.length == pageSize;
       });
 
+  Future<void> filterCampaigns({String? status, String? search}) async {
+    campaignStatus = status ?? campaignStatus;
+    campaignQuery = search ?? campaignQuery;
+    await _act(() async {
+      campaigns = await repository.campaigns(
+          limit: pageSize, query: campaignQuery, status: campaignStatus);
+      moreCampaigns = campaigns.length == pageSize;
+    });
+  }
+
   Future<void> loadMoreCampaigns() => _act(() async {
         final page = await repository.campaigns(
             before: campaigns.isEmpty ? null : campaigns.last.id,
-            limit: pageSize);
+            limit: pageSize,
+            query: campaignQuery,
+            status: campaignStatus);
         campaigns = [...campaigns, ...page];
         moreCampaigns = page.length == pageSize;
       });
@@ -128,6 +148,12 @@ class MarketingController extends ChangeNotifier {
           required Map<String, String> texts,
           required Map<String, List<String>> hashtags,
           String? link,
+          Map<String, String>? linksByAccount,
+          String? title,
+          String? campaignId,
+          List<MkMedia> media = const [],
+          bool aiGenerated = false,
+          bool untrustedSource = false,
           DateTime? at,
           required String done}) =>
       _act(() async {
@@ -136,8 +162,46 @@ class MarketingController extends ChangeNotifier {
             texts: texts,
             hashtags: hashtags,
             link: link,
+            linksByAccount: linksByAccount,
+            title: title,
+            campaignId: campaignId,
+            media: media,
+            aiGenerated: aiGenerated,
+            untrustedSource: untrustedSource,
             scheduledAt: at);
         posts = [...created, ...posts];
+      }, done);
+
+  /// Saves an edited post. A changed [at] moves it on the calendar after the
+  /// content is saved (the server takes an edited scheduled post back to
+  /// draft, so the new time waits for the next schedule).
+  Future<bool> editPost(MkPost post,
+          {required String text,
+          required List<String> hashtags,
+          required String title,
+          required String? link,
+          required List<MkMedia> media,
+          required String? campaignId,
+          DateTime? at,
+          required String done}) =>
+      _act(() async {
+        var next = await repository.updatePost(post.id,
+            text: text,
+            hashtags: hashtags,
+            title: title,
+            link: link,
+            media: media,
+            campaignId: campaignId);
+        if (at != null && at != post.scheduledAt) {
+          next = await repository.reschedule(post.id, at);
+        } else if (at == null &&
+            post.scheduledAt != null &&
+            next.scheduledAt != null &&
+            (next.status == 'scheduled' || next.status == 'pending_approval')) {
+          // The time was cleared on a post that is still scheduled: stop it.
+          next = await repository.cancel(post.id);
+        }
+        _replace(next);
       }, done);
 
   Future<bool> schedule(MkPost post, DateTime? at, String done) =>
@@ -163,14 +227,45 @@ class MarketingController extends ChangeNotifier {
         notice = result ?? fallback;
         posts = await repository.posts(
             status: statusFilter, query: query, limit: pageSize);
-        campaigns = await repository.campaigns(limit: pageSize);
+        campaigns = await repository.campaigns(
+            limit: pageSize, query: campaignQuery, status: campaignStatus);
       });
 
-  Future<bool> createCampaign(String name, String product, String done) =>
+  Future<bool> createCampaign(MkCampaignInput input, String done) =>
       _act(() async {
+        campaigns = [await repository.createCampaign(input), ...campaigns];
+      }, done);
+
+  Future<bool> updateCampaign(
+          MkCampaign campaign, MkCampaignInput input, String done) =>
+      _act(() async {
+        final next = await repository.updateCampaign(campaign.id, input);
         campaigns = [
-          await repository.createCampaign(name, product),
-          ...campaigns
+          for (final item in campaigns) item.id == next.id ? next : item
+        ];
+      }, done);
+
+  /// Deletes a campaign; its posts stay without a campaign. The server
+  /// refuses (409) while posts are scheduled or waiting, and says how many.
+  Future<bool> deleteCampaign(MkCampaign campaign, String done) =>
+      _act(() async {
+        await repository.deleteCampaign(campaign.id);
+        campaigns = campaigns.where((item) => item.id != campaign.id).toList();
+        posts = await repository.posts(
+            status: statusFilter, query: query, limit: pageSize);
+      }, done);
+
+  /// Turns campaign auto-post off at once, or on for [accountIds] (an owner
+  /// then approves it; the campaign shows the pending approval).
+  Future<bool> setAutoPost(MkCampaign campaign,
+          {required bool enabled,
+          List<String> accountIds = const [],
+          required String done}) =>
+      _act(() async {
+        final next = await repository.setAutoPost(campaign.id,
+            enabled: enabled, accountIds: accountIds);
+        campaigns = [
+          for (final item in campaigns) item.id == next.id ? next : item
         ];
       }, done);
 
@@ -233,8 +328,15 @@ class MarketingController extends ChangeNotifier {
     campaigns = const [];
     summary = null;
     report = null;
-    statusFilter = query = '';
+    statusFilter = query = campaignQuery = campaignStatus = '';
+    ops.reset();
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    ops.dispose();
+    super.dispose();
   }
 
   void clearNotice() {

@@ -82,9 +82,13 @@ class MkSetup {
       {required this.providers,
       required this.canManage,
       required this.canWrite,
-      required this.limits});
+      required this.limits,
+      this.titleRequired = const {}});
   final List<MkProvider> providers;
   final bool canManage, canWrite;
+
+  /// Platforms whose posts need a title (YouTube).
+  final Set<String> titleRequired;
 
   /// Platform -> text limit, for the length counter in the composer.
   final Map<String, int> limits;
@@ -102,6 +106,10 @@ class MkSetup {
           limits: {
             for (final p in j.objects('platforms', (p) => p))
               p.string('platform'): p.integer('text_limit')
+          },
+          titleRequired: {
+            for (final p in j.objects('platforms', (p) => p))
+              if (p.optBool('requires_title') ?? false) p.string('platform')
           });
 }
 
@@ -131,8 +139,19 @@ class MkPost {
       this.approval,
       this.untrusted = false,
       this.reach,
-      this.engagement});
+      this.engagement,
+      this.title = '',
+      this.linkUrl,
+      this.campaignId,
+      this.media = const [],
+      this.aiGenerated = false});
   final String id, platform, language, status, text, accountName;
+
+  /// Video title, link, campaign and attached files (what the editor changes).
+  final String title;
+  final String? linkUrl, campaignId;
+  final List<MkMedia> media;
+  final bool aiGenerated;
   final List<String> hashtags;
   final int length, limit;
   final List<MkIssue> issues;
@@ -196,8 +215,49 @@ class MkPost {
         approval: approval == null ? null : workspaceApprovalFromJson(approval),
         untrusted: j.optBool('untrusted_source') ?? false,
         reach: metrics?.optInt('reach') ?? metrics?.optInt('views'),
-        engagement: metrics?.optInt('engagement'));
+        engagement: metrics?.optInt('engagement'),
+        title: j.optString('title') ?? '',
+        linkUrl: j.optString('link_url'),
+        campaignId: j.optString('campaign_id'),
+        media: j.optObjects('media', MkMedia.fromJson),
+        aiGenerated: j.optBool('ai_generated') ?? false);
   }
+}
+
+/// A file from the workspace's Files attached to a post (the bytes stay in
+/// Files); the size fields are sent back on edit so they are kept.
+class MkMedia {
+  const MkMedia(
+      {required this.fileId,
+      required this.kind,
+      this.name = '',
+      this.contentType = '',
+      this.sizeBytes = 0,
+      this.width,
+      this.height,
+      this.durationSeconds});
+  final String fileId, kind, name, contentType;
+  final int sizeBytes;
+  final int? width, height;
+  final double? durationSeconds;
+  String get label => name.isEmpty ? fileId : name;
+
+  Map<String, Object?> toInput() => {
+        'file_id': fileId,
+        'width': width,
+        'height': height,
+        'duration_seconds': durationSeconds,
+      };
+
+  factory MkMedia.fromJson(JsonReader j) => MkMedia(
+      fileId: j.string('file_id'),
+      kind: j.optString('kind') ?? 'image',
+      name: j.optString('name') ?? '',
+      contentType: j.optString('content_type') ?? '',
+      sizeBytes: j.optInt('size_bytes') ?? 0,
+      width: j.optInt('width'),
+      height: j.optInt('height'),
+      durationSeconds: j.optNumber('duration_seconds'));
 }
 
 class MkCampaign {
@@ -208,8 +268,18 @@ class MkCampaign {
       required this.autoPost,
       required this.counts,
       this.product = '',
-      this.approval});
-  final String id, name, status, product;
+      this.approval,
+      this.objective = '',
+      this.brief = '',
+      this.startDate,
+      this.endDate,
+      this.utmCampaign = '',
+      this.autoPostAccounts = const []});
+  final String id, name, status, product, objective, brief, utmCampaign;
+
+  /// ISO dates (`2026-11-01`) or null.
+  final String? startDate, endDate;
+  final List<String> autoPostAccounts;
   final bool autoPost;
   final Map<String, int> counts;
   final WorkspaceApproval? approval;
@@ -223,6 +293,12 @@ class MkCampaign {
         status: j.string('status'),
         product: j.optString('product') ?? '',
         autoPost: j.optBool('auto_post') ?? false,
+        objective: j.optString('objective') ?? '',
+        brief: j.optString('brief') ?? '',
+        startDate: j.optString('start_date'),
+        endDate: j.optString('end_date'),
+        utmCampaign: j.optString('utm_campaign') ?? '',
+        autoPostAccounts: j.optStrings('auto_post_accounts') ?? const [],
         counts: {
           for (final entry in counts.entries)
             if (entry.value is num) entry.key: (entry.value as num).toInt()

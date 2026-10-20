@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'agent_controls_strings.dart';
 import 'approvals_strings.dart';
 import 'calls_strings.dart';
 import 'billing_strings.dart';
@@ -16,6 +17,10 @@ import 'inbox_strings.dart';
 import 'mail_center_strings.dart';
 import 'marketing_strings.dart';
 import 'developer_autonomy_messages.dart';
+import 'autonomy_policy_strings.dart';
+import 'whatsapp_ops_strings.dart';
+import 'marketing_ops_strings.dart';
+import 'agent_skills_strings.dart';
 
 class AnumLocalizations {
   const AnumLocalizations(this.locale);
@@ -32,12 +37,17 @@ class AnumLocalizations {
       (isArabic ? businessAr : businessEn)[key] ??
       (isArabic ? businessPipelineAr : businessPipelineEn)[key] ??
       (isArabic ? brevoAr : brevoEn)[key] ??
+      (isArabic ? agentControlsAr : agentControlsEn)[key] ??
       (isArabic ? billingAr : billingEn)[key] ??
       (isArabic ? orgAdminAr : orgAdminEn)[key] ??
       (isArabic ? calendarSyncAr : calendarSyncEn)[key] ??
       (isArabic ? tyreOpsAr : tyreOpsEn)[key] ??
       (isArabic ? approvalsAr : approvalsEn)[key] ??
       (isArabic ? inboxAr : inboxEn)[key] ??
+      (isArabic ? autonomyPolicyAr : autonomyPolicyEn)[key] ??
+      (isArabic ? waOpsAr : waOpsEn)[key] ??
+      (isArabic ? mkOpsAr : mkOpsEn)[key] ??
+      (isArabic ? agentSkillsAr : agentSkillsEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
@@ -45,12 +55,17 @@ class AnumLocalizations {
       businessEn[key] ??
       businessPipelineEn[key] ??
       brevoEn[key] ??
+      agentControlsEn[key] ??
       billingEn[key] ??
       orgAdminEn[key] ??
       calendarSyncEn[key] ??
       tyreOpsEn[key] ??
       approvalsEn[key] ??
       inboxEn[key] ??
+      autonomyPolicyEn[key] ??
+      waOpsEn[key] ??
+      mkOpsEn[key] ??
+      agentSkillsEn[key] ??
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.
@@ -67,7 +82,12 @@ class AnumLocalizations {
   /// [values] are filled in.
   String p(String key, int count, [Map<String, Object> values = const {}]) {
     final catalog = isArabic ? _ar : _en;
-    String? pick(String form) => catalog['$key.$form'] ?? _en['$key.$form'];
+    final extra = isArabic ? agentControlsAr : agentControlsEn;
+    String? pick(String form) =>
+        catalog['$key.$form'] ??
+        extra['$key.$form'] ??
+        _en['$key.$form'] ??
+        agentControlsEn['$key.$form'];
     final form =
         isArabic ? arabicPluralForm(count) : (count == 1 ? 'one' : 'other');
     final text = (count == 0 ? pick('zero') : null) ??

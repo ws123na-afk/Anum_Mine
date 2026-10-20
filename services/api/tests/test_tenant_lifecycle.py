@@ -186,6 +186,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         **{name: "0082_business_pipeline" for name in (
             "business_outreach_settings", "business_target_profiles", "business_observations",
             "business_pipeline_runs", "business_outbox", "business_replies")},
+        **{name: "0095_agent_controls" for name in ("agent_emergency_stops", "agent_cost_caps", "agent_usage_monthly")},
         "business_invoices": "0089_business_invoices_portal",
         "business_invoice_payments": "0089_business_invoices_portal",
         "business_invoice_counters": "0089_business_invoices_portal",

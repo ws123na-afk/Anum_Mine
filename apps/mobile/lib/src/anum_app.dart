@@ -100,6 +100,7 @@ import 'infrastructure/mobile_adapters.dart';
 import 'theme/anum_theme.dart';
 import 'theme/theme_controller.dart';
 import 'localization/anum_localizations.dart';
+import '../features/agent_controls/agent_controls_data.dart';
 
 abstract final class AnumRoutes {
   static const splash = '/splash';
@@ -360,6 +361,7 @@ class _AnumAppState extends State<AnumApp> {
       push: push,
       learning: ApiLearningRepository(api),
       team: ApiTeamRepository(api),
+      agentControls: ApiAgentControlsRepository(api),
       billing: billing,
       lifecycle: ApiLifecycleRepository(api),
     );
@@ -428,8 +430,13 @@ class _AnumAppState extends State<AnumApp> {
     voice.developer = voiceDeveloper;
     // WhatsApp inbox (docs/whatsapp.md): owners and members; owners approve.
     // Both can open a support ticket from a message (docs/business.md).
-    whatsapp = WhatsAppController(ApiWhatsAppRepository(api),
-        support: business.support);
+    // Templates, Setup and media (docs/whatsapp.md#templates-and-setup):
+    // attachments download through the API with the session's headers.
+    whatsapp = WhatsAppController(
+        ApiWhatsAppRepository(api,
+            download: billingFiles.download, save: billingFiles.save),
+        support: business.support,
+        apiBase: Uri.parse(configuredUrl));
     email = EmailController(ApiEmailRepository(api), support: business.support);
     // ANUM Command (docs/command.md): app-wide, so a command keeps being
     // followed after "Keep working in background".

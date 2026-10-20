@@ -128,6 +128,8 @@ class ScheduleOutcome(StrEnum):
     WORKFLOW_PAUSED = "workflow_paused"
     WORKSPACE_ARCHIVED = "workspace_archived"
     OWNER_INACTIVE = "owner_inactive"
+    # The organization's emergency stop was on: advanced without running (docs/agent-controls.md).
+    EMERGENCY_STOP = "emergency_stop"
 
 
 # The step actions the engine executes. Stored workflows may still hold older free-form
@@ -1250,6 +1252,12 @@ def _archived(context: TenantContext) -> bool:
     return workspace_archived(context)
 
 
+def _stopped(context: TenantContext) -> bool:
+    from .agent_controls import agents_stopped
+
+    return agents_stopped(context)
+
+
 def scheduler_context(tenant_id: str, workspace_id: str, actor: str | None) -> TenantContext:
     """The explicit actor and tenant a scheduled run executes under."""
     return TenantContext(
@@ -1366,12 +1374,15 @@ def trigger_decision(
     recent: int,
     active: int,
     looped: bool,
+    stopped: bool = False,
 ) -> TriggerOutcome:
     """Whether a delivery to ``trigger`` starts a run now, and if not, why."""
     if not trigger.enabled:
         return TriggerOutcome.DISABLED
     if archived:
         return TriggerOutcome.WORKSPACE_ARCHIVED
+    if stopped:
+        return TriggerOutcome.EMERGENCY_STOP
     if looped:
         return TriggerOutcome.LOOP_SKIPPED
     if recent >= trigger.rate_limit_per_minute:
@@ -1905,6 +1916,8 @@ class LocalAutomationEngine:
                 # An archived workspace is read-only: its schedules advance without running.
                 if _archived(context):
                     outcome = ScheduleOutcome.WORKSPACE_ARCHIVED
+                elif _stopped(context):
+                    outcome = ScheduleOutcome.EMERGENCY_STOP
                 elif workflow is None or workflow.status != WorkflowStatus.ACTIVE:
                     outcome = ScheduleOutcome.WORKFLOW_PAUSED
                 elif not effects.actor_may_run(context, context.user_id):
@@ -2083,6 +2096,7 @@ class LocalAutomationEngine:
             trigger,
             workflow,
             archived=_archived(context),
+            stopped=_stopped(context),
             actor_ok=effects.actor_may_run(actor, actor.user_id),
             recent=sum(1 for r in runs if r.trigger_id == trigger.id and r.created_at >= now - TRIGGER_RATE_WINDOW),
             active=sum(1 for r in mine if r.status in ACTIVE_RUN_STATUSES),
@@ -2628,6 +2642,7 @@ async def receive_webhook(tenant_id: str, workspace_id: str, trigger_id: str, re
         TriggerOutcome.SKIPPED_OVERLAP.value: "The automation already has an active run and its overlap policy is skip.",
         TriggerOutcome.OWNER_INACTIVE.value: "The trigger's owner is no longer an active member; a workspace owner can take it over.",
         TriggerOutcome.WORKSPACE_ARCHIVED.value: "The workspace is archived.",
+        TriggerOutcome.EMERGENCY_STOP.value: "The organization's emergency stop is on: automations do not start until the organization owner turns it off.",
         TriggerOutcome.DISABLED.value: "This trigger is turned off.",
     }
     return _hook_refusal(409, outcome, messages.get(outcome, "The delivery did not start a run."), request)

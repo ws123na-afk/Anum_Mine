@@ -1,4 +1,9 @@
 export 'whatsapp_controller.dart';
+export 'whatsapp_media_viewer.dart';
 export 'whatsapp_models.dart';
+export 'whatsapp_ops_controller.dart';
+export 'whatsapp_setup_screen.dart';
+export 'whatsapp_template_send.dart';
+export 'whatsapp_templates_screen.dart';
 export 'whatsapp_repository.dart';
 export 'whatsapp_screen.dart';
