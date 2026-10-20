@@ -21,6 +21,7 @@ from anum_api.business.models import BillingProfile, BusinessSettings, SupportPo
 from anum_api.business.store import KINDS, Query, plain
 from anum_api.schemas import TenantContext
 
+from .business_pipeline_records import PIPELINE_RECORDS
 from .models import Base
 from .scope import require_workspace
 
@@ -531,6 +532,7 @@ RECORDS: dict[str, Any] = {
     "portal_access": BusinessPortalAccessRecord,
     "portal_decisions": BusinessPortalDecisionRecord,
 }
+RECORDS.update(PIPELINE_RECORDS)
 if set(RECORDS) != set(KINDS):  # pragma: no cover - import-time wiring check
     raise RuntimeError("business record types and kinds differ")
 

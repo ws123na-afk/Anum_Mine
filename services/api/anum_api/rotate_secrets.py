@@ -20,7 +20,7 @@ owner's own scope because finance rows are private to one person) and every Emai
 mailbox password (``mail_accounts``, migration 0060, also in its owner's scope) and every voice
 provider account's auth token and API key secret (``call_provider_accounts``, migration 0071)
 in every tenant, every Brevo API key (``brevo_connections``, migration 0074) and every connected
-calendar's OAuth tokens (``calendar_connections``, migration 0090).
+calendar's OAuth tokens (``calendar_connections``, migration 0091).
 Pending email connections (``email_oauth_requests``) and OAuth ``state`` values live for
 minutes and expire instead; phone push tokens are re-encrypted by the phone. See
 docs/runbooks.md#rotating-anum_secrets_key.
@@ -753,7 +753,7 @@ MAIL_ACCOUNTS = _multi_store(
 CALL_PROVIDER_ACCOUNTS = _multi_store(
     "call_provider_accounts", "call_provider", ("credentials_ciphertext",), ("tenant_id", "workspace_id")
 )
-# Calendar sync (migration 0090): each connected calendar's OAuth access and refresh tokens.
+# Calendar sync (migration 0091): each connected calendar's OAuth access and refresh tokens.
 CALENDAR_CONNECTIONS = _multi_store(
     "calendar_connections", "calendar_connection", ("access_token_enc", "refresh_token_enc"), ("tenant_id", "workspace_id", "id")
 )

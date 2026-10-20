@@ -947,6 +947,7 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
         await asyncio.to_thread(auto_route_inbound, stored.tenant_id, stored.workspace_id, "email", arrived)
     inbound = [m for m in fresh if m.from_address.lower() != stored.address.lower() and not m.is_archived]
     _record_unsubscribes(context, [m for m in fresh if m.from_address.lower() != stored.address.lower()])
+    await _note_business_replies(context, stored, [m for m in fresh if m.from_address.lower() != stored.address.lower()])
     if inbound:
         from .automation_triggers import record_inbound_events
 
@@ -985,6 +986,41 @@ def _record_unsubscribes(context: TenantContext, messages: list[EmailMessage]) -
         subject = re.sub(r"^\s*((re|fwd?|aw)\s*:\s*)+", "", message.subject or "", flags=re.IGNORECASE)
         if message.from_address and normalize_keyword(subject) in EMAIL_STOP_SUBJECTS:
             apply_inbound_keyword(context, SuppressionChannel.EMAIL, message.from_address, "stop", f"e-mail {message.id}")
+
+
+async def _note_business_replies(context: TenantContext, account: EmailAccount, messages: list[EmailMessage]) -> int:
+    """A reply from a Business lead ANUM reached out to stops that lead's follow-ups, and opt-out wording in
+    its body is honoured; a bounce naming a sent recipient counts toward the outreach bounce kill switch
+    (docs/business.md#outreach). Bodies are read through ``fetch_body`` for those messages only, classified
+    in memory and never stored. A private mailbox's content is never read: its replies stop follow-ups by
+    the sender alone. Never fails the sync. Returns how many leads were matched."""
+    if not messages:
+        return 0
+    try:
+        from types import SimpleNamespace
+
+        from .business.outreach import inbound_candidates, note_inbound_emails
+
+        wanted = await asyncio.to_thread(inbound_candidates, context, [m.from_address for m in messages])
+        private = account.visibility == Visibility.PRIVATE
+        prepared: list[Any] = []
+        for message in messages:
+            if message.from_address.lower() not in wanted:
+                continue
+            if private:
+                prepared.append(SimpleNamespace(from_address=message.from_address, subject="", snippet="", body=""))
+                continue
+            try:
+                body = (await fetch_body(context, account, message)).text
+            except Exception:  # the provider is down: the subject and preview still count
+                body = ""
+            prepared.append(SimpleNamespace(from_address=message.from_address, subject=message.subject, snippet=message.snippet, body=body))
+        if not prepared:
+            return 0
+        return await asyncio.to_thread(note_inbound_emails, context, prepared)
+    except Exception as exc:
+        logger.warning("business_reply_hook_failed error_class=%s", type(exc).__name__)
+        return 0
 
 
 def _arrived_for_routing(store: EmailStoreProtocol, account: EmailAccount, incoming: list[EmailMessage]) -> list[Any]:

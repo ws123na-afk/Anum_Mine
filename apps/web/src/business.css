@@ -127,6 +127,20 @@
 .bzArgs dd { margin: 0; overflow-wrap: anywhere; }
 .bzHash { align-items: center; display: flex; font-size: var(--text-sm); gap: var(--d-s2); margin: 0; }
 
+/* Prospecting and Outreach (BusinessProspecting.tsx, BusinessOutreach.tsx). */
+.bzList { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.bzList > li { line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.bzList > li > .bzInline, .bzList > li > .bzLeadHead { margin-top: var(--d-s1); }
+.bzOutbox > li { border-top: 1px solid var(--d-line); padding-top: var(--d-s3); }
+.bzOutbox > li:first-child { border-top: 0; padding-top: 0; }
+.bzSignals { border: 0; display: grid; gap: var(--d-s2); margin: 0; min-width: 0; padding: 0; }
+.bzSignals > legend { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--d-s1); padding: 0; }
+.bzSignal { align-items: flex-start; display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr); }
+.bzSignal input { margin-top: 4px; }
+.bzPick { display: grid; gap: var(--d-s1); grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); max-height: 320px; overflow-y: auto; }
+.bzDetails summary { cursor: pointer; font-size: var(--text-md); }
+.bzCheck > input[type="radio"], .bzCheck > input[type="checkbox"], .bzSignal > input { block-size: 18px; flex: none; inline-size: 18px; margin: 0; }
+.bzCheck { white-space: normal; }
 /* Change orders and the ledger (docs/business.md#change-orders). */
 .bzSubhead { font-size: var(--text-sm); margin: 0; }
 .bzForm.bzGrid3 { align-items: end; }
@@ -142,13 +156,13 @@
 /* Invoices (BusinessInvoices.tsx, BusinessPortalAdmin.tsx). */
 .invSummary { display: grid; gap: var(--d-s3); min-width: 0; }
 .invCurrency { display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3) var(--d-s4); }
-.invCurrency h3 { font-size: 13px; margin: 0; }
+.invCurrency h3 { font-size: var(--text-sm); margin: 0; }
 .invTiles { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 0; }
 .invTile { display: grid; gap: 2px; min-width: 0; }
-.invTile dt { color: var(--d-muted); font-size: 12px; font-weight: 600; }
+.invTile dt { color: var(--d-muted); font-size: var(--text-xs); font-weight: 600; }
 .invTile dd { display: grid; gap: 2px; margin: 0; }
-.invTile strong { font-size: 18px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.invTile small { color: var(--d-muted); font-size: 12px; }
+.invTile strong { font-size: var(--text-xl); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.invTile small { color: var(--d-muted); font-size: var(--text-xs); }
 .invTile.danger strong { color: var(--d-stop); }
 .invTile.ok strong { color: var(--d-ok); }
 .invBadges { display: flex; flex-wrap: wrap; gap: var(--d-s1); }
@@ -157,13 +171,13 @@
 .invPicks small { display: block; padding-inline-start: 26px; }
 .invLines th[scope="row"] small { color: var(--d-muted); display: block; font-weight: 400; }
 .invAddress { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
-.invParty { color: var(--d-muted); font-size: 12px; margin: 0 0 var(--d-s1); }
+.invParty { color: var(--d-muted); font-size: var(--text-xs); margin: 0 0 var(--d-s1); }
 .bzSpanAll { grid-column: 1 / -1; }
 @media (min-width: 640px) { .invLineRow { grid-template-columns: minmax(0, 3fr) minmax(0, 1.4fr) minmax(0, .8fr) minmax(0, 1.1fr) minmax(0, .9fr) 40px; } }
 .invAccess > li { display: grid; gap: 2px; }
 /* The global input rule makes inputs full width; a checkbox keeps its own size. */
 .bzCheck input[type="checkbox"] { accent-color: var(--d-violet); flex: none; height: 18px; margin: 0; min-height: 0; padding: 0; width: 18px; }
 .bzToolbar .bzCheck { margin-top: 0; padding-block-end: var(--d-s2); white-space: nowrap; }
-.invLines { font-size: 13px; }
+.invLines { font-size: var(--text-sm); }
 .invLines th[scope="row"] { min-width: 0; }
 .invLines td { white-space: nowrap; }

@@ -84,6 +84,7 @@ x-user-roles: owner,member
 - [Reuse decision register: outside projects and their licenses](docs/business/REUSE_DECISION_REGISTER.md)
 - [P0 CI remediation: commerce tests, journey 403, Rust advisories](docs/business/P0_CI_REMEDIATION.md)
 - [P1 acceptance tests for the Business section](docs/business/P1_ACCEPTANCE_TESTS.md)
+- [Harvey parity: prospecting and outreach capabilities in ANUM](docs/business/HARVEY_PARITY.md)
 - [Product sales kits and the catalog loader (seed-products.py)](docs/business/products/index.md)
 - [Sales kit: ANUM OS](docs/business/products/anum-os.md)
 - [Sales kit: Tyre Pulse](docs/business/products/tyre-pulse.md)
