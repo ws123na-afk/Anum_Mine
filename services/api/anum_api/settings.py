@@ -169,6 +169,10 @@ class Settings(BaseSettings):
     # finished archive is kept, its largest size and the batch sizes of each short
     # transaction.
     tenant_lifecycle_enabled: bool = True
+    # Credit notes against business invoices (docs/business.md#credit-notes). Off until every replica runs a release that
+    # knows ``amount_credited`` (migration 0096 is the expand step; a replica from before it computes a balance without
+    # credits). Turn it on after the rollout; see the contract step in the docs.
+    business_credit_notes_enabled: bool = False
     tenant_lifecycle_poll_seconds: float = Field(default=30.0, gt=0)
     tenant_deletion_cooling_off_hours: int = Field(default=168, ge=1, le=2160)
     tenant_export_link_ttl_seconds: int = Field(default=900, ge=60, le=86400)

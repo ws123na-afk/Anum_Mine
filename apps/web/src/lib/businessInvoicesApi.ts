@@ -1,11 +1,12 @@
 // Invoices and the customer portal's owner routes over the live API (/api/v1/business, docs/business.md#invoices,
 // docs/business-portal.md). Every route checks the caller's role on the server; a 403 carries the API's own sentence.
 import type {
-  Billable, BillingProfile, BusinessInvoice, BusinessPage, InvoiceCreate, InvoiceListItem, InvoiceStatus, InvoiceSummary, InvoiceUpdate, PaymentInput,
-  PortalAccessCreated, PortalAccessInput, PortalAccessItem, PortalDecisionRow,
+  Billable, BillingProfile, BusinessInvoice, BusinessPage, CreditNote, CreditNoteInput, InvoiceCreate, InvoiceListItem, InvoiceStatus, InvoiceSummary, InvoiceUpdate, PaymentInput,
+  PaymentNotice, PortalAccessCreated, PortalAccessInput, PortalAccessItem, PortalDecisionRow,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
+import { fileNameFromDisposition, saveBlob } from './fileSave';
 
 const BASE = '/api/v1/business';
 const json = (method: string, body?: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -45,6 +46,24 @@ export async function invoicePrintable(invoiceId: string, lang: 'en' | 'ar'): Pr
   if (!response.ok) throw await apiErrorFromResponse(response);
   return response.blob();
 }
+
+/** The server-made PDF, saved with the app's own credentials. Returns the file name. */
+export async function downloadInvoicePdf(invoiceId: string): Promise<string> {
+  const response = await fetch(`${apiBaseUrl}${BASE}/invoices/${id(invoiceId)}/pdf`, { headers: await authHeaders() });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  return saveBlob(await response.blob(), fileNameFromDisposition(response.headers.get('content-disposition'), 'invoice.pdf'));
+}
+
+// credit notes (owners issue and void) and customers' payment reports (members and owners decide)
+export const listCreditNotes = (invoiceId: string) => apiRequest<CreditNote[]>(`${BASE}/invoices/${id(invoiceId)}/credit-notes`, { method: 'GET' });
+export const issueCreditNote = (invoiceId: string, body: CreditNoteInput) => apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/credit-notes`, json('POST', body));
+export const voidCreditNote = (invoiceId: string, creditNoteId: string, reason: string) =>
+  apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/credit-notes/${id(creditNoteId)}/void`, json('POST', { reason }));
+export const listPaymentNotices = (invoiceId: string) => apiRequest<PaymentNotice[]>(`${BASE}/invoices/${id(invoiceId)}/payment-notices`, { method: 'GET' });
+export const confirmPaymentNotice = (invoiceId: string, noticeId: string, note: string) =>
+  apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/payment-notices/${id(noticeId)}/confirm`, json('POST', { note }));
+export const rejectPaymentNotice = (invoiceId: string, noticeId: string, reason: string) =>
+  apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/payment-notices/${id(noticeId)}/reject`, json('POST', { reason }));
 
 // portal access (owner side)
 export const listPortalAccess = (accountId: string) => apiRequest<PortalAccessItem[]>(`${BASE}/portal/access${query({ account_id: accountId })}`, { method: 'GET' });

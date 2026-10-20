@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from decimal import Decimal
+from uuid import uuid4
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from anum_api.business.invoices import apply_lines, invoice_hash, problems
 from anum_api.business.models import BillingProfile
 from anum_api.business.store import business_store
 from anum_api.schemas import utc_now
+from anum_api.settings import settings
 from anum_api.suppression import suppression_store
 
 from test_business import BASE, MEMBER, OTHER_TENANT, OTHER_WORKSPACE, OWNER, VIEWER, approve, lead, ok, proposal_body, qualify
@@ -44,6 +46,12 @@ def clean() -> Iterator[None]:
     yield
     business_store.clear()
     suppression_store.clear()
+
+
+@pytest.fixture(autouse=True)
+def credit_notes_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Credit notes are off by default until every replica knows ``amount_credited`` (docs/business.md#credit-notes)."""
+    monkeypatch.setattr(settings, "business_credit_notes_enabled", True)
 
 
 def set_profile(**changes: Any) -> dict[str, Any]:
@@ -74,6 +82,16 @@ def sent_invoice(project: dict[str, Any], count: int = 1) -> dict[str, Any]:
     set_profile()
     drafted = ok(create(project_id=project["id"], milestone_ids=milestone_ids(project)[:count]), 201)
     return send(drafted)
+
+
+def portal_report(invoice: dict[str, Any], amount: float = 400, **extra: Any) -> dict[str, Any]:
+    """A customer's payment report, made through their portal link (returns the notice as the owner sees it)."""
+    account = ok(client.get(f"{BASE}/accounts/{invoice['account_id']}", headers=OWNER))
+    link = ok(client.post(f"{BASE}/portal/access", headers=OWNER, json={"account_id": invoice["account_id"], "contact_id": account["contacts"][0]["id"]}), 201)
+    body = {"idempotency_key": uuid4().hex, "payer_name": "Sara Khan", "amount": amount, "paid_on": utc_now().date().isoformat(), "method": "bank_transfer", "reference": "TRX-9", **extra}
+    created = client.post(f"/api/v1/portal/invoices/{invoice['id']}/payment-notices", headers={"authorization": f"Bearer {link['token']}"}, json=body)
+    assert created.status_code == 201, created.text
+    return ok(client.get(f"{BASE}/invoices/{invoice['id']}/payment-notices", headers=OWNER))[0]
 
 
 # -- pure rules ------------------------------------------------------------------------------------
@@ -486,7 +504,8 @@ def test_every_state_changing_invoice_route_is_audited_without_content() -> None
     from audit_probe import AuditProbe
 
     project = make_project(total=3000, tax=15)
-    sent_text = ["Pay by Friday", "PO-AUDIT-1", "TRX-AUDIT-9", "billing@anum.example", "IBAN: SA00 0000 0000 0000 0000 0000", "Office 12, Riyadh"]
+    sent_text = ["Pay by Friday", "PO-AUDIT-1", "TRX-AUDIT-9", "billing@anum.example", "IBAN: SA00 0000 0000 0000 0000 0000", "Office 12, Riyadh",
+                 "TRX-NOTICE-1", "TRX-NOTICE-2", "Seen on statement", "Nothing arrived", "Price correction", "Entered twice", "Sara Khan"]
     probe = AuditProbe(client, "business_invoices")
     call = lambda method, path, **kwargs: probe.call(method, f"{BASE}{path}", OWNER, sent=sent_text, **kwargs)  # noqa: E731
     set_profile()
@@ -498,6 +517,13 @@ def test_every_state_changing_invoice_route_is_audited_without_content() -> None
     assert approve(pending["approval"]).status_code == 200
     payment = call("POST", f"/invoices/{first['id']}/payments", json={"amount": 500, "paid_on": utc_now().date().isoformat(), "reference": "TRX-AUDIT-9"}).json()
     call("DELETE", f"/invoices/{first['id']}/payments/{payment['payments'][0]['id']}")
+    reported = portal_report(first, 20, reference="TRX-NOTICE-1")
+    confirmed = call("POST", f"/invoices/{first['id']}/payment-notices/{reported['id']}/confirm", json={"note": "Seen on statement"}).json()
+    call("DELETE", f"/invoices/{first['id']}/payments/{confirmed['payments'][0]['id']}")
+    refused = portal_report(first, 30, reference="TRX-NOTICE-2")
+    call("POST", f"/invoices/{first['id']}/payment-notices/{refused['id']}/reject", json={"reason": "Nothing arrived"})
+    credited = call("POST", f"/invoices/{first['id']}/credit-notes", json={"amount": 10, "reason": "Price correction"}).json()
+    call("POST", f"/invoices/{first['id']}/credit-notes/{credited['credit_notes'][0]['id']}/void", json={"reason": "Entered twice"})
     call("POST", f"/invoices/{first['id']}/void", json={"reason": "Reissue"})
     spare = call("POST", "/invoices", json={"project_id": project["id"], "milestone_ids": milestone_ids(project)[:1]}).json()
     call("DELETE", f"/invoices/{spare['id']}")

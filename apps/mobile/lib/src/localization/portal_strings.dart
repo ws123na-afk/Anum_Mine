@@ -157,6 +157,29 @@ const portalEn = <String, String>{
   'portal.new.detailsNeeded': 'Tell the business what you need.',
   'portal.new.readOnlyNote':
       'You can open a request even though this link cannot approve offers.',
+  'portal.report.title': 'Already paid?',
+  'portal.report.help':
+      'Tell the business you paid. This does not mark the invoice as paid: they check their bank and confirm it.',
+  'portal.report.open': 'I have paid',
+  'portal.report.name': 'Your full name',
+  'portal.report.amount': 'Amount you paid',
+  'portal.report.date': 'Paid on',
+  'portal.report.reference': 'Reference, for example the transfer number',
+  'portal.report.note': 'Note (optional)',
+  'portal.report.send': 'Send to the business',
+  'portal.report.sent':
+      'Sent. The invoice stays open until the business sees the money and confirms it.',
+  'portal.report.nameInvalid':
+      'Type your full name so the business knows who paid.',
+  'portal.report.amountInvalid': 'Enter the amount you paid, above zero.',
+  'portal.report.tooMuch': 'The amount is more than the balance of {balance}.',
+  'portal.report.dateInvalid': 'Choose the date you paid (not in the future).',
+  'portal.report.status.pending': 'Waiting for the business',
+  'portal.report.status.confirmed': 'Confirmed',
+  'portal.report.status.rejected': 'Not accepted',
+  'portal.report.why': 'The business wrote: {reason}',
+  'portal.report.readOnly':
+      'This link can read but not act. Tell the business you paid directly.',
 };
 
 const portalAr = <String, String>{
@@ -308,4 +331,26 @@ const portalAr = <String, String>{
   'portal.new.detailsNeeded': 'أخبر الجهة بما تحتاجه.',
   'portal.new.readOnlyNote':
       'يمكنك فتح طلب حتى لو كان هذا الرابط لا يستطيع الموافقة على العروض.',
+  'portal.report.title': 'هل دفعت بالفعل؟',
+  'portal.report.help':
+      'أخبر النشاط التجاري أنك دفعت. هذا لا يجعل الفاتورة مدفوعة: يراجع حسابه البنكي ثم يؤكد.',
+  'portal.report.open': 'لقد دفعت',
+  'portal.report.name': 'اسمك الكامل',
+  'portal.report.amount': 'المبلغ الذي دفعته',
+  'portal.report.date': 'تاريخ الدفع',
+  'portal.report.reference': 'المرجع، مثل رقم الحوالة',
+  'portal.report.note': 'ملاحظة (اختيارية)',
+  'portal.report.send': 'إرسال إلى النشاط التجاري',
+  'portal.report.sent':
+      'تم الإرسال. تبقى الفاتورة مفتوحة حتى يرى النشاط التجاري المبلغ ويؤكده.',
+  'portal.report.nameInvalid': 'اكتب اسمك الكامل ليعرف النشاط التجاري من دفع.',
+  'portal.report.amountInvalid': 'أدخل المبلغ الذي دفعته، أكبر من صفر.',
+  'portal.report.tooMuch': 'المبلغ أكبر من الرصيد المستحق {balance}.',
+  'portal.report.dateInvalid': 'اختر تاريخ الدفع (ليس في المستقبل).',
+  'portal.report.status.pending': 'بانتظار النشاط التجاري',
+  'portal.report.status.confirmed': 'مؤكدة',
+  'portal.report.status.rejected': 'غير مقبولة',
+  'portal.report.why': 'كتب النشاط التجاري: {reason}',
+  'portal.report.readOnly':
+      'يمكن لهذا الرابط القراءة فقط دون إجراء. أخبر النشاط التجاري مباشرة أنك دفعت.',
 };

@@ -11,7 +11,7 @@ from decimal import Decimal
 from html import escape
 from typing import Literal
 
-from .invoice_models import Invoice, InvoiceLine, InvoicePayment, InvoiceStatus
+from .invoice_models import CreditNote, CreditNoteStatus, Invoice, InvoiceLine, InvoicePayment, InvoiceStatus
 from .models import BillingProfile
 
 Language = Literal["en", "ar"]
@@ -22,7 +22,7 @@ LABELS: dict[str, dict[str, str]] = {
         "reference": "Your reference", "bill_to": "Bill to", "from": "From", "description": "Description", "qty": "Qty",
         "unit": "Unit price", "tax": "Tax", "rate": "Rate", "amount": "Amount", "subtotal": "Subtotal", "total": "Total",
         "paid": "Paid", "balance": "Balance due", "terms": "Payment terms", "bank": "How to pay", "notes": "Notes",
-        "payments": "Payments received", "draft": "Draft: not sent", "pending": "Waiting for approval: not sent", "void": "Void",
+        "payments": "Payments received", "credited": "Credit notes", "credit_notes": "Credit notes", "reason": "Reason", "date": "Date", "draft": "Draft: not sent", "pending": "Waiting for approval: not sent", "void": "Void",
         "paid_stamp": "Paid", "page_title": "Invoice", "email": "Email", "phone": "Phone", "tax_no": "Tax number",
     },
     "ar": {
@@ -30,7 +30,7 @@ LABELS: dict[str, dict[str, str]] = {
         "reference": "مرجعكم", "bill_to": "فاتورة إلى", "from": "من", "description": "الوصف", "qty": "الكمية",
         "unit": "سعر الوحدة", "tax": "الضريبة", "rate": "النسبة", "amount": "المبلغ", "subtotal": "المجموع الفرعي", "total": "الإجمالي",
         "paid": "المدفوع", "balance": "المستحق", "terms": "شروط الدفع", "bank": "طريقة الدفع", "notes": "ملاحظات",
-        "payments": "الدفعات المستلمة", "draft": "مسودة: لم ترسل", "pending": "بانتظار الموافقة: لم ترسل", "void": "ملغاة",
+        "payments": "الدفعات المستلمة", "credited": "الإشعارات الدائنة", "credit_notes": "الإشعارات الدائنة", "reason": "السبب", "date": "التاريخ", "draft": "مسودة: لم ترسل", "pending": "بانتظار الموافقة: لم ترسل", "void": "ملغاة",
         "paid_stamp": "مدفوعة", "page_title": "فاتورة", "email": "البريد الإلكتروني", "phone": "الهاتف", "tax_no": "الرقم الضريبي",
     },
 }
@@ -87,7 +87,7 @@ def _row(line: InvoiceLine) -> str:
     )
 
 
-def render_invoice(invoice: Invoice, payments: list[InvoicePayment], seller_fallback: BillingProfile, language: Language = "en") -> str:
+def render_invoice(invoice: Invoice, payments: list[InvoicePayment], seller_fallback: BillingProfile, language: Language = "en", credit_notes: list[CreditNote] | None = None) -> str:
     """The invoice as an HTML document. The seller printed is the one stored on a sent
     invoice; a draft shows the current billing profile."""
     language = "ar" if language == "ar" else "en"  # a constant, never the request's own string
@@ -115,8 +115,11 @@ def render_invoice(invoice: Invoice, payments: list[InvoicePayment], seller_fall
     totals = [(label["subtotal"], invoice.subtotal), (label["tax"], invoice.tax)]
     totals_html = "".join(f"<tr><td>{_text(name)}</td><td class=\"num\">{_text(_amount(value))}</td></tr>" for name, value in totals)
     totals_html += f"<tr class=\"grand\"><td>{_text(label['total'])} ({_text(currency)})</td><td class=\"num\">{_text(_amount(invoice.total))}</td></tr>"
+    if invoice.amount_credited > 0:
+        totals_html += f"<tr><td>{_text(label['credited'])}</td><td class=\"num\">-{_text(_amount(invoice.amount_credited))}</td></tr>"
     if invoice.amount_paid > 0:
         totals_html += f"<tr><td>{_text(label['paid'])}</td><td class=\"num\">{_text(_amount(invoice.amount_paid))}</td></tr>"
+    if invoice.amount_paid > 0 or invoice.amount_credited > 0:
         totals_html += f"<tr class=\"grand\"><td>{_text(label['balance'])}</td><td class=\"num\">{_text(_amount(invoice.balance_due()))}</td></tr>"
     blocks = ""
     for heading, value in ((label["terms"], invoice.payment_terms), (label["bank"], seller.bank_details), (label["notes"], invoice.notes)):
@@ -127,6 +130,13 @@ def render_invoice(invoice: Invoice, payments: list[InvoicePayment], seller_fall
             f"<tr><td>{_text(payment.paid_on.isoformat())}</td><td>{_text(payment.reference)}</td><td class=\"num\">{_text(_amount(payment.amount))}</td></tr>" for payment in payments
         )
         blocks += f"<div class=\"block\"><h2>{_text(label['payments'])}</h2><table><tbody>{paid_rows}</tbody></table></div>"
+    if credit_notes:
+        credit_rows = "".join(
+            f"<tr><td>{_text(item.number)}</td><td>{_text(item.issue_date.isoformat())}</td><td>{_text(item.reason)}"
+            f"{' (' + _text(label['void']) + ')' if item.status == CreditNoteStatus.VOID else ''}</td><td class=\"num\">{_text(_amount(item.amount))}</td></tr>"
+            for item in credit_notes
+        )
+        blocks += f"<div class=\"block\"><h2>{_text(label['credit_notes'])}</h2><table><tbody>{credit_rows}</tbody></table></div>"
     foot = f"<div class=\"foot\">{_text(seller.footer_note)}</div>" if seller.footer_note.strip() else ""
     return (
         f"<!doctype html><html lang=\"{language}\" dir=\"{direction}\"><head><meta charset=\"utf-8\">"

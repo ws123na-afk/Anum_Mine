@@ -59,7 +59,17 @@ class HttpApiTransport implements ApiTransport {
         await _client.send(http.Request(request.method, request.uri)
           ..headers.addAll(request.headers)
           ..body = request.body == null ? '' : jsonEncode(request.body));
-    final bodyText = await response.stream.bytesToString();
+    final bytes = await response.stream.toBytes();
+    // An invoice PDF is binary: hand it over as `{"pdf_base64": ...}` so the
+    // caller can save it (the JSON transport has no other way to carry bytes).
+    final contentType = response.headers['content-type'] ?? '';
+    if (response.statusCode < 300 &&
+        contentType.startsWith('application/pdf')) {
+      return ApiResponse(
+          statusCode: response.statusCode,
+          body: {'pdf_base64': base64Encode(bytes)});
+    }
+    final bodyText = utf8.decode(bytes);
     JsonMap? body;
     if (bodyText.isNotEmpty) {
       final Object? decoded;

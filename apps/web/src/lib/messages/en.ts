@@ -18,6 +18,7 @@ import { businessEn } from './business.en.ts';
 import { businessPipelineEn } from './businessPipeline.en.ts';
 import { businessSupportEn } from './businessSupport.en.ts';
 import { filesVersionsEn } from './filesVersions.en.ts';
+import { invoiceMoneyEn } from './invoiceMoney.en.ts';
 import { invoicesEn } from './invoices.en.ts';
 import { portalEn } from './portal.en.ts';
 import { brevoEn } from './brevo.en.ts';
@@ -71,6 +72,7 @@ export const en = {
   ...businessSupportEn,
   ...filesVersionsEn,
   ...invoicesEn,
+  ...invoiceMoneyEn,
   ...portalEn,
   ...brevoEn,
   ...agentControlsEn,

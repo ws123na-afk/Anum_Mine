@@ -33,6 +33,7 @@ TABLES = (
     "business_inferences", "business_activities", "business_opportunities", "business_proposals", "business_proposal_versions", "business_projects",
     "business_milestones", "business_drafts", "business_research_runs", "business_change_orders", "business_usage_ledger",
     "business_invoices", "business_invoice_payments", "business_invoice_counters", "business_portal_access", "business_portal_decisions",
+    "business_credit_notes", "business_payment_notices",
 )
 
 
@@ -55,6 +56,7 @@ def db(database_engine: Engine, seed_scopes: None, monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(db_session, "SessionLocal", factory)
     monkeypatch.setattr(settings, "repository_backend", "postgresql")
+    monkeypatch.setattr(settings, "business_credit_notes_enabled", True)
     business_store.clear()
     yield database_engine
 
@@ -359,3 +361,88 @@ def test_invoices_and_the_customer_portal_under_rls(db: Engine) -> None:
         with connection.begin():
             _scoped(connection, TENANT_B, WORKSPACE_B)
             assert connection.execute(text("select count(*) from business_portal_access")).scalar() == 0
+
+
+def test_credit_notes_and_customer_payment_notices_under_rls(db: Engine) -> None:
+    """Credits and a customer's report move the balance only through the owner's routes; the paid check counts
+    payments plus credits; both tables stay inside their workspace and a credit note cannot be rewritten into nonsense."""
+    path = main_path(A)
+    pending = ok(client.post(f"{BASE}/proposals/{path['proposal']['id']}/request-acceptance", headers=MEMBER_A))
+    assert ok(client.post(f"/api/v1/approvals/{pending['approval']['id']}/approve", headers=A, json={"payload_hash": pending["approval"]["payload_hash"]}))
+    project = ok(client.post(f"{BASE}/projects", headers=A, json={"proposal_id": path["proposal"]["id"]}), 201)
+    ok(client.put(f"{BASE}/billing-profile", headers=A, json={"legal_name": "Anum Technologies LLC", "tax_number": "300000000000003", "invoice_prefix": "INV"}))
+    milestones = [item["id"] for item in project["milestones"]]
+    draft = ok(client.post(f"{BASE}/invoices", headers=MEMBER_A, json={"project_id": project["id"], "milestone_ids": milestones[:1]}), 201)
+    waiting = ok(client.post(f"{BASE}/invoices/{draft['id']}/request-approval", headers=MEMBER_A))
+    assert ok(client.post(f"/api/v1/approvals/{waiting['approval']['id']}/approve", headers=A, json={"payload_hash": waiting["approval"]["payload_hash"]}))
+    sent = ok(client.get(f"{BASE}/invoices/{draft['id']}", headers=A))
+    assert sent["status"] == "sent" and sent["total"] == 900.0
+
+    # Credit notes are the owner's; the member is refused and the balance is the total less credits.
+    assert client.post(f"{BASE}/invoices/{sent['id']}/credit-notes", headers=MEMBER_A, json={"amount": 100, "reason": "Discount"}).status_code == 403
+    credited = ok(client.post(f"{BASE}/invoices/{sent['id']}/credit-notes", headers=A, json={"amount": 100, "reason": "Agreed discount"}), 201)
+    assert credited["amount_credited"] == 100.0 and credited["balance"] == 800.0 and credited["credit_notes"][0]["number"] == f"{sent['number']}-CN1"
+    note = credited["credit_notes"][0]
+    assert note["subtotal"] + note["tax"] == note["amount"]
+
+    # A customer reports a payment; the report is a row of its own and changes nothing until confirmed.
+    contact = ok(client.get(f"{BASE}/accounts/{project['account_id']}", headers=A))["contacts"][0]
+    link = ok(client.post(f"{BASE}/portal/access", headers=A, json={"account_id": project["account_id"], "contact_id": contact["id"]}), 201)
+    portal = {"authorization": f"Bearer {link['token']}"}
+    reported = client.post(f"/api/v1/portal/invoices/{sent['id']}/payment-notices", headers=portal, json={
+        "idempotency_key": "key-pg-0001", "payer_name": "Huda Saleh", "amount": 300, "paid_on": sent["issue_date"], "method": "bank_transfer", "reference": "TRX-31"})
+    assert reported.status_code == 201, reported.text
+    assert reported.json()["balance"] == 800.0 and reported.json()["payment_notices"][0]["status"] == "pending"
+    notice = ok(client.get(f"{BASE}/invoices/{sent['id']}/payment-notices", headers=A))[0]
+    confirmed = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-notices/{notice['id']}/confirm", headers=MEMBER_A, json={"note": "Seen"}))
+    assert confirmed["amount_paid"] == 300.0 and confirmed["balance"] == 500.0 and confirmed["payment_notices"][0]["status"] == "confirmed"
+
+    # Payments plus credits settle it: the database accepts status paid only when they add up to the total.
+    settled = ok(client.post(f"{BASE}/invoices/{sent['id']}/credit-notes", headers=A, json={"amount": 500, "reason": "Rest waived"}), 201)
+    assert settled["status"] == "paid" and settled["balance"] == 0.0 and settled["payment_state"] == "paid"
+    assert [item["number"] for item in settled["credit_notes"]] == [f"{sent['number']}-CN1", f"{sent['number']}-CN2"]
+    reopened = ok(client.post(f"{BASE}/invoices/{sent['id']}/credit-notes/{settled['credit_notes'][1]['id']}/void", headers=A, json={"reason": "Entered by mistake"}))
+    assert reopened["status"] == "sent" and reopened["amount_credited"] == 100.0 and reopened["balance"] == 500.0
+
+    for other in (A2, B):
+        assert client.get(f"{BASE}/invoices/{sent['id']}/credit-notes", headers=other).status_code == 404
+        assert client.get(f"{BASE}/invoices/{sent['id']}/payment-notices", headers=other).status_code == 404
+    pdf = client.get(f"{BASE}/invoices/{sent['id']}/pdf", headers=A)
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+
+    with db.connect() as connection:
+        # Rows are scoped: tenant B sees neither table's rows, and cannot credit tenant A's invoice (scoped foreign key).
+        with connection.begin():
+            _scoped(connection, TENANT_B, WORKSPACE_B)
+            assert connection.execute(text("select count(*) from business_credit_notes")).scalar() == 0
+            assert connection.execute(text("select count(*) from business_payment_notices")).scalar() == 0
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_B, WORKSPACE_B)
+                connection.execute(text(
+                    "insert into business_credit_notes (id, tenant_id, workspace_id, invoice_id, account_id, seq, number, status, currency, amount, subtotal, tax, reason, issue_date, issued_by) "
+                    "values ('bcrn_x', :t, :w, :i, :a, 9, 'X-CN9', 'issued', 'AED', 10, 10, 0, 'Reason', current_date, 'u')"),
+                    {"t": TENANT_B, "w": WORKSPACE_B, "i": sent["id"], "a": project["account_id"]})
+        # A credit note must add up (amount = subtotal + tax), keep a unique number, and credits can never exceed the total.
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_A, WORKSPACE_A)
+                connection.execute(text("update business_credit_notes set subtotal = 1 where id = :i"), {"i": note["id"]})
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_A, WORKSPACE_A)
+                connection.execute(text("update business_credit_notes set number = :n where id = :i"), {"n": note["number"], "i": settled["credit_notes"][1]["id"]})
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_A, WORKSPACE_A)
+                connection.execute(text("update business_invoices set amount_credited = 5000 where id = :i"), {"i": sent["id"]})
+        # The frozen-invoice trigger still protects what the invoice says, credits or not.
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_A, WORKSPACE_A)
+                connection.execute(text("update business_invoices set total = 1, subtotal = 1, tax = 0 where id = :i"), {"i": sent["id"]})
+        # A paid invoice must be covered by payments plus credits.
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_A, WORKSPACE_A)
+                connection.execute(text("update business_invoices set status = 'paid', paid_at = now() where id = :i"), {"i": sent["id"]})

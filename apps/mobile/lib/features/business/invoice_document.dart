@@ -18,7 +18,8 @@ import 'invoice_models.dart';
 /// The phone cannot put a bearer token in a link, so "Print or PDF" fetches
 /// the server's printable page with the session header and saves it through
 /// the system save dialog (the file opens in any browser: Print, Save as
-/// PDF). The same figures show here natively and copy as plain text.
+/// PDF). The server also makes a PDF file ("Download PDF", Latin text only).
+/// The same figures show here natively and copy as plain text.
 class InvoiceDocument {
   const InvoiceDocument({
     required this.status,
@@ -30,6 +31,8 @@ class InvoiceDocument {
     required this.paid,
     required this.balance,
     required this.payments,
+    this.credited = 0,
+    this.creditNotes = const [],
     this.number,
     this.issueDate,
     this.dueDate,
@@ -53,8 +56,9 @@ class InvoiceDocument {
   final String buyerName, buyerAddress, buyerTaxNumber, reference;
   final String notes, paymentTerms, voidReason;
   final List<InvoiceDocumentLine> lines;
-  final double subtotal, tax, total, paid, balance;
+  final double subtotal, tax, total, paid, balance, credited;
   final List<InvoiceDocumentPayment> payments;
+  final List<InvoiceDocumentCredit> creditNotes;
 
   /// The title: the number once it has one, else the status says why not.
   String heading(AnumLocalizations l) =>
@@ -101,9 +105,22 @@ class InvoiceDocument {
       ..writeln()
       ..writeln('${l.t('biz.inv.doc.subtotal')}: ${m(subtotal)}')
       ..writeln('${l.t('biz.inv.doc.tax')}: ${m(tax)}')
-      ..writeln('${l.t('biz.inv.doc.total')}: ${m(total)}')
+      ..writeln('${l.t('biz.inv.doc.total')}: ${m(total)}');
+    if (credited > 0) {
+      out.writeln('${l.t('biz.inv.doc.credited')}: ${m(-credited)}');
+    }
+    out
       ..writeln('${l.t('biz.inv.doc.paid')}: ${m(paid)}')
       ..writeln('${l.t('biz.inv.doc.balance')}: ${m(balance)}');
+    if (creditNotes.isNotEmpty) {
+      out
+        ..writeln()
+        ..writeln(l.t('biz.inv.doc.creditNotes'));
+      for (final c in creditNotes) {
+        out.writeln(
+            '${c.number}: ${c.date}, ${m(c.amount)}, ${c.reason}${c.isVoid ? ' (${l.t('biz.inv.credit.voidTag')})' : ''}');
+      }
+    }
     if (payments.isNotEmpty) {
       out
         ..writeln()
@@ -169,6 +186,12 @@ class InvoiceDocument {
       total: invoice.total,
       paid: invoice.amountPaid,
       balance: invoice.balance,
+      credited: invoice.amountCredited,
+      creditNotes: [
+        for (final c in invoice.creditNotes)
+          InvoiceDocumentCredit(c.number, c.issueDate, c.amount, c.reason,
+              isVoid: c.isVoid),
+      ],
       payments: [
         for (final p in invoice.payments)
           InvoiceDocumentPayment(p.paidOn, p.amount, p.method, p.reference),
@@ -215,6 +238,14 @@ class InvoiceDocumentLine {
   final double quantity, unitPrice, taxRatePct, total;
 }
 
+class InvoiceDocumentCredit {
+  const InvoiceDocumentCredit(this.number, this.date, this.amount, this.reason,
+      {this.isVoid = false});
+  final String number, date, reason;
+  final double amount;
+  final bool isVoid;
+}
+
 class InvoiceDocumentPayment {
   const InvoiceDocumentPayment(
       this.paidOn, this.amount, this.method, this.reference);
@@ -256,12 +287,16 @@ class InvoicePreviewScreen extends StatefulWidget {
     required this.loadHtml,
     this.saver = const FilePickerInvoiceSaver(),
     this.fileStem = 'invoice',
+    this.loadPdf,
     super.key,
   });
   final InvoiceDocument document;
 
   /// Fetches the server's printable page for a language (`en` or `ar`).
   final Future<String> Function(String lang) loadHtml;
+
+  /// Fetches the PDF file the server makes; null hides the button.
+  final Future<Uint8List> Function()? loadPdf;
   final InvoiceDocumentSaver saver;
   final String fileStem;
 
@@ -298,6 +333,24 @@ class _InvoicePreviewState extends State<InvoicePreviewScreen> {
     }
   }
 
+  Future<void> _savePdf() async {
+    final l = context.anum;
+    final load = widget.loadPdf;
+    if (load == null) return;
+    setState(() => busy = true);
+    try {
+      final saved =
+          await widget.saver.save('${widget.fileStem}.pdf', await load());
+      if (mounted && saved) _say(l.t('biz.inv.doc.pdfSaved'));
+    } on ApiException catch (e) {
+      if (mounted) _say(l.f('biz.inv.doc.saveFailed', {'message': e.readable}));
+    } on Object catch (e) {
+      if (mounted) _say(l.f('biz.inv.doc.saveFailed', {'message': '$e'}));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = context.anum;
@@ -321,6 +374,13 @@ class _InvoicePreviewState extends State<InvoicePreviewScreen> {
             icon: const Icon(Icons.picture_as_pdf_outlined),
             label: Text(l.t('biz.inv.doc.save')),
           ),
+          if (widget.loadPdf != null)
+            FilledButton.icon(
+              key: const Key('inv-doc-pdf'),
+              onPressed: busy ? null : _savePdf,
+              icon: const Icon(Icons.download_outlined),
+              label: Text(l.t('biz.inv.doc.pdf')),
+            ),
           OutlinedButton.icon(
             key: const Key('inv-doc-copy'),
             onPressed: _copy,
@@ -378,6 +438,23 @@ class _InvoicePreviewState extends State<InvoicePreviewScreen> {
           ),
         ),
         AnumSurface(child: InvoiceTotals(document: d)),
+        if (d.creditNotes.isNotEmpty)
+          AnumSurface(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AnumHeader(title: l.t('biz.inv.doc.creditNotes')),
+                for (final c in d.creditNotes)
+                  AnumRow(
+                    title: c.number,
+                    subtitle: '${c.date}, ${c.reason}',
+                    detail: c.isVoid
+                        ? '${m(c.amount)} (${l.t('biz.inv.credit.voidTag')})'
+                        : m(c.amount),
+                  ),
+              ],
+            ),
+          ),
         if (d.payments.isNotEmpty)
           AnumSurface(
             child: Column(
@@ -438,6 +515,8 @@ class InvoiceTotals extends StatelessWidget {
         AnumRow(title: l.t('biz.inv.doc.subtotal'), detail: m(d.subtotal)),
         AnumRow(title: l.t('biz.inv.doc.tax'), detail: m(d.tax)),
         AnumRow(title: l.t('biz.inv.doc.total'), detail: m(d.total)),
+        if (d.credited > 0)
+          AnumRow(title: l.t('biz.inv.doc.credited'), detail: m(-d.credited)),
         AnumRow(title: l.t('biz.inv.doc.paid'), detail: m(d.paid)),
         AnumRow(title: l.t('biz.inv.doc.balance'), detail: m(d.balance)),
       ],

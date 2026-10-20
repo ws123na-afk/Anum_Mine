@@ -237,6 +237,9 @@ class FakePortal implements PortalRepository {
   ApiException? decideError;
   ApiException? listError;
   ApiException? ticketError;
+  ApiException? reportError;
+  Map<String, Object?>? reportBody;
+  final reportKeys = <String>[];
   Completer<void>? gate;
   Map<String, Object?> offerDoc = offerJson();
   Map<String, Object?> changeDoc = changeJson();
@@ -353,6 +356,53 @@ class FakePortal implements PortalRepository {
   Future<String> printHtml(String id, String lang) async {
     await _enter('print $id $lang');
     return '<html><body>Portal invoice $lang</body></html>';
+  }
+
+  @override
+  Future<Uint8List> pdf(String id) async {
+    await _enter('pdf $id');
+    return Uint8List.fromList(utf8.encode('%PDF-1.4 portal'));
+  }
+
+  @override
+  Future<PortalInvoice> reportPayment(
+    String id, {
+    required String idempotencyKey,
+    required String payerName,
+    required double amount,
+    required String paidOn,
+    required String method,
+    String reference = '',
+    String note = '',
+  }) async {
+    await _enter('report $id');
+    reportKeys.add(idempotencyKey);
+    reportBody = {
+      'payer_name': payerName,
+      'amount': amount,
+      'paid_on': paidOn,
+      'method': method,
+      'reference': reference,
+      'note': note,
+    };
+    if (reportError != null) throw reportError!;
+    final existing = (invoiceDoc['payment_notices'] as List?) ?? const [];
+    invoiceDoc = {
+      ...invoiceDoc,
+      'payment_notices': [
+        {
+          'id': 'bpnote_1',
+          'amount': amount,
+          'paid_on': paidOn,
+          'method': method,
+          'reference': reference,
+          'status': 'pending',
+          'decision_note': '',
+        },
+        ...existing,
+      ],
+    };
+    return PortalInvoice.fromJson(JsonReader.of(invoiceDoc));
   }
 
   @override

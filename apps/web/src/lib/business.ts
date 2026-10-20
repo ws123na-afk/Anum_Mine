@@ -7,8 +7,8 @@ import type {
 } from '@anum/contracts';
 import { formatNumber, getLocale, t, type MessageKey } from './i18n.ts';
 
-export type BusinessTab = 'overview' | 'leads' | 'prospecting' | 'outreach' | 'pipeline' | 'proposals' | 'projects' | 'invoices' | 'support' | 'catalog' | 'settings';
-export const TABS: readonly BusinessTab[] = ['overview', 'leads', 'prospecting', 'outreach', 'pipeline', 'proposals', 'projects', 'invoices', 'support', 'catalog', 'settings'];
+export type BusinessTab = 'overview' | 'leads' | 'accounts' | 'prospecting' | 'outreach' | 'pipeline' | 'proposals' | 'projects' | 'invoices' | 'support' | 'catalog' | 'settings';
+export const TABS: readonly BusinessTab[] = ['overview', 'leads', 'accounts', 'prospecting', 'outreach', 'pipeline', 'proposals', 'projects', 'invoices', 'support', 'catalog', 'settings'];
 export const PAGE_SIZE = 25;
 
 export const LEAD_STATES: readonly LeadState[] = ['discovered', 'researched', 'qualified', 'contacted', 'replied', 'meeting', 'offered', 'won', 'lost', 'suppressed'];

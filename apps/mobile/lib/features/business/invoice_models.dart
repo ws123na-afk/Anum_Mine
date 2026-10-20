@@ -129,6 +129,71 @@ class InvoicePayment {
       );
 }
 
+/// Money an owner took off a sent invoice (docs/business.md#credit-notes). The
+/// invoice itself never changes; its balance does.
+class CreditNote {
+  const CreditNote({
+    required this.id,
+    required this.number,
+    required this.status,
+    required this.amount,
+    required this.subtotal,
+    required this.tax,
+    required this.reason,
+    required this.issueDate,
+    required this.issuedBy,
+    required this.voidReason,
+  });
+  final String id, number, status, reason, issueDate, issuedBy, voidReason;
+  final double amount, subtotal, tax;
+  bool get isVoid => status == 'void';
+  factory CreditNote.fromJson(JsonReader r) => CreditNote(
+        id: r.string('id'),
+        number: r.string('number'),
+        status: r.optString('status') ?? 'issued',
+        amount: r.number('amount'),
+        subtotal: r.optNumber('subtotal') ?? 0,
+        tax: r.optNumber('tax') ?? 0,
+        reason: r.optString('reason') ?? '',
+        issueDate: dayOf(r.optString('issue_date')),
+        issuedBy: r.optString('issued_by') ?? '',
+        voidReason: r.optString('void_reason') ?? '',
+      );
+}
+
+/// What a customer reported paying from the portal (docs/business-portal.md).
+/// A report changes no balance until a person confirms it.
+class PaymentNotice {
+  const PaymentNotice({
+    required this.id,
+    required this.payerName,
+    required this.amount,
+    required this.paidOn,
+    required this.method,
+    required this.reference,
+    required this.note,
+    required this.status,
+    required this.decidedBy,
+    required this.decisionNote,
+  });
+  final String id, payerName, paidOn, method, reference, note, status;
+  final String decidedBy, decisionNote;
+  final double amount;
+  bool get pending => status == 'pending';
+  factory PaymentNotice.fromJson(JsonReader r) => PaymentNotice(
+        id: r.string('id'),
+        payerName: r.optString('payer_name') ?? '',
+        amount: r.number('amount'),
+        paidOn: dayOf(r.optString('paid_on')),
+        method: r.optString('method') ?? 'bank_transfer',
+        reference: r.optString('reference') ?? '',
+        note: r.optString('note') ?? '',
+        status: r.optString('status') ?? 'pending',
+        decidedBy: r.optString('decided_by') ?? '',
+        decisionNote: r.optString('decision_note') ?? '',
+      );
+}
+
 /// What the caller may do with this invoice now (the server decides; the
 /// phone only shows the buttons).
 class InvoiceCan {
@@ -140,6 +205,10 @@ class InvoiceCan {
     this.voidIt = false,
     this.recordPayment = false,
     this.removePayment = false,
+    this.credit = false,
+    this.creditEnabled = true,
+    this.voidCreditNote = false,
+    this.decideNotice = false,
   });
   final bool edit,
       requestSend,
@@ -147,7 +216,11 @@ class InvoiceCan {
       delete,
       voidIt,
       recordPayment,
-      removePayment;
+      removePayment,
+      credit,
+      creditEnabled,
+      voidCreditNote,
+      decideNotice;
   factory InvoiceCan.fromJson(JsonReader r) => InvoiceCan(
         edit: r.boolean('edit'),
         requestSend: r.boolean('request_send'),
@@ -156,6 +229,10 @@ class InvoiceCan {
         voidIt: r.boolean('void'),
         recordPayment: r.boolean('record_payment'),
         removePayment: r.boolean('remove_payment'),
+        credit: r.optBool('credit') ?? false,
+        creditEnabled: r.optBool('credit_enabled') ?? true,
+        voidCreditNote: r.optBool('void_credit_note') ?? false,
+        decideNotice: r.optBool('decide_notice') ?? false,
       );
 }
 
@@ -189,6 +266,9 @@ class Invoice {
     required this.approvalState,
     required this.issues,
     required this.can,
+    this.amountCredited = 0,
+    this.creditNotes = const [],
+    this.paymentNotices = const [],
     this.projectId,
     this.projectName,
     this.number,
@@ -205,10 +285,12 @@ class Invoice {
   final String? projectId, projectName, number, issueDate, dueDate;
   final String? approvalId, approvalHash;
   final List<InvoiceLine> lines;
-  final double subtotal, tax, total, amountPaid, balance;
+  final double subtotal, tax, total, amountPaid, balance, amountCredited;
   final int dueInDays, daysOverdue;
   final bool overdue;
   final List<InvoicePayment> payments;
+  final List<CreditNote> creditNotes;
+  final List<PaymentNotice> paymentNotices;
   final List<String> issues;
   final InvoiceCan can;
   final BillingProfile? seller;
@@ -228,6 +310,7 @@ class Invoice {
         tax: r.number('tax'),
         total: r.number('total'),
         amountPaid: r.number('amount_paid'),
+        amountCredited: r.optNumber('amount_credited') ?? 0,
         dueInDays: r.optInt('due_in_days') ?? 0,
         number: r.optString('number'),
         issueDate: r.optString('issue_date'),
@@ -251,6 +334,8 @@ class Invoice {
         daysOverdue: r.optInt('days_overdue') ?? 0,
         paymentState: r.optString('payment_state') ?? 'unpaid',
         payments: r.optObjects('payments', InvoicePayment.fromJson),
+        creditNotes: r.optObjects('credit_notes', CreditNote.fromJson),
+        paymentNotices: r.optObjects('payment_notices', PaymentNotice.fromJson),
         approvalState: r.optString('approval_state') ?? 'none',
         approvalId: r.optObject('approval')?.optString('id'),
         approvalHash: r.optObject('approval')?.optString('payload_hash'),
@@ -275,6 +360,8 @@ class InvoiceListItem {
     required this.paymentState,
     required this.customerReference,
     required this.lines,
+    this.amountCredited = 0,
+    this.noticesPending = 0,
     this.number,
     this.projectName,
     this.issueDate,
@@ -283,9 +370,9 @@ class InvoiceListItem {
   final String id, status, accountName, currency, paymentState;
   final String customerReference;
   final String? number, projectName, issueDate, dueDate;
-  final double total, amountPaid, balance;
+  final double total, amountPaid, balance, amountCredited;
   final bool overdue;
-  final int daysOverdue, lines;
+  final int daysOverdue, lines, noticesPending;
 
   factory InvoiceListItem.fromJson(JsonReader r) => InvoiceListItem(
         id: r.string('id'),
@@ -296,6 +383,7 @@ class InvoiceListItem {
         currency: r.string('currency'),
         total: r.number('total'),
         amountPaid: r.number('amount_paid'),
+        amountCredited: r.optNumber('amount_credited') ?? 0,
         balance: r.number('balance'),
         issueDate: r.optString('issue_date'),
         dueDate: r.optString('due_date'),
@@ -303,6 +391,7 @@ class InvoiceListItem {
         daysOverdue: r.optInt('days_overdue') ?? 0,
         paymentState: r.optString('payment_state') ?? 'unpaid',
         customerReference: r.optString('customer_reference') ?? '',
+        noticesPending: r.optInt('notices_pending') ?? 0,
         lines: r.optInt('lines') ?? 0,
       );
 }
@@ -342,14 +431,19 @@ class InvoiceSummary {
     required this.currencies,
     required this.truncated,
     required this.notes,
+    this.noticesPending = 0,
   });
   final List<InvoiceCurrencyFigures> currencies;
   final bool truncated;
   final List<String> notes;
+
+  /// Customer payment reports waiting for a member or owner.
+  final int noticesPending;
   factory InvoiceSummary.fromJson(JsonReader r) => InvoiceSummary(
         currencies: r.objects('currencies', InvoiceCurrencyFigures.fromJson),
         truncated: r.optBool('truncated') ?? false,
         notes: r.optStrings('notes') ?? const [],
+        noticesPending: r.optInt('notices_pending') ?? 0,
       );
 }
 

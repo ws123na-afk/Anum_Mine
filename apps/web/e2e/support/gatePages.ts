@@ -86,6 +86,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'marketing-accounts', view: 'marketing', mock: mockMarketing, ready: '.mkAccountTable tbody tr' },
   { hash: 'business', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-leads', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
+  { hash: 'business-accounts', view: 'business', mock: mockInvoices, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-pipeline', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-proposals', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-projects', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:math' show Random;
+
+import 'package:clock/clock.dart';
 
 import '../../data/api_client.dart';
 import '../../src/localization/anum_localizations.dart';
@@ -31,6 +34,12 @@ String _signedMoney(BuildContext context, double? v, String currency) {
 }
 
 String _qty(double v) => v == v.roundToDouble() ? v.toStringAsFixed(0) : '$v';
+
+/// A sent invoice that still has a balance.
+bool _unsettled(PortalInvoice i) =>
+    i.status == 'sent' &&
+    i.paymentState != 'paid' &&
+    i.paymentState != 'credited';
 
 AnumTone _invoiceTone(String status) => switch (status) {
       'paid' => AnumTone.ok,
@@ -1269,11 +1278,66 @@ class _PortalInvoiceState extends State<PortalInvoiceScreen>
       total: i.total,
       paid: i.amountPaid,
       balance: i.balance,
+      credited: i.amountCredited,
+      creditNotes: [
+        for (final c in i.creditNotes)
+          InvoiceDocumentCredit(c.number, c.issueDate, c.amount, c.reason,
+              isVoid: c.isVoid),
+      ],
       payments: [
         for (final p in i.payments)
           InvoiceDocumentPayment(p.paidOn, p.amount, p.method, p.reference),
       ],
     );
+  }
+
+  /// One key per report until it is sent: a retry after a lost answer is the same report, a later payment is a new one.
+  String? _reportKey;
+
+  static String _newKey() {
+    final random = Random.secure();
+    return List.generate(
+            4, (_) => random.nextInt(1 << 32).toRadixString(16).padLeft(8, '0'))
+        .join();
+  }
+
+  Future<void> _report(PortalInvoice i) async {
+    final l = context.anum;
+    final body = await showDialog<Map<String, Object?>>(
+      context: context,
+      builder: (context) => PortalReportDialog(
+          balance: i.balance, currency: i.currency, issueDate: i.issueDate),
+    );
+    if (body == null) return;
+    setState(() {
+      busy = true;
+      problem = null;
+      notice = null;
+    });
+    try {
+      final key = _reportKey ??= _newKey();
+      final next = await controller.repository.reportPayment(
+        i.id,
+        idempotencyKey: key,
+        payerName: body['payer_name']! as String,
+        amount: body['amount']! as double,
+        paidOn: body['paid_on']! as String,
+        method: body['method']! as String,
+        reference: body['reference']! as String,
+        note: body['note']! as String,
+      );
+      if (!mounted) return;
+      _reportKey = null;
+      setState(() {
+        record = next;
+        notice = l.t('portal.report.sent');
+      });
+    } catch (e) {
+      controller.noteError(e);
+      if (mounted) setState(() => problem = PortalController.messageOf(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
   }
 
   @override
@@ -1323,7 +1387,11 @@ class _PortalInvoiceState extends State<PortalInvoiceScreen>
             label: l.t('biz.inv.status.${i.status}'),
             tone: _invoiceTone(i.status)),
         if (i.status == 'sent' || i.status == 'paid')
-          AnumPill(label: l.t('biz.inv.pay.${i.paymentState}')),
+          AnumPill(
+              label: l.t('biz.inv.pay.${i.paymentState}'),
+              tone: i.paymentState == 'paid' || i.paymentState == 'credited'
+                  ? AnumTone.ok
+                  : AnumTone.neutral),
         if (i.overdue)
           AnumPill(
               label: l.f('portal.daysOverdue', {'days': i.daysOverdue}),
@@ -1343,12 +1411,21 @@ class _PortalInvoiceState extends State<PortalInvoiceScreen>
             document: doc,
             loadHtml: (lang) => controller.repository.printHtml(i.id, lang),
             saver: widget.saver,
+            loadPdf: () => controller.repository.pdf(i.id),
             fileStem: i.number.isEmpty ? 'invoice' : i.number,
           ),
         )),
         icon: const Icon(Icons.picture_as_pdf_outlined),
         label: Text(l.t('biz.inv.preview')),
       ),
+      if (notice != null)
+        Text(notice!,
+            key: const Key('portal-invoice-notice'),
+            style: TextStyle(color: context.palette.ok)),
+      if (problem != null)
+        Text(problem!,
+            key: const Key('portal-invoice-problem'),
+            style: TextStyle(color: context.palette.stop)),
       AnumSurface(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1380,6 +1457,70 @@ class _PortalInvoiceState extends State<PortalInvoiceScreen>
             ],
           ),
         ),
+      if (i.creditNotes.isNotEmpty)
+        AnumSurface(
+          key: const Key('portal-credit-notes'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AnumHeader(title: l.t('biz.inv.doc.creditNotes')),
+              for (final c in i.creditNotes)
+                AnumRow(
+                  title: c.number,
+                  subtitle: '${c.issueDate}, ${c.reason}',
+                  detail: c.isVoid
+                      ? '${m(c.amount)} (${l.t('biz.inv.credit.voidTag')})'
+                      : m(c.amount),
+                ),
+            ],
+          ),
+        ),
+      if (i.paymentNotices.isNotEmpty || i.canReportPayment || _unsettled(i))
+        AnumSurface(
+          key: const Key('portal-report'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AnumHeader(title: l.t('portal.report.title')),
+              for (final n in i.paymentNotices)
+                PillRow(
+                  key: Key('portal-notice-${n.id}'),
+                  title: m(n.amount),
+                  subtitle: '${n.paidOn}, ${l.t('biz.inv.method.${n.method}')}',
+                  detail: [
+                    if (n.reference.isNotEmpty) n.reference,
+                    if (n.status == 'rejected' && n.decisionNote.isNotEmpty)
+                      l.f('portal.report.why', {'reason': n.decisionNote}),
+                  ].join(' · '),
+                  pills: [
+                    AnumPill(
+                      label: l.t('portal.report.status.${n.status}'),
+                      tone: n.status == 'confirmed'
+                          ? AnumTone.ok
+                          : n.status == 'rejected'
+                              ? AnumTone.stop
+                              : AnumTone.warn,
+                    ),
+                  ],
+                ),
+              if (i.canReportPayment) ...[
+                Text(l.t('portal.report.help'),
+                    style: TextStyle(color: context.palette.muted)),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: FilledButton.icon(
+                    key: const Key('portal-report-open'),
+                    onPressed: busy ? null : () => _report(i),
+                    icon: const Icon(Icons.payments_outlined),
+                    label: Text(l.t('portal.report.open')),
+                  ),
+                ),
+              ] else if (_unsettled(i))
+                Text(l.t('portal.report.readOnly'),
+                    style: TextStyle(color: context.palette.muted)),
+            ],
+          ),
+        ),
       if (i.status == 'sent')
         AnumSurface(
           key: const Key('portal-how-to-pay'),
@@ -1395,6 +1536,169 @@ class _PortalInvoiceState extends State<PortalInvoiceScreen>
         ),
       if (i.notes.isNotEmpty) AnumSurface(child: Text(i.notes)),
     ];
+  }
+}
+
+/// A customer's report that they paid: their name, the amount (not above the
+/// balance), the date, the method and a reference. The business confirms it
+/// after checking its bank; nothing here changes a balance.
+class PortalReportDialog extends StatefulWidget {
+  const PortalReportDialog({
+    required this.balance,
+    required this.currency,
+    this.issueDate,
+    super.key,
+  });
+  final double balance;
+  final String currency;
+  final String? issueDate;
+
+  @override
+  State<PortalReportDialog> createState() => _PortalReportState();
+}
+
+class _PortalReportState extends State<PortalReportDialog> {
+  final name = TextEditingController();
+  late final amount =
+      TextEditingController(text: widget.balance.toStringAsFixed(2));
+  late final date = TextEditingController(text: dayOfDate(clock.now()));
+  final reference = TextEditingController();
+  final note = TextEditingController();
+  String method = 'bank_transfer';
+  String? nameError, amountError, dateError;
+
+  @override
+  void dispose() {
+    name.dispose();
+    amount.dispose();
+    date.dispose();
+    reference.dispose();
+    note.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final l = context.anum;
+    final who = name.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final value = double.tryParse(amount.text.trim().replaceAll(',', '.'));
+    final text = date.text.trim();
+    final when = DateTime.tryParse(text);
+    final shape = RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(text);
+    final todayText = dayOfDate(clock.now());
+    setState(() {
+      nameError =
+          who.length < 2 || !RegExp(r'\p{L}', unicode: true).hasMatch(who)
+              ? l.t('portal.report.nameInvalid')
+              : null;
+      amountError = value == null || value <= 0
+          ? l.t('portal.report.amountInvalid')
+          : value > widget.balance + 0.004
+              ? l.f('portal.report.tooMuch', {
+                  'balance': formatMoney(widget.balance, widget.currency,
+                      locale: l.locale)
+                })
+              : null;
+      dateError = !shape || when == null || text.compareTo(todayText) > 0
+          ? l.t('portal.report.dateInvalid')
+          : null;
+    });
+    if (nameError != null || amountError != null || dateError != null) return;
+    Navigator.pop(context, <String, Object?>{
+      'payer_name': who,
+      'amount': double.parse(value!.toStringAsFixed(2)),
+      'paid_on': text,
+      'method': method,
+      'reference': reference.text.trim(),
+      'note': note.text.trim(),
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.anum;
+    return AlertDialog(
+      title: Text(l.t('portal.report.title')),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(l.t('portal.report.help')),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('portal-report-name'),
+              controller: name,
+              maxLength: 160,
+              decoration: InputDecoration(
+                  labelText: l.t('portal.report.name'), errorText: nameError),
+            ),
+            TextField(
+              key: const Key('portal-report-amount'),
+              controller: amount,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                  labelText:
+                      '${l.t('portal.report.amount')} (${widget.currency})',
+                  errorText: amountError),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('portal-report-date'),
+              controller: date,
+              keyboardType: TextInputType.datetime,
+              decoration: InputDecoration(
+                  labelText: l.t('portal.report.date'),
+                  hintText: 'YYYY-MM-DD',
+                  errorText: dateError),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              key: const Key('portal-report-method'),
+              initialValue: method,
+              isExpanded: true,
+              decoration: InputDecoration(labelText: l.t('biz.inv.method')),
+              items: [
+                for (final m in const [
+                  'bank_transfer',
+                  'cash',
+                  'cheque',
+                  'card',
+                  'other'
+                ])
+                  DropdownMenuItem(
+                      value: m, child: Text(l.t('biz.inv.method.$m'))),
+              ],
+              onChanged: (v) => setState(() => method = v ?? method),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('portal-report-reference'),
+              controller: reference,
+              maxLength: 120,
+              decoration:
+                  InputDecoration(labelText: l.t('portal.report.reference')),
+            ),
+            TextField(
+              key: const Key('portal-report-note'),
+              controller: note,
+              maxLength: 300,
+              decoration: InputDecoration(labelText: l.t('portal.report.note')),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l.t('biz.cancel'))),
+        FilledButton(
+          key: const Key('portal-report-submit'),
+          onPressed: _submit,
+          child: Text(l.t('portal.report.send')),
+        ),
+      ],
+    );
   }
 }
 

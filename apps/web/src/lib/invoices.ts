@@ -2,8 +2,8 @@
 // drafts and the request bodies. Pure, so `pnpm --filter @anum/web test:unit` covers it without a
 // browser. The API is the authority: it recomputes every total and rechecks every rule.
 import type {
-  Billable, BillingProfile, BusinessCurrency, InvoiceCreate, InvoiceListItem, InvoiceStatus, InvoiceSummary, InvoiceUpdate, LineKind, ManualInvoiceLine,
-  PaymentInput, PaymentMethod,
+  Billable, BillingProfile, BusinessCurrency, CreditNoteInput, CreditNoteStatus, InvoiceCreate, InvoiceListItem, InvoicePaymentState, InvoiceStatus, InvoiceSummary,
+  InvoiceUpdate, LineKind, ManualInvoiceLine, PaymentInput, PaymentMethod, PaymentNoticeStatus,
 } from '@anum/contracts';
 import { t, type MessageKey } from './i18n.ts';
 import { formatMoney, parseAmount, type Tone } from './business.ts';
@@ -21,7 +21,10 @@ export type PrintLanguage = (typeof PRINT_LANGUAGES)[number];
 export const invoiceStatusLabel = (status: InvoiceStatus) => label(`inv.status.${status}`);
 export const paymentMethodLabel = (method: PaymentMethod) => label(`inv.method.${method}`);
 export const lineKindLabel = (kind: LineKind) => label(`inv.kind.${kind}`);
-export const paymentStateLabel = (state: 'unpaid' | 'partially_paid' | 'paid') => label(`inv.payState.${state}`);
+export const paymentStateLabel = (state: InvoicePaymentState) => label(`inv.payState.${state}`);
+export const noticeStatusLabel = (status: PaymentNoticeStatus) => label(`inv.notice.status.${status}`);
+export const noticeTone = (status: PaymentNoticeStatus): Tone => (status === 'confirmed' ? 'success' : status === 'rejected' ? 'dangerTone' : 'warning');
+export const creditNoteTone = (status: CreditNoteStatus): Tone => (status === 'void' ? 'dangerTone' : 'neutral');
 
 export function invoiceTone(status: InvoiceStatus, overdue = false): Tone {
   if (overdue && status === 'sent') return 'dangerTone';
@@ -203,6 +206,24 @@ export function paymentBody(draft: PaymentDraft, balance: number, currency: Busi
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.paidOn)) return { ok: false, error: t('inv.pay.dateInvalid') };
   return { ok: true, value: { amount, paid_on: draft.paidOn, method: draft.method, reference: draft.reference.trim(), note: draft.note.trim() } };
 }
+
+// ---- credit notes -----------------------------------------------------------------------------
+
+export interface CreditDraft { amount: string; reason: string }
+export const emptyCredit = (balance: number): CreditDraft => ({ amount: balance > 0 ? balance.toFixed(2) : '', reason: '' });
+
+/** The body of POST /invoices/{id}/credit-notes. More than the balance is refused here and again by the API (a credit note never leaves a refund owed). */
+export function creditBody(draft: CreditDraft, balance: number, currency: BusinessCurrency): Check<CreditNoteInput> {
+  const amount = parseAmount(draft.amount);
+  if (amount === null || amount <= 0) return { ok: false, error: t('inv.credit.amountInvalid') };
+  if (amount > balance + 0.0001) return { ok: false, error: t('inv.credit.tooMuch', { balance: formatMoney(balance, currency) }) };
+  const reason = draft.reason.replace(/\s+/g, ' ').trim();
+  if (reason.length < 3) return { ok: false, error: t('inv.credit.reasonInvalid') };
+  return { ok: true, value: { amount, reason } };
+}
+
+/** How many customer reports the Invoices list can open at once: the pending ones of a page. */
+export const noticesWaiting = (items: readonly { notices_pending: number }[]) => items.reduce((sum, item) => sum + item.notices_pending, 0);
 
 // ---- billing profile --------------------------------------------------------------------------
 

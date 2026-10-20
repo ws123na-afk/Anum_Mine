@@ -329,7 +329,9 @@ export interface TicketFields {
 
 export type InvoiceStatus = 'draft' | 'pending_approval' | 'sent' | 'paid' | 'void';
 export type InvoiceLineSource = 'manual' | 'offer' | 'milestone' | 'contract' | 'usage';
-export type InvoicePaymentState = 'unpaid' | 'partially_paid' | 'paid';
+export type InvoicePaymentState = 'unpaid' | 'partially_paid' | 'paid' | 'credited';
+export type CreditNoteStatus = 'issued' | 'void';
+export type PaymentNoticeStatus = 'pending' | 'confirmed' | 'rejected';
 export type PaymentMethod = 'bank_transfer' | 'cash' | 'card' | 'cheque' | 'other';
 
 /** Who issues the invoices and how they are paid; copied onto each invoice when it is sent. */
@@ -349,13 +351,27 @@ export interface InvoicePayment extends Scoped {
   invoice_id: string; amount: number; paid_on: string; method: PaymentMethod; reference: string; note: string; recorded_by: string;
 }
 
+/** Money an owner took off a sent invoice; the invoice itself never changes (docs/business.md#credit-notes). */
+export interface CreditNote extends Scoped {
+  invoice_id: string; account_id: string; seq: number; number: string; status: CreditNoteStatus; currency: BusinessCurrency; amount: number; subtotal: number; tax: number;
+  reason: string; issue_date: string; issued_by: string; voided_by: string | null; voided_at: string | null; void_reason: string;
+}
+
+/** What a customer reported paying from the portal. It changes no balance until a person confirms it. */
+export interface PaymentNotice extends Scoped {
+  invoice_id: string; account_id: string; access_id: string; contact_id: string; payer_name: string; amount: number; paid_on: string; method: PaymentMethod;
+  reference: string; note: string; status: PaymentNoticeStatus; decided_by: string | null; decided_at: string | null; decision_note: string; payment_id: string | null;
+  client_key: string | null;
+}
+
 export interface InvoiceCan {
   edit: boolean; request_send: boolean; cancel_request: boolean; delete: boolean; void: boolean; record_payment: boolean; remove_payment: boolean;
+  credit: boolean; credit_enabled: boolean; void_credit_note: boolean; decide_notice: boolean;
 }
 
 export interface BusinessInvoice extends Scoped {
   account_id: string; project_id: string | null; status: InvoiceStatus; currency: BusinessCurrency; lines: InvoiceLine[];
-  subtotal: number; tax: number; total: number; amount_paid: number; due_in_days: number;
+  subtotal: number; tax: number; total: number; amount_paid: number; amount_credited: number; due_in_days: number;
   seq: number | null; number: string | null; issue_date: string | null; due_date: string | null;
   customer_reference: string; notes: string; payment_terms: string;
   bill_to_name: string; bill_to_address: string; bill_to_email: string; bill_to_tax_number: string;
@@ -364,6 +380,8 @@ export interface BusinessInvoice extends Scoped {
   voided_by: string | null; voided_at: string | null; void_reason: string; decision_note: string; created_by: string;
   account_name: string; project_name: string | null; balance: number; overdue: boolean; days_overdue: number; payment_state: InvoicePaymentState;
   payments: InvoicePayment[];
+  credit_notes: CreditNote[];
+  payment_notices: PaymentNotice[];
   approval_state: ApprovalState;
   approval: TicketReplyApproval | null;
   /** Why a draft cannot be sent for approval yet. */
@@ -373,14 +391,16 @@ export interface BusinessInvoice extends Scoped {
 
 export interface InvoiceListItem {
   id: string; number: string | null; status: InvoiceStatus; account_id: string; account_name: string; project_id: string | null; project_name: string | null;
-  currency: BusinessCurrency; total: number; amount_paid: number; balance: number; issue_date: string | null; due_date: string | null;
-  overdue: boolean; days_overdue: number; payment_state: InvoicePaymentState; customer_reference: string; lines: number; updated_at: string; created_at: string;
+  currency: BusinessCurrency; total: number; amount_paid: number; amount_credited: number; balance: number; issue_date: string | null; due_date: string | null;
+  overdue: boolean; days_overdue: number; payment_state: InvoicePaymentState; customer_reference: string; notices_pending: number; lines: number; updated_at: string; created_at: string;
 }
 
 export interface InvoiceSummary {
   counts: Record<InvoiceStatus, number>;
   currencies: { currency: BusinessCurrency; outstanding: number; overdue: number; overdue_count: number; invoiced_this_month: number; collected_this_month: number; drafts: number }[];
   truncated: boolean;
+  /** Customer payment reports waiting for a member or owner. */
+  notices_pending: number;
   notes: string[];
 }
 
@@ -413,6 +433,7 @@ export interface InvoiceCreate extends InvoiceFields {
 }
 export interface InvoiceUpdate extends InvoiceFields { lines?: ManualInvoiceLine[]; remove_lines?: number[]; tax_rate_pct?: number }
 export interface PaymentInput { amount: number; paid_on: string; method?: PaymentMethod; reference?: string; note?: string }
+export interface CreditNoteInput { amount: number; reason: string }
 
 export type PortalDecisionValue = 'approved' | 'declined';
 
@@ -461,7 +482,7 @@ export interface PortalChange extends PortalChangeSummary {
   lines: { action: 'add' | 'remove'; description: string; quantity: number; unit_price: number; amount: number }[];
 }
 export interface PortalInvoiceSummary {
-  id: string; number: string; status: InvoiceStatus; currency: BusinessCurrency; total: number; amount_paid: number; balance: number; issue_date: string | null;
+  id: string; number: string; status: InvoiceStatus; currency: BusinessCurrency; total: number; amount_paid: number; amount_credited: number; balance: number; issue_date: string | null;
   due_date: string | null; overdue: boolean; days_overdue: number; payment_state: InvoicePaymentState; customer_reference: string;
 }
 export interface PortalInvoice extends PortalInvoiceSummary {
@@ -469,8 +490,13 @@ export interface PortalInvoice extends PortalInvoiceSummary {
   subtotal: number; tax: number; notes: string; payment_terms: string; bill_to_name: string; bill_to_address: string; bill_to_tax_number: string;
   seller: { legal_name: string; address: string; tax_label: string; tax_number: string; email: string; phone: string; bank_details: string };
   payments: { paid_on: string; amount: number; method: PaymentMethod; reference: string }[];
+  credit_notes: { number: string; issue_date: string; amount: number; reason: string; status: CreditNoteStatus }[];
+  payment_notices: { id: string; amount: number; paid_on: string; method: PaymentMethod; reference: string; status: PaymentNoticeStatus; decision_note: string; created_at: string }[];
+  /** A sent invoice with a balance, on a link that may act, in a workspace that is not paused. */
+  can_report_payment: boolean;
   void_reason: string;
 }
+export interface PortalPaymentNoticeInput { idempotency_key: string; payer_name: string; amount: number; paid_on: string; method: PaymentMethod; reference?: string; note?: string }
 export interface PortalTicketSummary {
   id: string; reference: string; title: string; severity: TicketSeverity; status: TicketStatus; project_name: string | null; reported_at: string;
   updated_at: string; opened_here: boolean;

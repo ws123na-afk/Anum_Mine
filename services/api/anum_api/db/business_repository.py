@@ -417,6 +417,7 @@ class BusinessInvoiceRecord(Base, _Updated):
     tax: Mapped[Decimal] = mapped_column(MONEY)
     total: Mapped[Decimal] = mapped_column(MONEY)
     amount_paid: Mapped[Decimal] = mapped_column(MONEY)
+    amount_credited: Mapped[Decimal] = mapped_column(MONEY)
     due_in_days: Mapped[int] = mapped_column(Integer)
     seq: Mapped[int | None] = mapped_column(Integer)
     number: Mapped[str | None] = mapped_column(String(40))
@@ -456,6 +457,45 @@ class BusinessInvoicePaymentRecord(Base, _Updated):
     reference: Mapped[str] = mapped_column(String(120))
     note: Mapped[str] = mapped_column(String(300))
     recorded_by: Mapped[str] = mapped_column(String(160))
+
+
+class BusinessCreditNoteRecord(Base, _Updated):
+    __tablename__ = "business_credit_notes"
+    invoice_id: Mapped[str] = mapped_column(String(80))
+    account_id: Mapped[str] = mapped_column(String(80))
+    seq: Mapped[int] = mapped_column(Integer)
+    number: Mapped[str] = mapped_column(String(60))
+    status: Mapped[str] = mapped_column(String(10))
+    currency: Mapped[str] = mapped_column(String(3))
+    amount: Mapped[Decimal] = mapped_column(MONEY)
+    subtotal: Mapped[Decimal] = mapped_column(MONEY)
+    tax: Mapped[Decimal] = mapped_column(MONEY)
+    reason: Mapped[str] = mapped_column(String(300))
+    issue_date: Mapped[date] = mapped_column(Date)
+    issued_by: Mapped[str] = mapped_column(String(160))
+    voided_by: Mapped[str | None] = mapped_column(String(160))
+    voided_at: Mapped[datetime | None] = mapped_column(TS)
+    void_reason: Mapped[str] = mapped_column(String(300))
+
+
+class BusinessPaymentNoticeRecord(Base, _Updated):
+    __tablename__ = "business_payment_notices"
+    invoice_id: Mapped[str] = mapped_column(String(80))
+    account_id: Mapped[str] = mapped_column(String(80))
+    access_id: Mapped[str] = mapped_column(String(80))
+    contact_id: Mapped[str] = mapped_column(String(80))
+    payer_name: Mapped[str] = mapped_column(String(160))
+    amount: Mapped[Decimal] = mapped_column(MONEY)
+    paid_on: Mapped[date] = mapped_column(Date)
+    method: Mapped[str] = mapped_column(String(20))
+    reference: Mapped[str] = mapped_column(String(120))
+    note: Mapped[str] = mapped_column(String(300))
+    status: Mapped[str] = mapped_column(String(10))
+    decided_by: Mapped[str | None] = mapped_column(String(160))
+    decided_at: Mapped[datetime | None] = mapped_column(TS)
+    decision_note: Mapped[str] = mapped_column(String(300))
+    payment_id: Mapped[str | None] = mapped_column(String(80))
+    client_key: Mapped[str | None] = mapped_column(String(80))
 
 
 class BusinessInvoiceCounterRecord(Base, _Updated):
@@ -529,6 +569,8 @@ RECORDS: dict[str, Any] = {
     "invoices": BusinessInvoiceRecord,
     "invoice_payments": BusinessInvoicePaymentRecord,
     "invoice_counters": BusinessInvoiceCounterRecord,
+    "credit_notes": BusinessCreditNoteRecord,
+    "payment_notices": BusinessPaymentNoticeRecord,
     "portal_access": BusinessPortalAccessRecord,
     "portal_decisions": BusinessPortalDecisionRecord,
 }

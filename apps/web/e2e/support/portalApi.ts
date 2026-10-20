@@ -14,6 +14,7 @@ const now = () => new Date().toISOString();
 const envelope = (code: string, message: string) => ({ error: { code, message, correlation_id: 'corr_e2e', details: [] } });
 const INVALID = 'This link is not valid. Ask the business that sent it for a new one.';
 const NO_DECISION = 'This link can read but not approve. Ask the business to turn on approvals for you.';
+const NO_REPORT = 'This link can read but not act. Ask the business to turn on approvals for you, or tell them you paid.';
 const ARCHIVED = 'This business has paused its account, so nothing can be changed now. You can still read everything.';
 
 export interface PortalOptions {
@@ -24,6 +25,8 @@ export interface PortalOptions {
   failList?: 'offers' | 'invoices';
   expiresInDays?: number;
   overdueInvoices?: number;
+  /** The first invoice has a credit note of 100. */
+  credited?: boolean;
 }
 export interface PortalMock {
   requests: { method: string; path: string; headers: Record<string, string>; body: unknown }[];
@@ -32,11 +35,14 @@ export interface PortalMock {
   /** The business sends a new version: the hash the customer holds is now stale. */
   changeOffer: () => void;
   decisions: Json[];
+  /** The business answers the customer's reports: confirmed ones become payments, rejected ones carry the reason. */
+  answerReports: (status: 'confirmed' | 'rejected', reason?: string) => void;
 }
 
 export async function mockPortal(page: Page, options: PortalOptions = {}): Promise<PortalMock> {
   const canDecide = options.canDecide ?? true;
-  const mock: PortalMock = { requests: [], leaks: [], changeOffer: () => undefined, decisions: [] };
+  const mock: PortalMock = { requests: [], leaks: [], changeOffer: () => undefined, decisions: [], answerReports: () => undefined };
+  const reports: Json[] = [];
   let offerHash = OFFER_HASH;
   const decided: Record<string, Json> = {};
   let counter = 0;
@@ -61,17 +67,26 @@ export async function mockPortal(page: Page, options: PortalOptions = {}): Promi
   const staleChange = (): Json => ({ ...change(), id: 'bco_2', number: 2, title: 'Blog section', total_delta: 1150, stale: true, can_decide: false, decision: null });
   const invoice = (n: number): Json => {
     const base = { currency: 'SAR', customer_reference: `PO ${n}`, lines: [{ description: 'Design approved', quantity: 1, unit_price: 1000, tax_rate_pct: 15, total: 1150 }], subtotal: 1000, tax: 150, notes: 'Thank you.', payment_terms: 'Pay within 14 days.',
-      bill_to_name: 'Acme Trading', bill_to_address: 'Riyadh', bill_to_tax_number: '300111', seller: { legal_name: 'Najd Digital Co.', address: 'Olaya Street, Riyadh', tax_label: 'VAT number', tax_number: '300123456700003', email: 'billing@najd.example', phone: '+966500000000', bank_details: 'Example Bank\nIBAN SA0000000000000000000000' }, void_reason: '' };
-    if (n === 1) return { ...base, id: 'binv_1', number: 'INV-0001', status: 'sent', total: 1150, amount_paid: 400, balance: 750, issue_date: day(-40), due_date: day(-26), overdue: true, days_overdue: 26, payment_state: 'partially_paid', payments: [{ paid_on: day(-20), amount: 400, method: 'bank_transfer', reference: 'TT-5' }] };
+      bill_to_name: 'Acme Trading', bill_to_address: 'Riyadh', bill_to_tax_number: '300111', seller: { legal_name: 'Najd Digital Co.', address: 'Olaya Street, Riyadh', tax_label: 'VAT number', tax_number: '300123456700003', email: 'billing@najd.example', phone: '+966500000000', bank_details: 'Example Bank\nIBAN SA0000000000000000000000' }, void_reason: '', amount_credited: 0, credit_notes: [], payment_notices: [], can_report_payment: false };
+    if (n === 1) {
+      const credited = options.credited ? 100 : 0;
+      const balance = 750 - credited - reports.filter((item) => item.status === 'confirmed').reduce((sum, item) => sum + Number(item.amount), 0);
+      const paid = 400 + reports.filter((item) => item.status === 'confirmed').reduce((sum, item) => sum + Number(item.amount), 0);
+      return { ...base, id: 'binv_1', number: 'INV-0001', status: balance <= 0 ? 'paid' : 'sent', total: 1150, amount_paid: paid, amount_credited: credited, balance, issue_date: day(-40), due_date: day(-26), overdue: balance > 0, days_overdue: 26, payment_state: balance <= 0 ? 'paid' : 'partially_paid',
+        payments: [{ paid_on: day(-20), amount: 400, method: 'bank_transfer', reference: 'TT-5' }, ...reports.filter((item) => item.status === 'confirmed').map((item) => ({ paid_on: item.paid_on, amount: item.amount, method: item.method, reference: item.reference }))],
+        credit_notes: credited ? [{ number: 'INV-0001-CN1', issue_date: day(-5), amount: 100, reason: 'Agreed discount', status: 'issued' }] : [], payment_notices: reports.map((item) => ({ ...item })),
+        can_report_payment: canDecide && !options.archived && balance > 0 };
+    }
     if (n === 2) return { ...base, id: 'binv_2', number: 'INV-0002', status: 'paid', total: 1150, amount_paid: 1150, balance: 0, issue_date: day(-60), due_date: day(-46), overdue: false, days_overdue: 0, payment_state: 'paid', payments: [{ paid_on: day(-50), amount: 1150, method: 'cash', reference: '' }] };
     return { ...base, id: 'binv_3', number: 'INV-0003', status: 'void', total: 1150, amount_paid: 0, balance: 1150, issue_date: day(-30), due_date: day(-16), overdue: false, days_overdue: 0, payment_state: 'unpaid', payments: [], void_reason: 'Issued twice' };
   };
-  const summary = (item: Json) => { const { lines, subtotal, tax, notes, payment_terms, bill_to_name, bill_to_address, bill_to_tax_number, seller, payments, void_reason, ...rest } = item; void [lines, subtotal, tax, notes, payment_terms, bill_to_name, bill_to_address, bill_to_tax_number, seller, payments, void_reason]; return rest; };
+  const summary = (item: Json) => { const { lines, subtotal, tax, notes, payment_terms, bill_to_name, bill_to_address, bill_to_tax_number, seller, payments, void_reason, credit_notes, payment_notices, can_report_payment, ...rest } = item; void [lines, subtotal, tax, notes, payment_terms, bill_to_name, bill_to_address, bill_to_tax_number, seller, payments, void_reason, credit_notes, payment_notices, can_report_payment]; return rest; };
   const offerSummary = (item: Json) => { const { summary: s, scope, deliverables, exclusions, assumptions, acceptance_criteria, line_items, milestones, subtotal, tax, tax_rate_pct, tax_note, payment_terms, content_hash, ...rest } = item; void [s, scope, deliverables, exclusions, assumptions, acceptance_criteria, line_items, milestones, subtotal, tax, tax_rate_pct, tax_note, payment_terms, content_hash]; return rest; };
   const changeSummary = (item: Json) => { const { request, subtotal_delta, tax_delta, content_hash, lines, ...rest } = item; void [request, subtotal_delta, tax_delta, content_hash, lines]; return rest; };
   const ticketSummary = (item: Json) => { const { description, resolution_summary, resolved_at, replies, ...rest } = item; void [description, resolution_summary, resolved_at, replies]; return rest; };
   const invoices = () => (options.empty ? [] : [invoice(1), invoice(2), invoice(3)]);
   mock.changeOffer = () => { offerHash = 'b2'.repeat(32); };
+  mock.answerReports = (status, reason = '') => { for (const item of reports) if (item.status === 'pending') Object.assign(item, { status, decision_note: status === 'rejected' ? reason : '' }); };
 
   await page.route('http://localhost:8000/**', async (route: Route) => {
     const request = route.request();
@@ -119,6 +134,21 @@ export async function mockPortal(page: Page, options: PortalOptions = {}): Promi
     }
     if (path === '/invoices') return options.failList === 'invoices' ? json(envelope('internal_error', 'The server could not reach its database'), 500) : json(invoices().map(summary));
     if (parts[0] === 'invoices' && parts.length === 2) return json(invoices().find((item) => item.id === parts[1]) ?? envelope('not_found', 'Invoice not found'), invoices().some((item) => item.id === parts[1]) ? 200 : 404);
+    if (parts[0] === 'invoices' && parts[2] === 'pdf') {
+      return route.fulfill({ status: 200, contentType: 'application/pdf', headers: { 'content-disposition': `attachment; filename="${parts[1] === 'binv_1' ? 'INV-0001' : parts[1]}.pdf"`, 'access-control-expose-headers': 'Content-Disposition' }, body: '%PDF-1.4 mock' });
+    }
+    if (parts[0] === 'invoices' && parts[2] === 'payment-notices' && method === 'POST') {
+      if (options.archived) return json(envelope('forbidden', ARCHIVED), 403);
+      if (!canDecide) return json(envelope('forbidden', NO_REPORT), 403);
+      const input = body as Json;
+      const current = invoice(1);
+      if (parts[1] !== 'binv_1') return json(envelope('not_found', 'Invoice not found'), 404);
+      if (Number(input.amount) > Number(current.balance)) return json(envelope('validation_error', `The amount is more than the balance of SAR ${Number(current.balance).toFixed(2)}.`), 422);
+      if (String(input.paid_on) > day(0)) return json(envelope('validation_error', 'The payment date cannot be in the future.'), 422);
+      const again = reports.find((item) => item.status === 'pending' && item.amount === input.amount && item.paid_on === input.paid_on && item.reference === (input.reference ?? ''));
+      if (!again) reports.unshift({ id: `bpnote_${++counter}`, amount: input.amount, paid_on: input.paid_on, method: input.method, reference: input.reference ?? '', status: 'pending', decision_note: '', created_at: now() });
+      return json(invoice(1), again ? 200 : 201);
+    }
     if (parts[0] === 'invoices' && parts[2] === 'print') {
       return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: `<!doctype html><html lang="${url.searchParams.get('lang')}"><head><meta charset="utf-8"><title>Invoice</title></head><body><h1>Invoice ${parts[1]}</h1></body></html>` });
     }

@@ -4,7 +4,7 @@
 // read from the URL fragment, removed from the address bar at once and sent only as a bearer token to
 // /api/v1/portal. This file imports nothing of the signed-in app.
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, CircleDot, FileText, Inbox, Lock, Printer, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, CircleDot, Download, FileText, Inbox, Lock, Printer, ShieldAlert } from 'lucide-react';
 import type {
   PortalChange, PortalChangeSummary, PortalInvoice, PortalInvoiceSummary, PortalMe, PortalOffer, PortalOfferSummary, PortalTicket, PortalTicketSummary,
 } from '@anum/contracts';
@@ -12,8 +12,8 @@ import { ApiError } from './lib/errors';
 import { LOCALES, LOCALE_NAMES, chooseLocale, formatDateTime, getLocale, t, type Locale } from './lib/i18n';
 import { formatMoney, formatPct } from './lib/business';
 import {
-  REQUEST_SEVERITIES, changeStatusLabel, checkSigner, confirmText, expiryState, invoiceStatusText, invoiceStatusTone, methodLabel, offerStatusLabel, problemKind,
-  resolveToken, severityLabel, storeToken, ticketStatusLabel, ticketTone, withoutFragment,
+  REPORT_METHODS, REQUEST_SEVERITIES, changeStatusLabel, checkSigner, confirmText, emptyReport, expiryState, localToday, invoiceStatusText, invoiceStatusTone, methodLabel,
+  offerStatusLabel, problemKind, reportBody, reportStatusLabel, reportTone, resolveToken, severityLabel, storeToken, ticketStatusLabel, ticketTone, withoutFragment,
 } from './lib/portal';
 import * as p from './lib/portalApi';
 import { printHtml } from './lib/printWindow';
@@ -435,7 +435,7 @@ function InvoicesSection({ onLinkLost }: { onLinkLost: (message: string | null) 
       : <ul className="ptList">{list.state.value.map((item: PortalInvoiceSummary) => <li key={item.id} className="surface ptRow">
         <div><button type="button" className="linkButton" onClick={() => setOpenId(item.id)}><span dir="auto">{item.number}</span></button>
           <small className="muted">{item.status === 'void' ? t('pt.invoices.issued', { date: date(item.issue_date) }) : t('pt.invoices.dueOn', { date: date(item.due_date) })}{item.customer_reference ? ` / ${item.customer_reference}` : ''}</small></div>
-        <div className="ptRowEnd"><span><strong>{money(item.status === 'void' ? item.total : item.balance, item.currency)}</strong>{item.status !== 'void' && item.payment_state !== 'paid' && <small className="muted"> {t('pt.invoices.toPay')}</small>}</span>
+        <div className="ptRowEnd"><span><strong>{money(item.status === 'void' ? item.total : item.balance, item.currency)}</strong>{item.status !== 'void' && item.payment_state !== 'paid' && item.payment_state !== 'credited' && <small className="muted"> {t('pt.invoices.toPay')}</small>}</span>
           <Badge tone={invoiceStatusTone(item)}>{invoiceStatusText(item)}{item.overdue && item.status !== 'void' ? `, ${t('pt.invoices.days', { count: item.days_overdue })}` : ''}</Badge></div>
       </li>)}</ul>)}
   </section>;
@@ -445,6 +445,7 @@ function InvoiceDetail({ id, onBack, onLinkLost }: { id: string; onBack: () => v
   const detail = useLoad(() => p.getInvoice(id), [id]);
   const heading = useFocus<HTMLHeadingElement>(detail.state.kind === 'ready');
   const [language, setLanguage] = useState<'en' | 'ar'>(getLocale() === 'ar' ? 'ar' : 'en'), [note, setNote] = useState<string>(''), [failed, setFailed] = useState<string | null>(null);
+  const [reporting, setReporting] = useState(false), [reported, setReported] = useState(false);
   const langId = useId();
   useLinkWatch(detail.state, onLinkLost);
   if (detail.state.kind === 'loading') return <section className="ptStack"><Back onClick={onBack} label={t('pt.invoices.back')} /><Waiting what={t('pt.what.invoice')} /></section>;
@@ -455,7 +456,13 @@ function InvoiceDetail({ id, onBack, onLinkLost }: { id: string; onBack: () => v
     try { await printHtml(() => p.invoicePrintable(invoice.id, language)); setNote(t('pt.print.opened')); }
     catch (error) { setNote(''); setFailed(error instanceof ApiError ? detailOf(error) ?? t('pt.err.generic') : error instanceof Error ? error.message : t('pt.err.generic')); }
   }
+  async function downloadPdf() {
+    setNote(t('pt.pdf.working')); setFailed(null);
+    try { setNote(t('pt.pdf.saved', { name: await p.downloadInvoicePdf(invoice.id) })); }
+    catch (error) { setNote(''); setFailed(error instanceof ApiError ? detailOf(error) ?? t('pt.err.generic') : error instanceof Error ? error.message : t('pt.err.generic')); }
+  }
   const c = invoice.currency;
+  const settled = invoice.payment_state === 'paid' || invoice.payment_state === 'credited';
   return <article className="ptStack" aria-labelledby="pt-invd-h">
     <Back onClick={onBack} label={t('pt.invoices.back')} />
     <div className="ptTitleRow"><h2 id="pt-invd-h" ref={heading} tabIndex={-1} dir="auto">{t('pt.invoices.heading', { number: invoice.number })}</h2>
@@ -476,17 +483,34 @@ function InvoiceDetail({ id, onBack, onLinkLost }: { id: string; onBack: () => v
         <div><dt>{t('pt.subtotal')}</dt><dd>{money(invoice.subtotal, c)}</dd></div>
         <div><dt>{t('pt.taxPlain')}</dt><dd>{money(invoice.tax, c)}</dd></div>
         <div><dt>{t('pt.total')}</dt><dd><strong>{money(invoice.total, c)}</strong></dd></div>
+        {invoice.amount_credited > 0 && <div><dt>{t('pt.invoices.credited')}</dt><dd>{money(-invoice.amount_credited, c)}</dd></div>}
         <div><dt>{t('pt.invoices.paid')}</dt><dd>{money(invoice.amount_paid, c)}</dd></div>
         <div><dt>{t('pt.invoices.balance')}</dt><dd><strong>{money(invoice.balance, c)}</strong></dd></div>
       </dl>
     </section>
     {invoice.payments.length > 0 && <section className="ptBlock"><h3>{t('pt.invoices.payments')}</h3>
       <ul className="ptPlain">{invoice.payments.map((payment, index) => <li key={index}><strong>{money(payment.amount, c)}</strong> {date(payment.paid_on)} / {methodLabel(payment.method)}{payment.reference ? ` / ${payment.reference}` : ''}</li>)}</ul></section>}
-    {invoice.status !== 'void' && invoice.payment_state !== 'paid' && <section className="surface ptDecision" aria-labelledby="pt-how-h">
+    {invoice.credit_notes.length > 0 && <section className="ptBlock"><h3>{t('pt.invoices.creditNotes')}</h3>
+      <ul className="ptPlain">{invoice.credit_notes.map((item) => <li key={item.number}><strong>{money(item.amount, c)}</strong> <span dir="auto">{t('pt.invoices.creditNoteLine', { number: item.number, date: date(item.issue_date) })}</span>{item.status === 'void' && <> <Badge tone="dangerTone">{t('pt.invoices.creditVoid')}</Badge></>}
+        <small className="muted" dir="auto"> {item.reason}</small></li>)}</ul></section>}
+    {invoice.status !== 'void' && !settled && <section className="surface ptDecision" aria-labelledby="pt-how-h">
       <h3 id="pt-how-h">{t('pt.invoices.howToPay')}</h3>
       {invoice.seller.bank_details ? <p dir="auto" className="ptPre">{invoice.seller.bank_details}</p> : <p className="muted">{t('pt.invoices.noBank')}</p>}
       <p className="muted">{t('pt.invoices.noOnline')}</p>
       {invoice.payment_terms && <p dir="auto" className="ptPre">{invoice.payment_terms}</p>}
+    </section>}
+    {(invoice.payment_notices.length > 0 || invoice.can_report_payment || (invoice.status === 'sent' && !settled)) && <section className="ptBlock" aria-labelledby="pt-report-h">
+      <h3 id="pt-report-h">{t('pt.report.title')}</h3>
+      {invoice.payment_notices.length > 0 && <>
+        <p className="muted">{t('pt.report.list')}</p>
+        <ul className="ptPlain">{invoice.payment_notices.map((item) => <li key={item.id}><strong>{money(item.amount, c)}</strong> {date(item.paid_on)} / {methodLabel(item.method)}{item.reference ? ` / ${item.reference}` : ''} <Badge tone={reportTone(item.status)}>{reportStatusLabel(item.status)}</Badge>
+          {item.status === 'rejected' && item.decision_note && <small className="muted" dir="auto"> {t('pt.report.why', { reason: item.decision_note })}</small>}</li>)}</ul></>}
+      {reported && <Notice live>{t('pt.report.sent')}</Notice>}
+      {invoice.can_report_payment
+        ? (reporting ? <ReportPayment invoice={invoice} onCancel={() => setReporting(false)} onLinkLost={onLinkLost}
+          onSent={(next) => { detail.set(next); setReporting(false); setReported(true); }} />
+          : <><p className="muted">{t('pt.report.help')}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setReported(false); setReporting(true); }}>{t('pt.report.open')}</button></div></>)
+        : invoice.status === 'sent' && !settled && <p className="muted">{t('pt.report.readOnly')}</p>}
     </section>}
     <div className="ptBlock ptTwo">
       <section><h3>{t('pt.invoices.billTo')}</h3><p dir="auto" className="ptPre"><strong>{invoice.bill_to_name || t('pt.dash')}</strong>{invoice.bill_to_address ? `\n${invoice.bill_to_address}` : ''}{invoice.bill_to_tax_number ? `\n${invoice.bill_to_tax_number}` : ''}</p></section>
@@ -500,11 +524,44 @@ function InvoiceDetail({ id, onBack, onLinkLost }: { id: string; onBack: () => v
         <label className="field" htmlFor={langId}><span>{t('pt.print.language')}</span>
           <select id={langId} value={language} onChange={(event) => setLanguage(event.target.value as 'en' | 'ar')}><option value="en">{t('pt.print.en')}</option><option value="ar">{t('pt.print.ar')}</option></select></label>
         <button type="button" className="secondary" onClick={() => void print()}><Printer aria-hidden="true" />{t('pt.print.button')}</button>
+        <button type="button" className="secondary" onClick={() => void downloadPdf()}><Download aria-hidden="true" />{t('pt.pdf.button')}</button>
       </div>
+      <p className="muted">{t('pt.pdf.help')}</p>
       <p className="muted" role="status">{note}</p>
       {failed && <Notice error>{failed}</Notice>}
     </section>
   </article>;
+}
+
+function ReportPayment({ invoice, onSent, onCancel, onLinkLost }: { invoice: PortalInvoice; onSent: (next: PortalInvoice) => void; onCancel: () => void; onLinkLost: (message: string | null) => void }) {
+  const [draft, setDraft] = useState(() => emptyReport(invoice.balance, localToday())), [problem, setProblem] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  const ids = [useId(), useId(), useId(), useId(), useId(), useId()];
+  const set = (key: keyof typeof draft) => (event: { target: { value: string } }) => setDraft({ ...draft, [key]: event.target.value });
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const body = reportBody(draft, invoice.balance, invoice.currency, localToday());
+    if (!body.ok) { setProblem(body.error); return; }
+    setBusy(true); setProblem(null);
+    try { onSent(await p.reportPayment(invoice.id, body.value)); }
+    catch (error) {
+      if (problemKind(statusOf(error), detailOf(error)) === 'link') onLinkLost(detailOf(error));
+      setProblem(detailOf(error) ?? t('pt.err.generic')); setBusy(false);
+    }
+  }
+  return <form className="surface ptForm" onSubmit={(event) => void submit(event)} noValidate aria-label={t('pt.report.open')}>
+    <p className="muted">{t('pt.report.help')}</p>
+    <label className="field" htmlFor={ids[0]}><span>{t('pt.report.name')}</span><input id={ids[0]} value={draft.name} maxLength={160} onChange={set('name')} dir="auto" autoComplete="name" /></label>
+    <div className="ptTwo">
+      <label className="field" htmlFor={ids[1]}><span>{t('pt.report.amount')}</span><input id={ids[1]} inputMode="decimal" value={draft.amount} onChange={set('amount')} /></label>
+      <label className="field" htmlFor={ids[2]}><span>{t('pt.report.date')}</span><input id={ids[2]} type="date" value={draft.paidOn} max={localToday()} onChange={set('paidOn')} /></label>
+      <label className="field" htmlFor={ids[3]}><span>{t('pt.report.method')}</span>
+        <select id={ids[3]} value={draft.method} onChange={(event) => setDraft({ ...draft, method: event.target.value as typeof draft.method })}>{REPORT_METHODS.map((method) => <option key={method} value={method}>{methodLabel(method)}</option>)}</select></label>
+      <label className="field" htmlFor={ids[4]}><span>{t('pt.report.reference')}</span><input id={ids[4]} value={draft.reference} maxLength={120} onChange={set('reference')} dir="auto" /></label>
+    </div>
+    <label className="field" htmlFor={ids[5]}><span>{t('pt.report.note')}</span><input id={ids[5]} value={draft.note} maxLength={300} onChange={set('note')} dir="auto" /></label>
+    {problem && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{problem}</p>}
+    <div className="actions"><button type="submit" disabled={busy}>{busy ? t('dialog.working') : t('pt.report.send')}</button><button type="button" className="secondary" onClick={onCancel}>{t('common.cancel')}</button></div>
+  </form>;
 }
 
 // ---- requests ----------------------------------------------------------------------------------

@@ -88,6 +88,8 @@ class Invoice(Scoped):
     tax: Money = Decimal("0")
     total: Money = Decimal("0")
     amount_paid: Money = Decimal("0")
+    # Credit notes in force (the sum of the credit notes that are not void).
+    amount_credited: Money = Decimal("0")
     due_in_days: int = Field(default=14, ge=0, le=365)
     # Assigned when the owner approves sending it: the next number of the year, never reused.
     seq: int | None = None
@@ -121,7 +123,7 @@ class Invoice(Scoped):
     created_by: str
 
     def balance_due(self) -> Decimal:
-        return money(self.total - self.amount_paid)
+        return money(self.total - self.amount_paid - self.amount_credited)
 
 
 class InvoicePayment(Scoped):
@@ -134,6 +136,63 @@ class InvoicePayment(Scoped):
     reference: str = Field(default="", max_length=120)
     note: str = Field(default="", max_length=300)
     recorded_by: str
+
+
+class CreditNoteStatus(StrEnum):
+    ISSUED = "issued"
+    VOID = "void"
+
+
+class CreditNote(Scoped):
+    """Money an owner takes off a sent invoice (docs/business.md#credit-notes). The invoice itself never
+    changes; it carries the running total of its credit notes. ``amount`` is tax inclusive and is split
+    into ``subtotal`` and ``tax`` by the server in the invoice's own proportion. Numbered
+    ``<invoice number>-CN<n>``; a mistake is voided, never deleted."""
+
+    invoice_id: str
+    account_id: str
+    seq: int = Field(ge=1)
+    number: str = Field(max_length=60)
+    status: CreditNoteStatus = CreditNoteStatus.ISSUED
+    currency: Currency
+    amount: Money
+    subtotal: Money
+    tax: Money
+    reason: str = Field(min_length=3, max_length=300)
+    issue_date: date
+    issued_by: str
+    voided_by: str | None = None
+    voided_at: datetime | None = None
+    void_reason: str = Field(default="", max_length=300)
+
+
+class PaymentNoticeStatus(StrEnum):
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    REJECTED = "rejected"
+
+
+class PaymentNotice(Scoped):
+    """What a customer says they paid, reported from the portal link. It moves no money and changes no
+    balance: an owner confirms it (which records an ordinary payment) or rejects it."""
+
+    invoice_id: str
+    account_id: str
+    access_id: str
+    contact_id: str
+    payer_name: str = Field(min_length=2, max_length=160)
+    amount: Money
+    paid_on: date
+    method: PaymentMethod = PaymentMethod.BANK_TRANSFER
+    reference: str = Field(default="", max_length=120)
+    note: str = Field(default="", max_length=300)
+    status: PaymentNoticeStatus = PaymentNoticeStatus.PENDING
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+    decision_note: str = Field(default="", max_length=300)
+    payment_id: str | None = None
+    # Chosen by the client for one submit of the report form; a repeat of the same key is the same report.
+    client_key: str | None = Field(default=None, min_length=8, max_length=80)
 
 
 class InvoiceCounter(Scoped):
