@@ -833,9 +833,27 @@ class TicketReply(Scoped):
     created_by: str
 
 
+class BillingProfile(BaseModel):
+    """Who issues the invoices and how they are paid (docs/business.md#invoices). It is
+    copied onto each invoice when it is sent, so a later change never rewrites an old one."""
+
+    legal_name: str = Field(default="", max_length=200)
+    address: str = Field(default="", max_length=1000)
+    tax_label: str = Field(default="Tax registration number", max_length=60)
+    tax_number: str = Field(default="", max_length=60)
+    email: str = Field(default="", max_length=254)
+    phone: str = Field(default="", max_length=40)
+    bank_details: str = Field(default="", max_length=1500)
+    footer_note: str = Field(default="", max_length=500)
+    invoice_prefix: str = Field(default="INV", min_length=1, max_length=8, pattern=r"^[A-Za-z0-9]+$")
+    default_due_days: int = Field(default=14, ge=0, le=365)
+    default_tax_rate_pct: Percent = Decimal("0")
+
+
 class BusinessSettings(BaseModel):
     research_runs_per_day: int = Field(default=10, ge=0, le=100)
     research_searches_per_day: int = Field(default=30, ge=0, le=500)
     support_policy: SupportPolicy = Field(default_factory=SupportPolicy)
+    billing: BillingProfile = Field(default_factory=BillingProfile)
     updated_by: str | None = None
     updated_at: datetime | None = None

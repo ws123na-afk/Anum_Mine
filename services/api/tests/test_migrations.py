@@ -1177,7 +1177,8 @@ def test_approvals_paging_migration_only_adds_concurrent_indexes() -> None:
     assert 'revision = "0088_approvals_paging"' in revision_text and len("0088_approvals_paging") <= 32
     assert 'down_revision = "0087_email_draft_bcc"' in revision_text
     others = [path for path in versions.glob("*.py") if path.name != "0088_approvals_paging.py"]
-    assert [path.name for path in others if 'down_revision = "0088_approvals_paging"' in path.read_text(encoding="utf-8")] in ([], ["0089_calendar_sync.py"])
+    followers = [path.name for path in others if 'down_revision = "0088_approvals_paging"' in path.read_text(encoding="utf-8")]
+    assert followers in ([], ["0089_business_invoices_portal.py"])
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert "autocommit_block()" in upgrade and upgrade.count("create index concurrently if not exists") == 2
     assert "where status = 'pending'" in upgrade
@@ -1201,11 +1202,11 @@ def test_demo_records_migration_is_expand_only_with_forced_rls() -> None:
 
 def test_calendar_sync_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0089_calendar_sync.py").read_text(encoding="utf-8")
-    assert 'revision = "0089_calendar_sync"' in revision_text and len("0089_calendar_sync") <= 32
-    assert 'down_revision = "0088_approvals_paging"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0089_calendar_sync.py"]
-    assert not [path for path in others if 'down_revision = "0089_calendar_sync"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0090_calendar_sync.py").read_text(encoding="utf-8")
+    assert 'revision = "0090_calendar_sync"' in revision_text and len("0090_calendar_sync") <= 32
+    assert 'down_revision = "0089_business_invoices_portal"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0090_calendar_sync.py"]
+    assert not [path for path in others if 'down_revision = "0090_calendar_sync"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 2
     assert '"calendar_connections"' in revision_text and '"calendar_oauth_requests"' in revision_text
@@ -1224,7 +1225,7 @@ def test_email_draft_bcc_migration_adds_one_defaulted_column_only() -> None:
     assert 'revision = "0087_email_draft_bcc"' in revision_text and len("0087_email_draft_bcc") <= 32
     assert 'down_revision = "0080_business_change_orders"' in revision_text
     others = [path for path in versions.glob("*.py") if path.name != "0087_email_draft_bcc.py"]
-    # The head: nothing else extends 0080 or this revision.
+    # Only this revision extends 0080 (a later migration may extend this one: invoices and the portal do).
     assert not [path for path in others if 'down_revision = "0080_business_change_orders"' in path.read_text(encoding="utf-8")]
     followers = [path.name for path in others if 'down_revision = "0087_email_draft_bcc"' in path.read_text(encoding="utf-8")]
     assert followers in ([], ["0088_approvals_paging.py"])

@@ -1,3 +1,5 @@
+import 'invoice_strings.dart';
+import 'portal_strings.dart';
 import 'catalog_strings.dart';
 import 'deals_strings.dart';
 import 'support_strings.dart';
@@ -7,6 +9,8 @@ import 'support_strings.dart';
 /// catalog (apps/web/src/lib/messages/business.*.ts).
 const businessEn = <String, String>{
   ...supportEn,
+  ...invoiceEn,
+  ...portalEn,
   ...catalogEn,
   ...dealsEn,
   'biz.title': 'Business',
@@ -203,6 +207,8 @@ const businessEn = <String, String>{
 
 const businessAr = <String, String>{
   ...supportAr,
+  ...invoiceAr,
+  ...portalAr,
   ...catalogAr,
   ...dealsAr,
   'biz.title': 'الأعمال',

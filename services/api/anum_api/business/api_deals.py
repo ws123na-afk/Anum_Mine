@@ -45,6 +45,8 @@ from .models import (
     SignedMoney,
     money,
 )
+from .invoice_models import DecisionSubject, PortalDecisionSummary
+from .portal_service import decision_summary
 from .service import audit, content_hash, http_error, proposal_totals, record_activity, stamp_state
 from .store import MAX_SCAN, BusinessStore, Query, open_business_store
 from .tools import acceptance_arguments, request_approval, retire_approval
@@ -236,6 +238,8 @@ class ProposalView(Proposal):
     approval_state: ApprovalState = "none"
     approval: Approval | None = None
     project_id: str | None = None
+    # What the customer decided in their portal about the version waiting for acceptance.
+    portal_decision: PortalDecisionSummary | None = None
 
 
 class ProposalCreate(BaseModel):
@@ -277,6 +281,7 @@ def proposal_view(store: BusinessStore, repository: AnumRepository, context: Ten
         current=version_view(current),
         versions=[VersionSummary(version=item.version, content_hash=item.content_hash, locked=item.locked, change_order_id=item.change_order_id, total=proposal_totals(item)["total"], created_at=item.created_at) for item in versions],
         approval_state=state, approval=approval if state == "pending" else None, project_id=project.id if project else None,
+        portal_decision=decision_summary(store, DecisionSubject.PROPOSAL, proposal.id, proposal.requested_hash or proposal.accepted_hash),
     )
 
 

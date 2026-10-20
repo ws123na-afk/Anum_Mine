@@ -24,7 +24,7 @@ export type ApprovalState = 'none' | 'pending' | 'approved' | 'rejected' | 'expi
 
 export interface BusinessPage<T> { items: T[]; total: number; limit: number; offset: number }
 
-export interface BusinessSettings { research_runs_per_day: number; research_searches_per_day: number; updated_by: string | null; updated_at: string | null }
+export interface BusinessSettings { research_runs_per_day: number; research_searches_per_day: number; billing: BillingProfile; updated_by: string | null; updated_at: string | null }
 
 export interface BusinessSetup {
   permissions: { read: boolean; write: boolean; manage: boolean; decide: boolean };
@@ -142,7 +142,8 @@ export interface BusinessOpportunity extends Scoped {
   account_name: string; lead_title: string | null; product_name: string | null; weighted_value: number | null; proposals: number;
 }
 
-export interface LineItem { description: string; kind: 'labor' | 'service' | 'external_cost' | 'other'; quantity: number; unit_price: number }
+export type LineKind = 'labor' | 'service' | 'external_cost' | 'other';
+export interface LineItem { description: string; kind: LineKind; quantity: number; unit_price: number }
 export interface MilestonePlan { title: string; amount: number; due_in_days: number | null; acceptance: string }
 
 export interface ProposalContent {
@@ -166,6 +167,8 @@ export interface BusinessProposal extends Scoped {
   account_name: string; opportunity_name: string; current: ProposalVersionView;
   versions: { version: number; content_hash: string; locked: boolean; change_order_id?: string | null; total: number; created_at: string }[];
   approval_state: ApprovalState; approval: ProposalApproval | null; project_id: string | null;
+  /** What the customer decided in their portal about the version waiting for acceptance. */
+  portal_decision: PortalDecisionSummary | null;
 }
 
 export interface BusinessMilestone extends Scoped {
@@ -190,6 +193,8 @@ export interface BusinessChangeOrder extends Scoped {
   total_delta: number | null; result_version: number | null; submitted_by: string | null; submitted_at: string | null; decided_by: string | null;
   decided_at: string | null; decision_note: string; created_by: string;
   project_name: string; issues: string[]; current_version: number | null; stale: boolean;
+  /** What the customer decided in their portal about this exact change order. */
+  portal_decision: PortalDecisionSummary | null;
 }
 
 export interface ChangeOrderInput {
@@ -319,3 +324,158 @@ export interface TicketFields {
   requester_name?: string; requester_email?: string | null; requester_phone?: string | null;
   entitlement?: TicketEntitlement; support_offer_id?: string | null; entitlement_note?: string; assignee_id?: string | null;
 }
+
+// -- invoices and the customer portal (docs/business.md#invoices, docs/business-portal.md) ----------------------------
+
+export type InvoiceStatus = 'draft' | 'pending_approval' | 'sent' | 'paid' | 'void';
+export type InvoiceLineSource = 'manual' | 'offer' | 'milestone' | 'contract' | 'usage';
+export type InvoicePaymentState = 'unpaid' | 'partially_paid' | 'paid';
+export type PaymentMethod = 'bank_transfer' | 'cash' | 'card' | 'cheque' | 'other';
+
+/** Who issues the invoices and how they are paid; copied onto each invoice when it is sent. */
+export interface BillingProfile {
+  legal_name: string; address: string; tax_label: string; tax_number: string; email: string; phone: string; bank_details: string;
+  footer_note: string; invoice_prefix: string; default_due_days: number; default_tax_rate_pct: number;
+}
+
+export interface InvoiceLine {
+  description: string; kind: LineKind; quantity: number; unit_price: number; tax_rate_pct: number; source: InvoiceLineSource; source_id: string | null;
+  gross_total: number | null;
+  /** Worked out by the server. */
+  net: number; tax: number; total: number;
+}
+
+export interface InvoicePayment extends Scoped {
+  invoice_id: string; amount: number; paid_on: string; method: PaymentMethod; reference: string; note: string; recorded_by: string;
+}
+
+export interface InvoiceCan {
+  edit: boolean; request_send: boolean; cancel_request: boolean; delete: boolean; void: boolean; record_payment: boolean; remove_payment: boolean;
+}
+
+export interface BusinessInvoice extends Scoped {
+  account_id: string; project_id: string | null; status: InvoiceStatus; currency: BusinessCurrency; lines: InvoiceLine[];
+  subtotal: number; tax: number; total: number; amount_paid: number; due_in_days: number;
+  seq: number | null; number: string | null; issue_date: string | null; due_date: string | null;
+  customer_reference: string; notes: string; payment_terms: string;
+  bill_to_name: string; bill_to_address: string; bill_to_email: string; bill_to_tax_number: string;
+  seller: BillingProfile | null; content_hash: string | null; requested_hash: string | null; approval_id: string | null;
+  requested_by: string | null; requested_at: string | null; sent_by: string | null; sent_at: string | null; paid_at: string | null;
+  voided_by: string | null; voided_at: string | null; void_reason: string; decision_note: string; created_by: string;
+  account_name: string; project_name: string | null; balance: number; overdue: boolean; days_overdue: number; payment_state: InvoicePaymentState;
+  payments: InvoicePayment[];
+  approval_state: ApprovalState;
+  approval: TicketReplyApproval | null;
+  /** Why a draft cannot be sent for approval yet. */
+  issues: string[];
+  can: InvoiceCan;
+}
+
+export interface InvoiceListItem {
+  id: string; number: string | null; status: InvoiceStatus; account_id: string; account_name: string; project_id: string | null; project_name: string | null;
+  currency: BusinessCurrency; total: number; amount_paid: number; balance: number; issue_date: string | null; due_date: string | null;
+  overdue: boolean; days_overdue: number; payment_state: InvoicePaymentState; customer_reference: string; lines: number; updated_at: string; created_at: string;
+}
+
+export interface InvoiceSummary {
+  counts: Record<InvoiceStatus, number>;
+  currencies: { currency: BusinessCurrency; outstanding: number; overdue: number; overdue_count: number; invoiced_this_month: number; collected_this_month: number; drafts: number }[];
+  truncated: boolean;
+  notes: string[];
+}
+
+export interface BillableMilestone {
+  id: string; position: number; title: string; amount: number; due_on: string | null; status: MilestoneStatus; change_order_number: number | null;
+  billable: boolean; reason: string;
+}
+export interface BillableUsage {
+  id: string; description: string; kind: UsageKind; occurred_on: string; quantity: number; unit_cost: number; amount: number; currency: BusinessCurrency;
+  project_id: string | null; billable: boolean; reason: string;
+}
+export interface BillableOffer { id: string; label: string; currency: BusinessCurrency; price_type: PriceType; price: number | null }
+export interface Billable {
+  account_id: string; project_id: string | null; currency: BusinessCurrency; tax_rate_pct: number;
+  milestones: BillableMilestone[];
+  contract: { contract_total: number; invoiced: number; remaining: number } | null;
+  usage: BillableUsage[];
+  offers: BillableOffer[];
+}
+
+export interface ManualInvoiceLine { description: string; kind?: LineKind; quantity?: number; unit_price: number; tax_rate_pct?: number | null }
+export interface InvoiceFields {
+  due_in_days?: number | null; customer_reference?: string | null; notes?: string | null; payment_terms?: string | null;
+  bill_to_name?: string | null; bill_to_address?: string | null; bill_to_email?: string | null; bill_to_tax_number?: string | null;
+}
+export interface InvoiceCreate extends InvoiceFields {
+  account_id?: string; project_id?: string; contact_id?: string; currency?: BusinessCurrency;
+  milestone_ids?: string[]; contract_amount?: number; usage_ids?: string[]; usage_markup_pct?: number;
+  offer_id?: string; offer_quantity?: number; offer_unit_price?: number; lines?: ManualInvoiceLine[]; tax_rate_pct?: number;
+}
+export interface InvoiceUpdate extends InvoiceFields { lines?: ManualInvoiceLine[]; remove_lines?: number[]; tax_rate_pct?: number }
+export interface PaymentInput { amount: number; paid_on: string; method?: PaymentMethod; reference?: string; note?: string }
+
+export type PortalDecisionValue = 'approved' | 'declined';
+
+/** What a customer decided about the version waiting for the owner (on proposals and change orders). */
+export interface PortalDecisionSummary {
+  decision: PortalDecisionValue; signer_name: string; note: string; decided_at: string; version: number | null; content_hash: string; current: boolean;
+}
+
+export interface PortalAccessItem {
+  id: string; account_id: string; contact_id: string; contact_name: string; contact_email: string | null; status: 'active' | 'revoked'; expired: boolean;
+  can_decide: boolean; expires_at: string; last_used_at: string | null; created_at: string; created_by: string; revoked_at: string | null;
+}
+/** The link is shown once: only its hash is kept. */
+export interface PortalAccessCreated extends PortalAccessItem { token: string; portal_path: string }
+export interface PortalAccessInput { account_id: string; contact_id: string; expires_in_days?: number; can_decide?: boolean }
+export interface PortalDecisionRow {
+  id: string; subject_kind: 'proposal' | 'change_order'; subject_id: string; version: number | null; decision: PortalDecisionValue; signer_name: string; note: string;
+  decided_at: string; contact_name: string;
+}
+
+// The customer's own view (/api/v1/portal). No internal figure, note, assignee or SLA ever appears here.
+
+export interface PortalMe {
+  business_name: string; account_name: string; contact_name: string; expires_at: string; can_decide: boolean;
+  counts: { offers_waiting: number; change_orders_waiting: number; invoices_open: number; invoices_overdue: number; tickets_open: number };
+  projects: { id: string; name: string }[];
+}
+export interface PortalDecisionView { decision: PortalDecisionValue; signer_name: string; note: string; decided_at: string }
+export interface PortalOfferSummary {
+  id: string; title: string; status: 'waiting' | 'accepted'; currency: BusinessCurrency; total: number; version: number; sent_at: string | null;
+  valid_until: string | null; expired: boolean; decision: PortalDecisionView | null; can_decide: boolean;
+}
+export interface PortalOffer extends PortalOfferSummary {
+  summary: string; scope: string; deliverables: string[]; exclusions: string[]; assumptions: string[]; acceptance_criteria: string[];
+  line_items: { description: string; quantity: number; unit_price: number; amount: number }[];
+  milestones: { title: string; amount: number; due_in_days: number | null; acceptance: string }[];
+  subtotal: number; tax: number; tax_rate_pct: number; tax_note: string; payment_terms: string; content_hash: string;
+}
+export interface PortalDecisionInput { decision: PortalDecisionValue; content_hash: string; signer_name: string; note?: string }
+export interface PortalChangeSummary {
+  id: string; number: number; title: string; project_name: string; status: 'waiting' | 'approved'; currency: BusinessCurrency; total_delta: number | null;
+  timeline_days: number; decision: PortalDecisionView | null; can_decide: boolean; stale: boolean;
+}
+export interface PortalChange extends PortalChangeSummary {
+  request: string; subtotal_delta: number | null; tax_delta: number | null; content_hash: string;
+  lines: { action: 'add' | 'remove'; description: string; quantity: number; unit_price: number; amount: number }[];
+}
+export interface PortalInvoiceSummary {
+  id: string; number: string; status: InvoiceStatus; currency: BusinessCurrency; total: number; amount_paid: number; balance: number; issue_date: string | null;
+  due_date: string | null; overdue: boolean; days_overdue: number; payment_state: InvoicePaymentState; customer_reference: string;
+}
+export interface PortalInvoice extends PortalInvoiceSummary {
+  lines: { description: string; quantity: number; unit_price: number; tax_rate_pct: number; total: number }[];
+  subtotal: number; tax: number; notes: string; payment_terms: string; bill_to_name: string; bill_to_address: string; bill_to_tax_number: string;
+  seller: { legal_name: string; address: string; tax_label: string; tax_number: string; email: string; phone: string; bank_details: string };
+  payments: { paid_on: string; amount: number; method: PaymentMethod; reference: string }[];
+  void_reason: string;
+}
+export interface PortalTicketSummary {
+  id: string; reference: string; title: string; severity: TicketSeverity; status: TicketStatus; project_name: string | null; reported_at: string;
+  updated_at: string; opened_here: boolean;
+}
+export interface PortalTicket extends PortalTicketSummary {
+  description: string; resolution_summary: string; resolved_at: string | null; replies: { body: string; sent_at: string | null }[];
+}
+export interface PortalTicketInput { title: string; description: string; severity?: 'low' | 'normal' | 'high'; project_id?: string | null }

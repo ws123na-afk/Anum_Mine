@@ -16,6 +16,7 @@ import {
 import * as b from './lib/businessApi';
 import { Drawer, Modal } from './Dialog';
 import { Badge, Empty, Note, Pager, ReasonDialog, day, failure, when } from './BusinessParts';
+import { PortalAccessBlock } from './BusinessPortalAdmin';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'denied'; text: string } | { kind: 'error'; text: string };
 
@@ -251,6 +252,7 @@ function LeadDrawer({ setup, leadId, products, onClose, onChanged, onOpenOpportu
             : setup.permissions.manage && <button type="button" className="secondary" disabled={busy !== null} onClick={() => setAsking('dnc')}>{t('biz.lead.clearDnc')}</button>)}
         </div> : <p className="muted">{t('biz.lead.noContact')}</p>}
       </section>
+      <PortalAccessBlock setup={setup} accountId={account.id} />
 
       <ScoreBlock detail={detail} write={write} busy={busy !== null} onSave={(criteria) => void act(t('biz.score.title'), () => b.scoreLead(lead.id, criteria), t('biz.score.saved'))} />
       <EvidenceBlock detail={detail} write={write} busy={busy !== null} act={act} />
