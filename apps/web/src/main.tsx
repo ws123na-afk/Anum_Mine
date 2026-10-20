@@ -37,6 +37,7 @@ import { AutomationAlerts, desktopNotify } from './AutomationAlerts';
 import type { AutomationFocus } from './AutomationWorkbench';
 import { automationAlert, type AutomationAlert } from './lib/automation';
 import { CONNECT_STORAGE_KEY, readConnectReturn } from './lib/email';
+import { CALENDAR_CONNECT_KEY, readCalendarConnectReturn } from './lib/calendar';
 import { useTeamNotifications } from './NotificationBell';
 import { getBranding, logoObjectUrl } from './lib/teamApi';
 import { AppCallProvider } from './AppCalls';
@@ -186,6 +187,9 @@ const storage=(()=>{try{return window.localStorage}catch{return null}})();
 // sign-in runs (it never carries an OAuth code, only ANUM's connection id).
 const emailReturn=readConnectReturn(window.location.href);
 if(emailReturn){try{sessionStorage.setItem(CONNECT_STORAGE_KEY,JSON.stringify({connection:emailReturn.connection,error:emailReturn.error}))}catch{/* the Inbox then shows nothing to finish */}history.replaceState(null,'',emailReturn.cleanUrl)}
+// The same for a calendar connection (docs/calendar.md#sync): kept for the Calendar page, removed from the address bar.
+const calendarReturn=readCalendarConnectReturn(window.location.href);
+if(calendarReturn){try{sessionStorage.setItem(CALENDAR_CONNECT_KEY,JSON.stringify({connection:calendarReturn.connection,error:calendarReturn.error}))}catch{/* the Calendar then shows nothing to finish */}history.replaceState(null,'',calendarReturn.cleanUrl)}
 initLocale({storage,languages:navigator.languages?.length?navigator.languages:[navigator.language],root:document.documentElement});
 // The theme (docs/design/anum360.md#theme): index.html already applied the saved choice before the first paint.
 initTheme({storage,root:document.documentElement,media:window.matchMedia?.('(prefers-color-scheme: light)')??null});

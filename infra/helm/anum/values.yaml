@@ -56,6 +56,8 @@ secrets:
     # ANUM_EMAIL_*_CLIENT_SECRET: the OAuth client secrets of the Google, Microsoft and
     # Zoho apps the owner registered for the email inbox (docs/email.md). Secrets only:
     # the chart refuses them in config or extraEnv. Absent: that provider is off.
+    # ANUM_CALENDAR_(GOOGLE|MICROSOFT)_CLIENT_SECRET: the same for calendar sync (docs/calendar.md#setup).
+    # Absent: calendar sync uses the ANUM_EMAIL_* app of that provider, if it has one.
     optional:
       - ANUM_OUTBOX_DATABASE_URL
       - ANUM_VALKEY_URL
@@ -72,6 +74,8 @@ secrets:
       - ANUM_EMAIL_GOOGLE_CLIENT_SECRET
       - ANUM_EMAIL_MICROSOFT_CLIENT_SECRET
       - ANUM_EMAIL_ZOHO_CLIENT_SECRET
+      - ANUM_CALENDAR_GOOGLE_CLIENT_SECRET
+      - ANUM_CALENDAR_MICROSOFT_CLIENT_SECRET
   migration:
     # Secret with ANUM_DATABASE_URL for the migration login (owner of the schema,
     # see docs/deployment.md#database-roles). ANUM_SECRETS_KEY comes from secrets.app.
@@ -212,6 +216,10 @@ config:
   ANUM_EMAIL_MICROSOFT_CLIENT_ID: ""
   ANUM_EMAIL_MICROSOFT_TENANT: common
   ANUM_EMAIL_ZOHO_CLIENT_ID: ""
+  # Calendar sync (docs/calendar.md#sync): client ids; empty uses the ANUM_EMAIL_* app above. The secrets
+  # go in secrets.app (ANUM_CALENDAR_GOOGLE_CLIENT_SECRET, ANUM_CALENDAR_MICROSOFT_CLIENT_SECRET).
+  ANUM_CALENDAR_GOOGLE_CLIENT_ID: ""
+  ANUM_CALENDAR_MICROSOFT_CLIENT_ID: ""
   # com, eu, in, com.au, jp, ca, sa or com.cn (the Zoho account's data centre).
   ANUM_EMAIL_ZOHO_DATA_CENTRE: com
   ANUM_EMAIL_PUBLIC_API_URL: ""

@@ -21,8 +21,9 @@ Map<String, Object?> eventJson(String id,
         int hour = 10,
         String kind = 'meeting',
         bool canManage = true,
-        String status = 'scheduled'}) =>
-    {
+        String status = 'scheduled',
+        Map<String, Object?> extra = const {}}) =>
+    <String, Object?>{
       'id': id,
       'title': title,
       'kind': kind,
@@ -47,7 +48,7 @@ Map<String, Object?> eventJson(String id,
           'response': 'accepted'
         },
       ],
-    };
+    }..addAll(extra);
 
 class FakeCalendar implements CalendarRepository {
   int fail = 0;
@@ -58,6 +59,11 @@ class FakeCalendar implements CalendarRepository {
     'event_2':
         eventJson('event_2', title: 'Supplier Call', hour: 14, kind: 'call'),
   };
+  CalendarSyncStatus status = const CalendarSyncStatus([], canManage: true);
+  bool syncFails = false;
+  String syncOutcome = 'connected';
+  final syncs = <String>[];
+  final invitations = <String>[];
   final tasks = <String>[];
   final responses = <String>[];
   final created = <EventDraft>[];
@@ -116,6 +122,31 @@ class FakeCalendar implements CalendarRepository {
 
   @override
   Future<void> delete(String id) async => store.remove(id);
+
+  @override
+  Future<CalendarSyncStatus> sync() async {
+    if (syncFails) throw const ApiException(503, 'Database unavailable');
+    return status;
+  }
+
+  @override
+  Future<SyncConnection> syncNow(String connectionId) async {
+    syncs.add(connectionId);
+    return SyncConnection(
+        id: connectionId,
+        provider: 'google',
+        providerName: 'Google Calendar',
+        email: 'owner@example.com',
+        status: syncOutcome,
+        lastSyncAt: DateTime.now(),
+        lastError: syncOutcome == 'connected' ? null : 'Backend Error');
+  }
+
+  @override
+  Future<List<String>> requestInvitations(String eventId) async {
+    invitations.add(eventId);
+    return ['sara@example.com'];
+  }
 
   @override
   Future<List<NextStep>> nextSteps() async => [
@@ -323,5 +354,189 @@ void main() {
     await tester.tap(find.text('Sajid Kamboh'));
     await tester.pumpAndSettle();
     expect(find.text('Reply from Sajid Kamboh'), findsNothing);
+  });
+
+  group('calendar sync (docs/calendar.md#sync)', () {
+    SyncConnection google({String status = 'connected', DateTime? at}) =>
+        SyncConnection(
+            id: 'cal_1',
+            provider: 'google',
+            providerName: 'Google Calendar',
+            email: 'owner@example.com',
+            status: status,
+            lastSyncAt:
+                at ?? DateTime.now().subtract(const Duration(minutes: 5)),
+            lastError: status == 'connected' ? null : 'Token has been expired');
+
+    testWidgets('without a connection the calendar says where events live',
+        (tester) async {
+      final repo = FakeCalendar();
+      await pumpScreen(
+          tester,
+          CalendarScreen(
+              controller: controllerFor(repo), openLink: (_) async => true),
+          height: 1400);
+      expect(find.textContaining('Events live in ANUM.'), findsOneWidget);
+      expect(find.text('Sync now'), findsNothing);
+    });
+
+    testWidgets('a connected calendar shows when it synced; an owner syncs now',
+        (tester) async {
+      final repo = FakeCalendar()
+        ..status = CalendarSyncStatus([google()], canManage: true);
+      await pumpScreen(
+          tester,
+          CalendarScreen(
+              controller: controllerFor(repo), openLink: (_) async => true),
+          height: 1400);
+      expect(
+          find.text(
+              'Synced with Google Calendar (owner@example.com). Synced 5 min ago.'),
+          findsOneWidget);
+      await tester.tap(find.text('Sync now'));
+      await tester.pumpAndSettle();
+      expect(repo.syncs, ['cal_1']);
+      expect(find.text('Synced owner@example.com.'), findsOneWidget);
+    });
+
+    testWidgets('a member sees the status but cannot sync', (tester) async {
+      final repo = FakeCalendar()
+        ..status = CalendarSyncStatus([google()], canManage: false);
+      await pumpScreen(
+          tester,
+          CalendarScreen(
+              controller: controllerFor(repo), openLink: (_) async => true),
+          height: 1400);
+      expect(
+          find.textContaining('Synced with Google Calendar'), findsOneWidget);
+      expect(find.text('Sync now'), findsNothing);
+    });
+
+    testWidgets('a revoked grant says what is wrong and who fixes it',
+        (tester) async {
+      final repo = FakeCalendar()
+        ..status = CalendarSyncStatus([google(status: 'reauth_required')],
+            canManage: true);
+      await pumpScreen(
+          tester,
+          CalendarScreen(
+              controller: controllerFor(repo), openLink: (_) async => true),
+          height: 1400);
+      expect(find.text('Google Calendar sync needs attention'), findsOneWidget);
+      expect(
+          find.text('What went wrong: Token has been expired'), findsOneWidget);
+      expect(
+          find.textContaining('connects it again on the web'), findsOneWidget);
+      expect(find.text('Sync now'), findsNothing);
+    });
+
+    testWidgets('a failed sync shows the reason and the fix', (tester) async {
+      final repo = FakeCalendar()
+        ..syncOutcome = 'error'
+        ..status = CalendarSyncStatus([google()], canManage: true);
+      await pumpScreen(
+          tester,
+          CalendarScreen(
+              controller: controllerFor(repo), openLink: (_) async => true),
+          height: 1400);
+      await tester.tap(find.text('Sync now'));
+      await tester.pumpAndSettle();
+      expect(repo.syncs, ['cal_1']);
+      expect(find.textContaining('Backend Error'), findsWidgets);
+    });
+
+    testWidgets('the calendar still works when the sync status cannot load',
+        (tester) async {
+      final repo = FakeCalendar()..syncFails = true;
+      await pumpScreen(
+          tester,
+          CalendarScreen(
+              controller: controllerFor(repo), openLink: (_) async => true),
+          height: 1400);
+      expect(find.text('PMV Team Meeting'), findsWidgets);
+      expect(find.textContaining('Events live in ANUM.'), findsNothing);
+    });
+
+    testWidgets('an event shows where it lives and asks for invitations',
+        (tester) async {
+      final repo = FakeCalendar()
+        ..status = CalendarSyncStatus([google()], canManage: true);
+      repo.store['event_1'] = eventJson('event_1', extra: {
+        'connection_id': 'cal_1',
+        'sync_state': 'synced',
+        'invitations_pending': true,
+        'attendees': [
+          {
+            'id': 'attendee_1',
+            'name': 'Sara Ali',
+            'email': 'sara@example.com',
+            'response': 'invited'
+          },
+        ],
+      });
+      final c = controllerFor(repo);
+      await c.load();
+      await pumpScreen(
+          tester,
+          EventScreen(
+              controller: c, eventId: 'event_1', openLink: (_) async => true),
+          height: 1400);
+      await tester.pumpAndSettle();
+      expect(find.text('Synced with Google Calendar'), findsOneWidget);
+      expect(find.textContaining('have not been approved'), findsOneWidget);
+      await tester.tap(find.text('Ask to send invitations'));
+      await tester.pumpAndSettle();
+      expect(repo.invitations, ['event_1']);
+      expect(
+          find.text(
+              'Waiting for an owner to approve inviting sara@example.com. Nothing has been sent.'),
+          findsOneWidget);
+      expect(find.text('Ask to send invitations'), findsNothing);
+      await tester.tap(find.text('Review approvals'));
+      await tester.pumpAndSettle();
+      expect(find.text('route /approvals'), findsOneWidget);
+    });
+
+    testWidgets('a viewer cannot ask for invitations', (tester) async {
+      final repo = FakeCalendar()
+        ..status = CalendarSyncStatus([google()], canManage: false);
+      repo.store['event_1'] = eventJson('event_1', canManage: false, extra: {
+        'connection_id': 'cal_1',
+        'sync_state': 'pending_push',
+        'invitations_pending': true,
+        'attendees': [
+          {'id': 'a', 'name': 'Sara', 'email': 'sara@example.com'},
+        ],
+      });
+      final c = controllerFor(repo);
+      await c.load();
+      await pumpScreen(
+          tester,
+          EventScreen(
+              controller: c, eventId: 'event_1', openLink: (_) async => true),
+          height: 1400);
+      await tester.pumpAndSettle();
+      expect(
+          find.text('Waiting to be sent to Google Calendar'), findsOneWidget);
+      expect(find.text('Ask to send invitations'), findsNothing);
+    });
+
+    testWidgets('sync reads right to left in Arabic at every width',
+        (tester) async {
+      final repo = FakeCalendar()
+        ..status = CalendarSyncStatus([google()], canManage: true);
+      for (final width in widths) {
+        await pumpScreen(
+            tester,
+            CalendarScreen(
+                controller: controllerFor(repo), openLink: (_) async => true),
+            width: width,
+            height: 1400,
+            locale: const Locale('ar'));
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(find.text('زامن الآن'), findsOneWidget, reason: 'at $width');
+        expect(tester.takeException(), isNull, reason: 'overflow at $width');
+      }
+    });
   });
 }
