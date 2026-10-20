@@ -2,7 +2,7 @@
 
 ANUM bills its own customers: each customer company is an organisation (tenant, [Customer organisations](customer-organisations.md)), and the platform owner's own organisation is the **issuer** that sells plans, issues invoices and collects payments. Roadmap: P4 (Commercial ANUM SaaS beta) in [the master roadmap](ANUM_OS_Business_and_Product_Master_Roadmap.md).
 
-Implemented in `services/api/anum_api/billing/` (models, store, service, enforcement, jobs, provider adapters, routes), migration `0090_customer_billing`, web `apps/web/src/billing/` (Billing settings page, platform console, public pricing page, sign-up and onboarding checklist), Flutter `apps/mobile/lib/features/billing/`.
+Implemented in `services/api/anum_api/billing/` (models, store, service, enforcement, jobs, provider adapters, routes), migration `0092_customer_billing`, web `apps/web/src/billing/` (Billing settings page, platform console, public pricing page, sign-up and onboarding checklist), Flutter `apps/mobile/lib/features/billing/`.
 
 Money is always an integer number of **minor units** (`price_minor`, `total_minor`: halalas for SAR, cents for USD) plus an ISO 4217 `currency`. SAR is the default currency. Times are ISO 8601 UTC.
 
@@ -17,7 +17,7 @@ Money is always an integer number of **minor units** (`price_minor`, `total_mino
 
 The platform owner acts on a customer's billing only when the customer's billing account names the owner's organisation as its issuer, or when the owner onboarded that organisation (`platform_organizations.operator_user_id`). Every other organisation answers `404`.
 
-## Data model (migration `0090_customer_billing`)
+## Data model (migration `0092_customer_billing`)
 
 Every table has `tenant_id` and **forced RLS** with the policy `tenant_isolation_<table>` on `anum.tenant_id` (billing is organisation-wide, so no workspace predicate). Rows of the issuer (plans, settings, number sequences, webhook events) live in the issuer's tenant; rows about a customer live in the customer's tenant and carry `issuer_tenant_id`.
 
@@ -39,7 +39,7 @@ Every table has `tenant_id` and **forced RLS** with the policy `tenant_isolation
 
 ### Organisation deletion
 
-Billing tables are organisation-wide and part of [Organisation export and deletion](organisation-lifecycle.md): the export has a `billing` folder, and a purging organisation deletion removes them through the `lifecycle_purge_<table>` policies of migration `0090_customer_billing` (`anum_tenant_purger`, scope column and delete only). A deleted customer's invoices leave with it, so export them first; the issuer's own numbering sequence and plans stay.
+Billing tables are organisation-wide and part of [Organisation export and deletion](organisation-lifecycle.md): the export has a `billing` folder, and a purging organisation deletion removes them through the `lifecycle_purge_<table>` policies of migration `0092_customer_billing` (`anum_tenant_purger`, scope column and delete only). A deleted customer's invoices leave with it, so export them first; the issuer's own numbering sequence and plans stay.
 
 ### Gapless numbering
 

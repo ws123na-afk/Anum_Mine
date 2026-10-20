@@ -4,8 +4,8 @@ import { accessToken, currentClaims, oidcEnabled } from './auth';
 import { decisionBody } from './approvals';
 import { apiErrorFrom, apiErrorFromResponse, isBillingCode, type ApiError } from './errors';
 import { getLocale, t } from './i18n';
-import type { ApiFile, ApiFileLink, ApiFilePreview, ApiFileUsage, SortValue } from './files';
-import { filesListPath } from './files';
+import type { ApiFile, ApiFileLink, ApiFilePreview, ApiFileUsage, ApiFileVersionPage, ApiStorage, SortValue } from './files';
+import { filesListPath, versionsPath } from './files';
 import type { ApiCurrentMembership } from './policy';
 import type { SkillVerification } from './skillSigning';
 import * as workspaces from './workspaces';
@@ -276,6 +276,26 @@ export async function uploadFile(file: File, onProgress?: (loaded: number, total
     signal?.addEventListener('abort', () => xhr.abort(), { once: true });
     xhr.send(file);
   });
+}
+/** The current version and one page of older versions (docs/files.md#versions). */
+export async function getFileVersions(id: string, offset = 0): Promise<ApiFileVersionPage> { return request(versionsPath(id, offset), { method: 'GET' }); }
+/** Upload new content for a file: the current bytes become an older version. */
+export async function uploadFileVersion(id: string, file: File): Promise<FileRecord> {
+  return request(`/api/v1/files/${encodeURIComponent(id)}/versions`, { method: 'POST', body: file, headers: { 'content-type': file.type || 'application/octet-stream' } });
+}
+export async function restoreFileVersion(id: string, versionId: string): Promise<FileRecord> { return request(`/api/v1/files/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`, { method: 'POST' }); }
+export async function deleteFileVersion(id: string, versionId: string): Promise<void> { await requestVoid(`/api/v1/files/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`, { method: 'DELETE' }); }
+/** Usage against the quota, by kind, and the largest files with their older versions. */
+export async function getFileStorage(): Promise<ApiStorage> { return request('/api/v1/files/storage', { method: 'GET' }); }
+/** Download an older version (bearer-authenticated; saved from a same-origin blob URL like a file). */
+export async function downloadFileVersion(id: string, versionId: string, name: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/files/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/content`, { headers: await authHeaders() });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement('a');
+  anchor.href = url; anchor.download = name;
+  document.body.append(anchor); anchor.click(); anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export async function renameFile(id: string, name: string): Promise<FileRecord> { return request(`/api/v1/files/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) }); }
 export async function reindexFile(id: string): Promise<FileRecord> { return request(`/api/v1/files/${encodeURIComponent(id)}/reindex`, { method: 'POST' }); }
