@@ -31,6 +31,7 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | [Budgets](#budgets) | Done | Settings › Model budgets |
 | [Members, invitations and audit](#members-invitations-and-audit) | Done (creating a workspace is web only) | Members and invitations, Accept an invitation, Audit log, Approval policy, This workspace, Contact opt-outs, Setup plans, Org chart |
 | [Developer mode](#developer-mode) | Done | Developer |
+| [Billing](#billing) | Done (billing contact is edited on the web) | Settings › Billing (Overview, Plans, Invoices, invoice detail) |
 | [Privacy](#privacy) | Done | Settings › Your data and privacy |
 | [Notifications and push](#notifications-and-push) | Done in the app; needs the owner's Firebase setup to deliver | Settings › Notifications, Phone push card |
 | [Settings, language and right to left](#settings-language-and-right-to-left) | Partial | Settings, Language menu |
@@ -231,6 +232,10 @@ Owners only; everyone else does not see it in the navigation and gets an explana
 | Setup checklist naming any missing settings | Done |
 
 Screen: **Developer**. Details: [Developer mode](developer-mode.md#clients).
+
+## Billing
+
+For workspace owners and organisation administrators ([Customer billing](billing.md)): Settings › Billing has three tabs. **Overview** shows the plan, its status and dates, usage against the plan's limits, the open balance, the bank transfer details (copy the IBAN) and the billing contact, with cancel and reactivate. **Plans** previews a change (amount, VAT, credit, now or at period end) and blocks it when current usage is over the new plan's limits. **Invoices** has search, a status filter and paging; an invoice shows its lines, VAT, totals, payments and credit notes, saves its PDF, and offers card payment when the issuer turned it on. Members and viewers see who can open billing. Code: `lib/features/billing/`, tests: `test/billing/billing_test.dart`.
 
 ## Privacy
 

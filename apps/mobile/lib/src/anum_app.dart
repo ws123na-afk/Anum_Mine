@@ -46,6 +46,8 @@ import '../features/reports/workspace_tool_routes.dart';
 import '../features/business/accounts_data.dart';
 import '../features/business/business_controller.dart';
 import '../features/business/business_repository.dart';
+import '../features/billing/billing_data.dart';
+import '../features/billing/billing_screen.dart';
 import '../features/business/catalog_data.dart';
 import '../features/business/deals_data.dart';
 import '../features/business/project_money.dart';
@@ -130,6 +132,9 @@ abstract final class AnumRoutes {
   /// In-app calls with teammates (docs/in-app-calls.md); call pushes open it.
   static const teamCalls = '/team-calls';
   static const quickCommands = '/quick-commands';
+
+  /// The organisation's plan, usage and invoices (docs/billing.md).
+  static const billing = '/billing';
 }
 
 /// API origin a release build uses when `ANUM_API_URL` is not defined: the
@@ -211,6 +216,7 @@ class _AnumAppState extends State<AnumApp> {
   late final ChatController chat;
   late final VoiceController voice;
   late final SettingsController settings;
+  late final BillingRepository billing;
   late final GovernanceController governance;
   late final LocaleController locale;
   late final ThemeController theme;
@@ -337,6 +343,14 @@ class _AnumAppState extends State<AnumApp> {
       repository: VoiceRepository(api, events: events),
       speech: DeviceSpeechService(),
     );
+    // Customer billing (docs/billing.md): PDFs download through the API with
+    // the session's headers and are saved with the system dialog.
+    final billingFiles = HttpMailFileTransfer(
+        baseUri: Uri.parse(configuredUrl),
+        sessions: sessions,
+        files: fileTransfer);
+    billing = ApiBillingRepository(api,
+        download: billingFiles.download, save: billingFiles.save);
     settings = SettingsController(
       authRepository,
       admin: ApiAdminRepository(api),
@@ -346,6 +360,7 @@ class _AnumAppState extends State<AnumApp> {
       push: push,
       learning: ApiLearningRepository(api),
       team: ApiTeamRepository(api),
+      billing: billing,
       lifecycle: ApiLifecycleRepository(api),
     );
     workspace.onApprovalDecided = _offerPushAfterApproval;
@@ -796,6 +811,14 @@ class _AnumAppState extends State<AnumApp> {
       (child) => _AuthenticatedDestination(auth: auth, child: child),
     );
     if (tool != null) return tool;
+    if (name == AnumRoutes.billing) {
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => _AuthenticatedDestination(
+            auth: auth,
+            child: BillingScreen(controller: BillingController(billing))),
+      );
+    }
     if (name == AnumRoutes.teamCalls) {
       return MaterialPageRoute<void>(
         settings: settings,

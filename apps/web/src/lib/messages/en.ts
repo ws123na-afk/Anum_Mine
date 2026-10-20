@@ -21,6 +21,7 @@ import { filesVersionsEn } from './filesVersions.en.ts';
 import { invoicesEn } from './invoices.en.ts';
 import { portalEn } from './portal.en.ts';
 import { brevoEn } from './brevo.en.ts';
+import { billingEn } from './billing.en.ts';
 import { lifecycleEn } from './lifecycle.en.ts';
 import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
@@ -71,6 +72,7 @@ export const en = {
   ...invoicesEn,
   ...portalEn,
   ...brevoEn,
+  ...billingEn,
   ...lifecycleEn,
   ...helpEn,
   ...publicSiteEn,

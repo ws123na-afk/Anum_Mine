@@ -910,6 +910,10 @@ async def upload_file(
         raise HTTPException(422, "Content checksum mismatch: the upload was corrupted in transit. Try again.")
     # The scan is blocking network I/O (clamd): never on the event loop (docs/realtime.md#event-loop).
     scanned = await asyncio.to_thread(check_upload_content, name, allowed, content)
+    # The plan's storage across the organisation (docs/billing.md#plans-and-limits).
+    from .billing.enforce import require_capacity
+
+    await asyncio.to_thread(require_capacity, context, "storage", len(content))
     quota = settings.files_workspace_quota_bytes
     with open_file_metadata_store(context) as store:
         current = store.usage(context)

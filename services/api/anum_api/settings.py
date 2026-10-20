@@ -440,6 +440,21 @@ class Settings(BaseSettings):
     microsoft_tenant: str = Field(default="organizations", pattern=r"^[A-Za-z0-9.\-]{1,100}$")
     meetings_oauth_redirect_uri: str = Field(default="", max_length=500, pattern=r"^(|https?://\S+)$")
 
+    # Customer billing and self-serve sign-up (docs/billing.md). The issuer is the platform
+    # owner's own organisation: its published plans are the public pricing page and every
+    # sign-up is billed by it. Sign-up stays off until the owner turns it on; the Keycloak
+    # provisioning client (a confidential client with a service account allowed to
+    # manage users) links a new organisation to the account that created it.
+    billing_issuer_tenant_id: str | None = Field(default=None, pattern=r"^(|[a-z0-9][a-z0-9_-]{2,79})$")
+    billing_scheduler_enabled: bool = False
+    billing_poll_seconds: float = Field(default=3600.0, ge=30, le=86_400)
+    web_app_url: str = Field(default="", max_length=500, pattern=r"^(|https?://\S+)$")
+    signup_enabled: bool = False
+    signup_trial_days: int = Field(default=14, ge=0, le=90)
+    signup_daily_limit: int = Field(default=50, ge=0, le=10_000)
+    signup_ip_hourly_limit: int = Field(default=3, ge=1, le=100)
+    keycloak_provisioner_client_id: str = Field(default="", max_length=200)
+    keycloak_provisioner_client_secret: SecretStr | None = None
     # First-party skill signing keys (docs/skills.md#signing): "key-id=BASE64,key-id2=BASE64",
     # raw 32-byte Ed25519 public keys. Malformed entries are ignored with a warning.
     skill_platform_keys: str = Field(default="", max_length=4000)

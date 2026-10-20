@@ -27,6 +27,7 @@ import { viewLabel } from './lib/shell';
 import { EmptyPanel, PanelDenied, PanelError, PanelLoading, ShowMore } from './Panels';
 import './commandCenter.css';
 import './home.css';
+import { OnboardingChecklist } from './billing/Onboarding';
 
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'denied' } | { state: 'error'; message: string };
 const settle = <T,>(set: (value: Load<T>) => void, promise: Promise<T>) => {
@@ -102,6 +103,9 @@ export function HomeView({ tasks, approvals, loading, userName, owner, alerts, b
         <button type="button" className="primaryButton" onClick={() => onGo('command')}><Sparkles aria-hidden="true" />{t('home.giveOrder')}</button>
       </div>
     </header>
+
+    {/* The first-run billing checklist for billing admins (docs/billing.md); hidden for everyone else. */}
+    <OnboardingChecklist />
 
     <section className="glance" aria-labelledby="glance-title">
       <h2 id="glance-title" className="sectionTitle">{t('home.glance.title')}</h2>

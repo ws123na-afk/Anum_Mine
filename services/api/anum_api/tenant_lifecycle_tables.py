@@ -39,6 +39,19 @@ RECEIPT_TABLES = frozenset({LIFECYCLE_JOBS_TABLE, DELETED_ORGANIZATIONS_TABLE})
 # Organisation-wide tables (no workspace_id): a workspace deletion leaves them alone.
 _TENANT_WIDE = frozenset(
     {
+        "billing_plans",
+        "billing_settings",
+        "billing_accounts",
+        "billing_subscriptions",
+        "billing_seats",
+        "billing_usage",
+        "billing_invoices",
+        "billing_invoice_lines",
+        "billing_credit_notes",
+        "billing_payments",
+        "billing_number_sequences",
+        "billing_webhook_events",
+        "billing_signups",
         "approval_rules",
         "autonomy_guardrails",
         "contact_suppressions",
@@ -68,6 +81,7 @@ _DOMAINS = (
     ("email_", "mail"),
     ("finance_", "finance"),
     ("business_", "business"),
+    ("billing_", "billing"),
     ("brevo_", "marketing"),
     ("marketing_", "marketing"),
     ("contact_suppressions", "marketing"),
@@ -134,6 +148,19 @@ def domain_of(table: str) -> str:
 
 # Children before parents. Keep every tenant table here (the tests check it).
 _ORDER = (
+    "billing_invoice_lines",
+    "billing_credit_notes",
+    "billing_payments",
+    "billing_seats",
+    "billing_invoices",
+    "billing_subscriptions",
+    "billing_usage",
+    "billing_accounts",
+    "billing_plans",
+    "billing_settings",
+    "billing_number_sequences",
+    "billing_webhook_events",
+    "billing_signups",
     "app_call_signals",
     "app_calls",
     "call_ai_requests",

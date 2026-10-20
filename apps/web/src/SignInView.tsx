@@ -93,6 +93,7 @@ export function SignInScreen({ message, onSignIn }: { message?: string; onSignIn
     <ProviderButtons options={loaded} busy={busy} verb="auth.continueWith" onSignIn={start}/>
     {loaded.identity_providers.length > 0 && <p className="signInDivider" role="separator"><span>{t('auth.or')}</span></p>}
     <div className="actions"><button type="button" disabled={busy} onClick={() => start({})}><LogIn aria-hidden="true"/>{loaded.identity_providers.length ? t('auth.signInEmail') : t('auth.signIn')}</button></div>
+    <p className="signInSwitch"><a href="#pricing">{t('pricing.link')}</a></p>
     {creatable && <p className="signInSwitch">{t('auth.newHere')} <button type="button" className="linkButton" onClick={() => switchMode('create')}><UserPlus aria-hidden="true"/>{t('auth.createAccount')}</button></p>}
     <LegalLinks/>
   </section></main>;
@@ -114,6 +115,7 @@ export function PendingScreen({ account, onCheckAgain, onSignOut }: { account: P
   return <main className="signInShell"><section className="surface signInCard" aria-labelledby="pending-title"><Brand/><h1 id="pending-title">{t('auth.pendingTitle')}</h1><p>{t('auth.pendingText')}</p>
     <dl className="pendingDetails"><div><dt>{t('auth.pendingEmail')}</dt><dd>{account.email ?? t('auth.pendingNoEmail')}</dd></div>{account.subject && <div><dt>{t('auth.pendingAccountId')}</dt><dd><code>{account.subject}</code></dd></div>}</dl>
     <p className="muted">{t('auth.pendingNext')}</p>
+    <p className="signInSwitch">{t('signup.pendingOwn')} <a href="#signup">{t('signup.pendingLink')}</a></p>
     {note && <Notice error={note.error}>{note.text}</Notice>}
     <div className="actions"><button type="button" disabled={busy} onClick={check}><RefreshCw aria-hidden="true"/>{t('auth.checkAgain')}</button><button type="button" className="secondary" onClick={copy}><Copy aria-hidden="true"/>{t('auth.copyDetails')}</button><button type="button" className="secondary" onClick={onSignOut}><LogOut aria-hidden="true"/>{t('auth.signOut')}</button></div>
   </section></main>;

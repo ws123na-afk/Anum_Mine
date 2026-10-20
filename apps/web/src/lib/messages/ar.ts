@@ -22,6 +22,7 @@ import { filesVersionsAr } from './filesVersions.ar.ts';
 import { invoicesAr } from './invoices.ar.ts';
 import { portalAr } from './portal.ar.ts';
 import { brevoAr } from './brevo.ar.ts';
+import { billingAr } from './billing.ar.ts';
 import { lifecycleAr } from './lifecycle.ar.ts';
 import { helpAr } from './help.ar.ts';
 import { publicSiteAr } from './publicSite.ar.ts';
@@ -72,6 +73,7 @@ export const ar: Record<MessageKey, Message> = {
   ...invoicesAr,
   ...portalAr,
   ...brevoAr,
+  ...billingAr,
   ...lifecycleAr,
   ...helpAr,
   ...publicSiteAr,

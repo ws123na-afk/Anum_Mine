@@ -48,7 +48,15 @@ export async function apiErrorFromResponse(response: Response, prefix?: string):
 
 /** HTTP 402 `model_budget_exceeded`: the tenant's or workspace's monthly model budget is used up. */
 export function isBudgetExceeded(error: unknown): error is ApiError {
-  return error instanceof ApiError && (error.status === 402 || error.code === 'model_budget_exceeded');
+  return error instanceof ApiError && !isBillingCode(error) && (error.status === 402 || error.code === 'model_budget_exceeded');
+}
+
+/**
+ * HTTP 402 `plan_limit_reached` or `billing_read_only` (docs/billing.md): the organisation's plan or
+ * an unpaid invoice stops the action; Settings > Billing is the way forward, not model budgets.
+ */
+export function isBillingCode(error: unknown): boolean {
+  return error instanceof ApiError && (error.code === 'plan_limit_reached' || error.code === 'billing_read_only');
 }
 
 /** HTTP 403 from the API: the caller's role does not grant the permission. */
@@ -76,6 +84,7 @@ export function isDatabaseOutage(error: ApiError): boolean {
 /** A sentence for a person: the API's message for known failures, never a stack trace. */
 export function describeError(error: unknown, fallback = t('common.operationFailed')): string {
   if (error instanceof ApiError) {
+    if (isBillingCode(error)) return (error as ApiError).detail ?? t('billing.refusal.fallback');
     if (error.status === 402 || error.code === 'model_budget_exceeded') return t('common.budgetReached', { message: budgetMessage(error) });
     if (error.status === 401) return t('common.signInExpired');
     // A server-side database outage is the server's problem, said plainly, never the person's connection.

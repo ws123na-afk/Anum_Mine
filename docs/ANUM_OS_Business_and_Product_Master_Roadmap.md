@@ -238,6 +238,7 @@ Ask: current process, recurring pain, cost of problem, must-have outcome, who ap
 - Organization signup/trial, tenant provisioning, actual usage metering, seats/entitlements, terms, privacy controls, billing integration with manual fallback, subscription cancellation, invoices, support and audit export.
 - Product tours, onboarding, usage caps and incident response; verified multi-tenant penetration tests and backup/restore. One region before multi-region marketing.
 - **Exit:** first paying ANUM tenant completes onboarding safely and continues paying; no cross-tenant leakage and metering is correct.
+- **Status (October 2026):** billing is built ([Customer billing](billing.md)): plans, trials, subscriptions with proration, usage metering and seat limits, invoices with VAT, credit notes, manual bank transfer with an optional Stripe adapter (off by default), dunning to read-only, cancellation and reactivation, the public pricing page and self-serve sign-up with email verification. Still open for P4: terms of service review, product tours, support desk and audit export for customers, and the multi-tenant penetration test.
 
 ### P5. Scale only after retention (months 6 to 12+, conditional)
 - Industry solution packs, partner/referral program, marketplace, more connectors, enterprise policies, service-level commitments, dedicated deployments where justified.
