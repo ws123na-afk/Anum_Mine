@@ -1,4 +1,4 @@
-"""SQLAlchemy Core tables of customer billing (migration ``0092_customer_billing``).
+"""SQLAlchemy Core tables of customer billing (migration ``0094_customer_billing``).
 
 Kept apart from the ORM ``Base`` metadata: the billing store builds its statements from
 these tables and plain dicts, and the in-memory store mirrors the same rows.

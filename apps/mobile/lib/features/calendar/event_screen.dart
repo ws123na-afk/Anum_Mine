@@ -52,6 +52,7 @@ class _EventScreenState extends State<EventScreen> {
   void initState() {
     super.initState();
     c.addListener(_sync);
+    if (c.sync == null) c.loadSync();
     _load();
   }
 
@@ -168,6 +169,19 @@ class _EventScreenState extends State<EventScreen> {
     if (saved != null && mounted) setState(() => _event = saved);
   }
 
+  String? _requested;
+
+  Future<void> _askInvitations() async {
+    final event = _event;
+    if (event == null) return;
+    final l = AnumLocalizations.maybeOf(context);
+    final people = await c.askInvitations(event);
+    if (people != null && mounted) {
+      setState(() => _requested =
+          l.f('calsync.invite.requested', {'people': people.join(', ')}));
+    }
+  }
+
   void _viewInCalendar() {
     final event = _event;
     if (event != null) c.selectDay(event.startsAt);
@@ -176,6 +190,63 @@ class _EventScreenState extends State<EventScreen> {
     } else {
       Navigator.of(context).pushNamed(CalendarRoutes.calendar);
     }
+  }
+
+  /// Where the event lives, and (for people who may change it) asking for
+  /// its invitations: nothing is sent until an owner approves.
+  Widget _syncSection(
+      BuildContext context, AnumLocalizations l, CalendarEvent event) {
+    final p = context.palette;
+    SyncConnection? linked;
+    for (final connection in c.sync?.connections ?? const <SyncConnection>[]) {
+      if (connection.id == event.connectionId) linked = connection;
+    }
+    final showInvites = event.connectionId != null &&
+        !event.cancelled &&
+        event.invitees.isNotEmpty;
+    return AnumSurface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Icon(Icons.event_repeat_outlined, size: 18, color: p.muted),
+          const SizedBox(width: AnumSpacing.xs),
+          Expanded(
+              child: Text(
+                  l.f('calsync.state.${event.syncKind}',
+                      {'provider': linked?.providerName ?? ''}),
+                  style: TextStyle(color: p.text, fontSize: 13.5))),
+        ]),
+        if (showInvites) ...[
+          const SizedBox(height: AnumSpacing.xs),
+          Text(
+              event.invitationsPending
+                  ? l.t('calsync.invite.pending')
+                  : l.t('calsync.invite.done'),
+              style: TextStyle(color: p.muted, fontSize: 13)),
+          if (_requested != null) ...[
+            const SizedBox(height: AnumSpacing.xs),
+            Semantics(
+                liveRegion: true,
+                child: Text(_requested!, style: TextStyle(color: p.text))),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton(
+                onPressed: () =>
+                    Navigator.of(context).pushNamed(CalendarRoutes.approvals),
+                child: Text(l.t('calsync.invite.review')),
+              ),
+            ),
+          ] else if (event.canManage && event.invitationsPending)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                onPressed: c.busy == null ? _askInvitations : null,
+                icon: const Icon(Icons.mail_outline, size: 18),
+                label: Text(l.t('calsync.invite.ask')),
+              ),
+            ),
+        ],
+      ]),
+    );
   }
 
   @override
@@ -313,6 +384,9 @@ class _EventScreenState extends State<EventScreen> {
           ],
         ]),
       ),
+      if (c.sync != null && c.sync!.connections.isNotEmpty ||
+          event.connectionId != null)
+        _syncSection(context, l, event),
       AnumSurface(
         padding: const EdgeInsets.symmetric(
             horizontal: AnumSpacing.md, vertical: AnumSpacing.sm),

@@ -15,6 +15,16 @@ abstract interface class CalendarRepository {
 
   /// Starts a suggested step as a task; returns its id.
   Future<String> createTask(String title, String prompt);
+
+  /// The connected Google or Microsoft calendars and what this person may do.
+  Future<CalendarSyncStatus> sync();
+
+  /// One sync pass now (owners); returns the connection as it is afterwards.
+  Future<SyncConnection> syncNow(String connectionId);
+
+  /// Asks for the event's invitations. Nothing is sent: an owner approves the
+  /// exact event and list first. Returns the addresses the request names.
+  Future<List<String>> requestInvitations(String eventId);
 }
 
 class ApiCalendarRepository implements CalendarRepository {
@@ -68,6 +78,26 @@ class ApiCalendarRepository implements CalendarRepository {
   Future<List<NextStep>> nextSteps() async =>
       JsonReader(await api.request('GET', '$_base/next-steps'))
           .objects('items', NextStep.fromJson);
+
+  @override
+  Future<CalendarSyncStatus> sync() async {
+    final value = JsonReader(await api.request('GET', '$_base/sync'));
+    return CalendarSyncStatus(
+        value.objects('connections', SyncConnection.fromJson),
+        canManage: value.optBool('can_manage') ?? false);
+  }
+
+  @override
+  Future<SyncConnection> syncNow(String connectionId) async =>
+      SyncConnection.fromJson(JsonReader(await api.request(
+              'POST', '$_base/sync/connections/${_id(connectionId)}/sync'))
+          .object('connection'));
+
+  @override
+  Future<List<String>> requestInvitations(String eventId) async =>
+      JsonReader(await api.request(
+              'POST', '$_base/events/${_id(eventId)}/invitations'))
+          .strings('attendees');
 
   @override
   Future<String> createTask(String title, String prompt) async =>

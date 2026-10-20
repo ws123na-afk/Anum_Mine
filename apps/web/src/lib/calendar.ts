@@ -13,7 +13,20 @@ export interface CalendarEventView {
   id: string; title: string; description?: string | null; location?: string | null; kind: EventKind; status: EventStatus;
   starts_at: string; ends_at: string; conference_url?: string | null; phone?: string | null; attendees: Attendee[];
   source?: string; created_by: string; created_at: string; updated_at: string; can_manage?: boolean;
+  // Calendar sync (docs/calendar.md#sync): the connected calendar this event mirrors, if any.
+  connection_id?: string | null; external_id?: string | null; synced_at?: string | null; sync_state?: SyncState | null; invitations_pending?: boolean;
 }
+export type SyncState = 'synced' | 'pending_push' | 'local';
+export type SyncProvider = 'google' | 'microsoft';
+export type ConnectionStatus = 'connected' | 'error' | 'reauth_required';
+export interface SyncProviderSetup { provider: SyncProvider; name: string; configured: boolean; missing: string[]; scopes: string[] }
+export interface SyncSummary { created?: number; updated?: number; deleted?: number; skipped?: number; pushed?: number; push_failed?: number; conflicts_remote_won?: number; conflicts_local_won?: number; full?: boolean }
+export interface SyncConnection {
+  id: string; provider: SyncProvider; provider_name: string; email: string; display_name: string | null; connected_by: string; status: ConnectionStatus; fix: string;
+  last_sync_at: string | null; last_sync_status: string | null; last_error: string | null; last_summary: SyncSummary; events_synced: number; created_at: string;
+}
+export interface SyncSetup { providers: SyncProviderSetup[]; redirect_uri: string; can_manage: boolean; connections: SyncConnection[] }
+export interface InvitationRequest { status: 'waiting_approval'; summary: string; attendees: string[]; approval: { id: string } }
 export interface EventPage { items: CalendarEventView[]; start: string; end: string; truncated: boolean; can_write: boolean }
 export interface NextStepAction { kind: 'task' | 'open'; title?: string | null; prompt?: string | null; destination?: 'email_urgent' | 'approvals' | 'event' | null; event_id?: string | null }
 export interface NextStep { id: string; title: string; detail: string; icon: 'agenda' | 'follow_up' | 'summary' | 'email' | 'approval'; action: NextStepAction }
@@ -206,4 +219,40 @@ export function eventTiming(event: Pick<CalendarEventView, 'starts_at' | 'ends_a
   const t = now.getTime();
   if (Date.parse(event.ends_at) <= t) return 'past';
   return Date.parse(event.starts_at) <= t ? 'now' : 'later';
+}
+
+
+/** Where the browser lands after a provider consent: `/?calendar_connect=<id>#calendar` or `calendar_connect_error=<code>`. */
+export const CALENDAR_CONNECT_KEY = 'anum.calendar.connect';
+export function readCalendarConnectReturn(href: string): { connection: string | null; error: string | null; cleanUrl: string } | null {
+  const url = new URL(href);
+  const connection = url.searchParams.get('calendar_connect');
+  const error = url.searchParams.get('calendar_connect_error');
+  if (!connection && !error) return null;
+  url.searchParams.delete('calendar_connect');
+  url.searchParams.delete('calendar_connect_error');
+  const search = url.searchParams.toString();
+  return { connection, error, cleanUrl: `${url.pathname}${search ? `?${search}` : ''}${url.hash || '#calendar'}` };
+}
+
+/** The connection new events are sent to: the oldest one that works (as the API chooses it). */
+export function syncTarget(connections: readonly SyncConnection[]): SyncConnection | null {
+  return connections.find((connection) => connection.status === 'connected') ?? null;
+}
+
+/** "Synced 5 min ago" in minutes, hours or days; null when it never ran. */
+export function minutesSince(value: string | null, now: Date = new Date()): number | null {
+  return value ? Math.max(0, Math.round((now.getTime() - Date.parse(value)) / 60_000)) : null;
+}
+
+/** The sync state an event shows: where it lives, and whether something waits to be sent. */
+export function eventSyncKind(event: Pick<CalendarEventView, 'sync_state' | 'connection_id'>): 'synced' | 'waiting' | 'local' {
+  if (event.connection_id && event.sync_state === 'synced') return 'synced';
+  if (event.connection_id && event.sync_state === 'pending_push') return 'waiting';
+  return 'local';
+}
+
+/** Attendees with an email address: the people an invitation would reach. */
+export function invitees(event: Pick<CalendarEventView, 'attendees'>): string[] {
+  return event.attendees.map((attendee) => attendee.email).filter((email): email is string => Boolean(email));
 }

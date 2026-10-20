@@ -314,6 +314,14 @@ services:
       ANUM_EMAIL_ZOHO_DATA_CENTRE: ${ANUM_EMAIL_ZOHO_DATA_CENTRE:-com}
       # Background sync of connected mailboxes (anum_maintenance discovers them); 0 is off.
       ANUM_EMAIL_SYNC_INTERVAL_SECONDS: ${ANUM_EMAIL_SYNC_INTERVAL_SECONDS:-300}
+      # Calendar sync (docs/calendar.md#sync): empty client ids and secrets use the ANUM_EMAIL_* app
+      # of the same provider. The redirect URI to register is
+      # https://<API>/api/v1/calendar/sync/oauth/callback.
+      ANUM_CALENDAR_GOOGLE_CLIENT_ID: ${ANUM_CALENDAR_GOOGLE_CLIENT_ID:-}
+      ANUM_CALENDAR_GOOGLE_CLIENT_SECRET: ${ANUM_CALENDAR_GOOGLE_CLIENT_SECRET:-}
+      ANUM_CALENDAR_MICROSOFT_CLIENT_ID: ${ANUM_CALENDAR_MICROSOFT_CLIENT_ID:-}
+      ANUM_CALENDAR_MICROSOFT_CLIENT_SECRET: ${ANUM_CALENDAR_MICROSOFT_CLIENT_SECRET:-}
+      ANUM_CALENDAR_SYNC_INTERVAL_SECONDS: ${ANUM_CALENDAR_SYNC_INTERVAL_SECONDS:-300}
       # WhatsApp (docs/whatsapp.md): credentials are per workspace, encrypted in the
       # database. Message history kept for workspaces that chose no retention, in days
       # (0 keeps it); the retention job below deletes older messages.

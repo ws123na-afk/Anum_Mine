@@ -204,6 +204,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           subtitle: dateOf(context, c.selectedDay),
         ),
         _DayStrip(controller: c),
+        _SyncCard(controller: c),
         LayoutBuilder(builder: (context, constraints) {
           if (constraints.maxWidth < AnumBreakpoints.expanded) {
             return Column(
@@ -528,6 +529,106 @@ class _Steps extends StatelessWidget {
         ),
         const SizedBox(height: AnumSpacing.xs),
         content,
+      ]),
+    );
+  }
+}
+
+/// Calendar sync at a glance (docs/calendar.md#sync): synced with which
+/// calendar and when, what to do when it needs attention, and Sync now for
+/// owners. Connecting happens on the web.
+class _SyncCard extends StatelessWidget {
+  const _SyncCard({required this.controller});
+  final CalendarController controller;
+
+  static String when(AnumLocalizations l, DateTime? at, DateTime now) {
+    if (at == null) return l.t('calsync.when.never');
+    final minutes = now.difference(at).inMinutes;
+    if (minutes < 1) return l.t('calsync.when.now');
+    if (minutes < 60) return l.f('calsync.when.minutes', {'count': minutes});
+    if (minutes < 48 * 60) {
+      return l.f('calsync.when.hours', {'count': (minutes / 60).round()});
+    }
+    return l.f('calsync.when.days', {'count': (minutes / 1440).round()});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    final status = c.sync;
+    if (status == null) return const SizedBox.shrink();
+    final l = AnumLocalizations.maybeOf(context);
+    final p = context.palette;
+    final troubled = status.troubled;
+    final shown = troubled ?? status.target;
+    if (shown == null) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: AnumSpacing.sm),
+        child: Row(children: [
+          Icon(Icons.event_repeat_outlined, size: 18, color: p.muted),
+          const SizedBox(width: AnumSpacing.xs),
+          Expanded(
+              child: Text(l.t('calsync.none'),
+                  style: TextStyle(color: p.muted, fontSize: 13))),
+        ]),
+      );
+    }
+    final syncing = c.busy == 'sync:${shown.id}';
+    return AnumSurface(
+      accent: troubled == null ? null : p.warn,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Icon(troubled == null ? Icons.event_available : Icons.sync_problem,
+              size: 20, color: troubled == null ? p.ok : p.warn),
+          const SizedBox(width: AnumSpacing.xs),
+          Expanded(
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                  troubled == null
+                      ? l.f('calsync.on', {
+                          'provider': shown.providerName,
+                          'email': shown.email,
+                          'when': when(l, shown.lastSyncAt, DateTime.now()),
+                        })
+                      : l.f(
+                          'calsync.problem', {'provider': shown.providerName}),
+                  style: TextStyle(color: p.text, fontSize: 13.5)),
+            ),
+          ),
+        ]),
+        if (troubled != null) ...[
+          const SizedBox(height: AnumSpacing.xs),
+          if (shown.lastError != null)
+            Text(l.f('calsync.error', {'reason': shown.lastError!}),
+                style: TextStyle(color: p.muted, fontSize: 13)),
+          Text(
+              l.f('calsync.fix.${shown.status}',
+                  {'provider': shown.providerName}),
+              style: TextStyle(color: p.muted, fontSize: 13)),
+        ],
+        if (status.canManage && !shown.needsReconnect) ...[
+          const SizedBox(height: AnumSpacing.xs),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              onPressed: c.busy == null
+                  ? () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      final synced =
+                          l.f('calsync.synced', {'email': shown.email});
+                      await c.syncNow(shown);
+                      if (c.sync?.troubled == null) {
+                        messenger.showSnackBar(SnackBar(content: Text(synced)));
+                      }
+                    }
+                  : null,
+              icon: const Icon(Icons.sync, size: 18),
+              label:
+                  Text(syncing ? l.t('calsync.syncing') : l.t('calsync.now')),
+            ),
+          ),
+        ],
       ]),
     );
   }

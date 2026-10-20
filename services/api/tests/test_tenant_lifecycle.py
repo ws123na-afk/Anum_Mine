@@ -180,6 +180,8 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         "skill_signing_settings": "0083_skill_signing",
         "business_change_orders": "0080_business_change_orders",
         "business_usage_ledger": "0080_business_change_orders",
+        "calendar_connections": "0092_calendar_sync",
+        "calendar_oauth_requests": "0092_calendar_sync",
         "workspace_file_versions": "0090_file_versions",
         **{name: "0082_business_pipeline" for name in (
             "business_outreach_settings", "business_target_profiles", "business_observations",
@@ -189,7 +191,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         "business_invoice_counters": "0089_business_invoices_portal",
         "business_portal_access": "0089_business_invoices_portal",
         "business_portal_decisions": "0089_business_invoices_portal",
-        **{name: "0092_customer_billing" for name in (
+        **{name: "0094_customer_billing" for name in (
             "billing_plans", "billing_settings", "billing_accounts", "billing_subscriptions", "billing_seats",
             "billing_usage", "billing_invoices", "billing_invoice_lines", "billing_credit_notes", "billing_payments",
             "billing_number_sequences", "billing_webhook_events", "billing_signups")},
