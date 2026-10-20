@@ -369,59 +369,74 @@ def configure_cancel_notifier(notifier: CancelNotifier | None) -> None:
     _cancel_notifier = notifier
 
 
-def cancel_in_flight(context: TenantContext, workspace_ids: list[str]) -> list[tuple[TenantContext, str]]:
-    """Cancel the running and queued tasks of ``workspace_ids`` (each in its own short unit of
-    work). Returns ``(workspace context, task id)`` for every task cancelled.
-
-    No lock is held while a run works (``inline_runs.py``), so the brief row lock taken here
-    never waits on a model call; the run sees the cancel at its next step and stops.
-    """
+def _cancel_batch(scoped: TenantContext) -> tuple[int, list[str]]:
+    """One short unit of work: cancel up to ``CANCEL_LIMIT`` running or queued tasks of one
+    workspace. Returns ``(tasks listed, ids cancelled)``; nothing is held after it returns."""
     from .dependencies import _unit_of_work
     from .events import CanonicalEventName, create_event
     from .schemas import ApprovalStatus, RunPhase
     from .tasks import TaskFilters
 
+    done: list[str] = []
+    with _unit_of_work(scoped, require_membership=False) as repository:
+        tasks = repository.list_tasks(
+            scoped,
+            limit=CANCEL_LIMIT,
+            filters=TaskFilters(statuses=frozenset({TaskStatus.RUNNING, TaskStatus.QUEUED})),
+        )
+        for listed in tasks:
+            task = repository.get_task_for_update(listed.id, scoped)
+            if task is None or task.status not in {TaskStatus.RUNNING, TaskStatus.QUEUED}:
+                continue
+            now = utc_now()
+            task.status = TaskStatus.CANCELLED
+            task.updated_at = now
+            repository.save_task(task)
+            run = repository.find_run_for_task(task.id, scoped)
+            if run and run.status not in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
+                run.status = TaskStatus.CANCELLED
+                run.checkpoint.phase = RunPhase.CANCELLED
+                run.checkpoint.version += 1
+                run.updated_at = now
+                repository.save_run(run)
+            for approval in repository.list_task_approvals(task.id, scoped):
+                if approval.status == ApprovalStatus.PENDING:
+                    fresh = repository.get_approval_for_update(approval.id, scoped)
+                    if fresh is not None and fresh.status == ApprovalStatus.PENDING:
+                        fresh.status = ApprovalStatus.EXPIRED
+                        fresh.decided_at = now
+                        repository.save_approval(fresh)
+            repository.record_event(
+                create_event(
+                    CanonicalEventName.TASK_CANCELLED, scoped, task.id, {"task_id": task.id, "reason": "emergency_stop"},
+                    correlation_id=task.id,
+                ).event
+            )
+            done.append(task.id)
+    return len(tasks), done
+
+
+def cancel_in_flight(context: TenantContext, workspace_ids: list[str]) -> list[tuple[TenantContext, str]]:
+    """Cancel every running and queued task of ``workspace_ids``, in batches of ``CANCEL_LIMIT``
+    until none remain, each batch its own short unit of work. Returns ``(workspace context,
+    task id)`` for every task cancelled.
+
+    No lock is held while a run works (``inline_runs.py``), so the brief row locks taken here
+    never wait on a model call; the run sees the cancel at its next step and stops. A batch
+    that cancels nothing ends the loop for that workspace (a task another request settled
+    meanwhile), so it cannot spin.
+    """
     cancelled: list[tuple[TenantContext, str]] = []
     for workspace_id in workspace_ids:
         scoped = TenantContext(
             tenant_id=context.tenant_id, workspace_id=workspace_id, user_id=context.user_id, roles=list(context.roles)
         )
         try:
-            with _unit_of_work(scoped, require_membership=False) as repository:
-                tasks = repository.list_tasks(
-                    scoped,
-                    limit=CANCEL_LIMIT,
-                    filters=TaskFilters(statuses=frozenset({TaskStatus.RUNNING, TaskStatus.QUEUED})),
-                )
-                for listed in tasks:
-                    task = repository.get_task_for_update(listed.id, scoped)
-                    if task is None or task.status not in {TaskStatus.RUNNING, TaskStatus.QUEUED}:
-                        continue
-                    now = utc_now()
-                    task.status = TaskStatus.CANCELLED
-                    task.updated_at = now
-                    repository.save_task(task)
-                    run = repository.find_run_for_task(task.id, scoped)
-                    if run and run.status not in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
-                        run.status = TaskStatus.CANCELLED
-                        run.checkpoint.phase = RunPhase.CANCELLED
-                        run.checkpoint.version += 1
-                        run.updated_at = now
-                        repository.save_run(run)
-                    for approval in repository.list_task_approvals(task.id, scoped):
-                        if approval.status == ApprovalStatus.PENDING:
-                            fresh = repository.get_approval_for_update(approval.id, scoped)
-                            if fresh is not None and fresh.status == ApprovalStatus.PENDING:
-                                fresh.status = ApprovalStatus.EXPIRED
-                                fresh.decided_at = now
-                                repository.save_approval(fresh)
-                    repository.record_event(
-                        create_event(
-                            CanonicalEventName.TASK_CANCELLED, scoped, task.id, {"task_id": task.id, "reason": "emergency_stop"},
-                            correlation_id=task.id,
-                        ).event
-                    )
-                    cancelled.append((scoped, task.id))
+            while True:
+                listed, done = _cancel_batch(scoped)
+                cancelled.extend((scoped, task_id) for task_id in done)
+                if not done or listed < CANCEL_LIMIT:
+                    break
         except Exception:  # noqa: BLE001 - one workspace must not stop the others; runs are refused anyway
             logger.exception(
                 "agent_controls_cancel_failed",

@@ -495,3 +495,52 @@ def test_owners_get_an_in_app_notice_and_a_push_event_when_the_stop_changes() ->
     finally:
         for user, _ in users:
             store.memberships.pop((TENANT_A, WORKSPACE_A, user), None)
+
+
+def test_turning_it_on_cancels_every_active_task_in_batches(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A small batch size stands in for "more active tasks than one batch": all must be cancelled.
+    monkeypatch.setattr(agent_controls, "CANCEL_LIMIT", 2)
+    context = _context()
+    now = utc_now()
+    ids = []
+    for index in range(7):
+        task = Task(
+            id=new_id("task"), tenant_id=TENANT_A, workspace_id=WORKSPACE_A, title=f"t{index}", prompt="p",
+            status=TaskStatus.RUNNING if index % 2 else TaskStatus.QUEUED, created_at=now, updated_at=now, created_by=context.user_id,
+        )
+        store.tasks[task.id] = task
+        ids.append(task.id)
+    done = Task(
+        id=new_id("task"), tenant_id=TENANT_A, workspace_id=WORKSPACE_A, title="done", prompt="p",
+        status=TaskStatus.COMPLETED, created_at=now, updated_at=now, created_by=context.user_id,
+    )
+    store.tasks[done.id] = done
+    batches: list[int] = []
+    original = agent_controls._cancel_batch
+
+    def counting(scoped: TenantContext) -> tuple[int, list[str]]:
+        listed, cancelled = original(scoped)
+        batches.append(len(cancelled))
+        return listed, cancelled
+
+    monkeypatch.setattr(agent_controls, "_cancel_batch", counting)
+
+    response = _engage()
+
+    assert response.status_code == 200, response.text
+    assert response.json()["cancelled_tasks"] == 7
+    assert [store.tasks[i].status for i in ids] == [TaskStatus.CANCELLED] * 7
+    assert store.tasks[done.id].status == TaskStatus.COMPLETED
+    assert batches == [2, 2, 2, 1]  # four short units of work, none holding more than a batch
+
+
+def test_a_batch_that_cancels_nothing_ends_the_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+
+    def stuck(scoped: TenantContext) -> tuple[int, list[str]]:
+        calls.append(1)
+        return agent_controls.CANCEL_LIMIT, []  # a full page of tasks someone else settled meanwhile
+
+    monkeypatch.setattr(agent_controls, "_cancel_batch", stuck)
+    assert agent_controls.cancel_in_flight(_context(), [WORKSPACE_A]) == []
+    assert calls == [1]

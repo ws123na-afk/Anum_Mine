@@ -52,6 +52,7 @@ const PublicSite=lazy(()=>import('./PublicSite').then(m=>({default:m.PublicSite}
 import { budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } from './lib/errors';
 import { noticeFromEvent, type ActionNotice } from './lib/autonomy';
 import { getAgentControls } from './lib/agentControlsApi';
+import { watchAgentStop } from './lib/agentStopWatch';
 const AgentControlsView=lazy(()=>import('./AgentControlsView').then(m=>({default:m.AgentControlsView})));
 
 // The shell's views, sidebar groups and hash routing live in lib/shell.ts; the chrome in Shell.tsx.
@@ -76,7 +77,8 @@ function App({onSwitchWorkspace,onSwitchOrganisation}:{onSwitchWorkspace:(worksp
  const [budgetStop,setBudgetStop]=useState<string|null>(null);
  // The organization's emergency stop (docs/agent-controls.md): a banner on every page while it is on.
  const [agentsStopped,setAgentsStopped]=useState(false);
- useEffect(()=>{void getAgentControls().then(c=>setAgentsStopped(c.emergency_stop.engaged)).catch(()=>undefined)},[]);
+ // Another owner can turn the stop on or off: read it again on a short poll and when the window regains focus.
+ useEffect(()=>watchAgentStop(async()=>(await getAgentControls()).emergency_stop.engaged,setAgentsStopped),[]);
  // A report or collection opened by link (#reports/<id>, #knowledge/<id>), a favorite or a chat answer card.
  const [reportTarget,setReportTarget]=useState<string|null>(()=>hashTarget(location.hash,'reports')),[collectionTarget,setCollectionTarget]=useState<string|null>(()=>hashTarget(location.hash,'knowledge'));
  // An archived workspace is read-only (docs/identity.md#workspace-lifecycle): say so on every view.
