@@ -1,4 +1,5 @@
 import '../../data/json_read.dart';
+import 'privacy_strings.dart';
 
 /// `GET /api/v1/privacy` (docs/privacy.md): counts of what ANUM stores about
 /// the caller in this workspace, retention, provider and the policy link.
@@ -145,24 +146,29 @@ class PrivacySummary {
   final String sharedNote;
 
   /// Retention as plain sentences, from the server's configuration.
-  List<(String, String)> get retention => [
+  List<(String, String)> get retention => retentionIn(PrivacyStrings.english);
+
+  List<(String, String)> retentionIn(PrivacyStrings s) => [
         (
-          'Assistant conversations',
+          s.t('ret.conversations'),
           conversationDays > 0
-              ? 'Deleted after ${_days(conversationDays)} without activity, or when you delete them.'
-              : 'Kept until you delete them.'
+              ? s.t('ret.conversationsDays',
+                  {'days': s.count('days', conversationDays)})
+              : s.t('ret.conversationsKept')
         ),
         (
-          'Voice transcripts',
-          'You choose per session: removed when the session ends, after ${_days(voiceTranscriptDays)}, or kept until you delete them.'
+          s.t('ret.voice'),
+          s.t('ret.voiceText', {'days': s.count('days', voiceTranscriptDays)})
         ),
-        ('Private memories', privateMemoryRetention),
-        ('Task memories', taskMemoryRetention),
-        ('Audit log', auditRetention),
+        (s.t('ret.private'), privateMemoryRetention),
+        (s.t('ret.task'), taskMemoryRetention),
+        (s.t('ret.audit'), auditRetention),
       ];
 
-  String get providerSentence =>
-      'To produce answers, your messages, voice questions and task prompts are sent to ${providerLabel(provider)}.';
+  String get providerSentence => providerSentenceIn(PrivacyStrings.english);
+
+  String providerSentenceIn(PrivacyStrings s) =>
+      s.t('provider', {'provider': providerLabel(provider, s)});
 
   /// The caller turned "Remember things from my chats" off: offer the switch.
   bool get offerChatMemorySwitch => conversationMemory == 'off_by_user';
@@ -170,37 +176,28 @@ class PrivacySummary {
   /// What happens to the caller's chats after a reply. The post-reply
   /// extraction call runs only when memory is `on`; recall stops only when the
   /// caller or the server turned memory off.
-  String get memorySentence => switch (conversationMemory) {
-        'on' =>
-          'After each reply, a second short call to the same provider picks out lasting facts you stated (such as your name, role or how you like answers) and saves them as private memories only you can see. Memories that match your later questions are added to what is sent to the model.',
-        'off_by_user' =>
-          'You turned off Remember things from my chats, so no facts are picked out of your chats and no memories are added to your questions. Memories already saved from your chats stay until you delete them.',
-        'off_on_server' =>
-          'Chat memory is turned off on this server (ANUM_CONVERSATION_MEMORY_ENABLED), so no facts are picked out of your chats and no memories are added to your questions.',
-        'off_for_organization' =>
-          'Your organization’s memory policy does not allow memories from chats, so no facts are picked out of your chats. $_recallStill An organization administrator can allow the "conversation" source under Governance.',
+  String get memorySentence => memorySentenceIn(PrivacyStrings.english);
+
+  String memorySentenceIn(PrivacyStrings s) => switch (conversationMemory) {
+        'on' ||
+        'off_by_user' ||
+        'off_on_server' ||
+        'off_for_organization' ||
         'not_for_role' =>
-          'Your role in this workspace cannot save memories, so no facts are picked out of your chats. $_recallStill A workspace owner can change your role.',
-        _ =>
-          'This server did not say whether facts are picked out of your chats. Check Remember things from my chats in Settings, or update the server.',
+          s.t('memory.$conversationMemory', {'recall': s.t('memory.recall')}),
+        _ => s.t('memory.unknown'),
       };
 
   bool matches(String typed) => typed.trim() == confirmation;
 }
 
-const _recallStill =
-    'Memories you can read that match your question (ones you or your workspace saved) are still added to what is sent to the model.';
-
-String _days(int n) => '$n ${n == 1 ? 'day' : 'days'}';
-
-String providerLabel(String provider) =>
+String providerLabel(String provider,
+        [PrivacyStrings s = PrivacyStrings.english]) =>
     switch (provider.toLowerCase().replaceAll('_', '-')) {
-      'anthropic' => 'Anthropic (Claude), an external service',
-      'openai-compatible' =>
-        'an OpenAI-compatible service, external unless your administrator runs it',
-      'ollama' => 'Ollama, a model running on your organization’s own server',
-      'mock' =>
-        'no model provider (local development mock: nothing leaves the server)',
+      'anthropic' => s.t('provider.anthropic'),
+      'openai-compatible' => s.t('provider.openai'),
+      'ollama' => s.t('provider.ollama'),
+      'mock' => s.t('provider.mock'),
       _ => provider,
     };
 
@@ -230,14 +227,14 @@ class PrivacyDeleteResult {
   /// mailbox provider where ANUM could not withdraw its access).
   final List<String> notes;
 
-  String get sentence {
+  String get sentence => sentenceIn(PrivacyStrings.english);
+
+  String sentenceIn(PrivacyStrings s) {
     final removed = totalOf(deleted), stayed = totalOf(kept);
     final head = removed > 0
-        ? 'Deleted $removed private ${removed == 1 ? 'item' : 'items'}.'
-        : 'There was nothing private to delete.';
-    final base = stayed > 0
-        ? '$head $stayed shared workspace ${stayed == 1 ? 'record stays' : 'records stay'}.'
-        : head;
+        ? s.count('result.deleted', removed)
+        : s.t('result.nothing');
+    final base = stayed > 0 ? '$head ${s.count('result.stays', stayed)}' : head;
     return [base, ...notes].join(' ');
   }
 }

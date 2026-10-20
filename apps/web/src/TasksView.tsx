@@ -5,6 +5,7 @@ import {
 import type { AgentRun, Approval, DomainEvent, Task, TaskBulkAction, TaskSummary } from '@anum/contracts';
 import * as api from './lib/api';
 import * as tasksApi from './lib/tasksApi';
+import { collectPages } from './lib/approvalPaging';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { SourcesUsed, type MemoryTarget } from './SourcesUsed';
 import { AiAnswer } from './AiAnswer';
@@ -20,7 +21,6 @@ import { figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { PageHeader, PageSummary, SplitView } from './PageParts';
 import './tasks.css';
-import { HelpLink } from './HelpLink';
 
 export interface TasksViewProps {
   /** The workspace's newest tasks (`GET /api/v1/tasks`), reloaded by the shell on task events. */
@@ -263,8 +263,11 @@ const DETAIL_TABS: readonly DetailTab[] = ['answer', 'approvals', 'runs', 'activ
 
 const newer = (a: Task | null, b: Task | null): Task | null => (!a ? b : !b ? a : b.updatedAt > a.updatedAt ? b : a);
 
-function TaskDetail({ taskId, listed, recentRun, approvals, pulse, role, userId, onBack, onChanged, openApprovals, openMemory, openFile }: DetailProps) {
-  const [tab, setTab] = useState<DetailTab>(() => (approvals.some((a) => a.status === 'pending') ? 'approvals' : 'answer'));
+function TaskDetail({ taskId, listed, recentRun, approvals: pendingForTask, pulse, role, userId, onBack, onChanged, openApprovals, openMemory, openFile }: DetailProps) {
+  const [tab, setTab] = useState<DetailTab>(() => (pendingForTask.some((a) => a.status === 'pending') ? 'approvals' : 'answer'));
+  // The shell holds only pending approvals; this task's whole history comes from its own filtered page.
+  const [taskApprovals, setTaskApprovals] = useState<{ id: string; items: Approval[] } | null>(null);
+  const approvals = taskApprovals?.id === taskId ? mergeById(pendingForTask, taskApprovals.items) : pendingForTask;
   const [fetched, setFetched] = useState<Task | null>(null), [taskError, setTaskError] = useState<unknown>(null);
   const [runs, setRuns] = useState<AgentRun[]>([]), [olderRuns, setOlderRuns] = useState<AgentRun[]>([]);
   const [runsMore, setRunsMore] = useState(false), [runsError, setRunsError] = useState<string | null>(null), [runsLoading, setRunsLoading] = useState(true);
@@ -277,6 +280,7 @@ function TaskDetail({ taskId, listed, recentRun, approvals, pulse, role, userId,
   useEffect(() => {
     let live = true;
     tasksApi.getTask(taskId).then((t) => { if (live) { setFetched(t); setTaskError(null); } }, (e: unknown) => { if (live) setTaskError(e); });
+    collectPages((cursor) => api.getApprovalPage({ taskId, cursor, limit: 100 })).then((all) => { if (live) setTaskApprovals({ id: taskId, items: all.items }); }, () => undefined);
     setRunsLoading(true);
     tasksApi.listTaskRuns(taskId).then(
       (page) => { if (live) { setRuns(page); setRunsMore(page.length >= RUN_PAGE_SIZE); setRunsError(null); } },
@@ -463,7 +467,7 @@ function Expandable({ text, limit, className }: { text: string; limit: number; c
 
 function Status({ value }: { value: string }) { return <span className={`statusBadge ${value === 'completed' || value === 'approved' ? 'success' : ['failed', 'cancelled', 'rejected', 'expired'].includes(value) ? 'dangerTone' : 'warning'}`}>{statusLabel(value)}</span>; }
 function Notice({ children, error }: { children: ReactNode; error?: boolean }) { return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>; }
-function Empty({ title, text, children }: { title: string; text: string; children?: ReactNode }) { return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p><HelpLink />{children}</div>; }
+function Empty({ title, text, children }: { title: string; text: string; children?: ReactNode }) { return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p>{children}</div>; }
 const date = (v: string) => formatDateTime(v);
 const time = (v: string) => formatDateTime(v, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const EVENTS_DENIED = () => t('tasks.activity.denied');

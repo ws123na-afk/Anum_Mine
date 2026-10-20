@@ -172,7 +172,11 @@ The owner's mockups (`docs/design/anum360-mockups/mobile-14-screens.jpg`, screen
 
 ## Home and ANUM Proactive
 
-The ANUM 360 Home (`lib/features/home/`, [home.md](home.md)) reads one summary call (`GET /api/v1/home/summary`), the caller's pins and quick commands, and the insights list. Pins open a web app in the browser (https only), switch to a pinned workspace or open a feature; quick commands and insight commands are handed to ANUM Command, which shows the plan before anything runs. Tests: `test/home/home_test.dart` (parsing, controller states, main paths, 320-1440 px at 200 % text in English and Arabic, tap-target and label guidelines).
+The ANUM 360 Home (`lib/features/home/`, [home.md](home.md)) reads one summary call (`GET /api/v1/home/summary`), the caller's pins and quick commands, and the insights list. Pins open a web app in the browser (https only), switch to a pinned workspace or open a feature; quick commands and insight commands are handed to ANUM Command, which shows the plan before anything runs. On a phone, Today's Focus comes before the quick commands and shortcut tiles ([home.md](home.md#the-app)). Tests: `test/home/home_test.dart` (parsing, controller states, main paths, the order of the sections, 320-1440 px at 200 % text in English and Arabic, tap-target and label guidelines).
+
+## Money and KPI tiles
+
+Every amount goes through one formatter, `lib/src/localization/money_format.dart`: `formatMoney(amount, currency)` writes the currency code and the amount with thousands separators and two decimals (`SAR 2,500.00`, `SAR -1,234.50`, `-` when unknown) through intl's `NumberFormat` for the app's locale, and `formatMoneyText` does the same for the decimal strings Finance keeps from the API, keeping their decimals exactly. Arabic keeps Western digits and separators, as on the web ([Web localization](web-localization.md#numbers-and-dates)). Business, Commerce, Finance, Tyre planning and the model budget meters use it. KPI tiles (`AnumMetric`) show their value in the solid text colour, with the accent on the icon, and `AnumMetricGrid` spreads tiles evenly over rows of at most 2 on phones and 4 from 760 px, so 5 tiles are 3 + 2 on a wide screen and 2 + 2 + 1 (the last spanning the row) on a phone. Tests: `test/localization/money_format_test.dart` (English, Arabic and another locale) and `test/metric_grid_test.dart` (5 tiles at 390 and 1024 px).
 
 ## Email Center
 
@@ -183,6 +187,10 @@ The ANUM 360 Home (`lib/features/home/`, [home.md](home.md)) reads one summary c
 `lib/features/whatsapp/` mirrors the web inbox for owners and members ([WhatsApp](whatsapp.md)): conversations with filters, search and paging; a thread with the 24-hour window, the suggested reply with its provenance label, a reply sent for approval, and Approve & send / Reject for owners (the payload hash is sent back). It opens from the app bar on wide layouts and from More on phones. Connecting the number and template replies stay on the web. Tests: `test/whatsapp/whatsapp_test.dart` (320 to 1440 px, 200% text, English and Arabic).
 
 ## Dependencies
+
+`clock` (pure Dart, already in the lock through `flutter_test`) is a direct dependency so date labels read "now" from `clock.now()` instead of `DateTime.now()`. Widget tests pin it with `withClock(Clock.fixed(...))`, so a layout test never passes or fails depending on the day it runs. Mail Center message dates (`mailWhen`) use it: the time today, the month and day this year, the short date before that; `test/mail_center/mail_center_test.dart` runs its layout tests with the widest label, a date from an earlier year.
+
+`intl` (`^0.20.2`, the range `flutter_localizations` pins) is a direct dependency for money formatting ([Money and KPI tiles](#money-and-kpi-tiles)); it was already in the build through `flutter_localizations`.
 
 `firebase_core` 4.15 and `firebase_messaging` 16.7 (phone push) were checked against `android.builtInKotlin=false` before adding them: `firebase_messaging`'s Android code is Java only, and `firebase_core` applies `kotlin-android` itself when built-in Kotlin is off, so neither needs a pin.
 
@@ -528,3 +536,8 @@ Platform behaviour
 - [ ] File upload uses the system picker; download uses the save picker; both work with large files on mobile data.
 - [ ] Tablets switch to the navigation rail at 840 logical pixels in both orientations; iPad split view and Android multi-window do not break layout.
 - [ ] Safe areas: nothing is hidden under the notch, Dynamic Island, gesture bar or keyboard.
+
+## Business invoices and the customer portal
+
+Business has an **Invoices** section (`lib/features/business/invoices.dart`): totals per currency, the paged list with status, overdue and search filters, a new-invoice form (milestones, contract share, billable costs, an offer, written lines), the invoice with the actions the server allows (`can`), manual payments, void, the billing profile and "Print or PDF". The phone cannot put a token in a URL, so print fetches the printable page with the session header and saves it as an HTML file through the system save dialog; open it in a browser and choose Print, then Save as PDF. The **Clients** tab lists accounts and, per contact, the customer portal links (owners create and turn them off; the link is shown once). **Customer portal** (`lib/features/portal/`) is opened from the sign-in screen through `PortalEntryScope`: paste the link, the token stays in memory and is sent only as a bearer header to the configured API. See [the customer portal](business-portal.md) and [Business](business.md#invoices).
+

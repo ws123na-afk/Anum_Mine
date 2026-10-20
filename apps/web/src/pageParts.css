@@ -5,11 +5,11 @@
 /* ---------- One header row: title and subtitle start, actions end ---------- */
 .pageHeader { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3) var(--d-s4); justify-content: space-between; margin-bottom: var(--d-s4); min-width: 0; }
 .pageHeaderText { flex: 1 1 320px; min-width: 0; }
-.pageHeaderText h1 { font-size: 28px; line-height: 1.2; }
-.pageHeaderText p { color: var(--d-muted); font-size: 14px; margin-top: 2px; max-width: 80ch; }
+.pageHeaderText h1 { font-size: var(--text-5xl); line-height: 1.2; }
+.pageHeaderText p { color: var(--d-muted); font-size: var(--text-md); margin-top: 2px; max-width: 80ch; }
 .pageHeaderActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; min-width: 0; }
 /* The way back from a sub-page (docs/module-checklist.md#navigation): small, one line, wraps on phones. */
-.breadcrumbs ol { display: flex; flex-wrap: wrap; font-size: 13px; gap: 2px var(--d-s2); list-style: none; margin: 0 0 var(--d-s1); padding: 0; }
+.breadcrumbs ol { display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: 2px var(--d-s2); list-style: none; margin: 0 0 var(--d-s1); padding: 0; }
 .breadcrumbs li { align-items: center; color: var(--d-faint); display: inline-flex; gap: var(--d-s2); min-width: 0; }
 .breadcrumbs li + li::before { color: var(--d-faint); content: "/"; }
 .breadcrumbs a { color: var(--d-sky); font-weight: 600; text-decoration: none; }
@@ -25,7 +25,7 @@
 /* A setup or status chip that opens its panel (mailboxes, chat memory, connectors). */
 .chipButton {
   align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line-strong); border-radius: 999px; color: var(--d-text); display: inline-flex;
-  font-size: 13px; font-weight: 600; gap: var(--d-s2); max-width: 100%; min-height: 36px; padding: 4px var(--d-s3); text-align: start;
+  font-size: var(--text-sm); font-weight: 600; gap: var(--d-s2); max-width: 100%; min-height: 36px; padding: 4px var(--d-s3); text-align: start;
 }
 .chipButton:hover { background: var(--d-glass-2); border-color: var(--d-line-hover); }
 .chipButton > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -37,7 +37,7 @@
 
 /* ---------- Summary band: the page's figures, the one place with emphasis ---------- */
 .pageSummary {
-  background: linear-gradient(135deg, rgb(var(--c-blue) / .10), rgb(var(--c-violet) / .07) 55%, transparent), linear-gradient(180deg, var(--d-surface-2), var(--d-surface-1));
+  background: var(--d-surface-1);
   border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); margin-bottom: var(--d-s4); min-width: 0; padding: var(--d-s3) var(--d-s4);
 }
 .pageFigures { display: grid; gap: var(--d-s3) var(--d-s4); grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
@@ -50,20 +50,26 @@
   .pageFigure:nth-child(odd) { border-inline-start: 1px solid var(--d-line); padding-inline-start: var(--d-s3); }
   .pageFigure:first-child { border-inline-start: 0; padding-inline-start: 0; }
 }
-.pageFigure dt { color: var(--d-muted); font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pageFigure dt { color: var(--d-muted); font-size: var(--text-sm); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pageFigure dd { display: grid; gap: 1px; margin: 0; min-width: 0; }
-.pageFigure strong { font-size: 24px; font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: -.01em; line-height: 1.2; overflow-wrap: anywhere; }
-.pageFigure small { color: var(--d-faint); font-size: 12.5px; overflow-wrap: anywhere; }
-.pageFigure.danger strong { color: var(--d-stop); }
-.pageFigure.warn strong { color: var(--d-warn); }
-.pageFigure.ok strong { color: var(--d-ok); }
-.pageFigure.accent strong { background: var(--d-aurora); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.pageFigure strong { font-size: var(--text-3xl); font-variant-numeric: tabular-nums; font-weight: 650; letter-spacing: -.02em; line-height: 1.2; overflow-wrap: anywhere; }
+.pageFigure small { color: var(--d-faint); font-size: var(--text-sm); overflow-wrap: anywhere; }
+/* Figures stay in the text colour: a coloured number carries no meaning a reader can name. A figure
+   with a status (overdue, at risk, healthy) marks its label with a small status dot instead, and the
+   label and hint say what the status is. */
+.pageFigure strong { color: var(--d-text); }
+.pageFigure:is(.danger, .warn, .ok) dt::before {
+  border-radius: 50%; content: ""; display: inline-block; height: 8px; margin-inline-end: var(--d-s2); vertical-align: 1px; width: 8px;
+}
+.pageFigure.danger dt::before { background: var(--d-stop); }
+.pageFigure.warn dt::before { background: var(--d-warn); }
+.pageFigure.ok dt::before { background: var(--d-ok); }
 .figureSkeleton { animation: figurePulse 1.4s ease-in-out infinite; background: var(--d-glass-3); border-radius: 6px; display: block; height: 22px; margin: 4px 0; width: 64px; }
-.figureUnavailable { color: var(--d-muted); font-size: 16px; font-weight: 600; line-height: 1.6; }
+.figureUnavailable { color: var(--d-muted); font-size: var(--text-lg); font-weight: 600; line-height: 1.6; }
 @keyframes figurePulse { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .figureSkeleton { animation: none; } }
 .pageSummaryFoot { align-items: center; border-top: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); margin-top: var(--d-s3); padding-top: var(--d-s2); }
-.pageSummaryFoot > :not(button) { color: var(--d-muted); flex: 1 1 260px; font-size: 13px; min-width: 0; }
+.pageSummaryFoot > :not(button) { color: var(--d-muted); flex: 1 1 260px; font-size: var(--text-sm); min-width: 0; }
 .pageSummaryRetry { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s2); margin-inline-start: auto; min-height: 36px; padding: 0 var(--d-s3); }
 
 /* ---------- Split view: panes fill the window on desktop, stack on smaller screens ---------- */
@@ -84,44 +90,57 @@
   .splitView[data-show="detail"] > [data-pane="list"], .splitView[data-show="list"] > [data-pane="detail"] { display: none; }
 }
 /* A pane is a panel with its own scroll; its header stays put while the body scrolls. */
-.pane { background: linear-gradient(180deg, var(--d-surface-2), var(--d-surface-1)); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); }
+.pane { background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); }
 .paneHead {
-  align-items: center; background: var(--d-surface-2); border-bottom: 1px solid var(--d-line); border-start-end-radius: var(--d-r-panel); border-start-start-radius: var(--d-r-panel);
+  align-items: center; background: var(--d-surface-1); border-bottom: 1px solid var(--d-line); border-start-end-radius: var(--d-r-panel); border-start-start-radius: var(--d-r-panel);
   display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; min-width: 0; padding: var(--d-s3) var(--d-s4); position: sticky; top: 0; z-index: 2;
 }
-.paneHead h2, .paneHead h3 { font-size: 15px; font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
-.paneHead .muted { font-size: 12.5px; }
+.paneHead h2, .paneHead h3 { font-size: var(--text-base); font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
+.paneHead .muted { font-size: var(--text-sm); }
 .paneBody { display: grid; gap: var(--d-s3); min-width: 0; padding: var(--d-s3) var(--d-s4) var(--d-s4); }
 .paneBody > .notice, .pane .notice { margin: 0; }
 .paneEmpty { color: var(--d-muted); display: grid; gap: var(--d-s2); justify-items: center; padding: var(--d-s6) var(--d-s4); text-align: center; }
-.paneEmpty svg { color: var(--d-violet); height: 26px; width: 26px; }
-.paneEmpty h3 { color: var(--d-text); font-size: 16px; }
-.paneEmpty p { font-size: 14px; max-width: 40ch; }
+.paneEmpty svg { background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-sizing: content-box; color: var(--d-accent); height: 22px; margin-bottom: var(--d-s1); padding: 11px; width: 22px; }
+.paneEmpty h3 { color: var(--d-text); font-size: var(--text-lg); }
+.paneEmpty p { font-size: var(--text-md); max-width: 40ch; }
 .paneEmpty .actions { justify-content: center; margin-top: var(--d-s2); }
 .paneProblem { align-items: center; flex-wrap: wrap; }
 .paneProblem button { margin-inline-start: auto; }
+/* Loading skeleton (LoadingSkeleton): bars shaped like a panel's heading and lines, a slow pulse. */
+.loadingSkeleton { background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: grid; gap: var(--d-s3); margin-bottom: var(--d-s4); padding: var(--d-s5); }
+.skeletonBar { animation: figurePulse 1.6s ease-in-out infinite; background: var(--d-glass-3); border-radius: 6px; display: block; height: 12px; width: 100%; }
+.skeletonBar.head { height: 18px; width: 38%; }
+.skeletonBar:nth-child(3n + 4) { width: 72%; }
+.skeletonBar:nth-child(3n + 5) { width: 86%; }
+@media (prefers-reduced-motion: reduce) { .skeletonBar { animation: none; } }
+/* A read-only notice: one line, with the way to get access behind a disclosure. */
+.accessNotice > div { display: grid; gap: var(--d-s1); min-width: 0; }
+.accessNotice details { font-size: var(--text-md); }
+.accessNotice summary { color: var(--d-sky); cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; width: fit-content; }
+.accessNotice details p { margin-top: var(--d-s1); }
+.accessNotice code { font-size: var(--text-sm); overflow-wrap: anywhere; }
 .paneBack { display: none; }
 @media (max-width: 1023px) { .paneBack { display: inline-flex; } }
 
 /* Rail sections: small headed groups of related records. */
 .railSection { display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3) var(--d-s4); }
 .railSection + .railSection { border-top: 1px solid var(--d-line); }
-.railSection h3 { align-items: center; color: var(--d-muted); display: flex; font-size: 12.5px; font-weight: 650; gap: var(--d-s2); letter-spacing: .02em; text-transform: uppercase; }
+.railSection h3 { align-items: center; color: var(--d-muted); display: flex; font-size: var(--text-sm); font-weight: 650; gap: var(--d-s2); letter-spacing: .02em; text-transform: uppercase; }
 :root[lang="ar"] .railSection h3, [dir="rtl"] .railSection h3 { letter-spacing: 0; text-transform: none; }
 .railSection h3 svg { height: 15px; width: 15px; }
-.railSection > p { color: var(--d-muted); font-size: 13px; }
+.railSection > p { color: var(--d-muted); font-size: var(--text-sm); }
 .railList { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
 .railList li { min-width: 0; }
 .railItem {
-  align-items: start; background: transparent; border: 1px solid transparent; border-radius: 10px; color: var(--d-text); display: grid; font-size: 13.5px; gap: 2px;
+  align-items: start; background: transparent; border: 1px solid transparent; border-radius: 10px; color: var(--d-text); display: grid; font-size: var(--text-md); gap: 2px;
   min-height: 0; padding: 6px var(--d-s2); text-align: start; width: 100%;
 }
 button.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line); }
 .railItem strong { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
-.railItem small { color: var(--d-faint); font-size: 12px; overflow-wrap: anywhere; }
+.railItem small { color: var(--d-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .railFacts { display: grid; gap: var(--d-s1) var(--d-s3); grid-template-columns: auto minmax(0, 1fr); margin: 0; }
-.railFacts dt { color: var(--d-muted); font-size: 12.5px; }
-.railFacts dd { font-size: 13px; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.railFacts dt { color: var(--d-muted); font-size: var(--text-sm); }
+.railFacts dd { font-size: var(--text-sm); margin: 0; min-width: 0; overflow-wrap: anywhere; }
 
 /* Tabs inside a pane head use the shared .segmented control (admin.css) with role="tab". */
 .segmented button[aria-selected="true"] { background: var(--d-glass-3); color: var(--d-text); }
@@ -129,9 +148,9 @@ button.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line
 /* ---------- Dense, quiet record tables ---------- */
 /* relative: hidden labels inside cells (visuallyHidden is absolute) stay inside the scroller instead of widening the page. */
 .dataTableWrap { min-width: 0; overflow-x: auto; position: relative; }
-.dataTable { border-collapse: separate; border-spacing: 0; font-size: 14px; min-width: 100%; width: 100%; }
+.dataTable { border-collapse: separate; border-spacing: 0; font-size: var(--text-md); min-width: 100%; width: 100%; }
 .dataTable thead th {
-  background: var(--d-surface-2); border-bottom: 1px solid var(--d-line); color: var(--d-muted); font-size: 12.5px; font-weight: 600; padding: var(--d-s2) var(--d-s3);
+  background: var(--d-surface-2); border-bottom: 1px solid var(--d-line); color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; padding: var(--d-s2) var(--d-s3);
   position: sticky; text-align: start; top: 0; white-space: nowrap; z-index: 1;
 }
 .dataTable td, .dataTable tbody th { border-bottom: 1px solid var(--d-line); font-weight: 400; padding: var(--d-s2) var(--d-s3); text-align: start; vertical-align: middle; }
@@ -142,9 +161,9 @@ button.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line
 [dir="rtl"] .dataTable tbody tr[aria-selected="true"] > :first-child, [dir="rtl"] .dataTable tbody tr.selected > :first-child { box-shadow: inset -3px 0 0 var(--d-violet); }
 .dataTable .num { font-variant-numeric: tabular-nums; text-align: end; white-space: nowrap; }
 .dataTable .nowrap { white-space: nowrap; }
-.dataTable .muted { font-size: 13px; }
+.dataTable .muted { font-size: var(--text-sm); }
 .dataTable .statusBadge { white-space: nowrap; }
-.dataTable small { color: var(--d-faint); display: block; font-size: 12px; }
+.dataTable small { color: var(--d-faint); display: block; font-size: var(--text-xs); }
 .cellButton { background: none; border: 0; color: var(--d-text); cursor: pointer; display: grid; font: inherit; gap: 1px; max-width: 100%; min-height: 32px; padding: 0; text-align: start; }
 .cellButton strong { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .cellButton:hover strong { color: var(--d-accent-text); text-decoration: underline; text-underline-offset: 3px; }
@@ -161,7 +180,7 @@ button.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line
 .toolbar select { flex: 0 1 200px; max-width: 100%; min-height: 40px; min-width: 0; width: auto; }
 .toolbar button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s2); min-height: 40px; padding: 0 var(--d-s3); }
 .toolbar button.iconOnly { justify-content: center; padding: 0; width: 40px; }
-.toolbar .toolbarNote { color: var(--d-faint); flex-basis: 100%; font-size: 12.5px; }
+.toolbar .toolbarNote { color: var(--d-faint); flex-basis: 100%; font-size: var(--text-sm); }
 
 /* ---------- "New..." dialogs ---------- */
 .formDialog { max-width: 560px; }
@@ -169,7 +188,7 @@ button.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line
 .formDialog .field:first-of-type { margin-top: 0; }
 .formDialog textarea { min-height: 120px; }
 .formDialog fieldset { border: 0; display: grid; gap: var(--d-s2); margin: var(--d-s3) 0 0; padding: 0; }
-.formDialog legend { color: var(--d-muted); font-size: 13px; font-weight: 600; margin-bottom: var(--d-s1); }
+.formDialog legend { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--d-s1); }
 .formDialog fieldset label { align-items: center; display: flex; gap: var(--d-s2); }
 :is(.formDialog, .pane) input[type="file"] { color: var(--d-muted); }
 :is(.formDialog, .pane) input[type="file"]::file-selector-button {
@@ -178,10 +197,10 @@ button.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line
 }
 
 @media (max-width: 760px) {
-  .pageHeaderText h1 { font-size: 24px; }
-  .pageHeaderText p { font-size: 13.5px; }
+  .pageHeaderText h1 { font-size: var(--text-4xl); }
+  .pageHeaderText p { font-size: var(--text-md); }
   .pageHeaderActions { justify-content: flex-start; width: 100%; }
-  .pageFigure strong { font-size: 20px; }
+  .pageFigure strong { font-size: var(--text-2xl); }
   .pageSummary { padding: var(--d-s3); }
   .paneHead, .paneBody, .railSection { padding-inline: var(--d-s3); }
 }

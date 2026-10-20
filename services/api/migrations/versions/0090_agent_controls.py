@@ -20,14 +20,14 @@ discovery skips a stopped tenant's work without reading anything else.
 Expand only: new tables, one column grant, one policy. The previous release never reads
 them and keeps running against this schema.
 
-Chained after ``0078_demo_records``, the head of ``main``.
+Chained after ``0082_business_pipeline``, the head of ``main``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0086_agent_controls"
-down_revision = "0078_demo_records"
+revision = "0090_agent_controls"
+down_revision = "0082_business_pipeline"
 branch_labels = None
 depends_on = None
 
@@ -37,6 +37,8 @@ WORKSPACE_PREDICATE = (
     "          and workspace_id = nullif(current_setting('anum.workspace_id', true), '')"
 )
 WORKSPACE_TABLES = ("agent_cost_caps", "agent_usage_monthly")
+PURGER = "anum_tenant_purger"
+JOBS = "tenant_lifecycle_jobs"
 TS = sa.DateTime(timezone=True)
 
 
@@ -53,6 +55,29 @@ def _force_rls(table: str, predicate: str) -> None:
           {predicate}
         )
         """
+    )
+
+
+def _purge_policy(table: str, *, workspace: bool) -> None:
+    """Organisation (or, for workspace tables, workspace) deletion may remove these rows (0079's ``_purge_policy``)."""
+    columns = "tenant_id, ctid, workspace_id" if workspace else "tenant_id, ctid"
+    covers = "j.kind = 'organisation_deletion'"
+    if workspace:
+        covers = f"({covers} or (j.kind = 'workspace_deletion' and j.workspace_id = {table}.workspace_id))"
+    op.execute(f"grant select ({columns}), delete on {table} to {PURGER}")
+    op.execute(
+        f"""
+        create policy lifecycle_purge_{table} on {table}
+        for all to {PURGER}
+        using (
+          tenant_id = nullif(current_setting('anum.tenant_id', true), '')
+          and exists (
+            select 1 from {JOBS} j
+            where j.tenant_id = {table}.tenant_id and j.status = 'purging' and {covers}
+          )
+        )
+        with check (false)
+        """  # nosec B608 - fixed table names
     )
 
 
@@ -109,8 +134,10 @@ def upgrade() -> None:
         _workspace_fk("agent_usage_monthly"),
     )
     _force_rls("agent_emergency_stops", TENANT_PREDICATE)
+    _purge_policy("agent_emergency_stops", workspace=False)
     for table in WORKSPACE_TABLES:
         _force_rls(table, WORKSPACE_PREDICATE)
+        _purge_policy(table, workspace=True)
     # Discovery of due sends skips stopped tenants: two columns only, never the reason.
     op.execute("grant select (tenant_id, engaged) on agent_emergency_stops to anum_maintenance")
     op.execute(
@@ -123,6 +150,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    for table in ("agent_emergency_stops", *WORKSPACE_TABLES):
+        op.execute(f"drop policy if exists lifecycle_purge_{table} on {table}")
     op.execute("drop policy if exists maintenance_agent_emergency_stops on agent_emergency_stops")
     op.execute(
         """

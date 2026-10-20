@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { approvalPagesResponse } from './support/approvalPages';
 
 // Workspace approval policy, the two-person refusal on the approval card, and the workspace
 // switcher, against a mocked API (docs/approvals-and-risk.md, Workspace Approval Policy;
@@ -47,6 +48,8 @@ async function mockApi(page: Page, options: Options = {}) {
     if (path === '/api/v1/auth/local/session') return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
     if (path === '/api/v1/tasks') return json(options.twoPerson ? [task] : []);
     if (path === '/api/v1/approvals') return json(options.twoPerson ? [approval] : []);
+    const paged = approvalPagesResponse(new URL(request.url()), options.twoPerson ? [approval] : []);
+    if (paged !== undefined) return json(paged);
     if (path === '/api/v1/approvals/approval_mine/approve') return json(envelope('forbidden', twoPersonMessage), 403);
     if (path === '/api/v1/workspace-memberships/current') {
       if (!workspace || !memberOf.includes(workspace)) return json(envelope('forbidden', 'Active workspace membership required'), 403);
@@ -140,7 +143,7 @@ test('the workspace switcher checks membership, then every request names the new
   const calls = await mockApi(page, { memberOf: ['workspace_foundation', 'workspace_sales'] });
   await page.goto('/#policy');
 
-  const switcher = page.getByRole('button', { name: /tenant_local \/ workspace_foundation/ });
+  const switcher = page.getByRole('button', { name: 'Local / Foundation' });
   await switcher.click();
   const panel = page.getByRole('dialog', { name: 'Switch workspace' });
   await expect(panel.getByText('Current workspace')).toBeVisible();
@@ -151,7 +154,7 @@ test('the workspace switcher checks membership, then every request names the new
 
   await panel.getByLabel('Another workspace ID').fill('workspace_sales');
   await panel.getByRole('button', { name: 'Switch', exact: true }).click();
-  await expect(page.getByRole('button', { name: /tenant_local \/ workspace_sales/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Local / Sales' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Who must approve risky actions' })).toBeVisible();
 
   const switchedAt = calls.findIndex((c) => c.path === '/api/v1/workspace-memberships/current' && c.workspace === 'workspace_sales');
@@ -162,7 +165,7 @@ test('the workspace switcher checks membership, then every request names the new
 
   // The selection survives a reload, and the previous workspace stays one click away.
   await page.reload();
-  await page.getByRole('button', { name: /tenant_local \/ workspace_sales/ }).click();
+  await page.getByRole('button', { name: 'Local / Sales' }).click();
   await expect(page.getByRole('dialog', { name: 'Switch workspace' }).getByRole('button', { name: /workspace_foundation/ })).toBeVisible();
 });
 
@@ -179,26 +182,29 @@ test('the switcher lists every membership from the API and still checks before s
   });
   await page.goto('/#policy');
 
-  await page.getByRole('button', { name: /tenant_local \/ workspace_foundation/ }).click();
+  await page.getByRole('button', { name: 'Local / Foundation' }).click();
   const panel = page.getByRole('dialog', { name: 'Switch workspace' });
+  // The ids behind the names in the top bar.
+  await expect(panel.getByText('tenant_local', { exact: true })).toBeVisible();
+  await expect(panel.getByText('workspace_foundation', { exact: true }).first()).toBeVisible();
   const list = panel.getByRole('list', { name: 'Workspaces' });
-  await expect(list.getByRole('button', { name: /workspace_finance.*Finance · your role: viewer/ })).toBeVisible();
-  await expect(list.getByRole('button', { name: /workspace_foundation.*Current workspace · Foundation · your role: owner/ })).toBeVisible();
+  await expect(list.getByRole('button', { name: /^Finance.*workspace_finance.*your role: viewer$/ })).toBeVisible();
+  await expect(list.getByRole('button', { name: /^Foundation.*workspace_foundation.*Current workspace · your role: owner$/ })).toBeVisible();
   await expect(panel.getByText(/every workspace in tenant_local where you are an active member/)).toBeVisible();
 
   await list.getByRole('button', { name: /workspace_legal/ }).click();
   await expect(panel.getByRole('alert')).toHaveText('Active workspace membership required');
-  await expect(page.getByRole('button', { name: /tenant_local \/ workspace_foundation/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Local / Foundation' })).toBeVisible();
 
   await list.getByRole('button', { name: /workspace_finance/ }).click();
-  await expect(page.getByRole('button', { name: /tenant_local \/ workspace_finance/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Local / Finance' })).toBeVisible();
   expect(calls.some((c) => c.path === '/api/v1/workspace-memberships/current' && c.workspace === 'workspace_finance')).toBe(true);
 });
 
 test('the switcher falls back to known workspaces when the membership list cannot be loaded', async ({ page }) => {
   await mockApi(page);
   await page.goto('/#policy');
-  await page.getByRole('button', { name: /tenant_local \/ workspace_foundation/ }).click();
+  await page.getByRole('button', { name: 'Local / Foundation' }).click();
   const panel = page.getByRole('dialog', { name: 'Switch workspace' });
   await expect(panel.getByText(/could not be loaded, so only the workspaces this browser knows are shown/)).toBeVisible();
   await expect(panel.getByRole('button', { name: /workspace_foundation/ })).toBeVisible();

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { approvalPagesResponse } from './approvalPages';
 import type { Page } from '@playwright/test';
 import { commerceReply, commerceState } from './commerceApi';
 import { financeReply, financeState } from './financeApi';
@@ -150,7 +151,7 @@ export const emailSetup = {
   redirect_uri: 'https://api.example.com/api/v1/email/oauth/callback', can_connect: true, can_act: true,
 };
 export const emailDraft = {
-  id: 'edr_1', account_id: 'emb_shop', message_id: 'eml_question', to: ['sara@example.com'], cc: [], subject: 'Re: Do you have 205/55R16 in stock?',
+  id: 'edr_1', account_id: 'emb_shop', message_id: 'eml_question', kind: 'reply', to: ['sara@example.com'], cc: [], bcc: [] as string[], subject: 'Re: Do you have 205/55R16 in stock?',
   body: 'Hello Sara,\n\nYes, 205/55R16 is in stock and ships tomorrow.', status: 'draft', source: 'model', model_provider: 'anthropic', model_name: 'claude-sonnet-5-5',
   saved_in_provider: true, error: null, approval: null, approval_note: null, created_by: 'user_local', created_at: now, updated_at: now, sent_at: null,
 };
@@ -235,6 +236,8 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     if (path === '/api/v1/tasks/task_done/latest-run') return json(run);
     if (path === '/api/v1/tasks/task_release/latest-run') return json({ detail: 'Agent run not found' }, 404);
     if (path === '/api/v1/approvals') return json([pendingApproval, decidedApproval]);
+    const paged = approvalPagesResponse(new URL(request.url()), [pendingApproval, decidedApproval]);
+    if (paged !== undefined) return json(paged);
     if (path === '/api/v1/retrieval/sources') return json({ sources: [{ source_type: 'memory', source_id: 'memory_task', found: true, title: 'Exports must finish within a minute.', kind: 'task' }] });
     if (path === '/api/v1/conversations' && method === 'GET') return json([{ id: 'conv_1', title: 'Release planning', created_at: now, updated_at: now }]);
     if (path === '/api/v1/conversations/conv_1') {

@@ -132,7 +132,7 @@ test('a member sees the catalog read-only and the approval waits for an owner', 
   await expect(page.getByText('A workspace owner adds the products and prices.')).toBeVisible();
   await page.getByRole('navigation', { name: 'Business sections' }).getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByText('Only workspace owners change the caps.')).toBeVisible();
-  await expect(page.getByText('Off in this release: there is no send path.')).toBeVisible();
+  await expect(page.getByText('Off (the default): an owner turns it on in Outreach.')).toBeVisible();
 });
 
 test('empty, denied and failed states explain themselves', async ({ page }) => {

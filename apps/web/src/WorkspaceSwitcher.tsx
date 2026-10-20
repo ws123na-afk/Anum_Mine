@@ -7,7 +7,7 @@ import type { MyOrganisation } from '@anum/contracts';
 import * as api from './lib/api';
 import { getMyOrganisations } from './lib/teamApi';
 import { describeError } from './lib/errors';
-import { membershipLabel, type MembershipEntry } from './lib/workspaces';
+import { membershipLabel, scopeNames, type MembershipEntry } from './lib/workspaces';
 import { t } from './lib/i18n';
 
 const sourceLabel = (source: 'member' | 'default' | 'remembered') => t(`switcher.source.${source}`);
@@ -26,6 +26,13 @@ export function WorkspaceSwitcher({ tenantId, workspaceId, onSwitch, onSwitchOrg
   const root = useRef<HTMLDivElement>(null);
   const panelId = useId();
 
+  // The organisations (with their workspaces' names) load once up front, so the button shows names, not ids.
+  useEffect(() => {
+    let live = true;
+    getMyOrganisations().then((orgs) => { if (live && Array.isArray(orgs)) setOrganisations(orgs); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [tenantId]);
+
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -33,7 +40,7 @@ export function WorkspaceSwitcher({ tenantId, workspaceId, onSwitch, onSwitchOrg
     api.listMyWorkspaces()
       .then((memberships) => { if (live) setDirectory({ state: 'loaded', memberships }); })
       .catch(() => { if (live) setDirectory({ state: 'unavailable' }); });
-    getMyOrganisations().then((orgs) => { if (live) setOrganisations(orgs); }).catch(() => { if (live) setOrganisations(null); });
+    getMyOrganisations().then((orgs) => { if (live && Array.isArray(orgs)) setOrganisations(orgs); }).catch(() => undefined);
     const close = (event: MouseEvent | KeyboardEvent) => {
       if (event instanceof KeyboardEvent ? event.key === 'Escape' : !root.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -61,21 +68,28 @@ export function WorkspaceSwitcher({ tenantId, workspaceId, onSwitch, onSwitchOrg
     void onSwitchOrganisation(target.tenant_id, first.workspace_id).catch((e: unknown) => { setError(describeError(e)); setBusy(null); });
   };
   const others = (organisations ?? []).filter((o) => o.tenant_id !== tenantId);
+  const names = scopeNames(tenantId, workspaceId, organisations, directory.state === 'loaded' ? directory.memberships : null);
 
   return <div className="workspaceSwitcher" ref={root}>
     <button type="button" className="tenant workspaceSwitch" aria-haspopup="dialog" aria-expanded={open} aria-controls={panelId} title={t('switcher.button')} onClick={() => setOpen(!open)}>
-      <span dir="ltr">{tenantId} / {workspaceId}</span><ChevronDown aria-hidden />
+      <Building2 className="switchIcon" aria-hidden="true" /><span dir="auto">{names.organisation} / {names.workspace}</span><ChevronDown className="switchChevron" aria-hidden />
     </button>
     {open && <section className="workspacePanel" id={panelId} role="dialog" aria-label={t('switcher.button')}>
       <div><p className="eyebrow">{t('switcher.eyebrow')}</p><h2>{t('switcher.button')}</h2></div>
       <p className="muted">{t('switcher.intro')}</p>
+      <dl className="workspaceIds">
+        <div><dt>{t('switcher.organisationId')}</dt><dd dir="ltr"><code>{tenantId}</code></dd></div>
+        <div><dt>{t('switcher.workspaceId')}</dt><dd dir="ltr"><code>{workspaceId}</code></dd></div>
+      </dl>
       {directory.state === 'loading' && <p className="muted" role="status">{t('switcher.loading')}</p>}
       <ul className="workspaceOptions" aria-label={t('switcher.list')}>
         {options.map((option) => {
-          const detail = membershipLabel(option);
+          const named = Boolean(option.name && option.name !== option.id);
+          const detail = membershipLabel(named ? { ...option, name: null } : option);
           return <li className="workspaceOption" key={option.id}>
             <button type="button" aria-current={option.current} disabled={busy !== null} onClick={() => go(option.id)}>
-              <strong dir="ltr">{option.id}</strong>
+              <strong dir={named ? 'auto' : 'ltr'}>{named ? option.name : option.id}</strong>
+              {named && <small dir="ltr">{option.id}</small>}
               <small>{option.current ? (detail ? t('switcher.currentWith', { detail }) : t('switcher.current')) : busy === option.id ? t('switcher.checking') : detail ?? sourceLabel(option.source)}</small>
             </button>
             {!option.current && option.source === 'remembered'

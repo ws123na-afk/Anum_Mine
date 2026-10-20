@@ -1095,25 +1095,73 @@ def test_mail_writers_migration_is_expand_only() -> None:
     assert "grant select (updated_at) on mail_drafts to anum_maintenance" in upgrade
 
 
-def test_agent_controls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
+def test_business_pipeline_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0086_agent_controls.py").read_text(encoding="utf-8")
-    assert 'revision = "0086_agent_controls"' in revision_text and len("0086_agent_controls") <= 32
-    assert 'down_revision = "0078_demo_records"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0086_agent_controls.py"]
-    assert not [path for path in others if 'down_revision = "0078_demo_records"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0082_business_pipeline.py").read_text(encoding="utf-8")
+    assert 'revision = "0082_business_pipeline"' in revision_text and len("0082_business_pipeline") <= 32
+    assert 'down_revision = "0089_business_invoices_portal"' in revision_text
+    # One chain: nothing else extends the revision before this one, and nothing extends this one.
+    others = [path for path in versions.glob("*.py") if path.name != "0082_business_pipeline.py"]
+    assert [path.name for path in others if 'down_revision = "0089_business_invoices_portal"' in path.read_text(encoding="utf-8")] == []
+    # The agent controls migration chains after it (one head): nothing else may.
+    assert [path.name for path in others if 'down_revision = "0082_business_pipeline"' in path.read_text(encoding="utf-8")] in ([], ["0090_agent_controls.py"])
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
-    assert upgrade.count("op.create_table(") == 3
-    for table in ("agent_emergency_stops", "agent_cost_caps", "agent_usage_monthly"):
-        assert f'"{table}"' in revision_text
-    assert '_force_rls("agent_emergency_stops", tenant_predicate)' in upgrade
-    assert "force row level security" in revision_text.split("def _force_rls", 1)[1]
-    assert "op.add_column(" not in upgrade and "op.drop" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    tables = revision_text.split("TABLES = (", 1)[1].split(")", 1)[0]
+    names = [name.strip().strip('"') for name in tables.split(",") if name.strip()]
+    assert names == ["business_outreach_settings", "business_target_profiles", "business_observations", "business_pipeline_runs",
+                     "business_outbox", "business_replies"]
+    assert upgrade.count("op.create_table(") == len(names) and "for table in tables:\n        _enable_rls(table)" in upgrade
+    assert "force row level security" in revision_text.lower() and "with check (" in revision_text.lower()
+    assert '["tenant_id", "workspace_id", column]' in revision_text
+    # Sending is off by default; one open outbox row per draft.
+    assert '"sending_enabled", sa.boolean(), nullable=false, server_default=sa.false()' in upgrade
+    assert "uq_business_outbox_open_draft" in upgrade and "uq_business_outbox_sequence_step" in upgrade
+    # The only grant is the tenant purger's (scope columns and delete) with its purge policy, for every table.
+    assert "_purge_policy(table)" in upgrade and "grant select (tenant_id, ctid, workspace_id), delete on {table} to {purger}" in revision_text.lower().replace("{purger}", "{purger}")
+    assert "create policy lifecycle_purge_{table}" in revision_text and revision_text.lower().count("grant ") == 1
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
-    # One narrow grant: discovery of due sends reads two columns, never the reason.
-    assert upgrade.count("grant ") == 1
-    assert "grant select (tenant_id, engaged) on agent_emergency_stops to anum_maintenance" in upgrade
-    assert "for select to anum_maintenance" in upgrade
+    assert "op.add_column(" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade
+
+def test_tenant_lifecycle_migration_is_expand_only_with_a_narrow_purge_role() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0079_tenant_lifecycle.py").read_text(encoding="utf-8")
+    assert 'revision = "0079_tenant_lifecycle"' in revision_text and len("0079_tenant_lifecycle") <= 32
+    assert 'down_revision = "0078_demo_records"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2 and "force row level security" in upgrade
+    assert "create role {purger} nologin" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    assert "op.drop" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    # The purger reads scope columns only (never content) and may delete; the job table is
+    # changed only by the application role.
+    assert 'columns = ["tenant_id", "ctid"]' in revision_text
+    assert "grant select ({', '.join(columns)}), delete on {table} to {PURGER}" in revision_text
+    assert "with check (false)" in revision_text and "_purge_policy(table)" in upgrade
+
+
+def test_business_change_orders_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0080_business_change_orders.py").read_text(encoding="utf-8")
+    assert 'revision = "0080_business_change_orders"' in revision_text and len("0080_business_change_orders") <= 32
+    down = revision_text.split('down_revision = "', 1)[1].split('"', 1)[0]
+    others = [path for path in versions.glob("*.py") if path.name != "0080_business_change_orders.py"]
+    assert any(f'revision = "{down}"' in path.read_text(encoding="utf-8") for path in others)
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 2 and '"business_change_orders"' in upgrade and '"business_usage_ledger"' in upgrade
+    assert "for table in tables:\n        _enable_rls(table)" in upgrade
+    assert "force row level security" in revision_text.lower() and "with check (" in revision_text.lower()
+    assert "current_setting('anum.tenant_id', true)" in revision_text and "current_setting('anum.workspace_id', true)" in revision_text
+    assert '["tenant_id", "workspace_id", column]' in revision_text
+    # Expand only: one nullable column on the proposal versions, nothing altered or dropped.
+    assert upgrade.count("op.add_column(") == 1 and "nullable=true" in upgrade.split("op.add_column(", 1)[1].split("\n", 1)[0]
+    assert "alter_column" not in upgrade and "drop " not in upgrade
+    # The only grant is the purger's (scope columns and delete) with its purge policy.
+    assert revision_text.lower().count("op.execute(f\"grant ") == 1 and "to {PURGER}" in revision_text and "create policy lifecycle_purge_{table}" in revision_text
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # An approved change order names who approved it and the version it produced.
+    assert "status <> 'approved' or (decided_by is not null and decided_at is not null and result_version is not null)" in upgrade
+
+
 def test_file_scan_status_migration_is_expand_only_with_a_discovery_only_policy() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0075_file_scan_status.py").read_text(encoding="utf-8")
@@ -1137,8 +1185,6 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
     assert 'revision = "0076_business_support"' in revision_text and len("0076_business_support") <= 32
     assert 'down_revision = "0075_file_scan_status"' in revision_text
     others = [path for path in versions.glob("*.py") if path.name != "0076_business_support.py"]
-    # One chain: at most one later migration follows it (no second head).
-    assert len([path for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")]) <= 1
     assert [path.name for path in others if 'down_revision = "0076_business_support"' in path.read_text(encoding="utf-8")] in ([], ["0078_demo_records.py"])
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 2
@@ -1152,6 +1198,22 @@ def test_business_support_migration_is_expand_only_with_forced_rls_and_scoped_re
     assert "uq_business_support_tickets_open_source" in upgrade
 
 
+def test_approvals_paging_migration_only_adds_concurrent_indexes() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0088_approvals_paging.py").read_text(encoding="utf-8")
+    assert 'revision = "0088_approvals_paging"' in revision_text and len("0088_approvals_paging") <= 32
+    assert 'down_revision = "0087_email_draft_bcc"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0088_approvals_paging.py"]
+    followers = [path.name for path in others if 'down_revision = "0088_approvals_paging"' in path.read_text(encoding="utf-8")]
+    assert followers in ([], ["0089_business_invoices_portal.py"])
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert "autocommit_block()" in upgrade and upgrade.count("create index concurrently if not exists") == 2
+    assert "where status = 'pending'" in upgrade
+    assert "op.create_table(" not in upgrade and "op.add_column(" not in upgrade and "alter_column" not in upgrade
+    assert "drop " not in upgrade and "op.drop" not in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
 def test_demo_records_migration_is_expand_only_with_forced_rls() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0078_demo_records.py").read_text(encoding="utf-8")
@@ -1163,3 +1225,42 @@ def test_demo_records_migration_is_expand_only_with_forced_rls() -> None:
     assert '"demo_records"' in upgrade and "force row level security" in upgrade
     assert "create policy tenant_isolation_demo_records" in upgrade
     assert "drop " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_email_draft_bcc_migration_adds_one_defaulted_column_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0087_email_draft_bcc.py").read_text(encoding="utf-8")
+    assert 'revision = "0087_email_draft_bcc"' in revision_text and len("0087_email_draft_bcc") <= 32
+    assert 'down_revision = "0080_business_change_orders"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0087_email_draft_bcc.py"]
+    # Only this revision extends 0080 (a later migration may extend this one: invoices and the portal do).
+    assert not [path for path in others if 'down_revision = "0080_business_change_orders"' in path.read_text(encoding="utf-8")]
+    followers = [path.name for path in others if 'down_revision = "0087_email_draft_bcc"' in path.read_text(encoding="utf-8")]
+    assert followers in ([], ["0088_approvals_paging.py"])
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: one not-null column with a server default the previous release never has to name.
+    assert upgrade.count("op.add_column(") == 1 and '"email_drafts"' in upgrade and '"bcc_addresses"' in upgrade
+    assert "server_default=sa.text(\"'[]'::jsonb\")" in upgrade
+    assert "op.create_table(" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_agent_controls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0090_agent_controls.py").read_text(encoding="utf-8")
+    assert 'revision = "0090_agent_controls"' in revision_text and len("0090_agent_controls") <= 32
+    assert 'down_revision = "0082_business_pipeline"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0090_agent_controls.py"]
+    assert not [path for path in others if 'down_revision = "0082_business_pipeline"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 3
+    for table in ("agent_emergency_stops", "agent_cost_caps", "agent_usage_monthly"):
+        assert f'"{table}"' in revision_text
+    assert '_force_rls("agent_emergency_stops", tenant_predicate)' in upgrade
+    assert "force row level security" in revision_text.split("def _force_rls", 1)[1]
+    assert "op.add_column(" not in upgrade and "op.drop" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # One narrow grant: discovery of due sends reads two columns, never the reason.
+    assert upgrade.count("grant ") == 1
+    assert "grant select (tenant_id, engaged) on agent_emergency_stops to anum_maintenance" in upgrade
+    assert "for select to anum_maintenance" in upgrade

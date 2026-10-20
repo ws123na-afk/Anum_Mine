@@ -1,4 +1,4 @@
-"""PostgreSQL store for the owner agent controls (migration ``0086_agent_controls``).
+"""PostgreSQL store for the owner agent controls (migration ``0090_agent_controls``).
 
 ``agent_emergency_stops`` is tenant-scoped; ``agent_cost_caps`` and ``agent_usage_monthly``
 are workspace-scoped. The session must already carry the RLS context

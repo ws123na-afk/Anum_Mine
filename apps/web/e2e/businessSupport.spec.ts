@@ -113,6 +113,7 @@ test('denied and failed support states explain themselves', async ({ page }) => 
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await mockSupport(page, { listStatus: 500 });
   await page.reload();
-  await expect(page.getByText('Database unavailable')).toBeVisible();
+  // The API's bare "Database unavailable" reads as the server's outage (lib/errors.ts describeError).
+  await expect(page.getByText('The server could not reach its database')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 });

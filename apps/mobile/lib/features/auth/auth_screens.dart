@@ -7,14 +7,21 @@ import '../../src/theme/anum_theme.dart';
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import '../settings/model_choice.dart';
+import '../portal/portal_screens.dart' show PortalEntryBar;
 import 'auth_controller.dart';
 import 'account_screens.dart';
 import 'intro.dart';
 import 'welcome_screens.dart';
 
 class AuthFlow extends StatelessWidget {
-  const AuthFlow({required this.controller, this.intro, super.key});
+  const AuthFlow(
+      {required this.controller, this.intro, this.onOpenPortal, super.key});
   final AuthController controller;
+
+  /// Opens the customer portal (docs/business-portal.md): a customer pastes
+  /// the link a business sent. Null uses the app's `PortalEntryScope`, and
+  /// without one the entry is hidden.
+  final VoidCallback? onOpenPortal;
 
   /// The onboarding pages, shown once per device before the first sign-in;
   /// without it sign-in comes straight after the splash.
@@ -29,9 +36,11 @@ class AuthFlow extends StatelessWidget {
                 onSignIn: () => intro!.finish(),
                 onGetStarted: () =>
                     intro!.finish(register: controller.oidcEnabled)),
-            AuthPhase.signedOut => SignInScreen(
-                controller: controller,
-                startWithRegistration: intro?.takeRegistration() ?? false),
+            AuthPhase.signedOut => PortalEntryBar(
+                onOpen: onOpenPortal,
+                child: SignInScreen(
+                    controller: controller,
+                    startWithRegistration: intro?.takeRegistration() ?? false)),
             AuthPhase.workspacePicker =>
               WorkspacePickerScreen(controller: controller),
             AuthPhase.noWorkspace => NoWorkspaceScreen(controller: controller),

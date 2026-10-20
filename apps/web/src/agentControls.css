@@ -10,7 +10,7 @@
 .stopHeading > div { min-width: 0; }
 .stopCard.engaged .stopHeading .adminIcon { color: var(--d-stop); }
 .stopBody { display: grid; gap: var(--d-s5); grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
-.stopBody h3 { font-size: 14px; margin-bottom: var(--d-s2); }
+.stopBody h3 { font-size: var(--text-md); margin-bottom: var(--d-s2); }
 .stopList { display: grid; gap: var(--d-s2); margin: 0 0 var(--d-s3); padding-inline-start: 1.2em; }
 .stopReason { margin-top: var(--d-s2); overflow-wrap: anywhere; }
 .stopForm { align-content: start; display: grid; gap: var(--d-s3); }

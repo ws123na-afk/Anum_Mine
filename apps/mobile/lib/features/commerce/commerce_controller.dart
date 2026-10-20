@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
 import 'commerce_models.dart';
+import 'commerce_ops_data.dart';
 import 'commerce_repository.dart';
 
 enum CommerceLoad { idle, loading, ready, denied, error }
@@ -10,10 +11,13 @@ enum CommerceLoad { idle, loading, ready, denied, error }
 /// order list. Each part loads and fails on its own, so a failed order page
 /// keeps the summary on screen.
 class CommerceController extends ChangeNotifier {
-  CommerceController(this.repository, {DateTime Function()? clock})
+  CommerceController(this.repository, {this.ops, DateTime Function()? clock})
       : _clock = clock ?? DateTime.now;
 
   final CommerceRepository repository;
+
+  /// Catalogue, prices and stock, returns, alerts and channels, when wired.
+  final CommerceOps? ops;
   final DateTime Function() _clock;
   static const pageSize = 20;
   static const periods = ['today', 'yesterday', 'last_7_days', 'last_30_days'];
@@ -34,7 +38,11 @@ class CommerceController extends ChangeNotifier {
 
   bool get hasMoreOrders => orders.length < ordersTotal;
 
-  Future<void> load() => Future.wait([loadSummary(), loadOrders()]);
+  Future<void> load() => Future.wait([
+        loadSummary(),
+        loadOrders(),
+        (ops?.loadRights() ?? Future<void>.value())
+      ]);
 
   Future<void> setPeriod(String value) async {
     if (value == period) return;
@@ -120,6 +128,7 @@ class CommerceController extends ChangeNotifier {
     orders.clear();
     ordersTotal = 0;
     summaryState = ordersState = CommerceLoad.idle;
+    ops?.reset();
     notifyListeners();
   }
 }

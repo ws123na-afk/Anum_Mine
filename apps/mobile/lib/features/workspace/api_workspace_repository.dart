@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
+import 'approvals_paging.dart';
 import 'files_models.dart';
 import 'task_management.dart';
 import 'workspace_models.dart';
@@ -13,7 +14,10 @@ abstract interface class WorkspaceFileTransfer {
 }
 
 class ApiWorkspaceRepository
-    implements WorkspaceRepository, TaskManagementRepository {
+    implements
+        WorkspaceRepository,
+        TaskManagementRepository,
+        ApprovalsPagingRepository {
   const ApiWorkspaceRepository(this.api, {required this.fileTransfer});
   final AnumApiClient api;
   final WorkspaceFileTransfer fileTransfer;
@@ -22,11 +26,43 @@ class ApiWorkspaceRepository
       JsonReader(await api.request('GET', path)).optObjects('data', (x) => x);
 
   @override
+  Future<ApprovalsPage> loadApprovalsPage(
+      {required ApprovalFilter filter,
+      String query = '',
+      String? cursor,
+      int limit = approvalsPageSize}) async {
+    final params = <String, String>{
+      'status': filter.wire,
+      'limit': '$limit',
+      if (query.trim().isNotEmpty) 'query': query.trim(),
+      if (cursor != null) 'cursor': cursor,
+    };
+    final body = JsonReader(await api.request(
+        'GET', '/api/v1/approvals/page?${Uri(queryParameters: params).query}'));
+    return ApprovalsPage(
+        items: body.optObjects('items', _approval),
+        nextCursor: body.optString('next_cursor'));
+  }
+
+  @override
+  Future<ApprovalSummary> loadApprovalSummary() async {
+    final body =
+        JsonReader(await api.request('GET', '/api/v1/approvals/summary'));
+    return ApprovalSummary(
+        pending: body.optInt('pending') ?? 0,
+        approved: body.optInt('approved') ?? 0,
+        rejected: body.optInt('rejected') ?? 0,
+        expired: body.optInt('expired') ?? 0);
+  }
+
+  @override
   Future<WorkspaceSnapshot> loadWorkspace() async {
     try {
       final values = await Future.wait([
         _list('/api/v1/tasks'),
-        _list('/api/v1/approvals'),
+        // Only what waits for a decision; history is paged on the Approvals
+        // screen (loadApprovalsPage).
+        _list('/api/v1/approvals?status=pending&limit=200'),
         _list('/api/v1/automation/runs'),
         _list('/api/v1/files'),
         _list('/api/v1/memories'),
@@ -329,8 +365,21 @@ class ApiWorkspaceRepository
         tools: j.optStrings('required_tools') ?? const [],
         installed: install != null && install['version'] == j['version'],
         installedVersion: install?.optString('version'),
-        enabled: install?.optBool('enabled') ?? false);
+        enabled: install?.optBool('enabled') ?? false,
+        signature: _signature(j.optObject('verification')),
+        disabledReason: install?.optString('disabled_reason'));
   }
+
+  SkillSignature? _signature(JsonReader? j) => j == null
+      ? null
+      : SkillSignature(
+          status: j.string('status'),
+          installable: j.boolean('installable'),
+          detail: j.string('detail'),
+          signer: j.optString('signer'),
+          keyId: j.optString('key_id'),
+          keySource: j.optString('key_source'),
+          fingerprint: j.optString('fingerprint'));
 
   WorkspaceIntegration _integration(JsonReader j) => WorkspaceIntegration(
       id: j.string('id'),

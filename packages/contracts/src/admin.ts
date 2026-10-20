@@ -113,12 +113,35 @@ export interface InvitationRequest {
   inviteeEmail?: string;
   /** 1 to 720; the API defaults to 168 (7 days). */
   ttlHours?: number;
+  /** Email the invitee the accept link (default true; only with inviteeEmail). */
+  sendEmail?: boolean;
+  /** The address this app is open at, for the link in the email (the server checks it against its allowed origins). */
+  appUrl?: string;
+}
+
+/** What happened to the invitation email (docs/identity.md#invitation-email). */
+export type InvitationEmailStatus = 'sent' | 'failed' | 'not_configured' | 'not_requested';
+
+export interface InvitationEmail {
+  status: InvitationEmailStatus;
+  to: string | null;
+  attempts: number;
+  error: string | null;
+  /** False when the email carried the token to paste instead of a link. */
+  linkIncluded: boolean;
+}
+
+/** Whether this server can email invitations at all, and where their links point. */
+export interface InvitationEmailSetup {
+  configured: boolean;
+  linkBase: string | null;
 }
 
 /** The token is returned exactly once; only its hash is stored. */
 export interface CreatedInvitation {
   invitation: WorkspaceInvitation;
   token: string;
+  email: InvitationEmail;
 }
 
 export interface AcceptedInvitation {

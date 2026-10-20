@@ -1,4 +1,5 @@
-"""Business in PostgreSQL (migration ``0070_business``), as the non-owner app role.
+"""Business in PostgreSQL (migrations ``0070_business``, ``0080_business_change_orders`` and ``0089_business_invoices_portal``), as
+the non-owner app role.
 
 Every table is under forced RLS: tenant A's rows are invisible to tenant B and to A's other
 workspace, guessed ids read as missing, writes into another scope are refused by the row
@@ -30,7 +31,8 @@ BASE = "/api/v1/business"
 TABLES = (
     "business_settings", "business_products", "business_offers", "business_accounts", "business_contacts", "business_leads", "business_evidence",
     "business_inferences", "business_activities", "business_opportunities", "business_proposals", "business_proposal_versions", "business_projects",
-    "business_milestones", "business_drafts", "business_research_runs",
+    "business_milestones", "business_drafts", "business_research_runs", "business_change_orders", "business_usage_ledger",
+    "business_invoices", "business_invoice_payments", "business_invoice_counters", "business_portal_access", "business_portal_decisions",
 )
 
 
@@ -253,3 +255,107 @@ def test_support_tickets_under_rls(db: Engine) -> None:
                     connection.execute(text(
                         "insert into business_support_tickets (id, tenant_id, workspace_id, title, severity, status, reported_at, created_by, source, source_ref) "
                         f"values ('btkt_dup{number}', :t, :w, 'Dup', 'low', 'new', now(), 'u', 'email', 'emsg_same')"), {"t": TENANT_A, "w": WORKSPACE_A})
+
+
+
+def test_change_orders_and_the_ledger_under_rls(db: Engine) -> None:
+    """An approved change order adds a locked version (version 1 stays immutable), and the
+    change orders and ledger rows of tenant A are invisible to tenant B and A's other workspace."""
+    path = main_path(A)
+    pending = ok(client.post(f"{BASE}/proposals/{path['proposal']['id']}/request-acceptance", headers=MEMBER_A))
+    assert ok(client.post(f"/api/v1/approvals/{pending['approval']['id']}/approve", headers=A, json={"payload_hash": pending["approval"]["payload_hash"]}))
+    project = ok(client.post(f"{BASE}/projects", headers=A, json={"proposal_id": path["proposal"]["id"]}), 201)
+    change = ok(client.post(f"{BASE}/projects/{project['id']}/change-orders", headers=MEMBER_A, json={
+        "title": "Menu page", "lines": [{"description": "Menu page", "unit_price": 450}], "timeline_days": 7}), 201)
+    sent = ok(client.post(f"{BASE}/change-orders/{change['id']}/submit", headers=MEMBER_A))
+    assert client.post(f"{BASE}/change-orders/{change['id']}/approve", headers=MEMBER_A, json={"content_hash": sent["content_hash"]}).status_code == 403
+    approved = ok(client.post(f"{BASE}/change-orders/{change['id']}/approve", headers=A, json={"content_hash": sent["content_hash"]}))
+    assert approved["status"] == "approved" and approved["result_version"] == 2
+    assert ok(client.get(f"{BASE}/projects/{project['id']}", headers=A))["contract_total"] == 2250.0
+    entry = ok(client.post(f"{BASE}/usage", headers=A, json={"project_id": project["id"], "kind": "labour", "description": "Build pages",
+                                                               "occurred_on": "2026-11-02", "quantity": 4, "unit_cost": 60, "currency": "AED"}), 201)
+    money = ok(client.get(f"{BASE}/projects/{project['id']}/profitability", headers=A))
+    assert money["revenue"] == 2250.0 and money["labour_cost"] == 240.0 and money["gross_margin"] == 2010.0 and money["reconciled"]
+    for other in (A2, B):
+        assert client.get(f"{BASE}/change-orders/{change['id']}", headers=other).status_code == 404
+        assert client.patch(f"{BASE}/usage/{entry['id']}", headers=other, json={"billable": True}).status_code == 404
+        assert ok(client.get(f"{BASE}/usage", headers=other))["total"] == 0
+    with db.connect() as connection:
+        # Both the accepted and the amended version refuse a direct update.
+        for version in (1, 2):
+            with pytest.raises(DBAPIError):
+                with connection.begin():
+                    _scoped(connection, TENANT_A, WORKSPACE_A)
+                    connection.execute(text("update business_proposal_versions set summary = 'changed' where proposal_id = :p and version = :v"),
+                                       {"p": path["proposal"]["id"], "v": version})
+        # Tenant B cannot point a ledger row at tenant A's project (scoped foreign key).
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_B, WORKSPACE_B)
+                connection.execute(text(
+                    "insert into business_usage_ledger (id, tenant_id, workspace_id, account_id, project_id, kind, description, occurred_on, currency, source, created_by) "
+                    "values ('busg_x', :t, :w, :a, :p, 'other', 'Steal', '2026-11-01', 'AED', 'manual', 'u')"),
+                    {"t": TENANT_B, "w": WORKSPACE_B, "a": project["account_id"], "p": project["id"]})
+
+
+def test_invoices_and_the_customer_portal_under_rls(db: Engine) -> None:
+    """An invoice is numbered and sent through an owner's approval; a sent invoice cannot be rewritten
+    even by a direct UPDATE; a portal link only ever finds its own tenant, workspace and account."""
+    path = main_path(A)
+    pending = ok(client.post(f"{BASE}/proposals/{path['proposal']['id']}/request-acceptance", headers=MEMBER_A))
+    assert ok(client.post(f"/api/v1/approvals/{pending['approval']['id']}/approve", headers=A, json={"payload_hash": pending["approval"]["payload_hash"]}))
+    project = ok(client.post(f"{BASE}/projects", headers=A, json={"proposal_id": path["proposal"]["id"]}), 201)
+    ok(client.put(f"{BASE}/billing-profile", headers=A, json={"legal_name": "Anum Technologies LLC", "tax_number": "300000000000003", "invoice_prefix": "INV"}))
+    milestones = [item["id"] for item in project["milestones"]]
+    draft = ok(client.post(f"{BASE}/invoices", headers=MEMBER_A, json={"project_id": project["id"], "milestone_ids": milestones[:1]}), 201)
+    waiting = ok(client.post(f"{BASE}/invoices/{draft['id']}/request-approval", headers=MEMBER_A))
+    assert ok(client.post(f"/api/v1/approvals/{waiting['approval']['id']}/approve", headers=A, json={"payload_hash": waiting["approval"]["payload_hash"]}))
+    sent = ok(client.get(f"{BASE}/invoices/{draft['id']}", headers=A))
+    assert sent["status"] == "sent" and sent["number"].startswith("INV-") and sent["number"].endswith("-0001") and sent["total"] == 900.0
+    paid = ok(client.post(f"{BASE}/invoices/{draft['id']}/payments", headers=MEMBER_A, json={"amount": 900, "paid_on": sent["issue_date"]}), 201)
+    assert paid["status"] == "paid" and ok(client.get(f"{BASE}/projects/{project['id']}", headers=A))["milestones"][0]["paid_amount"] == 900.0
+    second = ok(client.post(f"{BASE}/invoices", headers=MEMBER_A, json={"project_id": project["id"], "milestone_ids": milestones[1:]}), 201)
+    again = ok(client.post(f"{BASE}/invoices/{second['id']}/request-approval", headers=MEMBER_A))
+    assert ok(client.post(f"/api/v1/approvals/{again['approval']['id']}/approve", headers=A, json={"payload_hash": again["approval"]["payload_hash"]}))
+    assert ok(client.get(f"{BASE}/invoices/{second['id']}", headers=A))["number"].endswith("-0002")
+    for other in (A2, B):
+        assert client.get(f"{BASE}/invoices/{draft['id']}", headers=other).status_code == 404
+        assert ok(client.get(f"{BASE}/invoices", headers=other))["total"] == 0
+    # The portal: a link for the client's contact.
+    contact = ok(client.get(f"{BASE}/accounts/{project['account_id']}", headers=A))["contacts"][0]
+    access = ok(client.post(f"{BASE}/portal/access", headers=A, json={"account_id": project["account_id"], "contact_id": contact["id"]}), 201)
+    token = access["token"]
+    portal = {"authorization": f"Bearer {token}"}
+    me = ok(client.get("/api/v1/portal/me", headers=portal))
+    assert me["account_name"] == "Sunrise Bakery" and me["counts"]["invoices_open"] == 1
+    assert {item["number"] for item in ok(client.get("/api/v1/portal/invoices", headers=portal))} == {sent["number"], ok(client.get(f"{BASE}/invoices/{second['id']}", headers=A))["number"]}
+    parts = token.split(".")
+    for tenant, workspace in ((TENANT_B, WORKSPACE_B), (TENANT_A, WORKSPACE_A2)):
+        forged = ".".join([parts[0], tenant, workspace, parts[3], parts[4]])
+        assert client.get("/api/v1/portal/me", headers={"authorization": f"Bearer {forged}"}).status_code == 401
+    ok(client.post(f"{BASE}/portal/access/{access['id']}/revoke", headers=A))
+    assert client.get("/api/v1/portal/me", headers=portal).status_code == 401
+    with db.connect() as connection:
+        # A sent invoice cannot be rewritten by a direct UPDATE, and a void one stays void.
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_A, WORKSPACE_A)
+                connection.execute(text("update business_invoices set bill_to_name = 'Someone else' where id = :i"), {"i": draft["id"]})
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_A, WORKSPACE_A)
+                connection.execute(text("update business_invoices set total = 1, subtotal = 1, tax = 0, amount_paid = 0 where id = :i"), {"i": second["id"]})
+        # Numbers are unique per workspace.
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_A, WORKSPACE_A)
+                connection.execute(text("update business_invoices set number = :n where id = :i"), {"n": sent["number"], "i": second["id"]})
+        # Tenant B cannot invoice tenant A's account (scoped foreign key) or read the link hashes.
+        with pytest.raises(DBAPIError):
+            with connection.begin():
+                _scoped(connection, TENANT_B, WORKSPACE_B)
+                connection.execute(text("insert into business_invoices (id, tenant_id, workspace_id, account_id, status, currency, created_by) values ('binv_x', :t, :w, :a, 'draft', 'AED', 'u')"),
+                                   {"t": TENANT_B, "w": WORKSPACE_B, "a": project["account_id"]})
+        with connection.begin():
+            _scoped(connection, TENANT_B, WORKSPACE_B)
+            assert connection.execute(text("select count(*) from business_portal_access")).scalar() == 0

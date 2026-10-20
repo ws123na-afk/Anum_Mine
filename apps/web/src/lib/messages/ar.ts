@@ -16,9 +16,13 @@ import { teamAr } from './team.ar.ts';
 import { appCallsAr } from './appCalls.ar.ts';
 import { marketingAr } from './marketing.ar.ts';
 import { businessAr } from './business.ar.ts';
+import { businessPipelineAr } from './businessPipeline.ar.ts';
 import { businessSupportAr } from './businessSupport.ar.ts';
+import { invoicesAr } from './invoices.ar.ts';
+import { portalAr } from './portal.ar.ts';
 import { brevoAr } from './brevo.ar.ts';
 import { agentControlsAr } from './agentControls.ar.ts';
+import { lifecycleAr } from './lifecycle.ar.ts';
 import { helpAr } from './help.ar.ts';
 import { publicSiteAr } from './publicSite.ar.ts';
 import { ownerAr } from './ar.owner.ts';
@@ -28,14 +32,18 @@ import { routingAr } from './routing.ar.ts';
 import { voiceAr } from './ar.voice.ts';
 import { voiceActionsAr } from './ar.voiceActions.ts';
 import { agentSkillsAr } from './agentSkills.ar.ts';
+import { skillSigningAr } from './skillSigning.ar.ts';
+import { approvalPagingAr } from './approvalPaging.ar.ts';
 import { orgChartAr } from './orgChart.ar.ts';
 import { mailCenterAr } from './mailCenter.ar.ts';
 import { mailOutgoingAr } from './mailOutgoing.ar.ts';
 import { mailAiAr } from './mailAi.ar.ts';
 import { mailShareAr } from './mailShare.ar.ts';
 import { mailAllAr } from './mailAll.ar.ts';
+import { inboxComposeAr } from './inboxCompose.ar.ts';
 import { mailRulesAr } from './mailRules.ar.ts';
 import { mailOpsAr } from './mailOps.ar.ts';
+import { mailDomainsAr } from './mailDomains.ar.ts';
 import { mailAr } from './mail.ar.ts';
 import { callsAr } from './calls.ar.ts';
 import { chatAr } from './chat.ar.ts';
@@ -58,20 +66,28 @@ export const ar: Record<MessageKey, Message> = {
   ...appCallsAr,
   ...marketingAr,
   ...businessAr,
+  ...businessPipelineAr,
   ...businessSupportAr,
+  ...invoicesAr,
+  ...portalAr,
   ...brevoAr,
   ...agentControlsAr,
+  ...lifecycleAr,
   ...helpAr,
   ...publicSiteAr,
   ...agentSkillsAr,
+  ...skillSigningAr,
+  ...approvalPagingAr,
   ...orgChartAr,
   ...mailCenterAr,
   ...mailOutgoingAr,
   ...mailAiAr,
   ...mailShareAr,
   ...mailAllAr,
+  ...inboxComposeAr,
   ...mailRulesAr,
   ...mailOpsAr,
+  ...mailDomainsAr,
   ...mailAr,
   ...callsAr,
   ...chatAr,
@@ -90,6 +106,7 @@ export const ar: Record<MessageKey, Message> = {
   'common.clear': 'مسح',
   'common.loading': 'جارٍ التحميل...',
   'common.operationFailed': 'تعذّر تنفيذ العملية.',
+  'common.databaseUnavailable': 'تعذّر على الخادم الوصول إلى قاعدة بياناته',
   'common.requestFailed': 'تعذّر تنفيذ الطلب.',
   'common.signInExpired': 'انتهت صلاحية تسجيل دخولك. سجّل الدخول مرة أخرى.',
   'common.budgetReached': 'تم بلوغ ميزانية النموذج الشهرية. {message}',
@@ -194,6 +211,8 @@ export const ar: Record<MessageKey, Message> = {
   'switcher.button': 'تبديل مساحة العمل',
   'switcher.eyebrow': 'مساحة العمل',
   'switcher.intro': 'كل طلب يحدد مساحة العمل المختارة. دورك والبيانات التي تراها يتبعانها.',
+  'switcher.organisationId': 'معرّف المؤسسة',
+  'switcher.workspaceId': 'معرّف مساحة العمل',
   'switcher.loading': 'جارٍ تحميل مساحات عملك...',
   'switcher.list': 'مساحات العمل',
   'switcher.current': 'مساحة العمل الحالية',
@@ -235,13 +254,34 @@ export const ar: Record<MessageKey, Message> = {
   'settings.notifications.run_failed': 'مهام فشلت',
   'settings.notifications.run_failed.hint': 'تعذّر إكمال مهمة بدأتها أو طلب مطوّر.',
   'settings.notifications.automation_failed': 'أتمتة فشلت',
-  'settings.notifications.automation_failed.hint': 'فشل تشغيل أتمتة مجدولة (يظهر في التطبيق؛ لا يُرسل إلى الهواتف بعد).',
+  'settings.notifications.automation_failed.hint': 'فشل تشغيل أتمتة. يصلك الخبر عبر القنوات التي تفعّلها أدناه.',
   'settings.notifications.push_enabled': 'إشعارات الهاتف',
   'settings.notifications.push_enabled.hint': 'أرسلها إلى الهواتف التي سجّلتها في تطبيق ANUM، حتى عندما يكون مغلقًا.',
   'settings.notifications.desktop_enabled': 'إشعارات سطح المكتب',
-  'settings.notifications.desktop_enabled.hint': 'اعرضها في تطبيق سطح المكتب.',
+  'settings.notifications.desktop_enabled.hint': 'اعرضها كإشعارات على سطح المكتب أو في المتصفح.',
   'settings.notifications.email_enabled': 'البريد الإلكتروني',
-  'settings.notifications.email_enabled.hint': 'يُحفظ التسليم بالبريد لوقت لاحق؛ لا يرسل ANUM بريدًا بعد.',
+  'settings.notifications.email_enabled.hint': 'أرسل بالبريد الأنواع التي فعّلتها أعلاه وعمل الفريق إلى عنوانك في ANUM.',
+  'settings.notifications.email.serverOff': 'لا يوجد خادم بريد مُعدّ على هذا الخادم، فلا يستطيع ANUM مراسلتك بعد. اطلب ممن يشغّل ANUM ضبط ANUM_SMTP_HOST وANUM_SMTP_FROM.',
+  'settings.notifications.email.noAddress': 'ليس لدى ANUM عنوان بريد لك. أضف عنوانًا إلى ملفك في الفريق ليبدأ البريد.',
+  'settings.notifications.email.on': 'مفعّل. تصلك رسالة بريد للأنواع التي فعّلتها أعلاه ولعمل الفريق.',
+  'settings.notifications.email.ready': 'جاهز. فعّله واحفظ لتصلك الرسائل.',
+  'settings.notifications.desktop.unsupported': 'هذا المتصفح لا يعرض إشعارات سطح المكتب.',
+  'settings.notifications.desktop.denied': 'الإشعارات محظورة لهذا الموقع. اسمح بها من إعدادات المتصفح لهذا الموقع ثم أعد التحميل.',
+  'settings.notifications.desktop.ask': 'لم يسمح هذا المتصفح بالإشعارات بعد.',
+  'settings.notifications.desktop.allow': 'السماح في هذا المتصفح',
+  'settings.notifications.desktop.on': 'مفعّل. يصلك إشعار عندما يكون ANUM في الخلفية.',
+  'settings.notifications.desktop.ready': 'جاهز. فعّله واحفظ لترى الإشعارات.',
+  'settings.notifications.test.send': 'أرسل لي رسالة اختبار',
+  'settings.notifications.test.sending': 'جارٍ الإرسال...',
+  'settings.notifications.test.sent': 'أُرسلت رسالة الاختبار إلى {to}. تحقق من صندوق الوارد.',
+  'settings.notifications.test.failed': 'تعذّر إرسال رسالة الاختبار بعد {attempts} محاولات: {error}. اطلب ممن يشغّل ANUM فحص خادم البريد.',
+  'settings.notifications.test.error': 'لم تُرسل رسالة الاختبار. {error}',
+  'desktop.approval.title': 'مطلوب موافقة',
+  'desktop.approval.body': 'إجراء ينتظر قرارك.',
+  'desktop.completed.title': 'انتهت المهمة',
+  'desktop.completed.body': 'انتهت مهمة بدأتها.',
+  'desktop.failed.title': 'فشلت المهمة',
+  'desktop.failed.body': 'تعذر إكمال مهمة بدأتها.',
   'settings.notifications.save': 'حفظ الإشعارات',
   'settings.notifications.saving': 'جارٍ الحفظ...',
   'settings.notifications.saved': 'حُفظت. تنطبق هذه الإعدادات على مساحة العمل هذه.',
@@ -1114,6 +1154,7 @@ export const ar: Record<MessageKey, Message> = {
   'members.invitations.accepted': "مقبولة",
   'members.invitations.revoked': "ملغاة",
   'members.invitations.all': "الكل",
+  'members.resentEmailed': "أُرسلت دعوة جديدة بالبريد لـ {invitee}. لم يعد الرمز السابق يعمل. يظهر الرمز الجديد أيضًا أدناه مرة واحدة.",
   'members.resent': "صدر رمز جديد لـ {invitee}. لم يعد الرمز السابق يعمل. انسخ الرمز الجديد الآن: يُعرض مرة واحدة فقط.",
   'members.resend': "إعادة الإرسال",
   'members.renew': "تجديد",
@@ -1250,10 +1291,14 @@ export const ar: Record<MessageKey, Message> = {
   'files.index.skippedDetail': 'غير مفهرس: {reason}.',
   'files.index.pending': 'لم يُفهرس بعد',
   'files.index.pendingDetail': 'لم يُفهرس هذا الملف بعد. أعد الفهرسة لتستخدمه المهام.',
-  'files.skip.not_text': 'تُفهرس الملفات النصية فقط',
+  'files.skip.not_text': 'لا يُفهرس هذا النوع من الملفات',
   'files.skip.too_large': 'فيه أكثر من 2 ميبيبايت من النص',
   'files.skip.not_utf8': 'ليس نصًا بترميز UTF-8',
   'files.skip.empty': 'لا يحتوي على نص',
+  'files.skip.encrypted': 'محمي بكلمة مرور',
+  'files.skip.malformed': 'تالف أو تعذرت قراءته',
+  'files.skip.too_complex': 'معقد جدًا لقراءته بأمان',
+  'files.skip.no_text_layer': 'لا يوجد نص قابل للاستخراج، والتعرف الضوئي على النص غير متاح',
   'files.skip.other': 'غير قابل للفهرسة',
   'files.check.empty': '{name} فارغ. اختر ملفًا له محتوى.',
   'files.check.tooLarge': 'حجم {name} هو {size}؛ والحد الأقصى للملف {max}. قسّمه أو اضغطه.',
@@ -3493,6 +3538,10 @@ export const ar: Record<MessageKey, Message> = {
   'kb.provenance.file': 'مستند',
   'kb.provenance.memory': 'ملاحظة',
   'kb.match': 'تطابق {score}٪',
+  'kb.location.page': 'صفحة {n}',
+  'kb.index.noTextLayer': 'لا يوجد نص قابل للاستخراج، والتعرف الضوئي على النص غير متاح',
+  'kb.location.slide': 'شريحة {n}',
+  'kb.location.sheet': 'ورقة {n}',
   'kb.untrusted': 'تُمرَّر المقاطع إلى النموذج كبيانات موسومة غير موثوقة؛ ولا يمكنها تغيير الأدوات أو الموافقات أو الصلاحيات.',
   'kb.semanticNoIndex': 'لم يُفهرس شيء بعد، لذا بُحث في العناوين والوسوم ونص الملاحظات فقط.',
   'kb.semanticUnavailable': 'البحث بالمعنى غير متاح الآن؛ تُعرض مطابقات الكلمات فقط.',

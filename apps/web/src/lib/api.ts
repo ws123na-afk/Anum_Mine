@@ -7,6 +7,7 @@ import { getLocale, t } from './i18n';
 import type { ApiFile, ApiFileLink, ApiFilePreview, ApiFileUsage, SortValue } from './files';
 import { filesListPath } from './files';
 import type { ApiCurrentMembership } from './policy';
+import type { SkillVerification } from './skillSigning';
 import * as workspaces from './workspaces';
 import * as capabilities from './capabilities';
 import type { ModelConfig, ModelConfigBody, ModelConnectionTest } from './modelConfig';
@@ -164,12 +165,13 @@ export async function approveTask(approval: Approval, reason?: string): Promise<
 // task_id is null for a memory remembered from a chat; owner_user_id marks it private to its owner.
 export interface MemoryNote { id: string; task_id: string | null; content: string; provenance: { source_type: string; source_id: string | null; created_by_user_id: string; created_at: string; metadata?: Record<string, unknown> }; retention: { kind: string; expires_at: string | null }; created_at: string; owner_user_id?: string | null; updated_at?: string | null; }
 export type FileRecord = ApiFile;
-export interface SkillVersion { id: string; skill_id: string; version: string; name: string; description: string; required_tools: string[]; risk_level: string; created_at: string; }
-export interface SkillInstallation { id: string; skill_id: string; version: string; approved_tools: string[]; enabled: boolean; installed_at: string; }
+export interface SkillVersion { id: string; skill_id: string; version: string; name: string; description: string; required_tools: string[]; risk_level: string; created_at: string; verification?: SkillVerification | null; signed_by?: string | null; signed_at?: string | null }
+export interface SkillInstallation { id: string; skill_id: string; version: string; approved_tools: string[]; enabled: boolean; installed_at: string; verification?: SkillVerification | null; disabled_reason?: string | null }
 export interface WorkspaceInfo { id: string; tenant_id: string; name: string; created_at: string; updated_at: string; }
 export interface OnboardingStatus { complete: boolean; tenant: { id: string; name: string } | null; workspace: WorkspaceInfo | null; membership: { role: string } | null; model_configured: boolean; }
 export type { ModelConfig, ModelConnectionTest } from './modelConfig';
 export type NotificationPreferences = push.NotificationPreferences;
+import { announcePreferences } from './desktopEvents';
 
 /** Local development session; a no-op when the app signs in through OIDC. */
 export async function ensureLocalSession(): Promise<void> {
@@ -192,12 +194,43 @@ export async function getModelConfig(): Promise<ModelConfig> { return request('/
 export async function saveModelConfigBody(body: ModelConfigBody): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'PUT', body: JSON.stringify(body) }); }
 export async function testModelConfig(): Promise<ModelConnectionTest> { return request('/api/v1/model-config/test', { method: 'POST' }); }
 export async function getNotificationPreferences(): Promise<NotificationPreferences> { return request('/api/v1/notification-preferences', { method: 'GET' }); }
-export async function saveNotificationPreferences(value: NotificationPreferences): Promise<NotificationPreferences> { return request('/api/v1/notification-preferences', { method: 'PUT', body: JSON.stringify(value) }); }
+export async function saveNotificationPreferences(value: NotificationPreferences): Promise<NotificationPreferences> {
+  const saved = await request<NotificationPreferences>('/api/v1/notification-preferences', { method: 'PUT', body: JSON.stringify(value) });
+  announcePreferences(saved);
+  return saved;
+}
+/** Sends the caller a test email (the Email switch's proof); the answer says sent, failed, not configured or no address. */
+export async function sendTestEmail(): Promise<push.EmailTestResult> { return request('/api/v1/notification-channels/email-test', { method: 'POST' }); }
+/** What the Email switch can do for the caller now (a mail server, an address). */
+export async function getNotificationChannels(): Promise<push.NotificationChannels> { return request('/api/v1/notification-channels', { method: 'GET' }); }
 
 /** One task by id (a run's "Open task" link). */
 export async function getTask(taskId: string): Promise<Task> { return mapTask(await request<ApiTask>(`/api/v1/tasks/${encodeURIComponent(taskId)}`, { method: 'GET' })); }
 export async function getTasks(): Promise<Task[]> { return (await request<ApiTask[]>('/api/v1/tasks', { method: 'GET' })).map(mapTask); }
-export async function getApprovals(): Promise<Approval[]> { return (await request<ApiApproval[]>('/api/v1/approvals', { method: 'GET' })).map(mapApproval); }
+/** Which approvals a page holds: pending now, decided (approved, rejected or expired), or both with pending first. */
+export type ApprovalFilter = 'pending' | 'decided' | 'all';
+export interface ApprovalPage { items: Approval[]; nextCursor: string | null }
+export interface ApprovalSummary { pending: number; approved: number; rejected: number; expired: number }
+export interface ApprovalPageQuery { status?: ApprovalFilter; query?: string; taskId?: string; cursor?: string | null; limit?: number }
+/** One keyset page of `GET /api/v1/approvals/page`: pending first, then newest first (docs/approvals-and-risk.md#paging-filters-and-search). */
+export async function getApprovalPage({ status = 'all', query, taskId, cursor, limit = 25 }: ApprovalPageQuery = {}): Promise<ApprovalPage> {
+  const params = new URLSearchParams({ status, limit: String(limit) });
+  const text = query?.trim();
+  if (text) params.set('query', text);
+  if (taskId) params.set('task_id', taskId);
+  if (cursor) params.set('cursor', cursor);
+  const page = await request<{ items: ApiApproval[]; next_cursor?: string | null }>(`/api/v1/approvals/page?${params}`, { method: 'GET' });
+  return { items: page.items.map(mapApproval), nextCursor: page.next_cursor ?? null };
+}
+/** How many approvals are pending, approved, rejected and expired now. */
+export async function getApprovalSummary(): Promise<ApprovalSummary> { return request<ApprovalSummary>('/api/v1/approvals/summary', { method: 'GET' }); }
+/** The pending approvals the shell shows (badge, bell, Home): the newest `max`, from the plain list route narrowed to pending. */
+export async function getPendingApprovals(max = 200): Promise<Approval[]> {
+  const rows = await request<ApiApproval[]>(`/api/v1/approvals?status=pending&limit=${max}`, { method: 'GET' });
+  return rows.map(mapApproval).filter((approval) => approval.status === 'pending');
+}
+/** One approval by id (an owner's desktop alert checks who requested it). */
+export async function getApproval(approvalId: string): Promise<Approval> { return mapApproval(await request<ApiApproval>(`/api/v1/approvals/${encodeURIComponent(approvalId)}`, { method: 'GET' })); }
 /** One page of `GET /api/v1/tasks` after `cursor` (the last task id already shown; the API answers 400 for an unknown one), newest first. */
 export async function getTaskPage(cursor: string, limit = 50): Promise<Task[]> {
   const query = new URLSearchParams({ limit: String(limit), cursor });
@@ -277,7 +310,7 @@ export async function downloadFile(id: string, name: string): Promise<void> {
 export async function getSkillVersions(): Promise<SkillVersion[]> { return request('/api/v1/skills/versions', { method: 'GET' }); }
 export async function getSkillInstallations(): Promise<SkillInstallation[]> { return request('/api/v1/skills/installations', { method: 'GET' }); }
 export async function installSkill(skillId: string, version: string, approvedTools: string[]): Promise<SkillInstallation> { return request('/api/v1/skills/installations', { method: 'POST', body: JSON.stringify({ skill_id: skillId, version, approved_tools: approvedTools }) }); }
-export async function setSkillEnabled(skillId: string, enabled: boolean): Promise<SkillInstallation> { return request(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }); }
+export async function setSkillEnabled(skillId: string, enabled: boolean, acknowledgeFlagged = false): Promise<SkillInstallation> { return request(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'PATCH', body: JSON.stringify(acknowledgeFlagged ? { enabled, acknowledge_flagged: true } : { enabled }) }); }
 export async function uninstallSkill(skillId: string): Promise<void> { await requestVoid(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'DELETE' }); }
 export async function searchMemories(query: string, onlyChats = false): Promise<MemoryNote[]> { return request(capabilities.memorySearchPath(query, undefined, onlyChats), { method: 'GET' }); }
 /** The caller's own preferences, including "Remember things from my chats". */

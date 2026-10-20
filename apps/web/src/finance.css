@@ -3,12 +3,12 @@
 .finLayout .cmPanel { grid-template-columns: minmax(0, 1fr); }
 .finLayout .cmOverviewGrid { align-items: start; }
 .finMoreFilters { flex: 1 1 100%; }
-.finMoreFilters summary { color: var(--d-sky); cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.finMoreFilters summary { color: var(--d-sky); cursor: pointer; font-size: var(--text-md); font-weight: 600; min-height: 44px; display: flex; align-items: center; }
 .finMoreFilters .cmFilters { margin-top: var(--d-s2); }
 .finLayout > .pageSummary { margin: 0; }
-.finReadOnly { font-size: 13px; margin: 0; }
+.finReadOnly { font-size: var(--text-sm); margin: 0; }
 .finMonth { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
-.finMonth > strong { font-size: 15px; min-width: 9ch; text-align: center; }
+.finMonth > strong { font-size: var(--text-base); min-width: 9ch; text-align: center; }
 .finMonth > .cmInline { margin-inline-start: auto; }
 .finMonth > button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; justify-content: center; min-height: 40px; min-width: 40px; padding: 0 var(--d-s2); }
 .finHeadActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
@@ -21,14 +21,14 @@
 .finFlow { display: grid; gap: var(--d-s3); margin: 0; }
 .finFlowRow { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s1); padding-top: var(--d-s3); }
 .finFlowRow:first-child { border-top: 0; padding-top: 0; }
-.finFlowRow dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
-.finFlowRow dd { display: flex; flex-wrap: wrap; font-size: 14px; gap: var(--d-s1) var(--d-s4); margin: 0; }
+.finFlowRow dt { color: var(--d-faint); font-size: var(--text-xs); font-weight: 600; }
+.finFlowRow dd { display: flex; flex-wrap: wrap; font-size: var(--text-md); gap: var(--d-s1) var(--d-s4); margin: 0; }
 .finFlowRow dd > span { align-items: center; display: inline-flex; gap: var(--d-s1); }
 .finFlowRow svg { height: 16px; width: 16px; }
 .finChart { overflow: hidden; }
 .finChart svg { display: block; height: auto; max-height: none; width: 100%; }
-.finLabel { fill: var(--d-muted); font-size: 12px; }
-.finValue { fill: var(--d-text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.finLabel { fill: var(--d-muted); font-size: var(--text-xs); }
+.finValue { fill: var(--d-text); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .finBar0 { fill: rgb(var(--c-violet)); }
 .finBar1 { fill: rgb(var(--c-sky)); }
 .finBar2 { fill: rgb(var(--c-ok)); }
@@ -38,7 +38,7 @@
 .finTable td { vertical-align: top; }
 .finDescription { min-width: 180px; }
 .finDescription strong { display: block; font-weight: 600; overflow-wrap: anywhere; }
-.finTable td small { color: var(--d-faint); display: block; font-size: 12px; overflow-wrap: anywhere; }
+.finTable td small { color: var(--d-faint); display: block; font-size: var(--text-xs); overflow-wrap: anywhere; }
 .finRowActions { display: flex; gap: var(--d-s1); justify-content: flex-end; white-space: nowrap; }
 .finDuplicate { opacity: .6; }
 .finItems li { align-items: center; }
@@ -51,12 +51,12 @@
 .finProgress { align-items: center; display: inline-grid; gap: var(--d-s2); grid-template-columns: minmax(80px, 160px) auto; }
 .finTrack { background: var(--d-glass-3); block-size: 8px; border-radius: 999px; display: block; overflow: hidden; }
 .finFill { background: rgb(var(--c-violet)); block-size: 100%; border-radius: inherit; display: block; }
-.finProgress > small { color: var(--d-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.finProgress > small { color: var(--d-muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .finForm { display: grid; gap: var(--d-s1); min-width: 0; }
 .finCheck { align-items: center; display: flex; gap: var(--d-s2); min-height: 44px; }
 .finCheck input { accent-color: var(--d-violet); block-size: 18px; inline-size: 18px; min-height: 0; }
 .finMapping { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); margin: 0; min-width: 0; padding: var(--d-s3) var(--d-s4); }
-.finMapping legend { color: var(--d-muted); font-size: 13px; font-weight: 600; padding: 0 var(--d-s1); }
+.finMapping legend { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; padding: 0 var(--d-s1); }
 .finErrors summary { color: var(--d-warn); cursor: pointer; min-height: 32px; }
 .finErrors ul { margin: var(--d-s2) 0 0; padding-inline-start: var(--d-s5); }
 @media (max-width: 1023px) {
@@ -67,8 +67,8 @@
   .finTxTable td { border: 0; padding: 0; }
   .finTxTable .finDescription { grid-area: desc; min-width: 0; }
   .finTxTable .num { align-self: start; grid-area: amount; }
-  .finTxTable .finDate { color: var(--d-faint); font-size: 12px; grid-area: date; }
-  .finTxTable .finCat { color: var(--d-muted); font-size: 12px; grid-area: cat; }
+  .finTxTable .finDate { color: var(--d-faint); font-size: var(--text-xs); grid-area: date; }
+  .finTxTable .finCat { color: var(--d-muted); font-size: var(--text-xs); grid-area: cat; }
   .finTxTable .finRowActions { grid-area: actions; }
 }
 @media (max-width: 760px) {
@@ -83,7 +83,7 @@
 @media (min-width: 1100px) { .finOverview { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); } }
 /* Money figures are long ("AED 12,899.50"): as many columns as fit at least 11rem each, a smaller
    size on mid widths, and a break only as a last resort, so a figure never overflows its cell. */
-.finLayout .pageFigure strong { font-size: clamp(18px, 2.1vw, 24px); }
+.finLayout .pageFigure strong { font-size: var(--text-fluid-figure); }
 @media (min-width: 761px) and (max-width: 1279px) {
   .finLayout .pageFigures[data-count="5"] { grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); }
   .finLayout .pageFigures[data-count="5"] .pageFigure { border-inline-start: 0; padding-inline-start: 0; }
@@ -91,20 +91,20 @@
 
 /* ---- Stage 3: safe-to-spend ---- */
 .finSafeFigure { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); margin: 0; }
-.finSafeFigure > strong { font-size: clamp(22px, 2.4vw, 30px); font-variant-numeric: tabular-nums; }
-.finSafeFigure > .muted { font-size: 13px; }
+.finSafeFigure > strong { font-size: var(--text-fluid-figure-lg); font-variant-numeric: tabular-nums; }
+.finSafeFigure > .muted { font-size: var(--text-sm); }
 .finSafeCurrency .finSafeFigure { display: grid; gap: 2px; }
 .finShort .finMoney { color: var(--d-warn); }
 .finSafeIntro { margin: 0; }
 .finSafeGrid { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 1100px) { .finSafeGrid:has(> :nth-child(2)) { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .finSafeCurrency { align-content: start; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); min-width: 0; padding: var(--d-s4); }
-.finBuild { border-collapse: collapse; font-size: 14px; width: 100%; }
+.finBuild { border-collapse: collapse; font-size: var(--text-md); width: 100%; }
 .finBuild th, .finBuild td { padding: var(--d-s1) 0; text-align: start; vertical-align: top; }
 .finBuild tbody th { font-weight: 500; overflow-wrap: anywhere; padding-inline-end: var(--d-s3); }
 .finBuild .num { padding-inline-start: var(--d-s3); text-align: end; white-space: nowrap; }
-.finBuildNote { color: var(--d-faint); font-size: 12px; overflow-wrap: anywhere; padding-inline-end: var(--d-s3); }
-.finBuildGroup th, .finBuildGroup td { border-top: 1px solid var(--d-line); color: var(--d-muted); font-size: 12px; font-weight: 600; padding-top: var(--d-s3); }
+.finBuildNote { color: var(--d-faint); font-size: var(--text-xs); overflow-wrap: anywhere; padding-inline-end: var(--d-s3); }
+.finBuildGroup th, .finBuildGroup td { border-top: 1px solid var(--d-line); color: var(--d-muted); font-size: var(--text-xs); font-weight: 600; padding-top: var(--d-s3); }
 .finBuild tbody:first-of-type .finBuildGroup th, .finBuild tbody:first-of-type .finBuildGroup td { border-top: 0; padding-top: 0; }
 .finBuild tfoot th, .finBuild tfoot td { border-top: 2px solid var(--d-line-strong); font-weight: 600; padding-top: var(--d-s2); }
 @media (max-width: 560px) {
@@ -119,12 +119,12 @@
   .finBuild .finBuildGroup th, .finBuild tfoot th { grid-column: 1; }
 }
 .finSafeCombined { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-top: var(--d-s3); }
-.finSafeCombined h3, .finPending h3 { font-size: 15px; margin: 0; }
+.finSafeCombined h3, .finPending h3 { font-size: var(--text-base); margin: 0; }
 .finRates small, .finPending small { overflow-wrap: anywhere; }
 .finSafeMissing { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
 .finSafeMissing > span { flex: 1 1 24ch; }
-.finExcluded summary { color: var(--d-sky); cursor: pointer; font-size: 14px; font-weight: 600; min-height: 40px; display: flex; align-items: center; }
-.finHelp { font-size: 13px; margin: 0; }
+.finExcluded summary { color: var(--d-sky); cursor: pointer; font-size: var(--text-md); font-weight: 600; min-height: 40px; display: flex; align-items: center; }
+.finHelp { font-size: var(--text-sm); margin: 0; }
 .finLimitRows { display: grid; gap: var(--d-s2); justify-items: start; }
 .finLimitRow { align-items: end; width: 100%; }
 .finCurrencyInput { max-width: 7ch; text-transform: uppercase; }
@@ -141,7 +141,7 @@
 .finPending { border: 1px solid rgb(var(--c-warn) / .35); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3) var(--d-s4); }
 .finChange { display: grid; gap: var(--d-s3); }
 .finChange p { margin: 0; }
-.finHash code { font-size: 13px; letter-spacing: .04em; }
+.finHash code { font-size: var(--text-sm); letter-spacing: .04em; }
 .finChecks { display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr)); }
 .finAlerts li { align-items: center; }
 .finAlertOver strong { color: var(--d-text); }
@@ -156,13 +156,13 @@
 /* ---- Stage 5: connections ---- */
 .finSources { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); list-style: none; margin: 0; padding: 0; }
 .finSource { align-content: start; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); justify-items: start; min-width: 0; padding: var(--d-s3) var(--d-s4); }
-.finSource p { font-size: 14px; margin: 0; overflow-wrap: anywhere; }
+.finSource p { font-size: var(--text-md); margin: 0; overflow-wrap: anywhere; }
 .finSource > .cmPrimary, .finItemEnd > button:not(.iconButton), .finPending .finItemEnd > button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s1); min-height: 40px; padding: 0 var(--d-s3); }
 .finSourceHead { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; width: 100%; }
-.finScopes { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: 13px; gap: var(--d-s1); }
-.finScopes code { background: var(--d-glass-2); border-radius: 6px; font-size: 12px; padding: 0 var(--d-s1); }
+.finScopes { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s1); }
+.finScopes code { background: var(--d-glass-2); border-radius: 6px; font-size: var(--text-xs); padding: 0 var(--d-s1); }
 .finRateFilter { max-width: 16rem; }
-.finRateSource { color: var(--d-muted); font-size: 13px; overflow-wrap: anywhere; }
+.finRateSource { color: var(--d-muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .finItems strong .statusBadge { margin-inline-start: var(--d-s2); }
 /* Eleven sections: on a phone they scroll sideways in one row instead of wrapping to four. */
 @media (max-width: 760px) {
@@ -178,18 +178,18 @@
 .finSimBadge { letter-spacing: .04em; vertical-align: middle; }
 .finPortfolios { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); }
 .finPortfolio { inline-size: 100%; block-size: 100%; align-content: start; background: transparent; border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); display: grid; gap: var(--d-s1); min-width: 0; padding: var(--d-s3) var(--d-s4); text-align: start; }
-.finPortfolio small { color: var(--d-muted); font-size: 13px; overflow-wrap: anywhere; }
+.finPortfolio small { color: var(--d-muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .finPortfolio.active { border-color: var(--d-violet); box-shadow: inset 0 0 0 1px var(--d-violet); }
 .finPortfolioHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .finPortfolioHead strong { overflow-wrap: anywhere; }
 .finFigures { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); margin: 0; }
 .finFigures > div { display: grid; gap: 2px; min-width: 0; }
-.finFigures dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
-.finFigures dd { display: flex; flex-wrap: wrap; font-size: 15px; gap: var(--d-s1) var(--d-s3); margin: 0; overflow-wrap: anywhere; }
-.finFigures dd small { color: var(--d-faint); flex-basis: 100%; font-size: 12px; }
+.finFigures dt { color: var(--d-faint); font-size: var(--text-xs); font-weight: 600; }
+.finFigures dd { display: flex; flex-wrap: wrap; font-size: var(--text-base); gap: var(--d-s1) var(--d-s3); margin: 0; overflow-wrap: anywhere; }
+.finFigures dd small { color: var(--d-faint); flex-basis: 100%; font-size: var(--text-xs); }
 .finSub { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
-.finSub h3, .finSubHead { font-size: 15px; margin: 0; }
-.finTradeTable th small, .finTradeTable td small { color: var(--d-faint); display: block; font-size: 12px; font-weight: 400; }
+.finSub h3, .finSubHead { font-size: var(--text-base); margin: 0; }
+.finTradeTable th small, .finTradeTable td small { color: var(--d-faint); display: block; font-size: var(--text-xs); font-weight: 400; }
 .finTradeTable .num { text-align: end; white-space: nowrap; }
 .finSymbolInput { max-width: 12ch; text-transform: uppercase; }
 .finQtyInput { max-width: 14ch; }
@@ -210,7 +210,7 @@
   .finTradeTable tr { border-top: 1px solid var(--d-line); display: grid; gap: 2px var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; padding: var(--d-s2) 0; }
   .finTradeTable th, .finTradeTable td { border: 0; padding: 0; text-align: start; }
   .finTradeTable .num { text-align: end; }
-  .finTradeTable td[data-label]::before { color: var(--d-faint); content: attr(data-label); display: block; font-size: 12px; text-align: start; }
+  .finTradeTable td[data-label]::before { color: var(--d-faint); content: attr(data-label); display: block; font-size: var(--text-xs); text-align: start; }
 }
 
 /* ---- Trading intelligence dashboard (read only, SIMULATED) ---- */
@@ -225,23 +225,23 @@
 .finIntelNotRecorded > span { flex: 1 1 18rem; }
 .finIntelFacts { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); margin: 0; }
 .finIntelFacts > div { display: grid; gap: 2px; min-width: 0; }
-.finIntelFacts dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
+.finIntelFacts dt { color: var(--d-faint); font-size: var(--text-xs); font-weight: 600; }
 .finIntelFacts dd { display: grid; gap: 2px; justify-items: start; margin: 0; }
-.finIntelFacts dd small { color: var(--d-faint); font-size: 12px; }
+.finIntelFacts dd small { color: var(--d-faint); font-size: var(--text-xs); }
 .finIntelActions { flex-wrap: wrap; margin: 0; }
 .finIntelActions > button { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 40px; }
 .finIntelFilter { margin: 0; min-width: min(100%, 12rem); }
 .finIntelFilter select { min-height: 40px; }
-.finIntel .finIntelCards tbody th, .finIntel .finIntelCardsSm tbody th { color: var(--d-text); font-size: 14px; font-weight: 600; white-space: normal; }
-.finIntelReason { color: var(--d-muted); display: block; font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
+.finIntel .finIntelCards tbody th, .finIntel .finIntelCardsSm tbody th { color: var(--d-text); font-size: var(--text-md); font-weight: 600; white-space: normal; }
+.finIntelReason { color: var(--d-muted); display: block; font-size: var(--text-xs); font-weight: 400; overflow-wrap: anywhere; }
 .finIntelStrategies td button { min-height: 36px; white-space: nowrap; }
 .finIntelStrategies tr[aria-current="true"] { background: var(--d-glass-2); }
 .finIntelRuns { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
-.finIntelRuns h3, .finIntelBook h3 { align-items: center; display: flex; flex-wrap: wrap; font-size: 15px; gap: var(--d-s2); margin: 0; }
+.finIntelRuns h3, .finIntelBook h3 { align-items: center; display: flex; flex-wrap: wrap; font-size: var(--text-base); gap: var(--d-s2); margin: 0; }
 .finIntelRunList, .finIntelPortfolios, .finIntelRules { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
 .finIntelRun, .finIntelBook { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
 .finIntelRunHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; }
-.finIntelSub { color: var(--d-muted); font-size: 13px; margin: 0; }
+.finIntelSub { color: var(--d-muted); font-size: var(--text-sm); margin: 0; }
 .finIntelMetrics { grid-template-columns: repeat(auto-fill, minmax(min(100%, 9rem), 1fr)); }
 .finIntelReasons { display: grid; gap: 2px; margin: 0; padding-inline-start: var(--d-s5); }
 .finIntel .finIntelReasons li { border: 0; display: list-item; min-width: 0; overflow-wrap: anywhere; padding: 0; }
@@ -262,7 +262,7 @@
   .finIntelCards tr { border-top: 1px solid var(--d-line); display: grid; gap: 2px var(--d-s3); grid-template-columns: repeat(2, minmax(0, 1fr)); padding: var(--d-s2) 0; }
   .finIntelCards tr > th { grid-column: 1 / -1; }
   .finIntel .finIntelCards th, .finIntel .finIntelCards td { background: transparent; border: 0; padding: 0; text-align: start; white-space: normal; }
-  .finIntelCards td[data-label]::before { color: var(--d-faint); content: attr(data-label); display: block; font-size: 12px; }
+  .finIntelCards td[data-label]::before { color: var(--d-faint); content: attr(data-label); display: block; font-size: var(--text-xs); }
 }
 @media (min-width: 561px) and (max-width: 1023px) {
   .finIntelStrategies.finIntelCards tr { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -273,29 +273,29 @@
   .finIntelCardsSm tr { border-top: 1px solid var(--d-line); display: grid; gap: 2px var(--d-s3); grid-template-columns: repeat(2, minmax(0, 1fr)); padding: var(--d-s2) 0; }
   .finIntelCardsSm tr > th { grid-column: 1 / -1; }
   .finIntel .finIntelCardsSm th, .finIntel .finIntelCardsSm td { background: transparent; border: 0; padding: 0; text-align: start; white-space: normal; }
-  .finIntelCardsSm td[data-label]::before { color: var(--d-faint); content: attr(data-label); display: block; font-size: 12px; }
+  .finIntelCardsSm td[data-label]::before { color: var(--d-faint); content: attr(data-label); display: block; font-size: var(--text-xs); }
 }
 @media (max-width: 760px) {
   .finIntelActions > button { flex: 1 1 100%; justify-content: center; }
 }
 /* Trading intelligence actions (FinanceIntelActions.tsx) */
 .finIntelStrategyActions { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
-.finIntelStrategyActions h3 { font-size: 15px; margin: 0; overflow-wrap: anywhere; }
+.finIntelStrategyActions h3 { font-size: var(--text-base); margin: 0; overflow-wrap: anywhere; }
 .finIntel .cmFilters { align-items: end; flex-wrap: wrap; min-width: 0; }
 .finIntel .cmFilters > .field { flex: 1 1 12rem; min-width: 0; }
 .finIntel .cmFilters > button { align-items: center; display: inline-flex; gap: var(--d-s2); justify-content: center; min-height: 44px; }
 .finIntel .cmFilters > button:not(.secondary):not(.danger) {
   background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow);
-  color: #fff; font-size: 14px; font-weight: 650; padding: 10px var(--d-s4);
+  color: #fff; font-size: var(--text-md); font-weight: 650; padding: 10px var(--d-s4);
 }
 .finIntel .cmFilters > button:not(.secondary):not(.danger):hover:not(:disabled) { background: var(--d-primary-grad-hover); }
 .finIntel .cmFilters > button.danger { padding: 0 var(--d-s4); }
 .finIntelRule { background: var(--d-glass-1); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); margin: 0; padding: var(--d-s3); }
 .finIntelRule > div { display: grid; gap: 2px; min-width: 0; }
-.finIntelRule dt { color: var(--d-faint); font-size: 12px; font-weight: 600; }
+.finIntelRule dt { color: var(--d-faint); font-size: var(--text-xs); font-weight: 600; }
 .finIntelRule dd { margin: 0; overflow-wrap: anywhere; }
 .finIntelPick { border: 1px solid var(--d-line); border-radius: var(--d-r-control); margin: 0; min-width: 0; padding: var(--d-s2) var(--d-s3); }
-.finIntelPick legend { font-size: 13px; font-weight: 600; padding: 0 var(--d-s1); }
+.finIntelPick legend { font-size: var(--text-sm); font-weight: 600; padding: 0 var(--d-s1); }
 .finIntelPick.finChecks { grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); }
 .finIntelPick .finCheck { flex-wrap: wrap; }
 .finIntelImport button { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 36px; white-space: nowrap; }
