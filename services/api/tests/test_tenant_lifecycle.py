@@ -180,6 +180,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         "skill_signing_settings": "0083_skill_signing",
         "business_change_orders": "0080_business_change_orders",
         "business_usage_ledger": "0080_business_change_orders",
+        "workspace_file_versions": "0090_file_versions",
         **{name: "0082_business_pipeline" for name in (
             "business_outreach_settings", "business_target_profiles", "business_observations",
             "business_pipeline_runs", "business_outbox", "business_replies")},
@@ -275,6 +276,14 @@ def test_tenant_a_cannot_see_download_or_cancel_tenant_b_jobs(client: TestClient
 def test_export_runs_in_the_background_and_downloads_with_a_signed_link(client: TestClient) -> None:
     _put_file(TENANT_A, WORKSPACE_A, "notes.txt", b"hello from A")
     _put_file(TENANT_B, WORKSPACE_B, "secret.txt", b"tenant B only")
+    # An older version of notes.txt: its bytes are exported too (files/<workspace>/<file id>/versions/v1).
+    from anum_api.files import previous_version
+
+    older = previous_version(file_store.records["file_notes_txt"], "owner").model_copy(
+        update={"storage_key": workspace_object_key(TENANT_A, WORKSPACE_A, "files", "file_notes_txt", "older"), "sha256": "1" * 64}
+    )
+    file_store.storage.put(older.storage_key, b"hello from A, earlier", "text/plain")
+    file_store.versions[older.id] = older
     queued = client.post("/api/v1/organization/lifecycle/exports", headers=ADMIN_A)
     assert queued.status_code == 202 and queued.json()["status"] == "queued"
     assert client.post("/api/v1/organization/lifecycle/exports", headers=ADMIN_A).status_code == 409
@@ -283,7 +292,7 @@ def test_export_runs_in_the_background_and_downloads_with_a_signed_link(client: 
 
     assert lifecycle.run_lifecycle_pass() == {"exported": 1}
     ready = client.get("/api/v1/organization/lifecycle", headers=ADMIN_A).json()["exports"][0]
-    assert ready["status"] == "ready" and ready["archive_bytes"] > 0 and ready["file_count"] == 1
+    assert ready["status"] == "ready" and ready["archive_bytes"] > 0 and ready["file_count"] == 2
     link = client.post(f"/api/v1/organization/lifecycle/exports/{job_id}/link", headers=ADMIN_A)
     assert link.status_code == 200
     download = client.get(link.json()["url"])
@@ -301,6 +310,7 @@ def test_export_runs_in_the_background_and_downloads_with_a_signed_link(client: 
     names = archive.namelist()
     assert f"files/{WORKSPACE_A}/file_notes_txt/notes.txt" in names
     assert archive.read(f"files/{WORKSPACE_A}/file_notes_txt/notes.txt") == b"hello from A"
+    assert archive.read(f"files/{WORKSPACE_A}/file_notes_txt/versions/v1") == b"hello from A, earlier"
     assert not any("secret" in name for name in names)
     invitations = archive.read("data/organisation/workspace_invitations.jsonl")
     assert b"token_hash" not in invitations

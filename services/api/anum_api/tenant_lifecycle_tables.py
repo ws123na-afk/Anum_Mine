@@ -99,7 +99,7 @@ _DOMAINS = (
     ("calendar_", "calendar"),
     ("setup_plan", "setup"),
     ("integration_", "integrations"),
-    ("workspace_files", "files"),
+    ("workspace_file", "files"),
     ("audit_records", "audit"),
     ("domain_events", "audit"),
     ("tasks", "tasks"),
@@ -297,6 +297,7 @@ _ORDER = (
     "notification_preferences",
     "push_devices",
     "user_preferences",
+    "workspace_file_versions",
     "workspace_files",
     "integration_credentials",
     "integration_health_checks",
@@ -328,7 +329,11 @@ _ORDER = (
     DELETED_ORGANIZATIONS_TABLE,
 )
 
-_STORAGE_KEYS = {"workspace_files": "storage_key", "mail_attachments": "storage_key"}
+_STORAGE_KEYS = {
+    "workspace_files": "storage_key",
+    "workspace_file_versions": "storage_key",
+    "mail_attachments": "storage_key",
+}
 
 
 def _entry(name: str) -> TenantTable:

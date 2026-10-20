@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  canReindex, fileBadge, fileTypeLabel, isQuarantined, filesListPath, formatBytes, indexBadge, mergePage, parseInline, parseMarkdown, previewMode, progressText,
+  bytesLeft, canReindex, fileBadge, fileTypeLabel, kindLabel, mergeVersions, versionFileName, versionProblem, versionsPath, isQuarantined, filesListPath, formatBytes, indexBadge, mergePage, parseInline, parseMarkdown, previewMode, progressText,
   renameProblem, safeHref, uploadProblem, uploaderLabel, usageMeter, type ApiFile, type ApiFileUsage,
 } from '../src/lib/files.ts';
 
@@ -158,5 +158,42 @@ describe('quarantined files', () => {
     assert.equal(fileBadge({ index, scan_status: 'clean' }).label, 'Indexed');
     assert.equal(isQuarantined({ scan_status: 'infected' }), true);
     assert.equal(isQuarantined({ scan_status: null }), false);
+  });
+});
+
+describe('file versions and storage helpers', () => {
+  const ver = (id: string) => ({
+    id, file_id: 'f', version: 1, content_type: 'text/plain', size_bytes: 1, sha256: 'a', created_by: 'u', created_at: 'x',
+    replaced_by: 'u', replaced_at: 'x', downloadable: true,
+  });
+  test('the versions path pages by offset and encodes the id', () => {
+    assert.equal(versionsPath('file 1', 0), '/api/v1/files/file%201/versions?limit=10&offset=0');
+    assert.equal(versionsPath('f', -5, 20), '/api/v1/files/f/versions?limit=20&offset=0');
+  });
+  test('merging a page keeps the first copy of a version', () => {
+    assert.deepEqual(mergeVersions([ver('a'), ver('b')], [ver('b'), ver('c')]).map((item) => item.id), ['a', 'b', 'c']);
+  });
+  test('an older version is saved as "name (version N).ext"', () => {
+    assert.equal(versionFileName('plan.txt', 2), 'plan (version 2).txt');
+    assert.equal(versionFileName('notes.v2.md', 1), 'notes.v2 (version 1).md');
+    assert.equal(versionFileName('README', 3), 'README (version 3)');
+    assert.equal(versionFileName('.env', 3), '.env (version 3)');
+  });
+  test('bytes left never go negative', () => {
+    assert.equal(bytesLeft({ used_bytes: 900, quota_bytes: 1000 }), 100);
+    assert.equal(bytesLeft({ used_bytes: 1200, quota_bytes: 1000 }), 0);
+  });
+  test('a new version is checked for size, type and the bytes left before it is sent', () => {
+    const current = { name: 'plan.txt', size_bytes: 10 };
+    assert.equal(versionProblem({ name: 'plan.txt', size: 50 }, current, usage), null);
+    assert.equal(versionProblem({ name: 'plan.txt', size: 50 }, current, null), null);
+    assert.match(versionProblem({ name: 'plan.txt', size: 0 }, current, usage) ?? '', /empty/i);
+    assert.notEqual(versionProblem({ name: 'plan.txt', size: 600 }, current, usage), null);
+    assert.match(versionProblem({ name: 'plan.png', size: 5 }, current, usage) ?? '', /keeps the file type \(\.txt\)/);
+    assert.match(versionProblem({ name: 'plan.txt', size: 200 }, current, usage) ?? '', /every version counts/);
+  });
+  test('kinds read as labels, including the catch-all', () => {
+    assert.equal(kindLabel('other'), 'Other');
+    assert.equal(kindLabel('image'), 'Images');
   });
 });

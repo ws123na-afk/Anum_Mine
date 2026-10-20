@@ -18,6 +18,7 @@ WorkspaceFile parseWorkspaceFile(JsonReader j) {
     kind: j.optString('kind'),
     previewable: j.optBool('previewable') ?? false,
     canManage: j.optBool('can_manage') ?? false,
+    version: j.optInt('version') ?? 1,
     index: index == null
         ? null
         : FileIndexState(
@@ -36,6 +37,8 @@ class FileUsage {
     required this.accepted,
     required this.acceptedExtensions,
     required this.canUpload,
+    this.versionBytes = 0,
+    this.versionCount = 0,
   });
 
   factory FileUsage.fromJson(JsonReader j) => FileUsage(
@@ -49,9 +52,14 @@ class FileUsage {
             if (value is String) value
         ],
         canUpload: j.optBool('can_upload') ?? false,
+        versionBytes: j.optInt('version_bytes') ?? 0,
+        versionCount: j.optInt('version_count') ?? 0,
       );
 
   final int usedBytes, fileCount, quotaBytes, maxUploadBytes;
+
+  /// The part of [usedBytes] taken by older versions, and how many there are.
+  final int versionBytes, versionCount;
   final String accepted;
   final List<String> acceptedExtensions;
   final bool canUpload;

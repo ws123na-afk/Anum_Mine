@@ -1103,7 +1103,7 @@ def test_business_pipeline_migration_is_expand_only_with_forced_rls_and_scoped_r
     # One chain: nothing else extends the revision before this one, and nothing extends this one.
     others = [path for path in versions.glob("*.py") if path.name != "0082_business_pipeline.py"]
     assert [path.name for path in others if 'down_revision = "0089_business_invoices_portal"' in path.read_text(encoding="utf-8")] == []
-    assert [path.name for path in others if 'down_revision = "0082_business_pipeline"' in path.read_text(encoding="utf-8")] == []
+    assert [path.name for path in others if 'down_revision = "0082_business_pipeline"' in path.read_text(encoding="utf-8")] in ([], ["0090_file_versions.py"])
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     tables = revision_text.split("TABLES = (", 1)[1].split(")", 1)[0]
     names = [name.strip().strip('"') for name in tables.split(",") if name.strip()]
@@ -1211,6 +1211,28 @@ def test_approvals_paging_migration_only_adds_concurrent_indexes() -> None:
     assert "op.create_table(" not in upgrade and "op.add_column(" not in upgrade and "alter_column" not in upgrade
     assert "drop " not in upgrade and "op.drop" not in upgrade
     assert "grant " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_file_versions_migration_is_expand_only_with_forced_rls_and_a_scoped_reference() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0090_file_versions.py").read_text(encoding="utf-8")
+    assert 'revision = "0090_file_versions"' in revision_text and len("0090_file_versions") <= 32
+    assert 'down_revision = "0082_business_pipeline"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0090_file_versions.py"]
+    assert not [path for path in others if 'down_revision = "0082_business_pipeline"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 1 and upgrade.count("op.add_column(") == 1
+    # The added column has a default, so the previous release keeps inserting rows.
+    assert 'sa.column("version", sa.integer(), nullable=false, server_default="1")' in upgrade
+    assert "create unique index concurrently if not exists uq_workspace_files_scope_id" in upgrade
+    assert "force row level security" in upgrade and "with check (" in upgrade
+    assert "current_setting('anum.tenant_id', true)" in revision_text and "current_setting('anum.workspace_id', true)" in revision_text
+    assert '["tenant_id", "workspace_id", "file_id"]' in revision_text and 'ondelete="cascade"' in upgrade
+    assert "alter_column" not in upgrade and "drop " not in upgrade and "op.drop" not in upgrade
+    # Only the organisation purge role may delete its rows (and read the scope and the object key).
+    assert "grant select (tenant_id, ctid, workspace_id, storage_key), delete on" in revision_text
+    assert "create policy lifecycle_purge_" in revision_text and "grant insert" not in revision_text and "grant update" not in revision_text
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
 
 
 def test_demo_records_migration_is_expand_only_with_forced_rls() -> None:
