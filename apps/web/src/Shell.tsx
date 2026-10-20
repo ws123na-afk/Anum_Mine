@@ -296,7 +296,7 @@ export function UserMenu({ name, userId, role, signOut, onGo }: {
   const roleText = role ? t(`workspaceAdmin.role.${role}` as MessageKey) : null;
   const pick = (target: 'settings' | 'language' | 'appearance' | 'notifications' | 'privacy') => { setOpen(false); onGo(target); };
   return <div className="popoverRoot" ref={root}>
-    <button type="button" className="userButton" aria-expanded={open} aria-controls={panelId} aria-label={t('user.menu', { name: shown })} onClick={() => setOpen(!open)}>
+    <button type="button" className="userButton" aria-expanded={open} aria-controls={panelId} aria-label={roleText ? `${t('user.menu', { name: shown })} ${roleText}` : t('user.menu', { name: shown })} onClick={() => setOpen(!open)}>
       <span className="avatar" aria-hidden="true">{initials(shown)}</span>
       <span className="userText"><strong dir="auto">{shown}</strong>{roleText && <span className="planPill">{roleText}</span>}</span>
       <ChevronDown aria-hidden="true" />
