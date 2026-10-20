@@ -3,6 +3,7 @@
 // and the Calls screen (teammates to call, recent and missed calls).
 import 'package:flutter/material.dart';
 
+import '../../src/theme/anum_type.dart';
 import '../../src/widgets/anum_components.dart';
 import 'call_controller.dart';
 import 'call_models.dart';
@@ -276,7 +277,7 @@ class TeamCallScreen extends StatelessWidget {
             backgroundColor: scheme.primary,
             child: Text(_initials(name),
                 style: TextStyle(
-                    fontSize: 30,
+                    fontSize: AnumType.x5lPlus,
                     fontWeight: FontWeight.w800,
                     color: scheme.onPrimary)),
           );

@@ -148,7 +148,7 @@ class _AutomationTriggersCardState extends State<AutomationTriggersCard> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         AnumHeader(title: l.t('autoTrigTitle')),
         Text(l.t('autoTrigHelp'),
-            style: TextStyle(color: p.muted, fontSize: 13)),
+            style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         if (c.canManage)
           Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
             TextButton.icon(
@@ -327,8 +327,8 @@ class _SecretDialog extends StatelessWidget {
               copyRow(l.t('autoTrigUrl'), trigger.webhookPath ?? ''),
               copyRow(l.t('autoTrigSecret'), secret),
               Text(l.t('autoTrigSignHelp'),
-                  style:
-                      TextStyle(color: context.palette.muted, fontSize: 12.5)),
+                  style: TextStyle(
+                      color: context.palette.muted, fontSize: AnumType.xsPlus)),
             ]),
       ),
       actions: [
@@ -497,7 +497,8 @@ class _TriggerSheetState extends State<TriggerSheet> {
                       ? l.t('autoTrigConditionsWebhook')
                       : l.f('autoTrigConditionsHelp',
                           {'fields': fields.isEmpty ? '-' : fields.join(', ')}),
-                  style: TextStyle(color: context.palette.muted, fontSize: 13)),
+                  style: TextStyle(
+                      color: context.palette.muted, fontSize: AnumType.sm)),
               for (var i = 0; i < conditions.length; i++)
                 _condition(context, l, i),
               Align(

@@ -168,7 +168,7 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
               Text('•  ', style: TextStyle(color: p.muted)),
               Expanded(
                   child: Text(l.t(key),
-                      style: TextStyle(color: p.muted, fontSize: 13))),
+                      style: TextStyle(color: p.muted, fontSize: AnumType.sm))),
             ]),
           ),
         if (stop.changedAt != null) ...[
@@ -180,7 +180,7 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
                 'when': MaterialLocalizations.of(context)
                     .formatMediumDate(stop.changedAt!.toLocal()),
               }),
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         ],
         if (stop.reason != null)
           Text(l.f('ac.reasonShown', {'reason': stop.reason!}),
@@ -225,7 +225,8 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
                         l.t(stop.engaged
                             ? 'ac.cannotRelease'
                             : 'ac.cannotEngage'),
-                        style: TextStyle(color: p.muted, fontSize: 13))),
+                        style:
+                            TextStyle(color: p.muted, fontSize: AnumType.sm))),
               ]),
         ],
       ]),
@@ -270,12 +271,14 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
                             color: p.text, fontWeight: FontWeight.w700)),
                     if (item.detail.isNotEmpty)
                       Text(item.detail,
-                          style: TextStyle(color: p.muted, fontSize: 12.5)),
+                          style: TextStyle(
+                              color: p.muted, fontSize: AnumType.xsPlus)),
                     if (item.at != null)
                       Text(
                           MaterialLocalizations.of(context)
                               .formatMediumDate(item.at!.toLocal()),
-                          style: TextStyle(color: p.faint, fontSize: 12)),
+                          style:
+                              TextStyle(color: p.faint, fontSize: AnumType.xs)),
                   ]),
             ),
           if (page.total > AgentControlsController.pageSize)
@@ -352,7 +355,7 @@ class _AgentControlsScreenState extends State<AgentControlsScreen> {
           else if (page != null) ...[
             if (!page.canManage)
               Text(l.t('ac.readOnly'),
-                  style: TextStyle(color: p.muted, fontSize: 13)),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
             for (final item in page.items)
               _CapTile(
                   key: Key('cap-${item.agentId}'),
@@ -488,7 +491,7 @@ class _CapTileState extends State<_CapTile> {
             ]),
         if (item.isDefault)
           Text(l.t('ac.defaultHint'),
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         const SizedBox(height: 6),
         Semantics(
           label: l.f('ac.meter', {'name': item.name}),
@@ -513,7 +516,7 @@ class _CapTileState extends State<_CapTile> {
                     'used': formatTokens(item.tokens),
                     'limit': formatTokens(item.tokenLimit!)
                   }),
-                  style: TextStyle(color: p.text, fontSize: 12.5)),
+                  style: TextStyle(color: p.text, fontSize: AnumType.xsPlus)),
               const SizedBox(height: 4),
               _bar(context, item.tokenFraction, item.tokenPercent),
             ],
@@ -522,7 +525,7 @@ class _CapTileState extends State<_CapTile> {
                 '${l.p('ac.calls', item.calls)}${percent == null ? '' : ', ${l.f('ac.percentOfCap', {
                         'percent': percent
                       })}'}',
-                style: TextStyle(color: p.faint, fontSize: 12)),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           ]),
         ),
         if (widget.canManage) ...[
@@ -561,7 +564,8 @@ class _CapTileState extends State<_CapTile> {
               padding: const EdgeInsets.only(top: 4),
               child: Text(noticeText(l, notice),
                   style: TextStyle(
-                      color: notice.failed ? p.stop : p.ok, fontSize: 12.5)),
+                      color: notice.failed ? p.stop : p.ok,
+                      fontSize: AnumType.xsPlus)),
             ),
         ],
         Divider(height: 24, color: p.line),

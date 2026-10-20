@@ -142,7 +142,8 @@ class _BusinessScreenState extends State<BusinessScreen> {
               // The app bar already says "Business"; only the subtitle here.
               Text(
                 l.t('biz.subtitle'),
-                style: TextStyle(color: context.palette.muted, fontSize: 13.5),
+                style: TextStyle(
+                    color: context.palette.muted, fontSize: AnumType.smPlus),
               ),
               ...switch (c.setupState) {
                 BusinessLoad.idle || BusinessLoad.loading => [

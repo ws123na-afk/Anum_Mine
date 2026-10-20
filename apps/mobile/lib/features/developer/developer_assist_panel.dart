@@ -92,7 +92,9 @@ class DeveloperAssistPanel extends StatelessWidget {
               textDirection: TextDirection.ltr,
               child: Text(assist.pendingProject!.repository,
                   style: TextStyle(
-                      color: p.muted, fontSize: 12, fontFamily: 'monospace')),
+                      color: p.muted,
+                      fontSize: AnumType.xs,
+                      fontFamily: 'monospace')),
             ),
             const SizedBox(height: AnumSpacing.xs),
             Wrap(

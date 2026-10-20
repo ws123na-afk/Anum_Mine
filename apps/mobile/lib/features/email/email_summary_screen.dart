@@ -221,7 +221,9 @@ class _SummaryRow extends StatelessWidget {
               backgroundColor: p.surface3,
               child: Text(initials(message.sender),
                   style: TextStyle(
-                      color: p.sky, fontWeight: FontWeight.w700, fontSize: 13)),
+                      color: p.sky,
+                      fontWeight: FontWeight.w700,
+                      fontSize: AnumType.sm)),
             ),
             const SizedBox(width: AnumSpacing.sm),
             Expanded(
@@ -233,16 +235,18 @@ class _SummaryRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                             color: p.text,
-                            fontSize: 14.5,
+                            fontSize: AnumType.mdPlus,
                             fontWeight: message.isRead
                                 ? FontWeight.w500
                                 : FontWeight.w700)),
                     Text(subject,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: p.muted, fontSize: 13)),
+                        style:
+                            TextStyle(color: p.muted, fontSize: AnumType.sm)),
                     Text(relativeTime(message.receivedAt),
-                        style: TextStyle(color: p.faint, fontSize: 11.5)),
+                        style: TextStyle(
+                            color: p.faint, fontSize: AnumType.xxsPlus)),
                   ]),
             ),
             if (pill != null) ...[

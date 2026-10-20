@@ -340,7 +340,7 @@ class SubscriptionScreen extends StatelessWidget {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             if (workspaceName != null && workspaceName!.isNotEmpty) ...[
               Text(l.t('subscriptionWorkspace'),
-                  style: TextStyle(color: p.muted, fontSize: 12.5)),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
               Text(workspaceName!,
                   style: const TextStyle(fontWeight: FontWeight.w700)),
               const SizedBox(height: AnumSpacing.sm),

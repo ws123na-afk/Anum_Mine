@@ -76,7 +76,9 @@ class _SeriesBarChartState extends State<SeriesBarChart> {
         child: Text(
           '${selected.label}: ${style.format(selected.value)}',
           style: TextStyle(
-              color: p.text, fontWeight: FontWeight.w700, fontSize: 14),
+              color: p.text,
+              fontWeight: FontWeight.w700,
+              fontSize: AnumType.md),
         ),
       ),
       const SizedBox(height: AnumSpacing.xs),
@@ -139,7 +141,7 @@ class _SeriesBarChartState extends State<SeriesBarChart> {
                       textAlign: TextAlign.center,
                       style: TextStyle(
                           color: i == _selected ? p.text : p.faint,
-                          fontSize: 11),
+                          fontSize: AnumType.xxs),
                     ),
                   ),
               ]),
@@ -194,7 +196,8 @@ class BarSeriesPainter extends CustomPainter {
       canvas.drawLine(Offset(0, dy), Offset(size.width, dy), gridPaint);
       final text = TextPainter(
         text: TextSpan(
-            text: label(value), style: TextStyle(color: axis, fontSize: 10)),
+            text: label(value),
+            style: TextStyle(color: axis, fontSize: AnumType.micro)),
         textDirection: textDirection,
       )..layout();
       final dx =
@@ -277,13 +280,13 @@ class BreakdownDonut extends StatelessWidget {
                 const SizedBox(width: AnumSpacing.xs),
                 Expanded(
                   child: Text(items[i].label,
-                      style: TextStyle(color: p.muted, fontSize: 13)),
+                      style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
                 ),
                 const SizedBox(width: AnumSpacing.xs),
                 Text(share(items[i].value),
                     style: TextStyle(
                         color: p.text,
-                        fontSize: 13,
+                        fontSize: AnumType.sm,
                         fontWeight: FontWeight.w600)),
               ]),
             ),
@@ -409,11 +412,12 @@ class RankedBars extends StatelessWidget {
                   Text(item.label,
                       style: TextStyle(
                           color: p.text,
-                          fontSize: 14,
+                          fontSize: AnumType.md,
                           fontWeight: FontWeight.w600)),
                   if (item.detail != null)
                     Text(item.detail!,
-                        style: TextStyle(color: p.faint, fontSize: 12)),
+                        style:
+                            TextStyle(color: p.faint, fontSize: AnumType.xs)),
                 ],
               );
               final bar = ClipRRect(
@@ -477,7 +481,9 @@ class _ChangeText extends StatelessWidget {
       return Text(value,
           textAlign: TextAlign.end,
           style: TextStyle(
-              color: p.text, fontSize: 13, fontWeight: FontWeight.w600));
+              color: p.text,
+              fontSize: AnumType.sm,
+              fontWeight: FontWeight.w600));
     }
     return ChangeLabel(change: delta, higherIsBetter: higherIsBetter);
   }
@@ -510,7 +516,9 @@ class ChangeLabel extends StatelessWidget {
         Flexible(
           child: Text(formatChange(change),
               style: TextStyle(
-                  color: color, fontSize: 13, fontWeight: FontWeight.w700)),
+                  color: color,
+                  fontSize: AnumType.sm,
+                  fontWeight: FontWeight.w700)),
         ),
       ],
     );

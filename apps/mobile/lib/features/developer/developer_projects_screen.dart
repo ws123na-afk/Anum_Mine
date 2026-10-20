@@ -190,7 +190,7 @@ class _SecretsCard extends StatelessWidget {
               'secrets': githubSecretNames.join(l.t('dev.and')),
               'variables': githubVariableNames.join(l.t('dev.and')),
             }),
-            style: TextStyle(color: p.muted, fontSize: 13)),
+            style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
       ]),
     );
   }
@@ -236,7 +236,7 @@ class DeveloperProjectCard extends StatelessWidget {
                 Text(project.name,
                     style: TextStyle(
                         color: p.text,
-                        fontSize: 17,
+                        fontSize: AnumType.lgPlus,
                         fontWeight: FontWeight.w700)),
                 AnumPill(
                     label: projectStateLabel(state, l),
@@ -247,7 +247,9 @@ class DeveloperProjectCard extends StatelessWidget {
             textDirection: TextDirection.ltr,
             child: Text('${project.repository} · ${project.defaultBranch}',
                 style: TextStyle(
-                    color: p.muted, fontSize: 12, fontFamily: 'monospace')),
+                    color: p.muted,
+                    fontSize: AnumType.xs,
+                    fontFamily: 'monospace')),
           ),
           if (project.description.isNotEmpty) ...[
             const SizedBox(height: AnumSpacing.xs),
@@ -354,8 +356,10 @@ class _Fact extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label,
             style: TextStyle(
-                color: p.faint, fontSize: 12, fontWeight: FontWeight.w600)),
-        Text(value, style: TextStyle(color: p.muted, fontSize: 13)),
+                color: p.faint,
+                fontSize: AnumType.xs,
+                fontWeight: FontWeight.w600)),
+        Text(value, style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
       ]),
     );
   }
@@ -566,7 +570,8 @@ class _DeveloperProjectFormScreenState
                     ),
                     if (_tokenSource == 'environment' && !environmentToken)
                       Text(l.t('dev.p.envMissing'),
-                          style: TextStyle(color: p.muted, fontSize: 13)),
+                          style:
+                              TextStyle(color: p.muted, fontSize: AnumType.sm)),
                     if (_tokenSource == 'project') ...[
                       TextField(
                         textDirection: TextDirection.ltr,

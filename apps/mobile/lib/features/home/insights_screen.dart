@@ -78,7 +78,7 @@ class _ProactiveInsightsScreenState extends State<ProactiveInsightsScreen> {
         title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(t.t('homeProactive')),
           Text(t.t('homeProactiveSub'),
-              style: TextStyle(color: p.muted, fontSize: 13)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         ]),
       ),
       body: AnumPage(onRefresh: c.loadInsights, children: [
@@ -198,17 +198,17 @@ class _InsightCard extends StatelessWidget {
                 child: Text(insightText(t, insight, 'title'),
                     style: TextStyle(
                         color: p.text,
-                        fontSize: 15.5,
+                        fontSize: AnumType.basePlus,
                         fontWeight: FontWeight.w700)),
               ),
               const SizedBox(height: AnumSpacing.xxs),
               Text(insightText(t, insight, 'finding'),
-                  style: TextStyle(color: p.muted, fontSize: 13.5)),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.smPlus)),
               const SizedBox(height: AnumSpacing.xxs),
               Text(insightText(t, insight, 'question'),
                   style: TextStyle(
                       color: p.text,
-                      fontSize: 13.5,
+                      fontSize: AnumType.smPlus,
                       fontWeight: FontWeight.w600)),
               if (insight.hidden) ...[
                 const SizedBox(height: AnumSpacing.xs),

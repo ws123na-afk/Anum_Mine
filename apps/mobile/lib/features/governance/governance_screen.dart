@@ -139,7 +139,7 @@ class _ReadOnlyNotice extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
             child: Text(organizationReadOnlyNotice,
-                style: TextStyle(color: p.text, fontSize: 13.5))),
+                style: TextStyle(color: p.text, fontSize: AnumType.smPlus))),
       ]),
     );
   }
@@ -236,11 +236,12 @@ class _PoliciesTab extends StatelessWidget {
                         Text(policy.name,
                             style: TextStyle(
                                 color: p.text,
-                                fontSize: 16,
+                                fontSize: AnumType.lg,
                                 fontWeight: FontWeight.w700)),
                         Text(
                             'Version ${policy.version} · ${policy.rules.length} rules',
-                            style: TextStyle(color: p.faint, fontSize: 12)),
+                            style: TextStyle(
+                                color: p.faint, fontSize: AnumType.xs)),
                       ]),
                 ),
                 if (canManage)
@@ -269,7 +270,8 @@ class _PoliciesTab extends StatelessWidget {
                           Expanded(
                               child: Text(rule,
                                   style: TextStyle(
-                                      color: p.muted, fontSize: 13.5))),
+                                      color: p.muted,
+                                      fontSize: AnumType.smPlus))),
                         ]),
                   ),
               ],
@@ -326,10 +328,11 @@ class _MarketplaceTab extends StatelessWidget {
                         Text(x.name,
                             style: TextStyle(
                                 color: p.text,
-                                fontSize: 16,
+                                fontSize: AnumType.lg,
                                 fontWeight: FontWeight.w700)),
                         Text('${x.kind} · v${x.version} · by ${x.publisher}',
-                            style: TextStyle(color: p.faint, fontSize: 12)),
+                            style: TextStyle(
+                                color: p.faint, fontSize: AnumType.xs)),
                       ]),
                 ),
                 if (x.verified)
@@ -341,7 +344,7 @@ class _MarketplaceTab extends StatelessWidget {
               if (x.permissions.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text('Can access',
-                    style: TextStyle(color: p.faint, fontSize: 12)),
+                    style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
                 const SizedBox(height: 6),
                 Wrap(spacing: 6, runSpacing: 6, children: [
                   for (final perm in x.permissions)
@@ -359,7 +362,7 @@ class _MarketplaceTab extends StatelessWidget {
               if (x.regions.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text('Regions: ${x.regions.join(', ')}',
-                    style: TextStyle(color: p.faint, fontSize: 12)),
+                    style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
               ],
               const SizedBox(height: 12),
               Align(

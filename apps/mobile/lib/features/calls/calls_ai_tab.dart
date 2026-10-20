@@ -251,7 +251,7 @@ class _ProviderCard extends StatelessWidget {
         ? (account?.connected ?? false)
         : (setup?.providerConnected ?? false);
     final problem = owner ? account?.problem : setup?.providerProblem;
-    final small = TextStyle(color: p.muted, fontSize: 13);
+    final small = TextStyle(color: p.muted, fontSize: AnumType.sm);
 
     final List<Widget> body;
     if (owner && controller.providerLoading && account == null) {
@@ -387,7 +387,7 @@ class _AiRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AnumLocalizations.of(context);
     final p = context.palette;
-    final small = TextStyle(color: p.muted, fontSize: 13);
+    final small = TextStyle(color: p.muted, fontSize: AnumType.sm);
     return AnumSurface(
       key: Key('ai-${request.id}'),
       padding: const EdgeInsets.all(AnumSpacing.sm),

@@ -60,6 +60,7 @@ Inter for Latin and Noto Sans Arabic for Arabic, both self-hosted variable fonts
 - Write `font-size: var(--text-sm)`, never `13px`. `em`, `%` and `pt` (print) stay allowed because they are relative or for paper.
 - The 2026-10 migration snapped the old values to the nearest step (a tie rounds up): 11.5 to 12, 12.5 to 13, 13.5 to 14, 14.5 to 15, 17 to 18, 21 to 22, 26 to 28, 30 to 32. Everything else was already on a step.
 - From `apps/web`, `node scripts/type-scale-codemod.mjs src/<file>.css` migrates a stylesheet, and it is safe to re-run after a merge conflict.
+- Flutter: font sizes live only in `apps/mobile/lib/src/theme/anum_type.dart` (`AnumType.*`, whole steps matching the table above plus half-pixel `*Plus` steps the screens already used); `apps/mobile/test/type_scale_test.dart` fails on any raw `fontSize:` number elsewhere in `lib` or `test`. Sizes scale with the OS text size, so keep layouts content-sized.
 - `apps/web/test/typeScale.test.ts` fails on a raw size in any stylesheet not in its `PENDING` list (stylesheets still to migrate; the list only shrinks) and on an inline pixel `fontSize`. The standalone policy pages in `public/policies` cannot load the app CSS and keep their own sizes.
 
 A distinct display face with Arabic support (for example IBM Plex Sans Arabic beside a Latin display face) would need new font files; that is a download the owner has to approve, so it is listed as a follow-up rather than done here.

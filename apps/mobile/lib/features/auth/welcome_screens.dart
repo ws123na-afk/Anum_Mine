@@ -670,7 +670,8 @@ class _Note extends StatelessWidget {
       Icon(icon, size: 18, color: p.sky),
       const SizedBox(width: AnumSpacing.xs),
       Expanded(
-          child: Text(text, style: TextStyle(color: p.muted, fontSize: 13))),
+          child: Text(text,
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm))),
     ]);
   }
 }
@@ -728,7 +729,7 @@ class _GoogleMark extends StatelessWidget {
             textScaler: TextScaler.noScaling,
             style: TextStyle(
                 color: Colors.white,
-                fontSize: 20,
+                fontSize: AnumType.x2l,
                 fontWeight: FontWeight.w900)),
       );
 }
@@ -772,14 +773,14 @@ class PendingAccountScreen extends StatelessWidget {
         padding: const EdgeInsets.all(AnumSpacing.sm),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(l.t('pendingEmail'),
-              style: TextStyle(color: p.muted, fontSize: 13)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           SelectableText(email ?? l.t('pendingNoEmail'),
               key: const Key('pending-email'),
               textDirection: TextDirection.ltr),
           if (subject != null) ...[
             const SizedBox(height: AnumSpacing.xs),
             Text(l.t('pendingAccountId'),
-                style: TextStyle(color: p.muted, fontSize: 13)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
             SelectableText(subject,
                 key: const Key('pending-subject'),
                 textDirection: TextDirection.ltr),

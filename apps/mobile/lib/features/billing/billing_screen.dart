@@ -390,7 +390,7 @@ class _Field extends StatelessWidget {
     final p = context.palette;
     final valueStyle = TextStyle(
         color: p.text,
-        fontSize: strong ? 15 : 14,
+        fontSize: strong ? AnumType.base : AnumType.md,
         fontWeight: strong ? FontWeight.w700 : FontWeight.w500);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AnumSpacing.xxs),
@@ -399,7 +399,8 @@ class _Field extends StatelessWidget {
         crossAxisAlignment: WrapCrossAlignment.center,
         spacing: AnumSpacing.xs,
         children: [
-          Text(label, style: TextStyle(color: p.muted, fontSize: 13.5)),
+          Text(label,
+              style: TextStyle(color: p.muted, fontSize: AnumType.smPlus)),
           Row(mainAxisSize: MainAxisSize.min, children: [
             Flexible(child: SelectableText(value, style: valueStyle)),
             if (trailing != null) trailing!,
@@ -419,7 +420,7 @@ class _SectionTitle extends StatelessWidget {
         child: Text(text,
             style: TextStyle(
                 color: context.palette.text,
-                fontSize: 16,
+                fontSize: AnumType.lg,
                 fontWeight: FontWeight.w700)),
       );
 }
@@ -576,7 +577,8 @@ class _OverviewTab extends StatelessWidget {
     final status = AnumSurface(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(l.t('bl.currentPlan'),
-            style: TextStyle(color: context.palette.muted, fontSize: 12.5)),
+            style: TextStyle(
+                color: context.palette.muted, fontSize: AnumType.xsPlus)),
         const SizedBox(height: AnumSpacing.xxs),
         Wrap(
           spacing: AnumSpacing.xs,
@@ -695,7 +697,7 @@ class _UsageCard extends StatelessWidget {
           const SizedBox(height: AnumSpacing.xs),
         ],
         Text(l.t('bl.usageNote'),
-            style: TextStyle(color: p.faint, fontSize: 12)),
+            style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
       ]),
     );
   }
@@ -748,7 +750,7 @@ class _PaymentCard extends StatelessWidget {
           _BankDetails(bank: view.bank),
           const SizedBox(height: AnumSpacing.xxs),
           Text(l.t('bl.reference'),
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         ] else
           Text(
               view.issuerEmail.isEmpty
@@ -787,7 +789,8 @@ class _ContactCard extends StatelessWidget {
         _Field(l.t('bl.vat'), or(account.vatNumber)),
         const SizedBox(height: AnumSpacing.xxs),
         Text(l.t('bl.contactWeb'),
-            style: TextStyle(color: context.palette.faint, fontSize: 12)),
+            style:
+                TextStyle(color: context.palette.faint, fontSize: AnumType.xs)),
       ]),
     );
   }
@@ -895,11 +898,11 @@ class _PlanCard extends StatelessWidget {
         ],
         if (plan.trialDays > 0)
           Text(l.f('bl.trialDays', {'days': plan.trialDays}),
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         const SizedBox(height: AnumSpacing.xs),
         for (final entry in plan.limits.entries)
           Text(_limitText(l, entry.key, entry.value),
-              style: TextStyle(color: p.muted, fontSize: 13)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         for (final feature in plan.features)
           Padding(
             padding: const EdgeInsets.only(top: AnumSpacing.xxs),
@@ -1198,7 +1201,7 @@ class _InvoicesTabState extends State<_InvoicesTab> {
                     l.f('bl.count',
                         {'shown': c.invoices.length, 'total': c.invoiceTotal}),
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: p.faint, fontSize: 12)),
+                    style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
               ),
             ]),
         ]);
@@ -1446,7 +1449,7 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
                   Text(
                       l.f('bl.referenceNumber',
                           {'number': inv.number.isEmpty ? '-' : inv.number}),
-                      style: TextStyle(color: p.faint, fontSize: 12)),
+                      style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
                 ]),
           )
         : null;
@@ -1491,7 +1494,8 @@ class _AmountRow extends StatelessWidget {
           alignment: WrapAlignment.spaceBetween,
           spacing: AnumSpacing.xs,
           children: [
-            Text(subtitle, style: TextStyle(color: p.muted, fontSize: 13)),
+            Text(subtitle,
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
             Text(amount,
                 style: TextStyle(color: p.text, fontWeight: FontWeight.w600)),
           ],

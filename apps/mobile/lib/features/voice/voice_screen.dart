@@ -226,7 +226,9 @@ class _VoiceHeader extends StatelessWidget {
           child: Text(
             name.characters.first.toUpperCase(),
             style: TextStyle(
-                color: p.background, fontWeight: FontWeight.w800, fontSize: 17),
+                color: p.background,
+                fontWeight: FontWeight.w800,
+                fontSize: AnumType.lgPlus),
           ),
         ),
       ),
@@ -237,9 +239,11 @@ class _VoiceHeader extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                  color: p.text, fontSize: 19, fontWeight: FontWeight.w700)),
+                  color: p.text,
+                  fontSize: AnumType.xlPlus,
+                  fontWeight: FontWeight.w700)),
           Text(arabic ? 'مساعدتك الصوتية' : 'Your voice assistant',
-              style: TextStyle(color: p.muted, fontSize: 12.5)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
         ]),
       ),
     ];
@@ -340,7 +344,7 @@ class _WakeToggle extends StatelessWidget {
                   Text(on ? 'Wake on' : 'Wake off',
                       style: TextStyle(
                           color: color,
-                          fontSize: 12,
+                          fontSize: AnumType.xs,
                           fontWeight: FontWeight.w700)),
                 ]),
               ),
@@ -440,7 +444,9 @@ class _Stage extends StatelessWidget {
         child: Text(stateText,
             textAlign: TextAlign.center,
             style: TextStyle(
-                color: p.text, fontSize: 17, fontWeight: FontWeight.w700)),
+                color: p.text,
+                fontSize: AnumType.lgPlus,
+                fontWeight: FontWeight.w700)),
       ),
       const SizedBox(height: 6),
       Text(detail,
@@ -449,7 +455,7 @@ class _Stage extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
               color: state == VoiceState.listening ? p.text : p.muted,
-              fontSize: 14,
+              fontSize: AnumType.md,
               height: 1.35)),
       if (pending > 0) ...[
         const SizedBox(height: AnumSpacing.sm),
@@ -488,7 +494,9 @@ class _ApprovalsChip extends StatelessWidget {
           Flexible(
             child: Text(label,
                 style: TextStyle(
-                    color: color, fontSize: 12.5, fontWeight: FontWeight.w700)),
+                    color: color,
+                    fontSize: AnumType.xsPlus,
+                    fontWeight: FontWeight.w700)),
           ),
           if (onTap != null) Icon(Icons.chevron_right, size: 16, color: color),
         ]),
@@ -520,12 +528,14 @@ class _MicRecovery extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('Microphone access is off',
             style: TextStyle(
-                color: p.text, fontSize: 15, fontWeight: FontWeight.w700)),
+                color: p.text,
+                fontSize: AnumType.base,
+                fontWeight: FontWeight.w700)),
         const SizedBox(height: 4),
         Text(
             'Allow the microphone for ANUM in your device settings to talk to '
             '${controller.assistantName}. Typing works either way.',
-            style: TextStyle(color: p.muted, fontSize: 13.5)),
+            style: TextStyle(color: p.muted, fontSize: AnumType.smPlus)),
         const SizedBox(height: AnumSpacing.sm),
         Wrap(spacing: 8, runSpacing: 8, children: [
           FilledButton.tonalIcon(
@@ -611,13 +621,14 @@ class _Bubble extends StatelessWidget {
           Text(controller.assistantName,
               style: TextStyle(
                   color: p.sky,
-                  fontSize: 11.5,
+                  fontSize: AnumType.xxsPlus,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.3)),
           const SizedBox(height: 4),
         ],
         SelectableText(turn.text,
-            style: TextStyle(color: p.text, fontSize: 15, height: 1.4)),
+            style:
+                TextStyle(color: p.text, fontSize: AnumType.base, height: 1.4)),
         if (!mine && turn.result != null) ..._actions(context, turn.result!),
       ],
     );
@@ -671,11 +682,15 @@ class _Bubble extends StatelessWidget {
             const SizedBox(height: 10),
             Text('Review command',
                 style: TextStyle(
-                    color: p.muted, fontSize: 12, fontWeight: FontWeight.w600)),
+                    color: p.muted,
+                    fontSize: AnumType.xs,
+                    fontWeight: FontWeight.w600)),
             const SizedBox(height: 2),
             Text('“${result.proposedTask}”',
                 style: TextStyle(
-                    color: p.text, fontSize: 14, fontWeight: FontWeight.w600)),
+                    color: p.text,
+                    fontSize: AnumType.md,
+                    fontWeight: FontWeight.w600)),
             const SizedBox(height: 10),
             Wrap(spacing: 8, runSpacing: 8, children: [
               FilledButton.icon(
@@ -704,7 +719,7 @@ class _Bubble extends StatelessWidget {
           if (turn.resolution == TurnResolution.dismissed) ...[
             const SizedBox(height: 8),
             Text('Not created',
-                style: TextStyle(color: p.faint, fontSize: 12.5)),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xsPlus)),
           ],
         ];
       case VoiceRiskTier.visualOnly:
@@ -717,7 +732,7 @@ class _Bubble extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
               'Approvals, deletes and payments need your visual approval on screen.',
-              style: TextStyle(color: p.muted, fontSize: 12.5)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
           if (onOpenApprovals != null) ...[
             const SizedBox(height: 8),
             OutlinedButton.icon(
@@ -857,7 +872,7 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
     final p = context.palette;
     final label = TextStyle(
         color: p.muted,
-        fontSize: 12,
+        fontSize: AnumType.xs,
         fontWeight: FontWeight.w700,
         letterSpacing: 0.4);
     return Padding(
@@ -932,7 +947,7 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
                 if (controller.session != null)
                   Text(
                       'A new retention choice applies to the next conversation.',
-                      style: TextStyle(color: p.faint, fontSize: 12)),
+                      style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
                 const SizedBox(height: AnumSpacing.md),
                 AnumSurface(
                   accent: p.violet,
@@ -940,7 +955,7 @@ class _VoiceSettingsSheetState extends State<_VoiceSettingsSheet> {
                       '${controller.assistantName} never approves, deletes or pays by voice. '
                       'Those always need your visual approval on screen. Wake by name only '
                       'listens while the Voice screen is open, using your device speech service.',
-                      style: TextStyle(color: p.muted, fontSize: 13)),
+                      style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
                 ),
                 const SizedBox(height: AnumSpacing.sm),
                 Align(

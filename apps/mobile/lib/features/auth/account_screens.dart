@@ -68,10 +68,11 @@ class AccountPanel extends StatelessWidget {
                 Text(title,
                     style: TextStyle(
                         color: p.text,
-                        fontSize: 15,
+                        fontSize: AnumType.base,
                         fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
-                Text(subtitle, style: TextStyle(color: p.muted, fontSize: 13)),
+                Text(subtitle,
+                    style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
               ])),
           if (selected) Icon(Icons.check_circle, color: p.violet),
         ]));
@@ -108,7 +109,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    fontSize: 18,
+                    fontSize: AnumType.xl,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 12),
                 decoration: const InputDecoration(

@@ -247,17 +247,17 @@ class _ConversationRow extends StatelessWidget {
                       style: TextStyle(
                           color: p.text,
                           fontWeight: FontWeight.w600,
-                          fontSize: 15))),
+                          fontSize: AnumType.base))),
               const SizedBox(width: AnumSpacing.xs),
               Text(relativeTime(item.lastMessageAt),
-                  style: TextStyle(color: p.faint, fontSize: 12)),
+                  style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
             ]),
             const SizedBox(height: 2),
             Text(
                 '${item.lastFromCustomer ? '' : '${l.t('waYou')} '}${item.preview}',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: p.muted, fontSize: 13.5)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.smPlus)),
             const SizedBox(height: AnumSpacing.xxs),
             Wrap(
                 spacing: AnumSpacing.xs,
@@ -481,7 +481,7 @@ class _SuggestionCard extends StatelessWidget {
         else ...[
           if (suggestion.summary.isNotEmpty)
             Text('${l.t('waCustomerWants')} ${suggestion.summary}',
-                style: TextStyle(color: p.muted, fontSize: 13.5)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.smPlus)),
           const SizedBox(height: AnumSpacing.xs),
           Text(suggestion.text, style: TextStyle(color: p.text)),
           const SizedBox(height: AnumSpacing.xs),
@@ -494,7 +494,7 @@ class _SuggestionCard extends StatelessWidget {
                       'count': suggestion.untrustedMessages,
                     })
                   : l.t('waFromRules'),
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           const SizedBox(height: AnumSpacing.xs),
           FilledButton.tonal(
               onPressed: canUse ? () => onUse(suggestion.text) : null,
@@ -547,7 +547,8 @@ class _Bubble extends StatelessWidget {
                   children: [
                     if (message.templateName != null)
                       Text(l.f('waTemplate', {'name': message.templateName!}),
-                          style: TextStyle(color: p.violet, fontSize: 12)),
+                          style: TextStyle(
+                              color: p.violet, fontSize: AnumType.xs)),
                     if (media != null)
                       _MediaRow(message: message, controller: controller),
                     if (body.isNotEmpty)
@@ -556,7 +557,8 @@ class _Bubble extends StatelessWidget {
                     const SizedBox(height: AnumSpacing.xxs),
                     Wrap(spacing: AnumSpacing.xs, children: [
                       Text(exactTime(message.timestamp),
-                          style: TextStyle(color: p.faint, fontSize: 11.5)),
+                          style: TextStyle(
+                              color: p.faint, fontSize: AnumType.xxsPlus)),
                       if (!message.inbound)
                         Text(l.t('waStatus.${message.status}'),
                             style: TextStyle(
@@ -564,11 +566,12 @@ class _Bubble extends StatelessWidget {
                                         message.status == 'not_sent'
                                     ? p.stop
                                     : p.muted,
-                                fontSize: 11.5)),
+                                fontSize: AnumType.xxsPlus)),
                     ]),
                     if (message.error != null)
                       Text(message.error!,
-                          style: TextStyle(color: p.stop, fontSize: 12.5)),
+                          style: TextStyle(
+                              color: p.stop, fontSize: AnumType.xsPlus)),
                     if (pending) _ApprovalPanel(message, approval, controller),
                   ]),
             ),
@@ -597,14 +600,14 @@ class _ApprovalPanel extends StatelessWidget {
             style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
         if (approval.target != null)
           Text(l.f('waTarget', {'target': approval.target!}),
-              style: TextStyle(color: p.muted, fontSize: 12)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.xs)),
         Text(
             l.f('waHash', {
               'hash': hash.length > 18
                   ? '${hash.substring(0, 12)}…${hash.substring(hash.length - 6)}'
                   : hash
             }),
-            style: TextStyle(color: p.muted, fontSize: 12)),
+            style: TextStyle(color: p.muted, fontSize: AnumType.xs)),
         const SizedBox(height: AnumSpacing.xs),
         if (controller.owner)
           Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
@@ -621,7 +624,7 @@ class _ApprovalPanel extends StatelessWidget {
           ])
         else
           Text(l.t('waOwnerApproves'),
-              style: TextStyle(color: p.muted, fontSize: 12.5)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
       ]),
     );
   }

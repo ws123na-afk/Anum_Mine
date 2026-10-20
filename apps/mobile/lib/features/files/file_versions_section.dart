@@ -95,14 +95,17 @@ class _FileVersionsSectionState extends State<FileVersionsSection> {
           children: [
             Text(s.t('ver.title'),
                 style: TextStyle(
-                    color: p.text, fontWeight: FontWeight.w700, fontSize: 16)),
+                    color: p.text,
+                    fontWeight: FontWeight.w700,
+                    fontSize: AnumType.lg)),
             AnumPill(
                 label: s.t('ver.current', {'version': c.file.version}),
                 tone: AnumTone.neutral),
           ],
         ),
         const SizedBox(height: 4),
-        Text(s.t('ver.help'), style: TextStyle(color: p.muted, fontSize: 13)),
+        Text(s.t('ver.help'),
+            style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         if (c.canChange) ...[
           const SizedBox(height: 8),
           Align(
@@ -146,7 +149,7 @@ class _FileVersionsSectionState extends State<FileVersionsSection> {
         if (!c.canChange && c.phase == VersionsPhase.ready) ...[
           const SizedBox(height: 8),
           Text(s.t('ver.manageDenied'),
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         ],
       ]),
     );
@@ -216,13 +219,13 @@ class _FileVersionsSectionState extends State<FileVersionsSection> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(s.t('ver.row', {'version': v.version}),
             style: TextStyle(color: p.text, fontWeight: FontWeight.w600)),
-        Text(meta, style: TextStyle(color: p.muted, fontSize: 12)),
+        Text(meta, style: TextStyle(color: p.muted, fontSize: AnumType.xs)),
         if (!v.downloadable)
           Text(
               s.t('ver.quarantined', {
                 'signature': v.scanSignature ?? s.t('ver.unknownSignature')
               }),
-              style: TextStyle(color: p.stop, fontSize: 12)),
+              style: TextStyle(color: p.stop, fontSize: AnumType.xs)),
         const SizedBox(height: 4),
         if (working)
           const LinearProgressIndicator()

@@ -489,8 +489,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
                                 liveRegion: true,
                                 child: Text(_composerError!,
                                     key: const Key('chat-composer-error'),
-                                    style:
-                                        TextStyle(color: p.stop, fontSize: 13)),
+                                    style: TextStyle(
+                                        color: p.stop, fontSize: AnumType.sm)),
                               ),
                           ]),
                     ),
@@ -742,7 +742,7 @@ class _ChatHeader extends StatelessWidget {
                     ]),
                     style: TextStyle(
                         color: p.muted,
-                        fontSize: 12.5,
+                        fontSize: AnumType.xsPlus,
                         fontWeight: FontWeight.w700)),
               ),
             ]),
@@ -755,7 +755,7 @@ class _ChatHeader extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                     color: p.text,
-                    fontSize: 19,
+                    fontSize: AnumType.xlPlus,
                     fontWeight: FontWeight.w700,
                     height: 1.15)),
           ),
@@ -798,14 +798,16 @@ class _EmptyChat extends StatelessWidget {
       Text('Ask anything',
           textAlign: TextAlign.center,
           style: TextStyle(
-              color: p.text, fontSize: 17, fontWeight: FontWeight.w700)),
+              color: p.text,
+              fontSize: AnumType.lgPlus,
+              fontWeight: FontWeight.w700)),
       const SizedBox(height: AnumSpacing.xxs),
       Text(
           'Answers stream in as they are written, and follow-ups remember '
           'this conversation. To have something done, ask for a task: tasks '
           "run under this workspace's approvals.",
           textAlign: TextAlign.center,
-          style: TextStyle(color: p.muted, fontSize: 13.5)),
+          style: TextStyle(color: p.muted, fontSize: AnumType.smPlus)),
       const SizedBox(height: AnumSpacing.md),
       for (final question in chatSuggestions) ...[
         OutlinedButton(
@@ -835,9 +837,9 @@ class _TurnView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final body = TextStyle(color: p.text, fontSize: 15, height: 1.4);
-    final meta = TextStyle(color: p.muted, fontSize: 12.5);
-    final error = TextStyle(color: p.stop, fontSize: 12.5);
+    final body = TextStyle(color: p.text, fontSize: AnumType.base, height: 1.4);
+    final meta = TextStyle(color: p.muted, fontSize: AnumType.xsPlus);
+    final error = TextStyle(color: p.stop, fontSize: AnumType.xsPlus);
     if (turn.role == ChatRole.user) {
       return Padding(
         padding: const EdgeInsetsDirectional.only(start: AnumSpacing.xxl),
@@ -1049,7 +1051,7 @@ class _ConversationList extends StatelessWidget {
               child: Text('Conversations',
                   style: TextStyle(
                       color: p.text,
-                      fontSize: 17,
+                      fontSize: AnumType.lgPlus,
                       fontWeight: FontWeight.w700)),
             ),
           ),
@@ -1126,11 +1128,12 @@ class _ConversationTile extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                               color: enabled ? p.text : p.faint,
-                              fontSize: 14.5,
+                              fontSize: AnumType.mdPlus,
                               fontWeight: FontWeight.w600)),
                       const SizedBox(height: 2),
                       Text(relativeTime(conversation.updatedAt),
-                          style: TextStyle(color: p.faint, fontSize: 12)),
+                          style:
+                              TextStyle(color: p.faint, fontSize: AnumType.xs)),
                     ]),
               ),
             ),
@@ -1170,10 +1173,11 @@ class _BudgetNotice extends StatelessWidget {
               Text('Monthly model budget reached',
                   style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
               const SizedBox(height: AnumSpacing.xxs),
-              Text(message, style: TextStyle(color: p.muted, fontSize: 13)),
+              Text(message,
+                  style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
               const SizedBox(height: AnumSpacing.xxs),
               Text('Owners can raise it in Settings › Model budgets.',
-                  style: TextStyle(color: p.faint, fontSize: 12)),
+                  style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
               if (onOpenSettings != null)
                 TextButton(
                     onPressed: onOpenSettings,

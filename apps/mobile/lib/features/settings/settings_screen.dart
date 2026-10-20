@@ -451,7 +451,7 @@ class _NotificationState extends State<_NotificationCard> {
         Text(channels.emailHint(switchedOn: value.emailEnabled),
             key: const Key('email-hint'),
             style: TextStyle(
-                fontSize: 13,
+                fontSize: AnumType.sm,
                 color: warn
                     ? Theme.of(context).colorScheme.error
                     : Theme.of(context).colorScheme.onSurfaceVariant)),
