@@ -379,7 +379,8 @@ class _ProjectMoneyScreenState extends State<ProjectMoneyScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(note,
-                  style: TextStyle(color: context.palette.muted, fontSize: 13)),
+                  style: TextStyle(
+                      color: context.palette.muted, fontSize: AnumType.sm)),
             ),
         ],
       ),

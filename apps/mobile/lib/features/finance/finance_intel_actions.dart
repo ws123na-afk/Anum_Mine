@@ -860,7 +860,7 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
           if (r.commentaryStatus == 'ok' && r.commentaryText != null) ...[
             Text(r.commentaryText!),
             Text(s.t('commentaryLabel', {'model': r.commentaryModel ?? '-'}),
-                style: TextStyle(color: p.muted, fontSize: 12)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.xs)),
           ] else
             Text(
                 s.t(r.commentaryStatus == 'withheld'
@@ -934,7 +934,8 @@ class _Heading extends StatelessWidget {
           header: true,
           child: Text(
             text,
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+            style: const TextStyle(
+                fontWeight: FontWeight.w700, fontSize: AnumType.lg),
           ),
         ),
       );

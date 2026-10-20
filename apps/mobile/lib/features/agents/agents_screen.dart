@@ -171,7 +171,7 @@ class _AgentsScreenState extends State<AgentsScreen> {
             children: [
               Text(
                 s.t('subtitle'),
-                style: TextStyle(color: p.muted, fontSize: 13.5),
+                style: TextStyle(color: p.muted, fontSize: AnumType.smPlus),
               ),
               TextField(
                 controller: _search,
@@ -290,7 +290,7 @@ class _AgentCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: p.text,
-                          fontSize: 15,
+                          fontSize: AnumType.base,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -306,10 +306,11 @@ class _AgentCard extends StatelessWidget {
                       : agent.description,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: p.muted, fontSize: 13),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.sm),
                 ),
                 const SizedBox(height: 4),
-                Text(meta, style: TextStyle(color: p.faint, fontSize: 12)),
+                Text(meta,
+                    style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
               ],
             ),
           ),
@@ -565,7 +566,7 @@ class _AgentDetailScreenState extends State<AgentDetailScreen>
                           agent.name,
                           style: TextStyle(
                             color: p.text,
-                            fontSize: 19,
+                            fontSize: AnumType.xlPlus,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -574,7 +575,8 @@ class _AgentDetailScreenState extends State<AgentDetailScreen>
                           agent.description.isEmpty
                               ? s.t('noDescription')
                               : agent.description,
-                          style: TextStyle(color: p.muted, fontSize: 13),
+                          style:
+                              TextStyle(color: p.muted, fontSize: AnumType.sm),
                         ),
                       ],
                     ),
@@ -755,11 +757,11 @@ class _AgentDetailScreenState extends State<AgentDetailScreen>
             const SizedBox(height: 10),
             Text(
               '${s.t('model')}: ${s.t('model.${agent.modelRoute}')}',
-              style: TextStyle(color: p.muted, fontSize: 13),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm),
             ),
             Text(
               '${s.t('knowledge')}: ${s.t('knowledge.${agent.knowledgeMode}')}',
-              style: TextStyle(color: p.muted, fontSize: 13),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm),
             ),
           ],
         ),
@@ -831,7 +833,7 @@ class _AgentDetailScreenState extends State<AgentDetailScreen>
             ),
             Text(
               s.t('memoryIntro'),
-              style: TextStyle(color: p.muted, fontSize: 13),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm),
             ),
             const SizedBox(height: 8),
             if (agent.canEdit) ...[
@@ -862,7 +864,7 @@ class _AgentDetailScreenState extends State<AgentDetailScreen>
             if (c.memoriesLoaded && c.memories.isNotEmpty)
               Text(
                 s.f('memoryCount', {'count': c.memoryTotal}),
-                style: TextStyle(color: p.faint, fontSize: 12),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs),
               ),
             for (final memory in c.memories)
               AnumRow(
@@ -898,7 +900,7 @@ class _AgentDetailScreenState extends State<AgentDetailScreen>
             ),
             Text(
               agent.shared ? s.t('sharedText') : s.t('privateText'),
-              style: TextStyle(color: p.muted, fontSize: 13),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm),
             ),
             if (agent.canEdit)
               Material(
@@ -1114,7 +1116,7 @@ class _AgentEditorScreenState extends State<AgentEditorScreen> {
             ))
               Text(
                 s.f('notConnected', {'what': template.missing.join(', ')}),
-                style: TextStyle(color: p.warn, fontSize: 13),
+                style: TextStyle(color: p.warn, fontSize: AnumType.sm),
               ),
           ],
           TextField(
@@ -1186,7 +1188,8 @@ class _AgentEditorScreenState extends State<AgentEditorScreen> {
                   ),
                 )),
           heading(s.t('tools')),
-          Text(s.t('alwaysOn'), style: TextStyle(color: p.muted, fontSize: 13)),
+          Text(s.t('alwaysOn'),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           for (final tool in catalog.tools.where((t) => !t.alwaysOn))
             Material(
                 type: MaterialType.transparency,
@@ -1212,7 +1215,7 @@ class _AgentEditorScreenState extends State<AgentEditorScreen> {
           for (final category in toolCategories) ...[
             Text(
               s.t('toolCat.$category'),
-              style: TextStyle(color: p.muted, fontSize: 13),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm),
             ),
             SegmentedButton<String>(
               segments: [

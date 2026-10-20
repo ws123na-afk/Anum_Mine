@@ -122,11 +122,11 @@ class _ApprovalPolicyScreenState extends State<ApprovalPolicyScreen> {
             const SizedBox(height: AnumSpacing.sm),
             Text(c.warning!,
                 key: const Key('policy-warning'),
-                style: TextStyle(color: p.warn, fontSize: 13)),
+                style: TextStyle(color: p.warn, fontSize: AnumType.sm)),
           ],
           const SizedBox(height: AnumSpacing.sm),
           Text(policyUpdatedLabel(c.policy!, exactTime),
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           if (c.notice != null) ...[
             const SizedBox(height: AnumSpacing.sm),
             Text(c.notice!,
@@ -194,7 +194,8 @@ class _SwitchRow extends StatelessWidget {
                               color: p.text, fontWeight: FontWeight.w700)),
                       Text(on ? 'On' : 'Off',
                           style: TextStyle(
-                              color: on ? p.ok : p.faint, fontSize: 12.5)),
+                              color: on ? p.ok : p.faint,
+                              fontSize: AnumType.xsPlus)),
                     ]),
               ),
               Switch(
@@ -206,7 +207,7 @@ class _SwitchRow extends StatelessWidget {
           ),
         ),
         DefaultTextStyle.merge(
-          style: TextStyle(color: p.faint, fontSize: 12.5),
+          style: TextStyle(color: p.faint, fontSize: AnumType.xsPlus),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             DefaultTextStyle.merge(

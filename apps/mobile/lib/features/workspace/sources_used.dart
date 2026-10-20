@@ -80,7 +80,7 @@ class _Loading extends StatelessWidget {
             const SizedBox(width: AnumSpacing.xs),
             Expanded(
                 child: Text(l.t('sourcesLoading'),
-                    style: TextStyle(color: p.muted, fontSize: 13))),
+                    style: TextStyle(color: p.muted, fontSize: AnumType.sm))),
           ]),
         ),
       ]),
@@ -114,12 +114,14 @@ class _Failed extends StatelessWidget {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(l.t('sourcesErrorTitle'),
                 style: TextStyle(
-                    color: p.text, fontSize: 14, fontWeight: FontWeight.w600)),
+                    color: p.text,
+                    fontSize: AnumType.md,
+                    fontWeight: FontWeight.w600)),
             const SizedBox(height: AnumSpacing.xxs),
             Text(
                 l.f(denied ? 'sourcesDeniedHint' : 'sourcesErrorHint',
                     {'message': message}),
-                style: TextStyle(color: p.muted, fontSize: 13)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           ]),
         ),
         // Retrying cannot grant access, so a refusal offers no retry.
@@ -195,14 +197,14 @@ class _Record extends StatelessWidget {
           Icon(Icons.menu_book_outlined, size: 16, color: p.faint),
           const SizedBox(width: 6),
           Expanded(
-              child:
-                  Text(note, style: TextStyle(color: p.muted, fontSize: 13))),
+              child: Text(note,
+                  style: TextStyle(color: p.muted, fontSize: AnumType.sm))),
         ]),
       ],
       if (groups.isNotEmpty) ...[
         const SizedBox(height: AnumSpacing.xs),
         Text(l.t('sourcesUntrusted'),
-            style: TextStyle(color: p.faint, fontSize: 12)),
+            style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
       ],
     ];
   }

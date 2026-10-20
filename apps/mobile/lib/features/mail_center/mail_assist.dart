@@ -260,7 +260,7 @@ class MailLabelChips extends StatelessWidget {
           ),
           child: Text(text,
               style: TextStyle(
-                  fontSize: 12,
+                  fontSize: AnumType.xs,
                   color: strong
                       ? scheme.onErrorContainer
                       : scheme.onSecondaryContainer)),

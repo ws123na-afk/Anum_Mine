@@ -391,7 +391,8 @@ class AnumPlanCard extends StatelessWidget {
             Text(title,
                 style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
             const SizedBox(height: 2),
-            Text(subtitle, style: TextStyle(color: p.muted, fontSize: 12.5)),
+            Text(subtitle,
+                style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
           ]),
         ),
         if (onTap != null)

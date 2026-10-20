@@ -138,7 +138,8 @@ class MetricChips extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(m.label, style: TextStyle(color: p.muted, fontSize: 12)),
+                Text(m.label,
+                    style: TextStyle(color: p.muted, fontSize: AnumType.xs)),
                 Wrap(
                   crossAxisAlignment: WrapCrossAlignment.center,
                   spacing: AnumSpacing.xs,
@@ -147,7 +148,7 @@ class MetricChips extends StatelessWidget {
                       m.display,
                       style: TextStyle(
                         color: p.text,
-                        fontSize: 17,
+                        fontSize: AnumType.lgPlus,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -157,7 +158,7 @@ class MetricChips extends StatelessWidget {
                         textDirection: TextDirection.ltr,
                         style: TextStyle(
                           color: (m.changePercent ?? 0) > 0 ? p.warn : p.ok,
-                          fontSize: 12,
+                          fontSize: AnumType.xs,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -216,7 +217,7 @@ class ReportAnswerCard extends StatelessWidget {
                 reportTypeLabel(l, card.type),
                 if (period != null) period,
               ].join(' · '),
-              style: TextStyle(color: p.muted, fontSize: 12),
+              style: TextStyle(color: p.muted, fontSize: AnumType.xs),
             ),
             const SizedBox(height: AnumSpacing.xs),
             MetricChips(card.metrics),
@@ -870,7 +871,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           if (report.rows.length > 50)
             Text(
               l.f('libRowsShown', {'shown': 50, 'total': report.rows.length}),
-              style: TextStyle(color: p.muted, fontSize: 12),
+              style: TextStyle(color: p.muted, fontSize: AnumType.xs),
             ),
         ],
         const SizedBox(height: AnumSpacing.md),
@@ -1128,7 +1129,7 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
                       padding: const EdgeInsets.only(top: AnumSpacing.xs),
                       child: Text(
                         '[${c.n}] ${c.title}${citationPlace(c, l.t).isEmpty ? '' : ', ${citationPlace(c, l.t)}'} · ${c.provenance == 'file' ? l.t('libDocument') : l.t('libNote')}\n${c.snippet}',
-                        style: TextStyle(color: p.muted, fontSize: 13),
+                        style: TextStyle(color: p.muted, fontSize: AnumType.sm),
                       ),
                     ),
                   if (answer.citations.isNotEmpty)
@@ -1136,7 +1137,7 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
                       padding: const EdgeInsets.only(top: AnumSpacing.xs),
                       child: Text(
                         l.t('libUntrusted'),
-                        style: TextStyle(color: p.faint, fontSize: 12),
+                        style: TextStyle(color: p.faint, fontSize: AnumType.xs),
                       ),
                     ),
                 ],

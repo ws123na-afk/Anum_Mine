@@ -288,7 +288,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
               const SizedBox(height: AnumSpacing.xxs),
               Text(
                 '${categoryLabel(a.category, l)} · ${a.tool}${a.template != null ? ' · ${a.template}' : ''} · ${_time(a.createdAt)}',
-                style: TextStyle(color: p.faint, fontSize: 12),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs),
               ),
               const SizedBox(height: AnumSpacing.xs),
               Wrap(
@@ -346,7 +346,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                   if (a.reversible && !a.undone && !a.canUndo)
                     Text(
                       l.t('auto.undoWho'),
-                      style: TextStyle(color: p.muted, fontSize: 12),
+                      style: TextStyle(color: p.muted, fontSize: AnumType.xs),
                     ),
                   if (c.canTighten && !a.asksNow)
                     OutlinedButton.icon(
@@ -537,13 +537,13 @@ class _AutonomySettingsScreenState extends State<AutonomySettingsScreen> {
               const SizedBox(height: AnumSpacing.sm),
               Text(
                 l.f('auto.spendingLimit', {'limit': o.spendingLimit!}),
-                style: TextStyle(color: p.muted, fontSize: 13),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm),
               ),
             ],
             const SizedBox(height: AnumSpacing.xs),
             Text(
               l.t('auto.webOnly'),
-              style: TextStyle(color: p.faint, fontSize: 12),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs),
             ),
             if (c.notice != null) ...[
               const SizedBox(height: AnumSpacing.sm),

@@ -427,7 +427,7 @@ class AnumGradientButton extends StatelessWidget {
               fontFamily: AnumTheme.fontFamily,
               fontFamilyFallback: AnumTheme.fontFamilyFallback,
               fontWeight: FontWeight.w600,
-              fontSize: 15),
+              fontSize: AnumType.base),
         ),
         child: child,
       ),

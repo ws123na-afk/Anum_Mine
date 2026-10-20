@@ -327,7 +327,8 @@ class _Greeting extends StatelessWidget {
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(hello, style: TextStyle(color: p.muted, fontSize: 15)),
+          Text(hello,
+              style: TextStyle(color: p.muted, fontSize: AnumType.base)),
           const SizedBox(height: 2),
           if (name != null)
             Semantics(
@@ -335,7 +336,7 @@ class _Greeting extends StatelessWidget {
               child: Text('$name 👋',
                   style: TextStyle(
                       color: p.text,
-                      fontSize: 26,
+                      fontSize: AnumType.x5l,
                       fontWeight: FontWeight.w800,
                       height: 1.15)),
             )
@@ -346,7 +347,8 @@ class _Greeting extends StatelessWidget {
               icon: const Icon(Icons.edit_outlined, size: 18),
               label: Text(t.t('homeAddName')),
             ),
-          Text(date, style: TextStyle(color: p.faint, fontSize: 12.5)),
+          Text(date,
+              style: TextStyle(color: p.faint, fontSize: AnumType.xsPlus)),
         ]),
       ),
       if (name != null)
@@ -417,7 +419,7 @@ class _AskSection extends StatelessWidget {
         child: Text(t.t('homeHelpTitle'),
             style: TextStyle(
                 color: p.text,
-                fontSize: 24,
+                fontSize: AnumType.x4l,
                 fontWeight: FontWeight.w700,
                 height: 1.2)),
       ),
@@ -526,7 +528,7 @@ class _CommandSection extends StatelessWidget {
       const SizedBox(height: AnumSpacing.xs),
       if (controller.commandsError != null)
         Text(controller.commandsError!,
-            style: TextStyle(color: p.stop, fontSize: 13))
+            style: TextStyle(color: p.stop, fontSize: AnumType.sm))
       else
         Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
           for (final command in items)
@@ -546,7 +548,7 @@ class _CommandSection extends StatelessWidget {
                 controller.commands.isEmpty
                     ? t.t('homeCommandsViewer')
                     : t.t('homeNoCommands'),
-                style: TextStyle(color: p.muted, fontSize: 13)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         ]),
     ]);
   }
@@ -600,10 +602,12 @@ class _AgentReady extends StatelessWidget {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(t.t('homeAgentReady'),
                 style: TextStyle(
-                    color: p.text, fontSize: 15, fontWeight: FontWeight.w700)),
+                    color: p.text,
+                    fontSize: AnumType.base,
+                    fontWeight: FontWeight.w700)),
             const SizedBox(height: 2),
             Text(t.t('homeAgentReadyText'),
-                style: TextStyle(color: p.muted, fontSize: 13)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           ]),
         ),
         Icon(Icons.arrow_forward, color: p.sky),
@@ -682,7 +686,8 @@ class _FocusSection extends StatelessWidget {
                           'done': progress.completed,
                           'total': progress.total
                         }),
-                        style: TextStyle(color: p.muted, fontSize: 12.5)),
+                        style: TextStyle(
+                            color: p.muted, fontSize: AnumType.xsPlus)),
                   ]),
             ),
           ],
@@ -701,7 +706,8 @@ class _FocusSection extends StatelessWidget {
                               : t.t('homeSource_${s.name}'))
                           .join(', ')
                     }),
-                    style: TextStyle(color: p.muted, fontSize: 12.5)),
+                    style:
+                        TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
               ),
             ]),
             Align(
@@ -760,11 +766,12 @@ class _FocusRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                             color: p.text,
-                            fontSize: 14.5,
+                            fontSize: AnumType.mdPlus,
                             fontWeight: FontWeight.w600)),
                     if (detail != null)
                       Text(detail,
-                          style: TextStyle(color: p.muted, fontSize: 12.5)),
+                          style: TextStyle(
+                              color: p.muted, fontSize: AnumType.xsPlus)),
                     if (item.progress != null) ...[
                       const SizedBox(height: AnumSpacing.xxs),
                       ClipRRect(
@@ -891,7 +898,7 @@ class _PinnedSection extends StatelessWidget {
         Row(children: [
           Expanded(
               child: Text(controller.pinsError!,
-                  style: TextStyle(color: p.stop, fontSize: 13))),
+                  style: TextStyle(color: p.stop, fontSize: AnumType.sm))),
         ]),
       if (controller.pinsError != null)
         Align(

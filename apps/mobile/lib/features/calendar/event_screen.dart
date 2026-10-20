@@ -213,7 +213,7 @@ class _EventScreenState extends State<EventScreen> {
               child: Text(
                   l.f('calsync.state.${event.syncKind}',
                       {'provider': linked?.providerName ?? ''}),
-                  style: TextStyle(color: p.text, fontSize: 13.5))),
+                  style: TextStyle(color: p.text, fontSize: AnumType.smPlus))),
         ]),
         if (showInvites) ...[
           const SizedBox(height: AnumSpacing.xs),
@@ -221,7 +221,7 @@ class _EventScreenState extends State<EventScreen> {
               event.invitationsPending
                   ? l.t('calsync.invite.pending')
                   : l.t('calsync.invite.done'),
-              style: TextStyle(color: p.muted, fontSize: 13)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           if (_requested != null) ...[
             const SizedBox(height: AnumSpacing.xs),
             Semantics(
@@ -333,7 +333,7 @@ class _EventScreenState extends State<EventScreen> {
                     Text(event.title,
                         style: TextStyle(
                             color: p.text,
-                            fontSize: 16,
+                            fontSize: AnumType.lg,
                             fontWeight: FontWeight.w700)),
                     Text(
                         l.f('calendarTimeRange', {
@@ -397,7 +397,9 @@ class _EventScreenState extends State<EventScreen> {
             child: Text(
                 l.f('calendarAttendees', {'count': event.attendees.length}),
                 style: TextStyle(
-                    color: p.text, fontWeight: FontWeight.w700, fontSize: 15)),
+                    color: p.text,
+                    fontWeight: FontWeight.w700,
+                    fontSize: AnumType.base)),
           ),
           if (event.attendees.isEmpty)
             Padding(
@@ -419,7 +421,7 @@ class _EventScreenState extends State<EventScreen> {
             Padding(
               padding: const EdgeInsets.only(top: AnumSpacing.xs),
               child: Text(l.t('calendarInvitesNote'),
-                  style: TextStyle(color: p.faint, fontSize: 12)),
+                  style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
             ),
         ]),
       ),
@@ -450,7 +452,9 @@ class _AttendeeRow extends StatelessWidget {
           backgroundColor: p.surface3,
           child: Text(attendee.initials,
               style: TextStyle(
-                  color: p.text, fontWeight: FontWeight.w700, fontSize: 13)),
+                  color: p.text,
+                  fontWeight: FontWeight.w700,
+                  fontSize: AnumType.sm)),
         ),
         const SizedBox(width: AnumSpacing.sm),
         Expanded(
@@ -458,10 +462,12 @@ class _AttendeeRow extends StatelessWidget {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(attendee.name,
                 style: TextStyle(
-                    color: p.text, fontWeight: FontWeight.w600, fontSize: 14)),
+                    color: p.text,
+                    fontWeight: FontWeight.w600,
+                    fontSize: AnumType.md)),
             if (attendee.role != null || attendee.email != null)
               Text(attendee.role ?? attendee.email!,
-                  style: TextStyle(color: p.muted, fontSize: 12.5)),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
           ]),
         ),
         const SizedBox(width: AnumSpacing.xs),

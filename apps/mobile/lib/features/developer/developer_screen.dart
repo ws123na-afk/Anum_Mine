@@ -366,7 +366,7 @@ class _ProjectsRow extends StatelessWidget {
                     ? l.t('dev.noProjects')
                     : l.p(
                         'dev.projectsReady', projects.length, {'ready': ready}),
-                style: TextStyle(color: p.muted, fontSize: 13)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           ]),
         ),
         Icon(Icons.chevron_right, color: p.faint),
@@ -441,7 +441,9 @@ class _SetupCard extends StatelessWidget {
           Expanded(
             child: Text(l.t('dev.setupTitle'),
                 style: TextStyle(
-                    color: p.text, fontSize: 17, fontWeight: FontWeight.w700)),
+                    color: p.text,
+                    fontSize: AnumType.lgPlus,
+                    fontWeight: FontWeight.w700)),
           ),
         ]),
         const SizedBox(height: AnumSpacing.xs),
@@ -462,14 +464,15 @@ class _SetupCard extends StatelessWidget {
                             fontFamily: 'monospace',
                             fontWeight: FontWeight.w600)),
                     Text(step.purpose,
-                        style: TextStyle(color: p.muted, fontSize: 13)),
+                        style:
+                            TextStyle(color: p.muted, fontSize: AnumType.sm)),
                   ]),
             ),
           const SizedBox(height: AnumSpacing.xs),
           Text(
               l.f('dev.setupThen',
                   {'secrets': githubSecretNames.join(l.t('dev.and'))}),
-              style: TextStyle(color: p.muted, fontSize: 13)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         ],
       ]),
     );
@@ -507,7 +510,9 @@ class _RequestForm extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text(l.t('dev.ask'),
             style: TextStyle(
-                color: p.text, fontSize: 17, fontWeight: FontWeight.w700)),
+                color: p.text,
+                fontSize: AnumType.lgPlus,
+                fontWeight: FontWeight.w700)),
         const SizedBox(height: AnumSpacing.sm),
         DropdownButtonFormField<String>(
           key: const Key('developer-project'),
@@ -562,16 +567,16 @@ class _RequestForm extends StatelessWidget {
                     'repository': project.repository,
                     'branch': project.defaultBranch
                   })}',
-            style: TextStyle(color: p.faint, fontSize: 12)),
+            style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         if (controller.activeExists && project != null) ...[
           const SizedBox(height: AnumSpacing.xs),
           Text(l.f('dev.oneAtATime', {'project': project.name}),
-              style: TextStyle(color: p.muted, fontSize: 13)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         ],
         if (setup.limitReached) ...[
           const SizedBox(height: AnumSpacing.xs),
           Text(l.t('dev.limitReached'),
-              style: TextStyle(color: p.muted, fontSize: 13)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         ],
         const SizedBox(height: AnumSpacing.sm),
         Align(
@@ -616,7 +621,7 @@ class _BudgetNotice extends StatelessWidget {
           Text(message, style: TextStyle(color: p.muted)),
           const SizedBox(height: AnumSpacing.xxs),
           Text(l.t('dev.budgetText'),
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           Wrap(spacing: AnumSpacing.xs, children: [
             if (onOpenSettings != null)
               TextButton(
@@ -820,19 +825,21 @@ class DeveloperRequestTile extends StatelessWidget {
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                    color: p.text, fontSize: 16, fontWeight: FontWeight.w700)),
+                    color: p.text,
+                    fontSize: AnumType.lg,
+                    fontWeight: FontWeight.w700)),
             const SizedBox(height: AnumSpacing.xxs),
             Text(request.summary,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: p.muted, fontSize: 13.5)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.smPlus)),
             const SizedBox(height: AnumSpacing.xxs),
             Text(
                 '${request.projectName == null ? '' : '${request.projectName} · '}'
                 '${relativeTime(request.createdAt)} · '
                 '${request.spoken ? l.t('dev.spoken') : l.t('dev.typed')}'
                 '${request.prNumber == null ? '' : ' · #${request.prNumber}'}',
-                style: TextStyle(color: p.faint, fontSize: 12)),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           ]),
         ),
         const SizedBox(width: AnumSpacing.xs),
@@ -901,20 +908,24 @@ class DeveloperRequestScreen extends StatelessWidget {
           const SizedBox(height: AnumSpacing.xs),
           SelectableText(item.title,
               style: TextStyle(
-                  color: p.text, fontSize: 19, fontWeight: FontWeight.w700)),
+                  color: p.text,
+                  fontSize: AnumType.xlPlus,
+                  fontWeight: FontWeight.w700)),
           const SizedBox(height: AnumSpacing.xxs),
           Text(
               '${exactTime(item.createdAt)} · '
               '${item.spoken ? l.t('dev.spoken') : l.t('dev.typed')}'
               '${item.projectName == null ? '' : ' · ${item.projectName}'}',
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           if (item.repository != null)
             Directionality(
               textDirection: TextDirection.ltr,
               child: SelectableText(item.repository!,
                   key: const Key('developer-repository'),
                   style: TextStyle(
-                      color: p.muted, fontSize: 12, fontFamily: 'monospace')),
+                      color: p.muted,
+                      fontSize: AnumType.xs,
+                      fontFamily: 'monospace')),
             ),
           if (item.branch.isNotEmpty)
             // Branch names are Latin: keep them left-to-right in Arabic.
@@ -922,12 +933,14 @@ class DeveloperRequestScreen extends StatelessWidget {
               textDirection: TextDirection.ltr,
               child: SelectableText(item.branch,
                   style: TextStyle(
-                      color: p.muted, fontSize: 12, fontFamily: 'monospace')),
+                      color: p.muted,
+                      fontSize: AnumType.xs,
+                      fontFamily: 'monospace')),
             ),
           if (item.prTitle != null) ...[
             const SizedBox(height: AnumSpacing.sm),
             Text(l.t('dev.requestLabel'),
-                style: TextStyle(color: p.faint, fontSize: 12)),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
             SelectableText(item.text, style: TextStyle(color: p.text)),
           ],
           const SizedBox(height: AnumSpacing.sm),
@@ -941,7 +954,7 @@ class DeveloperRequestScreen extends StatelessWidget {
             const SizedBox(height: AnumSpacing.xxs),
             Text(checksLabel(item.checks, l),
                 key: const Key('developer-checks'),
-                style: TextStyle(color: p.muted, fontSize: 13)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           ],
           if (item.status == DevStatus.failed && item.failureReason != null)
             _Problem(item.failureReason!),
@@ -953,7 +966,9 @@ class DeveloperRequestScreen extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(l.t('dev.progress'),
               style: TextStyle(
-                  color: p.text, fontSize: 15, fontWeight: FontWeight.w700)),
+                  color: p.text,
+                  fontSize: AnumType.base,
+                  fontWeight: FontWeight.w700)),
           const SizedBox(height: AnumSpacing.xs),
           DeveloperTimeline(stages: item.timeline),
         ]),
@@ -1172,7 +1187,7 @@ class MergeReviewCard extends StatelessWidget {
               child: Text(l.t('dev.approveTheMerge'),
                   style: TextStyle(
                       color: p.text,
-                      fontSize: 16,
+                      fontSize: AnumType.lg,
                       fontWeight: FontWeight.w700)),
             ),
           ]),
@@ -1188,28 +1203,30 @@ class MergeReviewCard extends StatelessWidget {
             Text(approval.reason, style: TextStyle(color: p.muted)),
             if (approval.target != null)
               Text(l.f('dev.sendsTo', {'target': approval.target!}),
-                  style: TextStyle(color: p.muted, fontSize: 12)),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.xs)),
             const SizedBox(height: AnumSpacing.xs),
             Text(l.f('dev.tool', {'tool': approval.action}),
-                style: TextStyle(color: p.faint, fontSize: 12)),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
             const SizedBox(height: AnumSpacing.xxs),
             ApprovalArgumentsTable(approval: approval),
           ],
           const SizedBox(height: AnumSpacing.xs),
           Text('${l.t('dev.payloadHash')}${expiry.isEmpty ? '' : ' · $expiry'}',
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           Directionality(
             textDirection: TextDirection.ltr,
             child: SelectableText(approval.payloadHash ?? l.t('dev.notBound'),
                 key: const Key('developer-payload-hash'),
                 style: TextStyle(
-                    color: p.text, fontSize: 13, fontFamily: 'monospace')),
+                    color: p.text,
+                    fontSize: AnumType.sm,
+                    fontFamily: 'monospace')),
           ),
           if (approval.payloadHash == null)
             _Problem(l.t('dev.notBoundProblem')),
           const SizedBox(height: AnumSpacing.xs),
           Text(l.t('dev.mergeNeedsCi'),
-              style: TextStyle(color: p.muted, fontSize: 13)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           const SizedBox(height: AnumSpacing.sm),
           Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
             FilledButton.icon(

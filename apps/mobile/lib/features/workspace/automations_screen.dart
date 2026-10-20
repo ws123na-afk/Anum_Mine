@@ -159,7 +159,8 @@ class _AutomationsScreenState extends State<AutomationsScreen> {
               if (!c.canManage && c.role != null)
                 Text(l.t('autoViewerHint'),
                     key: const Key('auto-viewer-hint'),
-                    style: TextStyle(color: p.muted, fontSize: 13.5)),
+                    style:
+                        TextStyle(color: p.muted, fontSize: AnumType.smPlus)),
               if (_tab == AutomationTab.templates)
                 ..._templates(context, c)
               else ...[
@@ -183,7 +184,8 @@ class _AutomationsScreenState extends State<AutomationsScreen> {
     final l = AnumLocalizations.maybeOf(context);
     return [
       Text(l.t('autoTemplatesHint'),
-          style: TextStyle(color: context.palette.muted, fontSize: 13.5)),
+          style: TextStyle(
+              color: context.palette.muted, fontSize: AnumType.smPlus)),
       AnumListCard(children: [
         for (final template in automationTemplates)
           AnumListRow(
@@ -308,7 +310,8 @@ class _AutomationsScreenState extends State<AutomationsScreen> {
       title: w.name,
       subtitle: when,
       detail: Text(last,
-          style: TextStyle(color: context.palette.faint, fontSize: 12)),
+          style:
+              TextStyle(color: context.palette.faint, fontSize: AnumType.xs)),
       semanticLabel: '${w.name}, $when, $last',
       trailing: editable
           ? Semantics(
@@ -531,8 +534,8 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: AnumSpacing.xs),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: TextStyle(color: p.faint, fontSize: 12)),
-        Text(value, style: TextStyle(color: p.text, fontSize: 14)),
+        Text(label, style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
+        Text(value, style: TextStyle(color: p.text, fontSize: AnumType.md)),
       ]),
     );
   }
@@ -607,18 +610,20 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
                 padding: const EdgeInsets.only(top: AnumSpacing.xs),
                 child: Text(
                     'Paused: Run now and its schedules are off until it is resumed.',
-                    style: TextStyle(color: p.muted, fontSize: 13))),
+                    style: TextStyle(color: p.muted, fontSize: AnumType.sm))),
           if (!editable)
             Padding(
                 padding: const EdgeInsets.only(top: AnumSpacing.xs),
                 child: Text(
                     'Only ${w.createdBy ?? 'its creator'} or a workspace owner can change this.',
-                    style: TextStyle(color: p.muted, fontSize: 13))),
+                    style: TextStyle(color: p.muted, fontSize: AnumType.sm))),
         ],
         const SizedBox(height: AnumSpacing.md),
         Text('Steps',
             style: TextStyle(
-                color: p.text, fontSize: 15, fontWeight: FontWeight.w700)),
+                color: p.text,
+                fontSize: AnumType.base,
+                fontWeight: FontWeight.w700)),
         for (var i = 0; i < w.steps.length; i++)
           AnumRow(
             icon: Icons.looks_one_outlined,
@@ -643,7 +648,7 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
               : null,
         ),
         Text('Schedules run as the person who created them.',
-            style: TextStyle(color: p.muted, fontSize: 13)),
+            style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         if (scheduleError != null)
           AnumEmpty(
               icon: Icons.error_outline,
@@ -852,23 +857,25 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
             for (final s in r.steps) ...[
               Text(
                   '${s.name} · ${actionLabel(s.action)} · ${statusLabel(s.status)}',
-                  style: TextStyle(color: p.text, fontSize: 13.5)),
+                  style: TextStyle(color: p.text, fontSize: AnumType.smPlus)),
               if (s.attempt > 0 && s.maxAttempts > 1)
                 Text('Attempt ${s.attempt} of ${s.maxAttempts}',
-                    style: TextStyle(color: p.muted, fontSize: 12.5)),
+                    style:
+                        TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
               if (waitingLabel(s) != null)
                 Text(waitingLabel(s)!,
                     style: TextStyle(
                         color: p.warn,
-                        fontSize: 13,
+                        fontSize: AnumType.sm,
                         fontWeight: FontWeight.w600)),
               if (s.error != null)
-                Text(s.error!, style: TextStyle(color: p.stop, fontSize: 13)),
+                Text(s.error!,
+                    style: TextStyle(color: p.stop, fontSize: AnumType.sm)),
               if (s.result != null)
                 Text('Result: ${s.result}',
                     maxLines: 6,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: p.text, fontSize: 13)),
+                    style: TextStyle(color: p.text, fontSize: AnumType.sm)),
               if (s.taskId != null)
                 TextButton.icon(
                     onPressed: () => Navigator.of(context)
@@ -879,7 +886,7 @@ class _AutomationDetailState extends State<AutomationDetailScreen> {
               const SizedBox(height: 6),
             ],
             SelectableText('Run id ${r.id}',
-                style: TextStyle(color: p.faint, fontSize: 12)),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           ]),
         ),
     ]);
@@ -973,7 +980,7 @@ class _AutomationEditorState extends State<AutomationEditorScreen> {
             if (existing != null)
               Text(
                   'Saving creates version ${existing.version + 1}. Runs in progress keep the steps they started with.',
-                  style: TextStyle(color: p.muted, fontSize: 13)),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
             TextField(
                 controller: name,
                 maxLength: 160,
@@ -1050,7 +1057,7 @@ class _AutomationEditorState extends State<AutomationEditorScreen> {
                   style: TextStyle(
                       color: p.text,
                       fontWeight: FontWeight.w700,
-                      fontSize: 15))),
+                      fontSize: AnumType.base))),
           IconButton(
               tooltip: 'Move step ${i + 1} up',
               onPressed: i == 0

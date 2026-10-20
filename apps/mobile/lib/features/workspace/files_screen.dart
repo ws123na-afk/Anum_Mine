@@ -157,18 +157,19 @@ class _FilesTabState extends State<FilesTab> {
               ),
             ),
             const SizedBox(height: 6),
-            Text(usage.summary, style: TextStyle(color: p.muted, fontSize: 13)),
+            Text(usage.summary,
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
             Text(
                 'Up to ${formatBytes(usage.maxUploadBytes)} per file. '
                 'Accepted: ${usage.accepted}.',
-                style: TextStyle(color: p.faint, fontSize: 12)),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           ],
           if (!c.canUpload) ...[
             const SizedBox(height: 8),
             Text(
                 'Uploading needs a member or owner role in this workspace. '
                 'You can still open and download files.',
-                style: TextStyle(color: p.muted, fontSize: 13)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           ],
         ]),
       ),
@@ -343,7 +344,7 @@ class _UploadRow extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
               '${(upload.fraction * 100).round()}% of ${formatBytes(upload.size)}',
-              style: TextStyle(color: p.muted, fontSize: 12)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.xs)),
         ] else
           Semantics(
             liveRegion: true,
@@ -521,7 +522,7 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
           padding: const EdgeInsets.only(bottom: 10),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(name, style: TextStyle(color: p.faint, fontSize: 12)),
+            Text(name, style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
             SelectableText(value, style: TextStyle(color: p.text)),
           ]),
         );
@@ -542,11 +543,13 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
                 uploaderLabel(file.createdBy, widget.currentUserId)),
             if (file.updatedAt != null)
               meta('Renamed', exactTime(file.updatedAt!)),
-            Text('Retrieval', style: TextStyle(color: p.faint, fontSize: 12)),
+            Text('Retrieval',
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
             const SizedBox(height: 4),
             Wrap(spacing: 8, runSpacing: 4, children: [
               AnumPill(label: label, tone: _tone(tone)),
-              Text(detail, style: TextStyle(color: p.muted, fontSize: 13)),
+              Text(detail,
+                  style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
             ]),
             const SizedBox(height: 16),
             if (error != null)
@@ -582,7 +585,7 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
             if (!file.canManage) ...[
               const SizedBox(height: 8),
               Text(filesManageNote,
-                  style: TextStyle(color: p.faint, fontSize: 12)),
+                  style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
             ],
           ]),
         ),
@@ -627,11 +630,13 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
                 const SizedBox(height: 8),
                 SelectableText(value.text,
                     style: TextStyle(
-                        color: p.text, fontFamily: 'monospace', fontSize: 13)),
+                        color: p.text,
+                        fontFamily: 'monospace',
+                        fontSize: AnumType.sm)),
                 if (value.truncated)
                   Text(
                       'Showing the first 256 KB. Download the file for the rest.',
-                      style: TextStyle(color: p.faint, fontSize: 12)),
+                      style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
               ]);
         },
       );

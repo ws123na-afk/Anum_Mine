@@ -167,7 +167,7 @@ class _StorageScreenState extends State<StorageScreen> {
             Text(
                 s.count('stor.versions', usage.versionCount,
                     {'size': formatBytes(usage.versionBytes)}),
-                style: TextStyle(color: p.muted, fontSize: 13)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           ],
           if (level == QuotaLevel.nearFull || level == QuotaLevel.full) ...[
             const SizedBox(height: 8),
@@ -184,7 +184,7 @@ class _StorageScreenState extends State<StorageScreen> {
           ],
           const SizedBox(height: 8),
           Text(s.t('stor.limitNote'),
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         ]),
       ),
       const SizedBox(height: 12),
@@ -216,7 +216,7 @@ class _StorageScreenState extends State<StorageScreen> {
             Text(s.t('stor.largest'),
                 style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
             Text(s.t('stor.largestHelp'),
-                style: TextStyle(color: p.faint, fontSize: 12)),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
             for (final row in report.largest)
               Semantics(
                 label: s.t('stor.openFile', {'name': row.file.name}),

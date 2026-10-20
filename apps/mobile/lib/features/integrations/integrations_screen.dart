@@ -445,7 +445,7 @@ class _IntegrationSheetState extends State<IntegrationSheet> {
       bool busy,
       AnumLocalizations l,
       AnumPalette p) {
-    final note = TextStyle(color: p.muted, fontSize: 13.5);
+    final note = TextStyle(color: p.muted, fontSize: AnumType.smPlus);
     if (i.isEmail) {
       return [
         Text(l.t('intMailboxHint'), style: note),
@@ -565,12 +565,13 @@ class _Facts extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: AnumSpacing.xs),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label, style: TextStyle(color: p.faint, fontSize: 12)),
+            Text(label,
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
             const SizedBox(height: 2),
             SelectableText(value,
                 style: TextStyle(
                     color: p.text,
-                    fontSize: 13.5,
+                    fontSize: AnumType.smPlus,
                     fontWeight: FontWeight.w600)),
           ]),
         );

@@ -297,13 +297,14 @@ class HomeTile extends StatelessWidget {
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             color: p.text,
-                            fontSize: 13,
+                            fontSize: AnumType.sm,
                             fontWeight: FontWeight.w600)),
                     if (caption != null) ...[
                       const SizedBox(height: 2),
                       Text(caption!,
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: p.faint, fontSize: 11.5)),
+                          style: TextStyle(
+                              color: p.faint, fontSize: AnumType.xxsPlus)),
                     ],
                   ],
                 ),
@@ -350,10 +351,13 @@ class HomeSectionTitle extends StatelessWidget {
             header: true,
             child: Text(text,
                 style: TextStyle(
-                    color: p.text, fontSize: 17, fontWeight: FontWeight.w700)),
+                    color: p.text,
+                    fontSize: AnumType.lgPlus,
+                    fontWeight: FontWeight.w700)),
           ),
           if (subtitle != null)
-            Text(subtitle!, style: TextStyle(color: p.muted, fontSize: 12.5)),
+            Text(subtitle!,
+                style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
         ]),
       ),
       if (trailing != null) trailing!,

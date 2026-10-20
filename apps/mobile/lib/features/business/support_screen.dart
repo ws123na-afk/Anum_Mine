@@ -512,7 +512,7 @@ class _TicketCard extends StatelessWidget {
             style: TextStyle(
               color: context.palette.text,
               fontWeight: FontWeight.w600,
-              fontSize: 15,
+              fontSize: AnumType.base,
             ),
           ),
           const SizedBox(height: AnumSpacing.xxs),
@@ -523,7 +523,8 @@ class _TicketCard extends StatelessWidget {
               l.t('biz.support.source.${t.source}'),
               _assigneeText(l, t.assigneeId, me),
             ].join(' · '),
-            style: TextStyle(color: context.palette.muted, fontSize: 13),
+            style:
+                TextStyle(color: context.palette.muted, fontSize: AnumType.sm),
           ),
         ],
       ),
@@ -1320,7 +1321,8 @@ class _TicketScreenState extends State<TicketScreen> {
             policy == null
                 ? l.t('biz.support.hoursShort')
                 : supportHoursText(l, policy),
-            style: TextStyle(color: context.palette.muted, fontSize: 13),
+            style:
+                TextStyle(color: context.palette.muted, fontSize: AnumType.sm),
           ),
         ],
       ),
@@ -1504,7 +1506,8 @@ class _TicketScreenState extends State<TicketScreen> {
                                   math.min(
                                       12, item.approval!.payloadHash!.length)),
                             }),
-                            style: TextStyle(color: p.muted, fontSize: 12),
+                            style: TextStyle(
+                                color: p.muted, fontSize: AnumType.xs),
                           ),
                         if (widget.onOpenApprovals != null)
                           Align(
@@ -1520,7 +1523,8 @@ class _TicketScreenState extends State<TicketScreen> {
                           l.f('biz.support.reply.sentAt', {
                             'time': exactTime(item.sentAt!),
                           }),
-                          style: TextStyle(color: p.muted, fontSize: 12),
+                          style:
+                              TextStyle(color: p.muted, fontSize: AnumType.xs),
                         ),
                       if (item.editable && write && d.canReply)
                         Wrap(

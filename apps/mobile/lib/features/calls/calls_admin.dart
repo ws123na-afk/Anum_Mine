@@ -278,7 +278,7 @@ class _ProviderScreenState extends State<ProviderScreen> {
     final l = AnumLocalizations.of(context);
     final p = context.palette;
     final status = _status;
-    final small = TextStyle(color: p.muted, fontSize: 13);
+    final small = TextStyle(color: p.muted, fontSize: AnumType.sm);
 
     Widget body;
     if (status == null && _loadError == null) {
@@ -480,7 +480,8 @@ class _UrlRow extends StatelessWidget {
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(label,
-              style: TextStyle(color: context.palette.muted, fontSize: 13)),
+              style: TextStyle(
+                  color: context.palette.muted, fontSize: AnumType.sm)),
           SelectableText(value, textDirection: TextDirection.ltr),
         ]),
       ),
@@ -672,8 +673,8 @@ class _OptOutsSectionState extends State<_OptOutsSection> {
                                     _when(context, entry.createdAt),
                                     if (entry.note != null) entry.note!,
                                   ].join(' · '),
-                                  style:
-                                      TextStyle(color: p.muted, fontSize: 13)),
+                                  style: TextStyle(
+                                      color: p.muted, fontSize: AnumType.sm)),
                             ]),
                         if (canManage)
                           TextButton(
@@ -697,7 +698,7 @@ class _OptOutsSectionState extends State<_OptOutsSection> {
           },
           if (!canManage && list.items.isNotEmpty)
             Text(l.t('calls.optOuts.ownerOnly'),
-                style: TextStyle(color: p.muted, fontSize: 13)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         ],
       ),
     );
@@ -842,7 +843,7 @@ class _ConsentSectionState extends State<_ConsentSection> {
           Text(l.t('calls.consent.none'), style: TextStyle(color: p.muted)),
         if (!canManage && consent == null && !contact.optedOut)
           Text(l.t('calls.consent.ownerOnly'),
-              style: TextStyle(color: p.muted, fontSize: 13)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         if (_note != null) _Note(text: _note!),
         if (_problem != null) _Note(text: _problem!, error: true),
         Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [

@@ -749,9 +749,10 @@ class _Equity extends StatelessWidget {
               children: [
                 Text(
                   curve.start,
-                  style: TextStyle(color: p.muted, fontSize: 12),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.xs),
                 ),
-                Text(curve.end, style: TextStyle(color: p.muted, fontSize: 12)),
+                Text(curve.end,
+                    style: TextStyle(color: p.muted, fontSize: AnumType.xs)),
               ],
             ),
           ),
@@ -808,12 +809,12 @@ class _Equity extends StatelessWidget {
               'symbols': series.benchmarkSymbols.join(', '),
               'start': series.benchmarkStart ?? '-',
             }),
-            style: const TextStyle(fontSize: 12),
+            style: const TextStyle(fontSize: AnumType.xs),
           ),
         ] else if (series.benchmarkReason != null)
           Text(
             s.t('equityBenchmark.${series.benchmarkReason}'),
-            style: const TextStyle(fontSize: 12),
+            style: const TextStyle(fontSize: AnumType.xs),
           ),
       ],
     );

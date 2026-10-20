@@ -377,8 +377,8 @@ class _TokenReveal extends StatelessWidget {
       child: SelectableText(text,
           key: key,
           textDirection: TextDirection.ltr,
-          style:
-              TextStyle(color: p.text, fontFamily: 'monospace', fontSize: 13)),
+          style: TextStyle(
+              color: p.text, fontFamily: 'monospace', fontSize: AnumType.sm)),
     );
   }
 
@@ -399,12 +399,13 @@ class _TokenReveal extends StatelessWidget {
         Text(created.email.notice,
             key: const Key('invitation-email-notice'),
             style: TextStyle(
-                color: created.email.sent ? p.ok : p.warn, fontSize: 13)),
+                color: created.email.sent ? p.ok : p.warn,
+                fontSize: AnumType.sm)),
         const SizedBox(height: 10),
         Text(
             'ANUM keeps only a hash of this token. Copy it now: it cannot be shown again. '
             '${link == null ? 'The invitee pastes it under Settings › Accept an invitation, signed in as themselves.' : 'The invitee opens the link, or pastes the token or link under Accept an invitation, signed in as themselves.'}',
-            style: TextStyle(color: p.warn, fontSize: 13)),
+            style: TextStyle(color: p.warn, fontSize: AnumType.sm)),
         const SizedBox(height: 10),
         _code(context, created.token, const Key('invitation-token')),
         if (link != null) ...[
@@ -416,7 +417,7 @@ class _TokenReveal extends StatelessWidget {
             link == null
                 ? '${roleLabel(invitation.role)} access to ${invitation.workspaceId} (workspace id, needed when accepting), valid until ${exactTime(invitation.expiresAt)}.'
                 : '${roleLabel(invitation.role)} access to ${invitation.workspaceId}, valid until ${exactTime(invitation.expiresAt)}. The link carries the workspace.',
-            style: TextStyle(color: p.muted, fontSize: 12.5)),
+            style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
         const SizedBox(height: 12),
         Wrap(spacing: 8, runSpacing: 8, children: [
           FilledButton.icon(

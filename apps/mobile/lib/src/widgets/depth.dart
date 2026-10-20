@@ -130,17 +130,20 @@ class AnumHeader extends StatelessWidget {
           if (eyebrow != null)
             Text(eyebrow!,
                 style: TextStyle(
-                    color: p.sky, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                    color: p.sky,
+                    fontSize: AnumType.xsPlus,
+                    fontWeight: FontWeight.w600)),
           if (eyebrow != null) const SizedBox(height: 4),
           Text(title,
               style: TextStyle(
                   color: p.text,
-                  fontSize: large ? 28 : 19,
+                  fontSize: large ? AnumType.x6l : AnumType.xlPlus,
                   fontWeight: FontWeight.w700,
                   height: 1.15)),
           if (subtitle != null) ...[
             const SizedBox(height: 4),
-            Text(subtitle!, style: TextStyle(color: p.muted, fontSize: 13.5)),
+            Text(subtitle!,
+                style: TextStyle(color: p.muted, fontSize: AnumType.smPlus)),
           ],
         ]),
       ),
@@ -180,7 +183,8 @@ class AnumMetric extends StatelessWidget {
           Row(children: [
             Expanded(
                 child: Text(label,
-                    style: TextStyle(color: p.muted, fontSize: 12.5))),
+                    style:
+                        TextStyle(color: p.muted, fontSize: AnumType.xsPlus))),
             Icon(icon, size: 18, color: accent ?? p.sky),
           ]),
           const SizedBox(height: 10),
@@ -189,13 +193,14 @@ class AnumMetric extends StatelessWidget {
           Text(value,
               style: TextStyle(
                   color: p.text,
-                  fontSize: 26,
+                  fontSize: AnumType.x5l,
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.5,
                   height: 1.1)),
           if (caption != null) ...[
             const SizedBox(height: 8),
-            Text(caption!, style: TextStyle(color: p.faint, fontSize: 12)),
+            Text(caption!,
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           ],
         ]),
       ),
@@ -249,7 +254,9 @@ class AnumPill extends StatelessWidget {
           Flexible(
             child: Text(label,
                 style: TextStyle(
-                    color: color, fontSize: 11.5, fontWeight: FontWeight.w700)),
+                    color: color,
+                    fontSize: AnumType.xxsPlus,
+                    fontWeight: FontWeight.w700)),
           ),
         ]),
       ),
@@ -319,17 +326,20 @@ class AnumRow extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                    color: p.text, fontSize: 15, fontWeight: FontWeight.w600)),
+                    color: p.text,
+                    fontSize: AnumType.base,
+                    fontWeight: FontWeight.w600)),
             if (subtitle != null) ...[
               const SizedBox(height: 3),
               Text(subtitle!,
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: p.muted, fontSize: 13)),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
             ],
             if (detail != null) ...[
               const SizedBox(height: 4),
-              Text(detail!, style: TextStyle(color: p.faint, fontSize: 12)),
+              Text(detail!,
+                  style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
             ],
           ]),
         ),
@@ -377,11 +387,13 @@ class AnumEmpty extends StatelessWidget {
         Text(title,
             textAlign: TextAlign.center,
             style: TextStyle(
-                color: p.text, fontWeight: FontWeight.w700, fontSize: 15)),
+                color: p.text,
+                fontWeight: FontWeight.w700,
+                fontSize: AnumType.base)),
         const SizedBox(height: 4),
         Text(message,
             textAlign: TextAlign.center,
-            style: TextStyle(color: p.muted, fontSize: 13.5)),
+            style: TextStyle(color: p.muted, fontSize: AnumType.smPlus)),
         if (action != null && onAction != null) ...[
           const SizedBox(height: 12),
           FilledButton.tonal(onPressed: onAction, child: Text(action!)),

@@ -248,8 +248,8 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
                             const SizedBox(height: AnumSpacing.md),
                             Text('Retention. ${c.retention}',
                                 key: const Key('audit-retention'),
-                                style:
-                                    TextStyle(color: p.muted, fontSize: 12.5)),
+                                style: TextStyle(
+                                    color: p.muted, fontSize: AnumType.xsPlus)),
                           ]),
                     ),
                   ],
@@ -273,7 +273,9 @@ class _AuditDetail extends StatelessWidget {
               Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Text(label,
                 style: TextStyle(
-                    color: p.muted, fontSize: 12, fontWeight: FontWeight.w700)),
+                    color: p.muted,
+                    fontSize: AnumType.xs,
+                    fontWeight: FontWeight.w700)),
             SelectableText(value,
                 textDirection: TextDirection.ltr,
                 style: TextStyle(color: p.text)),

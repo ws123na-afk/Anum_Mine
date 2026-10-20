@@ -279,7 +279,7 @@ class _MemoryTabState extends State<_MemoryTab> {
           ),
           if (c.tasks.isEmpty)
             Text('Create a task first; memories are always tied to one.',
-                style: TextStyle(color: p.faint, fontSize: 12)),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         ]),
       ),
       if (memories.isEmpty)
@@ -361,7 +361,7 @@ class _SkillsTab extends StatelessWidget {
           child: Semantics(
             liveRegion: true,
             child: Text(controller.skillNotice!,
-                style: TextStyle(color: p.text, fontSize: 13.5)),
+                style: TextStyle(color: p.text, fontSize: AnumType.smPlus)),
           ),
         ),
       if (skills.isEmpty)
@@ -388,10 +388,11 @@ class _SkillsTab extends StatelessWidget {
                         Text(s.name,
                             style: TextStyle(
                                 color: p.text,
-                                fontSize: 16,
+                                fontSize: AnumType.lg,
                                 fontWeight: FontWeight.w700)),
                         Text('v${s.version} · ${s.skillId}',
-                            style: TextStyle(color: p.faint, fontSize: 12)),
+                            style: TextStyle(
+                                color: p.faint, fontSize: AnumType.xs)),
                         const SizedBox(height: 6),
                         // Under the name so it never squeezes it on narrow screens.
                         Wrap(spacing: 6, runSpacing: 6, children: [
@@ -410,11 +411,12 @@ class _SkillsTab extends StatelessWidget {
               ]),
               const SizedBox(height: 10),
               Text(s.description,
-                  style: TextStyle(color: p.muted, fontSize: 13.5)),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.smPlus)),
               if (s.installed && !s.enabled && s.disabledReason != null) ...[
                 const SizedBox(height: 8),
                 Text(s.disabledReason!,
-                    style: TextStyle(color: p.muted, fontSize: 12.5)),
+                    style:
+                        TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
               ],
               if (s.signature != null && !s.signature!.verified) ...[
                 const SizedBox(height: 8),
@@ -426,16 +428,17 @@ class _SkillsTab extends StatelessWidget {
                     style: TextStyle(
                         color: anumToneColor(
                             context, _signatureTone(s.signature!)),
-                        fontSize: 12.5)),
+                        fontSize: AnumType.xsPlus)),
               ] else if (s.signature?.fingerprint != null) ...[
                 const SizedBox(height: 6),
                 Text(
                     'Key ${s.signature!.keyId}, fingerprint ${s.signature!.fingerprint}',
-                    style: TextStyle(color: p.faint, fontSize: 12)),
+                    style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
               ],
               if (s.tools.isNotEmpty) ...[
                 const SizedBox(height: 10),
-                Text('Can use', style: TextStyle(color: p.faint, fontSize: 12)),
+                Text('Can use',
+                    style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
                 const SizedBox(height: 6),
                 Wrap(spacing: 6, runSpacing: 6, children: [
                   for (final tool in s.tools)
@@ -556,13 +559,15 @@ class _ServicesTab extends StatelessWidget {
                           const SizedBox(height: 6),
                           Text('How to fix: ${x.remediation}',
                               style: TextStyle(
-                                  color: context.palette.text, fontSize: 13)),
+                                  color: context.palette.text,
+                                  fontSize: AnumType.sm)),
                         ],
                         if (x.lastError != null && x.lastError != x.detail) ...[
                           const SizedBox(height: 4),
                           Text('Last error: ${x.lastError}',
                               style: TextStyle(
-                                  color: context.palette.warn, fontSize: 12)),
+                                  color: context.palette.warn,
+                                  fontSize: AnumType.xs)),
                         ],
                       ]),
                 ),

@@ -302,13 +302,14 @@ class _MoreFooter extends StatelessWidget {
     return Column(children: [
       Semantics(
           liveRegion: true,
-          child: Text(text, style: TextStyle(color: p.muted, fontSize: 13))),
+          child: Text(text,
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm))),
       if (list.pagingError != null) ...[
         const SizedBox(height: 6),
         Semantics(
             liveRegion: true,
             child: Text(l.f('apv.loadMoreError', {'reason': list.pagingError!}),
-                style: TextStyle(color: p.warn, fontSize: 13))),
+                style: TextStyle(color: p.warn, fontSize: AnumType.sm))),
       ],
       if (list.hasMore) ...[
         const SizedBox(height: 8),
@@ -385,15 +386,17 @@ class _PendingCardState extends State<PendingApprovalCard> {
                   tone: tone,
                   icon: Icons.shield_outlined),
               Text(relativeTime(approval.createdAt),
-                  style: TextStyle(color: p.faint, fontSize: 12)),
+                  style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
             ]),
         const SizedBox(height: 10),
         Text(approvalTitle(approval, controller.tasks),
             style: TextStyle(
-                color: p.text, fontSize: 17, fontWeight: FontWeight.w700)),
+                color: p.text,
+                fontSize: AnumType.lgPlus,
+                fontWeight: FontWeight.w700)),
         const SizedBox(height: 2),
         Text('Tool: ${approval.action}',
-            style: TextStyle(color: p.faint, fontSize: 12)),
+            style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         if (approval.progressLabel != null) ...[
           const SizedBox(height: 8),
           ApprovalProgress(approval: approval),
@@ -404,37 +407,38 @@ class _PendingCardState extends State<PendingApprovalCard> {
                   'You approved this. It needs ${_remaining(approval)} more '
                   'approval${_remaining(approval) == 1 ? '' : 's'} from other '
                   'people before it runs.',
-                  style: TextStyle(color: p.muted, fontSize: 12)),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.xs)),
             ),
         ],
         if (approval.target != null) ...[
           const SizedBox(height: 2),
           Text('Sends to ${approval.target}',
-              style: TextStyle(color: p.muted, fontSize: 12)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.xs)),
         ],
         const SizedBox(height: 8),
         Text('Exactly what it will send',
-            style: TextStyle(color: p.faint, fontSize: 12)),
+            style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         const SizedBox(height: 4),
         ApprovalArgumentsTable(approval: approval),
         const SizedBox(height: 6),
         Text(
             'Payload hash ${shortHash(approval.payloadHash)}'
             '${expiryLabel(approval).isEmpty ? '' : ' · ${expiryLabel(approval)}'}',
-            style: TextStyle(color: p.faint, fontSize: 12)),
+            style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         if (approval.payloadHash == null)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
                 'Not bound to a payload hash; it cannot be approved. Run the task again.',
-                style: TextStyle(color: p.stop, fontSize: 12)),
+                style: TextStyle(color: p.stop, fontSize: AnumType.xs)),
           ),
         const SizedBox(height: 6),
-        Text('Why it stopped', style: TextStyle(color: p.faint, fontSize: 12)),
+        Text('Why it stopped',
+            style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         const SizedBox(height: 2),
         Text(
             approvalReason(approval, approvalTitle(approval, controller.tasks)),
-            style: TextStyle(color: p.muted, fontSize: 14)),
+            style: TextStyle(color: p.muted, fontSize: AnumType.md)),
         if (task != null && widget.showTask) ...[
           const SizedBox(height: 10),
           InkWell(
@@ -450,7 +454,7 @@ class _PendingCardState extends State<PendingApprovalCard> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                           color: p.sky,
-                          fontSize: 13,
+                          fontSize: AnumType.sm,
                           fontWeight: FontWeight.w600)),
                 ),
               ]),
@@ -491,11 +495,12 @@ class _PendingCardState extends State<PendingApprovalCard> {
                         Text('Decision refused',
                             style: TextStyle(
                                 color: p.stop,
-                                fontSize: 13,
+                                fontSize: AnumType.sm,
                                 fontWeight: FontWeight.w700)),
                         const SizedBox(height: 2),
                         Text(refusal,
-                            style: TextStyle(color: p.text, fontSize: 13)),
+                            style: TextStyle(
+                                color: p.text, fontSize: AnumType.sm)),
                       ]),
                 ),
               ]),
@@ -588,7 +593,9 @@ class ApprovalProgress extends StatelessWidget {
           Flexible(
             child: Text(label,
                 style: TextStyle(
-                    color: p.text, fontSize: 13, fontWeight: FontWeight.w700)),
+                    color: p.text,
+                    fontSize: AnumType.sm,
+                    fontWeight: FontWeight.w700)),
           ),
         ]),
         const SizedBox(height: 4),
@@ -602,7 +609,7 @@ class ApprovalProgress extends StatelessWidget {
             names.isEmpty
                 ? 'No approvals yet'
                 : 'Approved by ${joinNames(names)}',
-            style: TextStyle(color: p.muted, fontSize: 12)),
+            style: TextStyle(color: p.muted, fontSize: AnumType.xs)),
       ]),
     );
   }
@@ -619,7 +626,7 @@ class ApprovalArgumentsTable extends StatelessWidget {
     final rows = approvalArguments(approval.arguments);
     if (rows.isEmpty) {
       return Text('No arguments.',
-          style: TextStyle(color: p.muted, fontSize: 13));
+          style: TextStyle(color: p.muted, fontSize: AnumType.sm));
     }
     return Container(
       decoration: BoxDecoration(
@@ -638,12 +645,14 @@ class ApprovalArgumentsTable extends StatelessWidget {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(row.key,
                   style: TextStyle(
-                      color: p.faint, fontSize: 11, fontFamily: 'monospace')),
+                      color: p.faint,
+                      fontSize: AnumType.xxs,
+                      fontFamily: 'monospace')),
               const SizedBox(height: 2),
               SelectableText(row.value,
                   style: TextStyle(
                       color: row.redacted ? p.warn : p.text,
-                      fontSize: 13,
+                      fontSize: AnumType.sm,
                       fontFamily: 'monospace')),
             ]),
           ),

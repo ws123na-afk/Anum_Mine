@@ -280,11 +280,11 @@ class _DayStrip extends StatelessWidget {
                           Text(weekday,
                               style: TextStyle(
                                   color: selected ? p.background : p.muted,
-                                  fontSize: 12)),
+                                  fontSize: AnumType.xs)),
                           Text('${day.day}',
                               style: TextStyle(
                                   color: selected ? p.background : p.text,
-                                  fontSize: 18,
+                                  fontSize: AnumType.xl,
                                   fontWeight: FontWeight.w700)),
                           Container(
                             width: 6,
@@ -357,7 +357,7 @@ class _Timeline extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.all(AnumSpacing.xs),
             child: Text(l.t('calendarTruncated'),
-                style: TextStyle(color: p.faint, fontSize: 12)),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           ),
       ]),
     );
@@ -393,16 +393,20 @@ class _EventRow extends StatelessWidget {
     ].join(' · ');
     final time = Text(timeOf(context, event.startsAt),
         style: TextStyle(
-            color: p.muted, fontSize: 13, fontWeight: FontWeight.w600));
+            color: p.muted,
+            fontSize: AnumType.sm,
+            fontWeight: FontWeight.w600));
     final details =
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(event.title,
           style: TextStyle(
-              color: p.text, fontSize: 15, fontWeight: FontWeight.w600)),
-      Text(where, style: TextStyle(color: p.muted, fontSize: 13)),
+              color: p.text,
+              fontSize: AnumType.base,
+              fontWeight: FontWeight.w600)),
+      Text(where, style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
       if (event.attendees.isNotEmpty)
         Text(l.f('calendarAttendeesCount', {'count': event.attendees.length}),
-            style: TextStyle(color: p.faint, fontSize: 12)),
+            style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
     ]);
     final bar = Container(
       width: 3,
@@ -525,7 +529,9 @@ class _Steps extends StatelessWidget {
           header: true,
           child: Text(l.t('calendarSuggested'),
               style: TextStyle(
-                  color: p.text, fontWeight: FontWeight.w700, fontSize: 15)),
+                  color: p.text,
+                  fontWeight: FontWeight.w700,
+                  fontSize: AnumType.base)),
         ),
         const SizedBox(height: AnumSpacing.xs),
         content,
@@ -569,7 +575,7 @@ class _SyncCard extends StatelessWidget {
           const SizedBox(width: AnumSpacing.xs),
           Expanded(
               child: Text(l.t('calsync.none'),
-                  style: TextStyle(color: p.muted, fontSize: 13))),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.sm))),
         ]),
       );
     }
@@ -593,7 +599,7 @@ class _SyncCard extends StatelessWidget {
                         })
                       : l.f(
                           'calsync.problem', {'provider': shown.providerName}),
-                  style: TextStyle(color: p.text, fontSize: 13.5)),
+                  style: TextStyle(color: p.text, fontSize: AnumType.smPlus)),
             ),
           ),
         ]),
@@ -601,11 +607,11 @@ class _SyncCard extends StatelessWidget {
           const SizedBox(height: AnumSpacing.xs),
           if (shown.lastError != null)
             Text(l.f('calsync.error', {'reason': shown.lastError!}),
-                style: TextStyle(color: p.muted, fontSize: 13)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           Text(
               l.f('calsync.fix.${shown.status}',
                   {'provider': shown.providerName}),
-              style: TextStyle(color: p.muted, fontSize: 13)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         ],
         if (status.canManage && !shown.needsReconnect) ...[
           const SizedBox(height: AnumSpacing.xs),

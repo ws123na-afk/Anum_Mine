@@ -455,10 +455,10 @@ class _BudgetCard extends StatelessWidget {
                 style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
             const SizedBox(height: AnumSpacing.xxs),
             Text(controller.budgetMessage ?? '',
-                style: TextStyle(color: p.muted, fontSize: 13)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
             const SizedBox(height: AnumSpacing.xxs),
             Text(l.t('budgetOwners'),
-                style: TextStyle(color: p.faint, fontSize: 12)),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           ]),
         ),
         IconButton(
@@ -868,16 +868,16 @@ class _TaskDetailState extends State<TaskDetailScreen> {
                     Text(task.title,
                         style: TextStyle(
                             color: p.text,
-                            fontSize: 21,
+                            fontSize: AnumType.x2lPlus,
                             fontWeight: FontWeight.w700)),
                     WorkStatusPill(task.status),
                   ]),
               const SizedBox(height: 12),
               Text('What was asked',
-                  style: TextStyle(color: p.faint, fontSize: 12)),
+                  style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
               const SizedBox(height: 4),
               SelectableText(task.prompt,
-                  style: TextStyle(color: p.text, fontSize: 14.5)),
+                  style: TextStyle(color: p.text, fontSize: AnumType.mdPlus)),
               const SizedBox(height: 14),
               TaskPlanning(
                   task: task,
@@ -993,7 +993,7 @@ class _TaskDetailState extends State<TaskDetailScreen> {
                   liveRegion: true,
                   child: Text(refusal,
                       key: const Key('task-refusal'),
-                      style: TextStyle(color: p.stop, fontSize: 13)),
+                      style: TextStyle(color: p.stop, fontSize: AnumType.sm)),
                 ),
               ],
             ]),
@@ -1032,7 +1032,9 @@ class _TaskDetailState extends State<TaskDetailScreen> {
                     const SizedBox(height: 10),
                     SelectableText(result,
                         style: TextStyle(
-                            color: p.text, fontSize: 14.5, height: 1.5)),
+                            color: p.text,
+                            fontSize: AnumType.mdPlus,
+                            height: 1.5)),
                   ]),
             ),
           // Only a run with a retrieval step has sources to show; while the
@@ -1083,7 +1085,7 @@ class _TaskDetailState extends State<TaskDetailScreen> {
             ]),
           ),
           Text('Task ID: ${task.id}',
-              style: TextStyle(color: p.faint, fontSize: 11.5)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xxsPlus)),
           const SizedBox(height: AnumSpacing.lg),
         ],
       ),
@@ -1117,11 +1119,13 @@ class _Fact extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(label, style: TextStyle(color: p.faint, fontSize: 11.5)),
+      Text(label, style: TextStyle(color: p.faint, fontSize: AnumType.xxsPlus)),
       const SizedBox(height: 2),
       Text(value,
           style: TextStyle(
-              color: p.text, fontSize: 13, fontWeight: FontWeight.w600)),
+              color: p.text,
+              fontSize: AnumType.sm,
+              fontWeight: FontWeight.w600)),
     ]);
   }
 }
@@ -1155,7 +1159,7 @@ class _Step extends StatelessWidget {
               child: Text('$index',
                   style: const TextStyle(
                       color: Color(0xFF0B1020),
-                      fontSize: 11,
+                      fontSize: AnumType.xxs,
                       fontWeight: FontWeight.w800)),
             ),
             if (!last)
@@ -1190,14 +1194,15 @@ class _Step extends StatelessWidget {
                         style: TextStyle(
                             color: p.text,
                             fontWeight: FontWeight.w700,
-                            fontSize: 13.5)),
+                            fontSize: AnumType.smPlus)),
                     Text(exactTime(step.createdAt),
-                        style: TextStyle(color: p.faint, fontSize: 11.5)),
+                        style: TextStyle(
+                            color: p.faint, fontSize: AnumType.xxsPlus)),
                   ]),
               const SizedBox(height: 3),
               Text(step.summary,
-                  style:
-                      TextStyle(color: p.muted, fontSize: 13.5, height: 1.4)),
+                  style: TextStyle(
+                      color: p.muted, fontSize: AnumType.smPlus, height: 1.4)),
             ]),
           ),
         ),
@@ -1335,7 +1340,7 @@ class TaskPlanning extends StatelessWidget {
                             dueDay(due) == DueDay.overdue
                         ? p.stop
                         : p.muted,
-                    fontSize: 13)),
+                    fontSize: AnumType.sm)),
           ]),
       if (editable) ...[
         const SizedBox(height: AnumSpacing.xs),

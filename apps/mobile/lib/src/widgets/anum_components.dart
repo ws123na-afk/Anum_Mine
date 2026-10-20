@@ -149,7 +149,8 @@ class AnumFeedback extends StatelessWidget {
                   const SizedBox(height: AnumSpacing.md),
                   Text(message,
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: p.muted, fontSize: 13.5)),
+                      style:
+                          TextStyle(color: p.muted, fontSize: AnumType.smPlus)),
                 ],
               ),
             ),
@@ -177,7 +178,8 @@ class AnumFeedback extends StatelessWidget {
               const SizedBox(height: AnumSpacing.md),
               Text(message,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: p.text, fontSize: 14.5, height: 1.4)),
+                  style: TextStyle(
+                      color: p.text, fontSize: AnumType.mdPlus, height: 1.4)),
               if (onRetry != null) ...[
                 const SizedBox(height: AnumSpacing.md),
                 OutlinedButton.icon(

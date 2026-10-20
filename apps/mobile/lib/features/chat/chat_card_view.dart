@@ -59,8 +59,8 @@ class ChatCardView extends StatelessWidget {
       ChatCardState.denied => l.t('chatCard.denied.title'),
       _ => l.t('chatCard.title.$category'),
     };
-    final note = TextStyle(color: p.muted, fontSize: 13);
-    final faint = TextStyle(color: p.faint, fontSize: 12);
+    final note = TextStyle(color: p.muted, fontSize: AnumType.sm);
+    final faint = TextStyle(color: p.faint, fontSize: AnumType.xs);
     final approval = card.approval;
     final accent = switch (card.state) {
       ChatCardState.approval => p.warn,
@@ -76,7 +76,9 @@ class ChatCardView extends StatelessWidget {
             header: true,
             child: Text(title,
                 style: TextStyle(
-                    color: p.text, fontWeight: FontWeight.w700, fontSize: 15)),
+                    color: p.text,
+                    fontWeight: FontWeight.w700,
+                    fontSize: AnumType.base)),
           ),
         ),
         if (card.taskId != null && onOpen != null)
@@ -100,7 +102,8 @@ class ChatCardView extends StatelessWidget {
       if (card.state == ChatCardState.approval && approval != null)
         ..._approval(context, l, approval, note, faint),
       if (card.state == ChatCardState.failed) ...[
-        Text(card.summary, style: TextStyle(color: p.stop, fontSize: 13.5)),
+        Text(card.summary,
+            style: TextStyle(color: p.stop, fontSize: AnumType.smPlus)),
         if (approval != null) Text(_decided(l, approval.status), style: note),
       ],
       if (card.state == ChatCardState.cancelled)
@@ -160,7 +163,8 @@ class ChatCardView extends StatelessWidget {
             style: note),
       if (quoted && card.items.isNotEmpty)
         Text(l.t('chatCard.untrusted'),
-            style: TextStyle(color: context.palette.faint, fontSize: 12)),
+            style:
+                TextStyle(color: context.palette.faint, fontSize: AnumType.xs)),
       if (view != null && onOpen != null)
         Align(
           alignment: AlignmentDirectional.centerStart,
@@ -184,8 +188,8 @@ class ChatCardView extends StatelessWidget {
         l.t('chatCard.approval.risk.${approval.riskLevel}'),
       final other => other,
     };
-    final mono =
-        TextStyle(color: p.text, fontSize: 13, fontFamily: 'monospace');
+    final mono = TextStyle(
+        color: p.text, fontSize: AnumType.sm, fontFamily: 'monospace');
     Widget fact(String label, Widget value) => Wrap(
           spacing: AnumSpacing.sm,
           runSpacing: AnumSpacing.xxs,
@@ -215,7 +219,7 @@ class ChatCardView extends StatelessWidget {
           Text(l.t('chatCard.approval.arguments'), style: faint),
           for (final entry in approval.arguments.entries)
             Text('${entry.key}: ${entry.value}',
-                style: TextStyle(color: p.text, fontSize: 13)),
+                style: TextStyle(color: p.text, fontSize: AnumType.sm)),
         ]),
       if (approval.expiresAt != null)
         Text(
@@ -265,7 +269,7 @@ class ChatCardView extends StatelessWidget {
               error == 'cannotDecide'
                   ? l.t('chatCard.approval.cannotDecide')
                   : error!,
-              style: TextStyle(color: p.stop, fontSize: 13)),
+              style: TextStyle(color: p.stop, fontSize: AnumType.sm)),
         ),
     ];
   }
@@ -367,17 +371,19 @@ class _ItemTile extends StatelessWidget {
                             style: TextStyle(
                                 color: p.text,
                                 fontWeight: FontWeight.w600,
-                                fontSize: 14)),
+                                fontSize: AnumType.md)),
                         if (meta.isNotEmpty)
                           Text(meta,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: p.faint, fontSize: 12)),
+                              style: TextStyle(
+                                  color: p.faint, fontSize: AnumType.xs)),
                         if (item.detail != null)
                           Text(item.detail!,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: p.muted, fontSize: 13)),
+                              style: TextStyle(
+                                  color: p.muted, fontSize: AnumType.sm)),
                         if (badges.isNotEmpty) ...[
                           const SizedBox(height: AnumSpacing.xxs),
                           Wrap(

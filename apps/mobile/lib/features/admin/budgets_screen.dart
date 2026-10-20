@@ -186,13 +186,13 @@ class _BudgetCardState extends State<_BudgetCard> {
         if (v.unpricedCalls > 0) ...[
           const SizedBox(height: 8),
           Text('Unpriced calls add tokens but no cost: set a token limit too.',
-              style: TextStyle(color: p.muted, fontSize: 12.5)),
+              style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
         ],
         if (v.budget != null) ...[
           const SizedBox(height: 8),
           Text(
               'Last changed ${exactTime(v.budget!.updatedAt)} by ${v.budget!.updatedBy}.',
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         ],
         Divider(height: 28, color: p.line),
         if (widget.readOnly)
@@ -204,7 +204,8 @@ class _BudgetCardState extends State<_BudgetCard> {
                 const SizedBox(width: AnumSpacing.sm),
                 Expanded(
                     child: Text(tenantBudgetReadOnlyNotice,
-                        style: TextStyle(color: p.muted, fontSize: 13))),
+                        style:
+                            TextStyle(color: p.muted, fontSize: AnumType.sm))),
               ])
         else ...[
           TextField(
@@ -223,7 +224,7 @@ class _BudgetCardState extends State<_BudgetCard> {
                   labelText: 'Monthly token limit', hintText: 'No limit')),
           const SizedBox(height: 6),
           Text('Leave a field empty for no limit. 0 blocks every model call.',
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
           if (notice != null) ...[
             const SizedBox(height: 8),
             Text(notice,
@@ -276,13 +277,15 @@ class _Meter extends StatelessWidget {
                 child: Text(meter.label,
                     style: TextStyle(
                         color: p.muted,
-                        fontSize: 12.5,
+                        fontSize: AnumType.xsPlus,
                         fontWeight: FontWeight.w600))),
             Text(meter.usedText,
                 style: TextStyle(
-                    color: p.text, fontSize: 17, fontWeight: FontWeight.w800)),
+                    color: p.text,
+                    fontSize: AnumType.lgPlus,
+                    fontWeight: FontWeight.w800)),
             Text(' / ${meter.limitText}',
-                style: TextStyle(color: p.muted, fontSize: 12.5)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
           ]),
           const SizedBox(height: 6),
           ClipRRect(
@@ -296,7 +299,7 @@ class _Meter extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(meter.percentText,
-              style: TextStyle(color: p.faint, fontSize: 12)),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         ]),
       ),
     );
@@ -310,7 +313,7 @@ class _Stat extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(label, style: TextStyle(color: p.faint, fontSize: 11.5)),
+      Text(label, style: TextStyle(color: p.faint, fontSize: AnumType.xxsPlus)),
       Text(value, style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
     ]);
   }

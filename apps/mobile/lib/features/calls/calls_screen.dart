@@ -502,10 +502,10 @@ class _ContactRow extends StatelessWidget {
                 style: const TextStyle(fontWeight: FontWeight.w600)),
             Text(contact.phone,
                 textDirection: TextDirection.ltr,
-                style: TextStyle(color: p.muted, fontSize: 13)),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
             if (contact.company != null)
               Text(contact.company!,
-                  style: TextStyle(color: p.muted, fontSize: 13)),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           ]),
         ),
         if (canLog)
@@ -583,7 +583,8 @@ class _DialTabState extends State<_DialTab> {
                   keyboardType: TextInputType.phone,
                   textDirection: TextDirection.ltr,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 22, letterSpacing: 1),
+                  style:
+                      const TextStyle(fontSize: AnumType.x3l, letterSpacing: 1),
                   decoration: InputDecoration(
                     labelText: l.t('calls.dial.number'),
                     border: const OutlineInputBorder(),
@@ -641,10 +642,12 @@ class _DialTabState extends State<_DialTab> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(key,
-                                          style: const TextStyle(fontSize: 22)),
+                                          style: const TextStyle(
+                                              fontSize: AnumType.x3l)),
                                       if (key == '0')
                                         const Text('+',
-                                            style: TextStyle(fontSize: 11)),
+                                            style: TextStyle(
+                                                fontSize: AnumType.xxs)),
                                     ]),
                               ),
                             ),
@@ -779,13 +782,13 @@ class _CallRow extends StatelessWidget {
                 _when(context, call.startedAt),
                 durationText(call.durationSeconds),
               ].where((part) => part.isNotEmpty).join(' · '),
-              style: TextStyle(color: p.muted, fontSize: 13),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm),
             ),
             if ((call.summary ?? call.notes) != null)
               Text(call.summary ?? call.notes!,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: p.muted, fontSize: 13)),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
           ]),
         ),
       ]),
@@ -1278,7 +1281,8 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
                     Text(call.summary!),
                     if (call.model != null)
                       Text(l.f('calls.detail.aiLabel', {'model': call.model!}),
-                          style: TextStyle(color: p.muted, fontSize: 12.5)),
+                          style: TextStyle(
+                              color: p.muted, fontSize: AnumType.xsPlus)),
                   ] else
                     Text(l.t('calls.detail.noSummary'),
                         style: TextStyle(color: p.muted)),

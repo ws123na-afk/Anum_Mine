@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'anum_type.dart';
+
+export 'anum_type.dart';
+
 abstract final class AnumSpacing {
   static const xxs = 4.0;
   static const xs = 8.0;
@@ -315,8 +319,10 @@ abstract final class AnumTheme {
         foregroundColor: p.text,
         elevation: 0,
         scrolledUnderElevation: 0,
-        titleTextStyle:
-            _ui(color: p.text, fontWeight: FontWeight.w600, fontSize: 17),
+        titleTextStyle: _ui(
+            color: p.text,
+            fontWeight: FontWeight.w600,
+            fontSize: AnumType.lgPlus),
         iconTheme: IconThemeData(color: p.text),
         actionsIconTheme: IconThemeData(color: p.muted),
         shape: Border(bottom: BorderSide(color: p.line)),
@@ -343,8 +349,8 @@ abstract final class AnumTheme {
         labelStyle: _ui(color: p.muted),
         floatingLabelStyle: _ui(color: p.violet),
         hintStyle: _ui(color: p.faint),
-        helperStyle: _ui(color: p.muted, fontSize: 12.5),
-        errorStyle: _ui(color: p.stop, fontSize: 12.5),
+        helperStyle: _ui(color: p.muted, fontSize: AnumType.xsPlus),
+        errorStyle: _ui(color: p.stop, fontSize: AnumType.xsPlus),
         prefixIconColor: p.muted,
         suffixIconColor: p.muted,
       ),
@@ -363,7 +369,8 @@ abstract final class AnumTheme {
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: AnumSpacing.lg),
           shape: RoundedRectangleBorder(borderRadius: control),
-          textStyle: _ui(fontWeight: FontWeight.w600, fontSize: 14.5),
+          textStyle:
+              _ui(fontWeight: FontWeight.w600, fontSize: AnumType.mdPlus),
           animationDuration: AnumMotion.quick,
         ),
       ),
@@ -376,7 +383,8 @@ abstract final class AnumTheme {
           shadowColor: Colors.transparent,
           side: BorderSide(color: p.lineStrong),
           shape: RoundedRectangleBorder(borderRadius: control),
-          textStyle: _ui(fontWeight: FontWeight.w600, fontSize: 14.5),
+          textStyle:
+              _ui(fontWeight: FontWeight.w600, fontSize: AnumType.mdPlus),
           animationDuration: AnumMotion.quick,
         ),
       ),
@@ -388,7 +396,8 @@ abstract final class AnumTheme {
           side: BorderSide(color: p.lineStrong),
           padding: const EdgeInsets.symmetric(horizontal: AnumSpacing.md),
           shape: RoundedRectangleBorder(borderRadius: control),
-          textStyle: _ui(fontWeight: FontWeight.w600, fontSize: 14.5),
+          textStyle:
+              _ui(fontWeight: FontWeight.w600, fontSize: AnumType.mdPlus),
           animationDuration: AnumMotion.quick,
         ),
       ),
@@ -397,7 +406,8 @@ abstract final class AnumTheme {
           minimumSize: const Size(48, 48),
           foregroundColor: p.violet,
           shape: RoundedRectangleBorder(borderRadius: control),
-          textStyle: _ui(fontWeight: FontWeight.w600, fontSize: 14.5),
+          textStyle:
+              _ui(fontWeight: FontWeight.w600, fontSize: AnumType.mdPlus),
           animationDuration: AnumMotion.quick,
         ),
       ),
@@ -415,7 +425,8 @@ abstract final class AnumTheme {
           selectedForegroundColor: p.violet,
           side: BorderSide(color: p.lineStrong),
           shape: RoundedRectangleBorder(borderRadius: control),
-          textStyle: _ui(fontWeight: FontWeight.w600, fontSize: 13.5),
+          textStyle:
+              _ui(fontWeight: FontWeight.w600, fontSize: AnumType.smPlus),
         ),
       ),
       chipTheme: base.chipTheme.copyWith(
@@ -426,10 +437,14 @@ abstract final class AnumTheme {
         side: BorderSide(color: p.line),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AnumRadius.pill)),
-        labelStyle:
-            _ui(color: p.text, fontWeight: FontWeight.w500, fontSize: 13.5),
-        secondaryLabelStyle:
-            _ui(color: p.violet, fontWeight: FontWeight.w600, fontSize: 13.5),
+        labelStyle: _ui(
+            color: p.text,
+            fontWeight: FontWeight.w500,
+            fontSize: AnumType.smPlus),
+        secondaryLabelStyle: _ui(
+            color: p.violet,
+            fontWeight: FontWeight.w600,
+            fontSize: AnumType.smPlus),
         iconTheme: IconThemeData(color: p.muted, size: 18),
       ),
       listTileTheme: ListTileThemeData(
@@ -441,9 +456,11 @@ abstract final class AnumTheme {
         // (the menu drawer) set p.accentSoft themselves.
         minVerticalPadding: 12,
         shape: RoundedRectangleBorder(borderRadius: control),
-        titleTextStyle:
-            _ui(color: p.text, fontWeight: FontWeight.w500, fontSize: 15),
-        subtitleTextStyle: _ui(color: p.muted, fontSize: 13),
+        titleTextStyle: _ui(
+            color: p.text,
+            fontWeight: FontWeight.w500,
+            fontSize: AnumType.base),
+        subtitleTextStyle: _ui(color: p.muted, fontSize: AnumType.sm),
       ),
       tabBarTheme: TabBarThemeData(
         labelColor: p.text,
@@ -451,8 +468,9 @@ abstract final class AnumTheme {
         indicatorColor: p.accentStart,
         indicatorSize: TabBarIndicatorSize.label,
         dividerColor: p.line,
-        labelStyle: _ui(fontWeight: FontWeight.w600, fontSize: 14),
-        unselectedLabelStyle: _ui(fontWeight: FontWeight.w500, fontSize: 14),
+        labelStyle: _ui(fontWeight: FontWeight.w600, fontSize: AnumType.md),
+        unselectedLabelStyle:
+            _ui(fontWeight: FontWeight.w500, fontSize: AnumType.md),
         indicator: UnderlineTabIndicator(
             borderSide: BorderSide(color: p.accentStart, width: 2),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(2))),
@@ -471,9 +489,9 @@ abstract final class AnumTheme {
         backgroundColor: p.surface1,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        titleTextStyle:
-            _ui(color: p.text, fontWeight: FontWeight.w600, fontSize: 18),
-        contentTextStyle: _ui(color: p.muted, fontSize: 14.5),
+        titleTextStyle: _ui(
+            color: p.text, fontWeight: FontWeight.w600, fontSize: AnumType.xl),
+        contentTextStyle: _ui(color: p.muted, fontSize: AnumType.mdPlus),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AnumRadius.xl),
             side: BorderSide(color: p.line)),
@@ -483,18 +501,18 @@ abstract final class AnumTheme {
         surfaceTintColor: Colors.transparent,
         elevation: 6,
         shadowColor: p.shadow,
-        textStyle: _ui(color: p.text, fontSize: 14.5),
+        textStyle: _ui(color: p.text, fontSize: AnumType.mdPlus),
         shape: RoundedRectangleBorder(
             borderRadius: control, side: BorderSide(color: p.line)),
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(
             color: p.text, borderRadius: BorderRadius.circular(AnumRadius.sm)),
-        textStyle: _ui(color: p.background, fontSize: 12.5),
+        textStyle: _ui(color: p.background, fontSize: AnumType.xsPlus),
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: p.text,
-        contentTextStyle: _ui(color: p.background, fontSize: 14),
+        contentTextStyle: _ui(color: p.background, fontSize: AnumType.md),
         actionTextColor: isDark ? p.accentStart : p.accentSoft,
         behavior: SnackBarBehavior.floating,
         elevation: 0,
@@ -511,7 +529,7 @@ abstract final class AnumTheme {
         iconTheme: WidgetStateProperty.resolveWith((s) =>
             IconThemeData(color: selected(s) ? p.violet : p.muted, size: 22)),
         labelTextStyle: WidgetStateProperty.resolveWith((s) => _ui(
-            fontSize: 12,
+            fontSize: AnumType.xs,
             fontWeight: selected(s) ? FontWeight.w600 : FontWeight.w500,
             color: selected(s) ? p.text : p.muted)),
       ),
@@ -521,9 +539,12 @@ abstract final class AnumTheme {
         indicatorColor: p.accentSoft,
         selectedIconTheme: IconThemeData(color: p.violet),
         unselectedIconTheme: IconThemeData(color: p.muted),
-        selectedLabelTextStyle:
-            _ui(color: p.text, fontWeight: FontWeight.w600, fontSize: 12.5),
-        unselectedLabelTextStyle: _ui(color: p.muted, fontSize: 12.5),
+        selectedLabelTextStyle: _ui(
+            color: p.text,
+            fontWeight: FontWeight.w600,
+            fontSize: AnumType.xsPlus),
+        unselectedLabelTextStyle:
+            _ui(color: p.muted, fontSize: AnumType.xsPlus),
       ),
       navigationDrawerTheme: NavigationDrawerThemeData(
         backgroundColor: p.surface1,

@@ -115,7 +115,8 @@ class _SectionView extends StatelessWidget {
       BreakdownSection() => BreakdownDonut(section: section),
       RankedSection() => _Ranked(section: section),
       TextSection() => Text(section.body,
-          style: TextStyle(color: context.palette.muted, fontSize: 14)),
+          style:
+              TextStyle(color: context.palette.muted, fontSize: AnumType.md)),
       UnsupportedSection() => Text(
           l.f('reportUnsupported', {'type': section.type}),
           style: TextStyle(color: context.palette.faint)),
@@ -131,7 +132,7 @@ class _SectionView extends StatelessWidget {
                 style: TextStyle(
                     color: context.palette.text,
                     fontWeight: FontWeight.w700,
-                    fontSize: 15)),
+                    fontSize: AnumType.base)),
           ),
           const SizedBox(height: AnumSpacing.sm),
         ],
@@ -160,12 +161,13 @@ class _MetricTile extends StatelessWidget {
         if (metric.caption != null) metric.caption!,
       ].join(', '),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(metric.label, style: TextStyle(color: p.muted, fontSize: 12.5)),
+        Text(metric.label,
+            style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
         const SizedBox(height: AnumSpacing.xs),
         Text(value,
             style: TextStyle(
                 color: p.text,
-                fontSize: 22,
+                fontSize: AnumType.x3l,
                 fontWeight: FontWeight.w800,
                 height: 1.1)),
         if (change != null) ...[
@@ -178,7 +180,8 @@ class _MetricTile extends StatelessWidget {
         ],
         if (metric.caption != null) ...[
           const SizedBox(height: AnumSpacing.xxs),
-          Text(metric.caption!, style: TextStyle(color: p.faint, fontSize: 12)),
+          Text(metric.caption!,
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         ],
       ]),
     );
