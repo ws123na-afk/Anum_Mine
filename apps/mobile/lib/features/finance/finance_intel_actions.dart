@@ -1014,7 +1014,7 @@ Future<BarsFile?> pickBarsFile() async {
   if (size == 0) {
     return (name: file.name, text: null, problem: 'fileEmpty');
   }
-  if (size > maxBarsFileBytes) {
+  if (size != null && size > maxBarsFileBytes) {
     return (name: file.name, text: null, problem: 'fileTooBig');
   }
   final Uint8List bytes;
@@ -1022,6 +1022,13 @@ Future<BarsFile?> pickBarsFile() async {
     bytes = await file.readAsBytes();
   } on Object {
     return (name: file.name, text: null, problem: 'fileEmpty');
+  }
+  // An unknown size is judged on what was read, never assumed empty.
+  if (bytes.isEmpty) {
+    return (name: file.name, text: null, problem: 'fileEmpty');
+  }
+  if (bytes.length > maxBarsFileBytes) {
+    return (name: file.name, text: null, problem: 'fileTooBig');
   }
   try {
     return (name: file.name, text: utf8.decode(bytes), problem: null);

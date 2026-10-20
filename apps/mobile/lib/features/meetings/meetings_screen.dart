@@ -25,7 +25,7 @@ Future<(String, String, int)?> pickMeetingFile(List<String> extensions) async {
     allowedExtensions: [for (final e in extensions) e.replaceFirst('.', '')],
   );
   if (file?.path == null) return null;
-  return (file!.path!, file.name, await pickedFileSize(file));
+  return (file!.path!, file.name, await pickedFileSize(file) ?? 0);
 }
 
 String _statusKey(String status) => 'meetings.status.$status';

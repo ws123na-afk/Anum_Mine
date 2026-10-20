@@ -413,7 +413,7 @@ class HttpMailFileTransfer implements MailFileTransfer {
     return [
       for (final f in picked)
         if (f.path != null)
-          PickedMailFile(f.path!, f.name, await pickedFileSize(f)),
+          PickedMailFile(f.path!, f.name, await pickedFileSize(f) ?? 0),
     ];
   }
 

@@ -53,7 +53,13 @@ base class MemoryPlatformFile extends PlatformFile {
   }
 
   @override
-  Stream<Uint8List> readAsByteStream() => Stream.value(bytes);
+  Stream<Uint8List> readAsByteStream() {
+    if (readFails) return Stream.error(const FileSystemExceptionStub());
+    return Stream.fromIterable([
+      for (var i = 0; i < bytes.length; i += 2)
+        bytes.sublist(i, i + 2 > bytes.length ? bytes.length : i + 2)
+    ]);
+  }
 }
 
 class FileSystemExceptionStub implements Exception {
@@ -142,12 +148,22 @@ void main() {
       expect(await pickedFileSize(file), 3);
     });
 
-    test('falls back to a read from disk, then to zero', () async {
+    test('falls back to a read from disk', () async {
       expect(
           await pickedFileSize(
               MemoryPlatformFile('a.txt', _text('abc'), onDisk: 3)),
           3);
+    });
+
+    test('counts the content when the provider reports no size', () async {
+      expect(
+          await pickedFileSize(MemoryPlatformFile('a.txt', _text('abcde'))), 5);
+      // A genuinely empty file is 0; an unreadable one is unknown, not 0.
       expect(await pickedFileSize(MemoryPlatformFile('a.txt', _text(''))), 0);
+      expect(
+          await pickedFileSize(
+              MemoryPlatformFile('a.txt', _text('abc'), readFails: true)),
+          isNull);
     });
   });
 
@@ -193,6 +209,11 @@ void main() {
       expect(attachment?.name, 'n.txt');
       expect(attachment?.text, 'hi');
       expect(picker.lastExtensions, chatAttachmentExtensions);
+    });
+
+    test('reads a file with no reported size', () async {
+      picker.next = [MemoryPlatformFile('n.txt', _text('hi'))];
+      expect((await chat.pick())?.text, 'hi');
     });
 
     test('is null when cancelled', () async {
@@ -245,6 +266,14 @@ void main() {
             reported: 3),
       ];
       expect((await pickBarsFile())?.problem, 'fileNotText');
+    });
+
+    test('a file with no reported size is read, not treated as empty',
+        () async {
+      picker.next = [MemoryPlatformFile('bars.csv', _text('a,b\n1,2\n'))];
+      final file = await pickBarsFile();
+      expect(file?.problem, isNull);
+      expect(file?.text, 'a,b\n1,2\n');
     });
 
     test('is null when cancelled', () async {

@@ -70,7 +70,7 @@ class DeviceChatAttachmentPicker implements ChatAttachmentPicker {
     final file = await FilePicker.pickFile(
         type: FileType.custom, allowedExtensions: chatAttachmentExtensions);
     if (file == null) return null;
-    if (await pickedFileSize(file) > chatAttachmentMaxBytes) {
+    if ((await pickedFileSize(file) ?? 0) > chatAttachmentMaxBytes) {
       throw const ChatAttachmentException('size');
     }
     final Uint8List bytes;

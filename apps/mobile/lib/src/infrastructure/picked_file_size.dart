@@ -1,7 +1,22 @@
 import 'package:file_picker/file_picker.dart';
 
-/// The size in bytes of a picked file: the length the native picker already
-/// reported, else a read from disk, else 0 (file_picker 13 dropped
-/// `PlatformFile.size`; `length()` returns null when it cannot be read).
-Future<int> pickedFileSize(PlatformFile file) async =>
-    file.lengthSync() ?? await file.length() ?? 0;
+/// The size in bytes of a picked file, or null when it cannot be determined.
+///
+/// file_picker 13 dropped `PlatformFile.size`, and a provider may expose no
+/// size metadata (`lengthSync()` and `length()` are then null). An unknown
+/// size is not an empty file: it is counted by streaming the content, and
+/// only a file that cannot be read at all answers null. Callers treat null as
+/// unknown (the server still enforces its limits), never as 0.
+Future<int?> pickedFileSize(PlatformFile file) async {
+  final known = file.lengthSync() ?? await file.length();
+  if (known != null) return known;
+  try {
+    var total = 0;
+    await for (final chunk in file.readAsByteStream()) {
+      total += chunk.length;
+    }
+    return total;
+  } on Object {
+    return null;
+  }
+}

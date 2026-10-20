@@ -23,7 +23,7 @@ Future<List<(String, String, int)>> pickDeviceFiles() async {
   final picked = await FilePicker.pickFiles();
   return [
     for (final f in picked)
-      if (f.path != null) (f.path!, f.name, await pickedFileSize(f))
+      if (f.path != null) (f.path!, f.name, await pickedFileSize(f) ?? 0)
   ];
 }
 
