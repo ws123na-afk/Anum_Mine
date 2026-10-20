@@ -194,6 +194,12 @@ class MarketingController extends ChangeNotifier {
             campaignId: campaignId);
         if (at != null && at != post.scheduledAt) {
           next = await repository.reschedule(post.id, at);
+        } else if (at == null &&
+            post.scheduledAt != null &&
+            next.scheduledAt != null &&
+            (next.status == 'scheduled' || next.status == 'pending_approval')) {
+          // The time was cleared on a post that is still scheduled: stop it.
+          next = await repository.cancel(post.id);
         }
         _replace(next);
       }, done);

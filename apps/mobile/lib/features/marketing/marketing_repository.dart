@@ -149,7 +149,8 @@ class ApiMarketingRepository implements MarketingRepository {
       'untrusted_source': untrustedSource,
       'variants': [
         for (final account in accountIds)
-          for (final entry in texts.entries)
+          for (final entry
+              in (texts.isEmpty ? const {'en': ''} : texts).entries)
             {
               'account_id': account,
               'language': entry.key,

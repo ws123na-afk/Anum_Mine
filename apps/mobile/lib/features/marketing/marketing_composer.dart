@@ -276,11 +276,16 @@ class _ComposeSheetState extends State<ComposeSheet> {
           links[account.id] = await tracked(account.platform);
         }
       }
+      // A media-only post still needs one variant per account and language,
+      // with an empty text; the API rejects an empty variants list.
+      final createTexts = texts.isNotEmpty
+          ? texts
+          : {for (final language in _languages) language: ''};
       final ok = await c.create(
           accountIds: _accounts.toList(),
-          texts: texts,
+          texts: createTexts,
           hashtags: {
-            for (final language in texts.keys)
+            for (final language in createTexts.keys)
               language: parseHashtags(_tagsOf(language).text)
           },
           link: link.isEmpty ? null : link,
