@@ -32,7 +32,7 @@ dependencies:
   # url_launcher_android is held at 6.3.29, the last Java release: 6.3.30+
   # rely on AGP 9 built-in Kotlin like file_picker 11 (see above).
   url_launcher: ^6.3.2
-  url_launcher_android: 6.3.29
+  url_launcher_android: 6.3.33
   # Phone push (docs/notifications.md, docs/mobile.md#phone-push). Checked for
   # AGP 9 built-in Kotlin: firebase_messaging 16.7 is Java only and
   # firebase_core 4.15 applies kotlin-android itself when
