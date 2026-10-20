@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
+import '../files/file_versions_repository.dart';
 import '../meetings/meetings_controller.dart';
 import '../meetings/meetings_repository.dart';
 import 'files_controller.dart';
@@ -10,9 +11,12 @@ import 'workspace_repository.dart';
 
 class WorkspaceController extends ChangeNotifier {
   WorkspaceController(this.repository,
-      {FilesRepository? files, MeetingsRepository? meetings}) {
+      {FilesRepository? files,
+      FileVersionsRepository? fileVersions,
+      MeetingsRepository? meetings}) {
     if (files != null) {
-      filesController = FilesController(files, onChanged: load);
+      filesController =
+          FilesController(files, onChanged: load, versions: fileVersions);
     }
     if (meetings != null) meetingsController = MeetingsController(meetings);
   }

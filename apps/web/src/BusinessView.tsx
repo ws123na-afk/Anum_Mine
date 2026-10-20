@@ -34,19 +34,17 @@ function parse(hash: string): { tab: BusinessTab; id: string | null } {
 export function BusinessView() {
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [route, setRoute] = useState(() => parse(location.hash));
-  const [products, setProducts] = useState<BusinessProduct[]>([]), [productsLoad, setProductsLoad] = useState<{ loading: boolean; error: string | null }>({ loading: true, error: null });
+  const [products, setProducts] = useState<BusinessProduct[]>([]);
   const [tick, setTick] = useState(0);
 
   const loadSetup = useCallback(async () => {
     try { setState({ kind: 'ready', setup: await b.getSetup() }); }
     catch (error) { setState(isPermissionDenied(error) ? { kind: 'denied', text: describeError(error) } : { kind: 'error', text: describeError(error) }); }
   }, []);
+  // The first 100 products feed the offer pickers on leads and tickets; the Catalog tab pages and searches on its own.
   const loadProducts = useCallback(async () => {
-    setProductsLoad({ loading: true, error: null });
-    try {
-      const page = await b.listProducts({ limit: 100, offset: 0 });
-      setProducts(page.items); setProductsLoad({ loading: false, error: null });
-    } catch (error) { setProductsLoad({ loading: false, error: failure(error, t('biz.tab.catalog')) }); }
+    try { setProducts((await b.listProducts({ limit: 100, offset: 0 })).items); }
+    catch { /* The pickers keep the products they had; the Catalog tab reports its own load errors. */ }
   }, []);
   useEffect(() => { void loadSetup(); }, [loadSetup]);
   useEffect(() => { if (state.kind === 'ready') void loadProducts(); }, [state.kind, loadProducts]);
@@ -83,7 +81,7 @@ export function BusinessView() {
     {tab === 'projects' && <ProjectsTab setup={setup} openId={id} onOpen={(item) => go('projects', item)} onGoProposals={() => go('proposals')} />}
     {tab === 'invoices' && <InvoicesTab setup={setup} openId={id} onOpen={(item) => go('invoices', item)} onChanged={changed} />}
     {tab === 'support' && <SupportTab setup={setup} products={products} openId={id} onOpen={(item) => go('support', item)} onChanged={changed} />}
-    {tab === 'catalog' && <CatalogTab setup={setup} products={products} loading={productsLoad.loading} error={productsLoad.error} onReload={() => void loadProducts()} />}
+    {tab === 'catalog' && <CatalogTab setup={setup} onChanged={() => void loadProducts()} />}
     {tab === 'settings' && <SettingsTab setup={setup} onSaved={() => void loadSetup()} />}
   </div>;
 }

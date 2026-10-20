@@ -104,6 +104,7 @@ async function mockFiles(page: Page, options: Options = {}) {
       }
       if (!action && method === 'DELETE') { files = files.filter((f) => f.id !== id); return route.fulfill({ status: 204 }); }
       if (action === 'preview') return json({ kind: found.kind, text: found.kind === 'markdown' ? MARKDOWN : 'line one\nline two', truncated: false, size_bytes: found.size_bytes });
+      if (action === 'versions' && method === 'GET') return json({ file: found, items: [], total: 0, limit: 10, offset: 0 });
       if (action === 'links') return json({ url: `/api/v1/files/links/tok_${id}`, expires_at: now }, 201);
       if (action === 'reindex') {
         const done = { ...found, index: { ...indexed, chunk_count: 1 } };

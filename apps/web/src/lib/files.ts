@@ -15,11 +15,36 @@ export interface ApiFile {
   kind?: FileKind | null; previewable?: boolean; can_manage?: boolean; index?: ApiFileIndex | null;
   /** Malware scan: null until scanned; `infected` files are quarantined (listed, never served). */
   scan_status?: 'clean' | 'infected' | null; scan_signature?: string | null; scanned_at?: string | null;
+  /** The current version number (docs/files.md#versions); 1 until a new version is uploaded. */
+  version?: number;
+}
+
+/** An earlier version of a file: `GET /api/v1/files/{id}/versions`. */
+export interface ApiFileVersion {
+  id: string; file_id: string; version: number; content_type: string; size_bytes: number; sha256: string;
+  created_by: string; created_at: string; replaced_by: string; replaced_at: string;
+  scan_status?: 'clean' | 'infected' | null; scan_signature?: string | null; downloadable: boolean;
+}
+export interface ApiFileVersionPage { file: ApiFile; items: ApiFileVersion[]; total: number; limit: number; offset: number }
+export const VERSION_PAGE_SIZE = 10;
+export const versionsPath = (fileId: string, offset: number, limit = VERSION_PAGE_SIZE) =>
+  `/api/v1/files/${encodeURIComponent(fileId)}/versions?${new URLSearchParams({ limit: String(limit), offset: String(Math.max(0, offset)) }).toString()}`;
+/** Append a page of versions, keeping the first copy of one a racing reload already listed. */
+export function mergeVersions(current: ApiFileVersion[], page: ApiFileVersion[]): ApiFileVersion[] {
+  const seen = new Set(current.map((item) => item.id));
+  return [...current, ...page.filter((item) => !seen.has(item.id))];
+}
+
+/** `GET /api/v1/files/storage`: usage against the quota, by kind, and the files that take the most space. */
+export interface ApiStorage {
+  usage: ApiFileUsage;
+  by_kind: { kind: FileKind | 'other'; file_count: number; bytes: number }[];
+  largest: { file: ApiFile; version_count: number; version_bytes: number; total_bytes: number }[];
 }
 
 /** `GET /api/v1/files/usage`. */
 export interface ApiFileUsage {
-  used_bytes: number; file_count: number; quota_bytes: number; max_upload_bytes: number; link_ttl_seconds: number;
+  used_bytes: number; file_count: number; version_bytes?: number; version_count?: number; quota_bytes: number; max_upload_bytes: number; link_ttl_seconds: number;
   accepted: string; accepted_extensions: string[]; can_upload: boolean; can_manage_all: boolean;
 }
 
@@ -171,6 +196,32 @@ export function usageMeter(usage: ApiFileUsage): { percent: number; tone: 'ok' |
     tone: raw >= 95 ? 'stop' : raw >= 80 ? 'warn' : 'ok',
     text: t('files.storageText', { used: formatBytes(usage.used_bytes), quota: formatBytes(usage.quota_bytes), count: usage.file_count }),
   };
+}
+
+/** "plan (version 2).txt": the name a saved older version gets, as the API names it, so it never overwrites the current file. */
+export function versionFileName(name: string, version: number): string {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? `${name.slice(0, dot)} (version ${version})${name.slice(dot)}` : `${name} (version ${version})`;
+}
+
+/** Bytes left under the quota (never negative). */
+export const bytesLeft = (usage: Pick<ApiFileUsage, 'used_bytes' | 'quota_bytes'>) => Math.max(0, usage.quota_bytes - usage.used_bytes);
+
+/** Whether a new version of `size` bytes fits; the API counts bytes the file already holds once, so this only warns. */
+export function versionProblem(file: { name: string; size: number }, current: { name: string; size_bytes: number }, usage: ApiFileUsage | null): string | null {
+  if (file.size === 0) return t('files.check.empty', { name: file.name });
+  if (!usage) return null;
+  if (file.size > usage.max_upload_bytes) return t('files.check.tooLarge', { name: file.name, size: formatBytes(file.size), max: formatBytes(usage.max_upload_bytes) });
+  if (extension(file.name) !== extension(current.name)) return t('files.version.sameType', { extension: extension(current.name) || t('files.version.noExtension') });
+  if (usage.used_bytes + file.size > usage.quota_bytes) {
+    return t('files.version.quota', { name: file.name, size: formatBytes(file.size), left: formatBytes(bytesLeft(usage)), quota: formatBytes(usage.quota_bytes) });
+  }
+  return null;
+}
+
+/** The kinds of the storage report as labels, largest first (the API already sorts them). */
+export function kindLabel(kind: FileKind | 'other'): string {
+  return kind === 'other' ? t('files.stor.kind.other') : t(`pages.files.type.${kind}` as MessageKey);
 }
 
 /** Upload progress as a sentence: "42% of 3.1 MB". */

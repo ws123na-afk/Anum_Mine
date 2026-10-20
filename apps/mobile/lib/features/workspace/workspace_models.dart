@@ -369,8 +369,13 @@ class WorkspaceFile {
       this.kind,
       this.previewable = false,
       this.canManage = false,
-      this.index});
+      this.index,
+      this.version = 1});
   final String id, name, contentType;
+
+  /// The current version number (docs/files.md#versions); 1 until a new
+  /// version is uploaded.
+  final int version;
   final int sizeBytes;
   final DateTime createdAt;
 

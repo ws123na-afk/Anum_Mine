@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
+import '../files/file_versions_repository.dart';
 import 'files_models.dart';
 import 'files_repository.dart';
 import 'workspace_models.dart';
@@ -31,8 +32,12 @@ const filesManageNote =
 /// actions on one file. [onChanged] refreshes the rest of the workspace
 /// (e.g. the files "Sources used" can open).
 class FilesController extends ChangeNotifier {
-  FilesController(this.repository, {this.onChanged});
+  FilesController(this.repository, {this.onChanged, this.versions});
   final FilesRepository repository;
+
+  /// File versions and the storage screen (docs/files.md#versions); null
+  /// when the app wires no versions API.
+  final FileVersionsRepository? versions;
   final Future<void> Function()? onChanged;
 
   FilesPhase phase = FilesPhase.loading;
@@ -167,6 +172,9 @@ class FilesController extends ChangeNotifier {
     uploads.remove(upload);
     notifyListeners();
   }
+
+  /// A new version or a restore changed [file]: show it and refresh the storage.
+  void fileChanged(WorkspaceFile file) => _replace(file);
 
   void _replace(WorkspaceFile file) {
     items = [for (final f in items) f.id == file.id ? file : f];

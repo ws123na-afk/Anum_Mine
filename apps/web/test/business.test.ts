@@ -2,13 +2,23 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  emptyLeadDraft, emptyOfferDraft, formatMoney, leadBody, linesOf, manualTransitions, needsReason, offerBody, parseAmount, proposalTotals, scoreText,
+  NO_CATALOG_FILTERS, catalogFiltered, catalogQuery, emptyLeadDraft, emptyOfferDraft, formatMoney, leadBody, linesOf, manualTransitions, needsReason, offerBody, parseAmount, proposalTotals, scoreText,
   stateLabel, stateTone, tabFromHash,
 } from '../src/lib/business.ts';
 import { setLocale } from '../src/lib/i18n.ts';
 import { viewFromHash } from '../src/lib/shell.ts';
 
 describe('business', () => {
+  test('catalog search and paging send only the filters in use', () => {
+    assert.deepEqual(catalogQuery(NO_CATALOG_FILTERS, 0), { limit: 25, offset: 0 });
+    assert.deepEqual(catalogQuery({ q: '  dash ', kind: 'product', maturity: 'live' }, 25), { q: 'dash', kind: 'product', maturity: 'live', limit: 25, offset: 25 });
+    assert.deepEqual(catalogQuery({ q: '   ', kind: '', maturity: 'idea' }, -5, 10), { maturity: 'idea', limit: 10, offset: 0 });
+    assert.equal(catalogFiltered(NO_CATALOG_FILTERS), false);
+    assert.equal(catalogFiltered({ q: ' ', kind: '', maturity: '' }), false);
+    assert.equal(catalogFiltered({ q: 'x', kind: '', maturity: '' }), true);
+    assert.equal(catalogFiltered({ q: '', kind: 'service_package', maturity: '' }), true);
+  });
+
   test('hashes open the right tab and record', () => {
     assert.equal(tabFromHash('#business'), 'overview');
     assert.equal(tabFromHash('#business-leads'), 'leads');

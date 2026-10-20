@@ -1,15 +1,17 @@
 // Business catalog (docs/business.md#catalog): products and service packages with priced versions and
 // cost assumptions. Nothing is seeded: the owner enters every product, price and cost. Members read.
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+// The list searches names and summaries and pages by offset against GET /business/products.
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { Plus, Search, Trash2 } from 'lucide-react';
 import type { BusinessOffer, BusinessProduct, BusinessProductDetail, BusinessSetup, ProductKind, ProductMaturity } from '@anum/contracts';
+import { describeError, isPermissionDenied } from './lib/errors';
 import { t } from './lib/i18n';
 import {
-  CURRENCIES, KINDS, MATURITIES, PRICE_TYPES, emptyOfferDraft, formatMoney, kindLabel, maturityLabel, offerBody, priceTypeLabel, type OfferDraft,
+  CURRENCIES, KINDS, NO_CATALOG_FILTERS, catalogFiltered, catalogQuery, type CatalogFilters, MATURITIES, PRICE_TYPES, emptyOfferDraft, formatMoney, kindLabel, maturityLabel, offerBody, priceTypeLabel, type OfferDraft,
 } from './lib/business';
 import * as b from './lib/businessApi';
 import { Drawer, Modal } from './Dialog';
-import { Badge, Empty, Note, failure, when } from './BusinessParts';
+import { Badge, Empty, Note, Pager, failure, when } from './BusinessParts';
 
 export function priceText(offer: BusinessOffer | null): string {
   if (!offer) return t('biz.catalog.noPrice');
@@ -21,29 +23,89 @@ export function priceText(offer: BusinessOffer | null): string {
   return min;
 }
 
-export function CatalogTab({ setup, products, loading, error, onReload }: { setup: BusinessSetup; products: BusinessProduct[]; loading: boolean; error: string | null; onReload: () => void }) {
+type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'denied'; text: string } | { kind: 'error'; text: string };
+
+/** The catalog list: name search, kind and maturity filters, and offset paging over GET /business/products. */
+export function CatalogTab({ setup, onChanged }: { setup: BusinessSetup; onChanged: () => void }) {
   const [open, setOpen] = useState<string | null>(null), [creating, setCreating] = useState(false);
+  const [items, setItems] = useState<BusinessProduct[]>([]), [total, setTotal] = useState(0), [load, setLoad] = useState<Load>({ kind: 'loading' });
+  const [draft, setDraft] = useState(''), [filters, setFilters] = useState<CatalogFilters>(NO_CATALOG_FILTERS);
+  const [more, setMore] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+  const request = useRef(0);
+  const ids = { q: useId(), kind: useId(), maturity: useId() };
   const manage = setup.permissions.manage;
-  return <section className="bzSection" aria-label={t('biz.tab.catalog')}>
-    <div className="bzToolbar"><p className="muted bzHint">{t('biz.catalog.help')}</p>
-      {manage && <div className="bzToolbarEnd"><button type="button" onClick={() => setCreating(true)}><Plus aria-hidden="true" />{t('biz.catalog.new')}</button></div>}</div>
+
+  const fetchFirst = useCallback(async () => {
+    const id = ++request.current;
+    setLoad({ kind: 'loading' });
+    try {
+      const page = await b.listProducts(catalogQuery(filters, 0));
+      if (id !== request.current) return;
+      setItems(page.items); setTotal(page.total); setLoad({ kind: 'ready' }); setMore({ busy: false, error: null });
+    } catch (error) {
+      if (id !== request.current) return;
+      setLoad(isPermissionDenied(error) ? { kind: 'denied', text: describeError(error) } : { kind: 'error', text: describeError(error) });
+    }
+  }, [filters]);
+  useEffect(() => { void fetchFirst(); }, [fetchFirst]);
+
+  async function loadMore() {
+    const id = request.current;
+    setMore({ busy: true, error: null });
+    try {
+      const page = await b.listProducts(catalogQuery(filters, items.length));
+      if (id !== request.current) return;
+      setItems((current) => [...current, ...page.items.filter((item) => !current.some((known) => known.id === item.id))]); setTotal(page.total); setMore({ busy: false, error: null });
+    } catch (error) { if (id === request.current) setMore({ busy: false, error: failure(error, t('biz.catalog.loadMore')) }); }
+  }
+  const changed = () => { void fetchFirst(); onChanged(); };
+  const filtered = catalogFiltered(filters);
+  const clear = () => { setDraft(''); setFilters(NO_CATALOG_FILTERS); };
+
+  return <section className="bzSection" aria-labelledby="bz-catalog-title">
+    <h2 id="bz-catalog-title" className="visuallyHidden">{t('biz.tab.catalog')}</h2>
+    <p className="muted bzHint">{t('biz.catalog.help')}</p>
+    <div className="bzToolbar">
+      <form className="bzSearch" role="search" onSubmit={(event) => { event.preventDefault(); setFilters({ ...filters, q: draft.trim() }); }}>
+        <label className="visuallyHidden" htmlFor={ids.q}>{t('biz.catalog.search')}</label>
+        <input id={ids.q} type="search" maxLength={100} value={draft} placeholder={t('biz.catalog.searchPlaceholder')}
+          onChange={(event) => { setDraft(event.target.value); if (!event.target.value && filters.q) setFilters({ ...filters, q: '' }); }} />
+        <button type="submit" className="secondary"><Search aria-hidden="true" />{t('biz.find')}</button>
+      </form>
+      <label className="bzCompact" htmlFor={ids.kind}><span>{t('biz.col.kind')}</span>
+        <select id={ids.kind} value={filters.kind} onChange={(event) => setFilters({ ...filters, kind: event.target.value as CatalogFilters['kind'] })}>
+          <option value="">{t('biz.catalog.allKinds')}</option>{KINDS.map((value) => <option key={value} value={value}>{kindLabel(value)}</option>)}
+        </select></label>
+      <label className="bzCompact" htmlFor={ids.maturity}><span>{t('biz.col.maturity')}</span>
+        <select id={ids.maturity} value={filters.maturity} onChange={(event) => setFilters({ ...filters, maturity: event.target.value as CatalogFilters['maturity'] })}>
+          <option value="">{t('biz.catalog.allMaturities')}</option>{MATURITIES.map((value) => <option key={value} value={value}>{maturityLabel(value)}</option>)}
+        </select></label>
+      {manage && <div className="bzToolbarEnd"><button type="button" onClick={() => setCreating(true)}><Plus aria-hidden="true" />{t('biz.catalog.new')}</button></div>}
+    </div>
     {!manage && <Note>{t('biz.catalog.ownersOnly')}</Note>}
-    {loading && <Note>{t('biz.loading')}</Note>}
-    {error && <Note error>{error} <button type="button" className="secondary" onClick={onReload}>{t('common.tryAgain')}</button></Note>}
-    {!loading && !error && products.length === 0 && <Empty title={t('biz.catalog.emptyTitle')} text={manage ? t('biz.catalog.emptyOwner') : t('biz.catalog.emptyMember')}
-      action={manage ? <button type="button" onClick={() => setCreating(true)}><Plus aria-hidden="true" />{t('biz.catalog.new')}</button> : undefined} />}
-    {products.length > 0 && <div className="pane dataTableWrap"><table className="dataTable bzTable">
-      <caption className="visuallyHidden">{t('biz.tab.catalog')}</caption>
-      <thead><tr><th scope="col">{t('biz.col.product')}</th><th scope="col" className="bzHideSm">{t('biz.col.kind')}</th><th scope="col">{t('biz.col.maturity')}</th><th scope="col" className="num">{t('biz.col.price')}</th><th scope="col" className="num bzHideMd">{t('biz.col.margin')}</th></tr></thead>
-      <tbody>{products.map((item) => <tr key={item.id}>
-        <th scope="row"><button type="button" className="linkButton" onClick={() => setOpen(item.id)}><span dir="auto">{item.name}</span></button>{item.summary && <small dir="auto">{item.summary}</small>}</th>
-        <td className="bzHideSm">{kindLabel(item.kind)}</td>
-        <td><Badge tone={item.maturity === 'live' ? 'success' : item.maturity === 'retired' ? 'dangerTone' : 'neutral'}>{maturityLabel(item.maturity)}</Badge></td>
-        <td className="num">{priceText(item.active_offer)}</td>
-        <td className="num bzHideMd">{item.active_offer ? (item.active_offer.margin_negative ? t('biz.catalog.marginNegative') : formatMoney(item.active_offer.margin_at_price, item.active_offer.currency)) : t('biz.unknown')}</td>
-      </tr>)}</tbody></table></div>}
-    {creating && <NewProduct onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); onReload(); setOpen(id); }} />}
-    {open && <ProductDrawer id={open} manage={manage} onClose={() => setOpen(null)} onChanged={onReload} />}
+    {load.kind === 'loading' && <Note>{t('biz.catalog.loading')}</Note>}
+    {load.kind === 'denied' && <Note error>{t('biz.denied', { message: load.text })}</Note>}
+    {load.kind === 'error' && <Note error>{t('biz.failed', { what: t('biz.tab.catalog'), message: load.text })} <button type="button" className="secondary" onClick={() => void fetchFirst()}>{t('common.tryAgain')}</button></Note>}
+    {load.kind === 'ready' && items.length === 0 && (filtered
+      ? <Empty title={t('biz.catalog.noMatch')} text={t('biz.catalog.noMatchText')} action={<button type="button" className="secondary" onClick={clear}>{t('biz.clearFilters')}</button>} />
+      : <Empty title={t('biz.catalog.emptyTitle')} text={manage ? t('biz.catalog.emptyOwner') : t('biz.catalog.emptyMember')}
+        action={manage ? <button type="button" onClick={() => setCreating(true)}><Plus aria-hidden="true" />{t('biz.catalog.new')}</button> : undefined} />)}
+    {load.kind === 'ready' && items.length > 0 && <>
+      <p className="bzCount" role="status">{t('biz.catalog.count', { count: total })}</p>
+      <div className="pane dataTableWrap"><table className="dataTable bzTable">
+        <caption className="visuallyHidden">{t('biz.tab.catalog')}</caption>
+        <thead><tr><th scope="col">{t('biz.col.product')}</th><th scope="col" className="bzHideSm">{t('biz.col.kind')}</th><th scope="col">{t('biz.col.maturity')}</th><th scope="col" className="num">{t('biz.col.price')}</th><th scope="col" className="num bzHideMd">{t('biz.col.margin')}</th></tr></thead>
+        <tbody>{items.map((item) => <tr key={item.id} className={item.id === open ? 'selected' : undefined}>
+          <th scope="row"><button type="button" className="linkButton" onClick={() => setOpen(item.id)}><span dir="auto">{item.name}</span></button>{item.summary && <small dir="auto">{item.summary}</small>}</th>
+          <td className="bzHideSm">{kindLabel(item.kind)}</td>
+          <td><Badge tone={item.maturity === 'live' ? 'success' : item.maturity === 'retired' ? 'dangerTone' : 'neutral'}>{maturityLabel(item.maturity)}</Badge></td>
+          <td className="num">{priceText(item.active_offer)}</td>
+          <td className="num bzHideMd">{item.active_offer ? (item.active_offer.margin_negative ? t('biz.catalog.marginNegative') : formatMoney(item.active_offer.margin_at_price, item.active_offer.currency)) : t('biz.unknown')}</td>
+        </tr>)}</tbody></table></div>
+      <Pager shown={items.length} total={total} busy={more.busy} error={more.error} onMore={() => void loadMore()} />
+    </>}
+    {creating && <NewProduct onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); changed(); setOpen(id); }} />}
+    {open && <ProductDrawer id={open} manage={manage} onClose={() => setOpen(null)} onChanged={changed} />}
   </section>;
 }
 
