@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, integration/anum-mine-complete-modules]
 
 # Cancel superseded CI runs on the same branch or pull request.
 # Keep PR and main-branch runs separate to avoid cancelling required checks.
