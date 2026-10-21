@@ -59,7 +59,7 @@ export function OfficeTourView() {
   const ref = useRef<HTMLDivElement>(null);
   const [site,setSite]=useState(0),[floor,setFloor]=useState(0),[angle,setAngle]=useState(-9),[tilt,setTilt]=useState(11),[zoom,setZoom]=useState(1);
   const [pan,setPan]=useState({x:0,y:0});
-  const drag=useRef<{id:number;x:number;y:number;startX:number;startY:number;angle:number;panX:number;panY:number;mode:'rotate'|'pan';moved:boolean}|null>(null);
+  const drag=useRef<{id:number;x:number;y:number;startX:number;startY:number;angle:number;tilt:number;panX:number;panY:number;mode:'rotate'|'pan';moved:boolean}|null>(null);
   const [dragged,setDragged]=useState(false);
   const [zone,setZone]=useState('Asia/Riyadh'),[,setNow]=useState(()=>Date.now());
   const [mode,setMode]=useState<'auto'|'day'|'night'>('auto');
@@ -113,8 +113,8 @@ export function OfficeTourView() {
     recognition.onerror=()=>{setListening(false);setMessage('Microphone recognition failed. You can type the instruction instead.');};
     try{recognition.start();setListening(true)}catch{setListening(false);setMessage('Microphone is unavailable. Please type the instruction.');}
   };
-  const onScenePointerDown=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.button!==2)return;if((e.target as HTMLElement).closest('button'))return;drag.current={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,angle,panX:pan.x,panY:pan.y,mode:e.shiftKey||e.button===2?'pan':'rotate',moved:false};e.currentTarget.setPointerCapture(e.pointerId)};
-  const onScenePointerMove=(e:React.PointerEvent<HTMLDivElement>)=>{const d=drag.current;if(!d||d.id!==e.pointerId)return;const dx=e.clientX-d.x,dy=e.clientY-d.y;if(Math.abs(e.clientX-d.startX)+Math.abs(e.clientY-d.startY)>4){d.moved=true;setDragged(true)}if(d.mode==='pan'){setPan({x:Math.max(-300,Math.min(300,d.panX+dx)),y:Math.max(-220,Math.min(220,d.panY+dy))})}else{setAngle(d.angle+dx*.32);setTilt(v=>Math.max(0,Math.min(35,v-dy*.015)))}};
+  const onScenePointerDown=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.button!==2)return;if((e.target as HTMLElement).closest('button'))return;drag.current={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,angle,tilt,panX:pan.x,panY:pan.y,mode:e.shiftKey||e.button===2?'pan':'rotate',moved:false};e.currentTarget.setPointerCapture(e.pointerId)};
+  const onScenePointerMove=(e:React.PointerEvent<HTMLDivElement>)=>{const d=drag.current;if(!d||d.id!==e.pointerId)return;const dx=e.clientX-d.x,dy=e.clientY-d.y;if(Math.abs(e.clientX-d.startX)+Math.abs(e.clientY-d.startY)>4){d.moved=true;setDragged(true)}if(d.mode==='pan'){setPan({x:Math.max(-300,Math.min(300,d.panX+dx)),y:Math.max(-220,Math.min(220,d.panY+dy))})}else{setAngle(d.angle+dx*.32);setTilt(Math.max(0,Math.min(35,d.tilt-dy*.075)))}};
   const onScenePointerUp=(e:React.PointerEvent<HTMLDivElement>)=>{if(drag.current?.id===e.pointerId){drag.current=null;if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);setDragged(false)}};
   const onSceneWheel=(e:React.WheelEvent<HTMLDivElement>)=>{if((e.target as HTMLElement).closest('button'))return;setZoom(v=>Math.max(.65,Math.min(1.65,v-e.deltaY*.001))) };
   const onOfficeKeys=(e:React.KeyboardEvent<HTMLDivElement>)=>{if((e.target as HTMLElement).closest('input,select,button,textarea'))return;const k=e.key.toLowerCase();if(k==='arrowleft')setAngle(a=>a-10);else if(k==='arrowright')setAngle(a=>a+10);else if(k==='arrowup')setTilt(v=>Math.min(35,v+3));else if(k==='arrowdown')setTilt(v=>Math.max(0,v-3));else if(k==='+'||k==='=')setZoom(v=>Math.min(1.65,v+.1));else if(k==='-')setZoom(v=>Math.max(.65,v-.1));else if(k==='escape'&&document.fullscreenElement)void document.exitFullscreen();else return;e.preventDefault()};
