@@ -232,3 +232,6 @@ x-user-roles: owner,member
 ## Development Rule
 
 Code should follow the contracts, boundaries, tenant model, and security expectations described in the documentation. Prototype shortcuts are acceptable only when they are isolated, named clearly, and replaced before production use.
+
+- [ANUM MINE virtual headquarters master plan](docs/ANUM_MINE_VIRTUAL_HEADQUARTERS_MASTER_PLAN.md)
+- [ANUM MINE live agent meetings foundation](docs/ANUM_MINE_LIVE_AGENT_MEETING_FOUNDATION.md)
