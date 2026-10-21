@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ArrowLeft, Building2, ChevronLeft, ChevronRight, Compass, Expand, Minimize, Moon, RotateCcw, Sun, Volume2, VolumeX, ZoomIn, ZoomOut } from 'lucide-react';
 import { OfficeWorkstations } from './OfficeWorkstations';
+import { OfficeWebglScene } from './OfficeWebglScene';
 import { OfficeSpaceLiveManager } from './OfficeSpaceLiveManager';
 import { ReceptionOperations } from './ReceptionOperations';
 import { GuidedExecutiveTour } from './GuidedExecutiveTour';
@@ -78,6 +79,7 @@ export function OfficeTourView() {
   const ref = useRef<HTMLDivElement>(null);
   const [workstationsOpen,setWorkstationsOpen]=useState(false),[spaceRegistryOpen,setSpaceRegistryOpen]=useState(false);
   const [receptionOpen,setReceptionOpen]=useState(false),[executiveTourOpen,setExecutiveTourOpen]=useState(false);
+  const [sceneMode,setSceneMode]=useState<'webgl'|'plan'>('webgl');
   const [site,setSite]=useState(0),[floor,setFloor]=useState(0),[angle,setAngle]=useState(-13),[tilt,setTilt]=useState(8),[zoom,setZoom]=useState(1);
   const [pan,setPan]=useState({x:0,y:0});
   const drag=useRef<{id:number;x:number;y:number;startX:number;startY:number;angle:number;tilt:number;panX:number;panY:number;mode:'rotate'|'pan';moved:boolean}|null>(null);
@@ -150,12 +152,12 @@ export function OfficeTourView() {
   return <div ref={ref} className={`anumOfficeTour ${dark?'night':'day'}`} tabIndex={0} onKeyDown={onOfficeKeys}>
     <header className="officeTop">
       <div className="officeBrand"><strong>ANUM <span>MINE</span></strong><small>Virtual Headquarters <span className="officeLiveDivider">/</span> Immersive Workspace</small></div>
-      <div className="officeTopCenter"><Building2 size={16}/><select aria-label="Office building" value={site} onChange={e=>{const next=Number(e.target.value);setSite(next);setFloor(0);setSelected(SITE_ROOMS[next]?.find(r=>r.floor===0)?.id??'reception');setMessage('Welcome to '+SITES[next]+'. Select a room or ask for the next stop. This is an illustrative layout.')}}>{SITES.map((s,i)=><option key={s} value={i}>{s}</option>)}</select><span className="officeDemo">CONCEPT VIEW</span></div>
+      <div className="officeTopCenter"><Building2 size={16}/><select aria-label="Office building" value={site} onChange={e=>{const next=Number(e.target.value);setSite(next);setFloor(0);setSelected(SITE_ROOMS[next]?.find(r=>r.floor===0)?.id??'reception');setMessage('Welcome to '+SITES[next]+'. Select a room or ask for the next stop. This is an illustrative layout.')}}>{SITES.map((s,i)=><option key={s} value={i}>{s}</option>)}</select><span className="officeDemo">CONCEPT VIEW</span><button type="button" className="office3dToggle" aria-pressed={sceneMode==='webgl'} onClick={()=>setSceneMode(v=>v==='webgl'?'plan':'webgl')}>{sceneMode==='webgl'?'3D Scene · Switch to Plan':'Plan · Switch to 3D'}</button></div>
       <div className="officeRight"><label>Office time zone <select value={zone} onChange={e=>setZone(e.target.value)}><option value="Asia/Riyadh">Riyadh</option><option value="Asia/Dubai">Dubai</option><option value="Asia/Karachi">Karachi</option><option value="browser">Browser</option></select></label><strong>{officeTime(activeZone)}</strong><button title="Exit office" onClick={()=>{window.location.hash='#home'}}><ArrowLeft size={18}/> Back</button></div>
     </header>
     <main className="officeWorld">
       <div className={`officeScene ${dragged?'isDragging':''}`} role="region" aria-label="Office camera: drag to rotate, Shift-drag to pan, scroll to zoom, arrow keys to rotate and tilt" onPointerDown={onScenePointerDown} onPointerMove={onScenePointerMove} onPointerUp={onScenePointerUp} onPointerCancel={onScenePointerUp} onWheel={onSceneWheel} onContextMenu={e=>e.preventDefault()} style={{'--office-angle':`${angle}deg`,'--office-tilt':`${tilt}deg`,'--office-zoom':zoom,'--office-pan-x':`${pan.x}px`,'--office-pan-y':`${pan.y}px`} as CSSProperties}>
-        <div className="officePlatform">
+        {sceneMode==='webgl'?<OfficeWebglScene rooms={visible} selected={selected} night={dark} angle={angle} tilt={tilt} zoom={zoom} onSelect={id=>{if(dragged)return;const room=visible.find(r=>r.id===id);if(room)guide(room)}}/>:<div className="officePlatform">
           <div className="officeCentralWalkway" aria-hidden="true"/><div className="officePlanter officePlanterOne" aria-hidden="true"/><div className="officePlanter officePlanterTwo" aria-hidden="true"/>
           <div className="officeAtrium"><span>ANUM <em>MINE</em></span><small>{SITES[site]} · {FLOORS[floor]}</small></div>
           {visible.map(r=><button key={r.id} className={`officeRoom ${selected===r.id?'picked':''}`} style={{left:`${r.x}%`,top:`${r.y}%`,width:`${r.width}%`,height:`${r.height}%`,'--room-accent':r.accent} as CSSProperties} onClick={()=>guide(r)} aria-label={`Visit ${r.name}`}>
@@ -172,7 +174,7 @@ export function OfficeTourView() {
             {r.people.slice(0,4).map((p,i)=><span key={p+i} className="officePerson" style={seededSpot(i)} title={p}><span>●</span></span>)}
           </button>)}
           <div className="officePaPresence" style={paSpot}><span aria-hidden="true">✦</span> PA · Escorting you</div>
-        </div>
+        </div>}
       </div>
       <aside className="officeFloorPanel"><div className="officePanelEyebrow">BUILDING DIRECTORY</div><h2>Explore the Office</h2>
       <div className="officeModuleButtons">
