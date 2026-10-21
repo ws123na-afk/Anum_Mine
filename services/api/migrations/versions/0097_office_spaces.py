@@ -62,8 +62,8 @@ def _rls(table: str) -> None:
             and exists (select 1 from tenant_lifecycle_jobs j
                         where j.tenant_id = {table}.tenant_id and j.status = 'purging'
                         and (j.kind = 'organisation_deletion'
-                             or j.workspace_id = {table}.workspace_id))
-        )"""
+                             or (j.kind = 'workspace_deletion' and j.workspace_id = {table}.workspace_id)))
+        ) with check (false)"""
     )
 
 
