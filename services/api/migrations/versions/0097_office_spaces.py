@@ -23,8 +23,8 @@ TS = sa.DateTime(timezone=True)
 def _scope() -> list:
     return [
         sa.Column("id", sa.String(80), primary_key=True),
-        sa.Column("tenant_id", sa.String(80), nullable=False),
-        sa.Column("workspace_id", sa.String(80), nullable=False),
+        sa.Column("tenant_id", sa.String(80), primary_key=True),
+        sa.Column("workspace_id", sa.String(80), primary_key=True),
         sa.Column("revision", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("created_by", sa.String(160), nullable=False),
         sa.Column("created_at", TS, nullable=False, server_default=sa.func.now()),
