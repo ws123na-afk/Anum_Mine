@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Building2, DoorOpen, HardDrive, RefreshCw, ShieldAlert, ShieldCheck, Trash2, UserRoundCheck, X } from 'lucide-react';
 import * as api from './lib/api.ts';
 import { loadOrgSources } from './lib/orgChart.ts';
-import { createOfficeSpaceClient, type OfficeBuilding, type OfficeDesk, type OfficeFloor, type OfficeRegistryData, type OfficeRoom } from './lib/officeSpaceClient.ts';
+import { createOfficeSpaceClient, type OfficeRegistryData, type OfficeRoom } from './lib/officeSpaceClient.ts';
 import { OfficeSpaceRegistry } from './OfficeSpaceRegistry';
 import './officeSpaceRegistry.css';
 
@@ -19,7 +19,7 @@ export function OfficeSpaceLiveManager({onClose}:{onClose:()=>void}){
  const [buildingId,setBuildingId]=useState(''),[floorId,setFloorId]=useState(''),[roomId,setRoomId]=useState('');
  const [buildingName,setBuildingName]=useState(''),[zone,setZone]=useState('Asia/Riyadh');
  const [floorName,setFloorName]=useState(''),[level,setLevel]=useState(0),[roomName,setRoomName]=useState(''),[kind,setKind]=useState<OfficeRoom['kind']>('office'),[capacity,setCapacity]=useState(8);
- const [deskLabel,setDeskLabel]=useState(''),[agentId,setAgentId]=useState('');
+ const [deskLabel,setDeskLabel]=useState('');
  const [newRoomName,setNewRoomName]=useState('');
  const [people,setPeople]=useState<{id:string;name:string}[]>([]),[notice,setNotice]=useState('');
  const [search,setSearch]=useState('');
