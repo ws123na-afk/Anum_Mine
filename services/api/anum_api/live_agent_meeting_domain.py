@@ -134,7 +134,7 @@ def _revision(meeting: LiveMeeting, revision: int) -> None:
 
 
 def _changed(meeting: LiveMeeting, **changes: object) -> LiveMeeting:
-    return meeting.model_copy(update={"revision": meeting.revision + 1, **changes})
+    return LiveMeeting.model_validate({**meeting.model_dump(), "revision": meeting.revision + 1, **changes})
 
 
 def add_participant(
