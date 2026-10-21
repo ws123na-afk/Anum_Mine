@@ -12,11 +12,11 @@ is never considered committed until finish_turn succeeds.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Protocol, Callable, Awaitable
+from datetime import datetime, timedelta
+from typing import Protocol
 
 from .live_agent_meeting_domain import (
-    LiveMeeting, LiveTurn, SessionStatus, SpeakerRole, MeetingConflict,
+    LiveMeeting, LiveTurn, SessionStatus, SpeakerRole,
 )
 from .live_agent_meeting_coordinator import (
     CoordinatorInput, CoordinatorAction, CoordinatorDecision, decide_next,
@@ -119,7 +119,7 @@ async def run_one_turn(
         meeting_id=meeting.id, tenant_id=tenant_id, workspace_id=workspace_id,
         agent_id=decision.agent_id, request_key=request_key,
         sequence=decision.next_sequence, expected_revision=decision.expected_revision,
-        expires_at=now.replace(microsecond=0) + __import__("datetime").timedelta(seconds=ttl_seconds)
+        expires_at=now.replace(microsecond=0) + timedelta(seconds=ttl_seconds)
     )
     if not await store.reserve_turn(reservation):
         raise RuntimeBlocked("turn_already_claimed")
