@@ -231,3 +231,20 @@
 .anumOfficeTour .officeOpenModule:hover,.anumOfficeTour .officeOpenModule:focus-visible{
   background:#117c74;border-color:#b6f3db;
 }
+
+/* A room directory provides a keyboard-friendly alternative to the 3D scene. */
+.officeViewToggle{width:100%;margin-bottom:10px}
+.listMode .officeWorld{display:grid;grid-template-columns:220px minmax(0,1fr) 260px;align-items:start;gap:16px;padding:16px;overflow:auto}
+.listMode .officeFloorPanel,.listMode .officeInfo,.listMode .officePa{position:static;width:auto}
+.listMode .officePa{grid-column:1/-1}
+.listMode .officeControls{display:none}
+.officeRoomList{min-width:0;padding:20px;background:var(--oc-panel);border:1px solid #476272;border-radius:15px}
+.officeRoomList h2{margin:0 0 5px;font-size:var(--text-xl)}
+.officeRoomList p{margin:0 0 16px;color:#b6cbd0}
+.officeRoomList>div{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.officeRoomList button{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-height:85px;text-align:left;white-space:normal}
+.officeRoomList button[aria-pressed="true"]{background:#087c79;border-color:#49d4cb}
+.officeRoomList button span{font-size:var(--text-xs);color:#c5dce2}
+.officeRoomList button:focus-visible,.officeViewToggle:focus-visible{outline:3px solid #fbd081;outline-offset:2px}
+@media(max-width:1000px){.listMode .officeWorld{grid-template-columns:200px minmax(0,1fr)}.listMode .officeInfo{grid-column:2}}
+@media(max-width:620px){.listMode .officeWorld{grid-template-columns:minmax(0,1fr);gap:10px;padding:10px}.listMode .officeFloorPanel,.listMode .officeRoomList,.listMode .officeInfo,.listMode .officePa{grid-column:1}.listMode .officeInfo{display:flex}.listMode .officePa{display:flex}}
