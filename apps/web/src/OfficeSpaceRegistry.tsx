@@ -16,7 +16,7 @@ export function OfficeSpaceRegistry({onClose}:{onClose:()=>void}){
  const shownRooms=useMemo(()=>roomsOnFloor(registry,floor).filter(r=>r.name.toLowerCase().includes(query.toLowerCase())),[registry,floor,query]);
  const selected=registry.rooms.find(r=>r.id===room&&r.floorId===floor);
  const desks=registry.desks.filter(d=>d.roomId===selected?.id);
- function execute(command:Omit<SpaceCommand,'expectedRevision'>,onSuccess?:()=>void){
+ function execute(command:SpaceCommand extends infer T ? T extends {expectedRevision:number} ? Omit<T,'expectedRevision'> : never : never,onSuccess?:()=>void){
   try{const next=applySpaceCommand(registry,{...command,expectedRevision:registry.revision} as SpaceCommand);dispatch({...command,expectedRevision:registry.revision} as SpaceCommand);setError('');setNotice('Preview updated to revision '+next.revision+'. Changes are not saved to the server.');onSuccess?.()}
   catch(e){setError(e instanceof SpaceError?e.message:'Unable to update the office registry')}
  }
