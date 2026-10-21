@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Clock3, RefreshCw, Search, ShieldCheck, Users, X } from 'lucide-react';
 import type { OrgSources } from './lib/orgChart.ts';
+import * as api from './lib/api';
 import { loadWorkspaceWorkstations, type WorkstationSnapshot, type WorkstationRecord } from './lib/officeWorkstations.ts';
 import { staleOfficePresence, type OfficeStatus } from './lib/officePresence.ts';
 import './officeWorkstations.css';
@@ -46,6 +47,20 @@ export function OfficeWorkstations({onClose}:{onClose:()=>void}){
   const tickInterval=window.setInterval(()=>setTick(new Date().toISOString()),10000);
   return()=>{aliveRef.current=false;seqRef.current++;window.clearInterval(poll);window.clearInterval(tickInterval);document.removeEventListener('visibilitychange',onVisible)};
  },[load]);
+ // Reuse the signed-in workspace event stream. A quiet periodic refresh remains
+ // the fallback when the browser disconnects or the stream is unavailable.
+ useEffect(()=>{
+  const controller=new AbortController();
+  let pending:ReturnType<typeof setTimeout>|undefined;
+  const onEvent=(event:{type:string})=>{
+   if(!/^(task|agent_run|agent|approval)\\./.test(event.type)||document.hidden)return;
+   if(pending)window.clearTimeout(pending);
+   pending=window.setTimeout(()=>{pending=undefined;void load()},900);
+  };
+  void api.streamEvents(onEvent,controller.signal,()=>undefined).catch(()=>undefined);
+  return()=>{controller.abort();if(pending)window.clearTimeout(pending)};
+ },[load]);
+
  const departments=[...new Set((data?.records??[]).map(x=>x.suggestedDepartment))].sort();
  const matches=(data?.records??[]).filter(r=>{
   if(department!=='all'&&r.suggestedDepartment!==department)return false;
