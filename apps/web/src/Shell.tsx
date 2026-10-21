@@ -106,7 +106,12 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
   return <aside className="sidebar">
     <div className="brand">{branding?.logo ? <img className="brandLogo" src={branding.logo} alt="" /> : <AnumMark className="brandMark" size={36} />}<div><span className="brandName">{t('brand.name')}</span><small>{branding?.name ?? t('brand.tagline')}</small></div></div>
     <nav ref={navRef} aria-label={t('nav.primary')}>
-      <ul className="navList">{NAV[0].views.filter((id) => allowed.has(id)).map(item)}</ul>
+      <ul className="navList">
+        {NAV[0].views.filter((id) => allowed.has(id)).map(item)}
+        <li><a href="#office-preview" className="navItem" aria-label="ANUM MINE: open virtual headquarters preview">
+          <Building2 aria-hidden="true" /><span>ANUM MINE <small>(Preview)</small></span>
+        </a></li>
+      </ul>
       {group('workspaces', 'sidebar.workspaces', <SidebarWorkspaces workspaceId={workspaceId} onSwitchWorkspace={onSwitchWorkspace} />)}
       {NAV.slice(1).map((g) => {
         const ids = g.views.filter((id) => allowed.has(id));
