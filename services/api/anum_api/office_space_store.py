@@ -75,6 +75,26 @@ class SqlOfficeSpaceStore:
         expected = set(_COLUMNS[kind])
         if set(fields) != expected:
             raise SpaceStoreError("invalid", "Unexpected office record fields")
+        if kind == "desks":
+            # Lock the room before counting desks. Concurrent creations serialize
+            # here, so capacity cannot be exceeded by two owner requests.
+            room = self.session.execute(text("""
+                select kind, capacity from office_rooms
+                where tenant_id = :tenant and workspace_id = :workspace and id = :room
+                for update
+            """), self._params(context, room=fields["room_id"])).mappings().first()
+            if room is None:
+                raise SpaceStoreError("not_found", "Office room not found")
+            if room["kind"] not in ("office", "workshop", "warehouse"):
+                raise SpaceStoreError("restricted", "Only work areas may have permanent desks")
+            count = self.session.execute(text("""
+                select count(*) from office_desks
+                where tenant_id = :tenant and workspace_id = :workspace and room_id = :room
+            """), self._params(context, room=fields["room_id"])).scalar_one()
+            if count >= room["capacity"]:
+                raise SpaceStoreError("restricted", "Room workstation capacity is full")
+            if fields["agent_id"] is not None:
+                raise SpaceStoreError("invalid", "Assign an existing agent in a separate step")
         columns = ", ".join(_COLUMNS[kind])
         placeholders = ", ".join(f":{key}" for key in _COLUMNS[kind])
         params = self._params(context, id=item_id, actor=context.user_id, **dict(fields))
