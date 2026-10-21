@@ -33,10 +33,12 @@ export function projectWorkstationSnapshot(sources:Pick<OrgSources,'agents'|'tas
   const agents=sources.agents.filter(a=>a.tenant_id===scope.tenantId&&a.workspace_id===scope.workspaceId);
   const tasks=sources.tasks.filter(t=>t.tenant_id===scope.tenantId&&t.workspace_id===scope.workspaceId);
   const partialSources=[...new Set(sources.partial.map(p=>p.source))];
+  if(agents.length>=300)partialSources.push('agent_pagination_limit');
+  if(tasks.filter(t=>['created','queued','running','waiting_approval'].includes(t.status)).length>=500)partialSources.push('task_pagination_limit');
   // Paginated open-task loader is bounded; treat the result as potentially incomplete
   // at its 500-record ceiling even if no API fetch threw an error.
   const openTasks=tasks.filter(t=>['created','queued','running','waiting_approval'].includes(t.status));
-  const complete=!partialSources.includes('tasks')&&openTasks.length<500;
+  const complete=!partialSources.includes('tasks')&&openTasks.length<500&&agents.length<300;
   const inputAgents:OfficeAgent[]=agents.map(a=>({id:a.id,name:a.name,status:a.status==='active'?'active':'paused',department:a.department??null}));
   const inputTasks:OfficeTask[]=tasks.map(t=>({id:t.id,agent_id:t.agent_id??null,status:t.status}));
   const projected=projectOfficePresence({agents:inputAgents,tasks:inputTasks,observedAt,complete});
