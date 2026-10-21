@@ -53,7 +53,7 @@ export function OfficeWorkstations({onClose}:{onClose:()=>void}){
  // the fallback when the browser disconnects or the stream is unavailable.
  useEffect(()=>{
   const controller=new AbortController();
-  let pending:ReturnType<typeof setTimeout>|undefined;
+  let pending:number|undefined;
   const onEvent=(event:{type:string})=>{
    if(!/^(task|agent_run|agent|approval)\\./.test(event.type)||document.hidden)return;
    if(pending)window.clearTimeout(pending);
