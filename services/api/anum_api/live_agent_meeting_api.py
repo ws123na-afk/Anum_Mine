@@ -13,11 +13,12 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import require_permission, tenant_context
 from .live_agent_meeting_store import LiveMeetingStoreError, SqlLiveMeetingStore
 from .scoped_store import open_scoped_store
-from .schemas import TenantContext, new_id
+from .schemas import TenantContext, new_id, utc_now
 from .settings import settings
 
 router = APIRouter(prefix="/api/v1/agent-meetings", tags=["agent meetings"])
@@ -65,6 +66,24 @@ def _store(context: TenantContext) -> Iterator[SqlLiveMeetingStore]:
         yield store
 
 
+def _audit(store: SqlLiveMeetingStore, context: TenantContext, action: str, meeting_id: str) -> None:
+    from .db.repository import SqlAlchemyRepository
+    SqlAlchemyRepository(store.session).record_audit(
+        AuditRecord(
+            id=new_id("audit"),
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
+            actor=context.user_id,
+            action=action,
+            target=meeting_id,
+            outcome="success",
+            correlation_id=new_id("correlation"),
+            created_at=utc_now(),
+            metadata={"resource": "agent_meeting", "meeting_id": meeting_id},
+        )
+    )
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_meeting(body: CreateMeeting, context: TenantContext = Depends(tenant_context)) -> dict:
     require_permission(context, Permission.WORKSPACE_MANAGE)
@@ -73,7 +92,9 @@ def create_meeting(body: CreateMeeting, context: TenantContext = Depends(tenant_
         raise HTTPException(422, "Meeting title cannot be blank")
     with _store(context) as store:
         try:
-            return store.create(context, data)
+            result = store.create(context, data)
+            _audit(store, context, "agent_meeting.create", result["id"])
+            return result
         except LiveMeetingStoreError as exc:
             raise _error(exc) from exc
 
@@ -122,7 +143,9 @@ def join_self(
     require_permission(context, Permission.WORKSPACE_MANAGE)
     with _store(context) as store:
         try:
-            return store.add_self(context, meeting_id, new_id("participant"), body.expected_revision)
+            result = store.add_self(context, meeting_id, new_id("participant"), body.expected_revision)
+            _audit(store, context, "agent_meeting.join_self", meeting_id)
+            return result
         except LiveMeetingStoreError as exc:
             raise _error(exc) from exc
 
@@ -135,6 +158,8 @@ def change_state(
     require_permission(context, Permission.WORKSPACE_MANAGE)
     with _store(context) as store:
         try:
-            return store.transition(context, meeting_id, body.expected_revision, body.status)
+            result = store.transition(context, meeting_id, body.expected_revision, body.status)
+            _audit(store, context, "agent_meeting.state_change", meeting_id)
+            return result
         except LiveMeetingStoreError as exc:
             raise _error(exc) from exc
