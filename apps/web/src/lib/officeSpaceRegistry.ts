@@ -23,7 +23,8 @@ export type SpaceCommand =
  | {type:'room.rename';roomId:string;name:string;expectedRevision:number}
  | {type:'room.remove';roomId:string;expectedRevision:number};
 export class SpaceError extends Error {
- constructor(readonly code:'conflict'|'invalid'|'not_found'|'occupied'|'restricted',message:string){super(message);this.name='SpaceError'}
+ readonly code:'conflict'|'invalid'|'not_found'|'occupied'|'restricted';
+ constructor(code:'conflict'|'invalid'|'not_found'|'occupied'|'restricted',message:string){super(message);this.code=code;this.name='SpaceError'}
 }
 export const EMPTY_REGISTRY:SpaceRegistry={revision:0,buildings:[],floors:[],rooms:[],desks:[]};
 const name=(value:string,field:string)=>{
