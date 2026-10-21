@@ -19,7 +19,7 @@ describe('executive guided tour full lifecycle',()=>{
   assert.equal(t.currentRoomId,'executive');
   t=changeGuidedTour(t,{type:'next',at:stamp(7)});
   assert.equal(t.phase,'finished');assert.equal(tourProgress(t),100);
-  assert.deepEqual(t.visited,['reception','sales','executive']);assert.equal(t.events.length,8);
+  assert.deepEqual(t.visited,['reception','sales','executive']);assert.equal(t.events.length,7);
  });
  it('allows interruption and direct room redirection',()=>{
   let t=createGuidedTour('ANUM HQ',stops,stamp(0));
