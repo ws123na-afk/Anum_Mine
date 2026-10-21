@@ -20,7 +20,7 @@ test('existing server-backed workspace modules remain reachable', () => {
     assert.ok(scene.includes('<' + moduleName), moduleName + ' missing from office');
   }
   assert.match(scene, /officeSpaceRegistryOpen/);
-  assert.match(scene, /officePreview/);
+  assert.match(scene, /officeWorld/);
 });
 
 test('office camera, spoken guidance and real-data disclaimers are preserved', () => {
