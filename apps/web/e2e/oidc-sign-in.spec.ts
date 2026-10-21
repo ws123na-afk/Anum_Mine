@@ -145,6 +145,21 @@ test('signs in with authorization code + PKCE, calls the API with the bearer tok
   expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
 });
 
+test('office preview stays behind sign-in and exposes no workspace data', async ({ page }) => {
+  const provider = await mockProviderAndApi(page);
+
+  await page.goto('/#office-preview');
+  await expect(page.getByRole('heading', { name: 'Sign in to ANUM' })).toBeVisible();
+  await expect(page.locator('.anumOfficeTour')).toHaveCount(0);
+  expect(provider.apiHeaders).toHaveLength(0);
+
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.locator('.anumOfficeTour')).toBeVisible();
+  await expect(page.getByText('DEMO', { exact: true })).toHaveCount(1);
+  await expect(page.getByText(/No real task execution/)).toHaveCount(1);
+  expect(provider.apiHeaders).toHaveLength(0);
+});
+
 test('a callback with a forged state is rejected without a token request', async ({ page }) => {
   const provider = await mockProviderAndApi(page);
   await page.goto('/?code=code-e2e&state=forged#tasks');
