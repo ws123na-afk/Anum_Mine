@@ -41,3 +41,29 @@ Do not name the new migration `0097` until the backend Office Registry workstrea
 - Active room messages are always persisted server events, not demo text.
 - Queue/crash/reconnect paths are tested, model/tool budgets hold, and feature-flagged staging passes end-to-end tests.
 - Owner approves any merge, deployment or paid agent execution.
+
+
+## Increment: governed single-turn runtime adapter
+
+`anum_api/live_agent_meeting_runtime.py` provides an asynchronous, independently testable execution boundary between the deterministic coordinator and the actual model provider. For a turn, it:
+
+1. Confirms tenant/workspace scope and active meeting state.
+2. Consults the deterministic coordinator for approvals, emergency-stop, deadline and reserved usage gates.
+3. Rechecks the selected agent's authorization both before and after a durable, compare-and-swap turn reservation.
+4. Calls an injected text generation adapter with explicit output-token and USD cost limits.
+5. Rejects empty replies, missing provenance, negative usage, or consumption beyond the input/output token and cost reservations.
+6. Submits the result through a persistence adapter which must atomically store the exact turn and revised ledger, together with outbox and audit events.
+7. Rejects an invalid persistence receipt and releases failed reservations for retry or inspection.
+
+The `MeetingTurnStore`, `MeetingSafetyGate`, and `AgentTextGenerator` protocols are explicit integration boundaries. The current delivery includes a **test-only** store and generator under `tests/test_live_agent_meeting_runtime.py`, not a deployable provider adapter. No live agent can run from this module alone.
+
+### Required production adapter contracts
+
+- `reserve_turn` must use a Postgres transaction with a unique reservation key and expected meeting revision. Leases have explicit expiry and concurrent workers may never acquire the same sequence.
+- `finish_turn` must revalidate the active session and latest budgets, atomically insert the turn and update counters, enforce session scope and write audit and outbox records. The generated text must remain unconfirmed if commit fails.
+- Failed, expired, or orphaned leases require an auditable reconciliation process. Model calls may still incur provider charges when persistence fails; cost reconciliation must record this as uncommitted usage rather than hiding it.
+- `can_agent_speak` must query trusted ANUM server-side membership, model budget, emergency stop, agent visibility, tool governance, and pending approvals immediately before external work. No frontend field may authorize a speaker.
+- The injected model gateway must enforce its own hard token/cost ceilings. Runtime-side usage checks are a second line of defense, not a substitute for actual provider-side limits.
+- Existing meeting import/transcription APIs remain separate.
+
+The module and tests are a safe backend increment. **It is not an end-to-end production meeting service until those adapters, durable schema, authenticated routes, SSE and integration tests exist.**
