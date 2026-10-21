@@ -1,0 +1,143 @@
+"""Workspace-scoped persistent office configuration repository.
+
+Caller must supply a Session with tenant, workspace and user RLS context already set.
+Every query repeats the scope predicate defensively. Updates use optimistic revisions.
+No agent activity or private agent profile data are fabricated in this module.
+"""
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+
+from .schemas import TenantContext
+
+
+class SpaceStoreError(Exception):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+_TABLES = {
+    "buildings": "office_buildings",
+    "floors": "office_floors",
+    "rooms": "office_rooms",
+    "desks": "office_desks",
+}
+_PARENT = {"floors": ("building_id", "buildings"), "rooms": ("floor_id", "floors"), "desks": ("room_id", "rooms")}
+_COLUMNS = {
+    "buildings": ("name", "timezone", "latitude", "longitude"),
+    "floors": ("building_id", "level", "name"),
+    "rooms": ("floor_id", "name", "kind", "capacity"),
+    "desks": ("room_id", "label", "agent_id"),
+}
+
+
+class SqlOfficeSpaceStore:
+    def __init__(self, session: Session):
+        self.session = session
+
+    @staticmethod
+    def _table(kind: str) -> str:
+        try:
+            return _TABLES[kind]
+        except KeyError as exc:
+            raise SpaceStoreError("invalid", "Unknown office resource") from exc
+
+    @staticmethod
+    def _params(context: TenantContext, **kwargs: Any) -> dict[str, Any]:
+        return {"tenant": context.tenant_id, "workspace": context.workspace_id, **kwargs}
+
+    def list(self, context: TenantContext, kind: str, parent_id: str | None = None) -> list[dict[str, Any]]:
+        table = self._table(kind)
+        parent = _PARENT.get(kind)
+        extra = f"and {parent[0]} = :parent" if parent and parent_id is not None else ""
+        params = self._params(context, parent=parent_id)
+        return [dict(row) for row in self.session.execute(text(f"""
+            select * from {table} where tenant_id = :tenant and workspace_id = :workspace {extra}
+            order by created_at, id limit 1000
+        """), params).mappings().all()]
+
+    def get(self, context: TenantContext, kind: str, item_id: str) -> dict[str, Any] | None:
+        table = self._table(kind)
+        row = self.session.execute(text(f"""
+            select * from {table}
+            where tenant_id = :tenant and workspace_id = :workspace and id = :id
+        """), self._params(context, id=item_id)).mappings().first()
+        return dict(row) if row else None
+
+    def create(self, context: TenantContext, kind: str, item_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
+        table = self._table(kind)
+        expected = set(_COLUMNS[kind])
+        if set(fields) != expected:
+            raise SpaceStoreError("invalid", "Unexpected office record fields")
+        columns = ", ".join(_COLUMNS[kind])
+        placeholders = ", ".join(f":{key}" for key in _COLUMNS[kind])
+        params = self._params(context, id=item_id, actor=context.user_id, **dict(fields))
+        try:
+            result = self.session.execute(text(f"""
+                insert into {table}
+                  (id, tenant_id, workspace_id, created_by, {columns})
+                values (:id, :tenant, :workspace, :actor, {placeholders})
+                returning *
+            """), params).mappings().one()
+            return dict(result)
+        except IntegrityError as exc:
+            raise SpaceStoreError("conflict", "Room, floor, desk or building already exists, or parent is unavailable") from exc
+
+    def rename_room(self, context: TenantContext, room_id: str, name: str, revision: int) -> dict[str, Any]:
+        try:
+            row = self.session.execute(text("""
+                update office_rooms set name = :name, revision = revision + 1, updated_at = now()
+                where tenant_id = :tenant and workspace_id = :workspace
+                  and id = :id and revision = :revision
+                returning *
+            """), self._params(context, name=name, id=room_id, revision=revision)).mappings().first()
+            if row is None:
+                self._raise_revision(context, "rooms", room_id)
+            return dict(row)
+        except IntegrityError as exc:
+            raise SpaceStoreError("conflict", "A room already has that name on this floor") from exc
+
+    def assignment(self, context: TenantContext, desk_id: str, agent_id: str | None, revision: int) -> dict[str, Any]:
+        # Agent visibility is user-scoped; private profiles must never be assigned by unauthorized users.
+        if agent_id is not None:
+            result = self.session.execute(text("""
+                select 1 from agent_profiles
+                where tenant_id = :tenant and workspace_id = :workspace and id = :agent
+            """), self._params(context, agent=agent_id)).first()
+            if result is None:
+                raise SpaceStoreError("not_found", "The agent is not visible in this workspace")
+        try:
+            row = self.session.execute(text("""
+                update office_desks set agent_id = :agent, revision = revision + 1, updated_at = now()
+                where tenant_id = :tenant and workspace_id = :workspace
+                  and id = :id and revision = :revision
+                returning *
+            """), self._params(context, agent=agent_id, id=desk_id, revision=revision)).mappings().first()
+            if row is None:
+                self._raise_revision(context, "desks", desk_id)
+            return dict(row)
+        except IntegrityError as exc:
+            raise SpaceStoreError("conflict", "This agent already occupies another desk") from exc
+
+    def delete_room(self, context: TenantContext, room_id: str, revision: int) -> None:
+        # Restrictive foreign key rejects deletion when workstations still exist.
+        try:
+            result = self.session.execute(text("""
+                delete from office_rooms where tenant_id = :tenant and workspace_id = :workspace
+                and id = :id and revision = :revision returning id
+            """), self._params(context, id=room_id, revision=revision)).first()
+            if result is None:
+                self._raise_revision(context, "rooms", room_id)
+        except IntegrityError as exc:
+            raise SpaceStoreError("conflict", "Remove the desks before deleting the room") from exc
+
+    def _raise_revision(self, context: TenantContext, kind: str, item_id: str) -> None:
+        if self.get(context, kind, item_id) is None:
+            raise SpaceStoreError("not_found", "Office record not found in this workspace")
+        raise SpaceStoreError("conflict", "Office layout changed. Reload before retrying")
