@@ -1,4 +1,4 @@
-# F09 — ANUM MINE Work History & Replay (evidence API)
+# F09 :  ANUM MINE Work History & Replay (evidence API)
 
 ## Isolation and purpose
 
@@ -33,7 +33,7 @@ or unscoped SQL is introduced.
 The API uses the existing keyset cursor over immutable audit records.
 It deliberately pages underlying records **before** category filtering:
 a page may have zero matching results while `next_cursor` remains set.
-This is not a bug—clients should keep paginating until the cursor is null
+This is not a bug: clients should keep paginating until the cursor is null
 or the user stops. It prevents unbounded category scans on sparse history.
 
 The response does not include generic runtime payloads, secrets, or fabricated
