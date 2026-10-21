@@ -36,8 +36,16 @@ Every mutation records an append-only audit record within the same PostgreSQL tr
 
 The backend derives tenant, workspace and actor exclusively from the authenticated request context. Client-provided scope properties are rejected by strict input models.
 
+## Connected web operations (implemented, CI verification pending)
+The ANUM MINE office now opens `OfficeSpaceLiveManager.tsx` instead of the old local registry. Its authenticated API adapter `officeSpaceClient.ts` loads server records with bounded, cursor-paged reads and rejects tenant/workspace mismatches. The management UI includes building and floor creation, room creation/renaming/deletion, workstation creation/deletion, assignment to a real visible agent, vacancy, current occupancy, server reload, and error/409 messaging. Writes re-read canonical server state before declaring success.
+
+When the PostgreSQL API is not configured, the panel shows an error and an **explicitly local, nonpersistent demo**. No write is reported saved when the API returned an error. User workspace switches invalidate cached data and block stale-scope writes. The production API rejects caller-supplied scope fields.
+
+An existing production agent status or meeting status is not created by adding a desk. Those depend on the separate presence and multi-agent-meeting services.
+
 ## Tests
 - `services/api/tests/test_office_space_api.py`: strict input schemas; memory mode fails closed.
+- `apps/web/test/officeSpaceClient.test.ts`: cursor pagination, scope isolation, duplicate/invalid pages and mutation contracts.
 - `services/api/tests/test_postgres_office_spaces.py`: migrated database, tenant/workspace scope, same IDs across tenants, owner-only writes, capacity constraint, stale revision and scope-separated foreign keys.
 - Existing repository checks and app CI must also pass. Database tests require the PostgreSQL test fixture and migration head.
 
@@ -46,7 +54,7 @@ The backend derives tenant, workspace and actor exclusively from the authenticat
 2. Cursor pagination is implemented (page size 1-100). Verify cursor stability under parallel edits and cover very large workspaces with load tests.
 3. Add server-issued outbox events for room/desk changes and replay through existing SSE; audit records alone are insufficient for real-time desk sync.
 4. Add idempotency keys for create operations and stronger API versions/ETags; revisions currently cover mutation concurrency.
-5. Integrate the frontend with real APIs and teach it to handle 409/reload, unauthorized reads, offline state, multi-workspace switch and user feedback.
+5. The web manager and API adapter are implemented. Validate browser behavior for 409/reload, unauthorized reads, offline state, and multi-workspace switching with Playwright before release.
 6. Implement row geometry/coordinates, walkable paths, and 3D scene assets in a separate feature.
 7. Test migration downgrade only in an empty test workspace. Production rollback must disable the feature and restore backup instead of deleting real office records.
 8. Test many concurrent assignments, cache invalidation, tenant deletion and API performance at 200+ agents / 1000+ desks.
