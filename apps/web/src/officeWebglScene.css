@@ -1,0 +1,15 @@
+/* WebGL scene intentionally has an always-available accessible floor directory. */
+.officeWebglStage{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.officeWebglCanvas{display:block;position:absolute;inset:0;width:100%;height:100%;pointer-events:auto;cursor:crosshair}
+.officeWebglLegend{position:absolute;left:50%;bottom:2%;width:min(540px,74%);transform:translateX(-50%);padding:13px 16px 12px;background:#0a1c2cea;border:1px solid #587c82a0;border-radius:14px;box-shadow:0 14px 35px #03131c91;display:flex;flex-direction:column;gap:4px;color:#f0fbff;pointer-events:auto}
+.officeWebglLegend>span{font-size:10px;font-weight:750;letter-spacing:.15em;color:#66dfcf}
+.officeWebglLegend>strong{font-size:15px}
+.officeWebglLegend>small{font-size:11px;color:#b6d2d6}
+.officeWebglRoomPills{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;max-height:66px;overflow:auto}
+.anumOfficeTour .officeWebglRoomPills button{font-size:11px;padding:4px 8px;border-radius:6px;background:#182f43;border-color:#526d78}
+.anumOfficeTour .officeWebglRoomPills button[aria-pressed=true]{background:#08695e;border-color:#55d6bb}
+.officeWebglUnavailable{position:absolute;left:27%;right:27%;top:40%;padding:24px;text-align:center;background:#15293e;color:white;border:1px solid #73b6b6;border-radius:12px}
+.anumOfficeTour .office3dToggle{background:#1b4b51;border:1px solid #5c9b98;font-size:12px}
+.anumOfficeTour .office3dToggle[aria-pressed=true]{background:#097a70;color:#fff;border-color:#7be8d2}
+@media(max-width:1000px){.officeWebglLegend{left:51%;bottom:17%;width:50%}.officeWebglRoomPills{max-height:48px}}
+@media(max-width:640px){.officeWebglLegend{left:50%;bottom:26%;width:92%;padding:8px}.officeWebglRoomPills{max-height:30px}.officeWebglLegend>small{display:none}}
