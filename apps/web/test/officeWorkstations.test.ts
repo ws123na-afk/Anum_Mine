@@ -39,4 +39,12 @@ describe('authenticated office workstation projection',()=>{
   assert.equal(s.records[0].status,'queued');
   assert.equal(s.records[1].status,'unknown');
  });
+ it('does not assume complete agent coverage at the pagination ceiling',()=>{
+  const agents=Array.from({length:300},(_,i)=>agent('a-'+i));
+  const state=snapshot(agents,[]);
+  assert.equal(state.complete,false);
+  assert.ok(state.partialSources.includes('agent_pagination_limit'));
+  assert.equal(state.records[0].status,'unknown');
+ });
+
 });
