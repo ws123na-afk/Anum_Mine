@@ -4,7 +4,7 @@
 import type { OrgSources } from './orgChart.ts';
 import { loadOrgSources } from './orgChart.ts';
 import { projectOfficePresence, type OfficePresence, type OfficeAgent, type OfficeTask } from './officePresence.ts';
-import * as api from './api.ts';
+
 export interface WorkstationRecord extends OfficePresence {
   taskTitles:readonly string[];
   profileStatus:string;
@@ -50,6 +50,7 @@ export function projectWorkstationSnapshot(sources:Pick<OrgSources,'agents'|'tas
   return {scope,observedAt,records,partialSources,complete};
 }
 export async function loadWorkspaceWorkstations(previous:OrgSources|null=null):Promise<{snapshot:WorkstationSnapshot;sources:OrgSources}> {
+  const api=await import('./api.ts');
   const scope=api.currentScope();
   const now=Date.now();
   const sources=await loadOrgSources(api.apiRequest,now,previous);
