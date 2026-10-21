@@ -317,6 +317,7 @@ _ORDER = (
     "agent_memories",
     "setup_plan_checks",
     "setup_plan_items",
+    "office_create_keys",
     "office_desks",
     "office_rooms",
     "office_floors",

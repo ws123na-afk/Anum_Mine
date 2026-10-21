@@ -9,7 +9,7 @@ def test_office_write_is_not_faked_on_memory_backend(monkeypatch):
     h = {"x-tenant-id": "tenant_office_unit", "x-workspace-id": "workspace_office_unit", "x-user-id": "owner_office_unit", "x-user-roles": "owner"}
     response = TestClient(app).post("/api/v1/office-spaces/buildings", headers=h, json={"id": "hq", "name": "HQ", "timezone": "Asia/Riyadh"})
     assert response.status_code == 503, response.text
-    assert "PostgreSQL" in str(response.json())
+    assert "PostgreSQL" in response.json()["error"]["message"]
 
 
 def test_office_models_require_strict_fields():
