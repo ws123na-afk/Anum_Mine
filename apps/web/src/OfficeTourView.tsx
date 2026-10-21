@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ArrowLeft, Building2, ChevronLeft, ChevronRight, Compass, Expand, Minimize, Moon, RotateCcw, Sun, Volume2, VolumeX, ZoomIn, ZoomOut } from 'lucide-react';
+import { OfficeWorkstations } from './OfficeWorkstations';
+import { OfficeSpaceRegistry } from './OfficeSpaceRegistry';
+import { ReceptionOperations } from './ReceptionOperations';
+import { GuidedExecutiveTour } from './GuidedExecutiveTour';
+import type { TourStop } from './lib/guidedExecutiveTour';
+import { nextTourRoom, parseTourDirection } from './lib/officeTourNavigation';
+import { OFFICE_LOCATIONS, officeLightAt } from './lib/officeSolar';
 import './officeTour.css';
 
 type Dept = { id: string; name: string; role: string; people: string[]; x: number; y: number; width: number; height: number; floor: number; accent: string };
@@ -57,6 +64,8 @@ function seededSpot(index:number){return {left:`${18 + (index%3)*25}%`,top:`${38
 
 export function OfficeTourView() {
   const ref = useRef<HTMLDivElement>(null);
+  const [workstationsOpen,setWorkstationsOpen]=useState(false),[spaceRegistryOpen,setSpaceRegistryOpen]=useState(false);
+  const [receptionOpen,setReceptionOpen]=useState(false),[executiveTourOpen,setExecutiveTourOpen]=useState(false);
   const [site,setSite]=useState(0),[floor,setFloor]=useState(0),[angle,setAngle]=useState(-9),[tilt,setTilt]=useState(11),[zoom,setZoom]=useState(1);
   const [pan,setPan]=useState({x:0,y:0});
   const drag=useRef<{id:number;x:number;y:number;startX:number;startY:number;angle:number;tilt:number;panX:number;panY:number;mode:'rotate'|'pan';moved:boolean}|null>(null);
@@ -70,10 +79,13 @@ export function OfficeTourView() {
   const recognitionRef=useRef<{stop:()=>void}|null>(null);
   const rooms=SITE_ROOMS[site]??ROOMS;
   const visible=useMemo(()=>rooms.filter(r=>r.floor===floor),[rooms,floor]);
+  const tourStops=useMemo<TourStop[]>(()=>rooms.map(r=>({id:r.id,name:r.name,floor:r.floor,x:r.x+r.width/2,y:r.y+r.height/2,description:r.role,staff:r.people})),[rooms]);
   const active=rooms.find(r=>r.id===selected);
   const paSpot=active && active.floor===floor ? {left: `${active.x + active.width / 2}%`, top: `${active.y + active.height / 2}%`} : {left:'50%',top:'80%'};
   const activeZone = zone === 'browser' ? Intl.DateTimeFormat().resolvedOptions().timeZone : zone;
-  const dark=mode==='night'||(mode==='auto'&&(hourAt(activeZone)<6||hourAt(activeZone)>=18));
+  const officeLocation=OFFICE_LOCATIONS[activeZone];
+  const solarMode=officeLocation?officeLightAt(new Date(),officeLocation):hourAt(activeZone)>=6&&hourAt(activeZone)<18?'day':'night';
+  const dark=mode==='night'||(mode==='auto'&&solarMode!=='day');
   useEffect(()=>{const t=window.setInterval(()=>setNow(Date.now()),30000);return()=>window.clearInterval(t)},[]);
   useEffect(()=>{const onChange=()=>setFull(document.fullscreenElement===ref.current);document.addEventListener('fullscreenchange',onChange);return()=>document.removeEventListener('fullscreenchange',onChange)},[]);
   useEffect(()=>()=>{if('speechSynthesis' in window)window.speechSynthesis.cancel();recognitionRef.current?.stop()},[]);
@@ -84,19 +96,23 @@ export function OfficeTourView() {
   };
   const follow=()=>{
     const order=['reception','command','meeting','sales','tyre','finance','executive'];
-    const itinerary=site===0?order:rooms.map(r=>r.id);const next=rooms.find(r=>r.id===itinerary[(itinerary.indexOf(selected)+1)%itinerary.length])!;
-    setTour(true);guide(next);
+    const next=nextTourRoom(rooms,selected,site===0?order:[]);
+    if(next){const found=rooms.find(r=>r.id===next.id);if(found)guide(found)}
   };
   const submit=()=>{
-    const phrase=command.trim().toLowerCase();if(!phrase)return;
-    setCommand('');
-    if(/stop|quiet|mute/.test(phrase)){setTour(false);setSpeaking(false);setMessage('Tour paused. Voice muted.');window.speechSynthesis?.cancel();return;}
-    if(/next|tour|guide|continue/.test(phrase)){follow();return;}
-    if(/floor (one|1)|first floor/.test(phrase)){setFloor(1);setMessage('Showing the first floor.');return;}
-    if(/floor (two|2)|second floor/.test(phrase)){setFloor(2);setMessage('Showing the executive floor.');return;}
-    const found=rooms.find(r=>phrase.includes(r.id)||phrase.includes(r.name.toLowerCase().split(' ')[0]));
-    if(found){guide(found);return;}
-    setMessage('I can navigate this preview to rooms or floors. Actual agent commands will use the governed ANUM Command service after integration.');
+    if(!command.trim())return;
+    const instruction=parseTourDirection(command,rooms);setCommand('');
+    if(instruction.kind==='pause'){setTour(false);setSpeaking(false);setMessage('Tour paused. Voice muted.');window.speechSynthesis?.cancel();return}
+    if(instruction.kind==='restart'){const first=rooms.find(r=>r.floor===0)??rooms[0];if(first)guide(first);return}
+    if(instruction.kind==='next'){follow();return}
+    if(instruction.kind==='floor'){
+      const first=rooms.find(r=>r.floor===instruction.floor);
+      if(first){setFloor(instruction.floor);setSelected(first.id);setMessage('Showing '+FLOORS[instruction.floor]+'. Select a department or continue the tour.')}
+      else setMessage('That floor is not available in this building.');
+      return;
+    }
+    if(instruction.kind==='room'){const found=rooms.find(r=>r.id===instruction.id);if(found)guide(found);return}
+    setMessage('This preview only understands office directions. For real tasks, use ANUM Command and its approval controls.');
   };
   const listen=()=>{
     type RecognitionResult={results:ArrayLike<ArrayLike<{transcript:string}>>};
@@ -137,10 +153,20 @@ export function OfficeTourView() {
           <div className="officePaPresence" style={paSpot}><span aria-hidden="true">✦</span> PA · Escorting you</div>
         </div>
       </div>
-      <aside className="officeFloorPanel"><h2>Floors</h2>{FLOORS.map((f,i)=><button className={i===floor?'active':''} key={f} onClick={()=>{setFloor(i);setSelected(rooms.find(r=>r.floor===i)?.id??rooms[0].id)}}>{i===0?'G':i} <span>{f}</span></button>)}<div className="officeMode"><label>Lighting</label><select value={mode} onChange={e=>setMode(e.target.value as 'auto'|'day'|'night')}><option value="auto">Auto · Office time</option><option value="day">Day preview</option><option value="night">Night preview</option></select>{dark?<Moon size={16}/>:<Sun size={16}/>}</div></aside>
+      <aside className="officeFloorPanel"><h2>Floors</h2>
+      <div className="officeModuleButtons">
+        <button type="button" onClick={()=>setExecutiveTourOpen(true)}>CEO Guided Tour</button>
+        <button type="button" onClick={()=>setWorkstationsOpen(true)}>Live Employee Workstations</button>
+        <button type="button" onClick={()=>setReceptionOpen(true)}>Reception Operations</button>
+        <button type="button" onClick={()=>setSpaceRegistryOpen(true)}>Office Space Management</button>
+      </div>{FLOORS.map((f,i)=><button className={i===floor?'active':''} key={f} onClick={()=>{setFloor(i);setSelected(rooms.find(r=>r.floor===i)?.id??rooms[0].id)}}>{i===0?'G':i} <span>{f}</span></button>)}<div className="officeMode"><label>Lighting</label><select value={mode} onChange={e=>setMode(e.target.value as 'auto'|'day'|'night')}><option value="auto">Auto · Sun position</option><option value="day">Day preview</option><option value="night">Night preview</option></select>{dark?<Moon size={16}/>:<Sun size={16}/>}</div></aside>
       <aside className="officeInfo"><h2>{active?.name||'Select a room'}</h2><p>{active?.role}</p><strong>Example employee roles</strong>{active?.people.length?active.people.map(p=><div className="officePersonLabel" key={p}><span>◉</span> {p}</div>):<small>Visitor and collaboration space</small>}<small>{MANUAL}</small></aside>
       <div className="officePa"><div className="officePaAvatar" aria-hidden="true">✦</div><div className="officePaMessage"><strong>ANUM · Personal Assistant</strong><p>{message}</p><div className="officePaActions"><button onClick={follow}>Take me to the next stop <ChevronRight size={14}/></button><button onClick={()=>{setTour(false);window.speechSynthesis?.cancel();setMessage('Tour paused. Select a department whenever you are ready.')}}>Pause tour</button><button onClick={()=>{setSpeaking(v=>!v);if(speaking)window.speechSynthesis?.cancel()}} title={speaking?'Mute PA voice':'Enable PA voice'}>{speaking?<Volume2 size={16}/>:<VolumeX size={16}/>}</button></div><form onSubmit={e=>{e.preventDefault();submit()}}><input value={command} onChange={e=>setCommand(e.target.value)} aria-label="Give the PA a direction" placeholder="Take me to finance, next room, first floor..." /><button type="button" aria-label={listening ? "Stop listening" : "Dictate navigation"} aria-pressed={listening} onClick={listen}>{listening ? "Stop mic" : "Mic"}</button><button type="submit">Go</button></form></div></div>
       <div className="officeControls"><button onClick={()=>setAngle(a=>a-15)} title="Rotate left"><ChevronLeft/> Rotate</button><button onClick={()=>setAngle(a=>a+15)} title="Rotate right"><ChevronRight/></button><button onClick={()=>setTilt(v=>Math.min(35,v+5))} title="Tilt up"><Compass/></button><button onClick={()=>setTilt(v=>Math.max(0,v-5))} title="Tilt down"><RotateCcw/></button><button onClick={()=>setZoom(v=>Math.max(.65,v-.12))} title="Zoom out"><ZoomOut/></button><button onClick={()=>setZoom(v=>Math.min(1.65,v+.12))} title="Zoom in"><ZoomIn/></button><button onClick={()=>{setAngle(-9);setTilt(11);setZoom(1);setPan({x:0,y:0})}}>Reset</button><button onClick={()=>void toggleFull()} title="Toggle full screen">{full?<Minimize/>:<Expand/>} Full screen</button></div>
+      {workstationsOpen&&<OfficeWorkstations onClose={()=>setWorkstationsOpen(false)}/>}
+      {spaceRegistryOpen&&<OfficeSpaceRegistry onClose={()=>setSpaceRegistryOpen(false)}/>}
+      {receptionOpen&&<ReceptionOperations onClose={()=>setReceptionOpen(false)} onDestination={name=>{const room=rooms.find(r=>r.name===name);if(room){setFloor(room.floor);setSelected(room.id);setReceptionOpen(false)}else setMessage('The escort destination is not mapped to this office preview.')}}/>}
+      {executiveTourOpen&&<GuidedExecutiveTour key={site} site={SITES[site]} stops={tourStops} onClose={()=>setExecutiveTourOpen(false)} onArrive={id=>{const room=rooms.find(r=>r.id===id);if(room){setFloor(room.floor);setSelected(room.id);setTour(true);setMessage('Your PA guided you to '+room.name+'. Employee activity is illustrative.')}}}/>}
     </main><footer className="officeFooter"><span>{tour?'Guided tour active':'Ready for your visit'}</span><span>Preview · Illustrative staff and rooms · No real task execution</span><span>{SITES[site]+' · layout concept'}</span></footer>
   </div>;
 }
