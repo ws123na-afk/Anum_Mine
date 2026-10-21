@@ -118,7 +118,7 @@ def test_only_authorized_role_and_participant_may_speak():
 
 def test_wrong_revision_sequence_pause_cancel_and_finish():
     m = prepare()
-    with pytest.raises(MeetingConflict, match="revision"):
+    with pytest.raises(MeetingConflict, match="meeting changed"):
         append_turn(m, turn(), tenant_id="t1", workspace_id="w1",
                     expected_revision=1, now=NOW)
     with pytest.raises(MeetingConflict, match="sequence"):
