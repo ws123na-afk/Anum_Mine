@@ -30,7 +30,8 @@ export type ReceptionEvent =
  | {type:'reset'};
 export type ReceptionErrorCode = 'invalid_input' | 'duplicate' | 'not_found' | 'invalid_transition';
 export class ReceptionError extends Error {
- constructor(public readonly code:ReceptionErrorCode,message:string){super(message);this.name='ReceptionError'}
+ readonly code:ReceptionErrorCode;
+ constructor(code:ReceptionErrorCode,message:string){super(message);this.code=code;this.name='ReceptionError'}
 }
 export const EMPTY_RECEPTION:ReceptionState={visits:[],revision:0};
 const TRANSITIONS:Record<VisitAction,{from:readonly VisitStage[];to:VisitStage}> = {
