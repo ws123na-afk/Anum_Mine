@@ -17,3 +17,12 @@ test('office scene labels its example activity rather than claiming live agents'
   assert.match(tour, /MANUAL/);
   assert.match(tour, /illustrative/);
 });
+
+test('office rooms can open actual ANUM modules, with no invented deep links', () => {
+  for (const entry of ["command:'command'", "meeting:'meetings'", "finance:'finance'", "tyre:'tyre'"]) {
+    assert.ok(tour.includes(entry), entry + ' is missing');
+  }
+  assert.match(tour, /officeOpenModule/);
+  assert.match(tour, /window.location.hash='#'\+moduleDestination\(active.id\)/);
+  assert.match(tour, /window.location.hash='#home'/);
+});
