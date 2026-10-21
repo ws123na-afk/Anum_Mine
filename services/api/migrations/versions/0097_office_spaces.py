@@ -56,7 +56,7 @@ def _rls(table: str) -> None:
     # Same tenant/workspace purge service pattern as 0096; no blanket permissions.
     op.execute(f"grant select (tenant_id, ctid, workspace_id), delete on {table} to anum_tenant_purger")
     op.execute(
-        f"""create policy lifecycle_purge_{table} on {table} for all to anum_tenant_purger
+        f"""create policy lifecycle_purge_{table} on {table} for all to anum_tenant_purger  -- nosec B608: migration uses only fixed TABLES identifiers
         using (
             tenant_id = nullif(current_setting('anum.tenant_id', true), '')
             and exists (select 1 from tenant_lifecycle_jobs j

@@ -47,7 +47,7 @@ def _rls(table: str) -> None:
     )
     op.execute(f"grant select (tenant_id, workspace_id, ctid), delete on {table} to anum_tenant_purger")
     op.execute(
-        f"""create policy lifecycle_purge_{table} on {table} for all to anum_tenant_purger
+        f"""create policy lifecycle_purge_{table} on {table} for all to anum_tenant_purger  -- nosec B608: migration uses only fixed TABLES identifiers
         using (
             tenant_id = nullif(current_setting('anum.tenant_id', true), '')
             and exists (

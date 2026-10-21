@@ -220,3 +220,14 @@
   .anumOfficeTour .officePa{bottom:70px}
   .anumOfficeTour .officeControls{bottom:5px}
 }
+
+/* Real module action: exits the illustrative tour and enters the authenticated workspace. */
+.anumOfficeTour .officeOpenModule{
+  margin-top:6px;width:100%;min-height:42px;justify-content:space-between;
+  background:linear-gradient(120deg,#087e78,#0d555e);
+  color:#effffb;border:1px solid #52c5b7;
+  font-weight:700;letter-spacing:.01em;
+}
+.anumOfficeTour .officeOpenModule:hover,.anumOfficeTour .officeOpenModule:focus-visible{
+  background:#117c74;border-color:#b6f3db;
+}

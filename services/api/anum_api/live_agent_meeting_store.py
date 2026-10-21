@@ -47,11 +47,20 @@ class SqlLiveMeetingStore:
             raise LiveMeetingStoreError("conflict", "Meeting already exists or workspace is unavailable") from exc
 
     def get(self, context: TenantContext, meeting_id: str, *, lock: bool = False) -> dict[str, Any] | None:
-        suffix = " for update" if lock else ""
-        return self.session.execute(text("""
+        # Both query variants are complete SQL literals. No query-string assembly.
+        read_query = text("""
             select * from agent_meeting_sessions
             where tenant_id=:tenant and workspace_id=:workspace and id=:id
-        """ + suffix), self.args(context, id=meeting_id)).mappings().first()
+        """)
+        locked_query = text("""
+            select * from agent_meeting_sessions
+            where tenant_id=:tenant and workspace_id=:workspace and id=:id
+            for update
+        """)
+        return self.session.execute(
+            locked_query if lock else read_query,
+            self.args(context, id=meeting_id),
+        ).mappings().first()
 
     def list(self, context: TenantContext, *, cursor: str | None, limit: int) -> dict[str, Any]:
         params = self.args(context, cursor=cursor, limit=limit + 1)
@@ -130,9 +139,9 @@ class SqlLiveMeetingStore:
             update agent_meeting_sessions set revision=revision+1, updated_at=now()
         """
         if change_status:
-            sql += """, status=:new_status,
-                started_at=case when :new_status='active' and started_at is null then now() else started_at end,
-                ended_at=case when :new_status in ('finished','cancelled','failed') then now() else ended_at end
+            sql += """, status=cast(:new_status as varchar),
+                started_at=case when cast(:new_status as varchar)='active' and started_at is null then now() else started_at end,
+                ended_at=case when cast(:new_status as varchar) in ('finished','cancelled','failed') then now() else ended_at end
             """
         sql += """ where tenant_id=:tenant and workspace_id=:workspace
                 and id=:id and revision=:revision returning *"""
