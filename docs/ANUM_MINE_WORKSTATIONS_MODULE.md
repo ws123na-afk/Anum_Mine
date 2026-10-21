@@ -25,13 +25,13 @@ Statuses represent **task evidence**, not human physical presence:
 - unknown: insufficient data, including failed open-task requests
 - stale: timestamp older than 90 seconds, replacing the displayed status label
 
-The underlying Org Chart API loader caps task pagination at 500 records; a snapshot at this cap is considered incomplete. Partial errors are disclosed, not silently discarded.
+The underlying Org Chart API loader caps task pagination at 500 records; a snapshot at this cap is considered incomplete. Partial errors are disclosed, not silently discarded. Task, agent run, agent and approval events trigger a coalesced refresh, with the 30-second poll as a fallback. A failed refresh labels the retained snapshot stale immediately. A 401 or 403 clears employee evidence and explains how to sign in again or select an authorized workspace. A connection failure retains the last snapshot, marked stale, with a Refresh action.
 
 ## Known limitations and production gates
 - It is a **production-oriented frontend read module**, but full production acceptance depends on CI, service integration tests and owner review.
 - There is **no persisted room-to-agent mapping** or physically accurate desk placement yet.
 - Agent profile status mapping needs alignment with every possible profile state before release, rather than classifying all non-active statuses as paused.
-- Polling every 30 seconds is present; resilient SSE event synchronization is a later enhancement.
+- The event stream has a polling fallback, but reconnect and replay of missed events are a later enhancement.
 - Task IDs are not clickable execution controls. Users must use existing Tasks/Agents pages to act with approvals.
 - No real-time meeting bot or fabricated transcript is included.
 

@@ -1,12 +1,28 @@
 import assert from 'node:assert/strict';
 import {describe,it} from 'node:test';
-import {projectWorkstationSnapshot,workstationDepartment} from '../src/lib/officeWorkstations.ts';
+import {officeEventAffectsWorkstations,projectWorkstationSnapshot,workstationDepartment,workstationLoadProblem} from '../src/lib/officeWorkstations.ts';
+import {ApiError} from '../src/lib/errors.ts';
 import type {OrgSources} from '../src/lib/orgChart.ts';
 const scope={tenantId:'tenant-A',workspaceId:'workspace-1'};
 const agent=(id:string,department:string|null='Tyre Engineering',tenant_id='tenant-A',workspace_id='workspace-1')=>({id,name:id,department,tenant_id,workspace_id,status:'active'}) as OrgSources['agents'][number];
 const task=(id:string,agent_id:string,tenant_id='tenant-A',workspace_id='workspace-1',status='running')=>({id,agent_id,tenant_id,workspace_id,title:'Task '+id,status}) as OrgSources['tasks'][number];
 const snapshot=(agents:OrgSources['agents'],tasks:OrgSources['tasks'],partial:OrgSources['partial']=[])=>projectWorkstationSnapshot({agents,tasks,partial},scope,'2026-10-21T08:00:00Z');
 describe('authenticated office workstation projection',()=>{
+ it('refreshes for canonical task, agent run, agent and approval events only',()=>{
+  for(const event of ['task.created','task.completed','agent_run.started','agent.updated','approval.requested']) assert.equal(officeEventAffectsWorkstations(event),true,event);
+  for(const event of ['taskish.created','meeting.started','agent_runaway.started','approval']) assert.equal(officeEventAffectsWorkstations(event),false,event);
+ });
+ it('clears employee evidence after authorization is revoked but retains it during a connection failure',()=>{
+  const denied=workstationLoadProblem(new ApiError(403,null,'Forbidden'));
+  assert.equal(denied.clearSnapshot,true);
+  assert.match(denied.message,/choose a workspace/i);
+  const expired=workstationLoadProblem(new ApiError(401,null,'Expired'));
+  assert.equal(expired.clearSnapshot,true);
+  assert.match(expired.message,/sign in again/i);
+  const offline=workstationLoadProblem(new TypeError('Failed to fetch'));
+  assert.equal(offline.clearSnapshot,false);
+  assert.match(offline.message,/check your connection/i);
+ });
  it('shows only caller workspace agents and tasks, never other tenant content',()=>{
   const s=snapshot([agent('authorised'),agent('secret','Finance','tenant-B','workspace-9')],[task('task1','authorised'),task('private','secret','tenant-B','workspace-9')]);
   assert.equal(s.records.length,1);assert.equal(s.records[0].name,'authorised');

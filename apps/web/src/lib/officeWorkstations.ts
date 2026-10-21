@@ -4,7 +4,25 @@
 import type { OrgSources } from './orgChart.ts';
 import { loadOrgSources } from './orgChart.ts';
 import { projectOfficePresence, type OfficePresence, type OfficeAgent, type OfficeTask } from './officePresence.ts';
+import { ApiError } from './errors.ts';
 
+/** Events that can change the directory's agent or task evidence. */
+export function officeEventAffectsWorkstations(type:string):boolean {
+  return /^(task|agent_run|agent|approval)\./.test(type);
+}
+
+export function workstationLoadProblem(error:unknown):{message:string;clearSnapshot:boolean} {
+  if(error instanceof ApiError && (error.status===401||error.status===403)) {
+    return {
+      message:error.status===401
+        ? 'Your sign-in expired. Sign in again, then reopen the office.'
+        : 'You cannot view employees in this workspace. Return to ANUM and choose a workspace you can access.',
+      clearSnapshot:true,
+    };
+  }
+  if(error instanceof TypeError) return {message:'The office could not reach ANUM. Check your connection and try Refresh.',clearSnapshot:false};
+  return {message:error instanceof Error?error.message:'Workstation data could not be loaded. Try Refresh.',clearSnapshot:false};
+}
 export interface WorkstationRecord extends OfficePresence {
   taskTitles:readonly string[];
   profileStatus:string;
@@ -50,6 +68,8 @@ export function projectWorkstationSnapshot(sources:Pick<OrgSources,'agents'|'tas
   return {scope,observedAt,records,partialSources,complete};
 }
 export async function loadWorkspaceWorkstations(previous:OrgSources|null=null):Promise<{snapshot:WorkstationSnapshot;sources:OrgSources}> {
+  // Keep the browser API outside the pure projection's import graph so the
+  // Node unit runner can verify scope and status rules without a browser.
   const api=await import('./api.ts');
   const scope=api.currentScope();
   const now=Date.now();
