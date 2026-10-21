@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ArrowLeft, Building2, ChevronLeft, ChevronRight, Compass, Expand, Minimize, Moon, RotateCcw, Sun, Volume2, VolumeX, ZoomIn, ZoomOut } from 'lucide-react';
 import './officeTour.css';
+import { nextTourRoom, parseTourDirection } from './lib/officeTourNavigation';
 
 type Dept = { id: string; name: string; role: string; people: string[]; x: number; y: number; width: number; height: number; floor: number; accent: string };
 const ROOMS: Dept[] = [
@@ -84,19 +85,24 @@ export function OfficeTourView() {
   };
   const follow=()=>{
     const order=['reception','command','meeting','sales','tyre','finance','executive'];
-    const itinerary=site===0?order:rooms.map(r=>r.id);const next=rooms.find(r=>r.id===itinerary[(itinerary.indexOf(selected)+1)%itinerary.length])!;
-    setTour(true);guide(next);
+    const next=nextTourRoom(rooms,selected,site===0?order:[]);
+    if(next)guide(rooms.find(r=>r.id===next.id)!);
   };
   const submit=()=>{
-    const phrase=command.trim().toLowerCase();if(!phrase)return;
+    const instruction=parseTourDirection(command,rooms);
+    if(!command.trim())return;
     setCommand('');
-    if(/stop|quiet|mute/.test(phrase)){setTour(false);setSpeaking(false);setMessage('Tour paused. Voice muted.');window.speechSynthesis?.cancel();return;}
-    if(/next|tour|guide|continue/.test(phrase)){follow();return;}
-    if(/floor (one|1)|first floor/.test(phrase)){setFloor(1);setMessage('Showing the first floor.');return;}
-    if(/floor (two|2)|second floor/.test(phrase)){setFloor(2);setMessage('Showing the executive floor.');return;}
-    const found=rooms.find(r=>phrase.includes(r.id)||phrase.includes(r.name.toLowerCase().split(' ')[0]));
-    if(found){guide(found);return;}
-    setMessage('I can navigate this preview to rooms or floors. Actual agent commands will use the governed ANUM Command service after integration.');
+    if(instruction.kind==='pause'){setTour(false);setSpeaking(false);setMessage('Tour paused. Voice muted.');window.speechSynthesis?.cancel();return;}
+    if(instruction.kind==='restart'){const first=rooms.find(r=>r.floor===0)??rooms[0];if(first)guide(first);return;}
+    if(instruction.kind==='next'){follow();return;}
+    if(instruction.kind==='floor'){
+      const first=rooms.find(r=>r.floor===instruction.floor);
+      if(first){setFloor(instruction.floor);setSelected(first.id);setMessage('Showing '+FLOORS[instruction.floor]+'. Select a department or continue the tour.');}
+      else setMessage('That floor is not available in this building.');
+      return;
+    }
+    if(instruction.kind==='room'){const found=rooms.find(r=>r.id===instruction.id);if(found)guide(found);return;}
+    setMessage('This preview only understands office directions. For real tasks, use ANUM Command and its approval controls.');
   };
   const listen=()=>{
     type RecognitionResult={results:ArrayLike<ArrayLike<{transcript:string}>>};
