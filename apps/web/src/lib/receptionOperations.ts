@@ -43,7 +43,7 @@ const TRANSITIONS:Record<VisitAction,{from:readonly VisitStage[];to:VisitStage}>
 };
 function requireText(value:string,label:string,max:number):string {
  const v=value.trim().replace(/\s+/g,' ');
- if(!v||v.length>max)throw new ReceptionError('invalid_input',label+' must be 1–'+max+' characters.');
+ if(!v||v.length>max)throw new ReceptionError('invalid_input',label+' must be 1-'+max+' characters.');
  return v;
 }
 function requireTime(at:string):string {
