@@ -93,3 +93,18 @@ def test_bad_zone_and_unexpected_fields_rejected(db: None) -> None:
     h = _headers()
     assert client.post("/api/v1/office-spaces/buildings", headers=h, json={**_building(), "timezone": "Not/AZone"}).status_code == 422
     assert client.post("/api/v1/office-spaces/buildings", headers=h, json={**_building(), "tenant_id": TENANT_B}).status_code == 422
+
+def test_space_list_uses_stable_workspace_bounded_cursors(db: None) -> None:
+    h = _headers()
+    for key in ("a", "b", "c"):
+        r = client.post("/api/v1/office-spaces/buildings", headers=h, json={**_building(), "id": key})
+        assert r.status_code == 201, r.text
+    first = client.get("/api/v1/office-spaces/buildings?limit=2", headers=h)
+    assert first.status_code == 200, first.text
+    payload = first.json()
+    assert [item["id"] for item in payload["items"]] == ["a", "b"]
+    second = client.get("/api/v1/office-spaces/buildings?limit=2&cursor=" + payload["next_cursor"], headers=h)
+    assert second.status_code == 200, second.text
+    assert [item["id"] for item in second.json()["items"]] == ["c"]
+    assert second.json()["next_cursor"] is None
+    assert client.get("/api/v1/office-spaces/buildings?limit=101", headers=h).status_code == 422
