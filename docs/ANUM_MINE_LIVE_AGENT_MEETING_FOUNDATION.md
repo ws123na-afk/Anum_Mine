@@ -3,7 +3,7 @@
 ## Purpose and status
 This independent workstream introduces a typed, testable domain for **new agent-run meetings**. It does not modify the existing `meetings.py` flow for imported Zoom/Teams/transcript recordings. Existing imported meetings remain intact.
 
-**Current delivery:** immutable Pydantic meeting models, transition rules, participant scope checks, ordered turns, idempotent request-key semantics, and token/cost/time/turn/participant limits. Unit tests cover boundary and failure scenarios.
+**Current delivery:** immutable Pydantic meeting models, transition rules, participant scope checks, ordered turns, idempotent request-key semantics, and token/cost/time/turn/participant limits. Unit tests cover boundary and failure scenarios. The deterministic turn coordinator now selects only runtime-confirmed eligible agents, rotates speakers based on persisted transcript turns, and refuses execution on emergency stop, pending approvals, missing availability or insufficient reserved budgets.
 
 **Not yet live:** there are no HTTP routes, database migration, SSE/outbox, LLM calls or UI meeting-room connections in this PR. It is a safe initial foundation, not a production-complete multi-agent conference system.
 
@@ -29,7 +29,7 @@ Do not name the new migration `0097` until the backend Office Registry workstrea
 ## Next vertical increments
 1. Transactional session repository with unique `(tenant, workspace, meeting, request_key)` and `(tenant, workspace, meeting, sequence)` constraints; audit and outbox in one commit.
 2. Authenticated FastAPI create/start/pause/cancel/finish APIs with owner/participant permissions, denial of cross-tenant selection, budget limits and idempotent create.
-3. Coordinator using the existing model gateway, tool governance and agent runtime. Persist a confirmed turn **before** emitting it; never bypass approvals or leak secrets.
+3. The pure coordinator policy is implemented, but it is not wired to a provider. Connect it to the existing model gateway, tool governance and agent runtime. Persist a confirmed turn **before** emitting it; never bypass approvals or leak secrets.
 4. Live room UI and SSE snapshot/delta replay with strict authorization; transcript export/retention/redaction.
 5. PostgreSQL + multi-tenant integration, crash recovery, duplicate-event, provider-failure, budget exhaustion and large-room tests.
 6. Follow-up owner verification for deployment limits, retention periods, and provider spend caps.
