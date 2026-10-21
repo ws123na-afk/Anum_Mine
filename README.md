@@ -81,6 +81,7 @@ x-user-roles: owner,member
 - [Roadmap](docs/roadmap.md)
 - [Business model and product master roadmap](docs/ANUM_OS_Business_and_Product_Master_Roadmap.md)
 - [ANUM MINE virtual headquarters master plan (planned web office, guided tour and agent rooms)](docs/ANUM_MINE_VIRTUAL_HEADQUARTERS_MASTER_PLAN.md)
+- [ANUM MINE Executive PA Guided Tour module](docs/ANUM_MINE_EXECUTIVE_PA_TOUR.md)
 - [Business gap register (Order 001)](docs/business/ANUM_BUSINESS_GAP_REGISTER.md)
 - [Reuse decision register: outside projects and their licenses](docs/business/REUSE_DECISION_REGISTER.md)
 - [P0 CI remediation: commerce tests, journey 403, Rust advisories](docs/business/P0_CI_REMEDIATION.md)
