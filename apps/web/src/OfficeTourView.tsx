@@ -58,6 +58,9 @@ function seededSpot(index:number){return {left:`${18 + (index%3)*25}%`,top:`${38
 export function OfficeTourView() {
   const ref = useRef<HTMLDivElement>(null);
   const [site,setSite]=useState(0),[floor,setFloor]=useState(0),[angle,setAngle]=useState(-9),[tilt,setTilt]=useState(11),[zoom,setZoom]=useState(1);
+  const [pan,setPan]=useState({x:0,y:0});
+  const drag=useRef<{id:number;x:number;y:number;startX:number;startY:number;angle:number;panX:number;panY:number;mode:'rotate'|'pan';moved:boolean}|null>(null);
+  const [dragged,setDragged]=useState(false);
   const [zone,setZone]=useState('Asia/Riyadh'),[,setNow]=useState(()=>Date.now());
   const [mode,setMode]=useState<'auto'|'day'|'night'>('auto');
   const [selected,setSelected]=useState<string>('reception'),[speaking,setSpeaking]=useState(true),[tour,setTour]=useState(false);
@@ -81,7 +84,7 @@ export function OfficeTourView() {
   };
   const follow=()=>{
     const order=['reception','command','meeting','sales','tyre','finance','executive'];
-    const index=order.indexOf(selected);const itinerary=site===0?order:rooms.map(r=>r.id);const next=rooms.find(r=>r.id===itinerary[(itinerary.indexOf(selected)+1)%itinerary.length])!;
+    const itinerary=site===0?order:rooms.map(r=>r.id);const next=rooms.find(r=>r.id===itinerary[(itinerary.indexOf(selected)+1)%itinerary.length])!;
     setTour(true);guide(next);
   };
   const submit=()=>{
@@ -110,15 +113,20 @@ export function OfficeTourView() {
     recognition.onerror=()=>{setListening(false);setMessage('Microphone recognition failed. You can type the instruction instead.');};
     try{recognition.start();setListening(true)}catch{setListening(false);setMessage('Microphone is unavailable. Please type the instruction.');}
   };
+  const onScenePointerDown=(e:React.PointerEvent<HTMLDivElement>)=>{if(e.button!==0&&e.button!==2)return;if((e.target as HTMLElement).closest('button'))return;drag.current={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,angle,panX:pan.x,panY:pan.y,mode:e.shiftKey||e.button===2?'pan':'rotate',moved:false};e.currentTarget.setPointerCapture(e.pointerId)};
+  const onScenePointerMove=(e:React.PointerEvent<HTMLDivElement>)=>{const d=drag.current;if(!d||d.id!==e.pointerId)return;const dx=e.clientX-d.x,dy=e.clientY-d.y;if(Math.abs(e.clientX-d.startX)+Math.abs(e.clientY-d.startY)>4){d.moved=true;setDragged(true)}if(d.mode==='pan'){setPan({x:Math.max(-300,Math.min(300,d.panX+dx)),y:Math.max(-220,Math.min(220,d.panY+dy))})}else{setAngle(d.angle+dx*.32);setTilt(v=>Math.max(0,Math.min(35,v-dy*.015)))}};
+  const onScenePointerUp=(e:React.PointerEvent<HTMLDivElement>)=>{if(drag.current?.id===e.pointerId){drag.current=null;if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);setDragged(false)}};
+  const onSceneWheel=(e:React.WheelEvent<HTMLDivElement>)=>{if((e.target as HTMLElement).closest('button'))return;setZoom(v=>Math.max(.65,Math.min(1.65,v-e.deltaY*.001))) };
+  const onOfficeKeys=(e:React.KeyboardEvent<HTMLDivElement>)=>{if((e.target as HTMLElement).closest('input,select,button,textarea'))return;const k=e.key.toLowerCase();if(k==='arrowleft')setAngle(a=>a-10);else if(k==='arrowright')setAngle(a=>a+10);else if(k==='arrowup')setTilt(v=>Math.min(35,v+3));else if(k==='arrowdown')setTilt(v=>Math.max(0,v-3));else if(k==='+'||k==='=')setZoom(v=>Math.min(1.65,v+.1));else if(k==='-')setZoom(v=>Math.max(.65,v-.1));else if(k==='escape'&&document.fullscreenElement)void document.exitFullscreen();else return;e.preventDefault()};
   const toggleFull=async()=>{if(document.fullscreenElement){await document.exitFullscreen()}else await ref.current?.requestFullscreen()};
-  return <div ref={ref} className={`anumOfficeTour ${dark?'night':'day'}`}>
+  return <div ref={ref} className={`anumOfficeTour ${dark?'night':'day'}`} tabIndex={0} onKeyDown={onOfficeKeys}>
     <header className="officeTop">
       <div className="officeBrand"><strong>ANUM <span>MINE</span></strong><small>Virtual Headquarters · Interactive Preview</small></div>
       <div className="officeTopCenter"><Building2 size={16}/><select aria-label="Office building" value={site} onChange={e=>{const next=Number(e.target.value);setSite(next);setFloor(0);setSelected(SITE_ROOMS[next]?.find(r=>r.floor===0)?.id??'reception');setMessage('Welcome to '+SITES[next]+'. Select a room or ask for the next stop. This is an illustrative layout.')}}>{SITES.map((s,i)=><option key={s} value={i}>{s}</option>)}</select><span className="officeDemo">DEMO</span></div>
       <div className="officeRight"><label>Office time zone <select value={zone} onChange={e=>setZone(e.target.value)}><option value="Asia/Riyadh">Riyadh</option><option value="Asia/Dubai">Dubai</option><option value="Asia/Karachi">Karachi</option><option value="browser">Browser</option></select></label><strong>{officeTime(activeZone)}</strong><button title="Exit office" onClick={()=>{window.location.hash='#agents/team'}}><ArrowLeft size={18}/> Back</button></div>
     </header>
     <main className="officeWorld">
-      <div className="officeScene" style={{'--office-angle':`${angle}deg`,'--office-tilt':`${tilt}deg`,'--office-zoom':zoom} as CSSProperties}>
+      <div className={`officeScene ${dragged?'isDragging':''}`} role="region" aria-label="Office camera: drag to rotate, Shift-drag to pan, scroll to zoom, arrow keys to rotate and tilt" onPointerDown={onScenePointerDown} onPointerMove={onScenePointerMove} onPointerUp={onScenePointerUp} onPointerCancel={onScenePointerUp} onWheel={onSceneWheel} onContextMenu={e=>e.preventDefault()} style={{'--office-angle':`${angle}deg`,'--office-tilt':`${tilt}deg`,'--office-zoom':zoom,'--office-pan-x':`${pan.x}px`,'--office-pan-y':`${pan.y}px`} as CSSProperties}>
         <div className="officePlatform">
           <div className="officeAtrium"><span>ANUM MINE</span><small>{FLOORS[floor]}</small></div>
           {visible.map(r=><button key={r.id} className={`officeRoom ${selected===r.id?'picked':''}`} style={{left:`${r.x}%`,top:`${r.y}%`,width:`${r.width}%`,height:`${r.height}%`,'--room-accent':r.accent} as CSSProperties} onClick={()=>guide(r)} aria-label={`Visit ${r.name}`}>
@@ -132,7 +140,7 @@ export function OfficeTourView() {
       <aside className="officeFloorPanel"><h2>Floors</h2>{FLOORS.map((f,i)=><button className={i===floor?'active':''} key={f} onClick={()=>{setFloor(i);setSelected(rooms.find(r=>r.floor===i)?.id??rooms[0].id)}}>{i===0?'G':i} <span>{f}</span></button>)}<div className="officeMode"><label>Lighting</label><select value={mode} onChange={e=>setMode(e.target.value as 'auto'|'day'|'night')}><option value="auto">Auto · Office time</option><option value="day">Day preview</option><option value="night">Night preview</option></select>{dark?<Moon size={16}/>:<Sun size={16}/>}</div></aside>
       <aside className="officeInfo"><h2>{active?.name||'Select a room'}</h2><p>{active?.role}</p><strong>Example employee roles</strong>{active?.people.length?active.people.map(p=><div className="officePersonLabel" key={p}><span>◉</span> {p}</div>):<small>Visitor and collaboration space</small>}<small>{MANUAL}</small></aside>
       <div className="officePa"><div className="officePaAvatar" aria-hidden="true">✦</div><div className="officePaMessage"><strong>ANUM · Personal Assistant</strong><p>{message}</p><div className="officePaActions"><button onClick={follow}>Take me to the next stop <ChevronRight size={14}/></button><button onClick={()=>{setTour(false);window.speechSynthesis?.cancel();setMessage('Tour paused. Select a department whenever you are ready.')}}>Pause tour</button><button onClick={()=>{setSpeaking(v=>!v);if(speaking)window.speechSynthesis?.cancel()}} title={speaking?'Mute PA voice':'Enable PA voice'}>{speaking?<Volume2 size={16}/>:<VolumeX size={16}/>}</button></div><form onSubmit={e=>{e.preventDefault();submit()}}><input value={command} onChange={e=>setCommand(e.target.value)} aria-label="Give the PA a direction" placeholder="Take me to finance, next room, first floor..." /><button type="button" aria-label={listening ? "Stop listening" : "Dictate navigation"} aria-pressed={listening} onClick={listen}>{listening ? "Stop mic" : "Mic"}</button><button type="submit">Go</button></form></div></div>
-      <div className="officeControls"><button onClick={()=>setAngle(a=>a-15)} title="Rotate left"><ChevronLeft/> Rotate</button><button onClick={()=>setAngle(a=>a+15)} title="Rotate right"><ChevronRight/></button><button onClick={()=>setTilt(v=>Math.min(35,v+5))} title="Tilt up"><Compass/></button><button onClick={()=>setTilt(v=>Math.max(0,v-5))} title="Tilt down"><RotateCcw/></button><button onClick={()=>setZoom(v=>Math.max(.65,v-.12))} title="Zoom out"><ZoomOut/></button><button onClick={()=>setZoom(v=>Math.min(1.65,v+.12))} title="Zoom in"><ZoomIn/></button><button onClick={()=>{setAngle(-9);setTilt(11);setZoom(1)}}>Reset</button><button onClick={()=>void toggleFull()} title="Toggle full screen">{full?<Minimize/>:<Expand/>} Full screen</button></div>
+      <div className="officeControls"><button onClick={()=>setAngle(a=>a-15)} title="Rotate left"><ChevronLeft/> Rotate</button><button onClick={()=>setAngle(a=>a+15)} title="Rotate right"><ChevronRight/></button><button onClick={()=>setTilt(v=>Math.min(35,v+5))} title="Tilt up"><Compass/></button><button onClick={()=>setTilt(v=>Math.max(0,v-5))} title="Tilt down"><RotateCcw/></button><button onClick={()=>setZoom(v=>Math.max(.65,v-.12))} title="Zoom out"><ZoomOut/></button><button onClick={()=>setZoom(v=>Math.min(1.65,v+.12))} title="Zoom in"><ZoomIn/></button><button onClick={()=>{setAngle(-9);setTilt(11);setZoom(1);setPan({x:0,y:0})}}>Reset</button><button onClick={()=>void toggleFull()} title="Toggle full screen">{full?<Minimize/>:<Expand/>} Full screen</button></div>
     </main><footer className="officeFooter"><span>{tour?'Guided tour active':'Ready for your visit'}</span><span>Preview · Illustrative staff and rooms · No real task execution</span><span>{SITES[site]+' · layout concept'}</span></footer>
   </div>;
 }
