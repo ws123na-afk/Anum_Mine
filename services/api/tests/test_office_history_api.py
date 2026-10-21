@@ -87,6 +87,8 @@ def test_cursor_pages_are_stable_without_overlap():
         response = read_page(repo, context(), limit=4, cursor=cursor, category=HistoryCategory.ALL)
         ids.extend(item.id for item in response.items)
         cursor = response.next_cursor
+        if cursor is None:
+            break
     assert ids == [r.id for r in rows]
     assert cursor is None
 
