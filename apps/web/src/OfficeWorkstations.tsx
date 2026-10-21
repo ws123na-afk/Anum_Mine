@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Clock3, RefreshCw, Search, ShieldCheck, Users, X } from 'lucide-react';
 import type { OrgSources } from './lib/orgChart.ts';
+import { profileHash } from './lib/orgChart.ts';
 import * as api from './lib/api';
 import { loadWorkspaceWorkstations, type WorkstationSnapshot, type WorkstationRecord } from './lib/officeWorkstations.ts';
 import { staleOfficePresence, type OfficeStatus } from './lib/officePresence.ts';
@@ -9,7 +10,7 @@ const statuses:readonly ('all'|OfficeStatus)[]=['all','working','queued','waitin
 const REFRESH_MS=30_000;
 function label(status:OfficeStatus):string{return status.replaceAll('_',' ')}
 function readable(when:string):string{return new Date(when).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'medium'})}
-function Evidence({record,now}:{record:WorkstationRecord;now:string}){
+function Evidence({record,now,onOpenProfile}:{record:WorkstationRecord;now:string;onOpenProfile:()=>void}){
  const stale=staleOfficePresence(record,now);
  return <section className="workstationEvidence" aria-label="Selected employee evidence">
   <div className="workstationEvidenceHeading"><div><h3>{record.name}</h3><p>{record.department||'No assigned department'}</p></div><span className={`workstationStatus ${stale?'unknown':record.status}`}>{stale?'Stale':label(record.status)}</span></div>
@@ -20,6 +21,7 @@ function Evidence({record,now}:{record:WorkstationRecord;now:string}){
    <div><dt>Observed</dt><dd>{readable(record.observedAt)}</dd></div>
    <div><dt>Source</dt><dd>{record.source.replaceAll('_',' ')}</dd></div>
   </dl>
+  <button type="button" onClick={onOpenProfile}>Open agent profile in ANUM</button>
   <h4>Assigned open tasks</h4>
   {record.taskIds.length?<ul className="workstationTaskEvidence">{record.taskIds.map((id,i)=><li key={id}><strong>{record.taskTitles[i]||'Task title unavailable'}</strong><small>ID: {id}</small></li>)}</ul>:<p>No open task evidence available in this snapshot.</p>}
   <p className="workstationPrivacy"><ShieldCheck size={15}/> This view uses only records permitted by the signed-in workspace. It does not reveal or invent agent private activity.</p>
@@ -94,7 +96,7 @@ export function OfficeWorkstations({onClose}:{onClose:()=>void}){
      <span className={`workstationStatus ${stale?'unknown':r.status}`}>{stale?'stale':label(r.status)}</span>
     </button></li>)}</ul>}
    </section>
-   <aside className="workstationDetail">{detail?<Evidence record={detail} now={tick}/>:<div className="workstationPlaceholder"><Users size={35}/><h3>Select an employee</h3><p>See their latest authorized task evidence, role, department and observation time.</p></div>}</aside>
+   <aside className="workstationDetail">{detail?<Evidence record={detail} now={tick} onOpenProfile={()=>{onClose();window.location.hash=profileHash({kind:'agent',id:detail.agentId})}}/>:<div className="workstationPlaceholder"><Users size={35}/><h3>Select an employee</h3><p>See their latest authorized task evidence, role, department and observation time.</p></div>}</aside>
   </div>
   <footer className="workstationFooter"><p>Task-derived agent activity is not proof that a human is present or online. Desk assignments are not yet stored by the backend.</p><button onClick={onClose}><ArrowLeft size={15}/> Return to office</button></footer>
  </section>;
