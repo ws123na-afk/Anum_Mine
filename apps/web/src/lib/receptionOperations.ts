@@ -30,7 +30,8 @@ export type ReceptionEvent =
  | {type:'reset'};
 export type ReceptionErrorCode = 'invalid_input' | 'duplicate' | 'not_found' | 'invalid_transition';
 export class ReceptionError extends Error {
- constructor(public readonly code:ReceptionErrorCode,message:string){super(message);this.name='ReceptionError'}
+ readonly code:ReceptionErrorCode;
+ constructor(code:ReceptionErrorCode,message:string){super(message);this.code=code;this.name='ReceptionError'}
 }
 export const EMPTY_RECEPTION:ReceptionState={visits:[],revision:0};
 const TRANSITIONS:Record<VisitAction,{from:readonly VisitStage[];to:VisitStage}> = {
@@ -42,7 +43,7 @@ const TRANSITIONS:Record<VisitAction,{from:readonly VisitStage[];to:VisitStage}>
 };
 function requireText(value:string,label:string,max:number):string {
  const v=value.trim().replace(/\s+/g,' ');
- if(!v||v.length>max)throw new ReceptionError('invalid_input',label+' must be 1–'+max+' characters.');
+ if(!v||v.length>max)throw new ReceptionError('invalid_input',label+' must be 1-'+max+' characters.');
  return v;
 }
 function requireTime(at:string):string {
