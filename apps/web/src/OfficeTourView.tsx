@@ -66,7 +66,7 @@ export function OfficeTourView() {
   const ref = useRef<HTMLDivElement>(null);
   const [workstationsOpen,setWorkstationsOpen]=useState(false),[spaceRegistryOpen,setSpaceRegistryOpen]=useState(false);
   const [receptionOpen,setReceptionOpen]=useState(false),[executiveTourOpen,setExecutiveTourOpen]=useState(false);
-  const [site,setSite]=useState(0),[floor,setFloor]=useState(0),[angle,setAngle]=useState(-9),[tilt,setTilt]=useState(11),[zoom,setZoom]=useState(1);
+  const [site,setSite]=useState(0),[floor,setFloor]=useState(0),[angle,setAngle]=useState(-13),[tilt,setTilt]=useState(8),[zoom,setZoom]=useState(1);
   const [pan,setPan]=useState({x:0,y:0});
   const drag=useRef<{id:number;x:number;y:number;startX:number;startY:number;angle:number;tilt:number;panX:number;panY:number;mode:'rotate'|'pan';moved:boolean}|null>(null);
   const [dragged,setDragged]=useState(false);
@@ -137,23 +137,32 @@ export function OfficeTourView() {
   const toggleFull=async()=>{if(document.fullscreenElement){await document.exitFullscreen()}else await ref.current?.requestFullscreen()};
   return <div ref={ref} className={`anumOfficeTour ${dark?'night':'day'}`} tabIndex={0} onKeyDown={onOfficeKeys}>
     <header className="officeTop">
-      <div className="officeBrand"><strong>ANUM <span>MINE</span></strong><small>Virtual Headquarters · Interactive Preview</small></div>
-      <div className="officeTopCenter"><Building2 size={16}/><select aria-label="Office building" value={site} onChange={e=>{const next=Number(e.target.value);setSite(next);setFloor(0);setSelected(SITE_ROOMS[next]?.find(r=>r.floor===0)?.id??'reception');setMessage('Welcome to '+SITES[next]+'. Select a room or ask for the next stop. This is an illustrative layout.')}}>{SITES.map((s,i)=><option key={s} value={i}>{s}</option>)}</select><span className="officeDemo">DEMO</span></div>
+      <div className="officeBrand"><strong>ANUM <span>MINE</span></strong><small>Virtual Headquarters <span className="officeLiveDivider">/</span> Immersive Workspace</small></div>
+      <div className="officeTopCenter"><Building2 size={16}/><select aria-label="Office building" value={site} onChange={e=>{const next=Number(e.target.value);setSite(next);setFloor(0);setSelected(SITE_ROOMS[next]?.find(r=>r.floor===0)?.id??'reception');setMessage('Welcome to '+SITES[next]+'. Select a room or ask for the next stop. This is an illustrative layout.')}}>{SITES.map((s,i)=><option key={s} value={i}>{s}</option>)}</select><span className="officeDemo">CONCEPT VIEW</span></div>
       <div className="officeRight"><label>Office time zone <select value={zone} onChange={e=>setZone(e.target.value)}><option value="Asia/Riyadh">Riyadh</option><option value="Asia/Dubai">Dubai</option><option value="Asia/Karachi">Karachi</option><option value="browser">Browser</option></select></label><strong>{officeTime(activeZone)}</strong><button title="Exit office" onClick={()=>{window.location.hash='#agents/team'}}><ArrowLeft size={18}/> Back</button></div>
     </header>
     <main className="officeWorld">
       <div className={`officeScene ${dragged?'isDragging':''}`} role="region" aria-label="Office camera: drag to rotate, Shift-drag to pan, scroll to zoom, arrow keys to rotate and tilt" onPointerDown={onScenePointerDown} onPointerMove={onScenePointerMove} onPointerUp={onScenePointerUp} onPointerCancel={onScenePointerUp} onWheel={onSceneWheel} onContextMenu={e=>e.preventDefault()} style={{'--office-angle':`${angle}deg`,'--office-tilt':`${tilt}deg`,'--office-zoom':zoom,'--office-pan-x':`${pan.x}px`,'--office-pan-y':`${pan.y}px`} as CSSProperties}>
         <div className="officePlatform">
-          <div className="officeAtrium"><span>ANUM MINE</span><small>{FLOORS[floor]}</small></div>
+          <div className="officeCentralWalkway" aria-hidden="true"/><div className="officePlanter officePlanterOne" aria-hidden="true"/><div className="officePlanter officePlanterTwo" aria-hidden="true"/>
+          <div className="officeAtrium"><span>ANUM <em>MINE</em></span><small>{SITES[site]} · {FLOORS[floor]}</small></div>
           {visible.map(r=><button key={r.id} className={`officeRoom ${selected===r.id?'picked':''}`} style={{left:`${r.x}%`,top:`${r.y}%`,width:`${r.width}%`,height:`${r.height}%`,'--room-accent':r.accent} as CSSProperties} onClick={()=>guide(r)} aria-label={`Visit ${r.name}`}>
-            <span className="officeRoomTitle">{r.name}</span><span className="officeRoomRole">{r.role}</span>
-            <span className="officeRoomFurniture">{r.id==='reception'?'▤   ▤':r.id==='lounge'?'▰  ▰':'▣   ▣   ▣'}</span>
+            <span className="officeRoomTitle"><span className="officeRoomStatusDot" aria-hidden="true"/>{r.name}</span><span className="officeRoomRole">{r.role}</span>
+            <span className="officeRoomInterior" aria-hidden="true">
+              <span className="officeGlassWall"/><span className="officeFurnitureFurniture">
+                <span className="officeDeskFurniture"><span className="officeMonitor"/><span className="officeKeyboard"/></span>
+                <span className="officeChairFurniture"/>
+                <span className="officeDeskFurniture secondary"><span className="officeMonitor"/><span className="officeKeyboard"/></span>
+                <span className="officeChairFurniture secondary"/>
+              </span>
+              <span className="officeRoomLighting"/>
+            </span>
             {r.people.slice(0,4).map((p,i)=><span key={p+i} className="officePerson" style={seededSpot(i)} title={p}><span>●</span></span>)}
           </button>)}
           <div className="officePaPresence" style={paSpot}><span aria-hidden="true">✦</span> PA · Escorting you</div>
         </div>
       </div>
-      <aside className="officeFloorPanel"><h2>Floors</h2>
+      <aside className="officeFloorPanel"><div className="officePanelEyebrow">BUILDING DIRECTORY</div><h2>Explore the Office</h2>
       <div className="officeModuleButtons">
         <button type="button" onClick={()=>{setExecutiveTourOpen(true);setWorkstationsOpen(false);setReceptionOpen(false);setSpaceRegistryOpen(false)}}>CEO Guided Tour</button>
         <button type="button" onClick={()=>{setWorkstationsOpen(true);setExecutiveTourOpen(false);setReceptionOpen(false);setSpaceRegistryOpen(false)}}>Live Employee Workstations</button>
