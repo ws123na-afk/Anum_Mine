@@ -58,7 +58,7 @@ class SqlLiveMeetingStore:
         results = self.session.execute(text("""
             select * from agent_meeting_sessions
             where tenant_id=:tenant and workspace_id=:workspace
-              and (:cursor is null or id > :cursor)
+              and (cast(:cursor as varchar) is null or id > :cursor)
             order by id asc limit :limit
         """), params).mappings().all()
         items = [dict(row) for row in results[:limit]]
