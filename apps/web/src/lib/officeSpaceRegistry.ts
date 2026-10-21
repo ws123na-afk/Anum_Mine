@@ -108,7 +108,7 @@ export function occupation(state:SpaceRegistry,roomId:string){
 }
 export function seedOfficeRegistry():SpaceRegistry {
  let state=EMPTY_REGISTRY;
- const apply=(value:Omit<SpaceCommand,'expectedRevision'>)=>{state=applySpaceCommand(state,{...value,expectedRevision:state.revision} as SpaceCommand)};
+ const apply=(value:Record<string,unknown>)=>{state=applySpaceCommand(state,{...value,expectedRevision:state.revision} as SpaceCommand)};
  apply({type:'building.add',building:{id:'anum-hq',name:'ANUM Headquarters',timezone:'Asia/Riyadh',latitude:24.7136,longitude:46.6753}});
  apply({type:'building.add',building:{id:'tyre-pulse',name:'Tyre Pulse HQ',timezone:'Asia/Riyadh',latitude:24.7136,longitude:46.6753}});
  apply({type:'building.add',building:{id:'anum-commerce',name:'ANUM360 Commerce',timezone:'Asia/Riyadh',latitude:24.7136,longitude:46.6753}});
