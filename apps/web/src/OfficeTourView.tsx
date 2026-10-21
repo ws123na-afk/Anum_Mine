@@ -18,7 +18,31 @@ const ROOMS: Dept[] = [
   { id: 'lounge', name: 'Executive Lounge', role: 'Visitor conversations', people: [], x: 27, y: 56, width: 47, height: 30, floor: 2, accent: '#90bba9' },
 ];
 const FLOORS = ['Ground · Welcome', 'First · Departments', 'Second · Executive'];
-const SITES = ['ANUM Headquarters']; // Only this layout exists. Separate business buildings follow in later phases.
+const SITES = ['ANUM Headquarters', 'Tyre Pulse HQ', 'ANUM360 Commerce', 'Personal Office'];
+// These layouts are illustrative previews, not mappings of actual workspace agents or task statuses.
+const SITE_ROOMS: Dept[][] = [ROOMS, [
+  {id:'reception',name:'Fleet Reception',role:'Customer enquiries and inspection appointments',people:['Reception coordinator'],x:5,y:61,width:27,height:28,floor:0,accent:'#f1c689'},
+  {id:'inspection',name:'Inspection Control',role:'Tyre condition, serial position and inspection schedules',people:['Tyre Fleet Planner','Tyre Analyst'],x:36,y:8,width:30,height:40,floor:0,accent:'#8bdfd2'},
+  {id:'workshop',name:'Workshop Control',role:'Service bays, defects and maintenance coordination',people:['Operations Assistant'],x:70,y:9,width:24,height:38,floor:0,accent:'#90adf0'},
+  {id:'fleet',name:'Fleet Planning',role:'Tyre rotations and fleet utilization',people:['Tyre Fleet Planner'],x:6,y:8,width:27,height:38,floor:1,accent:'#84dca2'},
+  {id:'procurement',name:'Procurement',role:'Tyre requests and supplier proposals',people:['Fleet Proposal Consultant'],x:37,y:12,width:28,height:39,floor:1,accent:'#efd39e'},
+  {id:'analysis',name:'Performance Analysis',role:'Tyre life, cost per kilometre and failure patterns',people:['Tyre Analyst'],x:70,y:10,width:24,height:38,floor:1,accent:'#a4bffc'},
+  {id:'boardroom',name:'Fleet Boardroom',role:'Performance reviews and inspection decisions',people:['ANUM - Chief of Staff'],x:28,y:62,width:44,height:28,floor:2,accent:'#e7bc98'}
+], [
+  {id:'reception',name:'Customer Reception',role:'Customer enquiries and order enquiries',people:['Customer Care'],x:7,y:64,width:29,height:28,floor:0,accent:'#f7c798'},
+  {id:'care',name:'Customer Care',role:'Multichannel customer support',people:['Customer Care','Product Support'],x:41,y:8,width:26,height:42,floor:0,accent:'#88e0d2'},
+  {id:'orders',name:'Orders Desk',role:'Order review, fulfilment and returns',people:['Commerce Coordinator'],x:71,y:8,width:23,height:42,floor:0,accent:'#a8cbf4'},
+  {id:'sales',name:'Marketplace Sales',role:'Sales channels, campaigns and lead follow-up',people:['Marketing Studio','Commerce Coordinator'],x:5,y:9,width:28,height:37,floor:1,accent:'#ecbaeb'},
+  {id:'warehouse',name:'Dispatch & Logistics',role:'Packing handovers and shipping coordination',people:['Commerce Coordinator'],x:37,y:12,width:30,height:38,floor:1,accent:'#bddca1'},
+  {id:'strategy',name:'Commerce Review',role:'Customer performance and business reviews',people:['ANUM - Chief of Staff'],x:29,y:59,width:43,height:32,floor:2,accent:'#eac58e'}
+], [
+  {id:'welcome',name:'Personal Reception',role:'Private scheduling and guest welcome',people:['Personal assistant'],x:6,y:59,width:32,height:32,floor:0,accent:'#e8c390'},
+  {id:'focus',name:'Work & Focus',role:'Personal planning and daily priorities',people:['Personal assistant'],x:42,y:9,width:51,height:37,floor:0,accent:'#a6d6c6'},
+  {id:'career',name:'Career Office',role:'Employment responsibilities and professional goals',people:['Personal assistant'],x:6,y:8,width:29,height:35,floor:1,accent:'#b3c9f3'},
+  {id:'finance',name:'Personal Finance',role:'Budgeting, costs and financial reviews',people:['Finance Controller'],x:42,y:8,width:52,height:37,floor:1,accent:'#e8ce90'},
+  {id:'library',name:'Private Knowledge',role:'Notes, documents and research',people:['Knowledge Steward'],x:27,y:55,width:46,height:33,floor:2,accent:'#aec9e6'}
+]];
+
 const MANUAL = 'Demonstration mode: floor geometry, avatars, and room activity are illustrative, not live employee status.';
 function officeTime(zone: string) { try {return new Intl.DateTimeFormat('en-GB', {timeZone: zone,weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date())}catch{return '--:--'} }
 function hourAt(zone: string) { try {return Number(new Intl.DateTimeFormat('en-US',{timeZone:zone,hour:'numeric',hourCycle:'h23'}).format(new Date()))}catch{return 12} }
@@ -41,8 +65,9 @@ export function OfficeTourView() {
   const [command,setCommand]=useState(''); const [full,setFull]=useState(false);
   const [listening,setListening]=useState(false);
   const recognitionRef=useRef<{stop:()=>void}|null>(null);
-  const visible=useMemo(()=>ROOMS.filter(r=>r.floor===floor),[floor]);
-  const active=ROOMS.find(r=>r.id===selected);
+  const rooms=SITE_ROOMS[site]??ROOMS;
+  const visible=useMemo(()=>rooms.filter(r=>r.floor===floor),[rooms,floor]);
+  const active=rooms.find(r=>r.id===selected);
   const paSpot=active && active.floor===floor ? {left: `${active.x + active.width / 2}%`, top: `${active.y + active.height / 2}%`} : {left:'50%',top:'80%'};
   const activeZone = zone === 'browser' ? Intl.DateTimeFormat().resolvedOptions().timeZone : zone;
   const dark=mode==='night'||(mode==='auto'&&(hourAt(activeZone)<6||hourAt(activeZone)>=18));
@@ -56,7 +81,7 @@ export function OfficeTourView() {
   };
   const follow=()=>{
     const order=['reception','command','meeting','sales','tyre','finance','executive'];
-    const index=order.indexOf(selected);const next=ROOMS.find(r=>r.id===order[(index+1)%order.length])!;
+    const index=order.indexOf(selected);const itinerary=site===0?order:rooms.map(r=>r.id);const next=rooms.find(r=>r.id===itinerary[(itinerary.indexOf(selected)+1)%itinerary.length])!;
     setTour(true);guide(next);
   };
   const submit=()=>{
@@ -66,7 +91,7 @@ export function OfficeTourView() {
     if(/next|tour|guide|continue/.test(phrase)){follow();return;}
     if(/floor (one|1)|first floor/.test(phrase)){setFloor(1);setMessage('Showing the first floor.');return;}
     if(/floor (two|2)|second floor/.test(phrase)){setFloor(2);setMessage('Showing the executive floor.');return;}
-    const found=ROOMS.find(r=>phrase.includes(r.id)||phrase.includes(r.name.toLowerCase().split(' ')[0]));
+    const found=rooms.find(r=>phrase.includes(r.id)||phrase.includes(r.name.toLowerCase().split(' ')[0]));
     if(found){guide(found);return;}
     setMessage('I can navigate this preview to rooms or floors. Actual agent commands will use the governed ANUM Command service after integration.');
   };
@@ -89,7 +114,7 @@ export function OfficeTourView() {
   return <div ref={ref} className={`anumOfficeTour ${dark?'night':'day'}`}>
     <header className="officeTop">
       <div className="officeBrand"><strong>ANUM <span>MINE</span></strong><small>Virtual Headquarters · Interactive Preview</small></div>
-      <div className="officeTopCenter"><Building2 size={16}/><select aria-label="Office building" value={site} onChange={e=>setSite(Number(e.target.value))}>{SITES.map((s,i)=><option key={s} value={i}>{s}</option>)}</select><span className="officeDemo">DEMO</span></div>
+      <div className="officeTopCenter"><Building2 size={16}/><select aria-label="Office building" value={site} onChange={e=>{const next=Number(e.target.value);setSite(next);setFloor(0);setSelected(SITE_ROOMS[next]?.find(r=>r.floor===0)?.id??'reception');setMessage('Welcome to '+SITES[next]+'. Select a room or ask for the next stop. This is an illustrative layout.')}}>{SITES.map((s,i)=><option key={s} value={i}>{s}</option>)}</select><span className="officeDemo">DEMO</span></div>
       <div className="officeRight"><label>Office time zone <select value={zone} onChange={e=>setZone(e.target.value)}><option value="Asia/Riyadh">Riyadh</option><option value="Asia/Dubai">Dubai</option><option value="Asia/Karachi">Karachi</option><option value="browser">Browser</option></select></label><strong>{officeTime(activeZone)}</strong><button title="Exit office" onClick={()=>{window.location.hash='#agents/team'}}><ArrowLeft size={18}/> Back</button></div>
     </header>
     <main className="officeWorld">
@@ -104,10 +129,10 @@ export function OfficeTourView() {
           <div className="officePaPresence" style={paSpot}><span aria-hidden="true">✦</span> PA · Escorting you</div>
         </div>
       </div>
-      <aside className="officeFloorPanel"><h2>Floors</h2>{FLOORS.map((f,i)=><button className={i===floor?'active':''} key={f} onClick={()=>{setFloor(i);setSelected(ROOMS.find(r=>r.floor===i)!.id)}}>{i===0?'G':i} <span>{f}</span></button>)}<div className="officeMode"><label>Lighting</label><select value={mode} onChange={e=>setMode(e.target.value as 'auto'|'day'|'night')}><option value="auto">Auto · Office time</option><option value="day">Day preview</option><option value="night">Night preview</option></select>{dark?<Moon size={16}/>:<Sun size={16}/>}</div></aside>
+      <aside className="officeFloorPanel"><h2>Floors</h2>{FLOORS.map((f,i)=><button className={i===floor?'active':''} key={f} onClick={()=>{setFloor(i);setSelected(rooms.find(r=>r.floor===i)?.id??rooms[0].id)}}>{i===0?'G':i} <span>{f}</span></button>)}<div className="officeMode"><label>Lighting</label><select value={mode} onChange={e=>setMode(e.target.value as 'auto'|'day'|'night')}><option value="auto">Auto · Office time</option><option value="day">Day preview</option><option value="night">Night preview</option></select>{dark?<Moon size={16}/>:<Sun size={16}/>}</div></aside>
       <aside className="officeInfo"><h2>{active?.name||'Select a room'}</h2><p>{active?.role}</p><strong>Example employee roles</strong>{active?.people.length?active.people.map(p=><div className="officePersonLabel" key={p}><span>◉</span> {p}</div>):<small>Visitor and collaboration space</small>}<small>{MANUAL}</small></aside>
       <div className="officePa"><div className="officePaAvatar" aria-hidden="true">✦</div><div className="officePaMessage"><strong>ANUM · Personal Assistant</strong><p>{message}</p><div className="officePaActions"><button onClick={follow}>Take me to the next stop <ChevronRight size={14}/></button><button onClick={()=>{setTour(false);window.speechSynthesis?.cancel();setMessage('Tour paused. Select a department whenever you are ready.')}}>Pause tour</button><button onClick={()=>{setSpeaking(v=>!v);if(speaking)window.speechSynthesis?.cancel()}} title={speaking?'Mute PA voice':'Enable PA voice'}>{speaking?<Volume2 size={16}/>:<VolumeX size={16}/>}</button></div><form onSubmit={e=>{e.preventDefault();submit()}}><input value={command} onChange={e=>setCommand(e.target.value)} aria-label="Give the PA a direction" placeholder="Take me to finance, next room, first floor..." /><button type="button" aria-label={listening ? "Stop listening" : "Dictate navigation"} aria-pressed={listening} onClick={listen}>{listening ? "Stop mic" : "Mic"}</button><button type="submit">Go</button></form></div></div>
       <div className="officeControls"><button onClick={()=>setAngle(a=>a-15)} title="Rotate left"><ChevronLeft/> Rotate</button><button onClick={()=>setAngle(a=>a+15)} title="Rotate right"><ChevronRight/></button><button onClick={()=>setTilt(v=>Math.min(35,v+5))} title="Tilt up"><Compass/></button><button onClick={()=>setTilt(v=>Math.max(0,v-5))} title="Tilt down"><RotateCcw/></button><button onClick={()=>setZoom(v=>Math.max(.65,v-.12))} title="Zoom out"><ZoomOut/></button><button onClick={()=>setZoom(v=>Math.min(1.65,v+.12))} title="Zoom in"><ZoomIn/></button><button onClick={()=>{setAngle(-9);setTilt(11);setZoom(1)}}>Reset</button><button onClick={()=>void toggleFull()} title="Toggle full screen">{full?<Minimize/>:<Expand/>} Full screen</button></div>
-    </main><footer className="officeFooter"><span>{tour?'Guided tour active':'Ready for your visit'}</span><span>Preview · Illustrative staff and rooms · No real task execution</span><span>{site===0?'Headquarters':SITES[site]+' (layout template pending)'}</span></footer>
+    </main><footer className="officeFooter"><span>{tour?'Guided tour active':'Ready for your visit'}</span><span>Preview · Illustrative staff and rooms · No real task execution</span><span>{SITES[site]+' · layout concept'}</span></footer>
   </div>;
 }
