@@ -119,11 +119,13 @@ def _audit(store: SqlOfficeSpaceStore, context: TenantContext, action: str, targ
 def list_spaces(
     kind: ResourceKind,
     parent_id: str | None = Query(default=None, max_length=80),
+    cursor: str | None = Query(default=None, max_length=80),
+    limit: int = Query(default=50, ge=1, le=100),
     context: TenantContext = Depends(tenant_context),
-) -> list[dict]:
+) -> dict:
     _readable(context)
     with _store(context) as store:
-        return store.list(context, kind, parent_id)
+        return store.list(context, kind, parent_id, cursor, limit)
 
 
 @router.get("/{kind}/{item_id}")
