@@ -32,7 +32,7 @@ export function projectWorkstationSnapshot(sources:Pick<OrgSources,'agents'|'tas
   // Defensive scope check even though the authenticated API is workspace-scoped.
   const agents=sources.agents.filter(a=>a.tenant_id===scope.tenantId&&a.workspace_id===scope.workspaceId);
   const tasks=sources.tasks.filter(t=>t.tenant_id===scope.tenantId&&t.workspace_id===scope.workspaceId);
-  const partialSources=[...new Set(sources.partial.map(p=>p.source))];
+  const partialSources:string[]=[...new Set(sources.partial.map(p=>p.source))];
   if(agents.length>=300)partialSources.push('agent_pagination_limit');
   if(tasks.filter(t=>['created','queued','running','waiting_approval'].includes(t.status)).length>=500)partialSources.push('task_pagination_limit');
   // Paginated open-task loader is bounded; treat the result as potentially incomplete
