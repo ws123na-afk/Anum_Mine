@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { ArrowLeft, Building2, ChevronLeft, ChevronRight, Compass, Expand, Minimize, Mic, MicOff, Moon, RotateCcw, Sun, Volume2, VolumeX, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowLeft, Building2, ChevronLeft, ChevronRight, Compass, Expand, Minimize, Moon, RotateCcw, Sun, Volume2, VolumeX, ZoomIn, ZoomOut } from 'lucide-react';
 import './officeTour.css';
 
 type Dept = { id: string; name: string; role: string; people: string[]; x: number; y: number; width: number; height: number; floor: number; accent: string };
@@ -34,7 +34,7 @@ function seededSpot(index:number){return {left:`${18 + (index%3)*25}%`,top:`${38
 export function OfficeTourView() {
   const ref = useRef<HTMLDivElement>(null);
   const [site,setSite]=useState(0),[floor,setFloor]=useState(0),[angle,setAngle]=useState(-9),[tilt,setTilt]=useState(11),[zoom,setZoom]=useState(1);
-  const [zone,setZone]=useState('Asia/Riyadh'),[now,setNow]=useState(()=>Date.now());
+  const [zone,setZone]=useState('Asia/Riyadh'),[,setNow]=useState(()=>Date.now());
   const [mode,setMode]=useState<'auto'|'day'|'night'>('auto');
   const [selected,setSelected]=useState<string>('reception'),[speaking,setSpeaking]=useState(true),[tour,setTour]=useState(false);
   const [message,setMessage]=useState('Welcome to ANUM MINE. I can guide you to reception, the command center, or a meeting room.');
