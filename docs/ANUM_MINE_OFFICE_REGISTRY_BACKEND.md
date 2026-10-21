@@ -22,7 +22,7 @@ Prefix: `/api/v1/office-spaces`
 
 | Operation | Method | Endpoint | Permission |
 |---|---|---|---|
-| List scope-limited records | GET | `/{buildings|floors|rooms|desks}` | `task:read` |
+| List scoped records (cursor-paged, up to 100) | GET | `/{buildings|floors|rooms|desks}?limit=50&cursor=...` | `task:read` |
 | Read specific record | GET | `/{kind}/{item_id}` | `task:read` |
 | Create building | POST | `/buildings` | `workspace:manage` |
 | Create floor | POST | `/floors` | `workspace:manage` |
@@ -43,7 +43,7 @@ The backend derives tenant, workspace and actor exclusively from the authenticat
 
 ## Remaining gates (not production complete until all pass)
 1. Backend CI, database migration under non-owner app role, and PostgreSQL integration tests pass.
-2. Add pagination cursors to list API beyond 1000 rows (currently intentionally bounded).
+2. Cursor pagination is implemented (page size 1-100). Verify cursor stability under parallel edits and cover very large workspaces with load tests.
 3. Add server-issued outbox events for room/desk changes and replay through existing SSE; audit records alone are insufficient for real-time desk sync.
 4. Add idempotency keys for create operations and stronger API versions/ETags; revisions currently cover mutation concurrency.
 5. Integrate the frontend with real APIs and teach it to handle 409/reload, unauthorized reads, offline state, multi-workspace switch and user feedback.
