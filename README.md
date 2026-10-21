@@ -85,6 +85,7 @@ x-user-roles: owner,member
 - [ANUM MINE Live Employee Workstations](docs/ANUM_MINE_WORKSTATIONS_MODULE.md)
 - [ANUM MINE Reception & Visitor Operations](docs/ANUM_MINE_RECEPTION_MODULE.md)
 - [ANUM MINE Office Space & Desk Registry](docs/ANUM_MINE_SPACE_REGISTRY.md)
+- [ANUM MINE Office Registry production backend](docs/ANUM_MINE_OFFICE_REGISTRY_BACKEND.md)
 - [Business gap register (Order 001)](docs/business/ANUM_BUSINESS_GAP_REGISTER.md)
 - [Reuse decision register: outside projects and their licenses](docs/business/REUSE_DECISION_REGISTER.md)
 - [P0 CI remediation: commerce tests, journey 403, Rust advisories](docs/business/P0_CI_REMEDIATION.md)
