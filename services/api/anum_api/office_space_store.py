@@ -57,10 +57,13 @@ class SqlOfficeSpaceStore:
         parent = _PARENT.get(kind)
         extra = f"and {parent[0]} = :parent" if parent and parent_id is not None else ""
         params = self._params(context, parent=parent_id)
-        return [dict(row) for row in self.session.execute(text(f"""
+        records = [dict(row) for row in self.session.execute(text(f"""
             select * from {table} where tenant_id = :tenant and workspace_id = :workspace {extra}
             order by created_at, id limit 1000
         """), params).mappings().all()]
+        if kind == "desks":
+            self._redact_invisible_agents(context, records)
+        return records
 
     def get(self, context: TenantContext, kind: str, item_id: str) -> dict[str, Any] | None:
         table = self._table(kind)
@@ -68,7 +71,27 @@ class SqlOfficeSpaceStore:
             select * from {table}
             where tenant_id = :tenant and workspace_id = :workspace and id = :id
         """), self._params(context, id=item_id)).mappings().first()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        record = dict(row)
+        if kind == "desks":
+            self._redact_invisible_agents(context, [record])
+        return record
+
+    def _redact_invisible_agents(self, context: TenantContext, records: list[dict[str, Any]]) -> None:
+        if not any(record.get("agent_id") for record in records):
+            return
+        # Existing agent_profiles RLS hides private agents from other users.
+        # Never disclose the id merely because a desk row is readable.
+        visible = {
+            row[0] for row in self.session.execute(text("""
+                select id from agent_profiles
+                where tenant_id = :tenant and workspace_id = :workspace
+            """), self._params(context))
+        }
+        for record in records:
+            if record.get("agent_id") not in visible:
+                record["agent_id"] = None
 
     def create(self, context: TenantContext, kind: str, item_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
         table = self._table(kind)
