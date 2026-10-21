@@ -14,7 +14,11 @@ function shortError(error:unknown):string {
  return error instanceof Error?error.message:'The office registry request failed. Try refreshing.';
 }
 export function OfficeSpaceLiveManager({onClose}:{onClose:()=>void}){
- const [data,setData]=useState<OfficeRegistryData>(blank),[loaded,setLoaded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [rawData,setData]=useState<OfficeRegistryData>(blank),[rawLoaded,setLoaded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [loadedScope,setLoadedScope]=useState('');
+ const currentScopeKey=JSON.stringify(api.currentScope());
+ const loaded=rawLoaded&&loadedScope===currentScopeKey;
+ const data=loadedScope===currentScopeKey?rawData:blank;
  const [preview,setPreview]=useState(false),[version,setVersion]=useState(0);
  const [buildingId,setBuildingId]=useState(''),[floorId,setFloorId]=useState(''),[roomId,setRoomId]=useState('');
  const [buildingName,setBuildingName]=useState(''),[zone,setZone]=useState('Asia/Riyadh');
@@ -25,7 +29,7 @@ export function OfficeSpaceLiveManager({onClose}:{onClose:()=>void}){
  const [search,setSearch]=useState('');
  const reload=useCallback(async()=>{
   setBusy(true);try{
-   const response=await client.load();setData(response);setLoaded(true);setVersion(v=>v+1);setError('');
+   const response=await client.load();setData(response);setLoadedScope(JSON.stringify(api.currentScope()));setLoaded(true);setVersion(v=>v+1);setError('');
    setBuildingId(old=>response.buildings.some(b=>b.id===old)?old:response.buildings[0]?.id??'');
   }catch(e){setError(shortError(e))}
   finally{setBusy(false)}
@@ -48,16 +52,17 @@ export function OfficeSpaceLiveManager({onClose}:{onClose:()=>void}){
  const unassigned=people.filter(a=>!occupiedIds.has(a.id));
  async function act(action:()=>Promise<unknown>,label:string){
   if(busy)return;
+  if(!loaded||loadedScope!==JSON.stringify(api.currentScope())){setError('Workspace changed. Refresh the office before writing.');return;}
   setBusy(true);setNotice('');
   try{
    await action();
    // Re-read canonical server state even after a successful response.
-   const response=await client.load();setData(response);setLoaded(true);setVersion(v=>v+1);
+   const response=await client.load();setData(response);setLoadedScope(JSON.stringify(api.currentScope()));setLoaded(true);setVersion(v=>v+1);
    setNotice(label+' saved to your workspace.');setError('');
   }catch(e){setError(shortError(e)+' If the record changed, refresh and retry.')}
   finally{setBusy(false)}
  }
- const goFloor=(id:string)=>{setFloorId(id);setRoomId('')};
+ const goFloor=(id:string)=>{setFloorId(id);setRoomId('');setNewRoomName('')};
  if(preview)return <OfficeSpaceRegistry onClose={()=>setPreview(false)}/>;
  return <section className="spaceRegistry liveSpaceManager" role="dialog" aria-modal="false" aria-label="Production Office Space Management">
   <header className="spaceRegistryHeader"><div><small>ANUM MINE / SERVER-BACKED OPERATIONS</small><h2>Office Space Management</h2><p>Workspace registry · Buildings, rooms, real agent assignments and audited changes</p></div><button onClick={onClose}><X size={18}/> Close</button></header>
@@ -96,7 +101,7 @@ export function OfficeSpaceLiveManager({onClose}:{onClose:()=>void}){
     </section>
     <section className="spaceRegistryDetails">
      <h3>Rooms and live desk assignments</h3>
-     <div className="spaceRegistryRoomList">{rooms.length?rooms.map(r=><button key={r.id} className={chosenRoom?.id===r.id?'selected':''} onClick={()=>setRoomId(r.id)}><DoorOpen size={17}/><span><strong>{r.name}</strong><small>{r.kind} · Capacity {r.capacity} · {data.desks.filter(d=>d.room_id===r.id).length} desks</small></span></button>):<p>Select a floor or create a room to begin.</p>}</div>
+     <div className="spaceRegistryRoomList">{rooms.length?rooms.map(r=><button key={r.id} className={chosenRoom?.id===r.id?'selected':''} onClick={()=>{setRoomId(r.id);setNewRoomName('')}}><DoorOpen size={17}/><span><strong>{r.name}</strong><small>{r.kind} · Capacity {r.capacity} · {data.desks.filter(d=>d.room_id===r.id).length} desks</small></span></button>):<p>Select a floor or create a room to begin.</p>}</div>
      {chosenRoom&&<div className="spaceRegistryCreate" key={chosenRoom.id}>
       <h4>{chosenRoom.name}</h4><p>{chosenRoom.kind} · {occupied}/{desks.length} desks occupied</p>
       <form onSubmit={e=>{e.preventDefault();void act(()=>client.rename(chosenRoom.id,newRoomName,chosenRoom.revision),'Room name')}}>
