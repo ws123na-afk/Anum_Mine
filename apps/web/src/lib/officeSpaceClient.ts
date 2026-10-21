@@ -61,5 +61,6 @@ export function createOfficeSpaceClient(request:OfficeRequester,remove:OfficeVoi
  const rename=(id:string,name:string,expected_revision:number)=>request<OfficeRoom>(officeResourcePath('rooms',id),{method:'PATCH',body:JSON.stringify({name,expected_revision})});
  const assign=(id:string,agent_id:string|null,expected_revision:number)=>request<OfficeDesk>(officeResourcePath('desks',id)+'/assignment',{method:'PATCH',body:JSON.stringify({agent_id,expected_revision})});
  const deleteRoom=(id:string,expected_revision:number)=>remove(officeResourcePath('rooms',id)+'?'+new URLSearchParams({expected_revision:String(expected_revision)}),{method:'DELETE'});
- return {load,post,rename,assign,deleteRoom};
+ const deleteDesk=(id:string,expected_revision:number)=>remove(officeResourcePath('desks',id)+'?'+new URLSearchParams({expected_revision:String(expected_revision)}),{method:'DELETE'});
+ return {load,post,rename,assign,deleteRoom,deleteDesk};
 }
