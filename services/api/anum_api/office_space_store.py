@@ -178,6 +178,14 @@ class SqlOfficeSpaceStore:
         except IntegrityError as exc:
             raise SpaceStoreError("conflict", "This agent already occupies another desk") from exc
 
+    def delete_desk(self, context: TenantContext, desk_id: str, revision: int) -> None:
+        result = self.session.execute(text("""
+            delete from office_desks where tenant_id = :tenant and workspace_id = :workspace
+            and id = :id and revision = :revision returning id
+        """), self._params(context, id=desk_id, revision=revision)).first()
+        if result is None:
+            self._raise_revision(context, "desks", desk_id)
+
     def delete_room(self, context: TenantContext, room_id: str, revision: int) -> None:
         # Restrictive foreign key rejects deletion when workstations still exist.
         try:
