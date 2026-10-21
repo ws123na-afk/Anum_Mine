@@ -52,18 +52,28 @@ class SqlOfficeSpaceStore:
     def _params(context: TenantContext, **kwargs: Any) -> dict[str, Any]:
         return {"tenant": context.tenant_id, "workspace": context.workspace_id, **kwargs}
 
-    def list(self, context: TenantContext, kind: str, parent_id: str | None = None) -> list[dict[str, Any]]:
+    def list(
+        self, context: TenantContext, kind: str,
+        parent_id: str | None = None, cursor: str | None = None, limit: int = 50,
+    ) -> dict[str, Any]:
+        if not 1 <= limit <= 100:
+            raise SpaceStoreError("invalid", "Page size must be between 1 and 100")
         table = self._table(kind)
         parent = _PARENT.get(kind)
-        extra = f"and {parent[0]} = :parent" if parent and parent_id is not None else ""
-        params = self._params(context, parent=parent_id)
+        parent_condition = f"and {parent[0]} = :parent" if parent and parent_id is not None else ""
+        cursor_condition = "and id > :cursor" if cursor else ""
+        params = self._params(context, parent=parent_id, cursor=cursor, page_size=limit + 1)
         records = [dict(row) for row in self.session.execute(text(f"""
-            select * from {table} where tenant_id = :tenant and workspace_id = :workspace {extra}
-            order by created_at, id limit 1000
+            select * from {table}
+            where tenant_id = :tenant and workspace_id = :workspace
+              {parent_condition} {cursor_condition}
+            order by id limit :page_size
         """), params).mappings().all()]
+        has_next = len(records) > limit
+        records = records[:limit]
         if kind == "desks":
             self._redact_invisible_agents(context, records)
-        return records
+        return {"items": records, "next_cursor": records[-1]["id"] if has_next else None}
 
     def get(self, context: TenantContext, kind: str, item_id: str) -> dict[str, Any] | None:
         table = self._table(kind)
