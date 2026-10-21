@@ -11,6 +11,12 @@ import 'push_messaging.dart';
 /// project comes from the owner-provided, gitignored google-services.json and
 /// GoogleService-Info.plist (docs/mobile.md#phone-push); without them
 /// [initialize] answers false and push stays off.
+///
+/// firebase_messaging 17 deprecates `getToken`, `deleteToken` and
+/// `onTokenRefresh` in favour of Firebase Installation ID registration
+/// (`register` and `onRegistered`). The API still sends to FCM registration
+/// tokens (docs/mobile.md#phone-push), so these calls stay on the token API
+/// until the server learns to address a device by installation ID.
 class FirebasePushMessaging implements PushMessaging {
   bool _ready = false;
 
@@ -79,16 +85,19 @@ class FirebasePushMessaging implements PushMessaging {
         await Future<void>.delayed(const Duration(seconds: 1));
       }
     }
+    // ignore: deprecated_member_use
     return _messaging.getToken();
   }
 
   @override
   Future<void> deleteToken() async {
+    // ignore: deprecated_member_use
     if (_ready) await _messaging.deleteToken();
   }
 
   @override
   Stream<String> get tokenRefreshes =>
+      // ignore: deprecated_member_use
       _ready ? _messaging.onTokenRefresh : const Stream.empty();
 
   static IncomingPush _incoming(RemoteMessage message) => IncomingPush(
