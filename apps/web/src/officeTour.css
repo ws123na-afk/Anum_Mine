@@ -2,3 +2,7 @@
 /* The PA escort marker follows selected room coordinates, separate from the voice/card UI. */
 .officePaPresence{bottom:auto;transform:translate(-50%,-50%);z-index:8;border:1px solid #75dcd0;box-shadow:0 8px 22px #07152388;transition:left .7s ease,top .7s ease;pointer-events:none}
 @media(prefers-reduced-motion:reduce){.officePaPresence{transition:none}}
+
+/* User camera interaction: drag rotates, Shift+drag pans, wheel zooms. */
+.officeScene{cursor:grab;touch-action:none}.officeScene.isDragging{cursor:grabbing}.officePlatform{translate:var(--office-pan-x,0px) var(--office-pan-y,0px)}
+.officeScene button{touch-action:manipulation}.officeScene.isDragging .officePlatform{transition:none}
