@@ -63,7 +63,7 @@ class SqlOfficeSpaceStore:
         parent_condition = f"and {parent[0]} = :parent" if parent and parent_id is not None else ""
         cursor_condition = "and id > :cursor" if cursor else ""
         params = self._params(context, parent=parent_id, cursor=cursor, page_size=limit + 1)
-        records = [dict(row) for row in self.session.execute(text(f"""  # nosec B608: table/column identifiers come only from fixed _TABLES/_COLUMNS allowlists
+        records = [dict(row) for row in self.session.execute(text(f"""
             select * from {table}
             where tenant_id = :tenant and workspace_id = :workspace
               {parent_condition} {cursor_condition}
@@ -77,7 +77,7 @@ class SqlOfficeSpaceStore:
 
     def get(self, context: TenantContext, kind: str, item_id: str) -> dict[str, Any] | None:
         table = self._table(kind)
-        row = self.session.execute(text(f"""  # nosec B608: table/column identifiers come only from fixed _TABLES/_COLUMNS allowlists
+        row = self.session.execute(text(f"""
             select * from {table}
             where tenant_id = :tenant and workspace_id = :workspace and id = :id
         """), self._params(context, id=item_id)).mappings().first()
@@ -132,7 +132,7 @@ class SqlOfficeSpaceStore:
         placeholders = ", ".join(f":{key}" for key in _COLUMNS[kind])
         params = self._params(context, id=item_id, actor=context.user_id, **dict(fields))
         try:
-            result = self.session.execute(text(f"""  # nosec B608: table/column identifiers come only from fixed _TABLES/_COLUMNS allowlists
+            result = self.session.execute(text(f"""
                 insert into {table}
                   (id, tenant_id, workspace_id, created_by, {columns})
                 values (:id, :tenant, :workspace, :actor, {placeholders})
