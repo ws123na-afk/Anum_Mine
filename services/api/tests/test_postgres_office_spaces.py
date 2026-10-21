@@ -51,11 +51,11 @@ def test_office_layout_isolated_and_identifiers_reusable_between_tenants(db: Non
     a = _headers()
     b = _headers(TENANT_B, WORKSPACE_B)
     _create(a)
-    assert client.get("/api/v1/office-spaces/buildings", headers=a).json()[0]["id"] == "headquarters"
-    assert client.get("/api/v1/office-spaces/buildings", headers=b).json() == []
+    assert client.get("/api/v1/office-spaces/buildings", headers=a).json()["items"][0]["id"] == "headquarters"
+    assert client.get("/api/v1/office-spaces/buildings", headers=b).json()["items"] == []
     assert client.get("/api/v1/office-spaces/buildings/headquarters", headers=b).status_code == 404
     _create(b)
-    assert len(client.get("/api/v1/office-spaces/buildings", headers=b).json()) == 1
+    assert len(client.get("/api/v1/office-spaces/buildings", headers=b).json()["items"]) == 1
 
 
 def test_room_floor_desk_creation_and_revision_conflicts(db: None) -> None:
