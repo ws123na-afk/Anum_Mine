@@ -228,3 +228,18 @@ def delete_room(
             _audit(store, context, "office.room.delete", room_id)
         except SpaceStoreError as exc:
             raise _error(exc) from exc
+
+
+@router.delete("/desks/{desk_id}", status_code=204)
+def delete_desk(
+    desk_id: Identifier,
+    expected_revision: int = Query(ge=1),
+    context: TenantContext = Depends(tenant_context),
+) -> None:
+    _writable(context)
+    with _store(context) as store:
+        try:
+            store.delete_desk(context, desk_id, expected_revision)
+            _audit(store, context, "office.desk.delete", desk_id)
+        except SpaceStoreError as exc:
+            raise _error(exc) from exc
