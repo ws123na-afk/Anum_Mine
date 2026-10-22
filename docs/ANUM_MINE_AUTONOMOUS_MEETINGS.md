@@ -60,3 +60,25 @@ unattended recurring worker. Full autonomous background scheduling, external
 agent tool actions, detailed decision extraction and cross-process provider
 billing reservation are separate capabilities and must not be presented as
 complete. Do not run a large unattended meeting through an HTTP request.
+
+
+## Operational reliability hardening (October 22, 2026)
+
+The unattended worker now transitions an active meeting to `finished` if its
+persisted turn, duration, token or cost limits are exhausted. A provider
+failure transitions an active session to `failed`, so the supervisor does
+not automatically retry a potentially billable request. Both transitions
+lock the scoped meeting and refuse to override a concurrent pause or
+cancellation. Unit contracts cover owner-only transitions and the terminal
+state guard. Operators can inspect the failed record rather than allowing a
+paid retry storm.
+
+The live headquarters consumes the authenticated event stream with a
+300-millisecond coalescing window; many task or meeting events result in one
+refresh rather than a thundering herd of data requests. A periodic refresh
+is still used when the SSE connection is unavailable.
+
+**Verification limits:** These changes require green GitHub Actions, staged
+PostgreSQL tests, a real configured model and deployment smoke tests. The
+approved photorealistic office reference has not been pixel-compared here,
+and production emission of all domain events is not proven by this code.
