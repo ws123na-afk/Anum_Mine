@@ -79,21 +79,27 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
    if(refreshTimer!==null)return;
    refreshTimer=setTimeout(()=>{refreshTimer=null;if(active&&!abort.signal.aborted)void controller.refresh()},300);
   };
-  const scope=api.currentScope();
   const watch=async()=>{
    while(active&&!abort.signal.aborted){
+    // One stream per scope: after an in-app organisation or workspace switch the stream is
+    // re-opened for the new scope instead of the watcher ending for good.
+    const scope=api.currentScope();
+    const local=new AbortController();
+    const stop=()=>local.abort();
+    abort.signal.addEventListener('abort',stop,{once:true});
     try{
      await api.streamEvents(event=>{
       if(!active)return;
       const current=api.currentScope();
       if(current.tenantId!==scope.tenantId||current.workspaceId!==scope.workspaceId){
-       abort.abort();return;
+       local.abort();return;
       }
-      if(/^(task|agent_run|agent|approval|agent_meeting|office)\\./.test(event.type)){
+      if(/^(task|agent_run|agent|approval|agent_meeting|office)\./.test(event.type)){
        refreshFromEvents();
       }
-     },abort.signal,()=>{reconnect=1000});
+     },local.signal,()=>{reconnect=1000});
     }catch{ /* SSE may disconnect; scoped periodic refresh remains active. */ }
+    abort.signal.removeEventListener('abort',stop);
     if(!active||abort.signal.aborted)break;
     await new Promise<void>(resolve=>window.setTimeout(resolve,reconnect));
     reconnect=Math.min(reconnect*2,30000);
@@ -160,11 +166,11 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
      {state?.status==='ready'?<Wifi size={16}/>:<WifiOff size={16}/>}
      <span>{state?.status==='ready'?'Authenticated workspace':state?.status==='refreshing'?'Updating workspace':state?.status??'Connecting'}</span>
     </div>
-    <button onClick={()=>setLight(v=>v==='day'?'night':'day')} title="Switch office lighting">
+    <button onClick={()=>setLight(v=>v==='day'?'night':'day')} title="Switch office lighting" aria-label={light==='day'?'Night lighting':'Day lighting'}>
      {light==='day'?<Moon size={18}/>:<Sun size={18}/>}<span>{light==='day'?'Night':'Day'}</span>
     </button>
-    <button onClick={()=>void toggleFullscreen()} title="Toggle fullscreen">{full?<Minimize2 size={17}/>:<Maximize2 size={17}/>}</button>
-    <button onClick={onClose}><ArrowLeft size={18}/> <span>Return to ANUM OS</span></button>
+    <button onClick={()=>void toggleFullscreen()} title="Toggle fullscreen" aria-label="Toggle fullscreen">{full?<Minimize2 size={17}/>:<Maximize2 size={17}/>}</button>
+    <button onClick={onClose} aria-label="Return to ANUM OS"><ArrowLeft size={18}/> <span>Return to ANUM OS</span></button>
    </div>
   </header>
   <div className="hqBody">
@@ -225,8 +231,8 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
      {(['all','occupied','meeting'] as const).map(v=><button key={v} aria-pressed={filters===v} onClick={()=>setFilters(v)}>{v==='all'?'All':v==='occupied'?'Assigned':'Meetings'}</button>)}
     </div>
     <div className="hqRoomList" role="list">
-     {filteredRooms.map(r=><button key={r.id} type="button" role="listitem" className={r.id===room?.id?'active':''}
-      onClick={()=>visit(r)}>{roomIcon(r.kind)}<span><strong>{r.label}</strong><small>{r.kind} · capacity {r.capacity}</small></span></button>)}
+     {filteredRooms.map(r=><div key={r.id} role="listitem"><button type="button" className={r.id===room?.id?'active':''} aria-current={r.id===room?.id?'true':undefined}
+      onClick={()=>visit(r)}>{roomIcon(r.kind)}<span><strong>{r.label}</strong><small>{r.kind} · capacity {r.capacity}</small></span></button></div>)}
      {!filteredRooms.length&&<p className="hqMuted">No rooms match your filters.</p>}
     </div>
     <div className="hqRoomDetails">
