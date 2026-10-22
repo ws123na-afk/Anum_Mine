@@ -179,3 +179,29 @@
 .hqModeSwitcher button[aria-pressed=true]{background:#14796c;color:#fff;border-color:#55cfc0}
 .hqModeSwitcher button:focus-visible{outline:2px solid #8cebdc;outline-offset:2px}
 @media(max-width:700px){.hqModeSwitcher{top:auto;bottom:18px}.hqModeSwitcher button{font-size: var(--text-2xs)}}
+
+/* Cinematic office canvas: the room directory is sourced from real registry data. */
+.hqImmersiveStage{position:absolute;inset:0;overflow:hidden;
+ background:radial-gradient(ellipse at 45% 30%,#365361 0%,#152b39 59%,#0a1726 100%)}
+.hqImmersiveStage .hqCanvas{position:absolute;inset:0}
+.hqSceneLabels{position:absolute;inset:0;pointer-events:none}
+.hqLive .hqSceneRoomLabel{position:absolute;transform:translate(-50%,-50%);
+ pointer-events:auto;display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+ padding:8px 11px;border:1px solid #7499a5a8;border-radius:9px;
+ background:linear-gradient(130deg,#071827ed,#152e41ed);color:#f8fffc;
+ box-shadow:0 8px 24px #00101ba8;min-width:95px;max-width:170px;white-space:nowrap;
+ backdrop-filter:blur(8px);text-align:left}
+.hqLive .hqSceneRoomLabel.selected{border-color:#6ce2bd;background:#0c5b55e8;
+ box-shadow:0 0 0 2px #54dfbc50,0 9px 24px #00101ba8}
+.hqRoomLabelName{font-size:var(--text-sm);font-weight:750;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.hqRoomLabelMeta{font-size:var(--text-2xs);color:#c7e0df;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.hqViewport{background:radial-gradient(ellipse at 47% 28%,#416777,#132d3e 76%)}
+.hqViewport:before{opacity:.07}
+.hqDirectory,.hqInspector{background:linear-gradient(160deg,#07192b,#0b2234 65%,#071727);
+ border-color:#355361;box-shadow:0 0 40px #020d1535}
+.hqRoomDetails{border-top:1px solid #355563;padding-top:13px}
+@media(max-width:800px){
+ .hqLive .hqSceneRoomLabel{padding:5px 7px;min-width:65px;max-width:110px}
+ .hqRoomLabelMeta{display:none}
+}
+@media(prefers-reduced-motion:reduce){.hqLive .hqSceneRoomLabel{transition:none}}
