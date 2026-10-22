@@ -9,9 +9,12 @@ from __future__ import annotations
 from contextlib import contextmanager
 from collections.abc import Iterator
 from typing import Annotated, Literal
+from .model_gateway import build_default_model_gateway
+from .meeting_execution import execute_meeting_turn
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 
 from .audit import AuditRecord
 from .authorization import Permission
@@ -47,13 +50,21 @@ class RevisionChange(StrictBody):
     expected_revision: int = Field(ge=1)
 
 
+class AddAgent(RevisionChange):
+    agent_id: str = Field(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+
+
+class ExecuteTurn(StrictBody):
+    request_key: str = Field(min_length=8, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+
+
 class StateChange(RevisionChange):
     status: Literal["active", "paused", "finished", "cancelled", "failed"]
 
 
 def _error(exc: LiveMeetingStoreError) -> HTTPException:
     return HTTPException(
-        status_code={"not_found":404, "forbidden":403, "conflict":409}.get(exc.code, 409),
+        status_code={"not_found":404, "forbidden":403, "conflict":409, "unavailable":503}.get(exc.code, 409),
         detail=str(exc),
     )
 
@@ -163,3 +174,59 @@ def change_state(
             return result
         except LiveMeetingStoreError as exc:
             raise _error(exc) from exc
+
+
+@router.post("/{meeting_id}/agents", status_code=201)
+def add_agent_participant(
+    meeting_id: MeetingId, body: AddAgent,
+    context: TenantContext = Depends(tenant_context),
+) -> dict:
+    """Add a scoped agent identity before the meeting starts.
+
+    The participant is a speaking persona, not an independent permission grant.
+    This endpoint never grants the agent access to application tools.
+    """
+    require_permission(context, Permission.WORKSPACE_MANAGE)
+    with _store(context) as store:
+        meeting = store.get(context, meeting_id, lock=True)
+        if meeting is None:
+            raise HTTPException(404, "Meeting not found")
+        if meeting["created_by"] != context.user_id:
+            raise HTTPException(403, "Only the owner can add agents")
+        if meeting["revision"] != body.expected_revision:
+            raise HTTPException(409, "Meeting revision changed")
+        if meeting["status"] != "scheduled":
+            raise HTTPException(409, "Agents may only be added to scheduled meetings")
+        participants = store.participants(context, meeting_id)
+        if any(p["actor_id"] == body.agent_id for p in participants):
+            return dict(meeting)
+        if len(participants) >= meeting["max_participants"]:
+            raise HTTPException(409, "Participant cap reached")
+        store.session.execute(text("""
+            insert into agent_meeting_participants
+            (id,tenant_id,workspace_id,session_id,kind,actor_id,added_by)
+            values (:participant,:tenant,:workspace,:id,'agent',:agent,:owner)
+        """), store.args(context, id=meeting_id, participant=new_id("participant"),
+                          agent=body.agent_id, owner=context.user_id))
+        updated = store._revise(context, meeting_id, body.expected_revision, {}, change_status=False)
+        _audit(store,context,"agent_meeting.agent_add",meeting_id)
+        return updated
+
+
+@router.post("/{meeting_id}/execute-turn")
+async def execute_turn(
+    meeting_id: MeetingId, body: ExecuteTurn,
+    context: TenantContext = Depends(tenant_context),
+) -> dict:
+    """Generate exactly one metered, durable agent contribution.
+
+    No arbitrary tools or side effects are exposed to the model.
+    The request key is idempotent and must be reused after a client timeout.
+    """
+    require_permission(context, Permission.WORKSPACE_MANAGE)
+    try:
+        gateway = build_default_model_gateway()
+        result = await execute_meeting_turn(context, meeting_id, body.request_key, gateway)
+        return result
+    except LiveMeetingStoreError as exc:
+        raise _error(exc) from exc
