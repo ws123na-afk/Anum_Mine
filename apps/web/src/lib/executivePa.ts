@@ -5,6 +5,7 @@
  * confirmation gate and the audit log. This module only shapes requests, reads
  * answers defensively and turns a sentence into a proposed tool call.
  */
+import type { ExecutiveGrant, ExecutiveGrantedWorkspace, ExecutiveNotGrantedWorkspace, ExecutiveSummary, ExecutiveUnavailableWorkspace, ExecutiveWorkspaceItem } from '@anum/contracts';
 export type Requester = <T>(path: string, init: RequestInit) => Promise<T>;
 export type InputMode = 'typed' | 'voice' | 'click';
 
@@ -13,14 +14,13 @@ export interface PaTool { name: PaToolName; kind: 'read' | 'write'; label: strin
 export interface TourStop { building_id: string; building_name: string; floor_id: string; floor_name: string; level: number; room_id: string; room_name: string; room_kind: string; capacity: number; desks: number }
 export interface Tour { status: 'ready' | 'empty' | 'not_connected'; stops: TourStop[] }
 export interface Location { building_id?: string; floor_id?: string; room_id?: string; agent_id?: string }
-export interface WorkSummary { tasks_total?: number; tasks_blocked?: number; approvals_pending?: number; cost_usd_month?: number | null; meetings_active?: number | null }
 
 export type PaStatus = 'ok' | 'done' | 'approval_pending' | 'needs_confirmation' | 'needs_visual_confirmation' | 'stale_confirmation'
   | 'denied' | 'not_found' | 'not_connected' | 'not_granted' | 'failed';
 export interface PaResult {
   tool: PaToolName; status: PaStatus; note?: string;
   navigate?: Location; open_panel?: { view: string };
-  summary?: WorkSummary; workspace_id?: string; scope?: 'current' | 'granted';
+  summary?: ExecutiveSummary; workspace_id?: string; scope?: 'current' | 'granted';
   items?: { id: string; title?: string; status?: string; task_id?: string; action?: string; risk_level?: string }[];
   payload_hash?: string; preview?: Record<string, unknown>; risk?: string; governed_by?: string;
   task_id?: string; approval_id?: string; meeting_id?: string; missing?: string[]; truncated?: boolean;
@@ -93,75 +93,40 @@ export function parseUtterance(text: string, ctx: ParseContext): ProposedCall | 
 }
 const titleOf = (work: string) => work.trim().replace(/\s+/g, ' ').slice(0, 80) || 'Task';
 
-// -- the executive desk -------------------------------------------------------------------
+// -- the executive desk (contract: packages/contracts/src/executive.ts) ---------------------
 
-export type WorkspaceKind = 'personal' | 'employment' | 'anum_os' | 'business';
-export type GrantState = 'own' | 'granted' | 'not_granted' | 'not_connected';
-export interface DeskWorkspace {
-  workspace_id: string; tenant_id: string; name: string; kind: WorkspaceKind;
-  grant_state: GrantState; grant_id?: string | null; summary: WorkSummary | null;
+export interface Figures { tasks: number | null; blocked: number | null; approvals: number | null; costUsd: string | null; meetings: number | null; counts: { agents: number; rooms: number } | null }
+
+/** Reads a contract summary. A scope that was not granted is null, never 0. */
+export function summaryFigures(summary: ExecutiveSummary | undefined | null): Figures {
+  const s = summary ?? {};
+  const by = s.tasks?.by_status;
+  const total = by ? Object.values(by).reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0) : null;
+  return {
+    tasks: total,
+    blocked: by ? (by.waiting_approval ?? 0) : null,
+    approvals: s.approvals ? s.approvals.pending : null,
+    costUsd: s.cost ? s.cost.estimated_cost_usd : null,
+    meetings: s.meetings ? s.meetings.active : null,
+    counts: s.counts ? { agents: s.counts.agents, rooms: s.counts.rooms } : null,
+  };
 }
-export interface Overview { workspaces: DeskWorkspace[] }
-export interface Grant { id: string; workspace_id: string; scopes: string[]; status: 'active' | 'pending_approval' | 'revoked'; approval_id?: string | null }
-export type GrantOutcome = { kind: 'applied'; grant: Grant } | { kind: 'pending_approval'; approvalId: string | null };
-export const GRANT_SCOPES = ['tasks', 'approvals', 'costs', 'meetings'] as const;
-export type GrantScope = (typeof GRANT_SCOPES)[number];
 
-const KINDS: readonly WorkspaceKind[] = ['personal', 'employment', 'anum_os', 'business'];
-export const KIND_ORDER = KINDS;
-
-export function readOverview(raw: unknown): Overview {
-  const list = (raw as { workspaces?: unknown } | null)?.workspaces;
-  if (!Array.isArray(list)) return { workspaces: [] };
-  const seen = new Set<string>();
-  const out: DeskWorkspace[] = [];
-  for (const row of list as Partial<DeskWorkspace>[]) {
-    if (!row || typeof row.workspace_id !== 'string' || typeof row.tenant_id !== 'string' || seen.has(row.tenant_id + '/' + row.workspace_id)) continue;
-    seen.add(row.tenant_id + '/' + row.workspace_id);
-    const state: GrantState = row.grant_state === 'own' || row.grant_state === 'granted' || row.grant_state === 'not_connected' ? row.grant_state : 'not_granted';
-    out.push({
-      workspace_id: row.workspace_id, tenant_id: row.tenant_id, name: String(row.name ?? row.workspace_id),
-      kind: KINDS.includes(row.kind as WorkspaceKind) ? (row.kind as WorkspaceKind) : 'business',
-      grant_state: state, grant_id: row.grant_id ?? null,
-      // A summary is shown only for a workspace that is the person's own or granted.
-      summary: (state === 'own' || state === 'granted') && row.summary ? row.summary : null,
-    });
+export interface DeskSplit { granted: ExecutiveGrantedWorkspace[]; notGranted: ExecutiveNotGrantedWorkspace[]; unavailable: ExecutiveUnavailableWorkspace[] }
+export function splitOverview(items: readonly ExecutiveWorkspaceItem[]): DeskSplit {
+  const out: DeskSplit = { granted: [], notGranted: [], unavailable: [] };
+  for (const item of items) {
+    if (item.access === 'granted') out.granted.push(item);
+    else if (item.access === 'not_granted') out.notGranted.push(item);
+    else out.unavailable.push(item);
   }
-  return { workspaces: out };
-}
-
-export function groupByKind(rows: readonly DeskWorkspace[]): { kind: WorkspaceKind; rows: DeskWorkspace[] }[] {
-  return KINDS.map((kind) => ({ kind, rows: rows.filter((r) => r.kind === kind) })).filter((g) => g.rows.length > 0);
+  return out;
 }
 
 /** Confidential content opens only in the workspace the shell is acting in. */
-export function needsSwitch(row: Pick<DeskWorkspace, 'workspace_id' | 'tenant_id'>, scope: { tenantId: string; workspaceId: string }): boolean {
-  return row.workspace_id !== scope.workspaceId || row.tenant_id !== scope.tenantId;
-}
+export const isCurrent = (workspaceId: string, scope: { workspaceId: string }): boolean => workspaceId === scope.workspaceId;
 
-export type VoidRequester = (path: string, init: RequestInit) => Promise<void>;
-export function createDeskClient(request: Requester, requestVoid?: VoidRequester) {
-  const grantResult = (status: number | undefined, body: Partial<Grant> & { approval_id?: string | null }): GrantOutcome =>
-    status === 202 || body.status === 'pending_approval'
-      ? { kind: 'pending_approval', approvalId: body.approval_id ?? null }
-      : { kind: 'applied', grant: body as Grant };
-  return {
-    overview: async (): Promise<Overview> => readOverview(await request<unknown>('/api/v1/executive/overview', { method: 'GET' })),
-    grants: async (): Promise<Grant[]> => {
-      const r = await request<{ items?: Grant[] } | Grant[]>('/api/v1/executive/grants', { method: 'GET' });
-      return Array.isArray(r) ? r : Array.isArray(r?.items) ? r.items : [];
-    },
-    grant: async (workspaceId: string, scopes: GrantScope[]) =>
-      grantResult(undefined, await request<Grant>('/api/v1/executive/grants', { method: 'POST', body: JSON.stringify({ workspace_id: workspaceId, scopes }) })),
-    widen: async (grantId: string, scopes: GrantScope[]) =>
-      grantResult(undefined, await request<Grant>(`/api/v1/executive/grants/${encodeURIComponent(grantId)}`, { method: 'PATCH', body: JSON.stringify({ scopes }) })),
-    revoke: async (grantId: string): Promise<void> => {
-      const path = `/api/v1/executive/grants/${encodeURIComponent(grantId)}`;
-      // A DELETE answers 204 with no body, so the shell's void requester is the right one.
-      if (requestVoid) await requestVoid(path, { method: 'DELETE' }); else await request<unknown>(path, { method: 'DELETE' });
-    },
-  };
-}
+export function narrowable(grant: ExecutiveGrant): boolean { return grant.status === 'active' && grant.scopes.length > 0; }
 
 /** The scene's navigation target for a PA location. The headquarters scene reads this
  * from `navigateTo`; until it is installed the target is kept for the next scene mount. */

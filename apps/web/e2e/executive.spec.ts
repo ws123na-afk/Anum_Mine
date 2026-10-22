@@ -19,15 +19,16 @@ const stops = [
   { building_id: 'hq', building_name: 'Headquarters', floor_id: 'f1', floor_name: 'First floor', level: 1, room_id: 'r_exec', room_name: 'Executive office', room_kind: 'office', capacity: 4, desks: 1 },
 ];
 
-interface Options { overview?: 'ok' | 'denied' | 'missing' | 'empty'; tour?: 'ok' | 'empty' }
+interface Options { overview?: 'ok' | 'denied' | 'missing' | 'empty'; tour?: 'ok' | 'empty'; grantsDenied?: boolean }
+const HASH2 = 'b2'.repeat(32);
 
 async function mockApi(page: Page, options: Options = {}) {
-  const seen = { grants: [] as Row[], invokes: [] as Row[], revokes: 0 };
-  let shopGranted = false;
-  const rows = (): Row[] => [
-    { workspace_id: 'workspace_foundation', tenant_id: 'tenant_local', name: 'ANUM OS', kind: 'anum_os', grant_state: 'own', summary: { tasks_total: 12, tasks_blocked: 2, approvals_pending: 1, cost_usd_month: 4.5, meetings_active: 0 } },
-    { workspace_id: 'workspace_employer', tenant_id: 'tenant_local', name: 'Employer Ltd', kind: 'employment', grant_state: 'not_granted', summary: { tasks_total: 999 } },
-    { workspace_id: 'workspace_shop', tenant_id: 'tenant_local', name: 'Tyre Shop', kind: 'business', grant_state: shopGranted ? 'granted' : 'not_granted', grant_id: shopGranted ? 'grant_shop' : null, summary: shopGranted ? { tasks_total: 7, approvals_pending: 3 } : null },
+  const seen = { created: [] as Row[], approved: [] as Row[], narrowed: [] as Row[], rejects: 0, revokes: 0, invokes: [] as Row[] };
+  let grant: Row | null = { id: 'xgrant_1', workspace_id: 'workspace_foundation', grantee_user_id: 'user_exec', scopes: ['counts', 'tasks', 'cost'], status: 'pending', stored_status: 'pending', payload_hash: HASH2, revision: 1, requested_by: 'user_local', requested_at: stamp, request_expires_at: stamp, approved_by: null, approved_at: null, expires_at: null, revoked_by: null, revoked_at: null, decision_reason: null };
+  const overview = (): Row[] => [
+    { workspace_id: 'workspace_employer', name: 'Employer Ltd', access: 'granted', grant_id: 'xg_e', scopes: ['approvals', 'tasks'], expires_at: null, as_of: stamp, summary: { approvals: { pending: 3, oldest_pending_at: null }, tasks: { by_status: { completed: 4, waiting_approval: 1 }, blocked_agents: 0 } } },
+    { workspace_id: 'workspace_foundation', name: 'ANUM OS', access: 'not_granted', reason: 'no_grant', open_with: 'workspace_switch' },
+    { workspace_id: 'workspace_shop', name: 'Tyre Shop', access: 'not_granted', reason: 'no_grant', open_with: 'workspace_switch' },
   ];
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
@@ -40,17 +41,24 @@ async function mockApi(page: Page, options: Options = {}) {
     if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: request.headers()['x-workspace-id'] ?? 'workspace_foundation', user_id: 'user_local', role: 'owner', active: true, created_at: stamp, updated_at: stamp });
     if (path === '/api/v1/workspaces/current') return json({ id: 'workspace_foundation', tenant_id: 'tenant_local', name: 'Foundation', created_at: stamp, updated_at: stamp, archived_at: null, archived_by: null });
     if (path === '/api/v1/executive/overview') {
-      if (options.overview === 'denied') return json({ error: { code: 'forbidden', message: 'Owners only' } }, 403);
-      if (options.overview === 'missing') return json({ error: { code: 'not_found', message: 'Not found' } }, 404);
-      return json({ workspaces: options.overview === 'empty' ? [] : rows() });
+      if (options.overview === 'denied') return json({ error: { code: 'forbidden', message: 'Membership needed' } }, 403);
+      if (options.overview === 'missing') return json({ error: { code: 'unavailable', message: 'Needs PostgreSQL' } }, 503);
+      return json({ version: 1, tenant_id: 'tenant_local', home_workspace_id: 'workspace_foundation', generated_at: stamp, truncated: false, workspaces: options.overview === 'empty' ? [] : overview() });
     }
-    if (path === '/api/v1/executive/grants' && method === 'GET') return json({ items: [] });
+    if (path === '/api/v1/executive/grants' && method === 'GET') {
+      if (options.grantsDenied) return json({ error: { code: 'forbidden', message: 'Owners only' } }, 403);
+      return json({ version: 1, items: grant ? [grant] : [] });
+    }
     if (path === '/api/v1/executive/grants' && method === 'POST') {
-      seen.grants.push(JSON.parse(request.postData() ?? '{}'));
-      shopGranted = true;
-      return json({ id: 'grant_shop', workspace_id: 'workspace_shop', scopes: ['tasks', 'approvals'], status: 'active' }, 201);
+      const body = JSON.parse(request.postData() ?? '{}') as Row;
+      seen.created.push(body);
+      grant = { ...(grant ?? {}), id: 'xgrant_2', grantee_user_id: body.grantee_user_id, scopes: body.scopes, status: 'pending', payload_hash: HASH2, revision: 1 };
+      return json({ ...grant, approval_required: true }, 201);
     }
-    if (path === '/api/v1/executive/grants/grant_shop' && method === 'DELETE') { seen.revokes += 1; shopGranted = false; return route.fulfill({ status: 204 }); }
+    if (path.endsWith('/approve') && method === 'POST') { seen.approved.push(JSON.parse(request.postData() ?? '{}')); grant = { ...grant, status: 'active', stored_status: 'active' }; return json(grant); }
+    if (path.endsWith('/reject') && method === 'POST') { seen.rejects += 1; grant = { ...grant, status: 'rejected' }; return json(grant); }
+    if (path.startsWith('/api/v1/executive/grants/') && method === 'PATCH') { const body = JSON.parse(request.postData() ?? '{}') as Row; seen.narrowed.push(body); grant = { ...grant, scopes: body.scopes, revision: 2 }; return json(grant); }
+    if (path.startsWith('/api/v1/executive/grants/') && method === 'DELETE') { seen.revokes += 1; grant = { ...grant, status: 'revoked' }; return route.fulfill({ status: 204 }); }
     if (path === '/api/v1/executive-pa/tools') return json({ tools });
     if (path === '/api/v1/executive-pa/tour') return json(options.tour === 'empty' ? { status: 'empty', stops: [] } : { status: 'ready', stops });
     if (path === '/api/v1/executive-pa/invoke') {
@@ -58,7 +66,7 @@ async function mockApi(page: Page, options: Options = {}) {
       seen.invokes.push(body);
       const args = body.arguments as Row;
       if (body.tool === 'navigate') return json({ tool: 'navigate', status: 'ok', navigate: { building_id: 'hq', floor_id: args.target_id === 'r_exec' ? 'f1' : 'f0', room_id: args.target_id } });
-      if (body.tool === 'summarise_workspace') return json({ tool: body.tool, status: 'ok', summary: { tasks_total: 12, tasks_blocked: 2, approvals_pending: 1 } });
+      if (body.tool === 'summarise_workspace') return json({ tool: body.tool, status: 'ok', summary: { tasks: { by_status: { completed: 10, waiting_approval: 2 } }, approvals: { pending: 1 } } });
       if (body.tool === 'list_blocked_work') return json({ tool: body.tool, status: 'ok', items: [{ id: 't1', title: 'Order tyres', status: 'waiting_approval' }] });
       if (body.tool === 'start_task' && !body.confirm_hash) return json({ tool: 'start_task', status: 'needs_confirmation', payload_hash: HASH, risk: 'medium', autonomy: 'confirm_each', governed_by: 'POST /tasks then run', preview: args });
       if (body.tool === 'start_task') return json({ tool: 'start_task', status: 'approval_pending', task_id: 'task_1', approval_id: 'ap_1' });
@@ -68,40 +76,62 @@ async function mockApi(page: Page, options: Options = {}) {
   return seen;
 }
 
-test('the desk keeps workspaces apart, grants a summary with the owner approval flow and switches explicitly', async ({ page }) => {
-  const seen = await mockApi(page);
+test('the desk keeps workspaces apart: granted numbers only, not granted shows nothing, switch is explicit', async ({ page }) => {
+  await mockApi(page);
   await page.goto('/#executive');
   await expect(page.getByRole('heading', { level: 1, name: 'Executive desk' })).toBeVisible();
   const employer = page.getByRole('listitem').filter({ hasText: 'Employer Ltd' });
-  await expect(employer.getByText('Not granted')).toBeVisible();
-  await expect(employer).not.toContainText('999');
-  await expect(page.getByRole('listitem').filter({ hasText: 'ANUM OS' })).toContainText('12');
-
+  await expect(employer.getByText('Granted', { exact: true })).toBeVisible();
+  await expect(employer).toContainText('Approvals waiting');
+  await expect(employer).toContainText('Not shared');
   const shop = page.getByRole('listitem').filter({ hasText: 'Tyre Shop' });
-  await shop.getByRole('button', { name: 'Grant a summary' }).click();
-  await shop.getByLabel('Task counts').uncheck();
-  await expect(shop.getByRole('alert')).toContainText('Pick at least one');
-  await shop.getByLabel('Task counts').check();
-  await shop.getByLabel('Approvals waiting').check();
-  await shop.getByRole('button', { name: 'Save grant' }).click();
-  await expect(page.locator('.exPage > .notice')).toContainText('Grant saved for Tyre Shop');
-  expect(seen.grants).toEqual([{ workspace_id: 'workspace_shop', scopes: ['tasks', 'approvals'] }]);
-  await expect(shop.getByText('Granted')).toBeVisible();
-  await expect(shop).toContainText('7');
-
+  await expect(shop.getByText('Not granted', { exact: true })).toBeVisible();
+  await expect(shop).toContainText('Nothing from this workspace is shown here.');
   await expect(shop.getByText('Confidential content opens only after you switch workspace.')).toBeVisible();
+  const home = page.getByRole('listitem').filter({ hasText: 'ANUM OS' });
+  await expect(home.getByText('Current workspace')).toBeVisible();
+  await expect(home).toContainText('12');
   await shop.getByRole('button', { name: 'Switch to Tyre Shop' }).click();
   await expect(shop.getByText('Current workspace')).toBeVisible();
+});
 
-  await shop.getByRole('button', { name: 'Revoke' }).click();
-  await shop.getByRole('button', { name: /Revoke: Tyre Shop/ }).click();
-  await expect(shop.getByText('No summary is shared.')).toBeVisible();
+test('grants: request, approve the shown hash, narrow only, revoke', async ({ page }) => {
+  const seen = await mockApi(page);
+  await page.goto('/#executive');
+  const grants = page.getByRole('region', { name: 'Who may see a summary of this workspace' });
+  const pending = grants.getByRole('listitem').filter({ hasText: 'user_exec' });
+  await expect(pending.getByText('Waiting for approval')).toBeVisible();
+  await expect(pending.getByText(HASH2)).toBeVisible();
+  await pending.getByRole('button', { name: 'Approve this exact grant' }).click();
+  await expect(grants.getByText('Grant approved.')).toBeVisible();
+  expect(seen.approved).toEqual([{ payload_hash: HASH2 }]);
+
+  await pending.getByRole('button', { name: 'Narrow' }).click();
+  const form = pending.getByRole('form', { name: 'Narrow' });
+  await expect(form.getByLabel('Approvals waiting')).toHaveCount(0);
+  await form.getByLabel('Monthly cost').uncheck();
+  await form.getByRole('button', { name: 'Save narrower grant' }).click();
+  await expect(grants.getByText('Grant narrowed.')).toBeVisible();
+  expect(seen.narrowed).toEqual([{ expected_revision: 1, scopes: ['counts', 'tasks'] }]);
+
+  await pending.getByRole('button', { name: 'Revoke' }).click();
+  await pending.getByRole('button', { name: /Revoke for user_exec/ }).click();
+  await expect(grants.getByText('Grant revoked.')).toBeVisible();
   expect(seen.revokes).toBe(1);
+
+  await grants.getByRole('button', { name: 'Request a grant' }).click();
+  const create = grants.getByRole('form', { name: 'Request a grant' });
+  await create.getByLabel('Person (user id)').fill('user_new');
+  await create.getByLabel('Approvals waiting').check();
+  await create.getByRole('button', { name: 'Request grant' }).click();
+  await expect(grants.getByText(/gives no access until an owner approves/)).toBeVisible();
+  expect(seen.created).toEqual([{ grantee_user_id: 'user_new', scopes: ['counts', 'approvals'] }]);
 });
 
 test('the PA moves through the office, reads, and asks before it acts', async ({ page }) => {
   const seen = await mockApi(page);
   await page.goto('/#executive');
+  await expect(page.getByRole('button', { name: 'Start tour' })).toBeVisible();
   const input = page.getByLabel('Tell the assistant what to do');
   await input.fill('take me to the executive office');
   await page.getByRole('button', { name: 'Send' }).click();
@@ -143,14 +173,14 @@ test('the guided tour walks the accessible rooms only', async ({ page }) => {
 test('honest states: no grants installed, owners only, nothing to show, empty tour', async ({ page }) => {
   await mockApi(page, { overview: 'missing', tour: 'empty' });
   await page.goto('/#executive');
-  await expect(page.getByRole('heading', { name: 'Executive grants are not connected on this server' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The executive desk is not available on this server' })).toBeVisible();
   await expect(page.getByText('There are no rooms to visit yet.')).toBeVisible();
 
   await page.unrouteAll();
   await mockApi(page, { overview: 'denied' });
   await page.goto('/#executive');
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'The executive desk is for workspace owners' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'You cannot open the executive desk here' })).toBeVisible();
 
   await page.unrouteAll();
   await mockApi(page, { overview: 'empty' });
@@ -176,6 +206,7 @@ test('the desk fits all five sizes without horizontal overflow', async ({ page }
     await page.setViewportSize({ width, height });
     await page.goto('/#executive');
     await expect(page.getByRole('heading', { level: 1, name: 'Executive desk' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Start tour' })).toBeVisible();
     await page.getByLabel('Tell the assistant what to do').fill('take me to the executive office');
     await page.getByRole('button', { name: 'Send' }).click();
     await expect(page.getByRole('log')).toContainText('Moved to');

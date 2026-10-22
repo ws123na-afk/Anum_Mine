@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  HQ_PENDING_KEY, createDeskClient, createPaClient, groupByKind, needsSwitch, parseUtterance, publishNavigation, readOverview,
+  HQ_PENDING_KEY, createPaClient, isCurrent, parseUtterance, publishNavigation, splitOverview, summaryFigures,
   type Requester, type TourStop,
 } from '../src/lib/executivePa.ts';
 
@@ -51,39 +51,25 @@ test('the tour client tolerates a malformed answer', async () => {
   assert.deepEqual(await client.tour(), { status: 'ready', stops: [] });
 });
 
-test('overview: summaries only for own or granted workspaces, duplicates dropped', () => {
-  const { workspaces } = readOverview({ workspaces: [
-    { workspace_id: 'w1', tenant_id: 't1', name: 'Mine', kind: 'anum_os', grant_state: 'own', summary: { tasks_total: 2 } },
-    { workspace_id: 'w2', tenant_id: 't2', name: 'Employer', kind: 'employment', grant_state: 'not_granted', summary: { tasks_total: 99 } },
-    { workspace_id: 'w3', tenant_id: 't3', name: 'Shop', kind: 'weird', grant_state: 'granted', grant_id: 'g3', summary: { tasks_total: 5 } },
-    { workspace_id: 'w3', tenant_id: 't3', name: 'Shop again', kind: 'business', grant_state: 'granted' },
-    { name: 'broken' },
-  ] });
-  assert.equal(workspaces.length, 3);
-  assert.equal(workspaces[1].summary, null);
-  assert.equal(workspaces[2].kind, 'business');
-  assert.deepEqual(readOverview(null), { workspaces: [] });
-  assert.deepEqual(groupByKind(workspaces).map((g) => g.kind), ['employment', 'anum_os', 'business'].sort((a, b) => ['personal', 'employment', 'anum_os', 'business'].indexOf(a) - ['personal', 'employment', 'anum_os', 'business'].indexOf(b)));
+test('summary figures: an ungranted scope is null, never zero', () => {
+  const none = summaryFigures({ approvals: { pending: 2, oldest_pending_at: null } });
+  assert.deepEqual([none.tasks, none.blocked, none.approvals, none.costUsd, none.meetings], [null, null, 2, null, null]);
+  const some = summaryFigures({ tasks: { by_status: { completed: 5, waiting_approval: 2 }, blocked_agents: 0 }, cost: { month: '2026-10', estimated_cost_usd: '4.50', calls: 3, unpriced_calls: 0, currency: 'USD' } });
+  assert.equal(some.tasks, 7);
+  assert.equal(some.blocked, 2);
+  assert.equal(some.costUsd, '4.50');
+  assert.deepEqual(summaryFigures(undefined).counts, null);
 });
 
-test('a switch is needed unless both tenant and workspace match', () => {
-  const scope = { tenantId: 't1', workspaceId: 'w1' };
-  assert.equal(needsSwitch({ tenant_id: 't1', workspace_id: 'w1' }, scope), false);
-  assert.equal(needsSwitch({ tenant_id: 't1', workspace_id: 'w2' }, scope), true);
-  assert.equal(needsSwitch({ tenant_id: 't2', workspace_id: 'w1' }, scope), true);
-});
-
-test('grant client: pending approval is reported, not treated as applied', async () => {
-  const calls: string[] = [];
-  const request: Requester = async (path, init) => {
-    calls.push(`${init.method} ${path}`);
-    return (init.method === 'POST' ? { status: 'pending_approval', approval_id: 'ap1' } : { id: 'g1', workspace_id: 'w2', scopes: ['tasks'], status: 'active' }) as never;
-  };
-  const desk = createDeskClient(request);
-  assert.deepEqual(await desk.grant('w2', ['tasks']), { kind: 'pending_approval', approvalId: 'ap1' });
-  assert.equal((await desk.widen('g/1', ['tasks', 'costs'])).kind, 'applied');
-  await desk.revoke('g/1');
-  assert.deepEqual(calls, ['POST /api/v1/executive/grants', 'PATCH /api/v1/executive/grants/g%2F1', 'DELETE /api/v1/executive/grants/g%2F1']);
+test('overview items split by access and the current workspace is recognised', () => {
+  const split = splitOverview([
+    { workspace_id: 'w1', name: 'A', access: 'granted', grant_id: 'g', scopes: ['tasks'], expires_at: null, summary: {}, as_of: 'x' },
+    { workspace_id: 'w2', access: 'not_granted', reason: 'no_grant', open_with: 'workspace_switch' },
+    { workspace_id: 'w3', access: 'unavailable', reason: 'read_failed_or_audit_failed' },
+  ]);
+  assert.deepEqual([split.granted.length, split.notGranted.length, split.unavailable.length], [1, 1, 1]);
+  assert.equal(isCurrent('w1', { workspaceId: 'w1' }), true);
+  assert.equal(isCurrent('w2', { workspaceId: 'w1' }), false);
 });
 
 test('navigation is published for the scene and kept for the next mount', () => {

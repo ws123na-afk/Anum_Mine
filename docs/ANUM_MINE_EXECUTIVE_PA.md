@@ -39,15 +39,17 @@ Rules that make it safe:
 - `ExecutivePanel.tsx`: typed and voice input (reuses `createPushToTalk` from the voice stack), a log, the confirm card, the tool list with risk and "asks first", and the guided tour.
 - `ExecutiveCommandCenter.tsx`: the desk. Workspaces grouped Personal, Employment, ANUM OS, Businesses; "Not granted" and "Not connected" states; grant, change and revoke per workspace (a grant that needs approval says so and links to Approvals); an explicit "Switch to ..." before confidential content; empty, loading, error and owners-only states; English and Arabic.
 
-## Contract with the data workstream
-The desk reads `GET /api/v1/executive/overview` (`workspaces[]` with `workspace_id`, `tenant_id`, `name`, `kind`, `grant_state: own|granted|not_granted|not_connected`, `grant_id`, `summary`) and manages `GET|POST /api/v1/executive/grants`, `PATCH|DELETE /api/v1/executive/grants/{id}` (`workspace_id`, `scopes: tasks|approvals|costs|meetings`; a grant that waits for an owner answers `status: pending_approval` with `approval_id`). The data branch had not landed when this was written, so these shapes are this module's own minimal definition; reconcile with `packages/contracts` when it merges. A 404, 501 or 503 from the overview shows "not connected" and the current workspace from the PA's own summary.
+## Contract with the data workstream (merged)
+The desk uses the real executive API of `anum_api/executive_api.py` through `lib/executiveClient.ts` and `packages/contracts/src/executive.ts`; this PR defines no executive routes of its own.
+- `GET /api/v1/executive/overview`: granted workspaces with only the granted scopes (`counts`, `tasks`, `approvals`, `cost`, `meetings`), `not_granted` items (members open them only by an explicit workspace switch), and `unavailable` items. A scope that was not granted shows "Not shared", never 0. A 403 shows the denied state, a 503 "not available" with the current workspace's own figures.
+- Grants of the current workspace (owner only): `GET|POST /executive/grants`, `POST /grants/{id}/approve` with the `payload_hash` shown to the owner (the desk displays the hash and sends back exactly that value), `POST /grants/{id}/reject`, `PATCH /grants/{id}` (narrow only, `expected_revision`), `DELETE /grants/{id}`.
+- `summarise_workspace` for another workspace calls the executive API's own grant-checked reader (`_granted_rows`, `_read_granted_workspace`), so the read goes through the narrow reader role, the workspace's own RLS context and an audit record there. This module has no grant store or data source of its own. The summary uses the contract's `ExecutiveSummary` shape for the current workspace too.
 
 ## Scene navigation
 `publishNavigation` dispatches `anum:hq-navigate` and keeps the target in `sessionStorage` (`anum.hq.pendingNavigation`). The visual workstream's `navigateTo` extension point was not available yet; connect it to that event (or replace `publishNavigation`). No scene file was edited.
 
 ## Not finished, and why
 - The scene does not yet react to PA navigation (waits for the visual branch).
-- Grants, the overview and the cost and meeting figures of other workspaces depend on the data branch.
 - `schedule_meeting` creates a live meeting session; the meeting API has no start time, so nothing is scheduled for a time.
 - Writes are not idempotent on retry (a double click is prevented in the UI only).
 - Voice input reuses browser recognition; there is no spoken approval at all, by design.

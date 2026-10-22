@@ -9,7 +9,7 @@ import { describeError } from './lib/errors';
 import { formatNumber, t, type MessageKey } from './lib/i18n';
 import { createPushToTalk } from './lib/voice';
 import {
-  createPaClient, parseUtterance, publishNavigation,
+  createPaClient, parseUtterance, publishNavigation, summaryFigures,
   type InputMode, type Location, type PaResult, type PaTool, type PaToolName, type Tour, type TourStop,
 } from './lib/executivePa';
 import './executivePanel.css';
@@ -82,8 +82,9 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
           say('pa', t('pa.panelOpened', { panel: mk(`nav.${result.open_panel.view}`) }), 'ok');
           onOpenView(result.open_panel.view);
         } else if (result.summary) {
-          const s = result.summary;
-          say('pa', t('pa.summary', { tasks: formatNumber(s.tasks_total ?? 0), blocked: formatNumber(s.tasks_blocked ?? 0), approvals: formatNumber(s.approvals_pending ?? 0) }), 'ok');
+          const f = summaryFigures(result.summary);
+          const show = (v: number | null) => (v === null ? '-' : formatNumber(v));
+          say('pa', t('pa.summary', { tasks: show(f.tasks), blocked: show(f.blocked), approvals: show(f.approvals) }), 'ok');
         } else if (result.tool === 'list_blocked_work') {
           const n = result.items?.length ?? 0;
           say('pa', n === 0 ? t('pa.blockedNone') : [t('pa.blockedSome', { count: formatNumber(n) }), ...(result.items ?? []).map((i) => i.title ?? i.id)].join(' | '), 'ok');

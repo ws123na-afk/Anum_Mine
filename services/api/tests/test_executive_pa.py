@@ -36,10 +36,8 @@ OFFICE = {
 def clean(monkeypatch: pytest.MonkeyPatch) -> Any:
     for c in (store.tasks, store.runs, store.approvals, store.events, store.audit_records):
         c.clear()
-    executive_pa.set_executive_data_source(None)
     monkeypatch.setattr(executive_pa, "_load_office", lambda ctx: OFFICE if ctx.tenant_id == T1 else {"buildings": [], "floors": [], "rooms": [], "desks": []})
     yield
-    executive_pa.set_executive_data_source(None)
 
 
 def call(tool: str, args: dict | None = None, h: dict = OWNER, mode: str = "typed", confirm: str | None = None) -> dict:
@@ -94,26 +92,21 @@ def test_tour_is_generated_from_accessible_rooms_only() -> None:
     assert other == {"status": "empty", "stops": []}
 
 
-def test_summarise_other_workspace_needs_a_grant() -> None:
+def test_summarise_other_workspace_needs_a_grant(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Memory backend: the executive API needs PostgreSQL, so the answer is "not connected".
     assert call("summarise_workspace", {"workspace_id": "workspace_pa_two"})["status"] == "not_connected"
-
-    class Source:
-        def grant_for(self, ctx: Any, ws: str) -> dict | None:
-            return {"id": "g1"} if ws == "workspace_granted" else None
-
-        def summary(self, ctx: Any, grant: Any) -> dict:
-            return {"tasks_total": 3, "approvals_pending": 1, "secret_notes": "never"}
-
-    executive_pa.set_executive_data_source(Source())
+    monkeypatch.setattr(executive_pa, "_granted_summary", lambda ctx, target: ("not_granted", None))
     assert call("summarise_workspace", {"workspace_id": "workspace_pa_two"})["status"] == "not_granted"
+    monkeypatch.setattr(executive_pa, "_granted_summary", lambda ctx, target: ("ok", {"approvals": {"pending": 1}}) if target == "workspace_granted" else ("not_granted", None))
     granted = call("summarise_workspace", {"workspace_id": "workspace_granted"})
-    assert granted["summary"] == {"tasks_total": 3, "approvals_pending": 1}
+    assert granted["scope"] == "granted" and granted["summary"] == {"approvals": {"pending": 1}}
+    assert call("summarise_workspace", {"workspace_id": "workspace_other"})["status"] == "not_granted"
 
 
 def test_summarise_current_workspace_counts_only_this_scope() -> None:
     call("start_task", {"title": "x", "prompt": "y"})  # proposal only, creates nothing
-    assert call("summarise_workspace")["summary"]["tasks_total"] == 0
-    assert call("summarise_workspace", h=OTHER)["summary"]["tasks_total"] == 0
+    assert call("summarise_workspace")["summary"]["tasks"]["by_status"] == {} or sum(call("summarise_workspace")["summary"]["tasks"]["by_status"].values()) == 0
+    assert sum(call("summarise_workspace", h=OTHER)["summary"]["tasks"]["by_status"].values()) == 0
 
 
 def test_write_needs_confirmation_and_voice_cannot_confirm() -> None:

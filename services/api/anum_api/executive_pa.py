@@ -7,8 +7,9 @@ layer over APIs that already govern everything:
 * **Read tools** (navigate, open a panel, summarise a workspace, list blocked work, list
   pending approvals) run with the caller's own permissions in the caller's tenant and
   workspace scope. A summary of any *other* workspace is possible only through an explicit
-  executive grant (``set_executive_data_source``); without one the answer is "not
-  connected" (no grant system installed) or "not granted".
+  executive grant, read by ``executive_api`` (reader role, then the workspace's own RLS
+  context, audited there). Without PostgreSQL the answer is "not connected"; without a
+  grant it is "not granted".
 * **Write tools** (start a task, schedule a live meeting, delegate to an agent) never do
   the work themselves. They call the same code as ``POST /tasks`` plus ``POST
   /tasks/{id}/run`` and ``POST /agent-meetings``, so permission, run lock, budget, agent
@@ -29,7 +30,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any, Literal, Mapping, Protocol, cast
+from typing import Any, Literal, Mapping, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -46,7 +47,6 @@ router = APIRouter(prefix="/api/v1/executive-pa", tags=["executive pa"])
 Identifier = str
 InputMode = Literal["typed", "voice", "click"]
 MAX_LIST = 20
-SUMMARY_KEYS = ("tasks_total", "tasks_blocked", "approvals_pending", "cost_usd_month", "meetings_active")
 
 
 class StrictBody(BaseModel):
@@ -74,7 +74,7 @@ TOOLS: dict[str, ToolSpec] = {
     for spec in (
         ToolSpec("navigate", "read", "Go to a building, floor, room or agent", (Permission.TASK_READ,), "low", "automatic", "GET /office-spaces"),
         ToolSpec("open_panel", "read", "Open a panel", (Permission.TASK_READ,), "low", "automatic", "the panel's own API"),
-        ToolSpec("summarise_workspace", "read", "Summarise a workspace you may see", (Permission.TASK_READ,), "low", "automatic", "executive grants and the workspace's own APIs"),
+        ToolSpec("summarise_workspace", "read", "Summarise a workspace you may see", (Permission.TASK_READ,), "low", "automatic", "executive grants (GET /executive/overview rules) and the workspace's own APIs"),
         ToolSpec("list_blocked_work", "read", "List blocked work", (Permission.TASK_READ,), "low", "automatic", "GET /tasks"),
         ToolSpec("list_pending_approvals", "read", "List pending approvals", (Permission.APPROVAL_READ,), "low", "automatic", "GET /approvals"),
         ToolSpec("start_task", "write", "Start a task", (Permission.TASK_CREATE, Permission.TASK_RUN), "medium", "confirm_each", "POST /tasks then POST /tasks/{id}/run (ToolPolicy, autonomy, approvals)"),
@@ -134,30 +134,6 @@ ARGS: dict[str, type[StrictBody]] = {
     "delegate": DelegateArgs,
     "schedule_meeting": ScheduleMeetingArgs,
 }
-
-
-# -- the grant source (the data workstream installs it) -------------------------------------
-
-
-class ExecutiveDataSource(Protocol):
-    """Reads executive grants and the minimum summary they allow.
-
-    ``grant_for`` returns the active grant the caller holds for ``workspace_id`` or None.
-    ``summary`` returns only the fields that grant allows (``SUMMARY_KEYS``); this module
-    filters again, so a source can never leak more than the minimum.
-    """
-
-    def grant_for(self, context: TenantContext, workspace_id: str) -> Mapping[str, Any] | None: ...
-
-    def summary(self, context: TenantContext, grant: Mapping[str, Any]) -> Mapping[str, Any]: ...
-
-
-_data_source: ExecutiveDataSource | None = None
-
-
-def set_executive_data_source(source: ExecutiveDataSource | None) -> None:
-    global _data_source
-    _data_source = source
 
 
 # -- reading the office -------------------------------------------------------------------
@@ -315,15 +291,21 @@ async def _execute_write(spec: ToolSpec, args: StrictBody, context: TenantContex
 
 
 def _own_summary(context: TenantContext, repository: AnumRepository) -> dict[str, Any]:
+    """The current workspace's own figures, in the shape of the executive contract
+    (packages/contracts/src/executive.ts ``ExecutiveSummary``)."""
     summary = repository.summarize_tasks(context, TaskFilters())
     pending = repository.list_approvals_page(context, now=utc_now(), status=_pending_filter(), query=None, task_id=None, cursor=None, limit=200)[0]
-    return {
-        "tasks_total": summary.total,
-        "tasks_blocked": summary.by_status.get(TaskStatus.WAITING_APPROVAL.value, 0),
-        "approvals_pending": len(pending),
-        "cost_usd_month": _own_cost(context),
-        "meetings_active": _own_meetings(context),
+    cost = _own_cost(context)
+    meetings = _own_meetings(context)
+    out: dict[str, Any] = {
+        "tasks": {"by_status": dict(summary.by_status)},
+        "approvals": {"pending": len(pending)},
     }
+    if cost is not None:
+        out["cost"] = {"estimated_cost_usd": str(cost), "currency": "USD"}
+    if meetings is not None:
+        out["meetings"] = {"active": meetings}
+    return out
 
 
 def _pending_filter() -> Any:
@@ -352,17 +334,37 @@ def _own_meetings(context: TenantContext) -> int | None:
         return None
 
 
+def _granted_summary(context: TenantContext, target: str) -> tuple[str, dict[str, Any] | None]:
+    """The grant-checked summary of another workspace, read by the executive API itself
+    (reader role, then the workspace's own RLS context, audited there): never by this module."""
+    from . import executive_api
+
+    try:
+        executive_api.require_postgres()
+        grants = executive_api._granted_rows(context)
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            return "not_connected", None
+        raise
+    grant = next((g for g in grants if g.workspace_id == target), None)
+    if grant is None:
+        return "not_granted", None
+    item = executive_api._read_granted_workspace(context, grant, utc_now())
+    if item.get("access") != "granted":
+        return "not_granted", None
+    return "ok", dict(item["summary"])
+
+
 def _summarise(context: TenantContext, repository: AnumRepository, args: SummariseArgs) -> dict[str, Any]:
     target = args.workspace_id or context.workspace_id
     if target == context.workspace_id:
         return _result("ok", workspace_id=target, scope="current", summary=_own_summary(context, repository))
-    if _data_source is None:
-        return _result("not_connected", workspace_id=target, note="Executive grants are not connected on this server.")
-    grant = _data_source.grant_for(context, target)
-    if grant is None:
+    state, summary = _granted_summary(context, target)
+    if state == "not_connected":
+        return _result("not_connected", workspace_id=target, note="Executive grants need the PostgreSQL backend.")
+    if summary is None:
         return _result("not_granted", workspace_id=target, note="No active grant for this workspace. Ask its owner to grant it.")
-    raw = _data_source.summary(context, grant)
-    return _result("ok", workspace_id=target, scope="granted", summary={k: raw.get(k) for k in SUMMARY_KEYS if k in raw})
+    return _result("ok", workspace_id=target, scope="granted", summary=summary)
 
 
 def _blocked(context: TenantContext, repository: AnumRepository) -> dict[str, Any]:
@@ -474,4 +476,4 @@ async def invoke_tool(
     return {"tool": spec.name, **outcome}
 
 
-__all__ = ["router", "TOOLS", "build_tour", "set_executive_data_source", "args_hash"]
+__all__ = ["router", "TOOLS", "build_tour", "args_hash"]
