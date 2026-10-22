@@ -9,8 +9,18 @@
 import type { Aabb } from './hqMath.ts';
 
 export type Rgb = readonly [number, number, number];
-/** Floats per vertex: position 3, normal 3, colour 3, emissive 1. */
-export const VERTEX_FLOATS = 10;
+/** Floats per vertex: position 3, normal 3, colour 3, emissive 1, material 1, texture coordinates 2. */
+export const VERTEX_FLOATS = 13;
+
+/**
+ * Surface classes. The renderer gives each one its own material (texture, roughness, reflection);
+ * `flat` is plain painted colour. Surfaces with an emissive weight of 2 or more are windows whatever
+ * their class: reflective glass by day, a warm lit pane at night (the part above 2 is the glow).
+ */
+export const MAT = {
+  flat: 0, concrete: 1, tile: 2, asphalt: 3, grass: 4, wood: 5, metal: 6, water: 7, glass: 8, roller: 9, sign: 10, court: 11,
+} as const;
+export type MatId = (typeof MAT)[keyof typeof MAT];
 
 export function hex(value: string): Rgb {
   const m = /^#([0-9a-f]{6})$/i.exec(value);
@@ -28,9 +38,19 @@ export function scale(c: Rgb, f: number): Rgb {
 }
 
 export class MeshBuilder {
+  /** The surface class given to every triangle added until it is changed. */
+  mat: MatId = MAT.flat;
   private data: number[] = [];
   private lo = [Infinity, Infinity, Infinity];
   private hi = [-Infinity, -Infinity, -Infinity];
+
+  /** Runs `fn` with the surface class set, then restores the previous one. */
+  withMat(id: MatId, fn: () => void): void {
+    const before = this.mat;
+    this.mat = id;
+    fn();
+    this.mat = before;
+  }
 
   get vertexCount(): number {
     return this.data.length / VERTEX_FLOATS;
@@ -58,12 +78,44 @@ export class MeshBuilder {
     if (len < 1e-12) return;
     nx /= len; ny /= len; nz /= len;
     for (const p of [a, b, c]) {
-      this.data.push(p[0], p[1], p[2], nx, ny, nz, color[0], color[1], color[2], emissive);
+      this.data.push(p[0], p[1], p[2], nx, ny, nz, color[0], color[1], color[2], emissive, this.mat, 0, 0);
       for (let i = 0; i < 3; i++) {
         if (p[i] < this.lo[i]) this.lo[i] = p[i];
         if (p[i] > this.hi[i]) this.hi[i] = p[i];
       }
     }
+  }
+
+  /** Triangle with texture coordinates (signs), flat normal. */
+  triUV(
+    a: readonly number[], b: readonly number[], c: readonly number[],
+    uva: readonly [number, number], uvb: readonly [number, number], uvc: readonly [number, number], color: Rgb, emissive = 0,
+  ): void {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz);
+    if (len < 1e-12) return;
+    nx /= len; ny /= len; nz /= len;
+    const pts = [a, b, c], uvs = [uva, uvb, uvc];
+    for (let k = 0; k < 3; k++) {
+      const p = pts[k], uv = uvs[k];
+      this.data.push(p[0], p[1], p[2], nx, ny, nz, color[0], color[1], color[2], emissive, this.mat, uv[0], uv[1]);
+      for (let i = 0; i < 3; i++) {
+        if (p[i] < this.lo[i]) this.lo[i] = p[i];
+        if (p[i] > this.hi[i]) this.hi[i] = p[i];
+      }
+    }
+  }
+
+  /** Quad with texture coordinates: a, b, c, d in the same order as `quad`, one uv per corner. */
+  quadUV(
+    a: readonly number[], b: readonly number[], c: readonly number[], d: readonly number[],
+    uva: readonly [number, number], uvb: readonly [number, number], uvc: readonly [number, number], uvd: readonly [number, number],
+    color: Rgb, emissive = 0,
+  ): void {
+    this.triUV(a, b, c, uva, uvb, uvc, color, emissive);
+    this.triUV(a, c, d, uva, uvc, uvd, color, emissive);
   }
 
   /** Triangle with a colour per vertex (soft vertical gradients on facades), flat normal. */
@@ -79,7 +131,7 @@ export class MeshBuilder {
     const pts = [a, b, c], cols = [ca, cb, cc];
     for (let k = 0; k < 3; k++) {
       const p = pts[k], col = cols[k];
-      this.data.push(p[0], p[1], p[2], nx, ny, nz, col[0], col[1], col[2], emissive);
+      this.data.push(p[0], p[1], p[2], nx, ny, nz, col[0], col[1], col[2], emissive, this.mat, 0, 0);
       for (let i = 0; i < 3; i++) {
         if (p[i] < this.lo[i]) this.lo[i] = p[i];
         if (p[i] > this.hi[i]) this.hi[i] = p[i];

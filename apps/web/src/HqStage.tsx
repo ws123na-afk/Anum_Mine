@@ -7,7 +7,8 @@
  * things are reachable through the label buttons and the List view.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { HqRenderer, type RenderScene } from './lib/hqRenderer.ts';
+import type { HqRenderer } from './lib/hqThreeRenderer.ts';
+import type { RenderScene } from './lib/hqRenderTypes.ts';
 import { pickNearest, type PickTarget } from './lib/hqMath.ts';
 import { placeLabels } from './lib/hqLabels.ts';
 import { dolly, isCameraAtRest, orbit, pan, screenRay, stepCamera, type CameraState } from './lib/headquartersSpatial.ts';
@@ -82,54 +83,70 @@ export function HqStage(props: Props) {
     propsRef.current.onCamera(next);
   }, []);
 
-  // Renderer lifecycle.
+  // Renderer lifecycle. three.js is loaded on demand, so the page, the list view and the no-WebGL fallback never download it.
   useEffect(() => {
     const el = canvas.current;
-    if (!el) return;
-    const r = HqRenderer.create(el, {
-      onLost: () => {
-        setStatus('recovering');
-        lostTimer.current = window.setTimeout(() => propsRef.current.onUnavailable('context-lost'), 5000);
-      },
-      onRestored: () => {
-        if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
-        setStatus('ok');
-      },
-      onError: (error) => propsRef.current.onUnavailable(error.message),
-      onFrame: (vp, aspect) => {
-        const { width, height } = size.current;
-        placeLabels(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height);
-        propsRef.current.onView?.(live.current, aspect);
-        const s = r?.stats;
-        if (s && s.frames % 10 === 0 && canvas.current) {
-          canvas.current.dataset.drawMs = s.avgDrawMs.toFixed(2);
-          canvas.current.dataset.triangles = String(Math.round(s.triangles));
-          canvas.current.dataset.drawn = String(s.drawn);
-          canvas.current.dataset.culled = String(s.culled);
-          canvas.current.dataset.dpr = s.dpr.toFixed(2);
-        }
-      },
+    if (!el) return undefined;
+    let cancelled = false;
+    let created: HqRenderer | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    import('./lib/hqThreeRenderer.ts').then(({ HqRenderer: Renderer }) => {
+      if (cancelled) return;
+      const r: HqRenderer | null = Renderer.create(el, {
+        onLost: () => {
+          setStatus('recovering');
+          lostTimer.current = window.setTimeout(() => propsRef.current.onUnavailable('context-lost'), 5000);
+        },
+        onRestored: () => {
+          if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
+          setStatus('ok');
+        },
+        onError: (error) => propsRef.current.onUnavailable(error.message),
+        onFrame: (vp, aspect) => {
+          const { width, height } = size.current;
+          placeLabels(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height);
+          propsRef.current.onView?.(live.current, aspect);
+          const s = created?.stats;
+          if (s && s.frames % 10 === 0 && canvas.current) {
+            canvas.current.dataset.drawMs = s.avgDrawMs.toFixed(2);
+            canvas.current.dataset.triangles = String(Math.round(s.triangles));
+            canvas.current.dataset.drawn = String(s.drawn);
+            canvas.current.dataset.culled = String(s.culled);
+            canvas.current.dataset.dpr = s.dpr.toFixed(2);
+            canvas.current.dataset.shadow = String(s.shadowSize);
+            canvas.current.dataset.bloom = s.bloom ? 'true' : 'false';
+          }
+        },
+      });
+      if (!r) { propsRef.current.onUnavailable('webgl-unavailable'); return; }
+      created = r;
+      renderer.current = r;
+      r.setReducedMotion(propsRef.current.reducedMotion);
+      r.setCamera(live.current);
+      r.setNight(nightNow.current);
+      if (propsRef.current.scene) r.setScene(propsRef.current.scene);
+      r.setHighlight(propsRef.current.hoverId, propsRef.current.selectedId);
+      resizeObserver = new ResizeObserver(() => {
+        const box = el.getBoundingClientRect();
+        size.current = { width: Math.max(1, box.width), height: Math.max(1, box.height) };
+        r.requestFrame();
+      });
+      resizeObserver.observe(el);
+    }).catch((error: unknown) => {
+      if (!cancelled) propsRef.current.onUnavailable(error instanceof Error ? error.message : 'webgl-unavailable');
     });
-    if (!r) { props.onUnavailable('webgl-unavailable'); return; }
-    renderer.current = r;
-    r.setCamera(live.current);
-    r.setNight(nightNow.current);
-    const resizeObserver = new ResizeObserver(() => {
-      const box = el.getBoundingClientRect();
-      size.current = { width: Math.max(1, box.width), height: Math.max(1, box.height) };
-      r.requestFrame();
-    });
-    resizeObserver.observe(el);
     return () => {
-      resizeObserver.disconnect();
+      cancelled = true;
+      resizeObserver?.disconnect();
       if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
-      r.dispose();
+      created?.dispose();
       renderer.current = null;
     };
     // The renderer is created once per mounted stage.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => { renderer.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
   useEffect(() => { if (scene) renderer.current?.setScene(scene); }, [scene]);
   useEffect(() => { renderer.current?.setHighlight(props.hoverId, props.selectedId); }, [props.hoverId, props.selectedId]);
   useLayoutEffect(() => { labelSizes.current.clear(); renderer.current?.requestFrame(); }, [labels]);

@@ -6,7 +6,7 @@ import { seeded } from '../src/lib/hqGeometry.ts';
 import { buildCampusScene } from '../src/lib/campusScene.ts';
 import { buildBuildingScene } from '../src/lib/buildingScene.ts';
 import { layoutCampus, type CampusBuilding } from '../src/lib/campusModel.ts';
-import { lightingFor } from '../src/lib/hqRenderer.ts';
+import { lightingFor } from '../src/lib/hqLighting.ts';
 import type { SceneFloor } from '../src/lib/headquartersProjection.ts';
 
 const normals = (b: MeshBuilder): Array<[number, number, number]> => {
