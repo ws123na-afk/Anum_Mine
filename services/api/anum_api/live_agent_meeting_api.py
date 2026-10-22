@@ -202,6 +202,13 @@ def add_agent_participant(
             raise HTTPException(409, "Meeting revision changed")
         if meeting["status"] != "scheduled":
             raise HTTPException(409, "Agents may only be added to scheduled meetings")
+        agent = store.session.execute(text("""
+            select id from agent_profiles
+            where tenant_id=:tenant and workspace_id=:workspace and id=:agent
+              and status='active'
+        """), store.args(context, agent=body.agent_id)).mappings().first()
+        if agent is None:
+            raise HTTPException(404, "Active agent not found in this workspace")
         participants = store.participants(context, meeting_id)
         if any(p["actor_id"] == body.agent_id for p in participants):
             return dict(meeting)
