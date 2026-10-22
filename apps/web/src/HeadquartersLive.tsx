@@ -372,14 +372,14 @@ export function HeadquartersLive(props: HeadquartersProps) {
           <button type="button" className="hqIconButton" onClick={retry} disabled={state?.busy} aria-label={t('hq.refresh')} title={t('hq.refresh')}><RefreshCcw aria-hidden="true" /></button>
           <ViewSwitch view={effectiveView} onChange={(v) => { if (v === "3d" && !webglOk) return; setView(v); }} />
           <div className="hqMenuWrap">
-            <button type="button" className="hqGhost" aria-expanded={toolsOpen} aria-haspopup="true" onClick={() => setToolsOpen((v) => !v)}><Wrench aria-hidden="true" />{t('hq.tools')}</button>
+            <button type="button" className="hqGhost" aria-expanded={toolsOpen} onClick={() => setToolsOpen((v) => !v)}><Wrench aria-hidden="true" />{t('hq.tools')}</button>
             {toolsOpen && (
-              <ul className="hqMenu" role="menu">
+              <ul className="hqMenu">
                 {([
                   ['spaces', LayoutGrid, 'hq.tools.spaces'], ['workstations', Users, 'hq.tools.workstations'], ['agentMeetings', Users, 'hq.tools.meetings'],
                   ['reception', DoorOpen, 'hq.tools.reception'], ['tour', Compass, 'hq.tools.tour'],
                 ] as const).map(([id, Icon, key]) => (
-                  <li key={id} role="none"><button type="button" role="menuitem" onClick={() => { setOverlay(id); setToolsOpen(false); }}><Icon aria-hidden="true" />{t(key as MessageKey)}</button></li>
+                  <li key={id}><button type="button" onClick={() => { setOverlay(id); setToolsOpen(false); }}><Icon aria-hidden="true" />{t(key as MessageKey)}</button></li>
                 ))}
               </ul>
             )}
