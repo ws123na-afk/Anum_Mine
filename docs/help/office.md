@@ -16,6 +16,7 @@ ANUM MINE draws every workspace you can open as a building on a campus. Inside a
 2. Drag to turn the view, scroll to zoom, hold **Shift** while dragging to move. The compass and the zoom buttons on the right do the same.
 3. Choose **3D**, **Top** or **List** above the scene. **List** is a plain list of every building and room, and works with a keyboard and a screen reader.
 4. Select a building label to read its summary, then press it again, or click **Open** in the summary, to go inside.
+5. Use the sun and moon buttons to switch between day and night. Zoom in on a building to read the sign over its entrance: ANUM MINE and the building's name.
 
 ## Work inside a building
 

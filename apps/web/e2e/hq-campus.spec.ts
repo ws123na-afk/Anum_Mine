@@ -46,6 +46,31 @@ test('the campus shows one building per workspace with real counts, and opens a 
   await expect(hq(page).getByRole('button', { name: /^Tyre Pulse HQ\./ })).toBeAttached();
 });
 
+test('entrance signs carry ANUM MINE and the real building name, on the campus and in a building', async ({ page }) => {
+  await openOffice(page);
+  // One sign per building, named from the campus data; they stay hidden from assistive technology (the cards carry the names).
+  const signs = hq(page).locator('.hqSign');
+  await expect(signs.filter({ hasText: 'Al Noor Fleet HQ' })).toHaveCount(1);
+  await expect(signs.filter({ hasText: 'Executive HQ' })).toHaveCount(1);
+  await expect(signs.first().locator('strong')).toHaveText(/ANUM MINE/);
+  expect(await signs.evaluateAll((els) => els.every((el) => el.getAttribute('aria-hidden') === 'true'))).toBe(true);
+  await enterFleetBuilding(page);
+  await expect(hq(page).locator('.hqSign', { hasText: 'Al Noor Fleet HQ' })).toHaveCount(1);
+});
+
+test('night and day both draw and the toggle keeps the page inside the viewport', async ({ page }) => {
+  await openOffice(page);
+  const canvas = hq(page).locator('canvas.hqCanvas');
+  await hq(page).getByRole('button', { name: 'Night' }).click();
+  await expect(hq(page).locator('.hqStage')).toHaveAttribute('data-night', 'true');
+  await page.waitForTimeout(700);
+  await hq(page).getByRole('button', { name: 'Day' }).click();
+  await expect(hq(page).locator('.hqStage')).toHaveAttribute('data-night', 'false');
+  await expect(canvas).toBeVisible();
+  expect(Number(await canvas.getAttribute('data-triangles'))).toBeGreaterThan(20000);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+});
+
 test('inside a building: floors, rooms, desks, agent cards and the module panels', async ({ page }) => {
   await openOffice(page);
   await enterFleetBuilding(page);

@@ -36,9 +36,21 @@ void main(){
   float up=n.y*0.5+0.5;
   vec3 hemi=mix(uGround,uSky,up);
   float diff=max(dot(n,-uSunDir),0.0);
-  vec3 lit=vColor*(hemi+uSunColor*diff);
-  float glow=vEmissive*mix(0.22,1.0,uNight);
-  vec3 col=lit+vColor*glow*1.5;
+  // An emissive weight of 2 or more marks a window: reflective glass by day, a warm lit pane at night.
+  float win=step(1.5,vEmissive);
+  float em=vEmissive-2.0*win;
+  vec3 base=vColor;
+  if(win>0.5){
+    float sky=clamp(vWorld.y/38.0,0.0,1.0);
+    vec3 glass=mix(vec3(0.14,0.24,0.35),vec3(0.46,0.62,0.76),sky*0.6+0.4*diff);
+    base=mix(glass,vColor,uNight*clamp(em*1.2,0.0,1.0));
+  }
+  // Upright faces darken towards the ground: a cheap stand-in for contact occlusion.
+  float upright=1.0-step(0.6,abs(n.y));
+  float ao=mix(1.0,mix(0.7,1.0,smoothstep(0.0,1.8,vWorld.y)),upright);
+  vec3 lit=base*(hemi+uSunColor*diff)*ao;
+  float glow=win>0.5 ? uNight*em : em*mix(0.22,1.0,uNight);
+  vec3 col=lit+base*glow*1.5;
   col+=vec3(0.10,0.22,0.19)*uHighlight;
   float dist=length(vWorld-uEye);
   float f=smoothstep(uFogRange.x,uFogRange.y,dist);
@@ -58,10 +70,10 @@ export function lightingFor(night: number): Lighting {
   const mix3 = (a: readonly number[], b: readonly number[]) => [a[0] + (b[0] - a[0]) * n, a[1] + (b[1] - a[1]) * n, a[2] + (b[2] - a[2]) * n] as const;
   return {
     sunDir: mix3([-0.45, -0.8, -0.38], [0.35, -0.75, 0.3]),
-    sunColor: mix3([0.62, 0.58, 0.5], [0.1, 0.14, 0.26]),
-    sky: mix3([0.6, 0.68, 0.78], [0.13, 0.17, 0.28]),
-    ground: mix3([0.34, 0.33, 0.3], [0.07, 0.08, 0.12]),
-    fog: mix3([0.62, 0.74, 0.86], [0.04, 0.07, 0.13]),
+    sunColor: mix3([0.62, 0.58, 0.5], [0.2, 0.26, 0.44]),
+    sky: mix3([0.6, 0.68, 0.78], [0.27, 0.33, 0.5]),
+    ground: mix3([0.34, 0.33, 0.3], [0.15, 0.17, 0.24]),
+    fog: mix3([0.62, 0.74, 0.86], [0.05, 0.09, 0.17]),
   };
 }
 

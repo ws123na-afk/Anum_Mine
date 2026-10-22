@@ -148,8 +148,13 @@ export function BuildingView(props: BuildingViewProps) {
         node: <AgentCard name={hidden ? t('hq.agent.private') : (p?.name || desk.agent?.name || t('hq.agent.assigned'))} role={p?.role ?? null} status={p?.status ?? null} stale={p?.stale === true} selected={key === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(key, desk)} />,
       });
     }
+    // The entrance sign on the front lawn: the wordmark over the real building name.
+    list.push({
+      id: 'sign', anchor: scene.sign, priority: 3, maxDistance: 120,
+      node: <div className="hqSign" aria-hidden="true"><strong>ANUM MINE</strong><small>{props.workspaceName}</small></div>,
+    });
     return list;
-  }, [scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, activeIndex, pickRoom]);
+  }, [scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.workspaceName, activeIndex, pickRoom]);
 
   const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
   const change = (fn: (c: CameraState) => CameraState) => setCamera((c) => clampTarget(fn(c), 400));

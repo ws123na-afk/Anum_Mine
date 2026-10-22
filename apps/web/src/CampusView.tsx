@@ -109,6 +109,15 @@ export function CampusView(props: CampusViewProps) {
         ),
       };
     });
+    // Entrance signs: ANUM MINE over the real building name, shown once the camera is close enough to read them.
+    for (const b of scene.buildings) {
+      const building = byId.get(b.workspaceId);
+      if (!building) continue;
+      list.push({
+        id: 'sign:' + b.workspaceId, anchor: b.sign, priority: 3, maxDistance: 55,
+        node: <div className="hqSign" aria-hidden="true"><strong>ANUM MINE</strong><small>{building.name}</small></div>,
+      });
+    }
     list.push({
       id: 'monument', anchor: scene.monument, priority: 2,
       node: <div className="hqMonumentLabel" aria-hidden="true"><strong>ANUM MINE</strong><small>{t('hq.monument.sub')}</small></div>,

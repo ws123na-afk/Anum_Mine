@@ -18,7 +18,7 @@ export function aspectFit(aspect: number): number {
 }
 
 export function campusCamera(radius: number, centerZ = 0, aspect = 1.7): CameraState {
-  const distance = clamp((radius * 2.5 + 30) * aspectFit(aspect), 70, 540);
+  const distance = clamp((radius * 1.95 + 22) * aspectFit(aspect), 70, 540);
   return { target: { x: 0, y: 0, z: centerZ }, distance, yaw: HOME_YAW, pitch: HOME_PITCH, fov: 40, minDistance: 14, maxDistance: 560 };
 }
 

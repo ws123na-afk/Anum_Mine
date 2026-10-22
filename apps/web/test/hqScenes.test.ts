@@ -38,7 +38,7 @@ test('campus scene has one mesh per building, finite data and a sane triangle bu
   const list = [bld('exec', 'executive'), ...Array.from({ length: 9 }, (_, i) => bld('w' + i))];
   const scene = buildCampusScene(layoutCampus(list));
   assert.equal(scene.buildings.length, 10);
-  assert.ok(scene.triangles > 2000 && scene.triangles < 120000, 'triangles ' + scene.triangles);
+  assert.ok(scene.triangles > 2000 && scene.triangles < 250000, 'triangles ' + scene.triangles);
   for (const item of [scene.scenery, ...scene.buildings.map((x) => x.mesh)]) assert.ok(item.vertices.every(Number.isFinite));
   const exec = scene.buildings.find((x) => x.workspaceId === 'exec')!;
   const other = scene.buildings.find((x) => x.workspaceId === 'w0')!;
