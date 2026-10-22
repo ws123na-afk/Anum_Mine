@@ -160,11 +160,11 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
      {state?.status==='ready'?<Wifi size={16}/>:<WifiOff size={16}/>}
      <span>{state?.status==='ready'?'Authenticated workspace':state?.status==='refreshing'?'Updating workspace':state?.status??'Connecting'}</span>
     </div>
-    <button onClick={()=>setLight(v=>v==='day'?'night':'day')} title="Switch office lighting">
+    <button onClick={()=>setLight(v=>v==='day'?'night':'day')} title="Switch office lighting" aria-label={light==='day'?'Night lighting':'Day lighting'}>
      {light==='day'?<Moon size={18}/>:<Sun size={18}/>}<span>{light==='day'?'Night':'Day'}</span>
     </button>
-    <button onClick={()=>void toggleFullscreen()} title="Toggle fullscreen">{full?<Minimize2 size={17}/>:<Maximize2 size={17}/>}</button>
-    <button onClick={onClose}><ArrowLeft size={18}/> <span>Return to ANUM OS</span></button>
+    <button onClick={()=>void toggleFullscreen()} title="Toggle fullscreen" aria-label="Toggle fullscreen">{full?<Minimize2 size={17}/>:<Maximize2 size={17}/>}</button>
+    <button onClick={onClose} aria-label="Return to ANUM OS"><ArrowLeft size={18}/> <span>Return to ANUM OS</span></button>
    </div>
   </header>
   <div className="hqBody">
@@ -225,8 +225,8 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
      {(['all','occupied','meeting'] as const).map(v=><button key={v} aria-pressed={filters===v} onClick={()=>setFilters(v)}>{v==='all'?'All':v==='occupied'?'Assigned':'Meetings'}</button>)}
     </div>
     <div className="hqRoomList" role="list">
-     {filteredRooms.map(r=><button key={r.id} type="button" role="listitem" className={r.id===room?.id?'active':''}
-      onClick={()=>visit(r)}>{roomIcon(r.kind)}<span><strong>{r.label}</strong><small>{r.kind} · capacity {r.capacity}</small></span></button>)}
+     {filteredRooms.map(r=><div key={r.id} role="listitem"><button type="button" className={r.id===room?.id?'active':''} aria-current={r.id===room?.id?'true':undefined}
+      onClick={()=>visit(r)}>{roomIcon(r.kind)}<span><strong>{r.label}</strong><small>{r.kind} · capacity {r.capacity}</small></span></button></div>)}
      {!filteredRooms.length&&<p className="hqMuted">No rooms match your filters.</p>}
     </div>
     <div className="hqRoomDetails">

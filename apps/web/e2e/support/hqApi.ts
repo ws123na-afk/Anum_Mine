@@ -52,3 +52,34 @@ export async function mockOfficeSpaces(
   });
   return mock;
 }
+
+import { mockOrgChart } from './orgChartApi';
+
+export interface OpenHqOptions { registry?: ReturnType<typeof hqRegistry>; locale?: 'en' | 'ar'; theme?: 'light' | 'dark'; noWebgl?: boolean; reducedMotion?: boolean }
+
+/** Opens the authenticated headquarters (#office-preview, live mode) with the org chart and registry mocked. */
+export async function openHq(page: Page, options: OpenHqOptions = {}): Promise<HqMock> {
+  if (options.locale || options.theme) {
+    await page.addInitScript(({ locale, theme }) => {
+      try {
+        if (locale) localStorage.setItem('anum.locale', locale);
+        if (theme) localStorage.setItem('anum.theme', theme);
+      } catch { /* storage blocked */ }
+    }, { locale: options.locale, theme: options.theme });
+  }
+  if (options.noWebgl) {
+    await page.addInitScript(() => {
+      const original = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, kind: string, ...rest: unknown[]) {
+        if (/webgl/i.test(kind)) return null;
+        return (original as (...a: unknown[]) => unknown).call(this, kind, ...rest) as never;
+      } as typeof original;
+    });
+  }
+  if (options.reducedMotion) await page.emulateMedia({ reducedMotion: 'reduce' });
+  await mockOrgChart(page);
+  const registry = options.registry ?? hqRegistry(TENANT_A, { rooms: 4, desks: 4, agentIds: ['agent_fleet', 'agent_leads', 'agent_care', 'agent_invoice'] });
+  const mock = await mockOfficeSpaces(page, { registries: { [TENANT_A.tenantId]: registry } });
+  await page.goto('/#office-preview');
+  return mock;
+}
