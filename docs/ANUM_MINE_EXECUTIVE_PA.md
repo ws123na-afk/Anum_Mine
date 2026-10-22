@@ -45,8 +45,13 @@ The desk uses the real executive API of `anum_api/executive_api.py` through `lib
 - Grants of the current workspace (owner only): `GET|POST /executive/grants`, `POST /grants/{id}/approve` with the `payload_hash` shown to the owner (the desk displays the hash and sends back exactly that value), `POST /grants/{id}/reject`, `PATCH /grants/{id}` (narrow only, `expected_revision`), `DELETE /grants/{id}`.
 - `summarise_workspace` for another workspace calls the executive API's own grant-checked reader (`_granted_rows`, `_read_granted_workspace`), so the read goes through the narrow reader role, the workspace's own RLS context and an audit record there. This module has no grant store or data source of its own. The summary uses the contract's `ExecutiveSummary` shape for the current workspace too.
 
+## The assistant dock
+`ExecutivePanel.tsx` (also exported as `ExecutivePaDock`) is laid out as the right-side dock of the owner's concept renders: avatar glyph, a status that reads "Ready" only when the tools endpoint answered, one welcome line, quick actions, "You can also say" examples and the typed box with a microphone. It fits any container up to about 380 px wide, so the visual workstream can mount it in a campus slot (`<ExecutivePaDock onOpenView onLocation />`).
+- Every quick action calls a real tool: Start tour (navigate per stop), Open calendar and Open meetings (`open_panel`), List blocked work, Pending approvals, Summarise this workspace. Buttons the concept shows without a backing tool (Show today's schedule items, Take me to my office, Show logistics activity, Show recent orders) are omitted. The persona name, photo, greeting facts and schedule items are not invented.
+- The examples are built from the real first room of the tour and the real tools. Writes still use the proposal, click and hash gate.
+
 ## Scene navigation
-`publishNavigation` dispatches `anum:hq-navigate` and keeps the target in `sessionStorage` (`anum.hq.pendingNavigation`). The visual workstream's `navigateTo` extension point was not available yet; connect it to that event (or replace `publishNavigation`). No scene file was edited.
+`publishNavigation` dispatches `anum:hq-navigate` with the headquarters' own target (`{building, floor, room, agent}`, ids accepted) and keeps the PA's location in `sessionStorage` (`anum.hq.pendingNavigation`). The visual workstream's `navigateTo` extension point was not available yet; connect it to that event (or replace `publishNavigation`). No scene file was edited.
 
 ## Not finished, and why
 - The scene does not yet react to PA navigation (waits for the visual branch).

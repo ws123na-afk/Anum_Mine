@@ -3,7 +3,7 @@
  * proposal and runs only after a click on "Confirm and run": a spoken answer never confirms.
  * The assistant has no tool that approves or rejects. */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Compass, Mic, MicOff, Send, ShieldCheck, Route, X } from 'lucide-react';
+import { CalendarDays, Compass, Mic, MicOff, Send, ShieldCheck, Route, Users, ListChecks, ClipboardCheck, Sparkles, X } from 'lucide-react';
 import { apiRequest } from './lib/api';
 import { describeError } from './lib/errors';
 import { formatNumber, t, type MessageKey } from './lib/i18n';
@@ -19,6 +19,7 @@ interface Pending { tool: PaToolName; args: Record<string, unknown>; proposal: P
 
 const mk = (key: string, vars?: Record<string, string | number>) => t(key as MessageKey, vars);
 
+export function ExecutivePaDock(props: Parameters<typeof ExecutivePanel>[0]) { return <ExecutivePanel {...props} />; }
 export function ExecutivePanel({ onOpenView, onLocation }: {
   onOpenView(view: string): void;
   onLocation?(location: Location | null): void;
@@ -146,6 +147,19 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
     void session.start().then((ok) => { if (!ok) setListening(false); });
   };
 
+  const quick = (label: string, tool: PaToolName, args: Record<string, unknown>) => {
+    if (busy) return;
+    say('you', label); setPending(null);
+    void run(tool, args, 'click');
+  };
+  const allowed = (name: PaToolName) => tools === null || tools.find((x) => x.name === name)?.allowed !== false;
+  const status: 'loading' | 'ready' | 'unavailable' = toolsError ? 'unavailable' : tools === null ? 'loading' : 'ready';
+  // Example phrases come from the real office and the real tools, never from invented names.
+  const examples = [
+    ...(stops[0] ? [t('pa.example.go', { room: stops[0].room_name })] : []),
+    t('pa.example.blocked'), t('pa.example.summary'),
+  ];
+
   const goStop = (index: number) => {
     const stop = stops[index];
     if (!stop) return;
@@ -157,11 +171,27 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
   const writeTools = (tools ?? []).filter((x) => x.kind === 'write');
   const readTools = (tools ?? []).filter((x) => x.kind === 'read');
 
-  return <section className="paPanel" aria-labelledby="pa-title">
+  return <section className="paPanel paDock" aria-labelledby="pa-title">
     <header className="paHead">
-      <div><h2 id="pa-title"><ShieldCheck aria-hidden="true" />{t('pa.title')}</h2><p>{t('pa.subtitle')}</p></div>
+      <span className="paAvatar" aria-hidden="true"><Sparkles /></span>
+      <div className="paHeadText">
+        <h2 id="pa-title">{t('pa.title')}</h2>
+        <p className={`paStatus ${status}`} role="status"><span aria-hidden="true" />{t(`pa.status.${status}` as MessageKey)}</p>
+      </div>
       <p className="paPlace" aria-live="polite"><Compass aria-hidden="true" /><span>{t('pa.location')}:</span> <strong dir="auto">{place ?? t('pa.location.none')}</strong></p>
     </header>
+    <p className="paWelcome">{t('pa.subtitle')}</p>
+    <div className="paQuick" role="group" aria-label={t('pa.quick')}>
+      <button type="button" className="paPrimary" disabled={busy || stops.length === 0} onClick={() => goStop(0)}><Route aria-hidden="true" />{t('pa.tour.start')}</button>
+      <button type="button" className="secondary" disabled={busy} onClick={() => quick(t('pa.quick.calendar'), 'open_panel', { panel: 'calendar' })}><CalendarDays aria-hidden="true" />{t('pa.quick.calendar')}</button>
+      <button type="button" className="secondary" disabled={busy} onClick={() => quick(t('pa.quick.meetings'), 'open_panel', { panel: 'meetings' })}><Users aria-hidden="true" />{t('pa.quick.meetings')}</button>
+      <button type="button" className="secondary" disabled={busy} onClick={() => quick(t('pa.quick.blocked'), 'list_blocked_work', {})}><ListChecks aria-hidden="true" />{t('pa.quick.blocked')}</button>
+      <button type="button" className="secondary" disabled={busy || !allowed('list_pending_approvals')} onClick={() => quick(t('pa.quick.approvals'), 'list_pending_approvals', {})}><ClipboardCheck aria-hidden="true" />{t('pa.quick.approvals')}</button>
+      <button type="button" className="secondary" disabled={busy} onClick={() => quick(t('pa.quick.summary'), 'summarise_workspace', {})}><ShieldCheck aria-hidden="true" />{t('pa.quick.summary')}</button>
+    </div>
+    <div className="paExamples"><p className="muted">{t('pa.examples')}</p>
+      <ul>{examples.map((e) => <li key={e}><button type="button" className="linkButton" onClick={() => { setText(e); setFromVoice(false); document.getElementById('pa-input')?.focus(); }}>&ldquo;{e}&rdquo;</button></li>)}</ul>
+    </div>
 
     <form className="paForm" onSubmit={submit}>
       <label htmlFor="pa-input" className="visuallyHidden">{t('pa.inputLabel')}</label>
@@ -204,11 +234,10 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
             <button type="button" className="secondary" onClick={() => setTourIndex(null)}>{t('pa.tour.stop')}</button>
           </div>
         </div>
-        : <button type="button" onClick={() => goStop(0)} disabled={busy}>{t('pa.tour.start')}</button>)}
+        : null)}
     </section>
 
-    <section className="paTools" aria-labelledby="pa-tools-title">
-      <h3 id="pa-tools-title">{t('pa.toolsTitle')}</h3>
+    <details className="paTools"><summary id="pa-tools-title">{t('pa.toolsTitle')}</summary>
       {toolsError && <p className="notice errorNotice" role="alert">{toolsError}<button type="button" className="secondary" onClick={() => void loadTools()}>{t('common.retry')}</button></p>}
       <ul>
         {[...readTools, ...writeTools].map((x) => <li key={x.name} className={x.allowed ? '' : 'off'}>
@@ -217,6 +246,6 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
         </li>)}
       </ul>
       <p className="muted">{t('pa.noApprovalTool')}</p>
-    </section>
+    </details>
   </section>;
 }

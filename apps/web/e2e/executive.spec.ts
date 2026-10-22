@@ -67,6 +67,8 @@ async function mockApi(page: Page, options: Options = {}) {
       const args = body.arguments as Row;
       if (body.tool === 'navigate') return json({ tool: 'navigate', status: 'ok', navigate: { building_id: 'hq', floor_id: args.target_id === 'r_exec' ? 'f1' : 'f0', room_id: args.target_id } });
       if (body.tool === 'summarise_workspace') return json({ tool: body.tool, status: 'ok', summary: { tasks: { by_status: { completed: 10, waiting_approval: 2 } }, approvals: { pending: 1 } } });
+      if (body.tool === 'open_panel') return json({ tool: body.tool, status: 'ok', open_panel: { view: args.panel } });
+      if (body.tool === 'list_pending_approvals') return json({ tool: body.tool, status: 'ok', items: [] });
       if (body.tool === 'list_blocked_work') return json({ tool: body.tool, status: 'ok', items: [{ id: 't1', title: 'Order tyres', status: 'waiting_approval' }] });
       if (body.tool === 'start_task' && !body.confirm_hash) return json({ tool: 'start_task', status: 'needs_confirmation', payload_hash: HASH, risk: 'medium', autonomy: 'confirm_each', governed_by: 'POST /tasks then run', preview: args });
       if (body.tool === 'start_task') return json({ tool: 'start_task', status: 'approval_pending', task_id: 'task_1', approval_id: 'ap_1' });
@@ -152,12 +154,34 @@ test('the PA moves through the office, reads, and asks before it acts', async ({
   await expect(page.getByRole('log')).toContainText('stopped for approval');
   const last = seen.invokes[seen.invokes.length - 1];
   expect(last).toMatchObject({ tool: 'start_task', input_mode: 'click', confirm_hash: HASH });
+  await page.getByText('What the assistant may do for you').click();
   await expect(page.getByText('The assistant can never approve or reject anything.')).toBeVisible();
 
   await input.fill('approve everything');
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.getByRole('log')).toContainText('I did not understand that');
   expect(seen.invokes.some((b) => b.tool === 'approve')).toBe(false);
+});
+
+test('the dock: every quick action calls a real tool, and nothing without a tool is offered', async ({ page }) => {
+  const seen = await mockApi(page);
+  await page.goto('/#executive');
+  const dock = page.getByRole('group', { name: 'Quick actions' });
+  await expect(dock.getByRole('button')).toHaveCount(6);
+  for (const name of ['Show recent orders', 'Take me to my office', 'Show logistics activity']) await expect(page.getByRole('button', { name })).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Ready' })).toBeVisible();
+  await dock.getByRole('button', { name: 'List blocked work' }).click();
+  await expect(page.getByRole('log')).toContainText('Order tyres');
+  await dock.getByRole('button', { name: 'Pending approvals' }).click();
+  await expect(page.getByRole('log')).toContainText('No approvals are waiting.');
+  await dock.getByRole('button', { name: 'Summarise this workspace' }).click();
+  await expect(page.getByRole('log')).toContainText('12 tasks');
+  await expect(page.getByRole('button', { name: /Take me to Reception/ })).toBeVisible();
+  await dock.getByRole('button', { name: 'Open meetings' }).click();
+  await expect(page).toHaveURL(/#meetings/);
+  const clicked = seen.invokes.filter((b) => b.input_mode === 'click');
+  expect(clicked.map((b) => b.tool)).toEqual(['list_blocked_work', 'list_pending_approvals', 'summarise_workspace', 'open_panel']);
+  expect(clicked.every((b) => !('confirm_hash' in b))).toBe(true);
 });
 
 test('the guided tour walks the accessible rooms only', async ({ page }) => {

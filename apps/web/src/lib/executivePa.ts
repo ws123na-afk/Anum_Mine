@@ -134,5 +134,7 @@ export const HQ_NAVIGATE_EVENT = 'anum:hq-navigate';
 export const HQ_PENDING_KEY = 'anum.hq.pendingNavigation';
 export function publishNavigation(location: Location, host: Pick<Window, 'dispatchEvent'> & { sessionStorage?: Storage } = window): void {
   try { host.sessionStorage?.setItem(HQ_PENDING_KEY, JSON.stringify(location)); } catch { /* storage may be blocked */ }
-  host.dispatchEvent(new CustomEvent(HQ_NAVIGATE_EVENT, { detail: location }));
+  // The detail is the headquarters' own target (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md: ids or names).
+  const target = { building: location.building_id, floor: location.floor_id, room: location.room_id, agent: location.agent_id };
+  host.dispatchEvent(new CustomEvent(HQ_NAVIGATE_EVENT, { detail: target }));
 }

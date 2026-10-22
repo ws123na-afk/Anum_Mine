@@ -80,6 +80,6 @@ test('navigation is published for the scene and kept for the next mount', () => 
     dispatchEvent: (e: Event) => { events.push((e as CustomEvent).detail); return true; },
   };
   publishNavigation({ room_id: 'r1', floor_id: 'f1' }, host);
-  assert.deepEqual(events, [{ room_id: 'r1', floor_id: 'f1' }]);
+  assert.deepEqual(events, [{ building: undefined, floor: 'f1', room: 'r1', agent: undefined }]);
   assert.equal(store.get(HQ_PENDING_KEY), JSON.stringify({ room_id: 'r1', floor_id: 'f1' }));
 });
