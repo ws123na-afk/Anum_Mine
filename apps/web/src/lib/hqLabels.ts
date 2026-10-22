@@ -48,9 +48,13 @@ export function layoutLabels(
     const home = { x: Math.max(w / 2 + 4, Math.min(width - w / 2 - 4, item.x)), y: Math.max(item.y, h + 6) };
     const pick = !overlaps(home.x, home.y) && inside(home.x, home.y) ? home : spots.find((c) => inside(c.x, c.y) && !overlaps(c.x, c.y));
     if (!pick) {
-      if ((item.input.priority ?? 1) !== 0) { out.set(item.input.id, { id: item.input.id, x: home.x, y: home.y, depth: item.depth, shown: false, shifted: 0 }); continue; }
-      placed.push({ x0: home.x - w / 2, x1: home.x + w / 2, y0: home.y - h, y1: home.y });
-      out.set(item.input.id, { id: item.input.id, x: home.x, y: home.y, depth: item.depth, shown: true, shifted: 0 });
+      // No free spot. Building and room cards are the way into the scene, so they stay (on the least covered spot);
+      // only the secondary agent cards give way.
+      if ((item.input.priority ?? 1) >= 2) { out.set(item.input.id, { id: item.input.id, x: home.x, y: home.y, depth: item.depth, shown: false, shifted: 0 }); continue; }
+      const area = (x: number, y: number) => placed.reduce((sum, q) => sum + Math.max(0, Math.min(x + w / 2, q.x1) - Math.max(x - w / 2, q.x0)) * Math.max(0, Math.min(y, q.y1) - Math.max(y - h, q.y0)), 0);
+      const best = spots.filter((c) => inside(c.x, c.y)).sort((p, q) => area(p.x, p.y) - area(q.x, q.y) || p.cost - q.cost)[0] ?? home;
+      placed.push({ x0: best.x - w / 2, x1: best.x + w / 2, y0: best.y - h, y1: best.y });
+      out.set(item.input.id, { id: item.input.id, x: best.x, y: best.y, depth: item.depth, shown: true, shifted: 0 });
       continue;
     }
     placed.push({ x0: pick.x - w / 2, x1: pick.x + w / 2, y0: pick.y - h, y1: pick.y });

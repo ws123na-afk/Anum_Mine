@@ -5,7 +5,7 @@
  * drawn as characters: a desk shows its monitor state (working, waiting, idle, offline, vacant)
  * and the HTML agent card carries the name, role and status pill.
  */
-import { MeshBuilder, hex, mix, scale, type Rgb } from './hqGeometry.ts';
+import { MeshBuilder, hex, mix, scale, seeded, type Rgb } from './hqGeometry.ts';
 import type { RoomGeometry, SceneDesk, SceneFloor, Vec3 } from './headquartersProjection.ts';
 import type { SceneMesh } from './campusScene.ts';
 import type { Aabb } from './hqMath.ts';
@@ -26,6 +26,8 @@ export type BuildingSceneOptions = Readonly<{
   deskState?: ReadonlyMap<string, DeskVisual>;
   /** Rooms with a live meeting: the screen and table light up. */
   meetingRoomIds?: ReadonlySet<string>;
+  /** Desks with someone assigned (registry fact), by desk id; the value seeds a generic figure so the same agent always looks the same. */
+  people?: ReadonlyMap<string, string>;
 }>;
 
 export type BuildingRoomHandle = Readonly<{ id: string; floorIndex: number; box: Aabb; anchor: Vec3 }>;
@@ -42,8 +44,8 @@ export type BuildingScene = Readonly<{
 }>;
 
 const FLOOR_BY_KIND: Record<string, Rgb> = {
-  office: hex('#cfd8dc'), meeting: hex('#d9cdb4'), reception: hex('#e0d5c3'),
-  workshop: hex('#b7c0c4'), warehouse: hex('#a9b0b2'), lounge: hex('#cdd7c8'),
+  office: hex('#e4dccb'), meeting: hex('#dccfb2'), reception: hex('#e8dcc6'),
+  workshop: hex('#c3c8c8'), warehouse: hex('#b6b8b4'), lounge: hex('#d2dcc4'),
 };
 const ACCENT_BY_KIND: Record<string, Rgb> = {
   office: hex('#45d0b5'), meeting: hex('#f2b54c'), reception: hex('#d9b25f'),
@@ -77,6 +79,22 @@ function desk(b: MeshBuilder, d: SceneDesk, y: number, spacing: number, state: D
   b.box(x + w * 0.3, y + 0.28 * s, z + dep + 0.1, w * 0.4, 0.07, w * 0.36, hex('#3a4a5a'));
   b.box(x + w * 0.3, y + 0.35 * s, z + dep + 0.1 + w * 0.3, w * 0.4, 0.5 * s, 0.07, hex('#3a4a5a'));
   b.prism(x + w * 0.5, y, z + dep + 0.1 + w * 0.18, 0.05, 0.05, 0.28 * s, 5, DARK);
+}
+
+const SHIRTS = ['#2f6fb0', '#8a3f5c', '#3d8a6b', '#c27a2b', '#5b4b9a', '#2b8aa0', '#a8453b', '#4a6073'].map(hex);
+const SKINS = ['#f0c7a0', '#d9a77e', '#b9825a', '#8a5a3b', '#e8b890'].map(hex);
+const HAIRS = ['#1d1a18', '#3a2a1f', '#6a4a2a', '#222a33', '#7a5a3a'].map(hex);
+
+/** A generic seated professional: no likeness, the same look for the same seed. */
+function person(b: MeshBuilder, x: number, y: number, z: number, seed: string): void {
+  const rnd = seeded(seed);
+  const shirt = SHIRTS[Math.floor(rnd() * SHIRTS.length)], skin = SKINS[Math.floor(rnd() * SKINS.length)], hair = HAIRS[Math.floor(rnd() * HAIRS.length)];
+  b.box(x - 0.2, y + 0.3, z - 0.11, 0.4, 0.2, 0.34, hex('#26313b'));
+  b.box(x - 0.19, y + 0.5, z - 0.1, 0.38, 0.52, 0.22, shirt, { grad: 0.15 });
+  b.box(x - 0.3, y + 0.58, z - 0.08, 0.1, 0.36, 0.16, shirt);
+  b.box(x + 0.2, y + 0.58, z - 0.08, 0.1, 0.36, 0.16, shirt);
+  b.blob(x, y + 1.17, z, 0.15, 0.17, 0.15, skin, 8);
+  b.blob(x, y + 1.24, z + 0.02, 0.16, 0.12, 0.16, hair, 8);
 }
 
 function furnish(
@@ -134,6 +152,10 @@ function furnish(
       break;
     }
     default: {
+      if (w >= 6) {
+        b.box(x + w * 0.2, y + 1.0, z + 0.12, w * 0.26, 1.0, 0.05, hex('#6aa7ff'), { emissive: 0.5, shade: false });
+        b.box(x + w * 0.54, y + 1.0, z + 0.12, w * 0.26, 1.0, 0.05, hex('#58f0cf'), { emissive: 0.4, shade: false });
+      }
       b.prism(x + 0.45, y, z + d - 0.45, 0.2, 0.17, 0.4, 6, hex('#8a6a4a'));
       b.blob(x + 0.45, y + 0.78, z + d - 0.45, 0.34, 0.4, 0.34, hex('#3f8a55'), 6);
     }
@@ -168,7 +190,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
       const live = options.meetingRoomIds?.has(room.id) === true;
       const tile = FLOOR_BY_KIND[room.kind] ?? FLOOR_BY_KIND.office;
       const color = selected ? mix(tile, accent, 0.35) : ghost ? scale(tile, 0.85) : tile;
-      opaque.box(room.x, y, room.z, room.width, 0.06, room.depth, color, { skip: ['bottom'], shade: false, emissive: ghost ? 0.05 : selected ? 0.55 : 0.3 });
+      opaque.box(room.x, y, room.z, room.width, 0.06, room.depth, color, { skip: ['bottom'], shade: false, emissive: ghost ? 0.05 : selected ? 0.95 : 0.75 });
       // Accent strip along the front edge: it makes each zone read at a glance.
       opaque.box(room.x, y + 0.06, room.z + room.depth - 0.08, room.width, 0.04, 0.08, accent, { emissive: selected ? 1 : 0.45, shade: false });
       // Walls: solid base to waist height, glass above, a top rail. Open at the doorway in the middle of the south wall.
@@ -192,6 +214,11 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
         for (const dk of placed) {
           const state: DeskVisual = options.deskState?.get(dk.id) ?? (dk.agentId ? 'assigned' : 'vacant');
           desk(opaque, dk, y + 0.06, spacing, state);
+          const seed = options.people?.get(dk.id);
+          if (seed) {
+            const sc = Math.max(0.55, Math.min(1, spacing / 1.3));
+            person(opaque, dk.position.x, y + 0.06, dk.position.z + 0.31 * sc + 0.1 + 1.15 * sc * 0.4, seed);
+          }
           desks.push({ id: dk.id, roomId: room.id, floorIndex: fi, anchor: { x: dk.position.x, y: y + 1.55, z: dk.position.z } });
         }
         rooms.push({

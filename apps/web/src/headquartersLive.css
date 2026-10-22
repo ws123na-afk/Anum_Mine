@@ -81,7 +81,13 @@
 .hqSceneWrap { border: 1px solid var(--d-line); border-radius: var(--d-r-panel); min-width: 0; overflow: hidden; position: relative; }
 .hqStage { block-size: clamp(420px, calc(100dvh - 210px), 880px); overflow: hidden; position: relative; touch-action: none;
   background: linear-gradient(180deg, #8fb7d6 0%, #cfe3ee 55%, #e8eef0 100%); transition: background .5s; }
-.hqStage[data-night="true"] { background: linear-gradient(180deg, #060b16 0%, #101c33 55%, #1b2a40 100%); }
+.hqStage[data-night="true"] { background:
+  radial-gradient(circle at 82% 14%, rgba(255, 246, 220, .95) 0 14px, rgba(255, 246, 220, .22) 15px 46px, transparent 90px),
+  radial-gradient(1.4px 1.4px at 12% 18%, #fff, transparent 60%), radial-gradient(1.2px 1.2px at 27% 9%, #dfe9ff, transparent 60%),
+  radial-gradient(1.6px 1.6px at 41% 22%, #fff, transparent 60%), radial-gradient(1.2px 1.2px at 58% 12%, #cfe0ff, transparent 60%),
+  radial-gradient(1.4px 1.4px at 69% 26%, #fff, transparent 60%), radial-gradient(1.2px 1.2px at 91% 31%, #dfe9ff, transparent 60%),
+  radial-gradient(1.2px 1.2px at 6% 38%, #fff, transparent 60%), radial-gradient(1.4px 1.4px at 49% 6%, #fff, transparent 60%),
+  linear-gradient(180deg, #050a15 0%, #0d1a31 50%, #1b2c45 100%); }
 .hqStage:focus-visible { outline: 2px solid var(--d-accent); outline-offset: -2px; }
 .hqStage .hqCanvas { cursor: grab; display: block; height: 100%; inset: 0; position: absolute; touch-action: none; width: 100%; }
 .hqStage .hqCanvas:active { cursor: grabbing; }

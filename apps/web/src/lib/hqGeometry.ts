@@ -66,6 +66,36 @@ export class MeshBuilder {
     }
   }
 
+  /** Triangle with a colour per vertex (soft vertical gradients on facades), flat normal. */
+  triV(
+    a: readonly number[], b: readonly number[], c: readonly number[], ca: Rgb, cb: Rgb, cc: Rgb, emissive = 0,
+  ): void {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz);
+    if (len < 1e-12) return;
+    nx /= len; ny /= len; nz /= len;
+    const pts = [a, b, c], cols = [ca, cb, cc];
+    for (let k = 0; k < 3; k++) {
+      const p = pts[k], col = cols[k];
+      this.data.push(p[0], p[1], p[2], nx, ny, nz, col[0], col[1], col[2], emissive);
+      for (let i = 0; i < 3; i++) {
+        if (p[i] < this.lo[i]) this.lo[i] = p[i];
+        if (p[i] > this.hi[i]) this.hi[i] = p[i];
+      }
+    }
+  }
+
+  /** Quad with a colour per corner (a, b, c, d in the same order as `quad`). */
+  quadV(
+    a: readonly number[], b: readonly number[], c: readonly number[], d: readonly number[],
+    ca: Rgb, cb: Rgb, cc: Rgb, cd: Rgb, emissive = 0,
+  ): void {
+    this.triV(a, b, c, ca, cb, cc, emissive);
+    this.triV(a, c, d, ca, cc, cd, emissive);
+  }
+
   /** Counter-clockwise quad seen from the side the normal points to. */
   quad(
     a: readonly number[], b: readonly number[], c: readonly number[], d: readonly number[], color: Rgb, emissive = 0,
@@ -77,19 +107,24 @@ export class MeshBuilder {
   /** Axis-aligned box from its minimum corner. `skip` leaves faces out (top, bottom, north, south, west, east). */
   box(
     x: number, y: number, z: number, w: number, h: number, d: number, color: Rgb,
-    options: { emissive?: number; skip?: readonly BoxFace[]; shade?: boolean } = {},
+    options: { emissive?: number; skip?: readonly BoxFace[]; shade?: boolean; grad?: number } = {},
   ): void {
     const em = options.emissive ?? 0;
+    const grad = options.grad ?? 0;
     const skip = new Set(options.skip ?? []);
     const shade = options.shade !== false;
     const x1 = x + w, y1 = y + h, z1 = z + d;
     const c = (f: number) => (shade ? scale(color, f) : color);
     if (!skip.has('top')) this.quad([x, y1, z], [x, y1, z1], [x1, y1, z1], [x1, y1, z], c(1), em);
     if (!skip.has('bottom')) this.quad([x, y, z], [x1, y, z], [x1, y, z1], [x, y, z1], c(0.6), em);
-    if (!skip.has('north')) this.quad([x, y, z], [x, y1, z], [x1, y1, z], [x1, y, z], c(0.82), em);
-    if (!skip.has('south')) this.quad([x1, y, z1], [x1, y1, z1], [x, y1, z1], [x, y, z1], c(0.78), em);
-    if (!skip.has('west')) this.quad([x, y, z1], [x, y1, z1], [x, y1, z], [x, y, z], c(0.7), em);
-    if (!skip.has('east')) this.quad([x1, y, z], [x1, y1, z], [x1, y1, z1], [x1, y, z1], c(0.9), em);
+    const side = (a: number[], b: number[], cc: number[], d: number[], f: number) => {
+      if (grad > 0) { const top = c(f), bot = scale(top, 1 - grad); this.quadV(a, b, cc, d, bot, top, top, bot, em); }
+      else this.quad(a, b, cc, d, c(f), em);
+    };
+    if (!skip.has('north')) side([x, y, z], [x, y1, z], [x1, y1, z], [x1, y, z], 0.82);
+    if (!skip.has('south')) side([x1, y, z1], [x1, y1, z1], [x, y1, z1], [x, y, z1], 0.78);
+    if (!skip.has('west')) side([x, y, z1], [x, y1, z1], [x, y1, z], [x, y, z], 0.7);
+    if (!skip.has('east')) side([x1, y, z], [x1, y1, z], [x1, y1, z1], [x1, y, z1], 0.9);
   }
 
   /** Upright prism with `sides` faces; radiusTop 0 makes a cone. */

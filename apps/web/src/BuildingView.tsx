@@ -75,9 +75,17 @@ export function BuildingView(props: BuildingViewProps) {
     return map;
   }, [floors, presence]);
 
+  const people = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const f of floors) for (const d of f.desks) {
+      const p = presenceForDesk(presence, d);
+      if (d.agentId || p) map.set(d.id, d.agentId ?? p?.agentId ?? d.id);
+    }
+    return map;
+  }, [floors, presence]);
   const scene = useMemo(
-    () => buildBuildingScene(floors, { activeIndex, showAll, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds }),
-    [floors, activeIndex, showAll, props.selectedRoomId, deskState, props.liveMeetingRoomIds],
+    () => buildBuildingScene(floors, { activeIndex, showAll, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people }),
+    [floors, activeIndex, showAll, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people],
   );
   const frame = useMemo(() => frameBuilding(scene, activeIndex), [scene, activeIndex]);
   const [wrap, aspect] = useAspect();
