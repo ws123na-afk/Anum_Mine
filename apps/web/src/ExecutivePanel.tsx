@@ -1,0 +1,221 @@
+/** Executive PA panel: typed or spoken requests become permissioned tool calls on the server
+ * (docs/ANUM_MINE_EXECUTIVE_PA.md). Reads run at once. Anything that changes work is shown as a
+ * proposal and runs only after a click on "Confirm and run": a spoken answer never confirms.
+ * The assistant has no tool that approves or rejects. */
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Compass, Mic, MicOff, Send, ShieldCheck, Route, X } from 'lucide-react';
+import { apiRequest } from './lib/api';
+import { describeError } from './lib/errors';
+import { formatNumber, t, type MessageKey } from './lib/i18n';
+import { createPushToTalk } from './lib/voice';
+import {
+  createPaClient, parseUtterance, publishNavigation,
+  type InputMode, type Location, type PaResult, type PaTool, type PaToolName, type Tour, type TourStop,
+} from './lib/executivePa';
+import './executivePanel.css';
+
+interface Entry { id: number; who: 'you' | 'pa'; text: string; tone?: 'ok' | 'warn' | 'error' }
+interface Pending { tool: PaToolName; args: Record<string, unknown>; proposal: PaResult; mode: InputMode }
+
+const mk = (key: string, vars?: Record<string, string | number>) => t(key as MessageKey, vars);
+
+export function ExecutivePanel({ onOpenView, onLocation }: {
+  onOpenView(view: string): void;
+  onLocation?(location: Location | null): void;
+}) {
+  const client = useMemo(() => createPaClient(apiRequest), []);
+  const [tools, setTools] = useState<PaTool[] | null>(null);
+  const [toolsError, setToolsError] = useState<string | null>(null);
+  const [tour, setTour] = useState<Tour | null>(null);
+  const [tourError, setTourError] = useState<string | null>(null);
+  const [tourIndex, setTourIndex] = useState<number | null>(null);
+  const [text, setText] = useState('');
+  const [fromVoice, setFromVoice] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [micNote, setMicNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [log, setLog] = useState<Entry[]>([]);
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [place, setPlace] = useState<string | null>(null);
+  const counter = useRef(0);
+  const talk = useRef<ReturnType<typeof createPushToTalk> | null>(null);
+
+  const say = useCallback((who: Entry['who'], body: string, tone?: Entry['tone']) => {
+    counter.current += 1;
+    setLog((old) => [...old.slice(-49), { id: counter.current, who, text: body, tone }]);
+  }, []);
+
+  const loadTools = useCallback(async () => {
+    setToolsError(null);
+    try { setTools(await client.tools()); } catch (error) { setToolsError(t('pa.toolsLoadFailed', { message: describeError(error) })); }
+  }, [client]);
+  const loadTour = useCallback(async () => {
+    setTourError(null);
+    try { setTour(await client.tour()); } catch (error) { setTourError(t('pa.tour.loadFailed', { message: describeError(error) })); }
+  }, [client]);
+  useEffect(() => { void loadTools(); void loadTour(); }, [loadTools, loadTour]);
+  useEffect(() => () => talk.current?.cancel(), []);
+
+  const stops: readonly TourStop[] = tour?.stops ?? [];
+  const placeOf = useCallback((location: Location): string => {
+    const stop = stops.find((s) => s.room_id === location.room_id) ?? stops.find((s) => s.floor_id === location.floor_id) ?? stops.find((s) => s.building_id === location.building_id);
+    if (!stop) return location.room_id ?? location.floor_id ?? location.building_id ?? '';
+    if (location.room_id) return `${stop.room_name}, ${stop.floor_name}, ${stop.building_name}`;
+    if (location.floor_id) return `${stop.floor_name}, ${stop.building_name}`;
+    return stop.building_name;
+  }, [stops]);
+
+  const present = useCallback((result: PaResult, args: Record<string, unknown>, mode: InputMode) => {
+    switch (result.status) {
+      case 'needs_confirmation':
+        setPending({ tool: result.tool, args, proposal: result, mode });
+        say('pa', t('pa.confirmTitle', { tool: mk(`pa.tool.${result.tool}`) }), 'warn');
+        return;
+      case 'ok': {
+        if (result.navigate) {
+          const label = placeOf(result.navigate);
+          publishNavigation(result.navigate);
+          onLocation?.(result.navigate);
+          setPlace(label);
+          say('pa', t('pa.navigated', { place: label }), 'ok');
+        } else if (result.open_panel) {
+          say('pa', t('pa.panelOpened', { panel: mk(`nav.${result.open_panel.view}`) }), 'ok');
+          onOpenView(result.open_panel.view);
+        } else if (result.summary) {
+          const s = result.summary;
+          say('pa', t('pa.summary', { tasks: formatNumber(s.tasks_total ?? 0), blocked: formatNumber(s.tasks_blocked ?? 0), approvals: formatNumber(s.approvals_pending ?? 0) }), 'ok');
+        } else if (result.tool === 'list_blocked_work') {
+          const n = result.items?.length ?? 0;
+          say('pa', n === 0 ? t('pa.blockedNone') : [t('pa.blockedSome', { count: formatNumber(n) }), ...(result.items ?? []).map((i) => i.title ?? i.id)].join(' | '), 'ok');
+        } else if (result.tool === 'list_pending_approvals') {
+          const n = result.items?.length ?? 0;
+          say('pa', n === 0 ? t('pa.approvalsNone') : t('pa.approvalsSome', { count: formatNumber(n) }), 'ok');
+        }
+        return;
+      }
+      case 'done': say('pa', result.meeting_id ? t('pa.done.meeting') : t('pa.done.task'), 'ok'); return;
+      case 'approval_pending': say('pa', t('pa.done.approval'), 'warn'); return;
+      case 'denied': say('pa', t('pa.status.denied'), 'error'); return;
+      case 'not_found': say('pa', t('pa.status.not_found'), 'warn'); return;
+      case 'not_connected': say('pa', t('pa.status.not_connected'), 'warn'); return;
+      case 'not_granted': say('pa', t('pa.status.not_granted'), 'warn'); return;
+      case 'stale_confirmation': setPending(null); say('pa', t('pa.status.stale'), 'warn'); return;
+      case 'needs_visual_confirmation': say('pa', t('pa.confirmVoice'), 'warn'); return;
+      default: say('pa', t('pa.status.failed', { message: result.note ?? '' }), 'error');
+    }
+  }, [onLocation, onOpenView, placeOf, say]);
+
+  const run = useCallback(async (tool: PaToolName, args: Record<string, unknown>, mode: InputMode, confirmHash?: string) => {
+    setBusy(true);
+    try { present(await client.invoke(tool, args, mode, confirmHash), args, mode); }
+    catch (error) { say('pa', t('pa.status.failed', { message: describeError(error) }), 'error'); }
+    finally { setBusy(false); }
+  }, [client, present, say]);
+
+  const submit = (event?: FormEvent) => {
+    event?.preventDefault();
+    const sentence = text.trim();
+    if (!sentence || busy) return;
+    const mode: InputMode = fromVoice ? 'voice' : 'typed';
+    say('you', sentence);
+    setText(''); setFromVoice(false); setPending(null);
+    const call = parseUtterance(sentence, { stops });
+    if (!call) { say('pa', t('pa.notUnderstood'), 'warn'); return; }
+    void run(call.tool, call.args, mode);
+  };
+
+  const confirm = () => {
+    if (!pending?.proposal.payload_hash || busy) return;
+    const { tool, args, proposal } = pending;
+    setPending(null);
+    void run(tool, args, 'click', proposal.payload_hash);
+  };
+
+  const toggleMic = () => {
+    if (listening) { talk.current?.stop(); return; }
+    const session = createPushToTalk(
+      (heard, final) => { setText(heard); setFromVoice(true); if (final) say('pa', t('pa.heard', { text: heard })); },
+      (message) => { setMicNote(message); setListening(false); },
+      document.documentElement.lang === 'ar' ? 'ar-AE' : 'en-US',
+      () => setListening(false), false, false,
+    );
+    talk.current = session;
+    if (!session.supported) { setMicNote(t('pa.micOff')); return; }
+    setMicNote(null); setListening(true);
+    void session.start().then((ok) => { if (!ok) setListening(false); });
+  };
+
+  const goStop = (index: number) => {
+    const stop = stops[index];
+    if (!stop) return;
+    setTourIndex(index);
+    void run('navigate', { target_kind: 'room', target_id: stop.room_id }, 'click');
+  };
+
+  const stop = tourIndex !== null ? stops[tourIndex] : undefined;
+  const writeTools = (tools ?? []).filter((x) => x.kind === 'write');
+  const readTools = (tools ?? []).filter((x) => x.kind === 'read');
+
+  return <section className="paPanel" aria-labelledby="pa-title">
+    <header className="paHead">
+      <div><h2 id="pa-title"><ShieldCheck aria-hidden="true" />{t('pa.title')}</h2><p>{t('pa.subtitle')}</p></div>
+      <p className="paPlace" aria-live="polite"><Compass aria-hidden="true" /><span>{t('pa.location')}:</span> <strong dir="auto">{place ?? t('pa.location.none')}</strong></p>
+    </header>
+
+    <form className="paForm" onSubmit={submit}>
+      <label htmlFor="pa-input" className="visuallyHidden">{t('pa.inputLabel')}</label>
+      <input id="pa-input" value={text} onChange={(e) => { setText(e.target.value); setFromVoice(false); }} placeholder={t('pa.placeholder')} autoComplete="off" dir="auto" />
+      <button type="button" className="secondary" aria-pressed={listening} onClick={toggleMic} aria-label={listening ? t('pa.micStop') : t('pa.mic')}>
+        {listening ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />}<span>{listening ? t('pa.micStop') : t('pa.mic')}</span>
+      </button>
+      <button type="submit" disabled={busy || text.trim() === ''}><Send aria-hidden="true" /><span>{busy ? t('pa.working') : t('pa.send')}</span></button>
+    </form>
+    {micNote && <p className="notice errorNotice" role="alert">{micNote}</p>}
+
+    {pending && <div className="paConfirm" role="group" aria-labelledby="pa-confirm-title">
+      <h3 id="pa-confirm-title">{t('pa.confirmTitle', { tool: mk(`pa.tool.${pending.tool}`) })}</h3>
+      <dl>{Object.entries(pending.proposal.preview ?? {}).map(([k, v]) => <div key={k}><dt>{k}</dt><dd dir="auto">{String(v)}</dd></div>)}</dl>
+      <p className="muted">{t('pa.risk', { risk: mk(`pa.risk.${pending.proposal.risk ?? 'medium'}`) })}. {t('pa.confirmGoverned', { path: pending.proposal.governed_by ?? '' })}</p>
+      {pending.mode === 'voice' && <p className="muted">{t('pa.confirmVoice')}</p>}
+      <div className="paActions">
+        <button type="button" onClick={confirm} disabled={busy}>{t('pa.confirm')}</button>
+        <button type="button" className="secondary" onClick={() => setPending(null)}><X aria-hidden="true" />{t('pa.dismiss')}</button>
+      </div>
+    </div>}
+
+    <div className="paLog" role="log" aria-label={t('pa.log')} aria-live="polite">
+      {log.length === 0 && <p className="muted">{t('pa.logEmpty')}</p>}
+      {log.map((e) => <p key={e.id} className={`paLine ${e.who} ${e.tone ?? ''}`}><strong>{e.who === 'you' ? t('pa.you') : t('pa.assistant')}</strong><span dir="auto">{e.text}</span></p>)}
+    </div>
+
+    <section className="paTour" aria-labelledby="pa-tour-title">
+      <h3 id="pa-tour-title"><Route aria-hidden="true" />{t('pa.tour.title')}</h3>
+      <p className="muted">{t('pa.tour.text')}</p>
+      {tourError && <p className="notice errorNotice" role="alert">{tourError}<button type="button" className="secondary" onClick={() => void loadTour()}>{t('common.retry')}</button></p>}
+      {tour?.status === 'not_connected' && <p className="notice" role="status">{t('pa.tour.notConnected')}</p>}
+      {tour?.status === 'empty' && <p className="notice" role="status">{t('pa.tour.empty')}</p>}
+      {stops.length > 0 && (stop
+        ? <div className="paTourNow">
+          <p aria-live="polite">{t('pa.tour.progress', { n: formatNumber((tourIndex ?? 0) + 1), total: formatNumber(stops.length), room: stop.room_name, floor: stop.floor_name, building: stop.building_name })}</p>
+          <div className="paActions">
+            <button type="button" className="secondary" disabled={(tourIndex ?? 0) === 0 || busy} onClick={() => goStop((tourIndex ?? 0) - 1)}>{t('pa.tour.previous')}</button>
+            <button type="button" disabled={(tourIndex ?? 0) >= stops.length - 1 || busy} onClick={() => goStop((tourIndex ?? 0) + 1)}>{t('pa.tour.next')}</button>
+            <button type="button" className="secondary" onClick={() => setTourIndex(null)}>{t('pa.tour.stop')}</button>
+          </div>
+        </div>
+        : <button type="button" onClick={() => goStop(0)} disabled={busy}>{t('pa.tour.start')}</button>)}
+    </section>
+
+    <section className="paTools" aria-labelledby="pa-tools-title">
+      <h3 id="pa-tools-title">{t('pa.toolsTitle')}</h3>
+      {toolsError && <p className="notice errorNotice" role="alert">{toolsError}<button type="button" className="secondary" onClick={() => void loadTools()}>{t('common.retry')}</button></p>}
+      <ul>
+        {[...readTools, ...writeTools].map((x) => <li key={x.name} className={x.allowed ? '' : 'off'}>
+          <span dir="auto">{x.label}</span>
+          <small>{x.kind === 'read' ? t('pa.tool.read') : t('pa.tool.write')} | {t('pa.risk', { risk: mk(`pa.risk.${x.risk}`) })}{x.allowed ? '' : ` | ${t('pa.tool.notAllowed')}`}</small>
+        </li>)}
+      </ul>
+      <p className="muted">{t('pa.noApprovalTool')}</p>
+    </section>
+  </section>;
+}
