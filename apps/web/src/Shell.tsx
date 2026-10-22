@@ -34,7 +34,7 @@ const ICONS: Record<View, ReactNode> = {
   integrations: <Plug />, files: <FileText />, memory: <BookOpen />, knowledge: <Library />, reports: <FileBarChart />, favorites: <Star />, skills: <Store />, inbox: <Mail />, email: <AtSign />, whatsapp: <MessageCircle />,
   approvals: <ShieldCheck />, activity: <Activity />, autonomy: <SlidersHorizontal />, settings: <Settings />, governance: <Building2 />, setup: <ClipboardList />, suppressions: <BellOff />,
   enterprise: <Store />, members: <Users />, audit: <ScrollText />, budgets: <Gauge />, agentControls: <ShieldAlert />, policy: <Scale />, developer: <Hammer />,
-  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />, platformBilling: <Landmark />,
+  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />, platformBilling: <Landmark />, office: <Building2 />,
 };
 export const viewIcon = (view: View) => ICONS[view];
 
@@ -108,9 +108,6 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
     <nav ref={navRef} aria-label={t('nav.primary')}>
       <ul className="navList">
         {NAV[0].views.filter((id) => allowed.has(id)).map(item)}
-        <li><a href="#office-preview" className="navItem" aria-label="ANUM MINE: open authenticated headquarters">
-          <Building2 aria-hidden="true" /><span>ANUM MINE</span>
-        </a></li>
       </ul>
       {group('workspaces', 'sidebar.workspaces', <SidebarWorkspaces workspaceId={workspaceId} onSwitchWorkspace={onSwitchWorkspace} />)}
       {NAV.slice(1).map((g) => {

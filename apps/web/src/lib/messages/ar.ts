@@ -11,6 +11,7 @@ import { financeEquityAr } from './financeEquity.ar.ts';
 import { financeReportsAr } from './financeReports.ar.ts';
 import { financeIntelActionsAr } from './financeIntelActions.ar.ts';
 import { tyreAr } from './tyre.ar.ts';
+import { hqAr } from './hq.ar.ts';
 import { homeAr } from './home.ar.ts';
 import { teamAr } from './team.ar.ts';
 import { appCallsAr } from './appCalls.ar.ts';
@@ -3225,6 +3226,7 @@ export const ar: Record<MessageKey, Message> = {
   'call.end.open': 'افتح المحادثة',
   'call.end.again': 'مكالمة جديدة',
   ...tyreAr,
+  ...hqAr,
   ...homeAr,
   // ---- واجهة ANUM 360 ومركز الأوامر ----
   'brand.name': 'ANUM 360',

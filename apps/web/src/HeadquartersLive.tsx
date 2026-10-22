@@ -1,261 +1,483 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Building2, ChevronDown, Compass, DoorOpen, HardDrive, Layers,
-  LockKeyhole, Maximize2, Minimize2, Moon, RefreshCcw, RotateCcw, Search,
-  Sun, Users, Wifi, WifiOff, X, ZoomIn, ZoomOut } from 'lucide-react';
-import * as api from './lib/api.ts';
-import { createOfficeSpaceClient } from './lib/officeSpaceClient.ts';
-import { loadWorkspaceWorkstations } from './lib/officeWorkstations.ts';
-import { HeadquartersController, adaptOfficeRegistry, type OfficeState } from './lib/headquartersController.ts';
-import { dolly, focusRoom, initialCamera, orbit } from './lib/headquartersSpatial.ts';
-import { type AgentEvidence, type RoomGeometry, type SceneFloor } from './lib/headquartersProjection.ts';
-import { HeadquartersWebGL } from './HeadquartersWebGL';
+/**
+ * ANUM MINE headquarters: a navigable campus of business buildings and a cutaway of each building.
+ * It lives inside the app's own shell (sidebar and top bar), so it adds only scene controls.
+ *
+ * Data truth: buildings are the caller's authorised workspaces; floors, rooms and desks are the saved
+ * office layout; agent status comes from task evidence and live meeting participants. Anything without
+ * a record behind it reads "Presence unavailable" or "Not connected".
+ * Extension points are documented in docs/ANUM_MINE_HQ_EXTENSION_POINTS.md.
+ */
+import { AlertTriangle, Compass, DoorOpen, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AgentMeetingSessions } from './AgentMeetingSessions';
+import { BuildingView } from './BuildingView';
+import { CampusListView } from './CampusListView';
+import { CampusView } from './CampusView';
+import { GuidedExecutiveTour } from './GuidedExecutiveTour';
+import { HqPlanFallback } from './HqPlanFallback';
+import { ViewSwitch, type HqView } from './HqChrome';
+import { AgentPanel, RoomPanel } from './HqPanels';
 import { OfficeSpaceLiveManager } from './OfficeSpaceLiveManager';
 import { OfficeWorkstations } from './OfficeWorkstations';
 import { ReceptionOperations } from './ReceptionOperations';
-import { GuidedExecutiveTour } from './GuidedExecutiveTour';
-import { AgentMeetingSessions } from './AgentMeetingSessions';
+import * as api from './lib/api.ts';
+import { campusTotals, type Campus, type CampusBuildingKind } from './lib/campusModel.ts';
+import { HeadquartersController, adaptOfficeRegistry, type OfficeState } from './lib/headquartersController.ts';
+import type { AgentEvidence, RoomGeometry, SceneDesk } from './lib/headquartersProjection.ts';
+import { loadCampus, type CampusSource } from './lib/hqCampusLoader.ts';
+import { hqCommands, resolveNavTarget, type HqAgentRef, type HqCallbacks, type HqNavResult, type HqNavTarget, type HqRoomRef, type HqSlots } from './lib/hqExtensions.ts';
+import { loadCommerceState, loadTyreState } from './lib/hqModulesApi.ts';
+import { loadPresence, saveCampusProfile, type LoadedPresence } from './lib/hqPresenceApi.ts';
+import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
+import { agentPresence, indexPresence, loadMeetingEvidence, presenceFromItems, totalsOf, unreportedStatuses, type HqAgentPresence, type MeetingEvidence } from './lib/hqPresence.ts';
+import { t, type MessageKey } from './lib/i18n.ts';
+import { createOfficeSpaceClient } from './lib/officeSpaceClient.ts';
+import { loadWorkspaceWorkstations, type WorkstationSnapshot } from './lib/officeWorkstations.ts';
 import './headquartersLive.css';
 
-const officeApi=createOfficeSpaceClient(api.apiRequest,api.apiRequestVoid,api.currentScope);
-const moduleRoutes:Readonly<Record<string,string>>={
- meeting:'meetings',reception:'inbox',office:'tasks',workshop:'tyre',
- warehouse:'commerce',lounge:'calendar',
-};
-function readStatus(evidence:AgentEvidence|null):string{
- if(!evidence)return 'No current activity evidence';
- switch(evidence.status){
-  case 'running':return 'Active task evidence';
-  case 'waiting':return 'Waiting on a task or approval';
-  case 'idle':return 'No active task observed';
-  default:return 'State not available';
- }
+const officeApi = createOfficeSpaceClient(api.apiRequest, api.apiRequestVoid, api.currentScope);
+const LIGHT_KEY = 'anum.hq.light';
+
+export type HeadquartersProps = HqCallbacks & HqSlots & Readonly<{
+  onClose?: () => void;
+  /** Opens another workspace of the same organisation (the app remounts under it). */
+  onSwitchWorkspace?: (workspaceId: string) => Promise<void>;
+  /** Opens a workspace of another organisation. */
+  onSwitchOrganisation?: (tenantId: string, workspaceId: string) => Promise<void>;
+  /** Rooms with a live meeting, supplied by the meetings workstream. Empty until a room binding exists. */
+  liveMeetingRoomIds?: ReadonlySet<string>;
+  /** Counter of workspace events from the shell's event stream; the scene refreshes when it moves. */
+  live?: number;
+  /** Extra controls in the header row (the entrypoint puts its presentation switch here). */
+  headerExtra?: ReactNode;
+}>;
+
+type Overlay = 'none' | 'spaces' | 'workstations' | 'reception' | 'tour' | 'agentMeetings';
+const NO_ROOMS: ReadonlySet<string> = new Set();
+
+function readLight(): boolean {
+  try {
+    const saved = window.localStorage.getItem(LIGHT_KEY);
+    if (saved === 'night') return true;
+    if (saved === 'day') return false;
+  } catch { /* storage blocked: follow the device */ }
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
-function readTime(time:string|null):string{
- if(!time)return 'No successful sync';
- const date=new Date(time);return Number.isFinite(date.getTime())?date.toLocaleTimeString(): 'Unknown';
-}
-function roomIcon(kind:string){
- switch(kind){
-  case 'meeting':return <Users size={16}/>;
-  case 'reception':return <DoorOpen size={16}/>;
-  case 'warehouse':return <HardDrive size={16}/>;
-  default:return <Building2 size={16}/>;
- }
-}
-type Overlay = 'none'|'spaces'|'workstations'|'reception'|'tour'|'agentMeetings';
-export function HeadquartersLive({onClose}:{onClose:()=>void}){
- const [state,setState]=useState<OfficeState|null>(null);
- const [overlay,setOverlay]=useState<Overlay>('none');
- const [query,setQuery]=useState('');
- const [light,setLight]=useState<'day'|'night'>('day');
- const [full,setFull]=useState(false);
- const [filters,setFilters]=useState<'all'|'occupied'|'meeting'>('all');
- const host=useRef<HTMLDivElement>(null);
- const controller=useMemo(()=>new HeadquartersController({
-  scope:()=>api.currentScope(),
-  registry:async()=>adaptOfficeRegistry(await officeApi.load()),
-  agents:async()=>{
-   const result=await loadWorkspaceWorkstations();
-   const current=api.currentScope();
-   if(result.snapshot.scope.tenantId!==current.tenantId||result.snapshot.scope.workspaceId!==current.workspaceId){
-    throw new Error('Workspace changed during agent evidence load');
-   }
-   return result.snapshot.records.map((agent):AgentEvidence=>({
-    id:agent.agentId,name:agent.name,
-    status:agent.status==='working'?'running':
-     ['queued','waiting_approval','blocked'].includes(agent.status)?'waiting':
-     agent.status==='idle'&&result.snapshot.complete?'idle':'unknown',
-    observedAt:result.snapshot.observedAt,taskIds:agent.taskIds,
-    source:'authenticated-agent-snapshot',
-   }));
-  },
- },10_000),[]);
- useEffect(()=>{
-  const abort=new AbortController();
-  let active=true;
-  let reconnect=1000;
-  let refreshTimer:ReturnType<typeof setTimeout>|null=null;
-  const refreshFromEvents=()=>{
-   if(refreshTimer!==null)return;
-   refreshTimer=setTimeout(()=>{refreshTimer=null;if(active&&!abort.signal.aborted)void controller.refresh()},300);
-  };
-  const scope=api.currentScope();
-  const watch=async()=>{
-   while(active&&!abort.signal.aborted){
-    try{
-     await api.streamEvents(event=>{
-      if(!active)return;
-      const current=api.currentScope();
-      if(current.tenantId!==scope.tenantId||current.workspaceId!==scope.workspaceId){
-       abort.abort();return;
+
+export function HeadquartersLive(props: HeadquartersProps) {
+  const [state, setState] = useState<OfficeState | null>(null);
+  const [overlay, setOverlay] = useState<Overlay>('none');
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [view, setView] = useState<HqView>('3d');
+  const [night, setNight] = useState(readLight);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [webglOk, setWebglOk] = useState(true);
+  const [webglNote, setWebglNote] = useState<string | null>(null);
+  const [level, setLevel] = useState<'campus' | 'building'>('campus');
+  const [campusPick, setCampusPick] = useState<string | null>(null);
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [agentId, setAgentId] = useState<string | null>(null);
+  const [agentDesk, setAgentDesk] = useState<SceneDesk | null>(null);
+  const [snapshot, setSnapshot] = useState<WorkstationSnapshot | null>(null);
+  const [meetings, setMeetings] = useState<MeetingEvidence | null>(null);
+  const [presenceApi, setPresenceApi] = useState<LoadedPresence | null>(null);
+  const [loaded, setLoaded] = useState<{ campus: Campus; source: CampusSource } | null>(null);
+  const [campusError, setCampusError] = useState<{ denied: boolean; message: string } | null>(null);
+  const [commerce, setCommerce] = useState<ModuleState<CommerceLive>>({ state: 'loading' });
+  const [tyre, setTyre] = useState<ModuleState<TyreLive>>({ state: 'loading' });
+  const [moduleStamp, setModuleStamp] = useState(0);
+  const host = useRef<HTMLElement>(null);
+  const campusLoadedAt = useRef(0);
+  const want = useRef<HqNavTarget | null>(null);
+  const reducedMotion = useMemo(() => typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
+  const scope = api.currentScope();
+
+  const latestProps = useRef(props);
+  latestProps.current = props;
+
+  const controller = useMemo(() => new HeadquartersController({
+    scope: () => api.currentScope(),
+    registry: async () => adaptOfficeRegistry(await officeApi.load()),
+    agents: async () => {
+      const [result, meet, live] = await Promise.all([
+        loadWorkspaceWorkstations(),
+        loadMeetingEvidence((path) => api.apiRequest(path, { method: 'GET' })),
+        loadPresence().catch(() => null),
+      ]);
+      const current = api.currentScope();
+      if (result.snapshot.scope.tenantId !== current.tenantId || result.snapshot.scope.workspaceId !== current.workspaceId) {
+        throw new Error('Workspace changed during agent evidence load');
       }
-      if(/^(task|agent_run|agent|approval|agent_meeting|office)\\./.test(event.type)){
-       refreshFromEvents();
+      setSnapshot(result.snapshot);
+      setMeetings(meet);
+      setPresenceApi(live);
+      return result.snapshot.records.map((agent): AgentEvidence => ({
+        id: agent.agentId, name: agent.name,
+        status: agent.status === 'working' ? 'running'
+          : ['queued', 'waiting_approval', 'blocked'].includes(agent.status) ? 'waiting'
+            : agent.status === 'idle' && result.snapshot.complete ? 'idle' : 'unknown',
+        observedAt: result.snapshot.observedAt, taskIds: agent.taskIds, source: 'authenticated-agent-snapshot',
+      }));
+    },
+  }, 10_000), []);
+
+  // The shell owns the one workspace event stream and hands every event over as a counter: the scene
+  // re-reads (at most every 300 ms) when it moves, and the scoped periodic refresh is the fallback.
+  const lastLive = useRef(props.live ?? 0);
+  useEffect(() => {
+    if (props.live === undefined || props.live === lastLive.current) return undefined;
+    lastLive.current = props.live;
+    const id = window.setTimeout(() => { void controller.refresh(); }, 300);
+    return () => window.clearTimeout(id);
+  }, [props.live, controller]);
+  useEffect(() => {
+    const refreshVisible = () => { if (document.visibilityState === 'visible') void controller.refresh(); };
+    const refreshFocused = () => { void controller.refresh(); };
+    window.addEventListener('focus', refreshFocused);
+    document.addEventListener('visibilitychange', refreshVisible);
+    return () => { window.removeEventListener('focus', refreshFocused); document.removeEventListener('visibilitychange', refreshVisible); };
+  }, [controller]);
+  useEffect(() => {
+    const unsubscribe = controller.subscribe(setState);
+    void controller.initialize();
+    controller.scheduleRefresh();
+    return () => { unsubscribe(); controller.dispose(); };
+  }, [controller]);
+  useEffect(() => {
+    const handler = () => setFullscreen(document.fullscreenElement === host.current);
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
+  useEffect(() => { try { window.localStorage.setItem(LIGHT_KEY, night ? 'night' : 'day'); } catch { /* remembered for this page only */ } }, [night]);
+
+  // Every embedded panel has its own Close button; Escape closes whichever is open.
+  useEffect(() => {
+    if (overlay === 'none') return undefined;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setOverlay('none'); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [overlay]);
+
+  const projection = state?.projection ?? null;
+  const registryBuilding = projection?.buildings.find((b) => b.id === state?.selected.buildingId) ?? projection?.buildings[0] ?? null;
+  const floor = registryBuilding?.floors.find((f) => f.id === state?.selected.floorId) ?? registryBuilding?.floors[0] ?? null;
+
+  // The presence endpoint is the source when the server has it; otherwise the browser reads tasks and meetings itself.
+  const presenceList: HqAgentPresence[] | null = useMemo(() => {
+    if (presenceApi) {
+      const departments = new Map((snapshot?.records ?? []).map((r) => [r.agentId, r.department?.trim() || (r.suggestedDepartment !== 'Unassigned' ? r.suggestedDepartment : null)]));
+      return presenceFromItems(presenceApi.items, (id) => departments.get(id) ?? null);
+    }
+    return snapshot ? agentPresence(snapshot.records, meetings) : null;
+  }, [presenceApi, snapshot, meetings]);
+  const presenceIndex = useMemo(() => (presenceList ? indexPresence(presenceList) : null), [presenceList]);
+  const presenceOf = useCallback((id: string, desk: SceneDesk | null) => presenceIndex?.byAgent.get(id) ?? (desk ? presenceIndex?.byDesk.get(desk.id) : undefined), [presenceIndex]);
+  const localTotals = useMemo(() => (presenceList ? totalsOf(presenceList.filter((p) => !p.agentId.startsWith('desk:'))) : null), [presenceList]);
+  const unreported = useMemo(() => (presenceApi ? [] : unreportedStatuses(meetings)), [presenceApi, meetings]);
+  const verifiedAt = presenceApi?.asOf ?? snapshot?.observedAt ?? null;
+  const floorCount = registryBuilding ? registryBuilding.floors.length : null;
+
+  // Campus: the endpoint when present, else memberships; the open workspace's counts come from local presence.
+  const localRef = useRef({ totals: localTotals, floors: floorCount, verifiedAt });
+  localRef.current = { totals: localTotals, floors: floorCount, verifiedAt };
+  const refreshCampus = useCallback(async () => {
+    try {
+      const result = await loadCampus(localRef.current);
+      setLoaded(result);
+      setCampusError(null);
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      setCampusError({ denied: status === 403 || status === 401, message: error instanceof Error ? error.message : t('hq.error.generic') });
+    }
+  }, []);
+  // The campus does not wait for the office registry: it loads at once, then at most every 30 seconds with the scene.
+  useEffect(() => {
+    const now = Date.now();
+    if (loaded && now - campusLoadedAt.current < 30_000) return;
+    campusLoadedAt.current = now;
+    void refreshCampus();
+  }, [state?.updatedAt, refreshCampus, loaded]);
+
+  const campus: Campus | null = useMemo(() => {
+    if (!loaded) return null;
+    const buildings = loaded.campus.buildings.map((b) => (b.workspace_id === scope.workspaceId && (loaded.source === 'memberships' || !b.totals)
+      ? { ...b, floors: b.floors ?? floorCount, totals: b.totals ?? localTotals, presence_verified_at: b.presence_verified_at ?? verifiedAt }
+      : b));
+    return { ...loaded.campus, buildings, totals: campusTotals(buildings).totals };
+  }, [loaded, localTotals, floorCount, verifiedAt, scope.workspaceId]);
+
+  const currentBuilding = campus?.buildings.find((b) => b.workspace_id === scope.workspaceId) ?? null;
+  const avatars = useMemo(() => (presenceList ?? []).filter((p) => p.name && !p.agentId.startsWith('desk:')).slice(0, 4).map((p) => p.name.slice(0, 1).toUpperCase()), [presenceList]);
+
+  // Module panels follow the open workspace; they load when a building opens and refresh with the scene.
+  useEffect(() => {
+    if (level !== 'building') return;
+    let live = true;
+    void loadCommerceState().then((s) => { if (live) setCommerce(s); });
+    void loadTyreState().then((s) => { if (live) setTyre(s); });
+    return () => { live = false; };
+  }, [level, moduleStamp]);
+  useEffect(() => { if (level === 'building' && state?.updatedAt) { const id = window.setTimeout(() => setModuleStamp((n) => n + 1), 45_000); return () => window.clearTimeout(id); } return undefined; }, [level, state?.updatedAt]);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (host.current) await host.current.requestFullscreen();
+    } catch { /* the browser refused fullscreen: the view stays as it is */ }
+  }, []);
+
+  const onUnavailable = useCallback((reason: string) => {
+    setWebglOk(false);
+    setWebglNote(reason);
+    setView(level === 'building' ? 'top' : 'list');
+  }, [level]);
+
+  // Entering buildings, rooms and agents.
+  const switchTo = useCallback(async (workspaceId: string, tenantId: string | null, pending: HqNavTarget) => {
+    const p = latestProps.current;
+    hqCommands.keepPending(pending);
+    try {
+      if (tenantId && tenantId !== api.currentScope().tenantId) {
+        if (!p.onSwitchOrganisation) throw new Error(t('hq.error.cannotSwitch'));
+        await p.onSwitchOrganisation(tenantId, workspaceId);
+      } else {
+        if (!p.onSwitchWorkspace) throw new Error(t('hq.error.cannotSwitch'));
+        await p.onSwitchWorkspace(workspaceId);
       }
-     },abort.signal,()=>{reconnect=1000});
-    }catch{ /* SSE may disconnect; scoped periodic refresh remains active. */ }
-    if(!active||abort.signal.aborted)break;
-    await new Promise<void>(resolve=>window.setTimeout(resolve,reconnect));
-    reconnect=Math.min(reconnect*2,30000);
-   }
-  };
-  void watch();
-  return()=>{active=false;abort.abort();if(refreshTimer!==null)clearTimeout(refreshTimer)};
- },[controller]);
- useEffect(()=>{
-  const refreshVisible=()=>{if(document.visibilityState==='visible')void controller.refresh()};
-  const refreshFocused=()=>{void controller.refresh()};
-  window.addEventListener('focus',refreshFocused);
-  document.addEventListener('visibilitychange',refreshVisible);
-  return()=>{window.removeEventListener('focus',refreshFocused);document.removeEventListener('visibilitychange',refreshVisible)};
- },[controller]);
- useEffect(()=>{
-  const unsubscribe=controller.subscribe(setState);
-  void controller.initialize();controller.scheduleRefresh();
-  return()=>{unsubscribe();controller.dispose()};
- },[controller]);
- useEffect(()=>{
-  const handler=()=>setFull(document.fullscreenElement===host.current);
-  document.addEventListener('fullscreenchange',handler);
-  return()=>document.removeEventListener('fullscreenchange',handler);
- },[]);
- const projection=state?.projection;
- const selected=state?.selected;
- const building=projection?.buildings.find(b=>b.id===selected?.buildingId);
- const floor=building?.floors.find(f=>f.id===selected?.floorId);
- const room=floor?.rooms.find(r=>r.id===selected?.roomId);
- const desks=floor?.desks.filter(d=>d.roomId===room?.id)??[];
- const occupied=desks.filter(d=>d.assignmentVisible).length;
- const hasServerData=(projection?.buildings.length??0)>0;
- const filteredRooms=(floor?.rooms??[]).filter(r=>{
-  if(query&&![r.label,r.kind].some(v=>v.toLowerCase().includes(query.trim().toLowerCase())))return false;
-  if(filters==='meeting'&&r.kind!=='meeting')return false;
-  if(filters==='occupied'&&!floor?.desks.some(d=>d.roomId===r.id&&d.assignmentVisible))return false;
-  return true;
- });
- const currentCamera=state?.camera??(floor?initialCamera(floor):null);
- const toggleFullscreen=async()=>{
-  if(document.fullscreenElement)await document.exitFullscreen();
-  else if(host.current)await host.current.requestFullscreen();
- };
- const visit=(r:RoomGeometry)=>{
-  controller.selectRoom(r.id);
-  if(currentCamera)controller.setCamera(focusRoom(currentCamera,r));
- };
- const openRoute=(kind:string)=>{
-  window.location.hash='#'+(moduleRoutes[kind]??'command');
- };
- const tourStops=(floor?.rooms??[]).map(r=>({
-  id:r.id,name:r.label,floor:floor?.level??0,
-  x:r.x,y:r.z,description:r.kind,staff:[],
- }));
- return <section className={`hqLive ${light==='night'?'hqNight':'hqDay'}`} ref={host} aria-label="ANUM MINE live headquarters">
-  <header className="hqHeader">
-   <div className="hqIdentity"><div className="hqMark"><Building2 size={26}/></div><div>
-    <span className="hqEyebrow">ANUM OS / YOUR WORKSPACES</span>
-    <h1>ANUM <em>MINE</em></h1><p>Virtual Headquarters · Connected Operations</p>
-   </div></div>
-   <div className="hqHeaderTools">
-    <div className="hqConnection" role="status">
-     {state?.status==='ready'?<Wifi size={16}/>:<WifiOff size={16}/>}
-     <span>{state?.status==='ready'?'Authenticated workspace':state?.status==='refreshing'?'Updating workspace':state?.status??'Connecting'}</span>
-    </div>
-    <button onClick={()=>setLight(v=>v==='day'?'night':'day')} title="Switch office lighting">
-     {light==='day'?<Moon size={18}/>:<Sun size={18}/>}<span>{light==='day'?'Night':'Day'}</span>
-    </button>
-    <button onClick={()=>void toggleFullscreen()} title="Toggle fullscreen">{full?<Minimize2 size={17}/>:<Maximize2 size={17}/>}</button>
-    <button onClick={onClose}><ArrowLeft size={18}/> <span>Return to ANUM OS</span></button>
-   </div>
-  </header>
-  <div className="hqBody">
-   <nav className="hqDirectory" aria-label="Office building and floor navigation">
-    <div className="hqSectionTitle"><span>HQ DIRECTORY</span><button onClick={()=>void controller.refresh()} disabled={state?.busy} title="Refresh authenticated records"><RefreshCcw size={16}/></button></div>
-    <div className="hqDirectoryTitle">Your buildings</div>
-    <div className="hqBuildings">
-     {(projection?.buildings??[]).map(b=><button type="button" key={b.id}
-      className={b.id===building?.id?'active':''} aria-current={b.id===building?.id?'true':undefined}
-      onClick={()=>controller.selectBuilding(b.id)}>
-      <Building2 size={16}/><span>{b.name}</span><ChevronDown size={14}/>
-     </button>)}
-    </div>
-    <div className="hqDirectoryTitle">Floors</div>
-    <div className="hqFloors">
-     {(building?.floors??[]).map(f=><button type="button" key={f.id}
-      className={f.id===floor?.id?'active':''} aria-current={f.id===floor?.id?'true':undefined}
-      onClick={()=>controller.selectFloor(f.id)}><Layers size={17}/><span><strong>{f.name}</strong><small>Level {f.level} · {f.rooms.length} rooms</small></span></button>)}
-    </div>
-    <div className="hqDirectoryTitle">Office operations</div>
-    <div className="hqOperations">
-     <button onClick={()=>setOverlay('spaces')}><Building2 size={17}/>Manage spaces</button>
-     <button onClick={()=>setOverlay('workstations')}><Users size={17}/>Live workstations</button>
-     <button onClick={()=>setOverlay('agentMeetings')}><Users size={17}/>Agent meeting sessions</button>
-     <button onClick={()=>setOverlay('reception')}><DoorOpen size={17}/>Reception desk</button>
-     <button onClick={()=>setOverlay('tour')}><Compass size={17}/>Guided visit</button>
-    </div>
-    <div className="hqDirectoryFooter">
-     <LockKeyhole size={16}/><p>Building data is scoped to your signed-in organization and workspace. No employee presence is simulated.</p>
-    </div>
-   </nav>
-   <main className="hqViewport">
-    <div className="hqViewportTop">
-     <div className="hqBreadcrumb"><span>{building?.name??'Choose a building'}</span><span>/</span><strong>{floor?.name??'No floor selected'}</strong></div>
-     <div className="hqCameraTools">
-      <button disabled={!currentCamera} onClick={()=>{if(currentCamera)controller.setCamera(orbit(currentCamera,-14,0))}} title="Orbit left"><RotateCcw size={15}/></button>
-      <button disabled={!currentCamera} onClick={()=>{if(currentCamera)controller.setCamera(orbit(currentCamera,14,0))}} title="Orbit right"><Compass size={15}/></button>
-      <button disabled={!currentCamera} onClick={()=>{if(currentCamera)controller.setCamera(dolly(currentCamera,-100))}} title="Zoom in"><ZoomIn size={15}/></button>
-      <button disabled={!currentCamera} onClick={()=>{if(currentCamera)controller.setCamera(dolly(currentCamera,100))}} title="Zoom out"><ZoomOut size={15}/></button>
-      <button disabled={!floor} onClick={()=>{if(floor)controller.setCamera(initialCamera(floor))}}>Reset camera</button>
-     </div>
-    </div>
-    {floor&&currentCamera?<HeadquartersWebGL floor={floor} selectedRoomId={room?.id??null}
-     camera={currentCamera} setCamera={next=>controller.setCamera(next)}
-     onSelectRoom={id=>{const found=floor.rooms.find(r=>r.id===id);if(found)visit(found)}} night={light==='night'}/>:
-     <section className="hqEmptyScene" role="status"><Building2 size={42}/>
-      <h2>{state?.busy?'Loading your workspace':hasServerData?'Select a floor':'Your virtual office is ready to configure'}</h2>
-      <p>{state?.busy?'Reading authenticated room and desk records.':
-       'No saved office layout is available yet. Create a building and rooms using Office Space Management.'}</p>
-      <button onClick={()=>setOverlay('spaces')}>Manage office layout</button>
-     </section>}
-    <div className="hqViewportFooter"><span>{state?.status==='ready'?'Connected registry':'Live data unavailable'}</span><span>Last verified: {readTime(state?.updatedAt??null)}</span></div>
-   </main>
-   <aside className="hqInspector" aria-label="Room details and operations">
-    <div className="hqSectionTitle"><span>SPACE INSPECTOR</span><DoorOpen size={17}/></div>
-    <div className="hqRoomSearch"><Search size={15}/><input aria-label="Find office room" placeholder="Search rooms" value={query} onChange={e=>setQuery(e.target.value)}/></div>
-    <div className="hqFilters">
-     {(['all','occupied','meeting'] as const).map(v=><button key={v} aria-pressed={filters===v} onClick={()=>setFilters(v)}>{v==='all'?'All':v==='occupied'?'Assigned':'Meetings'}</button>)}
-    </div>
-    <div className="hqRoomList" role="list">
-     {filteredRooms.map(r=><button key={r.id} type="button" role="listitem" className={r.id===room?.id?'active':''}
-      onClick={()=>visit(r)}>{roomIcon(r.kind)}<span><strong>{r.label}</strong><small>{r.kind} · capacity {r.capacity}</small></span></button>)}
-     {!filteredRooms.length&&<p className="hqMuted">No rooms match your filters.</p>}
-    </div>
-    <div className="hqRoomDetails">
-     <span className="hqEyebrow">SELECTED DEPARTMENT</span>
-     <h2>{room?.label??'Choose a room'}</h2>
-     <p>{room?room.kind.charAt(0).toUpperCase()+room.kind.slice(1)+' · '+room.capacity+' person capacity':'Select a room to see its desks and connected operations.'}</p>
-     {room&&<>
-      <div className="hqMetrics"><div><strong>{desks.length}</strong><span>Workstations</span></div><div><strong>{occupied}</strong><span>Assigned</span></div></div>
-      <div className="hqDeskEvidence">
-       {desks.map(d=><div key={d.id} className="hqDeskRow">
-        <div><strong>{d.label}</strong><span>{d.agent?.name??(d.agentId?'Assigned agent (activity unavailable)':'Vacant')}</span></div>
-        <small>{readStatus(d.agent)}</small>
-       </div>)}
-       {!desks.length&&<p className="hqMuted">No desks have been configured for this room.</p>}
+    } catch (error) {
+      hqCommands.takePending();
+      setCampusError({ denied: false, message: error instanceof Error ? error.message : t('hq.error.generic') });
+    }
+  }, []);
+
+  const enterBuilding = useCallback((workspaceId: string) => {
+    if (workspaceId === api.currentScope().workspaceId) {
+      setLevel('building'); setRoomId(null); setAgentId(null); setAgentDesk(null);
+      setView((v) => (v === 'list' && webglOk ? '3d' : v));
+      return;
+    }
+    const b = campus?.buildings.find((x) => x.workspace_id === workspaceId);
+    void switchTo(workspaceId, b?.tenant_id ?? null, { building: workspaceId });
+  }, [campus, switchTo, webglOk]);
+
+  const roomRef = useCallback((room: RoomGeometry): HqRoomRef => {
+    const f = registryBuilding?.floors.find((x) => x.id === room.floorId);
+    return { workspaceId: scope.workspaceId, buildingId: registryBuilding?.id ?? null, floorId: room.floorId, floorLevel: f?.level ?? 0, roomId: room.id, label: room.label, kind: room.kind, capacity: room.capacity };
+  }, [registryBuilding, scope.workspaceId]);
+
+  const selectRoom = useCallback((room: RoomGeometry | null) => {
+    setAgentId(null); setAgentDesk(null);
+    if (!room) { setRoomId(null); return; }
+    setRoomId(room.id);
+    latestProps.current.onSelectRoom?.(roomRef(room));
+  }, [roomRef]);
+
+  const selectAgent = useCallback((id: string, desk: SceneDesk | null) => {
+    setAgentId(id); setAgentDesk(desk);
+    const p = presenceOf(id, desk);
+    latestProps.current.onSelectAgent?.({
+      agentId: id, name: p?.name ?? '', role: p?.role ?? null, status: p?.status ?? 'unknown',
+      deskId: desk?.id ?? null, roomId: desk?.roomId ?? null, workspaceId: scope.workspaceId,
+    });
+  }, [presenceOf, scope.workspaceId]);
+
+  const goFloor = useCallback((id: string) => { controller.selectFloor(id); setRoomId(null); setAgentId(null); }, [controller]);
+  const openRoomById = useCallback((fid: string, rid: string) => {
+    const fl = registryBuilding?.floors.find((f) => f.id === fid);
+    const room = fl?.rooms.find((r) => r.id === rid);
+    if (!fl || !room) return;
+    if (floor?.id !== fid) controller.selectFloor(fid);
+    setLevel('building'); setView((v) => (v === 'list' ? '3d' : v));
+    setRoomId(rid); setAgentId(null);
+    latestProps.current.onSelectRoom?.(roomRef(room));
+  }, [registryBuilding, floor?.id, controller, roomRef]);
+
+  // Navigation commands from the executive assistant.
+  const navScene = useMemo(() => {
+    if (!registryBuilding) return null;
+    return {
+      workspaceId: scope.workspaceId,
+      floors: registryBuilding.floors.map((f) => ({ id: f.id, level: f.level, name: f.name, rooms: f.rooms.map((r) => ({ id: r.id, label: r.label })) })),
+      agents: (presenceList ?? []).filter((p) => !p.agentId.startsWith('desk:')).map((p) => {
+        const desk = registryBuilding.floors.flatMap((f) => f.desks).find((d) => d.agentId === p.agentId);
+        return { id: p.agentId, name: p.name, roomId: desk?.roomId ?? null };
+      }),
+    };
+  }, [registryBuilding, presenceList, scope.workspaceId]);
+
+  const navigate = useCallback(async (target: HqNavTarget): Promise<HqNavResult> => {
+    if (target.view) setView(target.view === '3d' && !webglOk ? 'list' : target.view);
+    if (!campus || !navScene) { want.current = target; return { ok: true, applied: { workspaceId: scope.workspaceId, floorId: null, roomId: null, agentId: null } }; }
+    const res = resolveNavTarget(target, campus, navScene);
+    if (res.kind === 'error') return { ok: false, code: res.code, message: res.message };
+    if (res.kind === 'switch') {
+      const b = campus.buildings.find((x) => x.workspace_id === res.workspaceId);
+      await switchTo(res.workspaceId, b?.tenant_id ?? null, target);
+      return { ok: true, applied: { workspaceId: res.workspaceId, floorId: null, roomId: null, agentId: null } };
+    }
+    setLevel('building');
+    if (res.floorId && res.floorId !== floor?.id) controller.selectFloor(res.floorId);
+    setRoomId(res.roomId); setAgentId(res.agentId);
+    if (res.roomId) {
+      const room = registryBuilding?.floors.flatMap((f) => f.rooms).find((r) => r.id === res.roomId);
+      if (room) latestProps.current.onSelectRoom?.(roomRef(room));
+    }
+    return { ok: true, applied: { workspaceId: res.workspaceId, floorId: res.floorId, roomId: res.roomId, agentId: res.agentId } };
+  }, [campus, navScene, scope.workspaceId, floor?.id, controller, registryBuilding, roomRef, switchTo, webglOk]);
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  useEffect(() => hqCommands.attach((target) => navigateRef.current(target)), []);
+  useEffect(() => {
+    if (want.current && campus && navScene) { const target = want.current; want.current = null; void navigateRef.current(target); }
+  }, [campus, navScene]);
+
+  const saveProfile = useCallback(async (kind: CampusBuildingKind, icon: string, revision: number | null): Promise<string | null> => {
+    try {
+      await saveCampusProfile({ kind, icon, ...(revision !== null ? { expected_revision: revision } : {}) } as Parameters<typeof saveCampusProfile>[0]);
+      campusLoadedAt.current = 0;
+      await refreshCampus();
+      return null;
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status === 409) return t('hq.profile.conflict');
+      if (status === 403) return t('hq.profile.ownerOnly');
+      return error instanceof Error ? error.message : t('hq.error.generic');
+    }
+  }, [refreshCampus]);
+
+  const retry = () => { campusLoadedAt.current = 0; void controller.refresh(); void refreshCampus(); };
+  const roomsForRoom = floor && roomId ? floor.rooms.find((r) => r.id === roomId) ?? null : null;
+  const roomDesks = floor && roomsForRoom ? floor.desks.filter((d) => d.roomId === roomsForRoom.id) : [];
+  const agentRoom = agentDesk ? floor?.rooms.find((r) => r.id === agentDesk.roomId) ?? null : null;
+  const tourStops = (floor?.rooms ?? []).map((r) => ({ id: r.id, name: r.label, floor: floor?.level ?? 0, x: r.x, y: r.z, description: r.kind, staff: [] }));
+  const effectiveView: HqView = webglOk ? view : (level === 'building' && view !== 'list' ? 'top' : 'list');
+  const closePanels = () => { setRoomId(null); setAgentId(null); setAgentDesk(null); };
+  const ctx = { close: closePanels };
+  const roomPanelRoom = roomsForRoom;
+
+  const agentRef: HqAgentRef | null = agentId
+    ? { agentId, name: presenceOf(agentId, agentDesk)?.name ?? '', role: presenceOf(agentId, agentDesk)?.role ?? null, status: presenceOf(agentId, agentDesk)?.status ?? 'unknown', deskId: agentDesk?.id ?? null, roomId: agentDesk?.roomId ?? null, workspaceId: scope.workspaceId }
+    : null;
+  const sidePanel = agentId && agentRef
+    ? (props.renderWorkstationPanel
+      ? props.renderWorkstationPanel(agentRef, ctx)
+      : <AgentPanel agentId={agentId} deskId={agentDesk?.id ?? null} refreshKey={state?.updatedAt ?? null} presence={presenceOf(agentId, agentDesk)} roomLabel={agentRoom?.label ?? null} deskLabel={agentDesk?.label ?? null} onClose={closePanels} />)
+    : roomPanelRoom
+      ? (props.renderRoomPanel
+        ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
+        : <RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} />)
+      : null;
+
+  const status = state?.status;
+  const connection = status === 'ready' ? t('hq.conn.ready') : status === 'refreshing' ? t('hq.conn.updating') : status === 'stale' ? t('hq.conn.stale') : status === 'error' ? t('hq.conn.error') : t('hq.conn.connecting');
+  const loading = !campus && !campusError;
+
+  const buildingKind: CampusBuildingKind = currentBuilding?.kind ?? 'business';
+
+  return (
+    <section className={`hqLive ${night ? 'hqNight' : 'hqDay'}`} ref={host} aria-label={t('hq.region')}>
+      <header className="hqHead">
+        <div className="hqHeadTitle">
+          <h1 id="view-title">ANUM <em>MINE</em></h1>
+          <p>{t('hq.tagline')}</p>
+        </div>
+        <div className="hqHeadTools">
+          {props.headerExtra}
+          <span className={`hqConn tone-${status === 'ready' ? 'ok' : status === 'error' ? 'stop' : 'warn'}`} role="status">{connection}</span>
+          <button type="button" className="hqIconButton" onClick={retry} disabled={state?.busy} aria-label={t('hq.refresh')} title={t('hq.refresh')}><RefreshCcw aria-hidden="true" /></button>
+          <ViewSwitch view={effectiveView} onChange={(v) => { if (v === "3d" && !webglOk) return; setView(v); }} />
+          <div className="hqMenuWrap">
+            <button type="button" className="hqGhost" aria-expanded={toolsOpen} onClick={() => setToolsOpen((v) => !v)}><Wrench aria-hidden="true" />{t('hq.tools')}</button>
+            {toolsOpen && (
+              <ul className="hqMenu">
+                {([
+                  ['spaces', LayoutGrid, 'hq.tools.spaces'], ['workstations', Users, 'hq.tools.workstations'], ['agentMeetings', Users, 'hq.tools.meetings'],
+                  ['reception', DoorOpen, 'hq.tools.reception'], ['tour', Compass, 'hq.tools.tour'],
+                ] as const).map(([id, Icon, key]) => (
+                  <li key={id}><button type="button" onClick={() => { setOverlay(id); setToolsOpen(false); }}><Icon aria-hidden="true" />{t(key as MessageKey)}</button></li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {!webglOk && (
+        <p className="hqNotice" role="status"><AlertTriangle aria-hidden="true" />{t('hq.webgl.off')}{webglNote ? ` (${webglNote})` : ''}</p>
+      )}
+      {campusError && (
+        <div className="hqNotice error" role="alert">
+          {campusError.denied ? <Lock aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
+          <span>{campusError.denied ? t('hq.error.denied') : t('hq.error.campus', { reason: campusError.message })}</span>
+          {!campusError.denied && <button type="button" className="hqGhost" onClick={retry}>{t('hq.retry')}</button>}
+        </div>
+      )}
+      {state?.error && state.status !== 'ready' && !campusError && (
+        <div className="hqNotice error" role="alert">
+          <AlertTriangle aria-hidden="true" /><span>{state.error.code === 'NOT_AUTHORIZED' ? t('hq.error.denied') : state.error.message}</span>
+          {state.error.canRetry && <button type="button" className="hqGhost" onClick={retry}>{t('hq.retry')}</button>}
+        </div>
+      )}
+
+      <div className={`hqMain${props.renderPaDock ? ' hasDock' : ''}`}>
+        <div className="hqMainStage">
+          {loading && <div className="hqLoading" role="status" aria-busy="true"><span className="hqSpinner" aria-hidden="true" />{t('hq.loading')}</div>}
+          {campus && effectiveView === 'list' && (
+            <CampusListView
+              campus={campus} currentWorkspaceId={scope.workspaceId} detail={projection?.buildings ?? []}
+              onEnter={enterBuilding} onOpenRoom={(ws, fid, rid) => { if (ws === scope.workspaceId) openRoomById(fid, rid); }}
+            />
+          )}
+          {campus && webglOk && effectiveView !== 'list' && level === 'campus' && (
+            <CampusView
+              campus={campus} unreported={unreported} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
+              currentWorkspaceId={scope.workspaceId} avatars={avatars} selectedId={campusPick} onSelect={setCampusPick} onEnter={enterBuilding}
+              onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight} onSaveProfile={saveProfile}
+            />
+          )}
+          {campus && !webglOk && level === 'building' && effectiveView !== 'list' && floor && (
+            <>
+              <HqPlanFallback floor={floor} selectedRoomId={roomId} night={night} onSelectRoom={selectRoom} />
+              {sidePanel && <div className="hqSideInline">{sidePanel}</div>}
+            </>
+          )}
+          {campus && webglOk && effectiveView !== 'list' && level === 'building' && (registryBuilding && floor ? (
+            <BuildingView
+              workspaceName={currentBuilding?.name ?? scope.workspaceId} kindLabel={t(`hq.kind.${buildingKind}` as MessageKey)}
+              buildings={projection?.buildings ?? []} building={registryBuilding} floor={floor}
+              presence={presenceIndex} unreported={unreported} verifiedAt={verifiedAt}
+              liveMeetings={meetings ? meetings.liveMeetings : null} liveMeetingRoomIds={props.liveMeetingRoomIds ?? NO_ROOMS}
+              commerce={commerce} tyre={tyre} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
+              selectedRoomId={roomId} selectedAgentId={agentId}
+              onBack={() => setLevel('campus')} onSelectBuilding={(id) => controller.selectBuilding(id)} onSelectFloor={goFloor}
+              onSelectRoom={selectRoom} onSelectAgent={(id, desk) => selectAgent(id, desk)}
+              onManageSpaces={() => setOverlay('spaces')} onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight}
+              side={sidePanel}
+            />
+          ) : (
+            <div className="hqEmptyScene" role="status">
+              <DoorOpen aria-hidden="true" />
+              <h2>{state?.busy ? t('hq.loading') : t('hq.noLayout.title')}</h2>
+              <p>{state?.busy ? t('hq.loadingLayout') : t('hq.noLayout.body')}</p>
+              {!state?.busy && <button type="button" className="hqPrimary" onClick={() => setOverlay('spaces')}>{t('hq.manageSpaces')}</button>}
+              <button type="button" className="hqGhost" onClick={() => setLevel('campus')}>{t('hq.back')}</button>
+            </div>
+          ))}
+        </div>
+        {props.renderPaDock && (
+          <aside className="hqPaDock" aria-label={t('hq.paDock')}>{props.renderPaDock({ close: () => undefined })}</aside>
+        )}
       </div>
-      <button className="hqPrimaryAction" onClick={()=>openRoute(room.kind)}>Open {room.kind} workspace <ArrowLeft size={17}/></button>
-     </>}
-    </div>
-    {projection&&projection.issues.length>0&&<div className="hqWarnings" role="status"><strong>{projection.issues.length} data checks need attention</strong><p>Open Office Space Management to review room layout, assignments and stale activity.</p></div>}
-   </aside>
-  </div>
-  {state?.error&&<div className="hqToast" role="alert"><WifiOff size={16}/>{state.error.message}<button onClick={()=>void controller.refresh()} disabled={!state.error.canRetry}>Retry</button></div>}
-  {overlay!=='none'&&<div className="hqModalHost"><button className="hqModalClose" aria-label="Close office panel" onClick={()=>setOverlay('none')}><X size={18}/></button>
-   {overlay==='spaces'?<OfficeSpaceLiveManager onClose={()=>{setOverlay('none');void controller.refresh()}}/>:
-    overlay==='workstations'?<OfficeWorkstations onClose={()=>setOverlay('none')}/>:
-    overlay==='agentMeetings'?<AgentMeetingSessions onClose={()=>setOverlay('none')}/>:
-    overlay==='reception'?<ReceptionOperations onClose={()=>setOverlay('none')} onDestination={name=>{const target=floor?.rooms.find(r=>r.label===name);if(target){visit(target);setOverlay('none')}}}/>:
-    <GuidedExecutiveTour site={building?.name??'ANUM MINE'} stops={tourStops} onClose={()=>setOverlay('none')}
-     onArrive={id=>{const destination=floor?.rooms.find(r=>r.id===id);if(destination)visit(destination)}}/>}
-  </div>}
- </section>;
+
+      {overlay !== 'none' && (
+        <div className="hqModalHost" role="dialog" aria-modal="false" aria-label={t('hq.tools')}>
+          {overlay === 'spaces' ? <OfficeSpaceLiveManager onClose={() => { setOverlay('none'); void controller.refresh(); }} />
+            : overlay === 'workstations' ? <OfficeWorkstations onClose={() => setOverlay('none')} />
+              : overlay === 'agentMeetings' ? <AgentMeetingSessions onClose={() => setOverlay('none')} />
+                : overlay === 'reception' ? <ReceptionOperations onClose={() => setOverlay('none')} onDestination={(name) => { const target = floor?.rooms.find((r) => r.label === name); if (target) { openRoomById(target.floorId, target.id); setOverlay('none'); } }} />
+                  : <GuidedExecutiveTour site={currentBuilding?.name ?? 'ANUM MINE'} stops={tourStops} onClose={() => setOverlay('none')} onArrive={(id) => { const dest = floor?.rooms.find((r) => r.id === id); if (dest) openRoomById(dest.floorId, dest.id); }} />}
+        </div>
+      )}
+    </section>
+  );
 }

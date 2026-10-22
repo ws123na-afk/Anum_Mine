@@ -8,6 +8,7 @@ async function openWorkstations(page: import('@playwright/test').Page) {
   await mockOrgChart(page);
   await mockOfficeSpaces(page);
   await page.goto('/#office-preview');
+  await page.getByRole('button', { name: 'Office tools' }).click();
   await page.getByRole('button', { name: 'Live workstations' }).click();
 }
 
