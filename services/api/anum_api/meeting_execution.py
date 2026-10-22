@@ -67,6 +67,10 @@ coalesce(sum(input_tokens+output_tokens),0) as tokens
 from agent_meeting_turns
 where tenant_id=:tenant and workspace_id=:workspace and session_id=:id
 """)
+PROFILE_SQL = text("""
+select id,name,instructions,model_route from agent_profiles
+where tenant_id=:tenant and workspace_id=:workspace and id=:agent and status='active'
+""")
 ACTIVE_AGENT_SQL = text("""
 select actor_id from agent_meeting_participants where
 tenant_id=:tenant and workspace_id=:workspace and session_id=:id and kind='agent'
@@ -125,6 +129,14 @@ async def execute_meeting_turn(
         if store.session.execute(LOCK_SQL,params).first():
             raise LiveMeetingStoreError("conflict","Another agent turn is already running")
         agent=agents[(seq-1)%len(agents)]
+        profile=store.session.execute(PROFILE_SQL,_request(
+            context,meeting_id,request_key,agent=agent
+        )).mappings().first()
+        if profile is None:
+            raise LiveMeetingStoreError("conflict","Agent is disabled or inaccessible")
+        persona_name=str(profile["name"])
+        persona_instructions=str(profile["instructions"])[:4000]
+        persona_route=ModelRoute.FAST if profile["model_route"]=="fast" else ModelRoute.CAPABLE
         claimed=store.session.execute(CLAIM_SQL,_request(
             context,meeting_id,request_key,lease=lease,seq=seq,agent=agent,rev=session["revision"]
         )).first()
@@ -134,7 +146,8 @@ async def execute_meeting_turn(
         remaining_tokens=session["max_tokens"]-int(seqrow["tokens"])
     instruction=(
         "You are an AI participant in a business meeting. Your participant ID is "+agent+
-        ". Meeting topic: "+title+
+        " ("+persona_name+"). Meeting topic: "+title+
+        ". Agent instructions (subject to platform security policy): "+persona_instructions+
         ". Respond with one concise substantive contribution to the discussion. "
         "Explicitly distinguish suggestions from authorized decisions. "
         "Never claim to have performed any external action. No tool calls are allowed. "
@@ -142,7 +155,7 @@ async def execute_meeting_turn(
     )
     prompt=json.dumps({"system":instruction,"history":history,"task":"Provide your next meeting contribution."},
                       ensure_ascii=False)
-    model=route_gateway(gateway,ModelRoute.CAPABLE)
+    model=route_gateway(gateway,persona_route)
     try:
         if isinstance(model,MockModelGateway) or getattr(model,'provider',None)=='mock':
             raise LiveMeetingStoreError('unavailable','Mock models cannot execute meetings')
