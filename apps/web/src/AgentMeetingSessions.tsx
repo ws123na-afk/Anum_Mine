@@ -77,6 +77,10 @@ export function AgentMeetingSessions({onClose}:{onClose:()=>void}){
         method:'POST',body:JSON.stringify({request_key:'turn_'+id.slice(0,30)+'_'+Date.now().toString(36)})
        });
       })}>Generate next agent turn</button>}
+    {selected.status==='active'&&<button type="button" disabled={working}
+      onClick={()=>void run(()=>api.apiRequest(root+'/'+encodeURIComponent(selected.id)+'/run',{
+       method:'POST',body:JSON.stringify({run_key:'round_'+Date.now().toString(36)+'_meeting',turns:3})
+      }))}>Run agent meeting round (up to 3 turns)</button>}
     <h4>Saved meeting turns</h4>{turns.length?<ol>{turns.map(t=><li key={t.id}><strong>{t.speaker_id}:</strong> {t.body}</li>)}</ol>:<p>No recorded turns.</p>}
    </>:<p>Select a meeting to view its details.</p>}</div>
   </div>
