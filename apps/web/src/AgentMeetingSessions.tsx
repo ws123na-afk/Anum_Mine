@@ -28,7 +28,15 @@ export function AgentMeetingSessions({onClose}:{onClose:()=>void}){
   setWorking(true);setError('');
   try{await action();await refresh()}catch(e){setError(describeError(e))}finally{setWorking(false)}
  };
- useEffect(()=>{void refresh().catch(e=>setError(describeError(e)))},[refresh]);
+ useEffect(()=>{
+  let active=true;
+  const update=()=>{if(active&&document.visibilityState==='visible')void refresh().catch(e=>{if(active)setError(describeError(e))})};
+  update();
+  const interval=window.setInterval(update,10_000);
+  const onVisible=()=>update();
+  document.addEventListener('visibilitychange',onVisible);
+  return()=>{active=false;window.clearInterval(interval);document.removeEventListener('visibilitychange',onVisible)};
+ },[refresh]);
  useEffect(()=>{
   if(!chosen){setTurns([]);return}
   let mounted=true;const scope=api.currentScope();
