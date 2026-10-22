@@ -74,6 +74,11 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
   const abort=new AbortController();
   let active=true;
   let reconnect=1000;
+  let refreshTimer:ReturnType<typeof setTimeout>|null=null;
+  const refreshFromEvents=()=>{
+   if(refreshTimer!==null)return;
+   refreshTimer=setTimeout(()=>{refreshTimer=null;if(active&&!abort.signal.aborted)void controller.refresh()},300);
+  };
   const scope=api.currentScope();
   const watch=async()=>{
    while(active&&!abort.signal.aborted){
@@ -85,7 +90,7 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
        abort.abort();return;
       }
       if(/^(task|agent_run|agent|approval|agent_meeting|office)\\./.test(event.type)){
-       void controller.refresh();
+       refreshFromEvents();
       }
      },abort.signal,()=>{reconnect=1000});
     }catch{ /* SSE may disconnect; scoped periodic refresh remains active. */ }
@@ -95,7 +100,7 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
    }
   };
   void watch();
-  return()=>{active=false;abort.abort()};
+  return()=>{active=false;abort.abort();if(refreshTimer!==null)clearTimeout(refreshTimer)};
  },[controller]);
  useEffect(()=>{
   const refreshVisible=()=>{if(document.visibilityState==='visible')void controller.refresh()};
