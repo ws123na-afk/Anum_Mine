@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mockHq, type HqMockOptions } from './support/hqApi';
+import { mockHq, type HqMockOptions } from './support/hqCampusApi';
 import { useSavedLocale } from './support/workspaceApi';
 
 // ANUM MINE headquarters (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md): the campus of workspaces, the

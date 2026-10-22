@@ -6,7 +6,7 @@ import { mockCallsApi } from './callsApi';
 import { mockBusiness } from './businessApi';
 import { mockInvoices } from './businessInvoicesApi';
 import { mockTyre } from './tyreApi';
-import { mockHq } from './hqApi';
+import { mockHq } from './hqCampusApi';
 import { mockMailApi } from './mailApi';
 import { mockDeveloper } from './developerApi';
 import { mockBrevo } from './brevoApi';
