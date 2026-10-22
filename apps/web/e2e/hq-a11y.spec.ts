@@ -34,6 +34,7 @@ test('axe: no-WebGL renderer with a room selected', async ({ page }) => {
   // The room inspector is hidden below 768 px (issue register H-04), so only pick a room where it exists.
   const pick = page.getByRole('button', { name: /Alpha Room 2/ });
   if (await pick.isVisible()) await pick.click();
+  await page.waitForTimeout(400); // let the row colour transition (0.13 s) finish before axe samples colours
   expect(await violations(page)).toEqual([]);
 });
 

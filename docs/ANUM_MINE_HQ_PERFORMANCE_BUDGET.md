@@ -1,0 +1,64 @@
+# ANUM MINE headquarters: performance budget
+
+Measured on 22 October 2026 in the readiness sandbox. Test: `apps/web/e2e/hq-performance.spec.ts`
+(`pnpm --filter @anum/web exec playwright test e2e/hq-performance.spec.ts`; locally
+`pnpm exec playwright test -c playwright.hq.config.ts e2e/hq-performance.spec.ts`). The test fails
+when a budget below is exceeded. All data in it is synthetic and lives in the test only.
+
+## What is measured, and what it is not
+
+- **Chunk size**: gzip size of the lazy `HeadquartersEntrypoint` JS and CSS in `apps/web/dist/assets`
+  (the entry bundle is guarded separately by the existing build). The scene is raw WebGL, so there is no
+  3D library in the chunk.
+- **Frame time**: `requestAnimationFrame` intervals while the mouse orbits the scene for about 60 moves.
+  Median (p50), 95th percentile (p95) and worst.
+- **JS heap**: `JSHeapUsedSize` from the Chromium performance metrics after the run.
+- **Time to ready**: from navigation to the canvas and the first room row being visible, with the API
+  mocked (no network cost).
+- **Scene sizes**: 21 agents (6 rooms, 21 desks) and 200 agents
+  (50 rooms, 200 desks, 200 agent records paged by the real org chart loader).
+
+Software rendering (SwiftShader, one worker) is far slower than a laptop GPU and the sandbox runs other
+work, so these figures are a regression guard. They are not a statement about a real laptop. The owner
+should read the same numbers on the target machine (below).
+
+## Measured results
+
+| Run | Agents | Frames | p50 | p95 | Worst | JS heap | Ready |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 22 Oct, sandbox, SwiftShader | 21 | 225 | 33.3 ms | 66.6 ms | 150 ms | 31.8 MB | 2.3 s |
+| 22 Oct, sandbox, SwiftShader | 200 | 144 | 66.6 ms | 100 ms | 117 ms | 30.7 MB | 1.2 s |
+
+Frame times are multiples of 16.7 ms because they come from animation frames. Chunk: JS 40,069 bytes
+gzip, CSS 11,330 bytes gzip.
+
+## Budgets (the test enforces these)
+
+| Metric | 21 agents | 200 agents |
+| --- | --- | --- |
+| Frame time p95 while orbiting | at most 180 ms | at most 300 ms |
+| JS heap | at most 120 MB | at most 180 MB |
+| Time to ready (mocked API) | at most 8 s | at most 15 s |
+| Lazy HQ JS, gzip | at most 60,000 bytes | same |
+| Lazy HQ CSS, gzip | at most 16,000 bytes | same |
+
+The budgets are about two to three times the measured sandbox values for frames (a repeat run of the same test measured p95 of 66.6 to 150 ms at 21 agents and 100 to 183 ms at 200, because software rendering shares the CPU with the other test workers) and about four times for heap, so ordinary noise passes and
+a real regression (for example a per-frame allocation or a second 3D library) does not.
+
+## Known cost drivers
+
+- `sceneMeshes` (`HeadquartersCanvas.tsx`) filters all desks once per room each frame: O(rooms x desks).
+  Fine at 200 desks; revisit before 1000.
+- Every camera move rebuilds and re-sorts all quads on the CPU (`buildGpuVertices`). There is no culling
+  yet (plan item F04).
+- The office refreshes registry (4 list calls) and agents plus tasks every 10 s and on every matching
+  event, debounced 300 ms.
+
+## Real-device check (owner)
+
+1. Open the office on the target laptop in Chrome with a workspace that has the most rooms.
+2. DevTools, Performance, record 5 seconds while dragging the scene. Frame rate should stay above 30 fps
+   at 21 agents and above 20 fps at 200 agents; heap under the table above.
+3. Write the numbers into the table above with the date and the machine.
+
+Raise a budget only with a measured reason written here; never to make the test pass.

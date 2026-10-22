@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import statistics
 import sys
 import time
@@ -213,9 +214,9 @@ async def run_snapshot(args: argparse.Namespace, base: str, headers: dict[str, s
 async def main_async(args: argparse.Namespace) -> int:
     base = args.base_url.rstrip("/")
     async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
-        token = args.token or await local_token(client, base, args.tenant, args.workspace)
+        token = args.token or os.environ.get('HQ_LOAD_TOKEN') or await local_token(client, base, args.tenant, args.workspace)
         headers = {"authorization": f"Bearer {token}", "x-workspace-id": args.workspace}
-        if args.token and args.tenant:
+        if (args.token or os.environ.get('HQ_LOAD_TOKEN')) and args.tenant:
             headers["x-tenant-id"] = args.tenant
         report: dict[str, object] = {"base_url": base, "tenant": args.tenant, "workspace": args.workspace}
         if args.seed_tasks:
@@ -257,7 +258,7 @@ def parse() -> argparse.Namespace:
     p.add_argument("--base-url", default="http://127.0.0.1:8000")
     p.add_argument("--tenant", default="tenant_hq_load")
     p.add_argument("--workspace", default="workspace_hq_load")
-    p.add_argument("--token", help="bearer token of a TEST workspace; default: a local development session")
+    p.add_argument("--token", help="bearer token of a TEST workspace (prefer the HQ_LOAD_TOKEN environment variable: arguments show in `ps`); default: a local development session")
     p.add_argument("--seed-tasks", type=int, default=0, help="create this many tasks first (the open tasks the snapshot reads)")
     p.add_argument("--sse-clients", type=int, default=0)
     p.add_argument("--events", type=int, default=20)

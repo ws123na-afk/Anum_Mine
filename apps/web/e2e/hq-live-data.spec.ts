@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test';
 import { hqRegistry, mockOfficeSpaces, openHq, TENANT_A, TENANT_B } from './support/hqApi';
 import { mockOrgChart } from './support/orgChartApi';
 
+// These specs test data and speed, not layout: use a desktop viewport in both projects (the phone layout hides the room inspector, issue H-04).
+test.use({ viewport: { width: 1280, height: 800 } });
+
 // F03/F14: the headquarters follows the workspace event stream, recovers from a dropped stream, and
 // never shows one organisation's records after an in-app switch to another.
 
