@@ -47,7 +47,6 @@ async def run_unattended(
             elif meeting["status"]=="scheduled":
                 return "not_started"
             else:
-                turns=store.turns(context,meeting_id,limit=100)
                 # The database is authoritative, not a process-local counter.
                 from sqlalchemy import text
                 seq=store.session.execute(text("""
