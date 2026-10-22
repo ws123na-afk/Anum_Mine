@@ -9,8 +9,6 @@ export function AgentMeetingSessions({onClose}:{onClose:()=>void}){
  const [turns,setTurns]=useState<Turn[]>([]),[title,setTitle]=useState(''),[error,setError]=useState('');
  const [working,setWorking]=useState(false);
  const [agentId,setAgentId]=useState('');
- const [autoRunning,setAutoRunning]=useState(false);
- const [stopRequested,setStopRequested]=useState(false);
  const refresh=useCallback(async()=>{
   const initial=api.currentScope();let cursor:string|null=null;const found:Meeting[]=[];
   for(let n=0;n<100;n++){
@@ -72,7 +70,7 @@ export function AgentMeetingSessions({onClose}:{onClose:()=>void}){
      })}}><input value={agentId} onChange={e=>setAgentId(e.target.value)} maxLength={160}
       aria-label="Agent participant ID" placeholder="Agent participant ID" required/>
      <button disabled={working||!agentId.trim()}>Add agent</button></form>}
-    {selected.status==='active'&&<button type="button" disabled={working||autoRunning}
+    {selected.status==='active'&&<button type="button" disabled={working}
       onClick={()=>void run(async()=>{
        const id=selected.id;
        await api.apiRequest(root+'/'+encodeURIComponent(id)+'/execute-turn',{
