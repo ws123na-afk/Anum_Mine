@@ -22,6 +22,25 @@ from .settings import settings
 log=logging.getLogger("anum.meeting.worker")
 
 
+def settle_meeting(context: TenantContext, meeting_id: str, target: str) -> bool:
+    """Stop an exhausted or failed meeting without overriding a concurrent pause.
+
+    All state decisions and the update occur under the same PostgreSQL row lock.
+    A final state prevents the supervisor from launching another paid turn.
+    """
+    if target not in ("finished", "failed"):
+        raise ValueError("Invalid automatic meeting terminal state")
+    with open_scoped_store(context, None, SqlLiveMeetingStore, user_scoped=True) as store:
+        meeting = store.get(context, meeting_id, lock=True)
+        if meeting is None or meeting["created_by"] != context.user_id:
+            return False
+        if meeting["status"] != "active":
+            return False
+        store.transition(context, meeting_id, meeting["revision"], target)
+        return True
+
+
+
 async def run_unattended(
     context:TenantContext, meeting_id:str, *,
     interval_seconds:float=2.0,
@@ -60,6 +79,7 @@ async def run_unattended(
                     meeting["total_input_tokens"]+meeting["total_output_tokens"]>=meeting["max_tokens"])
                 exhausted=exhausted or meeting["total_cost_usd"]>=meeting["max_cost_usd"]
                 if expired or exhausted:
+                    settle_meeting(context, meeting_id, "finished")
                     return "limit_reached"
         if next_key:
             try:
@@ -70,6 +90,12 @@ async def run_unattended(
                 # can create a conflict. Re-read persisted state before retry.
                 log.warning("Meeting turn deferred: %s",exc.code)
             except Exception:
+                # Fail closed: mark the session terminal to prevent the supervisor
+                # from relaunching another paid provider request on every poll.
+                try:
+                    settle_meeting(context, meeting_id, "failed")
+                except Exception:
+                    log.exception("Could not mark failed meeting terminal")
                 # Provider failures are not silently retried with a new key:
                 # the next tick reuses DB-derived numbering. Operators must
                 # inspect provider failures and avoid enabling auto-retry billing.
