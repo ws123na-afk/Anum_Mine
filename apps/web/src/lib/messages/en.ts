@@ -10,6 +10,7 @@ import { financeEquityEn } from './financeEquity.en.ts';
 import { financeReportsEn } from './financeReports.en.ts';
 import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
+import { hqEn } from './hq.en.ts';
 import { homeEn } from './home.en.ts';
 import { teamEn } from './team.en.ts';
 import { appCallsEn } from './appCalls.en.ts';
@@ -3210,6 +3211,7 @@ export const en = {
   'call.end.open': 'Open conversation',
   'call.end.again': 'New call',
   ...tyreEn,
+  ...hqEn,
   ...homeEn,
   // ---- ANUM 360 shell and Command Center (docs/design/anum360.md#web-command-center) ----
   'brand.name': 'ANUM 360',

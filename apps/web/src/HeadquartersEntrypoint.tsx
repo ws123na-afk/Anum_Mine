@@ -6,21 +6,22 @@
  * view. No new public or unauthenticated route is created.
  */
 import {useState} from 'react';
-import {HeadquartersLive} from './HeadquartersLive';
+import {HeadquartersLive, type HeadquartersProps} from './HeadquartersLive';
 import {OfficeTourView} from './OfficeTourView';
 export type HeadquartersMode='live'|'concept';
-export function HeadquartersEntrypoint(){
+export function HeadquartersEntrypoint(props:HeadquartersProps={}){
  const [mode,setMode]=useState<HeadquartersMode>('live');
  const exit=()=>{window.location.hash='#home'};
- return <div className="hqEntrypoint" data-mode={mode}>
-  <div className="hqModeSwitcher" role="group" aria-label="Office presentation mode">
+ // The switch stays visibly separate from the office: authenticated records on one side, the old illustrative tour on the other.
+ const switcher=<div className="hqModeSwitcher" role="group" aria-label="Office presentation mode">
    <button type="button" aria-pressed={mode==='live'} onClick={()=>setMode('live')}>
     Authenticated office
    </button>
    <button type="button" aria-pressed={mode==='concept'} onClick={()=>setMode('concept')}>
     Concept preview
    </button>
-  </div>
-  {mode==='live'?<HeadquartersLive onClose={exit}/>:<OfficeTourView/>}
+  </div>;
+ return <div className="hqEntrypoint" data-mode={mode}>
+  {mode==='live'?<HeadquartersLive onClose={exit} {...props} headerExtra={switcher}/>:<>{switcher}<OfficeTourView/></>}
  </div>;
 }

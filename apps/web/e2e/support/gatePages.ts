@@ -6,6 +6,7 @@ import { mockCallsApi } from './callsApi';
 import { mockBusiness } from './businessApi';
 import { mockInvoices } from './businessInvoicesApi';
 import { mockTyre } from './tyreApi';
+import { mockHq } from './hqApi';
 import { mockMailApi } from './mailApi';
 import { mockDeveloper } from './developerApi';
 import { mockBrevo } from './brevoApi';
@@ -39,6 +40,7 @@ const workspace = (page: Page) => mockWorkspaceApi(page);
 const tyre = async (page: Page) => { await mockWorkspaceApi(page); await mockTyre(page); };
 const mail = async (page: Page) => { await mockWorkspaceApi(page); await mockMailApi(page); };
 const callsWithProvider = (page: Page) => mockCallsApi(page, { provider: true });
+const headquarters = async (page: Page) => { await mockHq(page, { commerce: 'connected', tyre: 'none', meetings: 'live' }); };
 const billing = async (page: Page) => { await mockWorkspaceApi(page); await mockBilling(page); };
 
 /** Invoices with every state in the list: sent and overdue, sent on time, a draft and one waiting for approval. */
@@ -122,6 +124,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'organisations', view: 'organisations', mock: workspace, ready: '.orgsTable tbody tr' },
   { hash: 'platformBilling', view: 'platformBilling', mock: billing, ready: '.blConsoleBar' },
   { hash: 'billing', view: 'settings', mock: billing, ready: '.blPlanNow' },
+  { hash: 'office', view: 'office', mock: headquarters, ready: '.hqLive .hqBuildingCard, .hqLive .hqListBuilding' },
 ];
 
 const brevo = async (page: Page) => { await mockMarketing(page); await mockBrevo(page); };
