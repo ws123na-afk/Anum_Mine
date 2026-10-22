@@ -230,6 +230,7 @@ from .onboarding import budgeted_model_gateway, router as onboarding_router
 from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
 from .audit_log import router as audit_log_router
+from .office_history_api import router as office_history_router
 from .workspace_admin import router as workspace_admin_router
 from .office_space_api import router as office_space_router
 from .live_agent_meeting_api import router as live_agent_meeting_router
@@ -416,6 +417,7 @@ app.include_router(onboarding_router)
 app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
 app.include_router(audit_log_router)
+app.include_router(office_history_router)
 app.include_router(workspace_admin_router)
 app.include_router(office_space_router)
 app.include_router(live_agent_meeting_router)

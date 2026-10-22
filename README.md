@@ -80,6 +80,8 @@ x-user-roles: owner,member
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Business model and product master roadmap](docs/ANUM_OS_Business_and_Product_Master_Roadmap.md)
+- [ANUM MINE F09 audited work history and replay API](docs/ANUM_MINE_F09_AUDITED_HISTORY_API.md)
+- [Integration and release plan](docs/INTEGRATION_AND_RELEASE.md)
 - [ANUM MINE virtual headquarters master plan (planned web office, guided tour and agent rooms)](docs/ANUM_MINE_VIRTUAL_HEADQUARTERS_MASTER_PLAN.md)
 - [ANUM MINE Executive PA Guided Tour](docs/ANUM_MINE_EXECUTIVE_PA_TOUR.md)
 - [ANUM MINE Live Employee Workstations](docs/ANUM_MINE_WORKSTATIONS_MODULE.md)
