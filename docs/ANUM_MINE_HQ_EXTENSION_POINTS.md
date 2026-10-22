@@ -14,13 +14,13 @@ Web only. Code: `apps/web/src/HeadquartersLive.tsx` (container), `CampusView.tsx
 
 | On screen | Source | Without a source |
 |---|---|---|
-| Buildings | `GET /api/v1/office/campus` (one per authorised workspace); until a deployment has it, the caller's workspace memberships | Building omitted |
+| Buildings | `GET /api/v1/office/campus` (contract `officeCampus.ts`, one per authorised workspace; `kind` null stays "not set" until an owner saves the building type with `PUT /office/campus/profile`); a deployment without it falls back to the caller's workspace memberships | Building omitted |
 | Agent counts, statuses | Workstation evidence (agents plus open tasks) and participants of `active` agent meetings | "Presence unavailable"; a status the sources cannot tell (meetings when the meeting list failed) shows "-" |
 | Meeting room state | `liveMeetingRoomIds` prop supplied by the meetings workstream; sessions are not bound to rooms in the current API | The room shows no meeting state |
 | Live operations, current flow | Commerce setup and dashboard of the open workspace | "Not connected" with the setup link, "No access", or the error |
 | Tyre panel | Tyre setup and dashboard of the open workspace | Same |
 
-A queued task reads as idle (it does not prove the agent is executing). Workspaces other than the open one show no counts until the campus endpoint supplies verified presence.
+A queued task reads as Queued, never as working. Workspaces other than the open one show no counts until the campus endpoint supplies verified presence.
 
 ## Extension points
 
