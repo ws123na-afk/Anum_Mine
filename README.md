@@ -96,6 +96,7 @@ x-user-roles: owner,member
 - [ANUM MINE autonomous meeting rounds, API and safety gates](docs/ANUM_MINE_AUTONOMOUS_MEETINGS.md)
 - [ANUM MINE Office Registry production backend](docs/ANUM_MINE_OFFICE_REGISTRY_BACKEND.md)
 - [ANUM MINE headquarters: campus, building cutaway and extension points](docs/ANUM_MINE_HQ_EXTENSION_POINTS.md)
+- [ANUM MINE campus, live presence, workstation work and executive overview](docs/ANUM_MINE_PRESENCE_AND_CAMPUS.md)
 - [Business gap register (Order 001)](docs/business/ANUM_BUSINESS_GAP_REGISTER.md)
 - [Reuse decision register: outside projects and their licenses](docs/business/REUSE_DECISION_REGISTER.md)
 - [P0 CI remediation: commerce tests, journey 403, Rust advisories](docs/business/P0_CI_REMEDIATION.md)
