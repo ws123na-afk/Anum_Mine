@@ -9,7 +9,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "0102_meeting_room"
-down_revision = "0100_office_room_geometry"
+down_revision = "0101_executive_grants"
 branch_labels = None
 depends_on = None
 

@@ -187,7 +187,7 @@ def _migration():
 def test_migration_is_expand_only_scoped_and_forced_rls():
     module = _migration()
     assert module.revision == "0102_meeting_room" and len(module.revision) <= 32
-    assert module.down_revision == "0100_office_room_geometry"
+    assert module.down_revision == "0101_executive_grants"
     sql = MIGRATION.read_text(encoding="utf-8")
     upgrade = sql.split("def upgrade() -> None:", 1)[1].split("def downgrade() -> None:", 1)[0]
     assert "drop_" not in upgrade and "alter column" not in upgrade

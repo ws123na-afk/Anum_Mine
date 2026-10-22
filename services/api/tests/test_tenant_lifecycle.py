@@ -199,6 +199,8 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             **{name: "0102_meeting_room" for name in (
                 "agent_meeting_events", "agent_meeting_agenda", "agent_meeting_outputs",
                 "agent_meeting_attendance", "agent_meeting_files")},
+            "executive_grants": "0101_executive_grants",
+            "campus_workspace_profiles": "0101_executive_grants",
             **{name: "0098_agent_live_meetings" for name in (
                 "agent_meeting_sessions", "agent_meeting_participants",
                 "agent_meeting_turns", "agent_meeting_turn_leases")},
