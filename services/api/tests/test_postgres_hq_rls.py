@@ -11,7 +11,7 @@ from sqlalchemy import Engine, text
 
 pytestmark = pytest.mark.database
 
-HQ_PREFIXES = ("office_", "agent_meeting", "executive_", "hq_")
+HQ_PREFIXES = ("office_", "agent_meeting", "executive_", "campus_", "hq_")
 # Cross-tenant jobs reach these tables only through the narrow NOLOGIN purge role (docs/multi-tenancy.md).
 ALLOWED_EXTRA_ROLES = {"anum_tenant_purger"}
 
@@ -48,7 +48,7 @@ def test_every_headquarters_table_policy_pins_tenant_and_workspace(database_engi
         policies = connection.execute(
             text(
                 """
-                select tablename, policyname, roles::text as roles, qual, with_check
+                select tablename, policyname, cmd, roles::text as roles, qual, with_check
                 from pg_policies where schemaname = 'public' and tablename = any(:names)
                 """
             ),
@@ -59,12 +59,41 @@ def test_every_headquarters_table_policy_pins_tenant_and_workspace(database_engi
         by_table.setdefault(policy.tablename, []).append(policy)
     assert set(by_table) == set(_hq_tables(database_engine)), "a headquarters table has no policy at all"
     for table, rows in by_table.items():
-        # Policies for every role (the app role) must check both the tenant and the workspace, for reads and writes.
+        assert any("public" in _roles(p) for p in rows), f"{table} has no policy for the application role"
         for policy in rows:
-            roles = {r.strip() for r in policy.roles.strip("{}").split(",") if r.strip()}
+            roles = _roles(policy)
             if roles and roles <= ALLOWED_EXTRA_ROLES:
-                continue
-            assert "anum.tenant_id" in (policy.qual or ""), f"{table}.{policy.policyname} reads without the tenant check"
-            assert "anum.workspace_id" in (policy.qual or ""), f"{table}.{policy.policyname} reads without the workspace check"
-            assert "anum.tenant_id" in (policy.with_check or ""), f"{table}.{policy.policyname} writes without the tenant check"
-            assert "anum.workspace_id" in (policy.with_check or ""), f"{table}.{policy.policyname} writes without the workspace check"
+                continue  # the purge role: tenant lifecycle job only, write check is false
+            if "public" in roles:
+                # The application role: tenant and workspace, for reads and for writes.
+                for part in (policy.qual, policy.with_check):
+                    assert "anum.tenant_id" in (part or ""), f"{table}.{policy.policyname} lacks the tenant check"
+                    assert "anum.workspace_id" in (part or ""), f"{table}.{policy.policyname} lacks the workspace check"
+            else:
+                # A narrow NOLOGIN reader (for example the executive grant reader): read only, still pinned to one tenant.
+                assert policy.cmd == "SELECT", f"{table}.{policy.policyname} lets a narrow role write"
+                assert "anum.tenant_id" in (policy.qual or ""), f"{table}.{policy.policyname} is not pinned to a tenant"
+
+
+def _roles(policy) -> set[str]:  # type: ignore[no-untyped-def]
+    return {r.strip() for r in policy.roles.strip("{}").split(",") if r.strip()}
+
+
+def test_narrow_policy_roles_cannot_log_in_or_bypass_rls(database_engine: Engine) -> None:
+    with database_engine.connect() as connection:
+        names = set(
+            connection.execute(
+                text("select roles::text from pg_policies where schemaname = 'public' and tablename = any(:names)"),
+                {"names": _hq_tables(database_engine)},
+            ).scalars()
+        )
+        role_names = {r.strip() for value in names for r in value.strip("{}").split(",") if r.strip()} - {"public"}
+        rows = connection.execute(
+            text("select rolname, rolcanlogin, rolbypassrls, rolsuper from pg_roles where rolname = any(:roles)"),
+            {"roles": sorted(role_names)},
+        ).all()
+    assert {row.rolname for row in rows} == role_names
+    for row in rows:
+        assert not row.rolcanlogin, f"{row.rolname} can log in"
+        assert not row.rolbypassrls, f"{row.rolname} bypasses RLS"
+        assert not row.rolsuper, f"{row.rolname} is a superuser"
