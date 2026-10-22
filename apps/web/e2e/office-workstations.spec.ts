@@ -6,6 +6,7 @@ const agentsUrl = (url: URL) => url.origin === 'http://localhost:8000' && url.pa
 test('the office removes employee evidence when access is revoked and recovers after access returns', async ({ page }) => {
   await mockOrgChart(page);
   await page.goto('/#office-preview');
+  await page.getByRole('button', { name: 'Concept preview' }).click();
   await page.getByRole('button', { name: 'Live Employee Workstations' }).click();
   const office = page.getByRole('dialog', { name: 'Live Employee Workstations' });
   await expect(office.getByRole('button', { name: /Fleet Planner/ })).toBeVisible();
@@ -28,6 +29,7 @@ test('the office removes employee evidence when access is revoked and recovers a
 test('a failed refresh keeps the last authorized snapshot visibly stale until retry succeeds', async ({ page }) => {
   await mockOrgChart(page);
   await page.goto('/#office-preview');
+  await page.getByRole('button', { name: 'Concept preview' }).click();
   await page.getByRole('button', { name: 'Live Employee Workstations' }).click();
   const office = page.getByRole('dialog', { name: 'Live Employee Workstations' });
   await office.getByRole('button', { name: /Fleet Planner/ }).click();
