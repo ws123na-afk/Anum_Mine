@@ -144,6 +144,8 @@ async def execute_meeting_turn(
                       ensure_ascii=False)
     model=route_gateway(gateway,ModelRoute.CAPABLE)
     try:
+        if isinstance(model,MockModelGateway) or getattr(model,'provider',None)=='mock':
+            raise LiveMeetingStoreError('unavailable','Mock models cannot execute meetings')
         response=await asyncio.wait_for(model.generate_text(prompt),timeout=75)
         body=response.text.strip()
         if not body or len(body)>30000:raise LiveMeetingStoreError("conflict","Invalid model response")
