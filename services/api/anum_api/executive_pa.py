@@ -29,7 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any, Literal, Mapping, Protocol
+from typing import Any, Literal, Mapping, Protocol, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -300,10 +300,10 @@ async def _execute_write(spec: ToolSpec, args: StrictBody, context: TenantContex
     if spec.name == "schedule_meeting":
         from .live_agent_meeting_api import CreateMeeting, create_meeting
 
-        assert isinstance(args, ScheduleMeetingArgs)
+        args = cast(ScheduleMeetingArgs, args)
         meeting = create_meeting(CreateMeeting(title=args.title), context)
         return _result("done", meeting_id=meeting["id"], note="A live meeting session was created. Add agents and start it from Meetings.")
-    assert isinstance(args, StartTaskArgs)
+    args = cast(StartTaskArgs, args)
     agent_id = args.agent_id if isinstance(args, DelegateArgs) else None
     task = await _create_task_governed(context, args, agent_id)
     run = await _run_governed(context, task.id, units)
@@ -426,7 +426,7 @@ async def invoke_tool(
 
     missing = [p.value for p in spec.permissions if not has_permission(context, p)]
     if spec.name == "open_panel":
-        assert isinstance(args, OpenPanelArgs)
+        args = cast(OpenPanelArgs, args)
         panel_permission = PANELS[args.panel][1]
         if not has_permission(context, panel_permission):
             missing = [panel_permission.value]
@@ -458,13 +458,13 @@ async def invoke_tool(
         return {"tool": spec.name, **outcome}
 
     if spec.name == "navigate":
-        assert isinstance(args, NavigateArgs)
+        args = cast(NavigateArgs, args)
         outcome = _navigate(context, args)
     elif spec.name == "open_panel":
-        assert isinstance(args, OpenPanelArgs)
+        args = cast(OpenPanelArgs, args)
         outcome = _result("ok", open_panel={"view": PANELS[args.panel][0]})
     elif spec.name == "summarise_workspace":
-        assert isinstance(args, SummariseArgs)
+        args = cast(SummariseArgs, args)
         outcome = _summarise(context, repository, args)
     elif spec.name == "list_blocked_work":
         outcome = _blocked(context, repository)
