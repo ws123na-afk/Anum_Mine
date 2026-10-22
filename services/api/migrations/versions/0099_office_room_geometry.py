@@ -2,8 +2,8 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision="0099_office_room_geometry"
-down_revision="0098_agent_live_meetings"
+revision="0100_office_room_geometry"
+down_revision="0099_office_create_keys"
 branch_labels=None
 depends_on=None
 
