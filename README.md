@@ -86,6 +86,7 @@ x-user-roles: owner,member
 - [ANUM MINE Reception & Visitor Operations](docs/ANUM_MINE_RECEPTION_MODULE.md)
 - [ANUM MINE Office Space & Desk Registry](docs/ANUM_MINE_SPACE_REGISTRY.md)
 - [ANUM MINE live agent meeting PostgreSQL 0098](docs/ANUM_MINE_LIVE_MEETING_POSTGRES_0098.md)
+- [ANUM MINE headquarters integration and release gates](docs/INTEGRATION_AND_RELEASE.md)
 - [ANUM MINE Office Registry production backend](docs/ANUM_MINE_OFFICE_REGISTRY_BACKEND.md)
 - [Business gap register (Order 001)](docs/business/ANUM_BUSINESS_GAP_REGISTER.md)
 - [Reuse decision register: outside projects and their licenses](docs/business/REUSE_DECISION_REGISTER.md)
