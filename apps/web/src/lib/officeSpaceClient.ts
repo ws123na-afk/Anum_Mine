@@ -6,7 +6,7 @@ export type OfficeKind = 'buildings'|'floors'|'rooms'|'desks';
 export interface OfficeRecord {id:string;revision:number;tenant_id:string;workspace_id:string;created_at:string;updated_at:string}
 export interface OfficeBuilding extends OfficeRecord {name:string;timezone:string;latitude:number|null;longitude:number|null}
 export interface OfficeFloor extends OfficeRecord {building_id:string;level:number;name:string}
-export interface OfficeRoom extends OfficeRecord {floor_id:string;name:string;kind:'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge';capacity:number;scene_x:number|null;scene_z:number|null;scene_width:number|null;scene_depth:number|null}
+export interface OfficeRoom extends OfficeRecord {floor_id:string;name:string;kind:'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge';capacity:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null}
 export interface OfficeDesk extends OfficeRecord {room_id:string;label:string;agent_id:string|null}
 export interface OfficeRegistryData {buildings:OfficeBuilding[];floors:OfficeFloor[];rooms:OfficeRoom[];desks:OfficeDesk[]}
 export interface OfficePage<T> {items:T[];next_cursor:string|null}
