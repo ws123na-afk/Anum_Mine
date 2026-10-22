@@ -263,7 +263,7 @@ function RoomCard(props: { room: RoomGeometry; assigned: number; working: number
 function AgentCard(props: { name: string; role: string | null; status: StatusKey | null; stale: boolean; selected: boolean; onPick: () => void }) {
   const tone = props.status ? STATUS_TONE[props.status] : 'faint';
   return (
-    <button type="button" className="hqAgentCard" data-selected={props.selected} data-stale={props.stale} aria-pressed={props.selected} onClick={props.onPick}>
+    <button type="button" className={`hqAgentCard tone-${tone}`} data-selected={props.selected} data-stale={props.stale} aria-pressed={props.selected} onClick={props.onPick}>
       <span className="hqAvatar" aria-hidden="true">{props.name.slice(0, 1).toUpperCase()}</span>
       <span className="hqLabelText">
         <strong>{props.name}</strong>

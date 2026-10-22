@@ -290,3 +290,18 @@
 .hqLink { color: var(--d-accent-text); font-size: var(--text-xs); }
 .hqSceneWrap .hqLink { color: #8fe3d1; }
 .hqTaskList { max-height: 40vh; overflow: auto; }
+
+/* In a building the cards start compact so they never pile up: a room is its icon and name, an agent is a status-ringed avatar.
+   Hover, focus or selection opens the full card. The details stay in the accessibility tree the whole time. */
+.hqLabelAnchor:hover, .hqLabelAnchor:focus-within { z-index: 9999 !important; }
+.hqRoomCard:not(:hover):not(:focus-visible):not([data-selected="true"]) .hqLabelText small,
+.hqAgentCard:not(:hover):not(:focus-visible):not([data-selected="true"]) .hqLabelText {
+  clip: rect(0 0 0 0); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px;
+}
+.hqRoomCard { min-height: 36px; padding: 4px 10px 4px 4px; }
+.hqRoomCard .hqLabelIcon { height: 26px; width: 26px; }
+.hqRoomCard[data-live="true"] { border-color: var(--hq-meeting); }
+.hqAgentCard { transition: border-radius .12s; }
+.hqAgentCard:not(:hover):not(:focus-visible):not([data-selected="true"]) { border-radius: 999px; min-width: 0; padding: 3px; }
+.hqAgentCard .hqAvatar { box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone, var(--hq-faint)) 85%, transparent); }
+.hqAgentCard[data-stale="true"] .hqAvatar { opacity: .6; }

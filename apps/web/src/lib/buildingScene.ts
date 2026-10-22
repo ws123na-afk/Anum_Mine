@@ -64,21 +64,26 @@ const SCREEN: Record<DeskVisual, { color: Rgb; emissive: number }> = {
 
 const freeze = (b: MeshBuilder): SceneMesh => ({ vertices: b.toFloat32(), bounds: b.bounds(), triangles: b.triangleCount });
 
-function desk(b: MeshBuilder, d: SceneDesk, y: number, spacing: number, state: DeskVisual): void {
-  const s = Math.max(0.55, Math.min(1, spacing / 1.3));
-  const w = 1.15 * s, dep = 0.62 * s, x = d.position.x - w / 2, z = d.position.z - dep / 2;
-  b.box(x, y + 0.7 * s, z, w, 0.07, dep, WOOD);
-  b.box(x + 0.05, y, z + 0.05, 0.07, 0.7 * s, 0.07, DARK);
-  b.box(x + w - 0.12, y, z + 0.05, 0.07, 0.7 * s, 0.07, DARK);
-  b.box(x + 0.05, y, z + dep - 0.12, 0.07, 0.7 * s, 0.07, DARK);
-  b.box(x + w - 0.12, y, z + dep - 0.12, 0.07, 0.7 * s, 0.07, DARK);
+function desk(b: MeshBuilder, d: SceneDesk, y: number, spacing: number, state: DeskVisual, seed: string | undefined): void {
+  // Desks are drawn larger than life so they read from the campus-height camera: a work surface, a monitor on a stand, a keyboard and a chair.
+  const k = Math.max(0.7, Math.min(1.35, spacing / 1.05));
+  const w = 1.5 * k, dep = 0.8 * k, x = d.position.x - w / 2, z = d.position.z - dep / 2;
+  const h = 0.78 * k;
+  b.box(x, y + h, z, w, 0.09 * k, dep, WOOD, { grad: 0.1 });
+  for (const [lx, lz] of [[0.06, 0.06], [w - 0.14, 0.06], [0.06, dep - 0.14], [w - 0.14, dep - 0.14]] as const) b.box(x + lx, y, z + lz, 0.08, h, 0.08, DARK);
   const screen = SCREEN[state];
-  b.box(x + w * 0.3, y + 0.77 * s, z + 0.08 * s, w * 0.4, 0.34 * s, 0.04, DARK);
-  b.box(x + w * 0.32, y + 0.8 * s, z + 0.12 * s, w * 0.36, 0.28 * s, 0.02, screen.color, { emissive: screen.emissive, shade: false });
-  // Chair behind the desk (towards +z).
-  b.box(x + w * 0.3, y + 0.28 * s, z + dep + 0.1, w * 0.4, 0.07, w * 0.36, hex('#3a4a5a'));
-  b.box(x + w * 0.3, y + 0.35 * s, z + dep + 0.1 + w * 0.3, w * 0.4, 0.5 * s, 0.07, hex('#3a4a5a'));
-  b.prism(x + w * 0.5, y, z + dep + 0.1 + w * 0.18, 0.05, 0.05, 0.28 * s, 5, DARK);
+  b.box(x + w * 0.46, y + h + 0.09 * k, z + dep * 0.18, w * 0.08, 0.16 * k, 0.08, DARK);
+  b.box(x + w * 0.22, y + h + 0.25 * k, z + dep * 0.12, w * 0.56, 0.46 * k, 0.06, DARK);
+  b.box(x + w * 0.25, y + h + 0.29 * k, z + dep * 0.12 + 0.05, w * 0.5, 0.38 * k, 0.03, screen.color, { emissive: screen.emissive, shade: false });
+  b.box(x + w * 0.28, y + h + 0.09 * k, z + dep * 0.55, w * 0.44, 0.03 * k, dep * 0.22, hex('#aab4be'));
+  // Chair behind the desk, towards +z, and the person in it.
+  const cz = z + dep + 0.45 * k;
+  b.box(x + w * 0.32, y + 0.42 * k, cz - 0.25 * k, w * 0.36, 0.08 * k, 0.5 * k, hex('#31465a'));
+  b.box(x + w * 0.32, y + 0.5 * k, cz + 0.2 * k, w * 0.36, 0.62 * k, 0.07 * k, hex('#31465a'));
+  b.prism(x + w * 0.5, y, cz, 0.06 * k, 0.05 * k, 0.42 * k, 5, DARK);
+  if (seed) person(b, x + w * 0.5, y, cz - 0.02 * k, seed, k);
+  // A soft pool of light under the workstation.
+  b.plane(x - 0.15, y + 0.012, z - 0.1, w + 0.3, dep + 1.5 * k, mix(hex('#ffffff'), screen.color, 0.25), 0.1);
 }
 
 const SHIRTS = ['#2f6fb0', '#8a3f5c', '#3d8a6b', '#c27a2b', '#5b4b9a', '#2b8aa0', '#a8453b', '#4a6073'].map(hex);
@@ -86,15 +91,16 @@ const SKINS = ['#f0c7a0', '#d9a77e', '#b9825a', '#8a5a3b', '#e8b890'].map(hex);
 const HAIRS = ['#1d1a18', '#3a2a1f', '#6a4a2a', '#222a33', '#7a5a3a'].map(hex);
 
 /** A generic seated professional: no likeness, the same look for the same seed. */
-function person(b: MeshBuilder, x: number, y: number, z: number, seed: string): void {
+function person(b: MeshBuilder, x: number, y: number, z: number, seed: string, k: number): void {
   const rnd = seeded(seed);
   const shirt = SHIRTS[Math.floor(rnd() * SHIRTS.length)], skin = SKINS[Math.floor(rnd() * SKINS.length)], hair = HAIRS[Math.floor(rnd() * HAIRS.length)];
-  b.box(x - 0.2, y + 0.3, z - 0.11, 0.4, 0.2, 0.34, hex('#26313b'));
-  b.box(x - 0.19, y + 0.5, z - 0.1, 0.38, 0.52, 0.22, shirt, { grad: 0.15 });
-  b.box(x - 0.3, y + 0.58, z - 0.08, 0.1, 0.36, 0.16, shirt);
-  b.box(x + 0.2, y + 0.58, z - 0.08, 0.1, 0.36, 0.16, shirt);
-  b.blob(x, y + 1.17, z, 0.15, 0.17, 0.15, skin, 8);
-  b.blob(x, y + 1.24, z + 0.02, 0.16, 0.12, 0.16, hair, 8);
+  const u = 1.35 * k;
+  b.box(x - 0.2 * u, y + 0.5 * k, z - 0.1 * u, 0.4 * u, 0.2 * k, 0.55 * u, hex('#26313b'));
+  b.box(x - 0.2 * u, y + 0.68 * k, z - 0.04 * u, 0.4 * u, 0.58 * u, 0.24 * u, shirt, { grad: 0.18 });
+  b.box(x - 0.32 * u, y + 0.78 * k, z - 0.02 * u, 0.12 * u, 0.4 * u, 0.18 * u, shirt);
+  b.box(x + 0.2 * u, y + 0.78 * k, z - 0.02 * u, 0.12 * u, 0.4 * u, 0.18 * u, shirt);
+  b.blob(x, y + 0.68 * k + 0.58 * u + 0.19 * u, z + 0.08 * u, 0.17 * u, 0.19 * u, 0.17 * u, skin, 8);
+  b.blob(x, y + 0.68 * k + 0.58 * u + 0.27 * u, z + 0.1 * u, 0.18 * u, 0.13 * u, 0.18 * u, hair, 8);
 }
 
 function furnish(
@@ -189,14 +195,18 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
       const selected = options.selectedRoomId === room.id;
       const live = options.meetingRoomIds?.has(room.id) === true;
       const tile = FLOOR_BY_KIND[room.kind] ?? FLOOR_BY_KIND.office;
-      const color = selected ? mix(tile, accent, 0.35) : ghost ? scale(tile, 0.85) : tile;
+      const color = selected ? mix(tile, accent, 0.5) : ghost ? scale(tile, 0.85) : mix(tile, accent, 0.3);
       opaque.box(room.x, y, room.z, room.width, 0.06, room.depth, color, { skip: ['bottom'], shade: false, emissive: ghost ? 0.05 : selected ? 0.95 : 0.75 });
+      if (!ghost && room.width > 3 && room.depth > 3) {
+        // A rug in the zone colour marks the working area of the room.
+        opaque.box(room.x + 0.5, y + 0.06, room.z + 0.5, room.width - 1, 0.015, room.depth - 1.3, mix(tile, accent, selected ? 0.8 : 0.55), { skip: ['bottom'], shade: false, emissive: 0.5 });
+      }
       // Accent strip along the front edge: it makes each zone read at a glance.
       opaque.box(room.x, y + 0.06, room.z + room.depth - 0.08, room.width, 0.04, 0.08, accent, { emissive: selected ? 1 : 0.45, shade: false });
       // Walls: solid base to waist height, glass above, a top rail. Open at the doorway in the middle of the south wall.
       const wall = (x: number, z: number, w: number, d: number) => {
-        opaque.box(x, y + 0.06, z, w, 0.9, d, hex('#dfe5e8'), { emissive: 0.12 });
-        glass.box(x, y + 0.96, z, w, WALL_HEIGHT - 0.96, d, hex('#9fd4e6'), { shade: false });
+        opaque.box(x, y + 0.06, z, w, 1.45, d, hex('#eef1f3'), { emissive: 0.22, grad: 0.2 });
+        glass.box(x, y + 1.51, z, w, WALL_HEIGHT - 1.51, d, hex('#9fd4e6'), { shade: false });
         opaque.box(x, y + WALL_HEIGHT, z, w, 0.06, d, accent, { emissive: selected ? 0.9 : 0.35, shade: false });
       };
       const t = 0.1;
@@ -213,12 +223,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
         const spacing = placed.length > 1 ? Math.min(room.width / (Math.min(5, Math.ceil(Math.sqrt(placed.length))) + 1), 1.6) : 1.3;
         for (const dk of placed) {
           const state: DeskVisual = options.deskState?.get(dk.id) ?? (dk.agentId ? 'assigned' : 'vacant');
-          desk(opaque, dk, y + 0.06, spacing, state);
-          const seed = options.people?.get(dk.id);
-          if (seed) {
-            const sc = Math.max(0.55, Math.min(1, spacing / 1.3));
-            person(opaque, dk.position.x, y + 0.06, dk.position.z + 0.31 * sc + 0.1 + 1.15 * sc * 0.4, seed);
-          }
+          desk(opaque, dk, y + 0.06, spacing, state, options.people?.get(dk.id));
           desks.push({ id: dk.id, roomId: room.id, floorIndex: fi, anchor: { x: dk.position.x, y: y + 1.55, z: dk.position.z } });
         }
         rooms.push({
@@ -251,6 +256,6 @@ export function frameBuilding(scene: BuildingScene, activeIndex: number): { targ
   const depth = scene.bounds.max.z - scene.bounds.min.z;
   return {
     target: { x: scene.center.x, y: activeIndex * FLOOR_PITCH * 0.6, z: scene.center.z },
-    distance: Math.min(220, Math.max(16, Math.max(width, depth) * 1.05)),
+    distance: Math.min(220, Math.max(14, Math.max(width, depth) * 0.9)),
   };
 }
