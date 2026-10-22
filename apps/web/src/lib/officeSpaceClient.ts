@@ -6,7 +6,7 @@ export type OfficeKind = 'buildings'|'floors'|'rooms'|'desks';
 export interface OfficeRecord {id:string;revision:number;tenant_id:string;workspace_id:string;created_at:string;updated_at:string}
 export interface OfficeBuilding extends OfficeRecord {name:string;timezone:string;latitude:number|null;longitude:number|null}
 export interface OfficeFloor extends OfficeRecord {building_id:string;level:number;name:string}
-export interface OfficeRoom extends OfficeRecord {floor_id:string;name:string;kind:'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge';capacity:number}
+export interface OfficeRoom extends OfficeRecord {floor_id:string;name:string;kind:'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge';capacity:number;scene_x:number|null;scene_z:number|null;scene_width:number|null;scene_depth:number|null}
 export interface OfficeDesk extends OfficeRecord {room_id:string;label:string;agent_id:string|null}
 export interface OfficeRegistryData {buildings:OfficeBuilding[];floors:OfficeFloor[];rooms:OfficeRoom[];desks:OfficeDesk[]}
 export interface OfficePage<T> {items:T[];next_cursor:string|null}
@@ -58,9 +58,10 @@ export function createOfficeSpaceClient(request:OfficeRequester,remove:OfficeVoi
   return {buildings,floors,rooms,desks};
  };
  const post=async<T extends OfficeRecord>(kind:OfficeKind,input:Record<string,unknown>):Promise<T>=>request<T>(officeResourcePath(kind),{method:'POST',body:JSON.stringify(input)});
+ const geometry=(id:string,expected_revision:number,x:number,z:number,width:number,depth:number)=>request<OfficeRoom>(officeResourcePath('rooms',id)+'/geometry',{method:'PATCH',body:JSON.stringify({expected_revision,x,z,width,depth})});
  const rename=(id:string,name:string,expected_revision:number)=>request<OfficeRoom>(officeResourcePath('rooms',id),{method:'PATCH',body:JSON.stringify({name,expected_revision})});
  const assign=(id:string,agent_id:string|null,expected_revision:number)=>request<OfficeDesk>(officeResourcePath('desks',id)+'/assignment',{method:'PATCH',body:JSON.stringify({agent_id,expected_revision})});
  const deleteRoom=(id:string,expected_revision:number)=>remove(officeResourcePath('rooms',id)+'?'+new URLSearchParams({expected_revision:String(expected_revision)}),{method:'DELETE'});
  const deleteDesk=(id:string,expected_revision:number)=>remove(officeResourcePath('desks',id)+'?'+new URLSearchParams({expected_revision:String(expected_revision)}),{method:'DELETE'});
- return {load,post,rename,assign,deleteRoom,deleteDesk};
+ return {load,post,rename,geometry,assign,deleteRoom,deleteDesk};
 }
