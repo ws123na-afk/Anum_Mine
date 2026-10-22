@@ -1,7 +1,7 @@
 """Meeting room: agenda, draft decisions and action items, event log, attendance, files (F06/F07/F08).
 
-Expand only. Chained on the room geometry revision; numbers are renumbered at merge
-when parallel branches collide. All tables carry the scoped key, scoped foreign keys
+Expand only. Chained on 0101_executive_grants; numbers were renumbered at merge
+after parallel branches collided. All tables carry the scoped key, scoped foreign keys
 and forced row level security like the 0098 tables.
 """
 import sqlalchemy as sa
