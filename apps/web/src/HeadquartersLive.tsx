@@ -71,6 +71,33 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
   },
  },10_000),[]);
  useEffect(()=>{
+  const abort=new AbortController();
+  let active=true;
+  let reconnect=1000;
+  const scope=api.currentScope();
+  const watch=async()=>{
+   while(active&&!abort.signal.aborted){
+    try{
+     await api.streamEvents(event=>{
+      if(!active)return;
+      const current=api.currentScope();
+      if(current.tenantId!==scope.tenantId||current.workspaceId!==scope.workspaceId){
+       abort.abort();return;
+      }
+      if(/^(task|agent_run|agent|approval|agent_meeting|office)\\./.test(event.type)){
+       void controller.refresh();
+      }
+     },abort.signal,()=>{reconnect=1000});
+    }catch{ /* SSE may disconnect; scoped periodic refresh remains active. */ }
+    if(!active||abort.signal.aborted)break;
+    await new Promise<void>(resolve=>window.setTimeout(resolve,reconnect));
+    reconnect=Math.min(reconnect*2,30000);
+   }
+  };
+  void watch();
+  return()=>{active=false;abort.abort()};
+ },[controller]);
+ useEffect(()=>{
   const refreshVisible=()=>{if(document.visibilityState==='visible')void controller.refresh()};
   const refreshFocused=()=>{void controller.refresh()};
   window.addEventListener('focus',refreshFocused);
