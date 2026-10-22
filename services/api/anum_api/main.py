@@ -237,6 +237,7 @@ from .office_campus_api import router as office_campus_router
 from .office_presence_api import router as office_presence_router
 from .executive_api import router as executive_router
 from .live_agent_meeting_api import router as live_agent_meeting_router
+from .live_agent_meeting_room_api import router as live_agent_meeting_room_router
 from .tenant_lifecycle import build_lifecycle_runner, router as tenant_lifecycle_router
 from .sign_in_options import router as sign_in_options_router
 from .integration_setup import router as integration_setup_router
@@ -427,6 +428,7 @@ app.include_router(office_campus_router)
 app.include_router(office_presence_router)
 app.include_router(executive_router)
 app.include_router(live_agent_meeting_router)
+app.include_router(live_agent_meeting_room_router)
 app.include_router(tenant_lifecycle_router)
 app.include_router(model_budget_router)
 app.include_router(agent_controls_router)

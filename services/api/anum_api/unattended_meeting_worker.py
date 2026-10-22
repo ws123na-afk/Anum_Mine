@@ -22,7 +22,7 @@ from .settings import settings
 log=logging.getLogger("anum.meeting.worker")
 
 
-def settle_meeting(context: TenantContext, meeting_id: str, target: str) -> bool:
+def settle_meeting(context: TenantContext, meeting_id: str, target: str, reason: str | None = None) -> bool:
     """Stop an exhausted or failed meeting without overriding a concurrent pause.
 
     All state decisions and the update occur under the same PostgreSQL row lock.
@@ -36,7 +36,7 @@ def settle_meeting(context: TenantContext, meeting_id: str, target: str) -> bool
             return False
         if meeting["status"] != "active":
             return False
-        store.transition(context, meeting_id, meeting["revision"], target)
+        store.transition(context, meeting_id, meeting["revision"], target, reason=reason)
         return True
 
 
@@ -79,7 +79,7 @@ async def run_unattended(
                     meeting["total_input_tokens"]+meeting["total_output_tokens"]>=meeting["max_tokens"])
                 exhausted=exhausted or meeting["total_cost_usd"]>=meeting["max_cost_usd"]
                 if expired or exhausted:
-                    settle_meeting(context, meeting_id, "finished")
+                    settle_meeting(context, meeting_id, "finished", "limit_reached")
                     return "limit_reached"
         if next_key:
             try:
@@ -93,7 +93,7 @@ async def run_unattended(
                 # Fail closed: mark the session terminal to prevent the supervisor
                 # from relaunching another paid provider request on every poll.
                 try:
-                    settle_meeting(context, meeting_id, "failed")
+                    settle_meeting(context, meeting_id, "failed", "provider_failure")
                 except Exception:
                     log.exception("Could not mark failed meeting terminal")
                 # Provider failures are not silently retried with a new key:

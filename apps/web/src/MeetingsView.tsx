@@ -15,6 +15,7 @@ import { viewLabel } from './lib/shell';
 import { Drawer } from './Dialog';
 import { PageHeader, PageSummary, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import './admin.css';
+import { MeetingRoomLauncher } from './MeetingRoomLauncher';
 import './meetings.css';
 
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'denied' } | { state: 'error'; message: string };
@@ -141,6 +142,8 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
     {page.state !== 'denied' && <PageSummary label={t('pages.meetings.summary')} figures={figures} onRetry={() => { setStats({ state: 'loading' }); void refreshStats(); }} />}
 
     {page.state === 'denied' && <section className="surface emptyState" aria-labelledby="meetings-denied"><Lock aria-hidden="true" /><h3 id="meetings-denied">{t('pages.meetings.deniedTitle')}</h3><p>{t('meetings.readDenied')}</p></section>}
+    {page.state !== 'denied' && <MeetingRoomLauncher />}
+
     {page.state !== 'denied' && <SplitView className="meetingsSplit" show={selected ? 'detail' : 'list'}>
       <section data-pane="list" className="pane meetingsListPane" aria-label={t('meetings.list')} aria-busy={page.state === 'loading'}>
         <div className="paneHead meetingsListHead">
