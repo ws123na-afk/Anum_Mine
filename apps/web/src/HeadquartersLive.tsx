@@ -69,7 +69,14 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
     source:'authenticated-agent-snapshot',
    }));
   },
- }),[]);
+ },10_000),[]);
+ useEffect(()=>{
+  const refreshVisible=()=>{if(document.visibilityState==='visible')void controller.refresh()};
+  const refreshFocused=()=>{void controller.refresh()};
+  window.addEventListener('focus',refreshFocused);
+  document.addEventListener('visibilitychange',refreshVisible);
+  return()=>{window.removeEventListener('focus',refreshFocused);document.removeEventListener('visibilitychange',refreshVisible)};
+ },[controller]);
  useEffect(()=>{
   const unsubscribe=controller.subscribe(setState);
   void controller.initialize();controller.scheduleRefresh();
