@@ -85,6 +85,7 @@ x-user-roles: owner,member
 - [ANUM MINE Live Employee Workstations](docs/ANUM_MINE_WORKSTATIONS_MODULE.md)
 - [ANUM MINE Reception & Visitor Operations](docs/ANUM_MINE_RECEPTION_MODULE.md)
 - [ANUM MINE Office Space & Desk Registry](docs/ANUM_MINE_SPACE_REGISTRY.md)
+- [ANUM MINE live agent meeting PostgreSQL 0098](docs/ANUM_MINE_LIVE_MEETING_POSTGRES_0098.md)
 - [ANUM MINE Office Registry production backend](docs/ANUM_MINE_OFFICE_REGISTRY_BACKEND.md)
 - [Business gap register (Order 001)](docs/business/ANUM_BUSINESS_GAP_REGISTER.md)
 - [Reuse decision register: outside projects and their licenses](docs/business/REUSE_DECISION_REGISTER.md)
@@ -222,6 +223,7 @@ x-user-roles: owner,member
 - [Runbooks](docs/runbooks.md)
 - [Development standards](docs/development-standards.md)
 - [Production readiness gates](docs/production-readiness.md)
+- [Integration and release checklist](docs/INTEGRATION_AND_RELEASE.md)
 - [Production plan](docs/production-plan.md)
 - [Pending work and owner steps (handoff)](docs/pending-work.md)
 - [Full skills audit (October 2026)](docs/audits/2026-10-12-full-skills-audit.md)
@@ -238,3 +240,7 @@ x-user-roles: owner,member
 ## Development Rule
 
 Code should follow the contracts, boundaries, tenant model, and security expectations described in the documentation. Prototype shortcuts are acceptable only when they are isolated, named clearly, and replaced before production use.
+
+- [ANUM MINE virtual headquarters master plan](docs/ANUM_MINE_VIRTUAL_HEADQUARTERS_MASTER_PLAN.md)
+- [ANUM MINE persistent live meeting management API](docs/ANUM_MINE_LIVE_MEETING_MANAGEMENT_API.md)
+- [ANUM MINE live agent meetings foundation](docs/ANUM_MINE_LIVE_AGENT_MEETING_FOUNDATION.md)

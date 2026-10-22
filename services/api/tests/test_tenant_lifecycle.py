@@ -195,7 +195,10 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         "business_credit_notes": "0096_invoice_credit_notes",
         "business_payment_notices": "0096_invoice_credit_notes",
         **{name: "0097_office_spaces" for name in ("office_buildings", "office_floors", "office_rooms", "office_desks")},
-        "office_create_keys": "0098_office_create_keys",
+            "office_create_keys": "0099_office_create_keys",
+            **{name: "0098_agent_live_meetings" for name in (
+                "agent_meeting_sessions", "agent_meeting_participants",
+                "agent_meeting_turns", "agent_meeting_turn_leases")},
         **{name: "0094_customer_billing" for name in (
             "billing_plans", "billing_settings", "billing_accounts", "billing_subscriptions", "billing_seats",
             "billing_usage", "billing_invoices", "billing_invoice_lines", "billing_credit_notes", "billing_payments",

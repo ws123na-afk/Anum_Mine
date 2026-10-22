@@ -6,3 +6,228 @@
 /* User camera interaction: drag rotates, Shift+drag pans, wheel zooms. */
 .officeScene{cursor:grab;touch-action:none}.officeScene.isDragging{cursor:grabbing}.officePlatform{translate:var(--office-pan-x,0px) var(--office-pan-y,0px)}
 .officeScene button{touch-action:manipulation}.officeScene.isDragging .officePlatform{transition:none}
+
+
+/* 2026 immersive office v2: architectural plan, layered furniture and polished chrome. */
+.anumOfficeTour{
+  --oc-panel:rgba(12,24,38,.95);
+  --oc-text:#f0f7fb;
+  --oc-line:rgba(192,222,230,.16);
+  background:#07121e;
+  font-family:Inter,ui-sans-serif,system-ui,sans-serif;
+}
+.anumOfficeTour .officeTop{
+  height:78px;
+  background:linear-gradient(110deg,#091725 0%,#102538 65%,#0a1c2c 100%);
+  border-bottom:1px solid rgba(110,193,190,.25);
+  box-shadow:0 12px 36px rgba(0,0,0,.22);
+  position:relative;
+  z-index:3;
+}
+.anumOfficeTour .officeBrand strong{
+  color:#f6fcff!important;
+  font-size:25px;
+  line-height:1.05;
+  font-weight:760;
+  letter-spacing:.11em;
+}
+.anumOfficeTour .officeBrand strong span{color:#63d9ce;font-weight:520}
+.anumOfficeTour .officeBrand small{color:#a5bbc9!important;letter-spacing:.025em}
+.officeLiveDivider{color:#5ee4d2;padding:0 5px}
+.anumOfficeTour .officeTopCenter{padding:7px 9px;background:rgba(122,178,191,.09);border:1px solid var(--oc-line);border-radius:12px}
+.anumOfficeTour .officeDemo{font-size:10px;color:#b9dfdf;border-color:#51877e;letter-spacing:.09em}
+.anumOfficeTour .officeWorld{
+  height:calc(100% - 106px);
+  background:
+    radial-gradient(ellipse at 52% 44%,rgba(113,169,176,.23),transparent 48%),
+    linear-gradient(140deg,#0b2130 0%,#173445 47%,#112736 100%);
+}
+.anumOfficeTour.day .officeWorld{
+  background:
+    radial-gradient(ellipse at 52% 36%,rgba(225,242,239,.23),transparent 52%),
+    linear-gradient(150deg,#13394b 0%,#456673 52%,#203c4b 100%);
+}
+.anumOfficeTour .officeWorld:before{
+  content:"";position:absolute;inset:0;pointer-events:none;opacity:.28;
+  background-image:linear-gradient(rgba(211,242,245,.06) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(211,242,245,.06) 1px,transparent 1px);
+  background-size:48px 48px;
+  mask-image:radial-gradient(ellipse at center,#000,transparent 74%);
+}
+.anumOfficeTour .officeScene{
+  inset:3% 15% 15%;
+  perspective:1300px;
+  overflow:visible;
+}
+.anumOfficeTour .officePlatform{
+  width:min(1030px,96%);height:650px;max-height:80%;
+  border:18px solid #e8e7dc;
+  border-top-color:#f2f4ed;
+  border-right-color:#ced7d5;
+  border-radius:14px;
+  background:
+    repeating-linear-gradient(90deg,rgba(151,161,159,.095) 0 1px,transparent 1px 94px),
+    linear-gradient(128deg,#eef0e7,#d4ddd5 55%,#e9e9df);
+  box-shadow:
+    0 7px 0 8px #829ca0,
+    0 21px 0 13px #3f5966,
+    0 40px 1px 14px #192b39,
+    0 90px 95px 12px #0008,
+    inset 0 0 0 2px #c3d1ce;
+  transform:rotateX(calc(38deg + var(--office-tilt))) rotateZ(var(--office-angle)) scale(var(--office-zoom));
+}
+.anumOfficeTour.night .officePlatform{
+  background:linear-gradient(125deg,#b2c1bc,#879b9b);
+  border-color:#bfcfc9;
+}
+.anumOfficeTour .officeCentralWalkway{
+  position:absolute;left:34%;top:12%;width:32%;height:76%;
+  border-left:1px solid #abb8af;border-right:1px solid #abb8af;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.31) 0 2px,transparent 2px 42px);
+  opacity:.62;pointer-events:none;
+}
+.anumOfficeTour .officePlanter{
+  position:absolute;left:35%;top:78%;width:32px;height:32px;
+  transform:translateZ(12px);
+  background:radial-gradient(circle at 40% 42%,#75b78f 0 35%,#28715c 36% 68%,#536f5f 69% 100%);
+  border:5px solid #eee9df;border-radius:50%;
+  box-shadow:2px 6px 0 #719083,5px 13px 15px #354d4a77;
+}
+.anumOfficeTour .officePlanterTwo{left:62%;top:13%}
+.anumOfficeTour .officeAtrium{
+  left:36%;top:75%;width:28%;min-height:58px;
+  border-radius:6px;border:1px solid #d4d9cc;
+  background:linear-gradient(130deg,#fcfcf5,#e8f1e9);
+  box-shadow:0 5px 0 #c2cec4,0 15px 24px #52716a42;
+  color:#113b45;z-index:2;letter-spacing:.07em;
+}
+.anumOfficeTour .officeAtrium em{color:#008c85;font-style:normal}
+.anumOfficeTour .officeRoom{
+  border:6px solid #e6efe9!important;
+  border-left:6px solid var(--room-accent)!important;
+  border-bottom-color:#bbd1c9!important;
+  background:linear-gradient(145deg,#f8faf4,#deebe5)!important;
+  box-shadow:0 9px 0 #a9c4bd,6px 19px 0 #5c827c,12px 28px 23px #203c3988!important;
+  border-radius:4px!important;
+  padding:10px!important;
+  isolation:isolate;
+  overflow:visible!important;
+  transform:translateZ(12px);
+}
+.anumOfficeTour .officeRoom:before,.anumOfficeTour .officeRoom:after{
+  content:"";position:absolute;pointer-events:none;
+  background:rgba(111,158,156,.55);z-index:-1;
+}
+.anumOfficeTour .officeRoom:before{left:-9px;top:2px;width:6px;height:calc(100% - 3px);box-shadow:-4px 2px 0 #accac1}
+.anumOfficeTour .officeRoom:after{right:0;bottom:-10px;height:7px;width:100%;background:#789e99}
+.anumOfficeTour .officeRoom:hover{
+  border-color:#fff!important;border-left-color:#69dfcc!important;
+  box-shadow:0 9px 0 #a9c4bd,6px 19px 0 #5c827c,0 0 0 4px #63dcba66,0 24px 30px #122a3188!important;
+}
+.anumOfficeTour .officeRoom.picked{
+  outline:3px solid #10c7aa;outline-offset:2px;
+}
+.anumOfficeTour .officeRoomTitle{
+  position:relative;z-index:5;display:inline-flex;align-items:center;gap:8px;
+  background:#0b2b39;color:#f9fffd;border-radius:4px;
+  box-shadow:0 5px 9px #1c444638;
+  font-weight:730;letter-spacing:.02em;font-size:12px;
+  max-width:100%;
+}
+.officeRoomStatusDot{width:6px;height:6px;border-radius:50%;background:#4ddeba;box-shadow:0 0 0 3px #4ddeba33}
+.anumOfficeTour .officeRoomRole{
+  position:relative;z-index:5;
+  display:inline-block;
+  background:rgba(255,255,255,.93);border:1px solid #e2e9e1;
+  color:#41636c;font-size:10px;max-width:100%;line-height:1.25;
+}
+.anumOfficeTour .officeRoomInterior{position:absolute;inset:18% 4% 4%;overflow:hidden;pointer-events:none}
+.officeGlassWall{position:absolute;left:0;top:0;width:100%;height:3px;background:linear-gradient(90deg,#92bbb6,transparent,#92bbb6);box-shadow:0 2px 0 #f8fffa}
+.officeFurnitureFurniture{position:absolute;inset:24% 8% 8%;display:block}
+.officeDeskFurniture{
+  position:absolute;left:10%;top:18%;width:30%;height:27%;
+  border:3px solid #967b60;border-radius:3px;
+  background:linear-gradient(125deg,#d2aa80,#b58a65);
+  box-shadow:4px 6px 0 #806a56,7px 11px 9px #2c504a55;
+}
+.officeDeskFurniture.secondary{left:61%;top:53%;width:28%;height:27%}
+.officeMonitor{
+  position:absolute;width:28%;height:55%;left:25%;top:8%;
+  background:#102d3c;border:2px solid #607a81;border-radius:2px;
+  box-shadow:2px 3px 0 #243e46;
+}
+.officeMonitor:after{content:"";position:absolute;inset:25% 17%;background:#76ccc7;opacity:.75}
+.officeKeyboard{position:absolute;left:21%;bottom:8%;width:43%;height:8%;border-radius:2px;background:#edf0e9}
+.officeChairFurniture{
+  position:absolute;left:21%;top:53%;height:22%;width:16%;
+  border:4px solid #607b80;border-radius:40% 40% 20% 20%;
+  background:#284b59;box-shadow:3px 7px 0 #29404b;
+}
+.officeChairFurniture.secondary{left:73%;top:28%}
+.officeRoomLighting{position:absolute;inset:0;background:radial-gradient(circle at 55% 55%,#edfff066,transparent 65%);pointer-events:none}
+.anumOfficeTour .officePerson{
+  z-index:4;width:17px;height:17px;
+  border:2px solid #ecfaf2;
+  box-shadow:0 2px 0 #395c66,0 8px 10px #203d4255;
+  background:#44847d;font-size:13px;
+}
+.anumOfficeTour .officePerson span{display:none}
+.anumOfficeTour .officePerson:after{content:"";display:block;width:6px;height:6px;background:#edf9f2;border-radius:50%;margin:3px auto 0}
+.anumOfficeTour .officePaPresence{
+  background:#103647;border:1px solid #54cdb9;border-radius:12px;
+  box-shadow:0 4px 0 #1d5360,0 12px 20px #20353677;
+  font-weight:650;font-size:10px;letter-spacing:.02em;
+}
+.anumOfficeTour .officeFloorPanel,.anumOfficeTour .officeInfo,.anumOfficeTour .officePa,.anumOfficeTour .officeControls{
+  border:1px solid rgba(159,199,214,.2);
+  background:linear-gradient(145deg,rgba(11,27,43,.96),rgba(15,34,51,.94));
+  color:#f3faff;
+  box-shadow:0 18px 55px #06111d66,inset 0 1px 0 #ffffff14;
+  backdrop-filter:blur(22px);
+}
+.anumOfficeTour .officeFloorPanel{width:242px;left:20px;top:20px;padding:18px}
+.officePanelEyebrow{color:#6fd2c4;letter-spacing:.16em;font-size:10px;font-weight:750;margin-bottom:7px}
+.anumOfficeTour .officeFloorPanel h2,.anumOfficeTour .officeInfo h2{color:#f6fcff;font-size:19px;font-weight:720}
+.anumOfficeTour .officeInfo{width:270px;right:20px;top:20px}
+.anumOfficeTour .officeModuleButtons{display:grid;gap:6px;margin:8px 0 14px}
+.anumOfficeTour .officeModuleButtons button{
+  display:flex;justify-content:flex-start;text-align:left;width:100%;
+  background:#193349;border-color:#365467;border-radius:9px;
+  font-size:12px;padding:10px 11px;color:#e6f9fc;
+}
+.anumOfficeTour .officeModuleButtons button:hover{background:#22515c;border-color:#6de2d3}
+.anumOfficeTour .officeFloorPanel>button{
+  color:#f0f7ff;background:#142f41;border-color:#33556a;
+}
+.anumOfficeTour .officeFloorPanel button.active{background:#11675f;border-color:#67daca}
+.anumOfficeTour .officePa{bottom:76px;left:20px}
+.anumOfficeTour .officeControls{bottom:15px;border-radius:13px}
+.anumOfficeTour .officeFooter{
+  background:#071927;color:#b9d6d6;border-top:1px solid #25485c;
+}
+@media(max-width:1100px){
+  .anumOfficeTour .officeScene{inset:7% 9% 21%}
+  .anumOfficeTour .officePlatform{width:98%;max-height:70%}
+  .anumOfficeTour .officeInfo{right:10px;top:auto;bottom:95px;width:215px}
+  .anumOfficeTour .officeFloorPanel{left:10px;top:10px;width:210px}
+}
+@media(max-width:650px){
+  .anumOfficeTour .officeTop{height:76px}
+  .anumOfficeTour .officeWorld{height:calc(100% - 76px)}
+  .anumOfficeTour .officeScene{inset:10% 0 36%}
+  .anumOfficeTour .officeFloorPanel{width:165px;padding:10px;max-height:45%;overflow:auto}
+  .anumOfficeTour .officeModuleButtons button{font-size:11px;padding:8px}
+  .anumOfficeTour .officePa{bottom:70px}
+  .anumOfficeTour .officeControls{bottom:5px}
+}
+
+/* Real module action: exits the illustrative tour and enters the authenticated workspace. */
+.anumOfficeTour .officeOpenModule{
+  margin-top:6px;width:100%;min-height:42px;justify-content:space-between;
+  background:linear-gradient(120deg,#087e78,#0d555e);
+  color:#effffb;border:1px solid #52c5b7;
+  font-weight:700;letter-spacing:.01em;
+}
+.anumOfficeTour .officeOpenModule:hover,.anumOfficeTour .officeOpenModule:focus-visible{
+  background:#117c74;border-color:#b6f3db;
+}
