@@ -79,21 +79,27 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
    if(refreshTimer!==null)return;
    refreshTimer=setTimeout(()=>{refreshTimer=null;if(active&&!abort.signal.aborted)void controller.refresh()},300);
   };
-  const scope=api.currentScope();
   const watch=async()=>{
    while(active&&!abort.signal.aborted){
+    // One stream per scope: after an in-app organisation or workspace switch the stream is
+    // re-opened for the new scope instead of the watcher ending for good.
+    const scope=api.currentScope();
+    const local=new AbortController();
+    const stop=()=>local.abort();
+    abort.signal.addEventListener('abort',stop,{once:true});
     try{
      await api.streamEvents(event=>{
       if(!active)return;
       const current=api.currentScope();
       if(current.tenantId!==scope.tenantId||current.workspaceId!==scope.workspaceId){
-       abort.abort();return;
+       local.abort();return;
       }
-      if(/^(task|agent_run|agent|approval|agent_meeting|office)\\./.test(event.type)){
+      if(/^(task|agent_run|agent|approval|agent_meeting|office)\./.test(event.type)){
        refreshFromEvents();
       }
-     },abort.signal,()=>{reconnect=1000});
+     },local.signal,()=>{reconnect=1000});
     }catch{ /* SSE may disconnect; scoped periodic refresh remains active. */ }
+    abort.signal.removeEventListener('abort',stop);
     if(!active||abort.signal.aborted)break;
     await new Promise<void>(resolve=>window.setTimeout(resolve,reconnect));
     reconnect=Math.min(reconnect*2,30000);
