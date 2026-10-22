@@ -419,7 +419,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
         </div>
       )}
 
-      <div className="hqMain">
+      <div className={`hqMain${props.renderPaDock ? ' hasDock' : ''}`}>
         <div className="hqMainStage">
           {loading && <div className="hqLoading" role="status" aria-busy="true"><span className="hqSpinner" aria-hidden="true" />{t('hq.loading')}</div>}
           {campus && effectiveView === 'list' && (
@@ -464,6 +464,9 @@ export function HeadquartersLive(props: HeadquartersProps) {
             </div>
           ))}
         </div>
+        {props.renderPaDock && (
+          <aside className="hqPaDock" aria-label={t('hq.paDock')}>{props.renderPaDock({ close: () => undefined })}</aside>
+        )}
       </div>
 
       {overlay !== 'none' && (

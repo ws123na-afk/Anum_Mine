@@ -44,6 +44,8 @@ export type HqSlots = Readonly<{
   renderRoomPanel?: (room: HqRoomRef, ctx: HqPanelContext) => ReactNode;
   /** Rendered when an agent's desk card is opened. Without it the built-in agent summary shows. */
   renderWorkstationPanel?: (agent: HqAgentRef, ctx: HqPanelContext) => ReactNode;
+  /** Right-hand dock beside the scene (up to 380 px). The executive workstream renders its PA panel here. Without it no dock shows. */
+  renderPaDock?: (ctx: HqPanelContext) => ReactNode;
 }>;
 
 export type HqCallbacks = Readonly<{

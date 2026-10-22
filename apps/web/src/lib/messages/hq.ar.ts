@@ -5,6 +5,7 @@ export const hqAr = {
   'nav.office': 'ANUM MINE',
   'hq.region': 'مقر ANUM MINE',
   'hq.tagline': 'مؤسستك الذكية. مركز واحد. كل شيء.',
+  'hq.paDock': 'المساعد التنفيذي',
   'hq.crumb.label': 'موقعك في المقر',
   'hq.crumb.campus': 'المجمع',
   'hq.refresh': 'تحديث المقر',

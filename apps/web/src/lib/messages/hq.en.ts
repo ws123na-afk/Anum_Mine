@@ -6,6 +6,7 @@ export const hqEn = {
   'nav.office': 'ANUM MINE',
   'hq.region': 'ANUM MINE headquarters',
   'hq.tagline': 'Your AI organization. One center. Everything.',
+  'hq.paDock': 'Executive assistant',
   'hq.crumb.label': 'Headquarters location',
   'hq.crumb.campus': 'Campus',
   'hq.refresh': 'Refresh the headquarters',
