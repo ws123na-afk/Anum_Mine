@@ -57,6 +57,8 @@ export async function handleMeetings(route: Route, items = [meetingFixture(), ar
   const url = new URL(request.url());
   const path = url.pathname;
   const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+  // Live agent meetings (the room launcher above the imported meetings): none in these fixtures.
+  if (path === '/api/v1/agent-meetings' && request.method() === 'GET') { await json({ items: [], next_cursor: null }); return true; }
   if (path === '/api/v1/meetings/setup') { await json(setupFixture()); return true; }
   if (path === '/api/v1/meetings' && request.method() === 'GET') {
     const status = url.searchParams.get('status');

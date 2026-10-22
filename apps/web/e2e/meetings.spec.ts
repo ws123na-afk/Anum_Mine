@@ -20,6 +20,7 @@ async function mockApi(page: Page, options: { setup?: Record<string, unknown>; i
     if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'owner', active: true, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z' });
     if (path === '/api/v1/workspaces/current') return json({ id: 'workspace_foundation', tenant_id: 'tenant_local', name: 'Foundation', created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z', archived_at: null, archived_by: null });
     if (path === '/api/v1/skills/installations') return json([{ skill_id: 'acme.release-notes', enabled: true }]);
+    if (path === '/api/v1/agent-meetings' && method === 'GET') return json({ items: [], next_cursor: null });
     if (path === '/api/v1/meetings/setup') return json(setupFixture(options.setup));
     if (path === '/api/v1/meetings' && method === 'GET') {
       if (calls.listFails) { calls.listFails = 0; return json({ error: { code: 'internal_error', message: 'Database unavailable' } }, 500); }

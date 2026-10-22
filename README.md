@@ -251,4 +251,5 @@ Code should follow the contracts, boundaries, tenant model, and security expecta
 
 - [ANUM MINE virtual headquarters master plan](docs/ANUM_MINE_VIRTUAL_HEADQUARTERS_MASTER_PLAN.md)
 - [ANUM MINE persistent live meeting management API](docs/ANUM_MINE_LIVE_MEETING_MANAGEMENT_API.md)
+- [ANUM MINE live meeting room UI and room API](docs/ANUM_MINE_LIVE_MEETING_ROOM_UI.md)
 - [ANUM MINE live agent meetings foundation](docs/ANUM_MINE_LIVE_AGENT_MEETING_FOUNDATION.md)
