@@ -46,6 +46,8 @@ export type HeadquartersProps = HqCallbacks & HqSlots & Readonly<{
   onSwitchOrganisation?: (tenantId: string, workspaceId: string) => Promise<void>;
   /** Rooms with a live meeting, supplied by the meetings workstream. Empty until a room binding exists. */
   liveMeetingRoomIds?: ReadonlySet<string>;
+  /** Counter of workspace events from the shell's event stream; the scene refreshes when it moves. */
+  live?: number;
   /** Extra controls in the header row (the entrypoint puts its presentation switch here). */
   headerExtra?: ReactNode;
 }>;
@@ -119,35 +121,15 @@ export function HeadquartersLive(props: HeadquartersProps) {
     },
   }, 10_000), []);
 
-  // Workspace events keep the scene current; the scoped periodic refresh is the fallback.
+  // The shell owns the one workspace event stream and hands every event over as a counter: the scene
+  // re-reads (at most every 300 ms) when it moves, and the scoped periodic refresh is the fallback.
+  const lastLive = useRef(props.live ?? 0);
   useEffect(() => {
-    const abort = new AbortController();
-    let active = true;
-    let reconnect = 1000;
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    const refreshFromEvents = () => {
-      if (refreshTimer !== null) return;
-      refreshTimer = setTimeout(() => { refreshTimer = null; if (active && !abort.signal.aborted) void controller.refresh(); }, 300);
-    };
-    const scopeAtStart = api.currentScope();
-    const watch = async () => {
-      while (active && !abort.signal.aborted) {
-        try {
-          await api.streamEvents((event) => {
-            if (!active) return;
-            const current = api.currentScope();
-            if (current.tenantId !== scopeAtStart.tenantId || current.workspaceId !== scopeAtStart.workspaceId) { abort.abort(); return; }
-            if (/^(task|agent_run|agent|approval|agent_meeting|office)\./.test(event.type)) refreshFromEvents();
-          }, abort.signal, () => { reconnect = 1000; });
-        } catch { /* SSE may disconnect; the periodic refresh stays active */ }
-        if (!active || abort.signal.aborted) break;
-        await new Promise<void>((resolve) => window.setTimeout(resolve, reconnect));
-        reconnect = Math.min(reconnect * 2, 30000);
-      }
-    };
-    void watch();
-    return () => { active = false; abort.abort(); if (refreshTimer !== null) clearTimeout(refreshTimer); };
-  }, [controller]);
+    if (props.live === undefined || props.live === lastLive.current) return undefined;
+    lastLive.current = props.live;
+    const id = window.setTimeout(() => { void controller.refresh(); }, 300);
+    return () => window.clearTimeout(id);
+  }, [props.live, controller]);
   useEffect(() => {
     const refreshVisible = () => { if (document.visibilityState === 'visible') void controller.refresh(); };
     const refreshFocused = () => { void controller.refresh(); };
