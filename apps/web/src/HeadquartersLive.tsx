@@ -13,6 +13,7 @@ import { OfficeSpaceLiveManager } from './OfficeSpaceLiveManager';
 import { OfficeWorkstations } from './OfficeWorkstations';
 import { ReceptionOperations } from './ReceptionOperations';
 import { GuidedExecutiveTour } from './GuidedExecutiveTour';
+import { AgentMeetingSessions } from './AgentMeetingSessions';
 import './headquartersLive.css';
 
 const officeApi=createOfficeSpaceClient(api.apiRequest,api.apiRequestVoid,api.currentScope);
@@ -41,7 +42,7 @@ function roomIcon(kind:string){
   default:return <Building2 size={16}/>;
  }
 }
-type Overlay = 'none'|'spaces'|'workstations'|'reception'|'tour';
+type Overlay = 'none'|'spaces'|'workstations'|'reception'|'tour'|'agentMeetings';
 export function HeadquartersLive({onClose}:{onClose:()=>void}){
  const [state,setState]=useState<OfficeState|null>(null);
  const [overlay,setOverlay]=useState<Overlay>('none');
@@ -148,6 +149,7 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
     <div className="hqOperations">
      <button onClick={()=>setOverlay('spaces')}><Building2 size={17}/>Manage spaces</button>
      <button onClick={()=>setOverlay('workstations')}><Users size={17}/>Live workstations</button>
+     <button onClick={()=>setOverlay('agentMeetings')}><Users size={17}/>Agent meeting sessions</button>
      <button onClick={()=>setOverlay('reception')}><DoorOpen size={17}/>Reception desk</button>
      <button onClick={()=>setOverlay('tour')}><Compass size={17}/>Guided visit</button>
     </div>
@@ -211,6 +213,7 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
   {overlay!=='none'&&<div className="hqModalHost"><button className="hqModalClose" aria-label="Close office panel" onClick={()=>setOverlay('none')}><X size={18}/></button>
    {overlay==='spaces'?<OfficeSpaceLiveManager onClose={()=>{setOverlay('none');void controller.refresh()}}/>:
     overlay==='workstations'?<OfficeWorkstations onClose={()=>setOverlay('none')}/>:
+    overlay==='agentMeetings'?<AgentMeetingSessions onClose={()=>setOverlay('none')}/>:
     overlay==='reception'?<ReceptionOperations onClose={()=>setOverlay('none')} onDestination={name=>{const target=floor?.rooms.find(r=>r.label===name);if(target){visit(target);setOverlay('none')}}}/>:
     <GuidedExecutiveTour site={building?.name??'ANUM MINE'} stops={tourStops} onClose={()=>setOverlay('none')}
      onArrive={id=>{const destination=floor?.rooms.find(r=>r.id===id);if(destination)visit(destination)}}/>}
