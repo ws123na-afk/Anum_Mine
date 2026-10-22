@@ -76,6 +76,8 @@ x-user-roles: owner,member
 
 ## Documentation Index
 
+- [ANUM MINE release completion checkpoint](docs/ANUM_MINE_RELEASE_CHECKPOINT.md)
+
 - [Product vision](docs/product-vision.md)
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
