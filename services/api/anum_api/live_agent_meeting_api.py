@@ -54,6 +54,11 @@ class AddAgent(RevisionChange):
     agent_id: str = Field(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
 
+class RunMeeting(StrictBody):
+    run_key: str = Field(min_length=8,max_length=80,pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+    turns: int = Field(default=2, ge=1, le=3)
+
+
 class ExecuteTurn(StrictBody):
     request_key: str = Field(min_length=8, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
@@ -229,4 +234,30 @@ async def execute_turn(
         result = await execute_meeting_turn(context, meeting_id, body.request_key, gateway)
         return result
     except LiveMeetingStoreError as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/{meeting_id}/run")
+async def run_meeting(
+    meeting_id: MeetingId, body: RunMeeting,
+    context: TenantContext = Depends(tenant_context),
+) -> dict:
+    """Run up to three sequential AI contributions in an idempotent round.
+
+    One turn commits before the next. Retrying the same run_key reuses saved
+    turns. This synchronous bounded round is not an unattended job worker.
+    """
+    require_permission(context, Permission.WORKSPACE_MANAGE)
+    gateway = build_default_model_gateway()
+    results = []
+    try:
+        for index in range(body.turns):
+            key = body.run_key + ":" + str(index + 1)
+            result = await execute_meeting_turn(context, meeting_id, key, gateway)
+            results.append(result)
+        return {"items": results, "completed": len(results), "run_key": body.run_key}
+    except LiveMeetingStoreError as exc:
+        if results:
+            return {"items":results,"completed":len(results),"run_key":body.run_key,
+                    "stopped_reason":str(exc)}
         raise _error(exc) from exc
