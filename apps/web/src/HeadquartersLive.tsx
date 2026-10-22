@@ -7,7 +7,7 @@
  * a record behind it reads "Presence unavailable" or "Not connected".
  * Extension points are documented in docs/ANUM_MINE_HQ_EXTENSION_POINTS.md.
  */
-import { AlertTriangle, Compass, DoorOpen, LayoutGrid, Lock, RefreshCcw, Users, Wrench, X } from 'lucide-react';
+import { AlertTriangle, Compass, DoorOpen, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AgentMeetingSessions } from './AgentMeetingSessions';
 import { BuildingView } from './BuildingView';
@@ -27,8 +27,9 @@ import type { AgentEvidence, RoomGeometry, SceneDesk } from './lib/headquartersP
 import { loadCampus, type CampusSource } from './lib/hqCampusLoader.ts';
 import { hqCommands, resolveNavTarget, type HqAgentRef, type HqCallbacks, type HqNavResult, type HqNavTarget, type HqRoomRef, type HqSlots } from './lib/hqExtensions.ts';
 import { loadCommerceState, loadTyreState } from './lib/hqModulesApi.ts';
+import { loadPresence, saveCampusProfile, type LoadedPresence } from './lib/hqPresenceApi.ts';
 import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
-import { agentPresence, loadMeetingEvidence, totalsOf, unreportedStatuses, type HqAgentPresence, type MeetingEvidence } from './lib/hqPresence.ts';
+import { agentPresence, indexPresence, loadMeetingEvidence, presenceFromItems, totalsOf, unreportedStatuses, type HqAgentPresence, type MeetingEvidence } from './lib/hqPresence.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import { createOfficeSpaceClient } from './lib/officeSpaceClient.ts';
 import { loadWorkspaceWorkstations, type WorkstationSnapshot } from './lib/officeWorkstations.ts';
@@ -77,6 +78,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [agentDesk, setAgentDesk] = useState<SceneDesk | null>(null);
   const [snapshot, setSnapshot] = useState<WorkstationSnapshot | null>(null);
   const [meetings, setMeetings] = useState<MeetingEvidence | null>(null);
+  const [presenceApi, setPresenceApi] = useState<LoadedPresence | null>(null);
   const [loaded, setLoaded] = useState<{ campus: Campus; source: CampusSource } | null>(null);
   const [campusError, setCampusError] = useState<{ denied: boolean; message: string } | null>(null);
   const [commerce, setCommerce] = useState<ModuleState<CommerceLive>>({ state: 'loading' });
@@ -95,9 +97,10 @@ export function HeadquartersLive(props: HeadquartersProps) {
     scope: () => api.currentScope(),
     registry: async () => adaptOfficeRegistry(await officeApi.load()),
     agents: async () => {
-      const [result, meet] = await Promise.all([
+      const [result, meet, live] = await Promise.all([
         loadWorkspaceWorkstations(),
         loadMeetingEvidence((path) => api.apiRequest(path, { method: 'GET' })),
+        loadPresence().catch(() => null),
       ]);
       const current = api.currentScope();
       if (result.snapshot.scope.tenantId !== current.tenantId || result.snapshot.scope.workspaceId !== current.workspaceId) {
@@ -105,6 +108,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
       }
       setSnapshot(result.snapshot);
       setMeetings(meet);
+      setPresenceApi(live);
       return result.snapshot.records.map((agent): AgentEvidence => ({
         id: agent.agentId, name: agent.name,
         status: agent.status === 'working' ? 'running'
@@ -164,35 +168,50 @@ export function HeadquartersLive(props: HeadquartersProps) {
   }, []);
   useEffect(() => { try { window.localStorage.setItem(LIGHT_KEY, night ? 'night' : 'day'); } catch { /* remembered for this page only */ } }, [night]);
 
+  // Every embedded panel has its own Close button; Escape closes whichever is open.
+  useEffect(() => {
+    if (overlay === 'none') return undefined;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setOverlay('none'); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [overlay]);
+
   const projection = state?.projection ?? null;
   const registryBuilding = projection?.buildings.find((b) => b.id === state?.selected.buildingId) ?? projection?.buildings[0] ?? null;
   const floor = registryBuilding?.floors.find((f) => f.id === state?.selected.floorId) ?? registryBuilding?.floors[0] ?? null;
 
-  const presenceList: HqAgentPresence[] | null = useMemo(
-    () => (snapshot ? agentPresence(snapshot.records, meetings) : null),
-    [snapshot, meetings],
-  );
-  const presenceMap = useMemo(() => (presenceList ? new Map(presenceList.map((p) => [p.agentId, p])) : null), [presenceList]);
-  const localTotals = useMemo(() => (presenceList ? totalsOf(presenceList) : null), [presenceList]);
-  const unreported = useMemo(() => unreportedStatuses(meetings), [meetings]);
-  const verifiedAt = snapshot?.observedAt ?? null;
+  // The presence endpoint is the source when the server has it; otherwise the browser reads tasks and meetings itself.
+  const presenceList: HqAgentPresence[] | null = useMemo(() => {
+    if (presenceApi) {
+      const departments = new Map((snapshot?.records ?? []).map((r) => [r.agentId, r.department?.trim() || (r.suggestedDepartment !== 'Unassigned' ? r.suggestedDepartment : null)]));
+      return presenceFromItems(presenceApi.items, (id) => departments.get(id) ?? null);
+    }
+    return snapshot ? agentPresence(snapshot.records, meetings) : null;
+  }, [presenceApi, snapshot, meetings]);
+  const presenceIndex = useMemo(() => (presenceList ? indexPresence(presenceList) : null), [presenceList]);
+  const presenceOf = useCallback((id: string, desk: SceneDesk | null) => presenceIndex?.byAgent.get(id) ?? (desk ? presenceIndex?.byDesk.get(desk.id) : undefined), [presenceIndex]);
+  const localTotals = useMemo(() => (presenceList ? totalsOf(presenceList.filter((p) => !p.agentId.startsWith('desk:'))) : null), [presenceList]);
+  const unreported = useMemo(() => (presenceApi ? [] : unreportedStatuses(meetings)), [presenceApi, meetings]);
+  const verifiedAt = presenceApi?.asOf ?? snapshot?.observedAt ?? null;
   const floorCount = registryBuilding ? registryBuilding.floors.length : null;
 
   // Campus: the endpoint when present, else memberships; the open workspace's counts come from local presence.
+  const localRef = useRef({ totals: localTotals, floors: floorCount, verifiedAt });
+  localRef.current = { totals: localTotals, floors: floorCount, verifiedAt };
   const refreshCampus = useCallback(async () => {
     try {
-      const result = await loadCampus({ totals: localTotals, floors: floorCount, verifiedAt });
+      const result = await loadCampus(localRef.current);
       setLoaded(result);
       setCampusError(null);
     } catch (error) {
       const status = (error as { status?: number }).status;
       setCampusError({ denied: status === 403 || status === 401, message: error instanceof Error ? error.message : t('hq.error.generic') });
     }
-  }, [localTotals, floorCount, verifiedAt]);
+  }, []);
+  // The campus does not wait for the office registry: it loads at once, then at most every 30 seconds with the scene.
   useEffect(() => {
-    if (!state?.updatedAt) return;
     const now = Date.now();
-    if (now - campusLoadedAt.current < 30_000 && loaded) return;
+    if (loaded && now - campusLoadedAt.current < 30_000) return;
     campusLoadedAt.current = now;
     void refreshCampus();
   }, [state?.updatedAt, refreshCampus, loaded]);
@@ -206,7 +225,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
   }, [loaded, localTotals, floorCount, verifiedAt, scope.workspaceId]);
 
   const currentBuilding = campus?.buildings.find((b) => b.workspace_id === scope.workspaceId) ?? null;
-  const avatars = useMemo(() => (presenceList ?? []).slice(0, 4).map((p) => p.name.slice(0, 1).toUpperCase()), [presenceList]);
+  const avatars = useMemo(() => (presenceList ?? []).filter((p) => p.name && !p.agentId.startsWith('desk:')).slice(0, 4).map((p) => p.name.slice(0, 1).toUpperCase()), [presenceList]);
 
   // Module panels follow the open workspace; they load when a building opens and refresh with the scene.
   useEffect(() => {
@@ -273,12 +292,12 @@ export function HeadquartersLive(props: HeadquartersProps) {
 
   const selectAgent = useCallback((id: string, desk: SceneDesk | null) => {
     setAgentId(id); setAgentDesk(desk);
-    const p = presenceMap?.get(id);
+    const p = presenceOf(id, desk);
     latestProps.current.onSelectAgent?.({
       agentId: id, name: p?.name ?? '', role: p?.role ?? null, status: p?.status ?? 'unknown',
       deskId: desk?.id ?? null, roomId: desk?.roomId ?? null, workspaceId: scope.workspaceId,
     });
-  }, [presenceMap, scope.workspaceId]);
+  }, [presenceOf, scope.workspaceId]);
 
   const goFloor = useCallback((id: string) => { controller.selectFloor(id); setRoomId(null); setAgentId(null); }, [controller]);
   const openRoomById = useCallback((fid: string, rid: string) => {
@@ -297,7 +316,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
     return {
       workspaceId: scope.workspaceId,
       floors: registryBuilding.floors.map((f) => ({ id: f.id, level: f.level, name: f.name, rooms: f.rooms.map((r) => ({ id: r.id, label: r.label })) })),
-      agents: (presenceList ?? []).map((p) => {
+      agents: (presenceList ?? []).filter((p) => !p.agentId.startsWith('desk:')).map((p) => {
         const desk = registryBuilding.floors.flatMap((f) => f.desks).find((d) => d.agentId === p.agentId);
         return { id: p.agentId, name: p.name, roomId: desk?.roomId ?? null };
       }),
@@ -330,6 +349,20 @@ export function HeadquartersLive(props: HeadquartersProps) {
     if (want.current && campus && navScene) { const target = want.current; want.current = null; void navigateRef.current(target); }
   }, [campus, navScene]);
 
+  const saveProfile = useCallback(async (kind: CampusBuildingKind, icon: string, revision: number | null): Promise<string | null> => {
+    try {
+      await saveCampusProfile({ kind, icon, ...(revision !== null ? { expected_revision: revision } : {}) } as Parameters<typeof saveCampusProfile>[0]);
+      campusLoadedAt.current = 0;
+      await refreshCampus();
+      return null;
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status === 409) return t('hq.profile.conflict');
+      if (status === 403) return t('hq.profile.ownerOnly');
+      return error instanceof Error ? error.message : t('hq.error.generic');
+    }
+  }, [refreshCampus]);
+
   const retry = () => { campusLoadedAt.current = 0; void controller.refresh(); void refreshCampus(); };
   const roomsForRoom = floor && roomId ? floor.rooms.find((r) => r.id === roomId) ?? null : null;
   const roomDesks = floor && roomsForRoom ? floor.desks.filter((d) => d.roomId === roomsForRoom.id) : [];
@@ -341,16 +374,16 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const roomPanelRoom = roomsForRoom;
 
   const agentRef: HqAgentRef | null = agentId
-    ? { agentId, name: presenceMap?.get(agentId)?.name ?? '', role: presenceMap?.get(agentId)?.role ?? null, status: presenceMap?.get(agentId)?.status ?? 'unknown', deskId: agentDesk?.id ?? null, roomId: agentDesk?.roomId ?? null, workspaceId: scope.workspaceId }
+    ? { agentId, name: presenceOf(agentId, agentDesk)?.name ?? '', role: presenceOf(agentId, agentDesk)?.role ?? null, status: presenceOf(agentId, agentDesk)?.status ?? 'unknown', deskId: agentDesk?.id ?? null, roomId: agentDesk?.roomId ?? null, workspaceId: scope.workspaceId }
     : null;
   const sidePanel = agentId && agentRef
     ? (props.renderWorkstationPanel
       ? props.renderWorkstationPanel(agentRef, ctx)
-      : <AgentPanel agentId={agentId} presence={presenceMap?.get(agentId)} roomLabel={agentRoom?.label ?? null} deskLabel={agentDesk?.label ?? null} onClose={closePanels} />)
+      : <AgentPanel agentId={agentId} deskId={agentDesk?.id ?? null} refreshKey={state?.updatedAt ?? null} presence={presenceOf(agentId, agentDesk)} roomLabel={agentRoom?.label ?? null} deskLabel={agentDesk?.label ?? null} onClose={closePanels} />)
     : roomPanelRoom
       ? (props.renderRoomPanel
         ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
-        : <RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceMap} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} />)
+        : <RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} />)
       : null;
 
   const status = state?.status;
@@ -417,7 +450,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
             <CampusView
               campus={campus} unreported={unreported} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
               currentWorkspaceId={scope.workspaceId} avatars={avatars} selectedId={campusPick} onSelect={setCampusPick} onEnter={enterBuilding}
-              onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight}
+              onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight} onSaveProfile={saveProfile}
             />
           )}
           {campus && !webglOk && level === 'building' && effectiveView !== 'list' && floor && (
@@ -430,7 +463,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
             <BuildingView
               workspaceName={currentBuilding?.name ?? scope.workspaceId} kindLabel={t(`hq.kind.${buildingKind}` as MessageKey)}
               buildings={projection?.buildings ?? []} building={registryBuilding} floor={floor}
-              presence={presenceMap} unreported={unreported} verifiedAt={verifiedAt}
+              presence={presenceIndex} unreported={unreported} verifiedAt={verifiedAt}
               liveMeetings={meetings ? meetings.liveMeetings : null} liveMeetingRoomIds={props.liveMeetingRoomIds ?? NO_ROOMS}
               commerce={commerce} tyre={tyre} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
               selectedRoomId={roomId} selectedAgentId={agentId}
@@ -453,7 +486,6 @@ export function HeadquartersLive(props: HeadquartersProps) {
 
       {overlay !== 'none' && (
         <div className="hqModalHost" role="dialog" aria-modal="false" aria-label={t('hq.tools')}>
-          <button type="button" className="hqModalClose" aria-label={t('hq.panel.close')} onClick={() => setOverlay('none')}><X aria-hidden="true" /></button>
           {overlay === 'spaces' ? <OfficeSpaceLiveManager onClose={() => { setOverlay('none'); void controller.refresh(); }} />
             : overlay === 'workstations' ? <OfficeWorkstations onClose={() => setOverlay('none')} />
               : overlay === 'agentMeetings' ? <AgentMeetingSessions onClose={() => setOverlay('none')} />

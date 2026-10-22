@@ -22,6 +22,6 @@ test('renderer always derives interior objects from server-backed rooms',()=>{
  assert.match(view,/onClick=\{props\.onPick\}/);
 });
 test('room markers describe observed activity and do not fake occupancy',()=>{
- assert.match(view,/presence\?\.get\(d\.agentId\)\?\.status === 'working'/);
- assert.match(view,/desks\.filter\(\(d\) => d\.agentId\)\.length/);
+ assert.match(view,/presenceForDesk\(presence, d\)\?\.status === 'working'/);
+ assert.match(view,/desks\.filter\(\(d\) => d\.agentId \|\| presenceForDesk\(presence, d\)\)\.length/);
 });

@@ -1,9 +1,10 @@
-/** Built-in side panels: the room summary and the workstation summary. The meetings and executive
- * workstreams replace them through `renderRoomPanel` and `renderWorkstationPanel`. */
+/** Built-in side panels: the room summary and the workstation summary with the desk's real work.
+ * The meetings and executive workstreams replace them through `renderRoomPanel` and `renderWorkstationPanel`. */
 import { ArrowRight, X } from 'lucide-react';
 import { statusLabel } from './HqChrome';
+import { WorkstationWork } from './HqWorkstationWork';
 import type { RoomGeometry, SceneDesk } from './lib/headquartersProjection.ts';
-import type { HqAgentPresence } from './lib/hqPresence.ts';
+import { presenceForDesk, type HqAgentPresence, type HqPresenceIndex } from './lib/hqPresence.ts';
 import { profileHash } from './lib/orgChart.ts';
 import { STATUS_TONE } from './lib/campusModel.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
@@ -12,12 +13,20 @@ const MODULE_ROUTES: Readonly<Record<string, string>> = {
   meeting: 'meetings', reception: 'inbox', office: 'tasks', workshop: 'tyre', warehouse: 'commerce', lounge: 'calendar',
 };
 
+export function StatusPill({ presence }: { presence: HqAgentPresence | undefined }) {
+  return (
+    <span className={`hqPill tone-${presence ? STATUS_TONE[presence.status] : 'faint'}`} data-stale={presence?.stale === true}>
+      {presence ? statusLabel(presence.status) : t('hq.status.unavailable')}{presence?.stale ? ` (${t('hq.agent.stale')})` : ''}
+    </span>
+  );
+}
+
 export function RoomPanel(props: Readonly<{
-  room: RoomGeometry; desks: readonly SceneDesk[]; presence: ReadonlyMap<string, HqAgentPresence> | null;
+  room: RoomGeometry; desks: readonly SceneDesk[]; presence: HqPresenceIndex | null;
   onClose: () => void; onOpenAgent: (agentId: string, desk: SceneDesk) => void;
 }>) {
   const { room } = props;
-  const assigned = props.desks.filter((d) => d.agentId).length;
+  const assigned = props.desks.filter((d) => d.agentId || presenceForDesk(props.presence, d)).length;
   return (
     <aside className="hqPanel hqSide" aria-label={t('hq.room.panel', { name: room.label })}>
       <div className="hqPanelHead">
@@ -34,13 +43,15 @@ export function RoomPanel(props: Readonly<{
         : (
           <ul className="hqDeskList">
             {props.desks.map((d) => {
-              const p = d.agentId ? props.presence?.get(d.agentId) : undefined;
+              const p = presenceForDesk(props.presence, d);
+              const key = d.agentId ?? p?.agentId ?? null;
+              const hidden = p?.reason === 'agent_not_visible' || (key?.startsWith('desk:') ?? false);
               return (
                 <li key={d.id}>
-                  {d.agentId
-                    ? <button type="button" onClick={() => props.onOpenAgent(d.agentId!, d)}>
-                      <span className="hqLabelText"><strong>{p?.name ?? t('hq.agent.assigned')}</strong><small>{d.label}</small></span>
-                      <span className={`hqPill tone-${p ? STATUS_TONE[p.status] : 'faint'}`}>{p ? statusLabel(p.status) : t('hq.status.unavailable')}</span>
+                  {key
+                    ? <button type="button" onClick={() => props.onOpenAgent(key, d)}>
+                      <span className="hqLabelText"><strong>{hidden ? t('hq.agent.private') : (p?.name || t('hq.agent.assigned'))}</strong><small>{d.label}</small></span>
+                      <StatusPill presence={p} />
                     </button>
                     : <div className="hqVacant"><span className="hqLabelText"><strong>{d.label}</strong><small>{t('hq.room.vacant')}</small></span></div>}
                 </li>
@@ -54,23 +65,23 @@ export function RoomPanel(props: Readonly<{
 }
 
 export function AgentPanel(props: Readonly<{
-  agentId: string; presence: HqAgentPresence | undefined; roomLabel: string | null; deskLabel: string | null; onClose: () => void;
+  agentId: string; deskId: string | null; presence: HqAgentPresence | undefined; roomLabel: string | null; deskLabel: string | null;
+  refreshKey: string | null; onClose: () => void;
 }>) {
   const p = props.presence;
+  const hidden = p?.reason === 'agent_not_visible' || props.agentId.startsWith('desk:');
+  const name = hidden ? t('hq.agent.private') : (p?.name || t('hq.agent.assigned'));
   return (
-    <aside className="hqPanel hqSide" aria-label={t('hq.agent.panel', { name: p?.name ?? t('hq.agent.assigned') })}>
+    <aside className="hqPanel hqSide" aria-label={t('hq.agent.panel', { name })}>
       <div className="hqPanelHead">
-        <h2>{p?.name ?? t('hq.agent.assigned')}</h2>
+        <h2>{name}</h2>
         <button type="button" className="hqIconButton" onClick={props.onClose} aria-label={t('hq.panel.close')}><X aria-hidden="true" /></button>
       </div>
       <p className="hqMuted">{p?.role ?? t('hq.agent.noRole')}{props.roomLabel ? ` · ${props.roomLabel}` : ''}{props.deskLabel ? ` · ${props.deskLabel}` : ''}</p>
-      <p><span className={`hqPill tone-${p ? STATUS_TONE[p.status] : 'faint'}`}>{p ? statusLabel(p.status) : t('hq.status.unavailable')}</span></p>
+      <p><StatusPill presence={p} /></p>
       {p && <p className="hqNote">{t('hq.agent.observed', { time: new Date(p.observedAt).toLocaleTimeString() })}</p>}
-      <h3>{t('hq.agent.tasks')}</h3>
-      {p && p.taskTitles.length > 0
-        ? <ul className="hqTaskList">{p.taskTitles.map((title, i) => <li key={i}>{title}</li>)}</ul>
-        : <p className="hqNote">{p ? t('hq.agent.noTasks') : t('hq.agent.noEvidence')}</p>}
-      <a className="hqPrimary" href={profileHash({ kind: 'agent', id: props.agentId })}>{t('hq.agent.profile')}<ArrowRight aria-hidden="true" className="flip" /></a>
+      <WorkstationWork deskId={props.deskId} fallbackTasks={p?.taskTitles ?? []} hasPresence={Boolean(p)} refreshKey={props.refreshKey} />
+      {!hidden && <a className="hqPrimary" href={profileHash({ kind: 'agent', id: props.agentId })}>{t('hq.agent.profile')}<ArrowRight aria-hidden="true" className="flip" /></a>}
     </aside>
   );
 }

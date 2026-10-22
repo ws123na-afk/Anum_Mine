@@ -7,13 +7,52 @@
 import { STATUS_ORDER, type CampusTotals, type StatusKey } from './campusModel.ts';
 
 export type HqAgentPresence = Readonly<{
+  /** The agent id, or `desk:<id>` for a desk whose agent is private to someone else. */
   agentId: string;
   name: string;
   role: string | null;
   status: StatusKey;
   taskTitles: readonly string[];
   observedAt: string;
+  /** True when the evidence is older than the server's freshness window: draw it greyed out. */
+  stale?: boolean;
+  /** Machine reason from the server (agent_not_visible, run_silent, approval_expired, ...). */
+  reason?: string | null;
+  deskId?: string | null;
+  /** Where the status came from: the presence API or the browser's own reading of tasks and meetings. */
+  source?: 'presence-api' | 'task-evidence';
 }>;
+
+/** Agents of the open workspace by agent id, and the private-agent desks by desk id. */
+export type HqPresenceIndex = Readonly<{ byAgent: ReadonlyMap<string, HqAgentPresence>; byDesk: ReadonlyMap<string, HqAgentPresence> }>;
+
+export function indexPresence(list: readonly HqAgentPresence[]): HqPresenceIndex {
+  const byAgent = new Map<string, HqAgentPresence>();
+  const byDesk = new Map<string, HqAgentPresence>();
+  for (const p of list) {
+    if (p.agentId.startsWith('desk:')) { if (p.deskId) byDesk.set(p.deskId, p); } else byAgent.set(p.agentId, p);
+  }
+  return { byAgent, byDesk };
+}
+
+/** The presence record that backs a desk: its agent's, or the private-agent record of that desk. */
+export function presenceForDesk(index: HqPresenceIndex | null, desk: Readonly<{ id: string; agentId: string | null }>): HqAgentPresence | undefined {
+  if (!index) return undefined;
+  return (desk.agentId ? index.byAgent.get(desk.agentId) : undefined) ?? index.byDesk.get(desk.id);
+}
+
+export type PresenceItemLike = Readonly<{
+  key: string; agent_id: string | null; agent_name: string | null; desk_id: string | null; state: StatusKey;
+  provenance: Readonly<{ reason: string | null }>; task: Readonly<{ id: string; title: string }> | null; last_verified_at: string; stale: boolean;
+}>;
+
+/** Maps the presence API's items; the department comes from the agent profile when it is known. */
+export function presenceFromItems(items: readonly PresenceItemLike[], departmentOf: (agentId: string) => string | null): HqAgentPresence[] {
+  return items.map((i) => ({
+    agentId: i.agent_id ?? i.key, name: i.agent_name ?? '', role: i.agent_id ? departmentOf(i.agent_id) : null, status: i.state,
+    taskTitles: i.task ? [i.task.title] : [], observedAt: i.last_verified_at, stale: i.stale, reason: i.provenance.reason, deskId: i.desk_id, source: 'presence-api',
+  }));
+}
 
 export type WorkstationLike = Readonly<{
   agentId: string; name: string; department: string | null; suggestedDepartment: string;
@@ -32,10 +71,11 @@ export function agentPresence(records: readonly WorkstationLike[], meetings: Mee
     else if (r.status === 'working') status = 'working';
     else if (r.status === 'waiting_approval') status = 'waiting_approval';
     else if (r.status === 'blocked') status = 'blocked';
-    // A queued task does not prove execution, so it reads as idle with the task visible on the card.
-    else if (r.status === 'queued' || r.status === 'idle') status = 'idle';
+    // A queued task does not prove execution: it reads as queued, never as working.
+    else if (r.status === 'queued') status = 'queued';
+    else if (r.status === 'idle') status = 'idle';
     else status = 'unknown';
-    return { agentId: r.agentId, name: r.name, role: r.department?.trim() || (r.suggestedDepartment !== 'Unassigned' ? r.suggestedDepartment : null), status, taskTitles: r.taskTitles, observedAt: r.observedAt };
+    return { agentId: r.agentId, name: r.name, role: r.department?.trim() || (r.suggestedDepartment !== 'Unassigned' ? r.suggestedDepartment : null), status, taskTitles: r.taskTitles, observedAt: r.observedAt, source: 'task-evidence' as const };
   });
 }
 

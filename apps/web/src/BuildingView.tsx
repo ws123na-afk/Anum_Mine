@@ -11,8 +11,7 @@ import { buildBuildingScene, frameBuilding, type DeskVisual } from './lib/buildi
 import { buildingCamera, clampTarget, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { RoomGeometry, SceneBuilding, SceneDesk, SceneFloor } from './lib/headquartersProjection.ts';
-import type { HqAgentPresence } from './lib/hqPresence.ts';
-import { totalsOf } from './lib/hqPresence.ts';
+import { presenceForDesk, totalsOf, type HqPresenceIndex } from './lib/hqPresence.ts';
 import { STATUS_TONE, type StatusKey } from './lib/campusModel.ts';
 import type { HqView } from './HqChrome';
 import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
@@ -26,7 +25,7 @@ export type BuildingViewProps = Readonly<{
   buildings: readonly SceneBuilding[];
   building: SceneBuilding;
   floor: SceneFloor;
-  presence: ReadonlyMap<string, HqAgentPresence> | null;
+  presence: HqPresenceIndex | null;
   unreported: readonly StatusKey[];
   verifiedAt: string | null;
   liveMeetings: number | null;
@@ -55,7 +54,7 @@ export type BuildingViewProps = Readonly<{
 const ROOM_ICON = { meeting: Users, reception: DoorOpen, warehouse: HardDrive } as const;
 
 const DESK_VISUAL: Record<StatusKey, DeskVisual> = {
-  working: 'working', meeting: 'idle', waiting_approval: 'waiting', blocked: 'waiting', idle: 'idle', paused: 'unknown', unknown: 'unknown',
+  working: 'working', queued: 'idle', meeting: 'idle', waiting_approval: 'waiting', blocked: 'waiting', idle: 'idle', paused: 'unknown', unknown: 'unknown',
 };
 
 export function BuildingView(props: BuildingViewProps) {
@@ -68,9 +67,9 @@ export function BuildingView(props: BuildingViewProps) {
     const map = new Map<string, DeskVisual>();
     for (const f of floors) {
       for (const d of f.desks) {
-        if (!d.agentId) { map.set(d.id, 'vacant'); continue; }
-        const p = presence?.get(d.agentId);
-        map.set(d.id, p ? DESK_VISUAL[p.status] : 'assigned');
+        const p = presenceForDesk(presence, d);
+        if (!d.agentId && !p) { map.set(d.id, 'vacant'); continue; }
+        map.set(d.id, p ? (p.stale ? 'unknown' : DESK_VISUAL[p.status]) : 'assigned');
       }
     }
     return map;
@@ -121,27 +120,30 @@ export function BuildingView(props: BuildingViewProps) {
       const handle = roomHandle.get(room.id);
       if (!handle) continue;
       const desks = floor.desks.filter((d) => d.roomId === room.id);
-      const assigned = desks.filter((d) => d.agentId).length;
-      const working = desks.filter((d) => d.agentId && presence?.get(d.agentId)?.status === 'working').length;
+      const assigned = desks.filter((d) => d.agentId || presenceForDesk(presence, d)).length;
+      const working = desks.filter((d) => presenceForDesk(presence, d)?.status === 'working').length;
       list.push({
-        id: 'room:' + room.id, anchor: handle.anchor, priority: room.id === props.selectedRoomId ? 0 : 2, maxDistance: 160,
+        id: 'room:' + room.id, anchor: handle.anchor, priority: room.id === props.selectedRoomId ? 0 : 1, maxDistance: 160,
         node: <RoomCard room={room} assigned={assigned} working={working} known={presence !== null} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId} onPick={() => pickRoom(room.id)} />,
       });
     }
     for (const dh of scene.desks) {
       if (dh.floorIndex !== activeIndex) continue;
       const desk = floor.desks.find((d) => d.id === dh.id);
-      if (!desk?.agentId) continue;
-      const p = presence?.get(desk.agentId);
+      if (!desk) continue;
+      const p = presenceForDesk(presence, desk);
+      const key = desk.agentId ?? (p ? p.agentId : null);
+      if (!key) continue;
+      const hidden = p?.reason === 'agent_not_visible' || key.startsWith('desk:');
       list.push({
-        id: 'desk:' + dh.id, anchor: dh.anchor, priority: desk.agentId === props.selectedAgentId ? 0 : 1, maxDistance: 70,
-        node: <AgentCard name={p?.name ?? desk.agent?.name ?? t('hq.agent.assigned')} role={p?.role ?? null} status={p?.status ?? null} selected={desk.agentId === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(desk.agentId!, desk)} />,
+        id: 'desk:' + dh.id, anchor: dh.anchor, priority: key === props.selectedAgentId ? 0 : 2, maxDistance: 70,
+        node: <AgentCard name={hidden ? t('hq.agent.private') : (p?.name || desk.agent?.name || t('hq.agent.assigned'))} role={p?.role ?? null} status={p?.status ?? null} stale={p?.stale === true} selected={key === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(key, desk)} />,
       });
     }
     return list;
   }, [scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, activeIndex, pickRoom]);
 
-  const agents = useMemo(() => (presence ? totalsOf([...presence.values()]) : null), [presence]);
+  const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
   const change = (fn: (c: CameraState) => CameraState) => setCamera((c) => clampTarget(fn(c), 400));
   const stepFloor = (d: 1 | -1) => { const f = floors[activeIndex + d]; if (f) props.onSelectFloor(f.id); };
   const roomsTotal = floors.reduce((n, f) => n + f.rooms.length, 0);
@@ -250,15 +252,15 @@ function RoomCard(props: { room: RoomGeometry; assigned: number; working: number
   );
 }
 
-function AgentCard(props: { name: string; role: string | null; status: StatusKey | null; selected: boolean; onPick: () => void }) {
+function AgentCard(props: { name: string; role: string | null; status: StatusKey | null; stale: boolean; selected: boolean; onPick: () => void }) {
   const tone = props.status ? STATUS_TONE[props.status] : 'faint';
   return (
-    <button type="button" className="hqAgentCard" data-selected={props.selected} aria-pressed={props.selected} onClick={props.onPick}>
+    <button type="button" className="hqAgentCard" data-selected={props.selected} data-stale={props.stale} aria-pressed={props.selected} onClick={props.onPick}>
       <span className="hqAvatar" aria-hidden="true">{props.name.slice(0, 1).toUpperCase()}</span>
       <span className="hqLabelText">
         <strong>{props.name}</strong>
         {props.role && <small>{props.role}</small>}
-        <span className={`hqPill tone-${tone}`}>{props.status ? statusLabel(props.status) : t('hq.status.unavailable')}</span>
+        <span className={`hqPill tone-${tone}`}>{props.status ? statusLabel(props.status) : t('hq.status.unavailable')}{props.stale ? ` (${t('hq.agent.stale')})` : ''}</span>
       </span>
     </button>
   );

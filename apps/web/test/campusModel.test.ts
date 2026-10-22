@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { arcPath, buildingStatus, campusFromApi, campusFromMemberships, campusTotals, donutArcs, filterBuildings, layoutCampus, readingOrder, stepBuilding, type CampusBuilding, type CampusTotals } from '../src/lib/campusModel.ts';
 
-const totals = (over: Partial<CampusTotals> = {}): CampusTotals => ({ agents: 0, working: 0, meeting: 0, waiting_approval: 0, blocked: 0, idle: 0, paused: 0, unknown: 0, ...over });
+const totals = (over: Partial<CampusTotals> = {}): CampusTotals => ({ agents: 0, working: 0, queued: 0, meeting: 0, waiting_approval: 0, blocked: 0, idle: 0, paused: 0, unknown: 0, ...over });
 const b = (id: string, over: Partial<CampusBuilding> = {}): CampusBuilding => ({ workspace_id: id, tenant_id: 'tenant-a', name: id, kind: 'business', icon: null, floors: 2, accessible: true, totals: null, presence_verified_at: null, ...over });
 
 test('campus totals only count buildings with verified presence', () => {
@@ -74,20 +74,27 @@ test('adapter adds the open workspace when memberships do not list it', () => {
   assert.equal(campus.buildings[0].totals, null);
 });
 
-test('campus endpoint payload is read defensively', () => {
+test('campus endpoint payload (contract v1) is read defensively', () => {
+  const states = (over: Record<string, number> = {}) => ({ working: 1, queued: 1, meeting: 0, waiting_approval: 0, blocked: 0, idle: 1, paused: 0, unknown: 0, ...over });
   const campus = campusFromApi({
+    version: 1, tenant_id: 'tenant-a', generated_at: '2026-10-22T10:00:00Z',
     buildings: [
-      { workspace_id: 'w1', tenant_id: 't', name: 'One', kind: 'executive', icon: 'crown', floors: 3, accessible: true, totals: { agents: 2, working: 1, meeting: 0, waiting_approval: 0, blocked: 0, idle: 1, paused: 0, unknown: 0 }, presence_verified_at: '2026-10-22T10:00:00Z' },
-      { workspace_id: 'w1', tenant_id: 't', name: 'Duplicate' },
-      { workspace_id: 'w2', tenant_id: 't', name: 'Two', kind: 'castle', totals: { agents: -1 } },
+      { workspace_id: 'w1', name: 'One', kind: 'executive', icon: 'landmark', profile_revision: 2, role: 'owner', archived: false, accessible: true, floors: [{ id: 'f' }, { id: 'g' }, { id: 'h' }], rooms: 6, desks: 9, agents: { total: 3, by_state: states() }, presence_verified_at: '2026-10-22T10:00:00Z', presence_as_of: '2026-10-22T10:00:01Z' },
+      { workspace_id: 'w1', name: 'Duplicate' },
+      { workspace_id: 'w2', name: 'Two', kind: null, accessible: true, floors: [], agents: { total: -1, by_state: states() } },
+      { workspace_id: 'w3', name: 'Three', kind: 'castle', accessible: false, agents: { total: 2, by_state: states() } },
       { name: 'No id' }, null,
     ],
   });
-  assert.equal(campus.buildings.length, 2);
-  assert.equal(campus.buildings[0].kind, 'executive');
-  assert.equal(campus.buildings[1].kind, 'business');
-  assert.equal(campus.buildings[1].totals, null);
-  assert.equal(campus.totals?.agents, 2);
+  assert.equal(campus.buildings.length, 3);
+  const [one, two, three] = campus.buildings;
+  assert.deepEqual([one.kind, one.kindKnown, one.floors, one.tenant_id, one.role, one.profileRevision, one.icon], ['executive', true, 3, 'tenant-a', 'owner', 2, 'landmark']);
+  assert.equal(one.totals?.agents, 3);
+  assert.equal(one.totals?.queued, 1);
+  assert.equal(one.presence_verified_at, '2026-10-22T10:00:00Z');
+  assert.deepEqual([two.kind, two.kindKnown, two.floors, two.totals], ['business', false, null, null]);
+  assert.deepEqual([three.kindKnown, three.accessible, three.totals], [false, false, null]);
+  assert.equal(campus.totals?.agents, 3);
   assert.deepEqual(campusFromApi(undefined).buildings, []);
 });
 

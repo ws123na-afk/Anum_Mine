@@ -6,6 +6,7 @@ import { useSavedLocale } from './support/workspaceApi';
 // building cutaway, the accessible list, the no-WebGL fallback and the navigation command. The API is
 // mocked at http://localhost:8000 like the other specs; every name and number below is plainly fake.
 const hq = (page: Page) => page.locator('.hqLive');
+const wide = (page: Page) => (page.viewportSize()?.width ?? 0) >= 1024;
 
 async function openOffice(page: Page, options: HqMockOptions = { campus: 'api', commerce: 'connected', meetings: 'live' }) {
   await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
@@ -54,16 +55,29 @@ test('inside a building: floors, rooms, desks, agent cards and the module panels
   await expect(counters).toContainText('1Live meetings');
   // Rooms of the saved layout, an agent card per assigned desk with its real status.
   await expect(hq(page).getByRole('button', { name: /^Tyre Analysis/ })).toBeVisible();
-  const fleet = hq(page).getByRole('button', { name: /Fleet Planner/ });
-  await expect(fleet).toContainText('Working');
-  await expect(hq(page).getByRole('button', { name: /WhatsApp Concierge/ })).toContainText('In meetings');
+  // Agent cards sit on the scene on wide screens; a phone-sized stage hides the ones that would not fit, and the room panel lists the same desks.
+  if (wide(page)) {
+    await expect(hq(page).getByRole('button', { name: /Fleet Planner/ })).toContainText('Working');
+    await expect(hq(page).getByRole('button', { name: /WhatsApp Concierge/ })).toContainText('In meetings');
+    // A private agent shows no name.
+    await expect(hq(page).getByRole('button', { name: /Private agent/ })).toContainText('Unknown');
+  }
   // A room opens its panel; an agent opens the workstation panel with the open task.
   await hq(page).getByRole('button', { name: /^Tyre Analysis/ }).click();
   const room = hq(page).getByRole('complementary', { name: 'Room Tyre Analysis' });
   await expect(room).toContainText('Capacity 4');
   await room.getByRole('button', { name: /Fleet Planner/ }).click();
   const agent = hq(page).getByRole('complementary', { name: 'Agent Fleet Planner' });
-  await expect(agent).toContainText('Plan October tyre rotation');
+  // The desk's real work record: task, run phase and checkpoint, steps, approval, error and document.
+  await expect(agent.getByText('Plan October tyre rotation')).toBeVisible();
+  await agent.getByText('Plan October tyre rotation').click();
+  await expect(agent).toContainText('Run running, phase executing');
+  await expect(agent).toContainText('checkpoint 3');
+  await expect(agent).toContainText('Prepared the rotation plan');
+  await expect(agent.getByRole('heading', { name: 'Waiting for approval' })).toBeVisible();
+  await expect(agent).toContainText('send_email');
+  await expect(agent).toContainText('The tyre data source timed out.');
+  await expect(agent).toContainText('Fleet tyre register');
   await expect(agent.getByRole('link', { name: 'Open agent profile' })).toHaveAttribute('href', /agents\/team\/agent\/agent_fleet/);
   await agent.getByRole('button', { name: 'Close panel' }).click();
   // Module panels: commerce is connected, tyre is not.
@@ -77,6 +91,11 @@ test('inside a building: floors, rooms, desks, agent cards and the module panels
   await hq(page).getByLabel('Choose a floor').selectOption({ label: 'First floor' });
   await expect(hq(page).getByRole('button', { name: /^Finance/ })).toBeVisible();
   await expect(hq(page).getByRole('button', { name: /^Tyre Analysis/ })).toHaveCount(0);
+  // Evidence older than the server's window reads as stale; a queued task reads as queued, never as working.
+  if (wide(page)) {
+    await expect(hq(page).getByRole('button', { name: /Lead Finder/ })).toContainText('(stale)');
+    await expect(hq(page).getByRole('button', { name: /Invoice Checker/ })).toContainText('Queued');
+  }
 });
 
 test('without the campus endpoint only the open workspace has counts, and nothing is invented', async ({ page }) => {
@@ -87,6 +106,69 @@ test('without the campus endpoint only the open workspace has counts, and nothin
   await expect(hq(page).getByRole('region', { name: 'Total agents' })).toContainText('1 of 4 buildings report presence');
   await enterFleetBuilding(page);
   await expect(hq(page).getByRole('region', { name: 'Live operations' })).toContainText('Not connected');
+});
+
+test('a private agent shows no name and no work, and says why', async ({ page }) => {
+  await openOffice(page);
+  await enterFleetBuilding(page);
+  await hq(page).getByRole('button', { name: /^Customer Care/ }).click();
+  const room = hq(page).getByRole('complementary', { name: 'Room Customer Care' });
+  await room.getByRole('button', { name: /Private agent/ }).click();
+  const panel = hq(page).getByRole('complementary', { name: 'Agent Private agent' });
+  await expect(panel).toContainText('This agent is private to someone else, so its work is not shown.');
+  await expect(panel.getByRole('link', { name: 'Open agent profile' })).toHaveCount(0);
+});
+
+test('without the presence endpoint the browser reads tasks and meetings, and says what it cannot tell', async ({ page }) => {
+  await openOffice(page, { campus: 'missing', presence: 'missing', meetings: 'failing', commerce: 'none' });
+  await enterFleetBuilding(page);
+  const team = hq(page).getByRole('region', { name: 'Team status' });
+  await expect(team).toContainText('Working');
+  // Meeting presence could not be read, so it shows "-" and never a zero.
+  await expect(team.locator('li', { hasText: 'In meetings' })).toContainText('-');
+  await hq(page).getByRole('button', { name: /^Tyre Analysis/ }).click();
+  await hq(page).getByRole('complementary', { name: 'Room Tyre Analysis' }).getByRole('button', { name: /Fleet Planner/ }).click();
+  const agent = hq(page).getByRole('complementary', { name: 'Agent Fleet Planner' });
+  await expect(agent).toContainText('Plan October tyre rotation');
+  await expect(agent).toContainText('The detailed work record is not available on this server yet.');
+});
+
+test('an owner sets the building type, a stale save is explained', async ({ page }) => {
+  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
+  const mock = await mockHq(page, { campus: 'api', commerce: 'none', profile: 'ok' });
+  await page.goto('/#office-preview');
+  await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
+  const detail = hq(page).getByRole('complementary', { name: 'About Al Noor Fleet HQ' });
+  const form = detail.getByRole('form', { name: 'Building type' });
+  await form.getByLabel('Type').selectOption('executive');
+  await form.getByLabel('Icon').selectOption('landmark');
+  await form.getByRole('button', { name: 'Save building type' }).click();
+  await expect(form.getByText('Saved.')).toBeVisible();
+  expect(mock.profileCalls).toEqual([{ kind: 'executive', icon: 'landmark', expected_revision: 1 }]);
+  // A building nobody classified says so, and only an owner of that workspace can set it.
+  await hq(page).getByRole('button', { name: 'Close details' }).click();
+  await hq(page).getByRole('button', { name: 'Reset view' }).click();
+  await hq(page).getByRole('button', { name: /^Personal Office\./ }).click();
+  await expect(hq(page).getByRole('complementary', { name: 'About Personal Office' })).toContainText('Building type not set yet');
+  await expect(hq(page).getByRole('complementary', { name: 'About Personal Office' })).toContainText('Only a workspace owner can set the building type.');
+});
+
+test('a stale building type save asks the owner to reopen the card', async ({ page }) => {
+  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
+  await mockHq(page, { campus: 'api', commerce: 'none', profile: 'conflict' });
+  await page.goto('/#office-preview');
+  await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
+  await hq(page).getByRole('form', { name: 'Building type' }).getByRole('button', { name: 'Save building type' }).click();
+  await expect(hq(page).getByRole('alert')).toContainText('Someone changed this just now');
+});
+
+test('the concept preview stays a separate, labelled mode', async ({ page }) => {
+  await openOffice(page);
+  await page.getByRole('button', { name: 'Concept preview' }).click();
+  await expect(page.locator('.anumOfficeTour')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Authenticated office' })).toBeVisible();
+  await page.getByRole('button', { name: 'Authenticated office' }).click();
+  await expect(hq(page).getByRole('heading', { level: 1 })).toBeVisible();
 });
 
 test('a refused campus read explains who can fix it', async ({ page }) => {
@@ -168,6 +250,18 @@ test('a lost GPU context is announced and the scene comes back', async ({ page }
   await page.evaluate(() => (window as unknown as { __hqExt: { restoreContext(): void } }).__hqExt.restoreContext());
   await expect(hq(page).getByText('Restoring the 3D view...')).toHaveCount(0);
   await expect(hq(page).getByRole('button', { name: /^Executive HQ\./ })).toBeAttached();
+});
+
+test('office tools open the existing panels and Escape closes them', async ({ page }) => {
+  await openOffice(page);
+  await hq(page).getByRole('button', { name: 'Office tools' }).click();
+  await hq(page).getByRole('button', { name: 'Manage spaces' }).click();
+  const dialog = hq(page).getByRole('dialog', { name: 'Office tools' });
+  await expect(dialog.getByRole('heading', { name: 'Office Space Management' })).toBeVisible();
+  // One close control, not two stacked on each other.
+  await expect(dialog.getByRole('button', { name: /^Close/ })).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
 });
 
 test('the assistant can move the view with a navigation command', async ({ page }) => {

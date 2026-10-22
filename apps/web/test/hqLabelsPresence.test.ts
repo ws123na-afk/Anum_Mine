@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { layoutLabels } from '../src/lib/hqLabels.ts';
 import { viewProjection } from '../src/lib/hqMath.ts';
 import { campusCamera } from '../src/lib/hqCamera.ts';
-import { agentPresence, loadMeetingEvidence, totalsOf, unreportedStatuses } from '../src/lib/hqPresence.ts';
+import { agentPresence, indexPresence, loadMeetingEvidence, presenceForDesk, presenceFromItems, totalsOf, unreportedStatuses } from '../src/lib/hqPresence.ts';
 import { commerceFlow, commerceLive, moduleErrorState, tyreLive } from '../src/lib/hqModules.ts';
 
 const vp = viewProjection(campusCamera(60), 1.6);
@@ -13,8 +13,7 @@ test('labels that would overlap are pushed apart and keep their order', () => {
   const same = { x: 0, y: 10, z: 0 };
   const out = layoutLabels([{ id: 'a', anchor: same }, { id: 'b', anchor: same }, { id: 'c', anchor: same }], vp, 1200, 700, size);
   assert.ok(out.every((p) => p.shown));
-  const ys = out.map((p) => p.y);
-  assert.ok(ys[0] > ys[1] && ys[1] > ys[2], 'each later label sits above the one before');
+  assert.equal(out[0].y > out[1].y, true, 'the second label takes the spot above the first');
   const boxes = out.map((p) => ({ x0: p.x - 80, x1: p.x + 80, y0: p.y - 44, y1: p.y }));
   for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
     const overlap = boxes[i].x0 < boxes[j].x1 && boxes[i].x1 > boxes[j].x0 && boxes[i].y0 < boxes[j].y1 - 2 && boxes[i].y1 > boxes[j].y0 + 2;
@@ -36,7 +35,7 @@ const rec = (agentId: string, status: 'working' | 'queued' | 'waiting_approval' 
 test('agent presence maps task evidence and meeting participation without inventing states', () => {
   const meetings = { liveMeetings: 1, agentIds: new Set(['b', 'c']) };
   const out = agentPresence([rec('a', 'working', 'Fleet'), rec('b', 'idle'), rec('c', 'paused'), rec('d', 'queued'), rec('e', 'unknown'), rec('f', 'blocked')], meetings);
-  assert.deepEqual(out.map((p) => p.status), ['working', 'meeting', 'paused', 'idle', 'unknown', 'blocked']);
+  assert.deepEqual(out.map((p) => p.status), ['working', 'meeting', 'paused', 'queued', 'unknown', 'blocked']);
   assert.equal(out[0].role, 'Fleet');
   assert.equal(out[1].role, null);
   const totals = totalsOf(out);
@@ -67,4 +66,20 @@ test('module panels map real dashboard fields and refuse to invent a state', () 
   assert.deepEqual([tyre.vehicles, tyre.criticalAlerts, tyre.warningAlerts], [42, 1, 0]);
   assert.equal(moduleErrorState(403, 'x').state, 'forbidden');
   assert.equal(moduleErrorState(500, 'boom').state, 'error');
+});
+
+test('presence from the API keeps stale, reason and private desks, and finds a desk either way', () => {
+  const at = '2026-10-22T10:00:00Z';
+  const list = presenceFromItems([
+    { key: 'agent_a', agent_id: 'agent_a', agent_name: 'Alpha', desk_id: 'desk_1', state: 'working', provenance: { reason: null }, task: { id: 't1', title: 'Plan' }, last_verified_at: at, stale: false },
+    { key: 'agent_b', agent_id: 'agent_b', agent_name: 'Bravo', desk_id: null, state: 'idle', provenance: { reason: null }, task: null, last_verified_at: at, stale: true },
+    { key: 'desk:desk_2', agent_id: null, agent_name: null, desk_id: 'desk_2', state: 'unknown', provenance: { reason: 'agent_not_visible' }, task: null, last_verified_at: at, stale: false },
+  ], (id) => (id === 'agent_a' ? 'Fleet' : null));
+  assert.deepEqual(list.map((p) => [p.agentId, p.status, p.role, p.stale, p.source]), [['agent_a', 'working', 'Fleet', false, 'presence-api'], ['agent_b', 'idle', null, true, 'presence-api'], ['desk:desk_2', 'unknown', null, false, 'presence-api']]);
+  assert.deepEqual(list[0].taskTitles, ['Plan']);
+  const index = indexPresence(list);
+  assert.equal(presenceForDesk(index, { id: 'desk_1', agentId: 'agent_a' })?.name, 'Alpha');
+  assert.equal(presenceForDesk(index, { id: 'desk_2', agentId: null })?.reason, 'agent_not_visible');
+  assert.equal(presenceForDesk(index, { id: 'desk_9', agentId: null }), undefined);
+  assert.equal(presenceForDesk(null, { id: 'desk_1', agentId: 'agent_a' }), undefined);
 });

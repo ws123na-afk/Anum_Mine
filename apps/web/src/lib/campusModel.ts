@@ -9,7 +9,7 @@
 export type CampusBuildingKind = 'executive' | 'business' | 'department' | 'personal';
 
 export type CampusTotals = Readonly<{
-  agents: number; working: number; meeting: number; waiting_approval: number;
+  agents: number; working: number; queued: number; meeting: number; waiting_approval: number;
   blocked: number; idle: number; paused: number; unknown: number;
 }>;
 
@@ -17,8 +17,18 @@ export type CampusBuilding = Readonly<{
   workspace_id: string;
   tenant_id: string;
   name: string;
+  /** What the building looks like. Without an owner's classification (`kindKnown` false) it is drawn as a plain business building. */
   kind: CampusBuildingKind;
+  /** False until an owner sets the building type; it is never guessed. */
+  kindKnown?: boolean;
   icon: string | null;
+  /** The caller's role in that workspace, when the server says. */
+  role?: string | null;
+  /** Revision of the building profile, for the owner's next save. */
+  profileRevision?: number | null;
+  rooms?: number | null;
+  desks?: number | null;
+  archived?: boolean;
   /** Floor count from the office registry, or null when it is not known without opening the workspace. */
   floors: number | null;
   accessible: boolean;
@@ -34,12 +44,12 @@ export type Campus = Readonly<{
 }>;
 
 export const EMPTY_TOTALS: CampusTotals = {
-  agents: 0, working: 0, meeting: 0, waiting_approval: 0, blocked: 0, idle: 0, paused: 0, unknown: 0,
+  agents: 0, working: 0, queued: 0, meeting: 0, waiting_approval: 0, blocked: 0, idle: 0, paused: 0, unknown: 0,
 };
 
 export function addTotals(a: CampusTotals, b: CampusTotals): CampusTotals {
   return {
-    agents: a.agents + b.agents, working: a.working + b.working, meeting: a.meeting + b.meeting,
+    agents: a.agents + b.agents, working: a.working + b.working, queued: a.queued + b.queued, meeting: a.meeting + b.meeting,
     waiting_approval: a.waiting_approval + b.waiting_approval, blocked: a.blocked + b.blocked,
     idle: a.idle + b.idle, paused: a.paused + b.paused, unknown: a.unknown + b.unknown,
   };
@@ -57,12 +67,12 @@ export function campusTotals(buildings: readonly CampusBuilding[]): { totals: Ca
   return { totals, reporting, missing: buildings.length - reporting };
 }
 
-export type StatusKey = 'working' | 'meeting' | 'waiting_approval' | 'blocked' | 'idle' | 'paused' | 'unknown';
-export const STATUS_ORDER: readonly StatusKey[] = ['working', 'meeting', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'];
+export type StatusKey = 'working' | 'queued' | 'meeting' | 'waiting_approval' | 'blocked' | 'idle' | 'paused' | 'unknown';
+export const STATUS_ORDER: readonly StatusKey[] = ['working', 'meeting', 'queued', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'];
 
 /** Tone per status, shared by the dot, the donut and the agent pill. */
-export const STATUS_TONE: Readonly<Record<StatusKey, 'ok' | 'meeting' | 'warn' | 'stop' | 'info' | 'muted' | 'faint'>> = {
-  working: 'ok', meeting: 'meeting', waiting_approval: 'warn', blocked: 'stop', idle: 'info', paused: 'muted', unknown: 'faint',
+export const STATUS_TONE: Readonly<Record<StatusKey, 'ok' | 'meeting' | 'queue' | 'warn' | 'stop' | 'info' | 'muted' | 'faint'>> = {
+  working: 'ok', queued: 'queue', meeting: 'meeting', waiting_approval: 'warn', blocked: 'stop', idle: 'info', paused: 'muted', unknown: 'faint',
 };
 
 /** The dominant status of a building: what the status dot on its label shows. */
@@ -73,6 +83,7 @@ export function buildingStatus(b: CampusBuilding): StatusKey | 'unavailable' | '
   if (b.totals.waiting_approval > 0) return 'waiting_approval';
   if (b.totals.working > 0) return 'working';
   if (b.totals.meeting > 0) return 'meeting';
+  if (b.totals.queued > 0) return 'queued';
   if (b.totals.idle > 0) return 'idle';
   if (b.totals.paused > 0) return 'paused';
   return 'unknown';
@@ -216,8 +227,8 @@ export function campusFromMemberships(
   const buildings: CampusBuilding[] = rows.map((m) => {
     const isCurrent = m.workspaceId === scope.workspaceId;
     return {
-      workspace_id: m.workspaceId, tenant_id: scope.tenantId, name: m.workspaceName ?? m.workspaceId, kind: 'business',
-      icon: null, floors: isCurrent ? current.floors : null, accessible: !m.archived,
+      workspace_id: m.workspaceId, tenant_id: scope.tenantId, name: m.workspaceName ?? m.workspaceId, kind: 'business', kindKnown: false,
+      icon: null, archived: m.archived === true, floors: isCurrent ? current.floors : null, accessible: !m.archived,
       totals: isCurrent ? current.totals : null, presence_verified_at: isCurrent ? current.verifiedAt : null,
     };
   });
@@ -225,23 +236,33 @@ export function campusFromMemberships(
 }
 
 const KINDS: readonly string[] = ['executive', 'business', 'department', 'personal'];
-const COUNT_KEYS: readonly (keyof CampusTotals)[] = ['agents', 'working', 'meeting', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'];
+const STATE_KEYS: readonly StatusKey[] = ['working', 'queued', 'meeting', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'];
 
-function readTotals(value: unknown): CampusTotals | null {
+/** Reads `{ total, by_state }` of the campus contract; anything missing or malformed means no presence. */
+function readAgents(value: unknown): CampusTotals | null {
   if (!value || typeof value !== 'object') return null;
   const row = value as Record<string, unknown>;
-  const out: Record<string, number> = {};
-  for (const key of COUNT_KEYS) {
-    const n = row[key];
+  const by = row.by_state;
+  if (typeof row.total !== 'number' || !Number.isFinite(row.total) || row.total < 0 || !by || typeof by !== 'object') return null;
+  const out: Record<string, number> = { agents: Math.floor(row.total) };
+  for (const key of STATE_KEYS) {
+    const n = (by as Record<string, unknown>)[key];
     if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return null;
     out[key] = Math.floor(n);
   }
   return out as unknown as CampusTotals;
 }
 
-/** Reads the campus endpoint's JSON defensively: a malformed building is dropped, not guessed. */
+const count = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null);
+
+/**
+ * Reads `GET /api/v1/office/campus` (contract version 1, packages/contracts/src/officeCampus.ts)
+ * defensively: a malformed building is dropped, a missing kind stays unclassified, and counts that
+ * do not add up are treated as no presence, never repaired.
+ */
 export function campusFromApi(payload: unknown, now: Date = new Date()): Campus {
   const root = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
+  const tenant = typeof root.tenant_id === 'string' ? root.tenant_id : '';
   const list = Array.isArray(root.buildings) ? root.buildings : [];
   const buildings: CampusBuilding[] = [];
   const seen = new Set<string>();
@@ -249,17 +270,20 @@ export function campusFromApi(payload: unknown, now: Date = new Date()): Campus 
     if (!raw || typeof raw !== 'object') continue;
     const r = raw as Record<string, unknown>;
     const id = typeof r.workspace_id === 'string' ? r.workspace_id : '';
-    if (!id || seen.has(id) || typeof r.tenant_id !== 'string' || typeof r.name !== 'string') continue;
+    if (!id || seen.has(id) || typeof r.name !== 'string') continue;
     seen.add(id);
-    const floors = typeof r.floors === 'number' && Number.isFinite(r.floors) && r.floors > 0 ? Math.floor(r.floors) : null;
+    const known = KINDS.includes(String(r.kind));
+    const floors = Array.isArray(r.floors) ? r.floors.length : null;
+    const accessible = r.accessible !== false;
     buildings.push({
-      workspace_id: id, tenant_id: r.tenant_id, name: r.name,
-      kind: KINDS.includes(String(r.kind)) ? (r.kind as CampusBuildingKind) : 'business',
-      icon: typeof r.icon === 'string' ? r.icon : null, floors, accessible: r.accessible !== false,
-      totals: readTotals(r.totals),
-      presence_verified_at: typeof r.presence_verified_at === 'string' ? r.presence_verified_at : null,
+      workspace_id: id, tenant_id: tenant, name: r.name,
+      kind: known ? (r.kind as CampusBuildingKind) : 'business', kindKnown: known,
+      icon: typeof r.icon === 'string' ? r.icon : null, role: typeof r.role === 'string' ? r.role : null,
+      profileRevision: count(r.profile_revision), rooms: count(r.rooms), desks: count(r.desks), archived: r.archived === true,
+      floors: floors !== null && floors > 0 ? floors : null, accessible,
+      totals: accessible ? readAgents(r.agents) : null,
+      presence_verified_at: typeof r.presence_verified_at === 'string' ? r.presence_verified_at : (typeof r.presence_as_of === 'string' ? r.presence_as_of : null),
     });
   }
-  const totals = readTotals(root.totals) ?? campusTotals(buildings).totals;
-  return { buildings, totals, generated_at: typeof root.generated_at === 'string' ? root.generated_at : now.toISOString() };
+  return { buildings, totals: campusTotals(buildings).totals, generated_at: typeof root.generated_at === 'string' ? root.generated_at : now.toISOString() };
 }
