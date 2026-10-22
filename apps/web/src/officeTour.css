@@ -26,7 +26,7 @@
 }
 .anumOfficeTour .officeBrand strong{
   color:#f6fcff!important;
-  font-size:var(--text-4xl);
+  font-size: var(--text-4xl);
   line-height:1.05;
   font-weight:760;
   letter-spacing:.11em;
@@ -35,7 +35,7 @@
 .anumOfficeTour .officeBrand small{color:#a5bbc9!important;letter-spacing:.025em}
 .officeLiveDivider{color:#5ee4d2;padding:0 5px}
 .anumOfficeTour .officeTopCenter{padding:7px 9px;background:rgba(122,178,191,.09);border:1px solid var(--oc-line);border-radius:12px}
-.anumOfficeTour .officeDemo{font-size:var(--text-2xs);color:#b9dfdf;border-color:#51877e;letter-spacing:.09em}
+.anumOfficeTour .officeDemo{font-size: var(--text-2xs);color:#b9dfdf;border-color:#51877e;letter-spacing:.09em}
 .anumOfficeTour .officeWorld{
   height:calc(100% - 106px);
   background:
@@ -131,7 +131,7 @@
   position:relative;z-index:5;display:inline-flex;align-items:center;gap:8px;
   background:#0b2b39;color:#f9fffd;border-radius:4px;
   box-shadow:0 5px 9px #1c444638;
-  font-weight:730;letter-spacing:.02em;font-size:var(--text-xs);
+  font-weight:730;letter-spacing:.02em;font-size: var(--text-xs);
   max-width:100%;
 }
 .officeRoomStatusDot{width:6px;height:6px;border-radius:50%;background:#4ddeba;box-shadow:0 0 0 3px #4ddeba33}
@@ -139,7 +139,7 @@
   position:relative;z-index:5;
   display:inline-block;
   background:rgba(255,255,255,.93);border:1px solid #e2e9e1;
-  color:#41636c;font-size:var(--text-2xs);max-width:100%;line-height:1.25;
+  color:#41636c;font-size: var(--text-2xs);max-width:100%;line-height:1.25;
 }
 .anumOfficeTour .officeRoomInterior{position:absolute;inset:18% 4% 4%;overflow:hidden;pointer-events:none}
 .officeGlassWall{position:absolute;left:0;top:0;width:100%;height:3px;background:linear-gradient(90deg,#92bbb6,transparent,#92bbb6);box-shadow:0 2px 0 #f8fffa}
@@ -169,14 +169,14 @@
   z-index:4;width:17px;height:17px;
   border:2px solid #ecfaf2;
   box-shadow:0 2px 0 #395c66,0 8px 10px #203d4255;
-  background:#44847d;font-size:var(--text-sm);
+  background:#44847d;font-size: var(--text-sm);
 }
 .anumOfficeTour .officePerson span{display:none}
 .anumOfficeTour .officePerson:after{content:"";display:block;width:6px;height:6px;background:#edf9f2;border-radius:50%;margin:3px auto 0}
 .anumOfficeTour .officePaPresence{
   background:#103647;border:1px solid #54cdb9;border-radius:12px;
   box-shadow:0 4px 0 #1d5360,0 12px 20px #20353677;
-  font-weight:650;font-size:var(--text-2xs);letter-spacing:.02em;
+  font-weight:650;font-size: var(--text-2xs);letter-spacing:.02em;
 }
 .anumOfficeTour .officeFloorPanel,.anumOfficeTour .officeInfo,.anumOfficeTour .officePa,.anumOfficeTour .officeControls{
   border:1px solid rgba(159,199,214,.2);
@@ -186,14 +186,14 @@
   backdrop-filter:blur(22px);
 }
 .anumOfficeTour .officeFloorPanel{width:242px;left:20px;top:20px;padding:18px}
-.officePanelEyebrow{color:#6fd2c4;letter-spacing:.16em;font-size:var(--text-2xs);font-weight:750;margin-bottom:7px}
-.anumOfficeTour .officeFloorPanel h2,.anumOfficeTour .officeInfo h2{color:#f6fcff;font-size:var(--text-2xl);font-weight:720}
+.officePanelEyebrow{color:#6fd2c4;letter-spacing:.16em;font-size: var(--text-2xs);font-weight:750;margin-bottom:7px}
+.anumOfficeTour .officeFloorPanel h2,.anumOfficeTour .officeInfo h2{color:#f6fcff;font-size: var(--text-md);font-weight:720}
 .anumOfficeTour .officeInfo{width:270px;right:20px;top:20px}
 .anumOfficeTour .officeModuleButtons{display:grid;gap:6px;margin:8px 0 14px}
 .anumOfficeTour .officeModuleButtons button{
   display:flex;justify-content:flex-start;text-align:left;width:100%;
   background:#193349;border-color:#365467;border-radius:9px;
-  font-size:var(--text-xs);padding:10px 11px;color:#e6f9fc;
+  font-size: var(--text-xs);padding:10px 11px;color:#e6f9fc;
 }
 .anumOfficeTour .officeModuleButtons button:hover{background:#22515c;border-color:#6de2d3}
 .anumOfficeTour .officeFloorPanel>button{
@@ -216,7 +216,7 @@
   .anumOfficeTour .officeWorld{height:calc(100% - 76px)}
   .anumOfficeTour .officeScene{inset:10% 0 36%}
   .anumOfficeTour .officeFloorPanel{width:165px;padding:10px;max-height:45%;overflow:auto}
-  .anumOfficeTour .officeModuleButtons button{font-size:var(--text-2xs);padding:8px}
+  .anumOfficeTour .officeModuleButtons button{font-size: var(--text-2xs);padding:8px}
   .anumOfficeTour .officePa{bottom:70px}
   .anumOfficeTour .officeControls{bottom:5px}
 }

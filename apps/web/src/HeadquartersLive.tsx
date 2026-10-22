@@ -13,6 +13,7 @@ import { OfficeSpaceLiveManager } from './OfficeSpaceLiveManager';
 import { OfficeWorkstations } from './OfficeWorkstations';
 import { ReceptionOperations } from './ReceptionOperations';
 import { GuidedExecutiveTour } from './GuidedExecutiveTour';
+import { AgentMeetingSessions } from './AgentMeetingSessions';
 import './headquartersLive.css';
 
 const officeApi=createOfficeSpaceClient(api.apiRequest,api.apiRequestVoid,api.currentScope);
@@ -41,7 +42,7 @@ function roomIcon(kind:string){
   default:return <Building2 size={16}/>;
  }
 }
-type Overlay = 'none'|'spaces'|'workstations'|'reception'|'tour';
+type Overlay = 'none'|'spaces'|'workstations'|'reception'|'tour'|'agentMeetings';
 export function HeadquartersLive({onClose}:{onClose:()=>void}){
  const [state,setState]=useState<OfficeState|null>(null);
  const [overlay,setOverlay]=useState<Overlay>('none');
@@ -68,7 +69,46 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
     source:'authenticated-agent-snapshot',
    }));
   },
- }),[]);
+ },10_000),[]);
+ useEffect(()=>{
+  const abort=new AbortController();
+  let active=true;
+  let reconnect=1000;
+  let refreshTimer:ReturnType<typeof setTimeout>|null=null;
+  const refreshFromEvents=()=>{
+   if(refreshTimer!==null)return;
+   refreshTimer=setTimeout(()=>{refreshTimer=null;if(active&&!abort.signal.aborted)void controller.refresh()},300);
+  };
+  const scope=api.currentScope();
+  const watch=async()=>{
+   while(active&&!abort.signal.aborted){
+    try{
+     await api.streamEvents(event=>{
+      if(!active)return;
+      const current=api.currentScope();
+      if(current.tenantId!==scope.tenantId||current.workspaceId!==scope.workspaceId){
+       abort.abort();return;
+      }
+      if(/^(task|agent_run|agent|approval|agent_meeting|office)\\./.test(event.type)){
+       refreshFromEvents();
+      }
+     },abort.signal,()=>{reconnect=1000});
+    }catch{ /* SSE may disconnect; scoped periodic refresh remains active. */ }
+    if(!active||abort.signal.aborted)break;
+    await new Promise<void>(resolve=>window.setTimeout(resolve,reconnect));
+    reconnect=Math.min(reconnect*2,30000);
+   }
+  };
+  void watch();
+  return()=>{active=false;abort.abort();if(refreshTimer!==null)clearTimeout(refreshTimer)};
+ },[controller]);
+ useEffect(()=>{
+  const refreshVisible=()=>{if(document.visibilityState==='visible')void controller.refresh()};
+  const refreshFocused=()=>{void controller.refresh()};
+  window.addEventListener('focus',refreshFocused);
+  document.addEventListener('visibilitychange',refreshVisible);
+  return()=>{window.removeEventListener('focus',refreshFocused);document.removeEventListener('visibilitychange',refreshVisible)};
+ },[controller]);
  useEffect(()=>{
   const unsubscribe=controller.subscribe(setState);
   void controller.initialize();controller.scheduleRefresh();
@@ -148,6 +188,7 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
     <div className="hqOperations">
      <button onClick={()=>setOverlay('spaces')}><Building2 size={17}/>Manage spaces</button>
      <button onClick={()=>setOverlay('workstations')}><Users size={17}/>Live workstations</button>
+     <button onClick={()=>setOverlay('agentMeetings')}><Users size={17}/>Agent meeting sessions</button>
      <button onClick={()=>setOverlay('reception')}><DoorOpen size={17}/>Reception desk</button>
      <button onClick={()=>setOverlay('tour')}><Compass size={17}/>Guided visit</button>
     </div>
@@ -211,6 +252,7 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
   {overlay!=='none'&&<div className="hqModalHost"><button className="hqModalClose" aria-label="Close office panel" onClick={()=>setOverlay('none')}><X size={18}/></button>
    {overlay==='spaces'?<OfficeSpaceLiveManager onClose={()=>{setOverlay('none');void controller.refresh()}}/>:
     overlay==='workstations'?<OfficeWorkstations onClose={()=>setOverlay('none')}/>:
+    overlay==='agentMeetings'?<AgentMeetingSessions onClose={()=>setOverlay('none')}/>:
     overlay==='reception'?<ReceptionOperations onClose={()=>setOverlay('none')} onDestination={name=>{const target=floor?.rooms.find(r=>r.label===name);if(target){visit(target);setOverlay('none')}}}/>:
     <GuidedExecutiveTour site={building?.name??'ANUM MINE'} stops={tourStops} onClose={()=>setOverlay('none')}
      onArrive={id=>{const destination=floor?.rooms.find(r=>r.id===id);if(destination)visit(destination)}}/>}

@@ -39,7 +39,7 @@ _COLUMNS = {
 }
 _SQL_TABLES = {
     kind: table(name, *(column(field) for field in (
-        "id", "tenant_id", "workspace_id", "revision", "created_by", "created_at", "updated_at", *_COLUMNS[kind]
+        "id", "tenant_id", "workspace_id", "revision", "created_by", "created_at", "updated_at", *_COLUMNS[kind], *(("scene_x","scene_z","scene_width","scene_depth") if kind == "rooms" else ())
     )))
     for kind, name in _TABLES.items()
 }
@@ -243,3 +243,36 @@ class SqlOfficeSpaceStore:
         if self.get(context, kind, item_id) is None:
             raise SpaceStoreError("not_found", "Office record not found in this workspace")
         raise SpaceStoreError("conflict", "Office layout changed. Reload before retrying")
+
+
+    def update_room_geometry(self, context: TenantContext, room_id: str, revision: int,
+                             x: float, z: float, width: float, depth: float) -> dict[str, Any]:
+        """Persist non-overlapping room rectangles with floor serialization."""
+        room = self.session.execute(text("""
+            select floor_id from office_rooms
+            where tenant_id=:tenant and workspace_id=:workspace and id=:id
+        """), self._params(context,id=room_id)).mappings().first()
+        if room is None:
+            raise SpaceStoreError("not_found","Room not found")
+        self.session.execute(text("""
+            select id from office_floors
+            where tenant_id=:tenant and workspace_id=:workspace and id=:floor
+            for update
+        """),self._params(context,floor=room["floor_id"])).first()
+        others=self.session.execute(text("""
+            select id,scene_x,scene_z,scene_width,scene_depth from office_rooms
+            where tenant_id=:tenant and workspace_id=:workspace and floor_id=:floor and id<>:id
+            and scene_x is not null
+        """),self._params(context,id=room_id,floor=room["floor_id"])).mappings().all()
+        for other in others:
+            if (x < other["scene_x"]+other["scene_width"] and x+width > other["scene_x"]
+                and z < other["scene_z"]+other["scene_depth"] and z+depth > other["scene_z"]):
+                raise SpaceStoreError("conflict","Room geometry overlaps an existing saved room")
+        result=self.session.execute(text("""
+            update office_rooms set scene_x=:x,scene_z=:z,scene_width=:width,scene_depth=:depth,
+             revision=revision+1,updated_at=now()
+            where tenant_id=:tenant and workspace_id=:workspace and id=:id and revision=:rev
+            returning *
+        """),self._params(context,id=room_id,rev=revision,x=x,z=z,width=width,depth=depth)).mappings().first()
+        if result is None:raise SpaceStoreError("conflict","Room revision changed; reload layout")
+        return dict(result)

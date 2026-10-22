@@ -13,7 +13,7 @@ export type Vec3 = Readonly<{x:number;y:number;z:number}>;
 export type Building = Readonly<{id:string;name:string;timezone:string;revision:number}>;
 export type Floor = Readonly<{id:string;building_id:string;level:number;name:string;revision:number}>;
 export type RoomKind = 'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge';
-export type Room = Readonly<{id:string;floor_id:string;name:string;kind:RoomKind;capacity:number;revision:number}>;
+export type Room = Readonly<{id:string;floor_id:string;name:string;kind:RoomKind;capacity:number;revision:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null}>;
 export type Desk = Readonly<{id:string;room_id:string;label:string;agent_id:string|null;revision:number}>;
 export type Registry = Readonly<{buildings:readonly Building[];floors:readonly Floor[];rooms:readonly Room[];desks:readonly Desk[]}>;
 export type AgentEvidence = Readonly<{
@@ -77,7 +77,7 @@ export function layoutRoomsOnFloor(rooms:readonly Room[],floor:Floor,buildingId:
   const x=col*(ROOM_WIDTH*1.4+AISLE)-12;
   const z=row*(ROOM_DEPTH*1.7+AISLE)-5;
   return {id:room.id,floorId:floor.id,buildingId,label:room.name,kind:room.kind,
-   x,z,width,depth,height:3.2,capacity:room.capacity,revision:room.revision,deskIds:[],evidence:'registry'};
+   x:room.scene_x??x,z:room.scene_z??z,width:room.scene_width??width,depth:room.scene_depth??depth,height:3.2,capacity:room.capacity,revision:room.revision,deskIds:[],evidence:'registry'};
  });
 }
 function placeDesks(room:RoomGeometry,assigned:readonly Desk[],visibleAgents:ReadonlyMap<string,AgentEvidence>,nowMs:number,issues:ProjectionIssue[]):SceneDesk[]{
