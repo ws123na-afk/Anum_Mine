@@ -107,6 +107,22 @@ export function OfficeSpaceLiveManager({onClose}:{onClose:()=>void}){
       <form onSubmit={e=>{e.preventDefault();void act(()=>client.rename(chosenRoom.id,newRoomName,chosenRoom.revision),'Room name')}}>
        <label>Rename room<input required maxLength={100} placeholder={chosenRoom.name} value={newRoomName} onChange={e=>setNewRoomName(e.target.value)}/></label><button disabled={busy||!newRoomName.trim()}>Save name</button>
       </form>
+      <form key={'geometry-'+chosenRoom.id+'-'+chosenRoom.revision}
+       onSubmit={e=>{e.preventDefault();const values=new FormData(e.currentTarget);
+        void act(()=>client.geometry(chosenRoom.id,chosenRoom.revision,
+          Number(values.get('x')),Number(values.get('z')),
+          Number(values.get('width')),Number(values.get('depth'))),'Room layout')}}>
+       <h4>Saved room placement (metres)</h4>
+       <div className="spaceRegistryFormRow">
+        {(['x','z','width','depth'] as const).map(field=><label key={field}>{field.toUpperCase()}
+         <input name={field} type="number" step="0.1" required
+          min={field==='width'||field==='depth'?1:-10000}
+          max={field==='width'||field==='depth'?1000:10000}
+          defaultValue={field==='x'?chosenRoom.scene_x??0:field==='z'?chosenRoom.scene_z??0:field==='width'?chosenRoom.scene_width??5.8:chosenRoom.scene_depth??4.2}/>
+        </label>)}
+       </div>
+       <button disabled={busy}>Save room geometry</button>
+      </form>
       {['office','warehouse','workshop'].includes(chosenRoom.kind)&&<form onSubmit={e=>{e.preventDefault();void act(()=>client.post('desks',{id:makeId('desk'),room_id:chosenRoom.id,label:deskLabel}),'Desk')}}>
        <label>Workstation label<input required maxLength={100} value={deskLabel} onChange={e=>setDeskLabel(e.target.value)} placeholder="Desk A1"/></label><button disabled={busy||!deskLabel.trim()||desks.length>=chosenRoom.capacity}>Add desk</button>
       </form>}

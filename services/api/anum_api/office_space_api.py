@@ -69,6 +69,14 @@ class RenameRoom(StrictBody):
     expected_revision: int = Field(ge=1)
 
 
+class RoomGeometryUpdate(StrictBody):
+    expected_revision: int = Field(ge=1)
+    x: float = Field(ge=-10000,le=10000)
+    z: float = Field(ge=-10000,le=10000)
+    width: float = Field(ge=1,le=1000)
+    depth: float = Field(ge=1,le=1000)
+
+
 class AssignDesk(StrictBody):
     agent_id: Identifier | None
     expected_revision: int = Field(ge=1)
@@ -238,5 +246,20 @@ def delete_desk(
         try:
             store.delete_desk(context, desk_id, expected_revision)
             _audit(store, context, "office.desk.delete", desk_id)
+        except SpaceStoreError as exc:
+            raise _error(exc) from exc
+
+
+@router.patch("/rooms/{room_id}/geometry")
+def update_room_geometry(room_id: Identifier, body: RoomGeometryUpdate,
+                         context: TenantContext = Depends(tenant_context)) -> dict:
+    """Audited, optimistic room placement with floor-level collision locking."""
+    _writable(context)
+    with _store(context) as store:
+        try:
+            result=store.update_room_geometry(context,room_id,body.expected_revision,
+                                               body.x,body.z,body.width,body.depth)
+            _audit(store,context,"office.room.geometry",room_id)
+            return result
         except SpaceStoreError as exc:
             raise _error(exc) from exc

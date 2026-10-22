@@ -114,3 +114,21 @@ test('stable room sorting uses names and IDs',()=>{
  const result=projection({rooms,desks:[]});
  assert.deepEqual(result.buildings[0].floors[0].rooms.map(x=>x.id),['alpha','gamma','beta']);
 });
+
+
+test('saved room geometry overrides generated grid without changing persisted identity',()=>{
+ const edited={...room,scene_x:14,scene_z:-3,scene_width:10,scene_depth:8};
+ const result=projection({rooms:[edited]});
+ const placement=result.buildings[0].floors[0].rooms[0];
+ assert.equal(placement.id,'ops');
+ assert.equal(placement.x,14);
+ assert.equal(placement.z,-3);
+ assert.equal(placement.width,10);
+ assert.equal(placement.depth,8);
+ assert.equal(placement.revision,1);
+});
+test('rooms without saved geometry preserve deterministic fallback placement',()=>{
+ const placement=projection().buildings[0].floors[0].rooms[0];
+ assert.ok(Number.isFinite(placement.x));
+ assert.ok(placement.width>0);
+});

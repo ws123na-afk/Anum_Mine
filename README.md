@@ -76,6 +76,8 @@ x-user-roles: owner,member
 
 ## Documentation Index
 
+- [ANUM MINE room geometry and branch reconciliation](docs/ANUM_MINE_GEOMETRY_AND_BRANCH_RECONCILIATION.md)
+
 - [ANUM MINE release completion checkpoint](docs/ANUM_MINE_RELEASE_CHECKPOINT.md)
 
 - [Product vision](docs/product-vision.md)
