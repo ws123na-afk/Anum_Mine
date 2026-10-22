@@ -25,12 +25,11 @@ def test_discovery_uses_authenticated_scope():
         assert discover(context,2)==["m1","m2"]
 
 
-@pytest.mark.asyncio
-async def test_invalid_supervisor_limits():
+def test_invalid_supervisor_limits():
     context=TenantContext(tenant_id="tenant1",workspace_id="workspace1",user_id="owner1")
     with patch("anum_api.meeting_supervisor.settings") as settings:
         settings.repository_backend="postgresql"
         with pytest.raises(ValueError):
-            await supervise(context,max_meetings=0)
+            asyncio.run(supervise(context,max_meetings=0))
         with pytest.raises(ValueError):
-            await supervise(context,poll_seconds=0)
+            asyncio.run(supervise(context,poll_seconds=0))
