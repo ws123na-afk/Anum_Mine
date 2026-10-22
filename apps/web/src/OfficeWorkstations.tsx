@@ -39,6 +39,8 @@ export function OfficeWorkstations({onClose}:{onClose:()=>void}){
   try{const result=await loadWorkspaceWorkstations(sourcesRef.current);
    if(!aliveRef.current||seq!==seqRef.current)return;
    sourcesRef.current=result.sources;setData(result.snapshot);setError('');
+   // Move the clock with the snapshot: a tick older than observedAt reads as stale (b<a).
+   setTick(new Date().toISOString());
    setSelected(old=>old&&result.snapshot.records.some(r=>r.agentId===old)?old:null);
   }catch(e){if(aliveRef.current&&seq===seqRef.current){
    const problem=workstationLoadProblem(e);setError(problem.message);
