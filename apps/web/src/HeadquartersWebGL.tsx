@@ -96,6 +96,7 @@ export function HeadquartersWebGL(props:Props){
  const drag=useRef<Drag|null>(null);
  const [fallback,setFallback]=useState(false);
  const [gpuError,setGpuError]=useState<string|null>(null);
+ const [canvasSize,setCanvasSize]=useState({width:1000,height:650});
  useEffect(()=>{
   const element=canvas.current;if(!element||fallback)return;
   const gl=element.getContext('webgl',{antialias:true,alpha:false,depth:false});
@@ -119,7 +120,11 @@ export function HeadquartersWebGL(props:Props){
   try{
    program=createProgram(gl);
    buffer=gl.createBuffer();if(!buffer)throw new Error('GPU vertex buffer unavailable');
-   observer=new ResizeObserver(paint);observer.observe(element);paint();
+   observer=new ResizeObserver(()=>{
+    const rect=element.getBoundingClientRect();
+    setCanvasSize(old=>old.width===rect.width&&old.height===rect.height?old:{width:rect.width,height:rect.height});
+    paint();
+   });observer.observe(element);paint();
   }catch(error){setGpuError(error instanceof Error?error.message:'WebGL unavailable');setFallback(true)}
   return()=>{
    disposed=true;if(scheduled!==null)cancelAnimationFrame(scheduled);
@@ -151,13 +156,31 @@ export function HeadquartersWebGL(props:Props){
   const hit=pickRoom(floor.rooms,screenRay(camera,x,y,rect.width/rect.height));
   if(hit)onSelectRoom(hit.roomId);
  };
+ const roomMarkers=floor.rooms.map(room=>{
+  const point=projectPoint(camera,{x:room.x+room.width*.5,y:room.height*.70,z:room.z+room.depth*.48},
+   canvasSize.width/Math.max(1,canvasSize.height));
+  if(!point||Math.abs(point.x)>.96||Math.abs(point.y)>.96)return null;
+  const desks=floor.desks.filter(d=>d.roomId===room.id);
+  const active=desks.filter(d=>d.agent!==null).length;
+  return {room,active,assigned:desks.filter(d=>d.assignmentVisible).length,
+    left:(point.x+1)*50,top:(1-point.y)*50};
+ }).filter((value):value is NonNullable<typeof value>=>value!==null);
  if(fallback)return <div className="hqGpuFallback">
   {gpuError&&<span className="hqGpuNote" role="status">{gpuError}</span>}
   <HeadquartersCanvas {...props}/>
  </div>;
- return <canvas ref={canvas} className="hqCanvas" aria-label="GPU-rendered 3D office. Drag to orbit, Shift-drag to pan, scroll to zoom, click a room"
+ return <div className="hqImmersiveStage"><canvas ref={canvas} className="hqCanvas" aria-label="GPU-rendered 3D office. Drag to orbit, Shift-drag to pan, scroll to zoom, click a room"
   onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
   onPointerCancel={()=>{drag.current=null}}
   onWheel={(event:WheelEvent<HTMLCanvasElement>)=>{event.stopPropagation();setCamera(dolly(camera,event.deltaY))}}
-  onContextMenu={event=>event.preventDefault()}/>;
+  onContextMenu={event=>event.preventDefault()}/>
+  <div className="hqSceneLabels" aria-label="Interactive room labels">
+   {roomMarkers.map(({room,active,assigned,left,top})=><button key={room.id} type="button"
+    className={`hqSceneRoomLabel ${room.id===selectedRoomId?"selected":""}`}
+    style={{left:`${left}%`,top:`${top}%`}} onClick={()=>onSelectRoom(room.id)}
+    aria-label={`Select ${room.label}, ${assigned} assigned workstations` }>
+    <span className="hqRoomLabelName">{room.label}</span>
+    <span className="hqRoomLabelMeta">{room.kind} · {active} activity records</span>
+   </button>)}
+  </div></div>;
 }

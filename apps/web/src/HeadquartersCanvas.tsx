@@ -30,6 +30,73 @@ function box(x:number,y:number,z:number,w:number,h:number,d:number,shade:RGB,key
   {points:[D,A,E,H],color:mix(shade,[0,0,0],.08),alpha,key:key+'-left'},
  ]};
 }
+/** Fixed architectural fittings; furniture is not employee or activity evidence. */
+function fitting(x:number,y:number,z:number,w:number,h:number,d:number,shade:RGB,id:string):Mesh{
+ return box(x,y,z,w,h,d,shade,id);
+}
+function pottedPlant(x:number,z:number,id:string):Mesh[]{
+ return [
+  fitting(x,.1,z,.27,.42,.27,[115,93,70],id+'-pot'),
+  fitting(x-.10,.52,z-.10,.47,.42,.47,[41,109,76],id+'-leaves'),
+  fitting(x+.06,.78,z+.04,.28,.25,.28,[70,142,91],id+'-crown'),
+ ];
+}
+function seating(x:number,z:number,id:string):Mesh[]{
+ return [
+  fitting(x,.16,z,.68,.18,.55,[66,91,99],id+'-base'),
+  fitting(x,.34,z,.68,.54,.14,[96,118,125],id+'-back'),
+  fitting(x+.13,.1,z+.65,.46,.14,.24,[44,58,66],id+'-foot')
+ ];
+}
+function departmentFurniture(room:RoomGeometry,night:boolean):Mesh[]{
+ const {x,z,width:w,depth:d,id,kind}=room;
+ const wood:RGB=night?[115,90,68]:[162,119,81];
+ const stone:RGB=night?[115,124,124]:[225,218,198];
+ const dark:RGB=[42,61,72];
+ const result:Mesh[]=[];
+ // Wall-side millwork, foliage, decorative lighting and carefully inset furniture.
+ if(w>3&&d>3){
+  result.push(...pottedPlant(x+.35,z+.35,id+'-plant-nw'));
+  result.push(...pottedPlant(x+w-.62,z+d-.63,id+'-plant-se'));
+  result.push(fitting(x+.26,1.65,z+.13,w-.52,.055,.065,[207,176,112],id+'-warm-wall-light'));
+ }
+ if(kind==='meeting'){
+  const tw=Math.min(w*.56,4.4),td=Math.min(d*.26,1.55);
+  const tx=x+(w-tw)/2,tz=z+(d-td)/2;
+  result.push(fitting(tx,.67,tz,tw,.13,td,wood,id+'-boardroom-table'));
+  result.push(fitting(tx+.22,.12,tz+.16,tw-.44,.54,td-.32,dark,id+'-table-base'));
+  for(let i=0;i<Math.min(5,Math.max(2,Math.floor(tw/.8)));i++){
+   const px=tx+(i+.35)*tw/Math.min(5,Math.max(2,Math.floor(tw/.8)));
+   result.push(...seating(px,z+d*.18,id+'-chair-n'+i));
+   result.push(...seating(px,z+d*.72,id+'-chair-s'+i));
+  }
+  result.push(fitting(x+w*.22,1.05,z+.16,w*.55,1.05,.1,[35,82,103],id+'-presentation-display'));
+ }else if(kind==='reception'){
+  result.push(fitting(x+w*.18,.20,z+d*.57,w*.64,.82,.45,stone,id+'-reception-counter'));
+  result.push(fitting(x+w*.20,1.02,z+d*.57,w*.60,.07,.46,[231,226,214],id+'-counter-cap'));
+  result.push(fitting(x+w*.20,.15,z+.14,w*.60,1.9,.12,wood,id+'-reception-feature-wall'));
+  result.push(fitting(x+w*.32,1.35,z+.28,w*.35,.14,.03,[215,195,124],id+'-reception-signage'));
+  if(w>5&&d>4){result.push(...seating(x+w*.25,z+d*.22,id+'-visitor-seat'))}
+ }else if(kind==='office'){
+  result.push(fitting(x+w*.30,.65,z+d*.34,w*.40,.10,d*.22,wood,id+'-executive-desk'));
+  result.push(fitting(x+w*.32,.20,z+d*.39,w*.34,.45,d*.12,dark,id+'-executive-cabinet'));
+  result.push(fitting(x+w*.40,.77,z+d*.37,w*.17,.55,.04,[39,80,101],id+'-executive-monitor'));
+  if(w>5&&d>4)result.push(...seating(x+w*.12,z+d*.69,id+'-guest-chair'));
+ }else if(kind==='lounge'){
+  const sy=z+d*.34;
+  result.push(fitting(x+w*.20,.15,sy,w*.52,.44,.60,[126,139,133],id+'-sofa'));
+  result.push(fitting(x+w*.20,.55,sy,w*.52,.38,.13,[102,121,122],id+'-sofa-back'));
+  result.push(fitting(x+w*.38,.35,z+d*.65,w*.23,.16,.52,wood,id+'-coffee-table'));
+ }else if(kind==='warehouse'||kind==='workshop'){
+  for(let i=0;i<3;i++)result.push(fitting(x+w*.15+i*w*.245,.12,z+d*.22,w*.14,1.25,d*.52,
+   [88,107,105],id+'-shelf'+i));
+ }else{
+  // Department workbench: meaningful spatial identity without synthetic people.
+  result.push(fitting(x+w*.22,.68,z+d*.39,w*.53,.09,d*.19,wood,id+'-operations-worktop'));
+  result.push(fitting(x+w*.28,.78,z+d*.40,.54,.48,.06,[34,77,93],id+'-operations-display'));
+ }
+ return result;
+}
 export function roomMeshes(room:RoomGeometry,desks:readonly SceneDesk[],night:boolean,selected:boolean):Mesh[]{
  const {x,z,width,depth,height}=room;
  const floorColor:RGB=selected?[76,184,157]:night?[64,88,103]:[183,198,189];
@@ -38,8 +105,12 @@ export function roomMeshes(room:RoomGeometry,desks:readonly SceneDesk[],night:bo
   box(x,0,z,width,.1,depth,floorColor,room.id+'-floor'),
   box(x,.1,z,width,height*.62,.10,wallColor,room.id+'-north',.7),
   box(x,.1,z,.11,height*.62,depth,wallColor,room.id+'-west',.65),
-  box(x+width-.11,.1,z,.11,height*.62,depth,wallColor,room.id+'-east',.65),
+  box(x+width-.11,.1,z,.11,height*.62,depth,wallColor,room.id+'-east',.35),
+  // Perimeter glass walls deliberately stop below ceiling for an unobstructed cutaway.
+  box(x,.1,z+depth-.12,width,height*.48,.12,wallColor,room.id+'-south-glass',.24),
+  box(x,.1,z+depth*.53,.12,height*.50,Math.max(.12,depth*.23),wallColor,room.id+'-glass-partition',.20),
  ];
+ meshes.push(...departmentFurniture(room,night));
  const deskMaterial:RGB=night?[111,86,68]:[174,134,104];
  const chairMaterial:RGB=night?[48,67,82]:[74,91,106];
  const monitor:RGB=night?[39,91,112]:[43,77,94];
@@ -68,10 +139,18 @@ export function sceneMeshes(floor:SceneFloor,selectedRoomId:string|null,night:bo
  const rooms=floor.rooms;
  const bounds=floor.bounds;
  const foundation=box(-14,-.45,-9,bounds.width+14,.44,bounds.depth+12,
-  night?[60,83,95]:[135,155,150],'foundation');
+  night?[61,68,72]:[170,174,165],'foundation');
  const hallway=box(-1,.004,-3,2,.01,Math.max(10,bounds.depth+3),
   night?[69,104,109]:[210,222,210],'walkway');
  const meshes:Mesh[]=[foundation,hallway];
+ // Building trim, perimeter downlights, and structural features anchor the scene.
+ const trim:RGB=night?[186,146,90]:[197,181,145];
+ meshes.push(fitting(-14,-.16,-9,bounds.width+14,.15,.12,trim,'building-front-trim'));
+ meshes.push(fitting(-14,-.16,-9,.12,.15,bounds.depth+12,trim,'building-west-trim'));
+ meshes.push(fitting(-14,-.16,bounds.depth+2,bounds.width+14,.15,.12,trim,'building-south-trim'));
+ for(let i=0;i<Math.min(12,Math.floor(bounds.width/3));i++){
+  meshes.push(fitting(-12+i*3,.055,-8,.43,.07,.16,[220,198,134],'light-'+i));
+ }
  for(const room of rooms){
   const desks=floor.desks.filter(d=>d.roomId===room.id);
   meshes.push(...roomMeshes(room,desks,night,selectedRoomId===room.id));
