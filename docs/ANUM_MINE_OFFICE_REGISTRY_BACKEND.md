@@ -1,10 +1,10 @@
 # ANUM MINE Office Registry - Production Backend
 
 ## Scope and current release state
-Backend implementation on `workstream/office-production-backend`, based on integrated office modules. This branch defines the PostgreSQL schema, authenticated resource API, row-level security and transactional desk integrity. **Do not deploy or merge until PostgreSQL migration tests and the full API tests pass.** The frontend registry is still an explicit ephemeral preview until a later adapter replaces it with the server API and handles conflict refresh.
+Backend implementation on `workstream/office-production-backend`, based on integrated office modules. This branch defines the PostgreSQL schema, authenticated resource API, row-level security and transactional desk integrity. **Do not deploy or merge until PostgreSQL migration tests and the full API tests pass.** The connected management panel uses the server API; the older local registry remains an explicitly labeled ephemeral preview.
 
 ## Schema, transaction rules and isolation
-Migration `0097_office_spaces` creates `office_buildings`, `office_floors`, `office_rooms`, and `office_desks`. Each row is scoped by tenant and workspace; the three-part (tenant, workspace, id) primary key allows separate businesses to reuse the same stable IDs. Children reference parents using three-part composite foreign keys, preventing cross-workspace parent pointers.
+Migration `0097_office_spaces` creates `office_buildings`, `office_floors`, `office_rooms`, and `office_desks`. Migration `0099_office_create_keys` adds workspace-scoped create claims after the agent meeting migration. Each row is scoped by tenant and workspace; the three-part (tenant, workspace, id) primary key allows separate businesses to reuse the same stable IDs. Children reference parents using three-part composite foreign keys, preventing cross-workspace parent pointers.
 
 Every table has PostgreSQL `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY`, using the existing `anum.tenant_id` and `anum.workspace_id` context variables. The lifecycle-purge role receives narrowly scoped delete privileges using the same workspace/organization deletion conditions as existing 0096 migrations. Tests must exercise operations under the *non-owner app database role*.
 
@@ -34,6 +34,8 @@ Prefix: `/api/v1/office-spaces`
 
 Every mutation records an append-only audit record within the same PostgreSQL transaction, with user attribution, resource ID and generated correlation ID. API responses use 422 for validation, 403 for missing authorization, 404 for nonexistent scoped resources, 409 for stale/conflicting writes. Memory backend returns **503**, not fake success.
 
+Create requests may include `Idempotency-Key` (8 to 200 characters, letters, numbers, period, underscore, colon or hyphen). The first successful request returns 201. Retrying the same key and canonical request in the same workspace returns the existing record with 200 and does not append another audit record. Reusing that key with another payload or resource kind returns 409. A failed create rolls back its key claim, so it can be retried after the cause is fixed. Keys are isolated by tenant and workspace and remain reserved if the resource is later deleted; retrying then returns 409. Without a key, duplicate IDs retain their existing 409 behavior.
+
 The backend derives tenant, workspace and actor exclusively from the authenticated request context. Client-provided scope properties are rejected by strict input models.
 
 ## Connected web operations (implemented, CI verification pending)
@@ -53,7 +55,7 @@ An existing production agent status or meeting status is not created by adding a
 1. Backend CI, database migration under non-owner app role, and PostgreSQL integration tests pass.
 2. Cursor pagination is implemented (page size 1-100). Verify cursor stability under parallel edits and cover very large workspaces with load tests.
 3. Add server-issued outbox events for room/desk changes and replay through existing SSE; audit records alone are insufficient for real-time desk sync.
-4. Add idempotency keys for create operations and stronger API versions/ETags; revisions currently cover mutation concurrency.
+4. Create idempotency keys are implemented in migration `0098`; stronger API versions/ETags remain. Revisions currently cover mutation concurrency.
 5. The web manager and API adapter are implemented. Validate browser behavior for 409/reload, unauthorized reads, offline state, and multi-workspace switching with Playwright before release.
 6. Implement row geometry/coordinates, walkable paths, and 3D scene assets in a separate feature.
 7. Test migration downgrade only in an empty test workspace. Production rollback must disable the feature and restore backup instead of deleting real office records.

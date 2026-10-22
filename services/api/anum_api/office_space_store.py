@@ -7,9 +7,11 @@ No agent activity or private agent profile data are fabricated in this module.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import hashlib
+import json
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import column, insert, select, table, text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -35,6 +37,12 @@ _COLUMNS = {
     "rooms": ("floor_id", "name", "kind", "capacity"),
     "desks": ("room_id", "label", "agent_id"),
 }
+_SQL_TABLES = {
+    kind: table(name, *(column(field) for field in (
+        "id", "tenant_id", "workspace_id", "revision", "created_by", "created_at", "updated_at", *_COLUMNS[kind]
+    )))
+    for kind, name in _TABLES.items()
+}
 
 
 class SqlOfficeSpaceStore:
@@ -58,17 +66,19 @@ class SqlOfficeSpaceStore:
     ) -> dict[str, Any]:
         if not 1 <= limit <= 100:
             raise SpaceStoreError("invalid", "Page size must be between 1 and 100")
-        table = self._table(kind)
+        self._table(kind)
+        office_table = _SQL_TABLES[kind]
         parent = _PARENT.get(kind)
-        parent_condition = f"and {parent[0]} = :parent" if parent and parent_id is not None else ""
-        cursor_condition = "and id > :cursor" if cursor else ""
-        params = self._params(context, parent=parent_id, cursor=cursor, page_size=limit + 1)
-        records = [dict(row) for row in self.session.execute(text(f"""
-            select * from {table}
-            where tenant_id = :tenant and workspace_id = :workspace
-              {parent_condition} {cursor_condition}
-            order by id limit :page_size
-        """), params).mappings().all()]
+        query = select(office_table).where(
+            office_table.c.tenant_id == context.tenant_id,
+            office_table.c.workspace_id == context.workspace_id,
+        )
+        if parent and parent_id is not None:
+            query = query.where(office_table.c[parent[0]] == parent_id)
+        if cursor:
+            query = query.where(office_table.c.id > cursor)
+        query = query.order_by(office_table.c.id).limit(limit + 1)
+        records = [dict(row) for row in self.session.execute(query).mappings().all()]
         has_next = len(records) > limit
         records = records[:limit]
         if kind == "desks":
@@ -76,11 +86,13 @@ class SqlOfficeSpaceStore:
         return {"items": records, "next_cursor": records[-1]["id"] if has_next else None}
 
     def get(self, context: TenantContext, kind: str, item_id: str) -> dict[str, Any] | None:
-        table = self._table(kind)
-        row = self.session.execute(text(f"""
-            select * from {table}
-            where tenant_id = :tenant and workspace_id = :workspace and id = :id
-        """), self._params(context, id=item_id)).mappings().first()
+        self._table(kind)
+        office_table = _SQL_TABLES[kind]
+        row = self.session.execute(select(office_table).where(
+            office_table.c.tenant_id == context.tenant_id,
+            office_table.c.workspace_id == context.workspace_id,
+            office_table.c.id == item_id,
+        )).mappings().first()
         if row is None:
             return None
         record = dict(row)
@@ -104,7 +116,8 @@ class SqlOfficeSpaceStore:
                 record["agent_id"] = None
 
     def create(self, context: TenantContext, kind: str, item_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
-        table = self._table(kind)
+        self._table(kind)
+        office_table = _SQL_TABLES[kind]
         expected = set(_COLUMNS[kind])
         if set(fields) != expected:
             raise SpaceStoreError("invalid", "Unexpected office record fields")
@@ -128,19 +141,47 @@ class SqlOfficeSpaceStore:
                 raise SpaceStoreError("restricted", "Room workstation capacity is full")
             if fields["agent_id"] is not None:
                 raise SpaceStoreError("invalid", "Assign an existing agent in a separate step")
-        columns = ", ".join(_COLUMNS[kind])
-        placeholders = ", ".join(f":{key}" for key in _COLUMNS[kind])
-        params = self._params(context, id=item_id, actor=context.user_id, **dict(fields))
+        values = {"id": item_id, "tenant_id": context.tenant_id, "workspace_id": context.workspace_id,
+                  "created_by": context.user_id, **dict(fields)}
         try:
-            result = self.session.execute(text(f"""
-                insert into {table}
-                  (id, tenant_id, workspace_id, created_by, {columns})
-                values (:id, :tenant, :workspace, :actor, {placeholders})
-                returning *
-            """), params).mappings().one()
+            result = self.session.execute(insert(office_table).values(**values).returning(office_table)).mappings().one()
             return dict(result)
         except IntegrityError as exc:
             raise SpaceStoreError("conflict", "Room, floor, desk or building already exists, or parent is unavailable") from exc
+
+    def create_with_key(
+        self, context: TenantContext, kind: str, item_id: str,
+        fields: Mapping[str, Any], key: str | None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Claim a key and create in the same transaction; False means a replay.
+
+        PostgreSQL's unique index waits for an in-flight claim before deciding the
+        conflict, so two concurrent requests cannot create twice with one key.
+        """
+        if key is None:
+            return self.create(context, kind, item_id, fields), True
+        payload = {"kind": kind, "id": item_id, "fields": dict(fields)}
+        digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        params = self._params(context, key=key, digest=digest, kind=kind, id=item_id)
+        claimed = self.session.execute(text("""
+            insert into office_create_keys
+                (tenant_id, workspace_id, key, request_hash, resource_kind, resource_id)
+            values (:tenant, :workspace, :key, :digest, :kind, :id)
+            on conflict (tenant_id, workspace_id, key) do nothing
+            returning key
+        """), params).first()
+        if claimed is not None:
+            return self.create(context, kind, item_id, fields), True
+        existing = self.session.execute(text("""
+            select request_hash, resource_kind, resource_id from office_create_keys
+            where tenant_id = :tenant and workspace_id = :workspace and key = :key
+        """), params).mappings().one()
+        if (existing["request_hash"], existing["resource_kind"], existing["resource_id"]) != (digest, kind, item_id):
+            raise SpaceStoreError("conflict", "Idempotency key was used for a different office create request")
+        row = self.get(context, kind, item_id)
+        if row is None:
+            raise SpaceStoreError("conflict", "Previously created office record is no longer available")
+        return row, False
 
     def rename_room(self, context: TenantContext, room_id: str, name: str, revision: int) -> dict[str, Any]:
         try:

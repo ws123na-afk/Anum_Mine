@@ -19,7 +19,7 @@ test('existing server-backed workspace modules remain reachable', () => {
   for (const moduleName of ['OfficeWorkstations', 'OfficeSpaceLiveManager', 'ReceptionOperations', 'GuidedExecutiveTour']) {
     assert.ok(scene.includes('<' + moduleName), moduleName + ' missing from office');
   }
-  assert.match(scene, /officeSpaceRegistryOpen/);
+  assert.match(scene, /spaceRegistryOpen/);
   assert.match(scene, /officeWorld/);
 });
 

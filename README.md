@@ -225,6 +225,7 @@ x-user-roles: owner,member
 - [Runbooks](docs/runbooks.md)
 - [Development standards](docs/development-standards.md)
 - [Production readiness gates](docs/production-readiness.md)
+- [Integration and release checklist](docs/INTEGRATION_AND_RELEASE.md)
 - [Production plan](docs/production-plan.md)
 - [Pending work and owner steps (handoff)](docs/pending-work.md)
 - [Full skills audit (October 2026)](docs/audits/2026-10-12-full-skills-audit.md)

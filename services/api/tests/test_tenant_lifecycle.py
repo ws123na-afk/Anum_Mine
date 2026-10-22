@@ -194,6 +194,11 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         "business_portal_decisions": "0089_business_invoices_portal",
         "business_credit_notes": "0096_invoice_credit_notes",
         "business_payment_notices": "0096_invoice_credit_notes",
+        **{name: "0097_office_spaces" for name in ("office_buildings", "office_floors", "office_rooms", "office_desks")},
+            "office_create_keys": "0099_office_create_keys",
+            **{name: "0098_agent_live_meetings" for name in (
+                "agent_meeting_sessions", "agent_meeting_participants",
+                "agent_meeting_turns", "agent_meeting_turn_leases")},
         **{name: "0094_customer_billing" for name in (
             "billing_plans", "billing_settings", "billing_accounts", "billing_subscriptions", "billing_seats",
             "billing_usage", "billing_invoices", "billing_invoice_lines", "billing_credit_notes", "billing_payments",
@@ -201,7 +206,10 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
     }
     for table, revision in later.items():
         text = (API_ROOT / "migrations" / "versions" / f"{revision}.py").read_text(encoding="utf-8")
-        assert table in text and "create policy lifecycle_purge_{table}" in text
+        assert table in text and (
+            "create policy lifecycle_purge_{table}" in text
+            or f"create policy lifecycle_purge_{table}" in text
+        )
     assert in_migration | set(later) == {t.name for t in PURGED_TABLES}
     assert LIFECYCLE_JOBS_TABLE not in in_migration
     assert len(module.revision) <= 32 and module.down_revision == "0078_demo_records"

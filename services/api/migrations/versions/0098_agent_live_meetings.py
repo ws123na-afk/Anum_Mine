@@ -46,19 +46,15 @@ def _rls(table: str) -> None:
         f"create policy tenant_isolation_{table} on {table} using ({PREDICATE}) with check ({PREDICATE})"
     )
     op.execute(f"grant select (tenant_id, workspace_id, ctid), delete on {table} to anum_tenant_purger")
-    op.execute(
-        f"""create policy lifecycle_purge_{table} on {table} for all to anum_tenant_purger  -- nosec B608: migration uses only fixed TABLES identifiers
-        using (
-            tenant_id = nullif(current_setting('anum.tenant_id', true), '')
-            and exists (
-                select 1 from tenant_lifecycle_jobs j
-                where j.tenant_id = {table}.tenant_id
-                  and j.status = 'purging'
-                  and (j.kind = 'organisation_deletion'
-                    or (j.kind = 'workspace_deletion' and j.workspace_id = {table}.workspace_id))
-            )
-        ) with check (false)"""
-    )
+    # Every identifier comes from the fixed TABLES tuple above, never from a request.
+    purge_policy = (f"create policy lifecycle_purge_{table} on {table} for all to anum_tenant_purger "  # nosec B608: fixed TABLES only
+        "using (tenant_id = nullif(current_setting('anum.tenant_id', true), '') "
+        "and exists (select 1 from tenant_lifecycle_jobs j where j.tenant_id = "
+        f"{table}.tenant_id and j.status = 'purging' "
+        "and (j.kind = 'organisation_deletion' or "
+        f"(j.kind = 'workspace_deletion' and j.workspace_id = {table}.workspace_id)))) "
+        "with check (false)")
+    op.execute(purge_policy)
 
 
 def upgrade() -> None:

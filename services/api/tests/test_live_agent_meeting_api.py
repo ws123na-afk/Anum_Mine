@@ -23,7 +23,7 @@ def test_migrated_postgresql_is_required_for_persistent_meetings(monkeypatch):
     response = client.post("/api/v1/agent-meetings", headers=_headers(),
                            json={"title": "Monthly operations"})
     assert response.status_code == 503, response.text
-    assert "PostgreSQL" in response.json()["detail"]
+    assert "PostgreSQL" in response.json()["error"]["message"]
 
 
 def test_viewer_cannot_create_meeting_even_without_database(monkeypatch):

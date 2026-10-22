@@ -15,6 +15,7 @@ Read `README.md`, `CLAUDE.md`, `docs/org-chart.md`, `docs/agents.md`, `docs/agen
 - `GET /api/v1/events/stream` supports workspace-scoped resumable SSE. Oracle memory-mode polls persisted events. Avoid one SSE per avatar and do not hold DB sessions open through streams.
 - Existing organization/workspace separation, OIDC, authorization, RLS, tool governance and approval rules must remain authoritative.
 - Source/documentation is not evidence that provider credentials, CI or production integrations are operational.
+- The existing `#office-preview` route is an illustrative CSS perspective tour, not the F04 WebGL renderer or a live office projection. It has a selectable room directory (the initial view on narrow screens) so rooms remain navigable without the perspective scene. Room names and example roles remain preview data; they do not assert agent presence or workspace authorization.
 
 ## 2. User experience and scope
 The default ANUM MINE web screen is a top-down/isometric **virtual headquarters** with polished architecture, realistic furniture, subtle occupants, daylight/night settings, meeting rooms, workstations, reception, owner office, and department floors. Users can pan, zoom, search an agent, select a room, follow a task, switch workspace, inspect live discussions, review prior meetings and move into task/agent panels. The office must work for 21 existing agents and scale to hundreds via floor filtering, clustering and virtualization. It must remain usable in 2D/list mode, on slow devices, keyboard-only and with reduced motion.

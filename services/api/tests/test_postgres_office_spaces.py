@@ -108,3 +108,28 @@ def test_space_list_uses_stable_workspace_bounded_cursors(db: None) -> None:
     assert [item["id"] for item in second.json()["items"]] == ["c"]
     assert second.json()["next_cursor"] is None
     assert client.get("/api/v1/office-spaces/buildings?limit=101", headers=h).status_code == 422
+
+
+def test_create_key_replays_once_and_rejects_changed_payload(db: None) -> None:
+    h = {**_headers(), "Idempotency-Key": "office-create-hq"}
+    first = client.post("/api/v1/office-spaces/buildings", headers=h, json=_building())
+    assert first.status_code == 201, first.text
+    retry = client.post("/api/v1/office-spaces/buildings", headers=h, json=_building())
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["id"] == first.json()["id"]
+    assert retry.json()["created_at"] == first.json()["created_at"]
+    assert len(client.get("/api/v1/office-spaces/buildings", headers=h).json()["items"]) == 1
+    changed = client.post("/api/v1/office-spaces/buildings", headers=h, json={**_building(), "name": "Changed"})
+    assert changed.status_code == 409, changed.text
+    other_kind = client.post("/api/v1/office-spaces/floors", headers=h, json={"id": "g", "building_id": "headquarters", "level": 0, "name": "Ground"})
+    assert other_kind.status_code == 409, other_kind.text
+    other_scope = client.post("/api/v1/office-spaces/buildings", headers={**_headers(TENANT_B, WORKSPACE_B), "Idempotency-Key": "office-create-hq"}, json=_building())
+    assert other_scope.status_code == 201, other_scope.text
+
+
+def test_failed_create_does_not_reserve_key(db: None) -> None:
+    h = {**_headers(), "Idempotency-Key": "office-create-floor"}
+    body = {"id": "g", "building_id": "headquarters", "level": 0, "name": "Ground"}
+    assert client.post("/api/v1/office-spaces/floors", headers=h, json=body).status_code == 409
+    _create(_headers())
+    assert client.post("/api/v1/office-spaces/floors", headers=h, json=body).status_code == 201

@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from typing import Annotated, Literal
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from .audit import AuditRecord
@@ -28,6 +28,7 @@ router = APIRouter(prefix="/api/v1/office-spaces", tags=["office spaces"])
 ItemKind = Literal["buildings", "floors", "rooms", "desks"]
 ResourceKind = Annotated[ItemKind, Path()]
 Identifier = Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")]
+CreateKey = Annotated[str | None, Header(alias="Idempotency-Key", min_length=8, max_length=200, pattern=r"^[A-Za-z0-9._:-]+$")]
 
 
 class StrictBody(BaseModel):
@@ -115,6 +116,26 @@ def _audit(store: SqlOfficeSpaceStore, context: TenantContext, action: str, targ
     )
 
 
+def _create(
+    context: TenantContext, kind: ItemKind, body: StrictBody,
+    key: str | None, response: Response,
+) -> dict:
+    with _store(context) as store:
+        try:
+            item_id = body.id
+            fields = body.model_dump(exclude={"id"})
+            if kind == "desks":
+                fields["agent_id"] = None
+            row, created = store.create_with_key(context, kind, item_id, fields, key)
+            if created:
+                _audit(store, context, f"office.{kind[:-1]}.create", item_id)
+            else:
+                response.status_code = status.HTTP_200_OK
+            return row
+        except SpaceStoreError as exc:
+            raise _error(exc) from exc
+
+
 @router.get("/{kind}")
 def list_spaces(
     kind: ResourceKind,
@@ -139,56 +160,32 @@ def get_space(kind: ResourceKind, item_id: Identifier, context: TenantContext = 
 
 
 @router.post("/buildings", status_code=status.HTTP_201_CREATED)
-def create_building(body: BuildingCreate, context: TenantContext = Depends(tenant_context)) -> dict:
+def create_building(body: BuildingCreate, response: Response, idempotency_key: CreateKey = None, context: TenantContext = Depends(tenant_context)) -> dict:
     _writable(context)
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
     try:
         ZoneInfo(body.timezone)
     except ZoneInfoNotFoundError as exc:
         raise HTTPException(422, "Invalid IANA time zone") from exc
-    with _store(context) as store:
-        try:
-            row = store.create(context, "buildings", body.id, body.model_dump(exclude={"id"}))
-            _audit(store, context, "office.building.create", body.id)
-            return row
-        except SpaceStoreError as exc:
-            raise _error(exc) from exc
+    return _create(context, "buildings", body, idempotency_key, response)
 
 
 @router.post("/floors", status_code=status.HTTP_201_CREATED)
-def create_floor(body: FloorCreate, context: TenantContext = Depends(tenant_context)) -> dict:
+def create_floor(body: FloorCreate, response: Response, idempotency_key: CreateKey = None, context: TenantContext = Depends(tenant_context)) -> dict:
     _writable(context)
-    with _store(context) as store:
-        try:
-            row = store.create(context, "floors", body.id, body.model_dump(exclude={"id"}))
-            _audit(store, context, "office.floor.create", body.id)
-            return row
-        except SpaceStoreError as exc:
-            raise _error(exc) from exc
+    return _create(context, "floors", body, idempotency_key, response)
 
 
 @router.post("/rooms", status_code=status.HTTP_201_CREATED)
-def create_room(body: RoomCreate, context: TenantContext = Depends(tenant_context)) -> dict:
+def create_room(body: RoomCreate, response: Response, idempotency_key: CreateKey = None, context: TenantContext = Depends(tenant_context)) -> dict:
     _writable(context)
-    with _store(context) as store:
-        try:
-            row = store.create(context, "rooms", body.id, body.model_dump(exclude={"id"}))
-            _audit(store, context, "office.room.create", body.id)
-            return row
-        except SpaceStoreError as exc:
-            raise _error(exc) from exc
+    return _create(context, "rooms", body, idempotency_key, response)
 
 
 @router.post("/desks", status_code=status.HTTP_201_CREATED)
-def create_desk(body: DeskCreate, context: TenantContext = Depends(tenant_context)) -> dict:
+def create_desk(body: DeskCreate, response: Response, idempotency_key: CreateKey = None, context: TenantContext = Depends(tenant_context)) -> dict:
     _writable(context)
-    with _store(context) as store:
-        try:
-            row = store.create(context, "desks", body.id, {**body.model_dump(exclude={"id"}), "agent_id": None})
-            _audit(store, context, "office.desk.create", body.id)
-            return row
-        except SpaceStoreError as exc:
-            raise _error(exc) from exc
+    return _create(context, "desks", body, idempotency_key, response)
 
 
 @router.patch("/rooms/{room_id}")

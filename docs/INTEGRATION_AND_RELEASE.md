@@ -1,4 +1,4 @@
-# ANUM MINE — headquarters integration batch
+# ANUM MINE: headquarters integration batch
 
 ## Purpose
 

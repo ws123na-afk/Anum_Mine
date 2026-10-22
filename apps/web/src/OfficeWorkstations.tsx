@@ -3,15 +3,15 @@ import { AlertTriangle, ArrowLeft, Clock3, RefreshCw, Search, ShieldCheck, Users
 import type { OrgSources } from './lib/orgChart.ts';
 import { profileHash } from './lib/orgChart.ts';
 import * as api from './lib/api';
-import { loadWorkspaceWorkstations, type WorkstationSnapshot, type WorkstationRecord } from './lib/officeWorkstations.ts';
+import { loadWorkspaceWorkstations, officeEventAffectsWorkstations, workstationLoadProblem, type WorkstationSnapshot, type WorkstationRecord } from './lib/officeWorkstations.ts';
 import { staleOfficePresence, type OfficeStatus } from './lib/officePresence.ts';
 import './officeWorkstations.css';
 const statuses:readonly ('all'|OfficeStatus)[]=['all','working','queued','waiting_approval','blocked','paused','idle','unknown'];
 const REFRESH_MS=30_000;
 function label(status:OfficeStatus):string{return status.replaceAll('_',' ')}
 function readable(when:string):string{return new Date(when).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'medium'})}
-function Evidence({record,now,onOpenProfile}:{record:WorkstationRecord;now:string;onOpenProfile:()=>void}){
- const stale=staleOfficePresence(record,now);
+function Evidence({record,now,forceStale,onOpenProfile}:{record:WorkstationRecord;now:string;forceStale:boolean;onOpenProfile:()=>void}){
+ const stale=forceStale||staleOfficePresence(record,now);
  return <section className="workstationEvidence" aria-label="Selected employee evidence">
   <div className="workstationEvidenceHeading"><div><h3>{record.name}</h3><p>{record.department||'No assigned department'}</p></div><span className={`workstationStatus ${stale?'unknown':record.status}`}>{stale?'Stale':label(record.status)}</span></div>
   <dl>
@@ -40,7 +40,10 @@ export function OfficeWorkstations({onClose}:{onClose:()=>void}){
    if(!aliveRef.current||seq!==seqRef.current)return;
    sourcesRef.current=result.sources;setData(result.snapshot);setError('');
    setSelected(old=>old&&result.snapshot.records.some(r=>r.agentId===old)?old:null);
-  }catch(e){if(aliveRef.current&&seq===seqRef.current)setError(e instanceof Error?e.message:'Workstation data could not be loaded');}
+  }catch(e){if(aliveRef.current&&seq===seqRef.current){
+   const problem=workstationLoadProblem(e);setError(problem.message);
+   if(problem.clearSnapshot){setData(null);setSelected(null);sourcesRef.current=null;}
+  }}
   finally{if(aliveRef.current&&seq===seqRef.current)setBusy(false);}
  },[]);
  useEffect(()=>{aliveRef.current=true;void load();const poll=window.setInterval(()=>{if(!document.hidden)void load()},REFRESH_MS);
@@ -55,7 +58,7 @@ export function OfficeWorkstations({onClose}:{onClose:()=>void}){
   const controller=new AbortController();
   let pending:number|undefined;
   const onEvent=(event:{type:string})=>{
-   if(!/^(task|agent_run|agent|approval)\\./.test(event.type)||document.hidden)return;
+   if(!officeEventAffectsWorkstations(event.type)||document.hidden)return;
    if(pending)window.clearTimeout(pending);
    pending=window.setTimeout(()=>{pending=undefined;void load()},900);
   };
@@ -70,7 +73,7 @@ export function OfficeWorkstations({onClose}:{onClose:()=>void}){
   const q=search.trim().toLowerCase();return !q||[r.name,r.department??'',r.suggestedDepartment,...r.taskTitles].some(v=>v.toLowerCase().includes(q));
  });
  const detail=data?.records.find(r=>r.agentId===selected)??null;
- const stale=data?Date.parse(tick)-Date.parse(data.observedAt)>90000:true;
+ const stale=data?Boolean(error)||Date.parse(tick)-Date.parse(data.observedAt)>90000:true;
  return <section className="officeWorkstations" role="dialog" aria-label="Live Employee Workstations" aria-modal="false">
   <header className="workstationsHeader"><div><small>ANUM MINE / LIVE WORKSPACES</small><h2>Employee Workstations</h2><p>Authenticated task evidence, not simulated avatar activity</p></div><button onClick={onClose}><X size={17}/> Close</button></header>
   <div className="workstationToolbar">
@@ -85,7 +88,7 @@ export function OfficeWorkstations({onClose}:{onClose:()=>void}){
    {data&&<span className={stale?'workstationWarn':'workstationOk'}>{stale?'Snapshot stale':'Snapshot current'}</span>}
    {data&&!data.complete&&<span className="workstationWarn"><AlertTriangle size={15}/> Incomplete task results</span>}
   </div>
-  {error&&<div className="workstationError" role="alert"><AlertTriangle size={18}/><div><strong>Could not refresh employee data</strong><p>{error}</p>{data&&<p>Showing the last successful snapshot; it may be stale.</p>}</div></div>}
+  {error&&<div className="workstationError" role="alert"><AlertTriangle size={18}/><div><strong>Could not refresh employee data</strong><p>{error}</p>{data&&<p>Showing the last successful snapshot; it is stale until Refresh succeeds.</p>}</div></div>}
   {data&&data.partialSources.length>0&&<div className="workstationWarning" role="status">Some source requests were unavailable: {data.partialSources.join(', ')}. Statuses based on missing data are not assumed idle.</div>}
   <div className="workstationBody">
    <section className="workstationList" aria-label="Workstation directory">
@@ -96,7 +99,7 @@ export function OfficeWorkstations({onClose}:{onClose:()=>void}){
      <span className={`workstationStatus ${stale?'unknown':r.status}`}>{stale?'stale':label(r.status)}</span>
     </button></li>)}</ul>}
    </section>
-   <aside className="workstationDetail">{detail?<Evidence record={detail} now={tick} onOpenProfile={()=>{onClose();window.location.hash=profileHash({kind:'agent',id:detail.agentId})}}/>:<div className="workstationPlaceholder"><Users size={35}/><h3>Select an employee</h3><p>See their latest authorized task evidence, role, department and observation time.</p></div>}</aside>
+   <aside className="workstationDetail">{detail?<Evidence record={detail} now={tick} forceStale={stale} onOpenProfile={()=>{onClose();window.location.hash=profileHash({kind:'agent',id:detail.agentId})}}/>:<div className="workstationPlaceholder"><Users size={35}/><h3>Select an employee</h3><p>See their latest authorized task evidence, role, department and observation time.</p></div>}</aside>
   </div>
   <footer className="workstationFooter"><p>Task-derived agent activity is not proof that a human is present or online. Desk assignments are not yet stored by the backend.</p><button onClick={onClose}><ArrowLeft size={15}/> Return to office</button></footer>
  </section>;
