@@ -149,6 +149,7 @@ from .conversations import router as conversations_router
 from .privacy import router as privacy_router
 from .developer import register_developer_tools, router as developer_router
 from .whatsapp import register_whatsapp_tools, router as whatsapp_router
+from .sales_api import router as sales_router
 from . import email_inbox
 from .email_api import router as email_router
 from .commerce.api import router as commerce_router
@@ -432,6 +433,7 @@ app.include_router(model_budget_router)
 app.include_router(agent_controls_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
+app.include_router(sales_router)
 app.include_router(email_router)
 app.include_router(mail_ai_router)
 app.include_router(mail_router)
