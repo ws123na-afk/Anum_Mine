@@ -26,3 +26,7 @@ The endpoint is stateless and will not save paper positions. The web panel optio
 ## Production connection gates
 
 Require approved broker, eligibility and custody verification, permissions and secure credential storage, scheduled price/snapshot ingestion, account mapping, persisted audit trail, broker outages/timeout behavior, idempotency, independently verified Guardian rules, dual-person live approval, and emergency stop. None of these gates are satisfied merely by paper-simulation tests. Live execution remains out of scope.
+
+## Paper broker account reader (not yet tenant-connected)
+
+`alpaca_paper_reader.py` implements fixed-origin read-only `GET /v2/account` and `GET /v2/positions` calls to the official Alpaca paper domain. It requires paper API credentials that ANUM does not have; tests use a fake injected transport and exercise the endpoint allowlist, response size limit and secret redaction. No browser can supply keys, and no public API endpoint currently exposes this reader. This is deliberate: production integration must first add a vault-backed, workspace-scoped credential grant with revocation and an audited connection lifecycle. The account reader does not issue orders and is not evidence of live account eligibility. Do not confuse its USD balances with the separate SAR 500 offline simulator; no automatic FX conversion is implemented.
