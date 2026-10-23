@@ -260,3 +260,55 @@ class SalesCRMStore:
             "followups": [{"id": row.id, "status": row.status, "channel": row.channel,
                            "purpose": row.purpose, "due_at": row.due_at.isoformat()} for row in followups],
         }
+
+    def campaign_conversion_report(self) -> dict:
+        """Aggregate every workspace lead; marker attribution remains unverified."""
+        from sqlalchemy import func
+        rows = self.session.execute(
+            select(
+                SalesLeadRecord.source_campaign_hint,
+                SalesLeadRecord.status,
+                func.count(SalesLeadRecord.id),
+            ).where(
+                SalesLeadRecord.tenant_id == self.tenant_id,
+                SalesLeadRecord.workspace_id == self.workspace_id,
+            ).group_by(
+                SalesLeadRecord.source_campaign_hint, SalesLeadRecord.status
+            )
+        ).all()
+        grouped: dict[str, dict[str, int | str]] = {}
+        for campaign, status, count in rows:
+            key = campaign or "unattributed"
+            group = grouped.setdefault(key, {"campaign": key, "leads": 0, "qualified": 0, "won": 0, "lost": 0})
+            group["leads"] += count
+            if status in {"qualified", "quoted", "negotiating", "won"}:
+                group["qualified"] += count
+            if status == "won":
+                group["won"] += count
+            if status == "lost":
+                group["lost"] += count
+        return {"source": "self_reported_whatsapp_marker", "verified_attribution": False,
+                "campaigns": sorted(grouped.values(), key=lambda row: (-row["leads"], row["campaign"]))}
+
+    def sales_operations(self, *, limit: int = 100) -> dict:
+        """Review queue only. An approval here never implies external delivery."""
+        quotes = self.session.scalars(select(SalesQuoteRecord).where(
+            SalesQuoteRecord.tenant_id == self.tenant_id,
+            SalesQuoteRecord.workspace_id == self.workspace_id,
+            SalesQuoteRecord.status.in_(["draft", "pending_approval", "approved"]),
+        ).order_by(SalesQuoteRecord.created_at.desc()).limit(limit)).all()
+        followups = self.session.scalars(select(SalesFollowUpRecord).where(
+            SalesFollowUpRecord.tenant_id == self.tenant_id,
+            SalesFollowUpRecord.workspace_id == self.workspace_id,
+            SalesFollowUpRecord.status.in_(["proposed", "approved"]),
+        ).order_by(SalesFollowUpRecord.due_at.asc()).limit(limit)).all()
+        return {
+            "quotes": [{"id": row.id, "lead_id": row.lead_id, "status": row.status,
+                        "total": str(row.total), "currency": row.currency,
+                        "approval_id": row.approval_id} for row in quotes],
+            "followups": [{"id": row.id, "lead_id": row.lead_id, "status": row.status,
+                           "due_at": row.due_at.isoformat(), "channel": row.channel,
+                           "purpose": row.purpose, "approval_id": row.approval_id} for row in followups],
+            "delivery_enabled": False,
+            "execution_enabled": False,
+        }
