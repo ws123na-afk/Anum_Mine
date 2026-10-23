@@ -312,3 +312,39 @@ class SalesCRMStore:
             "delivery_enabled": False,
             "execution_enabled": False,
         }
+
+    def get_quote_for_delivery(self, *, lead_id: str, quote_id: str) -> SalesQuoteRecord | None:
+        return self.session.scalar(select(SalesQuoteRecord).where(
+            SalesQuoteRecord.id == quote_id,
+            SalesQuoteRecord.lead_id == lead_id,
+            SalesQuoteRecord.tenant_id == self.tenant_id,
+            SalesQuoteRecord.workspace_id == self.workspace_id,
+        ))
+
+    def reserve_quote_delivery(self, *, lead_id: str, quote_id: str) -> bool:
+        """Single winner; reserve before making a governed WhatsApp send request."""
+        result = self.session.execute(update(SalesQuoteRecord).where(
+            SalesQuoteRecord.id == quote_id,
+            SalesQuoteRecord.lead_id == lead_id,
+            SalesQuoteRecord.tenant_id == self.tenant_id,
+            SalesQuoteRecord.workspace_id == self.workspace_id,
+            SalesQuoteRecord.status == "draft",
+            SalesQuoteRecord.approval_id.is_(None),
+        ).values(status="pending_approval"))
+        return result.rowcount == 1
+
+    def finish_quote_delivery_request(
+        self, *, lead_id: str, quote_id: str, approval_id: str | None,
+        status: str,
+    ) -> bool:
+        if status not in {"draft", "pending_approval", "sent"}:
+            raise ValueError("Invalid quote request status")
+        result = self.session.execute(update(SalesQuoteRecord).where(
+            SalesQuoteRecord.id == quote_id,
+            SalesQuoteRecord.lead_id == lead_id,
+            SalesQuoteRecord.tenant_id == self.tenant_id,
+            SalesQuoteRecord.workspace_id == self.workspace_id,
+            SalesQuoteRecord.status == "pending_approval",
+            SalesQuoteRecord.approval_id.is_(None),
+        ).values(status=status, approval_id=approval_id))
+        return result.rowcount == 1
