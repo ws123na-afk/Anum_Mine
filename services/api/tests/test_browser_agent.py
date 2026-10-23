@@ -1,4 +1,5 @@
 """Security and contract tests without requiring a browser installation."""
+import asyncio
 import pytest
 
 from anum_api.browser_agent import (
@@ -46,11 +47,10 @@ def test_request_validates_navigation_at_creation():
     assert len(request.actions) == 3
 
 
-@pytest.mark.asyncio
-async def test_denies_dns_to_private_network(monkeypatch):
+def test_denies_dns_to_private_network(monkeypatch):
     import anum_api.browser_agent as module
     monkeypatch.setattr(module.socket, "getaddrinfo", lambda *args, **kwargs: [
         (2, 1, 6, "", ("10.1.2.3", 443))
     ])
     with pytest.raises(BrowserRejected):
-        await module.verify_public_dns("example.com")
+        asyncio.run(module.verify_public_dns("example.com"))
