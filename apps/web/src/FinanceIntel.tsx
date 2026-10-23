@@ -23,6 +23,7 @@ import { Denied, Empty, LoadError, Notice, failed, type Load } from './FinancePa
 import { reasonText } from './FinancePlan';
 import { EquityCharts } from './FinanceEquity';
 import { DailyReports } from './FinanceReports';
+import { BrokerStatementWorkbench } from './FinanceBroker';
 
 const PAGE = 10;
 const RUN_PAGE = 5;
@@ -61,6 +62,7 @@ export function IntelPanel({ onOpen }: { onOpen: (tab: FinanceTab) => void }) {
     <Strategies counts={o.strategies} portfolios={o.portfolios} refresh={refresh} onChanged={changed} onOpen={onOpen} />
     <SupervisorPanel activeCount={o.strategies.find((c) => c.state === 'PAPER_ACTIVE')?.count ?? 0} onRan={changed} />
     <DailyReports refresh={refresh} />
+    <BrokerStatementWorkbench />
     <Positions portfolios={o.portfolios} onOpen={onOpen} />
     <AgentDecisions refresh={refresh} />
     <GuardianDecisions />
