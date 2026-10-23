@@ -6,9 +6,9 @@ import * as wa from './lib/whatsappApi';
 import type { WaTemplate } from './lib/whatsapp';
 import {
   approveSalesFollowup, cancelSalesFollowup,
-  getSalesAutomationSettings, getSalesCampaignConversions, getSalesOperations,
+  getSalesAutomationSettings, getSalesAutomationReadiness, getSalesCampaignConversions, getSalesOperations,
   saveSalesAutomationSettings,
-  type SalesAutomationSettings, type SalesCampaignConversions, type SalesOperationsQueue,
+  type SalesAutomationSettings, type SalesAutomationReadiness, type SalesCampaignConversions, type SalesOperationsQueue,
 } from './lib/salesApi';
 
 export function SalesCampaignAndOperations({locale}:{locale:'ar'|'en'}) {
@@ -17,6 +17,7 @@ export function SalesCampaignAndOperations({locale}:{locale:'ar'|'en'}) {
   const [campaigns,setCampaigns]=useState<SalesCampaignConversions|null>(null);
   const [operations,setOperations]=useState<SalesOperationsQueue|null>(null);
   const [settings,setSettings]=useState<SalesAutomationSettings|null>(null);
+  const [readiness,setReadiness]=useState<SalesAutomationReadiness|null>(null);
   const [enabled,setEnabled]=useState(false);
   const [paused,setPaused]=useState(true);
   const [dailyCap,setDailyCap]=useState(0);
@@ -28,8 +29,9 @@ export function SalesCampaignAndOperations({locale}:{locale:'ar'|'en'}) {
 
   const load=useCallback(async()=>{
     setLoading(true);
-    const [campaignResult,queueResult,settingsResult] = await Promise.allSettled([
+    const [campaignResult,queueResult,settingsResult,readinessResult] = await Promise.allSettled([
       getSalesCampaignConversions(), getSalesOperations(), getSalesAutomationSettings(),
+      getSalesAutomationReadiness(),
     ]);
     if(campaignResult.status==='fulfilled')setCampaigns(campaignResult.value);
     else setError(describeError(campaignResult.reason));
@@ -40,6 +42,7 @@ export function SalesCampaignAndOperations({locale}:{locale:'ar'|'en'}) {
       setSettings(policy);setEnabled(policy.enabled);setPaused(policy.paused);
       setDailyCap(policy.max_sends_per_day);
     }
+    if(readinessResult.status==='fulfilled')setReadiness(readinessResult.value);
     setLoading(false);
   },[]);
   useEffect(()=>{void load();},[load]);
@@ -103,6 +106,18 @@ export function SalesCampaignAndOperations({locale}:{locale:'ar'|'en'}) {
       {!owner&&<p className="salesHint">{ar?'هذه الإعدادات للمالك فقط':'Only the workspace owner can change these settings.'}</p>}
     </div>}
 
+    {owner&&readiness&&<div className="salesReadiness">
+      <h4>{ar?'جاهزية التشغيل والإرسال':'Automation readiness checklist'}</h4>
+      <ul>{readiness.checks.map(check=><li key={check.id}>
+        <span aria-label={check.ok?'ready':'needs-setup'}>{check.ok?'✓':'○'}</span>
+        {check.label}
+      </li>)}</ul>
+      <p>{ar?'تؤكد هذه القائمة إعدادات النظام فقط. يلزم اختبار فعلي عبر ميتا والتحقق من النشر.':
+        'These are configuration checks only. Live Meta delivery and VM deployment must still be tested.'}</p>
+      {readiness.last_webhook_at&&<small>
+        {ar?'آخر إشعار واتساب':'Last WhatsApp webhook'}: {formatDateTime(readiness.last_webhook_at)}
+      </small>}
+    </div>}
     <div className="salesReportHeader"><h3>{ar?'سجل تنفيذ المبيعات':'Sales operations review'}</h3>
       <p>{ar?'عروض الأسعار ترسل عبر مسار موافقة واتساب من صفحة العميل. المتابعات لا تنفذ إلا بعد اعتماد القالب والإعدادات.':
         'Quotation sending is requested from the lead detail and uses WhatsApp approval. Follow-ups run only after owner template approval and an enabled policy.'}</p></div>
