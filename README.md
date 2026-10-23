@@ -126,6 +126,7 @@ x-user-roles: owner,member
 - [Trading intelligence: market data, strategy lab and SIMULATED trading (live off)](docs/finance-trading-intel.md)
 - [Trading intelligence gap assessment](docs/finance-trading-gap-assessment.md)
 - [Trading intelligence readiness report (loop 10, live stays off)](docs/finance-trading-readiness.md)
+- [Broker onboarding, statement reconciliation and custody safeguards (live off)](docs/finance-broker-onboarding.md)
 - [Tyre planning](docs/tyre-planning.md)
 - [Social media marketing](docs/marketing.md)
 - [Email campaigns through Brevo (connection, drafts, approval-only sending, agent tools)](docs/brevo.md)
