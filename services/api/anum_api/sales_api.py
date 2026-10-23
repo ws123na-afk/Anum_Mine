@@ -519,3 +519,38 @@ def cancel_sales_followup(
         if not store.cancel_followup(lead_id=lead_id, followup_id=followup_id):
             raise HTTPException(status_code=409, detail="Follow-up cannot be cancelled in its current state")
         return {"id": followup_id, "status": "cancelled"}
+
+
+@router.get("/automation-readiness")
+def automation_readiness(context: TenantContext = Depends(tenant_context)) -> dict:
+    """Expose safe setup checks, never infer live delivery from configuration alone."""
+    require_permission(context, Permission.MARKETING_MANAGE)
+    from .settings import settings
+    from .whatsapp_store import AccountStatus, open_whatsapp_store
+
+    with sales_store(context) as store:
+        policy = store.get_automation_settings()
+    with open_whatsapp_store(context) as wa:
+        account = wa.get_account()
+    checks = [
+        {"id": "postgresql", "ok": settings.repository_backend == "postgresql",
+         "label": "PostgreSQL persistence enabled"},
+        {"id": "scheduler", "ok": settings.automation_scheduler_enabled,
+         "label": "Automation scheduler configured"},
+        {"id": "whatsapp", "ok": bool(account and account.status == AccountStatus.CONNECTED),
+         "label": "WhatsApp account last known connected"},
+        {"id": "templates", "ok": bool(account and account.auto_send_templates),
+         "label": "Owner has allowlisted Meta templates"},
+        {"id": "owner_enabled", "ok": bool(policy["enabled"] and not policy["paused"]),
+         "label": "Owner enabled and unpaused sales automation"},
+        {"id": "daily_cap", "ok": policy["max_sends_per_day"] > 0,
+         "label": "Daily send limit configured"},
+    ]
+    return {
+        "checks": checks,
+        "configuration_ready": all(check["ok"] for check in checks),
+        "live_provider_verified": False,
+        "last_webhook_at": account.last_webhook_at.isoformat()
+            if account and account.last_webhook_at else None,
+        "note": "Readiness checks are configuration only; staging Meta send tests, CI and production deployment still require verification.",
+    }
