@@ -26,6 +26,17 @@ def scoped(table: str) -> None:
         f"using ({SCOPE}) with check ({SCOPE})"
     )
 
+    op.execute(f"grant select (tenant_id, ctid, workspace_id), delete on {table} to anum_tenant_purger")
+    op.execute(
+        f"create policy lifecycle_purge_{table} on {table} for all to anum_tenant_purger "  # nosec B608
+        "using (tenant_id = nullif(current_setting('anum.tenant_id', true), '') "
+        "and exists (select 1 from tenant_lifecycle_jobs j where j.tenant_id = "
+        f"{table}.tenant_id and j.status = 'purging' "
+        "and (j.kind = 'organisation_deletion' or "
+        f"(j.kind = 'workspace_deletion' and j.workspace_id = {table}.workspace_id)))) "
+        "with check (false)"
+    )
+
 
 def workspace_fk(table: str) -> sa.ForeignKeyConstraint:
     return sa.ForeignKeyConstraint(

@@ -286,7 +286,7 @@ class _SalesLeadScreenState extends State<_SalesLeadScreen> {
     body: ListView(padding: const EdgeInsets.all(16), children: [
       Text(widget.lead.intent, style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: 8),
-      Text('${tr('Campaign', 'الحملة')}: ${widget.lead.campaign.isEmpty ? '—' : widget.lead.campaign}'),
+      Text('${tr('Campaign', 'الحملة')}: ${widget.lead.campaign.isEmpty ? '-' : widget.lead.campaign}'),
       Text('${tr('Phone', 'الهاتف')}: ${widget.lead.phone}'),
       Text(widget.lead.marketingConsent
           ? tr('Marketing consent verified', 'تم تأكيد موافقة التسويق')

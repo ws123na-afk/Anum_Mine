@@ -79,7 +79,7 @@ class AlpacaPaperReader:
     @staticmethod
     def _urlopen(request: Request, limit: int) -> bytes:
         try:
-            with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            with urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # nosec B310
                 data = response.read(limit + 1)
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
             raise BrokerPaperReadError("Paper brokerage connection unavailable") from exc
