@@ -14,6 +14,7 @@ from ..schemas import TenantContext
 from .api import _read
 from .broker_import import parse_broker_statement_csv
 from .broker_analytics import StatementAnalytics, analyze_broker_statement
+from .broker_history import StatementChangeReport, compare_broker_history
 from .broker_readiness import BrokerReadiness, BrokerReadinessResult, evaluate_broker_readiness
 from .broker_reconciliation import (
     BrokerDataError, BrokerReconciliation, BrokerSnapshot,
@@ -82,3 +83,15 @@ def analyze(
     """Analyze uploaded positions without any broker transaction or persistent write."""
     _read(context)
     return analyze_broker_statement(snapshot)
+
+
+@router.post("/history", response_model=StatementChangeReport)
+def history(
+    request: ReconcileRequest, context: TenantContext = Depends(tenant_context),
+) -> StatementChangeReport:
+    """Explain differences in two statements without manufacturing investment returns."""
+    _read(context)
+    try:
+        return compare_broker_history(request.baseline, request.observed)
+    except BrokerDataError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
