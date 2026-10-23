@@ -7,6 +7,8 @@ workflows; quotes and follow-ups are drafts/proposals.
 from __future__ import annotations
 
 from contextlib import contextmanager
+import hashlib
+import json
 from datetime import datetime
 from decimal import Decimal
 from typing import Iterator
@@ -366,3 +368,154 @@ async def request_quote_whatsapp_delivery(
         "approval_id": approval_id,
         "detail": result.detail,
     }
+
+
+class SalesAutomationSettingsRequest(BaseModel):
+    enabled: bool
+    paused: bool
+    max_sends_per_day: int = Field(ge=0, le=100)
+
+
+class SalesConsentEvidenceRequest(BaseModel):
+    granted: bool
+    evidence_message_id: str | None = Field(default=None, max_length=80)
+    evidence_note: str = Field(min_length=3, max_length=500)
+
+
+class SalesFollowUpApprovalRequest(BaseModel):
+    template_name: str = Field(min_length=1, max_length=512, pattern=r"^[a-z0-9_]+$")
+    template_language: str = Field(min_length=2, max_length=20)
+    parameters: list[str] = Field(default_factory=list, max_length=20)
+
+
+@router.get("/automation-settings")
+def automation_settings(context: TenantContext = Depends(tenant_context)) -> dict:
+    require_read(context)
+    with sales_store(context) as store:
+        return store.get_automation_settings()
+
+
+@router.put("/automation-settings")
+def update_automation_settings(
+    payload: SalesAutomationSettingsRequest,
+    context: TenantContext = Depends(tenant_context),
+) -> dict:
+    require_permission(context, Permission.MARKETING_MANAGE)
+    try:
+        with sales_store(context) as store:
+            return store.set_automation_settings(
+                enabled=payload.enabled, paused=payload.paused,
+                max_sends_per_day=payload.max_sends_per_day,
+                actor=context.user_id, now=utc_now(),
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/leads/{lead_id}/consent")
+def update_marketing_consent(
+    lead_id: str, payload: SalesConsentEvidenceRequest,
+    context: TenantContext = Depends(tenant_context),
+) -> dict:
+    """Only a workspace owner may attest verified opt-in with real evidence.
+
+    An incoming WhatsApp enquiry on its own is never marketing opt-in.
+    """
+    require_permission(context, Permission.MARKETING_MANAGE)
+    require_permission(context, Permission.WHATSAPP_MANAGE)
+    with sales_store(context) as store:
+        lead = required_lead(store, lead_id)
+    if payload.granted and not payload.evidence_message_id:
+        raise HTTPException(status_code=422, detail="A stored inbound customer message is required for consent")
+    if payload.evidence_message_id:
+        from .whatsapp_store import Direction, open_whatsapp_store
+        with open_whatsapp_store(context) as wa:
+            evidence = wa.get_message(payload.evidence_message_id)
+            if evidence is None or evidence.conversation_id != lead.source_conversation_id or evidence.direction != Direction.INBOUND:
+                raise HTTPException(status_code=422, detail="Consent evidence must be a customer message in this conversation")
+    with sales_store(context) as store:
+        try:
+            changed = store.record_consent(
+                lead_id=lead_id, granted=payload.granted,
+                evidence_message_id=payload.evidence_message_id,
+                evidence_note=payload.evidence_note,
+                actor=context.user_id, now=utc_now(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"lead_id": lead_id, "marketing_consent": changed.marketing_consent,
+                "recorded_by": context.user_id}
+
+
+@router.get("/leads/{lead_id}/consent-history")
+def consent_history(lead_id: str, context: TenantContext = Depends(tenant_context)) -> dict:
+    require_permission(context, Permission.MARKETING_MANAGE)
+    with sales_store(context) as store:
+        required_lead(store, lead_id)
+        return {"items": store.consent_history(lead_id=lead_id)}
+
+
+@router.post("/leads/{lead_id}/followups/{followup_id}/approve")
+async def approve_sales_followup(
+    lead_id: str, followup_id: str, payload: SalesFollowUpApprovalRequest,
+    context: TenantContext = Depends(tenant_context),
+) -> dict:
+    """An owner authorizes one exact Meta-approved, allowlisted template."""
+    require_permission(context, Permission.MARKETING_MANAGE)
+    require_permission(context, Permission.APPROVAL_DECIDE)
+    with sales_store(context) as store:
+        lead = required_lead(store, lead_id)
+        followup = store.get_followup(lead_id=lead_id, followup_id=followup_id)
+        if followup is None:
+            raise HTTPException(status_code=404, detail="Follow-up not found")
+        if followup.status != "proposed" or followup.channel != "whatsapp":
+            raise HTTPException(status_code=409, detail="Only proposed WhatsApp follow-ups can be approved")
+        if not lead.marketing_consent:
+            raise HTTPException(status_code=409, detail="Verified marketing consent is required")
+    from .whatsapp import templates_for, find_template, template_problem
+    from .whatsapp_store import open_whatsapp_store
+    with open_whatsapp_store(context) as wa:
+        account = wa.get_account(include_secrets=True)
+        conversation = wa.get_conversation(lead.source_conversation_id)
+        if account is None or conversation is None or account.access_token is None:
+            raise HTTPException(status_code=409, detail="WhatsApp account and customer conversation must be connected")
+        if payload.template_name not in account.auto_send_templates:
+            raise HTTPException(status_code=409, detail="The owner must allowlist this template in WhatsApp Setup")
+    templates = await templates_for(account, refresh=True)
+    problem = template_problem(find_template(templates, payload.template_name, payload.template_language),
+                               payload.template_name, payload.template_language, payload.parameters)
+    if problem:
+        raise HTTPException(status_code=422, detail=problem)
+    approval_hash = hashlib.sha256(json.dumps({
+        "tenant": context.tenant_id, "workspace": context.workspace_id,
+        "followup": followup_id, "lead": lead_id,
+        "conversation": lead.source_conversation_id,
+        "to": conversation.wa_id, "due_at": followup.due_at.isoformat(),
+        "template": payload.template_name, "language": payload.template_language,
+        "parameters": payload.parameters,
+    }, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    with sales_store(context) as store:
+        if not store.approve_followup(
+            lead_id=lead_id, followup_id=followup_id,
+            template_name=payload.template_name,
+            language=payload.template_language,
+            parameters=payload.parameters,
+            approval_hash=approval_hash,
+            actor=context.user_id, now=utc_now(),
+        ):
+            raise HTTPException(status_code=409, detail="Follow-up was modified or approved already")
+    return {"id": followup_id, "status": "approved", "payload_hash": approval_hash,
+            "delivery": "scheduled_under_owner_policy"}
+
+
+@router.post("/leads/{lead_id}/followups/{followup_id}/cancel")
+def cancel_sales_followup(
+    lead_id: str, followup_id: str,
+    context: TenantContext = Depends(tenant_context),
+) -> dict:
+    require_permission(context, Permission.MARKETING_MANAGE)
+    with sales_store(context) as store:
+        required_lead(store, lead_id)
+        if not store.cancel_followup(lead_id=lead_id, followup_id=followup_id):
+            raise HTTPException(status_code=409, detail="Follow-up cannot be cancelled in its current state")
+        return {"id": followup_id, "status": "cancelled"}
