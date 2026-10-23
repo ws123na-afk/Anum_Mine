@@ -1,0 +1,38 @@
+.salesDesk { display:grid; gap:var(--d-s4,16px); min-width:0; }
+.salesHero {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:20px 22px;border:1px solid var(--d-line-strong);border-radius:16px;background:var(--d-glass-1)}
+.salesHero h2 {font-size:clamp(1.25rem,2vw,1.75rem);margin:0 0 6px}.salesHero p,.salesSubForm p{color:var(--d-muted);margin:0}
+.salesActions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.salesActions a,.salesActions button,.salesDesk button[type=submit],.salesWorkflow button{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:9px;padding:9px 14px;min-height:40px;font-weight:600}
+.salesActions a{border:1px solid var(--d-line-strong);color:var(--d-text);text-decoration:none}
+.salesKpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.salesKpi{display:grid;gap:7px;padding:18px;border:1px solid var(--d-line-strong);border-radius:13px;background:var(--d-glass-1)}
+.salesKpi span{font-size:.82rem;color:var(--d-muted)}.salesKpi strong{font-size:1.8rem;font-variant-numeric:tabular-nums}
+.salesHint{margin:0;font-size:.78rem;color:var(--d-muted)}
+.salesSplit{display:grid;grid-template-columns:minmax(300px,.9fr) minmax(360px,1.1fr);gap:16px;align-items:start}
+.salesListing,.salesDetail{min-width:0;background:var(--d-glass-1);border:1px solid var(--d-line-strong);border-radius:16px;overflow:hidden}
+.salesFilters{display:flex;gap:8px;padding:15px;border-bottom:1px solid var(--d-line-strong)}
+.salesFilters input{min-width:0;flex:1 1 150px}.salesFilters select{min-width:120px}
+.salesDesk input,.salesDesk select,.salesDesk textarea{border:1px solid var(--d-line-strong);border-radius:8px;padding:9px 10px;max-width:100%;width:100%;background:var(--d-glass-1);color:var(--d-text);font:inherit}
+.salesDesk input:focus-visible,.salesDesk select:focus-visible,.salesDesk textarea:focus-visible,.salesLead:focus-visible{outline:2px solid var(--d-sky);outline-offset:2px}
+.salesList{max-height:800px;overflow:auto}.salesLead{display:grid;gap:8px;width:100%;padding:17px;text-align:start;color:var(--d-text);background:transparent;border:0;border-bottom:1px solid var(--d-line-strong)}
+.salesLead:hover,.salesLead.selected{background:var(--d-glass-2)}.salesLead.selected{box-shadow:inset 3px 0 var(--d-sky)}
+.salesLeadTop,.salesLeadBottom{display:flex;align-items:center;justify-content:space-between;gap:8px}.salesLeadTop strong{min-width:0;overflow-wrap:anywhere}
+.salesLeadTop small{border:1px solid var(--d-line-strong);border-radius:999px;padding:3px 8px;white-space:nowrap}
+.salesLeadBottom,.salesCampaign{font-size:.79rem;color:var(--d-muted)}
+.salesEmpty{display:grid;place-items:center;gap:12px;min-height:190px;color:var(--d-muted);padding:24px;text-align:center}
+.salesEditor{display:grid;gap:18px;padding:20px}
+.salesDetailHeading{display:flex;align-items:center;justify-content:space-between;gap:12px}.salesDetailHeading h3{margin:0}
+.salesDetailHeading span{font-size:.79rem;border-radius:20px;border:1px solid var(--d-line-strong);padding:5px 9px}
+.salesMetadata{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0}
+.salesMetadata dt{font-size:.74rem;color:var(--d-muted)}.salesMetadata dd{margin:4px 0 0;overflow-wrap:anywhere;font-size:.88rem}
+.salesForm,.salesSubForm form{display:grid;gap:12px}.salesFields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.salesForm label,.salesSubForm label,.salesWorkflow label{display:grid;gap:6px;font-size:.86rem;font-weight:550}
+.salesWorkflow{display:flex;align-items:end;gap:10px;border-top:1px solid var(--d-line-strong);padding-top:16px}
+.salesWorkflow label{flex:1}.salesSubForm{display:grid;gap:12px;border-top:1px solid var(--d-line-strong);padding-top:16px}.salesSubForm h4{margin:0;font-size:1rem}
+.salesError,.salesSuccess{display:flex;align-items:center;gap:8px;padding:12px;border-radius:9px;margin:0}
+.salesError{color:var(--d-error-text);border:1px solid var(--d-line-strong)}
+.salesSuccess{color:var(--d-text);border:1px solid var(--d-line-strong)}
+.salesDesk button:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:1080px){.salesSplit{grid-template-columns:1fr}.salesList{max-height:350px}}
+@media(max-width:640px){.salesKpis{grid-template-columns:repeat(2,minmax(0,1fr))}.salesFilters{flex-wrap:wrap}.salesFields,.salesMetadata{grid-template-columns:1fr}.salesEditor{padding:14px}.salesHero{padding:16px}}
+@media(prefers-reduced-motion:no-preference){.salesLead{transition:background-color .15s ease}}
