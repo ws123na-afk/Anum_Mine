@@ -259,3 +259,12 @@ def overview(context: TenantContext = Depends(tenant_context)) -> dict:
             "by_intent": summary.by_intent,
             "scope": "latest_100_leads", "revenue_estimate": None,
         }
+
+
+@router.get("/leads/{lead_id}/history")
+def lead_history(lead_id: str, context: TenantContext = Depends(tenant_context)) -> dict:
+    """Audit trail, quotations and follow-up proposals; server-side scoped."""
+    require_read(context)
+    with sales_store(context) as store:
+        required_lead(store, lead_id)
+        return store.lead_history(lead_id)

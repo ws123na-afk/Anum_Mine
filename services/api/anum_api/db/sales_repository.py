@@ -232,3 +232,31 @@ class SalesCRMStore:
             lead_id=followup.lead_id, due_at=followup.due_at, channel=followup.channel,
             purpose=followup.purpose, status="proposed", created_by=created_by, created_at=now,
         ))
+
+    def lead_history(self, lead_id: str) -> dict[str, list[dict]]:
+        """Read quotes, proposals and audit trail only within the active workspace."""
+        scope = (self.tenant_id, self.workspace_id, lead_id)
+        events = self.session.scalars(select(SalesLeadEventRecord).where(
+            SalesLeadEventRecord.tenant_id == scope[0],
+            SalesLeadEventRecord.workspace_id == scope[1],
+            SalesLeadEventRecord.lead_id == scope[2],
+        ).order_by(SalesLeadEventRecord.occurred_at.desc()).limit(100)).all()
+        quotes = self.session.scalars(select(SalesQuoteRecord).where(
+            SalesQuoteRecord.tenant_id == scope[0],
+            SalesQuoteRecord.workspace_id == scope[1],
+            SalesQuoteRecord.lead_id == scope[2],
+        ).order_by(SalesQuoteRecord.created_at.desc()).limit(100)).all()
+        followups = self.session.scalars(select(SalesFollowUpRecord).where(
+            SalesFollowUpRecord.tenant_id == scope[0],
+            SalesFollowUpRecord.workspace_id == scope[1],
+            SalesFollowUpRecord.lead_id == scope[2],
+        ).order_by(SalesFollowUpRecord.due_at.desc()).limit(100)).all()
+        return {
+            "events": [{"id": row.id, "event": row.event, "actor_id": row.actor_id,
+                        "status": row.to_status, "occurred_at": row.occurred_at.isoformat()} for row in events],
+            "quotes": [{"id": row.id, "status": row.status, "currency": row.currency,
+                        "total": str(row.total), "line_items": row.line_items,
+                        "terms": row.terms, "created_at": row.created_at.isoformat()} for row in quotes],
+            "followups": [{"id": row.id, "status": row.status, "channel": row.channel,
+                           "purpose": row.purpose, "due_at": row.due_at.isoformat()} for row in followups],
+        }

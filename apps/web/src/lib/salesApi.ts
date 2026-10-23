@@ -59,3 +59,11 @@ export const proposeSalesFollowup = (
   leadId: string, dueAt: string, channel: string, purpose: string
 ): Promise<{id: string; status: string; approval_required: boolean}> =>
   apiRequest(`${BASE}/leads/${id(leadId)}/followups`, json('POST', {due_at: dueAt, channel, purpose}));
+
+export interface SalesHistory {
+  events: Array<{id:string; event:string; actor_id:string; status:string|null; occurred_at:string}>;
+  quotes: Array<{id:string; status:string; currency:string; total:string; line_items:Array<{description:string;amount:string}>; terms:string; created_at:string}>;
+  followups: Array<{id:string; status:string; channel:string; purpose:string; due_at:string}>;
+}
+export const getSalesLeadHistory = (leadId: string): Promise<SalesHistory> =>
+  apiRequest(`${BASE}/leads/${id(leadId)}/history`, {method:'GET'});
