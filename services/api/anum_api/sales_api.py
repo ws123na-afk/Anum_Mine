@@ -268,3 +268,19 @@ def lead_history(lead_id: str, context: TenantContext = Depends(tenant_context))
     with sales_store(context) as store:
         required_lead(store, lead_id)
         return store.lead_history(lead_id)
+
+
+@router.get("/campaign-conversions")
+def campaign_conversions(context: TenantContext = Depends(tenant_context)) -> dict:
+    """All lead counts by self-reported campaign marker, never verified ad attribution."""
+    require_permission(context, Permission.MARKETING_READ)
+    with sales_store(context) as store:
+        return store.campaign_conversion_report()
+
+
+@router.get("/operations")
+def operations_queue(context: TenantContext = Depends(tenant_context)) -> dict:
+    """Quote/follow-up review queue; no sending or approval side effects."""
+    require_read(context)
+    with sales_store(context) as store:
+        return store.sales_operations()
