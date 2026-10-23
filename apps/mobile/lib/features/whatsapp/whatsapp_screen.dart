@@ -14,6 +14,8 @@ import 'whatsapp_ops_controller.dart';
 import 'whatsapp_setup_screen.dart';
 import 'whatsapp_template_send.dart';
 import 'whatsapp_templates_screen.dart';
+import 'sales_mobile_screen.dart';
+import 'whatsapp_repository.dart';
 
 /// The WhatsApp inbox (docs/whatsapp.md): conversations with filter, search
 /// and paging; a thread with the 24-hour window, the suggested reply (with
@@ -85,6 +87,10 @@ class _WhatsAppScreenState extends State<WhatsAppScreen> {
     final l = context.anum;
     return Scaffold(
       appBar: AppBar(title: Text(l.t('whatsapp')), actions: [
+        IconButton(icon: const Icon(Icons.trending_up), tooltip: 'Sales CRM', onPressed: () {
+          final repo = c.repository;
+          if (repo is ApiWhatsAppRepository) Navigator.push<void>(context, MaterialPageRoute(builder: (_) => MobileSalesScreen(repository: MobileSalesRepository(repo.api))));
+        }),
         IconButton(
             key: const Key('wa-open-templates'),
             onPressed: _openTemplates,
