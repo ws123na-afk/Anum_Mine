@@ -146,6 +146,17 @@ class SalesCRMStore:
         )
         return _record_to_lead(record) if record else None
 
+    def find_by_conversation(self, conversation_id: str) -> Lead | None:
+        """Find the current sales opportunity for a verified WhatsApp conversation."""
+        record = self.session.scalar(
+            select(SalesLeadRecord).where(
+                SalesLeadRecord.source_conversation_id == conversation_id,
+                SalesLeadRecord.tenant_id == self.tenant_id,
+                SalesLeadRecord.workspace_id == self.workspace_id,
+            ).order_by(SalesLeadRecord.created_at.desc()).limit(1)
+        )
+        return _record_to_lead(record) if record is not None else None
+
     def list_leads(self, *, status: LeadStatus | None = None, limit: int = 50) -> list[Lead]:
         if not 1 <= limit <= 100:
             raise ValueError("Limit must be 1-100")
