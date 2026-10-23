@@ -188,9 +188,9 @@ function LeadEditor({lead, locale, disabled, save, changeStage, createQuote, fol
   };
   return <div className="salesEditor">
     <div className="salesDetailHeading"><h3>{l.details}</h3><span>{SERVICE[lead.intent]?.[locale] || lead.intent}</span></div>
-    <dl className="salesMetadata"><div><dt>{l.phone}</dt><dd><bdi>{lead.phone_e164 || '—'}</bdi></dd></div>
+    <dl className="salesMetadata"><div><dt>{l.phone}</dt><dd><bdi>{lead.phone_e164 || '-'}</bdi></dd></div>
       <div><dt>{l.consent}</dt><dd>{lead.marketing_consent ? l.consentYes : l.consentNo}</dd></div>
-      <div><dt>{l.source}</dt><dd>{lead.campaign_hint || '—'}</dd></div></dl>
+      <div><dt>{l.source}</dt><dd>{lead.campaign_hint || '-'}</dd></div></dl>
     <form onSubmit={submitDetails} className="salesForm">
       <div className="salesFields"><label>{l.company}<input value={company} maxLength={200} onChange={e=>setCompany(e.target.value)}/></label>
         <label>{l.name}<input value={name} maxLength={200} onChange={e=>setName(e.target.value)}/></label>
