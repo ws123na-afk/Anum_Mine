@@ -69,7 +69,7 @@ def import_verified_whatsapp_enquiry(context: TenantContext, received: list[dict
             with SessionLocal.begin() as session:
                 set_tenant_context(session, context.tenant_id, context.workspace_id)
                 crm = SalesCRMStore(session, context.tenant_id, context.workspace_id)
-                if crm.find_by_inbound_message(message_id):
+                if crm.find_by_inbound_message(message_id) or crm.find_by_conversation(conversation_id):
                     summary["duplicate"] += 1
                     continue
                 lead, event = create_lead(
