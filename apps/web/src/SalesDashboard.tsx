@@ -99,7 +99,7 @@ export function SalesDashboard() {
     return search.includes(query.trim().toLocaleLowerCase());
   }), [data, filter, query]);
 
-  const action = async (operation: () => Promise<unknown>, message = labels.saved) => {
+  const action = async (operation: () => Promise<unknown>, message: string = labels.saved) => {
     setBusy(true); setError(''); setNotice('');
     try { await operation(); setNotice(message); await refresh(); }
     catch (cause) { setError(describeError(cause)); }
