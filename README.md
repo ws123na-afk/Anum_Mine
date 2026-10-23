@@ -75,6 +75,10 @@ x-user-roles: owner,member
 ```
 
 ## Documentation Index
+- [Marketing sales agent orchestration](docs/marketing-sales-agent-orchestration.md)
+- [Marketing WhatsApp sales](docs/marketing-whatsapp-sales.md)
+- [Sales CRM API](docs/sales-crm-api.md)
+- [Sales lead lifecycle](docs/sales-lead-lifecycle.md)
 
 - [ANUM MINE room geometry and branch reconciliation](docs/ANUM_MINE_GEOMETRY_AND_BRANCH_RECONCILIATION.md)
 
