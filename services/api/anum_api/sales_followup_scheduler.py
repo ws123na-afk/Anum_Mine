@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select, text, update
 
 from .db.sales_repository import (
-    SalesAutomationSettingsRecord, SalesCRMStore, SalesFollowUpRecord,
+    SalesAutomationSettingsRecord, SalesCRMStore, SalesFollowUpRecord, SalesLeadRecord,
 )
 from .db.session import SessionLocal, set_tenant_context
 from .schemas import TenantContext, new_id, utc_now
@@ -104,6 +104,18 @@ def _workspace_policy(context: TenantContext) -> dict:
                              context.workspace_id).get_automation_settings()
 
 
+def _consent_still_valid(context: TenantContext, lead_id: str) -> bool:
+    with SessionLocal.begin() as session:
+        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        lead = session.scalar(select(SalesLeadRecord).where(
+            SalesLeadRecord.id == lead_id,
+            SalesLeadRecord.tenant_id == context.tenant_id,
+            SalesLeadRecord.workspace_id == context.workspace_id,
+        ))
+        return bool(lead and lead.marketing_consent and
+                    lead.status not in {"lost", "disqualified"})
+
+
 def _claim(context: TenantContext, item_id: str, now: datetime) -> bool:
     """Serialize the workspace quota on the policy row and claim one due action."""
     with SessionLocal.begin() as session:
@@ -120,6 +132,15 @@ def _claim(context: TenantContext, item_id: str, now: datetime) -> bool:
             SalesFollowUpRecord.workspace_id == context.workspace_id,
         ).with_for_update(skip_locked=True))
         if item is None or item.status != "approved" or item.due_at > now:
+            return False
+        lead = session.scalar(select(SalesLeadRecord).where(
+            SalesLeadRecord.id == item.lead_id,
+            SalesLeadRecord.tenant_id == context.tenant_id,
+            SalesLeadRecord.workspace_id == context.workspace_id,
+        ))
+        if lead is None or not lead.marketing_consent or lead.status in {"lost", "disqualified"}:
+            item.status = "held"
+            item.last_error = "Consent revoked or lead closed; owner review required"
             return False
         # Count claims as well as completed sends: two replicas cannot both
         # exceed the cap while a request is still in flight.
@@ -230,7 +251,9 @@ async def _execute(context: TenantContext, item_id: str) -> bool:
     if not _claim(context, item_id, utc_now()):
         return False
     # Re-check both revocation and pause after the committed quota claim.
-    if (not _workspace_policy(context)["enabled"] or _workspace_policy(context)["paused"]
+    policy = _workspace_policy(context)
+    if (not policy["enabled"] or policy["paused"]
+            or not _consent_still_valid(context, saved["lead_id"])
             or suppressed_for_call(context, TEMPLATE_TOOL,
                                    {"to": "+" + conversation.wa_id, "purpose": "marketing"},
                                    definition)):
