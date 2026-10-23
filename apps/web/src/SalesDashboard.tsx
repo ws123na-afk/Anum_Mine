@@ -5,9 +5,9 @@ import { AlertCircle, ArrowUpRight, ClipboardList, RefreshCcw } from 'lucide-rea
 import { describeError } from './lib/errors';
 import { formatDateTime, getLocale, subscribeLocale } from './lib/i18n';
 import {
-  createSalesQuote, getSalesOverview, listSalesLeads, proposeSalesFollowup,
+  createSalesQuote, getSalesOverview, getSalesLeadHistory, listSalesLeads, proposeSalesFollowup,
   transitionSalesLead, updateSalesLead,
-  type SalesLead, type SalesOverview, type SalesStage,
+  type SalesLead, type SalesOverview, type SalesStage, type SalesHistory,
 } from './lib/salesApi';
 import './salesDashboard.css';
 
@@ -216,5 +216,46 @@ function LeadEditor({lead, locale, disabled, save, changeStage, createQuote, fol
         <button disabled={disabled} type="submit">{l.createFollowup}</button>
       </form>
     </section>
+    <SalesHistoryPanel leadId={lead.id} locale={locale} revision={lead.revision}/>
   </div>;
+}
+
+function SalesHistoryPanel({leadId,locale,revision}:{leadId:string;locale:'en'|'ar';revision:number}) {
+  const [data,setData]=useState<SalesHistory|null>(null);
+  const [error,setError]=useState('');
+  const [loading,setLoading]=useState(true);
+  useEffect(()=>{
+    let active=true;
+    setLoading(true);setError('');
+    void getSalesLeadHistory(leadId).then(value=>{if(active)setData(value);})
+      .catch(cause=>{if(active)setError(describeError(cause));})
+      .finally(()=>{if(active)setLoading(false);});
+    return ()=>{active=false;};
+  },[leadId,revision]);
+  const ar=locale==='ar';
+  return <section className="salesSubForm" aria-label={ar?'سجل العميل':'Customer timeline'}>
+    <h4>{ar?'سجل العميل وعروض الأسعار والمتابعات':'Customer history, quotations and follow-ups'}</h4>
+    {loading && <p role="status">{ar?'جار التحميل':'Loading history...'}</p>}
+    {error && <p role="alert" className="salesError">{error}</p>}
+    {data && <>
+      <h5>{ar?'عروض الأسعار':'Quotation drafts'} ({data.quotes.length})</h5>
+      {data.quotes.length===0 && <p>{ar?'لا توجد عروض':'No quotations yet'}</p>}
+      {data.quotes.map(q=><article className="salesHistoryRow" key={q.id}>
+        <strong>{q.currency} {q.total}</strong><span>{q.status}</span>
+        <small>{formatDateTime(q.created_at)}</small>
+        <ul>{q.line_items.map((item,i)=><li key={i}>{item.description}: {item.amount}</li>)}</ul>
+      </article>)}
+      <h5>{ar?'المتابعات':'Follow-up proposals'} ({data.followups.length})</h5>
+      {data.followups.length===0 && <p>{ar?'لا توجد متابعات':'No follow-ups yet'}</p>}
+      {data.followups.map(item=><article className="salesHistoryRow" key={item.id}>
+        <strong>{item.purpose}</strong><span>{item.channel} · {item.status}</span>
+        <small>{formatDateTime(item.due_at)}</small>
+      </article>)}
+      <h5>{ar?'سجل التغييرات':'Activity history'} ({data.events.length})</h5>
+      {data.events.map(item=><article className="salesHistoryRow" key={item.id}>
+        <strong>{item.event}</strong><span>{item.status??''}</span>
+        <small>{formatDateTime(item.occurred_at)} · {item.actor_id}</small>
+      </article>)}
+    </>}
+  </section>;
 }
