@@ -5,7 +5,7 @@ import { AlertCircle, ArrowUpRight, ClipboardList, RefreshCcw } from 'lucide-rea
 import { describeError } from './lib/errors';
 import { formatDateTime, getLocale, subscribeLocale } from './lib/i18n';
 import {
-  createSalesQuote, getSalesOverview, getSalesLeadHistory, listSalesLeads, proposeSalesFollowup,
+  createSalesQuote, getSalesOverview, getSalesLeadHistory, listSalesLeads, proposeSalesFollowup, requestSalesQuoteDelivery,
   transitionSalesLead, updateSalesLead,
   type SalesLead, type SalesOverview, type SalesStage, type SalesHistory,
 } from './lib/salesApi';
@@ -226,6 +226,9 @@ function SalesHistoryPanel({leadId,locale,revision}:{leadId:string;locale:'en'|'
   const [data,setData]=useState<SalesHistory|null>(null);
   const [error,setError]=useState('');
   const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(false);
+  const [notice,setNotice]=useState('');
+  const [reload,setReload]=useState(0);
   useEffect(()=>{
     let active=true;
     setLoading(true);setError('');
@@ -233,18 +236,25 @@ function SalesHistoryPanel({leadId,locale,revision}:{leadId:string;locale:'en'|'
       .catch(cause=>{if(active)setError(describeError(cause));})
       .finally(()=>{if(active)setLoading(false);});
     return ()=>{active=false;};
-  },[leadId,revision]);
+  },[leadId,revision,reload]);
   const ar=locale==='ar';
   return <section className="salesSubForm" aria-label={ar?'سجل العميل':'Customer timeline'}>
     <h4>{ar?'سجل العميل وعروض الأسعار والمتابعات':'Customer history, quotations and follow-ups'}</h4>
     {loading && <p role="status">{ar?'جار التحميل':'Loading history...'}</p>}
     {error && <p role="alert" className="salesError">{error}</p>}
+    {notice && <p role="status" className="salesSuccess">{notice}</p>}
     {data && <>
       <h5>{ar?'عروض الأسعار':'Quotation drafts'} ({data.quotes.length})</h5>
       {data.quotes.length===0 && <p>{ar?'لا توجد عروض':'No quotations yet'}</p>}
       {data.quotes.map(q=><article className="salesHistoryRow" key={q.id}>
         <strong>{q.currency} {q.total}</strong><span>{q.status}</span>
         <small>{formatDateTime(q.created_at)}</small>
+        {q.status==='draft' && <button type="button" disabled={busy} onClick={()=>{
+          setBusy(true);setError('');setNotice('');
+          void requestSalesQuoteDelivery(leadId,q.id).then(result=>{
+            setNotice(result.detail);setReload(x=>x+1);
+          }).catch(cause=>setError(describeError(cause))).finally(()=>setBusy(false));
+        }}>{ar?'طلب الموافقة على إرسال العرض عبر واتساب':'Request approved WhatsApp quotation delivery'}</button>}
         <ul>{q.line_items.map((item,i)=><li key={i}>{item.description}: {item.amount}</li>)}</ul>
       </article>)}
       <h5>{ar?'المتابعات':'Follow-up proposals'} ({data.followups.length})</h5>
