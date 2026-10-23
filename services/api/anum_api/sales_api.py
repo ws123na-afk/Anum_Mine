@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .authorization import Permission
-from .dependencies import require_permission, tenant_context
+from .dependencies import require_permission, tenant_context, repository_context
 from .db.session import SessionLocal, set_tenant_context
 from .db.sales_repository import SalesCRMStore
 from .marketing_sales_orchestration import plan_inbound_handoff
@@ -27,6 +27,8 @@ from .sales_lead_lifecycle import (
     propose_follow_up, sales_overview,
 )
 from .schemas import TenantContext, utc_now
+from .repository import AnumRepository
+from .whatsapp import SendRequest, send as governed_whatsapp_send
 
 router = APIRouter(prefix="/api/v1/sales", tags=["sales"])
 
@@ -284,3 +286,83 @@ def operations_queue(context: TenantContext = Depends(tenant_context)) -> dict:
     require_read(context)
     with sales_store(context) as store:
         return store.sales_operations()
+
+
+def _quote_whatsapp_text(lead: Lead, quote) -> str:
+    """Only persisted, human-supplied line-item prices may enter the quote message."""
+    arabic = lead.preferred_language == "ar"
+    heading = "عرض سعر من ANUM 360" if arabic else "ANUM 360 quotation"
+    recipient = lead.company_name or lead.contact_name or ""
+    lines = [heading, recipient, ""]
+    for item in quote.line_items:
+        description = str(item.get("description", "")).strip()
+        amount = str(item.get("amount", "")).strip()
+        if not description or not amount:
+            raise HTTPException(status_code=422, detail="Quote contains an incomplete line item")
+        lines.append(f"- {description}: {quote.currency} {amount}")
+    lines.append(f"{'الإجمالي' if arabic else 'Total'}: {quote.currency} {quote.total}")
+    if quote.terms:
+        lines += ["", f"{'الشروط' if arabic else 'Terms'}: {quote.terms}"]
+    text = "\n".join(lines).strip()
+    if len(text) > 4096:
+        raise HTTPException(status_code=422, detail="Quotation is too long for WhatsApp")
+    return text
+
+
+@router.post("/leads/{lead_id}/quotes/{quote_id}/request-whatsapp-delivery")
+async def request_quote_whatsapp_delivery(
+    lead_id: str, quote_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> dict:
+    """Request the existing always-approved freeform WhatsApp delivery tool.
+
+    Sending remains subject to the 24-hour customer-service window and
+    an owner's approval through the normal WhatsApp runtime. The quote is
+    reserved before requesting approval to prevent duplicate requests.
+    """
+    require_write(context)
+    with sales_store(context) as store:
+        lead = required_lead(store, lead_id)
+        quote = store.get_quote_for_delivery(lead_id=lead.id, quote_id=quote_id)
+        if quote is None:
+            raise HTTPException(status_code=404, detail="Quotation not found")
+        text = _quote_whatsapp_text(lead, quote)
+        if not store.reserve_quote_delivery(lead_id=lead_id, quote_id=quote_id):
+            raise HTTPException(status_code=409, detail="Quotation already has a delivery request")
+        conversation_id = lead.source_conversation_id
+
+    try:
+        result = await governed_whatsapp_send(
+            conversation_id, SendRequest(text=text), context, repository,
+        )
+    except Exception:
+        with sales_store(context) as store:
+            store.finish_quote_delivery_request(
+                lead_id=lead_id, quote_id=quote_id, approval_id=None, status="draft",
+            )
+        raise
+
+    approval_id = result.approval.id if result.approval else None
+    quote_status = (
+        "sent" if result.outcome == "sent"
+        else "pending_approval" if result.outcome == "awaiting_approval"
+        else "draft"
+    )
+    with sales_store(context) as store:
+        if not store.finish_quote_delivery_request(
+            lead_id=lead_id, quote_id=quote_id,
+            approval_id=approval_id, status=quote_status,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Delivery request was created but the quotation status could not be reconciled",
+            )
+    return {
+        "quote_id": quote_id,
+        "status": quote_status,
+        "outcome": result.outcome,
+        "message_id": result.message.id,
+        "approval_id": approval_id,
+        "detail": result.detail,
+    }
