@@ -54,7 +54,7 @@ def upgrade():
         sa.Column("tenant_id", sa.String(80), nullable=False),
         sa.Column("workspace_id", sa.String(80), nullable=False),
         sa.Column("lead_id", sa.String(80), nullable=False),
-        sa.Column("evidence_message_id", sa.String(80), nullable=False),
+        sa.Column("evidence_message_id", sa.String(80), nullable=True),
         sa.Column("evidence_note", sa.String(500), nullable=False),
         sa.Column("granted", sa.Boolean(), nullable=False),
         sa.Column("recorded_by", sa.String(160), nullable=False),
@@ -105,12 +105,12 @@ def upgrade():
         _rls(table)
     # Maintenance may discover only due approved actions; no customer data or tokens.
     op.execute(
-        "grant select (id, tenant_id, workspace_id, status, due_at) "
+        "grant select (id, tenant_id, workspace_id, status, due_at, last_attempt_at) "
         "on sales_followups to anum_maintenance"
     )
     op.execute(
         "create policy maintenance_due_sales_followups on sales_followups "
-        "for select to anum_maintenance using (status = 'approved')"
+        "for select to anum_maintenance using (status in ('approved','dispatching'))"
     )
 
 def downgrade():
@@ -118,7 +118,7 @@ def downgrade():
         "drop policy if exists maintenance_due_sales_followups on sales_followups"
     )
     op.execute(
-        "revoke select (id, tenant_id, workspace_id, status, due_at) "
+        "revoke select (id, tenant_id, workspace_id, status, due_at, last_attempt_at) "
         "on sales_followups from anum_maintenance"
     )
     op.drop_index("ix_sales_followups_pending_delivery",
