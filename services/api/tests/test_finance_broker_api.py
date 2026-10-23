@@ -16,6 +16,8 @@ def test_broker_routes_are_all_registered_and_have_no_get_or_delete():
         "/api/v1/finance/broker/statement-preview": {"POST"},
         "/api/v1/finance/broker/reconcile": {"POST"},
         "/api/v1/finance/broker/readiness": {"POST"},
+        "/api/v1/finance/broker/analyze": {"POST"},
+        "/api/v1/finance/broker/history": {"POST"},
     }
     spec = app.openapi()
     for path in paths:

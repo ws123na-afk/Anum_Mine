@@ -7,6 +7,8 @@ type Position = { symbol: string; currency: string; quantity: string; side: stri
 type Snapshot = { broker_id: string; account_id: string; as_of: string; source_reference: string; cash: Cash[]; positions: Position[] };
 type Discrepancy = { kind: string; key: string; expected: string | null; actual: string | null; difference: string | null; currency: string | null };
 type Reconciliation = { matches: boolean; stale: boolean; discrepancies: Discrepancy[]; currency_exposure: Record<string, string>; unpriced_positions: string[]; read_only: boolean; trades_executed: number; broker_id: string; account_id: string; baseline_time: string; observed_time: string; source_reference: string };
+type Analytics = { exposure: { currency: string; long_market_value: string; short_market_value: string; gross_market_value: string; net_market_value: string; top_position_symbol: string | null; top_position_share_percent: string | null; unpriced_count: number }[]; warnings: string[]; read_only: boolean };
+type History = { cash_changes: { currency: string; settled_change: string | null; available_change: string | null }[]; position_changes: { symbol: string; currency: string; quantity_change: string | null; valuation_change: string | null; remark: string }[]; warnings: string[]; profit_calculated: boolean };
 type Side = 'baseline' | 'observed';
 type Status = 'empty' | 'loading' | 'ready';
 type Slot = { csv: string; snapshot: Snapshot | null; status: Status; name: string };
@@ -72,6 +74,8 @@ export function BrokerStatementWorkbench() {
   const current = useRef(0);
   const [slots, setSlots] = useState<Record<Side, Slot>>({ baseline: EMPTY, observed: EMPTY });
   const [result, setResult] = useState<Reconciliation | null>(null);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [history, setHistory] = useState<History | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
@@ -80,6 +84,8 @@ export function BrokerStatementWorkbench() {
     current.current++;
     setSlots(prev => ({ ...prev, [side]: { csv, name, snapshot: null, status: csv ? 'empty' : 'empty' } }));
     setResult(null);
+    setAnalytics(null);
+    setHistory(null);
     setError('');
   }
 
@@ -123,7 +129,14 @@ export function BrokerStatementWorkbench() {
     setBusy(true); setError(''); setResult(null);
     try {
       const answer = await send<Reconciliation>('/reconcile', { baseline, observed });
-      if (index === current.current) setResult(answer);
+      if (index === current.current) {
+        setResult(answer);
+        const [analysis, changes] = await Promise.all([
+          send<Analytics>('/analyze', observed),
+          send<History>('/history', { baseline, observed }),
+        ]);
+        if (index === current.current) { setAnalytics(analysis); setHistory(changes); }
+      }
     } catch (err) {
       if (index === current.current) setError(readableError(err));
     } finally { if (index === current.current) setBusy(false); }
@@ -131,7 +144,7 @@ export function BrokerStatementWorkbench() {
 
   function clear() {
     current.current++;
-    setBusy(false); setError(''); setResult(null);
+    setBusy(false); setError(''); setResult(null); setAnalytics(null); setHistory(null);
     setSlots({ baseline: { ...EMPTY }, observed: { ...EMPTY } });
   }
 
@@ -196,6 +209,24 @@ export function BrokerStatementWorkbench() {
         </table></div>
         <h4>Position market values by currency</h4>
         <ul>{Object.entries(result.currency_exposure).map(([currency, amount]) => <li key={currency}>{currency}: {amount}</li>)}</ul>
+        {analytics && <section aria-label="Portfolio concentration and exposure">
+          <h4>Exposure and concentration</h4>
+          <div className="cmTableScroll"><table><thead><tr><th>Currency</th><th>Long value</th><th>Short value</th><th>Gross value</th><th>Net value</th><th>Largest position</th></tr></thead><tbody>
+            {analytics.exposure.map(row => <tr key={row.currency}><td>{row.currency}</td><td>{row.long_market_value}</td><td>{row.short_market_value}</td><td>{row.gross_market_value}</td><td>{row.net_market_value}</td><td>{row.top_position_symbol ?? 'Unpriced'} ({row.top_position_share_percent ?? 'N/A'}%)</td></tr>)}
+          </tbody></table></div>
+          <ul>{analytics.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+        </section>}
+        {history && <section aria-label="Historical statement movement">
+          <h4>Changes between statement dates</h4>
+          <p className="muted">Cash changes and valuation movement are not verified investment returns.</p>
+          <div className="cmTableScroll"><table><thead><tr><th>Currency</th><th>Settled cash change</th><th>Available cash change</th></tr></thead><tbody>
+            {history.cash_changes.map(row => <tr key={row.currency}><td>{row.currency}</td><td>{row.settled_change ?? "Unknown"}</td><td>{row.available_change ?? "Unknown"}</td></tr>)}
+          </tbody></table></div>
+          <div className="cmTableScroll"><table><thead><tr><th>Instrument</th><th>Currency</th><th>Quantity change</th><th>Comparable valuation movement</th><th>Explanation</th></tr></thead><tbody>
+            {history.position_changes.map((row, index) => <tr key={index}><td>{row.symbol}</td><td>{row.currency}</td><td>{row.quantity_change ?? "Unknown"}</td><td>{row.valuation_change ?? "Not comparable"}</td><td>{row.remark}</td></tr>)}
+          </tbody></table></div>
+          <ul>{history.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+        </section>}
         <button type="button" className="secondary" onClick={() => downloadReconciliation(result)}>Download differences CSV</button>
       </div>}
     </div>}

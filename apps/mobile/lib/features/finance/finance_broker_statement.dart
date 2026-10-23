@@ -22,6 +22,8 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
   Map<String, dynamic>? _baseline;
   Map<String, dynamic>? _observed;
   Map<String, dynamic>? _comparison;
+  Map<String, dynamic>? _analytics;
+  Map<String, dynamic>? _history;
   String? _error;
   bool _busy = false, _expanded = false;
   int _version = 0;
@@ -39,6 +41,8 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
       _baseline = null;
       _observed = null;
       _comparison = null;
+      _analytics = null;
+      _history = null;
       _error = null;
     });
   }
@@ -107,7 +111,16 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
         body: {'baseline': _baseline, 'observed': _observed},
       );
       if (mounted && version == _version) {
-        setState(() => _comparison = Map<String, dynamic>.from(result));
+        final values = await Future.wait([
+          widget.api.request('POST', '/api/v1/finance/broker/analyze', body: _observed),
+          widget.api.request('POST', '/api/v1/finance/broker/history',
+              body: {'baseline': _baseline, 'observed': _observed}),
+        ]);
+        if (mounted && version == _version) setState(() {
+          _comparison = Map<String, dynamic>.from(result);
+          _analytics = Map<String, dynamic>.from(values[0]);
+          _history = Map<String, dynamic>.from(values[1]);
+        });
       }
     } on ApiException catch (error) {
       if (mounted && version == _version) {
@@ -193,6 +206,33 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
       if (differences.isEmpty) const Text('No quantity or cash differences detected.'),
       const Text('Recorded position values by currency:'),
       for (final entry in exposure.entries) Text('${entry.key}: ${entry.value}'),
+      if (_analytics != null) ...[
+        Text('Exposure and concentration', style: Theme.of(context).textTheme.titleMedium),
+        for (final raw in (_analytics!['exposure'] as List<dynamic>? ?? const []))
+          if (raw is Map) ListTile(
+            dense: true,
+            title: Text('${raw['currency']} gross ${raw['gross_market_value']} / net ${raw['net_market_value']}'),
+            subtitle: Text('Top position: ${raw['top_position_symbol'] ?? 'unpriced'}; '
+                'share ${raw['top_position_share_percent'] ?? 'unknown'}%'),
+          ),
+        for (final warning in (_analytics!['warnings'] as List<dynamic>? ?? const []))
+          Text('$warning'),
+      ],
+      if (_history != null) ...[
+        Text('Historical statement changes', style: Theme.of(context).textTheme.titleMedium),
+        const Text('Cash changes and price movements are not verified investment returns.'),
+        for (final raw in (_history!['cash_changes'] as List<dynamic>? ?? const []))
+          if (raw is Map) ListTile(dense: true,
+            title: Text('Cash: ${raw['currency']}'),
+            subtitle: Text('Settled: ${raw['settled_change'] ?? 'unknown'}, '
+                'available: ${raw['available_change'] ?? 'unknown'}')),
+        for (final raw in (_history!['position_changes'] as List<dynamic>? ?? const []))
+          if (raw is Map) ListTile(dense: true,
+            title: Text('${raw['symbol']} (${raw['currency']})'),
+            subtitle: Text('Quantity change: ${raw['quantity_change'] ?? 'unknown'}. '
+                '${raw['remark'] ?? ''}')),
+        for (final warning in (_history!['warnings'] as List<dynamic>? ?? const [])) Text('$warning'),
+      ],
       const Text('These values come from uploaded statements, not a live broker. '
           'This module cannot execute trades or transfer money.'),
     ]);
