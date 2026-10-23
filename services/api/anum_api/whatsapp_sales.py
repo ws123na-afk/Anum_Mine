@@ -7,7 +7,7 @@ customer has agreed to a proposal or opted in to marketing.
 from __future__ import annotations
 
 import re
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import urlencode
 from dataclasses import dataclass
 from enum import StrEnum
 
