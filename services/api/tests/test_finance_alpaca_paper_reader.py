@@ -68,3 +68,16 @@ def test_broker_does_not_accept_unexpected_response_shapes():
         wrong.account()
     with pytest.raises(BrokerPaperReadError):
         wrong.positions()
+
+
+def test_paper_reader_refuses_cross_origin_redirects():
+    from anum_api.finance.alpaca_paper_reader import _DenyRedirects
+    from urllib.request import Request
+
+    request = Request(PAPER_ORIGIN + "/v2/account")
+    with pytest.raises(BrokerPaperReadError, match="redirect"):
+        _DenyRedirects().redirect_request(
+            request, None, 302, "Found",
+            {"Location": "https://example.org/collect"},
+            "https://example.org/collect",
+        )
