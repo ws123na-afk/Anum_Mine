@@ -275,6 +275,17 @@ class SalesCRMStore:
             purpose=followup.purpose, status="proposed", created_by=created_by, created_at=now,
         ))
 
+    def quote_delivery_state(self, quote: SalesQuoteRecord) -> str | None:
+        """Current Meta-backed WhatsApp message state bound to this quotation approval."""
+        if not quote.approval_id:
+            return None
+        from .whatsapp_repository import WhatsAppMessageRecord
+        return self.session.scalar(select(WhatsAppMessageRecord.status).where(
+            WhatsAppMessageRecord.tenant_id == self.tenant_id,
+            WhatsAppMessageRecord.workspace_id == self.workspace_id,
+            WhatsAppMessageRecord.approval_id == quote.approval_id,
+        ).order_by(WhatsAppMessageRecord.updated_at.desc()).limit(1))
+
     def lead_history(self, lead_id: str) -> dict[str, list[dict]]:
         """Read quotes, proposals and audit trail only within the active workspace."""
         scope = (self.tenant_id, self.workspace_id, lead_id)
@@ -296,7 +307,7 @@ class SalesCRMStore:
         return {
             "events": [{"id": row.id, "event": row.event, "actor_id": row.actor_id,
                         "status": row.to_status, "occurred_at": row.occurred_at.isoformat()} for row in events],
-            "quotes": [{"id": row.id, "status": row.status, "currency": row.currency,
+            "quotes": [{"id": row.id, "status": row.status, "delivery_state": self.quote_delivery_state(row), "currency": row.currency,
                         "total": str(row.total), "line_items": row.line_items,
                         "terms": row.terms, "created_at": row.created_at.isoformat()} for row in quotes],
             "followups": [{"id": row.id, "status": row.status, "channel": row.channel,
@@ -349,7 +360,7 @@ class SalesCRMStore:
         return {
             "quotes": [{"id": row.id, "lead_id": row.lead_id, "status": row.status,
                         "total": str(row.total), "currency": row.currency,
-                        "approval_id": row.approval_id} for row in quotes],
+                        "approval_id": row.approval_id, "delivery_state": self.quote_delivery_state(row)} for row in quotes],
             "followups": [{"id": row.id, "lead_id": row.lead_id, "status": row.status,
                            "due_at": row.due_at.isoformat(), "channel": row.channel,
                            "purpose": row.purpose, "approval_id": row.approval_id,
