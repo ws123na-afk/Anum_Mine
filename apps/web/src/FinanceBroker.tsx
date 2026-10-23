@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from 'react';
 import { apiRequest } from './lib/api';
+import './FinanceBroker.css';
 
 type Cash = { currency: string; settled: string; available: string };
 type Position = { symbol: string; currency: string; quantity: string; side: string; last_price: string | null };
