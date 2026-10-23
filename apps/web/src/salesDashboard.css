@@ -68,3 +68,10 @@
 .salesConsentPanel form{display:grid;gap:10px}
 .salesConsentPanel label{display:grid;gap:5px}
 @media(max-width:760px){.salesControlForm{align-items:stretch}.salesControlForm label{flex:1 1 100%}}
+
+.salesReadiness{display:grid;gap:10px;padding:15px;border:1px solid var(--d-line-strong);border-radius:12px;background:var(--d-glass-1)}
+.salesReadiness h4,.salesReadiness p{margin:0}
+.salesReadiness p,.salesReadiness small{color:var(--d-muted);font-size:.81rem}
+.salesReadiness ul{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;padding:0;margin:0;list-style:none}
+.salesReadiness li{display:flex;align-items:center;gap:9px;font-size:.88rem}
+.salesReadiness li span{font-size:1.15rem;min-width:22px}
