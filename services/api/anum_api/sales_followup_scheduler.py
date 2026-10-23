@@ -104,6 +104,26 @@ def _workspace_policy(context: TenantContext) -> dict:
                              context.workspace_id).get_automation_settings()
 
 
+def _governance_allows(context: TenantContext) -> bool:
+    """Fail closed on any organization policy that requires further approvals."""
+    from .dependencies import _unit_of_work
+    from .tool_governance import match_governance
+
+    definition = tool_definitions()[4]
+    try:
+        with _unit_of_work(context, require_membership=False) as repository:
+            governance = repository.get_tool_governance(context)
+    except Exception:
+        return False
+    match = match_governance(
+        governance, tool=TEMPLATE_TOOL,
+        target=definition.target, risk_level=definition.risk_level,
+    )
+    # The owner approved one exact template. Anything more restrictive must
+    # go through the regular approvals tool, not this unattended scheduler.
+    return not (match.deny or match.require_approval or match.approval_rules)
+
+
 def _consent_still_valid(context: TenantContext, lead_id: str) -> bool:
     with SessionLocal.begin() as session:
         set_tenant_context(session, context.tenant_id, context.workspace_id)
@@ -202,7 +222,11 @@ async def _execute(context: TenantContext, item_id: str) -> bool:
     if not saved["approved_by"] or not saved["payload_hash"] or not saved["approved_at"]:
         _mark(context, item_id, "held", "Missing owner authorization", from_status="approved")
         return False
-    if not _workspace_policy(context)["enabled"] or _workspace_policy(context)["paused"]:
+    if not _governance_allows(context):
+        _mark(context, item_id, "held", "Organization tool policy requires a separate approval", from_status="approved")
+        return False
+    current_policy = _workspace_policy(context)
+    if not current_policy["enabled"] or current_policy["paused"]:
         return False
 
     with open_whatsapp_store(context) as wa:
@@ -253,6 +277,7 @@ async def _execute(context: TenantContext, item_id: str) -> bool:
     # Re-check both revocation and pause after the committed quota claim.
     policy = _workspace_policy(context)
     if (not policy["enabled"] or policy["paused"]
+            or not _governance_allows(context)
             or not _consent_still_valid(context, saved["lead_id"])
             or suppressed_for_call(context, TEMPLATE_TOOL,
                                    {"to": "+" + conversation.wa_id, "purpose": "marketing"},
