@@ -253,7 +253,7 @@ function SalesHistoryPanel({leadId,locale,revision}:{leadId:string;locale:'en'|'
       <h5>{ar?'عروض الأسعار':'Quotation drafts'} ({data.quotes.length})</h5>
       {data.quotes.length===0 && <p>{ar?'لا توجد عروض':'No quotations yet'}</p>}
       {data.quotes.map(q=><article className="salesHistoryRow" key={q.id}>
-        <strong>{q.currency} {q.total}</strong><span>{q.status}</span>
+        <strong>{q.currency} {q.total}</strong><span>{q.status}{q.delivery_state ? ` · WhatsApp: ${q.delivery_state}` : ''}</span>
         <small>{formatDateTime(q.created_at)}</small>
         {q.status==='draft' && <button type="button" disabled={busy} onClick={()=>{
           setBusy(true);setError('');setNotice('');
