@@ -1,5 +1,7 @@
 """Regression tests for bilingual sales-intent qualification."""
-from anum_api.whatsapp_sales import SalesIntent, qualify_lead
+from anum_api.whatsapp_sales import SalesIntent, qualify_lead, whatsapp_campaign_link, inbound_campaign_marker, campaign_marker
+from urllib.parse import parse_qs, urlparse
+import pytest
 
 
 def test_arabic_website_enquiry():
@@ -52,3 +54,26 @@ def test_no_prices_or_false_commitments_in_questions():
         response = qualify_lead(sample)
         assert "SAR" not in response.follow_up_question
         assert "confirmed" not in response.follow_up_question
+
+
+def test_bilingual_campaign_links_prefill_customer_opt_in():
+    arabic = whatsapp_campaign_link("riyadh-websites")
+    english = whatsapp_campaign_link("riyadh-apps", language="en")
+    assert urlparse(arabic).netloc == "wa.me"
+    assert urlparse(arabic).path == "/966507676416"
+    assert "ANUM-CAMPAIGN:riyadh-websites" in parse_qs(urlparse(arabic).query)["text"][0]
+    assert "ANUM-CAMPAIGN:riyadh-apps" in parse_qs(urlparse(english).query)["text"][0]
+    assert inbound_campaign_marker(parse_qs(urlparse(arabic).query)["text"][0]) == "riyadh-websites"
+
+
+def test_campaign_marker_rejects_injection_and_invalid_phone():
+    for slug in ("", "UPPER", "spaces here", "hello&text=bad", "x" * 65):
+        with pytest.raises(ValueError):
+            campaign_marker(slug)
+    with pytest.raises(ValueError):
+        whatsapp_campaign_link("riyadh-websites", phone="123")
+
+
+def test_inbound_campaign_marker_does_not_claim_unknown_source():
+    assert inbound_campaign_marker("أريد تصميم موقع") is None
+    assert inbound_campaign_marker("ANUM-CAMPAIGN:riyadh-apps") == "riyadh-apps"
