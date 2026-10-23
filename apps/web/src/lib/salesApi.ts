@@ -62,7 +62,7 @@ export const proposeSalesFollowup = (
 
 export interface SalesHistory {
   events: Array<{id:string; event:string; actor_id:string; status:string|null; occurred_at:string}>;
-  quotes: Array<{id:string; status:string; currency:string; total:string; line_items:Array<{description:string;amount:string}>; terms:string; created_at:string}>;
+  quotes: Array<{id:string; status:string; delivery_state?:string|null; currency:string; total:string; line_items:Array<{description:string;amount:string}>; terms:string; created_at:string}>;
   followups: Array<{id:string; status:string; channel:string; purpose:string; due_at:string}>;
 }
 export const getSalesLeadHistory = (leadId: string): Promise<SalesHistory> =>
