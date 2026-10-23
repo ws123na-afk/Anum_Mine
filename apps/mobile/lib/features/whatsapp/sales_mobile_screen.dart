@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
-import '../../data/json_read.dart';
 
 /// Sales leads use the existing authenticated ANUM API and workspace RLS.
 class MobileSalesLead {
@@ -325,9 +324,10 @@ class _SalesLeadScreenState extends State<_SalesLeadScreen> {
       field(tr('Description', 'وصف الخدمة'), description),
       field(tr('Amount', 'المبلغ'), price, keyboard: TextInputType.number),
       field(tr('Terms', 'الشروط'), terms, lines:2),
-      FilledButton(onPressed: busy || description.text.isEmpty || price.text.isEmpty
-        ? null : () => run(() => widget.repository.quotation(
-          widget.lead,description.text,price.text,terms.text)),
+      FilledButton(onPressed: busy ? null : () {
+        if (description.text.trim().isEmpty || price.text.trim().isEmpty) return;
+        run(() => widget.repository.quotation(widget.lead, description.text, price.text, terms.text));
+      },
         child: Text(tr('Save quotation draft','حفظ مسودة عرض السعر'))),
       const Divider(height: 32),
       Text(tr('Follow-up proposal','اقتراح متابعة'),
@@ -348,8 +348,10 @@ class _SalesLeadScreenState extends State<_SalesLeadScreen> {
         DropdownMenuItem(value:'call',child:Text('Call')),
       ],onChanged:(value)=>setState(()=>channel=value??channel)),
       field(tr('Reason','سبب المتابعة'),purpose),
-      FilledButton(onPressed:busy || due==null || purpose.text.trim().isEmpty ?
-        null : () => run(() => widget.repository.followUp(widget.lead,due!,channel,purpose.text)),
+      FilledButton(onPressed:busy ? null : () {
+        if (due == null || purpose.text.trim().isEmpty) return;
+        run(() => widget.repository.followUp(widget.lead, due!, channel, purpose.text));
+      },
         child:Text(tr('Save follow-up proposal','حفظ اقتراح المتابعة'))),
     ]),
   );
