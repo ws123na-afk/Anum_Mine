@@ -41,3 +41,12 @@
 .salesHistoryRow span,.salesHistoryRow small{color:var(--d-muted);font-size:.81rem}
 .salesHistoryRow ul{margin:4px 0;padding-inline-start:18px}
 .salesSubForm h5{font-size:.92rem;margin:12px 0 0}
+
+.salesReporting{display:grid;gap:12px;padding:18px;border:1px solid var(--d-line-strong);border-radius:16px;background:var(--d-glass-1)}
+.salesReportHeader h3{margin:0 0 6px;font-size:1.04rem}
+.salesReportHeader p{margin:0;color:var(--d-muted);font-size:.87rem}
+.salesReportScroll{overflow-x:auto;max-width:100%}
+.salesReportScroll table{width:100%;border-collapse:collapse;text-align:start;font-size:.87rem}
+.salesReportScroll th,.salesReportScroll td{padding:10px 12px;border-bottom:1px solid var(--d-line-strong);text-align:start;overflow-wrap:anywhere}
+.salesReportScroll th{font-weight:650;color:var(--d-muted)}
+.salesReporting h4{margin:10px 0 0}
