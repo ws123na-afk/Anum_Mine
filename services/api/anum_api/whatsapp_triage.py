@@ -25,6 +25,7 @@ from pydantic import BaseModel, ValidationError
 from .model_gateway import ModelGateway, ModelRoute, route_gateway
 from .prompt_provenance import label_untrusted, with_untrusted_rules
 from .whatsapp_store import Category, Direction, Message
+from .whatsapp_sales import SalesIntent, qualify_lead
 
 MAX_PROMPT_MESSAGES = 12
 MAX_MESSAGE_CHARS = 1_000
@@ -127,6 +128,19 @@ def build_prompt(messages: Sequence[Message], *, instructions: str | None = None
             )
         )
     guidance = INSTRUCTIONS
+    latest_customer = next(
+        (m.body for m in reversed(recent) if m.direction == Direction.INBOUND and m.body),
+        "",
+    )
+    sales = qualify_lead(latest_customer)
+    if sales.intent != SalesIntent.OTHER:
+        guidance += (
+            "\n\nSales enquiry detected. Keep the answer conversational and in the customer's "
+            "language. Use this suggested clarifying question if the conversation has not "
+            "already answered it: " + sales.follow_up_question
+        )
+    if sales.requires_human:
+        guidance += "\n\nThe message may require a human. Recommend handoff; do not claim a resolution."
     if instructions:
         # The person's own guidance for this draft (trusted: typed by a workspace member).
         guidance += f"\n\nThe person asking for this draft adds: {instructions[:MAX_INSTRUCTIONS_CHARS]}"
