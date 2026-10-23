@@ -22,6 +22,7 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
   Map<String, dynamic>? _baseline;
   Map<String, dynamic>? _observed;
   Map<String, dynamic>? _comparison;
+  Map<String, dynamic>? _analytics;
   String? _error;
   bool _busy = false, _expanded = false;
   int _version = 0;
@@ -39,6 +40,7 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
       _baseline = null;
       _observed = null;
       _comparison = null;
+      _analytics = null;
       _error = null;
     });
   }
@@ -107,7 +109,13 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
         body: {'baseline': _baseline, 'observed': _observed},
       );
       if (mounted && version == _version) {
-        setState(() => _comparison = Map<String, dynamic>.from(result));
+        final analysis = await widget.api.request(
+          'POST', '/api/v1/finance/broker/analyze', body: _observed,
+        );
+        if (mounted && version == _version) setState(() {
+          _comparison = Map<String, dynamic>.from(result);
+          _analytics = Map<String, dynamic>.from(analysis);
+        });
       }
     } on ApiException catch (error) {
       if (mounted && version == _version) {
@@ -193,6 +201,18 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
       if (differences.isEmpty) const Text('No quantity or cash differences detected.'),
       const Text('Recorded position values by currency:'),
       for (final entry in exposure.entries) Text('${entry.key}: ${entry.value}'),
+      if (_analytics != null) ...[
+        Text('Exposure and concentration', style: Theme.of(context).textTheme.titleMedium),
+        for (final raw in (_analytics!['exposure'] as List<dynamic>? ?? const []))
+          if (raw is Map) ListTile(
+            dense: true,
+            title: Text('${raw['currency']} gross ${raw['gross_market_value']} / net ${raw['net_market_value']}'),
+            subtitle: Text('Top position: ${raw['top_position_symbol'] ?? 'unpriced'}; '
+                'share ${raw['top_position_share_percent'] ?? 'unknown'}%'),
+          ),
+        for (final warning in (_analytics!['warnings'] as List<dynamic>? ?? const []))
+          Text('$warning'),
+      ],
       const Text('These values come from uploaded statements, not a live broker. '
           'This module cannot execute trades or transfer money.'),
     ]);
