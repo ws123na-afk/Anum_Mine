@@ -67,3 +67,19 @@ export interface SalesHistory {
 }
 export const getSalesLeadHistory = (leadId: string): Promise<SalesHistory> =>
   apiRequest(`${BASE}/leads/${id(leadId)}/history`, {method:'GET'});
+
+export interface SalesCampaignConversions {
+  source: string;
+  verified_attribution: boolean;
+  campaigns: Array<{campaign:string;leads:number;qualified:number;won:number;lost:number}>;
+}
+export interface SalesOperationsQueue {
+  quotes: Array<{id:string;lead_id:string;status:string;total:string;currency:string;approval_id:string|null}>;
+  followups: Array<{id:string;lead_id:string;status:string;due_at:string;channel:string;purpose:string;approval_id:string|null}>;
+  delivery_enabled:boolean;
+  execution_enabled:boolean;
+}
+export const getSalesCampaignConversions = ():Promise<SalesCampaignConversions> =>
+  apiRequest(`${BASE}/campaign-conversions`, {method:'GET'});
+export const getSalesOperations = ():Promise<SalesOperationsQueue> =>
+  apiRequest(`${BASE}/operations`, {method:'GET'});
