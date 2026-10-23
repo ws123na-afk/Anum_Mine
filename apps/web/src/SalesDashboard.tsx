@@ -1,7 +1,7 @@
 // Sales desk for WhatsApp leads. Every action hits the authenticated API.
 // Quotes and follow-ups are drafts only, never silently sent to customers.
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { AlertCircle, ArrowUpRight, BarChart3, ClipboardList, RefreshCcw } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, ClipboardList, RefreshCcw } from 'lucide-react';
 import { describeError } from './lib/errors';
 import { formatDateTime, getLocale, subscribeLocale } from './lib/i18n';
 import {
