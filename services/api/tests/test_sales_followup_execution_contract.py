@@ -69,6 +69,7 @@ def test_all_owner_operations_registered():
     for expected in (
         ("/api/v1/sales/automation-settings", "GET"),
         ("/api/v1/sales/automation-settings", "PUT"),
+        ("/api/v1/sales/automation-readiness", "GET"),
         ("/api/v1/sales/leads/{lead_id}/consent", "POST"),
         ("/api/v1/sales/leads/{lead_id}/consent-history", "GET"),
         ("/api/v1/sales/leads/{lead_id}/followups/{followup_id}/approve", "POST"),
