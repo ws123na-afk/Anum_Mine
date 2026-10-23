@@ -128,7 +128,7 @@ export function SalesCampaignAndOperations({locale}:{locale:'ar'|'en'}) {
         <th>{ar?'الحالة':'Status'}</th><th>{ar?'طلب الموافقة':'Approval'}</th></tr></thead>
         <tbody>{operations.quotes.map(q=><tr key={q.id}>
           <td>{q.lead_id}</td><td>{q.currency} {q.total}</td>
-          <td>{q.status}</td><td>{q.approval_id||'—'}</td></tr>)}
+          <td>{q.status}</td><td>{q.approval_id||'-'}</td></tr>)}
           {operations.quotes.length===0&&<tr><td colSpan={4}>{ar?'لا توجد عروض':'No quotations waiting'}</td></tr>}
         </tbody></table></div>
       <h4>{ar?'المتابعات المجدولة':'Scheduled follow-ups'} ({operations.followups.length})</h4>
