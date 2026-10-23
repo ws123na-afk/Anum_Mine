@@ -158,7 +158,7 @@ def simulate_paper_trade(request: PaperSimulationRequest) -> PaperSimulationResu
         basis = (owned * prior.average_cost_sar if prior else Decimal("0")) + notional + fee
         replacement = PaperHolding(
             ticker=quote.ticker, market=quote.market, quantity=quantity,
-            average_cost_sar=basis / quantity,
+            average_cost_sar=(basis / quantity).quantize(Decimal('0.0001')),
         )
         new_cash = portfolio.cash_sar - notional - fee
         realised = portfolio.realised_pnl_sar
