@@ -10,6 +10,7 @@ import {
   type SalesLead, type SalesOverview, type SalesStage, type SalesHistory,
 } from './lib/salesApi';
 import './salesDashboard.css';
+import { SalesCampaignAndOperations } from './SalesCampaignAndOperations';
 
 const STAGES: SalesStage[] = ['new', 'qualifying', 'qualified', 'quoted', 'negotiating', 'won', 'lost', 'disqualified'];
 const LABELS = {
@@ -121,6 +122,7 @@ export function SalesDashboard() {
       ] as const).map(([label, count]) => <div className="salesKpi" key={label}><span>{label}</span><strong>{count}</strong></div>)}
     </div>
     <p className="salesHint">{labels.limited}</p>
+    <SalesCampaignAndOperations locale={locale}/>
     <div className="salesSplit">
       <section className="salesListing" aria-label={labels.leads}>
         <div className="salesFilters"><input aria-label={labels.search} placeholder={labels.search}
