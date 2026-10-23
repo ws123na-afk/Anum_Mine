@@ -16,6 +16,7 @@ from .broker_import import parse_broker_statement_csv
 from .broker_analytics import StatementAnalytics, analyze_broker_statement
 from .broker_history import StatementChangeReport, compare_broker_history
 from .broker_paper import PaperSimulationRequest, PaperSimulationResult, simulate_paper_trade
+from .broker_live_preflight import LivePreflightRequest, LivePreflightResult, evaluate_live_preflight
 from .broker_readiness import BrokerReadiness, BrokerReadinessResult, evaluate_broker_readiness
 from .broker_reconciliation import (
     BrokerDataError, BrokerReconciliation, BrokerSnapshot,
@@ -106,3 +107,13 @@ def paper_simulate(
     """Stateless, authenticated offline math; no trades, account changes or funding."""
     _read(context)
     return simulate_paper_trade(request)
+
+
+@router.post("/live/preflight", response_model=LivePreflightResult)
+def live_preflight(
+    request: LivePreflightRequest,
+    context: TenantContext = Depends(tenant_context),
+) -> LivePreflightResult:
+    """Informational eligibility only: cannot enable trading or receive credentials."""
+    _read(context)
+    return evaluate_live_preflight(request)

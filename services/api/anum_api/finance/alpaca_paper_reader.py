@@ -12,7 +12,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Callable
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -63,6 +63,13 @@ class PaperPosition(BaseModel):
     paper_only: bool = True
 
 
+class _DenyRedirects(HTTPRedirectHandler):
+    """Never forward paper API credentials to another origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise BrokerPaperReadError("Paper broker redirects are not allowed")
+
+
 class AlpacaPaperReader:
     """Inject transport for testing; fixed-origin GET only, no arbitrary URLs.
 
@@ -79,7 +86,7 @@ class AlpacaPaperReader:
     @staticmethod
     def _urlopen(request: Request, limit: int) -> bytes:
         try:
-            with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            with build_opener(_DenyRedirects()).open(request, timeout=TIMEOUT_SECONDS) as response:
                 data = response.read(limit + 1)
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
             raise BrokerPaperReadError("Paper brokerage connection unavailable") from exc
