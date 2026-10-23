@@ -30,7 +30,7 @@ MAX_PROMPT_MESSAGES = 12
 MAX_MESSAGE_CHARS = 1_000
 MAX_REPLY_CHARS = 1_000
 MAX_SUMMARY_CHARS = 200
-MAX_INSTRUCTIONS_CHARS = 500
+MAX_INSTRUCTIONS_CHARS = 1500
 
 _TYRE_SIZE = re.compile(r"\b\d{3}\s*/\s*\d{2}\s*z?r?\s*\d{2}\b", re.IGNORECASE)
 
@@ -95,7 +95,7 @@ class ModelSuggestion(BaseModel):
 
 
 INSTRUCTIONS = (
-    "You help a small e-commerce tyre business answer customers on WhatsApp. Read the "
+    "You help businesses qualify sales enquiries and support customers on WhatsApp. Read the "
     "conversation below and answer with one JSON object and nothing else: "
     '{"category": one of "order_status", "price_stock", "complaint", "supplier", "other"; '
     '"summary": one short sentence about what the customer wants; '
@@ -104,7 +104,7 @@ INSTRUCTIONS = (
     "Write the reply in the customer's language (Arabic when they write Arabic). Never "
     "invent prices, stock levels, order numbers, delivery dates or promises: when the "
     "reply needs one, write a placeholder in square brackets such as [price] or "
-    "[delivery date] for the person to fill in. Never ask for card numbers or passwords."
+    "[delivery date] for the person to fill in. Ask up to two relevant sales questions at a time about the company, service needed, budget or deadline. Do not claim a quote, meeting or project is confirmed. Escalate complaints, payment issues and requests for a human. Never ask for card numbers, OTP codes, identity documents or passwords."
 )
 
 
