@@ -114,3 +114,13 @@ export const recordSalesConsent = (leadId:string,granted:boolean,note:string,evi
   });
 export const getSalesConsentHistory = (leadId:string):Promise<{items:Array<{granted:boolean;recorded_by:string;recorded_at:string;evidence_note:string;evidence_message_id:string|null}>}> =>
   apiRequest(`${BASE}/leads/${id(leadId)}/consent-history`,{method:'GET'});
+
+export interface SalesAutomationReadiness {
+  checks:Array<{id:string;ok:boolean;label:string}>;
+  configuration_ready:boolean;
+  live_provider_verified:boolean;
+  last_webhook_at:string|null;
+  note:string;
+}
+export const getSalesAutomationReadiness=():Promise<SalesAutomationReadiness> =>
+  apiRequest(`${BASE}/automation-readiness`,{method:'GET'});
