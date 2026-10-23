@@ -7,6 +7,7 @@ customer has agreed to a proposal or opted in to marketing.
 from __future__ import annotations
 
 import re
+from urllib.parse import parse_qs, urlencode, urlparse
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -78,3 +79,38 @@ def qualify_lead(message: str) -> LeadQualification:
         requires_human=requires_human,
         follow_up_question=_QUESTIONS[intent][language],
     )
+
+
+# Approved campaign identifiers travel in a click-to-WhatsApp prefilled message.
+# This links Marketing campaign attribution to inbound WhatsApp conversations
+# without creating contacts or sending unsolicited messages.
+_CAMPAIGN = re.compile(r"(?<![a-z0-9_])ANUM-CAMPAIGN:([a-z0-9][a-z0-9_-]{0,63})(?![a-z0-9_-])", re.IGNORECASE)
+_SAUDI_NUMBER = "966507676416"
+
+
+def campaign_marker(campaign_slug: str) -> str:
+    """Validate a marketing slug so customer-provided text cannot inject a marker."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", campaign_slug):
+        raise ValueError("Campaign slug must contain 1-64 lowercase letters, numbers, _ or -")
+    return f"ANUM-CAMPAIGN:{campaign_slug}"
+
+
+def whatsapp_campaign_link(campaign_slug: str, *, language: str = "ar", phone: str = _SAUDI_NUMBER) -> str:
+    """Build an opt-in click-to-chat link for approved Marketing campaigns."""
+    marker = campaign_marker(campaign_slug)
+    if language not in {"ar", "en"}:
+        raise ValueError("Unsupported language")
+    if not re.fullmatch(r"[1-9][0-9]{7,14}", phone):
+        raise ValueError("Invalid international phone number")
+    introduction = (
+        "مرحباً، أريد الاستفسار عن خدمات المواقع والتطبيقات من ANUM 360"
+        if language == "ar"
+        else "Hello, I would like to learn about ANUM 360 websites and apps"
+    )
+    return f"https://wa.me/{phone}?{urlencode({'text': introduction + chr(10) + marker})}"
+
+
+def inbound_campaign_marker(message: str) -> str | None:
+    """Read the explicit marker from inbound text; never trust it as verified attribution."""
+    match = _CAMPAIGN.search((message or "")[:4000])
+    return match.group(1).lower() if match else None
