@@ -134,6 +134,7 @@ x-user-roles: owner,member
 - [Trading intelligence gap assessment](docs/finance-trading-gap-assessment.md)
 - [Trading intelligence readiness report (loop 10, live stays off)](docs/finance-trading-readiness.md)
 - [Broker onboarding, statement reconciliation and custody safeguards (live off)](docs/finance-broker-onboarding.md)
+- [SAR 500 stocks and crypto paper simulation](docs/finance-sar500-paper-integration.md)
 - [Tyre planning](docs/tyre-planning.md)
 - [Social media marketing](docs/marketing.md)
 - [Email campaigns through Brevo (connection, drafts, approval-only sending, agent tools)](docs/brevo.md)
@@ -261,3 +262,6 @@ Code should follow the contracts, boundaries, tenant model, and security expecta
 - [ANUM MINE virtual headquarters master plan](docs/ANUM_MINE_VIRTUAL_HEADQUARTERS_MASTER_PLAN.md)
 - [ANUM MINE persistent live meeting management API](docs/ANUM_MINE_LIVE_MEETING_MANAGEMENT_API.md)
 - [ANUM MINE live agent meetings foundation](docs/ANUM_MINE_LIVE_AGENT_MEETING_FOUNDATION.md)
+
+- [Sales dashboard](docs/sales-dashboard.md)
+- [Sales Flutter](docs/sales-flutter.md)
