@@ -102,10 +102,52 @@ class SalesFollowUpRecord(Base, WorkspaceScopedMixin):
     approval_id: Mapped[str | None] = mapped_column(String(80))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    template_name: Mapped[str | None] = mapped_column(String(512))
+    template_language: Mapped[str | None] = mapped_column(String(20))
+    template_parameters: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    payload_hash: Mapped[str | None] = mapped_column(String(64))
+    approved_by: Mapped[str | None] = mapped_column(String(160))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_wamid: Mapped[str | None] = mapped_column(String(200))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
         _workspace_fk("sales_followups"),
         ForeignKeyConstraint(["tenant_id","workspace_id","lead_id"],["sales_leads.tenant_id","sales_leads.workspace_id","sales_leads.id"],name="fk_sales_followups_lead"),
         Index("ix_sales_followups_due","tenant_id","workspace_id","status","due_at"),
+    )
+
+
+class SalesAutomationSettingsRecord(Base):
+    __tablename__ = "sales_automation_settings"
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    max_sends_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (_workspace_fk("sales_automation_settings"),)
+
+
+class SalesConsentEventRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "sales_consent_events"
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    lead_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    evidence_message_id: Mapped[str | None] = mapped_column(String(80))
+    evidence_note: Mapped[str] = mapped_column(String(500), nullable=False)
+    granted: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    recorded_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        _workspace_fk("sales_consent_events"),
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "lead_id"],
+            ["sales_leads.tenant_id", "sales_leads.workspace_id", "sales_leads.id"],
+            name="fk_sales_consent_events_lead",
+        ),
+        Index("ix_sales_consent_history","tenant_id","workspace_id","lead_id","recorded_at"),
     )
 
 
