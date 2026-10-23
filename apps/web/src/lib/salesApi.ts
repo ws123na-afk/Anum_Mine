@@ -83,3 +83,9 @@ export const getSalesCampaignConversions = ():Promise<SalesCampaignConversions> 
   apiRequest(`${BASE}/campaign-conversions`, {method:'GET'});
 export const getSalesOperations = ():Promise<SalesOperationsQueue> =>
   apiRequest(`${BASE}/operations`, {method:'GET'});
+
+export const requestSalesQuoteDelivery = (
+  leadId: string, quoteId: string
+): Promise<{quote_id:string;status:string;outcome:string;message_id:string;approval_id:string|null;detail:string}> =>
+  apiRequest(`${BASE}/leads/${id(leadId)}/quotes/${id(quoteId)}/request-whatsapp-delivery`,
+    {method:'POST',body:JSON.stringify({})});
