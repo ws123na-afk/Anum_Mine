@@ -102,10 +102,52 @@ class SalesFollowUpRecord(Base, WorkspaceScopedMixin):
     approval_id: Mapped[str | None] = mapped_column(String(80))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    template_name: Mapped[str | None] = mapped_column(String(512))
+    template_language: Mapped[str | None] = mapped_column(String(20))
+    template_parameters: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    payload_hash: Mapped[str | None] = mapped_column(String(64))
+    approved_by: Mapped[str | None] = mapped_column(String(160))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_wamid: Mapped[str | None] = mapped_column(String(200))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
         _workspace_fk("sales_followups"),
         ForeignKeyConstraint(["tenant_id","workspace_id","lead_id"],["sales_leads.tenant_id","sales_leads.workspace_id","sales_leads.id"],name="fk_sales_followups_lead"),
         Index("ix_sales_followups_due","tenant_id","workspace_id","status","due_at"),
+    )
+
+
+class SalesAutomationSettingsRecord(Base):
+    __tablename__ = "sales_automation_settings"
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    max_sends_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (_workspace_fk("sales_automation_settings"),)
+
+
+class SalesConsentEventRecord(Base, WorkspaceScopedMixin):
+    __tablename__ = "sales_consent_events"
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    lead_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    evidence_message_id: Mapped[str | None] = mapped_column(String(80))
+    evidence_note: Mapped[str] = mapped_column(String(500), nullable=False)
+    granted: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    recorded_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        _workspace_fk("sales_consent_events"),
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "lead_id"],
+            ["sales_leads.tenant_id", "sales_leads.workspace_id", "sales_leads.id"],
+            name="fk_sales_consent_events_lead",
+        ),
+        Index("ix_sales_consent_history","tenant_id","workspace_id","lead_id","recorded_at"),
     )
 
 
@@ -233,6 +275,17 @@ class SalesCRMStore:
             purpose=followup.purpose, status="proposed", created_by=created_by, created_at=now,
         ))
 
+    def quote_delivery_state(self, quote: SalesQuoteRecord) -> str | None:
+        """Current Meta-backed WhatsApp message state bound to this quotation approval."""
+        if not quote.approval_id:
+            return None
+        from .whatsapp_repository import WhatsAppMessageRecord
+        return self.session.scalar(select(WhatsAppMessageRecord.status).where(
+            WhatsAppMessageRecord.tenant_id == self.tenant_id,
+            WhatsAppMessageRecord.workspace_id == self.workspace_id,
+            WhatsAppMessageRecord.approval_id == quote.approval_id,
+        ).order_by(WhatsAppMessageRecord.updated_at.desc()).limit(1))
+
     def lead_history(self, lead_id: str) -> dict[str, list[dict]]:
         """Read quotes, proposals and audit trail only within the active workspace."""
         scope = (self.tenant_id, self.workspace_id, lead_id)
@@ -254,9 +307,242 @@ class SalesCRMStore:
         return {
             "events": [{"id": row.id, "event": row.event, "actor_id": row.actor_id,
                         "status": row.to_status, "occurred_at": row.occurred_at.isoformat()} for row in events],
-            "quotes": [{"id": row.id, "status": row.status, "currency": row.currency,
+            "quotes": [{"id": row.id, "status": row.status, "delivery_state": self.quote_delivery_state(row), "currency": row.currency,
                         "total": str(row.total), "line_items": row.line_items,
                         "terms": row.terms, "created_at": row.created_at.isoformat()} for row in quotes],
             "followups": [{"id": row.id, "status": row.status, "channel": row.channel,
-                           "purpose": row.purpose, "due_at": row.due_at.isoformat()} for row in followups],
+                           "purpose": row.purpose, "due_at": row.due_at.isoformat(),
+                           "template_name": row.template_name, "approved_by": row.approved_by,
+                           "last_error": row.last_error, "sent_wamid": row.sent_wamid} for row in followups],
         }
+
+    def campaign_conversion_report(self) -> dict:
+        """Aggregate every workspace lead; marker attribution remains unverified."""
+        from sqlalchemy import func
+        rows = self.session.execute(
+            select(
+                SalesLeadRecord.source_campaign_hint,
+                SalesLeadRecord.status,
+                func.count(SalesLeadRecord.id),
+            ).where(
+                SalesLeadRecord.tenant_id == self.tenant_id,
+                SalesLeadRecord.workspace_id == self.workspace_id,
+            ).group_by(
+                SalesLeadRecord.source_campaign_hint, SalesLeadRecord.status
+            )
+        ).all()
+        grouped: dict[str, dict[str, int | str]] = {}
+        for campaign, status, count in rows:
+            key = campaign or "unattributed"
+            group = grouped.setdefault(key, {"campaign": key, "leads": 0, "qualified": 0, "won": 0, "lost": 0})
+            group["leads"] += count
+            if status in {"qualified", "quoted", "negotiating", "won"}:
+                group["qualified"] += count
+            if status == "won":
+                group["won"] += count
+            if status == "lost":
+                group["lost"] += count
+        return {"source": "self_reported_whatsapp_marker", "verified_attribution": False,
+                "campaigns": sorted(grouped.values(), key=lambda row: (-row["leads"], row["campaign"]))}
+
+    def sales_operations(self, *, limit: int = 100) -> dict:
+        """Review queue only. An approval here never implies external delivery."""
+        quotes = self.session.scalars(select(SalesQuoteRecord).where(
+            SalesQuoteRecord.tenant_id == self.tenant_id,
+            SalesQuoteRecord.workspace_id == self.workspace_id,
+            SalesQuoteRecord.status.in_(["draft", "pending_approval", "approved"]),
+        ).order_by(SalesQuoteRecord.created_at.desc()).limit(limit)).all()
+        followups = self.session.scalars(select(SalesFollowUpRecord).where(
+            SalesFollowUpRecord.tenant_id == self.tenant_id,
+            SalesFollowUpRecord.workspace_id == self.workspace_id,
+            SalesFollowUpRecord.status.in_(["proposed", "approved", "dispatching", "held", "unknown", "failed"]),
+        ).order_by(SalesFollowUpRecord.due_at.asc()).limit(limit)).all()
+        return {
+            "quotes": [{"id": row.id, "lead_id": row.lead_id, "status": row.status,
+                        "total": str(row.total), "currency": row.currency,
+                        "approval_id": row.approval_id, "delivery_state": self.quote_delivery_state(row)} for row in quotes],
+            "followups": [{"id": row.id, "lead_id": row.lead_id, "status": row.status,
+                           "due_at": row.due_at.isoformat(), "channel": row.channel,
+                           "purpose": row.purpose, "approval_id": row.approval_id,
+                           "template_name": row.template_name, "last_error": row.last_error,
+                           "sent_wamid": row.sent_wamid} for row in followups],
+            "delivery_enabled": False,
+            "execution_enabled": bool(self.get_automation_settings()["enabled"] and not self.get_automation_settings()["paused"]),
+            "automation_policy": self.get_automation_settings(),
+        }
+
+    def get_quote_for_delivery(self, *, lead_id: str, quote_id: str) -> SalesQuoteRecord | None:
+        return self.session.scalar(select(SalesQuoteRecord).where(
+            SalesQuoteRecord.id == quote_id,
+            SalesQuoteRecord.lead_id == lead_id,
+            SalesQuoteRecord.tenant_id == self.tenant_id,
+            SalesQuoteRecord.workspace_id == self.workspace_id,
+        ))
+
+    def reserve_quote_delivery(self, *, lead_id: str, quote_id: str) -> bool:
+        """Single winner; reserve before making a governed WhatsApp send request."""
+        result = self.session.execute(update(SalesQuoteRecord).where(
+            SalesQuoteRecord.id == quote_id,
+            SalesQuoteRecord.lead_id == lead_id,
+            SalesQuoteRecord.tenant_id == self.tenant_id,
+            SalesQuoteRecord.workspace_id == self.workspace_id,
+            SalesQuoteRecord.status == "draft",
+            SalesQuoteRecord.approval_id.is_(None),
+        ).values(status="pending_approval"))
+        return result.rowcount == 1
+
+    def finish_quote_delivery_request(
+        self, *, lead_id: str, quote_id: str, approval_id: str | None,
+        status: str,
+    ) -> bool:
+        if status not in {"draft", "pending_approval", "sent"}:
+            raise ValueError("Invalid quote request status")
+        result = self.session.execute(update(SalesQuoteRecord).where(
+            SalesQuoteRecord.id == quote_id,
+            SalesQuoteRecord.lead_id == lead_id,
+            SalesQuoteRecord.tenant_id == self.tenant_id,
+            SalesQuoteRecord.workspace_id == self.workspace_id,
+            SalesQuoteRecord.status == "pending_approval",
+            SalesQuoteRecord.approval_id.is_(None),
+        ).values(status=status, approval_id=approval_id))
+        return result.rowcount == 1
+
+    def get_automation_settings(self, *, lock: bool = False) -> dict:
+        query = select(SalesAutomationSettingsRecord).where(
+            SalesAutomationSettingsRecord.tenant_id == self.tenant_id,
+            SalesAutomationSettingsRecord.workspace_id == self.workspace_id,
+        )
+        if lock:
+            query = query.with_for_update()
+        row = self.session.scalar(query)
+        return {
+            "enabled": bool(row.enabled) if row else False,
+            "paused": bool(row.paused) if row else True,
+            "max_sends_per_day": int(row.max_sends_per_day) if row else 0,
+            "updated_by": row.updated_by if row else None,
+            "updated_at": row.updated_at.isoformat() if row else None,
+        }
+
+    def set_automation_settings(
+        self, *, enabled: bool, paused: bool, max_sends_per_day: int,
+        actor: str, now: datetime,
+    ) -> dict:
+        if not 0 <= max_sends_per_day <= 100:
+            raise ValueError("Daily sends must be between 0 and 100")
+        if enabled and max_sends_per_day == 0:
+            raise ValueError("Choose a nonzero daily cap before enabling")
+        row = self.session.scalar(select(SalesAutomationSettingsRecord).where(
+            SalesAutomationSettingsRecord.tenant_id == self.tenant_id,
+            SalesAutomationSettingsRecord.workspace_id == self.workspace_id,
+        ).with_for_update())
+        if row is None:
+            row = SalesAutomationSettingsRecord(
+                tenant_id=self.tenant_id, workspace_id=self.workspace_id,
+                enabled=enabled, paused=paused,
+                max_sends_per_day=max_sends_per_day,
+                updated_by=actor, updated_at=now,
+            )
+            self.session.add(row)
+        else:
+            row.enabled = enabled
+            row.paused = paused
+            row.max_sends_per_day = max_sends_per_day
+            row.updated_by = actor
+            row.updated_at = now
+        return {
+            "enabled": enabled, "paused": paused,
+            "max_sends_per_day": max_sends_per_day,
+            "updated_by": actor, "updated_at": now.isoformat(),
+        }
+
+    def record_consent(
+        self, *, lead_id: str, granted: bool,
+        evidence_message_id: str | None, evidence_note: str,
+        actor: str, now: datetime,
+    ) -> Lead:
+        if not 3 <= len(evidence_note.strip()) <= 500:
+            raise ValueError("Consent evidence explanation is required")
+        current = self.get(lead_id)
+        if current is None:
+            raise ValueError("Lead not found")
+        result = self.session.execute(update(SalesLeadRecord).where(
+            SalesLeadRecord.id == lead_id,
+            SalesLeadRecord.tenant_id == self.tenant_id,
+            SalesLeadRecord.workspace_id == self.workspace_id,
+            SalesLeadRecord.revision == current.revision,
+        ).values(
+            marketing_consent=granted,
+            revision=current.revision + 1,
+            updated_at=now,
+        ))
+        if result.rowcount != 1:
+            raise ValueError("Lead revision conflict")
+        self.session.add(SalesConsentEventRecord(
+            id=str(uuid4()), tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id, lead_id=lead_id,
+            evidence_message_id=evidence_message_id,
+            evidence_note=evidence_note.strip(), granted=granted,
+            recorded_by=actor, recorded_at=now,
+        ))
+        self._add_event(LeadEvent(
+            lead_id=lead_id, tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id, actor_id=actor,
+            event="lead.marketing_consent_granted" if granted else "lead.marketing_consent_revoked",
+            occurred_at=now, from_status=current.status,
+            to_status=current.status, revision=current.revision + 1,
+        ))
+        return self.get(lead_id) or current
+
+    def get_followup(self, *, lead_id: str, followup_id: str) -> SalesFollowUpRecord | None:
+        return self.session.scalar(select(SalesFollowUpRecord).where(
+            SalesFollowUpRecord.id == followup_id,
+            SalesFollowUpRecord.lead_id == lead_id,
+            SalesFollowUpRecord.tenant_id == self.tenant_id,
+            SalesFollowUpRecord.workspace_id == self.workspace_id,
+        ))
+
+    def approve_followup(
+        self, *, lead_id: str, followup_id: str,
+        template_name: str, language: str, parameters: list[str],
+        approval_hash: str, actor: str, now: datetime,
+    ) -> bool:
+        result = self.session.execute(update(SalesFollowUpRecord).where(
+            SalesFollowUpRecord.id == followup_id,
+            SalesFollowUpRecord.lead_id == lead_id,
+            SalesFollowUpRecord.tenant_id == self.tenant_id,
+            SalesFollowUpRecord.workspace_id == self.workspace_id,
+            SalesFollowUpRecord.status == "proposed",
+            SalesFollowUpRecord.channel == "whatsapp",
+        ).values(
+            status="approved",
+            template_name=template_name,
+            template_language=language,
+            template_parameters=parameters,
+            payload_hash=approval_hash,
+            approved_by=actor, approved_at=now,
+            last_error=None,
+        ))
+        return result.rowcount == 1
+
+    def cancel_followup(self, *, lead_id: str, followup_id: str) -> bool:
+        result = self.session.execute(update(SalesFollowUpRecord).where(
+            SalesFollowUpRecord.id == followup_id,
+            SalesFollowUpRecord.lead_id == lead_id,
+            SalesFollowUpRecord.tenant_id == self.tenant_id,
+            SalesFollowUpRecord.workspace_id == self.workspace_id,
+            SalesFollowUpRecord.status.in_(["proposed","approved","held"]),
+        ).values(status="cancelled"))
+        return result.rowcount == 1
+
+    def consent_history(self, *, lead_id: str) -> list[dict]:
+        rows = self.session.scalars(select(SalesConsentEventRecord).where(
+            SalesConsentEventRecord.lead_id == lead_id,
+            SalesConsentEventRecord.tenant_id == self.tenant_id,
+            SalesConsentEventRecord.workspace_id == self.workspace_id,
+        ).order_by(SalesConsentEventRecord.recorded_at.desc()).limit(100)).all()
+        return [{
+            "granted": row.granted, "recorded_by": row.recorded_by,
+            "recorded_at": row.recorded_at.isoformat(),
+            "evidence_note": row.evidence_note,
+            "evidence_message_id": row.evidence_message_id,
+        } for row in rows]

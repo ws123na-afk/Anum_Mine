@@ -150,6 +150,7 @@ from .privacy import router as privacy_router
 from .developer import register_developer_tools, router as developer_router
 from .whatsapp import register_whatsapp_tools, router as whatsapp_router
 from .sales_api import router as sales_router
+from .sales_followup_scheduler import run_due_sales_followups
 from . import email_inbox
 from .email_api import router as email_router
 from .commerce.api import router as commerce_router
@@ -515,6 +516,7 @@ configure_tool_catalog(tool_registry.definition)
 email_inbox.integration_enabled = lambda context, integration_id: not integration_registry.switched_off(integration_id, context)
 # Approved social posts publish at their time on every scheduler pass (docs/marketing.md#publishing).
 register_scheduler_pass("marketing_publisher", run_due_posts)
+register_scheduler_pass("sales_followup_delivery", run_due_sales_followups)
 # Agents are built from exactly the tools this runtime has (docs/agents.md).
 configure_runtime_catalog(tool_registry)
 # Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,

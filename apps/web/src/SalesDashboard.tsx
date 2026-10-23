@@ -5,11 +5,14 @@ import { AlertCircle, ArrowUpRight, ClipboardList, RefreshCcw } from 'lucide-rea
 import { describeError } from './lib/errors';
 import { formatDateTime, getLocale, subscribeLocale } from './lib/i18n';
 import {
-  createSalesQuote, getSalesOverview, getSalesLeadHistory, listSalesLeads, proposeSalesFollowup,
+  createSalesQuote, getSalesOverview, getSalesLeadHistory, listSalesLeads, proposeSalesFollowup, requestSalesQuoteDelivery,
+  recordSalesConsent, getSalesConsentHistory,
   transitionSalesLead, updateSalesLead,
   type SalesLead, type SalesOverview, type SalesStage, type SalesHistory,
 } from './lib/salesApi';
 import './salesDashboard.css';
+import { SalesCampaignAndOperations } from './SalesCampaignAndOperations';
+import { useIsOwner } from './useIsOwner';
 
 const STAGES: SalesStage[] = ['new', 'qualifying', 'qualified', 'quoted', 'negotiating', 'won', 'lost', 'disqualified'];
 const LABELS = {
@@ -99,7 +102,7 @@ export function SalesDashboard() {
     return search.includes(query.trim().toLocaleLowerCase());
   }), [data, filter, query]);
 
-  const action = async (operation: () => Promise<unknown>, message = labels.saved) => {
+  const action = async (operation: () => Promise<unknown>, message: string = labels.saved) => {
     setBusy(true); setError(''); setNotice('');
     try { await operation(); setNotice(message); await refresh(); }
     catch (cause) { setError(describeError(cause)); }
@@ -121,6 +124,7 @@ export function SalesDashboard() {
       ] as const).map(([label, count]) => <div className="salesKpi" key={label}><span>{label}</span><strong>{count}</strong></div>)}
     </div>
     <p className="salesHint">{labels.limited}</p>
+    <SalesCampaignAndOperations locale={locale}/>
     <div className="salesSplit">
       <section className="salesListing" aria-label={labels.leads}>
         <div className="salesFilters"><input aria-label={labels.search} placeholder={labels.search}
@@ -146,18 +150,20 @@ export function SalesDashboard() {
           locale={locale} disabled={busy} save={(fields) => action(() => updateSalesLead(selected, fields))}
           changeStage={(stage) => action(() => transitionSalesLead(selected, stage))}
           createQuote={(items, currency, terms) => action(() => createSalesQuote(selected.id, items, currency, terms), labels.draftSaved)}
-          followUp={(due, channel, purpose) => action(() => proposeSalesFollowup(selected.id, due, channel, purpose), labels.draftSaved)} /> :
+          followUp={(due, channel, purpose) => action(() => proposeSalesFollowup(selected.id, due, channel, purpose), labels.draftSaved)}
+          recordConsent={(granted, note, evidenceId) => action(() => recordSalesConsent(selected.id, granted, note, evidenceId))} /> :
           <div className="salesEmpty"><ClipboardList size={36}/><p>{labels.noSelection}</p></div>}
       </section>
     </div>
   </section>;
 }
 
-function LeadEditor({lead, locale, disabled, save, changeStage, createQuote, followUp}: {
+function LeadEditor({lead, locale, disabled, save, changeStage, createQuote, followUp, recordConsent}: {
   lead: SalesLead; locale:'ar'|'en'; disabled:boolean;
   save:(value:Record<string,unknown>)=>void; changeStage:(value:SalesStage)=>void;
   createQuote:(items:{description:string;amount:string}[],currency:string,terms:string)=>void;
   followUp:(due:string,channel:string,purpose:string)=>void;
+  recordConsent:(granted:boolean,note:string,evidenceId:string)=>void;
 }) {
   const l = LABELS[locale];
   const [company,setCompany] = useState(lead.company_name);
@@ -182,9 +188,9 @@ function LeadEditor({lead, locale, disabled, save, changeStage, createQuote, fol
   };
   return <div className="salesEditor">
     <div className="salesDetailHeading"><h3>{l.details}</h3><span>{SERVICE[lead.intent]?.[locale] || lead.intent}</span></div>
-    <dl className="salesMetadata"><div><dt>{l.phone}</dt><dd><bdi>{lead.phone_e164 || '—'}</bdi></dd></div>
+    <dl className="salesMetadata"><div><dt>{l.phone}</dt><dd><bdi>{lead.phone_e164 || '-'}</bdi></dd></div>
       <div><dt>{l.consent}</dt><dd>{lead.marketing_consent ? l.consentYes : l.consentNo}</dd></div>
-      <div><dt>{l.source}</dt><dd>{lead.campaign_hint || '—'}</dd></div></dl>
+      <div><dt>{l.source}</dt><dd>{lead.campaign_hint || '-'}</dd></div></dl>
     <form onSubmit={submitDetails} className="salesForm">
       <div className="salesFields"><label>{l.company}<input value={company} maxLength={200} onChange={e=>setCompany(e.target.value)}/></label>
         <label>{l.name}<input value={name} maxLength={200} onChange={e=>setName(e.target.value)}/></label>
@@ -216,6 +222,8 @@ function LeadEditor({lead, locale, disabled, save, changeStage, createQuote, fol
         <button disabled={disabled} type="submit">{l.createFollowup}</button>
       </form>
     </section>
+    <SalesConsentPanel leadId={lead.id} locale={locale} verified={lead.marketing_consent}
+      disabled={disabled} onRecord={recordConsent}/>
     <SalesHistoryPanel leadId={lead.id} locale={locale} revision={lead.revision}/>
   </div>;
 }
@@ -224,6 +232,9 @@ function SalesHistoryPanel({leadId,locale,revision}:{leadId:string;locale:'en'|'
   const [data,setData]=useState<SalesHistory|null>(null);
   const [error,setError]=useState('');
   const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(false);
+  const [notice,setNotice]=useState('');
+  const [reload,setReload]=useState(0);
   useEffect(()=>{
     let active=true;
     setLoading(true);setError('');
@@ -231,18 +242,25 @@ function SalesHistoryPanel({leadId,locale,revision}:{leadId:string;locale:'en'|'
       .catch(cause=>{if(active)setError(describeError(cause));})
       .finally(()=>{if(active)setLoading(false);});
     return ()=>{active=false;};
-  },[leadId,revision]);
+  },[leadId,revision,reload]);
   const ar=locale==='ar';
   return <section className="salesSubForm" aria-label={ar?'سجل العميل':'Customer timeline'}>
     <h4>{ar?'سجل العميل وعروض الأسعار والمتابعات':'Customer history, quotations and follow-ups'}</h4>
     {loading && <p role="status">{ar?'جار التحميل':'Loading history...'}</p>}
     {error && <p role="alert" className="salesError">{error}</p>}
+    {notice && <p role="status" className="salesSuccess">{notice}</p>}
     {data && <>
       <h5>{ar?'عروض الأسعار':'Quotation drafts'} ({data.quotes.length})</h5>
       {data.quotes.length===0 && <p>{ar?'لا توجد عروض':'No quotations yet'}</p>}
       {data.quotes.map(q=><article className="salesHistoryRow" key={q.id}>
-        <strong>{q.currency} {q.total}</strong><span>{q.status}</span>
+        <strong>{q.currency} {q.total}</strong><span>{q.status}{q.delivery_state ? ` · WhatsApp: ${q.delivery_state}` : ''}</span>
         <small>{formatDateTime(q.created_at)}</small>
+        {q.status==='draft' && <button type="button" disabled={busy} onClick={()=>{
+          setBusy(true);setError('');setNotice('');
+          void requestSalesQuoteDelivery(leadId,q.id).then(result=>{
+            setNotice(result.detail);setReload(x=>x+1);
+          }).catch(cause=>setError(describeError(cause))).finally(()=>setBusy(false));
+        }}>{ar?'طلب الموافقة على إرسال العرض عبر واتساب':'Request approved WhatsApp quotation delivery'}</button>}
         <ul>{q.line_items.map((item,i)=><li key={i}>{item.description}: {item.amount}</li>)}</ul>
       </article>)}
       <h5>{ar?'المتابعات':'Follow-up proposals'} ({data.followups.length})</h5>
@@ -257,5 +275,58 @@ function SalesHistoryPanel({leadId,locale,revision}:{leadId:string;locale:'en'|'
         <small>{formatDateTime(item.occurred_at)} · {item.actor_id}</small>
       </article>)}
     </>}
+  </section>;
+}
+
+function SalesConsentPanel({leadId,locale,verified,disabled,onRecord}:{
+  leadId:string;locale:'en'|'ar';verified:boolean;disabled:boolean;
+  onRecord:(granted:boolean,note:string,evidenceId:string)=>void;
+}) {
+  const owner=useIsOwner()===true;
+  const ar=locale==='ar';
+  const [note,setNote]=useState('');
+  const [evidenceId,setEvidenceId]=useState('');
+  const [granted,setGranted]=useState(false);
+  const [history,setHistory]=useState<Array<{
+    granted:boolean;recorded_by:string;recorded_at:string;
+    evidence_note:string;evidence_message_id:string|null;
+  }>>([]);
+  const [error,setError]=useState('');
+  useEffect(()=>{
+    if(!owner)return;
+    let active=true;
+    void getSalesConsentHistory(leadId).then(result=>{if(active)setHistory(result.items);})
+      .catch(cause=>{if(active)setError(describeError(cause));});
+    return()=>{active=false;};
+  },[leadId,owner,verified]);
+  return <section className="salesConsentPanel" aria-label={ar?'إثبات موافقة التسويق':'Marketing consent evidence'}>
+    <h4>{ar?'إثبات موافقة التسويق':'Marketing consent evidence'}</h4>
+    <p>{verified ? (ar?'موافقة مثبتة':'Verified consent on record') :
+      (ar?'لم يتم إثبات موافقة تسويقية بعد':'Marketing consent not yet verified')}</p>
+    {owner&&<form onSubmit={event=>{
+      event.preventDefault();onRecord(granted,note,evidenceId);
+    }}>
+      <label>{ar?'الحالة المطلوب تسجيلها':'Consent decision'}
+        <select value={granted?'granted':'revoked'} onChange={e=>setGranted(e.target.value==='granted')}>
+          <option value="revoked">{ar?'سحب الموافقة':'Withdraw consent'}</option>
+          <option value="granted">{ar?'تأكيد موافقة صريحة':'Verify explicit opt-in'}</option>
+        </select></label>
+      <label>{ar?'معرّف رسالة واتساب من العميل':'Evidence: customer WhatsApp message ID'}
+        <input value={evidenceId} onChange={e=>setEvidenceId(e.target.value)}
+          maxLength={80} placeholder={ar?'مطلوب لتأكيد الموافقة':'Required to verify opt-in'}/></label>
+      <label>{ar?'وصف الدليل والسبب':'Evidence and reason'}
+        <textarea value={note} onChange={e=>setNote(e.target.value)} required
+          minLength={3} maxLength={500} rows={2}/></label>
+      <button disabled={disabled||note.trim().length<3||granted&&!evidenceId.trim()}
+        type="submit">{ar?'تسجيل قرار الموافقة':'Record verified consent decision'}</button>
+    </form>}
+    {error&&<p role="alert" className="salesError">{error}</p>}
+    {history.length>0&&<details><summary>{ar?'سجل قرارات الموافقة':'Consent decision history'} ({history.length})</summary>
+      {history.map((item,i)=><div className="salesHistoryRow" key={i}>
+        <strong>{item.granted?(ar?'تم منح الموافقة':'Granted'):(ar?'سحب الموافقة':'Withdrawn')}</strong>
+        <span>{item.evidence_note}</span>
+        <small>{formatDateTime(item.recorded_at)} · {item.recorded_by}</small>
+      </div>)}
+    </details>}
   </section>;
 }

@@ -75,6 +75,9 @@ x-user-roles: owner,member
 ```
 
 ## Documentation Index
+- [Sales CRM web dashboard](docs/sales-dashboard.md)
+- [Sales CRM Flutter workspace](docs/sales-flutter.md)
+- [Sales quotation approval, autonomous follow-ups and production verification](docs/sales-web-execution-readiness.md)
 - [Marketing sales agent orchestration](docs/marketing-sales-agent-orchestration.md)
 - [Marketing WhatsApp sales](docs/marketing-whatsapp-sales.md)
 - [Sales CRM API](docs/sales-crm-api.md)
