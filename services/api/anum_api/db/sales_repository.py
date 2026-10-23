@@ -300,7 +300,9 @@ class SalesCRMStore:
                         "total": str(row.total), "line_items": row.line_items,
                         "terms": row.terms, "created_at": row.created_at.isoformat()} for row in quotes],
             "followups": [{"id": row.id, "status": row.status, "channel": row.channel,
-                           "purpose": row.purpose, "due_at": row.due_at.isoformat()} for row in followups],
+                           "purpose": row.purpose, "due_at": row.due_at.isoformat(),
+                           "template_name": row.template_name, "approved_by": row.approved_by,
+                           "last_error": row.last_error, "sent_wamid": row.sent_wamid} for row in followups],
         }
 
     def campaign_conversion_report(self) -> dict:
@@ -350,7 +352,9 @@ class SalesCRMStore:
                         "approval_id": row.approval_id} for row in quotes],
             "followups": [{"id": row.id, "lead_id": row.lead_id, "status": row.status,
                            "due_at": row.due_at.isoformat(), "channel": row.channel,
-                           "purpose": row.purpose, "approval_id": row.approval_id} for row in followups],
+                           "purpose": row.purpose, "approval_id": row.approval_id,
+                           "template_name": row.template_name, "last_error": row.last_error,
+                           "sent_wamid": row.sent_wamid} for row in followups],
             "delivery_enabled": False,
             "execution_enabled": bool(self.get_automation_settings()["enabled"] and not self.get_automation_settings()["paused"]),
             "automation_policy": self.get_automation_settings(),
