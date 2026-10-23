@@ -36,3 +36,8 @@
 @media(max-width:1080px){.salesSplit{grid-template-columns:1fr}.salesList{max-height:350px}}
 @media(max-width:640px){.salesKpis{grid-template-columns:repeat(2,minmax(0,1fr))}.salesFilters{flex-wrap:wrap}.salesFields,.salesMetadata{grid-template-columns:1fr}.salesEditor{padding:14px}.salesHero{padding:16px}}
 @media(prefers-reduced-motion:no-preference){.salesLead{transition:background-color .15s ease}}
+
+.salesHistoryRow{display:grid;gap:5px;padding:12px;border:1px solid var(--d-line-strong);border-radius:10px;margin-block:7px;background:var(--d-glass-1);overflow-wrap:anywhere}
+.salesHistoryRow span,.salesHistoryRow small{color:var(--d-muted);font-size:.81rem}
+.salesHistoryRow ul{margin:4px 0;padding-inline-start:18px}
+.salesSubForm h5{font-size:.92rem;margin:12px 0 0}
