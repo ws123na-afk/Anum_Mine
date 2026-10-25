@@ -14,7 +14,7 @@
  */
 import {
   ACESFilmicToneMapping, AmbientLight, BackSide, BufferGeometry, CanvasTexture, Color, DirectionalLight, DoubleSide, Float32BufferAttribute, Fog, HalfFloatType,
-  HemisphereLight, LinearMipmapLinearFilter, Material, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, PCFSoftShadowMap,
+  HemisphereLight, LinearMipmapLinearFilter, Material, Mesh, MeshLambertMaterial, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, PCFShadowMap,
   PerspectiveCamera, PMREMGenerator, RepeatWrapping, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, Vector2, WebGLRenderer, WebGLRenderTarget,
   LinearFilter, type IUniform,
 } from 'three';
@@ -31,11 +31,11 @@ import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './
 
 export type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
 
-type Cls = 'flat' | 'concrete' | 'tile' | 'asphalt' | 'grass' | 'wood' | 'metal' | 'water' | 'glass' | 'roller' | 'sign' | 'court' | 'pane';
+type Cls = 'paint' | 'flat' | 'concrete' | 'tile' | 'asphalt' | 'grass' | 'wood' | 'metal' | 'water' | 'glass' | 'roller' | 'sign' | 'court' | 'pane';
 
 const CLASS_OF_MAT: Readonly<Record<number, Cls>> = {
   [MAT.flat]: 'flat', [MAT.concrete]: 'concrete', [MAT.tile]: 'tile', [MAT.asphalt]: 'asphalt', [MAT.grass]: 'grass', [MAT.wood]: 'wood',
-  [MAT.metal]: 'metal', [MAT.water]: 'water', [MAT.glass]: 'glass', [MAT.roller]: 'roller', [MAT.sign]: 'sign', [MAT.court]: 'court',
+  [MAT.metal]: 'metal', [MAT.water]: 'water', [MAT.glass]: 'glass', [MAT.roller]: 'roller', [MAT.sign]: 'sign', [MAT.court]: 'court', [MAT.paint]: 'paint',
 };
 
 /** World units per texture repeat, as a frequency. */
@@ -62,8 +62,8 @@ const TRIPLANAR = `
 const GLASS_COLOR = `
   float glowW = clamp(vEm - 2.0, 0.0, 1.0);
   vec3 paneLit = diffuseColor.rgb;
-  diffuseColor.rgb = mix(vec3(0.02, 0.045, 0.08), paneLit * 0.3, uNight * step(0.05, glowW));`;
-const GLASS_EMISSIVE = '  totalEmissiveRadiance += paneLit * uNight * glowW * 2.6;';
+  diffuseColor.rgb = mix(vec3(0.06, 0.12, 0.2), paneLit * 0.3, uNight * step(0.05, glowW));`;
+const GLASS_EMISSIVE = '  totalEmissiveRadiance += paneLit * uNight * glowW * 1.9;';
 const GENERIC_EMISSIVE = `
   {
     float k = vEm > 0.8 ? 2.4 : 0.9;
@@ -97,6 +97,29 @@ function patched(material: Material, shared: Shared, opts: { texture?: Texture; 
 
 // ---------------------------------------------------------------- the renderer
 
+/** A person (or a test) can pin the quality with `localStorage["anum.hq.quality"]` = 0 to 3 (3 = shadows and night glow). */
+function readQualityOverride(): Quality | null {
+  try {
+    const raw = window.localStorage.getItem('anum.hq.quality');
+    if (raw === null) return null;
+    const n = Number(raw);
+    return n === 0 || n === 1 || n === 2 || n === 3 ? (n as Quality) : null;
+  } catch { return null; }
+}
+
+/** True on a software rasteriser (SwiftShader, llvmpipe): it gets the light settings. Probed on a scratch canvas before the real context exists. */
+function probeSoftwareRenderer(): boolean {
+  try {
+    const scratch = document.createElement('canvas');
+    const gl = scratch.getContext('webgl2');
+    if (!gl) return false;
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return /swiftshader|llvmpipe|software|basic render/i.test(name);
+  } catch { return false; }
+}
+
 type Quality = 0 | 1 | 2 | 3;
 const SHADOW_SIZE: Record<Quality, number> = { 0: 0, 1: 1024, 2: 1024, 3: 2048 };
 
@@ -127,10 +150,11 @@ export class HqRenderer {
   private lastSunKey = '';
   private quality: Quality = 3;
   private reducedMotion = false;
+  private cheap = false;
   private lost = false;
   private disposed = false;
   private raf: number | null = null;
-  private readonly maxDpr: number;
+  private maxDpr: number;
   private dprScale = 1;
   private slowFrames = 0;
   private readonly cb: RendererCallbacks;
@@ -149,33 +173,39 @@ export class HqRenderer {
     renderer.toneMapping = ACESFilmicToneMapping;
     renderer.outputColorSpace = SRGBColorSpace;
     renderer.info.autoReset = false;
-    renderer.shadowMap.type = PCFSoftShadowMap;
+    renderer.shadowMap.type = PCFShadowMap;
     renderer.shadowMap.autoUpdate = false;
     this.scene.fog = this.fog;
     this.scene.add(this.sun, this.sun.target, this.hemi, new AmbientLight(0xffffff, 0.04));
     this.sun.castShadow = true;
-    this.sun.shadow.bias = -0.0004;
-    this.sun.shadow.normalBias = 0.06;
+    this.sun.shadow.bias = -0.0005;
     this.sun.shadow.radius = 2.5;
   }
 
   /** Null when the browser cannot give a WebGL 2 context (the caller shows the accessible fallback). */
   static create(canvas: HTMLCanvasElement, cb: RendererCallbacks = {}, maxDpr = 2): HqRenderer | null {
+    // A software rasteriser (SwiftShader, llvmpipe) cannot afford PBR shading, a shadow map or antialiasing:
+    // it gets simple lit materials, no reflection map, no antialiasing and a lower pixel ratio, unless quality is pinned.
+    const forced = readQualityOverride();
+    const cheap = forced === null && probeSoftwareRenderer();
     let renderer: WebGLRenderer;
     try {
-      renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+      renderer = new WebGLRenderer({ canvas, antialias: !cheap, alpha: true, powerPreference: 'high-performance' });
     } catch { return null; }
-    const made = new HqRenderer(canvas, renderer, cb, maxDpr);
+    const made = new HqRenderer(canvas, renderer, cb, cheap ? 0.7 : maxDpr);
     try {
+      made.cheap = cheap;
       made.buildMaterials();
-      made.buildEnvironments();
+      if (!cheap) made.buildEnvironments();
     } catch (error) {
       made.dispose();
       cb.onError?.(error instanceof Error ? error : new Error('WebGL setup failed'));
       return null;
     }
     const pixels = canvas.clientWidth * canvas.clientHeight * (window.devicePixelRatio || 1) ** 2;
-    if (pixels > 4_000_000) made.quality = 2;
+    if (forced !== null) made.quality = forced;
+    else if (cheap) made.quality = 0;
+    else if (pixels > 4_000_000) made.quality = 2;
     return made;
   }
 
@@ -200,12 +230,15 @@ export class HqRenderer {
 
   private buildMaterials(): void {
     const std = (cls: Cls, params: { roughness: number; metalness: number; env?: number }, kind?: MaterialTextureKind, glass = false): void => {
-      const m = new MeshStandardMaterial({ vertexColors: true, roughness: params.roughness, metalness: params.metalness, envMapIntensity: params.env ?? 1 });
+      const m: Material = this.cheap
+        ? new MeshLambertMaterial({ vertexColors: true, side: DoubleSide })
+        : new MeshStandardMaterial({ vertexColors: true, roughness: params.roughness, metalness: params.metalness, envMapIntensity: params.env ?? 1, side: DoubleSide });
       const texture = kind ? this.texture(kind) : undefined;
       patched(m, this.shared, { texture, scale: TEX_SCALE[cls], glass });
       this.materials.set(cls, m);
     };
     std('flat', { roughness: 0.82, metalness: 0 });
+    std('paint', { roughness: 0.28, metalness: 0.6, env: 1.5 });
     std('concrete', { roughness: 0.88, metalness: 0 }, 'concrete');
     std('tile', { roughness: 0.42, metalness: 0.05, env: 0.9 }, 'tile');
     std('asphalt', { roughness: 0.95, metalness: 0 }, 'asphalt');
@@ -214,11 +247,13 @@ export class HqRenderer {
     std('metal', { roughness: 0.42, metalness: 0.55, env: 1.2 }, 'metal');
     std('roller', { roughness: 0.45, metalness: 0.5, env: 1.1 }, 'roller');
     std('court', { roughness: 0.7, metalness: 0 }, 'court');
-    std('water', { roughness: 0.05, metalness: 0.15, env: 1.8 });
-    std('glass', { roughness: 0.06, metalness: 0.92, env: 1.6 }, undefined, true);
+    std('water', { roughness: 0.03, metalness: 0.7, env: 2.0 });
+    std('glass', { roughness: 0.08, metalness: 0.75, env: 1.5 }, undefined, true);
     const sign = new MeshBasicMaterial({ color: new Color(1, 1, 1), toneMapped: true });
     this.materials.set('sign', sign);
-    const pane = new MeshPhysicalMaterial({ vertexColors: true, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, envMapIntensity: 1.2, depthWrite: false, side: DoubleSide });
+    const pane = this.cheap
+      ? new MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, side: DoubleSide })
+      : new MeshPhysicalMaterial({ vertexColors: true, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, envMapIntensity: 1.2, depthWrite: false, side: DoubleSide });
     this.materials.set('pane', pane);
   }
 
@@ -387,8 +422,9 @@ export class HqRenderer {
     this.hemi.intensity = light.hemiIntensity;
     this.fog.color.copy(rgb(light.fog));
     this.renderer.toneMappingExposure = light.exposure;
-    this.scene.environment = this.night < 0.5 ? this.envDay : this.envNight;
+    this.scene.environment = this.cheap ? null : this.night < 0.5 ? this.envDay : this.envNight;
     this.scene.environmentIntensity = light.envIntensity;
+    if (this.cheap) this.hemi.intensity = light.hemiIntensity + light.envIntensity * 0.8;
     this.shared.uNight.value = this.night;
     const sign = this.materials.get('sign') as MeshBasicMaterial;
     const gain = 0.9 + 1.3 * this.night;
@@ -412,6 +448,7 @@ export class HqRenderer {
         cam.updateProjectionMatrix();
         this.sun.target.updateMatrixWorld();
         const size = SHADOW_SIZE[this.quality];
+        this.sun.shadow.normalBias = (1.6 * 2 * R) / Math.max(1, size);
         if (this.sun.shadow.mapSize.x !== size) { this.sun.shadow.mapSize.set(size, size); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
         this.shadowDirty = true;
       }
@@ -483,7 +520,7 @@ export class HqRenderer {
       const useBloom = this.quality >= 2 && !this.reducedMotion && this.night > 0.04;
       if (useBloom) {
         const composer = this.ensureComposer(width, height, dpr);
-        if (this.bloom) { this.bloom.strength = 0.95 * Math.min(1, this.night * 1.4); this.bloom.threshold = 1.0; this.bloom.radius = 0.55; }
+        if (this.bloom) { this.bloom.strength = 0.5 * Math.min(1, this.night * 1.4); this.bloom.threshold = 1.05; this.bloom.radius = 0.4; }
         composer.render();
       } else {
         this.renderer.render(this.scene, this.camera);
@@ -499,8 +536,12 @@ export class HqRenderer {
     }
     const ms = performance.now() - started;
     const s = this.stats;
-    s.frames += 1; s.lastDrawMs = ms; s.avgDrawMs = s.frames === 1 ? ms : s.avgDrawMs * 0.9 + ms * 0.1;
+    s.frames += 1; s.lastDrawMs = ms;
+    // The first frames compile shaders and upload buffers; they say nothing about steady drawing, so the average starts after them.
+    const warm = s.frames > 3;
+    if (warm) s.avgDrawMs = s.avgDrawMs === 0 ? ms : s.avgDrawMs * 0.9 + ms * 0.1;
     // Adaptive quality: three seconds of slow frames take one notch off (bloom, then shadow size, then shadows, then pixel ratio).
+    if (!warm) return;
     this.slowFrames = ms > 30 ? this.slowFrames + 1 : Math.max(0, this.slowFrames - 1);
     if (this.slowFrames > 20) {
       this.slowFrames = 0;

@@ -16,7 +16,7 @@ const MAX_SHIFTS = 7;
  * takes the nearest free spot (up first, then down or sideways), and is hidden when none is found unless it has the top priority.
  */
 export function layoutLabels(
-  labels: readonly LabelInput[], vp: Mat4, width: number, height: number, sizeOf: (id: string) => Size,
+  labels: readonly LabelInput[], vp: Mat4, width: number, height: number, sizeOf: (id: string) => Size, bottomInset = 0,
 ): LabelPlacement[] {
   type Item = { input: LabelInput; x: number; y: number; depth: number; size: Size };
   const items: Item[] = [];
@@ -34,7 +34,9 @@ export function layoutLabels(
   for (const item of items) {
     const { w, h } = item.size;
     const overlaps = (x: number, y: number) => placed.some((q) => x - w / 2 < q.x1 - 2 && x + w / 2 > q.x0 + 2 && y - h < q.y1 - 2 && y > q.y0 + 2);
-    const inside = (x: number, y: number) => x - w / 2 >= 4 && x + w / 2 <= width - 4 && y - h >= 4 && y <= height + 120;
+    // `bottomInset` keeps cards clear of the toolbar along the bottom edge of the stage, so a card is never under a control.
+    const limit = height - bottomInset;
+    const inside = (x: number, y: number) => x - w / 2 >= 4 && x + w / 2 <= width - 4 && y - h >= 4 && y <= limit;
     // Candidate spots around the anchor, nearest first: straight up (the usual case), then down and sideways.
     const spots: Array<{ x: number; y: number; cost: number }> = [];
     for (let iy = -MAX_SHIFTS; iy <= MAX_SHIFTS; iy++) {
@@ -45,7 +47,7 @@ export function layoutLabels(
     }
     spots.sort((p, q) => p.cost - q.cost);
     // The first spot is the anchor itself, pulled into the stage when the anchor sits just outside it.
-    const home = { x: Math.max(w / 2 + 4, Math.min(width - w / 2 - 4, item.x)), y: Math.max(item.y, h + 6) };
+    const home = { x: Math.max(w / 2 + 4, Math.min(width - w / 2 - 4, item.x)), y: Math.min(Math.max(item.y, h + 6), limit) };
     const pick = !overlaps(home.x, home.y) && inside(home.x, home.y) ? home : spots.find((c) => inside(c.x, c.y) && !overlaps(c.x, c.y));
     if (!pick) {
       // No free spot. Building and room cards are the way into the scene, so they stay (on the least covered spot);
@@ -66,7 +68,7 @@ export function layoutLabels(
 /** Writes placements to the label wrappers (display, transform, z-index) and caches card sizes. */
 export function placeLabels(
   labels: readonly LabelInput[], nodes: ReadonlyMap<string, HTMLElement>, sizes: Map<string, Size>,
-  vp: Mat4, width: number, height: number,
+  vp: Mat4, width: number, height: number, bottomInset = 0,
 ): void {
   const sizeOf = (id: string): Size => {
     const cached = sizes.get(id);
@@ -81,7 +83,7 @@ export function placeLabels(
     sizes.set(id, size);
     return size;
   };
-  const placements = layoutLabels(labels, vp, width, height, sizeOf);
+  const placements = layoutLabels(labels, vp, width, height, sizeOf, bottomInset);
   for (let i = 0; i < labels.length; i++) {
     const node = nodes.get(labels[i].id);
     const p = placements[i];

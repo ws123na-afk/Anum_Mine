@@ -46,16 +46,33 @@ test('the campus shows one building per workspace with real counts, and opens a 
   await expect(hq(page).getByRole('button', { name: /^Tyre Pulse HQ\./ })).toBeAttached();
 });
 
-test('entrance signs carry ANUM MINE and the real building name, on the campus and in a building', async ({ page }) => {
-  await openOffice(page);
-  // One sign per building, named from the campus data; they stay hidden from assistive technology (the cards carry the names).
-  const signs = hq(page).locator('.hqSign');
-  await expect(signs.filter({ hasText: 'Al Noor Fleet HQ' })).toHaveCount(1);
-  await expect(signs.filter({ hasText: 'Executive HQ' })).toHaveCount(1);
-  await expect(signs.first().locator('strong')).toHaveText(/ANUM MINE/);
-  expect(await signs.evaluateAll((els) => els.every((el) => el.getAttribute('aria-hidden') === 'true'))).toBe(true);
-  await enterFleetBuilding(page);
-  await expect(hq(page).locator('.hqSign', { hasText: 'Al Noor Fleet HQ' })).toHaveCount(1);
+test('the scene runs on the three.js renderer and the quality can be pinned: shadows, night glow, reduced motion', async ({ page }) => {
+  const stats = async () => hq(page).locator('canvas.hqCanvas').evaluate((el) => ({ ...(el as HTMLCanvasElement).dataset }));
+  await page.addInitScript(() => { try { if (localStorage.getItem('anum.hq.quality') === null) localStorage.setItem('anum.hq.quality', '3'); localStorage.setItem('anum.hq.light', 'night'); } catch { /* storage blocked */ } });
+  await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
+  await page.goto('/#office-preview');
+  await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible();
+  await expect.poll(async () => (await stats()).engine ?? '', { timeout: 30_000 }).toMatch(/three/i);
+  // Highest quality at night: a 2048 px shadow map and the bloom pass for lit windows and signs.
+  await expect.poll(async () => (await stats()).shadow, { timeout: 30_000 }).toBe('2048');
+  await expect.poll(async () => (await stats()).bloom, { timeout: 30_000 }).toBe('true');
+  // Lowest quality: no shadow map and no glow.
+  await page.evaluate(() => localStorage.setItem('anum.hq.quality', '0'));
+  await page.reload();
+  await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible();
+  await expect.poll(async () => (await stats()).shadow, { timeout: 30_000 }).toBe('0');
+  expect((await stats()).bloom).toBe('false');
+});
+
+test('night glow is off under reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.quality', '3'); localStorage.setItem('anum.hq.light', 'night'); } catch { /* storage blocked */ } });
+  await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
+  await page.goto('/#office-preview');
+  const canvas = hq(page).locator('canvas.hqCanvas');
+  await expect(canvas).toBeVisible();
+  await expect.poll(async () => canvas.evaluate((el) => (el as HTMLCanvasElement).dataset.shadow ?? ''), { timeout: 30_000 }).toBe('2048');
+  expect(await canvas.getAttribute('data-bloom')).toBe('false');
 });
 
 test('night and day both draw and the toggle keeps the page inside the viewport', async ({ page }) => {
@@ -231,6 +248,8 @@ test('List view is an accessible list of every building and room, with search', 
 test('the scene is reachable from the keyboard', async ({ page }) => {
   await openOffice(page);
   const card = hq(page).getByRole('button', { name: /^Personal Office\./ });
+  // Labels are placed once the 3D scene has drawn its first frame; focusing a label that is still hidden does nothing.
+  await expect(card).toBeVisible();
   await card.focus();
   await page.keyboard.press('Enter');
   await expect(hq(page).getByRole('complementary', { name: 'About Personal Office' })).toBeVisible();
@@ -264,9 +283,11 @@ test('a lost GPU context is announced and the scene comes back', async ({ page }
   await openOffice(page);
   const canvas = hq(page).locator('canvas.hqCanvas');
   await expect(canvas).toBeVisible();
+  // The renderer loads on demand: wait until it owns the canvas before taking its GPU context away.
+  await expect(canvas).toHaveAttribute('data-engine', /three/, { timeout: 30_000 });
   await page.evaluate(() => {
     const el = document.querySelector('canvas.hqCanvas') as HTMLCanvasElement;
-    const gl = el.getContext('webgl') as WebGLRenderingContext;
+    const gl = (el.getContext('webgl2') ?? el.getContext('webgl')) as WebGL2RenderingContext;
     const ext = gl.getExtension('WEBGL_lose_context') as { loseContext(): void; restoreContext(): void };
     (window as unknown as { __hqExt: typeof ext }).__hqExt = ext;
     ext.loseContext();
@@ -335,6 +356,8 @@ for (const [width, height] of SIZES) {
 }
 
 test('draw time stays low while the camera moves (measured on this machine)', async ({ page }) => {
+  // Software GL in CI draws a frame in a few hundred milliseconds, so the loop is short and the test has room.
+  test.setTimeout(120_000);
   await openOffice(page);
   const canvas = hq(page).locator('canvas.hqCanvas');
   await expect(canvas).toBeVisible();
@@ -344,7 +367,7 @@ test('draw time stays low while the camera moves (measured on this machine)', as
     const el = document.querySelector('canvas.hqCanvas') as HTMLCanvasElement;
     const times: number[] = [];
     let last = performance.now();
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 24; i++) {
       el.dispatchEvent(new WheelEvent('wheel', { deltaY: i % 2 ? 40 : -40, bubbles: true, cancelable: true }));
       await new Promise((r) => requestAnimationFrame(r));
       const now = performance.now();
@@ -354,6 +377,7 @@ test('draw time stays low while the camera moves (measured on this machine)', as
     return { avg: times.reduce((a, b) => a + b, 0) / times.length, max: Math.max(...times), drawMs: el.dataset.drawMs, triangles: el.dataset.triangles, drawn: el.dataset.drawn, culled: el.dataset.culled, dpr: el.dataset.dpr };
   });
   console.log('HQ frame measurement', JSON.stringify(frames));
+  expect(frames.drawMs).toBeDefined();
   expect(Number(frames.triangles)).toBeGreaterThan(1000);
   expect(Number(frames.drawMs)).toBeLessThan(120);
 });

@@ -21,6 +21,15 @@ test('labels that would overlap are pushed apart and keep their order', () => {
   }
 });
 
+test('a bottom inset keeps every card clear of the toolbar along the bottom edge', () => {
+  const low = { x: 40, y: 0, z: 90 };
+  const free = layoutLabels([{ id: 'a', anchor: low }], vp, 1200, 700, size);
+  const inset = layoutLabels([{ id: 'a', anchor: low }], vp, 1200, 700, size, 64);
+  if (free[0].shown) assert.ok(inset[0].y <= 700 - 64 || !inset[0].shown, 'with an inset the card stays above the bottom 64 px');
+  const many = layoutLabels(Array.from({ length: 6 }, (_, i) => ({ id: 'l' + i, anchor: { x: i * 6 - 15, y: 0, z: 60 + i * 5 } })), vp, 1200, 700, size, 64);
+  for (const p of many) if (p.shown) assert.ok(p.y <= 700 - 64 + 0.001, 'card ' + p.id + ' at ' + p.y);
+});
+
 test('priority decides who keeps the spot, and far or off-screen labels are hidden', () => {
   const at = { x: 0, y: 10, z: 0 };
   const out = layoutLabels([{ id: 'low', anchor: at, priority: 2 }, { id: 'top', anchor: at, priority: 0 }], vp, 1200, 700, size);

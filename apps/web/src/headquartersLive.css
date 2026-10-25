@@ -308,8 +308,3 @@
 .hqAgentCard:not(:hover):not(:focus-visible):not([data-selected="true"]) { border-radius: 999px; min-width: 0; padding: 3px; }
 .hqAgentCard .hqAvatar { box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone, var(--hq-faint)) 85%, transparent); }
 .hqAgentCard[data-stale="true"] .hqAvatar { opacity: .6; }
-
-/* Entrance signs on the scene: the ANUM MINE wordmark over the real building name. They show only when the camera is close. */
-.hqSign { background: rgba(8, 16, 24, .86); border: 1px solid rgba(255, 255, 255, .16); border-radius: 6px; color: #eef3f8; padding: 2px 8px; pointer-events: none; text-align: center; }
-.hqSign strong { color: #8fe3d1; display: block; font-size: var(--text-2xs); letter-spacing: .16em; line-height: 1.2; }
-.hqSign small { color: #eef3f8; display: block; font-size: var(--text-2xs); line-height: 1.2; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

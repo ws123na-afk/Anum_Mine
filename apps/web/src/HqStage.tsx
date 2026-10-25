@@ -104,10 +104,10 @@ export function HqStage(props: Props) {
         onError: (error) => propsRef.current.onUnavailable(error.message),
         onFrame: (vp, aspect) => {
           const { width, height } = size.current;
-          placeLabels(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height);
+          placeLabels(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, 64);
           propsRef.current.onView?.(live.current, aspect);
           const s = created?.stats;
-          if (s && s.frames % 10 === 0 && canvas.current) {
+          if (s && (s.frames === 1 || s.frames % 10 === 0) && canvas.current) {
             canvas.current.dataset.drawMs = s.avgDrawMs.toFixed(2);
             canvas.current.dataset.triangles = String(Math.round(s.triangles));
             canvas.current.dataset.drawn = String(s.drawn);

@@ -22,9 +22,9 @@ export function lightingFor(night: number): Lighting {
     sky: mix3([0.6, 0.68, 0.78], [0.27, 0.33, 0.5]),
     ground: mix3([0.34, 0.33, 0.3], [0.15, 0.17, 0.24]),
     fog: mix3([0.62, 0.74, 0.86], [0.05, 0.09, 0.17]),
-    sunIntensity: mix1(2.9, 0.75),
-    hemiIntensity: mix1(0.85, 0.7),
-    envIntensity: mix1(0.85, 0.32),
-    exposure: mix1(0.95, 1.1),
+    sunIntensity: mix1(3.9, 0.8),
+    hemiIntensity: mix1(0.3, 0.55),
+    envIntensity: mix1(0.45, 0.3),
+    exposure: mix1(1.25, 1.15),
   };
 }

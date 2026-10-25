@@ -90,10 +90,13 @@ export function CampusView(props: CampusViewProps) {
   }, [select]);
 
   const targets: PickTarget[] = useMemo(() => scene.buildings.map((b) => ({ id: b.workspaceId, box: b.box })), [scene]);
+  // The lettering on the entrance signs is the real building name over the wordmark; the last cell is the gate.
   const renderScene = useMemo(() => ({
     opaque: [{ id: 'scenery', vertices: scene.scenery.vertices, bounds: scene.scenery.bounds, cull: false }, ...scene.buildings.map((b) => ({ id: b.workspaceId, vertices: b.mesh.vertices, bounds: b.mesh.bounds }))],
     glass: [],
-  }), [scene]);
+    signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: byId.get(b.workspaceId)?.name ?? '' })), { title: 'ANUM MINE', subtitle: '' }],
+    shadow: scene.shadow,
+  }), [scene, byId]);
 
   const labels: StageLabel[] = useMemo(() => {
     const list: StageLabel[] = scene.buildings.map((b) => {
@@ -109,15 +112,6 @@ export function CampusView(props: CampusViewProps) {
         ),
       };
     });
-    // Entrance signs: ANUM MINE over the real building name, shown once the camera is close enough to read them.
-    for (const b of scene.buildings) {
-      const building = byId.get(b.workspaceId);
-      if (!building) continue;
-      list.push({
-        id: 'sign:' + b.workspaceId, anchor: b.sign, priority: 3, maxDistance: 55,
-        node: <div className="hqSign" aria-hidden="true"><strong>ANUM MINE</strong><small>{building.name}</small></div>,
-      });
-    }
     list.push({
       id: 'monument', anchor: scene.monument, priority: 2,
       node: <div className="hqMonumentLabel" aria-hidden="true"><strong>ANUM MINE</strong><small>{t('hq.monument.sub')}</small></div>,

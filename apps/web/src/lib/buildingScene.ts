@@ -5,11 +5,13 @@
  * as saved. Seated figures are generic (no likeness) and appear only at desks with an assignment;
  * the HTML agent card carries the name, role and status pill.
  */
-import { MeshBuilder, hex, mix, scale, seeded, type Rgb } from './hqGeometry.ts';
+import { MAT, MeshBuilder, hex, mix, scale, seeded, type Rgb } from './hqGeometry.ts';
 import type { RoomGeometry, SceneDesk, SceneFloor, Vec3 } from './headquartersProjection.ts';
 import type { SceneMesh } from './campusScene.ts';
 import type { Aabb } from './hqMath.ts';
 import { ASPHALT, STONE, TEAL, WARM, anumMark, bench, bush, car, cypress, flowerBed, hedge, lamp, lbox, palm, planter, roundTree } from './hqProps.ts';
+import { signBoard } from './campusBuildings.ts';
+import { signAtlasLayout } from './hqTextures.ts';
 
 export const FLOOR_PITCH = 4.2;
 export const WALL_HEIGHT = 3.0;
@@ -41,8 +43,10 @@ export type BuildingScene = Readonly<{
   desks: readonly BuildingDeskHandle[];
   bounds: Aabb;
   center: Vec3;
-  /** Where the entrance sign (ANUM MINE and the building name) is pinned, on the front lawn. */
-  sign: Vec3;
+  /** Sign cells: one, for the entrance sign on the front lawn (the stage draws the real building name there). */
+  signCount: number;
+  /** The region that casts and receives shadows. */
+  shadow: Readonly<{ center: Vec3; radius: number }>;
   triangles: number;
 }>;
 
@@ -175,7 +179,7 @@ function desk(b: MeshBuilder, d: SceneDesk, y: number, spacing: number, state: D
   const w = 1.5 * k, dep = 0.8 * k, x = d.position.x - w / 2, z = d.position.z - dep / 2;
   const h = 0.78 * k;
   contact(b, x - 0.1, z - 0.1, w + 0.2, dep + 1.7 * k, y + 0.012, floor);
-  b.box(x, y + h, z, w, 0.09 * k, dep, WOOD, { grad: 0.1 });
+  b.withMat(MAT.wood, () => b.box(x, y + h, z, w, 0.09 * k, dep, WOOD, { grad: 0.1 }));
   for (const [lx, lz] of [[0.06, 0.06], [w - 0.14, 0.06], [0.06, dep - 0.14], [w - 0.14, dep - 0.14]] as const) b.box(x + lx, y, z + lz, 0.08, h, 0.08, DARK);
   b.box(x + 0.04, y + h * 0.35, z + dep - 0.06, w - 0.08, h * 0.55, 0.04, scale(WOOD, 0.85));
   const screen = SCREEN[state];
@@ -340,7 +344,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
     opaque.box(fx0 - 0.15, y - SLAB, fz0 - 0.15, fx1 - fx0 + 0.3, 0.08, 0.15, hex('#45d0b5'), { emissive: 0.5, shade: false });
     if (!ghost) {
       // Corridor tiles: pale stone with a joint line every three metres.
-      opaque.plane(fx0, y + 0.004, fz0, fx1 - fx0, fz1 - fz0, mix(slabTone, hex('#d9dde0'), 0.55), 0.35);
+      opaque.withMat(MAT.tile, () => opaque.plane(fx0, y + 0.004, fz0, fx1 - fx0, fz1 - fz0, mix(slabTone, hex('#d9dde0'), 0.55), 0.35));
       for (let gx = Math.ceil(fx0 / 3) * 3; gx < fx1; gx += 3) opaque.plane(gx, y + 0.008, fz0, 0.04, fz1 - fz0, hex('#98a2ab'), 0.3);
       for (let gz = Math.ceil(fz0 / 3) * 3; gz < fz1; gz += 3) opaque.plane(fx0, y + 0.008, gz, fx1 - fx0, 0.04, hex('#98a2ab'), 0.3);
     }
@@ -350,7 +354,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
       const live = options.meetingRoomIds?.has(room.id) === true;
       const tile = FLOOR_BY_KIND[room.kind] ?? FLOOR_BY_KIND.office;
       const color = selected ? mix(tile, accent, 0.5) : ghost ? scale(tile, 0.85) : mix(tile, accent, 0.3);
-      opaque.box(room.x, y, room.z, room.width, 0.06, room.depth, color, { skip: ['bottom'], shade: false, emissive: ghost ? 0.05 : selected ? 0.95 : 0.75 });
+      opaque.withMat(room.kind === 'warehouse' || room.kind === 'workshop' ? MAT.concrete : room.kind === 'lounge' || room.kind === 'meeting' ? MAT.wood : MAT.tile, () => opaque.box(room.x, y, room.z, room.width, 0.06, room.depth, color, { skip: ['bottom'], shade: false, emissive: ghost ? 0.05 : selected ? 0.95 : 0.75 }));
       if (!ghost && room.width > 3 && room.depth > 3) {
         // A rug in the zone colour marks the working area of the room; tile joints make the floor read as a floor.
         opaque.box(room.x + 0.5, y + 0.06, room.z + 0.5, room.width - 1, 0.015, room.depth - 1.3, mix(tile, accent, selected ? 0.8 : 0.55), { skip: ['bottom'], shade: false, emissive: 0.5 });
@@ -362,7 +366,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
       opaque.box(room.x, y + 0.06, room.z + room.depth - 0.08, room.width, 0.04, 0.08, accent, { emissive: selected ? 1 : 0.45, shade: false });
       // Walls: solid base to waist height, glass above with slim mullions, a top rail. Open at the doorway in the middle of the south wall.
       const wall = (x: number, z: number, w: number, d: number) => {
-        opaque.box(x, y + 0.06, z, w, 1.45, d, hex('#eef1f3'), { emissive: 0.22, grad: 0.2 });
+        opaque.withMat(MAT.concrete, () => opaque.box(x, y + 0.06, z, w, 1.45, d, hex('#eef1f3'), { emissive: 0.22, grad: 0.2 }));
         opaque.box(x - 0.01, y + 0.06, z - 0.01, w + 0.02, 0.12, d + 0.02, hex('#c9d1d6'));
         glass.box(x, y + 1.51, z, w, WALL_HEIGHT - 1.51, d, hex('#9fd4e6'), { shade: false });
         opaque.box(x, y + WALL_HEIGHT, z, w, 0.06, d, accent, { emissive: selected ? 0.9 : 0.35, shade: false });
@@ -427,26 +431,27 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
   const reach = 12;
   const lawn = hex('#4a7a48');
   opaque.box(fx0 - reach, -1.0, fz0 - reach, fx1 - fx0 + reach * 2, 0.97, fz1 - fz0 + reach * 2, hex('#3a3329'));
-  opaque.plane(fx0 - reach, -0.02, fz0 - reach, fx1 - fx0 + reach * 2, fz1 - fz0 + reach * 2, lawn, 0.07);
-  opaque.plane(fx0 - 2.6, -0.015, fz0 - 2.6, fx1 - fx0 + 5.2, fz1 - fz0 + 5.2, scale(STONE, 0.95));
-  opaque.plane(fx0 - 0.6, -0.01, fz0 - 0.6, fx1 - fx0 + 1.2, fz1 - fz0 + 1.2, scale(STONE, 0.7));
+  opaque.withMat(MAT.grass, () => opaque.plane(fx0 - reach, -0.02, fz0 - reach, fx1 - fx0 + reach * 2, fz1 - fz0 + reach * 2, lawn, 0.07));
+  opaque.withMat(MAT.tile, () => {
+    opaque.plane(fx0 - 2.6, -0.015, fz0 - 2.6, fx1 - fx0 + 5.2, fz1 - fz0 + 5.2, scale(STONE, 0.95));
+    opaque.plane(fx0 - 0.6, -0.01, fz0 - 0.6, fx1 - fx0 + 1.2, fz1 - fz0 + 1.2, scale(STONE, 0.7));
+  });
   const land = seeded('anum-building-landscape');
   const cx = (fx0 + fx1) / 2;
   // Car park on the front lawn: asphalt, bay lines and a few parked cars.
   const bays = Math.max(3, Math.min(8, Math.floor((fx1 - fx0) / 3.4)));
-  const lotX = cx - (bays * 3) / 2, lotZ = fz1 + 7.4;
-  opaque.plane(lotX - 0.4, -0.012, lotZ - 0.3, bays * 3 + 0.8, 5.4, ASPHALT);
+  const lotX = cx - (bays * 3) / 2, lotZ = fz1 + 8.6;
+  opaque.withMat(MAT.asphalt, () => opaque.plane(lotX - 0.4, -0.012, lotZ - 0.3, bays * 3 + 0.8, 5.4, ASPHALT));
   const palette = [hex('#c9d3dc'), hex('#2f4b66'), hex('#8a2f3a'), hex('#d9b25f'), hex('#e8ebee'), hex('#1f2429')];
   for (let i = 0; i <= bays; i++) opaque.plane(lotX + i * 3 - 0.05, -0.008, lotZ, 0.1, 4.6, hex('#d8d8d0'));
   for (let i = 0; i < bays; i++) {
     if (land() < 0.35) continue;
-    car(opaque, lotX + i * 3 + 1.5, lotZ + 2.3, palette[Math.floor(land() * palette.length)], land() < 0.5 ? 0 : 2);
+    car(opaque, lotX + i * 3 + 1.5, lotZ + 2.3, palette[Math.floor(land() * palette.length)], land() < 0.5 ? 0 : 2, 0.62);
   }
-  // Entrance sign wall with the ANUM mark (the name is the HTML sign pinned to it).
+  // Entrance sign wall: a low stone wall carrying the lettering board (the real building name over the wordmark).
   const signZ = fz1 + 3.0;
-  opaque.box(cx - 3.2, 0, signZ, 6.4, 1.2, 0.5, hex('#d7d2c4'), { grad: 0.1 });
-  opaque.box(cx - 3.2, 1.2, signZ, 6.4, 0.1, 0.56, TEAL, { emissive: 0.7, shade: false });
-  anumMark(opaque, cx - 2.3, 0.62, signZ + 0.52, 0.8);
+  opaque.withMat(MAT.concrete, () => opaque.box(cx - 3.4, 0, signZ - 0.1, 6.8, 0.9, 0.5, hex('#d7d2c4'), { grad: 0.1 }));
+  signBoard(opaque, cx, 0.92, signZ - 0.05, 5.2, 1.3, signAtlasLayout(1).cell(0), TEAL);
   // Planting round the edges, clear of the car park and the sign.
   const spots = 34;
   for (let i = 0; i < spots; i++) {
@@ -478,7 +483,8 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
   return {
     opaque: ob, glass: gb, rooms, desks, bounds,
     center: { x: (fx0 + fx1) / 2, y: (active * FLOOR_PITCH) / 2, z: (fz0 + fz1) / 2 },
-    sign: { x: cx, y: 1.75, z: signZ + 0.4 },
+    signCount: 1,
+    shadow: { center: { x: cx, y: 0, z: (fz0 + fz1) / 2 }, radius: Math.hypot(fx1 - fx0 + reach * 2, fz1 - fz0 + reach * 2) * 0.5 },
     triangles: ob.triangles + gb.triangles,
   };
 }
@@ -489,6 +495,6 @@ export function frameBuilding(scene: BuildingScene, activeIndex: number): { targ
   const depth = scene.bounds.max.z - scene.bounds.min.z;
   return {
     target: { x: scene.center.x, y: activeIndex * FLOOR_PITCH * 0.6, z: scene.center.z },
-    distance: Math.min(220, Math.max(14, Math.max(width, depth) * 0.9)),
+    distance: Math.min(260, Math.max(14, Math.max(width, depth) * 1.22)),
   };
 }

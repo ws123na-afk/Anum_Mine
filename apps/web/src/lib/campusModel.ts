@@ -126,6 +126,8 @@ export type Placement = Readonly<{
   /** Visual floor count used for the window rhythm (at least one). */
   levels: number;
   kind: CampusBuildingKind;
+  /** The icon an owner picked for the building (its name in the campus contract), or null. It decides the drawn building type. */
+  icon: string | null;
 }>;
 
 export const FLOOR_HEIGHT = 3.4;
@@ -144,7 +146,7 @@ export function layoutCampus(buildings: readonly CampusBuilding[]): Placement[] 
     const size = SIZE[b.kind];
     const levels = Math.max(b.kind === 'executive' ? 4 : 1, Math.min(14, b.floors ?? (b.kind === 'personal' ? 1 : 2)));
     return {
-      workspaceId: b.workspace_id, x, z, width: size.w, depth: size.d, levels, kind: b.kind,
+      workspaceId: b.workspace_id, x, z, width: size.w, depth: size.d, levels, kind: b.kind, icon: b.icon ?? null,
       height: levels * FLOOR_HEIGHT * (b.kind === 'executive' ? 1.25 : 1) + 1.2,
     };
   };
