@@ -158,8 +158,13 @@ export function luminance(hex: string): number {
   const lin = toRgb(hex).map((v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; });
   return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
 }
-/** Black or white, whichever reads better on `hex`. */
-export const inkOn = (hex: string): '#111418' | '#ffffff' => (luminance(hex) > 0.4 ? '#111418' : '#ffffff');
+/** WCAG contrast ratio of two colours. */
+export function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+/** Dark ink or white, whichever has the higher contrast on `hex` (at least 4.5 for every accent colour of the palette). */
+export const inkOn = (hex: string): '#111418' | '#ffffff' => (contrastRatio(hex, '#ffffff') >= contrastRatio(hex, '#111418') ? '#ffffff' : '#111418');
 
 /** Everything the renderers need to draw one figure. All colours are sRGB hex. */
 export type FigureLook = Readonly<{

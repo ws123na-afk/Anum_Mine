@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
-  ACCENTS, AVATAR_STYLES, HAIR_BY_STYLE, HAIR_COLORS, HAIR_STYLES, MODEL_OF_HAIR, OUTFITS, SKIN_TONES,
+  ACCENT_HEX, contrastRatio, ACCENTS, AVATAR_STYLES, HAIR_BY_STYLE, HAIR_COLORS, HAIR_STYLES, MODEL_OF_HAIR, OUTFITS, SKIN_TONES,
   chipColours, defaultAvatar, figureLook, initialsOf, inkOn, luminance, resolveAvatar, roleFamily,
 } from '../src/lib/hqAvatar.ts';
 import { ROLE, SWATCH, cellOf, roleOf } from '../src/lib/hqFigureRoles.ts';
@@ -123,4 +123,12 @@ test('model roles: skin column, hair, shirt, shoes and glasses are told apart', 
   assert.equal(at('body', ...cell(5, 9), 0.45), ROLE.accent);
   assert.equal(at('body', ...cell(11, 8), 0.4, { model: 'person_3' }), ROLE.skin);
   assert.equal(SWATCH.length, 8); assert.ok(SWATCH.every((row) => row.length === 8));
+});
+
+test('chip text has WCAG AA contrast on every accent colour', () => {
+  for (const accent of ACCENTS) {
+    const chip = chipColours('agent_x', { accent });
+    assert.ok(contrastRatio(chip.background, chip.ink) >= 4.5, `${accent} ${contrastRatio(chip.background, chip.ink).toFixed(2)}`);
+    assert.equal(chip.background, ACCENT_HEX[accent]);
+  }
 });
