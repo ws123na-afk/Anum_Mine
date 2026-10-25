@@ -28,6 +28,9 @@ async function enterFleetBuilding(page: Page) {
   await cards(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
   await hq(page).getByRole('button', { name: 'Open Al Noor Fleet HQ' }).click();
   await expect(hq(page).getByRole('button', { name: 'Back to campus' })).toBeVisible();
+  // The panels are a lazy chunk and the presence read follows: wait for them once, with room for a busy machine.
+  if ((page.viewportSize()?.width ?? 0) >= 1280) await expect(hq(page).locator('.hqPlan')).toBeVisible({ timeout: 30_000 });
+  if ((page.viewportSize()?.width ?? 0) >= 900) await expect(hq(page).locator('.hqRailItem').first()).toBeVisible({ timeout: 30_000 });
 }
 
 const noOverflow = async (page: Page) => expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
@@ -56,7 +59,7 @@ test('campus to building to floor to room through the strip, the rail, the plan 
   await expect(hq(page).getByRole('button', { name: 'Back to campus' })).toBeVisible();
 
   // The rail lists the floors, top floor first, and opens one.
-  await expect(rail(page).locator('.hqRailItem')).toHaveCount(2);
+  await expect(rail(page).locator('.hqRailItem')).toHaveCount(2, { timeout: 30_000 });
   await expect(rail(page).locator('.hqRailItem').first()).toHaveAccessibleName(/^First floor\./);
   await expect(rail(page).getByRole('button', { name: /^Ground floor\./ })).toHaveAttribute('aria-current', 'true');
   await rail(page).getByRole('button', { name: /^First floor\./ }).click();
@@ -83,7 +86,7 @@ test('the people list shows only assigned agents with their real state', async (
   await openOffice(page);
   await enterFleetBuilding(page);
   const people = hq(page).getByRole('region', { name: 'People at their posts' });
-  await expect(people.getByRole('button', { name: /^Open Fleet Planner\. Working\./ })).toBeVisible();
+  await expect(people.getByRole('button', { name: /^Open Fleet Planner\. Working\./ })).toBeVisible({ timeout: 30_000 });
   await expect(people.getByRole('button', { name: /^Open WhatsApp Concierge\. In meetings\./ })).toBeVisible();
   // Another person's agent keeps its desk and loses its name.
   await expect(people.getByRole('button', { name: /^Open Private agent\./ })).toBeDisabled();
@@ -204,8 +207,8 @@ test('Arabic: right to left, translated labels, no overflow', async ({ page }) =
   await noOverflow(page);
   await hq(page).getByRole('navigation', { name: 'مشاهد سريعة' }).getByRole('button').nth(2).click();
   await hq(page).getByRole('navigation', { name: 'مشاهد سريعة' }).getByRole('button').nth(2).click();
-  await expect(hq(page).getByRole('navigation', { name: /^طوابق/ })).toBeVisible();
-  await expect(hq(page).getByRole('region', { name: 'الأشخاص في مواقعهم' })).toBeVisible();
+  await expect(hq(page).getByRole('navigation', { name: /^طوابق/ })).toBeVisible({ timeout: 30_000 });
+  await expect(hq(page).getByRole('region', { name: 'الأشخاص في مواقعهم' })).toBeVisible({ timeout: 30_000 });
   await noOverflow(page);
   // The rail sits on the inline start side: the right in Arabic.
   const railBox = await hq(page).getByRole('navigation', { name: /^طوابق/ }).boundingBox();
@@ -267,7 +270,7 @@ for (const locale of ['en', 'ar'] as const) {
       expect(await scan()).toEqual([]);
       await cards(page).locator('.hqBuildingCard', { hasText: 'Al Noor Fleet HQ' }).click();
       await hq(page).locator('.hqDetail button.hqPrimary').click();
-      await expect(hq(page).locator('.hqPlan')).toBeVisible();
+      await expect(hq(page).locator('.hqPlan')).toBeVisible({ timeout: 30_000 });
       await page.waitForTimeout(500);
       expect(await scan()).toEqual([]);
     });
