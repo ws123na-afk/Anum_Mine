@@ -2,12 +2,17 @@
  * Transport is dependency injected so the contract can be tested under Node.
  * This module never supplies tenant/workspace IDs in request bodies.
  */
+import type {OfficeRotation,OfficeDoorSide,OfficeRoomColor,OfficeEquipmentItem,OfficeTeamDepartment} from '@anum/contracts';
 export type OfficeKind = 'buildings'|'floors'|'rooms'|'desks';
 export interface OfficeRecord {id:string;revision:number;tenant_id:string;workspace_id:string;created_at:string;updated_at:string}
 export interface OfficeBuilding extends OfficeRecord {name:string;timezone:string;latitude:number|null;longitude:number|null}
-export interface OfficeFloor extends OfficeRecord {building_id:string;level:number;name:string}
-export interface OfficeRoom extends OfficeRecord {floor_id:string;name:string;kind:'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge';capacity:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null}
-export interface OfficeDesk extends OfficeRecord {room_id:string;label:string;agent_id:string|null}
+/** `width_m` and `depth_m` are the floor bounds in metres; null on floors made before the builder (unbounded). */
+export interface OfficeFloor extends OfficeRecord {building_id:string;level:number;name:string;width_m?:number|null;depth_m?:number|null}
+export interface OfficeRoom extends OfficeRecord {floor_id:string;name:string;kind:'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge';capacity:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;
+ rotation?:OfficeRotation;door_side?:OfficeDoorSide;description?:string;notes?:string;color?:OfficeRoomColor|null;name_ar?:string|null;
+ equipment?:OfficeEquipmentItem[];team_department?:OfficeTeamDepartment|null}
+/** `pos_x` and `pos_z` are metres from the room's north west corner; null while the desk is not placed. */
+export interface OfficeDesk extends OfficeRecord {room_id:string;label:string;agent_id:string|null;pos_x?:number|null;pos_z?:number|null}
 export interface OfficeRegistryData {buildings:OfficeBuilding[];floors:OfficeFloor[];rooms:OfficeRoom[];desks:OfficeDesk[]}
 export interface OfficePage<T> {items:T[];next_cursor:string|null}
 export type OfficeRequester = <T>(path:string,init:RequestInit)=>Promise<T>;

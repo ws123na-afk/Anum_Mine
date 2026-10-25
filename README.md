@@ -203,6 +203,7 @@ x-user-roles: owner,member
   - Help, Billing console: [English](docs/help/billing-console.md), [Arabic](docs/help/billing-console.ar.md)
   - Help, Approval policy: [English](docs/help/policy.md), [Arabic](docs/help/policy.ar.md)
   - Help, Reports: [English](docs/help/reports.md), [Arabic](docs/help/reports.ar.md)
+  - Help, Office builder: [English](docs/help/office-builder.md), [Arabic](docs/help/office-builder.ar.md)
   - Help, Settings: [English](docs/help/settings.md), [Arabic](docs/help/settings.ar.md)
   - Help, Setup plan: [English](docs/help/setup.md), [Arabic](docs/help/setup.ar.md)
   - Help, ANUM Store: [English](docs/help/skills.md), [Arabic](docs/help/skills.ar.md)
