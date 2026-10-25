@@ -16,6 +16,7 @@ export * from './roads.ts';
 export * from './water.ts';
 export * from './sports.ts';
 export * from './planting.ts';
+export * from './plaza.ts';
 export * from './furniture.ts';
 export * from './skyline.ts';
 export * from './campusEnvironment.ts';

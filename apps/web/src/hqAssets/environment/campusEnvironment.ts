@@ -29,7 +29,7 @@ export type CampusEnvironmentOptions = {
   density?: number;
 };
 
-export const CAMPUS_ENVIRONMENT_TRIANGLES_CAP = 26000;
+export const CAMPUS_ENVIRONMENT_TRIANGLES_CAP = 36000;
 
 /** Gap between the ring road centre line and the canal centre line, and the canal width. */
 export const CANAL_OFFSET = 24;

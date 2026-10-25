@@ -15,7 +15,7 @@ import { lamp } from './furniture.ts';
 export const WATER_Y = 0.08;
 const COPING = hex('#cfc9ba');
 const WALL = hex('#a39d8e');
-const LIGHT_WATER = mix(WATER, hex('#9fe0ff'), 0.4);
+const LIGHT_WATER = mix(WATER, hex('#9fe0ff'), 0.22);
 
 export const CANAL_TRIANGLES_PER_METRE_CAP = 3;
 

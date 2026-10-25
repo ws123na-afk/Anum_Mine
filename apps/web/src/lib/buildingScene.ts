@@ -562,6 +562,6 @@ export function frameBuilding(scene: BuildingScene, activeIndex: number): { targ
   const depth = scene.bounds.max.z - scene.bounds.min.z;
   return {
     target: { x: scene.center.x, y: activeIndex * FLOOR_PITCH * 0.6, z: scene.center.z },
-    distance: Math.min(260, Math.max(14, Math.max(width, depth) * 0.95)),
+    distance: Math.min(260, Math.max(14, Math.max(width, depth) * 0.8)),
   };
 }

@@ -62,3 +62,7 @@ a real regression (for example a per-frame allocation or a second 3D library) do
 3. Write the numbers into the table above with the date and the machine.
 
 Raise a budget only with a measured reason written here; never to make the test pass.
+
+## Look pass, 25 October 2026
+
+No budget was raised. After the [building look pass](ANUM_MINE_HQ_BUILDING_LOOK.md): lazy HQ JS 131,351 bytes gzip (limit 135,000), renderer chunk 153,657 (limit 160,000). The starter campus is about 77,000 triangles (the environment kit cap rose from 26,000 to 36,000 for rounder foliage); frame work stays bounded because the scene is static and the quality ladder is unchanged.
