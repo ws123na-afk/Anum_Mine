@@ -41,6 +41,14 @@ export class MeshBuilder {
   /** The surface class given to every triangle added until it is changed. */
   mat: MatId = MAT.flat;
   private data: number[] = [];
+  /** Per triangle: the tag active when it was added (see `tagged`), or null. */
+  private tags: (string | null)[] = [];
+  /** The tag given to every triangle added until it is changed (see `tagged`). */
+  tag: string | null = null;
+  /** Placements of loadable models noted while building (see `hqModels.ts`); the pure scene hands them to the renderer. */
+  readonly slots: ModelSlot[] = [];
+  /** Soft light halos noted while building (street lamps, entrance lights): x, y, z, radius, r, g, b, strength per halo. */
+  readonly halos: number[] = [];
   private lo = [Infinity, Infinity, Infinity];
   private hi = [-Infinity, -Infinity, -Infinity];
 
@@ -50,6 +58,19 @@ export class MeshBuilder {
     this.mat = id;
     fn();
     this.mat = before;
+  }
+
+  /** Runs `fn` with a tag on every triangle it adds, so a caller can later split those triangles out (see `toFloat32Split`). */
+  tagged(tag: string, fn: () => void): void {
+    const before = this.tag;
+    this.tag = tag;
+    fn();
+    this.tag = before;
+  }
+
+  /** Notes a soft light halo at a world point (drawn additively at night by the renderer). */
+  halo(x: number, y: number, z: number, radius: number, color: Rgb, strength = 1): void {
+    this.halos.push(x, y, z, radius, color[0], color[1], color[2], strength);
   }
 
   get vertexCount(): number {
@@ -77,6 +98,7 @@ export class MeshBuilder {
     const len = Math.hypot(nx, ny, nz);
     if (len < 1e-12) return;
     nx /= len; ny /= len; nz /= len;
+    this.tags.push(this.tag);
     for (const p of [a, b, c]) {
       this.data.push(p[0], p[1], p[2], nx, ny, nz, color[0], color[1], color[2], emissive, this.mat, 0, 0);
       for (let i = 0; i < 3; i++) {
@@ -98,6 +120,7 @@ export class MeshBuilder {
     if (len < 1e-12) return;
     nx /= len; ny /= len; nz /= len;
     const pts = [a, b, c], uvs = [uva, uvb, uvc];
+    this.tags.push(this.tag);
     for (let k = 0; k < 3; k++) {
       const p = pts[k], uv = uvs[k];
       this.data.push(p[0], p[1], p[2], nx, ny, nz, color[0], color[1], color[2], emissive, this.mat, uv[0], uv[1]);
@@ -129,6 +152,7 @@ export class MeshBuilder {
     if (len < 1e-12) return;
     nx /= len; ny /= len; nz /= len;
     const pts = [a, b, c], cols = [ca, cb, cc];
+    this.tags.push(this.tag);
     for (let k = 0; k < 3; k++) {
       const p = pts[k], col = cols[k];
       this.data.push(p[0], p[1], p[2], nx, ny, nz, col[0], col[1], col[2], emissive, this.mat, 0, 0);
@@ -234,6 +258,7 @@ export class MeshBuilder {
 
   /** Appends vertices from another builder's float array (whole triangles), keeping their classes and uv. */
   append(data: Float32Array): void {
+    for (let i = 0; i < data.length; i += VERTEX_FLOATS * 3) this.tags.push(this.tag);
     for (let i = 0; i < data.length; i += VERTEX_FLOATS) {
       for (let k = 0; k < VERTEX_FLOATS; k++) this.data.push(data[i + k]);
       for (let a = 0; a < 3; a++) {
@@ -247,7 +272,41 @@ export class MeshBuilder {
   toFloat32(): Float32Array {
     return new Float32Array(this.data);
   }
+
+  /** The tag of each triangle, in order (null when untagged). */
+  triangleTags(): readonly (string | null)[] {
+    return this.tags;
+  }
+
+  /**
+   * The triangles split by tag: `rest` holds every triangle whose tag is not in `tags`, and `byTag` the
+   * triangles of each listed tag. A scene keeps `rest` as its mesh and ships each tagged part as the fallback
+   * of a loadable model, drawn only when that model could not be loaded.
+   */
+  toFloat32Split(tags: readonly string[]): { rest: Float32Array; byTag: Map<string, Float32Array> } {
+    const per = VERTEX_FLOATS * 3;
+    const wanted = new Set(tags);
+    const rest: number[] = [];
+    const parts = new Map<string, number[]>(tags.map((t) => [t, []]));
+    for (let t = 0; t < this.tags.length; t++) {
+      const tag = this.tags[t];
+      const target = tag !== null && wanted.has(tag) ? parts.get(tag)! : rest;
+      for (let i = t * per; i < (t + 1) * per; i++) target.push(this.data[i]);
+    }
+    return { rest: new Float32Array(rest), byTag: new Map([...parts].map(([k, v]) => [k, new Float32Array(v)])) };
+  }
 }
+
+/**
+ * A place where a loadable model goes (a sofa, a seated person). `rot` is quarter turns as in the
+ * interior frames: 0 faces +z, 1 faces -x, 2 faces -z, 3 faces +x. `width` is the footprint the
+ * procedural piece was drawn with, so the loaded model is scaled to the same footprint.
+ */
+export type ModelSlot = Readonly<{
+  model: string; x: number; y: number; z: number; rot: number; width: number;
+  /** A seed for variants (a person's look); never a name. */
+  seed?: string; pose?: string; headset?: boolean;
+}>;
 
 export type BoxFace = 'top' | 'bottom' | 'north' | 'south' | 'west' | 'east';
 

@@ -71,6 +71,8 @@ export type ExteriorAsset = Readonly<{
   /** Resolved scheme and seed, so a caller can show or store what was used. */
   scheme: ExteriorSchemeName;
   seed: string;
+  /** Soft light halos in world coordinates (x, y, z, radius, r, g, b, strength per halo): lamps and entrance lights for the night glow. */
+  halos: Float32Array;
 }>;
 
 export type ExteriorBuilder = (params?: ExteriorParams) => ExteriorAsset;

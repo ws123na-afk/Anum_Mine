@@ -5,8 +5,8 @@
  * spire). Window panes follow the night rule in `parts.ts`.
  */
 import { scale } from '../../lib/hqGeometry.ts';
-import { castShadow } from '../../lib/hqProps.ts';
-import { clamp, curtainWall, entrance, finish, makeCtx, signBoard } from './parts.ts';
+import { WARM, castShadow } from '../../lib/hqProps.ts';
+import { clamp, curtainWall, entrance, fins, finish, ledge, makeCtx, rectFaces, signBoard } from './parts.ts';
 import { crown, slabBand, terrace } from './towerParts.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
 
@@ -37,6 +37,11 @@ export function buildOfficeTower(params: ExteriorParams = {}): ExteriorAsset {
   curtainWall(ctx, sx, sz, W, D, y0, lower, LH);
   for (const [cx, cz] of [[sx, sz], [sx + W, sz], [sx, sz + D], [sx + W, sz + D]] as const) b.box(cx - 0.5, y0, cz - 0.5, 1.0, lower * LH, 1.0, scheme.wall, { grad: 0.25 });
   for (let l = 6; l < lower; l += 6) slabBand(ctx, sx, sz, W, D, y0 + l * LH - 0.1, 0.45);
+  const SF = rectFaces(sx, sz, W, D);
+  for (const f of [SF.south, SF.east, SF.west]) {
+    fins(ctx, f, 1.9, f.len - 1.9, y0, y0 + lower * LH, 3.9, 0.45, 0.24);
+    for (let l = 2; l <= lower; l += 2) ledge(ctx, f, 0.3, f.len - 0.3, y0 + l * LH - 0.55, 0.45, 0.09);
+  }
   const midY = y0 + lower * LH;
   slabBand(ctx, sx, sz, W, D, midY - 0.1, 0.55);
   const inset = Math.min(3, W * 0.12);
@@ -45,12 +50,15 @@ export function buildOfficeTower(params: ExteriorParams = {}): ExteriorAsset {
   const uy = midY + 0.7;
   curtainWall(ctx, ux, uz, uw, ud, uy, upper, LH);
   for (const [cx, cz] of [[ux, uz], [ux + uw, uz], [ux, uz + ud], [ux + uw, uz + ud]] as const) b.box(cx - 0.4, uy, cz - 0.4, 0.8, upper * LH, 0.8, scheme.wall, { grad: 0.25 });
+  const UF = rectFaces(ux, uz, uw, ud);
+  for (const f of [UF.south, UF.east, UF.west]) fins(ctx, f, 1.5, f.len - 1.5, uy, uy + upper * LH, 3.9, 0.4, 0.22);
   const roofY = uy + upper * LH;
   const top = crown(ctx, 0, uz + ud / 2, uw, ud, roofY);
 
   // Front: entrance and the sign board on the podium (over the first slab line).
   const f = { ox: px, oz: pz + PD, tx: 1, tz: 0, nx: 0, nz: 1, len: PW } as const;
   entrance(ctx, f, PW / 2, 0.45, 3.6, 3.4, 2.8, scheme.accent);
+  b.halo(0, 2.2, front + 1.5, 6, WARM, 0.85);
   const sign = signBoard(ctx, f, PW / 2, PH + 0.45 - 0.4, Math.min(10, PW - 6), 1.6, 0.03);
 
   return finish(ctx, {
