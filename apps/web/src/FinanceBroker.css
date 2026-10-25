@@ -1,0 +1,44 @@
+/* Read-only broker statement workbench; narrow screens retain scrollable tables. */
+.finBrokerStatement {
+  display: grid;
+  gap: .75rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border, #d5dbe0);
+  min-width: 0;
+}
+.finBrokerStatement textarea {
+  width: 100%;
+  max-width: 100%;
+  min-height: 7rem;
+  resize: vertical;
+  font: inherit;
+  box-sizing: border-box;
+}
+.finBrokerStatement input[type="file"] {
+  max-width: 100%;
+  min-width: 0;
+}
+.finBrokerActions {
+  display: flex;
+  gap: .75rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-block: 1rem;
+}
+.finBrokerStatement .cmTableScroll,
+.finBrokerReconciliationTable {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.finBrokerStatement table {
+  min-width: 350px;
+}
+@media (max-width: 540px) {
+  .finBrokerActions button,
+  .finBrokerStatement > button {
+    width: 100%;
+  }
+  .finBrokerStatement {
+    padding-inline: 0;
+  }
+}
