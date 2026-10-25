@@ -1,0 +1,27 @@
+ANUM MINE headquarters: third party 3D models
+
+These files are loaded lazily by the 3D scene (apps/web/src/lib/hqModelLayer.ts). They were reduced
+for the web (meshopt compression, smaller WebP textures, fewer triangles, extra clips and lights
+removed); the artwork is otherwise unchanged. If a file is missing or fails to load, the scene keeps
+drawing its built in procedural furniture and people.
+
+sofa.glb, armchair.glb
+  Source: KhronosGroup/glTF-Sample-Assets, Models/GlamVelvetSofa and Models/SheenChair
+  Author: Wayfair, LLC (Eric Chadwick), copyright 2021
+  Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
+           https://creativecommons.org/licenses/by/4.0/legalcode
+  Changes: simplified, textures resized to 512 px WebP, meshopt compressed, embedded light and
+           material variants removed; the armchair fabric was recoloured from orange to a teal grey
+           (greyscale texture with a tint) to fit the ANUM palette.
+
+person_0.glb, person_1.glb, person_2.glb, person_3.glb, person_4.glb
+  Source: Kenney, "Mini Characters" (character-male-d, character-male-e, character-female-d,
+          character-female-e, character-female-f), https://kenney.nl
+  Author: Kenney
+  Licence: CC0 1.0 Universal (public domain dedication), https://creativecommons.org/publicdomain/zero/1.0/
+           Credit is not required; it is given here anyway.
+  Changes: only the "sit" animation clip kept, 256 px lossless WebP texture, meshopt compressed.
+  How the files were obtained: kenney.nl is not reachable from the build sandbox, so the files were
+           taken from the npm package @netforge/asset-library-files 0.2.0 (a third party mirror whose
+           NOTICE states these Kenney packs are CC0). The licence line above rests on that statement
+           and on Kenney's published CC0 terms; check it against kenney.nl before a public release.

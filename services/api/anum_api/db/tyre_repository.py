@@ -151,6 +151,7 @@ def _report(record: TyreReportRecord) -> TyreReport:
 class SqlAlchemyTyreStore:
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.written_scopes: set[tuple[str, str]] = set()
 
     # connection --------------------------------------------------------------------------
 
@@ -159,6 +160,7 @@ class SqlAlchemyTyreStore:
         return _connection(record) if record else None
 
     def save_connection(self, connection: TyreConnection) -> TyreConnection:
+        self._wrote(connection.tenant_id, connection.workspace_id)
         require_workspace(self.session, connection.tenant_id, connection.workspace_id)
         record = self.session.get(TyreConnectionRecord, (connection.tenant_id, connection.workspace_id))
         if record is None:
@@ -186,7 +188,14 @@ class SqlAlchemyTyreStore:
         self.session.flush()
         return connection
 
+    def _wrote(self, tenant_id: str, workspace_id: str) -> None:
+        from ..tyre import read_cache
+
+        self.written_scopes.add((tenant_id, workspace_id))
+        read_cache.invalidate(tenant_id, workspace_id)
+
     def delete_connection(self, context: TenantContext) -> bool:
+        self._wrote(context.tenant_id, context.workspace_id)
         deleted = self.session.execute(delete(TyreConnectionRecord).where(_scope(TyreConnectionRecord, context))).rowcount
         self.session.execute(delete(TyreSnapshotRecord).where(_scope(TyreSnapshotRecord, context)))
         self.session.execute(delete(TyreAlertRecord).where(_scope(TyreAlertRecord, context)))
@@ -205,6 +214,7 @@ class SqlAlchemyTyreStore:
         )
 
     def save_snapshot(self, snapshot: TyreSnapshot) -> TyreSnapshot:
+        self._wrote(snapshot.tenant_id, snapshot.workspace_id)
         require_workspace(self.session, snapshot.tenant_id, snapshot.workspace_id)
         record = self.session.get(TyreSnapshotRecord, (snapshot.tenant_id, snapshot.workspace_id))
         if record is None:

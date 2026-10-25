@@ -38,7 +38,7 @@ Chat-completion requests are not idempotent, so a retry after a timeout may be b
 
 ### Output cap
 
-Every text call sends `max_tokens` = `ANUM_MODEL_MAX_OUTPUT_TOKENS` (default 1024, 16 to 32768): `generate_text` and every stream (a caller may ask for less, as voice does with 400). An unbounded reply from a slow model is what made long questions feel hung. Structured (JSON schema) calls are not capped: a cut-off plan would be invalid JSON.
+Every text call sends `max_tokens` = `ANUM_MODEL_MAX_OUTPUT_TOKENS` (default 1024, 16 to 32768): `generate_text` and every stream (a caller may ask for less, as voice does with 220). An unbounded reply from a slow model is what made long questions feel hung. Structured (JSON schema) calls are not capped: a cut-off plan would be invalid JSON.
 
 ### Streaming
 
@@ -173,7 +173,7 @@ Every caller states what a call is for (`ModelRoute`, applied with `route_gatewa
 
 - **Backwards compatible.** With both names empty every call uses `ANUM_MODEL_NAME`, exactly as before, for `openai-compatible` and `ollama`. Setting only one route changes only that route.
 - **`anthropic` defaults.** With `ANUM_MODEL_NAME` left at its default, fast is `claude-haiku-5-5` and capable is `claude-sonnet-5-5`. Setting `ANUM_MODEL_NAME` (for example `claude-opus-5-5`) makes it serve both routes unless a route name is also set.
-- **Effort.** The current Haiku and Sonnet models think adaptively by default; `low` effort keeps short replies (voice is capped at 400 tokens) quick and leaves the output budget for the answer. Clear `ANUM_MODEL_FAST_EFFORT` for a model that does not accept `effort` (for example `claude-haiku-4-5`). An invalid value stops the API at startup, and the Helm chart refuses it at `helm template`.
+- **Effort.** The current Haiku and Sonnet models think adaptively by default; `low` effort keeps short replies (voice is capped at 220 tokens) quick and leaves the output budget for the answer. Clear `ANUM_MODEL_FAST_EFFORT` for a model that does not accept `effort` (for example `claude-haiku-4-5`). An invalid value stops the API at startup, and the Helm chart refuses it at `helm template`.
 - **Workspace models** saved in Settings with `openai_compatible`, `ollama` or `mock` have one model and no routes: they answer both kinds of call, and the connection test uses that model. An `anthropic` workspace routes like the server: `fast_model` (or `model`) with `fast_effort` for conversation replies, voice and [conversation memory](memory.md#from-conversations) extraction, `capable_model` (or `model`) with `capable_effort` for planning; the connection test calls each distinct model once.
 
 ## Client tool rounds (voice)

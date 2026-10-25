@@ -13,6 +13,7 @@ export const hqAr = {
   'hq.view.3d': 'ثلاثي الأبعاد',
   'hq.view.top': 'من الأعلى',
   'hq.view.list': 'قائمة',
+  'hq.credits': 'نماذج ثلاثية الأبعاد: الأريكة وكرسي الصالة من Wayfair, LLC (CC BY 4.0، بعد تعديل)، والأشخاص من Kenney (CC0).',
   'hq.tools': 'أدوات المكتب',
   'hq.tools.spaces': 'إدارة المساحات',
   'hq.tools.workstations': 'محطات العمل المباشرة',

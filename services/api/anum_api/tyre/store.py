@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from ..schemas import TenantContext, new_id
 from ..scoped_store import open_scoped_store
+from . import read_cache
 from .analytics import AlertCandidate, AlertKind, Severity
 from .mapping import SourceTable
 from .model import Assumptions, SourceKind, SyncStats, TyreDataset, TyreMapping
@@ -194,6 +195,7 @@ class InMemoryTyreStore:
         return item.tenant_id == context.tenant_id and item.workspace_id == context.workspace_id
 
     def clear(self) -> None:
+        read_cache.clear()
         with self._lock:
             self._connections.clear()
             self._snapshots.clear()
@@ -208,9 +210,11 @@ class InMemoryTyreStore:
     def save_connection(self, connection: TyreConnection) -> TyreConnection:
         with self._lock:
             self._connections[(connection.tenant_id, connection.workspace_id)] = connection.model_copy(deep=True)
+        read_cache.invalidate(connection.tenant_id, connection.workspace_id)
         return connection
 
     def delete_connection(self, context: TenantContext) -> bool:
+        read_cache.invalidate(context.tenant_id, context.workspace_id)
         with self._lock:
             found = self._connections.pop(self._scope(context), None)
             self._snapshots.pop(self._scope(context), None)
@@ -225,6 +229,7 @@ class InMemoryTyreStore:
     def save_snapshot(self, snapshot: TyreSnapshot) -> TyreSnapshot:
         with self._lock:
             self._snapshots[(snapshot.tenant_id, snapshot.workspace_id)] = snapshot
+        read_cache.invalidate(snapshot.tenant_id, snapshot.workspace_id)
         return snapshot
 
     def active_alerts(self, context: TenantContext) -> list[TyreAlert]:
@@ -317,6 +322,10 @@ def open_tyre_store(context: TenantContext) -> Iterator[TyreStore]:
 
     with open_scoped_store(context, memory_tyre_store, sql_store) as store:
         yield store
+    # Committed: a read between a write's own invalidation and its commit may have cached the
+    # old data, so drop the scope's read cache again (db/tyre_repository.py lists the scopes).
+    for tenant_id, workspace_id in getattr(store, "written_scopes", ()):
+        read_cache.invalidate(tenant_id, workspace_id)
 
 
 def reconcile_alerts(

@@ -36,6 +36,8 @@ export type CampusScene = Readonly<{
   canalRadius: number;
   /** The region that casts and receives shadows. */
   shadow: Readonly<{ center: Vec3; radius: number }>;
+  /** Soft light halos (x, y, z, radius, r, g, b, strength per halo) for the night glow. */
+  halos: Float32Array;
 }>;
 
 const freeze = (b: MeshBuilder): SceneMesh => ({ vertices: b.toFloat32(), bounds: b.bounds(), triangles: b.triangleCount });
@@ -111,6 +113,7 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
 
   // Buildings, their walkways, and the ring road.
   const buildings: CampusBuildingMesh[] = [];
+  const buildingHalos: number[] = [];
   const segments: Array<[number, number, number, number]> = [];
   placements.forEach((p, index) => {
     const archetype = archetypeOf(p);
@@ -119,6 +122,7 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
     if (asset) {
       mesh = { vertices: asset.vertices, bounds: asset.bounds, triangles: asset.triangles };
       anchor = asset.anchor; door = asset.door;
+      buildingHalos.push(...asset.halos);
     } else {
       const b = new MeshBuilder();
       const shape = drawBuilding(b, p, 'bld:' + p.workspaceId, index, signCount);
@@ -213,5 +217,6 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
   return {
     scenery: freeze(scenery), buildings, monument: { x: monument.x, y: 8.2, z: monument.z }, extent, groundRadius, triangles: total, signCount, canalRadius: ringHalf + 24,
     shadow: { center: { x: 0, y: 0, z: 0 }, radius: ringHalf * 1.2 + 6 },
+    halos: new Float32Array([...s.halos, ...buildingHalos]),
   };
 }

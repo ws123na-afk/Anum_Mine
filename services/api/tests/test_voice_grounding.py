@@ -23,7 +23,7 @@ from anum_api.dependencies import memory_repository
 from anum_api.model_budget import BudgetedModelGateway
 from anum_api.model_gateway import MockModelGateway, RetryPolicy
 from anum_api.schemas import RiskLevel, Task, TaskStatus, TenantContext, new_id, utc_now
-from anum_api.voice import VoiceTurnTiming, router, voice_model_gateway, voice_store
+from anum_api.voice import VOICE_MAX_TOKENS, VoiceTurnTiming, router, voice_model_gateway, voice_store
 from anum_api.voice_assistant import WorkspaceSnapshot
 from anum_api.voice_grounding import (
     GROUNDING_RULES,
@@ -80,7 +80,7 @@ class ScriptedToolModel:
         return variant
 
     async def stream_chat(self, messages, *, max_tokens=None, on_usage=None):  # type: ignore[no-untyped-def]
-        assert max_tokens == 400
+        assert max_tokens == VOICE_MAX_TOKENS
         tool_round = self._round
         assert tool_round is not None
         self.rounds.append(tool_round)
@@ -105,9 +105,10 @@ def _answer(gateway: Any, question: str, timing: TurnTiming | None = None) -> st
     async def run() -> str:
         parts = []
         async for chunk in grounded_answer(
-            gateway, question, FACTS, "Anum", [], member, timing or TurnTiming(), max_tokens=400,
+            gateway, question, FACTS, "Anum", [], member, timing or TurnTiming(), max_tokens=VOICE_MAX_TOKENS,
         ):
-            parts.append(chunk)
+            if isinstance(chunk, str):
+                parts.append(chunk)
         return "".join(parts)
 
     return asyncio.run(run())
@@ -253,7 +254,7 @@ def test_a_slow_tool_times_out() -> None:
                                      category="general", action_kind="read"), slow)
     toolbox = VoiceToolbox([registry])
     result = asyncio.run(run_read_tool(toolbox.entry("slow_read"), ToolCall(name="slow_read"), member, timeout=0.05))
-    assert result.status == "failed" and "too long" in result.summary
+    assert result.status == "failed" and "timed out" in result.summary and result.audit_metadata["outcome"] == "timeout"
 
 
 # --------------------------------------------------------------------------- the fallback
@@ -320,16 +321,20 @@ def test_the_stream_sends_timings_before_done_and_in_it() -> None:
                            json={"transcript_segment_id": segment})
     frames = _frames(response.text)
     kinds = [kind for kind, _ in frames]
-    assert kinds == ["meta", "delta", "delta", "timing", "done"]
-    timing = frames[3][1]
+    # Progress markers (what is being checked) come between the meta event and the reply text.
+    assert kinds[0] == "meta" and kinds[1] == "progress"
+    assert [kind for kind in kinds if kind != "progress"] == ["meta", "delta", "timing", "done"]
+    assert {data["phase"] for kind, data in frames if kind == "progress"} == {"checking"}
+    assert kinds.index("progress") < kinds.index("delta")
+    timing = frames[-2][1]
     assert set(timing) == set(VoiceTurnTiming.model_fields)
-    assert timing == frames[4][1]["timing"]
+    assert timing == frames[-1][1]["timing"]
     assert timing["grounding"] == "tools" and timing["tool_rounds"] == 1 and timing["tool_calls"] == 1
     assert timing["first_token_ms"] is not None and 0 <= timing["first_token_ms"] <= timing["total_ms"]
     assert timing["tool_ms"] <= timing["total_ms"]
     # Measured in this test environment (in-memory store, scripted model): printed for the docs.
     print(f"voice turn timing: {timing}")
-    assert frames[4][1]["assistant_segment"]["text"] == "You have one task running, according to Tasks."
+    assert frames[-1][1]["assistant_segment"]["text"] == "You have one task running, according to Tasks."
 
 
 def test_the_typescript_contract_matches_the_timing() -> None:

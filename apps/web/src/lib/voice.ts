@@ -4,6 +4,7 @@ import { createNaturalSpeaker, NATURAL_WAIT_MS } from './voiceTiming';
 import { apiBaseUrl, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
 import { matchWakeWord } from './wake';
+import { asProgress, type ProgressMarker } from './voiceProgress';
 
 export { defaultAssistantName, greeting, matchWakeWord, sanitizeAssistantName } from './wake';
 import { postSse } from './chatApi';
@@ -118,6 +119,8 @@ export interface VoiceStreamHandlers {
   onAction?: (card: VoiceActionCard) => void;
   /** The server's timings for the turn, just before it ends. */
   onTiming?: (timing: VoiceTurnTiming) => void;
+  /** What the server is checking before the first word (docs/voice.md#progress). */
+  onProgress?: (progress: ProgressMarker) => void;
 }
 
 function asTiming(value: unknown): VoiceTurnTiming | null {
@@ -131,6 +134,8 @@ function asTiming(value: unknown): VoiceTurnTiming | null {
     tool_calls: typeof data.tool_calls === 'number' ? data.tool_calls : 0,
     grounding: data.grounding === 'tools' || data.grounding === 'snapshot' ? data.grounding : 'none',
     sources: Array.isArray(data.sources) ? data.sources.filter((item): item is string => typeof item === 'string') : [],
+    failed: Array.isArray(data.failed) ? data.failed.filter((item): item is string => typeof item === 'string') : [],
+    figures_withheld: typeof data.figures_withheld === 'number' ? data.figures_withheld : 0,
   } : null;
 }
 
@@ -158,6 +163,9 @@ export async function streamVoiceAssistant(
     } else if (event.event === 'delta' && typeof data.text === 'string') {
       reply += data.text;
       handlers.onText?.(data.text);
+    } else if (event.event === 'progress') {
+      const progress = asProgress(data);
+      if (progress) handlers.onProgress?.(progress);
     } else if (event.event === 'action') {
       const card = latestCard(null, data.card);
       if (card) { action = card; handlers.onAction?.(card); }
