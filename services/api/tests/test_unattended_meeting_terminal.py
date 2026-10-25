@@ -20,7 +20,7 @@ class Store:
     def get(self,scope,meeting_id,lock=False):
         assert lock is True
         return {"id":meeting_id,"created_by":self.owner,"status":self.status,"revision":7}
-    def transition(self,scope,meeting_id,revision,target):
+    def transition(self,scope,meeting_id,revision,target,reason=None):
         self.transitioned.append((meeting_id,revision,target))
 
 
