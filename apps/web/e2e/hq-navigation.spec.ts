@@ -12,7 +12,9 @@ const strip = (page: Page) => hq(page).getByRole('navigation', { name: 'Quick vi
 const rail = (page: Page) => hq(page).getByRole('navigation', { name: 'Floors of Al Noor Fleet HQ' });
 const cards = (page: Page) => hq(page).locator('.hqLabels');
 const SHOTS = process.env.HQ_NAV_SHOTS;
-// The scene draws in software on CI and in this sandbox: give every test room.
+// The scene draws in software on CI and in this sandbox: give every test room. Like hq-performance, these specs set their own viewport and
+// run on a plain desktop profile in both projects: the phone profile's 2.6 device pixel ratio would multiply the pixels the software renderer fills.
+test.use({ deviceScaleFactor: 1, isMobile: false, hasTouch: false });
 test.describe.configure({ timeout: 240_000 });
 
 async function openOffice(page: Page, size = { width: 1440, height: 900 }, options: Parameters<typeof mockHq>[1] = { campus: 'api', commerce: 'connected', meetings: 'live' }) {
@@ -270,6 +272,7 @@ test('without WebGL the list and the 2D plan take over, and the rail still works
     try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ }
   });
   await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/#office-preview');
   await expect(hq(page).getByRole('heading', { name: 'Executive HQ' }).first()).toBeVisible();
   await expect(strip(page)).toHaveCount(0);
