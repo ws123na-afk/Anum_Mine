@@ -31,8 +31,10 @@ test('the headquarters scene runs under the production CSP with no violation', a
   });
   await openHq(page);
   await expect(page.locator('canvas.hqCanvas')).toBeVisible();
-  await page.getByRole('button', { name: 'Live workstations' }).click();
-  await expect(page.getByRole('dialog', { name: 'Live Employee Workstations' })).toBeVisible();
+  await expect(page.locator('canvas.hqCanvas')).toHaveAttribute('data-engine', /three/, { timeout: 60_000 });
+  await page.locator('.hqLive').getByRole('button', { name: 'Office tools' }).click();
+  await page.locator('.hqLive').getByRole('button', { name: 'Live workstations' }).click();
+  await expect(page.locator('.hqLive').getByRole('dialog', { name: 'Office tools' })).toBeVisible();
   expect(violations).toEqual([]);
   // Control: the policy really is active, a forbidden connection is reported.
   await page.evaluate(() => fetch('https://blocked.example.test/x').catch(() => undefined));

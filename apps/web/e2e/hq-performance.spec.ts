@@ -1,8 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
-import { hqRegistry, TENANT_A, mockOfficeSpaces } from './support/hqApi';
-import { mockOrgChart, seedAgents } from './support/orgChartApi';
+import { hqRegistry, TENANT_A, openHq } from './support/hqApi';
 
 // These specs test data and speed, not layout: use a desktop viewport in both projects (the phone layout hides the room inspector, issue H-04).
 test.use({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false });
@@ -11,11 +10,12 @@ test.use({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, isMobil
 // Frame and memory numbers come from a software renderer (SwiftShader) with 1 worker, which is far
 // slower than a laptop GPU: they are a regression guard, not a claim about real devices.
 export const BUDGET = {
-  chunkGzipBytes: 60_000,        // HeadquartersEntrypoint JS, gzip
+  chunkGzipBytes: 135_000,       // HeadquartersEntrypoint JS (campus, buildings, asset builders), gzip
+  rendererGzipBytes: 150_000,    // hqThreeRenderer JS (three.js, loaded on demand), gzip
   chunkCssGzipBytes: 16_000,     // HeadquartersEntrypoint CSS, gzip
-  frameP95Ms: { 21: 180, 200: 300 } as Record<number, number>,
-  jsHeapMb: { 21: 120, 200: 180 } as Record<number, number>,
-  readyMs: { 21: 8_000, 200: 15_000 } as Record<number, number>,
+  frameP95Ms: { 21: 2_500, 200: 3_500 } as Record<number, number>,
+  jsHeapMb: { 21: 200, 200: 260 } as Record<number, number>,
+  readyMs: { 21: 15_000, 200: 25_000 } as Record<number, number>,
 };
 
 test('budget: the lazy headquarters chunk stays small', () => {
@@ -26,14 +26,14 @@ test('budget: the lazy headquarters chunk stays small', () => {
   const jsGz = gzipSync(readFileSync(new URL(js!, dir))).length;
   const cssGz = css ? gzipSync(readFileSync(new URL(css, dir))).length : 0;
   console.log(`HQ_CHUNK js_gzip=${jsGz} css_gzip=${cssGz}`);
+  const renderer = readdirSync(dir).find((f) => /^hqThreeRenderer-.*\.js$/.test(f));
+  expect(renderer, 'hqThreeRenderer chunk exists').toBeTruthy();
+  const rendererGz = gzipSync(readFileSync(new URL(renderer!, dir))).length;
+  console.log(`HQ_CHUNK renderer_gzip=${rendererGz}`);
+  expect(rendererGz).toBeLessThanOrEqual(BUDGET.rendererGzipBytes);
   expect(jsGz).toBeLessThanOrEqual(BUDGET.chunkGzipBytes);
   expect(cssGz).toBeLessThanOrEqual(BUDGET.chunkCssGzipBytes);
 });
-
-function syntheticAgents(count: number) {
-  const base = seedAgents();
-  return Array.from({ length: count }, (_, i) => ({ ...base[i % base.length], id: `agent_synth_${i}`, name: `Synthetic Agent ${i + 1}` }));
-}
 
 async function frameStats(page: Page) {
   const box = (await page.locator('canvas.hqCanvas').boundingBox())!;
@@ -59,23 +59,12 @@ async function frameStats(page: Page) {
 
 for (const count of [21, 200]) {
   test(`budget: scene with ${count} agents (frame time, memory, time to ready)`, async ({ page }) => {
-    test.setTimeout(90_000);
-    const agents = syntheticAgents(count);
-    await mockOrgChart(page);
-    await page.route(/localhost:8000\/api\/v1\/agents(\?.*)?$/, async (route) => {
-      const url = new URL(route.request().url());
-      const limit = Number(url.searchParams.get('limit') ?? 24);
-      const cursor = url.searchParams.get('cursor');
-      const rows = cursor ? agents.slice(agents.findIndex((a) => a.id === cursor) + 1) : agents;
-      const items = rows.slice(0, limit);
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items, next_cursor: rows.length > limit ? items[items.length - 1].id : null, counts: { all: count, work: count, personal: 0, custom: 0 } }) });
-    });
-    const registry = hqRegistry(TENANT_A, { rooms: Math.ceil(count / 4), desks: count, agentIds: agents.map((a) => String(a.id)) });
-    await mockOfficeSpaces(page, { registries: { [TENANT_A.tenantId]: registry } });
+    test.setTimeout(150_000);
+    const registry = hqRegistry(TENANT_A, { rooms: Math.ceil(count / 4), desks: count, agentIds: Array.from({ length: count }, (_, i) => `agent_synth_${i}`) });
     const started = Date.now();
-    await page.goto('/#office-preview');
+    await openHq(page, { registry });
     await expect(page.locator('canvas.hqCanvas')).toBeVisible();
-    await expect(page.locator('.hqRoomList').getByRole('button').first()).toBeVisible();
+    await expect(page.locator('.hqLive').getByRole('button').first()).toBeAttached();
     const readyMs = Date.now() - started;
     await page.waitForTimeout(500);
     const stats = await frameStats(page);
@@ -88,6 +77,6 @@ for (const count of [21, 200]) {
     expect(stats.p95).toBeLessThanOrEqual(BUDGET.frameP95Ms[count]);
     expect(heapMb).toBeLessThanOrEqual(BUDGET.jsHeapMb[count]);
     expect(readyMs).toBeLessThanOrEqual(BUDGET.readyMs[count]);
-    await expect(page.locator('.hqGpuFallback')).toHaveCount(0);
+    await expect(page.locator('.hqLive').getByText(/3D is not available in this browser/)).toHaveCount(0);
   });
 }

@@ -20,7 +20,8 @@ for (const locale of ['en', 'ar'] as const) {
         await openHq(page, { locale, theme });
         await expect(page.locator('.hqLive')).toBeVisible();
         await expect(page.locator('canvas.hqCanvas')).toBeVisible();
-        if (lighting === 'night') await page.getByRole('button', { name: 'Night lighting' }).click();
+        await expect(page.locator('.hqLive').getByRole('button', { name: /Al Noor Fleet HQ|Al Noor Fleet|مبنى|Fleet/ }).first()).toBeAttached();
+        if (lighting === 'night') await page.locator('.hqLive').getByRole('group', { name: /light|الإضاءة|Lighting/i }).getByRole('button').nth(1).click();
         await expect(page.locator('.hqLive')).toHaveClass(lighting === 'night' ? /hqNight/ : /hqDay/);
         expect(await violations(page)).toEqual([]);
       });
@@ -28,19 +29,20 @@ for (const locale of ['en', 'ar'] as const) {
   }
 }
 
-test('axe: no-WebGL renderer with a room selected', async ({ page }) => {
+test('axe: no-WebGL list with a room panel open', async ({ page }) => {
   await openHq(page, { noWebgl: true });
-  await expect(page.locator('.hqGpuFallback')).toBeVisible();
-  // The room inspector is hidden below 768 px (issue register H-04), so only pick a room where it exists.
-  const pick = page.getByRole('button', { name: /Alpha Room 2/ });
-  if (await pick.isVisible()) await pick.click();
-  await page.waitForTimeout(400); // let the row colour transition (0.13 s) finish before axe samples colours
+  await expect(page.locator('.hqLive').getByText(/3D is not available in this browser/)).toBeVisible();
+  const pick = page.locator('.hqLive').getByRole('button', { name: /Alpha Room 2/ });
+  await pick.click();
+  await expect(page.locator('.hqLive').getByRole('complementary', { name: 'Room Alpha Room 2' })).toBeVisible();
+  await page.waitForTimeout(400); // let the row colour transition finish before axe samples colours
   expect(await violations(page)).toEqual([]);
 });
 
 test('axe: workstation panel open', async ({ page }) => {
   await openHq(page);
-  await page.getByRole('button', { name: 'Live workstations' }).click();
-  await expect(page.getByRole('dialog', { name: 'Live Employee Workstations' })).toBeVisible();
+  await page.locator('.hqLive').getByRole('button', { name: 'Office tools' }).click();
+  await page.locator('.hqLive').getByRole('button', { name: 'Live workstations' }).click();
+  await expect(page.locator('.hqLive').getByRole('dialog', { name: 'Office tools' })).toBeVisible();
   expect(await violations(page)).toEqual([]);
 });

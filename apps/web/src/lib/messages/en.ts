@@ -10,6 +10,7 @@ import { financeEquityEn } from './financeEquity.en.ts';
 import { financeReportsEn } from './financeReports.en.ts';
 import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
+import { hqEn } from './hq.en.ts';
 import { homeEn } from './home.en.ts';
 import { meetingRoomEn } from './meetingRoom.en.ts';
 import { builderEn } from './builder.en.ts';
@@ -3216,6 +3217,7 @@ export const en = {
   'call.end.open': 'Open conversation',
   'call.end.again': 'New call',
   ...tyreEn,
+  ...hqEn,
   ...homeEn,
   ...meetingRoomEn,
   ...builderEn,

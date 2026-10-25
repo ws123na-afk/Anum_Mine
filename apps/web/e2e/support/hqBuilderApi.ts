@@ -251,7 +251,9 @@ export async function openBuilder(page: Page, options: OpenBuilderOptions = {}):
   if (options.reducedMotion) await page.emulateMedia({ reducedMotion: 'reduce' });
   const mock = await mockOfficeBuilder(page, options);
   await page.goto('/#office-preview');
-  await page.getByRole('button', { name: /Manage spaces|إدارة المساحات/ }).first().click();
+  // The headquarters keeps its tools in one menu.
+  await page.locator('.hqLive').getByRole('button', { name: /Office tools|أدوات المكتب/ }).click();
+  await page.locator('.hqLive').getByRole('button', { name: /Manage spaces|إدارة المساحات/ }).first().click();
   await page.getByRole('button', { name: /Open visual builder|فتح المنشئ المرئي/ }).click();
   return mock;
 }

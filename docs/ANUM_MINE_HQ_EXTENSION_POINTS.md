@@ -1,0 +1,112 @@
+# ANUM MINE headquarters: campus, building cutaway and extension points
+
+Web only. Code: `apps/web/src/HeadquartersLive.tsx` (container), `CampusView.tsx`, `BuildingView.tsx`, `CampusListView.tsx`, `HqStage.tsx` (WebGL stage and label cards), `HqChrome.tsx` (scene controls), `HqPanels.tsx`, and the pure libraries `lib/campusModel.ts`, `campusScene.ts`, `buildingScene.ts`, `campusBuildings.ts`, `hqProps.ts`, `hqGeometry.ts`, `hqMath.ts`, `hqCamera.ts`, `hqLighting.ts`, `hqTextures.ts`, `hqRenderTypes.ts`, `hqThreeRenderer.ts`, `hqPresence.ts`, `hqModules.ts`, `hqExtensions.ts`. Visual reference: the owner-approved concept renders (screens 1 to 4); they are concept art, not data.
+
+## What the person sees
+
+- **Campus**: one building per authorised workspace around the ANUM MINE monument. The Executive HQ tower stands in the centre when the campus data has a building of kind `executive`. Each building has a label card (icon, name, "N agents, M working", status dot, avatar stack). Click a label to select and fly to it, click again (or use the detail card) to open it. Opening a building in another workspace asks the app to switch workspace first; nothing is read across workspaces.
+- **Building cutaway**: floor selector, "Back to campus", counters, rooms as zones with label cards, desks with agent cards (name, department, status pill), the glass partitions and furniture of each room kind. Geometry is the saved room geometry (`scene_x/z/width/depth`); rooms without it use the deterministic grid layout from `headquartersProjection.ts`.
+- **Controls**: view switch 3D, Top, List; compass, zoom, reset, day and night; rotate left and right, previous and next (building on the campus, floor in a building), full screen; minimap with the current view outline; totals panel with a donut.
+- **List view** is the accessible list of every building and, for the open workspace, every floor and room. It is also what shows when WebGL is missing (the building level falls back to the 2D floor plan renderer).
+- The app's own sidebar and top bar are the only navigation. `#office-preview` (and `#office`) open the view inside that shell. The "Authenticated office / Concept preview" switch stays; the concept preview is the old illustrative tour and says so.
+
+## Data truth
+
+| On screen | Source | Without a source |
+|---|---|---|
+| Buildings | `GET /api/v1/office/campus` (contract `officeCampus.ts`, one per authorised workspace; `kind` null stays "not set" until an owner saves the building type with `PUT /office/campus/profile`); a deployment without it falls back to the caller's workspace memberships | Building omitted |
+| Agent counts, statuses | `GET /api/v1/office/presence` (states with provenance and `stale`; a private agent is `desk:<id>`); without it the browser reads workstation evidence (agents plus open tasks) and participants of `active` agent meetings | "Presence unavailable"; a status those sources cannot tell (meetings when the list failed) shows "-" |
+| Desk work panel | `GET /api/v1/office/workstations/{desk}/work` (tasks with run phase, checkpoint and steps, approvals, errors, documents) | Task titles from presence, with a note |
+| Meeting room state | `liveMeetingRoomIds` prop supplied by the meetings workstream; sessions are not bound to rooms in the current API | The room shows no meeting state |
+| Live operations, current flow | Commerce setup and dashboard of the open workspace | "Not connected" with the setup link, "No access", or the error |
+| Tyre panel | Tyre setup and dashboard of the open workspace | Same |
+
+A queued task reads as Queued, never as working. Workspaces other than the open one show no counts until the campus endpoint supplies verified presence.
+
+## Extension points
+
+All are optional props of `HeadquartersLive` (and `HeadquartersEntrypoint`, which forwards them); types are in `lib/hqExtensions.ts`.
+
+```ts
+onSelectRoom(room: HqRoomRef)            // a room was selected (scene, list, tour, command)
+renderRoomPanel(room, { close })         // replaces the built-in room panel (the meetings workstream)
+onSelectAgent(agent: HqAgentRef)         // an agent card or desk was opened
+renderWorkstationPanel(agent, { close }) // replaces the built-in workstation panel
+renderPaDock({ close })                  // a dock beside the scene (up to 380 px); the executive PA panel goes here
+liveMeetingRoomIds: ReadonlySet<string>  // rooms to light up as "In a meeting"
+onSwitchWorkspace / onSwitchOrganisation // supplied by the shell; used to open another building
+```
+
+### Navigation commands (executive assistant)
+
+```ts
+import { hqCommands } from './lib/hqExtensions.ts';
+await hqCommands.navigateTo({ building: 'Tyre Pulse', floor: 1, room: 'Meeting Room', agent: 'Fleet Planner', view: '3d' });
+```
+
+- Every field is optional and may be an id or a name (case and accent insensitive, partial names allowed when they match one item). `floor` also accepts a level number.
+- Result: `{ ok: true, applied }` or `{ ok: false, code: 'not-found' | 'not-accessible' | 'ambiguous' | 'not-mounted', message }`.
+- A building in another workspace resolves to a workspace switch. The target is kept in `sessionStorage` for 60 seconds and applied once the new workspace has loaded.
+- The same call is available as a DOM event for code outside the bundle: `window.dispatchEvent(new CustomEvent('anum:hq-navigate', { detail: target }))`.
+- If the headquarters is not open, the call stores the target, opens `#office-preview` and returns `not-mounted`; the move applies on mount.
+- `resolveNavTarget(target, campus, scene)` is pure and unit tested.
+
+### Wiring the executive PA dock (after both branches merge)
+
+`HeadquartersLive` already renders `renderPaDock` in a right-hand column (`.hqPaDock`, at most 380 px, under the scene below 1100 px) and shows nothing when the prop is absent. The executive workstream exports `ExecutivePaDock` from `apps/web/src/ExecutivePanel.tsx`. This branch does not import it, so the two branches never depend on each other. After both are merged, pass it where the headquarters is mounted (`HeadquartersEntrypoint` forwards the slots). `ExecutivePaDock` takes the same props as `ExecutivePanel` (`onOpenView(view)` and an optional `onLocation`); `openView` is the shell's own view switch:
+
+```tsx
+import { ExecutivePaDock } from './ExecutivePanel';
+<HeadquartersEntrypoint renderPaDock={() => <ExecutivePaDock onOpenView={openView} />} />
+```
+
+The PA moves the view only through `hqCommands.navigateTo`, so the dock needs no other access to the scene. The tour list comes from `GET /api/v1/executive-pa/tour`; until that endpoint is available the built-in Guided visit (Office tools) builds its stops from the rooms of the open floor.
+
+## Asset modules
+
+Three standalone module sets under `apps/web/src/hqAssets/` build the scene's pieces. They are pure (no DOM, no three.js), take a `MeshBuilder` or return a mesh, are seeded, and never encode a name, count or status. `lib/campusScene.ts` and `lib/buildingScene.ts` call them.
+
+| Folder | What it builds | Used by |
+|---|---|---|
+| `exterior/` | `warehouse`, `tyreWorkshop`, `officeTower`, `adminBlock`, `retailBlock`, `executiveHq` buildings with facades, roofs, entrances, lit windows and a blank sign board | `campusExteriors.ts` picks one per campus building by type (the villa for the personal office stays in `campusBuildings.ts`) |
+| `interior/` | `buildInteriorRoom` for reception, meeting, office, lounge, customer care, operations, warehouse, workshop and executive rooms; workstations and seated figures | `buildingScene.ts`, one room per registry room (`interiorKindFor` maps kind and name) |
+| `environment/` | `campusEnvironment` (ring road, pavements, lamps, tree lines, hedges, canal with bridges, gate house, fence, skyline), plus `carPark`, `car`, `truck`, `van`, `pond`, `tennisCourt`, `tree` and more | `campusScene.ts`, `buildingScene.ts` (cars) |
+
+How they are wired:
+
+- **Truth rules stay in the integrator.** Desks are the registry's (one station each, state from presence). `occupantSeed` is passed only for a desk with an assignment, so a figure appears only where a record says someone sits. Rooms the interior set does not know fall back to the older furnishing in `buildingScene.ts`.
+- **Lettering.** The exterior assets draw a blank sign board and report where it is. `campusExteriors.ts` lays the lettered texture quad over it; the text (`ANUM MINE` and the real building name) is drawn at render time.
+- **Surface classes.** The asset builders paint plain colours. `hqSurfaces.ts` (`classifySurfaces`) gives their flat ground surfaces a class (grass, paving, asphalt, water) and large walls and roofs the concrete texture, from colour and orientation. Windows, signs and anything an asset classified itself are left alone.
+- **No baked shadows.** `castShadow`, `blobShadow` and the environment's `castShadowPoly` draw nothing now, because the renderer draws a real shadow map.
+- **Budget.** Density of the environment drops with campus size (`density` 0.8, 0.6 above ten buildings), and interiors switch to `detail: 'lite'` for tall or large buildings. Measured scene triangles: about 34 000 to 60 000 for 4 to 14 buildings; a nine room floor about 20 000.
+- **Sizes.** The exterior assets have size ranges of their own (the executive building is at least 30 m wide, a tower at least 8 storeys), so they can be larger than the campus footprint; the ring road and canal are sized from the campus extent.
+
+## How the scene is drawn
+
+The scenes are procedural meshes (`campusScene.ts`, `buildingScene.ts`, building types in `campusBuildings.ts`, shared props in `hqProps.ts`). They hold decoration only: nothing in the geometry encodes a name, count or status. Status shows through desk monitors, room tiles and the HTML cards. Each vertex carries a surface class (`MAT` in `hqGeometry.ts`) and texture coordinates; the renderer turns the classes into materials.
+
+- **Building types** (drawn by the exterior assets): the owner's icon decides where there is one (truck or factory: a warehouse shed with roller doors, a loading apron and a truck; chart or briefcase: a glass office tower on a lobby podium; store: a retail block; building, shield or landmark: a low admin block with ribbon windows and sunshades; home or user: a villa). Without an icon the kind and a stable seed pick: business is a tower or an admin block, department a workshop (saw-tooth roof, big door, tyre stacks), a warehouse or an admin block. The executive building is always the tower with a crown, helipad and a lit ANUM mark; the personal office is always the villa. The finish (white, sandstone, slate) varies by workspace id. `archetypeOf` is pure and unit tested.
+- **Campus**: a ring road with kerbs and a dashed line, a gate, parked and passing cars, car parks, a truck yard, a canal ring between the buildings and the road (drawn only where it clears every building and the plaza, with a footbridge where a walkway crosses it), ponds with jets, a tennis court at the first free spot, palms, round trees, cypresses, hedges, flower beds, benches, lamps and a far skyline.
+- **Building interior**: tiled corridors and room floors (stone, wood or concrete by room kind), solid wall bases with glass and mullions above, an outer glass skin on the two back sides, and furniture per room kind: reception (walnut brand wall with the ANUM mark, marble desk, waiting area), meeting (table, chairs, wall screen), warehouse (racking with crates, a forklift, floor markings), workshop (bench, tool board, tyre stacks, wall display), lounge (sofas, shelf, lamp) and office (storage wall, whiteboard, printer, cooler). Desks come only from the registry; a generic seated figure appears only at a desk that has an assignment. Outside, the plinth stands in a lawn with a car park (cars at 62 percent size), trees and a sign wall.
+- **Vehicles**: cars have a profiled body (hood, windscreen, roof, rear window, boot) in glossy paint, glass, lamps, mirrors and wheels with rims; trucks have a cab and a container.
+- **Sign lettering**: each entrance sign (and the gate) is a board whose face is a canvas texture. The text is drawn at render time from the real names: "ANUM MINE" over the building name from the campus data, or the open workspace's name in a building. `signAtlasLayout` (pure) says where each cell is; `drawSignAtlas` (browser) draws the cells. No other text is in the mesh.
+- **Textures**: procedural canvas textures (`hqTextures.ts`, no image files) for concrete, paving tile, asphalt, grass, wood, corrugated metal, roller doors and court surface, sampled in world space (triplanar, so boxes need no coordinates) and faded with distance so they do not shimmer.
+- **Windows**: an emissive weight of 2 or more marks a window. By day it is reflective glass (it reflects a procedural sky baked into a reflection map); at night it is a warm lit pane (the part above 2 is the glow).
+- **Shadows and light**: one directional light (sun by day, moon at night) with a real shadow map covering the buildings (`shadow` region of the scene), a hemisphere light and the sky reflection map. The map is drawn again only when the scene or the light changes. Walls also darken towards the ground.
+- **Night glow**: a bloom pass (three.js `UnrealBloomPass` on an `EffectComposer` with MSAA) lifts lit windows, signs, lamps and fountain jets. It only runs at night, and never under reduced motion.
+- **Quality**: quality 3 is a 2048 px shadow map plus night glow; 2 a 1024 px map plus glow; 1 a 1024 px map; 0 no shadows and no glow. The renderer starts at 3 (2 on very large canvases, 1 on a software rasteriser such as SwiftShader or llvmpipe) and steps down after three seconds of slow frames, then lowers the pixel ratio. A person (or a test) can pin it with `localStorage["anum.hq.quality"]` set to 0 to 3. The canvas dataset shows `data-shadow` (map size, 0 = off) and `data-bloom`.
+- **Budget**: about 45 000 to 75 000 scene triangles for a campus of 4 to 14 buildings (the unit test allows 250 000) and 15 000 to 25 000 for a building cutaway; the frame also draws the shadow pass.
+
+### Dependency
+
+three.js 0.184.0 (MIT, no runtime dependencies, pinned exactly) and `@types/three` 0.184.0 (dev only; MIT, its own type dependencies are dev only). three.js lives in its own chunk (`hqThreeRenderer`, about 546 kB, 136 kB gzip) that `HqStage.tsx` loads with a dynamic import when the 3D stage mounts, so the list view, the no-WebGL fallback and every other page never download it. A browser without WebGL 2 gets the list and the 2D floor plan.
+
+## Camera, keyboard and performance
+
+Orbit by dragging, pan with Shift or the right button, zoom with the wheel or pinch. With the scene focused: arrows pan, Q and E rotate, plus and minus zoom, 0 resets. Reduced motion jumps the camera instead of tweening. The renderer is three.js (see "How the scene is drawn"): per-mesh frustum culling, render on demand, the shadow map redrawn only when needed, a pixel ratio capped at 2 and lowered after sustained slow frames. A lost context shows "Restoring the 3D view" and three.js rebuilds its buffers; if it does not come back in 5 seconds the page switches to the List view. The canvas dataset (`data-engine`, `data-draw-ms`, `data-triangles`, `data-drawn`, `data-culled`, `data-dpr`, `data-shadow`, `data-bloom`) exposes the renderer and the measured draw time for tests.
+
+## Not finished here
+
+- Counts for workspaces other than the open one need the campus endpoint with verified presence (data workstream).
+- Meeting rooms need a room binding on live meetings (meetings workstream) to show a real state.
+- Visual details that the concept shows but that have no data (weather, visitor check-in flow, marketplace logos) are intentionally absent.

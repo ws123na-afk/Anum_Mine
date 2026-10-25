@@ -13,7 +13,19 @@ async function open(page: Page, options: Parameters<typeof openHq>[1] = {}) {
   await expect(page.locator('.hqFlowDock')).toBeVisible();
 }
 const dock = (page: Page) => page.locator('.hqFlowDock');
-const wholeFloor = (page: Page) => page.getByRole('button', { name: 'Reset camera' }).click();
+// The campus comes first: open the Al Noor building (its floor shows the rooms the badges sit on). Without WebGL the list opens a room instead.
+async function wholeFloor(page: Page, noGl = false) {
+  const hq = page.locator('.hqLive');
+  if (noGl) { await hq.getByRole('region', { name: 'All buildings and rooms' }).getByRole('button', { name: /Alpha Room 3/ }).click(); return; }
+  await hq.getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
+  await hq.getByRole('button', { name: 'Open Al Noor Fleet HQ' }).click();
+  await expect(hq.getByRole('heading', { level: 2, name: 'Al Noor Fleet HQ' })).toBeVisible();
+}
+async function openTeam(page: Page) {
+  const hq = page.locator('.hqLive');
+  await hq.getByRole('button', { name: 'Office tools' }).click();
+  await hq.getByRole('button', { name: 'Team', exact: true }).click();
+}
 
 test('the dock summarises real records and lists what is stuck with a reason and a next step', async ({ page }) => {
   await open(page);
@@ -97,17 +109,8 @@ test('the history of an item is read from stored events when asked', async ({ pa
 
 test('the office team shows each real agent with role, state, skills and the stuck reason', async ({ page }) => {
   await open(page);
-  // The room inspector is hidden below 950 px; there the same panel is reached from the Team overlay.
-  const inspectorShown = await page.getByRole('complementary', { name: 'Room details and operations' }).isVisible();
-  let team = page.getByRole('region', { name: 'Agents working in this office' });
-  if (inspectorShown) {
-    const inspector = page.getByRole('complementary', { name: 'Room details and operations' });
-    await inspector.locator('.hqRoomList button').filter({ hasText: 'Alpha Room 1' }).click();
-    team = inspector.getByRole('region', { name: 'Agents working in this office' });
-  } else {
-    await page.getByRole('button', { name: 'Team', exact: true }).click();
-    team = page.getByRole('dialog', { name: 'Team' }).getByRole('region', { name: 'Agents working in this office' });
-  }
+  await openTeam(page);
+  const team = page.getByRole('dialog', { name: 'Team' }).getByRole('region', { name: 'Agents working in this office' });
   const card = team.getByRole('listitem').filter({ hasText: 'Fleet Planner' });
   await expect(card).toContainText('Role: Operations and warehouse');
   await expect(card).toContainText('Working');
@@ -115,18 +118,22 @@ test('the office team shows each real agent with role, state, skills and the stu
   await expect(card).toContainText('Tyre planning');
   await expect(card).toContainText('Ready');
   const stuckCard = team.getByRole('listitem').filter({ hasText: 'Invoice Checker' });
-  if (inspectorShown) {
-    const inspector = page.getByRole('complementary', { name: 'Room details and operations' });
-    await inspector.locator('.hqRoomList button').filter({ hasText: 'Alpha Room 4' }).click();
-  }
   await expect(stuckCard).toContainText('Stuck');
   await expect(stuckCard).toContainText('Supplier API returned 500');
   await expect(team.getByText('Agents without a workstation (1)')).toBeVisible();
 });
 
+test('the room panel carries the team of that office', async ({ page }) => {
+  await open(page);
+  await wholeFloor(page);
+  await page.locator('.hqLive').locator('.hqRoomCard').filter({ hasText: /^Alpha Room 1/ }).click();
+  const team = page.locator('.hqLive').getByRole('region', { name: 'Agents working in this office' });
+  await expect(team.getByRole('listitem').filter({ hasText: 'Fleet Planner' })).toContainText('Working');
+});
+
 test('the building team overlay lists every office team and returns to the office on click', async ({ page }) => {
   await open(page);
-  await page.getByRole('button', { name: 'Team', exact: true }).click();
+  await openTeam(page);
   const modal = page.getByRole('dialog', { name: 'Team' });
   await expect(modal.getByRole('listitem').filter({ hasText: 'Lead Finder' })).toContainText('Web search');
   await modal.getByRole('button', { name: 'Alpha Room 3' }).click();
@@ -166,7 +173,7 @@ test('Arabic reads right to left without horizontal overflow', async ({ page }) 
 
 test('without WebGL the 2D floor plan still carries the badges', async ({ page }) => {
   await open(page, { noWebgl: true });
-  await wholeFloor(page);
+  await wholeFloor(page, true);
   await expect(page.locator('.hqFlowBadge[data-room="Alpha-room-2"]')).toBeVisible();
 });
 
@@ -177,7 +184,6 @@ for (const [width, height] of sizes) {
     await open(page);
     await page.getByRole('button', { name: /Live flow/ }).first().click();
     await expect(dock(page).getByRole('list', { name: 'Stuck work' })).toBeVisible();
-    await expect(page.locator('.hqBreadcrumb strong')).toHaveText('Alpha Ground');
     const issues = await page.evaluate(() => {
       const doc = document.documentElement;
       const dockBox = document.querySelector('.hqFlowDock')!.getBoundingClientRect();

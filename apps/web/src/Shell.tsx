@@ -28,14 +28,13 @@ import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { getPeople } from './lib/teamApi';
 import { TeamNotificationsSection, type TeamNotifications } from './NotificationBell';
 import { HelpButton } from './HelpLink';
-import { headquartersEnabled } from './lib/headquartersFlag.ts';
 
 const ICONS: Record<View, ReactNode> = {
   home: <House />, command: <Sparkles />, assistant: <MessageSquare />, agents: <Bot />, voice: <Mic />, call: <Phone />, calls: <PhoneOutgoing />, tyre: <Disc3 />, meetings: <PhoneCall />, calendar: <CalendarDays />, commerce: <ShoppingCart />, finance: <Wallet />, marketing: <Megaphone />, business: <Handshake />, learning: <GraduationCap />, automation: <Workflow />, tasks: <ListTodo />,
   integrations: <Plug />, files: <FileText />, memory: <BookOpen />, knowledge: <Library />, reports: <FileBarChart />, favorites: <Star />, skills: <Store />, inbox: <Mail />, email: <AtSign />, whatsapp: <MessageCircle />,
   approvals: <ShieldCheck />, activity: <Activity />, autonomy: <SlidersHorizontal />, settings: <Settings />, governance: <Building2 />, setup: <ClipboardList />, suppressions: <BellOff />,
   enterprise: <Store />, members: <Users />, audit: <ScrollText />, budgets: <Gauge />, agentControls: <ShieldAlert />, policy: <Scale />, developer: <Hammer />,
-  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />, platformBilling: <Landmark />, executive: <Compass />,
+  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />, platformBilling: <Landmark />, office: <Building2 />, executive: <Compass />,
 };
 export const viewIcon = (view: View) => ICONS[view];
 
@@ -109,9 +108,6 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
     <nav ref={navRef} aria-label={t('nav.primary')}>
       <ul className="navList">
         {NAV[0].views.filter((id) => allowed.has(id)).map(item)}
-        {headquartersEnabled() && <li><a href="#office-preview" className="navItem" aria-label="ANUM MINE: open authenticated headquarters">
-          <Building2 aria-hidden="true" /><span>ANUM MINE</span>
-        </a></li>}
       </ul>
       {group('workspaces', 'sidebar.workspaces', <SidebarWorkspaces workspaceId={workspaceId} onSwitchWorkspace={onSwitchWorkspace} />)}
       {NAV.slice(1).map((g) => {
