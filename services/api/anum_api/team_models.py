@@ -75,6 +75,16 @@ class Department(StrEnum):
     OPERATIONS = "operations"
     FINANCE = "finance"
     TYRE_ENGINEERING = "tyre_engineering"
+    # Added with the headquarters departments: stored on rooms, agents and team profiles. Only the first five
+    # have a built-in department assistant; the others are used to place rooms and agents.
+    MARKETING = "marketing"
+    TECHNOLOGY = "technology"
+    RESEARCH = "research"
+    LEGAL = "legal"
+    COMPLIANCE = "compliance"
+    SECURITY = "security"
+    HR = "hr"
+    PROCUREMENT = "procurement"
     CUSTOM = "custom"
 
 

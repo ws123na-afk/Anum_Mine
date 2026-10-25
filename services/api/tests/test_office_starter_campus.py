@@ -22,7 +22,8 @@ def facts_from(plans: list[dict], skip_rooms: set[str] = frozenset()) -> sc.Fact
                 if r["id"] in skip_rooms:
                     continue
                 facts.rooms[r["id"]] = {"id": r["id"], "floor_id": f["id"], "name": r["name"]["en"], "scene_x": r["x"],
-                                        "scene_z": r["z"], "scene_width": r["width"], "scene_depth": r["depth"]}
+                                        "scene_z": r["z"], "scene_width": r["width"], "scene_depth": r["depth"],
+                                        "team_department": r["team_department"]}
                 facts.desks.update(d["id"] for d in r["desks"])
     return facts
 
@@ -161,3 +162,44 @@ def test_hash_binds_person_workspace_selection_zone_and_records() -> None:
     assert base != sc.proposal_hash("t", "w", "u", ZONE, sc.plan_campus(sc.Facts(), ZONE, ["hq"]))
     assert base != sc.proposal_hash("t", "w", "u", ZONE, sc.plan_campus(facts_from(plans[:1]), ZONE))
     assert re.fullmatch(r"[0-9a-f]{64}", base)
+
+
+def test_master_list_departments_use_the_new_department_set() -> None:
+    by_room = {r.key: r.department for b in sc.CAMPUS for f in b.floors for r in f.rooms}
+    assert by_room["marketing-studio"] == "marketing" and by_room["legal-office"] == "legal"
+    assert by_room["compliance-office"] == "compliance" and by_room["governance-office"] == "compliance"
+    assert by_room["security-operations"] == "security" and by_room["hr"] == "hr" and by_room["procurement"] == "procurement"
+    assert {by_room[k] for k in ("development", "deployments", "incidents")} == {"technology"}
+    assert {by_room[k] for k in ("research-room", "intelligence-desk", "research-development")} == {"research"}
+    # Rooms with no matching department stay unset: no guessing.
+    assert by_room["facilities"] is None and by_room["command-center"] is None and by_room["ai-labs"] is None
+
+
+def test_a_rerun_fills_only_an_empty_or_custom_department_of_a_campus_room() -> None:
+    plans = sc.plan_campus(sc.Facts(), ZONE)
+    facts = facts_from(plans)
+    marketing = "campus-02-commerce-marketing-studio"
+    legal = "campus-04-corporate-services-legal-office"
+    hr = "campus-04-corporate-services-hr"
+    sales = "campus-02-commerce-sales-office"
+    facts.rooms[marketing]["team_department"] = None
+    facts.rooms[legal]["team_department"] = "custom"
+    facts.rooms[hr]["team_department"] = "sales"        # the owner chose another department: kept
+    facts.rooms[sales]["team_department"] = None        # the master list says sales: filled
+    again = sc.plan_campus(facts, ZONE)
+    rooms = {r["id"]: r for p in again for f in p["floors"] for r in f["rooms"]}
+    assert rooms[marketing]["department_set"] == {"from": None, "to": "marketing"}
+    assert rooms[legal]["department_set"] == {"from": "custom", "to": "legal"}
+    assert rooms[sales]["department_set"] == {"from": None, "to": "sales"}
+    assert "department_set" not in rooms[hr]
+    assert all(r["action"] == "skip" for r in rooms.values()), "nothing is created or moved"
+    assert sc.totals(again)["update"] == {"room_departments": 3}
+    assert sc.totals(again)["create"] == {"buildings": 0, "floors": 0, "rooms": 0, "desks": 0}
+    assert all(p["status"] == "partial" for p in again if sc.has_work(p))
+    # A room the master list has no department for is never touched, even when empty.
+    assert "department_set" not in rooms["campus-01-hq-facilities"]
+    # Once filled the plan is complete again (idempotent).
+    facts.rooms[marketing]["team_department"] = "marketing"
+    facts.rooms[legal]["team_department"] = "legal"
+    facts.rooms[sales]["team_department"] = "sales"
+    assert all(p["status"] == "complete" for p in sc.plan_campus(facts, ZONE))
