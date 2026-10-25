@@ -192,7 +192,8 @@ describe('source summaries', () => {
     const meeting = summarizeSource('meeting', { id: 'm1', title: 'Plan', turns: [{ body: 'private words' }], participants: [{}, {}] });
     assert.ok(!JSON.stringify(meeting).includes('private words'));
     assert.deepEqual(meeting.fields.find((f) => f.label.endsWith('participants'))?.value, '2');
-    const approval = summarizeSource('approval', { id: 'a1', action: 'send_email', arguments: { to: 'x@example.com' }, status: 'pending' });
-    assert.ok(!JSON.stringify(approval).includes('example.com'));
+    const approval = summarizeSource('approval', { id: 'a1', action: 'send_email', arguments: { to: 'recipient-marker' }, status: 'pending' });
+    assert.deepEqual(approval.fields.map((f) => f.label), ['hqHist.source.field.status']);
+    assert.equal(approval.title, 'send_email');
   });
 });
