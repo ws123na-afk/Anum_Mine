@@ -7,7 +7,7 @@ import { ApiError, describeError, isPermissionDenied } from '../lib/errors';
 import { t, type MessageKey } from '../lib/i18n';
 import { useModal } from '../Dialog';
 import { useLocale } from '../useLocale';
-import { canConfirm, createStarterCampusClient, deskLabels, selectable } from './client';
+import { canConfirm, createStarterCampusClient, departmentFills, deskLabels, selectable } from './client';
 import './hqStarterCampus.css';
 
 export const starterCampusClient = createStarterCampusClient(api.apiRequest, api.currentScope);
@@ -20,6 +20,7 @@ export interface StarterCampusDialogProps {
   onOpenGaps: () => void;
 }
 
+const hasCreate = (p: StarterCampusPreview) => Object.values(p.totals.create).some((n) => n > 0);
 const nameOf = (n: { en: string; ar: string }, locale: 'en' | 'ar') => (locale === 'ar' ? n.ar : n.en);
 const skipText = (reason: StarterSkipReason | null) => t(`hqSc.skip.${reason ?? 'exists'}` as MessageKey);
 
@@ -109,7 +110,7 @@ export function StarterCampusDialog({ onClose, onCreated, onOpenGaps }: StarterC
           <p className="hqScNote"><ShieldCheck size={13} aria-hidden="true" /> {preview.can_confirm ? t('hqSc.clickOnly') : t('hqSc.ownersOnly')}</p>
           <div className="hqScActions">
             <button type="button" className="hqScPrimary" onClick={() => void confirm()} disabled={!canConfirm(preview, ticked, busy, fetching)} data-autofocus>
-              {busy ? t('hqSc.working') : t('hqSc.confirm')}</button>
+              {busy ? t('hqSc.working') : preview && !hasCreate(preview) && departmentFills(preview.totals) > 0 ? t('hqSc.confirmFill') : t('hqSc.confirm')}</button>
             <button type="button" onClick={onClose} disabled={busy}>{t('hqSc.cancel')}</button>
           </div>
         </footer>}
@@ -123,7 +124,8 @@ function PlanView({ preview, ticked, locale, fetching, onChange }: {
   const { create, skip } = preview.totals;
   const pickable = selectable(preview.buildings);
   const flip = (key: string) => { const next = new Set(ticked); if (next.has(key)) next.delete(key); else next.add(key); onChange(next); };
-  const nothing = ticked.size > 0 && !fetching && !Object.values(create).some((n) => n > 0);
+  const fills = departmentFills(preview.totals);
+  const nothing = ticked.size > 0 && !fetching && !Object.values(create).some((n) => n > 0) && fills === 0;
   return <>
     <p className="hqScNote">{t('hqSc.intro')}</p>
     <ul className="hqScRules">
@@ -134,7 +136,8 @@ function PlanView({ preview, ticked, locale, fetching, onChange }: {
     <section className="hqScTotals" aria-label={t('hqSc.title')} aria-live="polite">
       {ticked.size === 0 ? <p><CircleSlash size={14} aria-hidden="true" /> {t('hqSc.noneSelected')}</p>
         : nothing ? <p><CheckCircle2 size={14} aria-hidden="true" /> {t('hqSc.nothingToDo')}</p>
-        : <p><strong>{t('hqSc.totalsCreate', { ...create })}</strong></p>}
+        : <p><strong>{Object.values(create).some((n) => n > 0) ? t('hqSc.totalsCreate', { ...create }) : t('hqSc.totalsNoCreate')}</strong></p>}
+      {ticked.size > 0 && fills > 0 && <p className="hqScNote" data-testid="sc-fills">{t('hqSc.totalsFill', { count: fills })}</p>}
       {ticked.size > 0 && (skip.buildings + skip.floors + skip.rooms > 0) && <p className="hqScNote">{t('hqSc.totalsSkip', { ...skip })}</p>}
     </section>
     <section className="hqScSection" aria-label={t('hqSc.pick')}>
@@ -162,7 +165,8 @@ function BuildingRow({ b, locale, checked, onFlip }: { b: StarterBuilding; local
       <input id={boxId} type="checkbox" checked={checked} onChange={onFlip} disabled={b.status === 'complete'} />
       <label htmlFor={boxId}>
         <strong>{name}</strong>
-        <small>{b.status === 'complete' ? t('hqSc.row.nothing') : t('hqSc.row.counts', { floors: c.floors, rooms: c.rooms, desks: c.desks })}</small>
+        <small>{b.status === 'complete' ? t('hqSc.row.nothing') : Object.values(c).some((n) => n > 0)
+          ? t('hqSc.row.counts', { floors: c.floors, rooms: c.rooms, desks: c.desks }) : t('hqSc.row.fillOnly', { count: departmentFills(b.counts) })}</small>
       </label>
       <span className="hqScBadge" data-status={b.status}>{t(`hqSc.status.${b.status}` as MessageKey)}</span>
       <button type="button" className="hqScToggle" aria-expanded={open} aria-controls={detailId} aria-label={`${open ? t('hqSc.hide') : t('hqSc.details')}: ${name}`} onClick={() => setOpen((v) => !v)}>
@@ -184,6 +188,7 @@ function RoomLine({ r, locale }: { r: StarterRoom; locale: 'en' | 'ar' }) {
     <span>{r.action === 'create' ? <Circle size={11} aria-hidden="true" /> : <CircleSlash size={11} aria-hidden="true" />}
       {' '}{t('hqSc.room', { name: nameOf(r.name, locale), kind: t(`hqSc.kind.${r.kind}` as MessageKey), width: r.width, depth: r.depth })}
       {dept && <>{', '}{t('hqSc.dept', { department: dept })}</>}
+      {r.department_set && <>{', '}<span data-testid="sc-room-fill">{t('hqSc.fillRoom', { department: t(`hqSc.dept.${r.department_set.to}` as MessageKey) })}</span></>}
       {' '}<span className="hqScTag" data-action={r.action}>{r.action === 'create' ? t('hqSc.action.create') : skipText(r.reason)}</span></span>
     {r.action === 'create' && <small>{r.desks.length ? t('hqSc.desks', { count: r.desks.length, list: deskLabels(r) }) : t('hqSc.noDesks')}</small>}
   </li>;
@@ -193,7 +198,7 @@ function ResultView({ result, locale }: { result: StarterCampusResult; locale: '
   const tone = result.outcome === 'created' || result.outcome === 'already_set_up' ? 'ok' : 'warn';
   return <div className="hqScDone" role="status">
     <p data-tone={tone}>{tone === 'ok' ? <CheckCircle2 size={15} aria-hidden="true" /> : <TriangleAlert size={15} aria-hidden="true" />}{' '}
-      {t('hqSc.done.summary', { ...result.totals })}</p>
+      {t('hqSc.done.summary', { ...result.totals })}{(result.departments_set ?? 0) > 0 && <> {t('hqSc.done.filled', { count: result.departments_set })}</>}</p>
     <h3>{t('hqSc.done.list')}</h3>
     <ul className="hqScResults">
       {result.buildings.map((b) => <li key={b.key} data-status={b.status}>

@@ -13,11 +13,13 @@ export interface OrgGapsPanelProps {
   state: GapsState;
   /** Role names for display, by template id and locale (taken from the API catalogue the dialog loads). */
   onNavigate: (hash: string) => void;
+  /** Opens "Staff my campus" (src/hq-staff-desks). The button is shown only when given. */
+  onStaffCampus?: () => void;
   /** Called after an agent was created, so the live flow and the team re-read. */
   onProvisioned: () => void;
 }
 
-/** Display names of the seven roles. The API sends them too; these keep the list readable before any proposal loads. */
+/** Display names of the eleven roles. The API sends them too; these keep the list readable before any proposal loads. */
 export const ROLE_NAMES: Record<ProvisioningTemplateId, { en: string; ar: string }> = {
   orders_desk: { en: 'Orders Desk', ar: 'مكتب الطلبات' },
   sales_followup: { en: 'Sales Follow-up', ar: 'متابعة المبيعات' },
@@ -26,6 +28,10 @@ export const ROLE_NAMES: Record<ProvisioningTemplateId, { en: string; ar: string
   fleet_maintenance: { en: 'Fleet Maintenance Coordinator', ar: 'منسق صيانة الأسطول' },
   operations_dispatcher: { en: 'Operations Dispatcher', ar: 'مسؤول توزيع العمليات' },
   compliance_reviewer: { en: 'Compliance Reviewer', ar: 'مراجع الامتثال' },
+  marketing_specialist: { en: 'Marketing Specialist', ar: 'أخصائي التسويق' },
+  technology_coordinator: { en: 'Technology Coordinator', ar: 'منسق التقنية' },
+  research_analyst: { en: 'Research Analyst', ar: 'محلل أبحاث' },
+  legal_reviewer: { en: 'Legal Reviewer', ar: 'مراجع قانوني' },
 };
 
 export function roleName(id: ProvisioningTemplateId, locale: 'en' | 'ar'): string {
@@ -39,7 +45,7 @@ export function reasonLine(r: ProvisioningReason): string {
   });
 }
 
-export function OrgGapsPanel({ state, onNavigate, onProvisioned }: OrgGapsPanelProps) {
+export function OrgGapsPanel({ state, onNavigate, onStaffCampus, onProvisioned }: OrgGapsPanelProps) {
   const locale = useLocale();
   const { gaps, status, error, reload } = state;
   const [review, setReview] = useState<ProvisioningTemplateId | null>(null);
@@ -50,6 +56,7 @@ export function OrgGapsPanel({ state, onNavigate, onProvisioned }: OrgGapsPanelP
     <h3 className="hqProvH"><UserPlus size={15} aria-hidden="true" /> {t('hqProv.title')}
       {gaps && <span>{t('hqProv.agentsUsed', { used: gaps.limits.agents, max: gaps.limits.max_agents })}</span>}</h3>
     <p className="hqProvNote">{t('hqProv.intro')}</p>
+    {onStaffCampus && <p className="hqProvNote"><button type="button" className="hqProvPrimary" onClick={onStaffCampus}><UserPlus size={14} aria-hidden="true" /> {t('hqSd.gapsEntry')}</button> {t('hqSd.gapsHint')}</p>}
     {status === 'loading' && <p className="hqProvNote" role="status">{t('hqProv.loading')}</p>}
     {status === 'denied' && <p className="hqProvNote" role="alert">{t('hqProv.denied')}</p>}
     {status === 'error' && <div className="hqProvNote" role="alert">

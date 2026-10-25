@@ -29,15 +29,15 @@ class SqlLiveMeetingStore:
         return {"tenant": context.tenant_id, "workspace": context.workspace_id, **kwargs}
 
     def create(self, context: TenantContext, data: dict[str, Any]) -> dict[str, Any]:
-        params = self.args(context, **data, owner=context.user_id)
+        params = self.args(context, **{"room_id": None, **data}, owner=context.user_id)
         try:
             row = self.session.execute(text("""
                 insert into agent_meeting_sessions (
-                    id, tenant_id, workspace_id, title, created_by,
+                    id, tenant_id, workspace_id, title, created_by, room_id,
                     max_turns, max_duration_seconds, max_tokens,
                     max_cost_usd, max_participants
                 ) values (
-                    :id, :tenant, :workspace, :title, :owner,
+                    :id, :tenant, :workspace, :title, :owner, :room_id,
                     :max_turns, :max_duration_seconds, :max_tokens,
                     :max_cost_usd, :max_participants
                 ) returning *
@@ -62,12 +62,23 @@ class SqlLiveMeetingStore:
             self.args(context, id=meeting_id),
         ).mappings().first()
 
-    def list(self, context: TenantContext, *, cursor: str | None, limit: int) -> dict[str, Any]:
-        params = self.args(context, cursor=cursor, limit=limit + 1)
+    def meeting_room(self, context: TenantContext, room_id: str) -> dict[str, Any] | None:
+        """The office room as this person's workspace session sees it (another workspace's room is invisible)."""
+        row = self.session.execute(text("""
+            select id, name, kind from office_rooms
+            where tenant_id=:tenant and workspace_id=:workspace and id=:room
+        """), self.args(context, room=room_id)).mappings().first()
+        return dict(row) if row else None
+
+    def list(self, context: TenantContext, *, cursor: str | None, limit: int,
+             status: str | None = None, room_id: str | None = None) -> dict[str, Any]:
+        params = self.args(context, cursor=cursor, limit=limit + 1, status=status, room=room_id)
         results = self.session.execute(text("""
             select * from agent_meeting_sessions
             where tenant_id=:tenant and workspace_id=:workspace
               and (cast(:cursor as varchar) is null or id > :cursor)
+              and (cast(:status as varchar) is null or status = :status)
+              and (cast(:room as varchar) is null or room_id = :room)
             order by id asc limit :limit
         """), params).mappings().all()
         items = [dict(row) for row in results[:limit]]
@@ -160,7 +171,8 @@ class SqlLiveMeetingStore:
                 where tenant_id=:tenant and workspace_id=:workspace and id=:id
             """), self.args(context, id=meeting_id, reason=(reason or "owner")[:40]))
         self.emit(context, meeting_id, "state", {"status": target, "reason": reason or "owner",
-                                                 "revision": row["revision"]}, actor=context.user_id)
+                                                 "revision": row["revision"], "room_id": row.get("room_id")},
+                  actor=context.user_id)
         return row
 
     def _revise(self, context: TenantContext, meeting_id: str, revision: int, kwargs: dict[str, Any], *, change_status: bool) -> dict[str, Any]:

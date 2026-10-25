@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
+import { OFFICE_TEAM_DEPARTMENTS } from '../../../packages/contracts/src/officeBuilder.ts';
+import { DEPARTMENTS } from '../src/hqBuilder/labels.ts';
 import { DEPARTMENT_MODULES, KIND_MODULES, moduleHash, resolveRoomModule } from '../src/lib/hqRoomModule.ts';
 import { CATALOGS } from '../src/lib/i18n.ts';
 import { VIEWS } from '../src/lib/shell.ts';
@@ -14,6 +16,8 @@ describe('department to module table', () => {
     ['finance', '#finance'], ['sales', '#whatsapp'], ['support', '#inbox'], ['operations', 'flow'],
     ['tyre_engineering', '#tyre'], ['custom', 'none'], ['executive', '#executive'], ['commerce', '#commerce'],
     ['compliance', '#governance'], ['meeting', '#meetings'],
+    ['marketing', '#marketing'], ['technology', '#developer'], ['research', '#knowledge'], ['legal', '#files'],
+    ['security', '#audit'], ['hr', '#members'], ['procurement', 'none'],
   ];
   for (const [department, expected] of table) {
     test(`${department} opens ${expected}`, () => {
@@ -29,8 +33,23 @@ describe('department to module table', () => {
     assert.equal(hashOf({ department: 'finance', kind: 'meeting', name: 'Tyre Engineering' }), '#finance');
   });
   test('an unknown department has no module and never guesses from the name', () => {
-    const m = resolveRoomModule(room({ department: 'legal', name: 'Finance' }));
+    const m = resolveRoomModule(room({ department: 'astrology', name: 'Finance' }));
     assert.deepEqual(m.target, { type: 'none', why: 'no_department_module' });
+  });
+  test('every storable department has an entry, a builder label and an English and Arabic name', () => {
+    assert.deepEqual([...DEPARTMENTS], [...OFFICE_TEAM_DEPARTMENTS], 'the builder list is the contract list');
+    for (const department of OFFICE_TEAM_DEPARTMENTS) {
+      assert.ok(DEPARTMENT_MODULES[department], `${department} has a module entry (or an honest none)`);
+      for (const lang of ['en', 'ar'] as const) {
+        const catalog = CATALOGS[lang] as Record<string, string>;
+        for (const prefix of ['hqb.dept.', 'team.dept.', 'hqSc.dept.']) assert.ok(catalog[`${prefix}${department}`], `${lang} ${prefix}${department}`);
+      }
+    }
+  });
+  test('only custom and procurement say no module is connected, and every other department opens a view', () => {
+    const none = OFFICE_TEAM_DEPARTMENTS.filter((d) => DEPARTMENT_MODULES[d].target.type === 'none');
+    assert.deepEqual([...none].sort(), ['custom', 'procurement']);
+    for (const d of OFFICE_TEAM_DEPARTMENTS.filter((x) => !none.includes(x) && x !== 'operations')) assert.equal(DEPARTMENT_MODULES[d].target.type, 'view', d);
   });
   test('every routed module is a real shell view', () => {
     for (const e of [...Object.values(DEPARTMENT_MODULES), ...Object.values(KIND_MODULES)]) {
@@ -42,6 +61,20 @@ describe('department to module table', () => {
     for (const id of [...ids, 'tasks', 'calendar']) for (const lang of ['en', 'ar'] as const) {
       assert.ok((CATALOGS[lang] as Record<string, string>)[`hqRoomModule.name.${id}`], `${lang} ${id}`);
     }
+  });
+});
+
+describe('a live meeting in the room', () => {
+  test('the meeting module link opens that meeting, not the Meetings list', () => {
+    const m = resolveRoomModule(room({ kind: 'meeting', liveMeetingId: 'agent_meeting_1' }));
+    assert.deepEqual(m.target, { type: 'meeting', meetingId: 'agent_meeting_1' });
+    assert.equal(moduleHash(m.target), '#office/meeting/agent_meeting_1');
+    assert.equal(moduleHash(resolveRoomModule(room({ department: 'meeting', liveMeetingId: 'a b' })).target), '#office/meeting/a%20b');
+  });
+  test('without a live meeting, or in a room of another module, the link is unchanged', () => {
+    assert.equal(hashOf({ kind: 'meeting' }), '#meetings');
+    assert.equal(hashOf({ kind: 'meeting', liveMeetingId: null }), '#meetings');
+    assert.equal(hashOf({ department: 'legal', kind: 'meeting', liveMeetingId: 'm1' }), '#files');
   });
 });
 

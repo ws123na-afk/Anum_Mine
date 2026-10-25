@@ -1,4 +1,4 @@
-"""Avatar styles in PostgreSQL under the non-owner app role (migration 0107_avatar_appearance).
+"""Avatar styles in PostgreSQL under the non-owner app role (migration 0110_avatar_appearance).
 
 The style lives in a new nullable JSONB column of two tables that already have forced row level security: a
 private agent's style is invisible to everyone else, nothing crosses workspaces or tenants, a style cannot be

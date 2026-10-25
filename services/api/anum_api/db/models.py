@@ -1637,7 +1637,7 @@ class AgentProfileRecord(Base, WorkspaceScopedMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     sharing: Mapped[str] = mapped_column(String(20), nullable=False)
     template_id: Mapped[str | None] = mapped_column(String(40))
-    # The chosen avatar style (migration 0107_avatar_appearance); None = the neutral default.
+    # The chosen avatar style (migration 0110_avatar_appearance); None = the neutral default.
     avatar: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     version: Mapped[int] = mapped_column(nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

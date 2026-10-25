@@ -87,7 +87,7 @@ def load_facts(session: Any, context: TenantContext, specs: tuple[sc.BuildingSpe
             {**p, "b": bids, "f": fids}).mappings():
         facts.floors[r["id"]] = dict(r)
     for r in session.execute(text(
-            "select id, floor_id, name, scene_x, scene_z, scene_width, scene_depth from office_rooms "
+            "select id, floor_id, name, scene_x, scene_z, scene_width, scene_depth, team_department from office_rooms "
             "where tenant_id = :t and workspace_id = :w and (floor_id = any(cast(:f as text[])) or id = any(cast(:r as text[])))"),
             {**p, "f": fids, "r": rids}).mappings():
         facts.rooms[r["id"]] = dict(r)
@@ -132,7 +132,7 @@ def preview(buildings: Annotated[str | None, Query(max_length=400, pattern=r"^[a
         "payload_hash": sc.proposal_hash(context.tenant_id, context.workspace_id, context.user_id, zone, plans),
         "can_confirm": has_permission(context, Permission.WORKSPACE_MANAGE),
         "buildings": plans, "totals": sc.totals(plans),
-        "rules": {"creates_agents": False, "seats_agents": False, "changes_existing": False},
+        "rules": {"creates_agents": False, "seats_agents": False, "changes_existing": False, "fills_empty_departments": True},
     }
 
 
@@ -147,13 +147,14 @@ def _apply_building(context: TenantContext, spec: sc.BuildingSpec, zone: str, ex
                               {"k": f"{context.tenant_id}:{context.workspace_id}:starter-campus"})
         fresh = sc.plan_building(spec, load_facts(store.session, context, [spec]), zone)
         if sc.building_digest(fresh) != expected:
-            if not any(fresh["counts"]["create"].values()):
-                return {"status": "already_exists", "created": _zero(), "ids": []}
+            if not sc.has_work(fresh):
+                return {"status": "already_exists", "created": _zero(), "ids": [], "departments_set": 0}
             raise _Changed
         created = _zero()
         ids: list[str] = []
         snaps: dict[str, Any] = {"building": None, "floors": [], "rooms": []}
         skipped: list[dict[str, str]] = []
+        filled: list[dict[str, Any]] = []
         if fresh["action"] == "create":
             row = store.create(context, "buildings", spec.id, {"name": spec.en, "timezone": zone, "latitude": None, "longitude": None})
             created["buildings"] += 1
@@ -174,6 +175,12 @@ def _apply_building(context: TenantContext, spec: sc.BuildingSpec, zone: str, ex
             for room in floor["rooms"]:
                 if room["action"] != "create":
                     skipped.append({"id": room["id"], "reason": room["reason"]})
+                    wanted = room.get("department_set")
+                    if wanted:
+                        # The only change to an existing room: an empty or custom department becomes the campus one.
+                        done = store.fill_room_department(context, room["id"], wanted["to"])
+                        if done is not None:
+                            filled.append({"id": room["id"], "from": done[0]["team_department"], "to": wanted["to"]})
                     continue
                 values = {
                     "name": room["name"]["en"], "name_ar": room["name"]["ar"], "kind": room["kind"],
@@ -187,11 +194,13 @@ def _apply_building(context: TenantContext, spec: sc.BuildingSpec, zone: str, ex
                 created["desks"] += len(desks)
                 ids.extend([room["id"], *[d["id"] for d in desks]])
                 snaps["rooms"].append({**_snap("rooms", row), "desks": [d["id"] for d in desks]})
+        ids.extend(f["id"] for f in filled)
         office_audit(
             store, context, "office.starter_campus.building", spec.id, kind="buildings", ids=ids,
             before={"existing": [s["id"] for s in skipped if s["reason"] == sc.EXISTS], "skipped": skipped},
-            after={"created": created, **snaps, "payload_hash": digest, "input_mode": "click", "catalog_version": sc.CATALOG_VERSION})
-        return {"status": "created", "created": created, "ids": ids, "skipped": skipped}
+            after={"created": created, **snaps, "departments_set": filled, "payload_hash": digest, "input_mode": "click",
+                   "catalog_version": sc.CATALOG_VERSION})
+        return {"status": "created", "created": created, "ids": ids, "skipped": skipped, "departments_set": len(filled)}
 
 
 _REFUSED_DEFAULT = "A record of this building conflicts with one that already exists. Nothing was created for this building."
@@ -221,7 +230,7 @@ def confirm(body: ConfirmBody, context: TenantContext = Depends(tenant_context))
     plans = sc.plan_campus(facts, zone, keys)
     chosen = [p for p in plans if p["selected"]]
     digest = sc.proposal_hash(context.tenant_id, context.workspace_id, context.user_id, zone, plans)
-    if not any(any(p["counts"]["create"].values()) for p in chosen):
+    if not any(sc.has_work(p) for p in chosen):
         # A retry or a double click after it all exists: say so, write nothing, ask nothing.
         return _report("already_set_up", digest, zone, [
             _item(p, "already_exists", _zero(), "Already set up. Nothing was changed.") for p in chosen])
@@ -233,8 +242,11 @@ def confirm(body: ConfirmBody, context: TenantContext = Depends(tenant_context))
         spec = sc.BUILDING_BY_KEY[plan["key"]]
         try:
             done = _apply_building(context, spec, zone, sc.building_digest(plan), digest)
-            items.append(_item(plan, done["status"], done["created"],
-                               "Created." if done["status"] == "created" else "Already set up. Nothing was changed."))
+            set_count = done.get("departments_set", 0)
+            nothing_new = not any(done["created"].values())
+            message = ("Already set up. Nothing was changed." if done["status"] != "created"
+                       else f"Department set on {set_count} existing room(s)." if nothing_new and set_count else "Created.")
+            items.append(_item(plan, done["status"], done["created"], message, set_count))
         except _Changed:
             items.append(_item(plan, "changed", _zero(), "The records changed while saving. Nothing was created for this building. Review the preview again."))
         except SpaceStoreError as exc:
@@ -250,9 +262,10 @@ def confirm(body: ConfirmBody, context: TenantContext = Depends(tenant_context))
     return _report(outcome, digest, zone, items)
 
 
-def _item(plan: dict[str, Any], state: str, created: dict[str, int], message: str) -> dict[str, Any]:
+def _item(plan: dict[str, Any], state: str, created: dict[str, int], message: str, departments_set: int = 0) -> dict[str, Any]:
     return {"key": plan["key"], "id": plan["id"], "name": plan["name"], "status": state, "created": created,
-            "skipped": plan["counts"]["skip"] if state != "created" else None, "message": message}
+            "skipped": plan["counts"]["skip"] if state != "created" else None, "message": message,
+            "departments_set": departments_set}
 
 
 def _report(outcome: str, digest: str, zone: str, items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -261,4 +274,4 @@ def _report(outcome: str, digest: str, zone: str, items: list[dict[str, Any]]) -
         for k, v in i["created"].items():
             total[k] += v
     return {"version": VERSION, "outcome": outcome, "payload_hash": digest, "timezone": zone, "buildings": items,
-            "totals": total, "agents_created": 0}
+            "totals": total, "departments_set": sum(i.get("departments_set", 0) for i in items), "agents_created": 0}

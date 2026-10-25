@@ -16,8 +16,11 @@ import { homeAr } from './home.ar.ts';
 import { meetingRoomAr } from './meetingRoom.ar.ts';
 import { builderAr } from './builder.ar.ts';
 import { hqFlowAr } from './hqFlow.ar.ts';
+import { hqHistoryAr } from './hqHistory.ar.ts';
 import { hqProvisioningAr } from './hqProvisioning.ar.ts';
+import { hqAssignAr } from './hqAssign.ar.ts';
 import { hqStarterCampusAr } from './hqStarterCampus.ar.ts';
+import { hqStaffDesksAr } from './hqStaffDesks.ar.ts';
 import { teamAr } from './team.ar.ts';
 import { appCallsAr } from './appCalls.ar.ts';
 import { marketingAr } from './marketing.ar.ts';
@@ -3240,8 +3243,11 @@ export const ar: Record<MessageKey, Message> = {
   ...meetingRoomAr,
   ...builderAr,
   ...hqFlowAr,
+  ...hqHistoryAr,
   ...hqProvisioningAr,
+  ...hqAssignAr,
   ...hqStarterCampusAr,
+  ...hqStaffDesksAr,
   // ---- واجهة ANUM 360 ومركز الأوامر ----
   'brand.name': 'ANUM 360',
   'nav.home': 'الرئيسية',

@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from .audit import AuditFilter, AuditRecord
-from .audit_log import decode_cursor, encode_cursor
+from .audit_log import _aware, _blank_to_none, decode_cursor, encode_cursor
 from .authorization import Permission
 from .dependencies import repository_context, require_owner_or_org_admin, tenant_context
 from .repository import AnumRepository
@@ -151,6 +151,8 @@ def read_page(
     target: str | None = None,
     correlation_id: str | None = None,
     until: datetime | None = None,
+    since: datetime | None = None,
+    text: str | None = None,
 ) -> HistoryPage:
     """Page underlying records, not filtered results, so cursors never skip evidence.
 
@@ -162,7 +164,7 @@ def read_page(
         raise ValueError("History page size out of bounds")
     audit_filter = AuditFilter(
         actor=actor, target=target, correlation_id=correlation_id,
-        until=until,
+        since=since, until=until, text=text,
     )
     after = decode_cursor(cursor) if cursor else None
     rows = repository.list_audit_page(context, audit_filter, limit=limit + 1, after=after)
@@ -188,13 +190,20 @@ def list_office_history(
     actor: str | None = Query(default=None, max_length=160),
     target: str | None = Query(default=None, max_length=200),
     correlation_id: str | None = Query(default=None, max_length=160),
+    since: datetime | None = Query(default=None, description="Inclusive; ISO 8601, UTC if no offset"),
+    until: datetime | None = Query(default=None, description="Exclusive; ISO 8601, UTC if no offset"),
+    q: str | None = Query(default=None, max_length=200, description="Text in actor, action or target"),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> HistoryPage:
     authorize(context)
+    since, until = _aware(since), _aware(until)
+    if since is not None and until is not None and since >= until:
+        raise HTTPException(422, detail="The start of the date range must be before its end")
     return read_page(
         repository, context, limit=limit, cursor=cursor, category=category,
         actor=actor, target=target, correlation_id=correlation_id,
+        since=since, until=until, text=_blank_to_none(q),
     )
 
 

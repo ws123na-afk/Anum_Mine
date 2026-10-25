@@ -1,7 +1,7 @@
 // Network side of the live meeting room: JSON calls and the replayable SSE follower.
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
-import { parseSse, type RoomBundle, type RoomEvent, type RoomMessage, type RoomOutput, type AgendaItem, type OutputKind } from './liveMeeting';
+import { parseSse, type MeetingBudget, type RoomBundle, type RoomEvent, type RoomMessage, type RoomOutput, type AgendaItem, type OutputKind } from './liveMeeting';
 
 const root = '/api/v1/agent-meetings';
 const one = (id: string) => `${root}/${encodeURIComponent(id)}`;
@@ -11,6 +11,10 @@ export interface MeetingSummary { id: string; title: string; status: string; rev
 
 export const meetingRoomApi = {
   list: () => apiRequest<{ items: MeetingSummary[] }>(`${root}?limit=50`, { method: 'GET' }),
+  /** This month's agent meeting spend against the workspace cap. Any member may read it. */
+  budget: () => apiRequest<MeetingBudget>(`${root}/budget`, { method: 'GET' }),
+  /** Owner only. `null` returns to the default (USD 50). */
+  setBudget: (monthlyCostLimitUsd: number | null) => apiRequest<MeetingBudget>(`${root}/budget`, { method: 'PUT', body: JSON.stringify({ monthly_cost_limit_usd: monthlyCostLimitUsd }) }),
   room: (id: string) => apiRequest<RoomBundle>(`${one(id)}/room`, { method: 'GET' }),
   /** Every stored message, oldest first (at most 200 per meeting). */
   async turns(id: string): Promise<RoomMessage[]> {

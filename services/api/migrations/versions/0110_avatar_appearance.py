@@ -10,14 +10,14 @@ private agent, the owner), so the new column is covered by those policies and no
 The shape is validated by the API (``anum_api/avatar_appearance.py``); the database only checks that a stored
 value is a JSON object.
 
-Chained after ``0106_agent_provisioning``; numbers are renumbered at merge when parallel branches collide.
+Chained after ``0109_staff_desks``; numbers are renumbered at merge when parallel branches collide.
 """
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0107_avatar_appearance"
-down_revision = "0106_agent_provisioning"
+revision = "0110_avatar_appearance"
+down_revision = "0109_staff_desks"
 branch_labels = None
 depends_on = None
 

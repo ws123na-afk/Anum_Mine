@@ -9,6 +9,7 @@ import { t, type MessageKey } from './lib/i18n';
 import { ageText, reasonText } from './lib/officeFlow';
 import { useOfficeTeam } from './useOfficeFlow';
 import { useLocale } from './useLocale';
+import { openAssign } from './lib/hqAssign';
 import './hqFlow.css';
 
 export interface HqTeamPanelProps {
@@ -18,6 +19,8 @@ export interface HqTeamPanelProps {
   onNavigate: (hash: string) => void;
   onOpenSpaces: () => void;
   onFocusRoom?: (roomId: string) => void;
+  /** Opens the office history for one team member (the history panel). */
+  onHistory?: (member: { agentId: string; name: string }) => void;
   heading?: string;
   /** Called after an avatar style was saved, so the scene can redraw the figure. */
   onAvatarChanged?: () => void;
@@ -25,7 +28,7 @@ export interface HqTeamPanelProps {
 
 const agentsClient = agentsApi(api.apiRequest, api.apiRequestVoid);
 
-export function HqTeamPanel({ roomId, floorId, buildingId, refreshKey, onNavigate, onOpenSpaces, onFocusRoom, heading, onAvatarChanged }: HqTeamPanelProps) {
+export function HqTeamPanel({ roomId, floorId, buildingId, refreshKey, onNavigate, onOpenSpaces, onFocusRoom, onHistory, heading, onAvatarChanged }: HqTeamPanelProps) {
   useLocale();
   const { team, status, error } = useOfficeTeam({ roomId, floorId, buildingId }, refreshKey);
   // Styles saved from this panel show at once and stay, because the roster is not read again on a save.
@@ -36,13 +39,13 @@ export function HqTeamPanel({ roomId, floorId, buildingId, refreshKey, onNavigat
     {status === 'loading' && <p className="hqFlowNote" role="status">{t('hqTeam.loading')}</p>}
     {status === 'denied' && <p className="hqFlowNote" role="alert">{t('hqTeam.denied')}</p>}
     {status === 'error' && <p className="hqFlowNote" role="alert">{t('hqTeam.error', { detail: error })}</p>}
-    {team && status !== 'denied' && <TeamBody team={team} saved={saved} setSaved={setSaved} onNavigate={onNavigate} onOpenSpaces={onOpenSpaces} onFocusRoom={onFocusRoom} showRoom={!roomId} onAvatarChanged={onAvatarChanged} />}
+    {team && status !== 'denied' && <TeamBody team={team} saved={saved} setSaved={setSaved} onNavigate={onNavigate} onOpenSpaces={onOpenSpaces} onFocusRoom={onFocusRoom} onHistory={onHistory} showRoom={!roomId} onAvatarChanged={onAvatarChanged} />}
   </section>;
 }
 
-function TeamBody({ team, saved, setSaved, onNavigate, onOpenSpaces, onFocusRoom, showRoom, onAvatarChanged }: {
+function TeamBody({ team, saved, setSaved, onNavigate, onOpenSpaces, onFocusRoom, onHistory, showRoom, onAvatarChanged }: {
   saved: ReadonlyMap<string, AvatarAppearance | null>; setSaved: (update: (s: ReadonlyMap<string, AvatarAppearance | null>) => ReadonlyMap<string, AvatarAppearance | null>) => void;
-  team: OfficeTeam; onNavigate: (hash: string) => void; onOpenSpaces: () => void; onFocusRoom?: (roomId: string) => void; showRoom: boolean; onAvatarChanged?: () => void;
+  team: OfficeTeam; onNavigate: (hash: string) => void; onOpenSpaces: () => void; onFocusRoom?: (roomId: string) => void; onHistory?: (member: { agentId: string; name: string }) => void; showRoom: boolean; onAvatarChanged?: () => void;
 }) {
   const [editing, setEditing] = useState<OfficeTeamMember | null>(null);
   const avatarOf = (m: OfficeTeamMember): AvatarAppearance | null => (saved.has(m.agent_id) ? saved.get(m.agent_id)! : m.avatar ?? null);
@@ -54,7 +57,7 @@ function TeamBody({ team, saved, setSaved, onNavigate, onOpenSpaces, onFocusRoom
       <p>{t('hqTeam.empty')}</p>
       <button type="button" onClick={onOpenSpaces}>{t('hqTeam.emptyAction')}</button>
     </div> : <ul className="hqTeamList" aria-label={t('hqTeam.region')}>
-      {team.members.map((m) => <MemberCard key={m.agent_id} member={m} avatar={avatarOf(m)} onEditAvatar={() => setEditing(m)} onNavigate={onNavigate} onFocusRoom={onFocusRoom} showRoom={showRoom} />)}
+      {team.members.map((m) => <MemberCard key={m.agent_id} member={m} avatar={avatarOf(m)} onEditAvatar={() => setEditing(m)} onNavigate={onNavigate} onFocusRoom={onFocusRoom} onHistory={onHistory} showRoom={showRoom} />)}
     </ul>}
     {team.counts.vacant_desks > 0 && <p className="hqFlowNote">{t('hqTeam.vacant', { count: team.counts.vacant_desks })}</p>}
     {team.hidden_assignments > 0 && <p className="hqFlowNote">{t('hqTeam.hidden', { count: team.hidden_assignments })}</p>}
@@ -67,8 +70,8 @@ function TeamBody({ team, saved, setSaved, onNavigate, onOpenSpaces, onFocusRoom
   </>;
 }
 
-function MemberCard({ member: m, avatar, onEditAvatar, onNavigate, onFocusRoom, showRoom }: {
-  member: OfficeTeamMember; avatar: AvatarAppearance | null; onEditAvatar: () => void; onNavigate: (hash: string) => void; onFocusRoom?: (roomId: string) => void; showRoom: boolean;
+function MemberCard({ member: m, avatar, onEditAvatar, onNavigate, onFocusRoom, onHistory, showRoom }: {
+  member: OfficeTeamMember; avatar: AvatarAppearance | null; onEditAvatar: () => void; onNavigate: (hash: string) => void; onFocusRoom?: (roomId: string) => void; onHistory?: (member: { agentId: string; name: string }) => void; showRoom: boolean;
 }) {
   const state = (['working', 'queued', 'meeting', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'].includes(m.state) ? m.state : 'unknown');
   const role = m.department ?? t('hqTeam.noRole');
@@ -94,8 +97,10 @@ function MemberCard({ member: m, avatar, onEditAvatar, onNavigate, onFocusRoom, 
     </div>
     <div className="hqTeamActions">
       {showRoom && onFocusRoom && <button type="button" className="hqLinkButton" onClick={() => onFocusRoom(m.desk.room_id)}>{m.desk.room_name}</button>}
+      <button type="button" className="hqLinkButton" onClick={() => openAssign({ agentId: m.agent_id, roomId: m.desk.room_id, roomName: m.desk.room_name, source: 'team_panel' })}>{t('hqAssign.openFor', { name: m.name })}</button>
       <button type="button" className="hqLinkButton" onClick={onEditAvatar} aria-label={t('avatar.editFor', { name: m.name })} data-avatar-edit={m.agent_id}><Palette size={14} aria-hidden="true" /> {t('avatar.edit')}</button>
       <button type="button" className="hqLinkButton" onClick={() => onNavigate('#agents')}>{t('hqTeam.openAgent')}</button>
+      {onHistory && <button type="button" className="hqLinkButton" onClick={() => onHistory({ agentId: m.agent_id, name: m.name })}>{t('hqHist.launch.member', { name: m.name })}</button>}
     </div>
   </li>;
 }
