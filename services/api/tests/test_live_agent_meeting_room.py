@@ -20,7 +20,7 @@ from anum_api.main import app
 from anum_api.settings import settings
 
 client = TestClient(app)
-MIGRATION = Path(__file__).parents[1] / "migrations" / "versions" / "0102_meeting_room.py"
+MIGRATION = Path(__file__).parents[1] / "migrations" / "versions" / "0104_meeting_room.py"
 
 
 def headers(role="owner"):
@@ -186,8 +186,8 @@ def _migration():
 
 def test_migration_is_expand_only_scoped_and_forced_rls():
     module = _migration()
-    assert module.revision == "0102_meeting_room" and len(module.revision) <= 32
-    assert module.down_revision == "0101_executive_grants"
+    assert module.revision == "0104_meeting_room" and len(module.revision) <= 32
+    assert module.down_revision == "0103_sales_execution"
     sql = MIGRATION.read_text(encoding="utf-8")
     upgrade = sql.split("def upgrade() -> None:", 1)[1].split("def downgrade() -> None:", 1)[0]
     assert "drop_" not in upgrade and "alter column" not in upgrade

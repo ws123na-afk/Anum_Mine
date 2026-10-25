@@ -149,6 +149,8 @@ from .conversations import router as conversations_router
 from .privacy import router as privacy_router
 from .developer import register_developer_tools, router as developer_router
 from .whatsapp import register_whatsapp_tools, router as whatsapp_router
+from .sales_api import router as sales_router
+from .sales_followup_scheduler import run_due_sales_followups
 from . import email_inbox
 from .email_api import router as email_router
 from .commerce.api import router as commerce_router
@@ -160,6 +162,7 @@ from .finance.trading_api import router as finance_trading_router
 from .finance.intel_control_api import router as finance_intel_control_router
 from .finance.wider_api import router as finance_wider_router
 from .finance.intel_api import router as finance_intel_router
+from .finance.broker_api import router as finance_broker_router
 from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
 from .mailbox.ai_api import router as mail_ai_router
@@ -434,6 +437,7 @@ app.include_router(model_budget_router)
 app.include_router(agent_controls_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
+app.include_router(sales_router)
 app.include_router(email_router)
 app.include_router(mail_ai_router)
 app.include_router(mail_router)
@@ -467,6 +471,7 @@ app.include_router(finance_plan_router)
 app.include_router(finance_trading_router)
 app.include_router(finance_wider_router)
 app.include_router(finance_intel_router)
+app.include_router(finance_broker_router)
 app.include_router(finance_intel_control_router)
 app.include_router(tyre_router)
 event_runtime.add_listener(push_dispatcher.submit)
@@ -513,6 +518,7 @@ configure_tool_catalog(tool_registry.definition)
 email_inbox.integration_enabled = lambda context, integration_id: not integration_registry.switched_off(integration_id, context)
 # Approved social posts publish at their time on every scheduler pass (docs/marketing.md#publishing).
 register_scheduler_pass("marketing_publisher", run_due_posts)
+register_scheduler_pass("sales_followup_delivery", run_due_sales_followups)
 # Agents are built from exactly the tools this runtime has (docs/agents.md).
 configure_runtime_catalog(tool_registry)
 # Stage 3 coordination (docs/agent-runtime.md): an optional Valkey lock per task and,
