@@ -2,6 +2,7 @@
 import { ChevronDown, ChevronUp, LockKeyhole } from 'lucide-react';
 import { t, type MessageKey } from '../lib/i18n.ts';
 import type { StripStop } from './navModel.ts';
+import { stopName } from './stopName.ts';
 import { arrowFocus, BUILDING_ICON, CAMPUS_ICON, ROOM_ICONS, useThumb } from './navParts.tsx';
 
 export type ViewStripProps = Readonly<{
@@ -13,9 +14,6 @@ export type ViewStripProps = Readonly<{
   onGo: (stop: StripStop) => void;
 }>;
 
-export function stopName(stop: StripStop): string {
-  return stop.kind === 'campus' ? t('hqNav.strip.campus') : stop.kind === 'building' ? stop.name : stop.label;
-}
 export function stopSub(stop: StripStop): string {
   if (stop.kind === 'campus') return t('hqNav.strip.campusSub');
   if (stop.kind === 'building') return stop.accessible ? t('hqNav.strip.building') : t('hqNav.strip.locked');

@@ -5,7 +5,7 @@
  * Everything shown is derived from the campus, the saved office layout and the presence index (navModel.ts).
  */
 import { CalendarDays, Layers, PanelRight, X } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { HqView } from '../HqChrome';
 import { hqCommands } from '../lib/hqExtensions.ts';
@@ -14,13 +14,19 @@ import type { SceneBuilding, SceneDesk, SceneFloor } from '../lib/headquartersPr
 import type { HqPresenceIndex } from '../lib/hqPresence.ts';
 import { t } from '../lib/i18n.ts';
 import { HqCameraBridge } from './cameraBridge.ts';
-import { FloorRail } from './FloorRail.tsx';
 import { currentStopId, peopleAtPosts, roomStops, stripStops, type StripStop } from './navModel.ts';
-import { FloorPlan, MOVE_ICONS, PeopleList, QuickMoves, type Move } from './SidePanel.tsx';
+import { MOVE_ICONS } from './moveIcons.tsx';
+import type { Move } from './SidePanel.tsx';
 import { getThumb, thumbKey, ThumbCapture } from './thumbs.ts';
 import { useNavLayout } from './useNavLayout.ts';
-import { stopName, ViewStrip } from './ViewStrip.tsx';
-import './hqNav.css';
+import { stopName } from './stopName.ts';
+import './hqNavLayout.css';
+
+const FloorRail = lazy(() => import('./NavChrome.tsx').then((m) => ({ default: m.FloorRail })));
+const ViewStrip = lazy(() => import('./NavChrome.tsx').then((m) => ({ default: m.ViewStrip })));
+const FloorPlan = lazy(() => import('./NavChrome.tsx').then((m) => ({ default: m.FloorPlan })));
+const PeopleList = lazy(() => import('./NavChrome.tsx').then((m) => ({ default: m.PeopleList })));
+const QuickMoves = lazy(() => import('./NavChrome.tsx').then((m) => ({ default: m.QuickMoves })));
 
 export type HqNavHandles = Readonly<{ bridge: HqCameraBridge; capture: ThumbCapture }>;
 export type NavOverlay = 'tour' | 'agentMeetings' | 'teams';
@@ -193,13 +199,13 @@ export function HqNavigation(props: HqNavigationProps) {
   useEffect(() => { setTab(level === 'building' ? 'plan' : 'moves'); }, [level]);
 
   const planBody = (
-    <>
+    <Suspense fallback={null}>
       <FloorPlan floor={floor} selectedRoomId={props.selectedRoomId} view={view} canThreeD={props.webglOk} onView={props.onView} onRoom={pickRoom} />
       <PeopleList rows={people} presenceKnown={props.presence !== null} onOpen={(row) => row.agentId && props.onAgent(row.agentId, row.desk)} />
-    </>
+    </Suspense>
   );
-  const movesBody = <QuickMoves moves={moves} suggestions={suggestions} />;
-  const dockBody = props.dock ? <section className="hqPaDock" aria-label={t('hq.paDock')}>{props.dock}</section> : null;
+  const movesBody = <Suspense fallback={null}><QuickMoves moves={moves} suggestions={suggestions} /></Suspense>;
+  const dockBody = props.dock ? <aside className="hqPaDock" aria-label={t('hq.paDock')}>{props.dock}</aside> : null;
   const sideBody = level === 'building' ? (
     <>
       <div className="hqTabs" role="tablist" aria-label={t('hqNav.side.label')}>
@@ -225,7 +231,7 @@ export function HqNavigation(props: HqNavigationProps) {
     );
   }
 
-  const stripNode = <ViewStrip stops={stops} currentId={currentId} open={stripOpen} thumbKeyOf={stopKey} onToggle={toggleStrip} onGo={goStop} />;
+  const stripNode = <Suspense fallback={null}><ViewStrip stops={stops} currentId={currentId} open={stripOpen} thumbKeyOf={stopKey} onToggle={toggleStrip} onGo={goStop} /></Suspense>;
   const toolbar = (level === 'building' && layout.rail === 'drawer') || layout.side !== 'open';
   const sideLabel = level === 'building' ? t('hqNav.drawer.side') : t('hqNav.drawer.moves');
   return (
@@ -239,7 +245,7 @@ export function HqNavigation(props: HqNavigationProps) {
         </div>
       )}
       <div className="hqNavGrid">
-        {railOn && building && <FloorRail building={building} activeFloorId={floor?.id ?? null} slim={layout.rail === 'slim'} thumbKeyOf={(id) => keyFor(`floor:${id}`)} onPick={pickFloor} onToggle={toggleRail} />}
+        {railOn && building && <Suspense fallback={null}><FloorRail building={building} activeFloorId={floor?.id ?? null} slim={layout.rail === 'slim'} thumbKeyOf={(id) => keyFor(`floor:${id}`)} onPick={pickFloor} onToggle={toggleRail} /></Suspense>}
         <div className="hqMainStage">
           {props.scene}
           {stripOn && (slot ? createPortal(stripNode, slot) : stripNode)}
@@ -255,7 +261,7 @@ export function HqNavigation(props: HqNavigationProps) {
       {drawer === 'floors' && building && (
         <div className="hqDrawer start" role="dialog" aria-modal="false" aria-label={t('hqNav.drawer.floors')}>
           <button type="button" className="hqIconButton hqDrawerClose" onClick={closeDrawer} aria-label={t('hqNav.drawer.close')}><X aria-hidden="true" /></button>
-          <FloorRail building={building} activeFloorId={floor?.id ?? null} slim={false} drawer thumbKeyOf={(id) => keyFor(`floor:${id}`)} onPick={pickFloor} />
+          <Suspense fallback={null}><FloorRail building={building} activeFloorId={floor?.id ?? null} slim={false} drawer thumbKeyOf={(id) => keyFor(`floor:${id}`)} onPick={pickFloor} /></Suspense>
         </div>
       )}
       {drawer === 'side' && (

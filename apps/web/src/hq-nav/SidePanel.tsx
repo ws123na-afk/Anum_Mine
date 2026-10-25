@@ -1,5 +1,4 @@
 /** Right side of the scene: quick moves, the floor plan with its 2D/3D switch, and the people at their posts. */
-import { Calendar, CalendarDays, DoorOpen, Layers, Play, Users } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { STATUS_TONE } from '../lib/campusModel.ts';
 import type { HqView } from '../HqChrome';
@@ -105,4 +104,3 @@ export function PeopleList(props: { rows: readonly PersonRow[]; presenceKnown: b
   );
 }
 
-export const MOVE_ICONS = { office: <DoorOpen aria-hidden="true" />, tour: <Play aria-hidden="true" />, meetings: <Users aria-hidden="true" />, schedule: <CalendarDays aria-hidden="true" />, team: <Layers aria-hidden="true" />, calendar: <Calendar aria-hidden="true" /> };
