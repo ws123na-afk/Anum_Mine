@@ -24,7 +24,7 @@ export class ApiError extends Error {
   }
 }
 
-export interface ApiErrorDetail { location: string | null; message: string }
+export interface ApiErrorDetail { location: string | null; message: string; /** Stable machine code of the problem when the API sends one (for example ROOM_OVERLAP). */ type?: string | null }
 
 /** Build an ApiError from a status and a parsed JSON body (`{ error: {...} }` or FastAPI's `{ detail }`). */
 export function apiErrorFrom(status: number, body: unknown, prefix?: string): ApiError {
@@ -35,7 +35,7 @@ export function apiErrorFrom(status: number, body: unknown, prefix?: string): Ap
   const code = envelope && typeof envelope.code === 'string' ? envelope.code as ApiErrorCode : null;
   const correlation = envelope && typeof envelope.correlation_id === 'string' ? envelope.correlation_id : null;
   const details = envelope && Array.isArray(envelope.details)
-    ? envelope.details.filter(isRecord).filter((d) => typeof d.message === 'string').map((d) => ({ location: typeof d.location === 'string' ? d.location : null, message: d.message as string }))
+    ? envelope.details.filter(isRecord).filter((d) => typeof d.message === 'string').map((d) => ({ location: typeof d.location === 'string' ? d.location : null, message: d.message as string, type: typeof d.type === 'string' ? d.type : null }))
     : [];
   return new ApiError(status, code, message, correlation, prefix, details);
 }

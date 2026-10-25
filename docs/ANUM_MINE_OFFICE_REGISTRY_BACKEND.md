@@ -52,7 +52,7 @@ An existing production agent status or meeting status is not created by adding a
 - Existing repository checks and app CI must also pass. Database tests require the PostgreSQL test fixture and migration head.
 
 ## Office builder API (migration `0105_office_builder`)
-Data and API for the owner's office builder. The visual editor in the web app is a separate, later change; these endpoints are what it will call. Everything below is under `/api/v1/office-spaces`, needs PostgreSQL (memory mode answers 503) and runs in one RLS-scoped transaction with its audit record and its event.
+Data and API for the owner's office builder. The visual editor in the web app (section "Web builder" below) calls these endpoints. Everything below is under `/api/v1/office-spaces`, needs PostgreSQL (memory mode answers 503) and runs in one RLS-scoped transaction with its audit record and its event.
 
 ### Decisions (owner delegated, 25 October 2026)
 | Topic | Decision |
@@ -96,8 +96,8 @@ Expand only. `office_floors`: `width_m`, `depth_m`. `office_rooms`: `rotation` (
 ### Tests
 `tests/test_office_layout.py` (geometry rules, catalogue drift, request models), `tests/test_postgres_office_builder.py` (database role, atomic save, delete guards, copy, templates, audit values, event, team counts, member and cross tenant refusals). Contract types: `packages/contracts/src/officeBuilder.ts`.
 
-### Not in this change
-The web editor (drag, resize, snap, undo, Arabic strings), owner saved templates, a separate layout editor permission, idempotency keys on copy and template creation (the client id already makes a retry a 409), copying a whole floor, free angle rooms or polygons, walls and windows.
+### Not in the API
+Owner saved templates, a separate layout editor permission, idempotency keys on copy and template creation (the client id already makes a retry a 409), copying a whole floor, free angle rooms or polygons, walls and windows.
 
 ## Remaining gates (not production complete until all pass)
 1. Backend CI, database migration under non-owner app role, and PostgreSQL integration tests pass.
@@ -125,3 +125,24 @@ On PostgreSQL with the migration applied and an owner in the current workspace:
 9. Confirm audit log includes each successful mutation. Failed operations must leave no partial writes.
 
 **Merging policy:** This backend branch targets the office integration branch via a draft PR, never directly to main. The parent integration and production release still require owner authorization.
+
+### Web builder (`apps/web/src/hqBuilder/`)
+The owner's visual builder. Entry: headquarters, Manage spaces, **Open visual builder** (`OfficeSpaceLiveManager`). Help article: [Office builder](help/office-builder.md). It uses only the endpoints above plus the existing assignment endpoint; there is no new API and no browser storage of layouts.
+
+| Topic | How it works |
+|---|---|
+| Who edits | The role from `GET /api/v1/workspace-memberships/current`: only `owner` (the holder of `workspace:manage`) gets edit controls. Anyone else gets the same plan read only with the reason. If the role cannot be read, editing stays off. The server checks every write anyway, and a 403 is explained on screen. |
+| Draft | Moves, resizes, rotations, door side and desk positions are staged in memory (`draftModel.ts`). A dirty indicator shows the number of staged items. **Save layout** sends one `PUT /floors/{id}/layout` with only the changed rooms and desks, each with the revision it was loaded at. **Discard** drops the draft. Closing the page loses an unsaved draft on purpose. |
+| Undo and redo | A history of at most 100 steps; repeated key presses on one room within 0.7 seconds share a step. Control or Command with Z, Shift with Z, or Y. Revisions are kept outside the history, so an undo never brings back an old revision. |
+| Live checks | `geometry.ts` and `validate.ts` mirror `office_layout.py`: overlap (edges may touch), floor bounds, desk inside its room. A problem that involves a room being saved blocks the save; an old overlap between rooms nobody is saving is shown as a warning and never blocks, like the server. |
+| Rotate | Swaps width and depth around the room's centre (pulled back inside the floor when it fits), turns `rotation` and `door_side` a quarter turn clockwise, and turns the desks inside so they stay in the room, all in the same layout save. |
+| Immediate actions | Create from template, blank room, copy, delete, room details (`PATCH /rooms/{id}`), desk add, rename, delete, seat or unseat an agent, floor and building edits and deletes. Each merges into the draft without losing it. A blank room is created unplaced and given a free spot as a staged change. A template or copy gets a free spot computed from both the saved and the staged layout. Moving an agent between desks is an unseat then a seat, each with its desk revision. |
+| Stale revision | A 409 `STALE_REVISION` keeps the draft and shows **Reload and reapply my changes**: the latest records are loaded and each staged change is put back only where the server still has the version the draft started from; items someone else moved or deleted take the server's version and are listed (`rebase` in `draftModel.ts`). The owner reviews and saves again. |
+| Errors | `explain.ts` maps every stable `details[].type` code to a plain sentence in English and Arabic (overlap, out of bounds, desk outside room, no free space, taken names, blocked deletes with the server's list of what remains). A code the client does not know shows the server's own text. |
+| Team counts | `GET /rooms/{id}/team`; with no linked department or on any failure the panel says **Not connected**. |
+| Large floors | The plan is SVG; only a moved room redraws; validation sweeps along x; the room list is searchable and paged by 60. Tested with 500 rooms. |
+| Input | Mouse and touch drag (a touch moves a room only once it is selected, and the plan stops panning while something is selected), eight resize handles, 0.5, 1 or 2 metre snap or none. Keyboard: arrows move, Shift with arrows resizes, R rotates, square brackets cycle rooms, Control or Command with S saves; changes go to a polite live region. |
+| Tests | Unit: `apps/web/test/hqBuilderGeometry.test.ts`, `hqBuilderDraft.test.ts`, `hqBuilderApi.test.ts`. Browser: `apps/web/e2e/hq-builder.spec.ts` (main path, overlap, stale revision, permissions, keyboard, Arabic, 500 rooms, axe) and `hq-builder-responsive.spec.ts` (five viewports, touch). The API mock `e2e/support/hqBuilderApi.ts` applies the server's own rules. |
+
+Not built yet: other open browsers are not told live (the page does not subscribe to `office.layout_changed`; a change by someone else shows on save as a stale revision, or on **Reload from server**); alignment guides and rulers; walls, windows and free angle rooms; copying a whole floor; a separate layout editor permission (owner decision).
+
