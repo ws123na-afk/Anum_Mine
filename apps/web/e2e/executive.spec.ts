@@ -167,7 +167,7 @@ test('the dock: every quick action calls a real tool, and nothing without a tool
   const seen = await mockApi(page);
   await page.goto('/#executive');
   const dock = page.getByRole('group', { name: 'Quick actions' });
-  await expect(dock.getByRole('button')).toHaveCount(6);
+  await expect(dock.getByRole('button')).toHaveCount(7);
   for (const name of ['Show recent orders', 'Take me to my office', 'Show logistics activity']) await expect(page.getByRole('button', { name })).toHaveCount(0);
   await expect(page.getByRole('status').filter({ hasText: 'Ready' })).toBeVisible();
   await dock.getByRole('button', { name: 'List blocked work' }).click();

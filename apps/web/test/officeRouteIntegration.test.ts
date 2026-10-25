@@ -12,10 +12,13 @@ test('office hash opens the interactive tour and retains real operations panels'
   assert.equal(viewFromHash('#office-preview'), 'office');
   assert.equal(viewFromHash('#office'), 'office');
   assert.match(app, /view==='office'&&<OfficeTourView /);
-  for (const component of ['OfficeWorkstations', 'OfficeSpaceLiveManager', 'GuidedExecutiveTour']) {
+  for (const component of ['OfficeWorkstations', 'OfficeSpaceLiveManager']) {
     assert.ok(tour.includes('<' + component), component + ' not reachable from the concept preview');
     assert.ok(live.includes('<' + component), component + ' not reachable from the live office');
   }
+  // The guided visit is driven by the registry's real rooms (GET /executive-pa/tour): live office only.
+  assert.ok(live.includes('<GuidedExecutiveTour'), 'GuidedExecutiveTour not reachable from the live office');
+  assert.ok(!tour.includes('<GuidedExecutiveTour'), 'the concept preview has invented rooms and must not mount the guided visit');
   // The reception simulation invents hosts and rooms: it belongs to the concept preview only.
   assert.ok(tour.includes('<ReceptionOperations'), 'ReceptionOperations missing from the concept preview');
   assert.ok(!live.includes('ReceptionOperations'), 'ReceptionOperations must not be mounted by the live office');

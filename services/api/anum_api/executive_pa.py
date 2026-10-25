@@ -77,6 +77,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec("summarise_workspace", "read", "Summarise a workspace you may see", (Permission.TASK_READ,), "low", "automatic", "executive grants (GET /executive/overview rules) and the workspace's own APIs"),
         ToolSpec("list_blocked_work", "read", "List blocked work", (Permission.TASK_READ,), "low", "automatic", "GET /tasks"),
         ToolSpec("list_pending_approvals", "read", "List pending approvals", (Permission.APPROVAL_READ,), "low", "automatic", "GET /approvals"),
+        ToolSpec("daily_briefing", "read", "Brief me on today (approvals, blocked work, tasks due, runs, meetings, agents, cost)", (Permission.TASK_READ,), "low", "automatic", "GET /approvals, /tasks, /calendar/events, /agent-meetings, /agents and /model-budgets rules; facts only (pa_briefing.py)"),
         ToolSpec("propose_add_building", "read", "Propose a new building (an owner confirms it with a click)", (Permission.TASK_READ,), "low", "automatic", "builder API proposal; created only by an owner's click on POST /office/building-proposals/confirm"),
         ToolSpec("start_task", "write", "Start a task", (Permission.TASK_CREATE, Permission.TASK_RUN), "medium", "confirm_each", "POST /tasks then POST /tasks/{id}/run (ToolPolicy, autonomy, approvals)"),
         ToolSpec("delegate", "write", "Delegate work to an agent", (Permission.TASK_CREATE, Permission.TASK_RUN), "medium", "confirm_each", "POST /tasks with agent_id then run (agent profile, ToolPolicy, approvals)"),
@@ -106,6 +107,10 @@ class OpenPanelArgs(StrictBody):
 
 class SummariseArgs(StrictBody):
     workspace_id: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+
+
+class BriefingArgs(StrictBody):
+    lang: Literal["en", "ar"] = "en"
 
 
 class NoArgs(StrictBody):
@@ -139,6 +144,7 @@ ARGS: dict[str, type[StrictBody]] = {
     "summarise_workspace": SummariseArgs,
     "list_blocked_work": NoArgs,
     "list_pending_approvals": NoArgs,
+    "daily_briefing": BriefingArgs,
     "propose_add_building": ProposeBuildingArgs,
     "start_task": StartTaskArgs,
     "delegate": DelegateArgs,
@@ -259,6 +265,22 @@ def guided_tour(
         stops, status = [], "not_connected"
     _audit(repository, context, "tour", "typed", "success", status=status, stops=len(stops))
     return {"status": status, "stops": stops}
+
+
+@router.get("/briefing")
+def daily_briefing(
+    lang: Literal["en", "ar"] = "en",
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> dict:
+    """Today's briefing built from real records only (docs/ANUM_MINE_EXECUTIVE_PA.md#daily-briefing)."""
+    from .dependencies import require_permission
+    from .pa_briefing import build_briefing
+
+    require_permission(context, Permission.TASK_READ)
+    briefing = build_briefing(context, repository, utc_now(), lang)
+    _audit(repository, context, "daily_briefing", "typed", "success", sections=len(briefing["sections"]), reportable=briefing["reportable"])
+    return briefing
 
 
 def _result(status: str, **fields: Any) -> dict[str, Any]:
@@ -478,6 +500,11 @@ async def invoke_tool(
     elif spec.name == "summarise_workspace":
         args = cast(SummariseArgs, args)
         outcome = _summarise(context, repository, args)
+    elif spec.name == "daily_briefing":
+        from .pa_briefing import build_briefing
+
+        args = cast(BriefingArgs, args)
+        outcome = _result("ok", briefing=build_briefing(context, repository, utc_now(), args.lang))
     elif spec.name == "propose_add_building":
         from . import office_building_api
 

@@ -60,6 +60,7 @@ import { mailDomainsEn } from './mailDomains.en.ts';
 import { mailEn } from './mail.en.ts';
 import { callsEn } from './calls.en.ts';
 import { executiveEn } from './executive.en.ts';
+import { paBriefingEn } from './paBriefing.en.ts';
 import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
 import { pagesEn } from './pages.en.ts';
@@ -109,6 +110,7 @@ export const en = {
   ...mailEn,
   ...callsEn,
   ...executiveEn,
+  ...paBriefingEn,
   ...chatEn,
   ...setupEn,
   ...pagesEn,
