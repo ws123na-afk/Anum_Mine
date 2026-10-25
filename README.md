@@ -260,6 +260,7 @@ x-user-roles: owner,member
 Code should follow the contracts, boundaries, tenant model, and security expectations described in the documentation. Prototype shortcuts are acceptable only when they are isolated, named clearly, and replaced before production use.
 
 - [ANUM MINE virtual headquarters master plan](docs/ANUM_MINE_VIRTUAL_HEADQUARTERS_MASTER_PLAN.md)
+- [ANUM MINE visual reference and build plan (owner-approved concept renders, data-truth rules, workstreams)](docs/ANUM_MINE_VISUAL_REFERENCE.md)
 - [ANUM MINE persistent live meeting management API](docs/ANUM_MINE_LIVE_MEETING_MANAGEMENT_API.md)
 - [ANUM MINE live meeting room UI and room API](docs/ANUM_MINE_LIVE_MEETING_ROOM_UI.md)
 - [ANUM MINE live agent meetings foundation](docs/ANUM_MINE_LIVE_AGENT_MEETING_FOUNDATION.md)
