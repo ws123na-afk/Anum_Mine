@@ -36,6 +36,7 @@ import { HqFlowDock } from './HqFlowDock';
 import { HqTeamPanel } from './HqTeamPanel';
 import { useOfficeFlow } from './useOfficeFlow';
 import { OrgGapsPanel } from './hq-provisioning/OrgGapsPanel';
+import { AssignHost } from './hq-assign/AssignHost';
 // Loaded only when the owner opens it, so its code and styles stay out of the headquarters chunk (e2e/hq-performance.spec.ts budget).
 const StarterCampusDialog = lazy(() => import('./hq-starter-campus/StarterCampusDialog').then((m) => ({ default: m.StarterCampusDialog })));
 import { useProvisioningGaps } from './hq-provisioning/useProvisioning';
@@ -518,6 +519,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
         )}
       </div>
 
+      <AssignHost onAssigned={() => void flow.reload()} onNavigate={goTo}
+        seatedAgentIds={(rid) => new Set((registryBuilding?.floors ?? []).flatMap((f) => f.desks).filter((d) => d.roomId === rid && d.agentId).map((d) => d.agentId as string))} />
       {starterOpen && <Suspense fallback={null}><StarterCampusDialog onClose={() => setStarterOpen(false)}
         onCreated={() => { void controller.refresh(); void flow.reload(); void gaps.reload(); }} onOpenGaps={() => setOverlay('gaps')} /></Suspense>}
 
