@@ -1,0 +1,126 @@
+import { apiRequest } from './api';
+
+export type SalesStage = 'new' | 'qualifying' | 'qualified' | 'quoted' | 'negotiating' | 'won' | 'lost' | 'disqualified';
+export type SalesIntent = 'website' | 'mobile_app' | 'business_software' | 'ecommerce' | 'other';
+
+export interface SalesLead {
+  id: string;
+  contact_id: string;
+  company_name: string;
+  contact_name: string;
+  phone_e164: string | null;
+  intent: SalesIntent;
+  status: SalesStage;
+  revision: number;
+  language: 'ar' | 'en';
+  requirements: string;
+  budget_min: string | null;
+  budget_max: string | null;
+  currency: string;
+  assigned_to: string | null;
+  campaign_hint: string | null;
+  marketing_consent: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SalesOverview {
+  leads: number;
+  qualified: number;
+  quoted: number;
+  won: number;
+  lost: number;
+  by_intent: Record<string, number>;
+  scope: string;
+  revenue_estimate: string | null;
+}
+
+const BASE = '/api/v1/sales';
+const json = (method: string, body: unknown): RequestInit => ({method, body: JSON.stringify(body)});
+const id = (value: string) => encodeURIComponent(value);
+
+export const listSalesLeads = (status?: SalesStage): Promise<{items: SalesLead[]; count: number}> =>
+  apiRequest(`${BASE}/leads?limit=100${status ? `&status=${encodeURIComponent(status)}` : ''}`, {method: 'GET'});
+
+export const getSalesOverview = (): Promise<SalesOverview> => apiRequest(`${BASE}/overview`, {method: 'GET'});
+
+export const updateSalesLead = (lead: SalesLead, fields: Record<string, unknown>): Promise<SalesLead> =>
+  apiRequest(`${BASE}/leads/${id(lead.id)}`, json('PATCH', {expected_revision: lead.revision, ...fields}));
+
+export const transitionSalesLead = (lead: SalesLead, status: SalesStage): Promise<SalesLead> =>
+  apiRequest(`${BASE}/leads/${id(lead.id)}/transition`, json('POST', {expected_revision: lead.revision, status}));
+
+export const createSalesQuote = (
+  leadId: string, items: {description: string; amount: string}[], currency: string, terms: string
+): Promise<{id: string; total: string; currency: string; status: string; approval_required: boolean}> =>
+  apiRequest(`${BASE}/leads/${id(leadId)}/quotes`, json('POST', {items, currency, terms}));
+
+export const proposeSalesFollowup = (
+  leadId: string, dueAt: string, channel: string, purpose: string
+): Promise<{id: string; status: string; approval_required: boolean}> =>
+  apiRequest(`${BASE}/leads/${id(leadId)}/followups`, json('POST', {due_at: dueAt, channel, purpose}));
+
+export interface SalesHistory {
+  events: Array<{id:string; event:string; actor_id:string; status:string|null; occurred_at:string}>;
+  quotes: Array<{id:string; status:string; delivery_state?:string|null; currency:string; total:string; line_items:Array<{description:string;amount:string}>; terms:string; created_at:string}>;
+  followups: Array<{id:string; status:string; channel:string; purpose:string; due_at:string}>;
+}
+export const getSalesLeadHistory = (leadId: string): Promise<SalesHistory> =>
+  apiRequest(`${BASE}/leads/${id(leadId)}/history`, {method:'GET'});
+
+export interface SalesCampaignConversions {
+  source: string;
+  verified_attribution: boolean;
+  campaigns: Array<{campaign:string;leads:number;qualified:number;won:number;lost:number}>;
+}
+export interface SalesOperationsQueue {
+  quotes: Array<{id:string;lead_id:string;status:string;total:string;currency:string;approval_id:string|null}>;
+  followups: Array<{id:string;lead_id:string;status:string;due_at:string;channel:string;purpose:string;approval_id:string|null;template_name?:string|null;last_error?:string|null;sent_wamid?:string|null}>;
+  delivery_enabled:boolean;
+  execution_enabled:boolean;
+}
+export const getSalesCampaignConversions = ():Promise<SalesCampaignConversions> =>
+  apiRequest(`${BASE}/campaign-conversions`, {method:'GET'});
+export const getSalesOperations = ():Promise<SalesOperationsQueue> =>
+  apiRequest(`${BASE}/operations`, {method:'GET'});
+
+export const requestSalesQuoteDelivery = (
+  leadId: string, quoteId: string
+): Promise<{quote_id:string;status:string;outcome:string;message_id:string;approval_id:string|null;detail:string}> =>
+  apiRequest(`${BASE}/leads/${id(leadId)}/quotes/${id(quoteId)}/request-whatsapp-delivery`,
+    {method:'POST',body:JSON.stringify({})});
+
+export interface SalesAutomationSettings {
+  enabled:boolean;paused:boolean;max_sends_per_day:number;
+  updated_by:string|null;updated_at:string|null;
+}
+export const getSalesAutomationSettings = ():Promise<SalesAutomationSettings> =>
+  apiRequest(`${BASE}/automation-settings`,{method:'GET'});
+export const saveSalesAutomationSettings = (values:Pick<SalesAutomationSettings,'enabled'|'paused'|'max_sends_per_day'>):Promise<SalesAutomationSettings> =>
+  apiRequest(`${BASE}/automation-settings`,{method:'PUT',body:JSON.stringify(values)});
+export const approveSalesFollowup = (
+  leadId:string,followupId:string,templateName:string,language:string,parameters:string[]
+):Promise<{id:string;status:string;payload_hash:string}> =>
+  apiRequest(`${BASE}/leads/${id(leadId)}/followups/${id(followupId)}/approve`,{
+    method:'POST',body:JSON.stringify({template_name:templateName,template_language:language,parameters}),
+  });
+export const cancelSalesFollowup = (leadId:string,followupId:string):Promise<{id:string;status:string}> =>
+  apiRequest(`${BASE}/leads/${id(leadId)}/followups/${id(followupId)}/cancel`,{
+    method:'POST',body:JSON.stringify({}),
+  });
+export const recordSalesConsent = (leadId:string,granted:boolean,note:string,evidenceMessageId?:string):Promise<{lead_id:string;marketing_consent:boolean}> =>
+  apiRequest(`${BASE}/leads/${id(leadId)}/consent`,{
+    method:'POST',body:JSON.stringify({granted,evidence_note:note,evidence_message_id:evidenceMessageId||null}),
+  });
+export const getSalesConsentHistory = (leadId:string):Promise<{items:Array<{granted:boolean;recorded_by:string;recorded_at:string;evidence_note:string;evidence_message_id:string|null}>}> =>
+  apiRequest(`${BASE}/leads/${id(leadId)}/consent-history`,{method:'GET'});
+
+export interface SalesAutomationReadiness {
+  checks:Array<{id:string;ok:boolean;label:string}>;
+  configuration_ready:boolean;
+  live_provider_verified:boolean;
+  last_webhook_at:string|null;
+  note:string;
+}
+export const getSalesAutomationReadiness=():Promise<SalesAutomationReadiness> =>
+  apiRequest(`${BASE}/automation-readiness`,{method:'GET'});
