@@ -62,6 +62,10 @@ import { ExecutivePaDock } from './ExecutivePanel';
 
 The PA moves the view only through `hqCommands.navigateTo`, so the dock needs no other access to the scene. The tour list comes from `GET /api/v1/executive-pa/tour`; until that endpoint is available the built-in Guided visit (Office tools) builds its stops from the rooms of the open floor.
 
+## History panel
+
+`HqHistoryPanel` (docs: [ANUM_MINE_HQ_HISTORY_PANEL.md](ANUM_MINE_HQ_HISTORY_PANEL.md)) is mounted by `HeadquartersLive` and opened from three places: Office tools, History; a "Room history" button under the room panel and an "Agent history" button under the workstation panel (both also when `renderRoomPanel` or `renderWorkstationPanel` replaces the built-in panel); and `HqTeamPanel`'s optional `onHistory({ agentId, name })`, which adds a "History of NAME" link to each team card. Another workstream that opens the history passes a `HistoryLaunch` (`{ id, scope, tab? }`, scope `office`, `room`, `agent` or `correlation`, see `lib/hqHistory.ts`); the panel needs the room list (`id`, `label`, `deskIds`), the agent list and an id to name map from the caller. It is read only and uses the same permission as `/api/v1/office-history`.
+
 ## Asset modules
 
 Three standalone module sets under `apps/web/src/hqAssets/` build the scene's pieces. They are pure (no DOM, no three.js), take a `MeshBuilder` or return a mesh, are seeded, and never encode a name, count or status. `lib/campusScene.ts` and `lib/buildingScene.ts` call them.

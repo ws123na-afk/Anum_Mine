@@ -13,10 +13,12 @@ export interface HqTeamPanelProps {
   onNavigate: (hash: string) => void;
   onOpenSpaces: () => void;
   onFocusRoom?: (roomId: string) => void;
+  /** Opens the office history for one team member (the history panel). */
+  onHistory?: (member: { agentId: string; name: string }) => void;
   heading?: string;
 }
 
-export function HqTeamPanel({ roomId, floorId, buildingId, refreshKey, onNavigate, onOpenSpaces, onFocusRoom, heading }: HqTeamPanelProps) {
+export function HqTeamPanel({ roomId, floorId, buildingId, refreshKey, onNavigate, onOpenSpaces, onFocusRoom, onHistory, heading }: HqTeamPanelProps) {
   useLocale();
   const { team, status, error } = useOfficeTeam({ roomId, floorId, buildingId }, refreshKey);
   const title = heading ?? (roomId ? t('hqTeam.scope.room') : t('hqTeam.scope.building'));
@@ -25,19 +27,19 @@ export function HqTeamPanel({ roomId, floorId, buildingId, refreshKey, onNavigat
     {status === 'loading' && <p className="hqFlowNote" role="status">{t('hqTeam.loading')}</p>}
     {status === 'denied' && <p className="hqFlowNote" role="alert">{t('hqTeam.denied')}</p>}
     {status === 'error' && <p className="hqFlowNote" role="alert">{t('hqTeam.error', { detail: error })}</p>}
-    {team && status !== 'denied' && <TeamBody team={team} onNavigate={onNavigate} onOpenSpaces={onOpenSpaces} onFocusRoom={onFocusRoom} showRoom={!roomId} />}
+    {team && status !== 'denied' && <TeamBody team={team} onNavigate={onNavigate} onOpenSpaces={onOpenSpaces} onFocusRoom={onFocusRoom} onHistory={onHistory} showRoom={!roomId} />}
   </section>;
 }
 
-function TeamBody({ team, onNavigate, onOpenSpaces, onFocusRoom, showRoom }: {
-  team: OfficeTeam; onNavigate: (hash: string) => void; onOpenSpaces: () => void; onFocusRoom?: (roomId: string) => void; showRoom: boolean;
+function TeamBody({ team, onNavigate, onOpenSpaces, onFocusRoom, onHistory, showRoom }: {
+  team: OfficeTeam; onNavigate: (hash: string) => void; onOpenSpaces: () => void; onFocusRoom?: (roomId: string) => void; onHistory?: (member: { agentId: string; name: string }) => void; showRoom: boolean;
 }) {
   return <>
     {team.members.length === 0 ? <div className="hqFlowNote">
       <p>{t('hqTeam.empty')}</p>
       <button type="button" onClick={onOpenSpaces}>{t('hqTeam.emptyAction')}</button>
     </div> : <ul className="hqTeamList" aria-label={t('hqTeam.region')}>
-      {team.members.map((m) => <MemberCard key={m.agent_id} member={m} onNavigate={onNavigate} onFocusRoom={onFocusRoom} showRoom={showRoom} />)}
+      {team.members.map((m) => <MemberCard key={m.agent_id} member={m} onNavigate={onNavigate} onFocusRoom={onFocusRoom} onHistory={onHistory} showRoom={showRoom} />)}
     </ul>}
     {team.counts.vacant_desks > 0 && <p className="hqFlowNote">{t('hqTeam.vacant', { count: team.counts.vacant_desks })}</p>}
     {team.hidden_assignments > 0 && <p className="hqFlowNote">{t('hqTeam.hidden', { count: team.hidden_assignments })}</p>}
@@ -50,8 +52,8 @@ function TeamBody({ team, onNavigate, onOpenSpaces, onFocusRoom, showRoom }: {
   </>;
 }
 
-function MemberCard({ member: m, onNavigate, onFocusRoom, showRoom }: {
-  member: OfficeTeamMember; onNavigate: (hash: string) => void; onFocusRoom?: (roomId: string) => void; showRoom: boolean;
+function MemberCard({ member: m, onNavigate, onFocusRoom, onHistory, showRoom }: {
+  member: OfficeTeamMember; onNavigate: (hash: string) => void; onFocusRoom?: (roomId: string) => void; onHistory?: (member: { agentId: string; name: string }) => void; showRoom: boolean;
 }) {
   const state = (['working', 'queued', 'meeting', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'].includes(m.state) ? m.state : 'unknown');
   const role = m.department ?? t('hqTeam.noRole');
@@ -78,6 +80,7 @@ function MemberCard({ member: m, onNavigate, onFocusRoom, showRoom }: {
     <div className="hqTeamActions">
       {showRoom && onFocusRoom && <button type="button" className="hqLinkButton" onClick={() => onFocusRoom(m.desk.room_id)}>{m.desk.room_name}</button>}
       <button type="button" className="hqLinkButton" onClick={() => onNavigate('#agents')}>{t('hqTeam.openAgent')}</button>
+      {onHistory && <button type="button" className="hqLinkButton" onClick={() => onHistory({ agentId: m.agent_id, name: m.name })}>{t('hqHist.launch.member', { name: m.name })}</button>}
     </div>
   </li>;
 }
