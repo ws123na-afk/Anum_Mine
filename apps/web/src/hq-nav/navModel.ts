@@ -121,8 +121,10 @@ export function cardDensities(
 }
 
 /** Tags for a campus card from real data only: the building type (when an owner set it), floors and rooms, and (open building) departments. */
-export function cardTags(b: CampusBuilding, departments: readonly string[], limit = 3): Array<{ kind: 'type' | 'floors' | 'rooms' | 'department'; value: string | number }> {
-  const tags: Array<{ kind: 'type' | 'floors' | 'rooms' | 'department'; value: string | number }> = [];
+export function cardTags(b: CampusBuilding, departments: readonly string[], limit = 3): Array<{ kind: 'type' | 'workspace' | 'floors' | 'rooms' | 'department'; value: string | number }> {
+  const tags: Array<{ kind: 'type' | 'workspace' | 'floors' | 'rooms' | 'department'; value: string | number }> = [];
+  // A registry building says which workspace it belongs to and then how big it is; the workspace's own building says what it is.
+  if (b.workspaceName) { tags.push({ kind: 'workspace', value: b.workspaceName }); if (b.floors) tags.push({ kind: 'floors', value: b.floors }); return tags.slice(0, limit); }
   if (b.kindKnown !== false) tags.push({ kind: 'type', value: b.kind });
   for (const d of departments.slice(0, 1)) { if (tags.length >= limit) break; tags.push({ kind: 'department', value: d }); }
   if (b.floors && tags.length < limit) tags.push({ kind: 'floors', value: b.floors });

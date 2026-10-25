@@ -34,6 +34,8 @@ export type HqNavigationProps = Readonly<{
   campus: Campus | null;
   tenantId: string;
   workspaceId: string;
+  /** The campus key of the open building: the workspace id, or workspace and registry building when the registry has several. */
+  openKey: string;
   selectedBuildingId: string | null;
   building: SceneBuilding | null;
   floor: SceneFloor | null;
@@ -120,8 +122,8 @@ export function HqNavigation(props: HqNavigationProps) {
   }, [navOn, props.webglOk, view, placeNow, props.night, handles]);
 
   // ---- quick views ------------------------------------------------------------------------------------------
-  const stops = useMemo(() => stripStops(campus, building, props.workspaceId), [campus, building, props.workspaceId]);
-  const currentId = currentStopId({ level, selectedBuildingId: props.selectedBuildingId, selectedRoomId: props.selectedRoomId, currentWorkspaceId: props.workspaceId });
+  const stops = useMemo(() => stripStops(campus, building, props.openKey), [campus, building, props.openKey]);
+  const currentId = currentStopId({ level, selectedBuildingId: props.selectedBuildingId, selectedRoomId: props.selectedRoomId, currentWorkspaceId: props.openKey });
   const stopKey = useCallback((stop: StripStop) => keyFor(stop.id), [keyFor]);
 
   const goStop = useCallback((stop: StripStop) => {
@@ -134,7 +136,7 @@ export function HqNavigation(props: HqNavigationProps) {
     } else if (stop.kind === 'building') {
       if (!stop.accessible) return;
       if (level === 'campus' && currentId === stop.id) { props.onEnter(stop.workspaceId); return; }
-      if (stop.workspaceId !== props.workspaceId && level === 'building') { props.onEnter(stop.workspaceId); return; }
+      if (stop.workspaceId !== props.openKey && level === 'building') { props.onEnter(stop.workspaceId); return; }
       if (level === 'building') props.onShowCampus();
       props.onSelectBuilding(stop.workspaceId);
       handles.bridge.flyToFrame(stop.workspaceId);
@@ -164,7 +166,7 @@ export function HqNavigation(props: HqNavigationProps) {
   const people = useMemo(() => peopleAtPosts(floor, props.presence), [floor, props.presence]);
   const moves: Move[] = useMemo(() => {
     const list: Move[] = [];
-    const mine = campus?.buildings.find((b) => b.workspace_id === props.workspaceId && b.accessible);
+    const mine = campus?.buildings.find((b) => b.workspace_id === props.openKey && b.accessible);
     if (mine) list.push({ id: 'office', label: t('hqNav.moves.myOffice'), icon: MOVE_ICONS.office, run: () => { void hqCommands.navigateTo({ building: mine.workspace_id }); } });
     if (building?.floors.some((f) => f.rooms.length > 0)) list.push({ id: 'tour', label: t('hqNav.moves.tour'), icon: MOVE_ICONS.tour, run: () => props.onOverlay('tour') });
     list.push({ id: 'meetings', label: t('hqNav.moves.meetings'), icon: MOVE_ICONS.meetings, run: () => props.onOverlay('agentMeetings') });
@@ -174,10 +176,10 @@ export function HqNavigation(props: HqNavigationProps) {
   }, [campus, building, props]);
   const suggestions = useMemo(() => {
     const out: Array<{ id: string; label: string; target: { building?: string; room?: string } }> = [];
-    for (const b of (campus?.buildings ?? []).filter((x) => x.accessible && !x.archived && x.workspace_id !== props.workspaceId).slice(0, 3)) out.push({ id: `b:${b.workspace_id}`, label: t('hqNav.moves.takeTo', { name: b.name }), target: { building: b.workspace_id } });
+    for (const b of (campus?.buildings ?? []).filter((x) => x.accessible && !x.archived && x.workspace_id !== props.openKey).slice(0, 3)) out.push({ id: `b:${b.workspace_id}`, label: t('hqNav.moves.takeTo', { name: b.name }), target: { building: b.workspace_id } });
     if (level === 'building') for (const s of roomStops(building, 3)) if (s.kind === 'room') out.push({ id: `r:${s.roomId}`, label: t('hqNav.moves.takeTo', { name: s.label }), target: { room: s.roomId } });
     return out;
-  }, [campus, building, level, props.workspaceId]);
+  }, [campus, building, level, props.openKey]);
 
   const openDrawer = (which: Exclude<Drawer, null>) => (event: React.MouseEvent<HTMLElement>) => { opener.current = event.currentTarget; setDrawer(which); };
   const closeDrawer = useCallback(() => { setDrawer(null); opener.current?.focus(); }, []);

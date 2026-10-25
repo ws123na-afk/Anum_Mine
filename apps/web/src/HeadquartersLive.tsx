@@ -21,7 +21,8 @@ import { OfficeSpaceLiveManager } from './OfficeSpaceLiveManager';
 import { OfficeWorkstations } from './OfficeWorkstations';
 import { ReceptionOperations } from './ReceptionOperations';
 import * as api from './lib/api.ts';
-import { campusTotals, type Campus, type CampusBuildingKind } from './lib/campusModel.ts';
+import { campusTotals, workspaceOf, type Campus, type CampusBuildingKind } from './lib/campusModel.ts';
+import { expandCampus } from './lib/campusRegistry.ts';
 import { HeadquartersController, adaptOfficeRegistry, type OfficeState } from './lib/headquartersController.ts';
 import type { AgentEvidence, RoomGeometry, SceneDesk } from './lib/headquartersProjection.ts';
 import { loadCampus, type CampusSource } from './lib/hqCampusLoader.ts';
@@ -232,10 +233,14 @@ export function HeadquartersLive(props: HeadquartersProps) {
     const buildings = loaded.campus.buildings.map((b) => (b.workspace_id === scope.workspaceId && (loaded.source === 'memberships' || !b.totals)
       ? { ...b, floors: b.floors ?? floorCount, totals: b.totals ?? localTotals, presence_verified_at: b.presence_verified_at ?? verifiedAt }
       : b));
-    return { ...loaded.campus, buildings, totals: campusTotals(buildings).totals };
-  }, [loaded, localTotals, floorCount, verifiedAt, scope.workspaceId]);
+    const merged: Campus = { ...loaded.campus, buildings, totals: campusTotals(buildings).totals };
+    // A workspace whose office registry holds several buildings shows each of them on the campus (never another workspace's registry).
+    return expandCampus(merged, scope.workspaceId, projection?.buildings ?? [], presenceIndex);
+  }, [loaded, localTotals, floorCount, verifiedAt, scope.workspaceId, projection, presenceIndex]);
 
-  const currentBuilding = campus?.buildings.find((b) => b.workspace_id === scope.workspaceId) ?? null;
+  // The campus building that is open: the registry building when the workspace has several, else the workspace's own building.
+  const currentBuilding = campus?.buildings.find((b) => workspaceOf(b) === scope.workspaceId && (!b.registryBuildingId || b.registryBuildingId === registryBuilding?.id)) ?? null;
+  const openKey = currentBuilding?.workspace_id ?? scope.workspaceId;
   const avatars = useMemo(() => (presenceList ?? []).filter((p) => p.name && !p.agentId.startsWith('desk:')).slice(0, 4).map((p) => initialsOf(p.name)), [presenceList]);
   const departments = useMemo(() => departmentsOf((presenceList ?? []).filter((p) => !p.agentId.startsWith('desk:')).map((p) => p.role)), [presenceList]);
 
@@ -280,15 +285,17 @@ export function HeadquartersLive(props: HeadquartersProps) {
     }
   }, []);
 
-  const enterBuilding = useCallback((workspaceId: string) => {
+  const enterBuilding = useCallback((key: string) => {
+    const b = campus?.buildings.find((x) => x.workspace_id === key);
+    const workspaceId = b ? workspaceOf(b) : key;
     if (workspaceId === api.currentScope().workspaceId) {
+      if (b?.registryBuildingId && b.registryBuildingId !== registryBuilding?.id) controller.selectBuilding(b.registryBuildingId);
       setLevel('building'); setRoomId(null); setAgentId(null); setAgentDesk(null);
       setView((v) => (v === 'list' && webglOk ? '3d' : v));
       return;
     }
-    const b = campus?.buildings.find((x) => x.workspace_id === workspaceId);
     void switchTo(workspaceId, b?.tenant_id ?? null, { building: workspaceId });
-  }, [campus, switchTo, webglOk]);
+  }, [campus, switchTo, webglOk, controller, registryBuilding?.id]);
 
   const roomRef = useCallback((room: RoomGeometry): HqRoomRef => {
     const f = registryBuilding?.floors.find((x) => x.id === room.floorId);
@@ -336,7 +343,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const navScene = useMemo(() => {
     if (!registryBuilding) return null;
     return {
-      workspaceId: scope.workspaceId,
+      workspaceId: scope.workspaceId, buildingId: registryBuilding.id,
       floors: registryBuilding.floors.map((f) => ({ id: f.id, level: f.level, name: f.name, rooms: f.rooms.map((r) => ({ id: r.id, label: r.label })) })),
       agents: (presenceList ?? []).filter((p) => !p.agentId.startsWith('desk:')).map((p) => {
         const desk = registryBuilding.floors.flatMap((f) => f.desks).find((d) => d.agentId === p.agentId);
@@ -356,6 +363,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
       return { ok: true, applied: { workspaceId: res.workspaceId, floorId: null, roomId: null, agentId: null } };
     }
     setLevel('building');
+    if (res.buildingId && res.buildingId !== registryBuilding?.id) controller.selectBuilding(res.buildingId);
     if (res.floorId && res.floorId !== floor?.id) controller.selectFloor(res.floorId);
     setRoomId(res.roomId); setAgentId(res.agentId);
     if (res.roomId) {
@@ -467,7 +475,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
       <div className="hqMain">
         <HqNavigation
           handles={navHandles} level={level} view={effectiveView} webglOk={webglOk} night={night} campus={campus}
-          tenantId={scope.tenantId} workspaceId={scope.workspaceId} selectedBuildingId={campusPick}
+          tenantId={scope.tenantId} workspaceId={scope.workspaceId} openKey={openKey} selectedBuildingId={campusPick}
           building={registryBuilding} floor={floor} selectedRoomId={roomId} presence={presenceIndex}
           onView={(v) => { if (v === '3d' && !webglOk) return; setView(v); }}
           onShowCampus={() => setLevel('campus')} onSelectBuilding={setCampusPick} onEnter={enterBuilding} onFloor={goFloor}
@@ -485,7 +493,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           {campus && webglOk && effectiveView !== 'list' && level === 'campus' && (
             <CampusView
               campus={campus} unreported={unreported} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
-              currentWorkspaceId={scope.workspaceId} avatars={avatars} departments={departments} nav={navHandles} selectedId={campusPick} onSelect={setCampusPick} onEnter={enterBuilding}
+              currentWorkspaceId={openKey} avatars={avatars} departments={departments} nav={navHandles} selectedId={campusPick} onSelect={setCampusPick} onEnter={enterBuilding}
               onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight} onSaveProfile={saveProfile}
             />
           )}
@@ -498,7 +506,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           {campus && webglOk && effectiveView !== 'list' && level === 'building' && (registryBuilding && floor ? (
             <BuildingView
               flow={{ snapshot: flow.snapshot, batch: flow.batch, onPickRoom: (id) => { setRoomFilter(id); setFlowOpen(true); } }}
-              workspaceName={currentBuilding?.name ?? scope.workspaceId} kindLabel={t(`hq.kind.${buildingKind}` as MessageKey)}
+              workspaceName={currentBuilding?.name ?? scope.workspaceId} kindLabel={currentBuilding?.registryBuildingId ? (currentBuilding.workspaceName ?? '') : t(`hq.kind.${buildingKind}` as MessageKey)}
               buildings={projection?.buildings ?? []} building={registryBuilding} floor={floor}
               presence={presenceIndex} unreported={unreported} verifiedAt={verifiedAt}
               liveMeetings={meetings ? meetings.liveMeetings : null} liveMeetingRoomIds={props.liveMeetingRoomIds ?? NO_ROOMS}

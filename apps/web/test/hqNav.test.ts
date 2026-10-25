@@ -58,6 +58,20 @@ test('card density: all full up to six, then pinned and busiest stay full, the r
   assert.equal(cardDensities(crowded, { selectedId: 'c19', currentId: 'c18' }).get('c19'), 'full');
 });
 
+test('card density on a phone: two full, a few compact, the rest dots', () => {
+  const many = Array.from({ length: 13 }, (_, i) => cb(`m${i}`, { totals: { ...cb('x').totals!, agents: i } }));
+  const d = cardDensities(many, { selectedId: null, currentId: 'm0' }, 2, 6);
+  assert.equal([...d.values()].filter((x) => x === 'full').length, 2);
+  assert.equal([...d.values()].filter((x) => x === 'compact').length, 4);
+  assert.equal([...d.values()].filter((x) => x === 'dot').length, 7);
+  assert.equal(d.get('m0'), 'full');
+});
+
+test('card tags: a registry building names its workspace, then its floors', () => {
+  const tags = cardTags(cb('b', { workspaceName: 'Home', floors: 3, rooms: 9, kindKnown: false }), ['Finance']);
+  assert.deepEqual(tags, [{ kind: 'workspace', value: 'Home' }, { kind: 'floors', value: 3 }]);
+});
+
 test('card tags come from real fields only', () => {
   assert.deepEqual(cardTags(cb('a', { kindKnown: false, floors: null }), []), []);
   assert.deepEqual(cardTags(cb('a', { rooms: 7 }), ['Finance']).map((t) => t.kind), ['type', 'department', 'floors']);
@@ -129,4 +143,44 @@ test('layout by width: rail and side panel become slim, hidden or drawers, and t
   assert.equal(layoutFor(1366, 'open', null).rail, 'full');
   assert.equal(layoutFor(700, 'open', 'open').rail, 'drawer');
   assert.equal(layoutFor(1440, null, 'closed').side, 'hidden');
+});
+
+test('a workspace with several registry buildings draws each; other workspaces stay as they are', async () => {
+  const { expandCampus, registryKey } = await import('../src/lib/campusRegistry.ts');
+  const { workspaceOf } = await import('../src/lib/campusModel.ts');
+  const names = ['ANUM HQ', 'Commerce', 'Tyre', 'Corporate', 'Knowledge', 'Ventures', 'Personal', 'Career'];
+  const registry = names.map((n, i): SceneBuilding => building([floor(`f${i}`, 0, [room(`r${i}`, 'office', 0, 0, `${n} Office`)], i === 0 ? [desk('d1', `r0`, 'a1', 'Ann'), desk('d2', 'r0', 'a2', 'Bo')] : [])]) && ({ id: `b${i}`, name: n, timezone: 'UTC', floors: [floor(`f${i}`, 0, [room(`r${i}`, 'office', 0, 0, `${n} Office`)], i === 0 ? [desk('d1', 'r0', 'a1', 'Ann'), desk('d2', 'r0', 'a2', 'Bo')] : [])] }));
+  const campus: Campus = { buildings: [cb('w1', { name: 'Home' }), cb('w2', { name: 'Other' })], totals: null, generated_at: '' };
+  const presence = indexPresence([{ agentId: 'a1', name: 'Ann', role: 'Support', status: 'working', taskTitles: [], observedAt: '' }]);
+  const out = expandCampus(campus, 'w1', registry, presence);
+  assert.equal(out.buildings.length, 9);
+  const keys = out.buildings.map((b) => b.workspace_id);
+  assert.equal(new Set(keys).size, 9);
+  assert.ok(keys.includes('w2'), 'the other workspace is untouched');
+  assert.ok(out.buildings.find((b) => b.workspace_id === 'w2')?.registryBuildingId === undefined);
+  const hq = out.buildings.find((b) => b.registryBuildingId === 'b0')!;
+  assert.equal(hq.workspace_id, registryKey('w1', 'b0'));
+  assert.equal(workspaceOf(hq), 'w1');
+  assert.equal(hq.workspaceName, 'Home');
+  assert.equal(hq.kindKnown, false);
+  assert.equal(hq.totals?.agents, 2);
+  assert.equal(hq.totals?.working, 1);
+  assert.equal(hq.totals?.unknown, 1, 'an assigned agent without a presence record is unknown, not idle');
+  assert.deepEqual(hq.people, ['A', 'B']);
+  assert.equal(out.buildings.find((b) => b.registryBuildingId === 'b3')?.totals?.agents, 0);
+  // Without presence the count is unavailable, not zero.
+  assert.equal(expandCampus(campus, 'w1', registry, null).buildings.find((b) => b.registryBuildingId === 'b0')?.totals, null);
+  // One registry building (or none) is the workspace building as before; an inaccessible workspace is never expanded.
+  assert.equal(expandCampus(campus, 'w1', registry.slice(0, 1), presence), campus);
+  assert.equal(expandCampus(campus, 'w1', [], presence), campus);
+  assert.equal(expandCampus({ ...campus, buildings: [cb('w1', { accessible: false })] }, 'w1', registry, presence).buildings.length, 1);
+});
+
+test('a registry building resolves by name to the open workspace, another workspace is a switch', async () => {
+  const { resolveNavTarget } = await import('../src/lib/hqExtensions.ts');
+  const campus: Campus = { buildings: [cb('w1~b0', { name: 'ANUM HQ', realWorkspaceId: 'w1', registryBuildingId: 'b0' }), cb('w1~b1', { name: 'Tyre', realWorkspaceId: 'w1', registryBuildingId: 'b1' }), cb('w2', { name: 'Other' })], totals: null, generated_at: '' };
+  const open = { workspaceId: 'w1', buildingId: 'b0', floors: [{ id: 'f0', level: 0, name: 'Ground', rooms: [{ id: 'r0', label: 'Lobby' }] }], agents: [] };
+  assert.deepEqual(resolveNavTarget({ building: 'Tyre' }, campus, open), { kind: 'apply', workspaceId: 'w1', buildingId: 'b1', floorId: null, roomId: null, agentId: null });
+  assert.deepEqual(resolveNavTarget({ building: 'ANUM HQ', room: 'Lobby' }, campus, open), { kind: 'apply', workspaceId: 'w1', buildingId: 'b0', floorId: 'f0', roomId: 'r0', agentId: null });
+  assert.deepEqual(resolveNavTarget({ building: 'Other' }, campus, open), { kind: 'switch', workspaceId: 'w2' });
 });

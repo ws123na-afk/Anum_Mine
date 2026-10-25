@@ -58,10 +58,13 @@ export function FloorPlan(props: { floor: SceneFloor | null; selectedRoomId: str
               aria-label={t('hqNav.plan.room', { name: r.label, kind: t(`hq.roomKind.${r.kind}` as MessageKey) })} aria-pressed={r.id === props.selectedRoomId}
               onClick={() => props.onRoom(r.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); props.onRoom(r.id); } }}>
               <rect x={r.x} y={r.y} width={r.w} height={r.h} rx="1.2" />
-              {r.w > 14 && r.h > 7 && <text x={r.x + r.w / 2} y={r.y + r.h / 2} textAnchor="middle" dominantBaseline="middle" aria-hidden="true">{r.label.length > Math.floor(r.w / 2.4) ? r.label.slice(0, Math.max(3, Math.floor(r.w / 2.4) - 1)) + '.' : r.label}</text>}
             </g>
           ))}
           {plan.desks.map((d) => <circle key={d.id} cx={d.x} cy={d.y} r="1.1" className={d.assigned ? 'hqPlanDesk assigned' : 'hqPlanDesk'} aria-hidden="true" />)}
+          {plan.rooms.filter((r) => r.w > 14 && r.h > 7).map((r) => {
+            const fit = Math.max(3, Math.floor(r.w / 2.3));
+            return <text key={r.id} className="hqPlanLabel" x={r.x + r.w / 2} y={r.y + 3.2} textAnchor="middle" aria-hidden="true">{r.label.length > fit ? r.label.slice(0, fit - 1) + '\u2026' : r.label}</text>;
+          })}
         </svg>
       )}
     </section>

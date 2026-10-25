@@ -17,6 +17,7 @@ import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
+import { useNavLayout } from './hq-nav/useNavLayout.ts';
 import { cardDensities, cardTags, type CardDensity } from './hq-nav/navModel.ts';
 
 const KIND_ICON: Record<CampusBuildingKind, ReactElement> = {
@@ -125,7 +126,9 @@ export function CampusView(props: CampusViewProps) {
     halos: scene.halos,
   }), [scene, byId]);
 
-  const density = useMemo(() => cardDensities(campus.buildings, { selectedId, currentId: props.currentWorkspaceId }), [campus.buildings, selectedId, props.currentWorkspaceId]);
+  // A phone-sized stage has room for two full cards and a handful of compact ones.
+  const compact = useNavLayout().layout.compact;
+  const density = useMemo(() => (compact ? cardDensities(campus.buildings, { selectedId, currentId: props.currentWorkspaceId }, 2, 6) : cardDensities(campus.buildings, { selectedId, currentId: props.currentWorkspaceId })), [campus.buildings, selectedId, props.currentWorkspaceId, compact]);
   const labels: StageLabel[] = useMemo(() => {
     const list: StageLabel[] = scene.buildings.map((b) => {
       const building = byId.get(b.workspaceId)!;
@@ -133,9 +136,9 @@ export function CampusView(props: CampusViewProps) {
         id: b.workspaceId, anchor: b.anchor, priority: b.workspaceId === selectedId ? 0 : 1,
         node: (
           <BuildingCard
-            building={building} selected={b.workspaceId === selectedId} current={b.workspaceId === props.currentWorkspaceId}
-            avatars={b.workspaceId === props.currentWorkspaceId ? props.avatars : []}
-            density={density.get(b.workspaceId) ?? 'full'} departments={b.workspaceId === props.currentWorkspaceId ? props.departments ?? [] : []}
+            building={building} selected={b.workspaceId === selectedId} current={b.workspaceId === props.currentWorkspaceId || building.registryBuildingId !== undefined}
+            avatars={building.people ?? (b.workspaceId === props.currentWorkspaceId ? props.avatars : [])}
+            density={density.get(b.workspaceId) ?? 'full'} departments={building.departments ?? (b.workspaceId === props.currentWorkspaceId ? props.departments ?? [] : [])}
             onActivate={() => activate(b.workspaceId)} onHover={(on) => setHover(on ? b.workspaceId : null)}
           />
         ),
@@ -202,7 +205,7 @@ export function CampusView(props: CampusViewProps) {
       </div>
       {selected && (
         <aside className="hqOverlay hqOverlayTopLeft hqPanel hqDetail" aria-label={t('hq.detail.label', { name: selected.name })}>
-          <BuildingDetail building={selected} current={selected.workspace_id === props.currentWorkspaceId} onEnter={() => props.onEnter(selected.workspace_id)} onClose={() => props.onSelect(null)} onSaveProfile={props.onSaveProfile} />
+          <BuildingDetail building={selected} current={selected.workspace_id === props.currentWorkspaceId || selected.registryBuildingId !== undefined} onEnter={() => props.onEnter(selected.workspace_id)} onClose={() => props.onSelect(null)} onSaveProfile={props.onSaveProfile} />
         </aside>
       )}
     </div>
@@ -233,7 +236,7 @@ function BuildingCard(props: {
   const status = buildingStatus(b);
   const full = props.density === 'full';
   const tags = full ? cardTags(b, props.departments) : [];
-  const tagText = (tag: (typeof tags)[number]): string => (tag.kind === 'type' ? t(`hq.kind.${tag.value}` as MessageKey) : tag.kind === 'floors' ? t('hq.building.floors', { count: Number(tag.value) }) : tag.kind === 'rooms' ? t('hqNav.card.rooms', { count: Number(tag.value) }) : String(tag.value));
+  const tagText = (tag: (typeof tags)[number]): string => (tag.kind === 'type' ? t(`hq.kind.${tag.value}` as MessageKey) : tag.kind === 'workspace' ? String(tag.value) : tag.kind === 'floors' ? t('hq.building.floors', { count: Number(tag.value) }) : tag.kind === 'rooms' ? t('hqNav.card.rooms', { count: Number(tag.value) }) : String(tag.value));
   const summary = buildingSummary(b);
   return (
     <button
@@ -268,13 +271,13 @@ function BuildingDetail(props: { building: CampusBuilding; current: boolean; onE
         <h2>{b.name}</h2>
         <button type="button" className="hqIconButton" onClick={props.onClose} aria-label={t('hq.detail.close')}>×</button>
       </div>
-      <p className="hqMuted">{b.kindKnown === false ? t('hq.kind.unset') : t(`hq.kind.${b.kind}` as MessageKey)}{b.floors ? ` · ${t('hq.building.floors', { count: b.floors })}` : ''}{b.archived ? ` · ${t('hq.detail.archived')}` : ''}</p>
+      <p className="hqMuted">{b.registryBuildingId ? (b.workspaceName ?? '') : b.kindKnown === false ? t('hq.kind.unset') : t(`hq.kind.${b.kind}` as MessageKey)}{b.floors ? ` · ${t('hq.building.floors', { count: b.floors })}` : ''}{b.archived ? ` · ${t('hq.detail.archived')}` : ''}</p>
       <p className="hqDetailStatus" data-status={status}><span className="hqStatusDot" aria-hidden="true" />{buildingSummary(b)}</p>
       {b.totals && b.totals.agents > 0 && (
         <ul className="hqChips">{(['working', 'meeting', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'] as const).filter((k) => b.totals![k] > 0).map((k) => <li key={k}>{statusLabel(k)} {b.totals![k]}</li>)}</ul>
       )}
-      {props.current && b.role === 'owner' && !b.archived && <BuildingProfileForm key={`${b.workspace_id}:${b.profileRevision ?? 'new'}`} building={b} onSave={props.onSaveProfile} />}
-      {b.kindKnown === false && !(props.current && b.role === 'owner') && <p className="hqNote">{t('hq.profile.ownerOnly')}</p>}
+      {props.current && b.role === 'owner' && !b.archived && !b.registryBuildingId && <BuildingProfileForm key={`${b.workspace_id}:${b.profileRevision ?? 'new'}`} building={b} onSave={props.onSaveProfile} />}
+      {b.kindKnown === false && !b.registryBuildingId && !(props.current && b.role === 'owner') && <p className="hqNote">{t('hq.profile.ownerOnly')}</p>}
       {!b.accessible
         ? <p className="hqNote">{t('hq.detail.notAccessible')}</p>
         : <>

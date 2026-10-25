@@ -12,8 +12,8 @@
 
 /* The stage gives some height to the strip. */
 .hqNav[data-nav="on"] .hqStage { block-size: clamp(380px, calc(100dvh - 210px - var(--hqnav-strip, 0px)), 820px); }
-.hqNav[data-nav="on"] .hqBuilding .hqStage { block-size: clamp(360px, calc(100dvh - 300px - var(--hqnav-strip, 0px)), 780px); }
-.hqNav[data-strip="open"] { --hqnav-strip: 104px; }
+.hqNav[data-nav="on"] .hqBuilding .hqStage { block-size: clamp(360px, calc(100dvh - 360px - var(--hqnav-strip, 0px)), 780px); }
+.hqNav[data-strip="open"] { --hqnav-strip: 112px; }
 .hqNav[data-strip="closed"] { --hqnav-strip: 40px; }
 
 /* Rail. */
@@ -54,7 +54,7 @@
 .hqPlanHead h3 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .hqPlanSvg { background: var(--d-well); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: block; max-block-size: 220px; width: 100%; }
 .hqPlanRoom { cursor: pointer; }
-.hqPlanRoom text { fill: var(--d-text); font-size: 3.4px; pointer-events: none; }
+.hqPlanLabel { fill: var(--d-text); font-size: 3.4px; pointer-events: none; }
 .hqPlanRoom:hover rect { stroke-width: 1.1; }
 .hqPlanRoom[data-selected="true"] rect { fill: color-mix(in srgb, var(--d-accent) 45%, var(--d-well)); stroke: var(--d-accent); stroke-width: 1.4; }
 .hqPlanRoom:focus-visible { outline: none; }
@@ -103,7 +103,7 @@
 
 /* Campus label cards: tags and densities. */
 .hqCardTags { color: var(--hq-glass-muted); display: flex; flex-wrap: nowrap; font-size: var(--text-2xs); gap: 4px; overflow: hidden; }
-.hqCardTags span { background: rgba(255, 255, 255, .1); border-radius: 999px; max-width: 12ch; overflow: hidden; padding: 0 6px; text-overflow: ellipsis; white-space: nowrap; }
+.hqCardTags span { background: rgba(255, 255, 255, .1); border-radius: 999px; max-width: 16ch; overflow: hidden; padding: 0 6px; text-overflow: ellipsis; white-space: nowrap; }
 .hqStripSlot:empty { display: none; }
 .hqPlanDesk { opacity: .7; pointer-events: none; }
 .hqBuildingCard[data-density="compact"] { min-height: 36px; }
@@ -115,3 +115,12 @@
 .hqBuildingCard[data-density="dot"]:is(:hover, :focus-visible, [data-selected="true"]) { z-index: 2; }
 
 @media (prefers-reduced-motion: reduce) { .hqNav * { transition: none !important; } }
+
+/* With the rail beside the scene the floor arrows and menu are a second way to the same floors: they stay for the keyboard
+   and screen readers (and show whole while focused) but give the row back to the scene. "All floors" stays visible. */
+.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl > button,
+.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl .compactSelect { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; width: 1px; }
+.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl:focus-within > button,
+.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl:focus-within .compactSelect { clip-path: none; height: auto; overflow: visible; position: static; width: auto; }
+/* Short screens: the campus map duplicates the quick views, so it gives the scene its corner back. */
+@media (max-height: 820px) { .hqNav[data-nav="on"] .hqOverlayBottomRight { display: none; } }

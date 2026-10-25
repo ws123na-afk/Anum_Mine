@@ -24,6 +24,7 @@ ANUM MINE draws every workspace you can open as a building on a campus. Inside a
 - Press the stop of the selected building again to go inside. A building you cannot open is shown locked.
 - Thumbnails are snapshots of the scene taken the first time you look at a place in this browser tab. Until then a plain icon stands in.
 - On the campus the cards show a building's type, floors and rooms, and its agent count. With many buildings the cards shrink: the selected, the open and the executive building keep a full card, the busiest fill six, and the rest show a name and a count, then only an icon (the name appears on hover and focus). No card disappears.
+- If your workspace's office has several buildings (for example after **Set up my campus**), each one stands on the campus as its own building, labelled with the workspace name. Its card counts the agents assigned to its desks. Buildings of other workspaces you belong to stand beside them, one each.
 - **Quick moves** (right side) start the office tour, open meetings or the calendar, and suggest "Take me to" any building or room that exists.
 - Arrow keys move between quick views and between floors; Home and End jump to the first and last.
 

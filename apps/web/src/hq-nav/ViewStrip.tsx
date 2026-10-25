@@ -28,7 +28,7 @@ function Stop({ stop, current, thumbKey, onGo }: { stop: StripStop; current: boo
   const locked = stop.kind === 'building' && !stop.accessible;
   return (
     <li>
-      <button type="button" className="hqStop" data-nav-item="" data-current={current} data-kind={stop.kind} aria-current={current ? 'true' : undefined} disabled={locked}
+      <button type="button" className="hqStop" title={stopName(stop)} data-nav-item="" data-current={current} data-kind={stop.kind} aria-current={current ? 'true' : undefined} disabled={locked}
         aria-label={t('hqNav.strip.stop', { name: stopName(stop), sub: current ? t('hqNav.strip.here') : stopSub(stop) })} onClick={onGo}>
         <span className="hqStopThumb">{shot ? <img src={shot} alt="" /> : <span className="hqStopIcon">{icon}</span>}{locked && <LockKeyhole aria-hidden="true" className="hqLock" />}</span>
         <span className="hqStopCap">{stopName(stop)}</span>
