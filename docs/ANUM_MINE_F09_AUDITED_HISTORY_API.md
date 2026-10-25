@@ -16,6 +16,9 @@ All paths are under `/api/v1/office-history`.
   correlation filters. `category` can be `all`, `task`, `agent_run`,
   `approval`, `meeting`, `office`, `team_work`, `workspace`,
   `membership`, `automation`, `autonomy`, or `other`.
+* `GET /` also takes optional `since` (inclusive), `until` (exclusive) and `q`
+  (text in actor, action or target); a start that is not before the end answers 422.
+  The headquarters history panel ([ANUM_MINE_HQ_HISTORY_PANEL.md](ANUM_MINE_HQ_HISTORY_PANEL.md)) is the first screen that uses it.
 * `GET /at?at=2026-10-21T12:00:00Z`: audit evidence recorded *before*
   a timestamp, with counts and an explicit incomplete-history warning.
 * `GET /correlations/{correlation_id}`: events related by a server-recorded
