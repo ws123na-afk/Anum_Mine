@@ -55,7 +55,7 @@ export async function mockOfficeSpaces(
 
 import { mockOrgChart } from './orgChartApi';
 
-export interface OpenHqOptions { registry?: ReturnType<typeof hqRegistry>; locale?: 'en' | 'ar'; theme?: 'light' | 'dark'; noWebgl?: boolean; reducedMotion?: boolean }
+export interface OpenHqOptions { registry?: ReturnType<typeof hqRegistry>; locale?: 'en' | 'ar'; theme?: 'light' | 'dark'; noWebgl?: boolean; reducedMotion?: boolean; beforeGoto?: (page: Page) => Promise<void> }
 
 /** Opens the authenticated headquarters (#office-preview, live mode) with the org chart and registry mocked. */
 export async function openHq(page: Page, options: OpenHqOptions = {}): Promise<HqMock> {
@@ -80,6 +80,7 @@ export async function openHq(page: Page, options: OpenHqOptions = {}): Promise<H
   await mockOrgChart(page);
   const registry = options.registry ?? hqRegistry(TENANT_A, { rooms: 4, desks: 4, agentIds: ['agent_fleet', 'agent_leads', 'agent_care', 'agent_invoice'] });
   const mock = await mockOfficeSpaces(page, { registries: { [TENANT_A.tenantId]: registry } });
+  await options.beforeGoto?.(page);
   await page.goto('/#office-preview');
   return mock;
 }

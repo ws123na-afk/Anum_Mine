@@ -14,6 +14,12 @@ import { OfficeWorkstations } from './OfficeWorkstations';
 import { ReceptionOperations } from './ReceptionOperations';
 import { GuidedExecutiveTour } from './GuidedExecutiveTour';
 import { AgentMeetingSessions } from './AgentMeetingSessions';
+import { HqFlowDock } from './HqFlowDock';
+import { HqFlowOverlay } from './HqFlowOverlay';
+import { HqTeamPanel } from './HqTeamPanel';
+import { useOfficeFlow } from './useOfficeFlow';
+import { t } from './lib/i18n';
+import { useLocale } from './useLocale';
 import './headquartersLive.css';
 
 const officeApi=createOfficeSpaceClient(api.apiRequest,api.apiRequestVoid,api.currentScope);
@@ -42,7 +48,7 @@ function roomIcon(kind:string){
   default:return <Building2 size={16}/>;
  }
 }
-type Overlay = 'none'|'spaces'|'workstations'|'reception'|'tour'|'agentMeetings';
+type Overlay = 'none'|'spaces'|'workstations'|'reception'|'tour'|'agentMeetings'|'teams';
 export function HeadquartersLive({onClose}:{onClose:()=>void}){
  const [state,setState]=useState<OfficeState|null>(null);
  const [overlay,setOverlay]=useState<Overlay>('none');
@@ -51,6 +57,10 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
  const [full,setFull]=useState(false);
  const [filters,setFilters]=useState<'all'|'occupied'|'meeting'>('all');
  const host=useRef<HTMLDivElement>(null);
+ useLocale();
+ const flow=useOfficeFlow();
+ const [flowOpen,setFlowOpen]=useState(false);
+ const [roomFilter,setRoomFilter]=useState<string|null>(null);
  const controller=useMemo(()=>new HeadquartersController({
   scope:()=>api.currentScope(),
   registry:async()=>adaptOfficeRegistry(await officeApi.load()),
@@ -148,6 +158,22 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
   controller.selectRoom(r.id);
   if(currentCamera)controller.setCamera(focusRoom(currentCamera,r));
  };
+ const roomLabels=useMemo(()=>{
+  const map=new Map<string,{label:string}>();
+  for(const b of projection?.buildings??[])for(const f of b.floors)for(const r of f.rooms)map.set(r.id,{label:r.label});
+  return map;
+ },[projection]);
+ const focusRoomById=(roomId:string)=>{
+  for(const b of projection?.buildings??[])for(const f of b.floors){
+   if(!f.rooms.some(r=>r.id===roomId))continue;
+   if(selected?.buildingId!==b.id)controller.selectBuilding(b.id);
+   if(selected?.floorId!==f.id||selected?.buildingId!==b.id)controller.selectFloor(f.id);
+   controller.selectRoom(roomId);
+   return;
+  }
+ };
+ const goTo=(hash:string)=>{window.location.hash=hash};
+ const stuckOnFloor=(floorId:string)=>Object.values(flow.snapshot?.rooms??{}).filter(r=>r.floor_id===floorId).reduce((n,r)=>n+r.stuck,0);
  const openRoute=(kind:string)=>{
   window.location.hash='#'+(moduleRoutes[kind]??'command');
  };
@@ -188,11 +214,13 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
     <div className="hqFloors">
      {(building?.floors??[]).map(f=><button type="button" key={f.id}
       className={f.id===floor?.id?'active':''} aria-current={f.id===floor?.id?'true':undefined}
-      onClick={()=>controller.selectFloor(f.id)}><Layers size={17}/><span><strong>{f.name}</strong><small>Level {f.level} · {f.rooms.length} rooms</small></span></button>)}
+      onClick={()=>controller.selectFloor(f.id)}><Layers size={17}/><span><strong>{f.name}</strong><small>Level {f.level} · {f.rooms.length} rooms{stuckOnFloor(f.id)>0?` · ${t('hqFlow.stuckCount',{count:stuckOnFloor(f.id)})}`:''}</small></span></button>)}
     </div>
     <div className="hqDirectoryTitle">Office operations</div>
     <div className="hqOperations">
      <button onClick={()=>setOverlay('spaces')}><Building2 size={17}/>Manage spaces</button>
+     <button onClick={()=>setFlowOpen(v=>!v)} aria-pressed={flowOpen}><Layers size={17}/>{t('hqFlow.open')}</button>
+     <button onClick={()=>setOverlay('teams')}><Users size={17}/>{t('hqTeam.title')}</button>
      <button onClick={()=>setOverlay('workstations')}><Users size={17}/>Live workstations</button>
      <button onClick={()=>setOverlay('agentMeetings')}><Users size={17}/>Agent meeting sessions</button>
      <button onClick={()=>setOverlay('reception')}><DoorOpen size={17}/>Reception desk</button>
@@ -213,15 +241,20 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
       <button disabled={!floor} onClick={()=>{if(floor)controller.setCamera(initialCamera(floor))}}>Reset camera</button>
      </div>
     </div>
-    {floor&&currentCamera?<HeadquartersWebGL floor={floor} selectedRoomId={room?.id??null}
+    {floor&&currentCamera?<><HeadquartersWebGL floor={floor} selectedRoomId={room?.id??null}
      camera={currentCamera} setCamera={next=>controller.setCamera(next)}
-     onSelectRoom={id=>{const found=floor.rooms.find(r=>r.id===id);if(found)visit(found)}} night={light==='night'}/>:
+     onSelectRoom={id=>{const found=floor.rooms.find(r=>r.id===id);if(found)visit(found)}} night={light==='night'}/>
+     <HqFlowOverlay floor={floor} camera={currentCamera} snapshot={flow.snapshot} batch={flow.batch} selectedRoomId={room?.id??null}
+      onSelectRoom={id=>{const found=floor.rooms.find(r=>r.id===id);if(found){visit(found);setRoomFilter(id);setFlowOpen(true)}}}/></>:
      <section className="hqEmptyScene" role="status"><Building2 size={42}/>
       <h2>{state?.busy?'Loading your workspace':hasServerData?'Select a floor':'Your virtual office is ready to configure'}</h2>
       <p>{state?.busy?'Reading authenticated room and desk records.':
        'No saved office layout is available yet. Create a building and rooms using Office Space Management.'}</p>
       <button onClick={()=>setOverlay('spaces')}>Manage office layout</button>
      </section>}
+    <HqFlowDock snapshot={flow.snapshot} status={flow.status} error={flow.error} link={flow.link} batch={flow.batch}
+     rooms={roomLabels} open={flowOpen} onToggle={()=>setFlowOpen(v=>!v)} onReload={()=>void flow.reload()}
+     roomFilter={roomFilter} onRoomFilter={setRoomFilter} onFocusRoom={focusRoomById} onNavigate={goTo}/>
     <div className="hqViewportFooter"><span>{state?.status==='ready'?'Connected registry':'Live data unavailable'}</span><span>Last verified: {readTime(state?.updatedAt??null)}</span></div>
    </main>
    <aside className="hqInspector" aria-label="Room details and operations">
@@ -249,6 +282,7 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
        {!desks.length&&<p className="hqMuted">No desks have been configured for this room.</p>}
       </div>
       <button className="hqPrimaryAction" onClick={()=>openRoute(room.kind)}>Open {room.kind} workspace <ArrowLeft size={17}/></button>
+      <HqTeamPanel roomId={room.id} refreshKey={flow.snapshot?.as_of??0} onNavigate={goTo} onOpenSpaces={()=>setOverlay('spaces')}/>
      </>}
     </div>
     {projection&&projection.issues.length>0&&<div className="hqWarnings" role="status"><strong>{projection.issues.length} data checks need attention</strong><p>Open Office Space Management to review room layout, assignments and stale activity.</p></div>}
@@ -256,7 +290,11 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
   </div>
   {state?.error&&<div className="hqToast" role="alert"><WifiOff size={16}/>{state.error.message}<button onClick={()=>void controller.refresh()} disabled={!state.error.canRetry}>Retry</button></div>}
   {overlay!=='none'&&<div className="hqModalHost"><button className="hqModalClose" aria-label="Close office panel" onClick={()=>setOverlay('none')}><X size={18}/></button>
-   {overlay==='spaces'?<OfficeSpaceLiveManager onClose={()=>{setOverlay('none');void controller.refresh()}}/>:
+   {overlay==='teams'?<div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqTeam.title')}>
+     <HqTeamPanel buildingId={building?.id??null} refreshKey={flow.snapshot?.as_of??0} onNavigate={goTo} onOpenSpaces={()=>setOverlay('spaces')}
+      onFocusRoom={id=>{focusRoomById(id);setOverlay('none')}}/>
+    </div>:
+    overlay==='spaces'?<OfficeSpaceLiveManager onClose={()=>{setOverlay('none');void controller.refresh()}}/>:
     overlay==='workstations'?<OfficeWorkstations onClose={()=>setOverlay('none')}/>:
     overlay==='agentMeetings'?<AgentMeetingSessions onClose={()=>setOverlay('none')}/>:
     overlay==='reception'?<ReceptionOperations onClose={()=>setOverlay('none')} onDestination={name=>{const target=floor?.rooms.find(r=>r.label===name);if(target){visit(target);setOverlay('none')}}}/>:
