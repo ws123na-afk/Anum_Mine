@@ -46,6 +46,7 @@ test('rooms carry a badge with the real counts and selecting it filters the dock
 
 test('a marker moves only because the server moved the item, and the move is announced', async ({ page }) => {
   await open(page);
+  await wholeFloor(page);
   await page.waitForTimeout(1500);
   await expect(page.locator('.hqFlowMarker')).toHaveCount(0); // nothing travels for the first answer
   const moved = flowItems().map((i) => i.id === 't_plan'
@@ -62,6 +63,7 @@ test('a marker moves only because the server moved the item, and the move is ann
 
 test('reduced motion shows the arrival without travelling', async ({ page }) => {
   await open(page, { reducedMotion: true });
+  await wholeFloor(page);
   await page.waitForTimeout(1500);
   const moved = flowItems().map((i) => i.id === 't_plan' ? { ...i, location: { ...i.location!, room_id: 'Alpha-room-1', room_name: 'Alpha Room 2' } } : i);
   flow.set(moved);
@@ -95,17 +97,28 @@ test('the history of an item is read from stored events when asked', async ({ pa
 
 test('the office team shows each real agent with role, state, skills and the stuck reason', async ({ page }) => {
   await open(page);
-  const inspector = page.getByRole('complementary', { name: 'Room details and operations' });
-  await inspector.locator('.hqRoomList button').filter({ hasText: 'Alpha Room 1' }).click();
-  const team = inspector.getByRole('region', { name: 'Agents working in this office' });
+  // The room inspector is hidden below 950 px; there the same panel is reached from the Team overlay.
+  const inspectorShown = await page.getByRole('complementary', { name: 'Room details and operations' }).isVisible();
+  let team = page.getByRole('region', { name: 'Agents working in this office' });
+  if (inspectorShown) {
+    const inspector = page.getByRole('complementary', { name: 'Room details and operations' });
+    await inspector.locator('.hqRoomList button').filter({ hasText: 'Alpha Room 1' }).click();
+    team = inspector.getByRole('region', { name: 'Agents working in this office' });
+  } else {
+    await page.getByRole('button', { name: 'Team', exact: true }).click();
+    team = page.getByRole('dialog', { name: 'Team' }).getByRole('region', { name: 'Agents working in this office' });
+  }
   const card = team.getByRole('listitem').filter({ hasText: 'Fleet Planner' });
   await expect(card).toContainText('Role: Operations and warehouse');
   await expect(card).toContainText('Working');
   await expect(card).toContainText('Current work: Plan October tyre rotation');
   await expect(card).toContainText('Tyre planning');
   await expect(card).toContainText('Ready');
-  await inspector.locator('.hqRoomList button').filter({ hasText: 'Alpha Room 4' }).click();
   const stuckCard = team.getByRole('listitem').filter({ hasText: 'Invoice Checker' });
+  if (inspectorShown) {
+    const inspector = page.getByRole('complementary', { name: 'Room details and operations' });
+    await inspector.locator('.hqRoomList button').filter({ hasText: 'Alpha Room 4' }).click();
+  }
   await expect(stuckCard).toContainText('Stuck');
   await expect(stuckCard).toContainText('Supplier API returned 500');
   await expect(team.getByText('Agents without a workstation (1)')).toBeVisible();
