@@ -85,7 +85,7 @@ class SqlLiveMeetingStore:
     def turns(self, context: TenantContext, meeting_id: str, *, after: int = 0, limit: int = 100) -> list[dict[str, Any]]:
         rows = self.session.execute(text("""
             select id, session_id, sequence, speaker_id, role, body, request_key,
-                   input_tokens, output_tokens, estimated_cost_usd, provenance, created_at
+                   input_tokens, output_tokens, estimated_cost_usd, provenance, redacted, created_at
             from agent_meeting_turns
             where tenant_id=:tenant and workspace_id=:workspace
               and session_id=:id and sequence > :after
@@ -115,7 +115,28 @@ class SqlLiveMeetingStore:
         """), self.args(context, id=meeting_id, participant=participant_id, owner=context.user_id))
         return self._revise(context, meeting_id, revision, {"new_status": meeting["status"]}, change_status=False)
 
-    def transition(self, context: TenantContext, meeting_id: str, revision: int, target: str) -> dict[str, Any]:
+    def next_event_seq(self, context: TenantContext, meeting_id: str) -> int:
+        """The next event number. The caller holds the meeting row lock (get(lock=True))."""
+        return int(self.session.execute(text("""
+            select coalesce(max(seq),0)+1 from agent_meeting_events
+            where tenant_id=:tenant and workspace_id=:workspace and session_id=:id
+        """), self.args(context, id=meeting_id)).scalar_one())
+
+    def emit(self, context: TenantContext, meeting_id: str, kind: str, payload: dict[str, Any] | None = None,
+             *, actor: str | None = None) -> int:
+        """Append one durable event in the caller's transaction. Never call it before the fact it announces is written."""
+        import json
+        from .schemas import new_id
+        seq = self.next_event_seq(context, meeting_id)
+        self.session.execute(text("""
+            insert into agent_meeting_events (id,tenant_id,workspace_id,session_id,seq,kind,actor_id,payload)
+            values (:event,:tenant,:workspace,:id,:seq,:kind,:actor,cast(:payload as jsonb))
+        """), self.args(context, id=meeting_id, event=new_id("meeting_event"), seq=seq, kind=kind,
+                        actor=actor, payload=json.dumps(payload or {}, ensure_ascii=False, default=str)))
+        return seq
+
+    def transition(self, context: TenantContext, meeting_id: str, revision: int, target: str,
+                   reason: str | None = None) -> dict[str, Any]:
         meeting = self.get(context, meeting_id, lock=True)
         if meeting is None:
             raise LiveMeetingStoreError("not_found", "Meeting not found")
@@ -132,7 +153,15 @@ class SqlLiveMeetingStore:
             raise LiveMeetingStoreError("conflict", "Invalid meeting state transition")
         if target == "active" and meeting["status"] == "scheduled" and not self.participants(context, meeting_id):
             raise LiveMeetingStoreError("conflict", "Add a participant before starting")
-        return self._revise(context, meeting_id, revision, {"new_status": target}, change_status=True)
+        row = self._revise(context, meeting_id, revision, {"new_status": target}, change_status=True)
+        if target in ("finished", "cancelled", "failed"):
+            self.session.execute(text("""
+                update agent_meeting_sessions set ended_reason=:reason, hand_raised_by=null, hand_raised_at=null
+                where tenant_id=:tenant and workspace_id=:workspace and id=:id
+            """), self.args(context, id=meeting_id, reason=(reason or "owner")[:40]))
+        self.emit(context, meeting_id, "state", {"status": target, "reason": reason or "owner",
+                                                 "revision": row["revision"]}, actor=context.user_id)
+        return row
 
     def _revise(self, context: TenantContext, meeting_id: str, revision: int, kwargs: dict[str, Any], *, change_status: bool) -> dict[str, Any]:
         sql = """
