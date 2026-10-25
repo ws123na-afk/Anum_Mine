@@ -51,13 +51,61 @@ An existing production agent status or meeting status is not created by adding a
 - `services/api/tests/test_postgres_office_spaces.py`: migrated database, tenant/workspace scope, same IDs across tenants, owner-only writes, capacity constraint, stale revision and scope-separated foreign keys.
 - Existing repository checks and app CI must also pass. Database tests require the PostgreSQL test fixture and migration head.
 
+## Office builder API (migration `0105_office_builder`)
+Data and API for the owner's office builder. The visual editor in the web app is a separate, later change; these endpoints are what it will call. Everything below is under `/api/v1/office-spaces`, needs PostgreSQL (memory mode answers 503) and runs in one RLS-scoped transaction with its audit record and its event.
+
+### Decisions (owner delegated, 25 October 2026)
+| Topic | Decision |
+|---|---|
+| Units | Metres. A floor's origin is its north west corner: x grows east, z grows south. |
+| Floor bounds | Stored per floor as `width_m` and `depth_m` (1 to 1000). New floors default to 60 by 40. Floors made before this change have no bounds (unbounded, as before) until the owner sets them; setting bounds is refused while a placed room would fall outside. The server checks bounds on every placement, single or layout save. |
+| Room shape | Axis aligned rectangle (`scene_x`, `scene_z`, `scene_width`, `scene_depth`). `rotation` (0, 90, 180, 270) and `door_side` (north, south, east, west) describe the interior; overlap and bounds use the footprint only. To turn a room by 90 degrees the client swaps width and depth in the same save. |
+| Team link | The existing team concept is `team_models.Department` (sales, support, operations, finance, tyre_engineering, custom), carried by `team_member_profiles.department` and `assistant_profiles.department`. There is no agent group or team table, so a room has a nullable `team_department` (one department per room; a department may have many rooms). `GET /rooms/{id}/team` returns the real counts of member profiles and enabled assistants with that department; with no link the counts are null. Nothing is invented, no member is copied onto the room, agents still sit at desks only through the assignment endpoint. |
+| Permissions | Every layout edit needs `workspace:manage` (owner), as before. Assigning an agent keeps its current permission (`workspace:manage`). Reads need `task:read`. No new permission. |
+| Equipment and notes | Equipment is a list of `{kind, quantity, note?}` from a fixed catalogue (monitor, display, whiteboard, projector, conference_phone, video_conference_kit, printer, server_rack, network_switch, workbench, shelving, locker, charging_station, first_aid_kit), each kind once, at most 20. Free text lives in `description` (500) and `notes` (2000). Stored as one JSON column on the room. |
+| Room details | `description`, `color` (palette name: slate, forest, brass, sapphire, amethyst, crimson, teal, sand), optional Arabic name `name_ar`. |
+| Templates | Five fixed server side templates: open_office, meeting_room, reception, warehouse, workshop (`GET /templates`, English and Arabic names, size, capacity, equipment). No owner saved templates yet. |
+| Deleting | A building is deleted only when it has no floors, a floor only when it has no rooms, a room only when it has no desks. Otherwise 409 with a `details` list naming what blocks it. |
+| Edits | Live with a revision check on every change (no draft step). A multi room save is atomic. |
+| Audit and events | Every write appends an audit record whose metadata holds `before` and `after` values. A change also writes the `office.layout_changed` event in the same transaction (durable outbox row, then the workspace event stream). |
+
+### Endpoints
+| Operation | Method and path | Notes |
+|---|---|---|
+| Edit building | `PATCH /buildings/{id}` | name, timezone, latitude, longitude (null clears coordinates), `expected_revision` |
+| Edit floor | `PATCH /floors/{id}` | name, level, `width_m` and `depth_m` together; level unique per building |
+| Delete building / floor | `DELETE /buildings/{id}`, `/floors/{id}?expected_revision=N` | only when empty, 409 lists the blockers |
+| Edit room | `PATCH /rooms/{id}` | name, kind, capacity, rotation, door_side, description, notes, color, name_ar, equipment, team_department. Send only what changes; `null` clears color, name_ar, team_department. Capacity below the desk count and a kind that forbids desks are refused while desks exist. |
+| Edit desk | `PATCH /desks/{id}` | label; `pos_x`, `pos_z` together (metres from the room's corner, inside the room, room must be placed; both null clears) |
+| Atomic layout save | `PUT /floors/{id}/layout` | `{rooms: [{id, expected_revision, x, z, width, depth, rotation?, door_side?}], desks: [{id, expected_revision, pos_x, pos_z}]}`. At most 500 rooms and 2000 desks. The final layout is validated as a whole, then everything is written or nothing is, so two rooms can swap places. Rooms not listed keep their place and still count for overlap. Each saved room and desk gets a new revision. |
+| Single placement | `PATCH /rooms/{id}/geometry` | as before, now also bounds and desk checks, under the same floor lock |
+| Copy room | `POST /rooms/{id}/copy` | `{id, name?, floor_id?, x?, z?, copy_desks?}`; copies kind, size, details, equipment, team link; desks only on request and never with agents; without x and z the server picks a free spot (beside, below, then a scan) or answers `NO_FREE_SPACE` |
+| Room from template | `POST /rooms/from-template` | `{id, floor_id, template_id, name?, x?, z?, with_desks?}` |
+| Templates and catalogues | `GET /templates` | templates, equipment kinds, colours, departments, units |
+| Team counts | `GET /rooms/{id}/team` | see the team link decision |
+
+### Errors
+Validation answers 422, stale revisions and blocked deletes 409, other tenants' records 404, missing permission 403. The error envelope's `details` lists every problem with `location` (for example `rooms.meeting-1`) and a stable `type`: `ROOM_OVERLAP`, `ROOM_OUT_OF_BOUNDS`, `DESK_OUT_OF_ROOM`, `ROOM_NOT_PLACED`, `ROOM_NOT_ON_FLOOR`, `DESK_NOT_ON_FLOOR`, `STALE_REVISION`, `NO_FREE_SPACE`, `ROOM_NAME_TAKEN`, `FLOOR_LEVEL_TAKEN`, `DESK_LABEL_TAKEN`, `KIND_FORBIDS_DESKS`, `CAPACITY_BELOW_DESKS`, `BUILDING_NOT_EMPTY`, `FLOOR_NOT_EMPTY`, `ROOM_NOT_EMPTY` (the blockers use `FLOOR_PRESENT`, `ROOM_PRESENT`, `DESK_PRESENT`). A layout save reports all overlap, bounds and desk problems at once. Old overlaps between rooms nobody is saving never block a save.
+
+### Event
+`office.layout_changed`, subject = the floor id when known: payload `{action, resource_kind, resource_ids (first 50), resource_count, floor_id?}`. Ids only. Open browsers re-read the floor.
+
+### Schema
+Expand only. `office_floors`: `width_m`, `depth_m`. `office_rooms`: `rotation` (default 0), `door_side` (default south), `description`, `notes`, `color`, `name_ar`, `equipment` (jsonb array), `team_department`, with check constraints. `office_desks`: `pos_x`, `pos_z`. No new table, so the forced RLS and purge policies of `0097` already cover the columns. The previous release keeps working against the new schema. Numbers are renumbered at merge if another migration lands first.
+
+### Tests
+`tests/test_office_layout.py` (geometry rules, catalogue drift, request models), `tests/test_postgres_office_builder.py` (database role, atomic save, delete guards, copy, templates, audit values, event, team counts, member and cross tenant refusals). Contract types: `packages/contracts/src/officeBuilder.ts`.
+
+### Not in this change
+The web editor (drag, resize, snap, undo, Arabic strings), owner saved templates, a separate layout editor permission, idempotency keys on copy and template creation (the client id already makes a retry a 409), copying a whole floor, free angle rooms or polygons, walls and windows.
+
 ## Remaining gates (not production complete until all pass)
 1. Backend CI, database migration under non-owner app role, and PostgreSQL integration tests pass.
 2. Cursor pagination is implemented (page size 1-100). Verify cursor stability under parallel edits and cover very large workspaces with load tests.
-3. Add server-issued outbox events for room/desk changes and replay through existing SSE; audit records alone are insufficient for real-time desk sync.
+3. Office changes now emit `office.layout_changed` (see the builder section); replay through SSE for the web client and event coverage of desk assignment are still to be verified end to end.
 4. Create idempotency keys are implemented in migration `0098`; stronger API versions/ETags remain. Revisions currently cover mutation concurrency.
 5. The web manager and API adapter are implemented. Validate browser behavior for 409/reload, unauthorized reads, offline state, and multi-workspace switching with Playwright before release.
-6. Implement row geometry/coordinates, walkable paths, and 3D scene assets in a separate feature.
+6. Room geometry, floor bounds and the builder API exist (builder section); walkable paths, walls and 3D scene assets remain separate features.
 7. Test migration downgrade only in an empty test workspace. Production rollback must disable the feature and restore backup instead of deleting real office records.
 8. Test many concurrent assignments, cache invalidation, tenant deletion and API performance at 200+ agents / 1000+ desks.
 9. Feature-flag and deploy first to staging, validate security and observability, then seek owner approval before production.
