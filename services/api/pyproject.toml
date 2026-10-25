@@ -27,7 +27,7 @@ dependencies = [
   "opentelemetry-sdk==1.45.1",
   "psycopg[binary]==3.3.6",
   "pydantic-settings==2.16.0",
-  "pypdf==6.21.1",
+  "pypdf==6.21.2",
   "PyJWT[crypto]==2.15.1",
   "redis==8.1.0",
   "sentry-sdk==2.72.0",
