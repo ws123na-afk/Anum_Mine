@@ -159,7 +159,9 @@ export function curtainWall(
     const cols = Math.max(2, Math.floor((f.len - inset * 2) / colW));
     for (let l = 0; l < levels; l++) {
       const ly = y + l * levelH;
-      paneRow(ctx, f, inset, f.len - inset, ly + levelH * 0.16, ly + levelH * 0.86, cols, 0.12, 0.55 + 0.45 * ((l + 1) / levels));
+      // Near floor-to-ceiling glass with slim mullions, and a pale slab edge between storeys: the grid reads as glass, not as dark boxes.
+      paneRow(ctx, f, inset, f.len - inset, ly + levelH * 0.12, ly + levelH * 0.9, cols, 0.06, 0.55 + 0.45 * ((l + 1) / levels));
+      if (l > 0 && !ctx.lean) faceQuad(ctx.b, f, inset - 0.2, f.len - inset + 0.2, ly - 0.14, ly + 0.1, scheme.wall, 0, 0.07);
     }
   }
   return y + h;

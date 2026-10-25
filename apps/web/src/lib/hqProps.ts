@@ -11,10 +11,10 @@
 import { MAT, MeshBuilder, hex, mix, scale, type MatId, type Rgb } from './hqGeometry.ts';
 
 export const WINDOW_BASE = 2;
-export const GROUND = hex('#44704a');
+export const GROUND = hex('#355a3b');
 export const STONE = hex('#b9b4a6');
 export const ASPHALT = hex('#3a3f46');
-export const WATER = hex('#2c6f99');
+export const WATER = hex('#27637c');
 export const WARM = hex('#ffcf7a');
 export const TEAL = hex('#45d0b5');
 export const GLASS_DARK = hex('#1c2c3b');

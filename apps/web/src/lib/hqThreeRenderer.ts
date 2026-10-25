@@ -105,6 +105,24 @@ function patched(material: Material, shared: Shared, opts: { texture?: Texture; 
   material.customProgramCacheKey = () => `hq-${opts.glass ? 'glass' : 'std'}-${opts.texture ? 'tex' : 'plain'}`;
 }
 
+// ---------------------------------------------------------------- sky
+
+const SKY_VERT = 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
+/** Zenith to horizon gradient, a warm band at the horizon (dusk glow by night, haze by day), the ground below it, and the sun or moon disc. */
+const SKY_FRAG = `varying vec3 vDir; uniform vec3 zenith; uniform vec3 horizon; uniform vec3 ground; uniform vec3 glow; uniform vec3 sunDir; uniform vec3 sunColor; uniform float sunPower; uniform float uDisc;
+  void main(){
+    vec3 d = normalize(vDir);
+    float t = clamp(d.y, -1.0, 1.0);
+    vec3 sky = mix(horizon, zenith, pow(max(t, 0.0), 0.55));
+    sky += glow * exp(-abs(t) * 9.0);
+    vec3 col = t >= 0.0 ? sky : mix(horizon * 0.8, ground, clamp(-t * 3.0, 0.0, 1.0));
+    float s = max(dot(d, normalize(sunDir)), 0.0);
+    col += sunColor * (pow(s, sunPower) * 6.0 + pow(s, 4.0) * 0.25) * uDisc;
+    gl_FragColor = vec4(col, 1.0);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }`;
+
 // ---------------------------------------------------------------- the renderer
 
 /** A person (or a test) can pin the quality with `localStorage["anum.hq.quality"]` = 0 to 3 (3 = shadows and night glow). */
@@ -148,6 +166,7 @@ export class HqRenderer {
   private signKey = '';
   private envDay: Texture | null = null;
   private envNight: Texture | null = null;
+  private sky: Mesh | null = null;
   private meshes: Mesh[] = [];
   private layer: ModelLayer | null = null;
   /** Model groups whose loaded models replace the procedural pieces tagged `fallbackOf` (kept across scene rebuilds, so nothing flickers). */
@@ -209,6 +228,7 @@ export class HqRenderer {
     try {
       made.cheap = cheap;
       made.buildMaterials();
+      made.buildSky();
       if (!cheap) made.buildEnvironments();
     } catch (error) {
       made.dispose();
@@ -285,6 +305,22 @@ export class HqRenderer {
     this.materials.set('pane', pane);
   }
 
+  /** The visible sky: one inside-out sphere that follows the camera, so the horizon meets the fog and no page colour shows behind the scene. */
+  private buildSky(): void {
+    const material = new ShaderMaterial({
+      side: BackSide, depthWrite: false, fog: false,
+      uniforms: {
+        zenith: { value: new Color() }, horizon: { value: new Color() }, ground: { value: new Color() }, glow: { value: new Color() },
+        sunDir: { value: [0, 1, 0] }, sunColor: { value: new Color() }, sunPower: { value: 40 }, uDisc: { value: 0.0 },
+      },
+      vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
+    });
+    const dome = new Mesh(new SphereGeometry(1, 24, 12), material);
+    dome.frustumCulled = false; dome.renderOrder = -10;
+    this.scene.add(dome);
+    this.sky = dome;
+  }
+
   /** A procedural sky (zenith, horizon, ground and the sun or moon disc) baked into reflection maps for day and night. */
   private buildEnvironments(): void {
     const pmrem = new PMREMGenerator(this.renderer);
@@ -299,21 +335,11 @@ export class HqRenderer {
       const material = new ShaderMaterial({
         side: BackSide, depthWrite: false,
         uniforms: {
-          zenith: { value: zenith }, horizon: { value: horizon }, ground: { value: ground },
+          zenith: { value: zenith }, horizon: { value: horizon }, ground: { value: ground }, glow: { value: night ? new Color().setRGB(0.32, 0.14, 0.06, SRGBColorSpace) : new Color(0, 0, 0) },
           sunDir: { value: [-light.sunDir[0], -light.sunDir[1], -light.sunDir[2]] },
-          sunColor: { value: lin(light.sunColor) }, sunPower: { value: night ? 6 : 26 },
+          sunColor: { value: lin(light.sunColor) }, sunPower: { value: night ? 6 : 26 }, uDisc: { value: 1 },
         },
-        vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-        fragmentShader: `varying vec3 vDir; uniform vec3 zenith; uniform vec3 horizon; uniform vec3 ground; uniform vec3 sunDir; uniform vec3 sunColor; uniform float sunPower;
-          void main(){
-            vec3 d = normalize(vDir);
-            float t = clamp(d.y, -1.0, 1.0);
-            vec3 sky = mix(horizon, zenith, pow(max(t, 0.0), 0.6));
-            vec3 col = t >= 0.0 ? sky : mix(horizon * 0.8, ground, clamp(-t * 3.0, 0.0, 1.0));
-            float s = max(dot(d, normalize(sunDir)), 0.0);
-            col += sunColor * (pow(s, sunPower) * 6.0 + pow(s, 4.0) * 0.25);
-            gl_FragColor = vec4(col, 1.0);
-          }`,
+        vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
       });
       const sphere = new Mesh(new SphereGeometry(50, 32, 16), material);
       const envScene = new Scene();
@@ -474,6 +500,19 @@ export class HqRenderer {
     this.scene.environmentIntensity = light.envIntensity;
     if (this.cheap) this.hemi.intensity = light.hemiIntensity + light.envIntensity * 0.8;
     this.shared.uNight.value = this.night;
+    if (this.sky) {
+      const u = (this.sky.material as ShaderMaterial).uniforms;
+      const n = this.night;
+      const mixC = (target: Color, a: readonly [number, number, number], b: readonly [number, number, number]) => target.setRGB(a[0] + (b[0] - a[0]) * n, a[1] + (b[1] - a[1]) * n, a[2] + (b[2] - a[2]) * n, SRGBColorSpace);
+      mixC(u.zenith.value, [0.2, 0.44, 0.84], [0.012, 0.03, 0.095]);
+      u.horizon.value.copy(this.fog.color);
+      u.ground.value.copy(this.fog.color).multiplyScalar(0.7);
+      mixC(u.glow.value, [0.05, 0.03, 0.01], [0.3, 0.12, 0.05]);
+      u.sunDir.value = [-light.sunDir[0], -light.sunDir[1], -light.sunDir[2]];
+      u.sunColor.value.copy(rgb(light.sunColor));
+      u.sunPower.value = 30 + n * 20;
+      u.uDisc.value = 0.7;
+    }
     const sign = this.materials.get('sign') as MeshBasicMaterial;
     const gain = 0.9 + 1.3 * this.night;
     sign.color.setRGB(gain, gain, gain);
@@ -560,6 +599,8 @@ export class HqRenderer {
       this.camera.lookAt(cs.target.x, cs.target.y, cs.target.z);
       this.camera.updateProjectionMatrix();
       this.camera.updateMatrixWorld();
+      this.sky?.position.copy(this.camera.position);
+      this.sky?.scale.setScalar(far * 0.9);
       this.fog.near = cs.distance * 1.8 + 60; this.fog.far = cs.distance * 4 + 260;
       this.shared.uDetail.value.set(cs.distance * 0.7 + 25, cs.distance * 1.6 + 70);
       this.applyLighting();
@@ -611,6 +652,7 @@ export class HqRenderer {
     for (const material of this.materials.values()) material.dispose();
     for (const texture of this.textures) texture.dispose();
     this.signTexture?.dispose();
+    if (this.sky) { this.sky.geometry.dispose(); (this.sky.material as Material).dispose(); }
     this.envDay?.dispose(); this.envNight?.dispose();
     this.composer?.dispose();
     this.sun.shadow.map?.dispose();

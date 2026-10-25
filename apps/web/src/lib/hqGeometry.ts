@@ -164,6 +164,54 @@ export class MeshBuilder {
     }
   }
 
+  /** Triangle with a normal and a colour per vertex (smooth shading). The normals are used as given and must be unit length. */
+  triN(
+    a: readonly number[], b: readonly number[], c: readonly number[], na: readonly number[], nb: readonly number[], nc: readonly number[],
+    ca: Rgb, cb: Rgb, cc: Rgb, emissive = 0,
+  ): void {
+    const pts = [a, b, c], nrm = [na, nb, nc], cols = [ca, cb, cc];
+    this.tags.push(this.tag);
+    for (let k = 0; k < 3; k++) {
+      const p = pts[k], n = nrm[k], col = cols[k];
+      this.data.push(p[0], p[1], p[2], n[0], n[1], n[2], col[0], col[1], col[2], emissive, this.mat, 0, 0);
+      for (let i = 0; i < 3; i++) {
+        if (p[i] < this.lo[i]) this.lo[i] = p[i];
+        if (p[i] > this.hi[i]) this.hi[i] = p[i];
+      }
+    }
+  }
+
+  /**
+   * A smooth, lumpy ellipsoid for foliage, shrubs and globes: `lat` bands by `lon` segments with a normal per vertex,
+   * a bright top and a darker underside, and a seeded lump on the radius (`lump` 0 is a clean sphere) and tone (`tone`).
+   */
+  smoothBlob(
+    cx: number, cy: number, cz: number, rx: number, ry: number, rz: number, color: Rgb,
+    o: { lat?: number; lon?: number; lump?: number; tone?: number; seed?: number; emissive?: number } = {},
+  ): void {
+    const lat = Math.max(2, Math.floor(o.lat ?? 4)), lon = Math.max(5, Math.floor(o.lon ?? 8));
+    const lump = o.lump ?? 0.12, tone = o.tone ?? 0.18, seed = o.seed ?? 1;
+    const hash = (i: number, j: number) => { const v = Math.sin((i + 1) * 127.1 + (j + 1) * 311.7 + seed * 74.7) * 43758.5453; return v - Math.floor(v); };
+    const vert = (i: number, j: number) => {
+      const la = -Math.PI / 2 + (i / lat) * Math.PI, lo = ((j % lon) / lon) * Math.PI * 2;
+      const pole = i === 0 || i === lat;
+      const k = 1 + (pole ? 0 : (hash(i, j % lon) - 0.5) * 2 * lump);
+      const nx = Math.cos(la) * Math.cos(lo), ny = Math.sin(la), nz = Math.cos(la) * Math.sin(lo);
+      const pos = [cx + nx * rx * k, cy + ny * ry * k, cz + nz * rz * k];
+      // The normal of an ellipsoid is the gradient, which keeps the shading round when the blob is squashed.
+      const gx = nx / rx, gy = ny / ry, gz = nz / rz, gl = Math.hypot(gx, gy, gz) || 1;
+      const lit = 0.72 + 0.3 * (ny * 0.5 + 0.5) + (pole ? 0 : (hash(i + 7, j % lon) - 0.5) * tone);
+      return { pos, n: [gx / gl, gy / gl, gz / gl], col: scale(color, lit) };
+    };
+    for (let i = 0; i < lat; i++) {
+      for (let j = 0; j < lon; j++) {
+        const a = vert(i, j), b = vert(i, j + 1), c = vert(i + 1, j + 1), d = vert(i + 1, j);
+        if (i > 0) this.triN(a.pos, c.pos, b.pos, a.n, c.n, b.n, a.col, c.col, b.col, o.emissive ?? 0);
+        if (i < lat - 1) this.triN(a.pos, d.pos, c.pos, a.n, d.n, c.n, a.col, d.col, c.col, o.emissive ?? 0);
+      }
+    }
+  }
+
   /** Quad with a colour per corner (a, b, c, d in the same order as `quad`). */
   quadV(
     a: readonly number[], b: readonly number[], c: readonly number[], d: readonly number[],
