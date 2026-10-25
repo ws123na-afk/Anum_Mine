@@ -18,12 +18,25 @@ ANUM MINE draws every workspace you can open as a building on a campus. Inside a
 4. Select a building label to read its summary, then press it again, or click **Open** in the summary, to go inside.
 5. Use the sun and moon buttons to switch between day and night. Zoom in on a building to read the sign over its entrance: ANUM MINE and the building's name. The type of building follows the icon the owner picked for it (a truck or factory is a warehouse, a chart or briefcase is an office tower). On a slow device the scene lowers its detail by itself.
 
+## Move quickly between offices
+
+- The **Quick views** strip under the scene jumps to the campus aerial, to any building you can open, and to the rooms of the open building. The camera flies there; with reduced motion it jumps. The current stop is outlined. **Collapse** hides the strip.
+- Press the stop of the selected building again to go inside. A building you cannot open is shown locked.
+- Thumbnails are snapshots of the scene taken the first time you look at a place in this browser tab. Until then a plain icon stands in.
+- On the campus the cards show a building's type, floors and rooms, and its agent count. With many buildings the cards shrink: the selected, the open and the executive building keep a full card, the busiest fill six, and the rest show a name and a count, then only an icon (the name appears on hover and focus). No card disappears.
+- **Quick moves** (right side) start the office tour, open meetings or the calendar, and suggest "Take me to" any building or room that exists.
+- Arrow keys move between quick views and between floors; Home and End jump to the first and last.
+
 ## Work inside a building
 
-1. Pick a floor with the floor arrows or the floor menu. **All floors** shows the whole stack.
-2. Select a room to open its panel with the desks, who sits there and what they are doing.
-3. Select an agent card to see their open tasks and to open their profile.
-4. **Office tools** opens Manage spaces, Live workstations, Agent meeting sessions, Reception and the Guided visit.
+1. Pick a floor from the **Floors** list on the left (top floor first, with a plan thumbnail and its room types). Collapse it to a slim column if you want more room for the scene. On a narrow screen it opens as a drawer.
+2. On the right, **Floor plan** shows the saved rooms of the floor. **2D** is the top-down view, **3D** the perspective view. Select a room on the plan to open it.
+3. **People at their posts** lists the agents assigned to desks on the floor with their real status. A desk without an assignment is not listed. An agent with no presence record reads **Not connected** (or **Presence unavailable** when the server cannot say), and an agent that is private to someone else shows no name.
+4. The old floor arrows and menu stay for small screens, and **All floors** shows the whole stack.
+
+5. Select a room to open its panel with the desks, who sits there and what they are doing.
+6. Select an agent card or a name in the list to see their open tasks and to open their profile.
+7. **Office tools** opens Manage spaces, Live workstations, Agent meeting sessions, Reception and the Guided visit.
 
 ## Who can do this
 

@@ -46,6 +46,8 @@ type Props = Readonly<{
   /** Called with the footprint inputs on every drawn frame (the minimap listens). */
   onView?: (camera: CameraState, aspect: number) => void;
   onUnavailable: (reason: string) => void;
+  /** Called inside each drawn frame with the canvas (the navigation layer takes thumbnails here). */
+  onCanvasFrame?: (canvas: HTMLCanvasElement) => void;
   className?: string;
   children?: ReactNode;
 }>;
@@ -106,6 +108,7 @@ export function HqStage(props: Props) {
           const { width, height } = size.current;
           placeLabels(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, 64);
           propsRef.current.onView?.(live.current, aspect);
+          if (canvas.current) propsRef.current.onCanvasFrame?.(canvas.current);
           const s = created?.stats;
           if (s && (s.frames === 1 || s.frames % 10 === 0) && canvas.current) {
             canvas.current.dataset.drawMs = s.avgDrawMs.toFixed(2);

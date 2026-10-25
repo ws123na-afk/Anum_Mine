@@ -36,6 +36,10 @@ import { loadWorkspaceWorkstations, type WorkstationSnapshot } from './lib/offic
 import { HqFlowDock } from './HqFlowDock';
 import { HqTeamPanel } from './HqTeamPanel';
 import { useOfficeFlow } from './useOfficeFlow';
+import { HqCameraBridge } from './hq-nav/cameraBridge.ts';
+import { HqNavigation, type HqNavHandles } from './hq-nav/HqNavigation';
+import { departmentsOf, initialsOf } from './hq-nav/navModel.ts';
+import { ThumbCapture } from './hq-nav/thumbs.ts';
 import { OrgGapsPanel } from './hq-provisioning/OrgGapsPanel';
 import { useProvisioningGaps } from './hq-provisioning/useProvisioning';
 import './hqFlow.css';
@@ -104,6 +108,9 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const want = useRef<HqNavTarget | null>(null);
   const reducedMotion = useMemo(() => typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
   const scope = api.currentScope();
+
+  const navHandles: HqNavHandles = useMemo(() => ({ bridge: new HqCameraBridge(), capture: new ThumbCapture() }), []);
+  navHandles.bridge.setReducedMotion(reducedMotion);
 
   const latestProps = useRef(props);
   latestProps.current = props;
@@ -226,7 +233,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
   }, [loaded, localTotals, floorCount, verifiedAt, scope.workspaceId]);
 
   const currentBuilding = campus?.buildings.find((b) => b.workspace_id === scope.workspaceId) ?? null;
-  const avatars = useMemo(() => (presenceList ?? []).filter((p) => p.name && !p.agentId.startsWith('desk:')).slice(0, 4).map((p) => p.name.slice(0, 1).toUpperCase()), [presenceList]);
+  const avatars = useMemo(() => (presenceList ?? []).filter((p) => p.name && !p.agentId.startsWith('desk:')).slice(0, 4).map((p) => initialsOf(p.name)), [presenceList]);
+  const departments = useMemo(() => departmentsOf((presenceList ?? []).filter((p) => !p.agentId.startsWith('desk:')).map((p) => p.role)), [presenceList]);
 
   // Module panels follow the open workspace; they load when a building opens and refresh with the scene.
   useEffect(() => {
@@ -451,8 +459,17 @@ export function HeadquartersLive(props: HeadquartersProps) {
         </div>
       )}
 
-      <div className={`hqMain${props.renderPaDock ? ' hasDock' : ''}`}>
-        <div className="hqMainStage">
+      <div className="hqMain">
+        <HqNavigation
+          handles={navHandles} level={level} view={effectiveView} webglOk={webglOk} night={night} campus={campus}
+          tenantId={scope.tenantId} workspaceId={scope.workspaceId} selectedBuildingId={campusPick}
+          building={registryBuilding} floor={floor} selectedRoomId={roomId} presence={presenceIndex}
+          onView={(v) => { if (v === '3d' && !webglOk) return; setView(v); }}
+          onShowCampus={() => setLevel('campus')} onSelectBuilding={setCampusPick} onEnter={enterBuilding} onFloor={goFloor}
+          onRoom={(fid, rid) => openRoomById(fid, rid)} onAgent={(id, desk) => selectAgent(id, desk)}
+          onOverlay={(o) => setOverlay(o)} onGo={goTo}
+          dock={props.renderPaDock ? props.renderPaDock({ close: () => undefined }) : null}
+          scene={<>
           {loading && <div className="hqLoading" role="status" aria-busy="true"><span className="hqSpinner" aria-hidden="true" />{t('hq.loading')}</div>}
           {campus && effectiveView === 'list' && (
             <CampusListView
@@ -463,7 +480,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           {campus && webglOk && effectiveView !== 'list' && level === 'campus' && (
             <CampusView
               campus={campus} unreported={unreported} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
-              currentWorkspaceId={scope.workspaceId} avatars={avatars} selectedId={campusPick} onSelect={setCampusPick} onEnter={enterBuilding}
+              currentWorkspaceId={scope.workspaceId} avatars={avatars} departments={departments} nav={navHandles} selectedId={campusPick} onSelect={setCampusPick} onEnter={enterBuilding}
               onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight} onSaveProfile={saveProfile}
             />
           )}
@@ -484,7 +501,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
               selectedRoomId={roomId} selectedAgentId={agentId}
               onBack={() => setLevel('campus')} onSelectBuilding={(id) => controller.selectBuilding(id)} onSelectFloor={goFloor}
               onSelectRoom={selectRoom} onSelectAgent={(id, desk) => selectAgent(id, desk)}
-              onManageSpaces={() => setOverlay('spaces')} onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight}
+              nav={navHandles} onManageSpaces={() => setOverlay('spaces')} onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight}
               side={sidePanel}
             />
           ) : (
@@ -496,13 +513,13 @@ export function HeadquartersLive(props: HeadquartersProps) {
               <button type="button" className="hqGhost" onClick={() => setLevel('campus')}>{t('hq.back')}</button>
             </div>
           ))}
+          </>}
+          flowDock={
           <HqFlowDock snapshot={flow.snapshot} status={flow.status} error={flow.error} link={flow.link} batch={flow.batch}
             rooms={roomLabels} open={flowOpen} onToggle={() => setFlowOpen((v) => !v)} onReload={() => void flow.reload()}
             roomFilter={roomFilter} onRoomFilter={setRoomFilter} onFocusRoom={focusRoomById} onNavigate={goTo} />
-        </div>
-        {props.renderPaDock && (
-          <aside className="hqPaDock" aria-label={t('hq.paDock')}>{props.renderPaDock({ close: () => undefined })}</aside>
-        )}
+          }
+        />
       </div>
 
       {overlay !== 'none' && (

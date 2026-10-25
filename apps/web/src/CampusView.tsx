@@ -16,6 +16,8 @@ import { campusCamera, clampTarget, faceNorth, rotateBy, threeDView, topView, vi
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
+import type { HqNavHandles } from './hq-nav/HqNavigation';
+import { cardDensities, cardTags, type CardDensity } from './hq-nav/navModel.ts';
 
 const KIND_ICON: Record<CampusBuildingKind, ReactElement> = {
   executive: <Landmark aria-hidden="true" />, business: <Building2 aria-hidden="true" />,
@@ -39,6 +41,10 @@ export type CampusViewProps = Readonly<{
   currentWorkspaceId: string;
   /** Initials of agents seen in the open workspace, for the avatar stack on its label. */
   avatars: ReadonlyArray<string>;
+  /** Departments of the open workspace's agents, for the tags of its card. */
+  departments?: ReadonlyArray<string>;
+  /** The navigation layer's camera bridge and thumbnail capture (flights, snapshots). */
+  nav?: HqNavHandles;
   selectedId: string | null;
   onSelect: (workspaceId: string | null) => void;
   onEnter: (workspaceId: string) => void;
@@ -71,14 +77,24 @@ export function CampusView(props: CampusViewProps) {
   }, [home, view]);
   useEffect(() => { setCamera((c) => (view === 'top' ? topView(c) : threeDView(c))); }, [view]);
 
-  const focus = useCallback((id: string) => {
-    const p = placements.find((x) => x.workspaceId === id);
-    if (!p) return;
-    setCamera((c) => ({ ...c, target: { x: p.x, y: 0, z: p.z }, distance: Math.max(c.minDistance, Math.min(c.maxDistance, Math.max(p.width, p.depth) * 3.6 + p.height * 0.8)) }));
-  }, [placements]);
-
   const latest = useRef(props);
   latest.current = props;
+  const cameraRef = useRef(camera);
+  cameraRef.current = camera;
+  // The camera that frames one building: its centre, at a distance that fits its size.
+  const frameOf = useCallback((id: string): CameraState | null => {
+    const p = placements.find((x) => x.workspaceId === id);
+    if (!p) return null;
+    const c = cameraRef.current;
+    return { ...c, target: { x: p.x, y: 0, z: p.z }, distance: Math.max(c.minDistance, Math.min(c.maxDistance, Math.max(p.width, p.depth) * 3.6 + p.height * 0.8)) };
+  }, [placements]);
+  const focus = useCallback((id: string) => {
+    const next = frameOf(id);
+    if (!next) return;
+    if (latest.current.nav && !latest.current.reducedMotion) latest.current.nav.bridge.flyTo(next);
+    else setCamera(next);
+  }, [frameOf]);
+
   const select = useCallback((id: string | null) => {
     latest.current.onSelect(id);
     if (id) focus(id);
@@ -90,6 +106,16 @@ export function CampusView(props: CampusViewProps) {
   }, [select]);
 
   const targets: PickTarget[] = useMemo(() => scene.buildings.map((b) => ({ id: b.workspaceId, box: b.box })), [scene]);
+  const homeNow = useRef(home);
+  homeNow.current = view === 'top' ? topView(home) : home;
+  const boxes = useMemo(() => targets.map((x) => x.box), [targets]);
+  // The controller reads the latest values through a ref, so it attaches once and a refresh of the campus never stops a flight.
+  const controller = useRef({ boxes, frameOf, ground: scene.groundRadius });
+  controller.current = { boxes, frameOf, ground: scene.groundRadius };
+  useEffect(() => props.nav?.bridge.attach({
+    get: () => cameraRef.current, set: (c) => setCamera(clampTarget(c, controller.current.ground * 0.8)), obstacles: () => controller.current.boxes,
+    frame: (id) => controller.current.frameOf(id), home: () => homeNow.current,
+  }), [props.nav]);
   // The lettering on the entrance signs is the real building name over the wordmark; the last cell is the gate.
   const renderScene = useMemo(() => ({
     opaque: [{ id: 'scenery', vertices: scene.scenery.vertices, bounds: scene.scenery.bounds, cull: false }, ...scene.buildings.map((b) => ({ id: b.workspaceId, vertices: b.mesh.vertices, bounds: b.mesh.bounds }))],
@@ -98,6 +124,7 @@ export function CampusView(props: CampusViewProps) {
     shadow: scene.shadow,
   }), [scene, byId]);
 
+  const density = useMemo(() => cardDensities(campus.buildings, { selectedId, currentId: props.currentWorkspaceId }), [campus.buildings, selectedId, props.currentWorkspaceId]);
   const labels: StageLabel[] = useMemo(() => {
     const list: StageLabel[] = scene.buildings.map((b) => {
       const building = byId.get(b.workspaceId)!;
@@ -107,6 +134,7 @@ export function CampusView(props: CampusViewProps) {
           <BuildingCard
             building={building} selected={b.workspaceId === selectedId} current={b.workspaceId === props.currentWorkspaceId}
             avatars={b.workspaceId === props.currentWorkspaceId ? props.avatars : []}
+            density={density.get(b.workspaceId) ?? 'full'} departments={b.workspaceId === props.currentWorkspaceId ? props.departments ?? [] : []}
             onActivate={() => activate(b.workspaceId)} onHover={(on) => setHover(on ? b.workspaceId : null)}
           />
         ),
@@ -117,7 +145,7 @@ export function CampusView(props: CampusViewProps) {
       node: <div className="hqMonumentLabel" aria-hidden="true"><strong>ANUM MINE</strong><small>{t('hq.monument.sub')}</small></div>,
     });
     return list;
-  }, [scene, byId, selectedId, props.currentWorkspaceId, props.avatars, activate]);
+  }, [scene, byId, selectedId, props.currentWorkspaceId, props.avatars, props.departments, density, activate]);
 
   const onView = useCallback((cam: CameraState, aspect: number) => {
     const now = performance.now();
@@ -140,7 +168,7 @@ export function CampusView(props: CampusViewProps) {
         onCamera={(c) => setCamera(clampTarget(c, scene.groundRadius * 0.8))} night={night} reducedMotion={props.reducedMotion}
         hoverId={hover} selectedId={selectedId} onHover={setHover}
         onPick={(id) => { if (id) activate(id); else props.onSelect(null); }}
-        labels={labels} onView={onView} onUnavailable={props.onUnavailable}
+        labels={labels} onView={onView} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
       />
       <div className="hqOverlay hqOverlayRight">
         <CameraTools
@@ -197,25 +225,32 @@ export function buildingSummary(b: CampusBuilding): string {
 }
 
 function BuildingCard(props: {
-  building: CampusBuilding; selected: boolean; current: boolean; avatars: readonly string[];
+  building: CampusBuilding; selected: boolean; current: boolean; avatars: readonly string[]; density: CardDensity; departments: readonly string[];
   onActivate: () => void; onHover: (on: boolean) => void;
 }) {
   const b = props.building;
   const status = buildingStatus(b);
+  const full = props.density === 'full';
+  const tags = full ? cardTags(b, props.departments) : [];
+  const tagText = (tag: (typeof tags)[number]): string => (tag.kind === 'type' ? t(`hq.kind.${tag.value}` as MessageKey) : tag.kind === 'floors' ? t('hq.building.floors', { count: Number(tag.value) }) : tag.kind === 'rooms' ? t('hqNav.card.rooms', { count: Number(tag.value) }) : String(tag.value));
+  const summary = buildingSummary(b);
   return (
     <button
-      type="button" className="hqLabelCard hqBuildingCard" data-selected={props.selected} data-status={status} data-kind={b.kind}
-      aria-label={`${b.name}. ${buildingSummary(b)}.${props.selected ? ' ' + t('hq.building.pressToOpen') : ''}`}
-      aria-pressed={props.selected}
+      type="button" className="hqLabelCard hqBuildingCard" data-selected={props.selected} data-status={status} data-kind={b.kind} data-density={props.density}
+      aria-label={`${b.name}. ${summary}.${props.selected ? ' ' + t('hq.building.pressToOpen') : ''}`}
+      aria-pressed={props.selected} title={props.density === 'dot' ? b.name : undefined}
       onClick={props.onActivate} onMouseEnter={() => props.onHover(true)} onMouseLeave={() => props.onHover(false)}
     >
       <span className="hqLabelIcon">{iconOf(b)}</span>
-      <span className="hqLabelText">
-        <strong>{b.name}</strong>
-        <small>{buildingSummary(b)}</small>
-      </span>
+      {props.density !== 'dot' && (
+        <span className="hqLabelText">
+          <strong>{b.name}</strong>
+          {tags.length > 0 && <span className="hqCardTags" aria-hidden="true">{tags.map((tag, i) => <span key={i}>{tagText(tag)}</span>)}</span>}
+          <small>{summary}</small>
+        </span>
+      )}
       <span className="hqStatusDot" aria-hidden="true" />
-      {props.avatars.length > 0 && (
+      {full && props.avatars.length > 0 && (
         <span className="hqAvatarStack" aria-hidden="true">{props.avatars.slice(0, 4).map((a, i) => <span key={i}>{a}</span>)}</span>
       )}
       {!b.accessible && <LockKeyhole aria-hidden="true" className="hqLock" />}
