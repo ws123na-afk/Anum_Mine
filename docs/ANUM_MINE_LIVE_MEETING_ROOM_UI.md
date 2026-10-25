@@ -38,3 +38,7 @@ Reads need `task:read`; writes need `workspace:manage` and, for moderation, owne
 
 ## Not built
 Model drafted extraction of decisions and action items; automatic periodic running of turns from the room (the room starts one governed turn at a time; the unattended worker remains a managed service).
+
+## Owner-only transcript and monthly budget
+
+Only workspace owners read messages, decisions, files and the export; members and viewers see title, status, attendance and agenda, with counts and a notice, and the room polls instead of streaming. The room shows the workspace's monthly agent meeting budget and disables Start, Resume and Run next turn when it is used up. Details: [budget and transcripts](ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md).

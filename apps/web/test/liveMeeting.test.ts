@@ -121,3 +121,40 @@ describe('helpers', () => {
     assert.equal(meetingHash('a b'), '#office/meeting/a%20b');
   });
 });
+
+describe('owner-only transcript and the monthly budget (S-02, S-03)', () => {
+  const hiddenBundle: RoomBundle = { ...bundle, outputs: [], files: [], transcript_hidden: true, outputs_count: 3, files_count: 2, viewer: { user_id: 'member', is_owner: false, can_read_transcript: false } };
+
+  test('a bundle without text keeps only the counts and the flag', () => {
+    const state = initialState(hiddenBundle, []);
+    assert.equal(state.transcriptHidden, true);
+    assert.equal(state.outputsCount, 3);
+    assert.equal(state.filesCount, 2);
+    assert.equal(state.messages.length, 0);
+    assert.equal(state.viewer.can_read_transcript, false);
+  });
+
+  test('an owner bundle is not hidden and counts what it holds', () => {
+    const state = initialState({ ...bundle, outputs: [{ id: 'o', kind: 'decision', body: 'x', state: 'draft', owner_label: null, source_sequences: [], task_id: null, created_by: 'u', decided_by: null }] }, []);
+    assert.equal(state.transcriptHidden, false);
+    assert.equal(state.outputsCount, 1);
+  });
+
+  test('a message and the budget event both ask the room to refetch the monthly budget', () => {
+    let state = fresh();
+    assert.equal(state.budgetTick, 0);
+    state = applyEvent(state, ev('message', { sequence: 1, speaker_id: 'agent_a', role: 'agent', body: 'Hi', request_key: 'k1' }));
+    assert.equal(state.budgetTick, 1);
+    state = applyEvent(state, ev('budget_reached', { limit_usd: 50, used_usd: 50.01 }));
+    assert.equal(state.budgetTick, 2);
+    assert.equal(state.messages.length, 1);
+  });
+
+  test('the budget pause arrives as a state event and stops the speaking dot', () => {
+    let state = applyEvent(fresh(), ev('turn_started', { agent_id: 'agent_a', sequence: 1, request_key: 'k1' }));
+    state = applyEvent(state, ev('state', { status: 'paused', reason: 'budget', revision: 5 }));
+    assert.equal(state.meeting.status, 'paused');
+    assert.deepEqual(activeSpeakers(state, Date.parse('2026-10-22T10:00:11Z')), []);
+    assert.equal(state.meeting.ended_reason, null);
+  });
+});

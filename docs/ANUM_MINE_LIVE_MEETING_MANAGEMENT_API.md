@@ -46,3 +46,8 @@ registration in `main.py`, avoiding changes to the office 3D/frontend modules.
 ## Room link (migration 0108)
 
 `POST /api/v1/agent-meetings` accepts an optional `room_id`: an office room of kind `meeting` in the same workspace (404 for a room that is not visible in the workspace, 422 for another kind). `room_id` is returned by create, get, list and the room bundle, is carried by the `agent_meeting.create` and `agent_meeting.state_change` audit records and the `state` meeting event, and `GET /agent-meetings` accepts `status=` and `room_id=` filters. Deleting the room clears only the link. Details: [departments, modules and meeting rooms](ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md).
+
+## Budget, transcript access and turn audit
+
+`GET|PUT /api/v1/agent-meetings/budget`; transcript reads (`turns`, `events`, `events/stream`, `export`) need the owner role; each turn is audited as `agent_meeting.turn`; a reached cap answers 402 `agent_meeting_budget_exceeded`. See [budget and transcripts](ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md).
+

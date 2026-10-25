@@ -10,6 +10,7 @@ export function AgentMeetingSessions({onClose,rooms=[],initialRoomId=null}:{onCl
  const [list,setList]=useState<Meeting[]>([]),[chosen,setChosen]=useState<string|null>(null);
  const [turns,setTurns]=useState<Turn[]>([]),[title,setTitle]=useState(''),[error,setError]=useState('');
  const [working,setWorking]=useState(false);
+ const [turnsNote,setTurnsNote]=useState('');
  const [agentId,setAgentId]=useState(''),[roomId,setRoomId]=useState<string>(initialRoomId??'');
  const roomName=(id:string|null|undefined)=>id?rooms.find(r=>r.id===id)?.label??id:null;
  const refresh=useCallback(async()=>{
@@ -41,11 +42,13 @@ export function AgentMeetingSessions({onClose,rooms=[],initialRoomId=null}:{onCl
   return()=>{active=false;window.clearInterval(interval);document.removeEventListener('visibilitychange',onVisible)};
  },[refresh]);
  useEffect(()=>{
-  if(!chosen){setTurns([]);return}
+  if(!chosen){setTurns([]);setTurnsNote('');return}
   let mounted=true;const scope=api.currentScope();
   void api.apiRequest<{items:Turn[]}>(root+'/'+encodeURIComponent(chosen)+'/turns?limit=100',{method:'GET'})
-  .then(value=>{const next=api.currentScope();if(mounted&&scope.tenantId===next.tenantId&&scope.workspaceId===next.workspaceId)setTurns(value.items)})
-  .catch(e=>{if(mounted)setError(describeError(e))});
+  .then(value=>{const next=api.currentScope();if(mounted&&scope.tenantId===next.tenantId&&scope.workspaceId===next.workspaceId){setTurns(value.items);setTurnsNote('')}})
+  .catch(e=>{if(!mounted)return;
+   // Transcripts are for workspace owners only: say so instead of showing a failure.
+   if((e as {status?:number}).status===403){setTurns([]);setTurnsNote(describeError(e))}else setError(describeError(e))});
   return()=>{mounted=false};
  },[chosen,list]);
  const selected=list.find(m=>m.id===chosen);
@@ -96,7 +99,7 @@ export function AgentMeetingSessions({onClose,rooms=[],initialRoomId=null}:{onCl
       onClick={()=>void run(()=>api.apiRequest(root+'/'+encodeURIComponent(selected.id)+'/run',{
        method:'POST',body:JSON.stringify({run_key:'round_'+Date.now().toString(36)+'_meeting',turns:3})
       }))}>Run agent meeting round (up to 3 turns)</button>}
-    <h4>Saved meeting turns</h4>{turns.length?<ol>{turns.map(t=><li key={t.id}><strong>{t.speaker_id}:</strong> {t.body}</li>)}</ol>:<p>No recorded turns.</p>}
+    <h4>Saved meeting turns</h4>{turnsNote?<p role="note">{turnsNote}</p>:turns.length?<ol>{turns.map(t=><li key={t.id}><strong>{t.speaker_id}:</strong> {t.body}</li>)}</ol>:<p>No recorded turns.</p>}
    </>:<p>Select a meeting to view its details.</p>}</div>
   </div>
  </section>;

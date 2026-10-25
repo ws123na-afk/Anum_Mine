@@ -123,6 +123,8 @@ Configurations saved before the guard existed are checked on their next call; a 
 
 ## Monthly budgets
 
+Live agent meetings have their own workspace-wide monthly cap (default USD 50, owners change it), checked before every meeting turn: see [live meeting budget](ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md#monthly-cost-cap-s-02). It is separate from the model budgets below.
+
 Per-agent monthly cost caps and the organization's emergency stop are checked in the same place as these budgets ([Agent controls](agent-controls.md)).
 
 Owners can cap model use per UTC calendar month (threat model G4), for the organization (`tenant` scope, summed over all its workspaces) and for each workspace. Each budget has an optional estimated-cost limit in USD (`monthly_cost_limit_usd`) and an optional token limit (`monthly_token_limit`, input plus output tokens). Null means no limit; `0` blocks every call.
