@@ -26,7 +26,7 @@ export function drawExterior(p: Placement, archetype: Archetype, signIndex: numb
   if (!kind) return null;
   // The assets have their own size ranges (a tower is at least 8 storeys, the executive building at least 30 m wide):
   // ask for the smallest storey count that keeps the executive building the tallest on the campus.
-  const levels = archetype === 'executive' ? Math.min(16, Math.max(9, p.levels * 2)) : archetype === 'tower' ? 8 : p.levels;
+  const levels = archetype === 'executive' ? Math.min(16, Math.max(8, p.levels * 2)) : archetype === 'tower' ? 6 : p.levels;
   const asset: ExteriorAsset = buildExterior(kind, { seed: 'bld:' + p.workspaceId, width: p.width, depth: p.depth, levels, origin: { x: p.x, z: p.z } });
   // The lettered sign lies a hair in front of the asset's blank board and covers it (the board's own mark is in the texture).
   const cell = signAtlasLayout(signCount).cell(signIndex);

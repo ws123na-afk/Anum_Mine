@@ -8,7 +8,7 @@ import type { Vec3 } from './headquartersProjection.ts';
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 export const HOME_YAW = 35;
-export const HOME_PITCH = 44;
+export const HOME_PITCH = 40;
 export const TOP_PITCH = 87;
 
 /** How much farther the camera must sit so a scene meant for a wide stage still fits a narrow one. */
@@ -18,13 +18,13 @@ export function aspectFit(aspect: number): number {
 }
 
 export function campusCamera(radius: number, centerZ = 0, aspect = 1.7): CameraState {
-  const distance = clamp((radius * 2.7 + 50) * aspectFit(aspect), 70, 540);
+  const distance = clamp((radius * 2.05 + 38) * aspectFit(aspect), 64, 540);
   return { target: { x: 0, y: 0, z: centerZ }, distance, yaw: HOME_YAW, pitch: HOME_PITCH, fov: 40, minDistance: 14, maxDistance: 560 };
 }
 
 export function buildingCamera(target: Vec3, distance: number, aspect = 1.7): CameraState {
   const d = clamp(distance * aspectFit(aspect), 14, 300);
-  return { target, distance: d, yaw: HOME_YAW, pitch: 50, fov: 40, minDistance: 6, maxDistance: 320 };
+  return { target, distance: d, yaw: HOME_YAW, pitch: 44, fov: 40, minDistance: 6, maxDistance: 320 };
 }
 
 /** The same framing from straight above (the "Top" switch), north up like the minimap. */

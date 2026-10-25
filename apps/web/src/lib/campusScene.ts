@@ -8,7 +8,7 @@
  */
 import { MAT, MeshBuilder, hex, mix, scale, seeded, type Rgb } from './hqGeometry.ts';
 import { GROUND, STONE, WATER, bench, flatPoly, lamp } from './hqProps.ts';
-import { campusEnvironment, carPark, carParkSize, pond, tennisCourt, tree, truck, van, type Exclusion } from '../hqAssets/environment/index.ts';
+import { buildingGarden, globeMonument, campusEnvironment, carPark, carParkSize, pond, tennisCourt, tree, truck, van, type Exclusion } from '../hqAssets/environment/index.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
 import { archetypeOf, drawBuilding, type Archetype } from './campusBuildings.ts';
 import { drawExterior } from './campusExteriors.ts';
@@ -87,28 +87,12 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
     s.disc(Math.cos(a) * r, 0.003, Math.sin(a) * r, 7 + mottle() * 12, 14, scale(GROUND, 0.9 + mottle() * 0.25));
   }
   s.mat = MAT.flat;
-  // Plaza and monument.
-  s.withMat(MAT.tile, () => {
-    s.disc(monument.x, 0.02, monument.z, 11, 28, mix(STONE, hex('#ffffff'), 0.1));
-    s.disc(monument.x, 0.06, monument.z, 7.2, 24, mix(STONE, hex('#8a8577'), 0.4));
-  });
-  s.withMat(MAT.water, () => s.disc(monument.x, 0.1, monument.z, 6.2, 24, WATER, 0.05));
-  s.withMat(MAT.concrete, () => {
-    s.prism(monument.x, 0, monument.z, 2.2, 1.6, 1.6, 12, STONE);
-    s.prism(monument.x, 1.6, monument.z, 0.9, 0.7, 2.6, 8, mix(STONE, hex('#ffffff'), 0.3));
-  });
-  s.withMat(MAT.paint, () => s.blob(monument.x, 5.4, monument.z, 2.1, 2.1, 2.1, hex('#3a8fb8'), 12));
-  s.prism(monument.x, 3.3, monument.z, 2.4, 2.4, 0.18, 24, hex('#d9b25f'), { emissive: 0.9 });
-  s.prism(monument.x, 4.1, monument.z, 2.7, 2.7, 0.14, 24, hex('#45d0b5'), { emissive: 0.95 });
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2;
-    s.prism(monument.x + Math.cos(a) * 4.7, 0.1, monument.z + Math.sin(a) * 4.7, 0.16, 0.02, 1.6, 5, hex('#cfeaff'), { emissive: 0.92, capTop: false });
-  }
-  s.withMat(MAT.water, () => s.prism(monument.x, 0.12, monument.z, 6.3, 6.3, 0.1, 28, hex('#7fd8ff'), { emissive: 0.4 }));
+  // Plaza and monument: a globe in a pool on a paved plaza with benches and lamps.
+  globeMonument(s, monument.x, monument.z);
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 + 0.2;
-    bench(s, monument.x + Math.cos(a) * 9.2, monument.z + Math.sin(a) * 9.2, Math.abs(Math.cos(a)) > 0.7 ? 'z' : 'x');
-    if (i % 2 === 0) lamp(s, monument.x + Math.cos(a + 0.4) * 10.2, monument.z + Math.sin(a + 0.4) * 10.2);
+    bench(s, monument.x + Math.cos(a) * 14.2, monument.z + Math.sin(a) * 14.2, Math.abs(Math.cos(a)) > 0.7 ? 'z' : 'x');
+    if (i % 2 === 0) lamp(s, monument.x + Math.cos(a + 0.4) * 15.6, monument.z + Math.sin(a + 0.4) * 15.6);
   }
 
   // Buildings, their walkways, and the ring road.
@@ -136,11 +120,16 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
     if (p.kind === 'executive') segments.push([p.x, p.z + p.depth / 2 + 3, monument.x, monument.z - 10]);
     else segments.push([door.x, door.z, from[0], from[1]]);
   });
-  // Lawn under each building so it sits on the ground, not above it.
+  // Lawn under each building so it sits on the ground, not above it, and a garden round it.
   s.mat = MAT.grass;
-  for (const p of placements) s.plane(p.x - p.width / 2 - 3.5, 0.005, p.z - p.depth / 2 - 3.5, p.width + 7, p.depth + 7, scale(GROUND, 0.86), 0.04);
+  for (const p of placements) s.plane(p.x - p.width / 2 - 6.5, 0.005, p.z - p.depth / 2 - 6.5, p.width + 13, p.depth + 22, scale(GROUND, 0.9), 0.04);
+  s.mat = MAT.flat;
+  placements.forEach((p, i) => {
+    const bd = buildings[i];
+    buildingGarden(s, { x: p.x - p.width / 2, z: p.z - p.depth / 2, w: p.width, d: p.depth + 2 }, { x: bd.door.x, z: bd.door.z }, { seed: 'garden:' + p.workspaceId, lawn: scale(GROUND, 1.0) });
+  });
   s.mat = MAT.tile;
-  for (const [x0, z0, x1, z1] of segments) path(s, x0, z0, x1, z1, 3.2, 0.03, STONE, 0.1);
+  for (const [x0, z0, x1, z1] of segments) { path(s, x0, z0, x1, z1, 4.6, 0.03, mix(STONE, hex('#ffffff'), 0.15), 0.3); path(s, x0, z0, x1, z1, 4.9, 0.026, scale(STONE, 0.7), 0.15); }
   if (extent.radius > 30) {
     const sides = 48;
     const rr = Math.max(26, extent.radius * 0.62);
@@ -183,7 +172,7 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
     skyline: { from: Math.PI * 0.05, to: Math.PI * 1.95, count: 22 },
   });
   // Trees in the free ground inside the ring.
-  const treeCount = Math.min(60, 18 + placements.length * 4);
+  const treeCount = Math.min(90, 30 + placements.length * 6);
   for (let i = 0, placed = 0; placed < treeCount && i < treeCount * 12; i++) {
     const a = rnd() * Math.PI * 2, r = 8 + Math.sqrt(rnd()) * (ringHalf - 14);
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
@@ -215,7 +204,7 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
   scenery.append(classifySurfaces(s.toFloat32()));
   const total = scenery.triangleCount + buildings.reduce((n, bd) => n + bd.mesh.triangles, 0);
   return {
-    scenery: freeze(scenery), buildings, monument: { x: monument.x, y: 8.2, z: monument.z }, extent, groundRadius, triangles: total, signCount, canalRadius: ringHalf + 24,
+    scenery: freeze(scenery), buildings, monument: { x: monument.x, y: 10.2, z: monument.z }, extent, groundRadius, triangles: total, signCount, canalRadius: ringHalf + 24,
     shadow: { center: { x: 0, y: 0, z: 0 }, radius: ringHalf * 1.2 + 6 },
     halos: new Float32Array([...s.halos, ...buildingHalos]),
   };

@@ -13,16 +13,16 @@ export const TREE_SPECIES: readonly TreeSpecies[] = ['datePalm', 'oak', 'cypress
 export const NOMINAL_HEIGHT: Record<TreeSpecies, number> = { datePalm: 9, oak: 7, cypress: 8, acacia: 6, olive: 4, flowering: 5 };
 export const TREE_VARIANTS = 3;
 /** Triangle cap for one template of any species. */
-export const TREE_TRIANGLES_CAP = 300;
+export const TREE_TRIANGLES_CAP = 520;
 
 const BARK = hex('#5d4630');
 const GREENS: Record<TreeSpecies, readonly [Rgb, Rgb]> = {
-  datePalm: [hex('#2c7a43'), hex('#4f9a4a')],
-  oak: [hex('#2f6a43'), hex('#559553')],
-  cypress: [hex('#22543a'), hex('#3d7d4c')],
-  acacia: [hex('#6a8a3e'), hex('#8aa84c')],
-  olive: [hex('#6d8a62'), hex('#93aa86')],
-  flowering: [hex('#2f7448'), hex('#4d9556')],
+  datePalm: [hex('#27703d'), hex('#5aa44c')],
+  oak: [hex('#245a38'), hex('#4a8a48')],
+  cypress: [hex('#1d4a33'), hex('#356f45')],
+  acacia: [hex('#587a38'), hex('#85a548')],
+  olive: [hex('#667f5c'), hex('#8ea483')],
+  flowering: [hex('#2a6c42'), hex('#4a9054')],
 };
 
 /** One tapered limb between two points (a 5 sided prism leaning from a to b). */
@@ -47,15 +47,23 @@ function limb(b: MeshBuilder, a: readonly [number, number, number], c: readonly 
   }
 }
 
+/** One arched palm frond: it rises, then droops, in four segments that narrow to a tip. */
 function frond(b: MeshBuilder, cx: number, cy: number, cz: number, ang: number, len: number, droop: number, wid: number, col: Rgb): void {
-  const dx = Math.cos(ang), dz = Math.sin(ang), sx = -dz * wid, sz = dx * wid;
-  const m = [cx + dx * len * 0.5, cy + len * 0.18, cz + dz * len * 0.5];
-  const t = [cx + dx * len, cy - droop, cz + dz * len];
-  const L0 = [cx - sx * 0.2, cy, cz - sz * 0.2], R0 = [cx + sx * 0.2, cy, cz + sz * 0.2];
-  const L1 = [m[0] - sx, m[1], m[2] - sz], R1 = [m[0] + sx, m[1], m[2] + sz];
-  // Seen from above; the renderer does not cull, so the underside needs no second layer.
-  b.quad(L0, R0, R1, L1, col);
-  b.tri(L1, R1, t, scale(col, 1.1));
+  const dx = Math.cos(ang), dz = Math.sin(ang), sx = -dz, sz = dx;
+  const at = (t: number): [number, number, number] => [cx + dx * len * t, cy + Math.sin(t * Math.PI * 0.55) * len * 0.3 - droop * t * t, cz + dz * len * t];
+  const half = (t: number) => wid * (t < 0.3 ? 0.55 + t * 1.5 : 1 - (t - 0.3) * 1.2);
+  let prev = at(0), pw = half(0) * 0.4;
+  for (let i = 1; i <= 4; i++) {
+    const t = i / 4, p = at(t), w = i === 4 ? 0.02 : half(t);
+    const shade = scale(col, 1.12 - 0.3 * t);
+    b.quad([prev[0] - sx * pw, prev[1], prev[2] - sz * pw], [prev[0] + sx * pw, prev[1], prev[2] + sz * pw], [p[0] + sx * w, p[1], p[2] + sz * w], [p[0] - sx * w, p[1], p[2] - sz * w], shade);
+    prev = p; pw = w;
+  }
+}
+
+/** A foliage puff: smooth, lumpy and round, so a crown reads as leaves and not as a stack of faceted stones. */
+function puff(b: MeshBuilder, x: number, y: number, z: number, rx: number, ry: number, rz: number, color: Rgb, seed: number, lat = 4, lon = 8): void {
+  b.smoothBlob(x, y, z, rx, ry, rz, color, { lat, lon, lump: 0.13, tone: 0.2, seed });
 }
 
 function buildTree(b: MeshBuilder, sp: TreeSpecies, variant: number): void {
@@ -63,48 +71,47 @@ function buildTree(b: MeshBuilder, sp: TreeSpecies, variant: number): void {
   const [g0, g1] = GREENS[sp];
   const leaf = () => mix(g0, g1, rnd());
   const H = NOMINAL_HEIGHT[sp];
+  let n = 1;
   if (sp === 'datePalm') {
     const lean = (rnd() - 0.5) * 1.2, lean2 = (rnd() - 0.5) * 0.8;
     const p0: [number, number, number] = [0, 0, 0], p1: [number, number, number] = [lean * 0.4, H * 0.35, lean2 * 0.3], p2: [number, number, number] = [lean * 0.8, H * 0.7, lean2 * 0.7], p3: [number, number, number] = [lean, H, lean2];
     limb(b, p0, p1, 0.3, 0.24, BARK); limb(b, p1, p2, 0.24, 0.2, scale(BARK, 1.08)); limb(b, p2, p3, 0.2, 0.16, BARK);
-    const n = 11 + Math.floor(rnd() * 3);
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + rnd() * 0.3;
-      frond(b, lean, H, lean2, a, 2.6 + rnd() * 0.8, 1.2 + rnd() * 0.9, 0.42, leaf());
+    const count = 13 + Math.floor(rnd() * 3);
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 + rnd() * 0.3;
+      frond(b, lean, H, lean2, a, 2.7 + rnd() * 0.9, 1.5 + rnd() * 1.1, 0.5, leaf());
     }
-    b.blob(lean, H - 0.05, lean2, 0.4, 0.3, 0.4, hex('#7a6244'), 5);
-    for (let i = 0; i < 3; i++) b.blob(lean + Math.cos(i * 2.1) * 0.5, H - 0.55, lean2 + Math.sin(i * 2.1) * 0.5, 0.22, 0.3, 0.22, hex('#c07a2c'), 4);
+    b.smoothBlob(lean, H - 0.05, lean2, 0.42, 0.34, 0.42, hex('#6e5a3e'), { lat: 3, lon: 6, lump: 0.1 });
+    for (let i = 0; i < 3; i++) b.smoothBlob(lean + Math.cos(i * 2.1) * 0.5, H - 0.55, lean2 + Math.sin(i * 2.1) * 0.5, 0.22, 0.3, 0.22, hex('#c07a2c'), { lat: 2, lon: 5, lump: 0.05 });
   } else if (sp === 'oak') {
     limb(b, [0, 0, 0], [0.1, H * 0.4, 0], 0.4, 0.28, BARK);
     limb(b, [0.1, H * 0.35, 0], [-1.2, H * 0.62, 0.4], 0.2, 0.12, BARK);
     limb(b, [0.1, H * 0.38, 0], [1.3, H * 0.66, -0.3], 0.2, 0.12, BARK);
-    const spots: Array<[number, number, number, number]> = [[0, 0.7, 0, 2.2], [-1.6, 0.62, 0.5, 1.7], [1.7, 0.66, -0.4, 1.8], [0.2, 0.9, 0.2, 1.7], [-0.4, 0.55, -1.5, 1.5]];
-    for (const [x, y, z, r] of spots) b.blob(x + (rnd() - 0.5) * 0.4, H * y, z + (rnd() - 0.5) * 0.4, r, r * 0.72, r, leaf(), 8);
+    const spots: Array<[number, number, number, number]> = [[0, 0.7, 0, 2.2], [-1.6, 0.62, 0.5, 1.7], [1.7, 0.66, -0.4, 1.8], [0.2, 0.9, 0.2, 1.7], [-0.4, 0.55, -1.5, 1.5], [0.9, 0.58, 1.4, 1.4]];
+    for (const [x, y, z, r] of spots) puff(b, x + (rnd() - 0.5) * 0.4, H * y, z + (rnd() - 0.5) * 0.4, r, r * 0.78, r, leaf(), n++);
   } else if (sp === 'cypress') {
     b.prism(0, 0, 0, 0.22, 0.18, H * 0.14, 5, BARK, { capTop: false });
-    b.prism(0, H * 0.08, 0, H * 0.13, H * 0.1, H * 0.42, 8, leaf());
-    b.prism(0, H * 0.45, 0, H * 0.11, H * 0.07, H * 0.3, 8, leaf());
-    b.prism(0, H * 0.72, 0, H * 0.075, 0, H * 0.28, 8, leaf());
+    b.smoothBlob(0, H * 0.56, 0, H * 0.15, H * 0.44, H * 0.15, leaf(), { lat: 6, lon: 7, lump: 0.07, tone: 0.2, seed: 3 });
   } else if (sp === 'acacia') {
     limb(b, [0, 0, 0], [0.5, H * 0.5, 0.2], 0.3, 0.2, BARK);
     limb(b, [0.5, H * 0.5, 0.2], [-1.2, H * 0.78, 0.4], 0.16, 0.1, BARK);
     limb(b, [0.5, H * 0.5, 0.2], [1.9, H * 0.82, -0.2], 0.16, 0.1, BARK);
     limb(b, [0.5, H * 0.5, 0.2], [0.6, H * 0.88, -1.6], 0.14, 0.09, BARK);
-    for (const [x, z, r] of [[0.4, 0, 3.2], [-1.6, 0.5, 2.3], [2.2, -0.3, 2.4], [0.6, -1.9, 2.1]] as const) b.blob(x, H * 0.88 + rnd() * 0.3, z, r, 0.62, r * 0.92, leaf(), 8);
+    for (const [x, z, r] of [[0.4, 0, 3.2], [-1.6, 0.5, 2.3], [2.2, -0.3, 2.4], [0.6, -1.9, 2.1]] as const) puff(b, x, H * 0.88 + rnd() * 0.3, z, r, 0.7, r * 0.92, leaf(), n++);
   } else if (sp === 'olive') {
     limb(b, [0, 0, 0], [0.3, H * 0.4, 0.1], 0.28, 0.2, hex('#7a6a58'));
     limb(b, [0.3, H * 0.4, 0.1], [-0.5, H * 0.65, 0.2], 0.16, 0.1, hex('#7a6a58'));
     limb(b, [0.3, H * 0.4, 0.1], [1.0, H * 0.68, -0.2], 0.16, 0.1, hex('#7a6a58'));
-    for (const [x, y, z, r] of [[0, 0.78, 0, 1.5], [-1.0, 0.7, 0.3, 1.1], [1.2, 0.72, -0.3, 1.2], [0.2, 0.92, -0.5, 1.0]] as const) b.blob(x, H * y, z, r, r * 0.7, r, leaf(), 7);
+    for (const [x, y, z, r] of [[0, 0.78, 0, 1.5], [-1.0, 0.7, 0.3, 1.1], [1.2, 0.72, -0.3, 1.2], [0.2, 0.92, -0.5, 1.0]] as const) puff(b, x, H * y, z, r, r * 0.72, r, leaf(), n++);
   } else {
     limb(b, [0, 0, 0], [0.1, H * 0.45, 0], 0.3, 0.2, BARK);
     limb(b, [0.1, H * 0.4, 0], [-0.9, H * 0.65, 0.3], 0.14, 0.09, BARK);
     limb(b, [0.1, H * 0.4, 0], [1.0, H * 0.68, -0.2], 0.14, 0.09, BARK);
     const bloom = pick(rnd, [hex('#d9468a'), hex('#e8663d'), hex('#b25ad4'), hex('#f0c04e')]);
-    for (const [x, y, z, r] of [[0, 0.78, 0, 1.9], [-1.2, 0.68, 0.3, 1.4], [1.4, 0.7, -0.3, 1.5]] as const) b.blob(x, H * y, z, r, r * 0.74, r, leaf(), 7);
+    for (const [x, y, z, r] of [[0, 0.78, 0, 1.9], [-1.2, 0.68, 0.3, 1.4], [1.4, 0.7, -0.3, 1.5]] as const) puff(b, x, H * y, z, r, r * 0.76, r, leaf(), n++);
     for (let i = 0; i < 9; i++) {
       const a = rnd() * Math.PI * 2, rr = 0.9 + rnd() * 1.4;
-      b.blob(Math.cos(a) * rr, H * (0.7 + rnd() * 0.22), Math.sin(a) * rr, 0.38, 0.28, 0.38, mix(bloom, hex('#ffffff'), rnd() * 0.25), 4);
+      b.smoothBlob(Math.cos(a) * rr, H * (0.7 + rnd() * 0.22), Math.sin(a) * rr, 0.4, 0.3, 0.4, mix(bloom, hex('#ffffff'), rnd() * 0.25), { lat: 2, lon: 5, lump: 0.05, tone: 0.1, seed: n++ });
     }
   }
 }
