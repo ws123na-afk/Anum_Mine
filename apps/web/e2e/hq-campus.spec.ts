@@ -81,10 +81,10 @@ test('night glow is off under reduced motion', async ({ page }) => {
 test('night and day both draw and the toggle keeps the page inside the viewport', async ({ page }) => {
   await openOffice(page);
   const canvas = hq(page).locator('canvas.hqCanvas');
-  await hq(page).getByRole('button', { name: 'Night' }).click();
+  await hq(page).getByRole('button', { name: 'Night', exact: true }).click();
   await expect(hq(page).locator('.hqStage')).toHaveAttribute('data-night', 'true');
   await page.waitForTimeout(700);
-  await hq(page).getByRole('button', { name: 'Day' }).click();
+  await hq(page).getByRole('button', { name: 'Day', exact: true }).click();
   await expect(hq(page).locator('.hqStage')).toHaveAttribute('data-night', 'false');
   await expect(canvas).toBeVisible();
   expect(Number(await canvas.getAttribute('data-triangles'))).toBeGreaterThan(20000);

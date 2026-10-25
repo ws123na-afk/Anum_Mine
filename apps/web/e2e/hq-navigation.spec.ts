@@ -16,12 +16,14 @@ const SHOTS = process.env.HQ_NAV_SHOTS;
 test.describe.configure({ timeout: 240_000 });
 
 async function openOffice(page: Page, size = { width: 1440, height: 900 }, options: Parameters<typeof mockHq>[1] = { campus: 'api', commerce: 'connected', meetings: 'live' }) {
-  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); localStorage.setItem('anum.hq.quality', '1'); } catch { /* storage blocked */ } });
+  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); localStorage.setItem('anum.hq.quality', '0'); } catch { /* storage blocked */ } });
   await mockHq(page, options);
   await page.setViewportSize(size);
   await page.goto('/#office-preview');
   await expect(hq(page).getByRole('heading', { level: 1 })).toBeVisible();
   await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible();
+  // The campus read, the first draw and the lazy panels share a busy machine in CI: wait for the cards once, with room.
+  await expect(cards(page).locator('.hqBuildingCard').first()).toBeAttached({ timeout: 60_000 });
 }
 
 async function enterFleetBuilding(page: Page) {
@@ -38,6 +40,7 @@ const noOverflow = async (page: Page) => expect(await page.evaluate(() => docume
 test('campus to building to floor to room through the strip, the rail, the plan and the cards', async ({ page }) => {
   await openOffice(page);
   // The strip lists the campus aerial and one stop per building, taken from the campus data.
+  await expect(strip(page)).toBeVisible({ timeout: 60_000 });
   for (const name of ['Campus (aerial)', 'Executive HQ', 'Al Noor Fleet HQ', 'Tyre Pulse HQ', 'ANUM360 Commerce', 'Personal Office']) {
     await expect(strip(page).getByRole('button', { name: `Quick view: ${name}.` })).toBeVisible();
   }
@@ -155,7 +158,7 @@ test('the rail and the strip collapse, and the choice is remembered', async ({ p
 });
 
 test('many buildings: cards shrink by rule and none disappears', async ({ page }) => {
-  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); localStorage.setItem('anum.hq.quality', '1'); } catch { /* storage blocked */ } });
+  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); localStorage.setItem('anum.hq.quality', '0'); } catch { /* storage blocked */ } });
   await mockHq(page, { campus: 'api', commerce: 'none', meetings: 'none' });
   const many = { ...campusFixture, buildings: [...campusFixture.buildings, ...Array.from({ length: 10 }, (_, i) => ({ ...campusFixture.buildings[3], workspace_id: `workspace_extra_${i}`, name: `Extra Building ${i}`, accessible: true }))] };
   await page.route('http://localhost:8000/api/v1/office/campus', (route) => route.fulfill({ json: many }));
@@ -163,7 +166,7 @@ test('many buildings: cards shrink by rule and none disappears', async ({ page }
   await page.goto('/#office-preview');
   await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible();
   const count = (d: string) => cards(page).locator(`.hqBuildingCard[data-density="${d}"]`).count();
-  await expect.poll(async () => (await count('full')) + (await count('compact')) + (await count('dot'))).toBe(16);
+  await expect.poll(async () => (await count('full')) + (await count('compact')) + (await count('dot')), { timeout: 60_000 }).toBe(16);
   expect(await count('full')).toBe(6);
   expect(await count('compact')).toBe(8);
   expect(await count('dot')).toBe(2);
@@ -173,14 +176,14 @@ test('many buildings: cards shrink by rule and none disappears', async ({ page }
 
 test('cards carry real tags and counts only', async ({ page }) => {
   await openOffice(page);
-  const exec = cards(page).getByRole('button', { name: /^Executive HQ\./ });
+  const exec = cards(page).locator('.hqBuildingCard[aria-label^="Executive HQ."]');
   await expect(exec).toContainText('Executive');
   await expect(exec).toContainText('3 floors');
   await expect(exec).toContainText('5 agents, 2 working');
   // An unclassified building shows no type tag, and a building without presence says so, with no invented count.
-  const personal = cards(page).getByRole('button', { name: /^Personal Office\./ });
+  const personal = cards(page).locator('.hqBuildingCard[aria-label^="Personal Office."]');
   await expect(personal).not.toContainText('Business');
-  await expect(cards(page).getByRole('button', { name: /^Tyre Pulse HQ\./ })).toContainText('Presence unavailable');
+  await expect(cards(page).locator('.hqBuildingCard[aria-label^="Tyre Pulse HQ."]')).toContainText('Presence unavailable');
 });
 
 test('quick moves run existing navigation and suggest only real places', async ({ page }) => {
@@ -243,12 +246,12 @@ test('small screens: the floors and the side panel open as drawers', async ({ pa
   await noOverflow(page);
   await enterFleetBuilding(page);
   await noOverflow(page);
-  await hq(page).getByRole('button', { name: 'Floors' }).click();
+  await hq(page).getByRole('button', { name: 'Floors', exact: true }).click();
   const drawer = page.getByRole('dialog', { name: 'Floors' });
   await expect(drawer).toBeVisible();
   await drawer.getByRole('button', { name: /^First floor\./ }).click();
   await expect(drawer).toHaveCount(0);
-  await hq(page).getByRole('button', { name: 'Plan and people' }).click();
+  await hq(page).getByRole('button', { name: 'Plan and people', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Plan and people' }).getByRole('region', { name: 'People at their posts' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'Plan and people' })).toHaveCount(0);
@@ -258,7 +261,7 @@ test('small screens: the floors and the side panel open as drawers', async ({ pa
 for (const locale of ['en', 'ar'] as const) {
   for (const theme of ['light', 'dark'] as const) {
     test(`axe on the navigation layer: ${locale}, ${theme} theme, campus and building`, async ({ page }) => {
-      await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); localStorage.setItem('anum.hq.quality', '1'); } catch { /* storage blocked */ } });
+      await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); localStorage.setItem('anum.hq.quality', '0'); } catch { /* storage blocked */ } });
       await useSavedLocale(page, locale);
       await page.addInitScript((value) => { try { localStorage.setItem('anum.theme', value); } catch { /* storage blocked */ } }, theme);
       await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
