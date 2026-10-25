@@ -62,6 +62,24 @@ import { ExecutivePaDock } from './ExecutivePanel';
 
 The PA moves the view only through `hqCommands.navigateTo`, so the dock needs no other access to the scene. The tour list comes from `GET /api/v1/executive-pa/tour`; until that endpoint is available the built-in Guided visit (Office tools) builds its stops from the rooms of the open floor.
 
+## Room modules
+
+The module a room opens follows its stored department (`team_department`, set by the builder and the starter campus), never the words in its name. Pure resolver: `apps/web/src/lib/hqRoomModule.ts`; the link is `HqRoomModule.tsx`, shown in the room inspector and in the room list (a real link or button, keyboard reachable, English and Arabic).
+
+| Stored department | Opens |
+|---|---|
+| `finance` | Finance (`#finance`) |
+| `sales` | Sales and CRM (`#whatsapp`) |
+| `support` | Inbox and support (`#inbox`) |
+| `operations` | The live flow dock inside the office |
+| `tyre_engineering` | Tyre Planner (`#tyre`) |
+| `custom` or any unknown value | No module: "No module connected for this department" and the Organisation gaps button |
+| `executive`, `commerce`, `compliance`, `meeting` | Accepted if a later contract stores them: `#executive`, `#commerce`, `#governance`, `#meetings` (the contract stores only the first six departments today) |
+
+No department stored: the room kind decides (meeting to `#meetings`, workshop to `#tyre`, warehouse to `#commerce`, reception to no module, with "no visitor register"); then a room in an executive building opens `#executive`; then a word in the room name; last, office to Tasks and lounge to Calendar. In every one of these cases the owner (`workspace:manage`) sees "Set a department in the builder". No route is invented: every target is a view that exists in the shell.
+
+Reception: the live office has no visitor workflow and shows no invented host or room names (`ReceptionOperations` is a local simulation and is mounted only by the labelled Concept preview). A visitor registry is not built: owner decision O4 is open.
+
 ## Asset modules
 
 Three standalone module sets under `apps/web/src/hqAssets/` build the scene's pieces. They are pure (no DOM, no three.js), take a `MeshBuilder` or return a mesh, are seeded, and never encode a name, count or status. `lib/campusScene.ts` and `lib/buildingScene.ts` call them.
@@ -130,4 +148,4 @@ Orbit by dragging, pan with Shift or the right button, zoom with the wheel or pi
 
 - Counts for workspaces other than the open one need the campus endpoint with verified presence (data workstream).
 - Meeting rooms need a room binding on live meetings (meetings workstream) to show a real state.
-- Visual details that the concept shows but that have no data (weather, visitor check-in flow, marketplace logos) are intentionally absent.
+- Visual details that the concept shows but that have no data (weather, visitor check-in flow (owner decision O4 open), marketplace logos) are intentionally absent.
