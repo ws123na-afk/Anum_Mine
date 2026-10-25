@@ -39,3 +39,5 @@
 .hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl:focus-within .compactSelect { clip-path: none; height: auto; overflow: visible; position: static; width: auto; }
 /* Short screens: the campus map duplicates the quick views, so it gives the scene its corner back. */
 @media (max-height: 820px) { .hqNav[data-nav="on"] .hqOverlayBottomRight { display: none; } }
+
+.hqNavDockBelow .hqPaDock { max-width: none; min-width: 0; }

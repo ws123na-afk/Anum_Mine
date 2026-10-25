@@ -206,18 +206,20 @@ export function HqNavigation(props: HqNavigationProps) {
   );
   const movesBody = <Suspense fallback={null}><QuickMoves moves={moves} suggestions={suggestions} /></Suspense>;
   const dockBody = props.dock ? <aside className="hqPaDock" aria-label={t('hq.paDock')}>{props.dock}</aside> : null;
-  const sideBody = level === 'building' ? (
+  // The assistant dock lives in the side panel while there is one; on narrower screens it stays under the scene, where it always was.
+  const buildSide = (withDock: boolean) => (level === 'building' ? (
     <>
       <div className="hqTabs" role="tablist" aria-label={t('hqNav.side.label')}>
         <button type="button" role="tab" id="hqnav-tab-plan" aria-selected={tab === 'plan'} aria-controls="hqnav-panel-plan" onClick={() => setTab('plan')}>{t('hqNav.tab.plan')}</button>
         <button type="button" role="tab" id="hqnav-tab-moves" aria-selected={tab === 'moves'} aria-controls="hqnav-panel-moves" onClick={() => setTab('moves')}>{t('hqNav.tab.moves')}</button>
-        {dockBody && <button type="button" role="tab" id="hqnav-tab-assistant" aria-selected={tab === 'assistant'} aria-controls="hqnav-panel-assistant" onClick={() => setTab('assistant')}>{t('hqNav.tab.assistant')}</button>}
+        {withDock && dockBody && <button type="button" role="tab" id="hqnav-tab-assistant" aria-selected={tab === 'assistant'} aria-controls="hqnav-panel-assistant" onClick={() => setTab('assistant')}>{t('hqNav.tab.assistant')}</button>}
       </div>
       <div role="tabpanel" id="hqnav-panel-plan" aria-labelledby="hqnav-tab-plan" hidden={tab !== 'plan'}>{planBody}</div>
-      <div role="tabpanel" id="hqnav-panel-moves" aria-labelledby="hqnav-tab-moves" hidden={tab !== 'moves'}>{movesBody}</div>
-      {dockBody && <div role="tabpanel" id="hqnav-panel-assistant" aria-labelledby="hqnav-tab-assistant" hidden={tab !== 'assistant'}>{dockBody}</div>}
+      <div role="tabpanel" id="hqnav-panel-moves" aria-labelledby="hqnav-tab-moves" hidden={tab !== 'moves' && !(tab === 'assistant' && !withDock)}>{movesBody}</div>
+      {withDock && dockBody && <div role="tabpanel" id="hqnav-panel-assistant" aria-labelledby="hqnav-tab-assistant" hidden={tab !== 'assistant'}>{dockBody}</div>}
     </>
-  ) : <>{movesBody}{dockBody}</>;
+  ) : <>{movesBody}{withDock ? dockBody : null}</>);
+  const sideBody = buildSide(true);
 
   // Without the layer (list view, campus still loading) the page is the scene as before.
   if (!navOn) {
@@ -258,6 +260,7 @@ export function HqNavigation(props: HqNavigationProps) {
           </aside>
         )}
       </div>
+      {!sideInline && dockBody && <div className="hqNavDockBelow">{dockBody}</div>}
       {drawer === 'floors' && building && (
         <div className="hqDrawer start" role="dialog" aria-modal="false" aria-label={t('hqNav.drawer.floors')}>
           <button type="button" className="hqIconButton hqDrawerClose" onClick={closeDrawer} aria-label={t('hqNav.drawer.close')}><X aria-hidden="true" /></button>
@@ -267,7 +270,7 @@ export function HqNavigation(props: HqNavigationProps) {
       {drawer === 'side' && (
         <div className="hqDrawer end" role="dialog" aria-modal="false" aria-label={sideLabel}>
           <button type="button" className="hqIconButton hqDrawerClose" onClick={closeDrawer} aria-label={t('hqNav.drawer.close')}><X aria-hidden="true" /></button>
-          <div className="hqNavSideBody">{sideBody}</div>
+          <div className="hqNavSideBody">{buildSide(false)}</div>
         </div>
       )}
       <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-nav-live">{live}</p>
