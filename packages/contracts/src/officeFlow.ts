@@ -1,3 +1,4 @@
+import type { AvatarAppearance } from './avatar.js';
 /**
  * ANUM MINE live flow, stuck work and office team contract, version 1.
  * Server: services/api/anum_api/office_flow.py and office_flow_api.py.
@@ -98,6 +99,8 @@ export interface OfficeTeamMember {
   agent_id: string; name: string; icon: string; color: string;
   category: 'work' | 'personal' | 'custom'; department: string | null; description: string;
   agent_status: 'active' | 'paused';
+  /** The avatar style the owner chose for this agent, or null for the default drawn from the agent id. */
+  avatar: AvatarAppearance | null;
   state: string; state_reason: string | null; last_verified_at: string | null; stale: boolean;
   task: { id: string; title: string } | null;
   stuck: (OfficeFlowStuck & { item_key: string; title: string }) | null;

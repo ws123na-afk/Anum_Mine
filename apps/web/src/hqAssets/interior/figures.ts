@@ -11,6 +11,7 @@
  */
 import { MeshBuilder, hex, scale, seeded, type Rgb } from '../../lib/hqGeometry.ts';
 import { Local, type P3 } from './local.ts';
+import type { FigureLook } from '../../lib/hqAvatar.ts';
 
 export type SeatedPose = 'typing' | 'reading' | 'phone' | 'talking' | 'leaning';
 export type StandingPose = 'neutral' | 'presenting' | 'arms-crossed' | 'phone' | 'walking';
@@ -22,6 +23,8 @@ export type FigureOptions = Readonly<{
   size?: number;
   /** Wear a call-centre headset (customer care desks). */
   headset?: boolean;
+  /** The avatar style for this record (a choice or the default from the id): colours and hair of the procedural figure and the model tints. */
+  look?: FigureLook;
 }>;
 
 export type SeatedOptions = FigureOptions & Readonly<{ pose?: SeatedPose }>;
@@ -42,7 +45,21 @@ type Look = Readonly<{
   hairStyle: 'short' | 'long' | 'bun' | 'cap'; glasses: boolean; skirt: boolean;
 }>;
 
-function lookFor(seed: string): Look {
+const HAIR_SHAPE: Record<string, Look['hairStyle']> = { long: 'long', swept: 'long', bun: 'bun', spiky: 'cap', parted: 'short' };
+
+/** The procedural look of a styled figure: the same colours and hair family as the model tints. */
+function styledLook(seed: string, v: FigureLook): Look {
+  const r = seeded(`figure:${seed}`);
+  const formal = v.avatar.outfit === 'formal';
+  return {
+    shirt: hex(formal ? v.trim : v.top), jacket: formal || v.avatar.outfit === 'uniform' ? hex(v.top) : null,
+    tie: formal ? hex(v.accent) : null, skin: hex(v.skin), hair: hex(v.hair), trousers: hex(v.bottom),
+    hairStyle: HAIR_SHAPE[v.avatar.hair_style] ?? 'short', glasses: r() < 0.2, skirt: false,
+  };
+}
+
+function lookFor(seed: string, styled?: FigureLook): Look {
+  if (styled) return styledLook(seed, styled);
   const r = seeded(`figure:${seed}`);
   const pick = <T,>(a: readonly T[]): T => a[Math.floor(r() * a.length)];
   const styleRoll = r();
@@ -126,12 +143,12 @@ function torso(L: Local, look: Look, hip: P3, chest: P3, shoulderY: number, shou
 /** A seated professional. Chair, desk and screen are drawn by the desk station, not here. */
 export function seatedFigure(b: MeshBuilder, x: number, y: number, z: number, o: SeatedOptions): void {
   // A loadable person model may replace this figure: the slot carries the seed (the assignment), the tagged triangles are the fallback.
-  b.slots.push({ model: 'person', x, y, z, rot: o.rot ?? 0, width: 0.5, seed: o.seed, pose: o.pose ?? 'typing', headset: o.headset === true });
+  b.slots.push({ model: 'person', x, y, z, rot: o.rot ?? 0, width: 0.5, seed: o.seed, pose: o.pose ?? 'typing', headset: o.headset === true || o.look?.headset === true, look: o.look });
   b.tagged('figure', () => drawSeated(b, x, y, z, o));
 }
 
 function drawSeated(b: MeshBuilder, x: number, y: number, z: number, o: SeatedOptions): void {
-  const look = lookFor(o.seed);
+  const look = lookFor(o.seed, o.look);
   const k = o.size ?? 1;
   const pose = o.pose ?? 'typing';
   const lean = pose === 'leaning' ? -0.1 : pose === 'reading' ? 0.1 : 0.04;
@@ -147,7 +164,7 @@ function drawSeated(b: MeshBuilder, x: number, y: number, z: number, o: SeatedOp
   w.box(-0.18, hipY - 0.02, -0.14, 0.36, 0.14, 0.3, look.trousers);
   torso(w, look, [0, hipY + 0.08, -0.02], [0, sh - 0.02, lean], sh, lean);
   const hz = lean + 0.02;
-  head(w, look, sh + 0.2, hz + (pose === 'reading' ? 0.06 : 0), o.headset === true);
+  head(w, look, sh + 0.2, hz + (pose === 'reading' ? 0.06 : 0), o.headset === true || o.look?.headset === true);
   const sL: P3 = [-0.22, sh - 0.04, lean - 0.01], sR: P3 = [0.22, sh - 0.04, lean - 0.01];
   switch (pose) {
     case 'reading': {
@@ -181,7 +198,7 @@ function drawSeated(b: MeshBuilder, x: number, y: number, z: number, o: SeatedOp
 
 /** A standing professional at an assigned post (a reception point, a bench, a presenter spot). */
 export function standingFigure(b: MeshBuilder, x: number, y: number, z: number, o: StandingOptions): void {
-  const look = lookFor(o.seed);
+  const look = lookFor(o.seed, o.look);
   const k = o.size ?? 1;
   const pose = o.pose ?? 'neutral';
   const w = scaled(new Local(b, x, z, o.rot ?? 0, y), k);
@@ -194,7 +211,7 @@ export function standingFigure(b: MeshBuilder, x: number, y: number, z: number, 
   }
   w.box(-0.18, hipY - 0.06, -0.1, 0.36, 0.16, 0.22, look.trousers);
   torso(w, look, [0, hipY + 0.04, 0], [0, sh - 0.04, 0.0], sh, 0);
-  head(w, look, sh + 0.22, 0.02, o.headset === true);
+  head(w, look, sh + 0.22, 0.02, o.headset === true || o.look?.headset === true);
   const sL: P3 = [-0.22, sh - 0.05, 0], sR: P3 = [0.22, sh - 0.05, 0];
   switch (pose) {
     case 'presenting':

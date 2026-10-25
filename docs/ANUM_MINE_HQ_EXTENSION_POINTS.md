@@ -164,6 +164,16 @@ whenever a file cannot be loaded. Licences, sizes, measurements, the gap analysi
 The canvas dataset adds `data-models-placed`, `data-model-figures`, `data-models-loaded`, `data-model-bytes`, `data-model-load-ms`
 and `data-model-fallbacks`.
 
+### Avatar styles (people figures)
+
+Each seated figure is drawn from a style: the avatar the owner chose on the agent profile, else a default drawn from the agent id
+alone (`lib/hqAvatar.ts`, never a name). The scene gets it through `BuildingSceneOptions.looks` (desk id to the agent's avatar and
+department); `figureLook()` resolves it, `StationSpec.look` and `FigureOptions.look` carry it to `seatedFigure()`, the model slot
+keeps it, and `placementsFromSlots()` picks the character model of the hair shape. The renderer tints the model per instance
+(`hqModelLayer.ts`, `hqFigureRoles.ts`) and adds a headset or lanyard badge as one instanced mesh each. Details, palette, defaults,
+sizes and limits: [ANUM_MINE_HQ_REALISM_ASSETS.md](ANUM_MINE_HQ_REALISM_ASSETS.md#avatar-styles). The canvas dataset adds
+`data-figure-looks` (build/hair/outfit/skin codes) and `data-figure-styles` (figures per build).
+
 ## Camera, keyboard and performance
 
 Orbit by dragging, pan with Shift or the right button, zoom with the wheel or pinch. With the scene focused: arrows pan, Q and E rotate, plus and minus zoom, 0 resets. Reduced motion jumps the camera instead of tweening. The renderer is three.js (see "How the scene is drawn"): per-mesh frustum culling, render on demand, the shadow map redrawn only when needed, a pixel ratio capped at 2 and lowered after sustained slow frames. A lost context shows "Restoring the 3D view" and three.js rebuilds its buffers; if it does not come back in 5 seconds the page switches to the List view. The canvas dataset (`data-engine`, `data-draw-ms`, `data-triangles`, `data-drawn`, `data-culled`, `data-dpr`, `data-shadow`, `data-bloom`) exposes the renderer and the measured draw time for tests.

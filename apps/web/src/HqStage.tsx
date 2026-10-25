@@ -111,7 +111,7 @@ export function HqStage(props: Props) {
           propsRef.current.onView?.(live.current, aspect);
           if (canvas.current) propsRef.current.onCanvasFrame?.(canvas.current);
           const s = created?.stats;
-          const modelSig = s ? `${s.models.placed}/${s.models.figures}/${s.models.loaded}/${s.models.asked}/${s.models.fallbacks.join(',')}` : '';
+          const modelSig = s ? `${s.models.placed}/${s.models.figures}/${s.models.loaded}/${s.models.asked}/${s.models.fallbacks.join(',')}/${s.models.looks.join('|')}` : '';
           const modelsChanged = modelSig !== lastModelSig.current;
           if (modelsChanged) lastModelSig.current = modelSig;
           if (s && (s.frames === 1 || s.frames % 10 === 0 || modelsChanged) && canvas.current) {
@@ -124,6 +124,9 @@ export function HqStage(props: Props) {
             canvas.current.dataset.bloom = s.bloom ? 'true' : 'false';
             canvas.current.dataset.modelsPlaced = String(s.models.placed);
             canvas.current.dataset.modelFigures = String(s.models.figures);
+            // Avatar styles drawn: build/hair/outfit/skin per figure (codes only, never a name), and a count per build.
+            canvas.current.dataset.figureLooks = [...s.models.looks].sort().join(' ');
+            canvas.current.dataset.figureStyles = ['feminine', 'masculine', 'neutral'].map((b) => `${b}:${s.models.looks.filter((l) => l.startsWith(`${b}/`)).length}`).join(',');
             canvas.current.dataset.modelsLoaded = `${s.models.loaded}/${s.models.asked}`;
             canvas.current.dataset.modelBytes = String(s.models.bytes);
             canvas.current.dataset.modelLoadMs = String(s.models.loadMs);

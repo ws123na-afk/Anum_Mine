@@ -6,6 +6,7 @@ import { lamp } from '../src/lib/hqProps.ts';
 import { buildBuildingScene } from '../src/lib/buildingScene.ts';
 import type { SceneFloor } from '../src/lib/headquartersProjection.ts';
 import { ModelCache, catalogBytes, keysNeeded, resolvePlacements } from '../src/lib/hqModelCache.ts';
+import { figureLook } from '../src/lib/hqAvatar.ts';
 import { MODEL_SPECS, PERSON_KEYS, placementsFromSlots, seedHash, type ModelKey } from '../src/lib/hqModels.ts';
 import { buildInteriorRoom, seatedFigure, workstation, SCHEMES } from '../src/hqAssets/interior/index.ts';
 
@@ -42,7 +43,8 @@ test('truth rule: a person placement exists only for a slot with a seed, and the
   const b = placementsFromSlots([{ model: 'person', x: 9, y: 0, z: 9, rot: 2, width: 0.5, seed: 'agent_one' }]);
   assert.equal(a.length, 1);
   assert.equal(a[0].key, b[0].key, 'same seed, same look, wherever the desk is');
-  assert.equal(a[0].key, PERSON_KEYS[seedHash('agent_one') % PERSON_KEYS.length]);
+  assert.equal(a[0].key, figureLook('agent_one', null, 'office').modelKey);
+  assert.ok(PERSON_KEYS.includes(a[0].key));
   assert.equal(placementsFromSlots([{ model: 'unknown', x: 0, y: 0, z: 0, rot: 0, width: 1 }]).length, 0);
 });
 

@@ -38,6 +38,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..avatar_appearance import avatar_from_record
 from ..schemas import TenantContext
 from ..team_models import (
     OPEN_STATUSES,
@@ -69,6 +70,7 @@ team_member_profiles = Table(
     Column("job_title", String(120)),
     Column("capacity_hours", Integer),
     Column("timezone", String(64), nullable=False),
+    Column("avatar", JSONB(none_as_null=True)),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 assistant_profiles = Table(
@@ -224,12 +226,14 @@ class SqlAlchemyTeamStore:
             data = dict(row._mapping)
             data.pop("tenant_id")
             data.pop("workspace_id")
+            data["avatar"] = avatar_from_record(data.get("avatar"))
             out[data["user_id"]] = MemberProfile(**data)
         return out
 
     def save_profile(self, context: TenantContext, profile: MemberProfile) -> MemberProfile:
         values = profile.model_dump(mode="python")
         values["department"] = profile.department.value if profile.department else None
+        values["avatar"] = profile.avatar.stored() if profile.avatar else None
         exists = self.session.execute(
             select(team_member_profiles.c.user_id).where(
                 _in_scope(team_member_profiles, context), team_member_profiles.c.user_id == profile.user_id

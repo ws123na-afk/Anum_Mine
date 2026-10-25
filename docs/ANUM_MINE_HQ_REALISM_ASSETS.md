@@ -67,6 +67,56 @@ So Quaternius, Poly Haven and ambientCG assets could not be fetched; no office d
 among the permissive assets that could be reached. Desks, task chairs, monitors, shelving and plants therefore stay procedural.
 The honest alternatives: the owner supplies GLB files (see owner decisions), or the procedural pieces are improved further.
 
+## Avatar styles
+
+The owner asked for people who are men and women, different from each other. Figures still appear only for a real assigned agent
+with a state; this section changes how each one is drawn and nothing about who appears.
+
+**It is a visual style, not a claim.** The avatar style is a drawing choice made by the owner (or a neutral default). It is not a
+statement about the real person or agent, and no gender, pronoun, ethnicity or age is ever inferred from a name or any other text
+(`test/hqAvatar.test.ts` checks that no default function takes a name). The UI says "Avatar style", never "Gender".
+
+| Part | What it holds |
+|---|---|
+| Data | `avatar` (JSONB, nullable) on `agent_profiles` and `team_member_profiles` (migration `0110_avatar_appearance`, expand only, object check). Fields, all optional: `avatar_style` (feminine, masculine, neutral), `skin_tone` (tone_1 to tone_6), `hair_style` (bun, long, swept, spiky, parted), `hair_color` (7), `outfit` (formal, smart_casual, uniform), `accent` (8). Validated against the palette in `anum_api/avatar_appearance.py`; a hair shape the build does not offer is refused with 422. |
+| API | `avatar` on `POST` and `PATCH /api/v1/agents` (same permission as editing the agent; PATCH replaces the whole style, `null` clears it; audited in `agent.updated`), on `PUT /api/v1/team/people/{user_id}` (omitted keeps the stored style) and read back on `GET /team/people`, `GET /agents` and `GET /office/team`. Row level security is the table's own. |
+| Default | `defaultAvatar(id, role)` in `lib/hqAvatar.ts`: one FNV hash stream per attribute, build 40 percent feminine, 40 masculine, 20 neutral, uniform skin tones and hair shapes, weighted hair colours. Same id, same look, always. A unit test over 600 ids checks every palette value occurs. |
+| Role cues | By outfit colour and one small object, from the department text or the kind of room, never a name: reception (brass, headset), security (slate uniform, lanyard badge), operations (amber uniform, headset), customer care (teal, headset), executive (formal, navy), finance (formal, forest, badge). A chosen outfit or accent wins. |
+
+### How the figures differ
+
+The five CC0 Kenney characters are the bodies: female d (tied up hair), female e (long hair), female f (side swept), male d (short
+spiky), male e (short parted, glasses). The hair shape picks the body; the build adds a width (neutral is 7 percent slimmer, every
+figure gets a deterministic height of 97 to 103 percent). Each vertex of a model belongs to a part (skin, hair, jacket or top, trousers,
+shirt trim, accent, or "keep": shoes, eyes, glasses), decided from the colour-map cell its UV points at and its height in the rest
+pose (`lib/hqFigureRoles.ts`). The five models are baked into one geometry each with an `aRole` attribute and the painted shade; one
+patched shader reads six per instance colours (skin, hair, top, bottom, trim, accent). So every figure keeps one instanced draw call per
+model, and two figures of the same model differ by skin, hair colour, outfit and accent. The procedural fallback figure takes the same
+colours and hair family. Draw calls added: none for the bodies; one instanced mesh for headsets and one for badges only when a role needs them.
+
+Honest limits: the neutral build is the same sculpt as the others, slimmer, with the shared hair shapes (spiky, parted, tied up); there
+is no beard, no dress, no cap, no head covering and no body shape beyond width and height, because the free models do not have them. The
+characters stay stylised toys at this size; realistic people still need models the owner supplies (owner decision 2 above).
+
+### Assets, licences and sizes (unchanged)
+
+No new model file was added. The five person files (CC0, Kenney) are the same 55 080 to 56 320 bytes each, 277 kB in all, as before. The
+colour-map swatches used by the role table were read from the shipped files. No unlicensed asset was added and `NOTICE.txt` is unchanged;
+the extra palette, geometry and shader code is ours. More free models (Quaternius, Poly Haven and others) could not be fetched from the
+build sandbox (hosts blocked, see above), so builds and hair shapes stay within these five.
+
+Bundle: the renderer chunk (`hqThreeRenderer`) is 609.5 kB, 153.2 kB gzip (budget 160 kB gzip), the lazy model loader chunk is 7.1 kB; the
+role table, shader patch and accessory geometry added about 4 kB gzip to the renderer chunk. The editor and chip are part of the Agents,
+Team and headquarters chunks, with no new dependency.
+
+### Where to see and change it
+
+Agents, then an agent, then **Settings**, then **Avatar style** (live preview, EN and AR, keyboard radios, **Automatic** per attribute,
+**Use automatic style**). Headquarters, **Office tools**, **Team**, **Avatar style** on a card opens the same editor in a dialog. A team
+member's profile (Team page) has the same editor for the person's own style. A small chip (initials on the accent colour, ringed in the
+skin tone) shows in the agent list, the Team cards and the label cards over the scene. Team members do not sit at desks yet, so their style is stored and
+shown on their profile only; the scene draws agents.
+
 ## What changed in the renderer and the scenes
 
 - Glass: the outer glass reflects a sky gradient (brighter with height) with a small per pane change; partition glass has a

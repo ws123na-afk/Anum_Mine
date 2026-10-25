@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import type { Task } from '@anum/contracts';
 import { AgentSkillsPanel } from './AgentSkillsPanel';
+import { AvatarChip, AvatarStyleEditor, roleFamilyOf } from './AvatarStyleEditor';
 import { ChatView } from './ChatView';
 import { ConfirmDialog } from './Dialog';
 import { OrgChartView, openByHash, type OrgGo } from './OrgChartView';
@@ -201,7 +202,7 @@ function AgentList({ catalog, catalogError, role, onOpen, onCreate, onRetryCatal
           <div className="agentMain">
             <div className="rowTitle"><h3 dir="auto">
               <button type="button" className="agentOpen" onClick={() => onOpen(agent.id)}>{agent.name}</button>
-            </h3>{agent.status === 'paused' && <span className="statusBadge warning">{t('agents.status.paused')}</span>}</div>
+            </h3><AvatarChip id={agent.id} name={agent.name} avatar={agent.avatar} department={agent.department} size={26} />{agent.status === 'paused' && <span className="statusBadge warning">{t('agents.status.paused')}</span>}</div>
             <p dir="auto">{agent.description || t('agents.noDescription')}</p>
             <div className="agentMeta">
               <span>{t(`agents.category.${agent.category}` as MessageKey)}{agent.department ? ` · ${agent.department}` : ''}</span>
@@ -515,7 +516,8 @@ function AgentDetail({ id, catalog, catalogError, onOpenSkills, onBack, onEdit, 
     {panel === 'overview' && <OverviewTab agent={agent} tasksVersion={tasksVersion} onRan={() => setTasksVersion((v) => v + 1)} onOpenTasks={onOpenTasks} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} />}
     {panel === 'skills' && <AgentSkillsPanel agent={agent} catalog={catalog} catalogError={catalogError} onAgentChanged={setAgent} onOpenSkills={onOpenSkills} />}
     {panel === 'memory' && <MemoryTab agent={agent} />}
-    {panel === 'settings' && <SettingsTab agent={agent} catalog={catalog} busy={busy} onUpdate={(body) => void update(body)} onDelete={() => setConfirmDelete(true)} />}
+    {panel === 'settings' && <SettingsTab agent={agent} catalog={catalog} busy={busy} onUpdate={(body) => void update(body)} onDelete={() => setConfirmDelete(true)}
+      onSaveAvatar={async (avatar) => { setAgent(await agents.update(agent.id, { avatar, version: agent.version })); }} />}
     {panel === 'chat' && <section className="agentChat" aria-label={t('agents.chatWith', { name: agent.name })}><ChatView key={agent.id} agent={{ id: agent.id, name: agent.name }} onOpenBudgets={onOpenBudgets ?? (() => undefined)} /></section>}
     {panel === 'call' && <CallPanel agent={agent} onRan={() => setTasksVersion((v) => v + 1)} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} />}
     {confirmDelete && <ConfirmDialog title={t('agents.deleteTitle', { name: agent.name })} confirmLabel={t('agents.delete')} danger busy={busy} onConfirm={() => void remove()} onCancel={() => setConfirmDelete(false)}>
@@ -699,7 +701,7 @@ function MemoryTab({ agent }: { agent: AgentProfile }) {
   </section>;
 }
 
-function SettingsTab({ agent, catalog, busy, onUpdate, onDelete }: { agent: AgentProfile; catalog: AgentCatalog | null; busy: boolean; onUpdate: (body: { status?: AgentStatus; sharing?: 'private' | 'workspace' }) => void; onDelete: () => void }) {
+function SettingsTab({ agent, catalog, busy, onUpdate, onDelete, onSaveAvatar }: { agent: AgentProfile; catalog: AgentCatalog | null; busy: boolean; onUpdate: (body: { status?: AgentStatus; sharing?: 'private' | 'workspace' }) => void; onDelete: () => void; onSaveAvatar: (avatar: AgentProfile['avatar']) => Promise<void> }) {
   const isOwner = agent.owner_user_id === api.currentUserId();
   return <div className="agentColumns">
     <section className="surface agentPanel" aria-labelledby="agent-settings-h">
@@ -719,6 +721,9 @@ function SettingsTab({ agent, catalog, busy, onUpdate, onDelete }: { agent: Agen
           <input type="checkbox" role="switch" disabled={busy} checked={agent.status === 'active'} onChange={(e) => onUpdate({ status: e.target.checked ? 'active' : 'paused' })} /></label>
           : <p className="muted">{t(`agents.status.${agent.status}` as MessageKey)}</p>}
       </fieldset>
+    </section>
+    <section className="surface agentPanel">
+      <AvatarStyleEditor seed={agent.id} role={roleFamilyOf(agent.department)} value={agent.avatar} canEdit={agent.can_edit} onSave={onSaveAvatar} />
     </section>
     <section className="surface agentPanel" aria-labelledby="agent-autonomy-h">
       <h3 id="agent-autonomy-h">{t('agents.field.autonomy')}</h3>

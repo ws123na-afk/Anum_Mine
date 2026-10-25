@@ -1,3 +1,4 @@
+import type { AvatarAppearance } from './avatar.js';
 // Team work, department assistants, notifications and customer organisations, as the API
 // sends them (snake_case wire shapes, like account.ts). Routes and rules:
 // docs/team-work.md and docs/customer-organisations.md; server models in
@@ -128,6 +129,7 @@ export interface TeamPerson {
   job_title: string | null;
   capacity_hours: number | null;
   timezone: string;
+  avatar?: AvatarAppearance | null;
   assignable: boolean;
 }
 
@@ -138,6 +140,8 @@ export interface MemberProfileBody {
   job_title?: string | null;
   capacity_hours?: number | null;
   timezone?: string;
+  /** Omitted keeps the stored style; null clears it; an object replaces it. */
+  avatar?: AvatarAppearance | null;
 }
 
 export interface WorkloadRow {

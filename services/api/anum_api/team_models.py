@@ -14,6 +14,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .avatar_appearance import AvatarAppearance
+
 
 class WorkStatus(StrEnum):
     TODO = "todo"
@@ -145,6 +147,8 @@ class MemberProfile(BaseModel):
     job_title: str | None = None
     capacity_hours: int | None = None
     timezone: str = "UTC"
+    # How the headquarters draws this person: a style the owner or the person chooses, never a claim about them.
+    avatar: AvatarAppearance | None = None
     updated_at: datetime | None = None
 
 
@@ -157,6 +161,8 @@ class MemberProfileUpdate(BaseModel):
     job_title: str | None = Field(default=None, max_length=120)
     capacity_hours: int | None = Field(default=None, ge=0, le=168)
     timezone: str = Field(default="UTC", max_length=64)
+    # Omitted keeps the stored style; null clears it (back to the default); an object replaces it.
+    avatar: AvatarAppearance | None = None
 
     @field_validator("email")
     @classmethod
@@ -189,6 +195,7 @@ class TeamPerson(BaseModel):
     job_title: str | None = None
     capacity_hours: int | None = None
     timezone: str = "UTC"
+    avatar: AvatarAppearance | None = None
     assignable: bool
 
 

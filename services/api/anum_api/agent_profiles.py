@@ -42,6 +42,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .agent_skills import SkillRegistry, default_skill_registry
 from .agent_tools import ToolDefinition, ToolRegistry, default_tool_registry
 from .audit import AuditRecord
+from .avatar_appearance import AvatarAppearance
 from .authorization import Permission
 from .dependencies import has_permission, require_permission, tenant_context
 from .schemas import RiskLevel, TenantContext, new_id, utc_now
@@ -187,6 +188,8 @@ class AgentProfileFields(BaseModel):
     knowledge_sources: list[KnowledgeSource] = Field(default_factory=list, max_length=50)
     sharing: AgentSharing = AgentSharing.PRIVATE
     template_id: str | None = Field(default=None, max_length=40)
+    # How the headquarters draws this agent (a style the owner chooses; None = the neutral default).
+    avatar: AvatarAppearance | None = None
 
     @field_validator("icon")
     @classmethod
@@ -246,6 +249,7 @@ class AgentProfileUpdate(BaseModel):
     knowledge_sources: list[KnowledgeSource] | None = Field(default=None, max_length=50)
     sharing: AgentSharing | None = None
     status: AgentStatus | None = None
+    avatar: AvatarAppearance | None = None
     version: int | None = Field(default=None, ge=1)
 
 
@@ -871,6 +875,7 @@ def _summary(profile: AgentProfile) -> dict[str, Any]:
         "autonomy": profile.autonomy.model_dump(mode="json"),
         "knowledge_mode": profile.knowledge_mode.value,
         "knowledge_sources": len(profile.knowledge_sources),
+        "avatar": profile.avatar.stored() if profile.avatar else None,
     }
 
 

@@ -245,7 +245,7 @@ export function executive(c: RoomCtx): number {
   // The occupant, only when the registry says so, sits in the leather chair.
   if (st?.occupantSeed) {
     const [fx, fz] = R.pt(dx, cz - 0.02);
-    seatedFigure(b, fx, y + 0.1, fz, { seed: st.occupantSeed, rot: 0, pose: st.pose ?? 'leaning' });
+    seatedFigure(b, fx, y + 0.1, fz, { seed: st.occupantSeed, rot: 0, pose: st.pose ?? 'leaning', look: st.look });
   }
   return 0;
 }

@@ -10,7 +10,7 @@
 import { AlertTriangle, Building2, Compass, DoorOpen, History, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AgentMeetingSessions } from './AgentMeetingSessions';
-import { BuildingView } from './BuildingView';
+import { BuildingView, type AgentStyleInfo } from './BuildingView';
 import { CampusListView } from './CampusListView';
 import { CampusView } from './CampusView';
 import { GuidedExecutiveTour } from './GuidedExecutiveTour';
@@ -110,6 +110,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [agentId, setAgentId] = useState<string | null>(null);
   const [agentDesk, setAgentDesk] = useState<SceneDesk | null>(null);
   const [snapshot, setSnapshot] = useState<WorkstationSnapshot | null>(null);
+  const [agentStyles, setAgentStyles] = useState<ReadonlyMap<string, AgentStyleInfo>>(new Map());
   const [meetings, setMeetings] = useState<MeetingEvidence | null>(null);
   const [presenceApi, setPresenceApi] = useState<LoadedPresence | null>(null);
   const [loaded, setLoaded] = useState<{ campus: Campus; source: CampusSource } | null>(null);
@@ -148,6 +149,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
         throw new Error('Workspace changed during agent evidence load');
       }
       setSnapshot(result.snapshot);
+      setAgentStyles(new Map(result.sources.agents.map((a) => [a.id, { avatar: a.avatar ?? null, department: a.department ?? null }])));
       setMeetings(meet);
       setPresenceApi(live);
       return result.snapshot.records.map((agent): AgentEvidence => ({
@@ -445,7 +447,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
       ? <>{(props.renderRoomPanel
         ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
         : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} buildingKind={currentBuilding?.kind ?? null} canManage={canManage} onOpenFlow={() => setFlowOpen(true)} onOpenGaps={() => setOverlay('gaps')}
-          meeting={liveMeetingByRoom.get(roomPanelRoom.id) ?? null} meetingsKnown={meetings !== null} onStartMeeting={() => { setMeetingRoomId(roomPanelRoom.id); setOverlay('agentMeetings'); }} /><HqTeamPanel onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)}
+          meeting={liveMeetingByRoom.get(roomPanelRoom.id) ?? null} meetingsKnown={meetings !== null} onStartMeeting={() => { setMeetingRoomId(roomPanelRoom.id); setOverlay('agentMeetings'); }} /><HqTeamPanel onAvatarChanged={() => void controller.refresh()} onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)}
         <HistoryLauncher label={t('hqHist.launch.room')} onClick={() => openHistory({ kind: 'room', roomId: roomPanelRoom.id, label: roomPanelRoom.label, deskIds: roomPanelRoom.deskIds }, 'timeline')} /></>
       : null;
 
@@ -543,7 +545,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
               flow={{ snapshot: flow.snapshot, batch: flow.batch, onPickRoom: (id) => { setRoomFilter(id); setFlowOpen(true); } }}
               workspaceName={currentBuilding?.name ?? scope.workspaceId} kindLabel={currentBuilding?.registryBuildingId ? (currentBuilding.workspaceName ?? '') : t(`hq.kind.${buildingKind}` as MessageKey)}
               buildings={projection?.buildings ?? []} building={registryBuilding} floor={floor}
-              presence={presenceIndex} unreported={unreported} verifiedAt={verifiedAt}
+              presence={presenceIndex} unreported={unreported} verifiedAt={verifiedAt} agentStyles={agentStyles}
               liveMeetings={meetings ? meetings.liveMeetings : null} liveMeetingRoomIds={liveMeetingRoomIds}
               commerce={commerce} tyre={tyre} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
               selectedRoomId={roomId} selectedAgentId={agentId}
@@ -588,7 +590,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
       {overlay !== 'none' && (
         <div className="hqModalHost" role="dialog" aria-modal="false" aria-label={t('hq.tools')}>
           {overlay === 'teams' ? <div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqTeam.title')}>
-            <HqTeamPanel buildingId={registryBuilding?.id ?? null} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} onHistory={openMemberHistory} onFocusRoom={(id) => { focusRoomById(id); setOverlay('none'); }} />
+            <HqTeamPanel onAvatarChanged={() => void controller.refresh()} buildingId={registryBuilding?.id ?? null} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} onHistory={openMemberHistory} onFocusRoom={(id) => { focusRoomById(id); setOverlay('none'); }} />
             <OrgGapsPanel state={gaps} onNavigate={goTo} onStaffCampus={() => setStaffOpen(true)} onProvisioned={() => { void flow.reload(); void controller.refresh(); }} />
           </div>
           : overlay === 'gaps' ? <div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqProv.title')}>

@@ -138,6 +138,7 @@ class TeamUnit:
                     job_title=profile.job_title if profile else None,
                     capacity_hours=profile.capacity_hours if profile else None,
                     timezone=profile.timezone if profile else "UTC",
+                    avatar=profile.avatar if profile else None,
                     assignable=member_role != "viewer",
                 )
             )
@@ -433,11 +434,20 @@ def save_profile(user_id: str, payload: MemberProfileUpdate, context: TenantCont
         unit.require_workspace()
         if not any(p.user_id == user_id for p in unit.people()):
             raise HTTPException(status_code=404, detail="That person is not an active member of this workspace")
-        profile = MemberProfile(user_id=user_id, **payload.model_dump(), updated_at=utc_now())
+        fields = payload.model_dump(exclude={"avatar"})
+        stored = unit.store.list_profiles(context).get(user_id)
+        before = stored.avatar if stored else None
+        # An omitted avatar keeps the stored style; null clears it; an object replaces it.
+        avatar = payload.avatar if "avatar" in payload.model_fields_set else before
+        profile = MemberProfile(user_id=user_id, **fields, avatar=avatar, updated_at=utc_now())
         unit.store.save_profile(context, profile)
+        avatar_changed = (before.stored() if before else None) != (avatar.stored() if avatar else None)
         unit.log(
             "team_profile.update", f"{profile.display_name}'s team profile was updated", item_id=None,
-            payload={"user_id": user_id},
+            payload={
+                "user_id": user_id, "avatar_changed": avatar_changed,
+                **({"avatar": avatar.stored() if avatar else None} if avatar_changed else {}),
+            },
         )
         return profile
 
