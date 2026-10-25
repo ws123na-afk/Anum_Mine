@@ -25,6 +25,22 @@ GROUND_ROOMS: Final = ("reception", "open_office")
 UPPER_ROOMS: Final = ("open_office", "meeting_room")
 
 
+# Fixed, client safe messages by stable code. Nothing from an exception object is ever sent to a client.
+MESSAGES: Final = {
+    "name_required": "A building needs a name.",
+    "floors_required": "How many floors?",
+    "name_too_long": f"The name can have at most {MAX_NAME} characters.",
+    "floors_invalid": f"A building has 1 to {MAX_FLOORS} floors.",
+    "name_exists": "A building with this name already exists.",
+    "no_space": "The template rooms do not fit the floor.",
+    "no_template": "A room template is missing.",
+}
+
+
+def message_for(code: str) -> str:
+    return MESSAGES.get(code, "This building cannot be planned.")
+
+
 class PlanError(ValueError):
     """The request cannot become a plan. ``code`` is stable for clients."""
 

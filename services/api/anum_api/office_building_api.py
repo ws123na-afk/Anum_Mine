@@ -80,8 +80,8 @@ def propose(context: TenantContext, name: str | None, floors: int | None, lang: 
             return {"status": "proposal", **build_proposal(context, store, name, floors, lang)}
     except bp.PlanError as exc:
         if exc.code in ("name_required", "floors_required"):
-            return {"status": "needs_info", "missing": "name" if exc.code == "name_required" else "floors", "code": exc.code, "question": str(exc)}
-        return {"status": "invalid", "code": exc.code, "note": str(exc)}
+            return {"status": "needs_info", "missing": "name" if exc.code == "name_required" else "floors", "code": exc.code, "question": bp.message_for(exc.code)}
+        return {"status": "invalid", "code": exc.code, "note": bp.message_for(exc.code)}
 
 
 @router.get("")
@@ -148,6 +148,6 @@ def confirm_proposal(body: ConfirmBody, response: Response, idempotency_key: Cre
             return {"version": VERSION, "replayed": False, "building": {"id": b["id"], "name": b["name"]},
                     "floor_ids": [f["id"] for f in content["floors"]], "room_ids": room_ids, "creates": content["totals"]}
     except bp.PlanError as exc:
-        raise HTTPException(409 if exc.code == "name_exists" else 422, str(exc)) from exc
+        raise HTTPException(409 if exc.code == "name_exists" else 422, bp.message_for(exc.code)) from exc
     except SpaceStoreError as exc:
         raise _error(exc) from exc

@@ -101,6 +101,16 @@ def request_digest(body: AssignBody) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+# Fixed texts by status: nothing from the exception is echoed to the client.
+_RUN_REFUSALS = {
+    402: "The monthly model budget is used up.",
+    403: "You may not run this task.",
+    404: "The task or the agent was not found.",
+    409: "The task cannot be run from its current state, or the agent is paused.",
+    429: "Too many runs right now. Try again shortly.",
+}
+
+
 def _dump(value: Any) -> Any:
     return value.model_dump(mode="json") if hasattr(value, "model_dump") else value
 
@@ -179,7 +189,7 @@ async def assign_work(
             result = await main.start_task_run(task.id, context, units)
             out.update(task=_dump(result.task), run=_dump(result.run), approval=_dump(result.approval))
         except HTTPException as exc:
-            out["run_error"] = {"status_code": exc.status_code, "detail": str(exc.detail)[:300]}
+            out["run_error"] = {"status_code": exc.status_code, "detail": _RUN_REFUSALS.get(exc.status_code, "The run could not be started. Open the task and run it from Tasks.")}
     return out
 
 
