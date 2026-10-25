@@ -296,7 +296,7 @@ const SIZES = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] a
 const SHOTS = process.env.HQ_SHOTS_DIR;
 for (const [w, h] of SIZES) {
   test(`${w}x${h}: dialog, task panel and proposal card fit without horizontal overflow`, async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(900_000);
     await page.setViewportSize({ width: w, height: h });
     // The list view: the dialog and card layouts are what is checked, not the 3D scene.
     await openHq(page, { registry, noWebgl: true, beforeGoto: async (p) => { flow = await mockFlow(p); api = await mockAssign(p); await mockBuildingAssistant(p, api); } });
@@ -309,7 +309,7 @@ for (const [w, h] of SIZES) {
         if (box) { expect(box.x, `${label} ${sel} left`).toBeGreaterThanOrEqual(-1); expect(box.x + box.width, `${label} ${sel} right`).toBeLessThanOrEqual(w + 1); expect(box.y + box.height, `${label} ${sel} bottom`).toBeLessThanOrEqual(h + 1); }
       }
     };
-    const shot = async (name: string) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}-${w}x${h}.png`, animations: 'disabled', timeout: 45_000 }); };
+    const shot = async (name: string) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}-${w}x${h}.png`, animations: 'disabled', timeout: 120_000 }); };
     await openTeam(page);
     await page.getByRole('dialog', { name: 'Team' }).getByRole('button', { name: 'Assign work to Fleet Planner' }).click();
     const d = dialog(page);

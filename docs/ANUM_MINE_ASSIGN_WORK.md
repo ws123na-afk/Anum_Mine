@@ -82,6 +82,10 @@ One building (time zone of the existing buildings, else Asia/Dubai), N floors (l
 - Idempotency: an optional `Idempotency-Key` makes a retry return the building already made (200 `replayed: true`); the key used for another building is 409. The web card sends one key per card.
 - Every assistant call, including this tool, is audited as `executive_pa.invoke`.
 
+## For the person using it
+
+Assign: press **Assign work** on a room, team card, agent card or flow item; the agent is already chosen; write a title and instructions (optionally expected result, linked context, priority, due time); read **What this agent can do**; press **Assign and start**; **Open the task** shows it beside the office. A paused agent says "turn it on first". Add a building: type or say "add a building called X with N floors" in the assistant or Command; answer the one question if asked; an owner presses **Confirm and add the building**. In-app help articles (`docs/help/office*.md`, `executive*.md`) are shared with the mobile app and were not changed here; add these steps to them in a change that includes the mobile help review.
+
 ## Not done, said plainly
 
 - Linked project: tasks have no project or context field. "Linked context" is free text inside the task prompt.
