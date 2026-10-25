@@ -85,7 +85,7 @@ async def run_unattended(
             try:
                 await execute_meeting_turn(context,meeting_id,next_key,gateway)
             except LiveMeetingStoreError as exc:
-                if exc.code in ("forbidden","not_found","unavailable"):return exc.code
+                if exc.code in ("forbidden","not_found","unavailable","budget"):return exc.code
                 # A concurrent worker, pause, cancellation or expired lease
                 # can create a conflict. Re-read persisted state before retry.
                 log.warning("Meeting turn deferred: %s",exc.code)

@@ -91,8 +91,8 @@ test('a finished meeting opens as a stored replay and can be played back', async
   await expect(room.locator('.mrMsg')).toHaveCount(2, { timeout: 8000 });
 });
 
-test('a non-owner reads the room, joins, and raises a hand but cannot moderate', async ({ page }) => {
-  const mock = createRoomMock({ owner: false, messages: [{ speaker: 'agent_maya', role: 'agent', body: 'Hello all.' }] });
+test('a second workspace owner reads the room, joins, and raises a hand but cannot moderate', async ({ page }) => {
+  const mock = createRoomMock({ owner: false, reader: true, messages: [{ speaker: 'agent_maya', role: 'agent', body: 'Hello all.' }] });
   await mockRoom(page, mock);
   await page.goto('/#office/meeting/mtg_1');
   const room = page.getByRole('region', { name: 'Meeting room' });
@@ -102,6 +102,71 @@ test('a non-owner reads the room, joins, and raises a hand but cannot moderate',
   await expect(room.getByLabel('Say something to the meeting')).toHaveCount(0);
   await expect(room.getByRole('button', { name: 'Raise hand' })).toBeDisabled();
   await expect(room.getByText('Join the meeting to raise a hand.')).toBeVisible();
+});
+
+test('a member sees that the meeting happened but never its text, and asks the server for none', async ({ page }) => {
+  const mock = createRoomMock({ owner: false, messages: [{ speaker: 'agent_maya', role: 'agent', body: 'The secret acquisition closes Friday.' }] });
+  mock.state.outputs.push({ id: 'out_1', session_id: 'mtg_1', kind: 'decision', body: 'Acquire the rival', state: 'confirmed', owner_label: null, source_sequences: [1], task_id: null, created_by: 'user_boss', decided_by: 'user_boss' });
+  await mockRoom(page, mock);
+  await page.goto('/#office/meeting/mtg_1');
+  const room = page.getByRole('region', { name: 'Meeting room' });
+  await expect(room.getByRole('heading', { level: 2, name: 'Launch planning' })).toBeVisible();
+  await expect(room.getByText('Live', { exact: true })).toBeVisible();
+  await expect(room.getByText('Maya', { exact: true })).toBeVisible(); // who is in it
+  await expect(room.getByText(/Only a workspace owner can read the transcript of a meeting\./)).toBeVisible();
+  await expect(room.getByText('Decisions and action items: 1. Only workspace owners can read them.')).toBeVisible();
+  await expect(room.getByText('Linked files: 0. Only workspace owners can see them.')).toBeVisible();
+  await expect(room.getByText('secret acquisition')).toHaveCount(0);
+  await expect(room.getByText('Acquire the rival')).toHaveCount(0);
+  await expect(room.getByRole('button', { name: 'Download transcript (Markdown)' })).toHaveCount(0);
+  await expect(room.getByRole('button', { name: 'Run next turn' })).toHaveCount(0);
+  await expect(room.getByRole('log')).toHaveCount(0);
+  // The page never asked for the text: no turns, event log, stream or export call was made.
+  expect(mock.state.calls.forbidden).toEqual([]);
+  expect(mock.state.calls.streamHits).toBe(0);
+});
+
+test('a member who is refused a transcript read is told why, in plain words', async ({ page }) => {
+  const mock = createRoomMock({ owner: false });
+  await mockRoom(page, mock);
+  await page.goto('/#office/meeting/mtg_1');
+  await expect(page.getByRole('region', { name: 'Meeting room' }).getByText('Launch planning')).toBeVisible();
+  const status = await page.evaluate(async () => (await fetch('http://localhost:8000/api/v1/agent-meetings/mtg_1/turns')).status);
+  expect(status).toBe(403);
+  expect(mock.state.calls.forbidden).toEqual(['/turns']);
+});
+
+test('the monthly budget is shown in the room, pauses the meeting when the last turn uses it, and blocks a restart', async ({ page }) => {
+  const mock = createRoomMock({ budget: { used: 49.999, limit: 50 } });
+  await mockRoom(page, mock);
+  await page.goto('/#office/meeting/mtg_1');
+  const room = page.getByRole('region', { name: 'Meeting room' });
+  await expect(room.getByRole('heading', { name: 'Agent meetings this month' })).toBeVisible();
+  await expect(room.getByText('USD 49.99 of USD 50.00')).toBeVisible();
+  await expect(room.getByText(/Less than a fifth of this month's agent meeting budget is left\./)).toBeVisible();
+  await room.getByRole('button', { name: 'Run next turn' }).click();
+  await expect(room.getByText('launch on Tuesday')).toBeVisible();
+  // The turn used the last of the month: the meeting paused, the reason is plain, and nothing can run.
+  await expect(room.getByText('Paused', { exact: true })).toBeVisible();
+  const notice = room.locator('.mrBudgetNotice');
+  await expect(notice).toContainText('Monthly agent meeting budget reached.');
+  await expect(notice).toContainText('so no agent can speak until 1 November 2026 (UTC)');
+  await expect(notice).toContainText('A workspace owner can raise the limit under Budgets.');
+  await expect(room.getByRole('button', { name: 'Resume' })).toBeDisabled();
+  await expect(room.getByRole('button', { name: 'Resume' })).toHaveAttribute('title', 'The monthly agent meeting budget is used up.');
+  // The server's refusal is shown too if a stale page tries anyway.
+  mock.state.meeting.status = 'active';
+  expect(mock.state.calls.runs).toBe(1);
+});
+
+test('a room opened with the budget already used up cannot start or run a turn', async ({ page }) => {
+  const mock = createRoomMock({ status: 'scheduled', budget: { used: 50.2, limit: 50 } });
+  await mockRoom(page, mock);
+  await page.goto('/#office/meeting/mtg_1');
+  const room = page.getByRole('region', { name: 'Meeting room' });
+  await expect(room.locator('.mrBudgetNotice')).toContainText('USD 50.20 of its USD 50.00');
+  await expect(room.getByRole('button', { name: 'Start meeting' })).toBeDisabled();
+  expect(mock.state.calls.runs).toBe(0);
 });
 
 test('denied, missing and failed rooms say what happened', async ({ page }) => {
@@ -159,6 +224,36 @@ for (const locale of ['en', 'ar'] as const) {
       if (locale === 'ar') expect(await page.evaluate(() => document.documentElement.dir)).toBe('rtl');
       if (process.env.ANUM_SCREENSHOTS) await page.screenshot({ path: `${process.env.ANUM_SCREENSHOTS}/room-${locale}-${width}x${height}.png`, fullPage: true });
       else await page.screenshot({ path: testInfo.outputPath(`room-${locale}-${width}.png`), fullPage: true });
+    });
+  }
+}
+
+for (const locale of ['en', 'ar'] as const) {
+  for (const [width, height] of sizes) {
+    test(`the member view and the used up budget fit ${width}x${height} in ${locale} @gate`, async ({ page }, testInfo) => {
+      const mock = createRoomMock({ owner: false, status: 'paused', budget: { used: 50.2, limit: 50 }, messages: [{ speaker: 'agent_maya', role: 'agent', body: 'Hidden from members.' }] });
+      mock.state.outputs.push({ id: 'out_1', session_id: 'mtg_1', kind: 'decision', body: 'Hidden decision', state: 'confirmed', owner_label: null, source_sequences: [1], task_id: null, created_by: 'u', decided_by: 'u' });
+      mock.state.attendance.push({ actor_id: 'user_local', joined_at: new Date().toISOString(), left_at: null });
+      await useSavedLocale(page, locale);
+      await mockRoom(page, mock);
+      await page.setViewportSize({ width, height });
+      await page.goto('/#office/meeting/mtg_1');
+      const room = page.getByRole('region', { name: locale === 'en' ? 'Meeting room' : 'غرفة الاجتماع' });
+      await expect(room.getByTestId('transcript-hidden')).toBeVisible();
+      await expect(room.locator('.mrBudgetNotice')).toBeVisible();
+      if (locale === 'ar') {
+        await expect(room.getByTestId('transcript-hidden')).toContainText('لا يقرأ نص الاجتماع إلا مالك مساحة العمل');
+        await expect(room.locator('.mrBudgetNotice')).toContainText('تم بلوغ ميزانية اجتماعات الوكلاء الشهرية');
+        expect(await page.evaluate(() => document.documentElement.dir)).toBe('rtl');
+      } else {
+        await expect(room.locator('.mrBudgetNotice')).toContainText('Monthly agent meeting budget reached');
+      }
+      await expect(page.getByText('Hidden from members.')).toHaveCount(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+      const clipped = await room.locator('button').evaluateAll((buttons) => buttons.filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && (r.right > innerWidth + 1 || r.left < -1); }).length);
+      expect(clipped).toBe(0);
+      if (process.env.ANUM_SCREENSHOTS) await page.screenshot({ path: `${process.env.ANUM_SCREENSHOTS}/room-member-${locale}-${width}x${height}.png`, fullPage: true });
+      else await page.screenshot({ path: testInfo.outputPath(`room-member-${locale}-${width}.png`), fullPage: true });
     });
   }
 }

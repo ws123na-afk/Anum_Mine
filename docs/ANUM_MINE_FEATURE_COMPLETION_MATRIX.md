@@ -168,7 +168,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 |---|---|---|---|---|---|
 | 9.1 | Lifecycle: create, add agents, activate, pause, resume, end or cancel | Complete | Ran, CI | `live_agent_meeting_api.py`; `test_live_agent_meeting_*`; migrations 0098, 0104; `e2e/meeting-room.spec.ts` | none |
 | 9.2 | Governed model runtime with limits | Complete | Read, CI | Durable turn leases, per-meeting max turns, time, tokens, cost, owner pause, emergency stop, a mock model cannot run a turn; secrets redacted before storage (`live_agent_meeting_runtime.py`, `live_agent_meeting_redaction.py`) | none |
-| 9.3 | Workspace-wide meeting budget | Missing | Read | Security finding S-02 (open): limits are per meeting only | Owner decision O6 on the cap. PR: a workspace daily cost cap checked before each turn |
+| 9.3 | Workspace-wide meeting budget | Complete | Read, CI | S-02 closed: USD 50 per workspace per UTC month (owner changes it), gate under a workspace lock before each turn, 402 and pause when reached; `docs/ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md`, `test_postgres_live_agent_meeting_security.py` | Owner decision O6 settled (USD 50, monthly) |
 | 9.4 | Unattended running and crash resume | Partial | Read | `unattended_meeting_worker.py`, lease expiry and retry, terminal-state guards (`test_unattended_meeting_terminal.py`) | The worker is a managed service; nothing here proves one runs anywhere. Not verified. Do not run a long meeting through an HTTP request |
 | 9.5 | Live room: transcript, speakers, hands, owner interrupt | Complete | Read, CI | `MeetingRoomPanel.tsx`; `e2e/meeting-room.spec.ts` (join, turn streams, interrupt, reconnect replay, end) | none |
 | 9.6 | Meeting summary | Missing | Read | Live meetings have no stored summary. `meeting_analysis.py` serves imported meetings only | PR: owner-triggered governed summary stored as a draft output of kind `summary` that the owner confirms, like decisions |
@@ -177,8 +177,8 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 9.9 | Decision linked to work | Missing | Read | Only `action_item` outputs can become tasks (`output_for_task` refuses other kinds). A decision links to transcript messages, not to a task, approval or run | PR: let a decision link to existing task ids and show the links in the room and in the export |
 | 9.10 | Export | Partial | Read | `GET /{id}/export?format=markdown or json`, owner only, already redacted; the web "Export" button downloads Markdown (`MeetingRoomPanel.tsx`) | The web has no JSON export; no PDF; export omits decision to work links (9.9). Small PR: JSON option in the card |
 | 9.11 | Delete and retention | Partial | Read | Owner can delete an ended meeting's transcript (`DELETE /transcript`); counts, confirmed outputs and tasks remain | No automatic retention window. Owner decision O5 |
-| 9.12 | Turn execution audited | Partial | Read | Security finding S-04: `create`, `join_self`, `state_change`, `agent_add`, `output_task` are audited (grep of `live_agent_meeting_api.py` and the room API); turn execution is not | PR: audit record per executed turn (ids and token counts only) |
-| 9.13 | Transcript visibility | Partial | Read | S-03: listing meetings and reading turns needs `task:read` | Owner decision O7 on who may read transcripts |
+| 9.12 | Turn execution audited | Complete | Read, CI | S-04 closed: `agent_meeting.turn` per turn (success, failure, blocked, denied) with ids, usage, cost, correlation id and no text; `docs/ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md` | None |
+| 9.13 | Transcript visibility | Complete | Read, CI | S-03 closed: turns, events, stream, export are workspace owner only (403 otherwise, audited); room bundle carries no text for others; `docs/ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md` | Owner decision O7 settled: owner only |
 | 9.14 | Meetings visible in the office scene | Missing | Read | See 7.4 | See 7.4 |
 | 9.15 | Stored meeting replay | Complete | Read, CI | Finished meeting opens as a stored replay with playback (`e2e/meeting-room.spec.ts` "finished meeting opens as a stored replay") | Replays stored events only |
 
@@ -222,7 +222,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 12.4 | Web unit tests and typecheck | Complete | Ran | 168 of 168 and `tsc` pass | none |
 | 12.5 | Backend unit tests | Complete | Ran | 138 of 138 pass | none |
 | 12.6 | PostgreSQL and RLS tests | Complete | CI | `test_postgres_hq_rls.py`, `test_postgres_office_*`, `test_postgres_live_agent_meeting_*` | Not verified locally: no test database credentials here |
-| 12.7 | Security tests and review | Partial | Read | `docs/ANUM_MINE_HQ_SECURITY_REVIEW.md`, `e2e/hq-csp.spec.ts`, RLS test | Open findings S-02 (no workspace cap), S-03 (transcript read scope), S-04 (turns not audited), S-05 (turn rate). See 9.3, 9.12, 9.13 |
+| 12.7 | Security tests and review | Partial | Read | `docs/ANUM_MINE_HQ_SECURITY_REVIEW.md`, `e2e/hq-csp.spec.ts`, RLS test | S-02, S-03 and S-04 are closed (see 9.3, 9.12, 9.13). Open: S-05 (turn rate) |
 | 12.8 | Accessibility | Complete | Read, CI | `e2e/hq-a11y.spec.ts`: English and Arabic, light and dark | Open H-13 (close button covered by header in the overlay) was found; status not re-checked |
 | 12.9 | Load and streaming | Partial | Read | `scripts/hq-load/hq_load.py`, `docs/ANUM_MINE_HQ_LOAD_TESTING.md` | Never run on the Oracle VM with PostgreSQL; H-09 open |
 | 12.10 | Rollback | Complete | Read | `VITE_ANUM_HQ=off` (`lib/headquartersFlag.ts`), expand-only migrations, `docs/ANUM_MINE_HQ_DEPLOYMENT_AND_ROLLBACK.md` | No rehearsal recorded |
@@ -270,7 +270,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 7. **Use the presence stream in the web (8.1, 8.2).** Cut polling and close the gap with the server design; then re-run the load test on the Oracle VM (H-09).
 8. **Meeting summary and decision to work links (9.6, 9.9, 9.7).** Owner-confirmed summary, decisions linked to tasks, linked items in the export.
 9. **Layout history and restore (8.6, 11.6).** From the existing audit records, restore as a normal save.
-10. **Close the open security findings (9.3, 9.12, 9.13, 12.7).** Workspace meeting cap, audit each turn, decide transcript visibility.
+10. **Close the open security findings (9.3, 9.12, 9.13, 12.7).** Workspace meeting cap, audit each turn, decide transcript visibility. Done in the meeting budget PR (S-02, S-03, S-04); S-05 and owner decision O5 (retention) stay open.
 
 Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a screenshot sweep artifact (12.3), the migration number clash (13.3), the `hq.en` and `hq.ar` key parity test (13.5), desk and figure visuals for all eight states (5.5).
 
@@ -283,8 +283,8 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 | O3 | Which departments get rooms and templates: Marketing, Technology, Research, Legal, Security and Governance, and what real module does each open? | 4.5. A room with no module would be a dead button |
 | O4 | Reception: remove from the live office, or build a real visitor registry (who, host, badge, time)? | 7.9 |
 | O5 | Retention windows for meeting transcripts and for history snapshots | 9.11, 10.5 |
-| O6 | Workspace-wide daily cost cap for agent meetings | 9.3 (S-02) |
-| O7 | Who may read meeting transcripts besides the owner (any member with `task:read` today) | 9.13 (S-03) |
+| O6 | Workspace-wide monthly cost cap for agent meetings: decided, USD 50 per workspace per month, owner configurable | 9.3 (S-02), closed |
+| O7 | Who may read meeting transcripts: decided, the workspace owner only | 9.13 (S-03), closed |
 | O8 | Approve storing time-indexed office snapshots so a true replay is possible, with their retention and cost | 10.5 |
 | O9 | A PA persona in the scene: name, look, voice. None may be invented by the build | 6.8 |
 | O10 | What the starter campus creates by default for a new owner | 4.2, 4.4 |

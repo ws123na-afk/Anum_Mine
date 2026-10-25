@@ -78,6 +78,8 @@ ARABIC_MESSAGES: dict[str, str] = {
     "Only a workspace owner or the organization administrator can see what the emergency stop holds.": "لا يمكن عرض ما يحتجزه الإيقاف الطارئ إلا لمالك مساحة العمل أو مسؤول المؤسسة.",
     "The emergency stop is already on.": "الإيقاف الطارئ مفعّل بالفعل.",
     "The emergency stop is already off.": "الإيقاف الطارئ متوقف بالفعل.",
+    # Live agent meetings (anum_api/live_agent_meeting_api.py)
+    "Only a workspace owner can read meeting transcripts. You can still see that the meeting took place, who attended and its status.": "لا يقرأ نصوص الاجتماعات إلا مالك مساحة العمل. ما زال بإمكانك رؤية انعقاد الاجتماع ومن حضره وحالته.",
     # In-app calls (anum_api/app_calls.py)
     "Calls are off on this server until a relay (TURN) server is configured": "المكالمات متوقفة على هذا الخادم حتى يُضبط خادم ترحيل (TURN).",
     "Video calls are turned off on this server": "مكالمات الفيديو متوقفة على هذا الخادم.",
@@ -216,6 +218,18 @@ _PATTERNS: list[tuple[re.Pattern[str], Callable[[re.Match[str]], str]]] = [
         lambda m: (
             f"حذف ANUM صندوق البريد {m['address']} ورموزه، لكنه لم يتمكن من سحب صلاحيته لدى {m['name']}. "
             f"أزل ANUM من إعدادات الأمان في حساب {m['name']} (تطبيقات الجهات الخارجية)."
+        ),
+    ),
+    (
+        # live_agent_meeting_budget.budget_message
+        re.compile(
+            r"^Monthly agent meeting budget reached: this workspace has used USD (?P<used>[\d.]+) of its USD (?P<limit>[\d.]+) "
+            r"for agent meetings this month\. It resets on (?P<date>\d{4}-\d{2}-\d{2}) \(UTC\); "
+            r"a workspace owner can raise the limit under Budgets\.$"
+        ),
+        lambda m: (
+            f"تم بلوغ ميزانية اجتماعات الوكلاء الشهرية: استهلكت مساحة العمل {m['used']} دولارًا من أصل {m['limit']} دولارًا "
+            f"لاجتماعات الوكلاء هذا الشهر. يُعاد ضبطها في {m['date']} (UTC)؛ ويستطيع مالك مساحة العمل رفع الحد من «الميزانيات»."
         ),
     ),
     (

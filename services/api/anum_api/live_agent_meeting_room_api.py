@@ -1,7 +1,9 @@
 """Meeting room HTTP API: bundle, replayable events and SSE, presence, hand, messages, agenda,
 draft outputs, files, export and transcript delete (F06/F07/F08).
 
-Reads need ``task:read``; every write needs ``workspace:manage`` except presence and raising
+Reads need ``task:read``, but transcript text (messages, the event log and its stream, decisions and
+action items, the export) is for workspace owners only (S-03): everyone else gets 403 with a clear
+message, and the room bundle they can read carries no text. Every write needs ``workspace:manage`` except presence and raising
 a hand (``task:read``, the viewer must have joined). Moderation is owner-only. Model turns
 are still produced only by ``execute-turn``/``run``/the worker; nothing here calls a model.
 """
@@ -21,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import live_agent_meeting_room as room
 from .authorization import Permission
 from .dependencies import has_permission, require_permission, tenant_context
-from .live_agent_meeting_api import MeetingId, _audit, _error, _store
+from .live_agent_meeting_api import MeetingId, _audit, _error, _store, can_read_transcript, require_transcript_reader
 from .live_agent_meeting_store import LiveMeetingStoreError
 from .schemas import TenantContext
 from .sse import SSE_HEADERS, sse
@@ -100,14 +102,26 @@ def _run(context: TenantContext, action: str, meeting_id: str, fn: Callable[[Any
 @router.get("/{meeting_id}/room")
 def get_room(meeting_id: MeetingId, context: TenantContext = Depends(tenant_context)) -> dict:
     _read(context)
-    return _run(context, "", meeting_id, lambda s: room.room(s, context, meeting_id))
+    bundle = _run(context, "", meeting_id, lambda s: room.room(s, context, meeting_id))
+    return bundle_for(bundle, can_read_transcript(context))
+
+
+def bundle_for(bundle: dict, owner: bool) -> dict:
+    """The room bundle a caller may see. Non-owners keep who, when and status, and lose the text:
+    decisions and action items (summaries of the discussion) and linked file names become counts."""
+    bundle["viewer"] = {**bundle["viewer"], "can_read_transcript": owner}
+    if owner:
+        return bundle
+    return {**bundle, "outputs": [], "outputs_count": len(bundle["outputs"]),
+            "files": [], "files_count": len(bundle["files"]), "transcript_hidden": True}
 
 
 @router.get("/{meeting_id}/events")
 def list_events(meeting_id: MeetingId, after: int = Query(default=0, ge=0), limit: int = Query(default=200, ge=1, le=500),
                 context: TenantContext = Depends(tenant_context)) -> dict:
-    """Plain JSON replay of the durable event log, for finished meetings and tests."""
+    """Plain JSON replay of the durable event log, for finished meetings and tests. Owners only."""
     _read(context)
+    require_transcript_reader(context, meeting_id, "events")
 
     def read(store: Any) -> dict:
         if store.get(context, meeting_id) is None:
@@ -170,6 +184,7 @@ async def stream_events(request: Request, meeting_id: MeetingId, after: int = Qu
                         last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
                         context: TenantContext = Depends(tenant_context, scope="function")) -> StreamingResponse:
     _read(context)
+    require_transcript_reader(context, meeting_id, "stream")
     start = parse_last_event_id(last_event_id, after)
     # Check access once before streaming so a wrong id is a clean 404, not an empty stream.
     _run(context, "", meeting_id, lambda s: room._meeting(s, context, meeting_id))
@@ -281,11 +296,11 @@ def unlink_file(meeting_id: MeetingId, file_id: MeetingId, context: TenantContex
 def export_meeting(meeting_id: MeetingId, format: Literal["markdown", "json"] = "markdown",
                    context: TenantContext = Depends(tenant_context)):
     """Owner download of the stored (already redacted) transcript, agenda and outputs."""
+    require_transcript_reader(context, meeting_id, "export")
     _write(context)
 
     def build(store: Any) -> dict:
         bundle = room.room(store, context, meeting_id)
-        room.require_owner(bundle["meeting"], context, "export this meeting")
         return {"bundle": bundle, "turns": room.transcript(store, context, meeting_id)}
     data = _run(context, "export", meeting_id, build)
     if format == "json":

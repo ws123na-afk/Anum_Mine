@@ -28,6 +28,7 @@ import { isOnlyActiveOwner, type InvitationStatusFilter, type MemberStatusFilter
 import { ConfirmDialog } from './Dialog';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { AccessNotice } from './PageParts';
+import { AgentMeetingBudgetCard } from './AgentMeetingBudgetCard';
 import type { TenantWriteAccess } from './lib/governance';
 import { tenantWriteAccess } from './lib/governance';
 import './admin.css';
@@ -445,6 +446,7 @@ export function BudgetsView() {
       <div className="budgetGrid">
         <BudgetCard scope="tenant" title={t('budgets.tenant.title')} subtitle={t('budgets.tenant.subtitle')} view={overview.tenant} onSaved={setOverview} access={tenantAccess} />
         <BudgetCard scope="workspace" title={t('budgets.workspace.title')} subtitle={t('budgets.workspace.subtitle')} view={overview.workspace} onSaved={setOverview} />
+        <AgentMeetingBudgetCard />
       </div>
     </>}
   </>;
