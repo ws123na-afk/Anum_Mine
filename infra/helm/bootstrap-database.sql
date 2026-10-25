@@ -21,12 +21,13 @@
 --   anum_app       the API, worker and voice retention job (secrets.app
 --                  ANUM_DATABASE_URL). Subject to RLS; member (WITH INHERIT FALSE) of
 --                  anum_maintenance, anum_membership_reader, anum_platform_reader,
---                  anum_tenant_directory and anum_tenant_purger.
+--                  anum_tenant_directory, anum_executive_reader and anum_tenant_purger.
 --   anum_relay     the outbox relay (secrets.app ANUM_OUTBOX_DATABASE_URL); member of
 --                  anum_outbox_relay only.
 -- NOLOGIN roles the migrations grant column-level access to (pre-created so the
 -- migration login needs no CREATEROLE): anum_outbox_relay, anum_maintenance,
--- anum_membership_reader, anum_platform_reader, anum_tenant_directory, anum_tenant_purger.
+-- anum_membership_reader, anum_platform_reader, anum_tenant_directory, anum_executive_reader,
+-- anum_tenant_purger.
 -- The backup login (BYPASSRLS + pg_read_all_data) is created separately, only where
 -- the backup CronJob runs (docs/runbooks.md#backups).
 
@@ -46,6 +47,8 @@ select format('create role anum_platform_reader nologin')
 where not exists (select 1 from pg_roles where rolname = 'anum_platform_reader') \gexec
 select format('create role anum_tenant_directory nologin')
 where not exists (select 1 from pg_roles where rolname = 'anum_tenant_directory') \gexec
+select format('create role anum_executive_reader nologin')
+where not exists (select 1 from pg_roles where rolname = 'anum_executive_reader') \gexec
 select format('create role anum_tenant_purger nologin')
 where not exists (select 1 from pg_roles where rolname = 'anum_tenant_purger') \gexec
 
@@ -72,6 +75,10 @@ grant anum_tenant_directory to anum_app with inherit false, set true;
 -- The organisation purge (migration 0079_tenant_lifecycle, docs/organisation-lifecycle.md):
 -- it may delete rows of a tenant whose deletion is purging, so SET ROLE only.
 grant anum_tenant_purger to anum_app with inherit false, set true;
+-- The executive overview finds the workspaces whose owners granted the caller a summary
+-- (migration 0101_executive_grants, docs/ANUM_MINE_PRESENCE_AND_CAMPUS.md). Its policy
+-- admits only the caller's own active, unexpired grants of one tenant, so SET ROLE only.
+grant anum_executive_reader to anum_app with inherit false, set true;
 
 -- A non-superuser admin (a managed service's default user) must be a member of
 -- anum_migrator to hand over ownership and to set its default privileges below. On

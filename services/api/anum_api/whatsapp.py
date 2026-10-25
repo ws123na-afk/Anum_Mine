@@ -1838,6 +1838,10 @@ async def receive_webhook(request: Request, background: BackgroundTasks) -> Resp
         if counts.arrived:
             background.add_task(_route_to_assistants, context, list(counts.arrived))
         if counts.received:
+            # Import only verified, deduplicated inbound sales enquiries after the
+            # WhatsApp store commits and suppression keywords have been applied.
+            from .sales_whatsapp_ingestion import import_verified_whatsapp_enquiry
+            background.add_task(import_verified_whatsapp_enquiry, context, list(counts.received))
             background.add_task(_note_business_replies, context, sorted({str(item["from"]) for item in counts.received}))
             from .automation_triggers import record_inbound_events
 

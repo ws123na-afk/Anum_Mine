@@ -1,12 +1,20 @@
 import { expect, test, type Route } from '@playwright/test';
 import { mockOrgChart } from './support/orgChartApi';
+import { mockOfficeSpaces } from './support/hqApi';
+
+// #office-preview opens the authenticated headquarters (HeadquartersEntrypoint); the workstation
+// directory is its "Live workstations" panel.
+async function openWorkstations(page: import('@playwright/test').Page) {
+  await mockOrgChart(page);
+  await mockOfficeSpaces(page);
+  await page.goto('/#office-preview');
+  await page.getByRole('button', { name: 'Live workstations' }).click();
+}
 
 const agentsUrl = (url: URL) => url.origin === 'http://localhost:8000' && url.pathname === '/api/v1/agents';
 
 test('the office removes employee evidence when access is revoked and recovers after access returns', async ({ page }) => {
-  await mockOrgChart(page);
-  await page.goto('/#office-preview');
-  await page.getByRole('button', { name: 'Live Employee Workstations' }).click();
+  await openWorkstations(page);
   const office = page.getByRole('dialog', { name: 'Live Employee Workstations' });
   await expect(office.getByRole('button', { name: /Fleet Planner/ })).toBeVisible();
   await office.getByRole('button', { name: /Fleet Planner/ }).click();
@@ -26,9 +34,7 @@ test('the office removes employee evidence when access is revoked and recovers a
 });
 
 test('a failed refresh keeps the last authorized snapshot visibly stale until retry succeeds', async ({ page }) => {
-  await mockOrgChart(page);
-  await page.goto('/#office-preview');
-  await page.getByRole('button', { name: 'Live Employee Workstations' }).click();
+  await openWorkstations(page);
   const office = page.getByRole('dialog', { name: 'Live Employee Workstations' });
   await office.getByRole('button', { name: /Fleet Planner/ }).click();
   const evidence = office.getByRole('region', { name: 'Selected employee evidence' });
