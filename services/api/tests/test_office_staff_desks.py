@@ -15,7 +15,7 @@ from anum_api.executive_pa import TOOLS as PA_TOOLS
 def test_every_role_names_registry_tools_and_consistent_skills() -> None:
     registry = ap.runtime_tools()
     skills = {m.id: m for m in ap.runtime_skills().manifests()}
-    assert len(st.EXTRA_TEMPLATES) == 8 and len({t.id for t in st.STAFF_TEMPLATES}) == 15
+    assert len(st.EXTRA_TEMPLATES) == 7 and len({t.id for t in st.STAFF_TEMPLATES}) == len(st.STAFF_TEMPLATES) == 18
     for t in st.STAFF_TEMPLATES:
         assert t.name_en and t.name_ar and t.description_ar
         for tool in t.tools:

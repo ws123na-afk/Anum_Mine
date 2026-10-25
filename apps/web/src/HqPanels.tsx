@@ -1,11 +1,12 @@
 /** Built-in side panels: the room summary and the workstation summary with the desk's real work.
  * The meetings and executive workstreams replace them through `renderRoomPanel` and `renderWorkstationPanel`. */
-import { ArrowRight, X } from 'lucide-react';
+import { ArrowRight, ClipboardPlus, X } from 'lucide-react';
+import { openAssign } from './lib/hqAssign.ts';
 import { RoomModuleAction } from './HqRoomModule';
 import { statusLabel } from './HqChrome';
 import { WorkstationWork } from './HqWorkstationWork';
 import type { RoomGeometry, SceneDesk } from './lib/headquartersProjection.ts';
-import { presenceForDesk, type HqAgentPresence, type HqPresenceIndex } from './lib/hqPresence.ts';
+import { presenceForDesk, type HqAgentPresence, type HqPresenceIndex, type RoomMeeting } from './lib/hqPresence.ts';
 import { profileHash } from './lib/orgChart.ts';
 import { STATUS_TONE } from './lib/campusModel.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
@@ -24,6 +25,11 @@ export function RoomPanel(props: Readonly<{
   room: RoomGeometry; desks: readonly SceneDesk[]; presence: HqPresenceIndex | null;
   onClose: () => void; onOpenAgent: (agentId: string, desk: SceneDesk) => void;
   buildingKind?: string | null; canManage?: boolean; onOpenFlow?: () => void; onOpenGaps?: () => void;
+  /** The live meeting held in this room: from the stored `room_id` of an active meeting. Null when none; undefined when unknown. */
+  meeting?: RoomMeeting | null;
+  /** True once the meetings could be read; false shows an honest "could not be read" note on meeting rooms. */
+  meetingsKnown?: boolean;
+  onStartMeeting?: () => void;
 }>) {
   const { room } = props;
   const assigned = props.desks.filter((d) => d.agentId || presenceForDesk(props.presence, d)).length;
@@ -34,6 +40,13 @@ export function RoomPanel(props: Readonly<{
         <button type="button" className="hqIconButton" onClick={props.onClose} aria-label={t('hq.panel.close')}><X aria-hidden="true" /></button>
       </div>
       <p className="hqMuted">{t(`hq.roomKind.${room.kind}` as MessageKey)} · {t('hq.room.capacity', { count: room.capacity })}</p>
+      {props.meeting && <RoomMeetingSection meeting={props.meeting} presence={props.presence} />}
+      {!props.meeting && room.kind === 'meeting' && props.meetingsKnown === false && <p className="hqNote" data-testid="room-meeting-unknown">{t('hq.room.meeting.unknown')}</p>}
+      {!props.meeting && room.kind === 'meeting' && props.meetingsKnown !== false && props.onStartMeeting && (
+        props.canManage
+          ? <button type="button" className="hqGhost" data-testid="room-start-meeting" onClick={props.onStartMeeting}>{t('hq.room.meeting.start')}</button>
+          : <p className="hqNote">{t('hq.room.meeting.startOwner')}</p>
+      )}
       <ul className="hqStats">
         <li><strong>{props.desks.length}</strong><span>{t('hq.room.desks')}</span></li>
         <li><strong>{assigned}</strong><span>{t('hq.room.assignedLabel')}</span></li>
@@ -59,8 +72,28 @@ export function RoomPanel(props: Readonly<{
             })}
           </ul>
         )}
-      <RoomModuleAction room={{ department: room.teamDepartment, kind: room.kind, name: room.label, buildingKind: props.buildingKind }} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? noop} onOpenGaps={props.onOpenGaps ?? noop} />
+      {props.desks.some((d) => d.agentId) && <button type="button" className="hqPrimary" onClick={() => openAssign({ roomId: room.id, roomName: room.label, source: 'room' })}><ClipboardPlus aria-hidden="true" />{t('hqAssign.openRoom')}</button>}
+      <RoomModuleAction room={{ department: room.teamDepartment, kind: room.kind, name: room.label, buildingKind: props.buildingKind }} liveMeetingId={props.meeting?.meetingId ?? null} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? noop} onOpenGaps={props.onOpenGaps ?? noop} />
     </aside>
+  );
+}
+
+/** "In a meeting": the stored title and only the agents stored as participants (names from the presence records the viewer may see). */
+export function RoomMeetingSection({ meeting, presence }: Readonly<{ meeting: RoomMeeting; presence: HqPresenceIndex | null }>) {
+  return (
+    <section className="hqRoomMeeting" aria-label={t('hq.room.inMeeting')} data-testid="room-meeting">
+      <p><span className="hqPill tone-ok">{t('hq.room.inMeeting')}</span> {meeting.title && <strong dir="auto">{meeting.title}</strong>}</p>
+      <h3 className="hqSub">{t('hq.room.meeting.who')}</h3>
+      {meeting.agentIds.length === 0
+        ? <p className="hqNote">{t('hq.room.meeting.noAgents')}</p>
+        : <ul className="hqDeskList" aria-label={t('hq.room.meeting.who')}>
+          {meeting.agentIds.map((id) => {
+            const p = presence?.byAgent.get(id);
+            return <li key={id}><div className="hqVacant" data-testid="room-meeting-agent"><span className="hqLabelText"><strong dir="auto">{p?.name || t('hq.agent.private')}</strong><small>{p?.role ?? t('hq.agent.noRole')}</small></span></div></li>;
+          })}
+        </ul>}
+      {meeting.people > 0 && <p className="hqNote">{t('hq.room.meeting.people', { count: meeting.people })}</p>}
+    </section>
   );
 }
 
@@ -81,6 +114,7 @@ export function AgentPanel(props: Readonly<{
       <p><StatusPill presence={p} /></p>
       {p && <p className="hqNote">{t('hq.agent.observed', { time: new Date(p.observedAt).toLocaleTimeString() })}</p>}
       <WorkstationWork deskId={props.deskId} fallbackTasks={p?.taskTitles ?? []} hasPresence={Boolean(p)} refreshKey={props.refreshKey} />
+      {!hidden && !props.agentId.startsWith('desk:') && <button type="button" className="hqPrimary" onClick={() => openAssign({ agentId: props.agentId, source: props.deskId ? 'desk' : 'agent_card' })}><ClipboardPlus aria-hidden="true" />{t('hqAssign.openFor', { name })}</button>}
       {!hidden && <a className="hqPrimary" href={profileHash({ kind: 'agent', id: props.agentId })}>{t('hq.agent.profile')}<ArrowRight aria-hidden="true" className="flip" /></a>}
     </aside>
   );

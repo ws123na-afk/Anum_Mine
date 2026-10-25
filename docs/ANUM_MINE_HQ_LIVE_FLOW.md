@@ -101,3 +101,6 @@ This change does not edit the campus and building scene (PR #221 owns it). On `m
 - Agents have no separate role field; the team shows department and description.
 - Other workspaces on the campus get no counts here (one workspace per request, by design).
 - Leads and orders update by event only for task, run and approval events; they are picked up by the 20 s timer (or 8 s while polling).
+
+## Assigning work from the flow
+The dock and team cards open the shared [Assign work dialog](ANUM_MINE_ASSIGN_WORK.md) instead of leaving the office: a card with an owner agent offers "Assign work to {name}", the empty state offers "Assign work", and the next step of a stuck task ("Open task", "Retry") opens the task in a side panel. After an assignment the flow re-reads at once, so the task appears under the agent's office (or without an office when the agent has no desk, with the usual reason).

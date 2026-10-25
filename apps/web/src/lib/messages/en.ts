@@ -16,6 +16,7 @@ import { meetingRoomEn } from './meetingRoom.en.ts';
 import { builderEn } from './builder.en.ts';
 import { hqFlowEn } from './hqFlow.en.ts';
 import { hqProvisioningEn } from './hqProvisioning.en.ts';
+import { hqAssignEn } from './hqAssign.en.ts';
 import { hqStarterCampusEn } from './hqStarterCampus.en.ts';
 import { hqStaffDesksEn } from './hqStaffDesks.en.ts';
 import { teamEn } from './team.en.ts';
@@ -3225,6 +3226,7 @@ export const en = {
   ...builderEn,
   ...hqFlowEn,
   ...hqProvisioningEn,
+  ...hqAssignEn,
   ...hqStarterCampusEn,
   ...hqStaffDesksEn,
   // ---- ANUM 360 shell and Command Center (docs/design/anum360.md#web-command-center) ----

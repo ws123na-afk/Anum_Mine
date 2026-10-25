@@ -12,7 +12,7 @@ The owner asked for every desk of the campus to have an agent seated. **Staff my
 | The planner: states, 200 limit, run cap, order, hashes (pure) | `services/api/anum_api/office_staff_desks.py` |
 | Routes, claims, agent build, caps, seating | `services/api/anum_api/office_staff_desks_api.py` |
 | Agent create path used per desk | `agent_profiles.create_agent_governed` (the body of `POST /api/v1/agents`) |
-| Migration | `0108_staff_desks` (table `office_desk_staffing`; numbers are renumbered at merge) |
+| Migration | `0109_staff_desks` (table `office_desk_staffing`; numbers are renumbered at merge) |
 | Contract | `packages/contracts/src/officeStaffDesks.ts` |
 | Web | `apps/web/src/hq-staff-desks/` (`StaffDesksDialog`, `TurnOnPanel`, client, css), messages `hqStaffDesks.en.ts` / `.ar.ts` |
 | Entries | HQ **Office tools**, **Staff my campus**; the **Organisation gaps** panel |
@@ -32,7 +32,7 @@ Names are matched in English as the builder stores them. A room the owner rename
 
 ## Roles
 
-The seven governed templates are reused unchanged. Eight roles are new (`EXTRA_TEMPLATES`). They are kept out of `office_provisioning.TEMPLATES` on purpose, because that list drives Organisation gaps coverage and a role with no work signal there would only add noise.
+The seven governed templates are reused unchanged. Seven roles are new (Research Analyst now comes from the governed list) (`EXTRA_TEMPLATES`). They are kept out of `office_provisioning.TEMPLATES` on purpose, because that list drives Organisation gaps coverage and a role with no work signal there would only add noise.
 
 | Role | Tools that exist | Skills that exist | Missing today (marks the agent Limited) |
 |---|---|---|---|
@@ -40,7 +40,6 @@ The seven governed templates are reused unchanged. Eight roles are new (`EXTRA_T
 | Procurement Assistant (`procurement`) | `commerce.low_stock`, `commerce.sales_summary`, `finance.bills.upcoming`, `search_email`, `read_email`, `draft_reply`, `team.assign_task` | `anum.commerce`, `anum.email`, `anum.team-assign`, `anum.document-drafting` | supplier and purchase order records |
 | Marketing Content Assistant (`marketing_content`) | `marketing.draft_social_post`, `marketing.summary`, `brevo.list_lists`, `brevo.list_campaigns`, `brevo.campaign_report`, `brevo.draft_campaign` | `anum.brevo`, `anum.document-drafting` | website and advertising analytics |
 | Engineering and DevOps Assistant (`engineering_devops`) | `web.fetch_page`, `search_email`, `read_email`, `summarize_mail`, `team.assign_task` | `anum.email`, `anum.team-assign`, `anum.document-drafting` | code repositories and pull requests; deployments, logs and incident feeds |
-| Research Analyst (`research_analyst`) | `web.fetch_page`, `search_email`, `read_email`, `summarize_mail` | `anum.email`, `anum.document-drafting` | market, company and research data sources |
 | Security Reviewer (`security_reviewer`) | `finance.guardian.rules`, `finance.guardian.check`, `classify_mail`, `search_email`, `read_email` | `anum.email`, `anum.document-drafting` | audit log reader; access and sign-in review feed |
 | Executive Assistant (`executive_assistant`) | `search_email`, `read_email`, `summarize_mail`, `draft_reply`, WhatsApp read and draft tools, `team.assign_task` | `anum.email`, `anum.whatsapp-inbox`, `anum.team-assign`, `anum.document-drafting` | calendar read and booking |
 | Receptionist (`receptionist`) | `call.search_log`, `call.search_contacts`, `call.get`, WhatsApp read and draft tools, `team.assign_task` | `anum.whatsapp-inbox`, `anum.team-assign` | visitor log and appointments |

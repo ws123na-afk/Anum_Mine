@@ -93,22 +93,6 @@ EXTRA_TEMPLATES: tuple[Template, ...] = (
         ),
     ),
     Template(
-        id="research_analyst", department="research", room_department=None,
-        name_en="Research Analyst", name_ar="محلل أبحاث",
-        description_en="Reads pages and email you point it at, summarises them with sources and drafts briefing notes.",
-        description_ar="يقرأ الصفحات والبريد التي تحددها ويلخصها مع المصادر ويكتب مذكرات إحاطة.",
-        instructions=("You are a research analyst. Read the pages and email you are given, summarise them, name the source of every "
-                      "claim and say what is not known. You never state a figure that is not in a source you read." + SAFETY),
-        icon="search", color="#6d28d9", model_route="capable",
-        tools=("web.fetch_page", "search_email", "read_email", "summarize_mail"),
-        skills=("anum.email", "anum.document-drafting"),
-        missing=(
-            Need("data_sources", "Market, company or research data sources",
-                 "مصادر بيانات السوق أو الشركات أو الأبحاث", ("research.*", "market.*", "company.*", "news.*")),
-        ),
-        knowledge_mode="workspace",
-    ),
-    Template(
         id="security_reviewer", department="security", room_department=None,
         name_en="Security Reviewer", name_ar="مراجع الأمن",
         description_en="Prepares review notes on rules and suspicious mail for a person to act on. It never changes access.",

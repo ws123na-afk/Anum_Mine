@@ -96,7 +96,7 @@ Counts per status are in the last section ("Totals"), computed from the tables i
 | 4.2 | Personal office building | Partial | Read | Building kind `personal` draws a villa (`lib/campusBuildings.ts`) | Exists only when the owner has a workspace and sets its kind; nothing creates it by default. Starter campus (in flight) may add it |
 | 4.3 | Career building | Missing | Read | Building kinds are only `executive`, `business`, `department`, `personal` (`office_campus_api.py`) | Owner decision O2: is career a personal workspace, or its own kind? |
 | 4.4 | ANUM OS HQ, Tyre Pulse, ANUM360 Commerce buildings | Partial | Read, CI | Buildings come from workspaces; building view shows Tyre and Commerce panels (`lib/hqModules.ts`, `e2e/hq-campus.spec.ts` "module panels") | A workspace must exist for each. The starter campus (in flight) is the missing default |
-| 4.5 | Departments: Finance, Sales and Marketing, Operations, Customer Experience, Technology, Research, Legal, Security and Governance, Executive Office | Partial | Read | Team departments `sales, support, operations, finance, tyre_engineering, custom` (`OFFICE_TEAM_DEPARTMENTS`, migration 0105); governed provisioning templates (PR 246: orders desk and six more roles) | No Marketing, Technology, Research, Legal or Security and Governance department or template. Owner decision O3: which of these need rooms, and which real module each opens. Do not add rooms with nothing behind them |
+| 4.5 | Departments: Finance, Sales and Marketing, Operations, Customer Experience, Technology, Research, Legal, Security and Governance, Executive Office | Complete | Read, Ran | Storable departments now include marketing, technology, research, legal, compliance, security, hr, procurement (enum, `office_layout`, contract, migration 0108 check constraint, builder and team pickers in English and Arabic); each opens a real module or says none is connected (`docs/ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md`); starter campus rooms carry them and a re-run fills an empty or custom department only; provisioning roles `marketing_specialist`, `technology_coordinator`, `research_analyst`, `legal_reviewer` and `compliance_reviewer` linked to their rooms; `tests/test_office_provisioning.py`, `tests/test_office_starter_campus.py`, `tests/test_postgres_departments_meeting_rooms.py`, `e2e/hq-departments-meeting-rooms.spec.ts` | Security has a room and a module (Audit log) but no agent role, because no security tool exists to back one. HR opens Members and roles, which is access management, not a recruiting or payroll module; Procurement has no module. Roles are Limited where tools are missing (listed in the review dialog) |
 | 4.6 | Configurable buildings, floors, rooms, desks | Complete | Read, CI | `office_space_api.py` create, patch, delete for all four kinds, `PUT /floors/{id}/layout`; builder `hqBuilder/*` | none |
 | 4.7 | Tenant and workspace isolation | Complete | CI | Forced RLS on all office tables (`docs/ANUM_MINE_HQ_SECURITY_REVIEW.md` S-01, S-08); `tests/test_postgres_hq_rls.py` | PostgreSQL tests not run here: Not verified locally (no test database credentials). `H-10` notes this test was first run by CI |
 | 4.8 | Cross-workspace executive view only by explicit grant | Complete | Ran, CI | `executive_api.py` grants (owner approves with payload hash, narrow only, revocable); `executive_pa.py`; `ExecutiveCommandCenter.tsx`; `test_executive_pa.py` pass | Postgres side of grants is CI only |
@@ -115,7 +115,7 @@ Current characters are stylised, generic and static. They appear only at desks t
 | 5.6 | Agent card: name, role, status, last verified | Complete | Read, CI | `AgentPanel` and `StatusPill` in `HqPanels.tsx` (stale flag shown) | none |
 | 5.7 | Private agents stay private | Complete | Read, CI | `agent_not_visible`, `desk:<id>` keys; `e2e/hq-campus.spec.ts` "a private agent shows no name and no work" | none |
 | 5.8 | Characters only for real assignments, never invented people | Complete | Read | `occupantSeed` only where a desk has an agent (`buildingScene.ts`, `BuildingView.tsx`) | The concept preview (`OfficeTourView.tsx`) still draws illustrative staff; it is labelled and separate (13.7) |
-| 5.9 | Meeting participants appear in the meeting room | Missing | Read | No room link exists on meeting sessions (docs: "No persisted room to meeting link exists yet") | See 7.4 |
+| 5.9 | Meeting participants appear in the meeting room | Complete | Read, Ran | `agent_meeting_sessions.room_id` (migration 0108); the room inspector lists the agents stored as participants of the room's active meeting (names only from presence the viewer may see, otherwise "Private agent", people as a count); those agents already show the meeting status at their desks; `test/hqLabelsPresence.test.ts`, `e2e/hq-departments-meeting-rooms.spec.ts` | Participants are shown in the room panel, not as figures placed inside the room; a paused or scheduled meeting does not mark the room |
 
 ## Section 6. Personal Assistant (PA)
 
@@ -139,10 +139,10 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 
 | ID | Requirement | Status | How checked | Evidence | Gap and recommended small PR |
 |---|---|---|---|---|---|
-| 7.1 | Each room kind opens a module | Complete | Read | `lib/hqRoomModule.ts` (department to module table), `HqRoomModule.tsx` in the inspector and the room list; `test/hqRoomModule.test.ts`, `e2e/hq-room-modules.spec.ts` | Compliance and Executive are not storable departments yet (contract has six); they resolve through the executive building kind and a forward-compatible table entry. Owner decision O3 |
+| 7.1 | Each room kind opens a module | Complete | Read | `lib/hqRoomModule.ts` (department to module table, now covering every storable department), `HqRoomModule.tsx` in the inspector and the room list; `test/hqRoomModule.test.ts`, `e2e/hq-room-modules.spec.ts`, `e2e/hq-departments-meeting-rooms.spec.ts` | Executive stays resolved through the executive building kind (not a storable department). Procurement and custom say no module is connected |
 | 7.2 | Operations command centre | Partial | Read | Operations department opens the live flow dock (`HqFlowDock`) from the room inspector and list; `e2e/hq-room-modules.spec.ts | The dock is not yet filtered to the room that opened it |
 | 7.3 | Finance room opens Finance | Complete | Read | `lib/hqRoomModule.ts` (department to module table), `HqRoomModule.tsx` in the inspector and the room list; `test/hqRoomModule.test.ts`, `e2e/hq-room-modules.spec.ts` | none |
-| 7.4 | Meeting room opens the live meeting | Partial | Read, CI | Meeting kind opens `#meetings`, which lists live meetings with "Open room" (`MeetingRoomLauncher.tsx`); full room `MeetingRoomPanel` | No stored link between an office room and a meeting. `liveMeetingRoomIds` is never passed from `main.tsx`, so no room lights up. PR (expand-only migration): nullable `office_room_id` on meeting sessions, pass `liveMeetingRoomIds`, open `MeetingRoomPanel` from the room through `renderRoomPanel` |
+| 7.4 | Meeting room opens the live meeting | Complete | Read, Ran | A meeting stores its room (`room_id`, migration 0108, composite foreign key, validated kind and workspace); a room with an active meeting opens `#office/meeting/<id>` from its module link (and from a room of another department); "Start a meeting here" and a room list in the meeting create form set the link; `test_postgres_departments_meeting_rooms.py`, `e2e/hq-departments-meeting-rooms.spec.ts` | The live room opens as the full page, not inline in the side panel; only active meetings mark a room; one meeting is shown per room |
 | 7.5 | Tyre engineering opens Tyre | Complete | Read, CI | Workshop kind to `#tyre`; Tyre panel in the building (`hqModules.ts`, `e2e/hq-campus.spec.ts`) | none |
 | 7.6 | Sales room opens Sales | Complete | Read | Sales department opens the Sales and CRM view (`#whatsapp`); `lib/hqRoomModule.ts` (department to module table), `HqRoomModule.tsx` in the inspector and the room list; `test/hqRoomModule.test.ts`, `e2e/hq-room-modules.spec.ts` | none |
 | 7.7 | Executive office opens the executive desk | Partial | Read | Rooms of an executive-kind building, or a stored `executive` department, open `#executive`; `lib/hqRoomModule.ts` (department to module table), `HqRoomModule.tsx` in the inspector and the room list; `test/hqRoomModule.test.ts`, `e2e/hq-room-modules.spec.ts` | There is no stored `executive` department or room kind in the contract; relies on the building kind |
@@ -179,7 +179,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 9.11 | Delete and retention | Partial | Read | Owner can delete an ended meeting's transcript (`DELETE /transcript`); counts, confirmed outputs and tasks remain | No automatic retention window. Owner decision O5 |
 | 9.12 | Turn execution audited | Complete | Read, CI | S-04 closed: `agent_meeting.turn` per turn (success, failure, blocked, denied) with ids, usage, cost, correlation id and no text; `docs/ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md` | None |
 | 9.13 | Transcript visibility | Complete | Read, CI | S-03 closed: turns, events, stream, export are workspace owner only (403 otherwise, audited); room bundle carries no text for others; `docs/ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md` | Owner decision O7 settled: owner only |
-| 9.14 | Meetings visible in the office scene | Missing | Read | See 7.4 | See 7.4 |
+| 9.14 | Meetings visible in the office scene | Complete | Read, Ran | Rooms with an active meeting show "In a meeting" on the 3D label card, the scene mark, the list and the inspector, from the stored `room_id`; it disappears when the meeting ends (`HeadquartersLive` derives `liveMeetingRoomIds` from the meeting evidence); `e2e/hq-departments-meeting-rooms.spec.ts` | The 3D look of the mark on a real GPU is not verified |
 | 9.15 | Stored meeting replay | Complete | Read, CI | Finished meeting opens as a stored replay with playback (`e2e/meeting-room.spec.ts` "finished meeting opens as a stored replay") | Replays stored events only |
 
 ## Section 10. Work history and replay
@@ -263,7 +263,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 
 1. **Done in PR claude/hq-room-modules: removed the invented Reception panel from the live office (7.9, 13.4).** It shows made-up host and room names with no saved data. Smallest honest fix: hide it in the live view. Then decide O4.
 2. **Done in PR claude/hq-room-modules: rooms open the right module (7.1 to 7.3, 7.6, 7.7).** Use the room's stored department so Finance opens Finance, Sales opens Sales, Executive opens the executive desk, Operations opens the flow dock.
-3. **Link meetings to rooms (7.4, 5.9, 9.14).** One nullable room id on meeting sessions, then the room lights up "In meeting" and opens the live meeting room.
+3. **Done in PR claude/hq-departments-meeting-rooms: link meetings to rooms (7.4, 5.9, 9.14) and departments with real modules (4.5).** One nullable room id on meeting sessions; the room lights up "In meeting" and opens that live meeting. Marketing, Technology, Research, Legal, Compliance, Security, HR and Procurement are storable departments with a module or an honest "none", and four new governed agent roles.
 4. **Build the History panel (10.2, 10.4, 14.9).** The API is done and tested; no one can use it yet. Add filters, paging and correlation view.
 5. **PA daily briefing (6.6).** A read-only tool that composes blocked work, approvals, meetings and workspace summary, naming each source.
 6. **Fix the second guided tour (6.5, 6.11).** Drive it from the real tour endpoint, translate the narration, remove the "illustrative" wording once it is real.
@@ -280,7 +280,7 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 |---|---|---|
 | O1 | May characters move (walk to a meeting) as a labelled decoration between recorded states, or must every pixel of movement be backed by a record? | "Walking to meeting" has no stored fact (5.4) |
 | O2 | Is "career" a personal workspace, or its own building kind? | 4.3 |
-| O3 | Which departments get rooms and templates: Marketing, Technology, Research, Legal, Security and Governance, and what real module does each open? | 4.5. A room with no module would be a dead button |
+| O3 | Resolved by the owner (25 October 2026): Marketing, Technology, Research and Legal rooms must be complete and their agents must get the right skills. Built: see `docs/ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md`. Still open inside it: whether HR and Procurement need real modules | 4.5 |
 | O4 | Reception: remove from the live office, or build a real visitor registry (who, host, badge, time)? | 7.9 |
 | O5 | Retention windows for meeting transcripts and for history snapshots | 9.11, 10.5 |
 | O6 | Workspace-wide monthly cost cap for agent meetings: decided, USD 50 per workspace per month, owner configurable | 9.3 (S-02), closed |
@@ -299,12 +299,12 @@ Rows counted: 139 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
-| Complete | 72 |
-| Partial | 44 |
-| Missing | 22 |
+| Complete | 82 |
+| Partial | 42 |
+| Missing | 14 |
 | Not applicable | 1 |
 | Total | 139 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 67, Partial 36, Missing 21, Not applicable 1 (total 125).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 77, Partial 34, Missing 13, Not applicable 1 (total 125).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.

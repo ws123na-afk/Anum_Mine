@@ -28,7 +28,7 @@ import { hqCommands, resolveNavTarget, type HqAgentRef, type HqCallbacks, type H
 import { loadCommerceState, loadTyreState } from './lib/hqModulesApi.ts';
 import { loadPresence, saveCampusProfile, type LoadedPresence } from './lib/hqPresenceApi.ts';
 import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
-import { agentPresence, indexPresence, loadMeetingEvidence, presenceFromItems, totalsOf, unreportedStatuses, type HqAgentPresence, type MeetingEvidence } from './lib/hqPresence.ts';
+import { agentPresence, indexPresence, loadMeetingEvidence, presenceFromItems, totalsOf, unreportedStatuses, type HqAgentPresence, type MeetingEvidence, type RoomMeeting } from './lib/hqPresence.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import { createOfficeSpaceClient } from './lib/officeSpaceClient.ts';
 import { loadWorkspaceWorkstations, type WorkstationSnapshot } from './lib/officeWorkstations.ts';
@@ -36,6 +36,7 @@ import { HqFlowDock } from './HqFlowDock';
 import { HqTeamPanel } from './HqTeamPanel';
 import { useOfficeFlow } from './useOfficeFlow';
 import { OrgGapsPanel } from './hq-provisioning/OrgGapsPanel';
+import { AssignHost } from './hq-assign/AssignHost';
 // Loaded only when the owner opens it, so its code and styles stay out of the headquarters chunk (e2e/hq-performance.spec.ts budget).
 const StarterCampusDialog = lazy(() => import('./hq-starter-campus/StarterCampusDialog').then((m) => ({ default: m.StarterCampusDialog })));
 import { useProvisioningGaps } from './hq-provisioning/useProvisioning';
@@ -64,7 +65,7 @@ export type HeadquartersProps = HqCallbacks & HqSlots & Readonly<{
 }>;
 
 type Overlay = 'none' | 'spaces' | 'workstations' | 'tour' | 'agentMeetings' | 'teams' | 'gaps';
-const NO_ROOMS: ReadonlySet<string> = new Set();
+const NO_MEETINGS: ReadonlyMap<string, RoomMeeting> = new Map();
 
 function readLight(): boolean {
   try {
@@ -200,6 +201,16 @@ export function HeadquartersLive(props: HeadquartersProps) {
     }
     return snapshot ? agentPresence(snapshot.records, meetings) : null;
   }, [presenceApi, snapshot, meetings]);
+  // Rooms with a live meeting come from the stored `room_id` of active meetings; a room appears while its meeting is active and
+  // disappears when it finishes. The prop (if a host passes one) is added to what is read, never replaces it.
+  const liveMeetingByRoom = meetings ? meetings.rooms : NO_MEETINGS;
+  const liveMeetingRoomIds = useMemo<ReadonlySet<string>>(
+    () => (props.liveMeetingRoomIds && props.liveMeetingRoomIds.size > 0 ? new Set([...props.liveMeetingRoomIds, ...liveMeetingByRoom.keys()]) : new Set(liveMeetingByRoom.keys())),
+    [props.liveMeetingRoomIds, liveMeetingByRoom]);
+  const [meetingRoomId, setMeetingRoomId] = useState<string | null>(null);
+  const meetingRooms = useMemo(
+    () => (projection?.buildings ?? []).flatMap((b) => b.floors.flatMap((f) => f.rooms.filter((r) => r.kind === 'meeting').map((r) => ({ id: r.id, label: r.label })))),
+    [projection]);
   const presenceIndex = useMemo(() => (presenceList ? indexPresence(presenceList) : null), [presenceList]);
   const presenceOf = useCallback((id: string, desk: SceneDesk | null) => presenceIndex?.byAgent.get(id) ?? (desk ? presenceIndex?.byDesk.get(desk.id) : undefined), [presenceIndex]);
   const localTotals = useMemo(() => (presenceList ? totalsOf(presenceList.filter((p) => !p.agentId.startsWith('desk:'))) : null), [presenceList]);
@@ -405,7 +416,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
     : roomPanelRoom
       ? (props.renderRoomPanel
         ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
-        : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} buildingKind={currentBuilding?.kind ?? null} canManage={canManage} onOpenFlow={() => setFlowOpen(true)} onOpenGaps={() => setOverlay('gaps')} /><HqTeamPanel roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)
+        : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} buildingKind={currentBuilding?.kind ?? null} canManage={canManage} onOpenFlow={() => setFlowOpen(true)} onOpenGaps={() => setOverlay('gaps')}
+          meeting={liveMeetingByRoom.get(roomPanelRoom.id) ?? null} meetingsKnown={meetings !== null} onStartMeeting={() => { setMeetingRoomId(roomPanelRoom.id); setOverlay('agentMeetings'); }} /><HqTeamPanel roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)
       : null;
 
   const status = state?.status;
@@ -471,7 +483,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           {campus && effectiveView === 'list' && (
             <CampusListView
               campus={campus} currentWorkspaceId={scope.workspaceId} detail={projection?.buildings ?? []}
-              onEnter={enterBuilding} canManage={canManage} onOpenFlow={() => setFlowOpen(true)} onOpenGaps={() => setOverlay('gaps')} onOpenRoom={(ws, fid, rid) => { if (ws === scope.workspaceId) openRoomById(fid, rid); }}
+              onEnter={enterBuilding} canManage={canManage} liveMeetings={liveMeetingByRoom} onOpenFlow={() => setFlowOpen(true)} onOpenGaps={() => setOverlay('gaps')} onOpenRoom={(ws, fid, rid) => { if (ws === scope.workspaceId) openRoomById(fid, rid); }}
             />
           )}
           {campus && webglOk && effectiveView !== 'list' && level === 'campus' && (
@@ -493,7 +505,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
               workspaceName={currentBuilding?.name ?? scope.workspaceId} kindLabel={t(`hq.kind.${buildingKind}` as MessageKey)}
               buildings={projection?.buildings ?? []} building={registryBuilding} floor={floor}
               presence={presenceIndex} unreported={unreported} verifiedAt={verifiedAt}
-              liveMeetings={meetings ? meetings.liveMeetings : null} liveMeetingRoomIds={props.liveMeetingRoomIds ?? NO_ROOMS}
+              liveMeetings={meetings ? meetings.liveMeetings : null} liveMeetingRoomIds={liveMeetingRoomIds}
               commerce={commerce} tyre={tyre} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
               selectedRoomId={roomId} selectedAgentId={agentId}
               onBack={() => setLevel('campus')} onSelectBuilding={(id) => controller.selectBuilding(id)} onSelectFloor={goFloor}
@@ -521,6 +533,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
         )}
       </div>
 
+      <AssignHost onAssigned={() => void flow.reload()} onNavigate={goTo}
+        seatedAgentIds={(rid) => new Set((registryBuilding?.floors ?? []).flatMap((f) => f.desks).filter((d) => d.roomId === rid && d.agentId).map((d) => d.agentId as string))} />
       {starterOpen && <Suspense fallback={null}><StarterCampusDialog onClose={() => setStarterOpen(false)}
         onCreated={() => { void controller.refresh(); void flow.reload(); void gaps.reload(); }} onOpenGaps={() => setOverlay('gaps')} /></Suspense>}
 
@@ -538,7 +552,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           </div>
           : overlay === 'spaces' ? <OfficeSpaceLiveManager onClose={() => { setOverlay('none'); void controller.refresh(); }} />
             : overlay === 'workstations' ? <OfficeWorkstations onClose={() => setOverlay('none')} />
-              : overlay === 'agentMeetings' ? <AgentMeetingSessions onClose={() => setOverlay('none')} />
+              : overlay === 'agentMeetings' ? <AgentMeetingSessions rooms={meetingRooms} initialRoomId={meetingRoomId} onClose={() => { setOverlay('none'); setMeetingRoomId(null); void controller.refresh(); }} />
                   : <GuidedExecutiveTour site={currentBuilding?.name ?? 'ANUM MINE'} stops={tourStops} onClose={() => setOverlay('none')} onArrive={(id) => { const dest = floor?.rooms.find((r) => r.id === id); if (dest) openRoomById(dest.floorId, dest.id); }} />}
         </div>
       )}

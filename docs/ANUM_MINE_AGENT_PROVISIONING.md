@@ -27,7 +27,7 @@ A gap exists only because a stored record backs it. A source that is not connect
 | Open leads with no owner | Sales Follow-up | `whatsapp:read` |
 | Stuck tasks that sit in no office | Operations Dispatcher | (none) |
 | Stuck approvals (waiting, expired or missing) | Compliance Reviewer | `approval:read` for the text |
-| A room linked to a department (`team_department`) with no active agent in that department | the role of that department | (none) |
+| A room linked to a department (`team_department`) with no active agent in that department | the role of that department (sales, support, operations, finance, tyre engineering, marketing, technology, research, legal, compliance) | (none) |
 
 A confirmed handler clears the work gaps of its role. A department gap clears when any active agent has that department (matched without case). A handler whose agent was deleted is a gap again.
 
@@ -44,6 +44,12 @@ All data in `office_provisioning.TEMPLATES`, English and Arabic names and descri
 | Fleet Maintenance Coordinator (`fleet_maintenance`) | tyre_engineering | the ten read only `tyre_*` tools and `purchase_plan` | `anum.tyre-planning`, `anum.document-drafting` | nothing |
 | Operations Dispatcher (`operations_dispatcher`) | operations | `team.assign_task`, `call.search_log`, `search_email` | `anum.team-assign`, `anum.document-drafting` | reassign an existing task, route planning |
 | Compliance Reviewer (`compliance_reviewer`) | compliance | `finance.guardian.rules`, `finance.guardian.check`, `classify_mail` | `anum.document-drafting` | audit log reader, policy register |
+| Marketing Specialist (`marketing_specialist`) | marketing | `marketing.summary`, `marketing.draft_social_post`, the four read and draft `brevo.*` tools, `web.fetch_page` | `anum.brevo`, `anum.document-drafting` | advertising reports, website analytics |
+| Technology Coordinator (`technology_coordinator`) | technology | `web.fetch_page`, `search_email`, `read_email`, `classify_mail`, `summarize_mail`, `team.assign_task` | `anum.email`, `anum.team-assign`, `anum.document-drafting` | repository and pull request reading, build and deployment status, monitoring feed |
+| Research Analyst (`research_analyst`) | research | `web.fetch_page`, `search_email`, `read_email`, `summarize_mail` (and the workspace knowledge base) | `anum.email`, `anum.document-drafting` | web search, reading files from Documents |
+| Legal Reviewer (`legal_reviewer`) | legal | `search_email`, `read_email`, `summarize_mail`, `classify_mail`, `draft_reply`, `team.assign_task` (and the workspace knowledge base) | `anum.email`, `anum.document-drafting`, `anum.team-assign` | reading contracts from Documents, contract register, sending for signature |
+
+The four newest roles, their cost caps and why some skills are not attached are explained in [departments, modules and meeting rooms](ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md). Every template's instructions now state who the role is, what it does, what it hands back and what it never does; the review dialog shows them, the knowledge access, the cost cap and the Limited list.
 
 Whether a tool "exists" is decided at request time against the live tool registry and the confirming person's roles. A tool the registry lacks, or that the person's role may not hand out, is listed as missing and not attached. A skill is attached only when it exists and every tool it needs is attached.
 
@@ -52,7 +58,7 @@ Whether a tool "exists" is decided at request time against the live tool registr
 - No high risk tool is ever in a template (no sending email, WhatsApp, money or price changes).
 - Autonomy is `read: auto`, `write: ask` (or `off` for finance and compliance), `external: off`.
 - Sharing is `workspace` so the agent is visible to the people who see the office, and the office desk assignment can name it.
-- A monthly cost limit (USD 5 by default per template) is set through the agent controls store and audited. It only tightens; an owner can raise it under Agent controls.
+- A monthly cost limit (USD 3 to 8 depending on the template, 5 by default) is set through the agent controls store and audited. It only tightens; an owner can raise it under Agent controls.
 
 ## The flow and the API
 

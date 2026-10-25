@@ -8,7 +8,11 @@ export const ROOM_KINDS: readonly OfficeRoomKind[] = ['office', 'meeting', 'rece
 export const DESK_KINDS: readonly OfficeRoomKind[] = ['office', 'workshop', 'warehouse'];
 export const ROOM_COLORS: readonly OfficeRoomColor[] = ['slate', 'forest', 'brass', 'sapphire', 'amethyst', 'crimson', 'teal', 'sand'];
 export const DOOR_SIDES: readonly OfficeDoorSide[] = ['north', 'south', 'east', 'west'];
-export const DEPARTMENTS: readonly OfficeTeamDepartment[] = ['sales', 'support', 'operations', 'finance', 'tyre_engineering', 'custom'];
+export const DEPARTMENTS: readonly OfficeTeamDepartment[] = [
+  'sales', 'support', 'operations', 'finance', 'tyre_engineering',
+  'marketing', 'technology', 'research', 'legal', 'compliance', 'security', 'hr', 'procurement',
+  'custom',
+];
 export const EQUIPMENT_KINDS: readonly OfficeEquipmentKind[] = [
   'monitor', 'display', 'whiteboard', 'projector', 'conference_phone', 'video_conference_kit',
   'printer', 'server_rack', 'network_switch', 'workbench', 'shelving', 'locker', 'charging_station', 'first_aid_kit',

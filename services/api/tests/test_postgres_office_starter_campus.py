@@ -58,7 +58,8 @@ def test_preview_lists_everything_and_stores_nothing(hq: TestClient, database_en
     view = preview(hq)
     assert view["totals"]["create"] == FULL and view["totals"]["skip"] == {"buildings": 0, "floors": 0, "rooms": 0, "desks": 0}
     assert len(view["buildings"]) == 8 and view["selected"] == list(sc.BUILDING_KEYS)
-    assert view["rules"] == {"creates_agents": False, "seats_agents": False, "changes_existing": False}
+    assert view["rules"] == {"creates_agents": False, "seats_agents": False, "changes_existing": False,
+                             "fills_empty_departments": True}
     assert view["timezone"] == "Asia/Dubai" and view["can_confirm"] is True
     room = view["buildings"][0]["floors"][0]["rooms"][0]
     assert room["name"]["ar"] and room["action"] == "create" and room["id"] == "campus-01-hq-facilities"
@@ -99,7 +100,8 @@ def test_confirm_builds_the_campus_empty_audited_and_idempotent(hq: TestClient, 
     assert rows(database_engine, "select count(*) from office_desks where agent_id is not null") == [(0,)]
     assert rows(database_engine, "select count(*) from office_rooms where scene_x is null or name_ar is null") == [(0,)]
     linked = dict(rows(database_engine, "select team_department, count(*) from office_rooms where team_department is not null group by 1"))
-    assert set(linked) == {"sales", "support", "operations", "finance", "tyre_engineering"}
+    assert set(linked) == {"sales", "support", "operations", "finance", "tyre_engineering", "marketing", "technology", "research",
+                           "legal", "compliance", "security", "hr", "procurement"}
     assert rows(database_engine, "select count(*) from office_floors where width_m is null or depth_m is null") == [(0,)]
     audit = rows(database_engine, "select metadata from audit_records where action = 'office.starter_campus.building' and tenant_id = :t", t=TENANT_A)
     assert len(audit) == 8
@@ -206,5 +208,6 @@ def test_each_workspace_gets_its_own_campus_and_never_reads_another(hq: TestClie
 def test_the_new_rooms_make_the_organisation_gaps_panel_propose_agents(hq: TestClient, database_engine: Engine) -> None:
     confirm(hq, preview(hq))
     gaps = hq.get("/api/v1/office/provisioning/gaps", headers=OWNER()).json()["gaps"]
-    assert {g["template_id"] for g in gaps} >= {"finance_reconciliation", "sales_followup", "support_triage", "fleet_maintenance", "operations_dispatcher"}
+    assert {g["template_id"] for g in gaps} >= {"finance_reconciliation", "sales_followup", "support_triage", "fleet_maintenance", "operations_dispatcher",
+                                                   "marketing_specialist", "technology_coordinator", "research_analyst", "legal_reviewer", "compliance_reviewer"}
     assert rows(database_engine, "select count(*) from agent_profiles where tenant_id = :t", t=TENANT_A) == [(0,)]

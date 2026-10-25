@@ -9,8 +9,8 @@ it, so a rollback is safe.
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0108_staff_desks"
-down_revision = "0107_agent_meeting_budget"
+revision = "0109_staff_desks"
+down_revision = "0108_departments_meeting_room"
 branch_labels = None
 depends_on = None
 

@@ -141,3 +141,38 @@ def test_flow_seats_orders_in_the_handlers_office_only_when_a_handler_exists() -
     assert nodesk["location"] is None and nodesk["location_reason"] == "agent_has_no_desk"
     paused = derive_flow(FlowEvidence(agents=[FlowAgent("ag", "Orders", "paused")], desks=[d], handlers={"orders": "ag"}, **base))["items"][0]
     assert paused["stuck"]["code"] == "agent_paused"
+
+
+def test_every_new_department_has_a_least_privilege_template_with_a_cost_cap() -> None:
+    from anum_api import office_layout as layout
+    wanted = {"marketing": "marketing_specialist", "technology": "technology_coordinator", "research": "research_analyst",
+              "legal": "legal_reviewer", "compliance": "compliance_reviewer"}
+    for department, template_id in wanted.items():
+        t = op.TEMPLATE_BY_ID[template_id]
+        assert t.department == department and t.room_department == department
+        assert department in layout.TEAM_DEPARTMENTS, "a room can be linked to this department"
+        assert 0 < t.monthly_cost_limit_usd <= 10
+        assert t.write_autonomy in ("ask", "off") and t.tools and t.skills
+        assert "You never:" in t.instructions and "What you hand back:" in t.instructions
+    for t in op.TEMPLATES:
+        assert t.room_department is None or t.room_department in layout.TEAM_DEPARTMENTS
+        assert t.description_en.endswith(".") and t.description_ar
+
+
+def test_roles_state_what_they_cannot_do_and_hold_no_outward_tool() -> None:
+    registry = ap.runtime_tools()
+    for t in op.TEMPLATES:
+        for tool in t.tools:
+            assert registry.definition(tool).risk_level.value in ("low", "medium"), f"{t.id}: {tool}"
+            assert not tool.startswith(("send", "brevo.send", "marketing.schedule", "marketing.enable", "developer.merge"))
+    # Capabilities the platform really lacks are listed (so the role shows as Limited), never faked with a tool.
+    for template_id in ("technology_coordinator", "research_analyst", "legal_reviewer", "marketing_specialist"):
+        assert op.resolve_capabilities(op.TEMPLATE_BY_ID[template_id], tool_info={}, skill_info={}).limited
+    skills = {m.id for m in ap.runtime_skills().manifests()}
+    live = {n: {"risk": "low", "category": "x", "refusal": None} for n in ap.runtime_tools().names}
+    info = {m.id: {"name": m.name, "source": "builtin", "required_tools": list(m.required_tools)} for m in ap.runtime_skills().manifests()}
+    assert skills
+    for template_id in ("marketing_specialist", "technology_coordinator", "research_analyst", "legal_reviewer"):
+        r = op.resolve_capabilities(op.TEMPLATE_BY_ID[template_id], tool_info=live, skill_info=info)
+        assert r.attach_tools and r.attach_skills, template_id
+        assert not [m for m in r.missing if m["kind"] in ("tool", "skill")], f"{template_id}: {r.missing}"

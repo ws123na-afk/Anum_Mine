@@ -42,7 +42,7 @@ Creating, copying and deleting happen on the server at once. Moves and resizes w
 
 In the **Room** tab, under **Details**, set the **Name**, the **Arabic name**, the **Type**, the **Capacity (people)**, the **Colour**, a **Description**, **Notes** and the **Equipment** from the fixed list, each with a quantity and a note. Click **Save details**.
 
-**Linked team** connects the room to a department. The page then shows the real number of people and assistants in that department. With no team linked, or when the numbers cannot be read, it says **Not connected**. Nothing is invented.
+**Linked team** connects the room to a department (Sales, Support, Operations, Finance, Tyre engineering, Marketing, Technology, Research, Legal, Compliance and governance, Security, People (HR), Procurement or Custom). The department decides which module the room opens, and **Organisation gaps** can propose an agent for it. The page then shows the real number of people and assistants in that department. With no team linked, or when the numbers cannot be read, it says **Not connected**. Nothing is invented.
 
 ## Desks
 
