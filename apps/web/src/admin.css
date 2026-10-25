@@ -58,6 +58,11 @@
 .meterTrack.stop span { background: linear-gradient(90deg, #fb7185, var(--d-stop)); box-shadow: 0 0 14px rgb(var(--c-stop) / .55); }
 .meterTrack.none span { width: 0 !important; }
 .budgetStats { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; }
+.meetingBudgetCard { grid-column: 1 / -1; }
+.meetingBudgetBody { align-items: start; display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+.meetingBudgetInfo { display: grid; gap: 14px; min-width: 0; }
+.meetingBudgetInfo > p { margin: 0; }
+.meetingBudgetBody > .budgetForm { border-top: 0; padding-top: 0; }
 .budgetForm { border-top: 1px solid var(--d-line); display: grid; gap: 0 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); padding-top: 4px; }
 .budgetForm > .notice, .budgetForm > p, .budgetForm > .actions { grid-column: 1 / -1; }
 .budgetForm > p.muted { margin-top: 10px; }

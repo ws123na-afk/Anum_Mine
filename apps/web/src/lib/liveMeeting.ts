@@ -28,10 +28,19 @@ export interface RoomMessage {
   sequence: number; speaker_id: string; role: 'agent' | 'human' | 'system'; body: string; created_at: string;
   redacted?: boolean; provenance?: string | null; request_key?: string | null;
 }
+export interface RoomViewer { user_id: string; is_owner: boolean; can_read_transcript?: boolean }
 export interface RoomBundle {
   meeting: RoomMeeting; participants: RoomParticipant[]; attendance: RoomAttendance[]; agenda: AgendaItem[];
   outputs: RoomOutput[]; files: RoomFile[]; speaking: { agent_id: string | null; sequence: number | null; since: string }[];
-  last_event_seq: number; transcript_deleted: boolean; viewer: { user_id: string; is_owner: boolean };
+  last_event_seq: number; transcript_deleted: boolean; viewer: RoomViewer;
+  /** Set for everyone who is not a workspace owner: the API sends no text, only counts (S-03). */
+  transcript_hidden?: boolean; outputs_count?: number; files_count?: number;
+}
+/** The workspace's monthly agent meeting budget (S-02): `GET/PUT /api/v1/agent-meetings/budget`. */
+export interface MeetingBudget {
+  limit_usd: number; default_limit_usd: number; is_default: boolean; used_usd: number; remaining_usd: number; percent: number;
+  turns: number; exceeded: boolean; period_start: string; resets_on: string; updated_by: string | null; updated_at: string | null;
+  message: string | null; can_manage: boolean;
 }
 export interface RoomEvent { seq: number; kind: string; actor_id: string | null; payload: Record<string, unknown>; created_at: string }
 
@@ -41,6 +50,10 @@ export interface RoomState {
   meeting: RoomMeeting; participants: RoomParticipant[]; attendance: RoomAttendance[]; agenda: AgendaItem[];
   outputs: RoomOutput[]; files: RoomFile[]; messages: RoomMessage[]; speaking: Record<string, Speaking>;
   notices: Notice[]; lastSeq: number; transcriptDeleted: boolean; viewer: RoomBundle['viewer'];
+  /** True when the caller is not a workspace owner: no messages, decisions or files are loaded, only counts. */
+  transcriptHidden: boolean; outputsCount: number; filesCount: number;
+  /** Counts events that change this month's spend (a message, the budget being reached): the room refetches the budget when it moves. */
+  budgetTick: number;
 }
 
 export function initialState(bundle: RoomBundle, messages: RoomMessage[]): RoomState {
@@ -50,6 +63,8 @@ export function initialState(bundle: RoomBundle, messages: RoomMessage[]): RoomS
     meeting: bundle.meeting, participants: bundle.participants, attendance: bundle.attendance, agenda: bundle.agenda,
     outputs: bundle.outputs, files: bundle.files, messages: [...messages].sort((a, b) => a.sequence - b.sequence), speaking,
     notices: [], lastSeq: bundle.last_event_seq, transcriptDeleted: bundle.transcript_deleted, viewer: bundle.viewer,
+    transcriptHidden: bundle.transcript_hidden === true, outputsCount: bundle.outputs_count ?? bundle.outputs.length,
+    filesCount: bundle.files_count ?? bundle.files.length, budgetTick: 0,
   };
 }
 
@@ -73,6 +88,7 @@ export function applyEvent(state: RoomState, event: RoomEvent): RoomState {
         created_at: str(p.created_at) || event.created_at, redacted: Boolean(p.redacted), provenance: str(p.provenance) || null, request_key: str(p.request_key) || null,
       };
       if (!state.messages.some((m) => m.sequence === message.sequence)) next.messages = [...state.messages, message].sort((a, b) => a.sequence - b.sequence);
+      next.budgetTick = state.budgetTick + 1;
       const key = message.request_key;
       const rest: Record<string, Speaking> = {};
       for (const [k, v] of Object.entries(state.speaking)) {
@@ -89,6 +105,7 @@ export function applyEvent(state: RoomState, event: RoomEvent): RoomState {
       next.notices = [...state.notices, { seq: event.seq, kind: 'turn_failed' as const, reason: str(p.reason) }].slice(-5);
       break;
     }
+    case 'budget_reached': next.budgetTick = state.budgetTick + 1; break;
     case 'state': {
       const status = str(p.status) as MeetingStatus;
       next.meeting = { ...state.meeting, status, revision: typeof p.revision === 'number' ? p.revision : state.meeting.revision,
