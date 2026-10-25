@@ -62,6 +62,10 @@ are recorded in their own transaction so they survive the refusal. Metadata is a
 (`live_agent_meeting_audit.safe_metadata`); no message text, prompt or error string can enter it. A replayed request key is not
 audited twice.
 
+## Summaries count too
+
+The owner-triggered meeting summary is a model call and is metered like a turn: gated under the workspace lock, refused with 402 at the cap, its cost added to the monthly ledger, audited as `agent_meeting.summary`. Details: [summary and work links](ANUM_MINE_MEETING_SUMMARY_AND_WORK_LINKS.md).
+
 ## Not done, and owner decisions still open
 
 * O5, retention windows for meeting transcripts, is still open: only the manual `DELETE /transcript` exists.

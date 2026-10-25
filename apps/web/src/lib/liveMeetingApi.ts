@@ -1,7 +1,7 @@
 // Network side of the live meeting room: JSON calls and the replayable SSE follower.
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
-import { parseSse, type MeetingBudget, type RoomBundle, type RoomEvent, type RoomMessage, type RoomOutput, type AgendaItem, type OutputKind } from './liveMeeting';
+import { parseSse, type MeetingBudget, type RoomBundle, type RoomEvent, type RoomMessage, type RoomOutput, type AgendaItem, type OutputKind, type SummaryResult, type WorkKind, type WorkLink } from './liveMeeting';
 
 const root = '/api/v1/agent-meetings';
 const one = (id: string) => `${root}/${encodeURIComponent(id)}`;
@@ -45,15 +45,25 @@ export const meetingRoomApi = {
   patchAgenda: (id: string, item: string, body: { title?: string; state?: 'open' | 'current' | 'done' }) => apiRequest<AgendaItem>(`${one(id)}/agenda/${encodeURIComponent(item)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAgenda: (id: string, item: string) => apiRequestVoid(`${one(id)}/agenda/${encodeURIComponent(item)}`, { method: 'DELETE' }),
   draft: (id: string, body: { kind: OutputKind; body: string; owner_label?: string | null; source_sequences: number[] }) => post<RoomOutput>(`${one(id)}/outputs`, body),
-  decide: (id: string, output: string, body: { state?: 'confirmed' | 'dismissed'; body?: string }) => apiRequest<RoomOutput>(`${one(id)}/outputs/${encodeURIComponent(output)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  /** Owner only, ended meeting: one metered model call. Everything comes back as drafts; the monthly budget applies (402 at the cap). */
+  draftSummary: (id: string) => post<SummaryResult>(`${one(id)}/summary`),
+  /** Confirming a summary or a model draft is a click on screen and carries the hash of the text that was shown. */
+  confirmDraft: (id: string, output: RoomOutput) => apiRequest<RoomOutput>(`${one(id)}/outputs/${encodeURIComponent(output.id)}`, { method: 'PATCH', body: JSON.stringify({ state: 'confirmed', input_mode: 'click', payload_hash: output.payload_hash }) }),
+  linkWork: (id: string, output: string, kind: WorkKind, target: string) => post<WorkLink>(`${one(id)}/outputs/${encodeURIComponent(output)}/links`, { target_kind: kind, target_id: target, input_mode: 'click' }),
+  unlinkWork: (id: string, link: string) => apiRequestVoid(`${one(id)}/links/${encodeURIComponent(link)}`, { method: 'DELETE' }),
+  decide: (id: string, output: string, body: { state?: 'confirmed' | 'dismissed' | 'draft'; body?: string }) => apiRequest<RoomOutput>(`${one(id)}/outputs/${encodeURIComponent(output)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   createTask: (id: string, output: string) => post<RoomOutput>(`${one(id)}/outputs/${encodeURIComponent(output)}/task`),
   linkFile: (id: string, fileId: string) => post(`${one(id)}/files`, { file_id: fileId }),
   unlinkFile: (id: string, fileId: string) => apiRequestVoid(`${one(id)}/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' }),
-  async exportMarkdown(id: string): Promise<string> {
-    const response = await fetch(`${apiBaseUrl}${one(id)}/export?format=markdown`, { headers: await authHeaders() });
+  /** The record of the meeting as text: Markdown, or JSON with the summary, decisions (with their linked work) and confirmed outputs. */
+  async exportRecord(id: string, format: 'markdown' | 'json' = 'markdown'): Promise<string> {
+    const response = await fetch(`${apiBaseUrl}${one(id)}/export?format=${format}`, { headers: await authHeaders() });
     if (!response.ok) throw await apiErrorFromResponse(response);
     return response.text();
   },
+  exportMarkdown(id: string): Promise<string> { return this.exportRecord(id, 'markdown'); },
+  /** Which confirmed decisions led to this piece of work (owner only). */
+  workLinks: (kind: WorkKind, target: string) => apiRequest<{ items: { link_id: string; meeting_id: string; title: string; status: string; output_id: string; body: string }[] }>(`${root}/work-links?target_kind=${kind}&target_id=${encodeURIComponent(target)}`, { method: 'GET' }),
   deleteTranscript: (id: string) => apiRequest<{ turns: number; events: number }>(`${one(id)}/transcript`, { method: 'DELETE' }),
   async agentName(id: string): Promise<string | null> {
     try { return (await apiRequest<{ name: string }>(`/api/v1/agents/${encodeURIComponent(id)}`, { method: 'GET' })).name; } catch { return null; }

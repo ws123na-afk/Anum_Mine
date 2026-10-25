@@ -295,6 +295,7 @@ _ORDER = (
     "agent_meeting_budgets",
     "agent_meeting_files",
     "agent_meeting_attendance",
+    "agent_meeting_output_links",
     "agent_meeting_outputs",
     "agent_meeting_agenda",
     "agent_meeting_events",

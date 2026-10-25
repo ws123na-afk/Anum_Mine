@@ -187,6 +187,18 @@ def update_budget(body: BudgetUpdate, context: TenantContext = Depends(tenant_co
         return {**after.view(), "can_manage": True}
 
 
+@router.get("/work-links")
+def work_links(target_kind: Literal["task", "approval", "run"], target_id: Annotated[str, Query(min_length=1, max_length=80)],
+               context: TenantContext = Depends(tenant_context)) -> dict:
+    """Which confirmed decisions led to this task, approval or run (the link read from the work side). Owners only:
+    a decision's text is part of the transcript record."""
+    require_permission(context, Permission.TASK_READ)
+    require_transcript_reader(context, target_id, "work-links")
+    from . import live_agent_meeting_room as room
+    with _store(context) as store:
+        return {"items": room.meetings_for_work(store, context, target_kind, target_id)}
+
+
 @router.get("")
 def list_meetings(
     cursor: str | None = Query(default=None, max_length=80),

@@ -4,12 +4,13 @@ import * as api from './lib/api';
 import { describeError } from './lib/errors';
 import { intlLocale, t, type MessageKey } from './lib/i18n';
 import {
-  TERMINAL, activeSpeakers, applyEvent, budgetUsed, draftFromMessage, initialState, presentActors,
+  TERMINAL, activeSpeakers, applyEvent, budgetUsed, draftFromMessage, initialState, isModelDraft, presentActors,
   type MeetingBudget, type RoomEvent, type RoomState,
 } from './lib/liveMeeting';
 import { formatResetDate } from './lib/admin';
 import { budgetBlocks, budgetTone, usd } from './lib/meetingBudget';
 import { followRoom, meetingRoomApi, type MeetingSummary } from './lib/liveMeetingApi';
+import { LinkedWorkCard, SummaryCard } from './MeetingSummaryParts';
 import { AgendaCard, Composer, EndButton, FilesCard, Meter, OutputsCard, RecordCard, Transcript, endedNote, type Draft } from './MeetingRoomParts';
 import { useLocale } from './useLocale';
 import './meetingRoom.css';
@@ -74,6 +75,8 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
   const [draft, setDraft] = useState<Draft | null>(null);
   const [budget, setBudget] = useState<MeetingBudget | null>(null);
   const [budgetFailed, setBudgetFailed] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [summaryError, setSummaryError] = useState('');
 
   // First load: the stored room and transcript, then the live feed from the stored cursor.
   useEffect(() => {
@@ -143,7 +146,7 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
   // Reload the stored room after a change, so the page is right even while the feed is reconnecting.
   const reload = useCallback(async () => {
     const bundle = await meetingRoomApi.room(meetingId);
-    setState((s) => s ? { ...s, meeting: bundle.meeting, participants: bundle.participants, attendance: bundle.attendance, agenda: bundle.agenda, outputs: bundle.outputs, files: bundle.files, transcriptDeleted: bundle.transcript_deleted,
+    setState((s) => s ? { ...s, meeting: bundle.meeting, participants: bundle.participants, attendance: bundle.attendance, agenda: bundle.agenda, outputs: bundle.outputs, links: bundle.links ?? [], files: bundle.files, transcriptDeleted: bundle.transcript_deleted,
       transcriptHidden: bundle.transcript_hidden === true, outputsCount: bundle.outputs_count ?? bundle.outputs.length, filesCount: bundle.files_count ?? bundle.files.length, viewer: bundle.viewer } : s);
   }, [meetingId]);
   const act = useCallback(async (work: () => Promise<unknown>, done?: string) => {
@@ -167,6 +170,19 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
   const blocked = budgetBlocks(budget);
   const tone = budget ? budgetTone(budget) : 'ok';
   const time = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString(intlLocale(locale), { hour: '2-digit', minute: '2-digit' }); };
+
+  const draftSummary = async () => {
+    setDrafting(true); setSummaryError(''); setError(''); setInfo('');
+    try {
+      const result = await meetingRoomApi.draftSummary(meetingId);
+      await reload(); loadBudget();
+      setInfo(t('meetingRoom.summaryDone', { decisions: result.decisions.length, actions: result.action_items.length }) + (result.dropped > 0 ? ' ' + t('meetingRoom.summaryDropped', { count: result.dropped }) : ''));
+    } catch (e) { setSummaryError(describeError(e)); loadBudget(); } finally { setDrafting(false); }
+  };
+  const download = (text: string, type: string, name: string) => {
+    const url = URL.createObjectURL(new Blob([text], { type }));
+    const link = document.createElement('a'); link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url);
+  };
 
   const playReplay = async () => {
     setBusy(true); setError('');
@@ -272,23 +288,27 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
           onState={(id, s) => act(() => meetingRoomApi.patchAgenda(meetingId, id, { state: s }))}
           onRemove={(id) => act(() => meetingRoomApi.deleteAgenda(meetingId, id))} />
 
+        {!state.transcriptHidden && isOwner && <SummaryCard state={state} terminal={terminal} busy={busy} drafting={drafting} blocked={blocked} error={summaryError}
+          onDraft={() => void draftSummary()} onConfirm={(o) => act(() => meetingRoomApi.confirmDraft(meetingId, o), t('meetingRoom.summaryDone2'))}
+          onDismiss={(o) => void act(() => meetingRoomApi.decide(meetingId, o.id, { state: 'dismissed' }))} />}
+
         {state.transcriptHidden
           ? <section aria-labelledby="mr-outputs" className="mrCard"><h3 id="mr-outputs">{t('meetingRoom.outputs')}</h3><p className="muted">{t('meetingRoom.outputsOwnerOnly', { count: state.outputsCount })}</p></section>
           : <OutputsCard state={state} owner={isOwner} busy={busy} draft={draft} setDraft={setDraft}
           onSave={(d) => act(async () => { await meetingRoomApi.draft(meetingId, { kind: d.kind, body: d.body, owner_label: d.label || null, source_sequences: d.seq ? [d.seq] : [] }); setDraft(null); })}
-          onDecide={(o, s) => act(() => meetingRoomApi.decide(meetingId, o.id, { state: s }))}
-          onTask={(o) => act(() => meetingRoomApi.createTask(meetingId, o.id), t('meetingRoom.taskCreated'))} />}
+          onDecide={(o, s) => act(() => s === 'confirmed' && isModelDraft(o) ? meetingRoomApi.confirmDraft(meetingId, o) : meetingRoomApi.decide(meetingId, o.id, { state: s }))}
+          onTask={(o) => act(() => meetingRoomApi.createTask(meetingId, o.id), t('meetingRoom.taskCreated'))}
+          onLink={(o, kind, id) => act(() => meetingRoomApi.linkWork(meetingId, o.id, kind, id), t('meetingRoom.linkAdded'))}
+          onUnlink={(l) => void act(() => meetingRoomApi.unlinkWork(meetingId, l.id), t('meetingRoom.linkRemoved'))} />}
+        {!state.transcriptHidden && <LinkedWorkCard state={state} />}
 
         {state.transcriptHidden
           ? <section aria-labelledby="mr-files" className="mrCard"><h3 id="mr-files">{t('meetingRoom.files')}</h3><p className="muted">{t('meetingRoom.filesOwnerOnly', { count: state.filesCount })}</p></section>
           : <FilesCard state={state} owner={isOwner} busy={busy} onLink={(id) => act(() => meetingRoomApi.linkFile(meetingId, id))} onUnlink={(id) => act(() => meetingRoomApi.unlinkFile(meetingId, id))} />}
 
         {isOwner && <RecordCard terminal={terminal} deleted={state.transcriptDeleted} busy={busy}
-          onExport={() => act(async () => {
-            const text = await meetingRoomApi.exportMarkdown(meetingId);
-            const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
-            const link = document.createElement('a'); link.href = url; link.download = `meeting-${meetingId}.md`; link.click(); URL.revokeObjectURL(url);
-          }, t('meetingRoom.exported'))}
+          onExport={() => act(async () => download(await meetingRoomApi.exportRecord(meetingId, 'markdown'), 'text/markdown;charset=utf-8', `meeting-${meetingId}.md`), t('meetingRoom.exported'))}
+          onExportJson={() => act(async () => download(await meetingRoomApi.exportRecord(meetingId, 'json'), 'application/json;charset=utf-8', `meeting-${meetingId}.json`), t('meetingRoom.exportedJson'))}
           onDelete={() => act(async () => { await meetingRoomApi.deleteTranscript(meetingId); setState((s) => s ? { ...s, messages: [] } : s); }, t('meetingRoom.deleted'))} />}
       </aside>
     </div>

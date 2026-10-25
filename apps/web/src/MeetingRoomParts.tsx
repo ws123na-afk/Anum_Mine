@@ -3,7 +3,8 @@ import { Check, Download, FileText, ListChecks, Send, Trash2, X } from 'lucide-r
 import { MessageMarkdown } from './MessageMarkdown';
 import * as api from './lib/api';
 import { t, type MessageKey } from './lib/i18n';
-import type { OutputKind, RoomMessage, RoomOutput, RoomState } from './lib/liveMeeting';
+import { isModelDraft, type OutputKind, type RoomMessage, type RoomOutput, type RoomState, type WorkKind, type WorkLink } from './lib/liveMeeting';
+import { DecisionLinks } from './MeetingSummaryParts';
 
 export interface Draft { kind: OutputKind; body: string; seq: number | null; label?: string }
 
@@ -85,15 +86,18 @@ export function AgendaCard({ state, owner, busy, locked, onAdd, onState, onRemov
   </section>;
 }
 
-export function OutputsCard({ state, owner, busy, draft, setDraft, onSave, onDecide, onTask }: {
+export function OutputsCard({ state, owner, busy, draft, setDraft, onSave, onDecide, onTask, onLink, onUnlink }: {
   state: RoomState; owner: boolean; busy: boolean; draft: Draft | null; setDraft: (d: Draft | null) => void;
   onSave: (d: Draft) => Promise<void>; onDecide: (o: RoomOutput, s: 'confirmed' | 'dismissed') => Promise<void>; onTask: (o: RoomOutput) => Promise<void>;
+  onLink: (o: RoomOutput, kind: WorkKind, id: string) => Promise<void>; onUnlink: (link: WorkLink) => void;
 }) {
+  const items = state.outputs.filter((o) => o.kind !== 'summary');
   const jump = (seq: number) => { const el = document.getElementById(`mr-msg-${seq}`); el?.scrollIntoView({ block: 'nearest' }); el?.focus?.(); };
   return <section aria-labelledby="mr-outputs" className="mrCard"><h3 id="mr-outputs"><Check aria-hidden="true" />{t('meetingRoom.outputs')}</h3>
-    {state.outputs.length === 0 && !draft && <p className="muted">{t('meetingRoom.outputsEmpty')}</p>}
-    <ul className="mrOutputs">{state.outputs.map((o) => <li key={o.id} className={`mrOut mrOut-${o.state}`}>
-      <div className="mrRow"><span className="mrChip">{t(`meetingRoom.kind.${o.kind}` as MessageKey)}</span><span className={`mrChip mrState-${o.state}`}>{t(`meetingRoom.state.${o.state}` as MessageKey)}</span></div>
+    {items.length === 0 && !draft && <p className="muted">{t('meetingRoom.outputsEmpty')}</p>}
+    <ul className="mrOutputs">{items.map((o) => <li key={o.id} className={`mrOut mrOut-${o.state}`}>
+      <div className="mrRow"><span className="mrChip">{t(`meetingRoom.kind.${o.kind}` as MessageKey)}</span><span className={`mrChip mrState-${o.state}`}>{t(`meetingRoom.state.${o.state}` as MessageKey)}</span>
+        {isModelDraft(o) && <span className="mrChip">{t('meetingRoom.modelDraft')}</span>}</div>
       <p dir="auto">{o.body}</p>
       {o.owner_label && <small className="muted" dir="auto">{o.owner_label}</small>}
       {o.source_sequences.length > 0 && <div className="mrRow">{o.source_sequences.map((n) => <button key={n} type="button" className="secondary mrSrc" onClick={() => jump(n)}>{t('meetingRoom.source', { number: n })}</button>)}</div>}
@@ -102,8 +106,9 @@ export function OutputsCard({ state, owner, busy, draft, setDraft, onSave, onDec
           <button type="button" className="secondary" disabled={busy} onClick={() => void onDecide(o, 'dismissed')}>{t('meetingRoom.dismiss')}</button></>}
         {o.kind === 'action_item' && o.state === 'confirmed' && <button type="button" disabled={busy} onClick={() => void onTask(o)}>{t('meetingRoom.createTask')}</button>}</div>}
       {o.task_id && <p className="mrRow"><span className="mrChip mrState-confirmed">{t('meetingRoom.taskCreated')}</span><a href="#tasks">{t('meetingRoom.openTasks')}</a></p>}
+      <DecisionLinks output={o} links={state.links} owner={owner} busy={busy} onLink={(kind, id) => onLink(o, kind, id)} onUnlink={onUnlink} />
     </li>)}</ul>
-    {owner && state.outputs.some((o) => o.kind === 'action_item' && o.state === 'confirmed' && !o.task_id) && <p className="muted mrHint">{t('meetingRoom.taskNote')}</p>}
+    {owner && items.some((o) => o.kind === 'action_item' && o.state === 'confirmed' && !o.task_id) && <p className="muted mrHint">{t('meetingRoom.taskNote')}</p>}
     {owner && !state.transcriptDeleted && !draft && <div className="mrRow">
       <button type="button" className="secondary" onClick={() => setDraft({ kind: 'decision', body: '', seq: null })}>{t('meetingRoom.draftDecision')}</button>
       <button type="button" className="secondary" onClick={() => setDraft({ kind: 'action_item', body: '', seq: null })}>{t('meetingRoom.draftAction')}</button></div>}
@@ -143,10 +148,12 @@ export function FilesCard({ state, owner, busy, onLink, onUnlink }: { state: Roo
   </section>;
 }
 
-export function RecordCard({ terminal, deleted, busy, onExport, onDelete }: { terminal: boolean; deleted: boolean; busy: boolean; onExport: () => Promise<void>; onDelete: () => Promise<void> }) {
+export function RecordCard({ terminal, deleted, busy, onExport, onExportJson, onDelete }: { terminal: boolean; deleted: boolean; busy: boolean; onExport: () => Promise<void>; onExportJson: () => Promise<void>; onDelete: () => Promise<void> }) {
   const [asking, setAsking] = useState(false);
   return <section aria-labelledby="mr-record" className="mrCard"><h3 id="mr-record">{t('meetingRoom.record')}</h3>
-    <div className="mrRow"><button type="button" className="secondary" disabled={busy} onClick={() => void onExport()}><Download aria-hidden="true" />{t('meetingRoom.export')}</button></div>
+    <div className="mrRow"><button type="button" className="secondary" disabled={busy} onClick={() => void onExport()}><Download aria-hidden="true" />{t('meetingRoom.export')}</button>
+      <button type="button" className="secondary" disabled={busy} onClick={() => void onExportJson()}><Download aria-hidden="true" />{t('meetingRoom.exportJson')}</button></div>
+    <p className="muted mrHint">{t('meetingRoom.exportJsonHint')}</p>
     {!deleted && (terminal
       ? (asking ? <div className="mrDraft"><p className="muted">{t('meetingRoom.deleteNote')}</p><div className="mrRow">
           <button type="button" className="danger" disabled={busy} onClick={() => { setAsking(false); void onDelete(); }}>{t('meetingRoom.deleteConfirm')}</button>

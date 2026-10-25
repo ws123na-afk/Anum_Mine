@@ -12,6 +12,8 @@ export function createRoomMock(options: {
   /** The workspace's monthly agent meeting budget: used and limit in USD (default 12.34 of 50). */
   budget?: { used: number; limit: number; isDefault?: boolean; canManage?: boolean };
   messages?: { speaker: string; role: string; body: string }[];
+  /** How `POST /summary` answers: a draft (default), the server's refusal at the monthly cap, or a model that did not answer. */
+  summary?: 'ok' | 'error';
 } = {}) {
   const owner = options.owner ?? true;
   const reader = options.reader ?? owner;
@@ -27,12 +29,13 @@ export function createRoomMock(options: {
     attendance: [] as { actor_id: string; joined_at: string; left_at: string | null }[],
     agenda: [{ id: 'ag1', position: 1, title: 'Fix the launch date', state: 'current' }],
     outputs: [] as Record<string, unknown>[],
+    links: [] as Record<string, unknown>[],
     files: [] as Record<string, unknown>[],
     turns: [] as { sequence: number; speaker_id: string; role: string; body: string; request_key: string; created_at: string; redacted: boolean }[],
     events: [] as RoomEventRow[],
     outage: false,
     transcriptDeleted: false,
-    calls: { runs: 0, tasks: 0, messages: [] as string[], exports: 0, streamHits: 0, forbidden: [] as string[], budgetGets: 0, budgetPuts: [] as (number | null)[] },
+    calls: { summaries: 0, links: 0, jsonExports: 0, patches: [] as Record<string, unknown>[], runs: 0, tasks: 0, messages: [] as string[], exports: 0, streamHits: 0, forbidden: [] as string[], budgetGets: 0, budgetPuts: [] as (number | null)[] },
     budget: { used: options.budget?.used ?? 12.34, limit: options.budget?.limit ?? 50, isDefault: options.budget?.isDefault ?? true, canManage: options.budget?.canManage ?? owner },
     nextTurn: [] as { speaker: string; body: string }[],
   };
@@ -58,8 +61,8 @@ export function createRoomMock(options: {
   const bundle = () => ({
     meeting: state.meeting, participants: state.participants, attendance: state.attendance, agenda: state.agenda,
     // A Member or Viewer gets who, when and status, never the text: decisions and files arrive as counts (S-03).
-    outputs: reader ? state.outputs : [], files: reader ? state.files : [],
-    ...(reader ? {} : { transcript_hidden: true, outputs_count: state.outputs.length, files_count: state.files.length }),
+    outputs: reader ? state.outputs : [], links: reader ? state.links : [], files: reader ? state.files : [],
+    ...(reader ? {} : { transcript_hidden: true, outputs_count: state.outputs.length, files_count: state.files.length, links_count: state.links.length }),
     speaking: [], last_event_seq: state.events.length, transcript_deleted: state.transcriptDeleted, viewer: { user_id: me, is_owner: owner, can_read_transcript: reader },
   });
 
@@ -74,6 +77,19 @@ export function createRoomMock(options: {
         state.budget.limit = limit ?? 50; state.budget.isDefault = limit === null;
       } else state.calls.budgetGets += 1;
       await json(budgetView()); return true;
+    }
+    if (path === '/api/v1/tasks' && method === 'GET') {
+      const row = (id: string, title: string) => ({ id, title, prompt: 'x', status: 'created', tenant_id: 't', workspace_id: 'w', created_at: '2026-10-25T09:00:00Z', updated_at: '2026-10-25T09:00:00Z' });
+      await json([row('task_plan', 'Plan the launch'), row('task_notes', 'Release notes')]); return true;
+    }
+    if (path === '/api/v1/approvals/page') {
+      await json({ items: [{ id: 'apr_1', task_id: 'task_plan', action: 'send_email', risk_level: 'high', status: 'pending', reason: 'r', created_at: '2026-10-25T09:00:00Z' }], next_cursor: null }); return true;
+    }
+    const latest = /^\/api\/v1\/tasks\/(\w+)\/latest-run$/.exec(path);
+    if (latest) {
+      if (latest[1] === 'task_plan') await json({ id: 'run_plan', task_id: 'task_plan', status: 'completed', created_at: '2026-10-25T09:00:00Z', updated_at: '2026-10-25T09:00:00Z', checkpoint: {}, steps: [] });
+      else await json({ error: { code: 'not_found', message: 'No run', correlation_id: 'c11', details: [] } }, 404);
+      return true;
     }
     const agent = /^\/api\/v1\/agents\/(agent_\w+)$/.exec(path);
     if (agent) { await json({ id: agent[1], name: agent[1] === 'agent_maya' ? 'Maya' : 'Omar' }); return true; }
@@ -146,13 +162,66 @@ export function createRoomMock(options: {
       const output = { id: 'out_' + (state.outputs.length + 1), session_id: 'mtg_1', kind: b.kind, body: b.body, state: 'draft', owner_label: b.owner_label ?? null, source_sequences: b.source_sequences, task_id: null, created_by: me, decided_by: null };
       state.outputs.push(output); push('output', { op: 'create', output }, me); await json(output, 201); return true;
     }
+    if (rest === '/summary' && method === 'POST') {
+      state.calls.summaries += 1;
+      if (state.meeting.status === 'active') { await json({ error: { code: 'conflict', message: 'End the meeting before drafting its summary', correlation_id: 'c5', details: [] } }, 409); return true; }
+      if (state.budget.used >= state.budget.limit) {
+        await json({ error: { code: 'agent_meeting_budget_exceeded', message: 'Monthly agent meeting budget reached: this workspace has used USD ' + state.budget.used.toFixed(2) + ' of its USD ' + state.budget.limit.toFixed(2) + ' for agent meetings this month. It resets on 2026-11-01 (UTC); a workspace owner can raise the limit under Budgets.', correlation_id: 'c6', details: [] } }, 402);
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      if (options.summary === 'error') { await json({ error: { code: 'service_unavailable', message: 'The model did not answer. Nothing was stored and nothing was charged; try again.', correlation_id: 'c7', details: [] } }, 503); return true; }
+      const make = (kind: string, text: string, sources: number[], label: string | null = null) => {
+        const output = { id: 'out_' + (state.outputs.length + 1), session_id: 'mtg_1', kind, body: text, state: 'draft', owner_label: label, source_sequences: sources, task_id: null, created_by: me, decided_by: null, origin: 'model', drafted_with: 'fake/fake-1', payload_hash: String(state.outputs.length + 1).padStart(64, 'a') };
+        state.outputs.push(output); push('output', { op: 'create', output }, me); return output;
+      };
+      state.budget.used += 0.02;
+      const summary = make('summary', '- The group agreed to launch on Tuesday. [#1]\n- Risks were raised and left open. [#2]', [1, 2]);
+      const decision = make('decision', 'Launch on Tuesday.', [1]);
+      const action = make('action_item', 'Announce the launch on Monday.', [2], 'Maya');
+      await json({ summary, decisions: [decision], action_items: [action], dropped: 1, covered_up_to: state.turns.length, messages: state.turns.length, cost_usd: 0.02 }, 201); return true;
+    }
+    const link = /^\/outputs\/(out_\d+)\/links$/.exec(rest);
+    if (link && method === 'POST') {
+      const b = body();
+      if (b.input_mode !== 'click') { await json({ error: { code: 'forbidden', message: 'Confirm this on screen with a click. A spoken or typed answer cannot confirm it.', correlation_id: 'c8', details: [] } }, 403); return true; }
+      const labels: Record<string, string> = { task_plan: 'Plan the launch', task_notes: 'Release notes', apr_1: 'send_email', run_plan: 'run_plan' };
+      const existing = state.links.find((l) => l.output_id === link[1] && l.target_id === b.target_id);
+      if (existing) { await json(existing, 200); return true; }
+      state.calls.links += 1;
+      const row = { id: 'lnk_' + (state.links.length + 1), session_id: 'mtg_1', output_id: link[1], target_kind: b.target_kind, target_id: b.target_id, target_label: labels[String(b.target_id)] ?? String(b.target_id), target_status: 'created', created_by: me };
+      state.links.push(row); push('output', { op: 'link', link: row }, me); await json(row, 201); return true;
+    }
+    const unlink = /^\/links\/(lnk_\d+)$/.exec(rest);
+    if (unlink && method === 'DELETE') {
+      const row = state.links.find((l) => l.id === unlink[1]);
+      state.links = state.links.filter((l) => l.id !== unlink[1]);
+      if (row) push('output', { op: 'unlink', link: row }, me);
+      await route.fulfill({ status: 204 }); return true;
+    }
     const out = /^\/outputs\/(out_\d+)(\/task)?$/.exec(rest);
     if (out) {
       const item = state.outputs.find((o) => o.id === out[1])!;
+      if (!out[2]) {
+        const b = body(); state.calls.patches.push(b);
+        const guarded = item.kind === 'summary' || item.origin === 'model';
+        if (b.state === 'confirmed' && guarded && b.input_mode !== 'click') { await json({ error: { code: 'forbidden', message: 'Confirm this on screen with a click. A spoken or typed answer cannot confirm it.', correlation_id: 'c9', details: [] } }, 403); return true; }
+        if (b.state === 'confirmed' && guarded && b.payload_hash !== item.payload_hash) { await json({ error: { code: 'conflict', message: 'This draft changed since you read it. Reload and review it again before confirming.', correlation_id: 'c10', details: [] } }, 409); return true; }
+      }
       if (out[2]) { state.calls.tasks += 1; item.task_id = 'task_77'; push('output', { op: 'task', output: item }, me); await json(item, 201); return true; }
       item.state = body().state; item.decided_by = me; push('output', { op: 'update', output: item }, me); await json(item); return true;
     }
-    if (rest.startsWith('/export')) { state.calls.exports += 1; await route.fulfill({ status: 200, contentType: 'text/markdown', body: '# Launch planning\n' }); return true; }
+    if (rest.startsWith('/export')) {
+      state.calls.exports += 1;
+      if (url.searchParams.get('format') === 'json') {
+        state.calls.jsonExports += 1;
+        const live = state.outputs.filter((o) => o.kind === 'summary' && o.state !== 'dismissed');
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ meeting: state.meeting, turns: state.turns, outputs: state.outputs, links: state.links, summary: live[0] ?? null,
+          decisions: state.outputs.filter((o) => o.kind === 'decision'), confirmed_outputs: state.outputs.filter((o) => o.state === 'confirmed') }) });
+        return true;
+      }
+      await route.fulfill({ status: 200, contentType: 'text/markdown', body: '# Launch planning\n' }); return true;
+    }
     if (rest === '/transcript' && method === 'DELETE') {
       const turns = state.turns.length; state.turns = []; state.events = []; state.transcriptDeleted = true; state.meeting.transcript_deleted_at = new Date().toISOString();
       state.outputs.forEach((o) => { o.source_sequences = []; }); await json({ turns, events: 0 }); return true;

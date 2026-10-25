@@ -37,8 +37,12 @@ Reads need `task:read`; writes need `workspace:manage` and, for moderation, owne
 `docs/meetings.md` states meetings have no automatic expiry. The owner can export, and delete the transcript of an ended meeting (messages, events, leases); usage totals, confirmed decisions and created tasks remain. An automatic retention window needs an owner decision and is not built.
 
 ## Not built
-Model drafted extraction of decisions and action items; automatic periodic running of turns from the room (the room starts one governed turn at a time; the unattended worker remains a managed service).
+Automatic periodic running of turns from the room (the room starts one governed turn at a time; the unattended worker remains a managed service).
 
 ## Owner-only transcript and monthly budget
 
 Only workspace owners read messages, decisions, files and the export; members and viewers see title, status, attendance and agenda, with counts and a notice, and the room polls instead of streaming. The room shows the workspace's monthly agent meeting budget and disables Start, Resume and Run next turn when it is used up. Details: [budget and transcripts](ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md).
+
+## Summary, model drafts, work links and the JSON record
+
+An ended meeting can be summarised by the owner (one metered model call, drafts only, confirmed with a click), decisions can be linked to tasks, approvals and runs, and the record downloads as Markdown or JSON. Details: [summary and work links](ANUM_MINE_MEETING_SUMMARY_AND_WORK_LINKS.md).

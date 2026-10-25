@@ -51,3 +51,5 @@ registration in `main.py`, avoiding changes to the office 3D/frontend modules.
 
 `GET|PUT /api/v1/agent-meetings/budget`; transcript reads (`turns`, `events`, `events/stream`, `export`) need the owner role; each turn is audited as `agent_meeting.turn`; a reached cap answers 402 `agent_meeting_budget_exceeded`. See [budget and transcripts](ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md).
 
+
+Summary, decision to work links and the JSON record (`POST /{id}/summary`, `POST /{id}/outputs/{output_id}/links`, `DELETE /{id}/links/{link_id}`, `GET /work-links`): see [summary and work links](ANUM_MINE_MEETING_SUMMARY_AND_WORK_LINKS.md).

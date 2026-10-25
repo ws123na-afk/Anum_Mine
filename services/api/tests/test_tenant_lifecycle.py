@@ -198,6 +198,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             "office_create_keys": "0099_office_create_keys",
             "office_agent_provisions": "0106_agent_provisioning",
             "office_desk_staffing": "0109_staff_desks",
+            "agent_meeting_output_links": "0111_meeting_summary_links",
             **{name: "0107_agent_meeting_budget" for name in ("agent_meeting_budgets", "agent_meeting_usage_monthly")},
             **{name: "0104_meeting_room" for name in (
                 "agent_meeting_events", "agent_meeting_agenda", "agent_meeting_outputs",
