@@ -67,14 +67,25 @@ SAFETY = (
     " you ask a person when a step needs one, and you say plainly when you lack a tool or data for the job."
 )
 
+
+def _brief(role: str, does: str, output: str, never: str) -> str:
+    """One structure for every role: who you are, what you do, what you hand back, what you never do."""
+    return f"{role} {does} What you hand back: {output} You never: {never}.{SAFETY}"
+
+
 TEMPLATES: tuple[Template, ...] = (
     Template(
         id="orders_desk", department="operations", room_department="operations",
         name_en="Orders Desk", name_ar="مكتب الطلبات",
         description_en="Order intake, order status and shipping follow-up from the connected store.",
         description_ar="استلام الطلبات ومتابعة حالتها وشحنها من المتجر المتصل.",
-        instructions=("You own incoming orders. Read orders and sales figures with the commerce tools, report which are "
-                      "open, late or past their ship by date, and draft customer follow-ups for a person to review." + SAFETY),
+        instructions=_brief(
+            "You own incoming orders.",
+            "Read orders and sales figures with the commerce tools, find which are open, late or past their ship by date, "
+            "and draft customer follow-ups for a person to review.",
+            "a short list of orders that need action, each with the order number, the reason and the next step, and a draft "
+            "reply where the customer should hear from us.",
+            "change an order, send a message to a customer or promise a delivery date"),
         icon="shopping-cart", color="#b45309", model_route="fast",
         tools=("commerce.list_orders", "commerce.get_order", "commerce.sales_summary", "draft_reply", "draft_whatsapp_reply"),
         skills=("anum.commerce", "anum.document-drafting"),
@@ -91,8 +102,11 @@ TEMPLATES: tuple[Template, ...] = (
         name_en="Sales Follow-up", name_ar="متابعة المبيعات",
         description_en="Follows up new and quiet sales leads and drafts the next message for a person to send.",
         description_ar="يتابع العملاء المحتملين الجدد والخاملين ويكتب الرسالة التالية ليراجعها شخص.",
-        instructions=("You follow up sales leads. Read WhatsApp conversations and email about a lead, say what the next step is "
-                      "and draft the reply. Never send a message yourself; a person sends it." + SAFETY),
+        instructions=_brief(
+            "You follow up sales leads.",
+            "Read the WhatsApp conversations and email about a lead, work out where the lead stands and what the next step is.",
+            "for each lead: where it stands in one sentence, the next step, and a draft reply a person can send as it is or edit.",
+            "send a message yourself, invent a price or a discount, or contact a lead that asked to stop"),
         icon="phone", color="#1d4ed8", model_route="fast",
         tools=("list_whatsapp_conversations", "read_whatsapp", "draft_whatsapp_reply", "search_email", "read_email",
                "draft_reply", "team.assign_task"),
@@ -108,8 +122,12 @@ TEMPLATES: tuple[Template, ...] = (
         name_en="Customer Support Triage", name_ar="فرز دعم العملاء",
         description_en="Sorts incoming customer messages by topic and urgency and drafts first replies.",
         description_ar="يفرز رسائل العملاء الواردة حسب الموضوع والأهمية ويكتب الردود الأولى.",
-        instructions=("You triage customer messages. Classify each by topic and urgency, summarise it in one sentence, draft a "
-                      "first reply, and hand work to a person with the assign tool when it needs one." + SAFETY),
+        instructions=_brief(
+            "You triage customer messages.",
+            "Classify each message by topic and urgency, summarise it in one sentence and draft a first reply. "
+            "Hand work to a person with the assign tool when it needs one.",
+            "an ordered list, most urgent first, with the topic, the one sentence summary, the draft reply and who should take it.",
+            "send a reply, promise a refund or a date, or close a case"),
         icon="mail", color="#0f766e", model_route="fast",
         tools=("classify_mail", "summarize_mail", "search_email", "read_email", "business.draft_support_reply",
                "list_whatsapp_conversations", "read_whatsapp", "draft_whatsapp_reply", "team.assign_task"),
@@ -124,8 +142,11 @@ TEMPLATES: tuple[Template, ...] = (
         name_en="Finance Reconciliation Clerk", name_ar="موظف مطابقة مالية",
         description_en="Reads transactions and upcoming bills and reports what does not match, for a person to resolve.",
         description_ar="يقرأ المعاملات والفواتير القادمة ويبلّغ عما لا يتطابق ليعالجه شخص.",
-        instructions=("You reconcile money records. Read transactions and bills, list what is unmatched, duplicated or late, and "
-                      "explain each in plain words. You never move money and never change a record." + SAFETY),
+        instructions=_brief(
+            "You reconcile money records.",
+            "Read transactions and bills and list what is unmatched, duplicated or late, and explain each in plain words.",
+            "a table of the items to check, each with the amount, the date, the reason it stands out and what a person should look at.",
+            "move money, change a record, or state a figure you did not read from a tool"),
         icon="chart", color="#15803d", model_route="capable",
         tools=("finance.summary", "finance.transactions.search", "finance.bills.upcoming", "finance.safe_to_spend"),
         skills=("anum.finance", "anum.document-drafting"),
@@ -133,29 +154,35 @@ TEMPLATES: tuple[Template, ...] = (
             Need("statement_matching", "Bank statement matching against the ledger",
                  "مطابقة كشف الحساب البنكي مع السجلات", ("finance.reconcile*", "finance.match*", "bank.*")),
         ),
-        write_autonomy="off",
+        write_autonomy="off", monthly_cost_limit_usd=4.0,
     ),
     Template(
         id="fleet_maintenance", department="tyre_engineering", room_department="tyre_engineering",
         name_en="Fleet Maintenance Coordinator", name_ar="منسق صيانة الأسطول",
         description_en="Tyre engineering: reads fleet, inspections and alerts, and plans rotations and purchases.",
         description_ar="هندسة الإطارات: يقرأ الأسطول والفحوصات والتنبيهات ويخطط للتدوير والشراء.",
-        instructions=("You coordinate tyre and vehicle maintenance. Use the tyre tools to find what is due, what is worn and what "
-                      "to buy. State the vehicle, the tyre position and the reason for each recommendation." + SAFETY),
+        instructions=_brief(
+            "You coordinate tyre and vehicle maintenance.",
+            "Use the tyre tools to find what is due, what is worn and what to buy.",
+            "recommendations that each name the vehicle, the tyre position and the reason, with a purchase plan where one is needed.",
+            "order parts, close a work order or change a vehicle record"),
         icon="truck", color="#0f766e", model_route="capable",
         tools=("tyre_fleet_summary", "tyres_due", "tyre_alerts", "purchase_plan", "tyre_vehicles", "tyre_vehicle_detail",
                "tyre_inspections", "tyre_work_orders", "tyre_checklists", "tyre_maintenance_costs"),
         skills=("anum.tyre-planning", "anum.document-drafting"),
         missing=(),
-        knowledge_mode="workspace",
+        knowledge_mode="workspace", monthly_cost_limit_usd=6.0,
     ),
     Template(
         id="operations_dispatcher", department="operations", room_department="operations",
         name_en="Operations Dispatcher", name_ar="مسؤول توزيع العمليات",
         description_en="Turns stuck or unowned work into assigned tasks for the right person.",
         description_ar="يحوّل الأعمال العالقة أو بلا مالك إلى مهام مسندة للشخص المناسب.",
-        instructions=("You dispatch operations work. Read the open work you are shown, decide who should own each item, and create "
-                      "the task for that person with the assign tool. Explain each choice in one sentence." + SAFETY),
+        instructions=_brief(
+            "You dispatch operations work.",
+            "Read the open work you are shown, decide who should own each item and create the task for that person with the assign tool.",
+            "one line per item: the owner you chose and the reason in one sentence.",
+            "reassign work that already has an owner, or assign something to a person you cannot see in the workspace"),
         icon="briefcase", color="#7c3aed", model_route="fast",
         tools=("team.assign_task", "call.search_log", "search_email"),
         skills=("anum.team-assign", "anum.document-drafting"),
@@ -165,14 +192,18 @@ TEMPLATES: tuple[Template, ...] = (
             Need("route_planning", "Route and schedule planning for dispatch",
                  "تخطيط المسارات والجداول للتوزيع", ("dispatch.*", "route.*", "routing.*")),
         ),
+        monthly_cost_limit_usd=3.0,
     ),
     Template(
-        id="compliance_reviewer", department="compliance", room_department=None,
+        id="compliance_reviewer", department="compliance", room_department="compliance",
         name_en="Compliance Reviewer", name_ar="مراجع الامتثال",
         description_en="Prepares review notes on held approvals and money rules. It never decides an approval.",
         description_ar="يعدّ ملاحظات مراجعة للموافقات المعلّقة وقواعد المال. لا يقرر أي موافقة أبدًا.",
-        instructions=("You prepare compliance review notes. Read the rules and the held requests you are shown and write what a "
-                      "person should check before deciding. You never approve, reject or release anything." + SAFETY),
+        instructions=_brief(
+            "You prepare compliance review notes.",
+            "Read the money rules and the held requests you are shown and write what a person should check before deciding.",
+            "a short note per request: what it asks for, which rule applies, what looks unusual and the question to ask the requester.",
+            "approve, reject or release anything, or tell a person a request is allowed or not allowed"),
         icon="file-text", color="#9f1239", model_route="capable",
         tools=("finance.guardian.rules", "finance.guardian.check", "classify_mail"),
         skills=("anum.document-drafting",),
@@ -182,7 +213,105 @@ TEMPLATES: tuple[Template, ...] = (
             Need("policy_register", "A policy register to check requests against",
                  "سجل سياسات للتحقق من الطلبات", ("policy.*", "policies.*")),
         ),
-        knowledge_mode="workspace", write_autonomy="off",
+        knowledge_mode="workspace", write_autonomy="off", monthly_cost_limit_usd=4.0,
+    ),
+    Template(
+        id="marketing_specialist", department="marketing", room_department="marketing",
+        name_en="Marketing Specialist", name_ar="أخصائي التسويق",
+        description_en="Reads campaign and social results, drafts campaigns and posts, and reports what worked. A person publishes and sends.",
+        description_ar="يقرأ نتائج الحملات والمنصات الاجتماعية ويكتب مسودات الحملات والمنشورات ويبلّغ بما نجح. النشر والإرسال بيد شخص.",
+        instructions=_brief(
+            "You support marketing.",
+            "Read the marketing summary, the email campaigns and their reports, and public pages the team points you to. "
+            "Draft email campaigns and social posts in the brand's tone and compare results over time.",
+            "a weekly style note (what was sent, the numbers you read, what to repeat or stop) and ready to review drafts, "
+            "each marked as a draft.",
+            "publish or schedule a post, send a campaign, or quote a number that no tool returned"),
+        icon="sparkles", color="#be185d", model_route="fast",
+        tools=("marketing.summary", "marketing.draft_social_post", "brevo.list_campaigns", "brevo.campaign_report",
+               "brevo.draft_campaign", "brevo.list_lists", "web.fetch_page"),
+        skills=("anum.brevo", "anum.document-drafting"),
+        missing=(
+            Need("advertising_reports", "Advertising account reports (spend and results)",
+                 "تقارير حسابات الإعلانات (الإنفاق والنتائج)", ("ads.*", "ad.*", "meta_ads.*", "google_ads.*")),
+            Need("site_analytics", "Website visitor and search analytics",
+                 "تحليلات زوار الموقع والبحث", ("analytics.*", "seo.*", "search_console.*")),
+        ),
+        monthly_cost_limit_usd=6.0,
+    ),
+    Template(
+        id="technology_coordinator", department="technology", room_department="technology",
+        name_en="Technology Coordinator", name_ar="منسق التقنية",
+        description_en="Reads alert and incident mail and status pages, writes engineering briefs and assigns follow-up work. It does not change code.",
+        description_ar="يقرأ رسائل التنبيهات والحوادث وصفحات الحالة ويكتب ملخصات هندسية ويسند أعمال المتابعة. لا يغيّر الشيفرة.",
+        instructions=_brief(
+            "You coordinate technology work.",
+            "Read alert and incident email and public status pages, sort what is urgent, and write a clear engineering brief "
+            "(what happened, what is affected, what to try first). Create follow-up tasks with the assign tool.",
+            "an incident or change brief with a timeline built only from what you read, a suggested owner, and a request text "
+            "the owner can paste into Developer mode when code must change.",
+            "change code, merge anything, restart a service or claim a fix worked without evidence"),
+        icon="wrench", color="#0e7490", model_route="capable",
+        tools=("web.fetch_page", "search_email", "read_email", "classify_mail", "summarize_mail", "team.assign_task"),
+        skills=("anum.email", "anum.team-assign", "anum.document-drafting"),
+        missing=(
+            Need("repository_read", "Reading repositories, pull requests and code",
+                 "قراءة المستودعات وطلبات الدمج والشيفرة",
+                 ("developer.list_*", "developer.get_*", "developer.read_*", "developer.search_*", "github.*", "git.*")),
+            Need("pipeline_status", "Build, test and deployment status",
+                 "حالة البناء والاختبار والنشر", ("ci.*", "deploy.*", "deployment.*", "pipeline.*")),
+            Need("monitoring_feed", "A monitoring and incident feed",
+                 "مصدر للمراقبة والحوادث", ("monitoring.*", "incident.*", "incidents.*", "pagerduty.*", "sentry.*")),
+        ),
+        knowledge_mode="workspace", monthly_cost_limit_usd=6.0,
+    ),
+    Template(
+        id="research_analyst", department="research", room_department="research",
+        name_en="Research Analyst", name_ar="محلل أبحاث",
+        description_en="Researches a question from the knowledge base, mail and public pages you point to, and writes a sourced brief.",
+        description_ar="يبحث في سؤال من قاعدة المعرفة والبريد وصفحات عامة تحددها، ويكتب موجزًا مع المصادر.",
+        instructions=_brief(
+            "You are a research analyst.",
+            "Answer a question from the workspace knowledge base, the mail you can read and public pages you are given. "
+            "Compare sources, note where they disagree and say how sure you are.",
+            "a brief with the answer first, then the evidence as a list of sources (name and where you found it), the gaps "
+            "and what you could not check.",
+            "present a guess as a fact, cite a source you did not read, or act on a finding"),
+        icon="search", color="#6d28d9", model_route="capable",
+        tools=("web.fetch_page", "search_email", "read_email", "summarize_mail"),
+        skills=("anum.email", "anum.document-drafting"),
+        missing=(
+            Need("web_search", "Web search across the open web (needs a search service connected)",
+                 "بحث على الويب (يتطلب ربط خدمة بحث)", ("web_search", "web.search*", "search.web*")),
+            Need("file_reader", "A tool that reads files from the Documents library",
+                 "أداة تقرأ ملفات مكتبة المستندات", ("files.*", "file.read*", "document.*", "documents.*")),
+        ),
+        knowledge_mode="workspace", monthly_cost_limit_usd=8.0,
+    ),
+    Template(
+        id="legal_reviewer", department="legal", room_department="legal",
+        name_en="Legal Reviewer", name_ar="مراجع قانوني",
+        description_en="Reads contract and legal email, lists obligations, dates and risks, and drafts replies for a qualified person to review. It gives no legal advice.",
+        description_ar="يقرأ رسائل العقود والشؤون القانونية ويسرد الالتزامات والتواريخ والمخاطر ويكتب مسودات ردود يراجعها شخص مختص. لا يقدم نصيحة قانونية.",
+        instructions=_brief(
+            "You are a legal reviewer's assistant, not a lawyer.",
+            "Read the contract and legal email you can see and list the parties, obligations, dates, renewal and notice terms and "
+            "anything unusual. Draft replies and assign review tasks to the right person.",
+            "a review note: a one paragraph summary, a table of obligations and dates, risks marked as questions for a "
+            "qualified person, and a draft reply marked as a draft.",
+            "give legal advice, say a clause is valid or enforceable, send anything, or sign or agree to terms"),
+        icon="briefcase", color="#334155", model_route="capable",
+        tools=("search_email", "read_email", "summarize_mail", "classify_mail", "draft_reply", "team.assign_task"),
+        skills=("anum.email", "anum.document-drafting", "anum.team-assign"),
+        missing=(
+            Need("file_reader", "A tool that reads contracts and files from the Documents library",
+                 "أداة تقرأ العقود والملفات من مكتبة المستندات", ("files.*", "file.read*", "document.*", "documents.*", "contract.*", "contracts.*")),
+            Need("contract_register", "A contract register with parties, dates and renewals",
+                 "سجل عقود بالأطراف والتواريخ والتجديدات", ("legal.*", "register.*")),
+            Need("e_signature", "Sending a document for signature",
+                 "إرسال مستند للتوقيع", ("esign.*", "signature.*", "docusign.*")),
+        ),
+        knowledge_mode="workspace", write_autonomy="ask", monthly_cost_limit_usd=5.0,
     ),
 )
 

@@ -13,12 +13,15 @@ import { figure, type Load } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { loadFailure, PageHeader, PageSummary } from './PageParts';
 import { Modal } from './Dialog';
+import { DEPARTMENTS } from './hqBuilder/labels';
 import { CallButtons } from './AppCalls';
 import { CallHistory } from './CallHistory';
 import './team.css';
 
 // The board and the workload table are one "Team dashboard" tab (docs/team-work.md#dashboard).
 type Tab = 'mine' | 'board' | 'activity' | 'people' | 'calls';
+/** Every department a person can be placed in (matches the rooms' department list, `OFFICE_TEAM_DEPARTMENTS`). */
+const TEAM_DEPARTMENT_CHOICES = DEPARTMENTS;
 const TABS: Tab[] = ['mine', 'board', 'activity', 'people', 'calls'];
 const savedTab = (): Tab => { const saved = sessionStorageGet('anum.team.tab'); return saved === 'workload' ? 'board' : (TABS as string[]).includes(saved ?? '') ? saved as Tab : 'mine'; };
 type Flash = { text: string; error?: boolean } | null;
@@ -418,7 +421,7 @@ function ProfileForm({ person, onDone }: { person: TeamPerson; onDone(): void })
       <label className="field"><span>{t('team.profile.name')}</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required /></label>
       <label className="field"><span>{t('team.profile.email')}</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} /></label>
       <label className="field"><span>{t('team.profile.jobTitle')}</span><input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} /></label>
-      <label className="field"><span>{t('team.profile.department')}</span><select value={department} onChange={(e) => setDepartment(e.target.value)}><option value="">{t('team.none')}</option>{(['sales', 'support', 'operations', 'finance', 'tyre_engineering', 'custom'] as const).map((d) => <option key={d} value={d}>{t(`team.dept.${d}` as MessageKey)}</option>)}</select></label>
+      <label className="field"><span>{t('team.profile.department')}</span><select value={department} onChange={(e) => setDepartment(e.target.value)}><option value="">{t('team.none')}</option>{TEAM_DEPARTMENT_CHOICES.map((d) => <option key={d} value={d}>{t(`team.dept.${d}` as MessageKey)}</option>)}</select></label>
       <label className="field"><span>{t('team.profile.capacity')}</span><input inputMode="numeric" value={capacity} onChange={(e) => setCapacity(e.target.value)} /></label>
       <label className="field"><span>{t('team.profile.timezone')}</span><input value={zone} onChange={(e) => setZone(e.target.value)} maxLength={64} /></label>
     </div>

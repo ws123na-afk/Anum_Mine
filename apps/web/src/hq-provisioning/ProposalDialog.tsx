@@ -136,6 +136,11 @@ function ProposalBody({ proposal, locale, roomId, onRoom }: {
         <li>{t('hqProv.dlg.createsLedger', { kinds })}</li>
       </ul>
       <p className="hqProvNote">{agent.description}</p>
+      <details className="hqProvDetails" data-testid="prov-instructions">
+        <summary>{t('hqProv.dlg.instructions')}</summary>
+        <p className="hqProvNote hqProvInstructions" dir="ltr" lang="en">{agent.instructions}</p>
+      </details>
+      <p className="hqProvNote">{t(agent.knowledge_mode === 'none' ? 'hqProv.dlg.knowledgeNone' : 'hqProv.dlg.knowledgeWorkspace')}</p>
       <p className="hqProvNote"><strong>{t('hqProv.dlg.statusLine')}</strong></p>
     </section>
     <section className="hqProvSection" aria-label={t('hqProv.dlg.access')}>

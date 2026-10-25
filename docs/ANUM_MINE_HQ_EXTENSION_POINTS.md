@@ -77,10 +77,19 @@ The module a room opens follows its stored department (`team_department`, set by
 | `support` | Inbox and support (`#inbox`) |
 | `operations` | The live flow dock inside the office |
 | `tyre_engineering` | Tyre Planner (`#tyre`) |
-| `custom` or any unknown value | No module: "No module connected for this department" and the Organisation gaps button |
-| `executive`, `commerce`, `compliance`, `meeting` | Accepted if a later contract stores them: `#executive`, `#commerce`, `#governance`, `#meetings` (the contract stores only the first six departments today) |
+| `marketing` | Marketing (`#marketing`) |
+| `technology` | Developer mode (`#developer`, owners; others see who can use it) |
+| `research` | Knowledge Base collections (`#knowledge`) |
+| `legal` | Documents (`#files`) |
+| `compliance` | Governance (`#governance`) |
+| `security` | Audit log (`#audit`) |
+| `hr` | Members and roles (`#members`) |
+| `procurement`, `custom` or any unknown value | No module: "No module connected for this department" and the Organisation gaps button |
+| `executive`, `commerce`, `meeting` | Accepted if a later contract stores them: `#executive`, `#commerce`, `#meetings` (not storable today) |
 
 No department stored: the room kind decides (meeting to `#meetings`, workshop to `#tyre`, warehouse to `#commerce`, reception to no module, with "no visitor register"); then a room in an executive building opens `#executive`; then a word in the room name; last, office to Tasks and lounge to Calendar. In every one of these cases the owner (`workspace:manage`) sees "Set a department in the builder". No route is invented: every target is a view that exists in the shell.
+
+A room with a live meeting (the stored `room_id` of an active meeting) adds the meeting to the module link: a meeting room's link opens `#office/meeting/<id>`, and a room of another department also shows "Open the live meeting". See [departments, modules and meeting rooms](ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md).
 
 Reception: the live office has no visitor workflow and shows no invented host or room names (`ReceptionOperations` is a local simulation and is mounted only by the labelled Concept preview). A visitor registry is not built: owner decision O4 is open.
 

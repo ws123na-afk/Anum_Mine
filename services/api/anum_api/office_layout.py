@@ -33,7 +33,7 @@ EQUIPMENT_KINDS: Final = (
     "charging_station", "first_aid_kit",
 )
 # The existing team concept: anum_api.team_models.Department (kept in sync by a test).
-TEAM_DEPARTMENTS: Final = ("sales", "support", "operations", "finance", "tyre_engineering", "custom")
+TEAM_DEPARTMENTS: Final = ("sales", "support", "operations", "finance", "tyre_engineering", "marketing", "technology", "research", "legal", "compliance", "security", "hr", "procurement", "custom")
 
 # Error codes carried in the error envelope's details[].type.
 ROOM_OVERLAP: Final = "ROOM_OVERLAP"

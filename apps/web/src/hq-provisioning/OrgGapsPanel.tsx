@@ -17,7 +17,7 @@ export interface OrgGapsPanelProps {
   onProvisioned: () => void;
 }
 
-/** Display names of the seven roles. The API sends them too; these keep the list readable before any proposal loads. */
+/** Display names of the eleven roles. The API sends them too; these keep the list readable before any proposal loads. */
 export const ROLE_NAMES: Record<ProvisioningTemplateId, { en: string; ar: string }> = {
   orders_desk: { en: 'Orders Desk', ar: 'مكتب الطلبات' },
   sales_followup: { en: 'Sales Follow-up', ar: 'متابعة المبيعات' },
@@ -26,6 +26,10 @@ export const ROLE_NAMES: Record<ProvisioningTemplateId, { en: string; ar: string
   fleet_maintenance: { en: 'Fleet Maintenance Coordinator', ar: 'منسق صيانة الأسطول' },
   operations_dispatcher: { en: 'Operations Dispatcher', ar: 'مسؤول توزيع العمليات' },
   compliance_reviewer: { en: 'Compliance Reviewer', ar: 'مراجع الامتثال' },
+  marketing_specialist: { en: 'Marketing Specialist', ar: 'أخصائي التسويق' },
+  technology_coordinator: { en: 'Technology Coordinator', ar: 'منسق التقنية' },
+  research_analyst: { en: 'Research Analyst', ar: 'محلل أبحاث' },
+  legal_reviewer: { en: 'Legal Reviewer', ar: 'مراجع قانوني' },
 };
 
 export function roleName(id: ProvisioningTemplateId, locale: 'en' | 'ar'): string {

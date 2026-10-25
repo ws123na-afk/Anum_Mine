@@ -9,6 +9,7 @@ import { RoomModuleAction } from './HqRoomModule';
 import { buildingSummary } from './CampusView';
 import { filterBuildings, readingOrder, buildingStatus, type Campus } from './lib/campusModel.ts';
 import type { SceneBuilding } from './lib/headquartersProjection.ts';
+import type { RoomMeeting } from './lib/hqPresence.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 
 export function CampusListView(props: Readonly<{
@@ -19,6 +20,8 @@ export function CampusListView(props: Readonly<{
   onEnter: (workspaceId: string) => void;
   onOpenRoom: (workspaceId: string, floorId: string, roomId: string) => void;
   canManage?: boolean; onOpenFlow?: () => void; onOpenGaps?: () => void;
+  /** Live meetings by room id (stored on the meeting). A room in the map shows "In a meeting". */
+  liveMeetings?: ReadonlyMap<string, RoomMeeting>;
 }>) {
   const [query, setQuery] = useState('');
   const searchId = useId();
@@ -69,13 +72,15 @@ export function CampusListView(props: Readonly<{
                             <ul className="hqListRooms">
                               {rooms.map((r) => {
                                 const desks = f.desks.filter((d) => d.roomId === r.id);
+                                const live = props.liveMeetings?.get(r.id) ?? null;
                                 return (
-                                  <li key={r.id}>
+                                  <li key={r.id} data-in-meeting={live ? 'true' : undefined}>
                                     <button type="button" className="hqListRoom" onClick={() => props.onOpenRoom(b.workspace_id, f.id, r.id)}>
                                       <strong>{r.label}</strong>
                                       <small>{t(`hq.roomKind.${r.kind}` as MessageKey)} · {t('hq.list.desks', { count: desks.length })}</small>
                                     </button>
-                                    <RoomModuleAction variant="list" room={{ department: r.teamDepartment, kind: r.kind, name: r.label, buildingKind: b.kind }} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? (() => undefined)} onOpenGaps={props.onOpenGaps ?? (() => undefined)} />
+                                    {live && <span className="hqPill tone-ok" data-testid="list-in-meeting">{t('hq.room.inMeeting')}</span>}
+                                    <RoomModuleAction variant="list" liveMeetingId={live?.meetingId ?? null} room={{ department: r.teamDepartment, kind: r.kind, name: r.label, buildingKind: b.kind }} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? (() => undefined)} onOpenGaps={props.onOpenGaps ?? (() => undefined)} />
                                   </li>
                                 );
                               })}

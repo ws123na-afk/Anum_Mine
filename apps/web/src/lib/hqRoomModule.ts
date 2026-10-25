@@ -11,12 +11,15 @@
  *  5. the old generic kind fallback (office to Tasks, lounge to Calendar).
  * Only routes that exist in the shell are used (`lib/shell.ts` View). Pure: no effects, no DOM.
  */
+import { meetingHash } from './liveMeeting.ts';
 import type { View } from './shell.ts';
 
 /** What opening the module does. `flow` toggles the live flow dock inside the office; `none` has no module. */
 export type RoomModuleTarget =
   | Readonly<{ type: 'view'; view: View }>
   | Readonly<{ type: 'flow' }>
+  /** The specific live meeting held in this room (`#office/meeting/<id>`), not the Meetings list. */
+  | Readonly<{ type: 'meeting'; meetingId: string }>
   | Readonly<{ type: 'none'; why: 'no_department_module' | 'no_visitor_register' }>;
 
 export type RoomModuleSource = 'department' | 'kind' | 'building' | 'name' | 'generic';
@@ -37,15 +40,27 @@ export type RoomModuleInput = Readonly<{
   name: string;
   /** Kind of the campus building the room is in (`executive` for the tower). */
   buildingKind?: string | null;
+  /** The live meeting stored for this room (`room_id` on the meeting), if any. */
+  liveMeetingId?: string | null;
 }>;
 
 type Entry = Readonly<{ id: string; target: RoomModuleTarget }>;
 const view = (id: string, v: View): Entry => ({ id, target: { type: 'view', view: v } });
 
 /**
- * Department to module. The first six departments are the ones the contract can store today
- * (`OFFICE_TEAM_DEPARTMENTS`); the rest are accepted if a later contract adds them, so a stored
- * value never silently lands on a wrong module. `custom` has no module by design.
+ * Department to module. Every department the contract can store (`OFFICE_TEAM_DEPARTMENTS`) has an entry; a
+ * test keeps the two in step. Each opens a view that exists in the shell, or says plainly that no module is
+ * connected (`custom`, `procurement`): never a dead button. `executive`, `commerce` and `meeting` are not
+ * storable departments; they stay so a later contract value or a building kind resolves to the right module.
+ *
+ *   marketing   -> Marketing (#marketing)
+ *   technology  -> Developer mode (#developer; owners use it, others see who can)
+ *   research    -> Knowledge Base collections (#knowledge)
+ *   legal       -> Documents (#files)
+ *   compliance  -> Governance (#governance)
+ *   security    -> Audit log (#audit)
+ *   hr          -> Members and roles (#members)
+ *   procurement -> no module connected
  */
 export const DEPARTMENT_MODULES: Readonly<Record<string, Entry>> = {
   finance: view('finance', 'finance'),
@@ -53,6 +68,13 @@ export const DEPARTMENT_MODULES: Readonly<Record<string, Entry>> = {
   support: view('support', 'inbox'),
   operations: { id: 'operations', target: { type: 'flow' } },
   tyre_engineering: view('tyre', 'tyre'),
+  marketing: view('marketing', 'marketing'),
+  technology: view('developer', 'developer'),
+  research: view('knowledge', 'knowledge'),
+  legal: view('documents', 'files'),
+  security: view('audit', 'audit'),
+  hr: view('people', 'members'),
+  procurement: { id: 'none', target: { type: 'none', why: 'no_department_module' } },
   custom: { id: 'none', target: { type: 'none', why: 'no_department_module' } },
   executive: view('executive', 'executive'),
   commerce: view('commerce', 'commerce'),
@@ -89,6 +111,15 @@ function normaliseDepartment(value: string | null | undefined): string | null {
 }
 
 export function resolveRoomModule(input: RoomModuleInput): RoomModule {
+  const base = resolveBase(input);
+  // A live meeting in the room: the Meetings module link opens that very meeting instead of the list.
+  if (input.liveMeetingId && base.target.type === 'view' && base.target.view === 'meetings') {
+    return { ...base, target: { type: 'meeting', meetingId: input.liveMeetingId } };
+  }
+  return base;
+}
+
+function resolveBase(input: RoomModuleInput): RoomModule {
   const department = normaliseDepartment(input.department);
   if (department !== null) {
     const entry = DEPARTMENT_MODULES[department];
@@ -111,5 +142,6 @@ export function resolveRoomModule(input: RoomModuleInput): RoomModule {
 
 /** The hash a `view` target links to. */
 export function moduleHash(target: RoomModuleTarget): string | null {
+  if (target.type === 'meeting') return meetingHash(target.meetingId);
   return target.type === 'view' ? `#${target.view}` : null;
 }

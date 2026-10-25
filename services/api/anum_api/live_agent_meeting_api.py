@@ -53,8 +53,14 @@ class Limits(StrictBody):
     max_participants: int = Field(default=8, ge=1, le=50)
 
 
+RoomRef = Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")]
+MeetingStatusFilter = Literal["scheduled", "active", "paused", "finished", "cancelled", "failed"]
+
+
 class CreateMeeting(StrictBody):
     title: str = Field(min_length=1, max_length=200)
+    # The office room the meeting is held in (kind "meeting", same workspace). Optional: a meeting needs no room.
+    room_id: RoomRef | None = None
     limits: Limits = Field(default_factory=Limits)
 
 
@@ -113,7 +119,8 @@ def _store(context: TenantContext) -> Iterator[SqlLiveMeetingStore]:
         yield store
 
 
-def _audit(store: SqlLiveMeetingStore, context: TenantContext, action: str, meeting_id: str) -> None:
+def _audit(store: SqlLiveMeetingStore, context: TenantContext, action: str, meeting_id: str,
+           room_id: str | None = None) -> None:
     from .db.repository import SqlAlchemyRepository
     SqlAlchemyRepository(store.session).record_audit(
         AuditRecord(
@@ -126,7 +133,7 @@ def _audit(store: SqlLiveMeetingStore, context: TenantContext, action: str, meet
             outcome="success",
             correlation_id=new_id("correlation"),
             created_at=utc_now(),
-            metadata={"resource": "agent_meeting", "meeting_id": meeting_id},
+            metadata={"resource": "agent_meeting", "meeting_id": meeting_id, **({"room_id": room_id} if room_id else {})},
         )
     )
 
@@ -134,13 +141,20 @@ def _audit(store: SqlLiveMeetingStore, context: TenantContext, action: str, meet
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_meeting(body: CreateMeeting, context: TenantContext = Depends(tenant_context)) -> dict:
     require_permission(context, Permission.WORKSPACE_MANAGE)
-    data = {"id": new_id("agent_meeting"), "title": body.title.strip(), **body.limits.model_dump()}
+    data = {"id": new_id("agent_meeting"), "title": body.title.strip(), "room_id": body.room_id, **body.limits.model_dump()}
     if not data["title"]:
         raise HTTPException(422, "Meeting title cannot be blank")
     with _store(context) as store:
         try:
+            if body.room_id is not None:
+                # Read through the caller's own workspace session: a room of another workspace or tenant is a 404.
+                found = store.meeting_room(context, body.room_id)
+                if found is None:
+                    raise HTTPException(404, "Room not found in this workspace")
+                if found["kind"] != "meeting":
+                    raise HTTPException(422, "Only a meeting room can hold a meeting")
             result = store.create(context, data)
-            _audit(store, context, "agent_meeting.create", result["id"])
+            _audit(store, context, "agent_meeting.create", result["id"], body.room_id)
             return result
         except LiveMeetingStoreError as exc:
             raise _error(exc) from exc
@@ -177,11 +191,13 @@ def update_budget(body: BudgetUpdate, context: TenantContext = Depends(tenant_co
 def list_meetings(
     cursor: str | None = Query(default=None, max_length=80),
     limit: int = Query(default=50, ge=1, le=100),
+    status: MeetingStatusFilter | None = Query(default=None),
+    room_id: str | None = Query(default=None, max_length=80),
     context: TenantContext = Depends(tenant_context),
 ) -> dict:
     require_permission(context, Permission.TASK_READ)
     with _store(context) as store:
-        return store.list(context, cursor=cursor, limit=limit)
+        return store.list(context, cursor=cursor, limit=limit, status=status, room_id=room_id)
 
 
 @router.get("/{meeting_id}")
@@ -248,7 +264,7 @@ def change_state(
     with _store(context) as store:
         try:
             result = store.transition(context, meeting_id, body.expected_revision, body.status)
-            _audit(store, context, "agent_meeting.state_change", meeting_id)
+            _audit(store, context, "agent_meeting.state_change", meeting_id, result.get("room_id"))
             return result
         except LiveMeetingStoreError as exc:
             raise _error(exc) from exc

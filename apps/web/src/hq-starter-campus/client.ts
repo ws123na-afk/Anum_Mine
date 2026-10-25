@@ -48,11 +48,16 @@ export function hasWork(counts: StarterCounts): boolean {
   return counts.buildings + counts.floors + counts.rooms + counts.desks > 0;
 }
 
+/** Existing campus rooms whose empty or custom department the master list would fill. */
+export function departmentFills(totals: { update?: { room_departments: number } }): number {
+  return totals.update?.room_departments ?? 0;
+}
+
 /** The confirm button needs a person who may confirm, a plan for exactly the ticked buildings, and something to create. */
 export function canConfirm(preview: StarterCampusPreview | null, ticked: ReadonlySet<string>, busy: boolean, loading: boolean): boolean {
   if (!preview || busy || loading || !preview.can_confirm || ticked.size === 0) return false;
   const same = preview.selected.length === ticked.size && preview.selected.every((k) => ticked.has(k));
-  return same && hasWork(preview.totals.create);
+  return same && (hasWork(preview.totals.create) || departmentFills(preview.totals) > 0);
 }
 
 /** Rooms and desks to show for one building, in the order the server planned them. */

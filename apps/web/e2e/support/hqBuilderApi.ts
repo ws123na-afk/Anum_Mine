@@ -105,7 +105,7 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
           : list[1] === 'floors' ? [...floors.values()] : list[1] === 'rooms' ? [...rooms.values()] : [...desks.values()];
         return json({ items, next_cursor: null });
       }
-      if (path === '/templates') return json({ items: TEMPLATES, equipment_kinds: ['monitor', 'display', 'whiteboard', 'projector', 'conference_phone', 'video_conference_kit', 'printer', 'server_rack', 'network_switch', 'workbench', 'shelving', 'locker', 'charging_station', 'first_aid_kit'], colors: ['slate', 'forest', 'brass', 'sapphire', 'amethyst', 'crimson', 'teal', 'sand'], departments: ['sales', 'support', 'operations', 'finance', 'tyre_engineering', 'custom'], units: 'metres' });
+      if (path === '/templates') return json({ items: TEMPLATES, equipment_kinds: ['monitor', 'display', 'whiteboard', 'projector', 'conference_phone', 'video_conference_kit', 'printer', 'server_rack', 'network_switch', 'workbench', 'shelving', 'locker', 'charging_station', 'first_aid_kit'], colors: ['slate', 'forest', 'brass', 'sapphire', 'amethyst', 'crimson', 'teal', 'sand'], departments: ['sales', 'support', 'operations', 'finance', 'tyre_engineering', 'marketing', 'technology', 'research', 'legal', 'compliance', 'security', 'hr', 'procurement', 'custom'], units: 'metres' });
       const team = path.match(/^\/rooms\/([^/]+)\/team$/);
       if (team) {
         const r = rooms.get(team[1]);
