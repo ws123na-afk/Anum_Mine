@@ -75,6 +75,13 @@ x-user-roles: owner,member
 ```
 
 ## Documentation Index
+- [Sales CRM web dashboard](docs/sales-dashboard.md)
+- [Sales CRM Flutter workspace](docs/sales-flutter.md)
+- [Sales quotation approval, autonomous follow-ups and production verification](docs/sales-web-execution-readiness.md)
+- [Marketing sales agent orchestration](docs/marketing-sales-agent-orchestration.md)
+- [Marketing WhatsApp sales](docs/marketing-whatsapp-sales.md)
+- [Sales CRM API](docs/sales-crm-api.md)
+- [Sales lead lifecycle](docs/sales-lead-lifecycle.md)
 
 - [ANUM MINE room geometry and branch reconciliation](docs/ANUM_MINE_GEOMETRY_AND_BRANCH_RECONCILIATION.md)
 
@@ -127,6 +134,8 @@ x-user-roles: owner,member
 - [Trading intelligence: market data, strategy lab and SIMULATED trading (live off)](docs/finance-trading-intel.md)
 - [Trading intelligence gap assessment](docs/finance-trading-gap-assessment.md)
 - [Trading intelligence readiness report (loop 10, live stays off)](docs/finance-trading-readiness.md)
+- [Broker onboarding, statement reconciliation and custody safeguards (live off)](docs/finance-broker-onboarding.md)
+- [SAR 500 stocks and crypto paper simulation](docs/finance-sar500-paper-integration.md)
 - [Tyre planning](docs/tyre-planning.md)
 - [Social media marketing](docs/marketing.md)
 - [Email campaigns through Brevo (connection, drafts, approval-only sending, agent tools)](docs/brevo.md)
@@ -255,3 +264,6 @@ Code should follow the contracts, boundaries, tenant model, and security expecta
 - [ANUM MINE virtual headquarters master plan](docs/ANUM_MINE_VIRTUAL_HEADQUARTERS_MASTER_PLAN.md)
 - [ANUM MINE persistent live meeting management API](docs/ANUM_MINE_LIVE_MEETING_MANAGEMENT_API.md)
 - [ANUM MINE live agent meetings foundation](docs/ANUM_MINE_LIVE_AGENT_MEETING_FOUNDATION.md)
+
+- [Sales dashboard](docs/sales-dashboard.md)
+- [Sales Flutter](docs/sales-flutter.md)
