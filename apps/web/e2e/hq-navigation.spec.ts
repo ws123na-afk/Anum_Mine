@@ -39,7 +39,7 @@ test('campus to building to floor to room through the strip, the rail, the plan 
   await openOffice(page);
   // The strip lists the campus aerial and one stop per building, taken from the campus data.
   for (const name of ['Campus (aerial)', 'Executive HQ', 'Al Noor Fleet HQ', 'Tyre Pulse HQ', 'ANUM360 Commerce', 'Personal Office']) {
-    await expect(strip(page).getByRole('button', { name: new RegExp('^Quick view: ' + name.replace(/[()]/g, '\\$&') + '\\.') })).toBeVisible();
+    await expect(strip(page).getByRole('button', { name: `Quick view: ${name}.` })).toBeVisible();
   }
   // A building the person cannot open is listed, locked and disabled.
   await expect(strip(page).getByRole('button', { name: /^Quick view: Legal and Compliance\. Not available to you/ })).toBeDisabled();
@@ -295,7 +295,7 @@ test('a registry with eight buildings is eight buildings on the campus, next to 
   const full = await cards(page).locator('.hqBuildingCard[data-density="full"]').count();
   expect(full).toBeLessThanOrEqual(6);
   // The strip lists the same buildings; opening one reads its own floors and rooms.
-  for (const name of ['ANUM HQ', 'Tyre Pulse Workshop', 'Career and Employment', 'Executive HQ']) await expect(strip(page).getByRole('button', { name: new RegExp('^Quick view: ' + name + '\\.') })).toBeVisible();
+  for (const name of ['ANUM HQ', 'Tyre Pulse Workshop', 'Career and Employment', 'Executive HQ']) await expect(strip(page).getByRole('button', { name: `Quick view: ${name}.` })).toBeVisible();
   await strip(page).getByRole('button', { name: /^Quick view: Tyre Pulse Workshop\./ }).click();
   await strip(page).getByRole('button', { name: /^Quick view: Tyre Pulse Workshop\./ }).click();
   await expect(hq(page).getByRole('button', { name: 'Back to campus' })).toBeVisible();
