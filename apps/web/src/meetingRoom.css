@@ -81,3 +81,8 @@
 .mrLauncher li { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .mrLauncher a { align-items: center; border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); display: inline-flex; min-height: 40px; padding: 0 var(--d-s3); text-decoration: none; }
 .mrLauncher a:hover { background: var(--d-glass-2); }
+.mrMonth { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s1); padding-top: var(--d-s2); }
+.mrMonth h4 { font-size: var(--text-sm); margin: 0; }
+.mrMonth[data-tone="near"] progress { accent-color: var(--d-warn); }
+.mrMonth[data-tone="full"] progress { accent-color: var(--d-stop); }
+.mrBudgetNotice { overflow-wrap: anywhere; }

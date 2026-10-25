@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Hand, LogIn, LogOut, Pause, Play, Square, Users, X } from 'lucide-react';
+import { CircleDot, Hand, Lock, LogIn, LogOut, Pause, Play, Square, Users, X } from 'lucide-react';
 import * as api from './lib/api';
 import { describeError } from './lib/errors';
 import { intlLocale, t, type MessageKey } from './lib/i18n';
 import {
   TERMINAL, activeSpeakers, applyEvent, budgetUsed, draftFromMessage, initialState, presentActors,
-  type RoomEvent, type RoomState,
+  type MeetingBudget, type RoomEvent, type RoomState,
 } from './lib/liveMeeting';
+import { formatResetDate } from './lib/admin';
+import { budgetBlocks, budgetTone, usd } from './lib/meetingBudget';
 import { followRoom, meetingRoomApi, type MeetingSummary } from './lib/liveMeetingApi';
 import { AgendaCard, Composer, EndButton, FilesCard, Meter, OutputsCard, RecordCard, Transcript, endedNote, type Draft } from './MeetingRoomParts';
 import { useLocale } from './useLocale';
@@ -70,6 +72,8 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
   const [replay, setReplay] = useState<{ state: RoomState; step: number; total: number } | null>(null);
   const replayTimer = useRef<number | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [budget, setBudget] = useState<MeetingBudget | null>(null);
+  const [budgetFailed, setBudgetFailed] = useState(false);
 
   // First load: the stored room and transcript, then the live feed from the stored cursor.
   useEffect(() => {
@@ -79,7 +83,8 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
     (async () => {
       try {
         const bundle = await meetingRoomApi.room(meetingId);
-        const messages = bundle.transcript_deleted ? [] : await meetingRoomApi.turns(meetingId);
+        // Only a workspace owner may read the text: for everyone else the API sends none and refuses these reads.
+        const messages = bundle.transcript_deleted || bundle.transcript_hidden ? [] : await meetingRoomApi.turns(meetingId);
         if (!live) return;
         setState(initialState(bundle, messages));
         setLoad({ phase: 'ready' });
@@ -93,14 +98,28 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
   const startCursor = useRef(0);
   useEffect(() => { if (load.phase === 'ready' && state) startCursor.current = state.lastSeq; }, [load.phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const hidden = state?.transcriptHidden ?? false;
   // Live feed: only while the meeting can still change. It resumes by event number after any break.
+  // Not for people who may not read the text (the stream is owner only): they poll the room instead.
   useEffect(() => {
-    if (load.phase !== 'ready' || terminal) return;
+    if (load.phase !== 'ready' || terminal || hidden) return;
     const controller = new AbortController();
     followRoom(meetingId, startCursor.current, (event: RoomEvent) => { startCursor.current = event.seq; setState((s) => s && applyEvent(s, event)); }, setOnline, controller.signal)
       .catch((e) => { if (!controller.signal.aborted) setLoad({ phase: 'failed', ...failureOf(e) }); });
     return () => controller.abort();
-  }, [load.phase, terminal, meetingId]);
+  }, [load.phase, terminal, hidden, meetingId]);
+  useEffect(() => {
+    if (load.phase !== 'ready' || terminal || !hidden) return;
+    const id = window.setInterval(() => { if (document.visibilityState === 'visible') void reload().catch(() => undefined); }, 10_000);
+    return () => window.clearInterval(id);
+  }, [load.phase, terminal, hidden]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The workspace's monthly meeting budget: read when the room opens and again whenever a message or the budget event moves it.
+  const loadBudget = useCallback(() => {
+    void meetingRoomApi.budget().then((next) => { setBudget(next); setBudgetFailed(false); }, () => setBudgetFailed(true));
+  }, []);
+  const budgetTick = state?.budgetTick ?? 0;
+  useEffect(() => { if (load.phase === 'ready') loadBudget(); }, [load.phase, budgetTick, loadBudget]);
 
   // The speaking dot expires by itself if a worker died, so the clock ticks only while someone is shown speaking.
   const speakingNow = state ? activeSpeakers(state, now) : [];
@@ -124,12 +143,13 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
   // Reload the stored room after a change, so the page is right even while the feed is reconnecting.
   const reload = useCallback(async () => {
     const bundle = await meetingRoomApi.room(meetingId);
-    setState((s) => s ? { ...s, meeting: bundle.meeting, participants: bundle.participants, attendance: bundle.attendance, agenda: bundle.agenda, outputs: bundle.outputs, files: bundle.files, transcriptDeleted: bundle.transcript_deleted } : s);
+    setState((s) => s ? { ...s, meeting: bundle.meeting, participants: bundle.participants, attendance: bundle.attendance, agenda: bundle.agenda, outputs: bundle.outputs, files: bundle.files, transcriptDeleted: bundle.transcript_deleted,
+      transcriptHidden: bundle.transcript_hidden === true, outputsCount: bundle.outputs_count ?? bundle.outputs.length, filesCount: bundle.files_count ?? bundle.files.length, viewer: bundle.viewer } : s);
   }, [meetingId]);
   const act = useCallback(async (work: () => Promise<unknown>, done?: string) => {
     setBusy(true); setError(''); setInfo('');
-    try { await work(); await reload(); if (done) setInfo(done); } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
-  }, [reload]);
+    try { await work(); await reload(); loadBudget(); if (done) setInfo(done); } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
+  }, [reload, loadBudget]);
 
   if (load.phase === 'loading') return <p role="status" className="muted mrPad">{t('meetingRoom.loading')}</p>;
   if (load.phase === 'failed') return <div className="mrPad">
@@ -144,6 +164,8 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
   const present = presentActors(state);
   const youPresent = present.includes(mine);
   const used = budgetUsed(state.meeting, state.messages.length);
+  const blocked = budgetBlocks(budget);
+  const tone = budget ? budgetTone(budget) : 'ok';
   const time = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString(intlLocale(locale), { hour: '2-digit', minute: '2-digit' }); };
 
   const playReplay = async () => {
@@ -175,9 +197,9 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
       <div className="mrRow">
         {!terminal && <button type="button" className="secondary" disabled={busy} onClick={() => void act(() => meetingRoomApi.presence(meetingId, youPresent ? 'leave' : 'join'))}>
           {youPresent ? <LogOut aria-hidden="true" /> : <LogIn aria-hidden="true" />}{youPresent ? t('meetingRoom.leave') : t('meetingRoom.join')}</button>}
-        {isOwner && m.status === 'scheduled' && <button type="button" disabled={busy || agentIds.length === 0} onClick={() => void act(() => meetingRoomApi.setState(meetingId, 'active'))}><Play aria-hidden="true" />{t('meetingRoom.start')}</button>}
+        {isOwner && m.status === 'scheduled' && <button type="button" disabled={busy || agentIds.length === 0 || blocked} title={blocked ? t('meetingRoom.budgetBlocked') : undefined} onClick={() => void act(() => meetingRoomApi.setState(meetingId, 'active'))}><Play aria-hidden="true" />{t('meetingRoom.start')}</button>}
         {isOwner && m.status === 'active' && <button type="button" className="secondary" disabled={busy} onClick={() => void act(() => meetingRoomApi.setState(meetingId, 'paused'))}><Pause aria-hidden="true" />{t('meetingRoom.pause')}</button>}
-        {isOwner && m.status === 'paused' && <button type="button" disabled={busy} onClick={() => void act(() => meetingRoomApi.setState(meetingId, 'active'))}><Play aria-hidden="true" />{t('meetingRoom.resume')}</button>}
+        {isOwner && m.status === 'paused' && <button type="button" disabled={busy || blocked} title={blocked ? t('meetingRoom.budgetBlocked') : undefined} onClick={() => void act(() => meetingRoomApi.setState(meetingId, 'active'))}><Play aria-hidden="true" />{t('meetingRoom.resume')}</button>}
         {isOwner && live && <EndButton disabled={busy} onEnd={() => void act(() => meetingRoomApi.setState(meetingId, 'finished'))} />}
         <button type="button" className="secondary" onClick={onClose}><X aria-hidden="true" />{t('meetingRoom.close')}</button>
       </div>
@@ -187,6 +209,9 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
     {terminal && <p className="notice" role="note">{t('meetingRoom.replay')}{endedNote(m.ended_reason) ? ' ' + endedNote(m.ended_reason) : ''}</p>}
     {error && <p className="notice errorNotice" role="alert">{error}</p>}
     {info && <p className="notice" role="status">{info}</p>}
+    {blocked && budget && !terminal && <p className="notice errorNotice mrBudgetNotice" role="status"><CircleDot aria-hidden="true" />
+      {t('meetingRoom.budgetReached', { used: usd(budget.used_usd), limit: usd(budget.limit_usd), date: formatResetDate(budget.resets_on, false) })}</p>}
+    {!blocked && tone === 'near' && !terminal && <p className="notice" role="status">{t('meetingRoom.budgetNear')}</p>}
     {m.hand_raised_by && !terminal && <p className="notice mrHand" role="status"><Hand aria-hidden="true" />{t('meetingRoom.handRaised', { name: who(m.hand_raised_by) })}
       {isOwner && <button type="button" className="secondary" disabled={busy} onClick={() => void act(() => meetingRoomApi.hand(meetingId, 'lower'))}>{t('meetingRoom.lowerHand')}</button>}</p>}
 
@@ -203,18 +228,20 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
 
         <section aria-labelledby="mr-transcript">
           <div className="mrSectionHead"><h3 id="mr-transcript">{t('meetingRoom.transcript')}</h3>
-            {terminal && !state.transcriptDeleted && state.messages.length > 0 && (replay
+            {terminal && !state.transcriptHidden && !state.transcriptDeleted && state.messages.length > 0 && (replay
               ? <button type="button" className="secondary" onClick={stopReplay}><Square aria-hidden="true" />{`${replay.step}/${replay.total}`}</button>
               : <button type="button" className="secondary" disabled={busy} onClick={() => void playReplay()}><Play aria-hidden="true" />{t('meetingRoom.playback')}</button>)}
           </div>
-          <Transcript state={shown} who={who} time={time} deleted={state.transcriptDeleted} isOwner={isOwner} live={live}
-            speakingNames={speaking.map(who)} notices={state.notices.map((n) => n.reason)} canDraft={isOwner && !state.transcriptDeleted}
-            onDraft={(kind, seq, body) => setDraft({ kind, body: draftFromMessage(body), seq })} />
+          {state.transcriptHidden
+            ? <p className="notice" role="note" data-testid="transcript-hidden"><Lock aria-hidden="true" />{t('meetingRoom.transcriptOwnerOnly')}</p>
+            : <Transcript state={shown} who={who} time={time} deleted={state.transcriptDeleted} isOwner={isOwner} live={live}
+              speakingNames={speaking.map(who)} notices={state.notices.map((n) => n.reason)} canDraft={isOwner && !state.transcriptDeleted}
+              onDraft={(kind, seq, body) => setDraft({ kind, body: draftFromMessage(body), seq })} />}
         </section>
 
         {isOwner && live && <Composer disabled={busy} onSend={(text) => act(() => meetingRoomApi.say(meetingId, text))} />}
         {isOwner && m.status === 'active' && <div className="mrRow">
-          <button type="button" disabled={busy || speaking.length > 0 || agentIds.length === 0 || !!m.hand_raised_by} onClick={() => void act(() => meetingRoomApi.runTurn(meetingId))} title={t('meetingRoom.runTurnHint')}>
+          <button type="button" disabled={busy || blocked || speaking.length > 0 || agentIds.length === 0 || !!m.hand_raised_by} onClick={() => void act(() => meetingRoomApi.runTurn(meetingId))} title={blocked ? t('meetingRoom.budgetBlocked') : t('meetingRoom.runTurnHint')}>
             <Play aria-hidden="true" />{busy ? t('meetingRoom.busy') : t('meetingRoom.runTurn')}</button>
           <span className="muted mrHint">{t('meetingRoom.runTurnHint')}</span></div>}
         {!isOwner && live && <div className="mrRow">
@@ -227,6 +254,12 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
           <Meter label={t('meetingRoom.budgetTurns', { used: used.turns.used, max: used.turns.max })} value={used.turns.used} max={used.turns.max} />
           <Meter label={t('meetingRoom.budgetTokens', { used: used.tokens.used, max: used.tokens.max })} value={used.tokens.used} max={used.tokens.max} />
           <Meter label={t('meetingRoom.budgetCost', { used: used.cost.used.toFixed(4), max: used.cost.max.toFixed(2) })} value={used.cost.used} max={used.cost.max} />
+          {budget && <div className="mrMonth" data-tone={tone}>
+            <h4>{t('meetingRoom.budgetMonth')}</h4>
+            <Meter label={t('meetingRoom.budgetMonthUsed', { used: usd(budget.used_usd), limit: usd(budget.limit_usd) })} value={Math.min(100, budget.percent)} max={100} />
+            <small className="muted">{t('meetingRoom.budgetMonthReset', { date: formatResetDate(budget.resets_on, false) })}</small>
+          </div>}
+          {!budget && budgetFailed && <p className="muted">{t('meetingRoom.budgetUnavailable')}</p>}
         </section>
 
         <section aria-labelledby="mr-attendance" className="mrCard"><h3 id="mr-attendance"><Users aria-hidden="true" />{t('meetingRoom.attendance')}</h3>
@@ -239,12 +272,16 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
           onState={(id, s) => act(() => meetingRoomApi.patchAgenda(meetingId, id, { state: s }))}
           onRemove={(id) => act(() => meetingRoomApi.deleteAgenda(meetingId, id))} />
 
-        <OutputsCard state={state} owner={isOwner} busy={busy} draft={draft} setDraft={setDraft}
+        {state.transcriptHidden
+          ? <section aria-labelledby="mr-outputs" className="mrCard"><h3 id="mr-outputs">{t('meetingRoom.outputs')}</h3><p className="muted">{t('meetingRoom.outputsOwnerOnly', { count: state.outputsCount })}</p></section>
+          : <OutputsCard state={state} owner={isOwner} busy={busy} draft={draft} setDraft={setDraft}
           onSave={(d) => act(async () => { await meetingRoomApi.draft(meetingId, { kind: d.kind, body: d.body, owner_label: d.label || null, source_sequences: d.seq ? [d.seq] : [] }); setDraft(null); })}
           onDecide={(o, s) => act(() => meetingRoomApi.decide(meetingId, o.id, { state: s }))}
-          onTask={(o) => act(() => meetingRoomApi.createTask(meetingId, o.id), t('meetingRoom.taskCreated'))} />
+          onTask={(o) => act(() => meetingRoomApi.createTask(meetingId, o.id), t('meetingRoom.taskCreated'))} />}
 
-        <FilesCard state={state} owner={isOwner} busy={busy}          onLink={(id) => act(() => meetingRoomApi.linkFile(meetingId, id))} onUnlink={(id) => act(() => meetingRoomApi.unlinkFile(meetingId, id))} />
+        {state.transcriptHidden
+          ? <section aria-labelledby="mr-files" className="mrCard"><h3 id="mr-files">{t('meetingRoom.files')}</h3><p className="muted">{t('meetingRoom.filesOwnerOnly', { count: state.filesCount })}</p></section>
+          : <FilesCard state={state} owner={isOwner} busy={busy} onLink={(id) => act(() => meetingRoomApi.linkFile(meetingId, id))} onUnlink={(id) => act(() => meetingRoomApi.unlinkFile(meetingId, id))} />}
 
         {isOwner && <RecordCard terminal={terminal} deleted={state.transcriptDeleted} busy={busy}
           onExport={() => act(async () => {

@@ -28,6 +28,8 @@ class ErrorCode(StrEnum):
     NOT_FOUND = "not_found"
     CONFLICT = "conflict"
     MODEL_BUDGET_EXCEEDED = "model_budget_exceeded"
+    # The workspace's monthly agent meeting budget is used up (HTTP 402, docs/ANUM_MINE_LIVE_MEETING_BUDGET.md).
+    AGENT_MEETING_BUDGET_EXCEEDED = "agent_meeting_budget_exceeded"
     # The organization's emergency stop is on (HTTP 423, docs/agent-controls.md).
     AGENTS_STOPPED = "agents_stopped"
     # Customer billing (docs/billing.md): a plan limit would be passed by new work, the

@@ -6,8 +6,10 @@ governance and database reservation adapters pass integration tests.
 """
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from collections.abc import Iterator
+from decimal import Decimal
 from typing import Annotated, Literal
 from .model_gateway import build_default_model_gateway
 from .meeting_execution import execute_meeting_turn
@@ -18,13 +20,23 @@ from sqlalchemy import text
 
 from .audit import AuditRecord
 from .authorization import Permission
-from .dependencies import require_permission, tenant_context
+from .dependencies import has_permission, require_permission, tenant_context
+from .errors import ApplicationError, ErrorCode
+from . import live_agent_meeting_budget as meeting_budget
+from .live_agent_meeting_audit import audit_event, audit_in_new_transaction
 from .live_agent_meeting_store import LiveMeetingStoreError, SqlLiveMeetingStore
 from .scoped_store import open_scoped_store
 from .schemas import TenantContext, new_id, utc_now
 from .settings import settings
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/agent-meetings", tags=["agent meetings"])
+
+# Owner decision of 25 October 2026 (finding S-03): transcripts are read by the workspace owner only.
+# "Owner" is the workspace owner role, the one that holds ``workspace:manage``. Members and viewers
+# still see that a meeting took place, its title, time, participants and status.
+TRANSCRIPT_DENIED = ("Only a workspace owner can read meeting transcripts. "
+                     "You can still see that the meeting took place, who attended and its status.")
 
 MeetingId = Annotated[str, Path(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")]
 
@@ -67,7 +79,26 @@ class StateChange(RevisionChange):
     status: Literal["active", "paused", "finished", "cancelled", "failed"]
 
 
-def _error(exc: LiveMeetingStoreError) -> HTTPException:
+def can_read_transcript(context: TenantContext) -> bool:
+    return has_permission(context, Permission.WORKSPACE_MANAGE)
+
+
+def require_transcript_reader(context: TenantContext, meeting_id: str, read_path: str) -> None:
+    """403 with a clear message unless the caller is a workspace owner; the refusal is audited (no text)."""
+    if can_read_transcript(context):
+        return
+    try:
+        audit_in_new_transaction(context, "agent_meeting.transcript_denied", meeting_id, outcome="denied",
+                                 meeting_id=meeting_id, read_path=read_path, reason="owner_only",
+                                 role=",".join(context.roles))
+    except Exception:  # noqa: BLE001 - the refusal stands even if the audit store is unreachable
+        logger.warning("agent_meeting.transcript_denied audit failed", exc_info=True)
+    raise HTTPException(status.HTTP_403_FORBIDDEN, TRANSCRIPT_DENIED)
+
+
+def _error(exc: LiveMeetingStoreError) -> HTTPException | ApplicationError:
+    if exc.code == "budget":
+        return ApplicationError(ErrorCode.AGENT_MEETING_BUDGET_EXCEEDED, str(exc), status_code=status.HTTP_402_PAYMENT_REQUIRED)
     return HTTPException(
         status_code={"not_found":404, "forbidden":403, "conflict":409, "unavailable":503}.get(exc.code, 409),
         detail=str(exc),
@@ -115,6 +146,33 @@ def create_meeting(body: CreateMeeting, context: TenantContext = Depends(tenant_
             raise _error(exc) from exc
 
 
+class BudgetUpdate(StrictBody):
+    # USD per calendar month (UTC), whole cents. null returns to the default (USD 50).
+    monthly_cost_limit_usd: Decimal | None = Field(ge=0, le=100000, max_digits=9, decimal_places=2)
+
+
+@router.get("/budget")
+def get_budget(context: TenantContext = Depends(tenant_context)) -> dict:
+    """This month's agent meeting spend against the workspace cap. Every member may read it: it holds no transcript."""
+    require_permission(context, Permission.TASK_READ)
+    with _store(context) as store:
+        state = meeting_budget.read_state(store, context)
+    return {**state.view(), "can_manage": has_permission(context, Permission.WORKSPACE_MANAGE)}
+
+
+@router.put("/budget")
+def update_budget(body: BudgetUpdate, context: TenantContext = Depends(tenant_context)) -> dict:
+    """Owner only. Sets (or with null resets) the monthly cap; audited with the old and new limit."""
+    require_permission(context, Permission.WORKSPACE_MANAGE)
+    with _store(context) as store:
+        before, after = meeting_budget.set_limit(store, context, body.monthly_cost_limit_usd)
+        audit_event(store.session, context, "agent_meeting.budget_update", f"agent_meeting_budget:{context.workspace_id}",
+                    previous_limit_usd=before.limit_usd, new_limit_usd=after.limit_usd,
+                    reason="reset_to_default" if body.monthly_cost_limit_usd is None else "owner_set",
+                    used_usd=after.used_usd, period_start=after.period_start.isoformat())
+        return {**after.view(), "can_manage": True}
+
+
 @router.get("")
 def list_meetings(
     cursor: str | None = Query(default=None, max_length=80),
@@ -144,6 +202,7 @@ def list_turns(
     context: TenantContext = Depends(tenant_context),
 ) -> dict:
     require_permission(context, Permission.TASK_READ)
+    require_transcript_reader(context, meeting_id, "turns")
     with _store(context) as store:
         if store.get(context, meeting_id) is None:
             raise HTTPException(404, "Meeting not found")
@@ -166,12 +225,26 @@ def join_self(
             raise _error(exc) from exc
 
 
+def _refuse_start_at_cap(context: TenantContext, meeting_id: str) -> None:
+    """A meeting cannot start or resume once the workspace's monthly meeting budget is used up (S-02)."""
+    with _store(context) as store:
+        state = meeting_budget.read_state(store, context)
+    if state.used_usd < state.limit_usd:
+        return
+    audit_in_new_transaction(context, "agent_meeting.turn", meeting_id, outcome="blocked", meeting_id=meeting_id,
+                             reason="monthly_budget_start", limit_usd=state.limit_usd, used_usd=state.used_usd,
+                             period_start=state.period_start.isoformat())
+    raise _error(meeting_budget.MeetingBudgetReached(state))
+
+
 @router.post("/{meeting_id}/state")
 def change_state(
     meeting_id: MeetingId, body: StateChange,
     context: TenantContext = Depends(tenant_context),
 ) -> dict:
     require_permission(context, Permission.WORKSPACE_MANAGE)
+    if body.status == "active":
+        _refuse_start_at_cap(context, meeting_id)
     with _store(context) as store:
         try:
             result = store.transition(context, meeting_id, body.expected_revision, body.status)

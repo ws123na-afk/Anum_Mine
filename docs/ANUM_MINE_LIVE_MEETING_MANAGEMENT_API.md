@@ -41,3 +41,7 @@ Neither the frontend nor this management API can execute paid model calls.
 This branch starts from current GitHub `main`, not from the four local agent
 worktrees. It modifies only the new meeting store/API/tests and adds one route
 registration in `main.py`, avoiding changes to the office 3D/frontend modules.
+
+## Budget, transcript access and turn audit
+
+`GET|PUT /api/v1/agent-meetings/budget`; transcript reads (`turns`, `events`, `events/stream`, `export`) need the owner role; each turn is audited as `agent_meeting.turn`; a reached cap answers 402 `agent_meeting_budget_exceeded`. See [budget and transcripts](ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md).
