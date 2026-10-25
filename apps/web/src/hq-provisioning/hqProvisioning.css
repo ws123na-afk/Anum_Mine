@@ -50,3 +50,6 @@
 @keyframes hqProvSpin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.hqProvSpin{animation:none}}
 @media(max-width:580px){.hqProvBackdrop{font-size:var(--text-xs);padding:0;align-items:end}.hqProvDialog{max-height:100dvh;border-radius:14px 14px 0 0}}
+
+.hqProvDetails{margin:6px 0}.hqProvDetails summary{cursor:pointer;color:#e6f1f5;min-height:32px;display:flex;align-items:center}
+.hqProvInstructions{white-space:pre-wrap;overflow-wrap:anywhere;background:rgba(255,255,255,.04);padding:8px 10px;border-radius:8px}

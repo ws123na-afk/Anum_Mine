@@ -322,3 +322,10 @@
 .hqLive .hqFlowMarker.hqFlowMarkerStage { position: relative; transform: none; left: auto; top: auto; pointer-events: none; }
 
 .hqMenu .hqMenuNote { padding: 8px 12px; color: var(--muted, #9aa5b1); max-width: 260px; line-height: 1.35; }
+
+/* A live meeting held in the room: the stored title and the agents that joined (HqPanels.tsx RoomMeetingSection). */
+.hqRoomMeeting { display: grid; gap: var(--d-s2); margin: var(--d-s2) 0; }
+.hqRoomMeeting p { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; }
+.hqRoomMeeting .hqSub { color: var(--d-muted); font-size: var(--text-2xs); font-weight: 650; letter-spacing: .04em; margin: var(--d-s2) 0 0; text-transform: uppercase; }
+.hqRoomMeeting .hqDeskList { margin: 0; }
+.hqListRooms .hqPill { align-self: flex-start; }

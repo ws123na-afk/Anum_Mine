@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { layoutLabels } from '../src/lib/hqLabels.ts';
 import { viewProjection } from '../src/lib/hqMath.ts';
 import { campusCamera } from '../src/lib/hqCamera.ts';
-import { agentPresence, indexPresence, loadMeetingEvidence, presenceForDesk, presenceFromItems, totalsOf, unreportedStatuses } from '../src/lib/hqPresence.ts';
+import { agentPresence, indexPresence, liveMeetingRoomIdsOf, loadMeetingEvidence, presenceForDesk, presenceFromItems, totalsOf, unreportedStatuses } from '../src/lib/hqPresence.ts';
 import { commerceFlow, commerceLive, moduleErrorState, tyreLive } from '../src/lib/hqModules.ts';
 
 const vp = viewProjection(campusCamera(60), 1.6);
@@ -42,7 +42,7 @@ const rec = (agentId: string, status: 'working' | 'queued' | 'waiting_approval' 
   ({ agentId, name: agentId, department, suggestedDepartment: department ?? 'Unassigned', status, taskTitles: [], observedAt: '2026-10-22T10:00:00Z' });
 
 test('agent presence maps task evidence and meeting participation without inventing states', () => {
-  const meetings = { liveMeetings: 1, agentIds: new Set(['b', 'c']) };
+  const meetings = { liveMeetings: 1, agentIds: new Set(['b', 'c']), rooms: new Map() };
   const out = agentPresence([rec('a', 'working', 'Fleet'), rec('b', 'idle'), rec('c', 'paused'), rec('d', 'queued'), rec('e', 'unknown'), rec('f', 'blocked')], meetings);
   assert.deepEqual(out.map((p) => p.status), ['working', 'meeting', 'paused', 'queued', 'unknown', 'blocked']);
   assert.equal(out[0].role, 'Fleet');
@@ -91,4 +91,29 @@ test('presence from the API keeps stale, reason and private desks, and finds a d
   assert.equal(presenceForDesk(index, { id: 'desk_2', agentId: null })?.reason, 'agent_not_visible');
   assert.equal(presenceForDesk(index, { id: 'desk_9', agentId: null }), undefined);
   assert.equal(presenceForDesk(null, { id: 'desk_1', agentId: 'agent_a' }), undefined);
+});
+
+test('live meetings are tied to their room by the stored room id, only active ones, with real participants only', async () => {
+  const reads: string[] = [];
+  const read = async <T>(path: string): Promise<T> => {
+    reads.push(path);
+    if (path.startsWith('/api/v1/agent-meetings?')) {
+      return { items: [
+        { id: 'm1', title: 'Budget review', status: 'active', room_id: 'room_a' },
+        { id: 'm2', title: 'Old sync', status: 'finished', room_id: 'room_b' },
+        { id: 'm3', title: 'No room', status: 'active', room_id: null },
+        { id: 'm4', title: 'Second in room', status: 'active', room_id: 'room_a' },
+      ], next_cursor: null } as T;
+    }
+    if (path.endsWith('/m1')) return { participants: [{ actor_id: 'agent_a', kind: 'agent' }, { actor_id: 'agent_b', kind: 'agent' }, { actor_id: 'user_1', kind: 'human' }] } as T;
+    if (path.endsWith('/m3') || path.endsWith('/m4')) return { participants: [{ actor_id: 'agent_c', kind: 'agent' }] } as T;
+    throw new Error('unexpected ' + path);
+  };
+  const evidence = await loadMeetingEvidence(read);
+  assert.equal(evidence?.liveMeetings, 3, 'three active meetings, one finished is not counted');
+  assert.deepEqual([...liveMeetingRoomIdsOf(evidence)], ['room_a'], 'only the room that is linked to an active meeting');
+  assert.deepEqual(evidence?.rooms.get('room_a'), { meetingId: 'm1', title: 'Budget review', agentIds: ['agent_a', 'agent_b'], people: 1 });
+  assert.equal(evidence?.rooms.has('room_b'), false, 'a finished meeting stops showing in its room');
+  assert.ok(reads[0].includes('status=active'));
+  assert.equal(liveMeetingRoomIdsOf(null).size, 0, 'unknown evidence lights up no room');
 });

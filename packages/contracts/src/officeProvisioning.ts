@@ -10,7 +10,8 @@ export const OFFICE_PROVISIONING_VERSION = 1 as const;
 
 export type ProvisioningTemplateId =
   | 'orders_desk' | 'sales_followup' | 'support_triage' | 'finance_reconciliation'
-  | 'fleet_maintenance' | 'operations_dispatcher' | 'compliance_reviewer';
+  | 'fleet_maintenance' | 'operations_dispatcher' | 'compliance_reviewer'
+  | 'marketing_specialist' | 'technology_coordinator' | 'research_analyst' | 'legal_reviewer';
 
 export type ProvisioningSeverity = 'critical' | 'warning';
 export type ProvisioningCoverageState = 'gap' | 'covered' | 'no_signal' | 'source_not_connected' | 'source_no_access';

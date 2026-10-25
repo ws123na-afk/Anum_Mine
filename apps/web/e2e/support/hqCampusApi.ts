@@ -22,6 +22,8 @@ export interface HqMockOptions {
   extraDesks?: ReadonlyArray<{ id: string; roomId: string; label: string; agentId: string | null }>;
   /** 'conflict' makes the building profile save answer 409. */
   profile?: 'ok' | 'conflict';
+  /** The office room the live meeting (`meeting_live`) is held in; null or omitted means a meeting with no room link. */
+  meetingRoomId?: string | null;
 }
 
 const record = (id: string, extra: Record<string, unknown>) => ({ id, revision: 1, tenant_id: tenant, workspace_id: workspace, created_at: now, updated_at: now, ...extra });
@@ -154,6 +156,8 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
     task('task_mail', 'waiting_approval', 'agent_outreach', 'Email Al Noor Transport about the pilot'),
   ];
   const calls: string[] = [];
+  /** Specs flip `active` to finish the live meeting; `created` records meetings started from the UI (with their room_id). */
+  const meeting = { active: options.meetings === 'live', roomId: options.meetingRoomId ?? null, created: [] as Array<Record<string, unknown>> };
   const profileCalls: Array<{ kind: string; icon: string; expected_revision?: number }> = [];
   await page.route('http://localhost:8000/**', async (route) => {
     const url = new URL(route.request().url());
@@ -184,9 +188,18 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
     }
     if (path === '/api/v1/agents' && method === 'GET') return json({ items: agents, next_cursor: null, counts: { all: agents.length, work: agents.length, personal: 0, custom: 0 } });
     if (path === '/api/v1/tasks' && method === 'GET') return json(tasks);
+    if (path === '/api/v1/agent-meetings' && method === 'POST') {
+      const body = route.request().postDataJSON() as { title: string; room_id?: string };
+      const made = { id: `meeting_new_${meeting.created.length + 1}`, title: body.title, status: 'scheduled', revision: 1, room_id: body.room_id ?? null };
+      meeting.created.push(made);
+      return json(made, 201);
+    }
     if (path === '/api/v1/agent-meetings') {
       if (options.meetings === 'failing') return error(503, 'unavailable', 'Meetings are not reachable.');
-      return json({ items: options.meetings === 'live' ? [{ id: 'meeting_live', title: 'Weekly sync', status: 'active', revision: 1 }] : [], next_cursor: null });
+      const wantsActive = url.searchParams.get('status') === 'active';
+      const all = [...(meeting.active ? [{ id: 'meeting_live', title: 'Weekly sync', status: 'active', revision: 1, room_id: meeting.roomId }] : []),
+        ...(wantsActive ? [] : meeting.created)];
+      return json({ items: all, next_cursor: null });
     }
     if (path === '/api/v1/agent-meetings/meeting_live') return json({ id: 'meeting_live', title: 'Weekly sync', status: 'active', revision: 1, participants: [{ id: 'p1', session_id: 'meeting_live', actor_id: 'agent_care', kind: 'agent' }] });
     if (path === '/api/v1/commerce/setup') {
@@ -201,5 +214,5 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
     if (path === '/api/v1/tyre/dashboard') return json({ summary: { as_of: now, currency: 'AED', vehicles: 42, tyres_fitted: 250, tyres_in_stock: 30, tyres_removed_last_30_days: 4, tyres_with_readings: 200, average_tread_mm: 8, below_minimum: 3, in_warning_band: 5, pressure_checked: 100, pressure_compliant_pct: 90, under_inflated: 2, over_inflated: 1, overdue_inspections: 6, due_next_30_days: 11, due_next_90_days: 20, cost_per_1000_km: null, cost_per_hour: null, min_tread_mm: 3 }, synced_at: now, alert_counts: { critical: 1, warning: 2 }, top_alerts: [], due_soon: [], due_by_month: {} });
     return route.fallback();
   });
-  return { calls, profileCalls };
+  return { calls, profileCalls, meeting };
 }
