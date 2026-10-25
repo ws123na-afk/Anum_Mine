@@ -140,8 +140,7 @@ campus, building, reception and executive office, day and night at 1440x900, cam
    people) should be made denser. Nothing invents a person or a desk in the real view either way.
 2. **Characters.** Keep the stylised CC0 characters, or supply realistic rigged corporate characters (glTF, a sit clip, a licence that lets
    us ship them), or approve buying a licensed pack. Realistic people cannot be made from the assets reachable here.
-3. **Licences.** The two Wayfair models are CC BY 4.0: approve the attribution in `NOTICE.txt` and add a credits line in the app, or replace
-   them. The Kenney people came through an npm mirror; check the CC0 terms on kenney.nl before a public release.
+3. **Licences.** The two Wayfair models are CC BY 4.0: the attribution is in `NOTICE.txt` and as a visible credits line under Office tools (`hq.credits`, English and Arabic). Replace them if you prefer not to credit. The Kenney people came through an npm mirror; check the CC0 terms on kenney.nl before a public release.
 4. **Furniture and textures.** Supply office desk, task chair, shelving, plant and stone or timber texture files (CC0 or licensed), or
    ask for an allowlist entry for `polyhaven.com`, `dl.polyhaven.org`, `ambientcg.com`, `quaternius.com` and `kenney.nl` so they can be
    fetched, or approve a further round of procedural improvement.
