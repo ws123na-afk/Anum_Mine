@@ -138,6 +138,9 @@ Rules for all PRs: expand only migrations (revision id at most 32 characters, ch
 
 Suggested order: B1, B2, B4, B5 (the owner gets a usable visual builder), then B3, B6, B7, B8. B3 waits for owner decisions.
 
+### 4.4 Status
+The API slices (B1 to B4, with the team link B3 decided as a department link) are merged. The web builder (B5, B6, B7 and the browser part of B8) is in `apps/web/src/hqBuilder/` and covers gaps 14 to 20 (plan, drag, resize, rotate, snap with a visible unit, live checks, draft with undo, redo and discard, templates, copy room, desk placement, equipment and notes, team link, inline confirms), 21 to 25 (English and Arabic with RTL, touch at 390x844 and 768x1024, keyboard move and resize with a live region, e2e and five viewport screenshots, 500 room check). Still open: alignment guides and rulers, a virtualised room list (the list is searchable and paged instead), copy floor, live notice of another editor's change (stale revision is caught on save), and the separate layout editor permission (gap 9, owner decision). See the "Web builder" section of the registry doc.
+
 ## 5. Recommendations (top 5)
 1. Build the Office Builder (B1, B2, B4, B5 first). It is the owner's request and the base for everything else.
 2. Add the needs-attention rail from existing presence and approvals; high value, small, fully data true.

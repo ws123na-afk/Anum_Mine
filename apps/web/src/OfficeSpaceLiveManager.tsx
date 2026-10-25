@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Building2, DoorOpen, HardDrive, RefreshCw, ShieldAlert, ShieldCheck, Trash2, UserRoundCheck, X } from 'lucide-react';
 import * as api from './lib/api.ts';
+import { t } from './lib/i18n.ts';
 import { loadOrgSources } from './lib/orgChart.ts';
 import { createOfficeSpaceClient, type OfficeRegistryData, type OfficeRoom } from './lib/officeSpaceClient.ts';
 import { OfficeSpaceRegistry } from './OfficeSpaceRegistry';
 import './officeSpaceRegistry.css';
 
+const HqBuilder=lazy(()=>import('./hqBuilder/HqBuilder').then(m=>({default:m.HqBuilder})));
 const client=createOfficeSpaceClient(api.apiRequest,api.apiRequestVoid,api.currentScope);
 const blank:OfficeRegistryData={buildings:[],floors:[],rooms:[],desks:[]};
 const makeId=(prefix:string)=>prefix+'-'+crypto.randomUUID();
@@ -19,7 +21,7 @@ export function OfficeSpaceLiveManager({onClose}:{onClose:()=>void}){
  const currentScopeKey=JSON.stringify(api.currentScope());
  const loaded=rawLoaded&&loadedScope===currentScopeKey;
  const data=loadedScope===currentScopeKey?rawData:blank;
- const [preview,setPreview]=useState(false),[version,setVersion]=useState(0);
+ const [builder,setBuilder]=useState(false),[preview,setPreview]=useState(false),[version,setVersion]=useState(0);
  const [buildingId,setBuildingId]=useState(''),[floorId,setFloorId]=useState(''),[roomId,setRoomId]=useState('');
  const [buildingName,setBuildingName]=useState(''),[zone,setZone]=useState('Asia/Riyadh');
  const [floorName,setFloorName]=useState(''),[level,setLevel]=useState(0),[roomName,setRoomName]=useState(''),[kind,setKind]=useState<OfficeRoom['kind']>('office'),[capacity,setCapacity]=useState(8);
@@ -63,9 +65,10 @@ export function OfficeSpaceLiveManager({onClose}:{onClose:()=>void}){
   finally{setBusy(false)}
  }
  const goFloor=(id:string)=>{setFloorId(id);setRoomId('');setNewRoomName('')};
+ if(builder)return <Suspense fallback={<section className="spaceRegistry" role="status">{t('hqb.state.loading')}</section>}><HqBuilder onClose={()=>{setBuilder(false);void reload()}}/></Suspense>;
  if(preview)return <OfficeSpaceRegistry onClose={()=>setPreview(false)}/>;
  return <section className="spaceRegistry liveSpaceManager" role="dialog" aria-modal="false" aria-label="Production Office Space Management">
-  <header className="spaceRegistryHeader"><div><small>ANUM MINE / SERVER-BACKED OPERATIONS</small><h2>Office Space Management</h2><p>Workspace registry · Buildings, rooms, real agent assignments and audited changes</p></div><button onClick={onClose}><X size={18}/> Close</button></header>
+  <header className="spaceRegistryHeader"><div><small>ANUM MINE / SERVER-BACKED OPERATIONS</small><h2>Office Space Management</h2><p>Workspace registry · Buildings, rooms, real agent assignments and audited changes</p></div><div className="spaceRegistryDetailActions"><button onClick={()=>setBuilder(true)}><Building2 size={16}/> {t('hqb.open')}</button><button onClick={onClose}><X size={18}/> Close</button></div></header>
   <div className="spaceRegistryBanner" role="note"><ShieldCheck size={18}/><span><strong>Server-backed mode.</strong> Successful changes are written through ANUM's permissioned PostgreSQL API. Assignments must reference an existing visible agent. If PostgreSQL is unavailable, no changes are silently saved.</span></div>
   <div className="spaceRegistryToolbar">
    <label>Building<select value={buildingId} onChange={e=>{setBuildingId(e.target.value);setFloorId('');setRoomId('')}}><option value="">Select a building</option>{data.buildings.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>

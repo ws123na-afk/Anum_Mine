@@ -13,6 +13,7 @@ import { financeIntelActionsAr } from './financeIntelActions.ar.ts';
 import { tyreAr } from './tyre.ar.ts';
 import { homeAr } from './home.ar.ts';
 import { meetingRoomAr } from './meetingRoom.ar.ts';
+import { builderAr } from './builder.ar.ts';
 import { hqFlowAr } from './hqFlow.ar.ts';
 import { hqProvisioningAr } from './hqProvisioning.ar.ts';
 import { teamAr } from './team.ar.ts';
@@ -3232,6 +3233,7 @@ export const ar: Record<MessageKey, Message> = {
   ...tyreAr,
   ...homeAr,
   ...meetingRoomAr,
+  ...builderAr,
   ...hqFlowAr,
   ...hqProvisioningAr,
   // ---- واجهة ANUM 360 ومركز الأوامر ----
