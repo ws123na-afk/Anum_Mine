@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { MeshBuilder } from '../src/lib/hqGeometry.ts';
 import { lamp } from '../src/lib/hqProps.ts';
@@ -13,9 +13,10 @@ const modelsDir = new URL('../public/hq/models/', import.meta.url);
 
 test('every catalogued model file exists at its recorded size and is a binary glTF', () => {
   for (const spec of Object.values(MODEL_SPECS)) {
-    const url = new URL(spec.file, modelsDir);
-    assert.equal(statSync(url).size, spec.bytes, spec.key);
-    assert.equal(readFileSync(url).subarray(0, 4).toString('latin1'), 'glTF', spec.key);
+    // One read, then every check on the bytes read (no separate stat of the same path).
+    const data = readFileSync(new URL(spec.file, modelsDir));
+    assert.equal(data.length, spec.bytes, spec.key);
+    assert.equal(data.subarray(0, 4).toString('latin1'), 'glTF', spec.key);
   }
 });
 
