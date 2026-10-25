@@ -10,6 +10,7 @@ import { useFlowLabels } from './HqFlowStage';
 import { ArrowLeft, Building2, ChevronDown, ChevronRight, DoorOpen, HardDrive, Layers, Users } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BottomToolbar, CameraTools, TotalsPanel, statusLabel } from './HqChrome';
+import { AvatarChip } from './AvatarStyleEditor';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { buildBuildingScene, frameBuilding, type DeskVisual } from './lib/buildingScene.ts';
 import { buildingCamera, clampTarget, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
@@ -175,11 +176,11 @@ export function BuildingView(props: BuildingViewProps) {
       const hidden = p?.reason === 'agent_not_visible' || key.startsWith('desk:');
       list.push({
         id: 'desk:' + dh.id, anchor: dh.anchor, priority: key === props.selectedAgentId ? 0 : 2, maxDistance: 70,
-        node: <AgentCard name={hidden ? t('hq.agent.private') : (p?.name || desk.agent?.name || t('hq.agent.assigned'))} role={p?.role ?? null} status={p?.status ?? null} stale={p?.stale === true} selected={key === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(key, desk)} />,
+        node: <AgentCard chip={hidden ? null : { id: key, avatar: props.agentStyles?.get(key)?.avatar ?? null, department: props.agentStyles?.get(key)?.department ?? p?.role ?? null }} name={hidden ? t('hq.agent.private') : (p?.name || desk.agent?.name || t('hq.agent.assigned'))} role={p?.role ?? null} status={p?.status ?? null} stale={p?.stale === true} selected={key === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(key, desk)} />,
       });
     }
     return [...list, ...flowLabels];
-  }, [scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, activeIndex, pickRoom, flowLabels]);
+  }, [scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels]);
 
   const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
   const change = (fn: (c: CameraState) => CameraState) => setCamera((c) => clampTarget(fn(c), 400));
@@ -290,11 +291,13 @@ function RoomCard(props: { room: RoomGeometry; assigned: number; working: number
   );
 }
 
-function AgentCard(props: { name: string; role: string | null; status: StatusKey | null; stale: boolean; selected: boolean; onPick: () => void }) {
+function AgentCard(props: { chip: { id: string; avatar: AvatarAppearance | null; department: string | null } | null; name: string; role: string | null; status: StatusKey | null; stale: boolean; selected: boolean; onPick: () => void }) {
   const tone = props.status ? STATUS_TONE[props.status] : 'faint';
   return (
     <button type="button" className={`hqAgentCard tone-${tone}`} data-selected={props.selected} data-stale={props.stale} aria-pressed={props.selected} onClick={props.onPick}>
-      <span className="hqAvatar" aria-hidden="true">{props.name.slice(0, 1).toUpperCase()}</span>
+      {props.chip
+        ? <AvatarChip id={props.chip.id} name={props.name} avatar={props.chip.avatar} department={props.chip.department} size={30} decorative />
+        : <span className="hqAvatar" aria-hidden="true">{props.name.slice(0, 1).toUpperCase()}</span>}
       <span className="hqLabelText">
         <strong>{props.name}</strong>
         {props.role && <small>{props.role}</small>}

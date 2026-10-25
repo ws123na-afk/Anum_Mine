@@ -396,7 +396,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
     : roomPanelRoom
       ? (props.renderRoomPanel
         ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
-        : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} /><HqTeamPanel roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)
+        : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} /><HqTeamPanel roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} onAvatarChanged={() => void controller.refresh()} /></>)
       : null;
 
   const status = state?.status;
@@ -511,7 +511,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
       {overlay !== 'none' && (
         <div className="hqModalHost" role="dialog" aria-modal="false" aria-label={t('hq.tools')}>
           {overlay === 'teams' ? <div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqTeam.title')}>
-            <HqTeamPanel buildingId={registryBuilding?.id ?? null} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} onFocusRoom={(id) => { focusRoomById(id); setOverlay('none'); }} />
+            <HqTeamPanel buildingId={registryBuilding?.id ?? null} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} onAvatarChanged={() => void controller.refresh()} onFocusRoom={(id) => { focusRoomById(id); setOverlay('none'); }} />
             <OrgGapsPanel state={gaps} onNavigate={goTo} onProvisioned={() => { void flow.reload(); void controller.refresh(); }} />
           </div>
           : overlay === 'gaps' ? <div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqProv.title')}>

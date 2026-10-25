@@ -1,0 +1,40 @@
+/* Avatar style editor, chip and preview (AvatarStyleEditor.tsx). Shared tokens; logical properties for RTL. */
+.avatarEditor { display: grid; gap: var(--d-s3); min-width: 0; }
+.avatarEditor h3 { align-items: center; display: flex; gap: var(--d-s2); margin: 0; }
+.avatarEditor h3 svg { height: 18px; width: 18px; }
+.avatarEditor p { margin: 0; }
+.avatarBody { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(140px, 200px) minmax(0, 1fr); }
+.avatarStage { display: grid; gap: var(--d-s2); justify-items: center; }
+.avatarPreview { aspect-ratio: 120 / 140; border-radius: var(--d-r-control); height: auto; max-width: 200px; width: 100%; }
+.avatarNote { font-size: var(--text-sm); }
+.avatarControls { display: grid; gap: var(--d-s3); min-width: 0; }
+.avatarEditor fieldset.avatarGroup { border: 0; margin: 0; min-width: 0; padding: 0; }
+.avatarEditor .avatarGroup legend { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--d-s1, 4px); padding: 0; }
+.avatarOptions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.avatarOption { position: relative; }
+.avatarOption input { block-size: 1px; inline-size: 1px; margin: 0; opacity: 0; overflow: hidden; position: absolute; }
+.avatarOption > span:not(.avatarSwatch) {
+  align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text);
+  cursor: pointer; display: inline-flex; font-size: var(--text-sm); min-block-size: 36px; padding-inline: var(--d-s3);
+}
+.avatarOption input:checked + span:not(.avatarSwatch) { background: var(--d-glass-3); border-color: var(--d-sky); font-weight: 600; }
+.avatarSwatch {
+  align-items: center; border: 2px solid transparent; border-radius: 999px; box-shadow: 0 0 0 1px var(--d-line-strong); color: #fff; cursor: pointer;
+  display: inline-flex; block-size: 32px; inline-size: 32px; justify-content: center;
+}
+.avatarSwatch svg { filter: drop-shadow(0 0 2px #000a); height: 16px; width: 16px; }
+.avatarOption input:checked + .avatarSwatch { border-color: var(--d-text); }
+.avatarOption input:focus-visible + span { outline: 2px solid var(--d-sky); outline-offset: 2px; }
+.avatarOption input:disabled + span { cursor: not-allowed; opacity: .6; }
+.avatarSaved { align-items: center; color: var(--d-ok, #6fd39a); display: flex; gap: var(--d-s2); }
+.avatarSaved svg { height: 16px; width: 16px; }
+.avatarEditor .actions { flex-wrap: wrap; }
+.dialogPanel.avatarDialog { max-width: 720px; }
+@media (max-width: 560px) { .avatarBody { grid-template-columns: minmax(0, 1fr); } .avatarStage { justify-items: start; } .avatarPreview { max-width: 120px; } }
+
+/* Chip: initials on the accent colour, ringed in the skin tone. */
+.avatarChip {
+  align-items: center; background: var(--chip-bg, #475569); border-radius: 999px; box-shadow: 0 0 0 2px var(--chip-ring, #d29b6c); color: var(--chip-ink, #fff);
+  display: inline-flex; flex: none; font-size: var(--text-xs); font-weight: 700; block-size: var(--chip-size, 32px);
+  inline-size: var(--chip-size, 32px); justify-content: center; letter-spacing: .02em; margin: 2px;
+}

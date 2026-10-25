@@ -109,7 +109,7 @@ export async function mockOrgChart(page: Page, options: OrgMockOptions = {}) {
       if (!found) return envelope(404, 'not_found', 'Agent not found.');
       if (method === 'PATCH') {
         const { version, ...changes } = body as Json;
-        if (version !== found.version) return envelope(409, 'conflict', 'Someone changed this agent since you opened it.');
+        if (version !== undefined && version !== found.version) return envelope(409, 'conflict', 'Someone changed this agent since you opened it.');
         const updated = { ...found, ...changes, version: Number(found.version) + 1 };
         agents = agents.map((a) => a.id === found.id ? updated : a);
         return json(updated);
