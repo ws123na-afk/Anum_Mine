@@ -262,3 +262,4 @@ export * from './executive.js';
 export * from './officeBuilder.js';
 export * from './officeHistory.js';
 export * from './officeStarterCampus.js';
+export * from './officeStaffDesks.js';
