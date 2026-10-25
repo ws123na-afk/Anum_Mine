@@ -2,6 +2,8 @@
 // Wire shapes are snake_case, as the API sends them. One agent-profile model serves custom
 // agents and department assistants (`category: 'work'` with a `department`).
 
+import type { AvatarAppearance } from './avatar.js';
+
 export type AgentCategory = 'work' | 'personal' | 'custom';
 export type AgentStatus = 'active' | 'paused';
 export type AgentSharing = 'private' | 'workspace';
@@ -39,6 +41,8 @@ export interface AgentProfileFields {
   knowledge_sources: AgentKnowledgeSource[];
   sharing: AgentSharing;
   template_id?: string | null;
+  /** The style the headquarters draws this agent in; null or absent = the neutral default from the agent id. */
+  avatar?: AvatarAppearance | null;
 }
 
 /** `PATCH /api/v1/agents/{id}`: only the fields sent change; `version` refuses a stale edit with 409. */

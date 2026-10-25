@@ -9,6 +9,7 @@ The same model serves **department assistants**: a department assistant is an ag
 | Field | Meaning |
 |---|---|
 | `name`, `icon`, `color`, `description` | Identity. Icons come from a fixed set (`GET /api/v1/agents/catalog` lists them); the color is `#rrggbb`. |
+| `avatar` | Optional avatar style for the headquarters scene (build, skin tone, hair shape and colour, outfit, accent colour), each field optional; `null` means the neutral default drawn from the agent id. A drawing choice, never a claim about a person; see [Avatar styles](ANUM_MINE_HQ_REALISM_ASSETS.md#avatar-styles). Changing it needs the same permission as editing the agent and is audited as `agent.updated` (`changed: ["avatar"]`). A PATCH replaces the whole style; `null` clears it. |
 | `category` | `work`, `personal` or `custom` (the list's filters). |
 | `department` | Optional; set for department assistants. |
 | `instructions` | How the agent works (at most 8000 characters). They go into the model prompt before the task; they shape answers and never select tools, skills or approvals. |

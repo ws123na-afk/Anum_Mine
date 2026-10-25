@@ -8,6 +8,9 @@ type Json = Record<string, unknown>;
 const now = new Date().toISOString();
 const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
 
+/** Avatar styles a spec saved, by agent id: the list and the agent answer with them (the real API stores them on the profile). */
+export const agentAvatars: Record<string, unknown> = {};
+
 export interface OrgMockOptions {
   role?: 'owner' | 'member' | 'viewer';
   empty?: boolean;
@@ -100,7 +103,7 @@ export async function mockOrgChart(page: Page, options: OrgMockOptions = {}) {
       const limit = Number(url.searchParams.get('limit') ?? 24);
       const cursor = url.searchParams.get('cursor');
       const rows = cursor ? agents.slice(agents.findIndex((a) => a.id === cursor) + 1) : agents;
-      const pageRows = rows.slice(0, limit);
+      const pageRows = rows.slice(0, limit).map((a) => (a.id as string) in agentAvatars ? { ...a, avatar: agentAvatars[a.id as string] } : a);
       return json({ items: pageRows, next_cursor: rows.length > limit ? pageRows[pageRows.length - 1].id : null, counts: { all: agents.length, work: agents.length, personal: 0, custom: 0 } });
     }
     const one = /^\/api\/v1\/agents\/([^/]+)$/.exec(path);
@@ -109,7 +112,7 @@ export async function mockOrgChart(page: Page, options: OrgMockOptions = {}) {
       if (!found) return envelope(404, 'not_found', 'Agent not found.');
       if (method === 'PATCH') {
         const { version, ...changes } = body as Json;
-        if (version !== found.version) return envelope(409, 'conflict', 'Someone changed this agent since you opened it.');
+        if (version !== undefined && version !== found.version) return envelope(409, 'conflict', 'Someone changed this agent since you opened it.');
         const updated = { ...found, ...changes, version: Number(found.version) + 1 };
         agents = agents.map((a) => a.id === found.id ? updated : a);
         return json(updated);

@@ -3,12 +3,14 @@
  * Presence comes in as props (workstation evidence plus live meeting participants); this view
  * never invents a status. Module panels (commerce, tyre) show only for connected modules.
  */
+import type { AvatarAppearance } from '@anum/contracts';
 import type { OfficeFlowSnapshot } from '@anum/contracts';
 import type { ChangeBatch } from './useOfficeFlow';
 import { useFlowLabels } from './HqFlowStage';
 import { ArrowLeft, Building2, ChevronDown, ChevronRight, DoorOpen, HardDrive, Layers, Users } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BottomToolbar, CameraTools, TotalsPanel, statusLabel } from './HqChrome';
+import { AvatarChip } from './AvatarStyleEditor';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { buildBuildingScene, frameBuilding, type DeskVisual } from './lib/buildingScene.ts';
 import { buildingCamera, clampTarget, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
@@ -54,7 +56,11 @@ export type BuildingViewProps = Readonly<{
   side: ReactNode;
   /** Stored work per room and the last move the server reported, for the live-flow badges and markers. */
   flow?: Readonly<{ snapshot: OfficeFlowSnapshot | null; batch: ChangeBatch; onPickRoom: (roomId: string) => void }>;
+  /** Avatar style and department per agent id, from the agent profiles; an agent with no entry is drawn with the default style. */
+  agentStyles?: ReadonlyMap<string, AgentStyleInfo>;
 }>;
+
+export type AgentStyleInfo = Readonly<{ avatar: AvatarAppearance | null; department: string | null }>;
 
 const ROOM_ICON = { meeting: Users, reception: DoorOpen, warehouse: HardDrive } as const;
 
@@ -88,9 +94,14 @@ export function BuildingView(props: BuildingViewProps) {
     }
     return map;
   }, [floors, presence]);
+  const looks = useMemo(() => {
+    const map = new Map<string, AgentStyleInfo>();
+    for (const [deskId, agentId] of people) { const info = props.agentStyles?.get(agentId); if (info) map.set(deskId, info); }
+    return map;
+  }, [people, props.agentStyles]);
   const scene = useMemo(
-    () => buildBuildingScene(floors, { activeIndex, showAll, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people }),
-    [floors, activeIndex, showAll, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people],
+    () => buildBuildingScene(floors, { activeIndex, showAll, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks }),
+    [floors, activeIndex, showAll, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks],
   );
   const frame = useMemo(() => frameBuilding(scene, activeIndex), [scene, activeIndex]);
   const [wrap, aspect] = useAspect();
@@ -165,11 +176,11 @@ export function BuildingView(props: BuildingViewProps) {
       const hidden = p?.reason === 'agent_not_visible' || key.startsWith('desk:');
       list.push({
         id: 'desk:' + dh.id, anchor: dh.anchor, priority: key === props.selectedAgentId ? 0 : 2, maxDistance: 70,
-        node: <AgentCard name={hidden ? t('hq.agent.private') : (p?.name || desk.agent?.name || t('hq.agent.assigned'))} role={p?.role ?? null} status={p?.status ?? null} stale={p?.stale === true} selected={key === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(key, desk)} />,
+        node: <AgentCard chip={hidden ? null : { id: key, avatar: props.agentStyles?.get(key)?.avatar ?? null, department: props.agentStyles?.get(key)?.department ?? p?.role ?? null }} name={hidden ? t('hq.agent.private') : (p?.name || desk.agent?.name || t('hq.agent.assigned'))} role={p?.role ?? null} status={p?.status ?? null} stale={p?.stale === true} selected={key === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(key, desk)} />,
       });
     }
     return [...list, ...flowLabels];
-  }, [scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, activeIndex, pickRoom, flowLabels]);
+  }, [scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels]);
 
   const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
   const change = (fn: (c: CameraState) => CameraState) => setCamera((c) => clampTarget(fn(c), 400));
@@ -280,11 +291,13 @@ function RoomCard(props: { room: RoomGeometry; assigned: number; working: number
   );
 }
 
-function AgentCard(props: { name: string; role: string | null; status: StatusKey | null; stale: boolean; selected: boolean; onPick: () => void }) {
+function AgentCard(props: { chip: { id: string; avatar: AvatarAppearance | null; department: string | null } | null; name: string; role: string | null; status: StatusKey | null; stale: boolean; selected: boolean; onPick: () => void }) {
   const tone = props.status ? STATUS_TONE[props.status] : 'faint';
   return (
     <button type="button" className={`hqAgentCard tone-${tone}`} data-selected={props.selected} data-stale={props.stale} aria-pressed={props.selected} onClick={props.onPick}>
-      <span className="hqAvatar" aria-hidden="true">{props.name.slice(0, 1).toUpperCase()}</span>
+      {props.chip
+        ? <AvatarChip id={props.chip.id} name={props.name} avatar={props.chip.avatar} department={props.chip.department} size={30} decorative />
+        : <span className="hqAvatar" aria-hidden="true">{props.name.slice(0, 1).toUpperCase()}</span>}
       <span className="hqLabelText">
         <strong>{props.name}</strong>
         {props.role && <small>{props.role}</small>}

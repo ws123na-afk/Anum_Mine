@@ -24,6 +24,7 @@ from anum_api.agent_profiles import (
     KnowledgeSource,
 )
 from anum_api.audit import AuditRecord
+from anum_api.avatar_appearance import avatar_from_record
 from anum_api.schemas import TenantContext
 
 from .models import AgentMemoryRecord, AgentProfileRecord
@@ -52,6 +53,7 @@ def _profile(record: AgentProfileRecord) -> AgentProfile:
         status=AgentStatus(record.status),
         sharing=AgentSharing(record.sharing),
         template_id=record.template_id,
+        avatar=avatar_from_record(record.avatar),
         created_at=record.created_at,
         updated_at=record.updated_at,
         version=record.version,
@@ -136,6 +138,7 @@ class SqlAlchemyAgentStore:
         record.status = profile.status.value
         record.sharing = profile.sharing.value
         record.template_id = profile.template_id
+        record.avatar = profile.avatar.stored() if profile.avatar else None
         record.version = profile.version
         record.updated_at = profile.updated_at
         self.session.flush()

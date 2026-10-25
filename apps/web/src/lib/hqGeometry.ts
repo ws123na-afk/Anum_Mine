@@ -1,3 +1,4 @@
+import type { FigureLook } from './hqAvatar.ts';
 /**
  * Low-poly mesh builder for the headquarters scenes.
  *
@@ -306,6 +307,8 @@ export type ModelSlot = Readonly<{
   model: string; x: number; y: number; z: number; rot: number; width: number;
   /** A seed for variants (a person's look); never a name. */
   seed?: string; pose?: string; headset?: boolean;
+  /** For a person: the resolved avatar style (never from a name); absent means the default drawn from `seed`. */
+  look?: FigureLook;
 }>;
 
 export type BoxFace = 'top' | 'bottom' | 'north' | 'south' | 'west' | 'east';
