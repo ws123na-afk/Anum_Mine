@@ -11,14 +11,19 @@ let prov: ProvisioningMock;
 
 async function open(page: Page, options: Parameters<typeof openHq>[1] = {}) {
   await openHq(page, { registry, ...options, beforeGoto: async (p) => { await mockFlow(p); prov = await mockProvisioning(p); } });
-  await expect(page.getByRole('button', { name: /Organisation gaps|فجوات المؤسسة/ })).toBeVisible();
+  await expect(tools(page)).toBeVisible();
 }
-const openPanel = async (page: Page) => { await page.getByRole('button', { name: /Organisation gaps|فجوات المؤسسة/ }).click(); };
+// The headquarters keeps its tools in one menu (Office tools).
+const tools = (page: Page) => page.locator('.hqLive').getByRole('button', { name: /Office tools|أدوات المكتب/ });
+const gapsItem = (page: Page) => page.locator('.hqLive').getByRole('button', { name: /Organisation gaps|فجوات المؤسسة/ });
+const showMenu = async (page: Page) => { if (!(await gapsItem(page).isVisible())) await tools(page).click(); };
+const openPanel = async (page: Page) => { await showMenu(page); await gapsItem(page).click(); };
 const dialog = (page: Page) => page.locator('.hqProvDialog[role=dialog]');
 
 test('gaps come from the API, show their evidence and create nothing', async ({ page }) => {
   await open(page);
-  await expect(page.getByRole('button', { name: 'Organisation gaps (2)' })).toBeVisible();
+  await showMenu(page);
+  await expect(page.locator('.hqLive').getByRole('button', { name: 'Organisation gaps (2)' })).toBeVisible();
   await openPanel(page);
   const panel = page.getByRole('region', { name: 'Work and departments nobody handles yet' });
   const list = panel.getByRole('list', { name: 'Gaps' });
@@ -120,11 +125,12 @@ test('empty and denied states say what to do', async ({ page }) => {
   await open(page);
   prov.setGapsEmpty(true);
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Organisation gaps' })).toBeVisible();
+  await showMenu(page);
+  await expect(page.locator('.hqLive').getByRole('button', { name: 'Organisation gaps' })).toBeVisible();
   await openPanel(page);
   await expect(page.getByText('No gaps found.')).toBeVisible();
   await expect(page.getByText('Other roles you can add')).toBeVisible();
-  await page.getByRole('button', { name: 'Close office panel' }).click();
+  await page.keyboard.press('Escape');
   prov.setGapsFailure(403);
   await page.reload();
   await openPanel(page);

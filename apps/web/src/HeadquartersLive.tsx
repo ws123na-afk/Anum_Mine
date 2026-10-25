@@ -166,7 +166,13 @@ export function HeadquartersLive(props: HeadquartersProps) {
   // Every embedded panel has its own Close button; Escape closes whichever is open.
   useEffect(() => {
     if (overlay === 'none') return undefined;
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setOverlay('none'); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // A dialog inside the panel (for example a review dialog) closes first and returns focus to its opener.
+      const inner = (event.target as Element | null)?.closest?.('[role="dialog"]');
+      if (inner && !inner.classList.contains('hqTeamModal') && !inner.classList.contains('hqModalHost')) return;
+      setOverlay('none');
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [overlay]);
