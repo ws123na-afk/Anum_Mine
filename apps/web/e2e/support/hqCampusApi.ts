@@ -143,6 +143,9 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
     calls.push(`${method} ${path}`);
     const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
     const error = (status: number, code: string, message: string) => json({ error: { code, message, correlation_id: 'corr', details: [] } }, status);
+    // The executive PA dock beside the scene: quiet by default (no tools, no tour); specs that test it register their own routes.
+    if (path === '/api/v1/executive-pa/tools') return json({ tools: [] });
+    if (path === '/api/v1/executive-pa/tour') return json({ status: 'empty', stops: [] });
     const listed = /^\/api\/v1\/office-spaces\/(buildings|floors|rooms|desks)$/.exec(path);
     if (listed && method === 'GET') return json({ items: office[listed[1] as keyof typeof office], next_cursor: null });
     if (path === '/api/v1/me/workspace-memberships') return json(memberships);

@@ -58,7 +58,7 @@ async function switchTenant(page: Page) {
 }
 
 async function openList(page: Page) {
-  await page.locator('.hqLive').getByRole('button', { name: 'List' }).click();
+  await page.locator('.hqLive').getByRole('button', { name: 'List', exact: true }).click();
 }
 
 test('after an in-app organisation switch the registry is read for the new organisation', async ({ page }) => {

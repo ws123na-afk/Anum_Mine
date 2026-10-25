@@ -231,7 +231,7 @@ test('a workspace with no saved layout says what to do next', async ({ page }) =
 
 test('List view is an accessible list of every building and room, with search', async ({ page }) => {
   await openOffice(page);
-  await hq(page).getByRole('button', { name: 'List' }).click();
+  await hq(page).getByRole('button', { name: 'List', exact: true }).click();
   const list = hq(page).getByRole('region', { name: 'All buildings and rooms' });
   await expect(list.getByRole('heading', { level: 3 })).toHaveCount(6);
   await expect(list.getByRole('heading', { level: 3 }).first()).toHaveText('Executive HQ');
@@ -323,6 +323,26 @@ test('the assistant can move the view with a navigation command', async ({ page 
   await expect(hq(page).getByLabel('Choose a floor')).toHaveValue('flr_0');
 });
 
+test('the executive PA dock sits beside the scene and its navigation moves the camera', async ({ page }) => {
+  await openOffice(page);
+  // Registered after the HQ mock, so these answer first. The ids are names, which the navigation command accepts.
+  const stop = { building_id: 'Al Noor Fleet HQ', building_name: 'Al Noor Fleet HQ', floor_id: 'First floor', floor_name: 'First floor', level: 1, room_id: 'Finance', room_name: 'Finance', room_kind: 'office', capacity: 4, desks: 1 };
+  await page.route('http://localhost:8000/api/v1/executive-pa/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const json = (body: unknown) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    if (path.endsWith('/tools')) return json({ tools: [{ name: 'navigate', kind: 'read', label: 'Go to a place', risk: 'low', autonomy: 'automatic', governed_by: 'the existing governed API', permissions: [], allowed: true }] });
+    if (path.endsWith('/tour')) return json({ status: 'ready', stops: [stop] });
+    if (path.endsWith('/invoke')) return json({ tool: 'navigate', status: 'ok', navigate: { building_id: stop.building_id, floor_id: stop.floor_id, room_id: stop.room_id } });
+    return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+  });
+  await page.reload();
+  const dock = hq(page).getByRole('complementary', { name: /assistant|PA/i });
+  await expect(dock).toBeVisible();
+  await dock.locator('#pa-input').fill('go to Finance');
+  await dock.getByRole('button', { name: 'Send' }).click();
+  await expect(hq(page).getByRole('complementary', { name: 'Room Finance' })).toBeVisible();
+});
+
 test('Arabic: the headquarters reads right to left', async ({ page }) => {
   await useSavedLocale(page, 'ar');
   await openOffice(page);
@@ -352,7 +372,7 @@ for (const [width, height] of SIZES) {
     if (shot) await page.screenshot({ path: `${shot}/building-${width}x${height}.png` });
     await hq(page).getByRole('button', { name: /^Tyre Analysis/ }).click();
     if (shot) await page.screenshot({ path: `${shot}/room-${width}x${height}.png` });
-    await hq(page).getByRole('button', { name: 'List' }).click();
+    await hq(page).getByRole('button', { name: 'List', exact: true }).click();
     expect(await overflow()).toBeLessThanOrEqual(0);
     if (shot) await page.screenshot({ path: `${shot}/list-${width}x${height}.png` });
   });
