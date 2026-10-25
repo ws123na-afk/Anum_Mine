@@ -17,6 +17,7 @@ import { builderEn } from './builder.en.ts';
 import { hqFlowEn } from './hqFlow.en.ts';
 import { hqHistoryEn } from './hqHistory.en.ts';
 import { hqProvisioningEn } from './hqProvisioning.en.ts';
+import { hqNavEn } from './hqNav.en.ts';
 import { hqAssignEn } from './hqAssign.en.ts';
 import { hqStarterCampusEn } from './hqStarterCampus.en.ts';
 import { hqStaffDesksEn } from './hqStaffDesks.en.ts';
@@ -3230,6 +3231,7 @@ export const en = {
   ...hqFlowEn,
   ...hqHistoryEn,
   ...hqProvisioningEn,
+  ...hqNavEn,
   ...hqAssignEn,
   ...hqStarterCampusEn,
   ...hqStaffDesksEn,

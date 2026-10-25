@@ -57,12 +57,14 @@ export type HqCallbacks = Readonly<{
 
 export type NavScene = Readonly<{
   workspaceId: string;
+  /** The open registry building, when the workspace has several (a target may name another one). */
+  buildingId?: string | null;
   floors: ReadonlyArray<Readonly<{ id: string; level: number; name: string; rooms: ReadonlyArray<Readonly<{ id: string; label: string }>> }>>;
   agents: ReadonlyArray<Readonly<{ id: string; name: string; roomId: string | null }>>;
 }>;
 
 export type NavResolution =
-  | Readonly<{ kind: 'apply'; workspaceId: string; floorId: string | null; roomId: string | null; agentId: string | null }>
+  | Readonly<{ kind: 'apply'; workspaceId: string; buildingId?: string | null; floorId: string | null; roomId: string | null; agentId: string | null }>
   | Readonly<{ kind: 'switch'; workspaceId: string }>
   | Readonly<{ kind: 'error'; code: 'not-found' | 'not-accessible' | 'ambiguous'; message: string }>;
 
@@ -87,13 +89,18 @@ function pickOne<T>(rows: readonly T[], id: (r: T) => string, name: (r: T) => st
  */
 export function resolveNavTarget(target: HqNavTarget, campus: Campus, open: NavScene | null): NavResolution {
   let workspaceId = open?.workspaceId ?? null;
+  let buildingId: string | null = null;
   if (target.building !== undefined) {
     const found = pickOne(campus.buildings, (b) => b.workspace_id, (b) => b.name, target.building);
     if (found === 'ambiguous') return { kind: 'error', code: 'ambiguous', message: `More than one building matches "${target.building}".` };
     if (!found) return { kind: 'error', code: 'not-found', message: `No building matches "${target.building}".` };
     if (!found.accessible) return { kind: 'error', code: 'not-accessible', message: `${found.name} is not available to you right now.` };
-    if (found.workspace_id !== open?.workspaceId) return { kind: 'switch', workspaceId: found.workspace_id };
-    workspaceId = found.workspace_id;
+    const realWorkspace = found.realWorkspaceId ?? found.workspace_id;
+    if (realWorkspace !== open?.workspaceId) return { kind: 'switch', workspaceId: realWorkspace };
+    workspaceId = realWorkspace;
+    buildingId = found.registryBuildingId ?? null;
+    // Another registry building of the open workspace: its floors and rooms are read once it is open.
+    if (buildingId && open.buildingId && buildingId !== open.buildingId) return { kind: 'apply', workspaceId, buildingId, floorId: null, roomId: null, agentId: null };
   }
   if (!workspaceId || !open) return { kind: 'error', code: 'not-found', message: 'No building is open.' };
 
@@ -130,7 +137,7 @@ export function resolveNavTarget(target: HqNavTarget, campus: Campus, open: NavS
       floorId = open.floors.find((f) => f.rooms.some((r) => r.id === agent.roomId))?.id ?? floorId;
     }
   }
-  return { kind: 'apply', workspaceId, floorId, roomId, agentId };
+  return { kind: 'apply', workspaceId, ...(buildingId ? { buildingId } : {}), floorId, roomId, agentId };
 }
 
 // ---------------------------------------------------------------- command bus

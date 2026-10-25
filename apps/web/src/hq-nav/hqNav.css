@@ -1,0 +1,87 @@
+/* Floor rail, side panel and quick-view strip: loaded with NavChrome (the layout, drawers and campus cards are in hqNavLayout.css). */
+/* Rail. */
+.hqNavRail { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: flex; flex-direction: column; gap: var(--d-s2); max-block-size: clamp(380px, calc(100dvh - 210px), 860px); min-width: 0; overflow: hidden auto; padding: var(--d-s2); }
+.hqNavRail header { align-items: center; display: flex; gap: var(--d-s2); justify-content: space-between; }
+.hqNavRail[data-slim="true"] header { justify-content: center; }
+.hqNavRail h2 { font-size: var(--text-sm); font-weight: 650; margin: 0; }
+.hqNavRail ul { display: flex; flex-direction: column; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.hqRailItem { align-items: center; appearance: none; background: var(--d-chip); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); cursor: pointer; display: flex; gap: var(--d-s2); min-height: 56px; padding: var(--d-s1); text-align: start; width: 100%; }
+.hqNavRail[data-slim="true"] .hqRailItem { justify-content: center; min-height: 48px; }
+.hqRailItem:hover { border-color: var(--d-line-hover); }
+.hqRailItem[data-active="true"] { border-color: var(--d-accent); box-shadow: 0 0 0 1px var(--d-accent); }
+.hqRailItem:focus-visible, .hqStop:focus-visible, .hqStripToggle:focus-visible, .hqMove:focus-visible, .hqPerson:focus-visible, .hqTabs button:focus-visible, .hqPhrases button:focus-visible { outline: 2px solid var(--d-accent); outline-offset: 2px; }
+.hqThumb { align-items: center; background: var(--d-well); border-radius: 6px; display: inline-flex; flex: none; height: 44px; justify-content: center; overflow: hidden; width: 64px; }
+.hqNavRail[data-slim="true"] .hqThumb { height: 38px; width: 48px; }
+.hqThumb img { height: 100%; object-fit: cover; width: 100%; }
+.hqMiniPlan { height: 100%; width: 100%; }
+.hqMiniPlan rect, .hqPlanRoom rect { fill: color-mix(in srgb, var(--hqnav-kind, var(--d-faint)) 38%, var(--d-well)); stroke: color-mix(in srgb, var(--hqnav-kind, var(--d-faint)) 80%, transparent); stroke-width: .6; }
+.kind-reception { --hqnav-kind: #d9a441; } .kind-office { --hqnav-kind: #5aa2e6; } .kind-meeting { --hqnav-kind: #b48cff; }
+.kind-workshop { --hqnav-kind: #e3875a; } .kind-warehouse { --hqnav-kind: #8a93a3; } .kind-lounge { --hqnav-kind: #6fd39a; }
+.hqRailText { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.hqRailText strong { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hqRailText small { color: var(--d-muted); font-size: var(--text-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Side panel. */
+.hqNavSide, .hqNavSideBody { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: flex; flex-direction: column; gap: var(--d-s3); max-block-size: clamp(380px, calc(100dvh - 210px), 860px); min-width: 0; overflow: hidden auto; padding: var(--d-s3); position: relative; }
+.hqNavSideBody { background: transparent; border: 0; max-block-size: none; overflow: visible; padding: 0; }
+.hqSideToggle { align-self: flex-end; flex: none; }
+.hqNavSide > .hqSideToggle { margin-block-end: calc(var(--d-s2) * -1); }
+.hqNavSide h3, .hqNavSideBody h3 { font-size: var(--text-sm); font-weight: 650; margin: 0 0 var(--d-s2); }
+.hqNavSide h4 { color: var(--d-muted); font-size: var(--text-xs); font-weight: 600; margin: var(--d-s3) 0 var(--d-s1); }
+.hqNavSide .hqPaDock { max-width: none; }
+.hqNavSide [hidden], .hqNavSideBody [hidden] { display: none; }
+.hqTabs { background: var(--d-well); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: flex; gap: 2px; padding: 2px; }
+.hqTabs button { appearance: none; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--d-muted); cursor: pointer; flex: 1; font-size: var(--text-xs); min-height: 32px; padding: 0 var(--d-s2); }
+.hqTabs button[aria-selected="true"] { background: var(--d-primary); color: var(--d-on-primary); }
+.hqPlanHead { align-items: center; display: flex; gap: var(--d-s2); justify-content: space-between; margin-block-end: var(--d-s2); }
+.hqPlanHead h3 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.hqPlanSvg { background: var(--d-well); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: block; max-block-size: 220px; width: 100%; }
+.hqPlanRoom { cursor: pointer; }
+.hqPlanLabel { fill: var(--d-text); font-size: 3.4px; pointer-events: none; }
+.hqPlanRoom:hover rect { stroke-width: 1.1; }
+.hqPlanRoom[data-selected="true"] rect { fill: color-mix(in srgb, var(--d-accent) 45%, var(--d-well)); stroke: var(--d-accent); stroke-width: 1.4; }
+.hqPlanRoom:focus-visible { outline: none; }
+.hqPlanRoom:focus-visible rect { stroke: var(--d-accent); stroke-width: 1.6; stroke-dasharray: 2 1; }
+.hqPlanDesk { fill: var(--d-faint); } .hqPlanDesk.assigned { fill: var(--d-accent); }
+.hqPeople ul, .hqMoveList, .hqPhrases { display: flex; flex-direction: column; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.hqPerson { align-items: center; appearance: none; background: var(--d-chip); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); cursor: pointer; display: flex; gap: var(--d-s2); min-height: 44px; padding: var(--d-s1) var(--d-s2); text-align: start; width: 100%; }
+.hqPerson:disabled { cursor: default; opacity: 1; }
+.hqPerson:hover:not(:disabled) { border-color: var(--d-line-hover); }
+.hqPersonText { display: flex; flex: 1; flex-direction: column; line-height: 1.25; min-width: 0; }
+.hqPersonText strong { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hqPersonText small { color: var(--d-muted); font-size: var(--text-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hqPerson .hqPill { background: color-mix(in srgb, var(--tone, var(--hq-faint)) 22%, transparent); color: var(--d-text); flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+.hqPeople > .hqGhost { margin-block-start: var(--d-s2); }
+.hqMove { align-items: center; appearance: none; background: var(--d-chip); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); cursor: pointer; display: flex; gap: var(--d-s2); min-height: 40px; padding: 0 var(--d-s3); text-align: start; width: 100%; }
+.hqMove:hover { border-color: var(--d-line-hover); }
+.hqPhrases button { appearance: none; background: none; border: 0; color: var(--d-accent-text); cursor: pointer; min-height: 32px; padding: 0 var(--d-s1); text-align: start; text-decoration: underline; }
+
+/* Quick views strip. */
+.hqStrip { align-items: stretch; display: flex; gap: var(--d-s2); margin-block-start: var(--d-s2); min-width: 0; }
+.hqStrip nav { flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.hqStrip ul { display: flex; gap: var(--d-s2); list-style: none; margin: 0; padding: 0 0 var(--d-s1); width: max-content; }
+.hqStripToggle { align-items: center; appearance: none; background: var(--d-chip); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); cursor: pointer; display: inline-flex; flex: none; font-size: var(--text-xs); gap: 4px; min-height: 40px; padding: 0 var(--d-s2); }
+.hqStrip[data-open="true"] .hqStripToggle { align-self: flex-start; flex-direction: column; justify-content: center; min-height: 76px; width: 72px; }
+.hqStop { appearance: none; background: var(--d-chip); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); cursor: pointer; display: flex; flex-direction: column; gap: 2px; padding: 3px; text-align: center; width: 112px; }
+.hqStop:hover:not(:disabled) { border-color: var(--d-line-hover); }
+.hqStop:disabled { cursor: not-allowed; opacity: .6; }
+.hqStop[data-current="true"] { border-color: var(--d-accent); box-shadow: 0 0 0 2px var(--d-accent); }
+.hqStopThumb { align-items: center; aspect-ratio: 16 / 9; background: var(--d-well); border-radius: 5px; display: flex; justify-content: center; overflow: hidden; position: relative; width: 100%; }
+.hqStopThumb img { height: 100%; object-fit: cover; width: 100%; }
+.hqStopIcon { color: var(--d-accent-text); display: inline-flex; }
+.hqStopIcon svg { height: 22px; width: 22px; }
+.hqStopThumb .hqLock { inset-block-start: 4px; inset-inline-end: 4px; position: absolute; }
+.hqStopCap { font-size: var(--text-2xs); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+/* Drawers (small screens). */
+.hqDrawer { background: var(--d-surface-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-panel); bottom: var(--d-s3); box-shadow: var(--d-elev-2); display: flex; flex-direction: column; gap: var(--d-s2); inset-block-start: 76px; overflow: auto; padding: var(--d-s3); position: fixed; width: min(360px, calc(100vw - 2 * var(--d-s3))); z-index: 80; }
+.hqDrawer.start { inset-inline-start: var(--d-s3); }
+.hqDrawer.end { inset-inline-end: var(--d-s3); }
+.hqDrawer .hqNavRail { border: 0; max-block-size: none; overflow: visible; padding: 0; }
+.hqDrawerClose { align-self: flex-end; flex: none; }
+@media (max-width: 760px) {
+  .hqDrawer { inset-block-start: auto; inset-inline: var(--d-s2); max-height: 72dvh; width: auto; }
+  .hqStop { width: 96px; }
+}
+

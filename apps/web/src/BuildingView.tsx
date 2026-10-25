@@ -23,6 +23,7 @@ import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
 import { commerceFlow } from './lib/hqModules.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
+import type { HqNavHandles } from './hq-nav/HqNavigation';
 
 export type BuildingViewProps = Readonly<{
   workspaceName: string;
@@ -52,6 +53,8 @@ export type BuildingViewProps = Readonly<{
   onToggleFullscreen: () => void;
   onUnavailable: (reason: string) => void;
   onNight: (night: boolean) => void;
+  /** The navigation layer's camera bridge and thumbnail capture (flights, snapshots). */
+  nav?: HqNavHandles;
   /** The open room or workstation panel, drawn over the scene (stacked under it on narrow screens). */
   side: ReactNode;
   /** Stored work per room and the last move the server reported, for the live-flow badges and markers. */
@@ -119,10 +122,28 @@ export function BuildingView(props: BuildingViewProps) {
   latest.current = props;
   const roomById = useMemo(() => new Map(floor.rooms.map((r) => [r.id, r])), [floor.rooms]);
 
+  const cameraRef = useRef(camera);
+  cameraRef.current = camera;
+  // The camera that frames one room of the open floor, or null when the room is not on it.
+  const frameOf = useCallback((id: string): CameraState | null => {
+    const room = roomById.get(id);
+    if (!room) return null;
+    const c = cameraRef.current;
+    return { ...c, target: { x: room.x + room.width / 2, y: activeIndex * 4.2, z: room.z + room.depth / 2 }, distance: Math.max(c.minDistance, Math.min(c.maxDistance, Math.max(room.width, room.depth) * 2.8 + 6)) };
+  }, [roomById, activeIndex]);
   const focusRoom = useCallback((room: RoomGeometry) => {
-    const y = activeIndex * 4.2;
-    setCamera((c) => ({ ...c, target: { x: room.x + room.width / 2, y, z: room.z + room.depth / 2 }, distance: Math.max(c.minDistance, Math.min(c.maxDistance, Math.max(room.width, room.depth) * 2.8 + 6)) }));
-  }, [activeIndex]);
+    const next = frameOf(room.id);
+    if (!next) return;
+    if (latest.current.nav && !latest.current.reducedMotion) latest.current.nav.bridge.flyTo(next);
+    else setCamera(next);
+  }, [frameOf]);
+  const homeNow = useRef(home);
+  homeNow.current = view === 'top' ? topView(home) : home;
+  const frameRef = useRef(frameOf);
+  frameRef.current = frameOf;
+  useEffect(() => props.nav?.bridge.attach({
+    get: () => cameraRef.current, set: (c) => setCamera(clampTarget(c, 400)), obstacles: () => [], frame: (id) => frameRef.current(id), home: () => homeNow.current,
+  }), [props.nav]);
 
   const pickRoom = useCallback((id: string | null) => {
     const room = id ? roomById.get(id) ?? null : null;
@@ -238,7 +259,7 @@ export function BuildingView(props: BuildingViewProps) {
           scene={renderScene} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
           onCamera={(c) => setCamera(clampTarget(c, 400))} night={night} reducedMotion={props.reducedMotion}
           hoverId={null} selectedId={null} onHover={() => undefined}
-          onPick={pickRoom} labels={labels} onUnavailable={props.onUnavailable}
+          onPick={pickRoom} labels={labels} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
         />
         {floor.rooms.length === 0 && (
           <div className="hqEmptyFloor" role="status">
@@ -265,6 +286,8 @@ export function BuildingView(props: BuildingViewProps) {
           />
         </div>
       </div>
+
+      <div className="hqStripSlot" />
 
       <div className="hqBottomPanels">
         <TotalsPanel

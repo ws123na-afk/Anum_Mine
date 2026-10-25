@@ -35,7 +35,22 @@ export type CampusBuilding = Readonly<{
   /** Presence counts, or null when no verified presence exists ("Presence unavailable"). */
   totals: CampusTotals | null;
   presence_verified_at: string | null;
+  /**
+   * Set on the buildings of the open workspace's office registry when it has more than one: `workspace_id` is then a
+   * scene key (workspace id plus building id), and this is the workspace the building really belongs to.
+   */
+  realWorkspaceId?: string;
+  /** The office registry building this card stands for (a registry building is a real record; nothing else is drawn as one). */
+  registryBuildingId?: string;
+  /** The workspace's own name, shown on a registry building's card so it is never mistaken for another workspace. */
+  workspaceName?: string;
+  /** Initials of the agents assigned to desks in this building and their departments (real assignments and presence only). */
+  people?: readonly string[];
+  departments?: readonly string[];
 }>;
+
+/** The workspace a campus building belongs to (the scene key of a registry building is not a workspace id). */
+export const workspaceOf = (b: Pick<CampusBuilding, 'workspace_id' | 'realWorkspaceId'>): string => b.realWorkspaceId ?? b.workspace_id;
 
 export type Campus = Readonly<{
   buildings: readonly CampusBuilding[];

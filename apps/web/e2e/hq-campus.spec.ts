@@ -81,10 +81,10 @@ test('night glow is off under reduced motion', async ({ page }) => {
 test('night and day both draw and the toggle keeps the page inside the viewport', async ({ page }) => {
   await openOffice(page);
   const canvas = hq(page).locator('canvas.hqCanvas');
-  await hq(page).getByRole('button', { name: 'Night' }).click();
+  await hq(page).getByRole('button', { name: 'Night', exact: true }).click();
   await expect(hq(page).locator('.hqStage')).toHaveAttribute('data-night', 'true');
   await page.waitForTimeout(700);
-  await hq(page).getByRole('button', { name: 'Day' }).click();
+  await hq(page).getByRole('button', { name: 'Day', exact: true }).click();
   await expect(hq(page).locator('.hqStage')).toHaveAttribute('data-night', 'false');
   await expect(canvas).toBeVisible();
   expect(Number(await canvas.getAttribute('data-triangles'))).toBeGreaterThan(20000);
@@ -102,10 +102,10 @@ test('inside a building: floors, rooms, desks, agent cards and the module panels
   await expect(hq(page).getByRole('button', { name: /^Tyre Analysis/ })).toBeVisible();
   // Agent cards sit on the scene on wide screens; a phone-sized stage hides the ones that would not fit, and the room panel lists the same desks.
   if (wide(page)) {
-    await expect(hq(page).getByRole('button', { name: /Fleet Planner/ })).toContainText('Working');
-    await expect(hq(page).getByRole('button', { name: /WhatsApp Concierge/ })).toContainText('In meetings');
+    await expect(hq(page).locator('.hqLabels').getByRole('button', { name: /Fleet Planner/ })).toContainText('Working');
+    await expect(hq(page).locator('.hqLabels').getByRole('button', { name: /WhatsApp Concierge/ })).toContainText('In meetings');
     // A private agent shows no name.
-    await expect(hq(page).getByRole('button', { name: /Private agent/ })).toContainText('Unknown');
+    await expect(hq(page).locator('.hqLabels').getByRole('button', { name: /Private agent/ })).toContainText('Unknown');
   }
   // A room opens its panel; an agent opens the workstation panel with the open task.
   await hq(page).getByRole('button', { name: /^Tyre Analysis/ }).click();
@@ -138,8 +138,8 @@ test('inside a building: floors, rooms, desks, agent cards and the module panels
   await expect(hq(page).getByRole('button', { name: /^Tyre Analysis/ })).toHaveCount(0);
   // Evidence older than the server's window reads as stale; a queued task reads as queued, never as working.
   if (wide(page)) {
-    await expect(hq(page).getByRole('button', { name: /Lead Finder/ })).toContainText('(stale)');
-    await expect(hq(page).getByRole('button', { name: /Invoice Checker/ })).toContainText('Queued');
+    await expect(hq(page).locator('.hqLabels').getByRole('button', { name: /Lead Finder/ })).toContainText('(stale)');
+    await expect(hq(page).locator('.hqLabels').getByRole('button', { name: /Invoice Checker/ })).toContainText('Queued');
   }
 });
 

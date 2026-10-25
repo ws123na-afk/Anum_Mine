@@ -156,7 +156,8 @@ test('Arabic: right to left, the Arabic role name is created and the dialog stil
   await expect(d).toContainText('وكيل واحد: مكتب الطلبات');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await d.getByRole('button', { name: 'إنشاء الوكيل متوقفا مؤقتا' }).click();
-  expect(prov.requests.find((r) => r.method === 'POST')!.body).toMatchObject({ lang: 'ar', input_mode: 'click' });
+  // The request reaches the mock a moment after the click: wait for it instead of reading it at once.
+  await expect.poll(() => prov.requests.find((r) => r.method === 'POST')?.body).toMatchObject({ lang: 'ar', input_mode: 'click' });
   await expect(d).toContainText('تم إنشاء مكتب الطلبات');
 });
 
