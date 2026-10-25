@@ -322,3 +322,7 @@
 .hqLive .hqFlowMarker.hqFlowMarkerStage { position: relative; transform: none; left: auto; top: auto; pointer-events: none; }
 
 .hqMenu .hqMenuNote { padding: 8px 12px; color: var(--muted, #9aa5b1); max-width: 260px; line-height: 1.35; }
+.hqRoomModule { display: flex; flex-direction: column; gap: var(--d-s2); }
+.hqRoomModule[data-variant="list"] { margin-top: var(--d-s1); }
+.hqRoomModuleLink { align-items: center; color: var(--d-accent, inherit); display: inline-flex; font-size: var(--text-sm); gap: var(--d-s1); min-height: 32px; text-decoration: underline; }
+.hqRoomModule .hqNote { margin: 0; }

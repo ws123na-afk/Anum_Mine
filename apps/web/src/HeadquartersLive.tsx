@@ -19,7 +19,6 @@ import { ViewSwitch, type HqView } from './HqChrome';
 import { AgentPanel, RoomPanel } from './HqPanels';
 import { OfficeSpaceLiveManager } from './OfficeSpaceLiveManager';
 import { OfficeWorkstations } from './OfficeWorkstations';
-import { ReceptionOperations } from './ReceptionOperations';
 import * as api from './lib/api.ts';
 import { campusTotals, type Campus, type CampusBuildingKind } from './lib/campusModel.ts';
 import { HeadquartersController, adaptOfficeRegistry, type OfficeState } from './lib/headquartersController.ts';
@@ -61,7 +60,7 @@ export type HeadquartersProps = HqCallbacks & HqSlots & Readonly<{
   headerExtra?: ReactNode;
 }>;
 
-type Overlay = 'none' | 'spaces' | 'workstations' | 'reception' | 'tour' | 'agentMeetings' | 'teams' | 'gaps';
+type Overlay = 'none' | 'spaces' | 'workstations' | 'tour' | 'agentMeetings' | 'teams' | 'gaps';
 const NO_ROOMS: ReadonlySet<string> = new Set();
 
 function readLight(): boolean {
@@ -81,6 +80,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const gaps = useProvisioningGaps(flow.snapshot?.as_of ?? 0);
   const [flowOpen, setFlowOpen] = useState(false);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
+  // Owner of this workspace (workspace:manage): only they are told to set a department; the server checks every write.
+  const [canManage, setCanManage] = useState(false);
   const [view, setView] = useState<HqView>('3d');
   const [night, setNight] = useState(readLight);
   const [fullscreen, setFullscreen] = useState(false);
@@ -104,6 +105,11 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const want = useRef<HqNavTarget | null>(null);
   const reducedMotion = useMemo(() => typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
   const scope = api.currentScope();
+  useEffect(() => {
+    let active = true;
+    api.getCurrentMembership().then((mine) => { if (active) setCanManage(mine.active && mine.role === 'owner'); }).catch(() => { if (active) setCanManage(false); });
+    return () => { active = false; };
+  }, [scope.tenantId, scope.workspaceId]);
 
   const latestProps = useRef(props);
   latestProps.current = props;
@@ -394,7 +400,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
     : roomPanelRoom
       ? (props.renderRoomPanel
         ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
-        : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} /><HqTeamPanel roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)
+        : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} buildingKind={currentBuilding?.kind ?? null} canManage={canManage} onOpenFlow={() => setFlowOpen(true)} onOpenGaps={() => setOverlay('gaps')} /><HqTeamPanel roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)
       : null;
 
   const status = state?.status;
@@ -424,7 +430,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
                 <li><button type="button" onClick={() => { setOverlay('teams'); setToolsOpen(false); }}><Users aria-hidden="true" />{t('hqTeam.title')}</button></li>
                 {([
                   ['spaces', LayoutGrid, 'hq.tools.spaces'], ['workstations', Users, 'hq.tools.workstations'], ['agentMeetings', Users, 'hq.tools.meetings'],
-                  ['reception', DoorOpen, 'hq.tools.reception'], ['tour', Compass, 'hq.tools.tour'],
+                  ['tour', Compass, 'hq.tools.tour'],
                 ] as const).map(([id, Icon, key]) => (
                   <li key={id}><button type="button" onClick={() => { setOverlay(id); setToolsOpen(false); }}><Icon aria-hidden="true" />{t(key as MessageKey)}</button></li>
                 ))}
@@ -458,7 +464,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           {campus && effectiveView === 'list' && (
             <CampusListView
               campus={campus} currentWorkspaceId={scope.workspaceId} detail={projection?.buildings ?? []}
-              onEnter={enterBuilding} onOpenRoom={(ws, fid, rid) => { if (ws === scope.workspaceId) openRoomById(fid, rid); }}
+              onEnter={enterBuilding} canManage={canManage} onOpenFlow={() => setFlowOpen(true)} onOpenGaps={() => setOverlay('gaps')} onOpenRoom={(ws, fid, rid) => { if (ws === scope.workspaceId) openRoomById(fid, rid); }}
             />
           )}
           {campus && webglOk && effectiveView !== 'list' && level === 'campus' && (
@@ -518,7 +524,6 @@ export function HeadquartersLive(props: HeadquartersProps) {
           : overlay === 'spaces' ? <OfficeSpaceLiveManager onClose={() => { setOverlay('none'); void controller.refresh(); }} />
             : overlay === 'workstations' ? <OfficeWorkstations onClose={() => setOverlay('none')} />
               : overlay === 'agentMeetings' ? <AgentMeetingSessions onClose={() => setOverlay('none')} />
-                : overlay === 'reception' ? <ReceptionOperations onClose={() => setOverlay('none')} onDestination={(name) => { const target = floor?.rooms.find((r) => r.label === name); if (target) { openRoomById(target.floorId, target.id); setOverlay('none'); } }} />
                   : <GuidedExecutiveTour site={currentBuilding?.name ?? 'ANUM MINE'} stops={tourStops} onClose={() => setOverlay('none')} onArrive={(id) => { const dest = floor?.rooms.find((r) => r.id === id); if (dest) openRoomById(dest.floorId, dest.id); }} />}
         </div>
       )}
