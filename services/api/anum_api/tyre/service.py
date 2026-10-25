@@ -10,12 +10,14 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any
 
 from ..schemas import TenantContext, new_id, utc_now
 from ..secret_box import SecretDecryptionError, secret_cipher
+from . import read_cache
 from . import sources as source_module
 from .analytics import evaluate_alerts, forecast_tyres
 from .mapping import SourceTable, apply_mapping, mapped_columns, read_key, suggest_mapping
@@ -378,6 +380,19 @@ def share_report(context: TenantContext, report: TyreReport) -> None:
 def forecasts_for(context: TenantContext) -> tuple[Loaded, list]:  # type: ignore[type-arg]
     loaded = load(context)
     return loaded, forecast_tyres(loaded.snapshot.dataset, loaded.connection.assumptions, utc_now().date())
+
+
+def forecasts_cached(context: TenantContext) -> tuple[Loaded, list]:  # type: ignore[type-arg]
+    """:func:`forecasts_for` through the short read cache (``read_cache.py``): the read-only
+    assistant and voice tools share one load and one forecast per scope. Treat the result as
+    read-only. Raises the same ``NotConnectedError`` / ``NotSyncedError``."""
+    return read_cache.get(context, lambda: forecasts_for(context))
+
+
+def derived(context: TenantContext, loaded: Loaded, name: Any, compute: Callable[[], Any]) -> Any:
+    """A result computed from :func:`forecasts_cached` (``loaded`` is its first item), kept
+    with the cache entry so the next question reuses it."""
+    return read_cache.memo(context, loaded, name, compute)
 
 
 def group_counts(items: list[Any], key: str) -> dict[str, int]:
