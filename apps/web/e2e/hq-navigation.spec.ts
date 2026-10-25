@@ -18,7 +18,7 @@ test.use({ deviceScaleFactor: 1, isMobile: false, hasTouch: false });
 test.describe.configure({ timeout: 240_000 });
 
 async function openOffice(page: Page, size = { width: 1440, height: 900 }, options: Parameters<typeof mockHq>[1] = { campus: 'api', commerce: 'connected', meetings: 'live' }) {
-  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); localStorage.setItem('anum.hq.quality', '0'); } catch { /* storage blocked */ } });
+  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
   await mockHq(page, options);
   await page.setViewportSize(size);
   await page.goto('/#office-preview');
@@ -201,7 +201,7 @@ test('the fold control is absent where the panels are already drawers, and reads
 });
 
 test('many buildings: cards shrink by rule and none disappears', async ({ page }) => {
-  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); localStorage.setItem('anum.hq.quality', '0'); } catch { /* storage blocked */ } });
+  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
   await mockHq(page, { campus: 'api', commerce: 'none', meetings: 'none' });
   const many = { ...campusFixture, buildings: [...campusFixture.buildings, ...Array.from({ length: 10 }, (_, i) => ({ ...campusFixture.buildings[3], workspace_id: `workspace_extra_${i}`, name: `Extra Building ${i}`, accessible: true }))] };
   await page.route('http://localhost:8000/api/v1/office/campus', (route) => route.fulfill({ json: many }));
@@ -305,7 +305,7 @@ test('small screens: the floors and the side panel open as drawers', async ({ pa
 for (const locale of ['en', 'ar'] as const) {
   for (const theme of ['light', 'dark'] as const) {
     test(`axe on the navigation layer: ${locale}, ${theme} theme, campus and building`, async ({ page }) => {
-      await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); localStorage.setItem('anum.hq.quality', '0'); } catch { /* storage blocked */ } });
+      await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
       await useSavedLocale(page, locale);
       await page.addInitScript((value) => { try { localStorage.setItem('anum.theme', value); } catch { /* storage blocked */ } }, theme);
       await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
