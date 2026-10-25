@@ -7,7 +7,7 @@
  * a record behind it reads "Presence unavailable" or "Not connected".
  * Extension points are documented in docs/ANUM_MINE_HQ_EXTENSION_POINTS.md.
  */
-import { AlertTriangle, Compass, DoorOpen, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
+import { AlertTriangle, Compass, DoorOpen, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AgentMeetingSessions } from './AgentMeetingSessions';
 import { BuildingView } from './BuildingView';
@@ -33,6 +33,10 @@ import { agentPresence, indexPresence, loadMeetingEvidence, presenceFromItems, t
 import { t, type MessageKey } from './lib/i18n.ts';
 import { createOfficeSpaceClient } from './lib/officeSpaceClient.ts';
 import { loadWorkspaceWorkstations, type WorkstationSnapshot } from './lib/officeWorkstations.ts';
+import { HqFlowDock } from './HqFlowDock';
+import { HqTeamPanel } from './HqTeamPanel';
+import { useOfficeFlow } from './useOfficeFlow';
+import './hqFlow.css';
 import './headquartersLive.css';
 
 const officeApi = createOfficeSpaceClient(api.apiRequest, api.apiRequestVoid, api.currentScope);
@@ -52,7 +56,7 @@ export type HeadquartersProps = HqCallbacks & HqSlots & Readonly<{
   headerExtra?: ReactNode;
 }>;
 
-type Overlay = 'none' | 'spaces' | 'workstations' | 'reception' | 'tour' | 'agentMeetings';
+type Overlay = 'none' | 'spaces' | 'workstations' | 'reception' | 'tour' | 'agentMeetings' | 'teams';
 const NO_ROOMS: ReadonlySet<string> = new Set();
 
 function readLight(): boolean {
@@ -68,6 +72,9 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [state, setState] = useState<OfficeState | null>(null);
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [toolsOpen, setToolsOpen] = useState(false);
+  const flow = useOfficeFlow();
+  const [flowOpen, setFlowOpen] = useState(false);
+  const [roomFilter, setRoomFilter] = useState<string | null>(null);
   const [view, setView] = useState<HqView>('3d');
   const [night, setNight] = useState(readLight);
   const [fullscreen, setFullscreen] = useState(false);
@@ -292,6 +299,16 @@ export function HeadquartersLive(props: HeadquartersProps) {
     latestProps.current.onSelectRoom?.(roomRef(room));
   }, [registryBuilding, floor?.id, controller, roomRef]);
 
+  const roomLabels = useMemo(() => {
+    const map = new Map<string, { label: string }>();
+    for (const b of projection?.buildings ?? []) for (const f of b.floors) for (const r of f.rooms) map.set(r.id, { label: r.label });
+    return map;
+  }, [projection]);
+  const focusRoomById = useCallback((rid: string) => {
+    for (const f of registryBuilding?.floors ?? []) if (f.rooms.some((r) => r.id === rid)) { openRoomById(f.id, rid); return; }
+  }, [registryBuilding, openRoomById]);
+  const goTo = useCallback((hash: string) => { window.location.hash = hash; }, []);
+
   // Navigation commands from the executive assistant.
   const navScene = useMemo(() => {
     if (!registryBuilding) return null;
@@ -365,7 +382,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
     : roomPanelRoom
       ? (props.renderRoomPanel
         ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
-        : <RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} />)
+        : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} /><HqTeamPanel roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)
       : null;
 
   const status = state?.status;
@@ -390,6 +407,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
             <button type="button" className="hqGhost" aria-expanded={toolsOpen} onClick={() => setToolsOpen((v) => !v)}><Wrench aria-hidden="true" />{t('hq.tools')}</button>
             {toolsOpen && (
               <ul className="hqMenu">
+                <li><button type="button" aria-pressed={flowOpen} onClick={() => { setFlowOpen((v) => !v); setToolsOpen(false); }}><Layers aria-hidden="true" />{t('hqFlow.open')}</button></li>
+                <li><button type="button" onClick={() => { setOverlay('teams'); setToolsOpen(false); }}><Users aria-hidden="true" />{t('hqTeam.title')}</button></li>
                 {([
                   ['spaces', LayoutGrid, 'hq.tools.spaces'], ['workstations', Users, 'hq.tools.workstations'], ['agentMeetings', Users, 'hq.tools.meetings'],
                   ['reception', DoorOpen, 'hq.tools.reception'], ['tour', Compass, 'hq.tools.tour'],
@@ -437,12 +456,13 @@ export function HeadquartersLive(props: HeadquartersProps) {
           )}
           {campus && !webglOk && level === 'building' && effectiveView !== 'list' && floor && (
             <>
-              <HqPlanFallback floor={floor} selectedRoomId={roomId} night={night} onSelectRoom={selectRoom} />
+              <HqPlanFallback flow={{ snapshot: flow.snapshot, batch: flow.batch, onPickRoom: (id) => { setRoomFilter(id); setFlowOpen(true); } }} floor={floor} selectedRoomId={roomId} night={night} onSelectRoom={selectRoom} />
               {sidePanel && <div className="hqSideInline">{sidePanel}</div>}
             </>
           )}
           {campus && webglOk && effectiveView !== 'list' && level === 'building' && (registryBuilding && floor ? (
             <BuildingView
+              flow={{ snapshot: flow.snapshot, batch: flow.batch, onPickRoom: (id) => { setRoomFilter(id); setFlowOpen(true); } }}
               workspaceName={currentBuilding?.name ?? scope.workspaceId} kindLabel={t(`hq.kind.${buildingKind}` as MessageKey)}
               buildings={projection?.buildings ?? []} building={registryBuilding} floor={floor}
               presence={presenceIndex} unreported={unreported} verifiedAt={verifiedAt}
@@ -463,6 +483,9 @@ export function HeadquartersLive(props: HeadquartersProps) {
               <button type="button" className="hqGhost" onClick={() => setLevel('campus')}>{t('hq.back')}</button>
             </div>
           ))}
+          <HqFlowDock snapshot={flow.snapshot} status={flow.status} error={flow.error} link={flow.link} batch={flow.batch}
+            rooms={roomLabels} open={flowOpen} onToggle={() => setFlowOpen((v) => !v)} onReload={() => void flow.reload()}
+            roomFilter={roomFilter} onRoomFilter={setRoomFilter} onFocusRoom={focusRoomById} onNavigate={goTo} />
         </div>
         {props.renderPaDock && (
           <aside className="hqPaDock" aria-label={t('hq.paDock')}>{props.renderPaDock({ close: () => undefined })}</aside>
@@ -471,7 +494,10 @@ export function HeadquartersLive(props: HeadquartersProps) {
 
       {overlay !== 'none' && (
         <div className="hqModalHost" role="dialog" aria-modal="false" aria-label={t('hq.tools')}>
-          {overlay === 'spaces' ? <OfficeSpaceLiveManager onClose={() => { setOverlay('none'); void controller.refresh(); }} />
+          {overlay === 'teams' ? <div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqTeam.title')}>
+            <HqTeamPanel buildingId={registryBuilding?.id ?? null} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} onFocusRoom={(id) => { focusRoomById(id); setOverlay('none'); }} />
+          </div>
+          : overlay === 'spaces' ? <OfficeSpaceLiveManager onClose={() => { setOverlay('none'); void controller.refresh(); }} />
             : overlay === 'workstations' ? <OfficeWorkstations onClose={() => setOverlay('none')} />
               : overlay === 'agentMeetings' ? <AgentMeetingSessions onClose={() => setOverlay('none')} />
                 : overlay === 'reception' ? <ReceptionOperations onClose={() => setOverlay('none')} onDestination={(name) => { const target = floor?.rooms.find((r) => r.label === name); if (target) { openRoomById(target.floorId, target.id); setOverlay('none'); } }} />

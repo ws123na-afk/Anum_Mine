@@ -3,6 +3,9 @@
  * Presence comes in as props (workstation evidence plus live meeting participants); this view
  * never invents a status. Module panels (commerce, tyre) show only for connected modules.
  */
+import type { OfficeFlowSnapshot } from '@anum/contracts';
+import type { ChangeBatch } from './useOfficeFlow';
+import { useFlowLabels } from './HqFlowStage';
 import { ArrowLeft, Building2, ChevronDown, ChevronRight, DoorOpen, HardDrive, Layers, Users } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BottomToolbar, CameraTools, TotalsPanel, statusLabel } from './HqChrome';
@@ -49,6 +52,8 @@ export type BuildingViewProps = Readonly<{
   onNight: (night: boolean) => void;
   /** The open room or workstation panel, drawn over the scene (stacked under it on narrow screens). */
   side: ReactNode;
+  /** Stored work per room and the last move the server reported, for the live-flow badges and markers. */
+  flow?: Readonly<{ snapshot: OfficeFlowSnapshot | null; batch: ChangeBatch; onPickRoom: (roomId: string) => void }>;
 }>;
 
 const ROOM_ICON = { meeting: Users, reception: DoorOpen, warehouse: HardDrive } as const;
@@ -124,6 +129,12 @@ export function BuildingView(props: BuildingViewProps) {
     shadow: scene.shadow,
   }), [scene, props.workspaceName]);
 
+  const flowAnchor = useCallback((id: string) => scene.rooms.find((r) => r.id === id)?.anchor, [scene]);
+  const flowLabels = useFlowLabels({
+    rooms: floor.rooms, anchorOf: flowAnchor, snapshot: props.flow?.snapshot, batch: props.flow?.batch,
+    selectedRoomId: props.selectedRoomId, reducedMotion: props.reducedMotion, onPickRoom: (id) => { pickRoom(id); props.flow?.onPickRoom(id); },
+  });
+
   const labels: StageLabel[] = useMemo(() => {
     const list: StageLabel[] = [];
     const roomHandle = new Map(scene.rooms.map((r) => [r.id, r]));
@@ -151,8 +162,8 @@ export function BuildingView(props: BuildingViewProps) {
         node: <AgentCard name={hidden ? t('hq.agent.private') : (p?.name || desk.agent?.name || t('hq.agent.assigned'))} role={p?.role ?? null} status={p?.status ?? null} stale={p?.stale === true} selected={key === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(key, desk)} />,
       });
     }
-    return list;
-  }, [scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, activeIndex, pickRoom]);
+    return [...list, ...flowLabels];
+  }, [scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, activeIndex, pickRoom, flowLabels]);
 
   const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
   const change = (fn: (c: CameraState) => CameraState) => setCamera((c) => clampTarget(fn(c), 400));

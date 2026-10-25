@@ -269,6 +269,16 @@ class Settings(BaseSettings):
     # Pending approvals lapse after this many seconds (docs/approvals-and-risk.md); an
     # expired approval can no longer be approved and its run fails.
     approval_ttl_seconds: int = Field(default=86_400, ge=1, le=30 * 86_400)
+    # Office live flow (docs/ANUM_MINE_HQ_LIVE_FLOW.md): how long a real record may sit before
+    # the headquarters calls it stuck. Defaults are stated in the doc; ANUM_OFFICE_FLOW_*.
+    office_flow_approval_wait_minutes: int = Field(default=240, ge=1, le=43_200)
+    office_flow_queue_wait_minutes: int = Field(default=30, ge=1, le=43_200)
+    office_flow_run_silent_minutes: int = Field(default=60, ge=1, le=43_200)
+    office_flow_lead_unassigned_minutes: int = Field(default=240, ge=1, le=43_200)
+    office_flow_lead_idle_hours: int = Field(default=72, ge=1, le=8_760)
+    office_flow_order_ship_grace_minutes: int = Field(default=0, ge=0, le=43_200)
+    office_flow_recent_done_minutes: int = Field(default=30, ge=1, le=1_440)
+    office_flow_failed_window_hours: int = Field(default=24, ge=1, le=720)
     # Workspace file bytes (docs/files.md): "local" filesystem, "memory", or "s3"
     # (any S3-compatible endpoint, SeaweedFS locally).
     object_storage_backend: str = Field(default="local", pattern="^(local|memory|s3)$")
