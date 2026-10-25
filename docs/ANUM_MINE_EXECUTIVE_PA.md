@@ -1,0 +1,63 @@
+# ANUM MINE executive PA and executive desk (master plan F10)
+
+## What it is
+A permissioned tool interface for the headquarters assistant, and a web desk (`#executive`, sidebar "Executive desk") that lists the workspaces the person may see, kept apart by kind, with only the minimum summary each owner granted.
+
+It replaces the old demonstration commands of the office preview (`lib/officeTourNavigation.ts`, which only moved the camera and never called a tool). Those files stay for the concept preview; the live assistant uses the tools below.
+
+## Server: `anum_api/executive_pa.py`
+Routes (all need a signed-in member; every call is tenant and workspace scoped):
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/executive-pa/tools` | The catalogue: kind, risk, autonomy, the governed path, the permissions, and whether this person may use it. |
+| `POST /api/v1/executive-pa/invoke` | Run one tool: `{tool, arguments, input_mode: typed or voice or click, confirm_hash?}`. |
+| `GET /api/v1/executive-pa/tour` | Guided tour stops generated from the buildings, floors and rooms the person can access. |
+
+Tools:
+
+| Tool | Kind | Risk | Autonomy | Governed by |
+| --- | --- | --- | --- | --- |
+| `navigate` (building, floor, room, agent) | read | low | automatic | office registry (RLS) |
+| `open_panel` | read | low | automatic | the panel's own permission |
+| `summarise_workspace` | read | low | automatic | own workspace APIs, or an executive grant |
+| `list_blocked_work` | read | low | automatic | tasks API |
+| `list_pending_approvals` | read | low | automatic | approvals API (`approval:read`) |
+| `start_task` | write | medium | confirm each time | `POST /tasks` then run: agent profile, ToolPolicy, autonomy, approvals |
+| `delegate` | write | medium | confirm each time | same, with `agent_id` |
+| `schedule_meeting` | write | medium | confirm each time | `POST /agent-meetings` (`workspace:manage`, PostgreSQL) |
+
+Rules that make it safe:
+- A write never runs on the first call. It returns `needs_confirmation` with a `payload_hash` bound to tenant, workspace, user, tool and arguments. Only a second call with that hash **and** `input_mode: "click"` runs it. `voice` and `typed` can never confirm (`needs_visual_confirmation`), so a spoken sentence cannot bypass the visual gate. A changed argument or another user gives `stale_confirmation`.
+- Writes call the same code as the public routes, so a person can never do more through the PA than directly. If a run needs approval it stops at `waiting_approval` and the PA reports `approval_pending`. **There is no tool that approves or rejects**; an unknown tool such as `approve` is refused (422) and audited.
+- Every invocation writes an audit record `executive_pa.invoke` (tool, input mode, outcome, payload hash, ids; never prompt text). Refusals are audited too. No migration was needed: the PA reuses the audit log.
+- Tool outcomes use HTTP 200 with a `status` (`ok`, `done`, `approval_pending`, `denied`, `not_found`, `not_connected`, `not_granted`, `stale_confirmation`, `failed`) so refusals are audited in the same transaction; malformed input is 422.
+- Other workspaces: `summarise_workspace` for a workspace other than the current one needs an executive grant. The grant source is `set_executive_data_source(source)` (protocol `ExecutiveDataSource`: `grant_for`, `summary`). Without a source the answer is `not_connected`; without a grant it is `not_granted`; only the keys `tasks_total`, `tasks_blocked`, `approvals_pending`, `cost_usd_month`, `meetings_active` are ever returned.
+
+## Web
+- `lib/executivePa.ts`: typed clients, the sentence parser (English and Arabic words; it only proposes, and never understands approve or reject), the overview reader (a summary is kept only for an own or granted workspace), `needsSwitch`, and `publishNavigation`.
+- `ExecutivePanel.tsx`: typed and voice input (reuses `createPushToTalk` from the voice stack), a log, the confirm card, the tool list with risk and "asks first", and the guided tour.
+- `ExecutiveCommandCenter.tsx`: the desk. Workspaces grouped Personal, Employment, ANUM OS, Businesses; "Not granted" and "Not connected" states; grant, change and revoke per workspace (a grant that needs approval says so and links to Approvals); an explicit "Switch to ..." before confidential content; empty, loading, error and owners-only states; English and Arabic.
+
+## Contract with the data workstream (merged)
+The desk uses the real executive API of `anum_api/executive_api.py` through `lib/executiveClient.ts` and `packages/contracts/src/executive.ts`; this PR defines no executive routes of its own.
+- `GET /api/v1/executive/overview`: granted workspaces with only the granted scopes (`counts`, `tasks`, `approvals`, `cost`, `meetings`), `not_granted` items (members open them only by an explicit workspace switch), and `unavailable` items. A scope that was not granted shows "Not shared", never 0. A 403 shows the denied state, a 503 "not available" with the current workspace's own figures.
+- Grants of the current workspace (owner only): `GET|POST /executive/grants`, `POST /grants/{id}/approve` with the `payload_hash` shown to the owner (the desk displays the hash and sends back exactly that value), `POST /grants/{id}/reject`, `PATCH /grants/{id}` (narrow only, `expected_revision`), `DELETE /grants/{id}`.
+- `summarise_workspace` for another workspace calls the executive API's own grant-checked reader (`_granted_rows`, `_read_granted_workspace`), so the read goes through the narrow reader role, the workspace's own RLS context and an audit record there. This module has no grant store or data source of its own. The summary uses the contract's `ExecutiveSummary` shape for the current workspace too.
+
+## The assistant dock
+`ExecutivePanel.tsx` (also exported as `ExecutivePaDock`) is laid out as the right-side dock of the owner's concept renders: avatar glyph, a status that reads "Ready" only when the tools endpoint answered, one welcome line, quick actions, "You can also say" examples and the typed box with a microphone. It fits any container up to about 380 px wide, so the visual workstream can mount it in a campus slot (`<ExecutivePaDock onOpenView onLocation />`).
+- Every quick action calls a real tool: Start tour (navigate per stop), Open calendar and Open meetings (`open_panel`), List blocked work, Pending approvals, Summarise this workspace. Buttons the concept shows without a backing tool (Show today's schedule items, Take me to my office, Show logistics activity, Show recent orders) are omitted. The persona name, photo, greeting facts and schedule items are not invented.
+- The examples are built from the real first room of the tour and the real tools. Writes still use the proposal, click and hash gate.
+
+## Scene navigation
+`publishNavigation` dispatches `anum:hq-navigate` with the headquarters' own target (`{building, floor, room, agent}`, ids accepted) and keeps the PA's location in `sessionStorage` (`anum.hq.pendingNavigation`). The visual workstream's `navigateTo` extension point was not available yet; connect it to that event (or replace `publishNavigation`). No scene file was edited.
+
+## Not finished, and why
+- The scene does not yet react to PA navigation (waits for the visual branch).
+- `schedule_meeting` creates a live meeting session; the meeting API has no start time, so nothing is scheduled for a time.
+- Writes are not idempotent on retry (a double click is prevented in the UI only).
+- Voice input reuses browser recognition; there is no spoken approval at all, by design.
+
+## Tests
+`services/api/tests/test_executive_pa.py`, `apps/web/test/executivePa.test.ts`, `apps/web/e2e/executive.spec.ts` (journey, honest states, Arabic, five viewport sizes without overflow).

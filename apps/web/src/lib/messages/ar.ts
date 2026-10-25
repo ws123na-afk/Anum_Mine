@@ -50,6 +50,7 @@ import { mailOpsAr } from './mailOps.ar.ts';
 import { mailDomainsAr } from './mailDomains.ar.ts';
 import { mailAr } from './mail.ar.ts';
 import { callsAr } from './calls.ar.ts';
+import { executiveAr } from './executive.ar.ts';
 import { chatAr } from './chat.ar.ts';
 import { setupAr } from './setup.ar.ts';
 import { pagesAr } from './pages.ar.ts';
@@ -97,6 +98,7 @@ export const ar: Record<MessageKey, Message> = {
   ...mailDomainsAr,
   ...mailAr,
   ...callsAr,
+  ...executiveAr,
   ...chatAr,
   ...setupAr,
   ...pagesAr,
