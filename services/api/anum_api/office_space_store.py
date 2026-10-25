@@ -667,6 +667,24 @@ class SqlOfficeSpaceStore:
             ])
         return room, desks
 
+    def create_planned_room(self, context: TenantContext, floor_id: str, room_id: str, values: Mapping[str, Any],
+                            x: float, z: float, width: float, depth: float,
+                            desks: list[tuple[str, str, tuple[float, float] | None]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """A room at an explicit spot (and its empty desks) through the builder's own checks.
+
+        Same floor lock, bounds and overlap rules as a template room; used by the starter campus, which has
+        already planned the spot and relies on this to refuse anything that does not fit.
+        """
+        floor = self._lock(context, "floors", floor_id)
+        if floor is None:
+            raise SpaceStoreError("not_found", "Floor not found in this workspace")
+        px, pz = self._place(context, floor, width, depth, x, z, None)
+        room = self._insert_room(context, {**values, "id": room_id, "floor_id": floor_id,
+                                           "scene_x": px, "scene_z": pz, "scene_width": width, "scene_depth": depth})
+        if desks and (room["kind"] not in layout.DESK_ROOM_KINDS or len(desks) > room["capacity"]):
+            raise SpaceStoreError("restricted", "Only work areas may have permanent desks, up to their capacity")
+        return room, self._insert_desks(context, room_id, desks)
+
     # ------------------------------------------------------------------ team link
     def team_summary(self, context: TenantContext, room_id: str) -> dict[str, Any]:
         """Real counts from the team records for the room's linked department."""
