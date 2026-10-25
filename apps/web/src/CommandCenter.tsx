@@ -33,6 +33,8 @@ import * as commandApi from './lib/commandApi';
 import { EmptyPanel, PanelDenied, PanelError, PanelLoading } from './Panels';
 import { AnumMark } from './Shell';
 import './commandCenter.css';
+import { BuildingCommandPanel } from './hq-command/BuildingCommandPanel';
+import { parseBuildingRequest, type BuildingAsk } from './lib/hqBuildingCommand';
 
 const ICON: Record<string, ReactNode> = {
   mail: <Mail />, chart: <BarChart3 />, search: <Search />, check: <SquareCheck />, file: <FileText />, message: <MessageCircle />, workflow: <Workflow />,
@@ -69,6 +71,8 @@ export function CommandCenter({ userName, role, initialText, live, onGo, onOpenT
   const viewer = role === 'viewer';
   const [mode, setMode] = useState<CommandMode>('voice');
   const [draft, setDraft] = useState(initialText ?? '');
+  // "Add a building ..." is answered with a proposal card, not a task plan (docs/ANUM_MINE_EXECUTIVE_PA.md#add-a-building).
+  const [building, setBuilding] = useState<{ ask: BuildingAsk; mode: 'typed' | 'voice'; n: number } | null>(null);
   const [source, setSource] = useState<{ kind: CommandSource; quickId: string | null }>({ kind: initialText ? 'suggestion' : 'typed', quickId: null });
   const [language, setLanguage] = useState<SpeechLanguage>(() => initialSpeechLanguage(storage?.getItem(SPEECH_LANGUAGE_KEY), getLocale()));
   const [listening, setListening] = useState(false);
@@ -189,6 +193,9 @@ export function CommandCenter({ userName, role, initialText, live, onGo, onOpenT
     if (!text || upload) { composer.current?.focus(); return; }
     if (listening) { talk.current?.stop(); setListening(false); }
     setStartError(null);
+    const ask = parseBuildingRequest(text);
+    if (ask) { setPlan({ state: 'idle' }); setBuilding((b) => ({ ask, mode: source.kind === 'voice' ? 'voice' : 'typed', n: (b?.n ?? 0) + 1 })); setDraft(''); return; }
+    setBuilding(null);
     setPlan({ state: 'loading', text });
     try {
       const result = await commandApi.previewCommand(text, commandLocale(text, getLocale()));
@@ -358,6 +365,7 @@ export function CommandCenter({ userName, role, initialText, live, onGo, onOpenT
         </div>
       </form>}
 
+    {building && <BuildingCommandPanel key={building.n} initial={building.ask} mode={building.mode} onClose={() => setBuilding(null)} onShow={() => { window.location.hash = '#office'; }} />}
     {plan.state !== 'idle' && <PlanPanel plan={plan} starting={starting} error={startError} attachments={attachments.length}
       onChange={(steps) => setPlan((p) => p.state === 'ready' ? { ...p, steps, approvals: steps.filter((s) => s.approval === 'required').length } : p)}
       onEdit={editPlan} onStart={() => void start()} onRetry={() => void preview(undefined, plan.text)} onCancel={() => { setPlan({ state: 'idle' }); setStartError(null); }} />}

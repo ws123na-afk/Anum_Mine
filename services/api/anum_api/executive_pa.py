@@ -77,6 +77,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec("summarise_workspace", "read", "Summarise a workspace you may see", (Permission.TASK_READ,), "low", "automatic", "executive grants (GET /executive/overview rules) and the workspace's own APIs"),
         ToolSpec("list_blocked_work", "read", "List blocked work", (Permission.TASK_READ,), "low", "automatic", "GET /tasks"),
         ToolSpec("list_pending_approvals", "read", "List pending approvals", (Permission.APPROVAL_READ,), "low", "automatic", "GET /approvals"),
+        ToolSpec("propose_add_building", "read", "Propose a new building (an owner confirms it with a click)", (Permission.TASK_READ,), "low", "automatic", "builder API proposal; created only by an owner's click on POST /office/building-proposals/confirm"),
         ToolSpec("start_task", "write", "Start a task", (Permission.TASK_CREATE, Permission.TASK_RUN), "medium", "confirm_each", "POST /tasks then POST /tasks/{id}/run (ToolPolicy, autonomy, approvals)"),
         ToolSpec("delegate", "write", "Delegate work to an agent", (Permission.TASK_CREATE, Permission.TASK_RUN), "medium", "confirm_each", "POST /tasks with agent_id then run (agent profile, ToolPolicy, approvals)"),
         ToolSpec("schedule_meeting", "write", "Create a live agent meeting", (Permission.WORKSPACE_MANAGE,), "medium", "confirm_each", "POST /agent-meetings (meeting limits, audit)"),
@@ -120,6 +121,14 @@ class DelegateArgs(StartTaskArgs):
     agent_id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
 
+class ProposeBuildingArgs(StrictBody):
+    """Both fields are optional so the assistant can ask one short question when one is missing."""
+
+    name: str | None = Field(default=None, max_length=400)
+    floors: int | None = Field(default=None, ge=1, le=100)
+    lang: Literal["en", "ar"] = "en"
+
+
 class ScheduleMeetingArgs(StrictBody):
     title: str = Field(min_length=1, max_length=200)
 
@@ -130,6 +139,7 @@ ARGS: dict[str, type[StrictBody]] = {
     "summarise_workspace": SummariseArgs,
     "list_blocked_work": NoArgs,
     "list_pending_approvals": NoArgs,
+    "propose_add_building": ProposeBuildingArgs,
     "start_task": StartTaskArgs,
     "delegate": DelegateArgs,
     "schedule_meeting": ScheduleMeetingArgs,
@@ -468,6 +478,16 @@ async def invoke_tool(
     elif spec.name == "summarise_workspace":
         args = cast(SummariseArgs, args)
         outcome = _summarise(context, repository, args)
+    elif spec.name == "propose_add_building":
+        from . import office_building_api
+
+        args = cast(ProposeBuildingArgs, args)
+        try:
+            outcome = office_building_api.propose(context, args.name, args.floors, args.lang)
+        except HTTPException as exc:
+            if exc.status_code != 503:
+                raise
+            outcome = _result("not_connected", note="The office registry is not available on this server.")
     elif spec.name == "list_blocked_work":
         outcome = _blocked(context, repository)
     else:

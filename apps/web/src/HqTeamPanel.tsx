@@ -4,6 +4,7 @@ import { t, type MessageKey } from './lib/i18n';
 import { ageText, reasonText } from './lib/officeFlow';
 import { useOfficeTeam } from './useOfficeFlow';
 import { useLocale } from './useLocale';
+import { openAssign } from './lib/hqAssign';
 import './hqFlow.css';
 
 export interface HqTeamPanelProps {
@@ -79,6 +80,7 @@ function MemberCard({ member: m, onNavigate, onFocusRoom, onHistory, showRoom }:
     </div>
     <div className="hqTeamActions">
       {showRoom && onFocusRoom && <button type="button" className="hqLinkButton" onClick={() => onFocusRoom(m.desk.room_id)}>{m.desk.room_name}</button>}
+      <button type="button" className="hqLinkButton" onClick={() => openAssign({ agentId: m.agent_id, roomId: m.desk.room_id, roomName: m.desk.room_name, source: 'team_panel' })}>{t('hqAssign.openFor', { name: m.name })}</button>
       <button type="button" className="hqLinkButton" onClick={() => onNavigate('#agents')}>{t('hqTeam.openAgent')}</button>
       {onHistory && <button type="button" className="hqLinkButton" onClick={() => onHistory({ agentId: m.agent_id, name: m.name })}>{t('hqHist.launch.member', { name: m.name })}</button>}
     </div>
