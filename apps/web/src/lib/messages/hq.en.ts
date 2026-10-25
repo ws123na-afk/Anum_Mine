@@ -14,6 +14,7 @@ export const hqEn = {
   'hq.view.3d': '3D',
   'hq.view.top': 'Top',
   'hq.view.list': 'List',
+  'hq.credits': '3D models: sofa and lounge chair by Wayfair, LLC (CC BY 4.0, modified); people by Kenney (CC0).',
   'hq.tools': 'Office tools',
   'hq.tools.spaces': 'Manage spaces',
   'hq.tools.workstations': 'Live workstations',

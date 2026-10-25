@@ -431,6 +431,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
                 ] as const).map(([id, Icon, key]) => (
                   <li key={id}><button type="button" onClick={() => { setOverlay(id); setToolsOpen(false); }}><Icon aria-hidden="true" />{t(key as MessageKey)}</button></li>
                 ))}
+                <li className="hqMenuNote"><small>{t('hq.credits')}</small></li>
               </ul>
             )}
           </div>

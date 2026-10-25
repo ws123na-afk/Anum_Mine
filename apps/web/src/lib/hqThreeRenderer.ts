@@ -28,6 +28,8 @@ import { lightingFor } from './hqLighting.ts';
 import { clipPlanes, viewProjection } from './hqMath.ts';
 import type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
+import { ModelLayer } from './hqModelLayer.ts';
+import type { ModelGroup } from './hqModels.ts';
 
 export type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
 
@@ -62,7 +64,15 @@ const TRIPLANAR = `
 const GLASS_COLOR = `
   float glowW = clamp(vEm - 2.0, 0.0, 1.0);
   vec3 paneLit = diffuseColor.rgb;
-  diffuseColor.rgb = mix(vec3(0.06, 0.12, 0.2), paneLit * 0.3, uNight * step(0.05, glowW));`;
+  {
+    // Day: sky blue glass that brightens with height, with a small reflectance change from pane to pane (no two panes read alike).
+    float gy = clamp(vWPos.y / 48.0, 0.0, 1.0);
+    vec2 cell = floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6));
+    float vary = 0.88 + 0.24 * fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
+    vec3 dayGlass = mix(vec3(0.20, 0.36, 0.50), vec3(0.50, 0.70, 0.86), gy) * vary;
+    vec3 nightGlass = mix(vec3(0.04, 0.09, 0.15), paneLit * 0.3, step(0.05, glowW));
+    diffuseColor.rgb = mix(dayGlass, nightGlass, uNight);
+  }`;
 const GLASS_EMISSIVE = '  totalEmissiveRadiance += paneLit * uNight * glowW * 1.9;';
 const GENERIC_EMISSIVE = `
   {
@@ -124,7 +134,7 @@ type Quality = 0 | 1 | 2 | 3;
 const SHADOW_SIZE: Record<Quality, number> = { 0: 0, 1: 1024, 2: 1024, 3: 2048 };
 
 export class HqRenderer {
-  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false };
+  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [] } };
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(40, 1, 0.2, 1000);
@@ -139,6 +149,9 @@ export class HqRenderer {
   private envDay: Texture | null = null;
   private envNight: Texture | null = null;
   private meshes: Mesh[] = [];
+  private layer: ModelLayer | null = null;
+  /** Model groups whose loaded models replace the procedural pieces tagged `fallbackOf` (kept across scene rebuilds, so nothing flickers). */
+  private readyGroups: ReadonlySet<ModelGroup> = new Set();
   private composer: EffectComposer | null = null;
   private bloom: UnrealBloomPass | null = null;
   private cameraState: CameraState | null = null;
@@ -248,12 +261,27 @@ export class HqRenderer {
     std('roller', { roughness: 0.45, metalness: 0.5, env: 1.1 }, 'roller');
     std('court', { roughness: 0.7, metalness: 0 }, 'court');
     std('water', { roughness: 0.03, metalness: 0.7, env: 2.0 });
-    std('glass', { roughness: 0.08, metalness: 0.75, env: 1.5 }, undefined, true);
+    std('glass', { roughness: 0.06, metalness: 0.62, env: 1.6 }, undefined, true);
     const sign = new MeshBasicMaterial({ color: new Color(1, 1, 1), toneMapped: true });
     this.materials.set('sign', sign);
     const pane = this.cheap
       ? new MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, side: DoubleSide })
       : new MeshPhysicalMaterial({ vertexColors: true, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, envMapIntensity: 1.2, depthWrite: false, side: DoubleSide });
+    if (!this.cheap) {
+      // Partition glass: clear face-on, mirror-like at grazing angles (Fresnel), so glass walls read as glass and not as tinted film.
+      pane.onBeforeCompile = (shader) => {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <opaque_fragment>',
+          `#include <opaque_fragment>
+          {
+            float fres = pow(1.0 - clamp(abs(dot(normalize(vNormal), normalize(vViewPosition))), 0.0, 1.0), 3.0);
+            gl_FragColor.a = clamp(diffuseColor.a * (0.75 + 3.2 * fres), 0.0, 0.72);
+            gl_FragColor.rgb += vec3(0.55, 0.7, 0.82) * fres * 0.35;
+          }`,
+        );
+      };
+      pane.customProgramCacheKey = () => 'hq-pane-fresnel';
+    }
     this.materials.set('pane', pane);
   }
 
@@ -346,6 +374,8 @@ export class HqRenderer {
       mesh.frustumCulled = item.cull !== false;
       mesh.userData.id = item.id;
       mesh.userData.hl = 0;
+      mesh.userData.fallbackOf = item.fallbackOf ?? null;
+      mesh.visible = !item.fallbackOf || !this.readyGroups.has(item.fallbackOf);
       const sunOk = cls !== 'sign' && cls !== 'pane' && cls !== 'glass';
       mesh.castShadow = sunOk && cls !== 'water';
       mesh.receiveShadow = cls !== 'sign' && cls !== 'pane';
@@ -362,8 +392,15 @@ export class HqRenderer {
 
   setScene(scene: RenderScene): void {
     this.disposeMeshes();
+    if (scene.models?.length && !this.layer) this.layer = new ModelLayer(this.scene, this.cheap, (ready) => this.applyReady(ready), () => this.requestFrame());
+    if (!this.layer && scene.halos?.length) this.layer = new ModelLayer(this.scene, this.cheap, (ready) => this.applyReady(ready), () => this.requestFrame());
+    if (this.layer) { this.readyGroups = scene.models?.length ? this.layer.readyNow(scene.models) : new Set(); this.layer.setNight(this.night); }
     for (const item of scene.opaque) this.addItem(item, false, scene);
     for (const item of scene.glass) this.addItem(item, true, scene);
+    if (this.layer) {
+      this.layer.setHalos(scene.halos);
+      void this.layer.setPlacements(scene.models ?? []).catch(() => undefined);
+    }
     this.shadowRegion = scene.shadow ? { center: { ...scene.shadow.center }, radius: scene.shadow.radius } : null;
     const key = JSON.stringify(scene.signs ?? []);
     if (key !== this.signKey) {
@@ -386,8 +423,19 @@ export class HqRenderer {
     this.requestFrame();
   }
 
+  /** A model group finished loading (or was found unavailable): hide the stand-ins of the ready groups, show the rest. */
+  private applyReady(ready: ReadonlySet<ModelGroup>): void {
+    this.readyGroups = ready;
+    for (const mesh of this.meshes) {
+      const group = mesh.userData.fallbackOf as ModelGroup | null;
+      if (group) mesh.visible = !ready.has(group);
+    }
+    this.shadowDirty = true;
+    this.requestFrame();
+  }
+
   setCamera(camera: CameraState): void { this.cameraState = camera; this.requestFrame(); }
-  setNight(night: number): void { this.night = Math.max(0, Math.min(1, night)); this.requestFrame(); }
+  setNight(night: number): void { this.night = Math.max(0, Math.min(1, night)); this.layer?.setNight(this.night); this.requestFrame(); }
 
   setHighlight(hover: string | null, selected: string | null): void {
     if (hover === this.hover && selected === this.selected) return;
@@ -526,6 +574,7 @@ export class HqRenderer {
         this.renderer.render(this.scene, this.camera);
       }
       this.stats.bloom = useBloom;
+      if (this.layer) Object.assign(this.stats.models, this.layer.stats);
       this.stats.triangles = this.renderer.info.render.triangles;
       this.stats.drawn = this.renderer.info.render.calls;
       this.stats.culled = Math.max(0, this.meshes.length - this.meshes.filter((m) => m.visible).length);
@@ -558,6 +607,7 @@ export class HqRenderer {
     this.canvas.removeEventListener('webglcontextlost', this.onLostEvent);
     this.canvas.removeEventListener('webglcontextrestored', this.onRestoredEvent);
     this.disposeMeshes();
+    this.layer?.dispose();
     for (const material of this.materials.values()) material.dispose();
     for (const texture of this.textures) texture.dispose();
     this.signTexture?.dispose();

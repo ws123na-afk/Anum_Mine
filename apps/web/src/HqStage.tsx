@@ -66,6 +66,7 @@ export function HqStage(props: Props) {
   const labelEls = useRef(new Map<string, HTMLDivElement>());
   const labelSizes = useRef(new Map<string, { w: number; h: number }>());
   const labelsRef = useRef(labels);
+  const lastModelSig = useRef('');
   const size = useRef({ width: 1, height: 1 });
   const pointers = useRef(new Map<number, Pointer>());
   const gesture = useRef<{ moved: boolean; button: number; startX: number; startY: number; pinch: number } | null>(null);
@@ -107,7 +108,10 @@ export function HqStage(props: Props) {
           placeLabels(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, 64);
           propsRef.current.onView?.(live.current, aspect);
           const s = created?.stats;
-          if (s && (s.frames === 1 || s.frames % 10 === 0) && canvas.current) {
+          const modelSig = s ? `${s.models.placed}/${s.models.figures}/${s.models.loaded}/${s.models.asked}/${s.models.fallbacks.join(',')}` : '';
+          const modelsChanged = modelSig !== lastModelSig.current;
+          if (modelsChanged) lastModelSig.current = modelSig;
+          if (s && (s.frames === 1 || s.frames % 10 === 0 || modelsChanged) && canvas.current) {
             canvas.current.dataset.drawMs = s.avgDrawMs.toFixed(2);
             canvas.current.dataset.triangles = String(Math.round(s.triangles));
             canvas.current.dataset.drawn = String(s.drawn);
@@ -115,6 +119,12 @@ export function HqStage(props: Props) {
             canvas.current.dataset.dpr = s.dpr.toFixed(2);
             canvas.current.dataset.shadow = String(s.shadowSize);
             canvas.current.dataset.bloom = s.bloom ? 'true' : 'false';
+            canvas.current.dataset.modelsPlaced = String(s.models.placed);
+            canvas.current.dataset.modelFigures = String(s.models.figures);
+            canvas.current.dataset.modelsLoaded = `${s.models.loaded}/${s.models.asked}`;
+            canvas.current.dataset.modelBytes = String(s.models.bytes);
+            canvas.current.dataset.modelLoadMs = String(s.models.loadMs);
+            canvas.current.dataset.modelFallbacks = s.models.fallbacks.join(',');
           }
         },
       });

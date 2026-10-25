@@ -10,7 +10,7 @@
  * passed in as `stations`; a person appears only at a station with `occupantSeed`. Screens are lit
  * only for a station state or a `live` flag the caller derived from persisted records.
  */
-import { MeshBuilder, VERTEX_FLOATS, hex, seeded, type Rgb } from '../../lib/hqGeometry.ts';
+import { MeshBuilder, VERTEX_FLOATS, hex, seeded, type MatId, type Rgb } from '../../lib/hqGeometry.ts';
 import { workstation, type StationSpec } from './furniture.ts';
 import { Local } from './local.ts';
 import { executive, lounge, meetingRoom, reception } from './roomsFront.ts';
@@ -115,11 +115,17 @@ function drawRoom(b: MeshBuilder, kind: InteriorKind, frame: RoomFrame, options:
 /** Copy `src` into `dst`, scaled by `s` about the frame's minimum corner at floor level. */
 function appendScaled(dst: MeshBuilder, src: MeshBuilder, frame: RoomFrame, s: number): void {
   const v = src.toFloat32();
+  const tags = src.triangleTags();
   const at = (i: number): number[] => [frame.x + (v[i] - frame.x) * s, frame.y + (v[i + 1] - frame.y) * s, frame.z + (v[i + 2] - frame.z) * s];
   for (let i = 0; i < v.length; i += VERTEX_FLOATS * 3) {
     const j = i + VERTEX_FLOATS, k = i + 2 * VERTEX_FLOATS;
+    // Keep the class of each triangle (wood, tile and so on) and the tag, so scaled rooms split like the others.
+    dst.mat = v[i + 10] as MatId;
+    dst.tag = tags[i / (VERTEX_FLOATS * 3)] ?? null;
     dst.tri(at(i), at(j), at(k), [v[i + 6], v[i + 7], v[i + 8]], v[i + 9]);
   }
+  dst.tag = null;
+  for (const slot of src.slots) dst.slots.push({ ...slot, x: frame.x + (slot.x - frame.x) * s, y: frame.y + (slot.y - frame.y) * s, z: frame.z + (slot.z - frame.z) * s, width: slot.width * s });
 }
 
 /** A standalone mesh in the same shape as `SceneMesh`, for tests, previews and caching. */

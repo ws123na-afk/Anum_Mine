@@ -39,7 +39,7 @@ gzip, CSS 11,330 bytes gzip.
 | Frame time p95 while orbiting | at most 180 ms | at most 300 ms |
 | JS heap | at most 120 MB | at most 180 MB |
 | Time to ready (mocked API) | at most 8 s | at most 15 s |
-| Lazy HQ JS, gzip | at most 135,000 bytes (112,417 now: campus, buildings, asset builders); the three.js renderer chunk loads on demand, at most 150,000 (136,945 now) | same |
+| Lazy HQ JS, gzip | at most 135,000 bytes (112,417 now: campus, buildings, asset builders); the three.js renderer chunk loads on demand, at most 160,000 (152,089 now: raised from 150,000 when the glTF model layer arrived, because the loader shares the animation and skinning code of three.js; the loader and the meshopt decoder are their own lazy chunks, 13 kB gzip, fetched only when a scene asks for a model) | same |
 | Lazy HQ CSS, gzip | at most 16,000 bytes | same |
 
 The budgets are about two to three times the measured sandbox values for frames (a repeat run of the same test measured p95 of 66.6 to 150 ms at 21 agents and 100 to 183 ms at 200, because software rendering shares the CPU with the other test workers) and about four times for heap, so ordinary noise passes and

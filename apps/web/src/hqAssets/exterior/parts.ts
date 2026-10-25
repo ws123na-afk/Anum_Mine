@@ -85,6 +85,26 @@ export function faceDisc(b: MeshBuilder, f: Face, u: number, y: number, r: numbe
   for (let i = 0; i < sides; i++) b.tri(pt(f, u, y, off), ring(i), ring(i + 1), color, emissive);
 }
 
+// ---------------------------------------------------------------- facade relief
+
+/**
+ * Vertical fins: blades of stone standing proud of a facade at equal spacing. They give a curtain wall depth and
+ * throw real shadows across the glass (the shadow map sees them), which is most of what makes a facade read as built.
+ */
+export function fins(ctx: Ctx, f: Face, uFrom: number, uTo: number, y0: number, y1: number, spacing: number, depth = 0.5, width = 0.24, color?: Rgb): void {
+  const count = Math.max(1, Math.floor((uTo - uFrom) / spacing));
+  const step = (uTo - uFrom) / count;
+  for (let i = 0; i <= count; i++) {
+    const u = uFrom + i * step;
+    faceBox(ctx.b, f, u - width / 2, u + width / 2, y0, y1, 0, depth, color ?? ctx.scheme.wall, { grad: 0.18 });
+  }
+}
+
+/** A projecting ledge (a sunshade, or a slab edge) along a facade at height y. */
+export function ledge(ctx: Ctx, f: Face, uFrom: number, uTo: number, y: number, depth = 0.55, h = 0.12, color?: Rgb): void {
+  faceBox(ctx.b, f, uFrom, uTo, y, y + h, 0, depth, color ?? ctx.scheme.trim, { skip: ['bottom'] });
+}
+
 // ---------------------------------------------------------------- windows
 
 const COOL = hex('#cfe6ff');
@@ -186,6 +206,18 @@ const rotateVertices = (data: Float32Array, rot: number, ox: number, oz: number)
   }
 };
 
+/** Turn the halo list of a builder by quarter turns and move it to the building's origin. */
+function rotateHalos(list: readonly number[], rot: number, ox: number, oz: number): Float32Array {
+  const out = new Float32Array(list);
+  const r = ((rot % 4) + 4) % 4;
+  for (let i = 0; i < out.length; i += 8) {
+    let x = out[i], z = out[i + 2];
+    for (let k = 0; k < r; k++) [x, z] = [-z, x];
+    out[i] = x + ox; out[i + 2] = z + oz;
+  }
+  return out;
+}
+
 const rotPoint = (p: Point3, rot: number, ox: number, oz: number): Point3 => {
   let x = p.x, z = p.z;
   for (let k = 0; k < rot; k++) [x, z] = [-z, x];
@@ -229,5 +261,6 @@ export function finish(ctx: Ctx, d: Draft, p: ExteriorParams): ExteriorAsset {
     box: rotBox({ min: { x: Math.min(gx0, lb.min.x), y: 0, z: Math.min(gz0, lb.min.z) }, max: { x: Math.max(gx1, lb.max.x), y: lb.max.y, z: Math.max(gz1, lb.max.z) } }, rot, ox, oz),
     scheme: ctx.scheme.name,
     seed: ctx.seed,
+    halos: rotateHalos(ctx.b.halos, rot, ox, oz),
   };
 }

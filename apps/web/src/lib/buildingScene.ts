@@ -5,7 +5,7 @@
  * as saved. Seated figures are generic (no likeness) and appear only at desks with an assignment;
  * the HTML agent card carries the name, role and status pill.
  */
-import { MAT, MeshBuilder, hex, mix, scale, seeded, type Rgb } from './hqGeometry.ts';
+import { MAT, MeshBuilder, hex, mix, scale, seeded, type ModelSlot, type Rgb } from './hqGeometry.ts';
 import type { RoomGeometry, SceneDesk, SceneFloor, Vec3 } from './headquartersProjection.ts';
 import type { SceneMesh } from './campusScene.ts';
 import type { Aabb } from './hqMath.ts';
@@ -15,6 +15,7 @@ import { car as envCar } from '../hqAssets/environment/index.ts';
 import { signAtlasLayout } from './hqTextures.ts';
 import { buildInteriorRoom, interiorKindFor, type StationSpec, type StationState } from '../hqAssets/interior/index.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
+import { placementsFromSlots, type ModelGroup, type ModelPlacement } from './hqModels.ts';
 
 export const FLOOR_PITCH = 4.2;
 export const WALL_HEIGHT = 3.0;
@@ -51,6 +52,12 @@ export type BuildingScene = Readonly<{
   /** The region that casts and receives shadows. */
   shadow: Readonly<{ center: Vec3; radius: number }>;
   triangles: number;
+  /** Where loadable models go (sofas, and a seated person only at a desk with a registry assignment). */
+  models: readonly ModelPlacement[];
+  /** The procedural pieces a loaded model replaces; the renderer draws one only while its group could not be loaded. */
+  fallbacks: Readonly<Record<ModelGroup, SceneMesh>>;
+  /** Soft light halos (x, y, z, radius, r, g, b, strength per halo) for the night glow. */
+  halos: Float32Array;
 }>;
 
 const FLOOR_BY_KIND: Record<string, Rgb> = {
@@ -339,6 +346,8 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
   const fx1 = all.length ? Math.max(...all.map((r) => r.x + r.width)) + 1.2 : 8;
   const fz1 = all.length ? Math.max(...all.map((r) => r.z + r.depth)) + 1.2 : 6;
   const rnd = seeded('anum-building-interior');
+  const slots: ModelSlot[] = [];
+  const fallback: Record<ModelGroup, MeshBuilder> = { figure: new MeshBuilder(), sofa: new MeshBuilder() };
 
   for (let fi = 0; fi <= last && fi < floors.length; fi++) {
     const floor = floors[fi];
@@ -410,7 +419,12 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
           }));
           const scratch = new MeshBuilder();
           buildInteriorRoom(scratch, interior, { x: room.x, y: y + 0.06, z: room.z, width: room.width, depth: room.depth }, { seed: room.id, accent, floor: color, live, detail: floors.length > 2 || all.length > 14 ? 'lite' : 'full', stations });
-          opaque.append(classifySurfaces(scratch.toFloat32()));
+          const split = scratch.toFloat32Split(['figure', 'sofa']);
+          opaque.append(classifySurfaces(split.rest));
+          fallback.figure.append(classifySurfaces(split.byTag.get('figure')!));
+          fallback.sofa.append(classifySurfaces(split.byTag.get('sofa')!));
+          slots.push(...scratch.slots);
+          opaque.halos.push(...scratch.halos);
         } else {
           furnish(opaque, room, y + 0.06, accent, live, color, rnd);
           const spacing = placed.length > 1 ? Math.min(room.width / (Math.min(5, Math.ceil(Math.sqrt(placed.length))) + 1), 1.6) : 1.3;
@@ -441,6 +455,20 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
       };
       skin(fx0, fz0, fx1 - fx0, 0.2);
       skin(fx0, fz0, 0.2, fz1 - fz0);
+      // The two near sides stay open to the camera: a low frameless glass balustrade with a brushed steel rail and posts.
+      const rail = (x: number, z: number, w: number, d: number) => {
+        glass.box(x, y, z, w, 1.05, d, hex('#9fd4e6'), { shade: false });
+        opaque.withMat(MAT.metal, () => {
+          opaque.box(x - 0.02, y + 1.05, z - 0.02, w + 0.04, 0.06, d + 0.04, hex('#aeb8c2'));
+          const long = Math.max(w, d);
+          for (let m = 0; m <= long; m += 2.4) {
+            if (w > d) opaque.box(Math.min(x + m, x + w - 0.06), y, z - 0.02, 0.06, 1.05, d + 0.04, hex('#8d98a3'));
+            else opaque.box(x - 0.02, y, Math.min(z + m, z + d - 0.06), w + 0.04, 1.05, 0.06, hex('#8d98a3'));
+          }
+        });
+      };
+      rail(fx0, fz1 - 0.1, fx1 - fx0, 0.05);
+      rail(fx1 - 0.1, fz0, 0.05, fz1 - fz0);
       // Low planters along the front and the east edge.
       for (let px = fx0 + 1; px < fx1 - 0.8; px += 3.2) planter(opaque, px, fz1 - 0.35, 0.6, rnd);
       for (let pz = fz0 + 1; pz < fz1 - 0.8; pz += 3.2) planter(opaque, fx1 - 0.35, pz, 0.6, rnd);
@@ -449,7 +477,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
 
   // The plinth stands in a lawn: stone apron, planting, a car park and an entrance sign wall.
   const pad = 3;
-  const reach = 12;
+  const reach = 10;
   const lawn = hex('#4a7a48');
   opaque.box(fx0 - reach, -1.0, fz0 - reach, fx1 - fx0 + reach * 2, 0.97, fz1 - fz0 + reach * 2, hex('#3a3329'));
   opaque.withMat(MAT.grass, () => opaque.plane(fx0 - reach, -0.02, fz0 - reach, fx1 - fx0 + reach * 2, fz1 - fz0 + reach * 2, lawn, 0.07));
@@ -506,7 +534,11 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
     center: { x: (fx0 + fx1) / 2, y: (active * FLOOR_PITCH) / 2, z: (fz0 + fz1) / 2 },
     signCount: 1,
     shadow: { center: { x: cx, y: 0, z: (fz0 + fz1) / 2 }, radius: Math.hypot(fx1 - fx0 + reach * 2, fz1 - fz0 + reach * 2) * 0.5 },
-    triangles: ob.triangles + gb.triangles,
+    // Everything built, including the stand-ins (the renderer draws them only while a model could not be loaded).
+    triangles: ob.triangles + gb.triangles + fallback.figure.triangleCount + fallback.sofa.triangleCount,
+    models: placementsFromSlots(slots),
+    fallbacks: { figure: freeze(fallback.figure), sofa: freeze(fallback.sofa) },
+    halos: new Float32Array(opaque.halos),
   };
 }
 
@@ -516,6 +548,6 @@ export function frameBuilding(scene: BuildingScene, activeIndex: number): { targ
   const depth = scene.bounds.max.z - scene.bounds.min.z;
   return {
     target: { x: scene.center.x, y: activeIndex * FLOOR_PITCH * 0.6, z: scene.center.z },
-    distance: Math.min(260, Math.max(14, Math.max(width, depth) * 1.22)),
+    distance: Math.min(260, Math.max(14, Math.max(width, depth) * 0.95)),
   };
 }

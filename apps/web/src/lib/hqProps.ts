@@ -151,6 +151,7 @@ export function lamp(b: MeshBuilder, x: number, z: number): void {
   b.prism(x, 0, z, 0.1, 0.08, 2.8, 6, hex('#2a313b'), { capTop: false });
   b.box(x - 0.24, 2.8, z - 0.24, 0.48, 0.12, 0.48, hex('#2a313b'));
   b.box(x - 0.2, 2.68, z - 0.2, 0.4, 0.12, 0.4, WARM, { emissive: 1, shade: false });
+  b.halo(x, 2.7, z, 3.2, WARM, 1);
 }
 
 // ---------------------------------------------------------------- vehicles

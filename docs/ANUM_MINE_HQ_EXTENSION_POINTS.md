@@ -101,6 +101,17 @@ The scenes are procedural meshes (`campusScene.ts`, `buildingScene.ts`, building
 
 three.js 0.184.0 (MIT, no runtime dependencies, pinned exactly) and `@types/three` 0.184.0 (dev only; MIT, its own type dependencies are dev only). three.js lives in its own chunk (`hqThreeRenderer`, about 546 kB, 136 kB gzip) that `HqStage.tsx` loads with a dynamic import when the 3D stage mounts, so the list view, the no-WebGL fallback and every other page never download it. A browser without WebGL 2 gets the list and the 2D floor plan.
 
+### Loadable models (glTF), halos and facade relief
+
+The scene can place glTF models (sofas and armchairs, and a seated person only at a desk with a registry assignment) through the
+same three.js renderer: `lib/hqModels.ts` (catalogue and truth rules), `lib/hqModelCache.ts` (cache and fallback), `lib/hqModelLayer.ts`
+(loader, instancing, contact shadows, night halos). The procedural pieces they replace stay in the scene as tagged fallbacks and show
+whenever a file cannot be loaded. Licences, sizes, measurements, the gap analysis and the owner decisions are in
+[ANUM_MINE_HQ_REALISM_ASSETS.md](ANUM_MINE_HQ_REALISM_ASSETS.md). To add a model: put the file in `apps/web/public/hq/models/`, add it to
+`MODEL_SPECS` (size, licence, author, source) and `NOTICE.txt`, and give the builder that should use it a slot (`MeshBuilder.slots`).
+The canvas dataset adds `data-models-placed`, `data-model-figures`, `data-models-loaded`, `data-model-bytes`, `data-model-load-ms`
+and `data-model-fallbacks`.
+
 ## Camera, keyboard and performance
 
 Orbit by dragging, pan with Shift or the right button, zoom with the wheel or pinch. With the scene focused: arrows pan, Q and E rotate, plus and minus zoom, 0 resets. Reduced motion jumps the camera instead of tweening. The renderer is three.js (see "How the scene is drawn"): per-mesh frustum culling, render on demand, the shadow map redrawn only when needed, a pixel ratio capped at 2 and lowered after sustained slow frames. A lost context shows "Restoring the 3D view" and three.js rebuilds its buffers; if it does not come back in 5 seconds the page switches to the List view. The canvas dataset (`data-engine`, `data-draw-ms`, `data-triangles`, `data-drawn`, `data-culled`, `data-dpr`, `data-shadow`, `data-bloom`) exposes the renderer and the measured draw time for tests.

@@ -113,6 +113,7 @@ x-user-roles: owner,member
 - [ANUM MINE headquarters streaming and load testing](docs/ANUM_MINE_HQ_LOAD_TESTING.md)
 - [ANUM MINE headquarters security review](docs/ANUM_MINE_HQ_SECURITY_REVIEW.md)
 - [ANUM MINE headquarters deployment checklist and rollback](docs/ANUM_MINE_HQ_DEPLOYMENT_AND_ROLLBACK.md)
+- [ANUM MINE headquarters realism pass: glTF models, gap analysis against the concept renders, licences and measurements](docs/ANUM_MINE_HQ_REALISM_ASSETS.md)
 - [ANUM MINE campus, live presence, workstation work and executive overview](docs/ANUM_MINE_PRESENCE_AND_CAMPUS.md)
 - [Business gap register (Order 001)](docs/business/ANUM_BUSINESS_GAP_REGISTER.md)
 - [Reuse decision register: outside projects and their licenses](docs/business/REUSE_DECISION_REGISTER.md)

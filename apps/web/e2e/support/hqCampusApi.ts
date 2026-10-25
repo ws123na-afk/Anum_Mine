@@ -18,6 +18,8 @@ export interface HqMockOptions {
   meetings?: 'live' | 'none' | 'failing';
   /** 'api' serves GET /office/presence and the desk work record, 'missing' answers 404 so the browser reads tasks and meetings itself. */
   presence?: 'api' | 'missing';
+  /** Extra desks (plainly fake) on top of the fixture, for the scene specs: a desk with an agent id is a registry assignment. */
+  extraDesks?: ReadonlyArray<{ id: string; roomId: string; label: string; agentId: string | null }>;
   /** 'conflict' makes the building profile save answer 409. */
   profile?: 'ok' | 'conflict';
 }
@@ -128,6 +130,7 @@ const memberships = [
 export async function mockHq(page: Page, options: HqMockOptions = {}) {
   await mockWorkspaceApi(page);
   const office = officeFixture(options.layout ?? 'full');
+  for (const d of options.extraDesks ?? []) office.desks.push(record(d.id, { room_id: d.roomId, label: d.label, agent_id: d.agentId }) as (typeof office.desks)[number]);
   const agents = seedAgents();
   const task = (id: string, status: string, agent_id: string, title: string) => ({ id, title, prompt: title, status, tenant_id: tenant, workspace_id: workspace, created_at: now, updated_at: now, agent_id });
   const tasks = [

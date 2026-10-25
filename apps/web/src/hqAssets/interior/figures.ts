@@ -125,6 +125,12 @@ function torso(L: Local, look: Look, hip: P3, chest: P3, shoulderY: number, shou
 
 /** A seated professional. Chair, desk and screen are drawn by the desk station, not here. */
 export function seatedFigure(b: MeshBuilder, x: number, y: number, z: number, o: SeatedOptions): void {
+  // A loadable person model may replace this figure: the slot carries the seed (the assignment), the tagged triangles are the fallback.
+  b.slots.push({ model: 'person', x, y, z, rot: o.rot ?? 0, width: 0.5, seed: o.seed, pose: o.pose ?? 'typing', headset: o.headset === true });
+  b.tagged('figure', () => drawSeated(b, x, y, z, o));
+}
+
+function drawSeated(b: MeshBuilder, x: number, y: number, z: number, o: SeatedOptions): void {
   const look = lookFor(o.seed);
   const k = o.size ?? 1;
   const pose = o.pose ?? 'typing';
