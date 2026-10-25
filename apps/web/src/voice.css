@@ -279,3 +279,17 @@
 @media (prefers-reduced-transparency: reduce) {
   .voiceSpacePanel, .voiceSpace :is(.voiceBadge, .voicePill, .voiceIconButton, .spaceControls button) { backdrop-filter: none; background: #0b1226; }
 }
+
+/* ---------- Progress while a reply has not started (docs/voice.md#progress) ---------- */
+.voiceThinking { display: grid; gap: var(--d-s2); justify-items: center; text-align: center; }
+.voiceThinkingLine { align-items: center; color: var(--d-text); display: flex; font-weight: 600; gap: var(--d-s2); margin: 0; }
+.voiceThinkingSlow { color: var(--d-muted); margin: 0; }
+.voiceThinking[data-slow] .voiceThinkingLine { color: var(--d-text); }
+.voiceThinkingActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: center; }
+.voiceThinkingActions button { align-items: center; border-radius: 999px; display: inline-flex; gap: var(--d-s2); min-height: 44px; padding: 8px 16px; }
+.voiceThinkingDot { background: currentColor; border-radius: 50%; height: 8px; width: 8px; }
+@media (prefers-reduced-motion: no-preference) {
+  .voiceThinkingDot { animation: voiceThinkingPulse 1.2s ease-in-out infinite; }
+}
+@keyframes voiceThinkingPulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+.voiceSpace .voiceThinkingActions button:not(.secondary) { background: #eef1f8; border: 0; color: #070b1a; }

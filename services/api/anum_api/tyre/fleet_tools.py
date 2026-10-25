@@ -131,7 +131,7 @@ def _money(value: float | None, currency: str) -> str:
 
 async def vehicles_tool(call: ToolCall, context: TenantContext) -> ToolResult:
     try:
-        loaded, forecasts = service.forecasts_for(context)
+        loaded, forecasts = service.forecasts_cached(context)
     except (service.NotConnectedError, service.NotSyncedError):
         _, problem = _load(context)
         return problem or _failed("Tyre data is not available.")
@@ -170,7 +170,7 @@ async def vehicles_tool(call: ToolCall, context: TenantContext) -> ToolResult:
 
 async def vehicle_detail_tool(call: ToolCall, context: TenantContext) -> ToolResult:
     try:
-        loaded, forecasts = service.forecasts_for(context)
+        loaded, forecasts = service.forecasts_cached(context)
     except (service.NotConnectedError, service.NotSyncedError):
         _, problem = _load(context)
         return problem or _failed("Tyre data is not available.")
