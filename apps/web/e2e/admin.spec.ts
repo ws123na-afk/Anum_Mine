@@ -24,12 +24,16 @@ function invitationRow(overrides: Json = {}): Json {
 
 /** What the mock mail server does with an invitation email (docs/identity.md#invitation-email). */
 type MailMode = 'sent' | 'failed' | 'off';
-interface MockOptions { mail?: MailMode; forbidden?: boolean; runStatus?: number; /** The API's `can_manage_tenant_budget` for the caller (org_admin). */ orgAdmin?: boolean }
+interface MockOptions { mail?: MailMode; forbidden?: boolean; runStatus?: number; /** The API's `can_manage_tenant_budget` for the caller (org_admin). */ orgAdmin?: boolean; /** USD spent on agent meetings this month. */ meetingUsed?: number }
 
 async function mockApi(page: Page, options: MockOptions = {}) {
   const calls: { method: string; path: string; body: unknown; workspace: string | undefined }[] = [];
   let members: Json[] = [memberRow('user_local', 'owner'), { ...memberRow('user_member', 'member'), email: 'member@example.com' }];
   let invitations = [invitationRow()];
+  let meetingBudget: Json = {
+    limit_usd: 50, default_limit_usd: 50, is_default: true, used_usd: options.meetingUsed ?? 12.34, turns: 9, period_start: '2026-10-01', resets_on: '2026-11-01',
+    updated_by: null, updated_at: null, message: null, can_manage: true,
+  };
   let budgets: Json = {
     period_start: '2026-10-01',
     resets_on: '2026-11-01',
@@ -120,6 +124,15 @@ async function mockApi(page: Page, options: MockOptions = {}) {
       return json(members.find((m) => m.user_id === toggle[1]));
     }
 
+    if (path === '/api/v1/agent-meetings/budget') {
+      if (options.forbidden) return json(envelope('forbidden', 'permission_denied: workspace:manage'), 403);
+      if (method === 'PUT') {
+        const limit = (body as Json).monthly_cost_limit_usd as number | null;
+        meetingBudget = { ...meetingBudget, limit_usd: limit ?? 50, is_default: limit === null, updated_by: limit === null ? null : 'user_local', updated_at: limit === null ? null : now };
+      }
+      const used = meetingBudget.used_usd as number, limit = meetingBudget.limit_usd as number;
+      return json({ ...meetingBudget, remaining_usd: Math.max(0, limit - used), percent: limit > 0 ? Math.min(100, Math.floor((used / limit) * 1000) / 10) : 100, exceeded: used >= limit });
+    }
     if (path === '/api/v1/model-budgets' && method === 'GET') {
       return options.forbidden ? json(envelope('forbidden', 'permission_denied: organization:manage'), 403) : json(budgets);
     }
@@ -395,3 +408,55 @@ test('a task run refused with 402 shows the budget message and links to budgets'
   await alert.getByRole('button', { name: 'Model budgets' }).click();
   await expect(page.getByRole('heading', { name: 'Monthly model budgets' })).toBeVisible();
 });
+
+test('the owner reads the agent meeting budget and changes it, with the default one click away', async ({ page }) => {
+  const calls = await mockApi(page);
+  await page.goto('/#budgets');
+  const card = page.getByRole('region', { name: 'Agent meeting budget' });
+  await expect(card.getByRole('heading', { name: 'Agent meeting budget' })).toBeVisible();
+  await expect(card.getByText('12.34', { exact: false }).first()).toBeVisible();
+  await expect(card.getByRole('progressbar', { name: 'Spent on agent meetings this month' })).toHaveAttribute('aria-valuenow', '24');
+  await expect(card.getByText('Within budget')).toBeVisible();
+  await expect(card.getByText('This is the default limit. No owner has changed it.')).toBeVisible();
+  await expect(card.getByRole('button', { name: /Use the default/ })).toHaveCount(0);
+
+  await card.getByLabel('Monthly limit (USD)').fill('-5');
+  await card.getByRole('button', { name: 'Save limit' }).click();
+  await expect(card.getByText('Enter an amount in USD from 0 to 100000, with at most two decimals.')).toBeVisible();
+  expect(calls.some((c) => c.method === 'PUT' && c.path === '/api/v1/agent-meetings/budget')).toBe(false);
+
+  await card.getByLabel('Monthly limit (USD)').fill('20');
+  await card.getByRole('button', { name: 'Save limit' }).click();
+  await expect(card.getByText('Agent meeting budget saved.')).toBeVisible();
+  expect(calls.find((c) => c.method === 'PUT' && c.path === '/api/v1/agent-meetings/budget')?.body).toEqual({ monthly_cost_limit_usd: 20 });
+  await expect(card.getByText('Nearly used')).toHaveCount(0);
+  await expect(card.getByText(/Last changed by user_local/)).toBeVisible();
+
+  await card.getByRole('button', { name: 'Use the default (USD 50.00)' }).click();
+  await expect(card.getByText('Agent meeting budget set back to the default.')).toBeVisible();
+  expect(calls.filter((c) => c.method === 'PUT' && c.path === '/api/v1/agent-meetings/budget').map((c) => c.body)).toEqual([{ monthly_cost_limit_usd: 20 }, { monthly_cost_limit_usd: null }]);
+});
+
+test('a used up agent meeting budget says so plainly and says how to fix it', async ({ page }) => {
+  await mockApi(page, { meetingUsed: 50.4 });
+  await page.goto('/#budgets');
+  const card = page.getByRole('region', { name: 'Agent meeting budget' });
+  await expect(card.getByText('Used up', { exact: true })).toBeVisible();
+  await expect(card.getByText(/Monthly agent meeting budget reached\. This workspace has used USD 50\.40 of its USD 50\.00/)).toBeVisible();
+  await expect(card.getByText(/A workspace owner can raise the limit under Budgets/)).toBeVisible();
+});
+
+const gateSizes = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const;
+for (const [width, height] of gateSizes) {
+  test(`the agent meeting budget card fits ${width}x${height} without overflow or clipped controls @gate`, async ({ page }) => {
+    await mockApi(page, { meetingUsed: 41 });
+    await page.setViewportSize({ width, height });
+    await page.goto('/#budgets');
+    const card = page.getByRole('region', { name: 'Agent meeting budget' });
+    await expect(card.getByText('Nearly used')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    const clipped = await card.locator('button, input').evaluateAll((items) => items.filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && (r.right > innerWidth + 1 || r.left < -1); }).length);
+    expect(clipped).toBe(0);
+    if (process.env.ANUM_SCREENSHOTS) await page.screenshot({ path: `${process.env.ANUM_SCREENSHOTS}/budget-${width}x${height}.png`, fullPage: true });
+  });
+}

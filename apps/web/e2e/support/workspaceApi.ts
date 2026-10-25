@@ -319,6 +319,10 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
       { tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_member', role: 'member', active: true, created_at: now, updated_at: now, email: 'member@example.com' },
     ]);
     if (path === '/api/v1/workspace-invitations' && method === 'GET') return json([{ id: 'invitation_1', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', role: 'viewer', invitee_user_id: 'user_pending', invitee_email: null, status: 'pending', created_by_user_id: 'user_local', expires_at: new Date(Date.now() + 2 * 86_400_000 + 3_600_000).toISOString(), accepted_by_user_id: null, accepted_at: null, revoked_at: null, created_at: now }]);
+    if (path === '/api/v1/agent-meetings/budget') return json({
+      limit_usd: 50, default_limit_usd: 50, is_default: true, used_usd: 12.34, remaining_usd: 37.66, percent: 24.7, turns: 9, exceeded: false,
+      period_start: '2026-10-01', resets_on: '2026-11-01', updated_by: null, updated_at: null, message: null, can_manage: true,
+    });
     if (path === '/api/v1/model-budgets') return json({
       period_start: '2026-10-01', resets_on: '2026-11-01', can_manage_tenant_budget: false,
       tenant: { budget: null, usage: { input_tokens: 1200, output_tokens: 800, estimated_cost_usd: 1.5, calls: 4, unpriced_calls: 0 }, total_tokens: 2000, exceeded: false },
