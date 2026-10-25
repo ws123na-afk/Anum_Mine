@@ -13,6 +13,8 @@ import { ASPHALT, STONE, TEAL, WARM, anumMark, bench, bush, cypress, flowerBed, 
 import { signBoard } from './campusBuildings.ts';
 import { car as envCar } from '../hqAssets/environment/index.ts';
 import { signAtlasLayout } from './hqTextures.ts';
+import type { AvatarAppearance } from '@anum/contracts';
+import { figureLook, roleFamily, type FigureLook } from './hqAvatar.ts';
 import { buildInteriorRoom, interiorKindFor, type StationSpec, type StationState } from '../hqAssets/interior/index.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
 import { placementsFromSlots, type ModelGroup, type ModelPlacement } from './hqModels.ts';
@@ -35,6 +37,11 @@ export type BuildingSceneOptions = Readonly<{
   meetingRoomIds?: ReadonlySet<string>;
   /** Desks with someone assigned (registry fact), by desk id; the value seeds a generic figure so the same agent always looks the same. */
   people?: ReadonlyMap<string, string>;
+  /**
+   * What the avatar style of a desk's occupant is made from, by desk id: the avatar the owner chose on the profile (or null)
+   * and the department text. Both are profile fields; nothing here is a name. A desk with a person but no entry gets the default style.
+   */
+  looks?: ReadonlyMap<string, Readonly<{ avatar?: AvatarAppearance | null; department?: string | null }>>;
 }>;
 
 export type BuildingRoomHandle = Readonly<{ id: string; floorIndex: number; box: Aabb; anchor: Vec3 }>;
@@ -409,6 +416,12 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
         }
         const placed = floor.desks.filter((dk) => dk.roomId === room.id);
         const interior = interiorKindFor(room.kind, room.label);
+        const styleOf = (deskId: string, roomKind: string | null): FigureLook | undefined => {
+          const seed = options.people?.get(deskId);
+          if (!seed) return undefined;
+          const info = options.looks?.get(deskId);
+          return figureLook(seed, info?.avatar, roleFamily({ roomKind, department: info?.department }));
+        };
         if (interior) {
           // The furnished room comes from the interior assets. Desks are the registry's: one station each, and a
           // seated figure only where the registry (or presence) says someone is assigned to the desk.
@@ -416,6 +429,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
             id: dk.id, x: dk.position.x, z: dk.position.z, rot: 0,
             state: STATION_OF[options.deskState?.get(dk.id) ?? (dk.agentId ? 'assigned' : 'vacant')],
             occupantSeed: options.people?.get(dk.id) ?? null,
+            look: styleOf(dk.id, interior),
           }));
           const scratch = new MeshBuilder();
           buildInteriorRoom(scratch, interior, { x: room.x, y: y + 0.06, z: room.z, width: room.width, depth: room.depth }, { seed: room.id, accent, floor: color, live, detail: floors.length > 2 || all.length > 14 ? 'lite' : 'full', stations });

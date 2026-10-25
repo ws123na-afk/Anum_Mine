@@ -10,6 +10,7 @@
  *  - when a model cannot be loaded, the scene keeps drawing the procedural piece it was meant to replace.
  */
 import type { ModelSlot } from './hqGeometry.ts';
+import { figureLook, type FigureLook } from './hqAvatar.ts';
 
 export type ModelGroup = 'sofa' | 'figure';
 
@@ -77,6 +78,8 @@ export type ModelPlacement = Readonly<{
   scale: number;
   /** Footprint for the soft contact shadow, in metres (width and depth). */
   footprint: readonly [number, number];
+  /** For a person: the avatar style the renderer tints the model with (a choice, or the default drawn from the record id). */
+  look?: FigureLook;
 }>;
 
 /** Quarter turns to a yaw in radians, matching `Local.pt` (rot 0 faces +z, rot 1 faces -x). */
@@ -93,12 +96,13 @@ export function placementsFromSlots(slots: readonly ModelSlot[]): ModelPlacement
     if (slot.model === 'person') {
       const seed = slot.seed?.trim();
       if (!seed) return;
-      const key = PERSON_KEYS[seedHash(seed) % PERSON_KEYS.length];
+      // The look is the chosen style, else the default drawn from the seed alone (never a name).
+      const look = slot.look ?? figureLook(seed, null, 'office');
+      const key = look.modelKey;
       const spec = MODEL_SPECS[key];
-      const scale = 1;
       out.push({
         id: `figure:${index}:${slot.x.toFixed(2)},${slot.z.toFixed(2)}`, group: 'figure', key,
-        x: slot.x, y: slot.y, z: slot.z, yaw: yawOfQuarterTurns(slot.rot), scale, footprint: spec.footprint,
+        x: slot.x, y: slot.y, z: slot.z, yaw: yawOfQuarterTurns(slot.rot), scale: 1, footprint: spec.footprint, look,
       });
       return;
     }

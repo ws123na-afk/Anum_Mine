@@ -572,6 +572,7 @@ def build_team(
             "department": profile.department,
             "description": _short(profile.description, 240) or "",
             "agent_status": str(profile.status.value if hasattr(profile.status, "value") else profile.status),
+            "avatar": profile.avatar.stored() if getattr(profile, "avatar", None) else None,
             "state": pres["state"] if pres else "unknown",
             "state_reason": pres["provenance"]["reason"] if pres else None,
             "last_verified_at": pres["last_verified_at"] if pres else None,

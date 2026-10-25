@@ -172,6 +172,18 @@ def test_build_team_lists_only_visible_agents_and_counts_hidden_and_vacant() -> 
     assert [m["name"] for m in team["members"]] == ["Ada"] and len(team["members"][0]["description"]) <= 240
     assert team["counts"]["hidden"] == 1 and team["counts"]["vacant_desks"] == 1 and team["counts"]["working"] == 1
     assert team["members"][0]["skills_total"] == 2 and team["members"][0]["skills"][0]["state"] == "ready"
+    assert team["members"][0]["avatar"] is None  # nothing chosen: the scene draws the default from the id
+
+
+def test_build_team_carries_the_chosen_avatar_style_and_nothing_derived_from_the_name() -> None:
+    from anum_api.avatar_appearance import AvatarAppearance
+
+    chosen = SimpleNamespace(
+        id="a1", name="Ada", icon="bot", color="#112233", category="work", department="Sales", description="",
+        status="active", allowed_skills=[], allowed_tools=[], avatar=AvatarAppearance(avatar_style="neutral", outfit="uniform"))
+    desks = [desk("a1", "r1")]
+    team = of.build_team(profiles=[chosen], desks=desks, all_desks_in_scope=desks, presence={}, stuck_by_agent={}, skills=None)
+    assert team["members"][0]["avatar"] == {"avatar_style": "neutral", "outfit": "uniform"}
 
 
 def test_memory_backend_fails_closed_for_every_flow_route() -> None:

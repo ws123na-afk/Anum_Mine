@@ -3,6 +3,7 @@
  * Presence comes in as props (workstation evidence plus live meeting participants); this view
  * never invents a status. Module panels (commerce, tyre) show only for connected modules.
  */
+import type { AvatarAppearance } from '@anum/contracts';
 import type { OfficeFlowSnapshot } from '@anum/contracts';
 import type { ChangeBatch } from './useOfficeFlow';
 import { useFlowLabels } from './HqFlowStage';
@@ -54,7 +55,11 @@ export type BuildingViewProps = Readonly<{
   side: ReactNode;
   /** Stored work per room and the last move the server reported, for the live-flow badges and markers. */
   flow?: Readonly<{ snapshot: OfficeFlowSnapshot | null; batch: ChangeBatch; onPickRoom: (roomId: string) => void }>;
+  /** Avatar style and department per agent id, from the agent profiles; an agent with no entry is drawn with the default style. */
+  agentStyles?: ReadonlyMap<string, AgentStyleInfo>;
 }>;
+
+export type AgentStyleInfo = Readonly<{ avatar: AvatarAppearance | null; department: string | null }>;
 
 const ROOM_ICON = { meeting: Users, reception: DoorOpen, warehouse: HardDrive } as const;
 
@@ -88,9 +93,14 @@ export function BuildingView(props: BuildingViewProps) {
     }
     return map;
   }, [floors, presence]);
+  const looks = useMemo(() => {
+    const map = new Map<string, AgentStyleInfo>();
+    for (const [deskId, agentId] of people) { const info = props.agentStyles?.get(agentId); if (info) map.set(deskId, info); }
+    return map;
+  }, [people, props.agentStyles]);
   const scene = useMemo(
-    () => buildBuildingScene(floors, { activeIndex, showAll, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people }),
-    [floors, activeIndex, showAll, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people],
+    () => buildBuildingScene(floors, { activeIndex, showAll, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks }),
+    [floors, activeIndex, showAll, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks],
   );
   const frame = useMemo(() => frameBuilding(scene, activeIndex), [scene, activeIndex]);
   const [wrap, aspect] = useAspect();

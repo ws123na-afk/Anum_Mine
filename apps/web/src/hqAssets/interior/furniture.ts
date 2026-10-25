@@ -8,6 +8,7 @@ import { WARM } from '../../lib/hqProps.ts';
 import { Local } from './local.ts';
 import type { InteriorScheme } from './scheme.ts';
 import { seatedFigure, type SeatedPose } from './figures.ts';
+import type { FigureLook } from '../../lib/hqAvatar.ts';
 
 export type StationState = 'working' | 'waiting' | 'idle' | 'unknown' | 'vacant' | 'assigned';
 
@@ -221,6 +222,8 @@ export type StationSpec = Readonly<{
   state?: StationState;
   /** A seed (agent id) when, and only when, the registry says someone is assigned to this desk. */
   occupantSeed?: string | null;
+  /** The avatar style of the occupant (see `lib/hqAvatar.ts`); only used together with `occupantSeed`. */
+  look?: FigureLook;
   pose?: SeatedPose;
   monitors?: 1 | 2 | 3;
   headset?: boolean;
@@ -289,7 +292,7 @@ export function workstation(b: MeshBuilder, y: number, spec: StationSpec, S: Int
     taskChair(L, 0, -0.8, look.chairTone ?? S.fabric);
     if (spec.occupantSeed) {
       const [fx, fz] = L.pt(0, -0.82);
-      seatedFigure(b, fx, y, fz, { seed: spec.occupantSeed, rot: (spec.rot ?? 0) + 2, pose: spec.pose ?? 'typing', headset: spec.headset });
+      seatedFigure(b, fx, y, fz, { seed: spec.occupantSeed, rot: (spec.rot ?? 0) + 2, pose: spec.pose ?? 'typing', headset: spec.headset, look: spec.look });
     }
   }
 }
