@@ -11,7 +11,8 @@ import {
   ASPHALT, GROUND, STONE, TEAL, WATER, anumMark, bench, bridge, bush, canalPiece, car, cypress, flatPoly, hedge, lamp, palm, parkingLot, pool,
   roundTree, skylineTower, tennisCourt, truck,
 } from './hqProps.ts';
-import { drawBuilding, type Archetype } from './campusBuildings.ts';
+import { archetypeOf, drawBuilding, type Archetype } from './campusBuildings.ts';
+import { drawExterior } from './campusExteriors.ts';
 import { signAtlasLayout } from './hqTextures.ts';
 import { campusExtent, type Placement } from './campusModel.ts';
 import type { Aabb } from './hqMath.ts';
@@ -119,16 +120,24 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
   const buildings: CampusBuildingMesh[] = [];
   const segments: Array<[number, number, number, number]> = [];
   placements.forEach((p, index) => {
-    const b = new MeshBuilder();
-    const shape = drawBuilding(b, p, 'bld:' + p.workspaceId, index, signCount);
-    const mesh = freeze(b);
+    const archetype = archetypeOf(p);
+    const asset = drawExterior(p, archetype, index, signCount);
+    let mesh: SceneMesh, anchor: Vec3, door: Vec3;
+    if (asset) {
+      mesh = { vertices: asset.vertices, bounds: asset.bounds, triangles: asset.triangles };
+      anchor = asset.anchor; door = asset.door;
+    } else {
+      const b = new MeshBuilder();
+      const shape = drawBuilding(b, p, 'bld:' + p.workspaceId, index, signCount);
+      mesh = freeze(b); anchor = shape.anchor; door = shape.door;
+    }
     buildings.push({
-      workspaceId: p.workspaceId, mesh, anchor: shape.anchor, door: shape.door, signIndex: index, archetype: shape.archetype,
+      workspaceId: p.workspaceId, mesh, anchor, door, signIndex: index, archetype,
       box: { min: { x: p.x - p.width / 2 - 1.2, y: 0, z: p.z - p.depth / 2 - 1.2 }, max: { x: p.x + p.width / 2 + 1.2, y: mesh.bounds.max.y, z: p.z + p.depth / 2 + 1.2 } },
     });
     const from: [number, number] = [monument.x, monument.z + 10];
     if (p.kind === 'executive') segments.push([p.x, p.z + p.depth / 2 + 3, monument.x, monument.z - 10]);
-    else segments.push([shape.door.x, shape.door.z, from[0], from[1]]);
+    else segments.push([door.x, door.z, from[0], from[1]]);
   });
   // Lawn under each building so it sits on the ground, not above it.
   s.mat = MAT.grass;

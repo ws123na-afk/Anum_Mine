@@ -65,6 +65,12 @@ export function cylX(b: MeshBuilder, cx: number, cy: number, cz: number, radius:
   }
 }
 
+/**
+ * Baked ground shadows are gone: the renderer draws a real shadow map. The function stays, drawing nothing,
+ * so builders written for the baked version (the exterior assets) keep working and never double the shadow.
+ */
+export function castShadow(_b: MeshBuilder, _x: number, _z: number, _w: number, _d: number, _h: number, _y?: number, _color?: Rgb): void { /* real shadows */ }
+
 // ---------------------------------------------------------------- planting
 
 export function palm(b: MeshBuilder, x: number, z: number, h: number, rnd: () => number): void {

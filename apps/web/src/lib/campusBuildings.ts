@@ -7,6 +7,7 @@
  *  - executive: the tower with a crown, helipad and a large lit ANUM mark
  *  - tower: a glass office tower on a two storey lobby podium
  *  - admin: a low block with ribbon windows and deep sunshades
+ *  - retail: a glazed shop pavilion (drawn by the exterior assets; this file's admin block stands in when they are not used)
  *  - warehouse: a corrugated shed with roller doors, a loading apron and a truck
  *  - workshop: a saw-tooth roofed hall with a big door and tyre stacks
  *  - villa: a house with a hip roof (the personal office)
@@ -18,10 +19,10 @@ import {
 } from './hqProps.ts';
 import type { CampusBuildingKind, Placement } from './campusModel.ts';
 
-export type Archetype = 'executive' | 'tower' | 'admin' | 'warehouse' | 'workshop' | 'villa';
+export type Archetype = 'executive' | 'tower' | 'admin' | 'retail' | 'warehouse' | 'workshop' | 'villa';
 
 const ICON_TYPE: Readonly<Record<string, Archetype>> = {
-  truck: 'warehouse', factory: 'warehouse', chart: 'tower', briefcase: 'tower', store: 'admin', building: 'admin', shield: 'admin', landmark: 'admin', home: 'villa', user: 'villa',
+  truck: 'warehouse', factory: 'warehouse', chart: 'tower', briefcase: 'tower', store: 'retail', building: 'admin', shield: 'admin', landmark: 'admin', home: 'villa', user: 'villa',
 };
 
 /** Which type a placement is drawn as. Pure, so a unit test can pin it down. */
@@ -354,7 +355,7 @@ export function drawBuilding(b: MeshBuilder, p: Placement, seed: string, signInd
   b.withMat(MAT.tile, () => b.box(x0 - 1.2, 0, z0 - 1.2, p.width + 2.4, PODIUM, p.depth + 2.4, STONE));
   const shape = archetype === 'executive' ? executive(b, rnd, p, cell)
     : archetype === 'tower' ? tower(b, rnd, p, style, cell)
-      : archetype === 'admin' ? admin(b, rnd, p, style, cell)
+      : archetype === 'admin' || archetype === 'retail' ? admin(b, rnd, p, style, cell)
         : archetype === 'warehouse' ? warehouse(b, rnd, p, style, cell)
           : archetype === 'workshop' ? workshop(b, rnd, p, style, cell)
             : villa(b, rnd, p, style, cell);
