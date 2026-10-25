@@ -96,6 +96,7 @@ export function CampusView(props: CampusViewProps) {
     glass: [],
     signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: byId.get(b.workspaceId)?.name ?? '' }))],
     shadow: scene.shadow,
+    halos: scene.halos,
   }), [scene, byId]);
 
   const labels: StageLabel[] = useMemo(() => {
