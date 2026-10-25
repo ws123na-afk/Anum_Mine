@@ -54,6 +54,7 @@ test('WebGL: the scene draws a real frame from saved rooms and no fallback is sh
 test.describe('room panel and list at desktop size', () => {
   test.use({ viewport: { width: 1280, height: 800 } });
   test('no WebGL: the list and the 2D floor plan take over and rooms stay usable', async ({ page }) => {
+    // three.js logs its own "Error creating WebGL context" when the browser refuses a context: that is the case under test.
     const problems = watchConsole(page);
     await openHq(page, { noWebgl: true });
     await expect(hq(page).getByText(/3D is not available in this browser/)).toBeVisible();
@@ -62,7 +63,7 @@ test.describe('room panel and list at desktop size', () => {
     await expect(list).toBeVisible();
     await list.getByRole('button', { name: /Alpha Room 2/ }).click();
     await expect(hq(page).getByRole('complementary', { name: 'Room Alpha Room 2' })).toBeVisible();
-    expect(problems).toEqual([]);
+    expect(problems.filter((p) => !/Error creating WebGL context/.test(p))).toEqual([]);
   });
 });
 

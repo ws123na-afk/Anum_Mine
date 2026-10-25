@@ -267,6 +267,7 @@
 @media (prefers-reduced-motion: reduce) {
   .hqStage, .hqCompass svg { transition: none; }
   .hqSpinner { animation: none; }
+  .hqLive *, .hqLive *::before, .hqLive *::after { transition: none !important; animation: none !important; }
 }
 
 /* Content of panels that sit on the scene follows the glass palette in every theme. */
