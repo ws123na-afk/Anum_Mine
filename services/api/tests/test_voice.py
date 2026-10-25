@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 import anum_api.main  # noqa: F401  (configures the voice task runtime, as in the app)
 from anum_api.dependencies import memory_repository
-from anum_api.voice import router, voice_store
+from anum_api.voice import VOICE_MAX_TOKENS, router, voice_store
 
 
 app = FastAPI()
@@ -346,7 +346,7 @@ def test_streamed_ask_sends_recent_spoken_turns_to_the_model() -> None:
 
         async def stream_chat(self, messages, *, max_tokens=None, on_usage=None):  # type: ignore[no-untyped-def]
             seen.append(messages)
-            assert max_tokens == 400
+            assert max_tokens == VOICE_MAX_TOKENS
             yield "It is "
             yield "Rayleigh scattering."
 

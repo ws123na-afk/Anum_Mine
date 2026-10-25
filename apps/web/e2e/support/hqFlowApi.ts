@@ -1,3 +1,5 @@
+import { agentAvatars as teamAvatars } from './orgChartApi';
+export { teamAvatars };
 import type { Page, Route } from '@playwright/test';
 
 // Mock of the office live flow API (docs/ANUM_MINE_HQ_LIVE_FLOW.md): /office/flow, the item trail,
@@ -59,7 +61,7 @@ export function flowSnapshot(items = flowItems(), sources: Record<string, string
 
 const skill = (id: string, name: string) => ({ id, name, state: 'ready', reason: null, source: 'builtin' });
 const member = (n: number, agent: string, name: string, dept: string, state: string, extra: object = {}) => ({
-  agent_id: agent, name, icon: 'bot', color: '#0f766e', category: 'work', department: dept, description: `${name} helps the team.`, agent_status: 'active',
+  agent_id: agent, name, icon: 'bot', color: '#0f766e', category: 'work', department: dept, description: `${name} helps the team.`, agent_status: 'active', avatar: teamAvatars[agent] ?? null,
   state, state_reason: null, last_verified_at: asOf(), stale: false, task: null, stuck: null,
   desk: { id: `Alpha-desk-${n}`, room_id: `Alpha-room-${n}`, room_name: `Alpha Room ${n + 1}`, floor_id: 'Alpha-floor-0', building_id: 'Alpha-building' },
   skills: [skill('anum.tyre-planning', 'Tyre planning')], skills_total: 1, tools_total: 3, ...extra,

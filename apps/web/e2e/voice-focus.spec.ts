@@ -218,8 +218,9 @@ test('leaving the tab stops listening and releases the microphone; coming back w
   // Nothing listens again on its own: the page explains and offers the tap.
   expect(await probe(page, (p) => p.live())).toBe(0);
   await expect(voice.getByText('Listening stopped while you were away. Tap the orb to talk.')).toBeVisible();
-  await expect(voice.getByRole('button', { name: 'Start listening for “Layla”' })).toBeVisible();
-  await voice.getByRole('button', { name: 'Start listening for “Layla”' }).click();
+  // One tap resumes it; the microphone never starts by itself.
+  await expect(voice.getByRole('button', { name: 'Resume listening' })).toBeVisible();
+  await voice.getByRole('button', { name: 'Resume listening' }).click();
   await expect.poll(() => probe(page, (p) => p.live())).toBe(1);
 });
 

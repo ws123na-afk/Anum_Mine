@@ -1,12 +1,32 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { mockFlow } from './support/hqFlowApi';
+import { agentAvatars as teamAvatars } from './support/orgChartApi';
 
 // Avatar styles for the people of the headquarters (docs/ANUM_MINE_HQ_REALISM_ASSETS.md, "Avatar styles").
 // Six real assigned agents sit in one office; the scene draws a different style for each, the owner changes one
 // from the Team panel, and the scene, the list chip and the dataset follow. Nothing here is read from a name.
 const AGENTS = ['agent_leads', 'agent_outreach', 'agent_fleet', 'agent_maint', 'agent_care', 'agent_invoice'];
 const registry = hqRegistry(TENANT_A, { rooms: 1, desks: 6, agentIds: AGENTS });
+const stamp = '2026-10-25T08:00:00Z';
+
+/** One stateful agent behind GET and PATCH, so the agent page keeps what the owner saves (the shared mocks answer a canned agent). */
+async function mockLeadFinder(page: Page): Promise<void> {
+  let agent: Record<string, unknown> = {
+    id: 'agent_leads', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', owner_user_id: 'user_local', status: 'active', created_at: stamp, updated_at: stamp, version: 1,
+    can_edit: true, can_run: true, unavailable_tools: [], unavailable_skills: [], name: 'Lead Finder', icon: 'search', color: '#2563eb', category: 'work', department: 'Sales & Outreach',
+    description: 'Finds fleet operators.', instructions: '', model_route: 'capable', allowed_skills: [], allowed_tools: [], autonomy: { read: 'auto', write: 'ask', external: 'ask' },
+    knowledge_mode: 'none', knowledge_sources: [], sharing: 'workspace', template_id: null, avatar: null,
+  };
+  await page.route(/\/api\/v1\/agents\/agent_leads$/, (route) => {
+    const request = route.request();
+    if (request.method() === 'PATCH') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      agent = { ...agent, avatar: body.avatar ?? null, version: Number(agent.version) + 1 };
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(agent) });
+  });
+}
 const hq = (page: Page) => page.locator('.hqLive');
 const canvas = (page: Page) => page.locator('canvas.hqCanvas');
 
@@ -34,7 +54,23 @@ test('six assigned agents are drawn with six different styles, deterministic fro
 });
 
 test('the owner picks an avatar style in the Team panel and the scene, chip and dataset follow', async ({ page }) => {
-  await openOffice(page);
+  for (const key of Object.keys(teamAvatars)) delete teamAvatars[key];
+  await openOffice(page, { beforeGoto: async (p) => {
+    // The roster reports the style the server saved, like the real one does when it is read again.
+    await p.route(/\/api\/v1\/agents\/([^/]+)$/, (route) => {
+      const request = route.request();
+      if (request.method() !== 'PATCH') return route.fallback();
+      const id = new URL(request.url()).pathname.split('/').pop()!;
+      const avatar = request.postDataJSON().avatar;
+      teamAvatars[id] = avatar;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        id, tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', owner_user_id: 'user_local', status: 'active', created_at: stamp, updated_at: stamp, version: 2,
+        can_edit: true, can_run: true, unavailable_tools: [], unavailable_skills: [], name: 'Fleet Planner', icon: 'truck', color: '#0f766e', category: 'work', department: 'Operations and warehouse',
+        description: '', instructions: '', model_route: 'capable', allowed_skills: [], allowed_tools: [], autonomy: { read: 'auto', write: 'ask', external: 'ask' },
+        knowledge_mode: 'none', knowledge_sources: [], sharing: 'workspace', template_id: null, avatar,
+      }) });
+    });
+  } });
   await expect.poll(async () => (await looks(page)).length, { timeout: 60_000 }).toBe(6);
   const before = await looks(page);
   await hq(page).getByRole('button', { name: 'Office tools' }).click();
@@ -81,7 +117,7 @@ test('a style that cannot be saved says what failed and keeps the dialog open', 
 });
 
 test('the agent page has the same editor, and an owner can go back to the automatic style', async ({ page }) => {
-  await openHq(page, { registry, beforeGoto: async (p) => { await p.addInitScript(() => { try { localStorage.setItem('anum.agents.tab', 'agents'); } catch { /* storage blocked */ } }); } });
+  await openHq(page, { registry, beforeGoto: async (p) => { await mockLeadFinder(p); await p.addInitScript(() => { try { localStorage.setItem('anum.agents.tab', 'agents'); } catch { /* storage blocked */ } }); } });
   await page.goto('/#agents');
   await page.locator('.agentOpen', { hasText: 'Lead Finder' }).click();
   await page.locator('.agentTabs').getByRole('button', { name: 'Settings', exact: true }).click();
@@ -101,7 +137,7 @@ test('the agent page has the same editor, and an owner can go back to the automa
 });
 
 test('Arabic: the editor is right to left and fully translated', async ({ page }) => {
-  await openHq(page, { registry, locale: 'ar', beforeGoto: async (p) => { await p.addInitScript(() => { try { localStorage.setItem('anum.agents.tab', 'agents'); } catch { /* storage blocked */ } }); } });
+  await openHq(page, { registry, locale: 'ar', beforeGoto: async (p) => { await mockLeadFinder(p); await p.addInitScript(() => { try { localStorage.setItem('anum.agents.tab', 'agents'); } catch { /* storage blocked */ } }); } });
   await page.goto('/#agents');
   await page.locator('.agentOpen', { hasText: 'Lead Finder' }).click();
   await page.locator('.agentTabs button').last().click();

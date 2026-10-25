@@ -22,6 +22,7 @@ untrusted data block. None of the tools writes anything or reaches outside ANUM.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -35,6 +36,8 @@ from . import fleet, fleet_tools, service
 from .analytics import fleet_summary, purchase_plan
 from .model import Entity
 from .store import open_tyre_store
+
+logger = logging.getLogger("anum.tyre")
 
 FLEET_SUMMARY = "tyre_fleet_summary"
 TYRES_DUE = "tyres_due"
@@ -67,7 +70,7 @@ def _guard(context: TenantContext) -> ToolResult | None:
 
 def _loaded(context: TenantContext):  # type: ignore[no-untyped-def]
     try:
-        return service.forecasts_for(context), None
+        return service.forecasts_cached(context), None
     except service.NotConnectedError:
         return None, _failed("Tyre data is not connected in this workspace yet: an owner can connect it in Tyre planning.")
     except service.NotSyncedError:
@@ -88,13 +91,15 @@ async def fleet_summary_tool(call: ToolCall, context: TenantContext) -> ToolResu
         return problem
     loaded, forecasts = loaded_forecasts
     today = utc_now().date()
-    summary = fleet_summary(loaded.snapshot.dataset, loaded.connection.assumptions, today, forecasts)
+    summary = service.derived(context, loaded, ("fleet_summary", today),
+                              lambda: fleet_summary(loaded.snapshot.dataset, loaded.connection.assumptions, today, forecasts))
     with open_tyre_store(context) as store:
         counts = store.alert_counts(context)
     mapping = loaded.connection.mapping
     work_orders = mapping.entities.get(Entity.WORK_ORDERS) if mapping else None
-    operations = fleet.operations_summary(loaded.snapshot.dataset, today,
-                                          work_orders.window_days if work_orders else None)
+    window = work_orders.window_days if work_orders else None
+    operations = service.derived(context, loaded, ("operations_summary", today, window),
+                                 lambda: fleet.operations_summary(loaded.snapshot.dataset, today, window))
     text = (
         f"Fleet tyre health on {today.isoformat()} (data synced {loaded.snapshot.stats.synced_at:%Y-%m-%d %H:%M} UTC): "
         f"{summary.vehicles} vehicles, {summary.tyres_fitted} tyres fitted, {summary.tyres_in_stock} in stock. "
@@ -215,8 +220,10 @@ async def purchase_plan_tool(call: ToolCall, context: TenantContext) -> ToolResu
     raw = call.arguments.get("months")
     months = int(raw) if isinstance(raw, int) and 1 <= raw <= 36 else None
     month = call.arguments.get("month")
-    plan = purchase_plan(loaded.snapshot.dataset, loaded.connection.assumptions, utc_now().date(), forecasts,
-                         months=months)
+    today = utc_now().date()
+    plan = service.derived(context, loaded, ("purchase_plan", today, months),
+                           lambda: purchase_plan(loaded.snapshot.dataset, loaded.connection.assumptions, today, forecasts,
+                                                 months=months))
     rows = [row for row in plan.rows if not month or row.month == month]
     total_cost = sum(row.estimated_cost or 0 for row in rows)
     unpriced = sum(1 for row in rows if row.estimated_cost is None and row.to_buy)
@@ -354,8 +361,24 @@ TYRE_PREFACE = (
 )
 
 
-async def tyre_grounding(context: TenantContext, question: str) -> TyreGrounding | None:
-    """Run the tyre tool the question asks for, under tool policy, for chat and voice."""
+TYRE_LOOKUP_TIMEOUT_SECONDS = 4.0
+TIMED_OUT = "That lookup timed out, so no figures from it are available. Say briefly that it could not be checked and give no number for it."
+
+
+def _run_in_thread(registry: ToolRegistry, call: ToolCall, context: TenantContext) -> ToolResult:
+    """The tool on an event loop of its own in a worker thread: the handlers read stores and
+    compute forecasts synchronously, which must never block the request's event loop."""
+    return asyncio.run(registry.execute(call, context))
+
+
+async def tyre_grounding(
+    context: TenantContext, question: str, *, timeout: float = TYRE_LOOKUP_TIMEOUT_SECONDS
+) -> TyreGrounding | None:
+    """Run the tyre tool the question asks for, under tool policy, for chat and voice.
+
+    The tool runs in a worker thread with a ``timeout``; a lookup that is not done in time
+    answers ``failed`` with a plain "timed out" result (the computation finishes in the
+    background and warms the read cache, ``read_cache.py``), never a hang."""
     if _registry is None or not mentions_tyres(question) or not has_permission(context, Permission.TYRE_READ):
         return None
     from ..dependencies import _unit_of_work
@@ -380,7 +403,14 @@ async def tyre_grounding(context: TenantContext, question: str) -> TyreGrounding
 
     if not await asyncio.to_thread(allowed):
         return None
-    result = await registry.execute(call, context)
+    try:
+        result = await asyncio.wait_for(asyncio.to_thread(_run_in_thread, registry, call, context), timeout)
+    except TimeoutError:
+        result = ToolResult(status="failed", summary=TIMED_OUT, audit_metadata={"outcome": "timeout"})
+    except Exception as exc:  # only the class name is logged
+        logger.warning("tyre_grounding_failed tool=%s error_class=%s", call.name, type(exc).__name__)
+        result = ToolResult(status="failed", summary="That lookup failed just now, so no figures from it are available.",
+                            audit_metadata={"outcome": "error"})
 
     def audit() -> None:
         with _unit_of_work(context, require_membership=False) as repository:

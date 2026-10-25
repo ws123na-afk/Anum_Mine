@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { mockWorkspaceApi } from './workspaceApi';
-import { seedAgents } from './orgChartApi';
+import { agentAvatars, seedAgents } from './orgChartApi';
 
 // A mock of what the ANUM MINE headquarters reads (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md): the
 // office registry of the open workspace, the caller's workspaces, the campus endpoint, agents and
@@ -166,7 +166,7 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
       if (options.profile === 'conflict') return error(409, 'conflict', 'The profile changed.');
       return json({ workspace_id: workspace, kind: body.kind, icon: body.icon, revision: (body.expected_revision ?? 0) + 1 });
     }
-    if (path === '/api/v1/agents' && method === 'GET') return json({ items: agents, next_cursor: null, counts: { all: agents.length, work: agents.length, personal: 0, custom: 0 } });
+    if (path === '/api/v1/agents' && method === 'GET') return json({ items: agents.map((a) => (a.id as string) in agentAvatars ? { ...a, avatar: agentAvatars[a.id as string] } : a), next_cursor: null, counts: { all: agents.length, work: agents.length, personal: 0, custom: 0 } });
     if (path === '/api/v1/tasks' && method === 'GET') return json(tasks);
     if (path === '/api/v1/agent-meetings') {
       if (options.meetings === 'failing') return error(503, 'unavailable', 'Meetings are not reachable.');

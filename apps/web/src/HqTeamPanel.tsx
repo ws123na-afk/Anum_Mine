@@ -28,21 +28,22 @@ const agentsClient = agentsApi(api.apiRequest, api.apiRequestVoid);
 export function HqTeamPanel({ roomId, floorId, buildingId, refreshKey, onNavigate, onOpenSpaces, onFocusRoom, heading, onAvatarChanged }: HqTeamPanelProps) {
   useLocale();
   const { team, status, error } = useOfficeTeam({ roomId, floorId, buildingId }, refreshKey);
+  // Styles saved from this panel show at once and stay, because the roster is not read again on a save.
+  const [saved, setSaved] = useState<ReadonlyMap<string, AvatarAppearance | null>>(new Map());
   const title = heading ?? (roomId ? t('hqTeam.scope.room') : t('hqTeam.scope.building'));
   return <section className="hqTeam" aria-label={t('hqTeam.region')}>
     <h3 className="hqFlowH"><Users size={15} aria-hidden="true" /> {t('hqTeam.title')} <span>{title}{team ? ` · ${t('hqTeam.count', { count: team.counts.agents })}` : ''}</span></h3>
     {status === 'loading' && <p className="hqFlowNote" role="status">{t('hqTeam.loading')}</p>}
     {status === 'denied' && <p className="hqFlowNote" role="alert">{t('hqTeam.denied')}</p>}
     {status === 'error' && <p className="hqFlowNote" role="alert">{t('hqTeam.error', { detail: error })}</p>}
-    {team && status !== 'denied' && <TeamBody team={team} onNavigate={onNavigate} onOpenSpaces={onOpenSpaces} onFocusRoom={onFocusRoom} showRoom={!roomId} onAvatarChanged={onAvatarChanged} />}
+    {team && status !== 'denied' && <TeamBody team={team} saved={saved} setSaved={setSaved} onNavigate={onNavigate} onOpenSpaces={onOpenSpaces} onFocusRoom={onFocusRoom} showRoom={!roomId} onAvatarChanged={onAvatarChanged} />}
   </section>;
 }
 
-function TeamBody({ team, onNavigate, onOpenSpaces, onFocusRoom, showRoom, onAvatarChanged }: {
+function TeamBody({ team, saved, setSaved, onNavigate, onOpenSpaces, onFocusRoom, showRoom, onAvatarChanged }: {
+  saved: ReadonlyMap<string, AvatarAppearance | null>; setSaved: (update: (s: ReadonlyMap<string, AvatarAppearance | null>) => ReadonlyMap<string, AvatarAppearance | null>) => void;
   team: OfficeTeam; onNavigate: (hash: string) => void; onOpenSpaces: () => void; onFocusRoom?: (roomId: string) => void; showRoom: boolean; onAvatarChanged?: () => void;
 }) {
-  // Styles saved from this panel show at once, before the roster is read again.
-  const [saved, setSaved] = useState<ReadonlyMap<string, AvatarAppearance | null>>(new Map());
   const [editing, setEditing] = useState<OfficeTeamMember | null>(null);
   const avatarOf = (m: OfficeTeamMember): AvatarAppearance | null => (saved.has(m.agent_id) ? saved.get(m.agent_id)! : m.avatar ?? null);
   return <>
