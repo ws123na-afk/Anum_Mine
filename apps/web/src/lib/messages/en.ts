@@ -15,6 +15,7 @@ import { homeEn } from './home.en.ts';
 import { meetingRoomEn } from './meetingRoom.en.ts';
 import { builderEn } from './builder.en.ts';
 import { hqFlowEn } from './hqFlow.en.ts';
+import { hqHistoryEn } from './hqHistory.en.ts';
 import { hqProvisioningEn } from './hqProvisioning.en.ts';
 import { hqAssignEn } from './hqAssign.en.ts';
 import { hqStarterCampusEn } from './hqStarterCampus.en.ts';
@@ -3225,6 +3226,7 @@ export const en = {
   ...meetingRoomEn,
   ...builderEn,
   ...hqFlowEn,
+  ...hqHistoryEn,
   ...hqProvisioningEn,
   ...hqAssignEn,
   ...hqStarterCampusEn,

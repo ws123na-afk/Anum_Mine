@@ -187,14 +187,14 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | ID | Requirement | Status | How checked | Evidence | Gap and recommended small PR |
 |---|---|---|---|---|---|
 | 10.1 | Evidence history API | Complete | Ran | `GET /api/v1/office-history`, `/at`, `/correlations/{id}` (`office_history_api.py`); `test_office_history_api.py` pass; `docs/ANUM_MINE_F09_AUDITED_HISTORY_API.md` | none |
-| 10.2 | Searchable timeline in the product | Missing | Read | No web code calls `/office-history` (searched `apps/` and `packages/`) | PR: a History panel in the headquarters (category, actor, target, date filters, keep paging while `next_cursor` is set) |
-| 10.3 | Free-text search | Missing | Read | The API filters by category, actor, target and correlation only | PR: a `q` filter on action and target, after the panel exists |
-| 10.4 | Correlation ids | Partial | Read | `GET /correlations/{id}` uses server-recorded ids only | No UI and no link from a task, meeting or approval to its correlation view. Rides on 10.2 |
-| 10.5 | Replay of the office at a past time | Missing | Read | `/at` returns audit evidence before the time. Occupancy, presence and layout are returned as `unknown` with `historical_coverage_complete=false` | Correct and honest, but it is not a replay. A true replay needs time-indexed snapshots (new tables, retention, owner decision O8). Do not draw past presence from audit rows |
+| 10.2 | Searchable timeline in the product | Complete | Ran, CI | `HqHistoryPanel.tsx` (Office tools, History; room inspector, agent card and Team card entry points), event type, actor, room, agent and date filters, infinite scroll and "Load older records" while `next_cursor` is set; `test/hqHistory.test.ts`, `e2e/hq-history.spec.ts`; `docs/ANUM_MINE_HQ_HISTORY_PANEL.md` | none. Department and project filters are not offered: audit records carry neither |
+| 10.3 | Free-text search | Complete | Ran | `GET /office-history` takes `q` (actor, action, target), `since`, `until`; `test_office_history_http.py`, `test_office_history_api.py` | Search does not look inside recorded metadata |
+| 10.4 | Correlation ids | Partial | Ran, CI | The record side panel shows the correlation id and lists the records of the same request (`GET /correlations/{id}`) and the task, run, approval or meeting it points at, with a summary read from the existing routes; `e2e/hq-history.spec.ts` | No link in the other direction: a task, meeting or approval screen does not open its correlation view |
+| 10.5 | Replay of the office at a past time | Partial | Ran, CI | Room history slider over the room's stored audit records: before and after values per step, "Cannot be reconstructed for this time" for gaps, times before the oldest loaded record and the future; `lib/hqRoomHistory.ts`, `test/hqHistory.test.ts`, `e2e/hq-history.spec.ts` | Layout changes of one room only. Past presence, occupancy and whole-office replay need time-indexed snapshots (new tables, retention, owner decision O8); nothing is stored by this change and none is drawn |
 | 10.6 | Replay only where verified | Complete | Read | `EVIDENCE_NOTICE`, no invented status, `unknown` fields | none |
 | 10.7 | Item trail (task, lead, order) | Complete | Ran | `GET /office/flow/items/{kind}/{id}/trail`, allow-listed fields; `test_office_flow.py` | Orders: `not_recorded` |
 | 10.8 | Access limited | Complete | Ran | Owners and authorised organisation admins only (`HISTORY_ACCESS`) | none |
-| 10.9 | History export | Missing | Read | None | PR: CSV or JSON export of the filtered, already redacted page set, audited |
+| 10.9 | History export | Partial | Ran, CI | "Export these records (CSV)" calls the existing audited audit export (`GET /audit/export`, permission `audit:export`) with the same filters; `e2e/hq-history.spec.ts` | Not offered for room or agent views or the "Other" type, because the audit export cannot express them. No JSON button in the panel |
 
 ## Section 11. Office management
 
@@ -252,7 +252,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 14.6 | The office updates live and recovers from disconnects | Partial | Ran, Read | Server stream done; web does not use the presence stream (8.1); H-09 open |
 | 14.7 | Layouts persist with concurrency control and audit | Complete | Ran, CI | 8.3, 8.4 |
 | 14.8 | Live agent meetings run within limits and end with summary, decisions, tasks and export | Partial | Read, CI | Limits, decisions, action item to task, export done (9.1, 9.2, 9.8, 9.10); no summary (9.6); decision to work link missing (9.9) |
-| 14.9 | Work history is searchable and replay is shown only where verified | Missing | Read | API only, no screen, no search, no real replay (10.2 to 10.5); the "only where verified" rule itself is kept (10.6) |
+| 14.9 | Work history is searchable and replay is shown only where verified | Partial | Ran, CI | History panel (10.2 to 10.5, 10.9); the "only where verified" rule is kept (10.6) | No real replay of presence or occupancy (owner decision O8) |
 | 14.10 | The owner can create, edit, arrange, assign, save, restore and template an office | Partial | Read, CI | All but restore and whole-office templates (8.6, 11.8) |
 | 14.11 | Tenants and workspaces stay isolated | Complete | CI | 4.7, 4.8 (PG tests CI only) |
 | 14.12 | Fallbacks, reduced motion and performance budgets hold | Complete | Read, CI | 3.9, 3.12, 3.14; budget run on a real device is missing (3.10) |
@@ -299,12 +299,12 @@ Rows counted: 139 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
-| Complete | 82 |
-| Partial | 42 |
-| Missing | 14 |
+| Complete | 84 |
+| Partial | 45 |
+| Missing | 9 |
 | Not applicable | 1 |
 | Total | 139 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 77, Partial 34, Missing 13, Not applicable 1 (total 125).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 79, Partial 36, Missing 9, Not applicable 1 (total 125).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.

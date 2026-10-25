@@ -44,6 +44,8 @@ class FakeRepository:
             and (filters.target is None or r.target == filters.target)
             and (filters.correlation_id is None or r.correlation_id == filters.correlation_id)
             and (filters.until is None or r.created_at < filters.until)
+            and (filters.since is None or r.created_at >= filters.since)
+            and (not filters.text or filters.text.lower() in f"{r.actor} {r.action} {r.target}".lower())
             and (after is None or (r.created_at, r.id) < after)
         ]
         return sorted(candidates, key=lambda r: (r.created_at, r.id), reverse=True)[:limit]
@@ -172,3 +174,14 @@ def test_extra_pydantic_fields_rejected():
             "requested_at": BASE, "workspace_id": "workspace_a",
             "known_events": [], "action_counts": {}, "invented_status": "working",
         })
+
+
+def test_since_until_and_text_are_forwarded_to_the_audit_filter():
+    repo = FakeRepository([audit(i, "task.created") for i in range(6)])
+    # audit(i) is i minutes before BASE: since is inclusive, until exclusive.
+    window = read_page(repo, context(), limit=10, cursor=None, category=HistoryCategory.ALL,
+                       since=BASE - timedelta(minutes=4), until=BASE - timedelta(minutes=1))
+    assert sorted(r.id for r in window.items) == ["audit_002", "audit_003", "audit_004"]
+    found = read_page(repo, context(), limit=10, cursor=None, category=HistoryCategory.ALL, text="TASK_3")
+    assert [r.id for r in found.items] == ["audit_003"]
+    assert repo.calls[-1][1].text == "TASK_3"
