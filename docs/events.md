@@ -103,7 +103,7 @@ The automation dispatcher (`anum_api/automation_dispatch.py`) is the second in-p
 
 A tyre planning sync (or an assumptions change) that raises new critical or warning alerts records one `tyre_alerts.raised` ([Tyre planning](tyre-planning.md#alerts)). Subject: `tyre_alerts`. Payload: the `critical` and `warning` counts only; never tyre data. Phone push turns it into one "Tyre alerts" notification per workspace for members whose `tyre_alerts` preference is on.
 
-The office builder ([Office registry](ANUM_MINE_OFFICE_REGISTRY_BACKEND.md#event)) emits `office.layout_changed` after any office edit, with the floor id, the action and record ids only. A confirmed [office role](ANUM_MINE_AGENT_PROVISIONING.md) emits `office.agent_provisioned` (template, agent, desk and room ids, and whether the agent is limited).
+The office builder ([Office registry](ANUM_MINE_OFFICE_REGISTRY_BACKEND.md#event)) emits `office.layout_changed` after any office edit (also once per building of the [starter campus](ANUM_MINE_STARTER_CAMPUS.md)), with the floor id, the action and record ids only. A confirmed [office role](ANUM_MINE_AGENT_PROVISIONING.md) emits `office.agent_provisioned` (template, agent, desk and room ids, and whether the agent is limited).
 
 Team work ([Team work](team-work.md#events)) emits `work_item.created`, `work_item.updated`, `work_item.assigned`, `work_item.completed`, `work_item.deleted`, `work_item.commented`, `work_item.reminded`, `notification.created`, `assistant.changed` and `assistant.routed`, with ids, statuses, priorities and assignee ids only; `notification.created` names its recipient and is also the phone push trigger ([Notifications](notifications.md)).
 

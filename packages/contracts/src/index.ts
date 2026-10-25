@@ -260,3 +260,4 @@ export * from './officeProvisioning.js';
 export * from './officeAssign.js';
 export * from './executive.js';
 export * from './officeBuilder.js';
+export * from './officeStarterCampus.js';
