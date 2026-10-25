@@ -1,6 +1,7 @@
 /** Built-in side panels: the room summary and the workstation summary with the desk's real work.
  * The meetings and executive workstreams replace them through `renderRoomPanel` and `renderWorkstationPanel`. */
 import { ArrowRight, X } from 'lucide-react';
+import { RoomModuleAction } from './HqRoomModule';
 import { statusLabel } from './HqChrome';
 import { WorkstationWork } from './HqWorkstationWork';
 import type { RoomGeometry, SceneDesk } from './lib/headquartersProjection.ts';
@@ -9,9 +10,7 @@ import { profileHash } from './lib/orgChart.ts';
 import { STATUS_TONE } from './lib/campusModel.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 
-const MODULE_ROUTES: Readonly<Record<string, string>> = {
-  meeting: 'meetings', reception: 'inbox', office: 'tasks', workshop: 'tyre', warehouse: 'commerce', lounge: 'calendar',
-};
+const noop = () => undefined;
 
 export function StatusPill({ presence }: { presence: HqAgentPresence | undefined }) {
   return (
@@ -24,6 +23,7 @@ export function StatusPill({ presence }: { presence: HqAgentPresence | undefined
 export function RoomPanel(props: Readonly<{
   room: RoomGeometry; desks: readonly SceneDesk[]; presence: HqPresenceIndex | null;
   onClose: () => void; onOpenAgent: (agentId: string, desk: SceneDesk) => void;
+  buildingKind?: string | null; canManage?: boolean; onOpenFlow?: () => void; onOpenGaps?: () => void;
 }>) {
   const { room } = props;
   const assigned = props.desks.filter((d) => d.agentId || presenceForDesk(props.presence, d)).length;
@@ -59,7 +59,7 @@ export function RoomPanel(props: Readonly<{
             })}
           </ul>
         )}
-      <a className="hqPrimary" href={`#${MODULE_ROUTES[room.kind] ?? 'command'}`}>{t('hq.room.openModule', { kind: t(`hq.roomKind.${room.kind}` as MessageKey) })}<ArrowRight aria-hidden="true" className="flip" /></a>
+      <RoomModuleAction room={{ department: room.teamDepartment, kind: room.kind, name: room.label, buildingKind: props.buildingKind }} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? noop} onOpenGaps={props.onOpenGaps ?? noop} />
     </aside>
   );
 }

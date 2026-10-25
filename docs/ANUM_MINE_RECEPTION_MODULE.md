@@ -1,5 +1,7 @@
 # ANUM MINE Reception & Visitor Operations
 
+**Live office:** this module is NOT part of the live office any more (invented hosts and rooms, no saved data). It remains only in the labelled Concept preview. A real visitor registry waits for owner decision O4.
+
 **Status:** complete front-end *demonstration module*, not a production reception booking service.
 
 ## Scope delivered

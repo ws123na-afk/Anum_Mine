@@ -12,7 +12,7 @@ The owner asked for every desk of the campus to have an agent seated. **Staff my
 | The planner: states, 200 limit, run cap, order, hashes (pure) | `services/api/anum_api/office_staff_desks.py` |
 | Routes, claims, agent build, caps, seating | `services/api/anum_api/office_staff_desks_api.py` |
 | Agent create path used per desk | `agent_profiles.create_agent_governed` (the body of `POST /api/v1/agents`) |
-| Migration | `0107_staff_desks` (table `office_desk_staffing`; numbers are renumbered at merge) |
+| Migration | `0108_staff_desks` (table `office_desk_staffing`; numbers are renumbered at merge) |
 | Contract | `packages/contracts/src/officeStaffDesks.ts` |
 | Web | `apps/web/src/hq-staff-desks/` (`StaffDesksDialog`, `TurnOnPanel`, client, css), messages `hqStaffDesks.en.ts` / `.ar.ts` |
 | Entries | HQ **Office tools**, **Staff my campus**; the **Organisation gaps** panel |

@@ -41,6 +41,8 @@ A workspace can have 200 agents at most. Desks past that stay empty and the plan
 - Owners and workspace managers can change rooms and desks in **Manage spaces**.
 - Workspace owners staff desks and turn the new agents on. Everyone else can read the plan.
 - Commerce and tyre panels at the bottom show numbers only when that module is connected and you may read it. Otherwise they say who can set it up.
+- A room opens the module of its department, which an owner sets in the builder: Finance opens Finance, Sales opens Sales and CRM, Support opens the inbox, Operations opens the live flow, Tyre engineering opens Tyre Planner. A department with no module says "No module connected for this department" and offers **Organisation gaps**. The same link is in the room list.
+- A reception room shows its desks and assigned agents only. There is no visitor register yet, and the office shows no visitor names.
 
 ## Learn more
 

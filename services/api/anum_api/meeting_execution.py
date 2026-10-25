@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 from sqlalchemy import text
+from . import live_agent_meeting_budget as meeting_budget
+from .live_agent_meeting_audit import audit_event, audit_in_new_transaction
 from .live_agent_meeting_store import LiveMeetingStoreError, SqlLiveMeetingStore
 from .model_gateway import ModelGateway, MockModelGateway, route_gateway, ModelRoute
 from .live_agent_meeting_redaction import redact_secrets
@@ -43,6 +45,7 @@ set total_input_tokens=total_input_tokens+:input,
 where tenant_id=:tenant and workspace_id=:workspace and id=:id
 returning *
 """)
+TURN_ACTION = "agent_meeting.turn"
 RELEASE_SQL = text("""
 delete from agent_meeting_turn_leases
 where tenant_id=:tenant and workspace_id=:workspace and session_id=:id
@@ -103,10 +106,47 @@ def _history(store: SqlLiveMeetingStore, context:TenantContext, mid:str) -> list
              "content":str(t["speaker_id"])+": "+str(t["body"])} for t in turns[-30:]]
 
 
+def _record_cap_hit(context: TenantContext, meeting_id: str, request_key: str, correlation: str,
+                    state: meeting_budget.BudgetState) -> None:
+    """The workspace's monthly meeting budget has no room: pause the running meeting, say why in
+    its event log and audit the refusal. Own transaction (the refused one rolled back). Ids and
+    amounts only, never text."""
+    with open_scoped_store(context,None,SqlLiveMeetingStore,user_scoped=True) as store:
+        meeting=store.get(context,meeting_id,lock=True)
+        if meeting is not None and meeting["created_by"]==context.user_id and meeting["status"]=="active":
+            store.transition(context,meeting_id,meeting["revision"],"paused",reason="budget")
+            store.emit(context,meeting_id,"budget_reached",{
+                "limit_usd":float(state.limit_usd),"used_usd":float(state.used_usd),
+                "period_start":state.period_start.isoformat(),"resets_on":state.resets_on.isoformat()},actor=context.user_id)
+        audit_event(store.session,context,TURN_ACTION,meeting_id,outcome="blocked",correlation_id=correlation,
+                    meeting_id=meeting_id,request_key=request_key,reason="monthly_budget",limit_usd=state.limit_usd,
+                    used_usd=state.used_usd,period_start=state.period_start.isoformat())
+
+
 async def execute_meeting_turn(
     context: TenantContext, meeting_id: str, request_key: str, gateway: ModelGateway
 ) -> dict[str,Any]:
-    """One durable, idempotent agent turn. Never let the LLM perform tool actions."""
+    """One durable, idempotent agent turn. Never let the LLM perform tool actions.
+
+    Every executed turn writes one audit record (ids, usage and cost, no text); a refused
+    one writes a record too (workspace budget reached, caller not the owner).
+    """
+    correlation=new_id("correlation")
+    try:
+        return await _execute_meeting_turn(context,meeting_id,request_key,gateway,correlation)
+    except meeting_budget.MeetingBudgetReached as exc:
+        await asyncio.to_thread(_record_cap_hit,context,meeting_id,request_key,correlation,exc.state)
+        raise
+    except LiveMeetingStoreError as exc:
+        if exc.code=="forbidden":
+            await asyncio.to_thread(audit_in_new_transaction,context,TURN_ACTION,meeting_id,outcome="denied",
+                                    correlation_id=correlation,meeting_id=meeting_id,request_key=request_key,reason="not_meeting_owner")
+        raise
+
+
+async def _execute_meeting_turn(
+    context: TenantContext, meeting_id: str, request_key: str, gateway: ModelGateway, correlation: str
+) -> dict[str,Any]:
     if settings.repository_backend != "postgresql":
         raise LiveMeetingStoreError("unavailable","PostgreSQL is required")
     if isinstance(gateway,MockModelGateway) or getattr(gateway,"provider",None)=="mock":
@@ -135,6 +175,9 @@ async def execute_meeting_turn(
         store.session.execute(EXPIRED_SQL,params)
         if store.session.execute(LOCK_SQL,params).first():
             raise LiveMeetingStoreError("conflict","Another agent turn is already running")
+        # The workspace-wide monthly cap (S-02). Takes the workspace lock, which is held until the
+        # lease below is committed, so parallel meetings cannot both claim the last of the budget.
+        meeting_budget.gate(store,context)
         agent=agents[(seq-1)%len(agents)]
         profile=store.session.execute(PROFILE_SQL,_request(
             context,meeting_id,request_key,agent=agent
@@ -151,7 +194,8 @@ async def execute_meeting_turn(
         claimed_seq=seq
         # A real turn is now in flight: this durable event is the only thing the room
         # may show as "speaking".
-        store.emit(context,meeting_id,"turn_started",{"sequence":seq,"agent_id":agent,"request_key":request_key},actor=agent)
+        store.emit(context,meeting_id,"turn_started",{"sequence":seq,"agent_id":agent,"request_key":request_key,
+                                                      "correlation_id":correlation},actor=agent)
         history=_history(store,context,meeting_id)
         title=session["title"]
         remaining_tokens=session["max_tokens"]-int(seqrow["tokens"])
@@ -207,8 +251,9 @@ async def execute_meeting_turn(
                 provenance=str(usage.provider)+"/"+str(usage.model),redacted=was_redacted
             )).mappings().first()
             if row is None:raise LiveMeetingStoreError("conflict","Turn sequence was already committed")
-            store.session.execute(USAGE_SQL,_request(
-                context,meeting_id,request_key,input=input_count,output=output_count,cost=cost))
+            usage_row=store.session.execute(USAGE_SQL,_request(
+                context,meeting_id,request_key,input=input_count,output=output_count,cost=cost)).mappings().one()
+            budget=meeting_budget.record_usage(store,context,cost)
             store.session.execute(RELEASE_SQL,params)
             # The message row is written above; only now is its event appended (same
             # transaction), so a stream reader can never see an event without its message.
@@ -217,6 +262,18 @@ async def execute_meeting_turn(
                 "request_key":request_key,
                 "created_at":row["created_at"].isoformat(),"redacted":bool(row["redacted"]),
                 "provenance":row["provenance"]},actor=row["speaker_id"])
+            audit_event(store.session,context,TURN_ACTION,meeting_id,correlation_id=correlation,
+                        meeting_id=meeting_id,turn_number=row["sequence"],agent_id=agent,request_key=request_key,model=row["provenance"],
+                        input_count=input_count,output_count=output_count,cost_usd=cost,
+                        redacted=bool(row["redacted"]),limit_usd=budget.limit_usd,used_usd=budget.used_usd,
+                        period_start=budget.period_start.isoformat())
+            if budget.used_usd>=budget.limit_usd and usage_row["status"]=="active":
+                # This turn used the last of the month: stop the meeting here, plainly, instead of
+                # letting the next attempt find out.
+                store.transition(context,meeting_id,usage_row["revision"],"paused",reason="budget")
+                store.emit(context,meeting_id,"budget_reached",{
+                    "limit_usd":float(budget.limit_usd),"used_usd":float(budget.used_usd),
+                    "period_start":budget.period_start.isoformat(),"resets_on":budget.resets_on.isoformat()},actor=context.user_id)
             return dict(row)
     except Exception as exc:
         code=getattr(exc,"code",None) or "error"
@@ -225,4 +282,6 @@ async def execute_meeting_turn(
             if claimed_seq and store.get(context,meeting_id,lock=True) is not None:
                 store.emit(context,meeting_id,"turn_failed",{"sequence":claimed_seq,"code":str(code)[:30],
                     "reason":str(exc)[:200] if code!="error" else "The model call failed"},actor=context.user_id)
+                audit_event(store.session,context,TURN_ACTION,meeting_id,outcome="failure",correlation_id=correlation,
+                            meeting_id=meeting_id,turn_number=claimed_seq,agent_id=agent,request_key=request_key,code=str(code)[:30])
         raise
