@@ -91,3 +91,22 @@
 .paExamples ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--d-s1); }
 .paExamples .linkButton { text-align: start; padding: 0; min-height: 32px; }
 .paTools summary { cursor: pointer; font-weight: 600; font-size: var(--text-base); min-height: 32px; }
+
+/* PA daily briefing (PaBriefingCard.tsx) */
+.paBrief { border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); background: var(--d-surface-1); padding: var(--d-s3); display: grid; gap: var(--d-s3); min-width: 0; }
+.paBriefHead { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; align-items: flex-start; }
+.paBriefHead h3 { margin: 0; font-size: var(--text-lg); }
+.paBriefHead p { margin: 0; }
+.paBriefHead button { display: inline-flex; gap: var(--d-s2); align-items: center; min-height: 40px; }
+.paBriefHead button svg { width: 16px; height: 16px; }
+.paBriefList { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--d-s3); }
+.paBriefSection { display: grid; gap: var(--d-s1); min-width: 0; padding-block-start: var(--d-s2); border-block-start: 1px solid var(--d-line); }
+.paBriefSection h4 { margin: 0; font-size: var(--text-sm); color: var(--d-muted); font-weight: 600; }
+.paBriefSection p { margin: 0; overflow-wrap: anywhere; }
+.paBriefSection[data-state="empty"] .paBriefHeadline, .paBriefSection[data-state="not_connected"] .paBriefHeadline, .paBriefSection[data-state="restricted"] .paBriefHeadline { color: var(--d-muted); }
+.paBriefItems { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--d-s1); }
+.paBriefItems .linkButton { display: grid; gap: 2px; text-align: start; min-height: 40px; align-content: center; width: 100%; overflow-wrap: anywhere; }
+.paBriefItems .linkButton { text-decoration: none; }
+.paBriefLabel { text-decoration: underline; text-underline-offset: 2px; }
+.paBriefItems small { color: var(--d-muted); }
+.paBriefClear, .paBriefFoot { margin: 0; }

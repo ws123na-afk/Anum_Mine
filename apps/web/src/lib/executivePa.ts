@@ -9,10 +9,18 @@ import type { BuildingProposal, ExecutiveGrant, ExecutiveGrantedWorkspace, Execu
 export type Requester = <T>(path: string, init: RequestInit) => Promise<T>;
 export type InputMode = 'typed' | 'voice' | 'click';
 
-export type PaToolName = 'navigate' | 'open_panel' | 'summarise_workspace' | 'list_blocked_work' | 'list_pending_approvals' | 'start_task' | 'delegate' | 'schedule_meeting' | 'propose_add_building';
+export type PaToolName = 'navigate' | 'open_panel' | 'summarise_workspace' | 'list_blocked_work' | 'list_pending_approvals' | 'start_task' | 'delegate' | 'schedule_meeting' | 'propose_add_building' | 'daily_briefing';
 export interface PaTool { name: PaToolName; kind: 'read' | 'write'; label: string; risk: 'low' | 'medium' | 'high'; autonomy: 'automatic' | 'confirm_each'; governed_by: string; permissions: string[]; allowed: boolean }
 export interface TourStop { building_id: string; building_name: string; floor_id: string; floor_name: string; level: number; room_id: string; room_name: string; room_kind: string; capacity: number; desks: number }
 export interface Tour { status: 'ready' | 'empty' | 'not_connected'; stops: TourStop[] }
+export type BriefingState = 'ok' | 'empty' | 'not_connected' | 'restricted';
+export interface BriefingItem { kind: string; id: string; label: string; detail: string | null; detail_text: string | null; at: string | null; source: string; link: { view: string; id: string } }
+export interface BriefingSection {
+  key: 'approvals' | 'blocked' | 'due' | 'running' | 'meetings' | 'agents' | 'cost';
+  title: string; headline: string; state: BriefingState; count: number | null; truncated: boolean;
+  items: BriefingItem[]; notes: string[]; note_texts: string[];
+}
+export interface Briefing { version: 1; lang: 'en' | 'ar'; generated_at: string; date: string; title: string; sections: BriefingSection[]; text: string; reportable: number }
 export interface Location { building_id?: string; floor_id?: string; room_id?: string; agent_id?: string }
 
 export type PaStatus = 'ok' | 'done' | 'approval_pending' | 'needs_confirmation' | 'needs_visual_confirmation' | 'stale_confirmation'
@@ -20,6 +28,7 @@ export type PaStatus = 'ok' | 'done' | 'approval_pending' | 'needs_confirmation'
 export interface PaResult {
   tool: PaToolName; status: PaStatus; note?: string;
   navigate?: Location; open_panel?: { view: string };
+  briefing?: Briefing;
   summary?: ExecutiveSummary; workspace_id?: string; scope?: 'current' | 'granted';
   items?: { id: string; title?: string; status?: string; task_id?: string; action?: string; risk_level?: string }[];
   payload_hash?: string; preview?: Record<string, unknown>; risk?: string; governed_by?: string;
@@ -40,6 +49,11 @@ export function createPaClient(request: Requester) {
       const r = await request<Tour>(`${ROOT}/tour`, { method: 'GET' });
       return { status: r?.status ?? 'empty', stops: Array.isArray(r?.stops) ? r.stops : [] };
     },
+    /** The briefing endpoint, for the dock's own refresh (the tool call reaches the same builder). */
+    briefing: async (lang: 'en' | 'ar'): Promise<Briefing> => {
+      const r = await request<Briefing>(`${ROOT}/briefing?lang=${lang}`, { method: 'GET' });
+      return { ...r, sections: Array.isArray(r?.sections) ? r.sections : [] };
+    },
     /** Never sends a confirmation unless `confirmHash` is given AND the mode is a click. */
     invoke: (tool: PaToolName, args: Record<string, unknown>, mode: InputMode, confirmHash?: string): Promise<PaResult> =>
       request<PaResult>(`${ROOT}/invoke`, {
@@ -51,7 +65,7 @@ export function createPaClient(request: Requester) {
 
 // -- sentences to proposed tool calls ----------------------------------------------------
 
-export interface ParseContext { stops: readonly TourStop[]; agents?: readonly { id: string; name: string }[] }
+export interface ParseContext { stops: readonly TourStop[]; lang?: 'en' | 'ar'; agents?: readonly { id: string; name: string }[] }
 export interface ProposedCall { tool: PaToolName; args: Record<string, unknown> }
 
 const norm = (v: string) => v.toLocaleLowerCase('en').normalize('NFKC').replace(/[^\p{L}\p{N}\s]+/gu, ' ').replace(/\s+/g, ' ').trim();
@@ -65,6 +79,8 @@ const PANEL_WORDS: [RegExp, string][] = [
 export function parseUtterance(text: string, ctx: ParseContext): ProposedCall | null {
   const q = ' ' + norm(text) + ' ';
   if (q.trim() === '') return null;
+  // "brief me", "daily briefing", "what is my day": a read-only briefing (before the summary words below).
+  if (/( brief me | briefing | daily brief | morning brief | my day | what s on today | what is on today | whats on today |إحاطة|الإحاطة|أحطني|موجز اليوم|ملخص اليوم|ملخصي اليومي)/.test(q)) return { tool: 'daily_briefing', args: { lang: ctx.lang ?? 'en' } };
   if (/(blocked|stuck|waiting|معطل|عالق)/.test(q)) return { tool: 'list_blocked_work', args: {} };
   if (/(pending approvals|what needs my approval|بانتظار الموافقة)/.test(q)) return { tool: 'list_pending_approvals', args: {} };
   if (/(summar|overview|how is|status of|ملخص)/.test(q)) return { tool: 'summarise_workspace', args: {} };

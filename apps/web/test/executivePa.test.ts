@@ -83,3 +83,27 @@ test('navigation is published for the scene and kept for the next mount', () => 
   assert.deepEqual(events, [{ building: undefined, floor: 'f1', room: 'r1', agent: undefined }]);
   assert.equal(store.get(HQ_PENDING_KEY), JSON.stringify({ room_id: 'r1', floor_id: 'f1' }));
 });
+
+test('briefing: typed and spoken phrases in English and Arabic ask for the read-only briefing', () => {
+  for (const sentence of ['Brief me', 'brief me please', 'give me my daily briefing', 'Morning briefing', "What's on today", 'what is my day like']) {
+    assert.deepEqual(parseUtterance(sentence, ctx), { tool: 'daily_briefing', args: { lang: 'en' } }, sentence);
+  }
+  for (const sentence of ['أعطني الإحاطة اليومية', 'ملخص اليوم', 'إحاطة']) {
+    assert.deepEqual(parseUtterance(sentence, { ...ctx, lang: 'ar' }), { tool: 'daily_briefing', args: { lang: 'ar' } }, sentence);
+  }
+  assert.equal(parseUtterance('give me a summary', ctx)?.tool, 'summarise_workspace');
+});
+
+test('briefing client reads sections defensively and never sends a confirmation for a read', async () => {
+  const sent: { path: string; init: RequestInit }[] = [];
+  const request: Requester = async <T,>(path: string, init: RequestInit) => {
+    sent.push({ path, init });
+    return (path.includes('/briefing') ? { version: 1, sections: null } : { tool: 'daily_briefing', status: 'ok' }) as T;
+  };
+  const client = createPaClient(request);
+  const briefing = await client.briefing('ar');
+  assert.deepEqual(briefing.sections, []);
+  assert.equal(sent[0].path, '/api/v1/executive-pa/briefing?lang=ar');
+  await client.invoke('daily_briefing', { lang: 'en' }, 'voice', 'a'.repeat(64));
+  assert.ok(!('confirm_hash' in JSON.parse(String(sent[1].init.body))));
+});

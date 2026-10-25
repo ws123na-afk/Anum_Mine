@@ -4,8 +4,6 @@ import { OfficeWorkstations } from './OfficeWorkstations';
 import { OfficeWebglScene, getRoomHit } from './OfficeWebglScene';
 import { OfficeSpaceLiveManager } from './OfficeSpaceLiveManager';
 import { ReceptionOperations } from './ReceptionOperations';
-import { GuidedExecutiveTour } from './GuidedExecutiveTour';
-import type { TourStop } from './lib/guidedExecutiveTour';
 import { nextTourRoom, parseTourDirection } from './lib/officeTourNavigation';
 import { OFFICE_LOCATIONS, officeLightAt } from './lib/officeSolar';
 import './officeTour.css';
@@ -78,7 +76,7 @@ function seededSpot(index:number){return {left:`${18 + (index%3)*25}%`,top:`${38
 export function OfficeTourView() {
   const ref = useRef<HTMLDivElement>(null);
   const [workstationsOpen,setWorkstationsOpen]=useState(false),[spaceRegistryOpen,setSpaceRegistryOpen]=useState(false);
-  const [receptionOpen,setReceptionOpen]=useState(false),[executiveTourOpen,setExecutiveTourOpen]=useState(false);
+  const [receptionOpen,setReceptionOpen]=useState(false);
   const [sceneMode,setSceneMode]=useState<'webgl'|'plan'>('webgl');
   const [site,setSite]=useState(0),[floor,setFloor]=useState(0),[angle,setAngle]=useState(-13),[tilt,setTilt]=useState(8),[zoom,setZoom]=useState(1);
   const [pan,setPan]=useState({x:0,y:0});
@@ -94,7 +92,6 @@ export function OfficeTourView() {
   const recognitionRef=useRef<{stop:()=>void}|null>(null);
   const rooms=SITE_ROOMS[site]??ROOMS;
   const visible=useMemo(()=>rooms.filter(r=>r.floor===floor),[rooms,floor]);
-  const tourStops=useMemo<TourStop[]>(()=>rooms.map(r=>({id:r.id,name:r.name,floor:r.floor,x:r.x+r.width/2,y:r.y+r.height/2,description:r.role,staff:r.people})),[rooms]);
   const active=rooms.find(r=>r.id===selected);
   const paSpot=active && active.floor===floor ? {left: `${active.x + active.width / 2}%`, top: `${active.y + active.height / 2}%`} : {left:'50%',top:'80%'};
   const activeZone = zone === 'browser' ? Intl.DateTimeFormat().resolvedOptions().timeZone : zone;
@@ -179,10 +176,9 @@ export function OfficeTourView() {
       </div>}
       <aside className="officeFloorPanel"><div className="officePanelEyebrow">BUILDING DIRECTORY</div><h2>Explore the Office</h2><button type="button" className="officeViewToggle" aria-pressed={roomList} onClick={()=>setRoomList(v=>!v)}>{roomList?'Show 3D scene':'Show room list'}</button>
       <div className="officeModuleButtons">
-        <button type="button" onClick={()=>{setExecutiveTourOpen(true);setWorkstationsOpen(false);setReceptionOpen(false);setSpaceRegistryOpen(false)}}>CEO Guided Tour</button>
-        <button type="button" onClick={()=>{setWorkstationsOpen(true);setExecutiveTourOpen(false);setReceptionOpen(false);setSpaceRegistryOpen(false)}}>Live Employee Workstations</button>
-        <button type="button" onClick={()=>{setReceptionOpen(true);setWorkstationsOpen(false);setExecutiveTourOpen(false);setSpaceRegistryOpen(false)}}>Reception Operations</button>
-        <button type="button" onClick={()=>{setSpaceRegistryOpen(true);setWorkstationsOpen(false);setReceptionOpen(false);setExecutiveTourOpen(false)}}>Office Space Management</button>
+        <button type="button" onClick={()=>{setWorkstationsOpen(true);setReceptionOpen(false);setSpaceRegistryOpen(false)}}>Live Employee Workstations</button>
+        <button type="button" onClick={()=>{setReceptionOpen(true);setWorkstationsOpen(false);setSpaceRegistryOpen(false)}}>Reception Operations</button>
+        <button type="button" onClick={()=>{setSpaceRegistryOpen(true);setWorkstationsOpen(false);setReceptionOpen(false)}}>Office Space Management</button>
       </div>{FLOORS.map((f,i)=><button className={i===floor?'active':''} key={f} onClick={()=>{setFloor(i);setSelected(rooms.find(r=>r.floor===i)?.id??rooms[0].id)}}>{i===0?'G':i} <span>{f}</span></button>)}<div className="officeMode"><label>Lighting</label><select value={mode} onChange={e=>setMode(e.target.value as 'auto'|'day'|'night')}><option value="auto">Auto · Sun position</option><option value="day">Day preview</option><option value="night">Night preview</option></select>{dark?<Moon size={16}/>:<Sun size={16}/>}</div></aside>
       {roomList && <section className="officeRoomList" aria-label={`${FLOORS[floor]} rooms`}><h2>Rooms on {FLOORS[floor]}</h2><p>Illustrative room layout. Select a room to explore its purpose.</p><div>{visible.map(r=><button type="button" key={r.id} aria-pressed={selected===r.id} onClick={()=>guide(r)}><strong>{r.name}</strong><span>{r.role}</span></button>)}</div></section>}
       <aside className="officeInfo"><h2>{active?.name||'Select a room'}</h2><p>{active?.role}</p><strong>Example employee roles</strong>{active?.people.length?active.people.map(p=><div className="officePersonLabel" key={p}><span>◉</span> {p}</div>):<small>Visitor and collaboration space</small>}{active&&moduleDestination(active.id)&&<button type="button" className="officeOpenModule" onClick={()=>{window.location.hash='#'+moduleDestination(active.id)}}>Open {active.name} workspace <ChevronRight size={16}/></button>}<small>{MANUAL}</small></aside>
@@ -191,7 +187,6 @@ export function OfficeTourView() {
       {workstationsOpen&&<OfficeWorkstations onClose={()=>setWorkstationsOpen(false)}/>}
       {spaceRegistryOpen&&<OfficeSpaceLiveManager onClose={()=>setSpaceRegistryOpen(false)}/>}
       {receptionOpen&&<ReceptionOperations onClose={()=>setReceptionOpen(false)} onDestination={name=>{const room=rooms.find(r=>r.name===name);if(room){setFloor(room.floor);setSelected(room.id);setReceptionOpen(false)}else setMessage('The escort destination is not mapped to this office preview.')}}/>}
-      {executiveTourOpen&&<GuidedExecutiveTour key={site} site={SITES[site]} stops={tourStops} onClose={()=>setExecutiveTourOpen(false)} onArrive={id=>{const room=rooms.find(r=>r.id===id);if(room){setFloor(room.floor);setSelected(room.id);setTour(true);setMessage('Your PA guided you to '+room.name+'. Employee activity is illustrative.')}}}/>}
     </main><footer className="officeFooter"><span>{tour?'Guided tour active':'Ready for your visit'}</span><span>Preview · Illustrative staff and rooms · No real task execution</span><span>{SITES[site]+' · layout concept'}</span></footer>
   </div>;
 }

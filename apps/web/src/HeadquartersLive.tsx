@@ -424,7 +424,6 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const roomsForRoom = floor && roomId ? floor.rooms.find((r) => r.id === roomId) ?? null : null;
   const roomDesks = floor && roomsForRoom ? floor.desks.filter((d) => d.roomId === roomsForRoom.id) : [];
   const agentRoom = agentDesk ? floor?.rooms.find((r) => r.id === agentDesk.roomId) ?? null : null;
-  const tourStops = (floor?.rooms ?? []).map((r) => ({ id: r.id, name: r.label, floor: floor?.level ?? 0, x: r.x, y: r.z, description: r.kind, staff: [] }));
   const effectiveView: HqView = webglOk ? view : (level === 'building' && view !== 'list' ? 'top' : 'list');
   const closePanels = () => { setRoomId(null); setAgentId(null); setAgentDesk(null); };
   const ctx = { close: closePanels };
@@ -599,7 +598,11 @@ export function HeadquartersLive(props: HeadquartersProps) {
           : overlay === 'spaces' ? <OfficeSpaceLiveManager onClose={() => { setOverlay('none'); void controller.refresh(); }} />
             : overlay === 'workstations' ? <OfficeWorkstations onClose={() => setOverlay('none')} />
               : overlay === 'agentMeetings' ? <AgentMeetingSessions rooms={meetingRooms} initialRoomId={meetingRoomId} onClose={() => { setOverlay('none'); setMeetingRoomId(null); void controller.refresh(); }} />
-                  : <GuidedExecutiveTour site={currentBuilding?.name ?? 'ANUM MINE'} stops={tourStops} onClose={() => setOverlay('none')} onArrive={(id) => { const dest = floor?.rooms.find((r) => r.id === id); if (dest) openRoomById(dest.floorId, dest.id); }} />}
+                  : <GuidedExecutiveTour onClose={() => setOverlay('none')} onArrive={async (stop) => {
+                    // The same move the assistant makes: the building name and the registry ids, resolved by the scene.
+                    const result = await hqCommands.navigateTo({ building: stop.buildingName, floor: stop.floorId, room: stop.id });
+                    return result.ok ? null : result.message;
+                  }} />}
         </div>
       )}
     </section>

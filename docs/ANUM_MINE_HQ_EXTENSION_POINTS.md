@@ -81,7 +81,7 @@ import { ExecutivePaDock } from './ExecutivePanel';
 <HeadquartersEntrypoint renderPaDock={() => <ExecutivePaDock onOpenView={openView} />} />
 ```
 
-The PA moves the view only through `hqCommands.navigateTo`, so the dock needs no other access to the scene. The tour list comes from `GET /api/v1/executive-pa/tour`; until that endpoint is available the built-in Guided visit (Office tools) builds its stops from the rooms of the open floor.
+The PA moves the view only through `hqCommands.navigateTo`, so the dock needs no other access to the scene. The tour list comes from `GET /api/v1/executive-pa/tour`; the Guided visit (Office tools) reads the same endpoint and moves the view with `hqCommands.navigateTo`, so it shows only rooms the person can access. The daily briefing is `GET /api/v1/executive-pa/briefing` and the `daily_briefing` tool ([Executive PA](ANUM_MINE_EXECUTIVE_PA.md#daily-briefing)); a new briefing source is one more loader in `anum_api/pa_briefing.py` (`_LOADERS`, `SECTION_KEYS`) plus its `TEXT` templates in both languages.
 
 ## History panel
 

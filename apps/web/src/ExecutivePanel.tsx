@@ -2,8 +2,8 @@
  * (docs/ANUM_MINE_EXECUTIVE_PA.md). Reads run at once. Anything that changes work is shown as a
  * proposal and runs only after a click on "Confirm and run": a spoken answer never confirms.
  * The assistant has no tool that approves or rejects. */
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { CalendarDays, Compass, Mic, MicOff, Send, ShieldCheck, Route, Users, ListChecks, ClipboardCheck, Sparkles, X } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { CalendarDays, Compass, Mic, MicOff, Newspaper, Send, ShieldCheck, Route, Users, ListChecks, ClipboardCheck, Sparkles, X } from 'lucide-react';
 import type { BuildingProposal } from '@anum/contracts';
 import { apiRequest } from './lib/api';
 import { describeError } from './lib/errors';
@@ -11,14 +11,18 @@ import { formatNumber, t, type MessageKey } from './lib/i18n';
 import { createPushToTalk } from './lib/voice';
 import {
   createPaClient, parseUtterance, publishNavigation, summaryFigures,
-  type InputMode, type Location, type PaResult, type PaTool, type PaToolName, type Tour, type TourStop,
+  type Briefing, type InputMode, type Location, type PaResult, type PaTool, type PaToolName, type Tour, type TourStop,
 } from './lib/executivePa';
 import { answerQuestion, createBuildingClient, missingQuestion, parseBuildingRequest, proposalArgs, type BuildingAsk } from './lib/hqBuildingCommand';
 import { assignHostAvailable, openAssign, parseAssignSentence, titleFromWork } from './lib/hqAssign';
 import { agentClient } from './hq-assign/useAssignAgents';
 import { BuildingProposalCard } from './hq-command/BuildingProposalCard';
 import { useLocale } from './useLocale';
+import type { BriefingOpen } from './PaBriefingCard';
 import './executivePanel.css';
+
+// The briefing card loads only when a briefing is asked for (the dock stays small).
+const PaBriefingCard = lazy(() => import('./PaBriefingCard').then((m) => ({ default: m.PaBriefingCard })));
 
 interface Entry { id: number; who: 'you' | 'pa'; text: string; tone?: 'ok' | 'warn' | 'error'; card?: { proposal: BuildingProposal; mode: 'typed' | 'voice'; args: BuildingAsk } }
 interface Pending { tool: PaToolName; args: Record<string, unknown>; proposal: PaResult; mode: InputMode }
@@ -26,8 +30,10 @@ interface Pending { tool: PaToolName; args: Record<string, unknown>; proposal: P
 const mk = (key: string, vars?: Record<string, string | number>) => t(key as MessageKey, vars);
 
 export function ExecutivePaDock(props: Parameters<typeof ExecutivePanel>[0]) { return <ExecutivePanel {...props} />; }
-export function ExecutivePanel({ onOpenView, onLocation }: {
+export function ExecutivePanel({ onOpenView, onLocation, onOpenTask }: {
   onOpenView(view: string): void;
+  /** Opens one task from a briefing line; without it the Tasks screen opens. */
+  onOpenTask?(id: string): void;
   onLocation?(location: Location | null): void;
 }) {
   const client = useMemo(() => createPaClient(apiRequest), []);
@@ -43,6 +49,9 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<Entry[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
+  const [briefing, setBriefing] = useState<Briefing | null>(null);
+  const [briefingBusy, setBriefingBusy] = useState(false);
+  const [briefingError, setBriefingError] = useState<string | null>(null);
   const locale = useLocale();
   // The one short question the assistant asked about a building, and what it knows so far.
   const asking = useRef<BuildingAsk | null>(null);
@@ -82,7 +91,10 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
         say('pa', t('pa.confirmTitle', { tool: mk(`pa.tool.${result.tool}`) }), 'warn');
         return;
       case 'ok': {
-        if (result.navigate) {
+        if (result.briefing) {
+          setBriefing(result.briefing); setBriefingError(null);
+          say('pa', result.briefing.reportable === 0 ? t('pa.briefing.allClear') : t('pa.briefing.title'), 'ok');
+        } else if (result.navigate) {
           const label = placeOf(result.navigate);
           publishNavigation(result.navigate);
           onLocation?.(result.navigate);
@@ -122,7 +134,9 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
       case 'invalid': asking.current = null; say('pa', t('hqBuild.invalid', { detail: result.note ?? '' }), 'warn'); return;
       case 'done': say('pa', result.meeting_id ? t('pa.done.meeting') : t('pa.done.task'), 'ok'); return;
       case 'approval_pending': say('pa', t('pa.done.approval'), 'warn'); return;
-      case 'denied': say('pa', t('pa.status.denied'), 'error'); return;
+      case 'denied':
+        if (result.tool === 'daily_briefing') setBriefingError(t('pa.briefing.denied'));
+        say('pa', t('pa.status.denied'), 'error'); return;
       case 'not_found': say('pa', t('pa.status.not_found'), 'warn'); return;
       case 'not_connected': say('pa', t('pa.status.not_connected'), 'warn'); return;
       case 'not_granted': say('pa', t('pa.status.not_granted'), 'warn'); return;
@@ -134,9 +148,14 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
 
   const run = useCallback(async (tool: PaToolName, args: Record<string, unknown>, mode: InputMode, confirmHash?: string) => {
     setBusy(true);
+    const isBriefing = tool === 'daily_briefing';
+    if (isBriefing) { setBriefingBusy(true); setBriefingError(null); }
     try { present(await client.invoke(tool, args, mode, confirmHash), args, mode); }
-    catch (error) { say('pa', t('pa.status.failed', { message: describeError(error) }), 'error'); }
-    finally { setBusy(false); }
+    catch (error) {
+      if (isBriefing) setBriefingError(t('pa.briefing.failed', { message: describeError(error) }));
+      say('pa', t('pa.status.failed', { message: describeError(error) }), 'error');
+    }
+    finally { setBusy(false); if (isBriefing) setBriefingBusy(false); }
   }, [client, present, say]);
 
   const proposeBuilding = useCallback((ask: BuildingAsk, mode: InputMode) => {
@@ -176,7 +195,7 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
     if (asking.current) { proposeBuilding(answerQuestion(asking.current, sentence), mode2); return; }
     const assignment = assignHostAvailable() ? parseAssignSentence(sentence) : null;
     if (assignment) { void openAssignFor(assignment); return; }
-    const call = parseUtterance(sentence, { stops });
+    const call = parseUtterance(sentence, { stops, lang: locale });
     if (!call) { say('pa', t('pa.notUnderstood'), 'warn'); return; }
     void run(call.tool, call.args, mode);
   };
@@ -212,8 +231,13 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
   // Example phrases come from the real office and the real tools, never from invented names.
   const examples = [
     ...(stops[0] ? [t('pa.example.go', { room: stops[0].room_name })] : []),
-    t('pa.example.blocked'), t('pa.example.summary'), t('hqBuild.example'),
+    t('pa.example.briefing'), t('pa.example.blocked'), t('pa.example.summary'), t('hqBuild.example'),
   ];
+
+  const openBriefingItem = (target: BriefingOpen) => {
+    if (target.kind === 'task' && onOpenTask) onOpenTask(target.id);
+    else onOpenView(target.view);
+  };
 
   const goStop = (index: number) => {
     const stop = stops[index];
@@ -238,6 +262,7 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
     <p className="paWelcome">{t('pa.subtitle')}</p>
     <div className="paQuick" role="group" aria-label={t('pa.quick')}>
       <button type="button" className="paPrimary" disabled={busy || stops.length === 0} onClick={() => goStop(0)}><Route aria-hidden="true" />{t('pa.tour.start')}</button>
+      <button type="button" className="paPrimary" disabled={busy} onClick={() => quick(t('pa.quick.briefing'), 'daily_briefing', { lang: locale })}><Newspaper aria-hidden="true" />{t('pa.quick.briefing')}</button>
       <button type="button" className="secondary" disabled={busy} onClick={() => quick(t('pa.quick.calendar'), 'open_panel', { panel: 'calendar' })}><CalendarDays aria-hidden="true" />{t('pa.quick.calendar')}</button>
       <button type="button" className="secondary" disabled={busy} onClick={() => quick(t('pa.quick.meetings'), 'open_panel', { panel: 'meetings' })}><Users aria-hidden="true" />{t('pa.quick.meetings')}</button>
       <button type="button" className="secondary" disabled={busy} onClick={() => quick(t('pa.quick.blocked'), 'list_blocked_work', {})}><ListChecks aria-hidden="true" />{t('pa.quick.blocked')}</button>
@@ -267,6 +292,14 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
         <button type="button" onClick={confirm} disabled={busy}>{t('pa.confirm')}</button>
         <button type="button" className="secondary" onClick={() => setPending(null)}><X aria-hidden="true" />{t('pa.dismiss')}</button>
       </div>
+    </div>}
+
+    {(briefingBusy || briefingError || briefing) && <div className="paBriefSlot">
+      {briefingBusy && <p className="muted" role="status">{t('pa.working')}</p>}
+      {briefingError && <p className="notice errorNotice" role="alert">{briefingError}<button type="button" className="secondary" disabled={busy} onClick={() => void run('daily_briefing', { lang: locale }, 'click')}>{t('common.retry')}</button></p>}
+      {briefing && <Suspense fallback={<p className="muted" role="status">{t('pa.working')}</p>}>
+        <PaBriefingCard briefing={briefing} busy={busy} onRefresh={() => void run('daily_briefing', { lang: locale }, 'click')} onOpen={openBriefingItem} />
+      </Suspense>}
     </div>}
 
     <div className="paLog" role="log" aria-label={t('pa.log')} aria-live="polite">
