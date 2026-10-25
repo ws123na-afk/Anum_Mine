@@ -11,7 +11,7 @@ test.use({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, isMobil
 // slower than a laptop GPU: they are a regression guard, not a claim about real devices.
 export const BUDGET = {
   chunkGzipBytes: 135_000,       // HeadquartersEntrypoint JS (campus, buildings, asset builders), gzip
-  rendererGzipBytes: 150_000,    // hqThreeRenderer JS (three.js, loaded on demand), gzip
+  rendererGzipBytes: 160_000,    // hqThreeRenderer JS (three.js plus the animation and skinning code the glTF loader shares, loaded on demand), gzip
   chunkCssGzipBytes: 16_000,     // HeadquartersEntrypoint CSS, gzip
   frameP95Ms: { 21: 2_500, 200: 3_500 } as Record<number, number>,
   jsHeapMb: { 21: 200, 200: 260 } as Record<number, number>,
