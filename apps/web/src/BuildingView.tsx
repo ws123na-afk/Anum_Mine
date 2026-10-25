@@ -142,12 +142,18 @@ export function BuildingView(props: BuildingViewProps) {
 
   const targets: PickTarget[] = useMemo(() => scene.rooms.filter((r) => r.floorIndex === activeIndex).map((r) => ({ id: r.id, box: r.box })), [scene, activeIndex]);
   const renderScene = useMemo(() => ({
-    opaque: [{ id: 'building', vertices: scene.opaque.vertices, bounds: scene.opaque.bounds, cull: false }],
+    opaque: [
+      { id: 'building', vertices: scene.opaque.vertices, bounds: scene.opaque.bounds, cull: false },
+      // The procedural sofas and people stay in the scene and are hidden only while a loaded model replaces them.
+      ...(['sofa', 'figure'] as const).filter((g) => scene.fallbacks[g].vertices.length).map((g) => ({ id: `fallback-${g}`, vertices: scene.fallbacks[g].vertices, bounds: scene.fallbacks[g].bounds, cull: false, fallbackOf: g })),
+    ],
     glass: scene.glass.vertices.length ? [{ id: 'glass', vertices: scene.glass.vertices, bounds: scene.glass.bounds, cull: false }] : [],
     glassAlpha: 0.2,
     // The entrance sign on the front lawn is lettered with the real building name.
     signs: [{ title: 'ANUM MINE', subtitle: props.workspaceName }],
     shadow: scene.shadow,
+    models: scene.models,
+    halos: scene.halos,
   }), [scene, props.workspaceName]);
 
   const flowAnchor = useCallback((id: string) => scene.rooms.find((r) => r.id === id)?.anchor, [scene]);

@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from threading import RLock
 from time import perf_counter
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -40,8 +40,8 @@ from .repository import AnumRepository
 from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .sse import SSE_HEADERS, sse
-from .tyre.tools import TYRE_PREFACE, tyre_grounding
-from .voice_grounding import TurnTiming, grounded_answer
+from .tyre.tools import TYRE_PREFACE, mentions_tyres, tyre_grounding
+from .voice_grounding import Progress, TurnTiming, grounded_answer
 from . import voice_actions
 from .voice_actions import ActionKind, ParsedAction, VoiceActionCard
 from .voice_assistant import (
@@ -65,8 +65,9 @@ from .voice_assistant import (
 logger = logging.getLogger("anum.voice")
 
 MAX_ASKS_PER_SESSION = 60
-# Spoken replies are two or three sentences; the cap keeps a slow model from rambling.
-VOICE_MAX_TOKENS = 400
+# Spoken replies are two or three short sentences (about 60 words); the cap keeps a slow model
+# from rambling, and voice_figures.MAX_SPOKEN_SENTENCES enforces the sentences themselves.
+VOICE_MAX_TOKENS = 220
 TRANSCRIPT_RETENTION_DAYS = 30
 
 
@@ -206,6 +207,10 @@ class VoiceTurnTiming(BaseModel):
     tool_calls: int = 0
     grounding: Literal["tools", "snapshot", "none"] = "none"
     sources: list[str] = Field(default_factory=list)
+    # Lookups that failed or timed out (tool names): the reply gives no figure for them.
+    failed: list[str] = Field(default_factory=list)
+    # Sentences withheld because a figure in them was not in this turn's data (docs/voice.md#figures-and-brevity).
+    figures_withheld: int = 0
 
 
 class VoiceAskResult(BaseModel):
@@ -592,6 +597,7 @@ async def ask_voice_assistant(
         performed = await voice_actions.perform_all(asked.action, context, asked.arabic)
         card, reply = performed.card, performed.reply
     grounding = await tyre_grounding(context, asked.text) if reply is None else None
+    _note_grounding(grounding, timing)
     if grounding is not None and getattr(gateway, "provider", "") == "mock":
         # No model to phrase it: say the tool's own answer, numbers included.
         reply = grounding.result.summary[:MAX_REPLY_CHARS]
@@ -606,8 +612,11 @@ async def ask_voice_assistant(
                 data_blocks=[grounding.block] if grounding else (),
                 preface=f"{TYRE_PREFACE} Say the key numbers aloud; keep it short." if grounding else "",
                 stream=False,
+                arabic=asked.arabic,
             )) as answer:
                 async for chunk in answer:
+                    if isinstance(chunk, Progress):
+                        continue
                     parts.append(chunk)
                     if sum(len(part) for part in parts) >= MAX_REPLY_CHARS:
                         break
@@ -632,6 +641,17 @@ async def ask_voice_assistant(
         action=card,
         timing=VoiceTurnTiming(**timing.log(asked.intent.value)),
     )
+
+
+def _note_grounding(grounding: Any, timing: TurnTiming) -> None:
+    """Record the tyre lookup that ran ahead of the model: its source, or that it failed."""
+    if grounding is None:
+        return
+    if grounding.result.status == "succeeded":
+        timing.used(grounding.call.name)
+    elif grounding.result.audit_metadata.get("outcome") in {"timeout", "error"}:
+        timing.fail(grounding.call.name)
+    timing.evidence.append(grounding.block)
 
 
 @dataclass
@@ -918,8 +938,7 @@ def stream_prepared_answer(
                 yield frame
             return
         looking = vision is not None and asked.reply is None
-        # Tyre data for a tyre question (its own store session, never the request's).
-        grounding = await tyre_grounding(context, asked.text) if asked.reply is None else None
+        # The first event leaves at once, before any lookup, so the client can show progress.
         yield sse(
             "meta",
             {
@@ -931,6 +950,13 @@ def stream_prepared_answer(
                 "action_kind": None,
             },
         )
+        grounding = None
+        if asked.reply is None:
+            if mentions_tyres(asked.text):
+                yield sse("progress", {"phase": "checking", "topic": "tyre"})
+            # Tyre data for a tyre question (its own store session, never the request's).
+            grounding = await tyre_grounding(context, asked.text)
+            _note_grounding(grounding, timing)
         fixed = asked.reply
         if fixed is None and not looking and getattr(gateway, "provider", "") == "mock":
             fixed = grounding.result.summary[:MAX_REPLY_CHARS] if grounding else mock_answer(asked.facts, asked.arabic)
@@ -956,9 +982,13 @@ def stream_prepared_answer(
                         data_blocks=[grounding.block] if grounding else (),
                         preface=f"{TYRE_PREFACE} Say the key numbers aloud; keep it short." if grounding else "",
                         extra_rules=extra_rules,
+                        arabic=asked.arabic,
                     )
                 async with aclosing(source) as chunks:  # type: ignore[type-var]
                     async for chunk in chunks:
+                        if isinstance(chunk, Progress):
+                            yield sse("progress", {"phase": chunk.phase, "topic": chunk.topic})
+                            continue
                         room = MAX_REPLY_CHARS - sum(len(part) for part in parts)
                         if room <= 0:
                             break

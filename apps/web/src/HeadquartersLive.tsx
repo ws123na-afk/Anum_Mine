@@ -7,8 +7,8 @@
  * a record behind it reads "Presence unavailable" or "Not connected".
  * Extension points are documented in docs/ANUM_MINE_HQ_EXTENSION_POINTS.md.
  */
-import { AlertTriangle, Compass, DoorOpen, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AlertTriangle, Building2, Compass, DoorOpen, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AgentMeetingSessions } from './AgentMeetingSessions';
 import { BuildingView } from './BuildingView';
 import { CampusListView } from './CampusListView';
@@ -41,6 +41,8 @@ import { HqNavigation, type HqNavHandles } from './hq-nav/HqNavigation';
 import { departmentsOf, initialsOf } from './hq-nav/navModel.ts';
 import { ThumbCapture } from './hq-nav/thumbs.ts';
 import { OrgGapsPanel } from './hq-provisioning/OrgGapsPanel';
+// Loaded only when the owner opens it, so its code and styles stay out of the headquarters chunk (e2e/hq-performance.spec.ts budget).
+const StarterCampusDialog = lazy(() => import('./hq-starter-campus/StarterCampusDialog').then((m) => ({ default: m.StarterCampusDialog })));
 import { useProvisioningGaps } from './hq-provisioning/useProvisioning';
 import './hqFlow.css';
 import './headquartersLive.css';
@@ -81,6 +83,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [state, setState] = useState<OfficeState | null>(null);
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [starterOpen, setStarterOpen] = useState(false);
   const flow = useOfficeFlow(true, { tick: props.live ?? 0, type: props.liveEvent ?? null, streaming: props.streamLive === true });
   const gaps = useProvisioningGaps(flow.snapshot?.as_of ?? 0);
   const [flowOpen, setFlowOpen] = useState(false);
@@ -428,6 +431,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
             {toolsOpen && (
               <ul className="hqMenu">
                 <li><button type="button" aria-pressed={flowOpen} onClick={() => { setFlowOpen((v) => !v); setToolsOpen(false); }}><Layers aria-hidden="true" />{t('hqFlow.open')}</button></li>
+                <li><button type="button" onClick={() => { setStarterOpen(true); setToolsOpen(false); }}><Building2 aria-hidden="true" />{t('hqSc.open')}</button></li>
                 <li><button type="button" onClick={() => { setOverlay('gaps'); setToolsOpen(false); }}><Users aria-hidden="true" />{gaps.gaps && gaps.gaps.gaps.length > 0 ? t('hqProv.openCount', { count: gaps.gaps.gaps.length }) : t('hqProv.open')}</button></li>
                 <li><button type="button" onClick={() => { setOverlay('teams'); setToolsOpen(false); }}><Users aria-hidden="true" />{t('hqTeam.title')}</button></li>
                 {([
@@ -436,6 +440,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
                 ] as const).map(([id, Icon, key]) => (
                   <li key={id}><button type="button" onClick={() => { setOverlay(id); setToolsOpen(false); }}><Icon aria-hidden="true" />{t(key as MessageKey)}</button></li>
                 ))}
+                <li className="hqMenuNote"><small>{t('hq.credits')}</small></li>
               </ul>
             )}
           </div>
@@ -509,7 +514,9 @@ export function HeadquartersLive(props: HeadquartersProps) {
               <DoorOpen aria-hidden="true" />
               <h2>{state?.busy ? t('hq.loading') : t('hq.noLayout.title')}</h2>
               <p>{state?.busy ? t('hq.loadingLayout') : t('hq.noLayout.body')}</p>
-              {!state?.busy && <button type="button" className="hqPrimary" onClick={() => setOverlay('spaces')}>{t('hq.manageSpaces')}</button>}
+              {!state?.busy && <p>{t('hqSc.emptyBody')}</p>}
+              {!state?.busy && <button type="button" className="hqPrimary" onClick={() => setStarterOpen(true)}>{t('hqSc.open')}</button>}
+              {!state?.busy && <button type="button" className="hqGhost" onClick={() => setOverlay('spaces')}>{t('hq.manageSpaces')}</button>}
               <button type="button" className="hqGhost" onClick={() => setLevel('campus')}>{t('hq.back')}</button>
             </div>
           ))}
@@ -521,6 +528,9 @@ export function HeadquartersLive(props: HeadquartersProps) {
           }
         />
       </div>
+
+      {starterOpen && <Suspense fallback={null}><StarterCampusDialog onClose={() => setStarterOpen(false)}
+        onCreated={() => { void controller.refresh(); void flow.reload(); void gaps.reload(); }} onOpenGaps={() => setOverlay('gaps')} /></Suspense>}
 
       {overlay !== 'none' && (
         <div className="hqModalHost" role="dialog" aria-modal="false" aria-label={t('hq.tools')}>

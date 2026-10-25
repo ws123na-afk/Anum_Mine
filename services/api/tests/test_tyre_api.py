@@ -382,3 +382,61 @@ def test_tyre_questions_in_chat_answer_with_tyre_cards() -> None:
     assert alerts["tool"] == "tyre_alerts" and alerts["total"] == 6
     assert sum("priority_high" in item["badges"] for item in alerts["items"]) == 2
 
+
+
+def test_voice_lookups_share_one_cached_load_and_a_sync_or_delete_refreshes_it() -> None:
+    from anum_api.tyre import read_cache
+
+    owner = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_tyre", roles=["owner"])
+    connect_and_sync()
+
+    def run(name: str, **arguments: Any) -> Any:
+        return asyncio.run(main.tool_registry.execute(ToolCall(name=name, arguments=arguments), owner))
+
+    read_cache.clear()
+    before = read_cache.stats()["builds"]
+    first = run("tyre_fleet_summary")
+    run("tyres_due", month="2026-10")
+    run("purchase_plan", months=3)
+    again = run("tyre_fleet_summary")
+    assert read_cache.stats()["builds"] - before == 1  # one load and forecast for four lookups
+    assert again.summary == first.summary
+    # A sync (new snapshot) drops the entry: the next lookup loads again.
+    assert client.post(f"{API}/sync", headers=MEMBER).status_code == 200
+    run("tyre_fleet_summary")
+    assert read_cache.stats()["builds"] - before == 2
+    # So does forgetting the connection: nothing stale is answered.
+    assert client.delete(f"{API}/connection", headers=OWNER).status_code == 204
+    assert "not connected" in run("tyre_fleet_summary").summary
+
+
+def test_a_slow_tyre_lookup_for_voice_times_out_without_blocking_the_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    import time
+
+    connect_and_sync()
+    owner = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_tyre", roles=["owner"])
+
+    def slow(context: TenantContext) -> Any:
+        time.sleep(1.0)
+        raise AssertionError("not reached in time")
+
+    monkeypatch.setattr(service, "forecasts_cached", slow)
+
+    async def scenario() -> tuple[Any, float]:
+        ticks = 0
+
+        async def heartbeat() -> None:
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.02)
+                ticks += 1
+
+        beat = asyncio.create_task(heartbeat())
+        grounding = await tools.tyre_grounding(owner, "how many tyres are due?", timeout=0.2)
+        beat.cancel()
+        return grounding, ticks
+
+    grounding, ticks = asyncio.run(scenario())
+    assert grounding is not None and grounding.result.status == "failed"
+    assert "timed out" in grounding.result.summary and grounding.result.audit_metadata["outcome"] == "timeout"
+    assert ticks >= 5  # the event loop kept running while the lookup was computing

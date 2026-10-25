@@ -122,6 +122,7 @@ export function CampusView(props: CampusViewProps) {
     glass: [],
     signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: byId.get(b.workspaceId)?.name ?? '' }))],
     shadow: scene.shadow,
+    halos: scene.halos,
   }), [scene, byId]);
 
   const density = useMemo(() => cardDensities(campus.buildings, { selectedId, currentId: props.currentWorkspaceId }), [campus.buildings, selectedId, props.currentWorkspaceId]);

@@ -49,21 +49,25 @@ export function sideChair(L: Local, lx: number, lz: number, rot: number, color: 
   c.box(-0.19, 0.86, -0.25, 0.38, 0.05, 0.07, frame);
 }
 
-export function sofa(L: Local, lx: number, lz: number, rot: number, w: number, color: Rgb, legs: Rgb): void {
+export function sofa(L: Local, lx: number, lz: number, rot: number, w: number, color: Rgb, legs: Rgb, model: 'sofa' | 'armchair' = 'sofa'): void {
   const c = L.sub(lx, lz, rot);
-  const seat = Math.max(1, Math.round(w / 0.75));
-  c.box(-w / 2, 0.1, -0.42, w, 0.28, 0.84, scale(color, 0.78));
-  for (const sx of [-w / 2 + 0.06, w / 2 - 0.1]) for (const sz of [-0.36, 0.3]) c.box(sx, 0, sz, 0.04, 0.1, 0.04, legs);
-  const cw = (w - 0.36) / seat;
-  for (let i = 0; i < seat; i++) {
-    c.box(-w / 2 + 0.18 + i * cw + 0.01, 0.38, -0.2, cw - 0.02, 0.14, 0.6, color, { grad: 0.1 });
-    c.box(-w / 2 + 0.18 + i * cw + 0.02, 0.5, -0.4, cw - 0.04, 0.42, 0.2, scale(color, 0.92), { grad: 0.12 });
-  }
-  for (const sx of [-w / 2, w / 2 - 0.18]) c.box(sx, 0.38, -0.42, 0.18, 0.28, 0.84, scale(color, 0.84), { grad: 0.1 });
+  // A loadable model may replace this piece: the slot says where, and the tagged triangles are its fallback.
+  L.b.slots.push({ model, x: c.ox, y: c.y0, z: c.oz, rot: c.rot, width: w });
+  L.b.tagged('sofa', () => {
+    const seat = Math.max(1, Math.round(w / 0.75));
+    c.box(-w / 2, 0.1, -0.42, w, 0.28, 0.84, scale(color, 0.78));
+    for (const sx of [-w / 2 + 0.06, w / 2 - 0.1]) for (const sz of [-0.36, 0.3]) c.box(sx, 0, sz, 0.04, 0.1, 0.04, legs);
+    const cw = (w - 0.36) / seat;
+    for (let i = 0; i < seat; i++) {
+      c.box(-w / 2 + 0.18 + i * cw + 0.01, 0.38, -0.2, cw - 0.02, 0.14, 0.6, color, { grad: 0.1 });
+      c.box(-w / 2 + 0.18 + i * cw + 0.02, 0.5, -0.4, cw - 0.04, 0.42, 0.2, scale(color, 0.92), { grad: 0.12 });
+    }
+    for (const sx of [-w / 2, w / 2 - 0.18]) c.box(sx, 0.38, -0.42, 0.18, 0.28, 0.84, scale(color, 0.84), { grad: 0.1 });
+  });
 }
 
 export function armchair(L: Local, lx: number, lz: number, rot: number, color: Rgb, legs: Rgb): void {
-  sofa(L, lx, lz, rot, 0.95, color, legs);
+  sofa(L, lx, lz, rot, 0.95, color, legs, 'armchair');
 }
 
 export function pouf(L: Local, lx: number, lz: number, color: Rgb, r = 0.28): void {
@@ -118,6 +122,8 @@ export function floorLamp(L: Local, lx: number, lz: number, S: InteriorScheme, h
   L.prism(lx, 0, lz, 0.14, 0.14, 0.03, 8, S.dark);
   L.prism(lx, 0.03, lz, 0.015, 0.015, h - 0.2, 4, S.brass);
   L.prism(lx, h - 0.25, lz, 0.2, 0.14, 0.26, 8, WARM, { emissive: 0.75 });
+  const [wx, wz] = L.pt(lx, lz);
+  L.b.halo(wx, L.y0 + h - 0.12, wz, 1.5, WARM, 0.8);
 }
 
 // ------------------------------------------------------------------ storage and walls
@@ -274,6 +280,8 @@ export function workstation(b: MeshBuilder, y: number, spec: StationSpec, S: Int
     L.box(W / 2 - 0.22, H, 0.2, 0.1, 0.015, 0.1, S.dark);
     L.limb([W / 2 - 0.17, H + 0.01, 0.25], [W / 2 - 0.2, H + 0.36, 0.2], 0.018, 0.018, 0.014, 0.014, S.dark);
     L.box(W / 2 - 0.32, H + 0.35, 0.12, 0.2, 0.025, 0.1, hex('#ffe9b8'), { emissive: 0.7, shade: false });
+    const [lampX, lampZ] = L.pt(W / 2 - 0.22, 0.17);
+    b.halo(lampX, y + H + 0.3, lampZ, 1.3, hex('#ffe0a0'), 0.7);
   }
   if (look.plant) deskPlant(L, W / 2 - 0.1, H, 0.27, S);
   if (look.floor) L.box(-W / 2 - 0.1, 0.016, -1.25, W + 0.2, 0.008, D + 1.55, scale(look.floor, 0.64), { skip: ['bottom'], shade: false, emissive: 0.3 });

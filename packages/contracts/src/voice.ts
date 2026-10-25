@@ -90,4 +90,18 @@ export interface VoiceTurnTiming {
   tool_calls: number;
   grounding: 'tools' | 'snapshot' | 'none';
   sources: string[];
+  /** Lookups that failed or timed out (tool names): the reply gives no figure for them. */
+  failed: string[];
+  /** Sentences withheld because a figure in them was not in this turn's data. */
+  figures_withheld: number;
+}
+
+/**
+ * The `progress` event of `/ask/stream`: what the turn is doing before the first word of the
+ * reply (docs/voice.md#progress). Never any content. `topic` is `tyre`, `tasks`, `approvals`,
+ * `agents`, `knowledge`, `sales`, `data` or empty.
+ */
+export interface VoiceProgress {
+  phase: 'thinking' | 'checking';
+  topic: string;
 }

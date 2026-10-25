@@ -5,7 +5,7 @@
  */
 import { hex, scale } from '../../lib/hqGeometry.ts';
 import { WARM, acUnit, bench, castShadow, hedge, planter, solarRow } from '../../lib/hqProps.ts';
-import { clamp, curtainWall, entrance, faceBox, faceQuad, finish, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
+import { clamp, curtainWall, entrance, faceBox, faceQuad, fins, finish, ledge, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
 import { accentBand, flagPole, slabBand } from './towerParts.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
 
@@ -42,8 +42,15 @@ export function buildAdminBlock(params: ExteriorParams = {}): ExteriorAsset {
     // Sunshade over each front window group, and a floor line on the other faces.
     faceBox(b, F.south, 0.6, gapFrom + 0.2, wy1 + 0.1, wy1 + 0.26, 0, 1.0, scheme.trim);
     faceBox(b, F.south, gapTo - 0.2, W - 0.6, wy1 + 0.1, wy1 + 0.26, 0, 1.0, scheme.trim);
-    for (const f of [F.north, F.east, F.west]) faceQuad(b, f, 0, f.len, ly + LH - 0.12, ly + LH, scheme.trim, 0, 0.05);
+    for (const f of [F.north, F.east, F.west]) {
+      faceQuad(b, f, 0, f.len, ly + LH - 0.12, ly + LH, scheme.trim, 0, 0.05);
+      ledge(ctx, f, 0.4, f.len - 0.4, wy1 + 0.08, 0.4, 0.08);
+    }
   }
+  // Stone fins between the window bays: relief and shadow lines on every face.
+  fins(ctx, F.south, 1.0, gapFrom, y0 + 1.0, y0 + H, 4.4, 0.4, 0.2);
+  fins(ctx, F.south, gapTo, W - 1.0, y0 + 1.0, y0 + H, 4.4, 0.4, 0.2);
+  for (const f of [F.east, F.west]) fins(ctx, f, 1.0, D - 1.0, y0 + 1.0, y0 + H, 4.4, 0.35, 0.2);
   // Wing end piers (the front corners read as heavy stone).
   for (const x of [x0 - 0.3, x1 - 0.9]) b.box(x, y0, z1 - 0.3, 1.2, H, 0.5, scheme.trim, { grad: 0.2 });
 
@@ -66,6 +73,9 @@ export function buildAdminBlock(params: ExteriorParams = {}): ExteriorAsset {
   b.box(-pw / 2 - 0.3, y0 + 4.4, z1 + ad + 3.9, pw + 0.6, 0.1, 0.1, scheme.accent, { emissive: 0.9, shade: false });
   // Steps up to the portico.
   for (let i = 0; i < 3; i++) b.box(-pw / 2 - 0.6 + i * 0.3, 0, z1 + ad + 3.9 + i * 0.4, pw + 1.2 - i * 0.6, 0.15 * (3 - i) + 0.1, 0.45, hex('#d7d2c4'));
+  // Warm uplight under the portico and a glow on the atrium for the night.
+  for (const cx of [-pw / 2 + 0.4, pw / 2 - 0.4]) b.halo(cx, y0 + 1.2, z1 + ad + 3.6, 3, WARM, 0.9);
+  b.halo(0, y0 + 2.6, z1 + ad + 1.5, 6, WARM, 0.8);
   // Sign board on the atrium front, above the portico.
   const sign = signBoard(ctx, AF.south, aw / 2, y0 + 5.2, Math.min(aw - 1, 9), 1.6, 0.05);
 

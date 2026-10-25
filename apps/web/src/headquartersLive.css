@@ -320,3 +320,5 @@
 /* Flow badges and markers inside stage labels: placed by the label layout, not by absolute offsets. */
 .hqLive .hqFlowBadge.hqFlowBadgeStage { position: relative; transform: none; left: auto; top: auto; }
 .hqLive .hqFlowMarker.hqFlowMarkerStage { position: relative; transform: none; left: auto; top: auto; pointer-events: none; }
+
+.hqMenu .hqMenuNote { padding: 8px 12px; color: var(--muted, #9aa5b1); max-width: 260px; line-height: 1.35; }

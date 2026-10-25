@@ -17,7 +17,7 @@ const EXTERIOR_OF: Readonly<Partial<Record<Archetype, ExteriorKind>>> = {
 };
 
 export type ExteriorShape = Readonly<{
-  vertices: Float32Array; bounds: Aabb; triangles: number; anchor: Vec3; door: Vec3; box: Aabb;
+  vertices: Float32Array; bounds: Aabb; triangles: number; anchor: Vec3; door: Vec3; box: Aabb; halos: Float32Array;
 }>;
 
 /** The asset for this building, or null for a type the asset set does not cover (the villa). */
@@ -50,5 +50,5 @@ export function drawExterior(p: Placement, archetype: Archetype, signIndex: numb
     min: { x: Math.min(ab.min.x, bb.min.x), y: Math.min(ab.min.y, bb.min.y), z: Math.min(ab.min.z, bb.min.z) },
     max: { x: Math.max(ab.max.x, bb.max.x), y: Math.max(ab.max.y, bb.max.y), z: Math.max(ab.max.z, bb.max.z) },
   };
-  return { vertices, bounds, triangles: vertices.length / VERTEX_FLOATS / 3, anchor: asset.anchor, door: asset.door, box: asset.box };
+  return { vertices, bounds, triangles: vertices.length / VERTEX_FLOATS / 3, anchor: asset.anchor, door: asset.door, box: asset.box, halos: asset.halos };
 }
