@@ -257,6 +257,7 @@ export * from './officeCampus.js';
 export * from './officeWorkstation.js';
 export * from './officeFlow.js';
 export * from './officeProvisioning.js';
+export * from './officeAssign.js';
 export * from './executive.js';
 export * from './officeBuilder.js';
 export * from './officeStarterCampus.js';

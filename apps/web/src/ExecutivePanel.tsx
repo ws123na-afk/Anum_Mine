@@ -4,6 +4,7 @@
  * The assistant has no tool that approves or rejects. */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { CalendarDays, Compass, Mic, MicOff, Send, ShieldCheck, Route, Users, ListChecks, ClipboardCheck, Sparkles, X } from 'lucide-react';
+import type { BuildingProposal } from '@anum/contracts';
 import { apiRequest } from './lib/api';
 import { describeError } from './lib/errors';
 import { formatNumber, t, type MessageKey } from './lib/i18n';
@@ -12,9 +13,14 @@ import {
   createPaClient, parseUtterance, publishNavigation, summaryFigures,
   type InputMode, type Location, type PaResult, type PaTool, type PaToolName, type Tour, type TourStop,
 } from './lib/executivePa';
+import { answerQuestion, createBuildingClient, missingQuestion, parseBuildingRequest, proposalArgs, type BuildingAsk } from './lib/hqBuildingCommand';
+import { assignHostAvailable, openAssign, parseAssignSentence, titleFromWork } from './lib/hqAssign';
+import { agentClient } from './hq-assign/useAssignAgents';
+import { BuildingProposalCard } from './hq-command/BuildingProposalCard';
+import { useLocale } from './useLocale';
 import './executivePanel.css';
 
-interface Entry { id: number; who: 'you' | 'pa'; text: string; tone?: 'ok' | 'warn' | 'error' }
+interface Entry { id: number; who: 'you' | 'pa'; text: string; tone?: 'ok' | 'warn' | 'error'; card?: { proposal: BuildingProposal; mode: 'typed' | 'voice'; args: BuildingAsk } }
 interface Pending { tool: PaToolName; args: Record<string, unknown>; proposal: PaResult; mode: InputMode }
 
 const mk = (key: string, vars?: Record<string, string | number>) => t(key as MessageKey, vars);
@@ -37,13 +43,16 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<Entry[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
+  const locale = useLocale();
+  // The one short question the assistant asked about a building, and what it knows so far.
+  const asking = useRef<BuildingAsk | null>(null);
   const [place, setPlace] = useState<string | null>(null);
   const counter = useRef(0);
   const talk = useRef<ReturnType<typeof createPushToTalk> | null>(null);
 
-  const say = useCallback((who: Entry['who'], body: string, tone?: Entry['tone']) => {
+  const say = useCallback((who: Entry['who'], body: string, tone?: Entry['tone'], card?: Entry['card']) => {
     counter.current += 1;
-    setLog((old) => [...old.slice(-49), { id: counter.current, who, text: body, tone }]);
+    setLog((old) => [...old.slice(-49), { id: counter.current, who, text: body, tone, card }]);
   }, []);
 
   const loadTools = useCallback(async () => {
@@ -95,6 +104,22 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
         }
         return;
       }
+      case 'proposal': {
+        if (!result.content || !result.payload_hash) { say('pa', t('pa.status.failed', { message: '' }), 'error'); return; }
+        asking.current = null;
+        say('pa', t('hqBuild.proposalFor', { name: result.content.building.name }), 'ok', {
+          proposal: { version: 1, content: result.content, payload_hash: result.payload_hash, bounds: result.bounds ?? { width_m: 60, depth_m: 40 },
+            creates: result.creates ?? result.content.totals, can_confirm: result.can_confirm === true, governed_by: result.governed_by ?? '', note: result.note ?? '' },
+          mode: mode === 'voice' ? 'voice' : 'typed', args: { name: result.content.building.name, floors: result.content.floors.length },
+        });
+        return;
+      }
+      case 'needs_info': {
+        asking.current = { name: typeof args.name === 'string' ? args.name : null, floors: typeof args.floors === 'number' ? args.floors : null };
+        say('pa', result.missing === 'name' ? t('hqBuild.askName') : t('hqBuild.askFloors', { name: String(args.name ?? '') }), 'warn');
+        return;
+      }
+      case 'invalid': asking.current = null; say('pa', t('hqBuild.invalid', { detail: result.note ?? '' }), 'warn'); return;
       case 'done': say('pa', result.meeting_id ? t('pa.done.meeting') : t('pa.done.task'), 'ok'); return;
       case 'approval_pending': say('pa', t('pa.done.approval'), 'warn'); return;
       case 'denied': say('pa', t('pa.status.denied'), 'error'); return;
@@ -114,6 +139,30 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
     finally { setBusy(false); }
   }, [client, present, say]);
 
+  const proposeBuilding = useCallback((ask: BuildingAsk, mode: InputMode) => {
+    const missing = missingQuestion(ask);
+    if (missing) {
+      asking.current = ask;
+      say('pa', missing === 'name' ? t('hqBuild.askName') : t('hqBuild.askFloors', { name: ask.name ?? '' }), 'warn');
+      return;
+    }
+    void run('propose_add_building', proposalArgs(ask, locale), mode);
+  }, [locale, run, say]);
+
+  // "ask <agent> to ..." opens the assign dialog pre-filled while the office is open; the dialog's own button is the only way to create.
+  const openAssignFor = useCallback(async (parsed: NonNullable<ReturnType<typeof parseAssignSentence>>) => {
+    let agentId: string | null = null;
+    if (parsed.agentQuery) {
+      try {
+        const page = await agentClient.list({ category: 'all', q: parsed.agentQuery, status: 'all', limit: 5 });
+        const wanted = parsed.agentQuery.toLocaleLowerCase();
+        agentId = (page.items.find((a) => a.name.toLocaleLowerCase() === wanted) ?? page.items.find((a) => a.name.toLocaleLowerCase().startsWith(wanted)) ?? (page.items.length === 1 ? page.items[0] : null))?.id ?? null;
+      } catch { agentId = null; }
+    }
+    openAssign({ agentId, title: titleFromWork(parsed.work), instructions: parsed.work, source: 'executive_pa' });
+    say('pa', t('hqAssign.paOpened'), 'ok');
+  }, [say]);
+
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
     const sentence = text.trim();
@@ -121,6 +170,12 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
     const mode: InputMode = fromVoice ? 'voice' : 'typed';
     say('you', sentence);
     setText(''); setFromVoice(false); setPending(null);
+    const mode2: InputMode = mode;
+    const building = parseBuildingRequest(sentence);
+    if (building) { proposeBuilding(building, mode2); return; }
+    if (asking.current) { proposeBuilding(answerQuestion(asking.current, sentence), mode2); return; }
+    const assignment = assignHostAvailable() ? parseAssignSentence(sentence) : null;
+    if (assignment) { void openAssignFor(assignment); return; }
     const call = parseUtterance(sentence, { stops });
     if (!call) { say('pa', t('pa.notUnderstood'), 'warn'); return; }
     void run(call.tool, call.args, mode);
@@ -157,7 +212,7 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
   // Example phrases come from the real office and the real tools, never from invented names.
   const examples = [
     ...(stops[0] ? [t('pa.example.go', { room: stops[0].room_name })] : []),
-    t('pa.example.blocked'), t('pa.example.summary'),
+    t('pa.example.blocked'), t('pa.example.summary'), t('hqBuild.example'),
   ];
 
   const goStop = (index: number) => {
@@ -216,7 +271,11 @@ export function ExecutivePanel({ onOpenView, onLocation }: {
 
     <div className="paLog" role="log" aria-label={t('pa.log')} aria-live="polite">
       {log.length === 0 && <p className="muted">{t('pa.logEmpty')}</p>}
-      {log.map((e) => <p key={e.id} className={`paLine ${e.who} ${e.tone ?? ''}`}><strong>{e.who === 'you' ? t('pa.you') : t('pa.assistant')}</strong><span dir="auto">{e.text}</span></p>)}
+      {log.map((e) => e.card
+        ? <div key={e.id} className={`paLine ${e.who}`}><strong>{t('pa.assistant')}</strong>
+          <BuildingProposalCard proposal={e.card.proposal} inputMode={e.card.mode} onReview={() => proposeBuilding(e.card!.args, 'typed')}
+            onShow={(id) => { publishNavigation({ building_id: id }); onLocation?.({ building_id: id }); }} /></div>
+        : <p key={e.id} className={`paLine ${e.who} ${e.tone ?? ''}`}><strong>{e.who === 'you' ? t('pa.you') : t('pa.assistant')}</strong><span dir="auto">{e.text}</span></p>)}
     </div>
 
     <section className="paTour" aria-labelledby="pa-tour-title">

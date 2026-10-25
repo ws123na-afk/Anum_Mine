@@ -15,7 +15,7 @@ export const hqFlowEn = {
   'hqFlow.retry': 'Try again',
   'hqFlow.denied': 'You cannot read work in this workspace. Ask a workspace owner for the Member or Viewer role.',
   'hqFlow.empty': 'Nothing is in progress. New tasks, leads and orders appear here as soon as they exist.',
-  'hqFlow.emptyAction': 'Open tasks',
+  'hqFlow.emptyAction': 'Assign work',
   'hqFlow.stage.arrived': 'Arrived',
   'hqFlow.stage.in_office': 'In an office',
   'hqFlow.stage.waiting_human': 'Waiting for a person',
