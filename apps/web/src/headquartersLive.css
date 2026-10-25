@@ -205,3 +205,9 @@
  .hqRoomLabelMeta{display:none}
 }
 @media(prefers-reduced-motion:reduce){.hqLive .hqSceneRoomLabel{transition:none}}
+
+/* Readiness fixes (F14): the app's global `strong, h1-h3 { color: var(--d-text) }` made headquarters
+   text near-black on the dark panels in the light app theme (contrast 1.3:1), and the active room's
+   secondary line was 4.2:1. The surface owns its own colours in every app theme. */
+.hqLive strong,.hqLive h1,.hqLive h2,.hqLive h3{color:inherit}
+.hqRoomList button.active small{color:#d6e8ee}

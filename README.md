@@ -102,7 +102,13 @@ x-user-roles: owner,member
 - [ANUM MINE live agent meeting PostgreSQL 0098](docs/ANUM_MINE_LIVE_MEETING_POSTGRES_0098.md)
 - [ANUM MINE headquarters integration and release gates](docs/INTEGRATION_AND_RELEASE.md)
 - [ANUM MINE autonomous meeting rounds, API and safety gates](docs/ANUM_MINE_AUTONOMOUS_MEETINGS.md)
+- [ANUM MINE headquarters market research and office builder plan](docs/ANUM_MINE_HQ_MARKET_RESEARCH.md)
 - [ANUM MINE Office Registry production backend](docs/ANUM_MINE_OFFICE_REGISTRY_BACKEND.md)
+- [ANUM MINE headquarters baseline audit (code to feature matrix, CI, issue register)](docs/ANUM_MINE_HQ_BASELINE_AUDIT.md)
+- [ANUM MINE headquarters performance budget](docs/ANUM_MINE_HQ_PERFORMANCE_BUDGET.md)
+- [ANUM MINE headquarters streaming and load testing](docs/ANUM_MINE_HQ_LOAD_TESTING.md)
+- [ANUM MINE headquarters security review](docs/ANUM_MINE_HQ_SECURITY_REVIEW.md)
+- [ANUM MINE headquarters deployment checklist and rollback](docs/ANUM_MINE_HQ_DEPLOYMENT_AND_ROLLBACK.md)
 - [ANUM MINE campus, live presence, workstation work and executive overview](docs/ANUM_MINE_PRESENCE_AND_CAMPUS.md)
 - [Business gap register (Order 001)](docs/business/ANUM_BUSINESS_GAP_REGISTER.md)
 - [Reuse decision register: outside projects and their licenses](docs/business/REUSE_DECISION_REGISTER.md)
@@ -255,6 +261,7 @@ x-user-roles: owner,member
 - [Setup plan: apply a business blueprint](docs/setup-plan.md)
 - [ADR-0001: Foundation](docs/decisions/ADR-0001-foundation.md)
 - [ADR-0002: Custom agent runtime](docs/decisions/ADR-0002-custom-agent-runtime.md)
+- [ADR-0003: Office projection and live agent meetings](docs/decisions/ADR-0003-office-projection-and-live-meetings.md)
 
 ## Development Rule
 

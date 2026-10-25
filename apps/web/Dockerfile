@@ -41,6 +41,8 @@ ARG VITE_SENTRY_ENVIRONMENT=production
 # Legal documents shown without the DRAFT banner (docs/legal-pages.md): comma-separated ids
 # (terms, privacy, dpa, aup, subprocessors) or `all`. Empty: every document is a draft.
 ARG VITE_ANUM_LEGAL_PUBLISHED=
+# ANUM MINE headquarters route: `off` hides #office-preview and its sidebar link (docs/ANUM_MINE_HQ_DEPLOYMENT_AND_ROLLBACK.md).
+ARG VITE_ANUM_HQ=on
 ENV VITE_ANUM_API_URL=$VITE_ANUM_API_URL \
     VITE_ANUM_TTS_URL=$VITE_ANUM_TTS_URL \
     VITE_ANUM_OIDC_ISSUER=$VITE_ANUM_OIDC_ISSUER \
@@ -48,7 +50,8 @@ ENV VITE_ANUM_API_URL=$VITE_ANUM_API_URL \
     VITE_ANUM_WORKSPACE_ID=$VITE_ANUM_WORKSPACE_ID \
     VITE_SENTRY_DSN=$VITE_SENTRY_DSN \
     VITE_SENTRY_ENVIRONMENT=$VITE_SENTRY_ENVIRONMENT \
-    VITE_ANUM_LEGAL_PUBLISHED=$VITE_ANUM_LEGAL_PUBLISHED
+    VITE_ANUM_LEGAL_PUBLISHED=$VITE_ANUM_LEGAL_PUBLISHED \
+    VITE_ANUM_HQ=$VITE_ANUM_HQ
 RUN pnpm --filter @anum/contracts build && pnpm --filter @anum/web build \
     && node --experimental-strip-types apps/web/scripts/sentry-csp-origin.ts > /repo/csp-error-reporting-origin
 
