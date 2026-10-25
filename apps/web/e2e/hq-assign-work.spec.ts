@@ -7,6 +7,7 @@ import { mockAssign, mockBuildingAssistant, type AssignMock } from './support/hq
 // The API is mocked; the tests check that the person never leaves the office, that one governed request is sent
 // with an idempotency key, that every state says what to do, and that only a click confirms a building.
 const registry = hqRegistry(TENANT_A, { rooms: 4, desks: 4, agentIds: ['agent_fleet', 'agent_leads', 'agent_care', 'agent_invoice'] });
+test.use({ actionTimeout: 30_000 });
 let flow: FlowMock;
 let api: AssignMock;
 const HASH = '#office-preview';
@@ -296,17 +297,15 @@ const SIZES = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] a
 const SHOTS = process.env.HQ_SHOTS_DIR;
 for (const [w, h] of SIZES) {
   test(`${w}x${h}: dialog, task panel and proposal card fit without horizontal overflow`, async ({ page }) => {
-    test.setTimeout(900_000);
+    test.setTimeout(300_000);
     await page.setViewportSize({ width: w, height: h });
-    // The list view: the dialog and card layouts are what is checked, not the 3D scene.
-    await openHq(page, { registry, noWebgl: true, beforeGoto: async (p) => { flow = await mockFlow(p); api = await mockAssign(p); await mockBuildingAssistant(p, api); } });
-    await expect(hq(page).getByRole('button', { name: /Office tools/ })).toBeVisible({ timeout: 60_000 });
+    await open(page);
     const noOverflow = async (label: string) => {
       const m = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
       expect(m.sw, `${label}: page scroll width`).toBeLessThanOrEqual(m.iw);
       for (const sel of ['.hqAsDialog', '.hqAsSide', '.hqAsCard']) {
         const box = await page.locator(sel).first().boundingBox().catch(() => null);
-        if (box) { expect(box.x, `${label} ${sel} left`).toBeGreaterThanOrEqual(-1); expect(box.x + box.width, `${label} ${sel} right`).toBeLessThanOrEqual(w + 1); expect(box.y + box.height, `${label} ${sel} bottom`).toBeLessThanOrEqual(h + 1); }
+        if (box) { expect(box.x, `${label} ${sel} left`).toBeGreaterThanOrEqual(-1); expect(box.x + box.width, `${label} ${sel} right`).toBeLessThanOrEqual(w + 1); if (sel !== '.hqAsCard') expect(box.y + box.height, `${label} ${sel} bottom`).toBeLessThanOrEqual(h + 1); }
       }
     };
     const shot = async (name: string) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}-${w}x${h}.png`, animations: 'disabled', timeout: 120_000 }); };

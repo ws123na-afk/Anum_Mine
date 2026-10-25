@@ -16,7 +16,9 @@
 .hqAsDialog input:not([type=checkbox]),.hqAsDialog select,.hqAsDialog textarea{width:100%;max-width:100%;min-height:36px;box-sizing:border-box;font:inherit}
 .hqAsDialog textarea{resize:vertical}
 .hqAsRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:8px}
-.hqAsCheck{display:flex;align-items:center;gap:8px;min-height:32px}
+.hqAsCheck{display:flex;align-items:center;justify-content:flex-start;gap:8px;min-height:32px}
+.hqAsDialog .hqAsCheck input[type=checkbox]{width:18px;height:18px;min-height:0;flex:none;margin:0;padding:0}
+.hqAsCheck span{flex:1;min-width:0}
 .hqAsErr{margin:0;color:#ffb4a8}
 .hqAsBox{display:grid;gap:4px;padding:6px 10px;border:1px solid #547789;border-radius:8px;margin:0}
 .hqAsWarn{border-color:#f2c46b;background:#3a2e12}
