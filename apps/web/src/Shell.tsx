@@ -28,6 +28,7 @@ import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { getPeople } from './lib/teamApi';
 import { TeamNotificationsSection, type TeamNotifications } from './NotificationBell';
 import { HelpButton } from './HelpLink';
+import { headquartersEnabled } from './lib/headquartersFlag.ts';
 
 const ICONS: Record<View, ReactNode> = {
   home: <House />, command: <Sparkles />, assistant: <MessageSquare />, agents: <Bot />, voice: <Mic />, call: <Phone />, calls: <PhoneOutgoing />, tyre: <Disc3 />, meetings: <PhoneCall />, calendar: <CalendarDays />, commerce: <ShoppingCart />, finance: <Wallet />, marketing: <Megaphone />, business: <Handshake />, learning: <GraduationCap />, automation: <Workflow />, tasks: <ListTodo />,
@@ -108,9 +109,9 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
     <nav ref={navRef} aria-label={t('nav.primary')}>
       <ul className="navList">
         {NAV[0].views.filter((id) => allowed.has(id)).map(item)}
-        <li><a href="#office-preview" className="navItem" aria-label="ANUM MINE: open authenticated headquarters">
+        {headquartersEnabled() && <li><a href="#office-preview" className="navItem" aria-label="ANUM MINE: open authenticated headquarters">
           <Building2 aria-hidden="true" /><span>ANUM MINE</span>
-        </a></li>
+        </a></li>}
       </ul>
       {group('workspaces', 'sidebar.workspaces', <SidebarWorkspaces workspaceId={workspaceId} onSwitchWorkspace={onSwitchWorkspace} />)}
       {NAV.slice(1).map((g) => {
