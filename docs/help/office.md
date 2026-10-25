@@ -25,10 +25,21 @@ ANUM MINE draws every workspace you can open as a building on a campus. Inside a
 3. Select an agent card to see their open tasks and to open their profile.
 4. **Office tools** opens Manage spaces, Live workstations, Agent meeting sessions, Reception and the Guided visit.
 
+## Staff every empty desk
+
+1. Open **Office tools**, then **Staff my campus** (also in **Organisation gaps**).
+2. Read the plan. For every empty desk it names the agent that would be created, for example "Orders Desk, Orders 2". The totals show how many desks get an agent, how many stay empty and why, and the largest possible monthly cost if every new agent were turned on.
+3. Untick buildings or rooms you do not want, set a limit for this run, or press **Keep empty** on a desk you want left empty.
+4. Press **Staff desks**. Only a workspace owner can, and only with a click. Every agent is created paused, can read and draft but not send or pay, and has a monthly cost cap.
+5. Open **Paused agents** to turn one agent on, or select several, check the cost cap total and turn them on.
+
+A workspace can have 200 agents at most. Desks past that stay empty and the plan says how many.
+
 ## Who can do this
 
 - Everyone with access to a workspace can see its building, rooms and agent status.
 - Owners and workspace managers can change rooms and desks in **Manage spaces**.
+- Workspace owners staff desks and turn the new agents on. Everyone else can read the plan.
 - Commerce and tyre panels at the bottom show numbers only when that module is connected and you may read it. Otherwise they say who can set it up.
 
 ## Learn more

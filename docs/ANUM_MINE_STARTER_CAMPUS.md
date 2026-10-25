@@ -21,7 +21,7 @@ The top level is the six business buildings of the approved campus render, plus 
 
 Total for an empty workspace: **8 buildings, 18 floors, 62 rooms, 220 desks**. The master list is data in `office_starter_campus.py` (`CAMPUS`); a test fails if a department of the owner's list has no room. Rooms are meeting rooms, offices, workshops, warehouses, a reception and lounges with the builder's colours and equipment kinds. Desks exist only in offices, workshops and warehouses, never above a room's capacity.
 
-**Not staffed.** No agent is created, no desk is seated, and no presence or person is invented. A new room is empty and shows "Not staffed". Rooms of the sales, support, operations, finance and tyre engineering departments carry that `team_department`, so the Organisation gaps panel then proposes agents for them. The owner confirms each proposal there, as before.
+**Not staffed.** No agent is created, no desk is seated, and no presence or person is invented. A new room is empty and shows "Not staffed". To seat an agent at every empty desk, use [Staff my campus](ANUM_MINE_STAFF_DESKS.md): a separate, reviewed, click-confirmed step. Rooms of the sales, support, operations, finance and tyre engineering departments carry that `team_department`, so the Organisation gaps panel then proposes agents for them. The owner confirms each proposal there, as before.
 
 ## Endpoints
 

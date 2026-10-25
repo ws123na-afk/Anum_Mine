@@ -106,6 +106,10 @@ HQ operations menu: **Organisation gaps (n)**, also shown under the Teams panel.
 
 `office_agent_provisions` has forced row level security on tenant and workspace, a purge policy for tenant deletion, and is registered in the tenant lifecycle table list. Every read and write is one workspace scoped session. Private agents of other users stay invisible to gap detection, coverage and the flow, as everywhere.
 
+## Staffing every desk
+
+[Staff my campus](ANUM_MINE_STAFF_DESKS.md) builds on this flow for many desks at once: the same governed agent create path, paused agents, per template cost caps, seating, audit and the click-only hash rule, with its own ledger (`office_desk_staffing`, one row per desk) and eight more roles. It does not change the seven templates or the gaps coverage.
+
 ## Not done, said plainly
 
 - No automatic creation, scheduling or notification of gaps. Detection runs when the panel opens and when the live flow changes.
