@@ -16,7 +16,7 @@ import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -24,6 +24,7 @@ from . import live_agent_meeting_room as room
 from .authorization import Permission
 from .dependencies import has_permission, require_permission, tenant_context
 from .live_agent_meeting_api import MeetingId, _audit, _error, _store, can_read_transcript, require_transcript_reader
+from .live_agent_meeting_audit import audit_event
 from .live_agent_meeting_store import LiveMeetingStoreError
 from .schemas import TenantContext
 from .sse import SSE_HEADERS, sse
@@ -72,8 +73,17 @@ class OutputCreate(Body):
 
 class OutputPatch(Body):
     state: Literal["confirmed", "dismissed", "draft"] | None = None
+    # Confirming a summary or a model draft needs a click on screen and the hash of the text that was shown.
+    input_mode: Literal["click", "typed", "voice"] = "typed"
+    payload_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     body: str | None = Field(default=None, min_length=1, max_length=2000)
     owner_label: str | None = Field(default=None, max_length=160)
+
+
+class WorkLink(Body):
+    target_kind: Literal["task", "approval", "run"]
+    target_id: str = Field(min_length=1, max_length=80, pattern=KEY)
+    input_mode: Literal["click", "typed", "voice"] = "typed"
 
 
 class FileLink(Body):
@@ -112,7 +122,7 @@ def bundle_for(bundle: dict, owner: bool) -> dict:
     bundle["viewer"] = {**bundle["viewer"], "can_read_transcript": owner}
     if owner:
         return bundle
-    return {**bundle, "outputs": [], "outputs_count": len(bundle["outputs"]),
+    return {**bundle, "outputs": [], "outputs_count": len(bundle["outputs"]), "links": [], "links_count": len(bundle.get("links", [])),
             "files": [], "files_count": len(bundle["files"]), "transcript_hidden": True}
 
 
@@ -246,11 +256,64 @@ def create_output(meeting_id: MeetingId, body: OutputCreate, context: TenantCont
         s, context, meeting_id, kind=body.kind, body=body.body, owner_label=body.owner_label, source_sequences=body.source_sequences))
 
 
+@router.post("/{meeting_id}/summary", status_code=201)
+async def draft_summary(meeting_id: MeetingId, context: TenantContext = Depends(tenant_context)) -> dict:
+    """Owner only, ended meeting: one metered model call drafts a summary and, from the transcript, draft decisions and
+    action items. All of it is stored as drafts for the owner to confirm. Counts against the monthly meeting budget (402 at the cap)."""
+    _write(context)
+    require_transcript_reader(context, meeting_id, "summary")
+    from .live_agent_meeting_summary import generate_meeting_summary
+    from .model_gateway import build_default_model_gateway
+    try:
+        return await generate_meeting_summary(context, meeting_id, build_default_model_gateway())
+    except LiveMeetingStoreError as exc:
+        raise _error(exc) from exc
+
+
 @router.patch("/{meeting_id}/outputs/{output_id}")
 def patch_output(meeting_id: MeetingId, output_id: MeetingId, body: OutputPatch, context: TenantContext = Depends(tenant_context)) -> dict:
     _write(context)
-    return _run(context, "output_decide", meeting_id, lambda s: room.output_decide(
-        s, context, meeting_id, output_id, state=body.state, body=body.body, owner_label=body.owner_label))
+    before: dict[str, Any] = {}
+    with _store(context) as store:
+        try:
+            row = room.output_decide(store, context, meeting_id, output_id, state=body.state, body=body.body, owner_label=body.owner_label,
+                                     input_mode=body.input_mode, payload_hash=body.payload_hash, before=before)
+            audit_event(store.session, context, "agent_meeting.output_decide", meeting_id, meeting_id=meeting_id, input_mode=body.input_mode,
+                        edited=body.body is not None, **before)
+            return row
+        except LiveMeetingStoreError as exc:
+            raise _error(exc) from exc
+
+
+@router.post("/{meeting_id}/outputs/{output_id}/links")
+def link_output(meeting_id: MeetingId, output_id: MeetingId, body: WorkLink, response: Response,
+                context: TenantContext = Depends(tenant_context)) -> dict:
+    """Link a confirmed decision to a task, approval or run of this workspace. Click only, idempotent (200 on a repeat)."""
+    _write(context)
+    if body.input_mode != "click":
+        raise HTTPException(403, room.CLICK_ONLY)
+    with _store(context) as store:
+        try:
+            link, created = room.link_create(store, context, meeting_id, output_id, body.target_kind, body.target_id)
+            if created:
+                audit_event(store.session, context, "agent_meeting.decision_link", meeting_id, meeting_id=meeting_id, output_id=output_id,
+                            target_kind=body.target_kind, target_id=body.target_id, new_state="linked", previous_state="unlinked")
+            response.status_code = 201 if created else 200
+            return link
+        except LiveMeetingStoreError as exc:
+            raise _error(exc) from exc
+
+
+@router.delete("/{meeting_id}/links/{link_id}", status_code=204)
+def unlink_output(meeting_id: MeetingId, link_id: MeetingId, context: TenantContext = Depends(tenant_context)) -> None:
+    _write(context)
+    with _store(context) as store:
+        try:
+            link = room.link_delete(store, context, meeting_id, link_id)
+            audit_event(store.session, context, "agent_meeting.decision_unlink", meeting_id, meeting_id=meeting_id, output_id=link["output_id"],
+                        target_kind=link["target_kind"], target_id=link["target_id"], new_state="unlinked", previous_state="linked")
+        except LiveMeetingStoreError as exc:
+            raise _error(exc) from exc
 
 
 @router.post("/{meeting_id}/outputs/{output_id}/task", status_code=201)
@@ -304,8 +367,7 @@ def export_meeting(meeting_id: MeetingId, format: Literal["markdown", "json"] = 
         return {"bundle": bundle, "turns": room.transcript(store, context, meeting_id)}
     data = _run(context, "export", meeting_id, build)
     if format == "json":
-        payload = {k: data["bundle"][k] for k in ("meeting", "participants", "agenda", "outputs", "files")}
-        payload["turns"] = data["turns"]
+        payload = room.export_json(data["bundle"], data["turns"])
         return PlainTextResponse(json.dumps(payload, default=str, ensure_ascii=False), media_type="application/json",
                                  headers={"Content-Disposition": f'attachment; filename="meeting-{meeting_id}.json"'})
     return PlainTextResponse(room.export_markdown(data["bundle"], data["turns"]), media_type="text/markdown; charset=utf-8",

@@ -286,6 +286,7 @@ Code should follow the contracts, boundaries, tenant model, and security expecta
 - [ANUM MINE persistent live meeting management API](docs/ANUM_MINE_LIVE_MEETING_MANAGEMENT_API.md)
 - [ANUM MINE live meeting room UI and room API](docs/ANUM_MINE_LIVE_MEETING_ROOM_UI.md)
 - [ANUM MINE live meetings: monthly budget, owner-only transcripts, turn audit](docs/ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md)
+- [ANUM MINE live meetings: summary, model-drafted decisions, decision to work links, JSON record](docs/ANUM_MINE_MEETING_SUMMARY_AND_WORK_LINKS.md)
 - [ANUM MINE live agent meetings foundation](docs/ANUM_MINE_LIVE_AGENT_MEETING_FOUNDATION.md)
 
 - [Sales dashboard](docs/sales-dashboard.md)

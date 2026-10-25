@@ -19,6 +19,9 @@ ALLOWED_FIELDS = frozenset({
     "meeting_id", "turn_number", "agent_id", "request_key", "model", "input_count", "output_count",
     "cost_usd", "redacted", "reason", "read_path", "code", "limit_usd", "used_usd", "period_start",
     "previous_limit_usd", "new_limit_usd", "role",
+    # Review and linking (summary, decisions): ids and short state codes before and after, never text.
+    "output_id", "output_kind", "previous_state", "new_state", "drafts_created", "dropped", "used_before_usd",
+    "target_kind", "target_id", "input_mode", "edited",
 })
 MAX_TEXT = 80
 

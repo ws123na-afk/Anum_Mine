@@ -20,7 +20,10 @@ from .schemas import TenantContext, new_id
 
 SPEAKING_WINDOW = timedelta(seconds=150)  # lease is 90 s and the model call 75 s
 TERMINAL = ("finished", "cancelled", "failed")
-OUTPUT_COLUMNS = "id, session_id, kind, body, state, owner_label, source_sequences, task_id, created_by, decided_by, created_at, updated_at"
+OUTPUT_COLUMNS = ("id, session_id, kind, body, state, owner_label, source_sequences, task_id, created_by, decided_by, "
+                  "origin, drafted_with, created_at, updated_at")
+WORK_KINDS = ("task", "approval", "run")
+LINK_COLUMNS = "id, session_id, output_id, target_kind, target_id, created_by, created_at"
 
 
 def _meeting(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id: str, *, lock: bool = False) -> dict[str, Any]:
@@ -73,6 +76,12 @@ def speaking_now(events: list[dict[str, Any]], now: datetime | None = None) -> l
     return out
 
 
+def _with_hash(output: dict[str, Any]) -> dict[str, Any]:
+    """The hash of what the owner is shown (id, kind, text, state); confirming a model draft sends it back."""
+    from .live_agent_meeting_summary import content_hash
+    return {**output, "payload_hash": content_hash(output)}
+
+
 def room(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id: str) -> dict[str, Any]:
     meeting = _meeting(store, ctx, meeting_id)
     recent = _rows(store, """
@@ -95,8 +104,9 @@ def room(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id: str) -> dic
             where tenant_id=:tenant and workspace_id=:workspace and session_id=:id order by joined_at""", ctx, meeting_id),
         "agenda": _rows(store, """select id, position, title, state from agent_meeting_agenda
             where tenant_id=:tenant and workspace_id=:workspace and session_id=:id order by position""", ctx, meeting_id),
-        "outputs": _rows(store, f"select {OUTPUT_COLUMNS} from agent_meeting_outputs "  # nosec B608: fixed column list
-            "where tenant_id=:tenant and workspace_id=:workspace and session_id=:id order by created_at, id", ctx, meeting_id),
+        "outputs": [_with_hash(o) for o in _rows(store, f"select {OUTPUT_COLUMNS} from agent_meeting_outputs "  # nosec B608: fixed column list
+            "where tenant_id=:tenant and workspace_id=:workspace and session_id=:id order by created_at, id", ctx, meeting_id)],
+        "links": links_for_meeting(store, ctx, meeting_id),
         "files": files,
         "speaking": speaking_now(recent) if meeting["status"] == "active" else [],
         "last_event_seq": int(last),
@@ -293,21 +303,41 @@ def output_create(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id: st
     return dict(row)
 
 
+CLICK_ONLY = "Confirm this on screen with a click. A spoken or typed answer cannot confirm it."
+
+
 def output_decide(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id: str, output_id: str, *,
-                  state: str | None, body: str | None, owner_label: str | None) -> dict[str, Any]:
+                  state: str | None, body: str | None, owner_label: str | None,
+                  input_mode: str = "typed", payload_hash: str | None = None,
+                  before: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Confirm, dismiss or edit a draft. A summary or a model-drafted item can only be confirmed with a click and the
+    hash of the text that was shown, so what is confirmed is what the owner read. ``before`` receives the previous state."""
     meeting = _meeting(store, ctx, meeting_id, lock=True)
     require_owner(meeting, ctx, "confirm decisions and action items")
-    current = store.session.execute(text("""select state, task_id from agent_meeting_outputs
+    current = store.session.execute(text("""select id, kind, body, state, task_id, origin from agent_meeting_outputs
         where tenant_id=:tenant and workspace_id=:workspace and session_id=:id and id=:out for update"""),
         store.args(ctx, id=meeting_id, out=output_id)).mappings().first()
     if current is None:
         raise LiveMeetingStoreError("not_found", "Item not found")
+    if before is not None:
+        before.update(output_id=output_id, output_kind=current["kind"], previous_state=current["state"])
+    guarded = current["kind"] == "summary" or current["origin"] == "model"
+    if state == "confirmed" and guarded:
+        from .live_agent_meeting_summary import content_hash
+        if input_mode != "click":
+            raise LiveMeetingStoreError("forbidden", CLICK_ONLY)
+        if payload_hash != content_hash(dict(current)):
+            raise LiveMeetingStoreError("conflict", "This draft changed since you read it. Reload and review it again before confirming.")
     if current["task_id"]:
         raise LiveMeetingStoreError("conflict", "This item already has a task and can no longer change")
     if body is not None:
         body, _ = redact_secrets(body.strip())
         if not body:
             raise LiveMeetingStoreError("conflict", "Text is empty")
+    if guarded and current["state"] == "confirmed" and body is not None and state in (None, "confirmed"):
+        raise LiveMeetingStoreError("conflict", "Move a confirmed summary or model draft back to draft before editing its text")
+    if state == "confirmed" and body is not None and body != current["body"] and guarded:
+        raise LiveMeetingStoreError("conflict", "Edit the draft and confirm it in two steps, so the text you read is the text you confirm")
     row = store.session.execute(text(f"""update agent_meeting_outputs set
           state=coalesce(:state,state), body=coalesce(:body,body),
           owner_label=case when :set_label then :label else owner_label end,
@@ -317,7 +347,9 @@ def output_decide(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id: st
         store.args(ctx, id=meeting_id, out=output_id, state=state, body=body and body[:2000], set_label=owner_label is not None,
                    label=owner_label and owner_label.strip()[:160], actor=ctx.user_id)).mappings().one()
     store.emit(ctx, meeting_id, "output", {"op": "update", "output": _jsonable(row)}, actor=ctx.user_id)
-    return dict(row)
+    if before is not None:
+        before["new_state"] = row["state"]
+    return _with_hash(dict(row))
 
 
 def output_for_task(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id: str, output_id: str) -> dict[str, Any]:
@@ -345,6 +377,82 @@ def output_attach_task(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_i
         raise LiveMeetingStoreError("conflict", "This action item already has a task")
     store.emit(ctx, meeting_id, "output", {"op": "task", "output": _jsonable(row)}, actor=ctx.user_id)
     return dict(row)
+
+
+# ----------------------------------------------------------------------------- decision to work links
+
+LINK_SELECT = """select l.id, l.session_id, l.output_id, l.target_kind, l.target_id, l.created_by, l.created_at,
+    coalesce(t.title, a.action, r.id) as target_label, coalesce(t.status, a.status, r.status) as target_status
+  from agent_meeting_output_links l
+  left join tasks t on l.target_kind = 'task' and t.tenant_id = l.tenant_id and t.workspace_id = l.workspace_id and t.id = l.target_id
+  left join approvals a on l.target_kind = 'approval' and a.tenant_id = l.tenant_id and a.workspace_id = l.workspace_id and a.id = l.target_id
+  left join agent_runs r on l.target_kind = 'run' and r.tenant_id = l.tenant_id and r.workspace_id = l.workspace_id and r.id = l.target_id
+"""
+TARGET_SQL = {
+    "task": "select id from tasks where tenant_id=:tenant and workspace_id=:workspace and id=:target",
+    "approval": "select id from approvals where tenant_id=:tenant and workspace_id=:workspace and id=:target",
+    "run": "select id from agent_runs where tenant_id=:tenant and workspace_id=:workspace and id=:target",
+}
+
+
+def links_for_meeting(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id: str) -> list[dict[str, Any]]:
+    return _rows(store, LINK_SELECT + """ where l.tenant_id=:tenant and l.workspace_id=:workspace and l.session_id=:id
+        order by l.created_at, l.id""", ctx, meeting_id)  # nosec B608: fixed SQL text
+
+
+def link_create(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id: str, output_id: str,
+                target_kind: str, target_id: str) -> tuple[dict[str, Any], bool]:
+    """Link a confirmed decision to a task, approval or run of this workspace. Idempotent: a repeat returns the same link.
+
+    The target is read through the caller's scoped session, so another workspace's or tenant's id is 'not found'."""
+    meeting = _meeting(store, ctx, meeting_id, lock=True)
+    require_owner(meeting, ctx, "link decisions to work")
+    output = store.session.execute(text("""select kind, state from agent_meeting_outputs
+        where tenant_id=:tenant and workspace_id=:workspace and session_id=:id and id=:out for update"""),
+        store.args(ctx, id=meeting_id, out=output_id)).mappings().first()
+    if output is None:
+        raise LiveMeetingStoreError("not_found", "Item not found")
+    if output["kind"] != "decision" or output["state"] != "confirmed":
+        raise LiveMeetingStoreError("conflict", "Only a confirmed decision can be linked to work")
+    if target_kind not in WORK_KINDS:
+        raise LiveMeetingStoreError("conflict", "Link a task, an approval or a run")
+    found = store.session.execute(text(TARGET_SQL[target_kind]), store.args(ctx, target=target_id)).first()
+    if found is None:
+        raise LiveMeetingStoreError("not_found", f"No {target_kind} with that id in this workspace")
+    link_id = new_id("meeting_link")
+    inserted = store.session.execute(text("""insert into agent_meeting_output_links
+        (id,tenant_id,workspace_id,session_id,output_id,target_kind,target_id,created_by)
+        values (:row,:tenant,:workspace,:id,:out,:kind,:target,:actor)
+        on conflict (tenant_id,workspace_id,output_id,target_kind,target_id) do nothing returning id"""),
+        store.args(ctx, id=meeting_id, row=link_id, out=output_id, kind=target_kind, target=target_id, actor=ctx.user_id)).first()
+    row = _rows(store, LINK_SELECT + """ where l.tenant_id=:tenant and l.workspace_id=:workspace and l.output_id=:out
+        and l.target_kind=:kind and l.target_id=:target""", ctx, meeting_id, out=output_id, kind=target_kind, target=target_id)[0]  # nosec B608
+    if inserted is not None:
+        store.emit(ctx, meeting_id, "output", {"op": "link", "link": _jsonable(row)}, actor=ctx.user_id)
+    return row, inserted is not None
+
+
+def link_delete(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id: str, link_id: str) -> dict[str, Any]:
+    meeting = _meeting(store, ctx, meeting_id, lock=True)
+    require_owner(meeting, ctx, "unlink work")
+    row = store.session.execute(text(f"""delete from agent_meeting_output_links
+        where tenant_id=:tenant and workspace_id=:workspace and session_id=:id and id=:link returning {LINK_COLUMNS}"""),  # nosec B608
+        store.args(ctx, id=meeting_id, link=link_id)).mappings().first()
+    if row is None:
+        raise LiveMeetingStoreError("not_found", "Link not found")
+    store.emit(ctx, meeting_id, "output", {"op": "unlink", "link": _jsonable(row)}, actor=ctx.user_id)
+    return dict(row)
+
+
+def meetings_for_work(store: SqlLiveMeetingStore, ctx: TenantContext, target_kind: str, target_id: str) -> list[dict[str, Any]]:
+    """The other direction: which confirmed decisions (and meetings) led to this task, approval or run."""
+    return [dict(r) for r in store.session.execute(text("""
+        select l.id as link_id, l.created_at, o.id as output_id, o.body, o.state, s.id as meeting_id, s.title, s.status
+        from agent_meeting_output_links l
+        join agent_meeting_outputs o on o.tenant_id=l.tenant_id and o.workspace_id=l.workspace_id and o.id=l.output_id
+        join agent_meeting_sessions s on s.tenant_id=l.tenant_id and s.workspace_id=l.workspace_id and s.id=l.session_id
+        where l.tenant_id=:tenant and l.workspace_id=:workspace and l.target_kind=:kind and l.target_id=:target
+        order by l.created_at desc limit 50"""), store.args(ctx, kind=target_kind, target=target_id)).mappings().all()]
 
 
 def _jsonable(row: Any) -> dict[str, Any]:
@@ -379,20 +487,53 @@ def file_unlink(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id: str,
 
 # ----------------------------------------------------------------------------- export and delete
 
+def export_summary(outputs: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The meeting's live summary (confirmed, else the draft), or None. A dismissed one is not part of the record."""
+    live = [o for o in outputs if o["kind"] == "summary" and o["state"] != "dismissed"]
+    live.sort(key=lambda o: o["state"] != "confirmed")
+    return live[0] if live else None
+
+
 def export_markdown(bundle: dict[str, Any], turns: list[dict[str, Any]]) -> str:
     meeting = bundle["meeting"]
+    outputs = bundle["outputs"]
+    links = bundle.get("links", [])
     lines = [f"# {meeting['title']}", "", f"Status: {meeting['status']}", ""]
+    summary = export_summary(outputs)
+    if summary:
+        note = "confirmed by the owner" if summary["state"] == "confirmed" else "draft, not yet confirmed by the owner"
+        lines += ["## Summary", f"Drafted by a model; {note}.", "", summary["body"], ""]
     if bundle["agenda"]:
         lines += ["## Agenda", *[f"{a['position']}. {a['title']} ({a['state']})" for a in bundle["agenda"]], ""]
     lines += ["## Transcript", ""]
     lines += [f"**{t['speaker_id']}** ({t['role']}, #{t['sequence']}): {t['body']}" for t in turns] or ["The transcript was deleted or has no messages."]
     for kind, title in (("decision", "Decisions"), ("action_item", "Action items")):
-        items = [o for o in bundle["outputs"] if o["kind"] == kind and o["state"] != "dismissed"]
+        items = [o for o in outputs if o["kind"] == kind and o["state"] != "dismissed"]
         if items:
-            lines += ["", f"## {title}", *[f"- [{o['state']}] {o['body']}" + (f" (owner: {o['owner_label']})" if o["owner_label"] else "")
-                                           + (f" (from messages {', '.join('#' + str(s) for s in o['source_sequences'])})" if o["source_sequences"] else "")
-                                           for o in items]]
+            lines += ["", f"## {title}"]
+            for o in items:
+                lines.append(f"- [{o['state']}] {o['body']}" + (f" (owner: {o['owner_label']})" if o["owner_label"] else "")
+                             + (f" (from messages {', '.join('#' + str(n) for n in o['source_sequences'])})" if o["source_sequences"] else "")
+                             + (" (drafted by a model)" if o.get("origin") == "model" else ""))
+                lines += [f"  - linked {link['target_kind']}: {link.get('target_label') or link['target_id']} ({link['target_id']})"
+                          for link in links if link["output_id"] == o["id"]]
     return "\n".join(lines) + "\n"
+
+
+def export_json(bundle: dict[str, Any], turns: list[dict[str, Any]]) -> dict[str, Any]:
+    """The JSON export: the record of the meeting with its summary, decisions (each with its linked work) and every confirmed output."""
+    outputs = bundle["outputs"]
+    links = bundle.get("links", [])
+    by_output: dict[str, list[dict[str, Any]]] = {}
+    for link in links:
+        by_output.setdefault(link["output_id"], []).append(link)
+    payload = {k: bundle[k] for k in ("meeting", "participants", "agenda", "outputs", "files")}
+    payload["turns"] = turns
+    payload["links"] = links
+    payload["summary"] = export_summary(outputs)
+    payload["decisions"] = [{**o, "links": by_output.get(o["id"], [])} for o in outputs if o["kind"] == "decision" and o["state"] != "dismissed"]
+    payload["confirmed_outputs"] = [{**o, "links": by_output.get(o["id"], [])} for o in outputs if o["state"] == "confirmed"]
+    return payload
 
 
 def delete_transcript(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id: str) -> dict[str, int]:

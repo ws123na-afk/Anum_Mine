@@ -17,12 +17,19 @@ export interface RoomMeeting {
 export interface RoomParticipant { id: string; actor_id: string; kind: 'agent' | 'human' }
 export interface RoomAttendance { actor_id: string; joined_at: string; left_at: string | null }
 export interface AgendaItem { id: string; position: number; title: string; state: 'open' | 'current' | 'done' }
-export type OutputKind = 'decision' | 'action_item';
+export type OutputKind = 'decision' | 'action_item' | 'summary';
+export type WorkKind = 'task' | 'approval' | 'run';
 export type OutputState = 'draft' | 'confirmed' | 'dismissed';
 export interface RoomOutput {
   id: string; kind: OutputKind; body: string; state: OutputState; owner_label: string | null;
   source_sequences: number[]; task_id: string | null; created_by: string; decided_by: string | null;
+  /** `model` for a draft the model extracted from the transcript; people confirm it with a click and `payload_hash`. */
+  origin?: 'person' | 'model'; drafted_with?: string | null; payload_hash?: string;
 }
+/** A confirmed decision pointing at the work it led to (matrix row 9.9). */
+export interface WorkLink { id: string; output_id: string; target_kind: WorkKind; target_id: string; target_label: string | null; target_status: string | null; created_by?: string; created_at?: string }
+/** What drafting a summary returns: the stored drafts, never confirmed. */
+export interface SummaryResult { summary: RoomOutput; decisions: RoomOutput[]; action_items: RoomOutput[]; dropped: number; covered_up_to: number; messages: number; cost_usd: number }
 export interface RoomFile { id?: string; file_id: string; name: string | null; content_type?: string | null }
 export interface RoomMessage {
   sequence: number; speaker_id: string; role: 'agent' | 'human' | 'system'; body: string; created_at: string;
@@ -31,10 +38,10 @@ export interface RoomMessage {
 export interface RoomViewer { user_id: string; is_owner: boolean; can_read_transcript?: boolean }
 export interface RoomBundle {
   meeting: RoomMeeting; participants: RoomParticipant[]; attendance: RoomAttendance[]; agenda: AgendaItem[];
-  outputs: RoomOutput[]; files: RoomFile[]; speaking: { agent_id: string | null; sequence: number | null; since: string }[];
+  outputs: RoomOutput[]; links?: WorkLink[]; files: RoomFile[]; speaking: { agent_id: string | null; sequence: number | null; since: string }[];
   last_event_seq: number; transcript_deleted: boolean; viewer: RoomViewer;
   /** Set for everyone who is not a workspace owner: the API sends no text, only counts (S-03). */
-  transcript_hidden?: boolean; outputs_count?: number; files_count?: number;
+  transcript_hidden?: boolean; outputs_count?: number; files_count?: number; links_count?: number;
 }
 /** The workspace's monthly agent meeting budget (S-02): `GET/PUT /api/v1/agent-meetings/budget`. */
 export interface MeetingBudget {
@@ -48,7 +55,7 @@ export interface Speaking { agentId: string; since: string; sequence: number | n
 export interface Notice { seq: number; kind: 'turn_failed'; reason: string }
 export interface RoomState {
   meeting: RoomMeeting; participants: RoomParticipant[]; attendance: RoomAttendance[]; agenda: AgendaItem[];
-  outputs: RoomOutput[]; files: RoomFile[]; messages: RoomMessage[]; speaking: Record<string, Speaking>;
+  outputs: RoomOutput[]; links: WorkLink[]; files: RoomFile[]; messages: RoomMessage[]; speaking: Record<string, Speaking>;
   notices: Notice[]; lastSeq: number; transcriptDeleted: boolean; viewer: RoomBundle['viewer'];
   /** True when the caller is not a workspace owner: no messages, decisions or files are loaded, only counts. */
   transcriptHidden: boolean; outputsCount: number; filesCount: number;
@@ -61,7 +68,7 @@ export function initialState(bundle: RoomBundle, messages: RoomMessage[]): RoomS
   bundle.speaking.forEach((s, i) => { if (s.agent_id) speaking['loaded-' + i + '-' + s.agent_id] = { agentId: s.agent_id, since: s.since, sequence: s.sequence }; });
   return {
     meeting: bundle.meeting, participants: bundle.participants, attendance: bundle.attendance, agenda: bundle.agenda,
-    outputs: bundle.outputs, files: bundle.files, messages: [...messages].sort((a, b) => a.sequence - b.sequence), speaking,
+    outputs: bundle.outputs, links: bundle.links ?? [], files: bundle.files, messages: [...messages].sort((a, b) => a.sequence - b.sequence), speaking,
     notices: [], lastSeq: bundle.last_event_seq, transcriptDeleted: bundle.transcript_deleted, viewer: bundle.viewer,
     transcriptHidden: bundle.transcript_hidden === true, outputsCount: bundle.outputs_count ?? bundle.outputs.length,
     filesCount: bundle.files_count ?? bundle.files.length, budgetTick: 0,
@@ -133,7 +140,16 @@ export function applyEvent(state: RoomState, event: RoomEvent): RoomState {
       }
       break;
     }
-    case 'output': next.outputs = upsert(state.outputs, p.output as RoomOutput); break;
+    case 'output':
+      if (p.op === 'link') next.links = upsert(state.links, p.link as WorkLink);
+      else if (p.op === 'unlink') next.links = state.links.filter((l) => l.id !== (p.link as WorkLink).id);
+      else {
+        // A stored event carries the row without the hash the room computes: keep the one already held when the text is the same.
+        const incoming = p.output as RoomOutput;
+        const held = state.outputs.find((o) => o.id === incoming.id);
+        next.outputs = upsert(state.outputs, held && held.body === incoming.body && held.state === incoming.state ? { ...incoming, payload_hash: held.payload_hash } : incoming);
+      }
+      break;
     case 'file': {
       const id = str(p.file_id);
       next.files = p.op === 'remove' ? state.files.filter((f) => f.file_id !== id) : state.files.some((f) => f.file_id === id) ? state.files : [...state.files, { file_id: id, name: str(p.name) || null }];
@@ -195,3 +211,35 @@ export function meetingIdFromHash(hash: string): string | null {
   return match ? match[1] : null;
 }
 export const meetingHash = (id: string): string => `#office/meeting/${encodeURIComponent(id)}`;
+
+
+/** Whether a draft was written by the model from the transcript (it needs a click and the shown hash to confirm). */
+export const isModelDraft = (o: Pick<RoomOutput, 'origin' | 'kind'>): boolean => o.origin === 'model' || o.kind === 'summary';
+
+/** The live summary of a meeting: a confirmed one first, then the draft. A dismissed summary is not shown. */
+export function liveSummary(outputs: RoomOutput[]): RoomOutput | null {
+  const live = outputs.filter((o) => o.kind === 'summary' && o.state !== 'dismissed');
+  return live.find((o) => o.state === 'confirmed') ?? live[0] ?? null;
+}
+
+/** Links of one decision, and the decisions that point at one piece of work (both directions of row 9.9). */
+export const linksOf = (links: WorkLink[], outputId: string): WorkLink[] => links.filter((l) => l.output_id === outputId);
+export function workIndex(links: WorkLink[], outputs: RoomOutput[]): { key: string; kind: WorkKind; id: string; label: string; status: string | null; decisions: RoomOutput[] }[] {
+  const byKey = new Map<string, { key: string; kind: WorkKind; id: string; label: string; status: string | null; decisions: RoomOutput[] }>();
+  for (const link of links) {
+    const decision = outputs.find((o) => o.id === link.output_id);
+    if (!decision) continue;
+    const key = `${link.target_kind}:${link.target_id}`;
+    const entry = byKey.get(key) ?? { key, kind: link.target_kind, id: link.target_id, label: link.target_label ?? link.target_id, status: link.target_status, decisions: [] };
+    entry.decisions.push(decision);
+    byKey.set(key, entry);
+  }
+  return [...byKey.values()];
+}
+
+/** Parse a source citation like `[#3, #5]` out of a summary line; the room links each number to its message. */
+export function citedMessages(line: string): number[] {
+  const out: number[] = [];
+  for (const group of line.matchAll(/\[((?:#\d+(?:,\s*)?)+)\]/g)) for (const n of group[1].matchAll(/#(\d+)/g)) out.push(Number(n[1]));
+  return out;
+}
