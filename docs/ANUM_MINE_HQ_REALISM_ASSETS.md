@@ -105,6 +105,10 @@ colour-map swatches used by the role table were read from the shipped files. No 
 the extra palette, geometry and shader code is ours. More free models (Quaternius, Poly Haven and others) could not be fetched from the
 build sandbox (hosts blocked, see above), so builds and hair shapes stay within these five.
 
+Bundle: the renderer chunk (`hqThreeRenderer`) is 609.5 kB, 153.2 kB gzip (budget 160 kB gzip), the lazy model loader chunk is 7.1 kB; the
+role table, shader patch and accessory geometry added about 4 kB gzip to the renderer chunk. The editor and chip are part of the Agents,
+Team and headquarters chunks, with no new dependency.
+
 ### Where to see and change it
 
 Agents, then an agent, then **Settings**, then **Avatar style** (live preview, EN and AR, keyboard radios, **Automatic** per attribute,
