@@ -16,7 +16,7 @@ export type RoomModuleActionProps = Readonly<{
 
 export function RoomModuleAction({ room, canManage = false, onOpenFlow, onOpenGaps, variant = 'panel' }: RoomModuleActionProps) {
   const m = resolveRoomModule(room);
-  const cls = variant === 'panel' ? 'hqPrimary' : 'hqRoomModuleLink';
+  const cls = variant === 'panel' ? 'hqPrimary' : 'hqGhost';
   const moduleName = t(`hqRoomModule.name.${m.id}` as MessageKey);
   const label = t('hqRoomModule.open', { module: moduleName });
   const hash = moduleHash(m.target);
