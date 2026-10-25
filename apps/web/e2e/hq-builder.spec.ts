@@ -171,13 +171,13 @@ test('an owner whose write is refused by the server is told who can do it', asyn
   const ppm = await pixelsPerMetre(page);
   await drag(page, body(page, 'r-recep'), 0, 6 * ppm);
   await page.getByRole('button', { name: 'Save layout' }).click();
-  await expect(page.getByRole('alert').first()).toContainText('Only the workspace owner can change the office');
+  await expect(page.getByRole('alert').filter({ hasText: 'Only the workspace owner can change the office' }).first()).toBeVisible();
   await expect(status(page)).toContainText('Unsaved changes');
 });
 
 test('the office service being down is explained with a way forward', async ({ page }) => {
   await openBuilder(page, { down: true });
-  await expect(page.getByRole('alert')).toContainText('PostgreSQL');
+  await expect(page.getByRole('alert').filter({ hasText: 'PostgreSQL' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 });
 
