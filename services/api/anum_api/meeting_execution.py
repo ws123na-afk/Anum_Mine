@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import text
 from .live_agent_meeting_store import LiveMeetingStoreError, SqlLiveMeetingStore
 from .model_gateway import ModelGateway, MockModelGateway, route_gateway, ModelRoute
+from .live_agent_meeting_redaction import redact_secrets
 from .scoped_store import open_scoped_store
 from .schemas import TenantContext, new_id
 from .settings import settings
@@ -27,9 +28,9 @@ on conflict do nothing returning id
 COMMIT_SQL = text("""
 insert into agent_meeting_turns
 (id,tenant_id,workspace_id,session_id,sequence,speaker_id,role,body,request_key,
- input_tokens,output_tokens,estimated_cost_usd,provenance)
+ input_tokens,output_tokens,estimated_cost_usd,provenance,redacted)
 values (:turn,:tenant,:workspace,:id,:seq,:agent,'agent',:body,:request,
- :input,:output,:cost,:provenance)
+ :input,:output,:cost,:provenance,:redacted)
 on conflict (tenant_id,workspace_id,session_id,request_key) do nothing
 returning *
 """)
@@ -110,7 +111,11 @@ async def execute_meeting_turn(
         raise LiveMeetingStoreError("unavailable","PostgreSQL is required")
     if isinstance(gateway,MockModelGateway) or getattr(gateway,"provider",None)=="mock":
         raise LiveMeetingStoreError("unavailable","Configure a real model before autonomous execution")
+    from .agent_controls import agents_stopped
+    if await asyncio.to_thread(agents_stopped,context):
+        raise LiveMeetingStoreError("conflict","The emergency stop is on: agents are paused")
     lease=new_id("meeting_lease")
+    claimed_seq=0
     with open_scoped_store(context,None,SqlLiveMeetingStore,user_scoped=True) as store:
         session=store.get(context,meeting_id,lock=True)
         if session is None:raise LiveMeetingStoreError("not_found","Meeting not found")
@@ -118,6 +123,8 @@ async def execute_meeting_turn(
         existing=store.session.execute(EXISTING_SQL,params).mappings().first()
         if existing:return dict(existing)
         _check(session,context)
+        if session.get("hand_raised_by"):
+            raise LiveMeetingStoreError("conflict","A hand is raised: the owner must answer before agents continue")
         agents=[r["actor_id"] for r in store.session.execute(ACTIVE_AGENT_SQL,params).mappings()]
         if not agents:raise LiveMeetingStoreError("conflict","No agent participants added")
         seqrow=store.session.execute(NEXT_SQL,params).mappings().one()
@@ -141,6 +148,10 @@ async def execute_meeting_turn(
             context,meeting_id,request_key,lease=lease,seq=seq,agent=agent,rev=session["revision"]
         )).first()
         if not claimed:raise LiveMeetingStoreError("conflict","Turn already claimed")
+        claimed_seq=seq
+        # A real turn is now in flight: this durable event is the only thing the room
+        # may show as "speaking".
+        store.emit(context,meeting_id,"turn_started",{"sequence":seq,"agent_id":agent,"request_key":request_key},actor=agent)
         history=_history(store,context,meeting_id)
         title=session["title"]
         remaining_tokens=session["max_tokens"]-int(seqrow["tokens"])
@@ -160,7 +171,7 @@ async def execute_meeting_turn(
         if isinstance(model,MockModelGateway) or getattr(model,'provider',None)=='mock':
             raise LiveMeetingStoreError('unavailable','Mock models cannot execute meetings')
         response=await asyncio.wait_for(model.generate_text(prompt),timeout=75)
-        body=response.text.strip()
+        body,was_redacted=redact_secrets(response.text.strip())
         if not body or len(body)>30000:raise LiveMeetingStoreError("conflict","Invalid model response")
         usage=response.usage
         input_count=usage.input_tokens
@@ -180,6 +191,12 @@ async def execute_meeting_turn(
             claim=store.session.execute(LOCK_SQL,params).mappings().first()
             if claim is None or claim["id"]!=lease or claim["expires_at"]<=datetime.now(timezone.utc):
                 raise LiveMeetingStoreError("conflict","Turn lease expired")
+            # A human interrupt may have taken the number while the model ran: the turn
+            # is numbered at commit, under the meeting row lock.
+            seq=int(store.session.execute(NEXT_SQL,params).mappings().one()["seq"])
+            if seq>meeting["max_turns"]:raise LiveMeetingStoreError("conflict","Turn limit reached")
+            if meeting.get("hand_raised_by"):
+                raise LiveMeetingStoreError("conflict","A hand was raised while the agent was speaking; the turn was dropped")
             if Decimal(meeting["total_cost_usd"])+cost>Decimal(meeting["max_cost_usd"]):
                 raise LiveMeetingStoreError("conflict","Meeting cost cap exceeded")
             if int(meeting["total_input_tokens"])+int(meeting["total_output_tokens"])+input_count+output_count>meeting["max_tokens"]:
@@ -187,14 +204,25 @@ async def execute_meeting_turn(
             row=store.session.execute(COMMIT_SQL,_request(
                 context,meeting_id,request_key,turn=new_id("meeting_turn"),seq=seq,agent=agent,
                 body=body,input=input_count,output=output_count,cost=cost,
-                provenance=str(usage.provider)+"/"+str(usage.model)
+                provenance=str(usage.provider)+"/"+str(usage.model),redacted=was_redacted
             )).mappings().first()
             if row is None:raise LiveMeetingStoreError("conflict","Turn sequence was already committed")
             store.session.execute(USAGE_SQL,_request(
                 context,meeting_id,request_key,input=input_count,output=output_count,cost=cost))
             store.session.execute(RELEASE_SQL,params)
+            # The message row is written above; only now is its event appended (same
+            # transaction), so a stream reader can never see an event without its message.
+            store.emit(context,meeting_id,"message",{
+                "sequence":row["sequence"],"speaker_id":row["speaker_id"],"role":"agent","body":row["body"],
+                "request_key":request_key,
+                "created_at":row["created_at"].isoformat(),"redacted":bool(row["redacted"]),
+                "provenance":row["provenance"]},actor=row["speaker_id"])
             return dict(row)
-    except Exception:
+    except Exception as exc:
+        code=getattr(exc,"code",None) or "error"
         with open_scoped_store(context,None,SqlLiveMeetingStore,user_scoped=True) as store:
             store.session.execute(RELEASE_SQL,_request(context,meeting_id,request_key,lease=lease))
+            if claimed_seq and store.get(context,meeting_id,lock=True) is not None:
+                store.emit(context,meeting_id,"turn_failed",{"sequence":claimed_seq,"code":str(code)[:30],
+                    "reason":str(exc)[:200] if code!="error" else "The model call failed"},actor=context.user_id)
         raise

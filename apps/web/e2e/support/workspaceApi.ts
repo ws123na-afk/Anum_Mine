@@ -344,7 +344,7 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     const finance = financeReply(financeFixture, method, url, request.postData() ? request.postDataJSON() : null);
     if (finance) return json(finance.body, finance.status);
     // Calls & Meetings (docs/meetings.md).
-    if (path.startsWith('/api/v1/meetings') && await handleMeetings(route)) return;
+    if ((path.startsWith('/api/v1/meetings') || path === '/api/v1/agent-meetings') && await handleMeetings(route)) return;
     // Agents (docs/agents.md): one shared agent and the catalog the wizard reads.
     if (path === '/api/v1/agents/skills/usage') return json({ items: [{ skill_id: 'acme.release-notes', count: 1, agents: [{ id: 'agent_fleet', name: 'Fleet desk', icon: 'truck', color: '#0f766e', status: 'active' }] }] });
     if (path === '/api/v1/agents/catalog') return json({ tools: [], skills: [], templates: [], icons: ['bot'], autonomy_floor: { read: 'auto', write: 'ask', external: 'ask' } });

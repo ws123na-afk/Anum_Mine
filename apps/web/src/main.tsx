@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { CircleDot, Search } from 'lucide-react';
 import type { AgentRun, Approval, Favorite, Task } from '@anum/contracts';
 import { hashTarget } from './lib/library';
+import { meetingIdFromHash } from './lib/liveMeeting';
 import { publicRoute } from './lib/publicSite';
 import { isPortalPath } from './lib/portal';
 import * as api from './lib/api';
@@ -44,6 +45,7 @@ import { AppCallProvider } from './AppCalls';
 import { HELP_EVENT } from './lib/help';
 import { isDemoWorkspace } from './lib/demo';
 // Views off the default path load on first visit, so the voice and workbench code stays out of the entry chunk.
+const MeetingRoomPage=lazy(()=>import('./MeetingRoomPage').then(m=>({default:m.MeetingRoomPage})));
 const OfficeTourView=lazy(()=>import('./HeadquartersEntrypoint').then(m=>({default:m.HeadquartersEntrypoint})));
 const HelpPanel=lazy(()=>import('./HelpPanel').then(m=>({default:m.HelpPanel})));
 const ExecutiveCommandCenter=lazy(()=>import('./ExecutiveCommandCenter').then(m=>({default:m.ExecutiveCommandCenter})));
@@ -183,7 +185,7 @@ function AuthGate(){const [status,setStatus]=useState<auth.AuthStatus|null>(null
  if(status.kind==='pending')return <PendingScreen account={status.account} onCheckAgain={async()=>{const next=await auth.checkAgain();if(next.kind!=='pending')setStatus(next);return next.kind==='pending'}} onSignOut={()=>void auth.signOut()}/>;
  return <SignedInApp/>}
 // The workspace is part of the app's identity: a confirmed switch remounts everything under the new one.
-function SignedInApp(){const [officePreview,setOfficePreview]=useState(()=>window.location.hash==='#office-preview');useEffect(()=>{const sync=()=>setOfficePreview(window.location.hash==='#office-preview');window.addEventListener('hashchange',sync);window.addEventListener('popstate',sync);return()=>{window.removeEventListener('hashchange',sync);window.removeEventListener('popstate',sync)}},[]);const [scopeKey,setScopeKey]=useState(()=>{const s=api.currentScope();return `${s.tenantId}/${s.workspaceId}`});if(officePreview)return <Suspense fallback={<div role="status">Loading office preview...</div>}><OfficeTourView/></Suspense>;return <App key={scopeKey} onSwitchWorkspace={async target=>{const workspaceId=await api.switchWorkspace(target);setScopeKey(`${api.currentScope().tenantId}/${workspaceId}`)}} onSwitchOrganisation={async (tenantId,workspaceId)=>{const next=await api.switchOrganisation(tenantId,workspaceId);history.replaceState(null,'','#team');setScopeKey(`${next.tenantId}/${next.workspaceId}`)}}/>}
+function SignedInApp(){const [officePreview,setOfficePreview]=useState(()=>window.location.hash==='#office-preview');const [meetingRoom,setMeetingRoom]=useState(()=>meetingIdFromHash(window.location.hash)!==null);useEffect(()=>{const sync=()=>{setOfficePreview(window.location.hash==='#office-preview');setMeetingRoom(meetingIdFromHash(window.location.hash)!==null)};window.addEventListener('hashchange',sync);window.addEventListener('popstate',sync);return()=>{window.removeEventListener('hashchange',sync);window.removeEventListener('popstate',sync)}},[]);const [scopeKey,setScopeKey]=useState(()=>{const s=api.currentScope();return `${s.tenantId}/${s.workspaceId}`});if(meetingRoom)return <Suspense fallback={<div role="status">Loading meeting room...</div>}><MeetingRoomPage/></Suspense>;if(officePreview)return <Suspense fallback={<div role="status">Loading office preview...</div>}><OfficeTourView/></Suspense>;return <App key={scopeKey} onSwitchWorkspace={async target=>{const workspaceId=await api.switchWorkspace(target);setScopeKey(`${api.currentScope().tenantId}/${workspaceId}`)}} onSwitchOrganisation={async (tenantId,workspaceId)=>{const next=await api.switchOrganisation(tenantId,workspaceId);history.replaceState(null,'','#team');setScopeKey(`${next.tenantId}/${next.workspaceId}`)}}/>}
 
 // The organisation's name and logo for the sidebar (docs/customer-organisations.md); silent when unavailable.
 function useBranding(){const [state,setState]=useState<{name:string|null;logo:string|null}>({name:null,logo:null});useEffect(()=>{let live=true,url:string|null=null;void getBranding().then(async b=>{url=b.has_logo?await logoObjectUrl().catch(()=>null):null;if(live)setState({name:b.display_name,logo:url});else if(url)URL.revokeObjectURL(url)}).catch(()=>undefined);return()=>{live=false;if(url)URL.revokeObjectURL(url)}},[]);return state}
