@@ -101,6 +101,7 @@ x-user-roles: owner,member
 - [ANUM MINE live agent meeting PostgreSQL 0098](docs/ANUM_MINE_LIVE_MEETING_POSTGRES_0098.md)
 - [ANUM MINE headquarters integration and release gates](docs/INTEGRATION_AND_RELEASE.md)
 - [ANUM MINE autonomous meeting rounds, API and safety gates](docs/ANUM_MINE_AUTONOMOUS_MEETINGS.md)
+- [ANUM MINE headquarters market research and office builder plan](docs/ANUM_MINE_HQ_MARKET_RESEARCH.md)
 - [ANUM MINE Office Registry production backend](docs/ANUM_MINE_OFFICE_REGISTRY_BACKEND.md)
 - [ANUM MINE campus, live presence, workstation work and executive overview](docs/ANUM_MINE_PRESENCE_AND_CAMPUS.md)
 - [Business gap register (Order 001)](docs/business/ANUM_BUSINESS_GAP_REGISTER.md)
