@@ -15,14 +15,15 @@ let starter: StarterCampusMock;
 
 async function open(page: Page, options: Parameters<typeof openHq>[1] = {}) {
   await openHq(page, { registry: populated, ...options, beforeGoto: async (p) => { await mockFlow(p); await mockProvisioning(p); starter = await mockStarterCampus(p); } });
-  await expect(tools(page)).toBeVisible();
+  await expect(tools(page)).toBeVisible({ timeout: 20_000 });
 }
 const tools = (page: Page) => page.locator('.hqLive').getByRole('button', { name: /Office tools|أدوات المكتب/ });
 const dialog = (page: Page) => page.locator('.hqScDialog[role=dialog]');
 async function openDialog(page: Page) {
   await tools(page).click();
   await page.locator('.hqLive').getByRole('button', { name: /Set up my campus|إعداد الحرم الخاص بي/ }).click();
-  await expect(dialog(page)).toBeVisible();
+  // The dialog is a lazy chunk (kept out of the headquarters chunk budget): allow its first load.
+  await expect(dialog(page)).toBeVisible({ timeout: 20_000 });
 }
 async function shot(page: Page, name: string) {
   const dir = process.env.HQ_SHOTS_DIR;
@@ -162,7 +163,7 @@ test('an empty campus offers Set up my campus and keyboard users can operate the
   await state.getByRole('button', { name: 'Set up my campus' }).focus();
   await page.keyboard.press('Enter');
   const d = dialog(page);
-  await expect(d).toBeVisible();
+  await expect(d).toBeVisible({ timeout: 20_000 });
   await page.keyboard.press('Tab');
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toHaveCount(0);
