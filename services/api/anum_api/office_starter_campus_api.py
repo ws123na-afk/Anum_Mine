@@ -194,6 +194,17 @@ def _apply_building(context: TenantContext, spec: sc.BuildingSpec, zone: str, ex
         return {"status": "created", "created": created, "ids": ids, "skipped": skipped}
 
 
+_REFUSED_DEFAULT = "A record of this building conflicts with one that already exists. Nothing was created for this building."
+_REFUSED = {
+    "ROOM_NAME_TAKEN": "A room with the same name already exists on the floor. Nothing was created for this building.",
+    "FLOOR_LEVEL_TAKEN": "Another floor already uses this level. Nothing was created for this building.",
+    "DESK_LABEL_TAKEN": "A desk with the same label already exists in the room. Nothing was created for this building.",
+    "ROOM_OVERLAP": "A room would overlap another room. Nothing was created for this building.",
+    "ROOM_OUT_OF_BOUNDS": "A room would fall outside its floor. Nothing was created for this building.",
+    "NO_FREE_SPACE": "There is no free space on the floor. Nothing was created for this building.",
+}
+
+
 def _zero() -> dict[str, int]:
     return {"buildings": 0, "floors": 0, "rooms": 0, "desks": 0}
 
@@ -227,9 +238,11 @@ def confirm(body: ConfirmBody, context: TenantContext = Depends(tenant_context))
         except _Changed:
             items.append(_item(plan, "changed", _zero(), "The records changed while saving. Nothing was created for this building. Review the preview again."))
         except SpaceStoreError as exc:
-            items.append(_item(plan, "failed", _zero(), f"{exc} Nothing was created for this building."))
-        except Exception:
-            logger.exception("starter campus building failed", extra={"anum_building": spec.key})
+            # A stable code and a fixed sentence: the exception text itself never reaches the response.
+            logger.warning("starter campus building refused", extra={"anum_building": spec.key, "anum_reason": exc.reason or exc.code})
+            items.append(_item(plan, "failed", _zero(), _REFUSED.get(exc.reason or "", _REFUSED_DEFAULT)))
+        except Exception as exc:  # one building failing must not hide the others
+            logger.error("starter campus building failed", extra={"anum_building": spec.key, "anum_error": type(exc).__name__})
             items.append(_item(plan, "failed", _zero(), "This building could not be saved. Nothing was created for it. Try again."))
     made = [i for i in items if i["status"] == "created"]
     broken = [i for i in items if i["status"] in ("failed", "changed")]
