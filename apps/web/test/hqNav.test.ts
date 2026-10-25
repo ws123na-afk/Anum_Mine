@@ -184,3 +184,11 @@ test('a registry building resolves by name to the open workspace, another worksp
   assert.deepEqual(resolveNavTarget({ building: 'ANUM HQ', room: 'Lobby' }, campus, open), { kind: 'apply', workspaceId: 'w1', buildingId: 'b0', floorId: 'f0', roomId: 'r0', agentId: null });
   assert.deepEqual(resolveNavTarget({ building: 'Other' }, campus, open), { kind: 'switch', workspaceId: 'w2' });
 });
+
+test('focus mode folds the rail and the side column away; drawers stay reachable', async () => {
+  const { layoutFor } = await import('../src/hq-nav/useNavLayout.ts');
+  assert.deepEqual([layoutFor(1440, null, null, true).rail, layoutFor(1440, null, null, true).side], ['hidden', 'hidden']);
+  assert.deepEqual([layoutFor(1024, null, null, true).rail, layoutFor(1024, null, null, true).side], ['hidden', 'drawer']);
+  assert.deepEqual([layoutFor(768, null, null, true).rail, layoutFor(768, null, null, true).side], ['drawer', 'drawer']);
+  assert.equal(layoutFor(1440, null, null, false).rail, 'full');
+});

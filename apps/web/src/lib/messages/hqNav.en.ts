@@ -32,6 +32,8 @@ export const hqNavEn = {
   'hqNav.side.label': 'Floor plan, people and quick moves',
   'hqNav.side.collapse': 'Hide the side panel',
   'hqNav.side.expand': 'Show the side panel',
+  'hqNav.focus.hide': 'Hide side panels',
+  'hqNav.focus.show': 'Show side panels',
   'hqNav.tab.plan': 'Floor plan',
   'hqNav.tab.moves': 'Quick moves',
   'hqNav.tab.assistant': 'Assistant',

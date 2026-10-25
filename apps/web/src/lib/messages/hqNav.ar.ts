@@ -32,6 +32,8 @@ export const hqNavAr: Record<keyof typeof hqNavEn, Message> = {
   'hqNav.side.label': 'مخطط الطابق والأشخاص والتنقلات السريعة',
   'hqNav.side.collapse': 'إخفاء اللوحة الجانبية',
   'hqNav.side.expand': 'إظهار اللوحة الجانبية',
+  'hqNav.focus.hide': 'إخفاء اللوحات الجانبية',
+  'hqNav.focus.show': 'إظهار اللوحات الجانبية',
   'hqNav.tab.plan': 'مخطط الطابق',
   'hqNav.tab.moves': 'تنقلات سريعة',
   'hqNav.tab.assistant': 'المساعد',

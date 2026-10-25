@@ -157,6 +157,47 @@ test('the rail and the strip collapse, and the choice is remembered', async ({ p
   await expect(strip(page)).toBeVisible();
 });
 
+for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768]] as const) {
+  test(`the side panels fold away at ${width}x${height}: the scene takes the width, the choice is kept, reopening stays visible`, async ({ page }) => {
+    await openOffice(page, { width, height });
+    await strip(page).getByRole('button', { name: /^Quick view: Al Noor Fleet HQ\./ }).click();
+    await strip(page).getByRole('button', { name: /^Quick view: Al Noor Fleet HQ\./ }).click();
+    await expect(rail(page)).toBeVisible({ timeout: 60_000 });
+    const stage = hq(page).locator('.hqBuilding .hqStage');
+    const before = (await stage.boundingBox())!.width;
+    const toggle = hq(page).getByRole('button', { name: 'Hide side panels' });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await toggle.click();
+    const show = hq(page).getByRole('button', { name: 'Show side panels' });
+    await expect(show).toHaveAttribute('aria-expanded', 'false');
+    await expect(rail(page)).toHaveCount(0);
+    await expect(hq(page).getByRole('complementary', { name: 'Floor plan, people and quick moves' })).toHaveCount(0);
+    await expect.poll(async () => (await stage.boundingBox())!.width).toBeGreaterThan(before + (width >= 1280 ? 150 : 40));
+    await noOverflow(page);
+    // Nothing essential is hidden with them: the floor menu and the quick views are still there.
+    await expect(hq(page).getByLabel('Choose a floor')).toBeVisible();
+    await expect(strip(page)).toBeVisible();
+    await page.reload();
+    await expect(hq(page).getByRole('button', { name: 'Show side panels' })).toHaveAttribute('aria-expanded', 'false');
+    await hq(page).getByRole('button', { name: 'Show side panels' }).click();
+    await expect(hq(page).getByRole('button', { name: 'Hide side panels' })).toHaveAttribute('aria-expanded', 'true');
+  });
+}
+
+test('the fold control is absent where the panels are already drawers, and reads Arabic in RTL', async ({ page }) => {
+  await openOffice(page, { width: 768, height: 1024 });
+  await expect(hq(page).getByRole('button', { name: 'Hide side panels' })).toHaveCount(0);
+  await noOverflow(page);
+  const ar = await page.context().newPage();
+  await useSavedLocale(ar, 'ar');
+  await openOffice(ar, { width: 1440, height: 900 });
+  await expect(ar.locator('html')).toHaveAttribute('dir', 'rtl');
+  await expect(hq(ar).getByRole('button', { name: 'إخفاء اللوحات الجانبية' })).toHaveAttribute('aria-expanded', 'true');
+  await hq(ar).getByRole('button', { name: 'إخفاء اللوحات الجانبية' }).click();
+  await expect(hq(ar).getByRole('button', { name: 'إظهار اللوحات الجانبية' })).toHaveAttribute('aria-expanded', 'false');
+  await noOverflow(ar);
+});
+
 test('many buildings: cards shrink by rule and none disappears', async ({ page }) => {
   await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); localStorage.setItem('anum.hq.quality', '0'); } catch { /* storage blocked */ } });
   await mockHq(page, { campus: 'api', commerce: 'none', meetings: 'none' });

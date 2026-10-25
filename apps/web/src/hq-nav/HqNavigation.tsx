@@ -4,7 +4,7 @@
  * camera is going. It wraps the existing scene and composes with its panels; it holds no data of its own.
  * Everything shown is derived from the campus, the saved office layout and the presence index (navModel.ts).
  */
-import { CalendarDays, Layers, PanelRight, X } from 'lucide-react';
+import { CalendarDays, Layers, PanelLeftClose, PanelLeftOpen, PanelRight, X } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { HqView } from '../HqChrome';
@@ -73,7 +73,7 @@ type Drawer = null | 'floors' | 'side';
 
 export function HqNavigation(props: HqNavigationProps) {
   const { handles, level, view, campus, building, floor } = props;
-  const { layout, stripOpen, toggleRail, toggleSide, toggleStrip } = useNavLayout();
+  const { layout, focus, stripOpen, toggleRail, toggleSide, toggleStrip, toggleFocus } = useNavLayout();
   const [drawer, setDrawer] = useState<Drawer>(null);
   const [tab, setTab] = useState<'plan' | 'moves' | 'assistant'>('plan');
   const [live, setLive] = useState('');
@@ -85,7 +85,7 @@ export function HqNavigation(props: HqNavigationProps) {
 
   const navOn = view !== 'list' && !!campus;
   const stripOn = navOn && props.webglOk;
-  const railOn = navOn && level === 'building' && !!building && layout.rail !== 'drawer';
+  const railOn = navOn && level === 'building' && !!building && layout.rail !== 'drawer' && layout.rail !== 'hidden';
   const sideInline = navOn && layout.side === 'open';
 
   useLayoutEffect(() => { setSlot(level === 'building' ? root.current?.querySelector('.hqStripSlot') ?? null : null); });
@@ -234,14 +234,22 @@ export function HqNavigation(props: HqNavigationProps) {
   }
 
   const stripNode = <Suspense fallback={null}><ViewStrip stops={stops} currentId={currentId} open={stripOpen} thumbKeyOf={stopKey} onToggle={toggleStrip} onGo={goStop} /></Suspense>;
-  const toolbar = (level === 'building' && layout.rail === 'drawer') || layout.side !== 'open';
+  // From 900 px there are panels beside the scene to fold away; narrower, they are drawers and the scene already has the width.
+  const canFocus = layout.width >= 900;
+  const toolbar = canFocus || (level === 'building' && layout.rail === 'drawer') || layout.side !== 'open';
   const sideLabel = level === 'building' ? t('hqNav.drawer.side') : t('hqNav.drawer.moves');
   return (
-    <div className="hqNav" ref={root} data-nav="on" data-level={level} data-rail={railOn ? layout.rail : 'none'} data-side={sideInline ? 'open' : layout.side} data-strip={stripOn && stripOpen ? 'open' : 'closed'}>
+    <div className="hqNav" ref={root} data-nav="on" data-level={level} data-rail={railOn ? layout.rail : 'none'} data-side={sideInline ? 'open' : layout.side} data-strip={stripOn && stripOpen ? 'open' : 'closed'} data-toolbar={toolbar ? 'on' : 'off'}>
       {toolbar && (
         <div className="hqNavToolbar" role="group" aria-label={t('hqNav.region')}>
           {level === 'building' && layout.rail === 'drawer' && <button type="button" className="hqGhost" aria-expanded={drawer === 'floors'} onClick={openDrawer('floors')}><Layers aria-hidden="true" />{t('hqNav.drawer.floors')}</button>}
-          {layout.side === 'hidden'
+          {canFocus && (
+            <button type="button" className="hqGhost hqFocusToggle" aria-expanded={!focus} onClick={toggleFocus}>
+              {focus ? <PanelLeftOpen aria-hidden="true" className="flip" /> : <PanelLeftClose aria-hidden="true" className="flip" />}
+              {focus ? t('hqNav.focus.show') : t('hqNav.focus.hide')}
+            </button>
+          )}
+          {layout.side === 'hidden' && !focus
             ? <button type="button" className="hqGhost" onClick={toggleSide}><PanelRight aria-hidden="true" />{t('hqNav.side.expand')}</button>
             : layout.side === 'drawer' && <button type="button" className="hqGhost" aria-expanded={drawer === 'side'} onClick={openDrawer('side')}><CalendarDays aria-hidden="true" />{sideLabel}</button>}
         </div>
