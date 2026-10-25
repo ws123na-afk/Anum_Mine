@@ -44,7 +44,10 @@ import { getBranding, logoObjectUrl } from './lib/teamApi';
 import { AppCallProvider } from './AppCalls';
 import { HELP_EVENT } from './lib/help';
 import { isDemoWorkspace } from './lib/demo';
+// With the headquarters switched off (VITE_ANUM_HQ=off) a stale #office-preview link opens the normal app.
+const hashView=(hash:string):View=>{const v=viewFromHash(hash);return v==='office'&&!headquartersEnabled()?'home':v};
 // Views off the default path load on first visit, so the voice and workbench code stays out of the entry chunk.
+import {headquartersEnabled} from './lib/headquartersFlag.ts';
 const MeetingRoomPage=lazy(()=>import('./MeetingRoomPage').then(m=>({default:m.MeetingRoomPage})));
 const OfficeTourView=lazy(()=>import('./HeadquartersEntrypoint').then(m=>({default:m.HeadquartersEntrypoint})));
 const HelpPanel=lazy(()=>import('./HelpPanel').then(m=>({default:m.HelpPanel})));
@@ -72,11 +75,11 @@ function App({onSwitchWorkspace,onSwitchOrganisation}:{onSwitchWorkspace:(worksp
  // The caller's membership here: the owner-only entries and the role in the user menu.
  const [membership,setMembership]=useState<{role:string;active:boolean}|null>(null),[membershipLoaded,setMembershipLoaded]=useState(false);
  useEffect(()=>{void api.getCurrentMembership().then(m=>setMembership(m)).catch(()=>undefined).finally(()=>setMembershipLoaded(true))},[]);
- const owner=membershipLoaded?isActiveOwner(membership):null,views=visibleViews(owner,api.platformOperatorHint());
+ const owner=membershipLoaded?isActiveOwner(membership):null,views=visibleViews(owner,api.platformOperatorHint()).filter(v=>v!=='office'||headquartersEnabled());
  // Team work: the work item opened from a notification, the last notification signal and a counter that refreshes the team lists on live events.
  const [workFocus,setWorkFocus]=useState<string|null>(null),[bellSignal,setBellSignal]=useState<{recipient:unknown;at:number}|null>(null),[teamLive,setTeamLive]=useState(0);
  const branding=useBranding();
- const [view,setView]=useState<View>(()=>location.pathname.endsWith('/meetings/connected')?'meetings':/[?&]state=mkt\./.test(location.search)?'marketing':viewFromHash(location.hash));
+ const [view,setView]=useState<View>(()=>location.pathname.endsWith('/meetings/connected')?'meetings':/[?&]state=mkt\./.test(location.search)?'marketing':hashView(location.hash));
  const [settingsKey,setSettingsKey]=useState(0),[paletteOpen,setPaletteOpen]=useState(false);
  // In-app help (docs/help.md): any openHelp() call opens the panel, on one article or the list.
  const [help,setHelp]=useState<{article?:string;seq:number}|null>(null);
@@ -121,8 +124,8 @@ function App({onSwitchWorkspace,onSwitchOrganisation}:{onSwitchWorkspace:(worksp
  async function decide(a:Approval,d:'approve'|'reject',reason?:string):Promise<string|null>{let refusal:string|null=null;await doIt(async()=>{try{const r=d==='approve'?await api.approveTask(a,reason):await api.rejectTask(a,reason);setTask(r.task);setRun(r.run)}catch(e){if(!isPermissionDenied(e))throw e;refusal=describeError(e)}await load()});return refusal}
  // Each view change is a history entry, so the browser's back and forward buttons move between views
  // (docs/module-checklist.md#navigation); a link to a hash (a breadcrumb) opens its view the same way.
- const go=(next:View)=>{setView(next);if(viewFromHash(location.hash)!==next||location.hash==='')history.pushState(null,'',`#${next}`)};
- useEffect(()=>{const sync=()=>setView(viewFromHash(location.hash));window.addEventListener('popstate',sync);window.addEventListener('hashchange',sync);return()=>{window.removeEventListener('popstate',sync);window.removeEventListener('hashchange',sync)}},[]);
+ const go=(next:View)=>{setView(next);if(hashView(location.hash)!==next||location.hash==='')history.pushState(null,'',`#${next}`)};
+ useEffect(()=>{const sync=()=>setView(hashView(location.hash));window.addEventListener('popstate',sync);window.addEventListener('hashchange',sync);return()=>{window.removeEventListener('popstate',sync);window.removeEventListener('hashchange',sync)}},[]);
  // A pick in the sidebar or the palette starts the view fresh (no focus carried over from a previous jump).
  const navigate=(next:View)=>{setCommandDraft(null);setChatTarget(null);setReportTarget(null);setCollectionTarget(null);setMemoryChats(false);setMemoryFocus(null);setFileFocus(null);setEmailFocus(null);setWaFocus(null);go(next)};
  // The caller's team notifications (docs/team-work.md#notifications), listed in the top bar's notifications menu.

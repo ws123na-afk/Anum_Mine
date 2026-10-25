@@ -53,11 +53,11 @@ export async function mockOfficeSpaces(
   return mock;
 }
 
-import { mockOrgChart } from './orgChartApi';
+import { mockHq } from './hqCampusApi';
 
 export interface OpenHqOptions { registry?: ReturnType<typeof hqRegistry>; locale?: 'en' | 'ar'; theme?: 'light' | 'dark'; noWebgl?: boolean; reducedMotion?: boolean }
 
-/** Opens the authenticated headquarters (#office-preview, live mode) with the org chart and registry mocked. */
+/** Opens the authenticated headquarters (#office-preview) with the shell, the campus and the registry mocked. */
 export async function openHq(page: Page, options: OpenHqOptions = {}): Promise<HqMock> {
   if (options.locale || options.theme) {
     await page.addInitScript(({ locale, theme }) => {
@@ -77,9 +77,10 @@ export async function openHq(page: Page, options: OpenHqOptions = {}): Promise<H
     });
   }
   if (options.reducedMotion) await page.emulateMedia({ reducedMotion: 'reduce' });
-  await mockOrgChart(page);
-  const registry = options.registry ?? hqRegistry(TENANT_A, { rooms: 4, desks: 4, agentIds: ['agent_fleet', 'agent_leads', 'agent_care', 'agent_invoice'] });
-  const mock = await mockOfficeSpaces(page, { registries: { [TENANT_A.tenantId]: registry } });
+  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
+  await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
+  // The registry the office reads is the tenant-aware one (the same routes, registered last so it answers first).
+  const mock = await mockOfficeSpaces(page, { registries: { [TENANT_A.tenantId]: options.registry ?? hqRegistry(TENANT_A, { rooms: 4, desks: 4, agentIds: ['agent_fleet', 'agent_leads', 'agent_care', 'agent_invoice'] }) } });
   await page.goto('/#office-preview');
   return mock;
 }

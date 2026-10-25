@@ -308,3 +308,7 @@
 .hqAgentCard:not(:hover):not(:focus-visible):not([data-selected="true"]) { border-radius: 999px; min-width: 0; padding: 3px; }
 .hqAgentCard .hqAvatar { box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone, var(--hq-faint)) 85%, transparent); }
 .hqAgentCard[data-stale="true"] .hqAvatar { opacity: .6; }
+
+/* Readiness fixes (F14): the app's global `strong, h1-h3 { color: var(--d-text) }` made headquarters
+   text near-black on the dark panels in the light app theme. The surface owns its own colours in every app theme. */
+.hqLive strong,.hqLive h1,.hqLive h2,.hqLive h3{color:inherit}

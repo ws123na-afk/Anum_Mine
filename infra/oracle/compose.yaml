@@ -453,6 +453,7 @@ services:
         # Legal pages shown without the DRAFT banner (docs/legal-pages.md): terms, privacy,
         # dpa, aup, subprocessors (comma-separated) or all. Empty: every page is a draft.
         VITE_ANUM_LEGAL_PUBLISHED: ${ANUM_LEGAL_PUBLISHED:-}
+        VITE_ANUM_HQ: ${ANUM_HQ:-on}
     image: anum/web:local
     restart: unless-stopped
     environment:

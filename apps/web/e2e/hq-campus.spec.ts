@@ -47,31 +47,34 @@ test('the campus shows one building per workspace with real counts, and opens a 
 });
 
 test('the scene runs on the three.js renderer and the quality can be pinned: shadows, night glow, reduced motion', async ({ page }) => {
+  // Quality 3 on a software renderer (CI) needs a 2048 px shadow map and a bloom pass: allow for slow frames.
+  test.setTimeout(180_000);
   const stats = async () => hq(page).locator('canvas.hqCanvas').evaluate((el) => ({ ...(el as HTMLCanvasElement).dataset }));
   await page.addInitScript(() => { try { if (localStorage.getItem('anum.hq.quality') === null) localStorage.setItem('anum.hq.quality', '3'); localStorage.setItem('anum.hq.light', 'night'); } catch { /* storage blocked */ } });
   await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
   await page.goto('/#office-preview');
   await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible();
-  await expect.poll(async () => (await stats()).engine ?? '', { timeout: 30_000 }).toMatch(/three/i);
+  await expect.poll(async () => (await stats()).engine ?? '', { timeout: 90_000 }).toMatch(/three/i);
   // Highest quality at night: a 2048 px shadow map and the bloom pass for lit windows and signs.
-  await expect.poll(async () => (await stats()).shadow, { timeout: 30_000 }).toBe('2048');
-  await expect.poll(async () => (await stats()).bloom, { timeout: 30_000 }).toBe('true');
+  await expect.poll(async () => (await stats()).shadow, { timeout: 90_000 }).toBe('2048');
+  await expect.poll(async () => (await stats()).bloom, { timeout: 90_000 }).toBe('true');
   // Lowest quality: no shadow map and no glow.
   await page.evaluate(() => localStorage.setItem('anum.hq.quality', '0'));
   await page.reload();
   await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible();
-  await expect.poll(async () => (await stats()).shadow, { timeout: 30_000 }).toBe('0');
+  await expect.poll(async () => (await stats()).shadow, { timeout: 90_000 }).toBe('0');
   expect((await stats()).bloom).toBe('false');
 });
 
 test('night glow is off under reduced motion', async ({ page }) => {
+  test.setTimeout(150_000);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.addInitScript(() => { try { localStorage.setItem('anum.hq.quality', '3'); localStorage.setItem('anum.hq.light', 'night'); } catch { /* storage blocked */ } });
   await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
   await page.goto('/#office-preview');
   const canvas = hq(page).locator('canvas.hqCanvas');
   await expect(canvas).toBeVisible();
-  await expect.poll(async () => canvas.evaluate((el) => (el as HTMLCanvasElement).dataset.shadow ?? ''), { timeout: 30_000 }).toBe('2048');
+  await expect.poll(async () => canvas.evaluate((el) => (el as HTMLCanvasElement).dataset.shadow ?? ''), { timeout: 90_000 }).toBe('2048');
   expect(await canvas.getAttribute('data-bloom')).toBe('false');
 });
 
