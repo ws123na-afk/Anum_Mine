@@ -280,6 +280,8 @@ export function workstation(b: MeshBuilder, y: number, spec: StationSpec, S: Int
     L.box(W / 2 - 0.22, H, 0.2, 0.1, 0.015, 0.1, S.dark);
     L.limb([W / 2 - 0.17, H + 0.01, 0.25], [W / 2 - 0.2, H + 0.36, 0.2], 0.018, 0.018, 0.014, 0.014, S.dark);
     L.box(W / 2 - 0.32, H + 0.35, 0.12, 0.2, 0.025, 0.1, hex('#ffe9b8'), { emissive: 0.7, shade: false });
+    const [lampX, lampZ] = L.pt(W / 2 - 0.22, 0.17);
+    b.halo(lampX, y + H + 0.3, lampZ, 1.3, hex('#ffe0a0'), 0.7);
   }
   if (look.plant) deskPlant(L, W / 2 - 0.1, H, 0.27, S);
   if (look.floor) L.box(-W / 2 - 0.1, 0.016, -1.25, W + 0.2, 0.008, D + 1.55, scale(look.floor, 0.64), { skip: ['bottom'], shade: false, emissive: 0.3 });

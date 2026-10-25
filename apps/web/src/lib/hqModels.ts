@@ -42,7 +42,7 @@ export const MODEL_SPECS: Readonly<Record<ModelKey, ModelSpec>> = {
     source: 'KhronosGroup/glTF-Sample-Assets, Models/GlamVelvetSofa', footprint: [1, 0.42], yawOffset: 0,
   },
   armchair: {
-    key: 'armchair', group: 'sofa', file: 'armchair.glb', bytes: 285372, license: 'CC-BY-4.0', author: 'Wayfair, LLC (Eric Chadwick)',
+    key: 'armchair', group: 'sofa', file: 'armchair.glb', bytes: 321764, license: 'CC-BY-4.0', author: 'Wayfair, LLC (Eric Chadwick)',
     source: 'KhronosGroup/glTF-Sample-Assets, Models/SheenChair', footprint: [1, 0.9], yawOffset: 0,
   },
   person_0: { key: 'person_0', group: 'figure', file: 'person_0.glb', bytes: 55080, license: 'CC0-1.0', author: 'Kenney', source: 'Kenney Mini Characters (character-male-d)', footprint: [0.55, 0.55], yawOffset: 0, seatedClip: 'sit' },

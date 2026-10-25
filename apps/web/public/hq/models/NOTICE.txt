@@ -11,7 +11,8 @@ sofa.glb, armchair.glb
   Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
            https://creativecommons.org/licenses/by/4.0/legalcode
   Changes: simplified, textures resized to 512 px WebP, meshopt compressed, embedded light and
-           material variants removed.
+           material variants removed; the armchair fabric was recoloured from orange to a teal grey
+           (greyscale texture with a tint) to fit the ANUM palette.
 
 person_0.glb, person_1.glb, person_2.glb, person_3.glb, person_4.glb
   Source: Kenney, "Mini Characters" (character-male-d, character-male-e, character-female-d,
