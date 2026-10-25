@@ -97,6 +97,7 @@ x-user-roles: owner,member
 - [ANUM MINE Executive PA Guided Tour](docs/ANUM_MINE_EXECUTIVE_PA_TOUR.md)
 - [ANUM MINE headquarters live flow, stuck work and office teams](docs/ANUM_MINE_HQ_LIVE_FLOW.md)
 - [ANUM MINE headquarters governed agent provisioning](docs/ANUM_MINE_AGENT_PROVISIONING.md)
+- [ANUM MINE headquarters: assign work in place and add a building by asking](docs/ANUM_MINE_ASSIGN_WORK.md)
 - [ANUM MINE starter campus: one click Set up my campus](docs/ANUM_MINE_STARTER_CAMPUS.md)
 - [ANUM MINE Executive PA tools and executive desk](docs/ANUM_MINE_EXECUTIVE_PA.md)
 - [ANUM MINE Live Employee Workstations](docs/ANUM_MINE_WORKSTATIONS_MODULE.md)
@@ -280,6 +281,7 @@ Code should follow the contracts, boundaries, tenant model, and security expecta
 - [ANUM MINE visual reference and build plan (owner-approved concept renders, data-truth rules, workstreams)](docs/ANUM_MINE_VISUAL_REFERENCE.md)
 - [ANUM MINE persistent live meeting management API](docs/ANUM_MINE_LIVE_MEETING_MANAGEMENT_API.md)
 - [ANUM MINE live meeting room UI and room API](docs/ANUM_MINE_LIVE_MEETING_ROOM_UI.md)
+- [ANUM MINE live meetings: monthly budget, owner-only transcripts, turn audit](docs/ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md)
 - [ANUM MINE live agent meetings foundation](docs/ANUM_MINE_LIVE_AGENT_MEETING_FOUNDATION.md)
 
 - [Sales dashboard](docs/sales-dashboard.md)

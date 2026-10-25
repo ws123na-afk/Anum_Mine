@@ -44,6 +44,8 @@ ANUM MINE draws every workspace you can open as a building on a campus. Inside a
 - Everyone with access to a workspace can see its building, rooms and agent status.
 - Owners and workspace managers can change rooms and desks in **Manage spaces**.
 - Commerce and tyre panels at the bottom show numbers only when that module is connected and you may read it. Otherwise they say who can set it up.
+- A room opens the module of its department, which an owner sets in the builder: Finance opens Finance, Sales opens Sales and CRM, Support opens the inbox, Operations opens the live flow, Tyre engineering opens Tyre Planner. A department with no module says "No module connected for this department" and offers **Organisation gaps**. The same link is in the room list.
+- A reception room shows its desks and assigned agents only. There is no visitor register yet, and the office shows no visitor names.
 
 ## Learn more
 

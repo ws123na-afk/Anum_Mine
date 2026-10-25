@@ -5,25 +5,27 @@
  * confirmation gate and the audit log. This module only shapes requests, reads
  * answers defensively and turns a sentence into a proposed tool call.
  */
-import type { ExecutiveGrant, ExecutiveGrantedWorkspace, ExecutiveNotGrantedWorkspace, ExecutiveSummary, ExecutiveUnavailableWorkspace, ExecutiveWorkspaceItem } from '@anum/contracts';
+import type { BuildingProposal, ExecutiveGrant, ExecutiveGrantedWorkspace, ExecutiveNotGrantedWorkspace, ExecutiveSummary, ExecutiveUnavailableWorkspace, ExecutiveWorkspaceItem } from '@anum/contracts';
 export type Requester = <T>(path: string, init: RequestInit) => Promise<T>;
 export type InputMode = 'typed' | 'voice' | 'click';
 
-export type PaToolName = 'navigate' | 'open_panel' | 'summarise_workspace' | 'list_blocked_work' | 'list_pending_approvals' | 'start_task' | 'delegate' | 'schedule_meeting';
+export type PaToolName = 'navigate' | 'open_panel' | 'summarise_workspace' | 'list_blocked_work' | 'list_pending_approvals' | 'start_task' | 'delegate' | 'schedule_meeting' | 'propose_add_building';
 export interface PaTool { name: PaToolName; kind: 'read' | 'write'; label: string; risk: 'low' | 'medium' | 'high'; autonomy: 'automatic' | 'confirm_each'; governed_by: string; permissions: string[]; allowed: boolean }
 export interface TourStop { building_id: string; building_name: string; floor_id: string; floor_name: string; level: number; room_id: string; room_name: string; room_kind: string; capacity: number; desks: number }
 export interface Tour { status: 'ready' | 'empty' | 'not_connected'; stops: TourStop[] }
 export interface Location { building_id?: string; floor_id?: string; room_id?: string; agent_id?: string }
 
 export type PaStatus = 'ok' | 'done' | 'approval_pending' | 'needs_confirmation' | 'needs_visual_confirmation' | 'stale_confirmation'
-  | 'denied' | 'not_found' | 'not_connected' | 'not_granted' | 'failed';
+  | 'denied' | 'not_found' | 'not_connected' | 'not_granted' | 'failed' | 'proposal' | 'needs_info' | 'invalid';
 export interface PaResult {
   tool: PaToolName; status: PaStatus; note?: string;
   navigate?: Location; open_panel?: { view: string };
   summary?: ExecutiveSummary; workspace_id?: string; scope?: 'current' | 'granted';
   items?: { id: string; title?: string; status?: string; task_id?: string; action?: string; risk_level?: string }[];
   payload_hash?: string; preview?: Record<string, unknown>; risk?: string; governed_by?: string;
-  task_id?: string; approval_id?: string; meeting_id?: string; missing?: string[]; truncated?: boolean;
+  task_id?: string; approval_id?: string; meeting_id?: string; missing?: string[] | string; truncated?: boolean;
+  /** `propose_add_building`: a proposal (`status: proposal`, with the fields of `BuildingProposal`), or the one question to ask. */
+  question?: string; code?: string; content?: BuildingProposal['content']; bounds?: BuildingProposal['bounds']; creates?: BuildingProposal['creates']; can_confirm?: boolean; version?: 1;
 }
 
 const ROOT = '/api/v1/executive-pa';

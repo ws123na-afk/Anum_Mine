@@ -139,15 +139,15 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 
 | ID | Requirement | Status | How checked | Evidence | Gap and recommended small PR |
 |---|---|---|---|---|---|
-| 7.1 | Each room kind opens a module | Partial | Read | `MODULE_ROUTES` | Link depends on kind, not on what the room is for. PR: choose the module from `team_department` (`finance` to Finance, `sales` to Sales and WhatsApp, `support` to Inbox, `operations` to Commerce and the flow dock, `tyre_engineering` to Tyre), falling back to Tasks |
-| 7.2 | Operations command centre | Missing | Read | No command-centre room; a link to Tasks only | The live flow dock (`HqFlowDock.tsx`, `GET /office/flow`) exists but is not the room's module. PR: operations rooms open the flow dock filtered to that room |
-| 7.3 | Finance room opens Finance | Missing | Read | `FinanceView` exists in the app (`#finance`), no room link | Same PR as 7.1 |
+| 7.1 | Each room kind opens a module | Complete | Read | `lib/hqRoomModule.ts` (department to module table), `HqRoomModule.tsx` in the inspector and the room list; `test/hqRoomModule.test.ts`, `e2e/hq-room-modules.spec.ts` | Compliance and Executive are not storable departments yet (contract has six); they resolve through the executive building kind and a forward-compatible table entry. Owner decision O3 |
+| 7.2 | Operations command centre | Partial | Read | Operations department opens the live flow dock (`HqFlowDock`) from the room inspector and list; `e2e/hq-room-modules.spec.ts | The dock is not yet filtered to the room that opened it |
+| 7.3 | Finance room opens Finance | Complete | Read | `lib/hqRoomModule.ts` (department to module table), `HqRoomModule.tsx` in the inspector and the room list; `test/hqRoomModule.test.ts`, `e2e/hq-room-modules.spec.ts` | none |
 | 7.4 | Meeting room opens the live meeting | Partial | Read, CI | Meeting kind opens `#meetings`, which lists live meetings with "Open room" (`MeetingRoomLauncher.tsx`); full room `MeetingRoomPanel` | No stored link between an office room and a meeting. `liveMeetingRoomIds` is never passed from `main.tsx`, so no room lights up. PR (expand-only migration): nullable `office_room_id` on meeting sessions, pass `liveMeetingRoomIds`, open `MeetingRoomPanel` from the room through `renderRoomPanel` |
 | 7.5 | Tyre engineering opens Tyre | Complete | Read, CI | Workshop kind to `#tyre`; Tyre panel in the building (`hqModules.ts`, `e2e/hq-campus.spec.ts`) | none |
-| 7.6 | Sales room opens Sales | Missing | Read | Sales CRM exists (WhatsApp sales dashboard, PRs 225 to 235); no room link | Same PR as 7.1 |
-| 7.7 | Executive office opens the executive desk | Missing | Read | `#executive` view exists; the executive interior has no link | Same PR as 7.1 (kind executive or department `executive`) |
+| 7.6 | Sales room opens Sales | Complete | Read | Sales department opens the Sales and CRM view (`#whatsapp`); `lib/hqRoomModule.ts` (department to module table), `HqRoomModule.tsx` in the inspector and the room list; `test/hqRoomModule.test.ts`, `e2e/hq-room-modules.spec.ts` | none |
+| 7.7 | Executive office opens the executive desk | Partial | Read | Rooms of an executive-kind building, or a stored `executive` department, open `#executive`; `lib/hqRoomModule.ts` (department to module table), `HqRoomModule.tsx` in the inspector and the room list; `test/hqRoomModule.test.ts`, `e2e/hq-room-modules.spec.ts` | There is no stored `executive` department or room kind in the contract; relies on the building kind |
 | 7.8 | Workstation opens the desk's real work | Complete | Read, CI | `HqWorkstationWork.tsx`, `GET /office/workstations/{desk}/work` (tasks, run phase, checkpoint, approvals, errors, documents); `e2e/office-workstations.spec.ts` | none |
-| 7.9 | Reception opens a real visitor workflow | Missing | Read | `ReceptionOperations.tsx` has no API call and no storage. Host and room choices are invented constants (`EXAMPLE_HOSTS`, `DEMO_ROOMS`: "ANUM - Chief of Staff", "Finance Controller"...) | Data-truth violation inside the live office. Visual spec says omit a visitor flow without a real workflow. Owner decision O4: remove the panel from the live view now, or build a visitor registry. Recommended first PR: remove it from the live view (keep in concept preview) |
+| 7.9 | Reception opens a real visitor workflow | Partial | Read | The Reception panel and its tool entry are removed from the live office; a reception room shows its desks and 'no visitor register'; unit and e2e guards fail if invented names return. The simulation stays only under 'Concept preview' | Visitor registry not built: owner decision O4 is open |
 | 7.10 | Module panels never show numbers without a source | Complete | Read, CI | `ModuleState` loading, not_connected, forbidden, error, ready (`lib/hqModules.ts`) | none |
 
 ## Section 8. Real-time backend
@@ -168,7 +168,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 |---|---|---|---|---|---|
 | 9.1 | Lifecycle: create, add agents, activate, pause, resume, end or cancel | Complete | Ran, CI | `live_agent_meeting_api.py`; `test_live_agent_meeting_*`; migrations 0098, 0104; `e2e/meeting-room.spec.ts` | none |
 | 9.2 | Governed model runtime with limits | Complete | Read, CI | Durable turn leases, per-meeting max turns, time, tokens, cost, owner pause, emergency stop, a mock model cannot run a turn; secrets redacted before storage (`live_agent_meeting_runtime.py`, `live_agent_meeting_redaction.py`) | none |
-| 9.3 | Workspace-wide meeting budget | Missing | Read | Security finding S-02 (open): limits are per meeting only | Owner decision O6 on the cap. PR: a workspace daily cost cap checked before each turn |
+| 9.3 | Workspace-wide meeting budget | Complete | Read, CI | S-02 closed: USD 50 per workspace per UTC month (owner changes it), gate under a workspace lock before each turn, 402 and pause when reached; `docs/ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md`, `test_postgres_live_agent_meeting_security.py` | Owner decision O6 settled (USD 50, monthly) |
 | 9.4 | Unattended running and crash resume | Partial | Read | `unattended_meeting_worker.py`, lease expiry and retry, terminal-state guards (`test_unattended_meeting_terminal.py`) | The worker is a managed service; nothing here proves one runs anywhere. Not verified. Do not run a long meeting through an HTTP request |
 | 9.5 | Live room: transcript, speakers, hands, owner interrupt | Complete | Read, CI | `MeetingRoomPanel.tsx`; `e2e/meeting-room.spec.ts` (join, turn streams, interrupt, reconnect replay, end) | none |
 | 9.6 | Meeting summary | Missing | Read | Live meetings have no stored summary. `meeting_analysis.py` serves imported meetings only | PR: owner-triggered governed summary stored as a draft output of kind `summary` that the owner confirms, like decisions |
@@ -177,8 +177,8 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 9.9 | Decision linked to work | Missing | Read | Only `action_item` outputs can become tasks (`output_for_task` refuses other kinds). A decision links to transcript messages, not to a task, approval or run | PR: let a decision link to existing task ids and show the links in the room and in the export |
 | 9.10 | Export | Partial | Read | `GET /{id}/export?format=markdown or json`, owner only, already redacted; the web "Export" button downloads Markdown (`MeetingRoomPanel.tsx`) | The web has no JSON export; no PDF; export omits decision to work links (9.9). Small PR: JSON option in the card |
 | 9.11 | Delete and retention | Partial | Read | Owner can delete an ended meeting's transcript (`DELETE /transcript`); counts, confirmed outputs and tasks remain | No automatic retention window. Owner decision O5 |
-| 9.12 | Turn execution audited | Partial | Read | Security finding S-04: `create`, `join_self`, `state_change`, `agent_add`, `output_task` are audited (grep of `live_agent_meeting_api.py` and the room API); turn execution is not | PR: audit record per executed turn (ids and token counts only) |
-| 9.13 | Transcript visibility | Partial | Read | S-03: listing meetings and reading turns needs `task:read` | Owner decision O7 on who may read transcripts |
+| 9.12 | Turn execution audited | Complete | Read, CI | S-04 closed: `agent_meeting.turn` per turn (success, failure, blocked, denied) with ids, usage, cost, correlation id and no text; `docs/ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md` | None |
+| 9.13 | Transcript visibility | Complete | Read, CI | S-03 closed: turns, events, stream, export are workspace owner only (403 otherwise, audited); room bundle carries no text for others; `docs/ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md` | Owner decision O7 settled: owner only |
 | 9.14 | Meetings visible in the office scene | Missing | Read | See 7.4 | See 7.4 |
 | 9.15 | Stored meeting replay | Complete | Read, CI | Finished meeting opens as a stored replay with playback (`e2e/meeting-room.spec.ts` "finished meeting opens as a stored replay") | Replays stored events only |
 
@@ -222,7 +222,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 12.4 | Web unit tests and typecheck | Complete | Ran | 168 of 168 and `tsc` pass | none |
 | 12.5 | Backend unit tests | Complete | Ran | 138 of 138 pass | none |
 | 12.6 | PostgreSQL and RLS tests | Complete | CI | `test_postgres_hq_rls.py`, `test_postgres_office_*`, `test_postgres_live_agent_meeting_*` | Not verified locally: no test database credentials here |
-| 12.7 | Security tests and review | Partial | Read | `docs/ANUM_MINE_HQ_SECURITY_REVIEW.md`, `e2e/hq-csp.spec.ts`, RLS test | Open findings S-02 (no workspace cap), S-03 (transcript read scope), S-04 (turns not audited), S-05 (turn rate). See 9.3, 9.12, 9.13 |
+| 12.7 | Security tests and review | Partial | Read | `docs/ANUM_MINE_HQ_SECURITY_REVIEW.md`, `e2e/hq-csp.spec.ts`, RLS test | S-02, S-03 and S-04 are closed (see 9.3, 9.12, 9.13). Open: S-05 (turn rate) |
 | 12.8 | Accessibility | Complete | Read, CI | `e2e/hq-a11y.spec.ts`: English and Arabic, light and dark | Open H-13 (close button covered by header in the overlay) was found; status not re-checked |
 | 12.9 | Load and streaming | Partial | Read | `scripts/hq-load/hq_load.py`, `docs/ANUM_MINE_HQ_LOAD_TESTING.md` | Never run on the Oracle VM with PostgreSQL; H-09 open |
 | 12.10 | Rollback | Complete | Read | `VITE_ANUM_HQ=off` (`lib/headquartersFlag.ts`), expand-only migrations, `docs/ANUM_MINE_HQ_DEPLOYMENT_AND_ROLLBACK.md` | No rehearsal recorded |
@@ -235,7 +235,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 13.1 | One slice per pull request, draft first, never self-merged | Complete | Read | PR history 216 to 246 | none |
 | 13.2 | Docs updated and indexed in the same change | Complete | Ran | README lists every HQ doc; `pnpm docs:check` | none |
 | 13.3 | Migrations expand only, ids at most 32 characters, one chain | Partial | Read | 0097 to 0106 are additive (`0105_office_builder.py` header states it) | Two files are numbered 0099 (`0099_office_create_keys.py`, `0099_office_room_geometry.py`); ids chain correctly (finding H-12). PR: rename one file to remove the duplicate number |
-| 13.4 | Real data only, no invented people or activity in the live view | Partial | Read | Presence, work, flow, meetings and modules are record-backed with honest empty states | Violations: Reception panel invented hosts and rooms (7.9); tour (b) room descriptions are kind words with an "Illustrative" disclaimer (6.5). The concept preview toggle stays visibly separate (`HeadquartersEntrypoint.tsx`); owner decision O12 on removing it |
+| 13.4 | Real data only, no invented people or activity in the live view | Partial | Read | Presence, work, flow, meetings and modules are record-backed with honest empty states; the invented Reception panel is gone from the live view (PR claude/hq-room-modules) | Remaining: tour (b) room descriptions are kind words with an 'Illustrative' disclaimer (6.5). The concept preview toggle stays visibly separate; owner decision O12 |
 | 13.5 | English and Arabic | Partial | Read | `lib/messages/hq.en.ts` (210 lines) and `hq.ar.ts` (209), `hqFlow.*`, `builder.*`; `hq-campus.spec.ts` "Arabic ... right to left"; `hq-a11y.spec.ts` | Key parity of `hq.en` and `hq.ar` not checked key by key. `GuidedExecutiveTour.tsx` and `ReceptionOperations.tsx` are English only. PR: a unit test that fails when a key exists in one language only, and translate those two panels |
 | 13.6 | Every state handled (loading, empty with next action, error, denied, large) | Complete | Read, CI | `e2e/hq-campus.spec.ts` "refused campus read explains who can fix it", "no saved layout says what to do next", list search; paged history API | none |
 | 13.7 | No em or en dashes, no secrets, no model names | Complete | Ran | This file checked with a search; gitleaks and CodeQL green on main | Repo-wide dash check not run |
@@ -261,8 +261,8 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 
 ## Ranked next actions (top 10)
 
-1. **Remove the invented Reception panel from the live office (7.9, 13.4).** It shows made-up host and room names with no saved data. Smallest honest fix: hide it in the live view. Then decide O4.
-2. **Make rooms open the right module (7.1 to 7.3, 7.6, 7.7).** Use the room's stored department so Finance opens Finance, Sales opens Sales, Executive opens the executive desk, Operations opens the flow dock.
+1. **Done in PR claude/hq-room-modules: removed the invented Reception panel from the live office (7.9, 13.4).** It shows made-up host and room names with no saved data. Smallest honest fix: hide it in the live view. Then decide O4.
+2. **Done in PR claude/hq-room-modules: rooms open the right module (7.1 to 7.3, 7.6, 7.7).** Use the room's stored department so Finance opens Finance, Sales opens Sales, Executive opens the executive desk, Operations opens the flow dock.
 3. **Link meetings to rooms (7.4, 5.9, 9.14).** One nullable room id on meeting sessions, then the room lights up "In meeting" and opens the live meeting room.
 4. **Build the History panel (10.2, 10.4, 14.9).** The API is done and tested; no one can use it yet. Add filters, paging and correlation view.
 5. **PA daily briefing (6.6).** A read-only tool that composes blocked work, approvals, meetings and workspace summary, naming each source.
@@ -270,7 +270,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 7. **Use the presence stream in the web (8.1, 8.2).** Cut polling and close the gap with the server design; then re-run the load test on the Oracle VM (H-09).
 8. **Meeting summary and decision to work links (9.6, 9.9, 9.7).** Owner-confirmed summary, decisions linked to tasks, linked items in the export.
 9. **Layout history and restore (8.6, 11.6).** From the existing audit records, restore as a normal save.
-10. **Close the open security findings (9.3, 9.12, 9.13, 12.7).** Workspace meeting cap, audit each turn, decide transcript visibility.
+10. **Close the open security findings (9.3, 9.12, 9.13, 12.7).** Workspace meeting cap, audit each turn, decide transcript visibility. Done in the meeting budget PR (S-02, S-03, S-04); S-05 and owner decision O5 (retention) stay open.
 
 Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a screenshot sweep artifact (12.3), the migration number clash (13.3), the `hq.en` and `hq.ar` key parity test (13.5), desk and figure visuals for all eight states (5.5).
 
@@ -283,8 +283,8 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 | O3 | Which departments get rooms and templates: Marketing, Technology, Research, Legal, Security and Governance, and what real module does each open? | 4.5. A room with no module would be a dead button |
 | O4 | Reception: remove from the live office, or build a real visitor registry (who, host, badge, time)? | 7.9 |
 | O5 | Retention windows for meeting transcripts and for history snapshots | 9.11, 10.5 |
-| O6 | Workspace-wide daily cost cap for agent meetings | 9.3 (S-02) |
-| O7 | Who may read meeting transcripts besides the owner (any member with `task:read` today) | 9.13 (S-03) |
+| O6 | Workspace-wide monthly cost cap for agent meetings: decided, USD 50 per workspace per month, owner configurable | 9.3 (S-02), closed |
+| O7 | Who may read meeting transcripts: decided, the workspace owner only | 9.13 (S-03), closed |
 | O8 | Approve storing time-indexed office snapshots so a true replay is possible, with their retention and cost | 10.5 |
 | O9 | A PA persona in the scene: name, look, voice. None may be invented by the build | 6.8 |
 | O10 | What the starter campus creates by default for a new owner | 4.2, 4.4 |

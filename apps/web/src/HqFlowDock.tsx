@@ -5,6 +5,7 @@ import { t, formatDateTime, type MessageKey } from './lib/i18n';
 import { actionHash, actionText, ageText, changeAnnouncement, reasonText } from './lib/officeFlow';
 import { flowClient, type ChangeBatch, type FlowLink, type FlowStatus } from './useOfficeFlow';
 import { useLocale } from './useLocale';
+import { openAssign, openTaskPanel } from './lib/hqAssign';
 import './hqFlow.css';
 
 export interface FlowRoomInfo { label: string }
@@ -75,7 +76,7 @@ export function HqFlowDock(props: HqFlowDockProps) {
         <h3 className="hqFlowH">{t('hqFlow.inProgress')}</h3>
         {calm.length === 0 ? <div className="hqFlowNote">
           <p>{roomFilter ? t('hqFlow.noItemsInRoom') : t('hqFlow.empty')}</p>
-          {!roomFilter && <button type="button" onClick={() => onNavigate('#tasks')}>{t('hqFlow.emptyAction')}</button>}
+          {!roomFilter && <button type="button" onClick={() => { if (!openAssign({ source: 'flow_dock' })) onNavigate('#tasks'); }}>{t('hqFlow.emptyAction')}</button>}
         </div> : STAGE_ORDER.map((stage) => {
           const rows = calm.filter((i) => i.stage === stage);
           if (!rows.length) return null;
@@ -138,7 +139,12 @@ function FlowCard({ item, roomName, onFocusRoom, onNavigate }: {
     {stuck && <div className="hqFlowStuck" role="group" aria-label={t('hqFlow.stuckSince', { age: ageText(stuck.age_seconds) })}>
       <p className="hqFlowReason"><AlertTriangle size={14} aria-hidden="true" /> <span>{reasonText(item)}</span></p>
       <p className="hqFlowNext"><span>{t('hqFlow.next')}</span>
-        <button type="button" onClick={() => onNavigate(actionHash(stuck.action))}>{actionText(stuck.action)}</button></p>
+        <button type="button" onClick={() => {
+          // A task opens beside the office; every other next step goes to the page that owns it.
+          if (item.kind === 'task' && (stuck.action === 'open_task' || stuck.action === 'retry_task') && openTaskPanel(item.id)) return;
+          onNavigate(actionHash(stuck.action));
+        }}>{actionText(stuck.action)}</button>
+        {loc?.agent_id && <button type="button" onClick={() => openAssign({ agentId: loc.agent_id, roomId: loc.room_id, roomName: loc.room_name, source: 'flow_dock' })}>{t('hqAssign.openFor', { name: loc.agent_name ?? '' })}</button>}</p>
     </div>}
     <details className="hqFlowHistory" onToggle={toggleHistory}>
       <summary>{t('hqFlow.history')}</summary>
