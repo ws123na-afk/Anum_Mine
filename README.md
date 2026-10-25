@@ -109,6 +109,7 @@ x-user-roles: owner,member
 - [ANUM MINE Office Registry production backend](docs/ANUM_MINE_OFFICE_REGISTRY_BACKEND.md)
 - [ANUM MINE headquarters: campus, building cutaway and extension points](docs/ANUM_MINE_HQ_EXTENSION_POINTS.md)
 - [ANUM MINE headquarters baseline audit (code to feature matrix, CI, issue register)](docs/ANUM_MINE_HQ_BASELINE_AUDIT.md)
+- [ANUM MINE feature completion matrix (requirement by requirement status, evidence, gaps, top 10 actions)](docs/ANUM_MINE_FEATURE_COMPLETION_MATRIX.md)
 - [ANUM MINE headquarters performance budget](docs/ANUM_MINE_HQ_PERFORMANCE_BUDGET.md)
 - [ANUM MINE headquarters streaming and load testing](docs/ANUM_MINE_HQ_LOAD_TESTING.md)
 - [ANUM MINE headquarters security review](docs/ANUM_MINE_HQ_SECURITY_REVIEW.md)
