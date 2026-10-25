@@ -28,6 +28,8 @@ export type OfficeFlowLocationReason =
 export interface OfficeFlowLocation {
   building_id: string; floor_id: string; room_id: string; room_name: string; desk_id: string;
   agent_id: string | null; agent_name: string | null;
+  /** `handler`: no record names an owner, so the owner confirmed handler of this kind of work holds the item. */
+  via?: 'handler';
 }
 
 export interface OfficeFlowStuck {
