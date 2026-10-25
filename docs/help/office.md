@@ -25,6 +25,14 @@ ANUM MINE draws every workspace you can open as a building on a campus. Inside a
 3. Select an agent card to see their open tasks and to open their profile.
 4. **Office tools** opens Manage spaces, Live workstations, Agent meeting sessions, Reception and the Guided visit.
 
+## Assign work without leaving the office
+
+1. Open a room, a team card, an agent card or the live flow, and press **Assign work**. The agent you clicked is already chosen; in a room, the agent seated there is chosen.
+2. Write a title and what the agent should do. You can add the result you expect, a linked context (a project, customer, order or office), a priority and a due time.
+3. Read **What this agent can do**. It shows what the agent does by itself, what it asks a person about first, and what it cannot do. A paused agent says "turn it on first", with a **Turn it on** button when you may use it.
+4. Press **Assign and start**. A message confirms it, and **Open the task** shows it beside the office. The task appears in the live flow of the agent's office.
+
+If you press the button twice or the answer is lost, you still get one task. If the work needs an approval, it waits under Approvals; only a person can decide it.
 ## Who can do this
 
 - Everyone with access to a workspace can see its building, rooms and agent status.

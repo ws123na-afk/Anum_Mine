@@ -23,6 +23,7 @@ Tools:
 | `summarise_workspace` | read | low | automatic | own workspace APIs, or an executive grant |
 | `list_blocked_work` | read | low | automatic | tasks API |
 | `list_pending_approvals` | read | low | automatic | approvals API (`approval:read`) |
+| `propose_add_building` | read | low | automatic | office builder; proposal only, an owner's click on `POST /office/building-proposals/confirm` creates ([Assign work](ANUM_MINE_ASSIGN_WORK.md#add-a-building-by-asking)) |
 | `start_task` | write | medium | confirm each time | `POST /tasks` then run: agent profile, ToolPolicy, autonomy, approvals |
 | `delegate` | write | medium | confirm each time | same, with `agent_id` |
 | `schedule_meeting` | write | medium | confirm each time | `POST /agent-meetings` (`workspace:manage`, PostgreSQL) |
@@ -49,6 +50,12 @@ The desk uses the real executive API of `anum_api/executive_api.py` through `lib
 `ExecutivePanel.tsx` (also exported as `ExecutivePaDock`) is laid out as the right-side dock of the owner's concept renders: avatar glyph, a status that reads "Ready" only when the tools endpoint answered, one welcome line, quick actions, "You can also say" examples and the typed box with a microphone. It fits any container up to about 380 px wide, so the visual workstream can mount it in a campus slot (`<ExecutivePaDock onOpenView onLocation />`).
 - Every quick action calls a real tool: Start tour (navigate per stop), Open calendar and Open meetings (`open_panel`), List blocked work, Pending approvals, Summarise this workspace. Buttons the concept shows without a backing tool (Show today's schedule items, Take me to my office, Show logistics activity, Show recent orders) are omitted. The persona name, photo, greeting facts and schedule items are not invented.
 - The examples are built from the real first room of the tour and the real tools. Writes still use the proposal, click and hash gate.
+
+## Add a building
+`propose_add_building` returns a proposal (building, floors, template rooms, bounds, exactly what will be created) with a `payload_hash`, or `needs_info` with the one missing field (name or floors), or `invalid`. It creates nothing and cannot confirm. The web shows the proposal as a card in the conversation (assistant dock and ANUM Command) with Confirm and Cancel; Confirm calls the builder confirm route with the hash and `input_mode: "click"` (`workspace:manage`, one transaction, idempotent, audited). Voice and typed input cannot confirm. Details: [Assign work and add a building](ANUM_MINE_ASSIGN_WORK.md).
+
+## Assigning work from the assistant
+Inside the open headquarters, "ask {agent} to ..." and "start a task to ..." open the shared Assign work dialog pre-filled instead of the in-dock confirm card; the dialog's Assign button is the visual confirmation and uses `POST /office/assignments` (same governed path as `start_task`, with an idempotency key). Outside the headquarters the confirm card and the `start_task` and `delegate` tools work as before.
 
 ## Scene navigation
 `publishNavigation` dispatches `anum:hq-navigate` with the headquarters' own target (`{building, floor, room, agent}`, ids accepted) and keeps the PA's location in `sessionStorage` (`anum.hq.pendingNavigation`). The visual workstream's `navigateTo` extension point was not available yet; connect it to that event (or replace `publishNavigation`). No scene file was edited.

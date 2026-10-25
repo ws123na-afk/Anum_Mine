@@ -16,7 +16,7 @@ export const hqFlowAr: Record<keyof typeof hqFlowEn, Message> = {
   'hqFlow.retry': 'حاول مرة أخرى',
   'hqFlow.denied': 'لا يمكنك قراءة العمل في مساحة العمل هذه. اطلب من مالك مساحة العمل دور عضو أو مشاهد.',
   'hqFlow.empty': 'لا يوجد عمل قيد التنفيذ. تظهر المهام والعملاء المحتملون والطلبات الجديدة هنا فور وجودها.',
-  'hqFlow.emptyAction': 'فتح المهام',
+  'hqFlow.emptyAction': 'إسناد عمل',
   'hqFlow.stage.arrived': 'وصل',
   'hqFlow.stage.in_office': 'في مكتب',
   'hqFlow.stage.waiting_human': 'بانتظار شخص',

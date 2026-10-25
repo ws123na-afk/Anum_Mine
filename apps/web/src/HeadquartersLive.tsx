@@ -37,6 +37,7 @@ import { HqFlowDock } from './HqFlowDock';
 import { HqTeamPanel } from './HqTeamPanel';
 import { useOfficeFlow } from './useOfficeFlow';
 import { OrgGapsPanel } from './hq-provisioning/OrgGapsPanel';
+import { AssignHost } from './hq-assign/AssignHost';
 import { useProvisioningGaps } from './hq-provisioning/useProvisioning';
 import './hqFlow.css';
 import './headquartersLive.css';
@@ -504,6 +505,9 @@ export function HeadquartersLive(props: HeadquartersProps) {
           <aside className="hqPaDock" aria-label={t('hq.paDock')}>{props.renderPaDock({ close: () => undefined })}</aside>
         )}
       </div>
+
+      <AssignHost onAssigned={() => void flow.reload()} onNavigate={goTo}
+        seatedAgentIds={(rid) => new Set((registryBuilding?.floors ?? []).flatMap((f) => f.desks).filter((d) => d.roomId === rid && d.agentId).map((d) => d.agentId as string))} />
 
       {overlay !== 'none' && (
         <div className="hqModalHost" role="dialog" aria-modal="false" aria-label={t('hq.tools')}>

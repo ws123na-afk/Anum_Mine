@@ -28,6 +28,14 @@ The Executive desk lists the workspaces you can see, grouped as personal, employ
 2. Anything that starts work shows a confirm card. Click **Confirm and run**; saying yes does not confirm.
 3. The assistant can never approve or reject: decide approvals yourself in **Approvals**. Start the **Guided tour** to visit the rooms you can access.
 
+## Add a building by asking
+
+1. In the assistant box or in **Command**, type or say, for example, "add a building called North Depot with 3 floors".
+2. If the name or the number of floors is missing, the assistant asks one short question.
+3. A proposal card shows exactly what will be created: the building, its floors and the template rooms on each floor. Nothing exists yet.
+4. A workspace owner presses **Confirm and add the building**. Saying yes or typing yes does not confirm, and neither does the assistant. **Cancel** creates nothing.
+
+The building is made all at once or not at all, and it is recorded in the audit log. No desks or agents are added; seat agents later in the office builder.
 ## Who can do this
 
 Reading the desk and using the read tools needs access to the workspace. Starting tasks needs permission to create and run tasks, creating a live meeting needs the owner role, and granting summaries is for workspace owners. If a tool is greyed out, your role does not allow it.
