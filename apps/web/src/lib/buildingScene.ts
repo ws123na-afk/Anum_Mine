@@ -9,9 +9,12 @@ import { MAT, MeshBuilder, hex, mix, scale, seeded, type Rgb } from './hqGeometr
 import type { RoomGeometry, SceneDesk, SceneFloor, Vec3 } from './headquartersProjection.ts';
 import type { SceneMesh } from './campusScene.ts';
 import type { Aabb } from './hqMath.ts';
-import { ASPHALT, STONE, TEAL, WARM, anumMark, bench, bush, car, cypress, flowerBed, hedge, lamp, lbox, palm, planter, roundTree } from './hqProps.ts';
+import { ASPHALT, STONE, TEAL, WARM, anumMark, bench, bush, cypress, flowerBed, hedge, lamp, lbox, palm, planter, roundTree } from './hqProps.ts';
 import { signBoard } from './campusBuildings.ts';
+import { car as envCar } from '../hqAssets/environment/index.ts';
 import { signAtlasLayout } from './hqTextures.ts';
+import { buildInteriorRoom, interiorKindFor, type StationSpec, type StationState } from '../hqAssets/interior/index.ts';
+import { classifySurfaces } from './hqSurfaces.ts';
 
 export const FLOOR_PITCH = 4.2;
 export const WALL_HEIGHT = 3.0;
@@ -69,6 +72,10 @@ const SCREEN: Record<DeskVisual, { color: Rgb; emissive: number }> = {
   unknown: { color: hex('#8b95a5'), emissive: 0.3 },
   assigned: { color: hex('#8b95a5'), emissive: 0.25 },
   vacant: { color: hex('#232c36'), emissive: 0 },
+};
+
+const STATION_OF: Readonly<Record<DeskVisual, StationState>> = {
+  working: 'working', waiting: 'waiting', idle: 'idle', unknown: 'unknown', vacant: 'vacant', assigned: 'unknown',
 };
 
 const freeze = (b: MeshBuilder): SceneMesh => ({ vertices: b.toFloat32(), bounds: b.bounds(), triangles: b.triangleCount });
@@ -391,14 +398,28 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
           wallArt(opaque, room.x + room.width * 0.12, y + 0.8, room.z + t, 0.8, mix(accent, hex('#ffffff'), 0.2));
           wallArt(opaque, room.x + room.width * 0.7, y + 0.8, room.z + t, 0.8, hex('#f2c14e'));
         }
-        furnish(opaque, room, y + 0.06, accent, live, color, rnd);
         const placed = floor.desks.filter((dk) => dk.roomId === room.id);
-        const spacing = placed.length > 1 ? Math.min(room.width / (Math.min(5, Math.ceil(Math.sqrt(placed.length))) + 1), 1.6) : 1.3;
-        for (const dk of placed) {
-          const state: DeskVisual = options.deskState?.get(dk.id) ?? (dk.agentId ? 'assigned' : 'vacant');
-          desk(opaque, dk, y + 0.06, spacing, state, options.people?.get(dk.id), color);
-          desks.push({ id: dk.id, roomId: room.id, floorIndex: fi, anchor: { x: dk.position.x, y: y + 1.55, z: dk.position.z } });
+        const interior = interiorKindFor(room.kind, room.label);
+        if (interior) {
+          // The furnished room comes from the interior assets. Desks are the registry's: one station each, and a
+          // seated figure only where the registry (or presence) says someone is assigned to the desk.
+          const stations: StationSpec[] = placed.map((dk) => ({
+            id: dk.id, x: dk.position.x, z: dk.position.z, rot: 0,
+            state: STATION_OF[options.deskState?.get(dk.id) ?? (dk.agentId ? 'assigned' : 'vacant')],
+            occupantSeed: options.people?.get(dk.id) ?? null,
+          }));
+          const scratch = new MeshBuilder();
+          buildInteriorRoom(scratch, interior, { x: room.x, y: y + 0.06, z: room.z, width: room.width, depth: room.depth }, { seed: room.id, accent, floor: color, live, detail: floors.length > 2 || all.length > 14 ? 'lite' : 'full', stations });
+          opaque.append(classifySurfaces(scratch.toFloat32()));
+        } else {
+          furnish(opaque, room, y + 0.06, accent, live, color, rnd);
+          const spacing = placed.length > 1 ? Math.min(room.width / (Math.min(5, Math.ceil(Math.sqrt(placed.length))) + 1), 1.6) : 1.3;
+          for (const dk of placed) {
+            const state: DeskVisual = options.deskState?.get(dk.id) ?? (dk.agentId ? 'assigned' : 'vacant');
+            desk(opaque, dk, y + 0.06, spacing, state, options.people?.get(dk.id), color);
+          }
         }
+        for (const dk of placed) desks.push({ id: dk.id, roomId: room.id, floorIndex: fi, anchor: { x: dk.position.x, y: y + 1.55, z: dk.position.z } });
         rooms.push({
           id: room.id, floorIndex: fi,
           box: { min: { x: room.x, y, z: room.z }, max: { x: room.x + room.width, y: y + WALL_HEIGHT, z: room.z + room.depth } },
@@ -446,7 +467,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
   for (let i = 0; i <= bays; i++) opaque.plane(lotX + i * 3 - 0.05, -0.008, lotZ, 0.1, 4.6, hex('#d8d8d0'));
   for (let i = 0; i < bays; i++) {
     if (land() < 0.35) continue;
-    car(opaque, lotX + i * 3 + 1.5, lotZ + 2.3, palette[Math.floor(land() * palette.length)], land() < 0.5 ? 0 : 2, 0.62);
+    envCar(opaque, lotX + i * 3 + 1.5, lotZ + 2.3, { color: palette[Math.floor(land() * palette.length)], rot: land() < 0.5 ? 0 : Math.PI, detail: 'low', seed: 'bc' + i });
   }
   // Entrance sign wall: a low stone wall carrying the lettering board (the real building name over the wordmark).
   const signZ = fz1 + 3.0;

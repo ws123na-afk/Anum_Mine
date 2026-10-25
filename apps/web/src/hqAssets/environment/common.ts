@@ -6,6 +6,8 @@
  * geometry, and nothing here draws people.
  */
 import { MeshBuilder, VERTEX_FLOATS, scale, seeded, type Rgb } from '../../lib/hqGeometry.ts';
+/** The renderer draws a real shadow map; baked ground shadows would double them. */
+const BAKED_SHADOWS = false;
 import { SHADOW, SHADOW_DX, SHADOW_DZ, flatPoly } from '../../lib/hqProps.ts';
 import type { Aabb } from '../../lib/hqMath.ts';
 
@@ -57,12 +59,7 @@ export function boundsWithoutShadows(m: MeshBuilder): Aabb {
 
 /** Copies every triangle of `from` into `into`. */
 export function appendMesh(into: MeshBuilder, from: MeshBuilder): void {
-  const v = from.toFloat32();
-  for (let i = 0; i + 3 * VERTEX_FLOATS <= v.length; i += 3 * VERTEX_FLOATS) {
-    const q = (k: number) => [v[i + k * VERTEX_FLOATS], v[i + k * VERTEX_FLOATS + 1], v[i + k * VERTEX_FLOATS + 2]];
-    const c = (k: number): Rgb => [v[i + k * VERTEX_FLOATS + 6], v[i + k * VERTEX_FLOATS + 7], v[i + k * VERTEX_FLOATS + 8]];
-    into.triV(q(0), q(1), q(2), c(0), c(1), c(2), v[i + 9]);
-  }
+  into.append(from.toFloat32());
 }
 
 function norm3(a: Vec3t, b: Vec3t, c: Vec3t): Vec3t {
@@ -203,6 +200,7 @@ export class Frame {
 
 /** Ground shadow of any convex footprint: the footprint plus the strips swept along the sun direction. */
 export function castShadowPoly(b: MeshBuilder, corners: ReadonlyArray<readonly [number, number]>, h: number, y = 0.026, color: Rgb = SHADOW): void {
+  if (!BAKED_SHADOWS) return;
   const vx = SHADOW_DX * h, vz = SHADOW_DZ * h;
   const moved = corners.map((c) => [c[0] + vx, c[1] + vz] as [number, number]);
   flatPoly(b, moved, y, color);

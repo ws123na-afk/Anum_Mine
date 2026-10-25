@@ -18,6 +18,10 @@ export const WATER = hex('#2c6f99');
 export const WARM = hex('#ffcf7a');
 export const TEAL = hex('#45d0b5');
 export const GLASS_DARK = hex('#1c2c3b');
+/** Kept for builders written for baked ground shadows (the renderer now draws a real shadow map, so nothing is baked). */
+export const SHADOW = hex('#1f3524');
+export const SHADOW_DX = -0.56;
+export const SHADOW_DZ = -0.48;
 
 /** A flat polygon on a horizontal plane, wound so it faces up whatever order the points come in. */
 export function flatPoly(b: MeshBuilder, pts: ReadonlyArray<readonly [number, number]>, y: number, color: Rgb, emissive = 0): void {
@@ -69,6 +73,7 @@ export function cylX(b: MeshBuilder, cx: number, cy: number, cz: number, radius:
  * Baked ground shadows are gone: the renderer draws a real shadow map. The function stays, drawing nothing,
  * so builders written for the baked version (the exterior assets) keep working and never double the shadow.
  */
+export function blobShadow(_b: MeshBuilder, _cx: number, _cz: number, _radius: number, _height: number, _y?: number, _color?: Rgb): void { /* real shadows */ }
 export function castShadow(_b: MeshBuilder, _x: number, _z: number, _w: number, _d: number, _h: number, _y?: number, _color?: Rgb): void { /* real shadows */ }
 
 // ---------------------------------------------------------------- planting

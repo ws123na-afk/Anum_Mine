@@ -22,8 +22,9 @@ export function classifySurfaces(source: Float32Array): Float32Array {
     r /= 3; g /= 3; b /= 3; y /= 3;
     const lum = 0.3 * r + 0.59 * g + 0.11 * b;
     let cls: number = MAT.flat;
-    if (ny > 0.9 && y < 0.2) {
-      if (g > r * 1.12 && g > b * 1.12) cls = MAT.grass;
+    if (ny > 0.9 && y < 0.3) {
+      if (b > r * 1.5 && b > g * 1.05 && lum > 0.12) cls = MAT.water;
+      else if (g > r * 1.12 && g > b * 1.12) cls = MAT.grass;
       else if (lum < 0.3) cls = MAT.asphalt;
       else if (lum > 0.5) cls = MAT.tile;
       else cls = MAT.concrete;

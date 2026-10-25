@@ -232,6 +232,18 @@ export class MeshBuilder {
     }
   }
 
+  /** Appends vertices from another builder's float array (whole triangles), keeping their classes and uv. */
+  append(data: Float32Array): void {
+    for (let i = 0; i < data.length; i += VERTEX_FLOATS) {
+      for (let k = 0; k < VERTEX_FLOATS; k++) this.data.push(data[i + k]);
+      for (let a = 0; a < 3; a++) {
+        const p = data[i + a];
+        if (p < this.lo[a]) this.lo[a] = p;
+        if (p > this.hi[a]) this.hi[a] = p;
+      }
+    }
+  }
+
   toFloat32(): Float32Array {
     return new Float32Array(this.data);
   }

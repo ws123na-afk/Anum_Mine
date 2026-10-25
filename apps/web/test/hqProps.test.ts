@@ -139,7 +139,7 @@ test('texture drawing needs a browser and says so by returning null instead of t
 
 test('campus buildings carry windows, a sign cell, a type, and the scene a canal and a shadow region', () => {
   const scene = buildCampusScene(layoutCampus([bld('exec', 'executive'), bld('a'), bld('b', 'department'), bld('c', 'personal'), bld('d', 'business', 'truck'), bld('e', 'business', 'chart')]));
-  assert.equal(scene.signCount, scene.buildings.length + 1, 'one cell per building and one for the gate');
+  assert.equal(scene.signCount, scene.buildings.length, 'one cell per building');
   const types = new Set(scene.buildings.map((b) => b.archetype));
   assert.ok(types.has('executive') && types.has('villa') && types.has('warehouse') && types.has('tower'));
   scene.buildings.forEach((item, index) => {
@@ -194,4 +194,35 @@ test('night is dim but never black: the ambient and moon light stay above a floo
   assert.ok(day.sunIntensity > night.sunIntensity * 3, 'the sun is much stronger than the moon');
   assert.ok(night.sunIntensity > 0.3 && night.hemiIntensity > 0.3, 'the night scene keeps a readable light');
   assert.ok(night.exposure >= 1);
+});
+
+import { classifySurfaces } from '../src/lib/hqSurfaces.ts';
+import { drawExterior } from '../src/lib/campusExteriors.ts';
+
+test('classifySurfaces gives flat ground surfaces a class and leaves windows, signs and classified surfaces alone', () => {
+  const b = new MeshBuilder();
+  b.plane(0, 0, 0, 4, 4, hex('#4a7a48'));
+  b.plane(5, 0, 0, 4, 4, hex('#3a3f46'));
+  b.plane(10, 0, 0, 4, 4, hex('#2c6f99'));
+  b.quad([0, 1, 0], [1, 1, 0], [1, 2, 0], [0, 2, 0], hex('#9fd4e6'), WINDOW_BASE + 0.5);
+  b.withMat(MAT.sign, () => b.plane(20, 0.1, 0, 2, 2, hex('#ffffff')));
+  const out = classifySurfaces(b.toFloat32());
+  const classes: number[] = [];
+  for (let i = 0; i < out.length; i += VERTEX_FLOATS * 3) classes.push(out[i + 10]);
+  assert.deepEqual(classes.slice(0, 6), [MAT.grass, MAT.grass, MAT.asphalt, MAT.asphalt, MAT.water, MAT.water]);
+  assert.equal(classes[6], MAT.flat, 'a window stays unclassified here');
+  assert.equal(classes[classes.length - 1], MAT.sign);
+});
+
+test('exterior assets become campus meshes with a lettered sign quad, in the sign cell of their building', () => {
+  const p = { workspaceId: 'w1', x: 10, z: -5, width: 17, depth: 14, height: 14, levels: 3, kind: 'business' as const, icon: 'truck' };
+  const shape = drawExterior(p, 'warehouse', 2, 5)!;
+  assert.ok(shape.triangles > 500 && shape.vertices.every(Number.isFinite));
+  const cell = signAtlasLayout(5).cell(2);
+  let found = false;
+  for (let i = 0; i < shape.vertices.length; i += VERTEX_FLOATS) {
+    if (shape.vertices[i + 10] === MAT.sign) { found = true; assert.ok(shape.vertices[i + 11] >= cell.u0 - 1e-6 && shape.vertices[i + 11] <= cell.u1 + 1e-6); }
+  }
+  assert.ok(found, 'the sign quad is in the mesh');
+  assert.equal(drawExterior({ ...p, kind: 'personal', icon: null }, 'villa', 0, 1), null, 'the villa is not an exterior asset');
 });

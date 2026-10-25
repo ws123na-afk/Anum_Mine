@@ -7,13 +7,11 @@
  * the signs is drawn from the real names at render time.
  */
 import { MAT, MeshBuilder, hex, mix, scale, seeded, type Rgb } from './hqGeometry.ts';
-import {
-  ASPHALT, GROUND, STONE, TEAL, WATER, anumMark, bench, bridge, bush, canalPiece, car, cypress, flatPoly, hedge, lamp, palm, parkingLot, pool,
-  roundTree, skylineTower, tennisCourt, truck,
-} from './hqProps.ts';
+import { GROUND, STONE, WATER, bench, flatPoly, lamp } from './hqProps.ts';
+import { campusEnvironment, carPark, carParkSize, pond, tennisCourt, tree, truck, van, type Exclusion } from '../hqAssets/environment/index.ts';
+import { classifySurfaces } from './hqSurfaces.ts';
 import { archetypeOf, drawBuilding, type Archetype } from './campusBuildings.ts';
 import { drawExterior } from './campusExteriors.ts';
-import { signAtlasLayout } from './hqTextures.ts';
 import { campusExtent, type Placement } from './campusModel.ts';
 import type { Aabb } from './hqMath.ts';
 import type { Vec3 } from './headquartersProjection.ts';
@@ -32,7 +30,7 @@ export type CampusScene = Readonly<{
   extent: ReturnType<typeof campusExtent>;
   groundRadius: number;
   triangles: number;
-  /** Sign cells: one per building (in placement order) and one for the gate. */
+  /** Sign cells: one per building, in placement order. */
   signCount: number;
   /** Radius of the canal ring round the middle of the campus, or 0 when no ring clears every building. */
   canalRadius: number;
@@ -67,12 +65,14 @@ function circleCrossings(x0: number, z0: number, x1: number, z1: number, r: numb
 
 export function buildCampusScene(placements: readonly Placement[]): CampusScene {
   const extent = campusExtent(placements);
-  const groundRadius = Math.max(130, extent.radius + 80);
+  // The ring road, canal and fence of the environment kit surround the buildings; the ground reaches past the skyline.
+  const ringHalf = Math.max(56, extent.radius + 28);
+  const fenceHalf = ringHalf + 24 + 14;
+  const groundRadius = fenceHalf + 150;
   const rnd = seeded('anum-mine-campus');
   const exec = placements.find((p) => p.kind === 'executive');
   const monument: Vec3 = exec ? { x: exec.x, y: 0, z: exec.z + exec.depth / 2 + 15 } : { x: 0, y: 0, z: 0 };
-  const roadR = Math.max(44, extent.radius + 12);
-  const signCount = placements.length + 1;
+  const signCount = placements.length;
 
   const s = new MeshBuilder();
   // Ground: a grass slab with a tonal mottle, and a darker verge so the edge never reads as a cut-off.
@@ -85,13 +85,6 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
     s.disc(Math.cos(a) * r, 0.003, Math.sin(a) * r, 7 + mottle() * 12, 14, scale(GROUND, 0.9 + mottle() * 0.25));
   }
   s.mat = MAT.flat;
-  // A far skyline (boxes with lit bands): a city beyond the campus.
-  const sky = seeded('anum-skyline');
-  for (let i = 0; i < 46; i++) {
-    const a = (i / 46) * Math.PI * 2 + sky() * 0.1;
-    const r = groundRadius * (1.0 + sky() * 0.16);
-    skylineTower(s, Math.cos(a) * r, Math.sin(a) * r, 6 + sky() * 9, 6 + sky() * 9, 14 + sky() * 46, sky);
-  }
   // Plaza and monument.
   s.withMat(MAT.tile, () => {
     s.disc(monument.x, 0.02, monument.z, 11, 28, mix(STONE, hex('#ffffff'), 0.1));
@@ -152,165 +145,59 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
       path(s, Math.cos(a0) * rr, Math.sin(a0) * rr, Math.cos(a1) * rr, Math.sin(a1) * rr, 3, 0.025, scale(STONE, 0.9), 0.08);
     }
   }
-  s.mat = MAT.asphalt;
-  // Ring road: asphalt, kerbs and a dashed centre line.
-  const roadSides = 72;
-  const gateAngle = Math.PI / 2;
-  for (let i = 0; i < roadSides; i++) {
-    const a0 = (i / roadSides) * Math.PI * 2, a1 = ((i + 1) / roadSides) * Math.PI * 2;
-    const p0: [number, number] = [Math.cos(a0) * roadR, Math.sin(a0) * roadR], p1: [number, number] = [Math.cos(a1) * roadR, Math.sin(a1) * roadR];
-    path(s, p0[0], p0[1], p1[0], p1[1], 7.2, 0.035, ASPHALT, 0.03);
-    for (const k of [-4.2, 4.2]) {
-      const q0: [number, number] = [Math.cos(a0) * (roadR + k), Math.sin(a0) * (roadR + k)], q1: [number, number] = [Math.cos(a1) * (roadR + k), Math.sin(a1) * (roadR + k)];
-      s.withMat(MAT.tile, () => path(s, q0[0], q0[1], q1[0], q1[1], 0.7, 0.045, scale(STONE, 1.05)));
-    }
-    if (i % 2 === 0) path(s, p0[0], p0[1], (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2, 0.22, 0.05, hex('#e8e4d0'));
-  }
   s.mat = MAT.flat;
-  // Traffic frozen in place: cars on the ring road, nose along the lane.
-  const carColors = [hex('#c9d3dc'), hex('#2f4b66'), hex('#8a2f3a'), hex('#d9b25f'), hex('#3d6b52'), hex('#e8ebee'), hex('#1f2429')];
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2 + 0.3 + rnd() * 0.2;
-    if (Math.abs((a % (Math.PI * 2)) - gateAngle) < 0.25) continue;
-    const lane = i % 2 === 0 ? 1.7 : -1.7;
-    const cx = Math.cos(a) * (roadR + lane), cz = Math.sin(a) * (roadR + lane);
-    const tx = -Math.sin(a) * (lane > 0 ? -1 : 1), tz = Math.cos(a) * (lane > 0 ? -1 : 1);
-    const rot = Math.abs(tx) > Math.abs(tz) ? (tx > 0 ? 3 : 1) : (tz > 0 ? 0 : 2);
-    car(s, cx, cz, carColors[i % carColors.length], rot);
-  }
-  // Entrance gate on the south side: two piers, a lit lintel with the lettering cell, a short road in, low walls and planting.
-  const gz = roadR + 10;
-  s.withMat(MAT.asphalt, () => path(s, 0, roadR, 0, gz, 7.2, 0.036, ASPHALT));
-  s.withMat(MAT.concrete, () => {
-    for (const sx of [-6.2, 4.6]) {
-      s.box(sx, 0, gz - 1.2, 1.6, 6.2, 2.4, hex('#b8b0a2'), { grad: 0.12 });
-      s.box(sx - 0.2, 6.2, gz - 1.4, 2.0, 0.4, 2.8, hex('#8d867a'));
-    }
-    s.box(-6.4, 5.4, gz - 1.3, 13.2, 1.6, 2.6, hex('#0e1b26'));
-  });
-  const gateCell = signAtlasLayout(signCount).cell(signCount - 1);
-  s.withMat(MAT.sign, () => {
-    s.quadUV([-4.2, 5.45, gz + 1.32], [3.0, 5.45, gz + 1.32], [3.0, 6.9, gz + 1.32], [-4.2, 6.9, gz + 1.32], [gateCell.u0, gateCell.v0], [gateCell.u1, gateCell.v0], [gateCell.u1, gateCell.v1], [gateCell.u0, gateCell.v1], [1, 1, 1], 0.95);
-  });
-  s.box(-6.4, 5.4, gz + 1.3, 13.2, 0.08, 0.06, TEAL, { emissive: 0.9, shade: false });
-  anumMark(s, -5.2, 6.1, gz + 1.34, 1.1);
-  s.withMat(MAT.concrete, () => {
-    for (const [x0, x1] of [[-44, -7], [7, 44]] as const) {
-      s.box(x0, 0, gz - 0.4, x1 - x0, 1.1, 0.8, hex('#b8b0a2'));
-    }
-  });
-  for (const [x0, x1] of [[-44, -7], [7, 44]] as const) for (let x = x0 + 2; x < x1 - 1; x += 3.6) hedge(s, x, gz + 0.5, 2.4, 0.8, 1.0);
 
-  // A canal ring between the buildings and the road, drawn only where it clears every building and the plaza, with a
-  // bridge wherever a walkway crosses it.
-  const canalW = 4;
-  const canalR = Math.max(24, roadR - 10.5);
-  const nearBuilding = (x: number, z: number, margin: number) => placements.some((p) => Math.abs(x - p.x) < p.width / 2 + margin && z > p.z - p.depth / 2 - margin && z < p.z + p.depth / 2 + margin + 7);
-  const canalFree = (x: number, z: number) => !nearBuilding(x, z, 5) && Math.hypot(x - monument.x, z - monument.z) > 15;
-  let canalPieces = 0;
-  {
-    const sides = 72;
-    for (let i = 0; i < sides; i++) {
-      const a0 = (i / sides) * Math.PI * 2, a1 = ((i + 1) / sides) * Math.PI * 2, am = (a0 + a1) / 2;
-      const p0: [number, number] = [Math.cos(a0) * canalR, Math.sin(a0) * canalR], p1: [number, number] = [Math.cos(a1) * canalR, Math.sin(a1) * canalR];
-      if (!canalFree(p0[0], p0[1]) || !canalFree(p1[0], p1[1]) || !canalFree(Math.cos(am) * canalR, Math.sin(am) * canalR)) continue;
-      canalPiece(s, p0[0], p0[1], p1[0], p1[1], canalW);
-      canalPieces += 1;
-    }
-    for (const [x0, z0, x1, z1] of segments) {
-      for (const t of circleCrossings(x0, z0, x1, z1, canalR)) {
-        const bx = x0 + (x1 - x0) * t, bz = z0 + (z1 - z0) * t;
-        const ang = Math.atan2(bz, bx), step = (Math.PI * 2) / sides;
-        const onWater = [-1, 0, 1].every((k) => canalFree(Math.cos(ang + k * step) * canalR, Math.sin(ang + k * step) * canalR));
-        if (onWater) bridge(s, bx, bz, x1 - x0, z1 - z0, canalW + 3.2, 3.8);
-      }
-    }
-  }
-  const canalDrawn = canalPieces > 6 ? canalR : 0;
-
-  // Ponds in the free gaps, then trees and lamps that avoid buildings, paths, water and the road.
+  // Things the scenery must keep out of: every building, the plaza, and what is placed below.
+  const exclusions: Exclusion[] = placements.map((p) => ({ x: p.x - p.width / 2 - 3, z: p.z - p.depth / 2 - 3, w: p.width + 6, d: p.depth + 14 }));
+  exclusions.push({ x: monument.x - 12, z: monument.z - 12, w: 24, d: 24 });
+  const inExclusion = (x: number, z: number, pad: number) => exclusions.some((e) => x > e.x - pad && x < e.x + e.w + pad && z > e.z - pad && z < e.z + e.d + pad);
+  const nearWalk = (x: number, z: number, d: number) => segments.some(([x0, z0, x1, z1]) => distanceToSegment(x, z, x0, z0, x1, z1) < d);
+  // Ponds in the free ground between the buildings and the ring road.
   const ponds: Array<[number, number, number]> = [];
   const pondCount = Math.min(4, Math.max(1, Math.floor(placements.length / 3)));
-  for (let i = 0; i < pondCount; i++) {
-    const a = Math.PI * 0.2 + (i / pondCount) * Math.PI * 2 + 0.5;
-    const r = Math.max(24, extent.radius * 0.45);
-    ponds.push([Math.cos(a) * r, Math.sin(a) * r, 5.5 + rnd() * 2.5]);
+  for (let i = 0; i < pondCount * 6 && ponds.length < pondCount; i++) {
+    const a = Math.PI * 0.2 + (i / pondCount) * Math.PI * 2 + 0.5 + (i % 7) * 0.13;
+    const r = Math.max(24, extent.radius * (0.45 + 0.1 * (i % 3)));
+    const x = Math.cos(a) * r, z = Math.sin(a) * r, pr = 5.5 + rnd() * 2.5;
+    if (inExclusion(x, z, pr + 3) || nearWalk(x, z, pr + 3) || ponds.some(([px, pz, rr]) => Math.hypot(px - x, pz - z) < rr + pr + 6)) continue;
+    ponds.push([x, z, pr]);
+    pond(s, x, z, pr, { seed: 'pond' + i });
+    exclusions.push({ x: x - pr - 2, z: z - pr - 2, w: pr * 2 + 4, d: pr * 2 + 4 });
   }
-  const lots: Array<[number, number, number, number]> = [];
-  const blocked = (x: number, z: number, margin: number): boolean => {
-    for (const p of placements) {
-      if (Math.abs(x - p.x) < p.width / 2 + margin + 3 && Math.abs(z - p.z) < p.depth / 2 + margin + 8) return true;
-    }
-    if (Math.hypot(x - monument.x, z - monument.z) < 13 + margin) return true;
-    for (const [px, pz, pr] of ponds) if (Math.hypot(x - px, z - pz) < pr + 3 + margin) return true;
-    for (const [x0, z0, x1, z1] of segments) if (distanceToSegment(x, z, x0, z0, x1, z1) < 3 + margin) return true;
-    if (Math.abs(Math.hypot(x, z) - roadR) < 5.2 + margin) return true;
-    if (canalDrawn > 0 && Math.abs(Math.hypot(x, z) - canalDrawn) < canalW / 2 + 3 + margin) return true;
-    if (Math.abs(x) < 8 + margin && z > roadR - 2 && z < gz + 3) return true;
-    for (const [lx, lz, lw, ld] of lots) if (x > lx - margin && x < lx + lw + margin && z > lz - margin && z < lz + ld + margin) return true;
-    return false;
-  };
-  for (const [px, pz, pr] of ponds) pool(s, px, pz, pr, rnd);
-  // Car parks beside buildings (west side) where the ground is free.
+  // Car parks beside buildings (west side) where the ground is free, with a few cars and a van.
   for (const p of placements) {
-    if (p.kind === 'executive' || rnd() < 0.3) continue;
-    const lx = p.x - p.width / 2 - 14.5, lz = p.z - p.depth / 2 + 1;
-    if (blocked(lx + 4, lz + 3, 1) || Math.hypot(lx, lz) > roadR - 6) continue;
-    lots.push([lx, lz, 9.7, 8]);
-    parkingLot(s, lx, lz, 3, 1, rnd, 0.75);
+    if (p.kind === 'executive' || rnd() < 0.35) continue;
+    const size = carParkSize(3);
+    const cx = p.x - p.width / 2 - 6 - size.w / 2, cz = p.z - p.depth / 2 + size.d / 2;
+    if (inExclusion(cx, cz, 2) || nearWalk(cx, cz, 6) || Math.hypot(cx, cz) > ringHalf - 8) continue;
+    carPark(s, cx, cz, { cols: 3, rot: 0, seed: 'lot' + p.workspaceId, fill: 0.7 });
+    exclusions.push({ x: cx - size.w / 2, z: cz - size.d / 2, w: size.w, d: size.d });
   }
-  // A tennis court at the first free spot outside the ring road.
-  let court: [number, number, 0 | 1] | null = null;
-  for (let i = 0; i < 48 && !court; i++) {
-    const a = 0.9 + i * 0.41, r = roadR + 26;
+  // The ground-level kit: ring road, pavements, lamps, tree lines, hedges, canal with bridges, gate house, fence, skyline.
+  campusEnvironment(s, {
+    cx: 0, cz: 0, halfW: ringHalf, halfD: ringHalf, seed: 'anum-mine', exclusions, density: placements.length > 10 ? 0.6 : 0.8,
+    skyline: { from: Math.PI * 0.05, to: Math.PI * 1.95, count: 22 },
+  });
+  // Trees in the free ground inside the ring.
+  const treeCount = Math.min(60, 18 + placements.length * 4);
+  for (let i = 0, placed = 0; placed < treeCount && i < treeCount * 12; i++) {
+    const a = rnd() * Math.PI * 2, r = 8 + Math.sqrt(rnd()) * (ringHalf - 14);
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    const rot: 0 | 1 = Math.abs(x) > Math.abs(z) ? 1 : 0;
-    if (!blocked(x, z, 14) && !blocked(x + 14, z, 10) && !blocked(x - 14, z, 10) && !blocked(x, z + 12, 10) && !blocked(x, z - 12, 10)) court = [x, z, rot];
-  }
-  if (court) {
-    tennisCourt(s, court[0], court[1], court[2]);
-    lots.push([court[0] - 18, court[1] - 18, 36, 36]);
-  }
-  const treeCount = Math.min(260, 70 + placements.length * 12);
-  let placed = 0, attempts = 0;
-  while (placed < treeCount && attempts < treeCount * 14) {
-    attempts += 1;
-    const a = rnd() * Math.PI * 2;
-    const r = 8 + Math.sqrt(rnd()) * (groundRadius * 0.74);
-    const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (blocked(x, z, 1.5)) continue;
-    const roll = rnd();
-    if (roll < 0.42) palm(s, x, z, 5 + rnd() * 2.6, rnd);
-    else if (roll < 0.72) roundTree(s, x, z, 3.6 + rnd() * 2.4, rnd);
-    else if (roll < 0.86) cypress(s, x, z, 4 + rnd() * 3, rnd);
-    else bush(s, x, z, 0.7 + rnd() * 0.6, rnd);
+    if (inExclusion(x, z, 2) || nearWalk(x, z, 4)) continue;
+    tree(s, x, z, { seed: 'in' + i });
     placed += 1;
   }
-  // Palms in a row on both kerbs of the ring road.
-  for (let i = 0; i < 44; i++) {
-    const a = (i / 44) * Math.PI * 2;
-    if (Math.abs(a - gateAngle) < 0.12) continue;
-    for (const k of [-6.2, 6.2]) {
-      const x = Math.cos(a) * (roadR + k), z = Math.sin(a) * (roadR + k);
-      if (!placements.some((p) => Math.abs(x - p.x) < p.width / 2 + 3 && Math.abs(z - p.z) < p.depth / 2 + 3)) palm(s, x, z, 5.4 + rnd() * 1.4, rnd);
-    }
+  // A tennis court in free ground inside the ring road.
+  let court: [number, number] | null = null;
+  for (let i = 0; i < 40 && !court; i++) {
+    const x = -ringHalf * 0.6 + (i % 8) * (ringHalf * 0.17), z = (i < 20 ? -1 : 1) * (ringHalf - 22 - Math.floor(i / 8) * 0.01);
+    if (!inExclusion(x, z, 14) && !nearWalk(x, z, 16) && !ponds.some(([px, pz, rr]) => Math.hypot(px - x, pz - z) < rr + 18)) court = [x, z];
   }
-  // A truck yard and larger car parks at free spots outside the ring road.
-  const spots: Array<[number, number]> = [];
-  for (let i = 0; i < 30 && spots.length < 3; i++) {
-    const a = Math.PI * 0.12 + i * 0.5, r = roadR + 17;
-    const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (![0, 1, 2].some((k) => blocked(x + k * 5.5, z, 4)) && !blocked(x, z + 8, 3) && !blocked(x, z - 8, 3) && spots.every(([sx, sz]) => Math.hypot(sx - x, sz - z) > 34)) spots.push([x, z]);
-  }
-  if (spots[0]) {
-    const [yx, yz] = spots[0];
-    s.withMat(MAT.asphalt, () => s.plane(yx - 5, 0.012, yz - 11, 18, 22, scale(ASPHALT, 1.08)));
-    truck(s, yx, yz, hex('#2f6a8f'));
-    truck(s, yx + 6, yz + 1, hex('#b4452f'));
-    truck(s, yx + 12, yz - 1, hex('#3d6b52'));
-  }
-  if (spots[1]) parkingLot(s, spots[1][0], spots[1][1], 6, 2, rnd, 0.8);
-  if (spots[2]) parkingLot(s, spots[2][0], spots[2][1], 5, 1, rnd, 0.7);
+  if (court) { tennisCourt(s, court[0], court[1], { rot: 0, fenced: true, floodlights: true }); exclusions.push({ x: court[0] - 18, z: court[1] - 18, w: 36, d: 36 }); }
+  // A truck yard with a van, beside the south approach road.
+  truck(s, ringHalf * 0.55, ringHalf - 24, { rot: Math.PI / 2 });
+  van(s, ringHalf * 0.55 + 7, ringHalf - 24, { rot: Math.PI / 2 });
+  // Walkway lamps.
   for (const [x0, z0, x1, z1] of segments) {
     const len = Math.hypot(x1 - x0, z1 - z0);
     const count = Math.floor(len / 14);
@@ -320,9 +207,11 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
       lamp(s, x0 + (x1 - x0) * t + nx * 2.6, z0 + (z1 - z0) * t + nz * 2.6);
     }
   }
-  const total = s.triangleCount + buildings.reduce((n, bd) => n + bd.mesh.triangles, 0);
+  const scenery = new MeshBuilder();
+  scenery.append(classifySurfaces(s.toFloat32()));
+  const total = scenery.triangleCount + buildings.reduce((n, bd) => n + bd.mesh.triangles, 0);
   return {
-    scenery: freeze(s), buildings, monument: { x: monument.x, y: 8.2, z: monument.z }, extent, groundRadius, triangles: total, signCount, canalRadius: canalDrawn,
-    shadow: { center: { x: 0, y: 0, z: 0 }, radius: Math.max(70, roadR + 22) },
+    scenery: freeze(scenery), buildings, monument: { x: monument.x, y: 8.2, z: monument.z }, extent, groundRadius, triangles: total, signCount, canalRadius: ringHalf + 24,
+    shadow: { center: { x: 0, y: 0, z: 0 }, radius: ringHalf * 1.2 + 6 },
   };
 }

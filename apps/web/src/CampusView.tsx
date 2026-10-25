@@ -94,7 +94,7 @@ export function CampusView(props: CampusViewProps) {
   const renderScene = useMemo(() => ({
     opaque: [{ id: 'scenery', vertices: scene.scenery.vertices, bounds: scene.scenery.bounds, cull: false }, ...scene.buildings.map((b) => ({ id: b.workspaceId, vertices: b.mesh.vertices, bounds: b.mesh.bounds }))],
     glass: [],
-    signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: byId.get(b.workspaceId)?.name ?? '' })), { title: 'ANUM MINE', subtitle: '' }],
+    signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: byId.get(b.workspaceId)?.name ?? '' }))],
     shadow: scene.shadow,
   }), [scene, byId]);
 
