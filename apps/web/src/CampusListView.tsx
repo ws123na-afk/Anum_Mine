@@ -5,6 +5,7 @@
  */
 import { ArrowRight, Search } from 'lucide-react';
 import { useId, useMemo, useState } from 'react';
+import { RoomModuleAction } from './HqRoomModule';
 import { buildingSummary } from './CampusView';
 import { filterBuildings, readingOrder, buildingStatus, type Campus } from './lib/campusModel.ts';
 import type { SceneBuilding } from './lib/headquartersProjection.ts';
@@ -17,6 +18,7 @@ export function CampusListView(props: Readonly<{
   detail: readonly SceneBuilding[];
   onEnter: (workspaceId: string) => void;
   onOpenRoom: (workspaceId: string, floorId: string, roomId: string) => void;
+  canManage?: boolean; onOpenFlow?: () => void; onOpenGaps?: () => void;
 }>) {
   const [query, setQuery] = useState('');
   const searchId = useId();
@@ -73,6 +75,7 @@ export function CampusListView(props: Readonly<{
                                       <strong>{r.label}</strong>
                                       <small>{t(`hq.roomKind.${r.kind}` as MessageKey)} · {t('hq.list.desks', { count: desks.length })}</small>
                                     </button>
+                                    <RoomModuleAction variant="list" room={{ department: r.teamDepartment, kind: r.kind, name: r.label, buildingKind: b.kind }} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? (() => undefined)} onOpenGaps={props.onOpenGaps ?? (() => undefined)} />
                                   </li>
                                 );
                               })}

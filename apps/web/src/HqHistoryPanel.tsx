@@ -219,7 +219,4 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
   );
 }
 
-/** The button that opens the history for a room, an agent or a team member. */
-export function HistoryLauncher({ label, onClick }: { label: string; onClick: () => void }) {
-  return <button type="button" className="hqGhost hqHistLaunch" onClick={onClick}>{label}</button>;
-}
+export default HqHistoryPanel;
