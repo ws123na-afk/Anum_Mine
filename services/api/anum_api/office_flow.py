@@ -155,6 +155,8 @@ class FlowEvidence:
     cursor: str | None = None
     can_see_approval_text: bool = False
     truncated: bool = False
+    # Work kind ("orders", "leads") -> agent id of the handler an owner confirmed (office_agent_provisions).
+    handlers: dict[str, str] = field(default_factory=dict)
 
 
 def _iso(value: datetime) -> str:
@@ -167,12 +169,15 @@ def _short(value: str | None, limit: int) -> str | None:
     return value if len(value) <= limit else value[: limit - 1] + "…"
 
 
-def _location(desk: FlowDesk, agent: FlowAgent | None) -> dict[str, Any]:
-    return {
+def _location(desk: FlowDesk, agent: FlowAgent | None, via: str | None = None) -> dict[str, Any]:
+    loc = {
         "building_id": desk.building_id, "floor_id": desk.floor_id, "room_id": desk.room_id,
         "room_name": desk.room_name, "desk_id": desk.desk_id,
         "agent_id": desk.agent_id, "agent_name": agent.name if agent else None,
     }
+    if via:
+        loc["via"] = via  # "handler": placed by the owner's confirmed handler, not by the record's own owner
+    return loc
 
 
 def _stuck(code: str, severity: str, since: datetime, now: datetime, threshold: timedelta | None,
@@ -207,6 +212,10 @@ def derive_flow(evidence: FlowEvidence, thresholds: FlowThresholds | None = None
     for a in sorted(evidence.approvals, key=lambda x: (x.created_at, x.approval_id)):
         approval_of[a.task_id] = a  # newest wins
 
+    def handler_for(kind: str) -> tuple[FlowAgent, FlowDesk | None] | None:
+        agent = agents.get(evidence.handlers.get(kind, ""))
+        return (agent, desk_of.get(agent.agent_id)) if agent else None
+
     items: list[dict[str, Any]] = []
     for task in evidence.tasks:
         item = _task_item(task, agents, desk_of, run_of.get(task.task_id), approval_of.get(task.task_id),
@@ -214,11 +223,11 @@ def derive_flow(evidence: FlowEvidence, thresholds: FlowThresholds | None = None
         if item is not None:
             items.append(item)
     for lead in evidence.leads:
-        item = _lead_item(lead, agents, desk_of, th, now)
+        item = _lead_item(lead, agents, desk_of, th, now, handler_for("leads"))
         if item is not None:
             items.append(item)
     for order in evidence.orders:
-        item = _order_item(order, th, now)
+        item = _order_item(order, th, now, handler_for("orders"))
         if item is not None:
             items.append(item)
 
@@ -300,7 +309,8 @@ def _task_item(task: FlowTask, agents: dict[str, FlowAgent], desk_of: dict[str, 
 
 
 def _lead_item(lead: FlowLead, agents: dict[str, FlowAgent], desk_of: dict[str, FlowDesk],
-               th: FlowThresholds, now: datetime) -> dict[str, Any] | None:
+               th: FlowThresholds, now: datetime,
+               handler: tuple[FlowAgent, FlowDesk | None] | None = None) -> dict[str, Any] | None:
     key = f"lead:{lead.lead_id}"
     closed = lead.status in CLOSED_LEAD_STATUSES
     if closed and now - lead.updated_at > th.recent_done:
@@ -309,7 +319,11 @@ def _lead_item(lead: FlowLead, agents: dict[str, FlowAgent], desk_of: dict[str, 
     agent = agents.get(owner) if owner else None
     desk = desk_of.get(owner) if owner else None
     location = _location(desk, agent) if desk else None
-    if desk:
+    handled = False
+    if owner is None and handler is not None and handler[1] is not None:
+        # No record names an owner: the confirmed leads handler holds it until a person takes it.
+        location, handled = _location(handler[1], handler[0], "handler"), True
+    if desk or handled:
         reason = None
     elif owner is None:
         reason = "no_owner"
@@ -323,6 +337,8 @@ def _lead_item(lead: FlowLead, agents: dict[str, FlowAgent], desk_of: dict[str, 
         stage = "arrived"
         stuck = _stuck("lead_unassigned", "warning", lead.created_at, now, th.lead_unassigned, "assign_owner"
                        ) if now - lead.created_at >= th.lead_unassigned else None
+        if stuck is None and handled and handler[0].status == "paused":
+            stuck = _stuck("agent_paused", "warning", lead.created_at, now, None, "resume_agent", agent_name=handler[0].name)
     else:
         stage = "in_office" if desk else "arrived"
         stuck = _stuck("lead_idle", "warning", lead.updated_at, now, th.lead_idle, "open_lead",
@@ -331,7 +347,8 @@ def _lead_item(lead: FlowLead, agents: dict[str, FlowAgent], desk_of: dict[str, 
                  lead.created_at, location, reason, stuck)
 
 
-def _order_item(order: FlowOrder, th: FlowThresholds, now: datetime) -> dict[str, Any] | None:
+def _order_item(order: FlowOrder, th: FlowThresholds, now: datetime,
+                handler: tuple[FlowAgent, FlowDesk | None] | None = None) -> dict[str, Any] | None:
     key = f"order:{order.order_id}"
     title = f"Order {order.external_id}"[:160]
     if order.status in DONE_ORDER_STATUSES:
@@ -339,15 +356,27 @@ def _order_item(order: FlowOrder, th: FlowThresholds, now: datetime) -> dict[str
         if now - since > th.recent_done:
             return None
         return _item(key, "order", order.order_id, title, "done", order.status, since, order.purchased_at,
-                     None, "no_order_office", None)
+                     *_order_place(handler), None)
     if order.status not in OPEN_ORDER_STATUSES:
         return None
     stuck = None
     if order.ship_by is not None and now - order.ship_by >= th.order_ship_grace and order.ship_by < now:
         stuck = _stuck("order_ship_overdue", "critical", order.ship_by, now, th.order_ship_grace,
                        "open_order", order_status=order.status)
-    return _item(key, "order", order.order_id, title, "arrived", order.status, order.purchased_at,
-                 order.purchased_at, None, "no_order_office", stuck)
+    location, reason = _order_place(handler)
+    if stuck is None and location is not None and handler[0].status == "paused":
+        stuck = _stuck("agent_paused", "warning", order.purchased_at, now, None, "resume_agent", agent_name=handler[0].name)
+    return _item(key, "order", order.order_id, title, "in_office" if location else "arrived", order.status,
+                 order.purchased_at, order.purchased_at, location, reason, stuck)
+
+
+def _order_place(handler: tuple[FlowAgent, FlowDesk | None] | None) -> tuple[dict[str, Any] | None, str | None]:
+    """Orders carry no owner: they sit in the office of the owner-confirmed orders handler, else nowhere."""
+    if handler is None:
+        return None, "no_order_office"
+    if handler[1] is None:
+        return None, "agent_has_no_desk"
+    return _location(handler[1], handler[0], "handler"), None
 
 
 def room_rollup(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -493,6 +522,15 @@ def load_flow_evidence(session: Session, context: TenantContext, now: datetime, 
                 evidence.sources["orders"] = "not_connected"
         for r in rows:
             evidence.orders.append(FlowOrder(r.id, r.external_id, r.status, r.purchased_at, r.ship_by, r.synced_at))
+    state, rows = _table_state(session, (
+        "select template_id, work_kinds, agent_id from office_agent_provisions "
+        "where tenant_id = :t and workspace_id = :w and status = 'active' and agent_id is not null "
+        "order by template_id"), p)
+    if state == "connected":
+        for r in rows:
+            if r.agent_id in visible:
+                for kind in r.work_kinds or []:
+                    evidence.handlers.setdefault(str(kind), r.agent_id)
     evidence.cursor = session.execute(text(
         "select id from domain_events where tenant_id = :t and workspace_id = :w "
         "order by created_at desc, id desc limit 1"), p).scalar()

@@ -943,6 +943,12 @@ async def create_agent(payload: AgentProfileCreate, context: TenantContext = Dep
 async def create_agent_with_status(payload: AgentProfileCreate, context: TenantContext, initial_status: AgentStatus) -> AgentProfileView:
     """The governed create (permission, capability checks, limit, audit) with the first status set in
     the same write, so a caller that wants a paused agent never leaves an active one behind."""
+    return create_agent_governed(payload, context, initial_status)
+
+
+def create_agent_governed(payload: AgentProfileCreate, context: TenantContext, initial_status: AgentStatus) -> AgentProfileView:
+    """Synchronous body of the governed create, for callers that already run off the event loop
+    (the office provisioning confirm uses it so an agent is built by exactly this path)."""
     require_permission(context, Permission.TASK_CREATE)
     validate_capabilities(payload, context)
     now = utc_now()

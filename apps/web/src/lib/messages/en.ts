@@ -15,6 +15,7 @@ import { homeEn } from './home.en.ts';
 import { meetingRoomEn } from './meetingRoom.en.ts';
 import { builderEn } from './builder.en.ts';
 import { hqFlowEn } from './hqFlow.en.ts';
+import { hqProvisioningEn } from './hqProvisioning.en.ts';
 import { teamEn } from './team.en.ts';
 import { appCallsEn } from './appCalls.en.ts';
 import { marketingEn } from './marketing.en.ts';
@@ -3221,6 +3222,7 @@ export const en = {
   ...meetingRoomEn,
   ...builderEn,
   ...hqFlowEn,
+  ...hqProvisioningEn,
   // ---- ANUM 360 shell and Command Center (docs/design/anum360.md#web-command-center) ----
   'brand.name': 'ANUM 360',
   'nav.home': 'Home',

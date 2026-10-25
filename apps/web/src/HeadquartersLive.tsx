@@ -36,6 +36,8 @@ import { loadWorkspaceWorkstations, type WorkstationSnapshot } from './lib/offic
 import { HqFlowDock } from './HqFlowDock';
 import { HqTeamPanel } from './HqTeamPanel';
 import { useOfficeFlow } from './useOfficeFlow';
+import { OrgGapsPanel } from './hq-provisioning/OrgGapsPanel';
+import { useProvisioningGaps } from './hq-provisioning/useProvisioning';
 import './hqFlow.css';
 import './headquartersLive.css';
 
@@ -52,11 +54,14 @@ export type HeadquartersProps = HqCallbacks & HqSlots & Readonly<{
   liveMeetingRoomIds?: ReadonlySet<string>;
   /** Counter of workspace events from the shell's event stream; the scene refreshes when it moves. */
   live?: number;
+  /** Type of the shell's latest event and whether its one event stream is up (the flow reads again on a flow event). */
+  liveEvent?: string | null;
+  streamLive?: boolean;
   /** Extra controls in the header row (the entrypoint puts its presentation switch here). */
   headerExtra?: ReactNode;
 }>;
 
-type Overlay = 'none' | 'spaces' | 'workstations' | 'reception' | 'tour' | 'agentMeetings' | 'teams';
+type Overlay = 'none' | 'spaces' | 'workstations' | 'reception' | 'tour' | 'agentMeetings' | 'teams' | 'gaps';
 const NO_ROOMS: ReadonlySet<string> = new Set();
 
 function readLight(): boolean {
@@ -72,7 +77,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [state, setState] = useState<OfficeState | null>(null);
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [toolsOpen, setToolsOpen] = useState(false);
-  const flow = useOfficeFlow();
+  const flow = useOfficeFlow(true, { tick: props.live ?? 0, type: props.liveEvent ?? null, streaming: props.streamLive === true });
+  const gaps = useProvisioningGaps(flow.snapshot?.as_of ?? 0);
   const [flowOpen, setFlowOpen] = useState(false);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
   const [view, setView] = useState<HqView>('3d');
@@ -408,6 +414,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
             {toolsOpen && (
               <ul className="hqMenu">
                 <li><button type="button" aria-pressed={flowOpen} onClick={() => { setFlowOpen((v) => !v); setToolsOpen(false); }}><Layers aria-hidden="true" />{t('hqFlow.open')}</button></li>
+                <li><button type="button" onClick={() => { setOverlay('gaps'); setToolsOpen(false); }}><Users aria-hidden="true" />{gaps.gaps && gaps.gaps.gaps.length > 0 ? t('hqProv.openCount', { count: gaps.gaps.gaps.length }) : t('hqProv.open')}</button></li>
                 <li><button type="button" onClick={() => { setOverlay('teams'); setToolsOpen(false); }}><Users aria-hidden="true" />{t('hqTeam.title')}</button></li>
                 {([
                   ['spaces', LayoutGrid, 'hq.tools.spaces'], ['workstations', Users, 'hq.tools.workstations'], ['agentMeetings', Users, 'hq.tools.meetings'],
@@ -496,6 +503,10 @@ export function HeadquartersLive(props: HeadquartersProps) {
         <div className="hqModalHost" role="dialog" aria-modal="false" aria-label={t('hq.tools')}>
           {overlay === 'teams' ? <div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqTeam.title')}>
             <HqTeamPanel buildingId={registryBuilding?.id ?? null} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} onFocusRoom={(id) => { focusRoomById(id); setOverlay('none'); }} />
+            <OrgGapsPanel state={gaps} onNavigate={goTo} onProvisioned={() => { void flow.reload(); void controller.refresh(); }} />
+          </div>
+          : overlay === 'gaps' ? <div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqProv.title')}>
+            <OrgGapsPanel state={gaps} onNavigate={goTo} onProvisioned={() => { void flow.reload(); void controller.refresh(); }} />
           </div>
           : overlay === 'spaces' ? <OfficeSpaceLiveManager onClose={() => { setOverlay('none'); void controller.refresh(); }} />
             : overlay === 'workstations' ? <OfficeWorkstations onClose={() => setOverlay('none')} />

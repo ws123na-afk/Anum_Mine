@@ -96,6 +96,7 @@ x-user-roles: owner,member
 - [ANUM MINE virtual headquarters master plan (planned web office, guided tour and agent rooms)](docs/ANUM_MINE_VIRTUAL_HEADQUARTERS_MASTER_PLAN.md)
 - [ANUM MINE Executive PA Guided Tour](docs/ANUM_MINE_EXECUTIVE_PA_TOUR.md)
 - [ANUM MINE headquarters live flow, stuck work and office teams](docs/ANUM_MINE_HQ_LIVE_FLOW.md)
+- [ANUM MINE headquarters governed agent provisioning](docs/ANUM_MINE_AGENT_PROVISIONING.md)
 - [ANUM MINE Executive PA tools and executive desk](docs/ANUM_MINE_EXECUTIVE_PA.md)
 - [ANUM MINE Live Employee Workstations](docs/ANUM_MINE_WORKSTATIONS_MODULE.md)
 - [ANUM MINE Reception & Visitor Operations](docs/ANUM_MINE_RECEPTION_MODULE.md)

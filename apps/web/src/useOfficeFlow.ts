@@ -15,7 +15,10 @@ export interface ChangeBatch { id: number; changes: FlowChange[] }
 /** The live flow of the open workspace: one read on mount, a re-read whenever the event stream
  * reports a task, run, approval or office event, and a timer as the fallback when the stream is
  * down. The state always comes from `/office/flow`; events are only a hint to read again. */
-export function useOfficeFlow(enabled = true) {
+/** The shell owns the one event stream (a second stream per view piled up on every visit). It hands over a counter
+ * and the type of its latest event; the flow reads again after a flow event and uses a timer as the fallback. */
+export interface FlowTrigger { tick: number; type: string | null; streaming: boolean }
+export function useOfficeFlow(enabled = true, trigger: FlowTrigger = { tick: 0, type: null, streaming: false }) {
   const [snapshot, setSnapshot] = useState<OfficeFlowSnapshot | null>(null);
   const [status, setStatus] = useState<FlowStatus>('loading');
   const [error, setError] = useState('');
@@ -58,27 +61,6 @@ export function useOfficeFlow(enabled = true) {
     if (!enabled) return () => { alive.current = false; };
     previous.current = null;
     void load();
-    const abort = new AbortController();
-    const scope = api.currentScope();
-    let debounce: ReturnType<typeof setTimeout> | null = null;
-    let reconnect = 1000;
-    const watch = async () => {
-      while (alive.current && !abort.signal.aborted) {
-        try {
-          await api.streamEvents((event) => {
-            const now = api.currentScope();
-            if (now.tenantId !== scope.tenantId || now.workspaceId !== scope.workspaceId) { abort.abort(); return; }
-            if (isFlowEvent(event.type) && !debounce) debounce = setTimeout(() => { debounce = null; void load(); }, 400);
-          }, abort.signal, () => { reconnect = 1000; streaming.current = true; setLink('live'); });
-        } catch { /* the timer below keeps the flow current while the stream is down */ }
-        streaming.current = false;
-        if (!alive.current || abort.signal.aborted) break;
-        setLink((l) => (l === 'offline' ? l : 'polling'));
-        await new Promise<void>((resolve) => window.setTimeout(resolve, reconnect));
-        reconnect = Math.min(reconnect * 2, 30_000);
-      }
-    };
-    void watch();
     let timer: ReturnType<typeof setTimeout>;
     const tick = () => {
       timer = setTimeout(() => { if (document.visibilityState === 'visible') void load(); tick(); }, streaming.current ? POLL_LIVE_MS : POLL_FALLBACK_MS);
@@ -88,12 +70,22 @@ export function useOfficeFlow(enabled = true) {
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       alive.current = false;
-      abort.abort();
       clearTimeout(timer);
-      if (debounce) clearTimeout(debounce);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [enabled, load]);
+
+  // A flow event on the shell's stream: read again once (bursts coalesce).
+  const streamingNow = trigger.streaming;
+  useEffect(() => { streaming.current = streamingNow; setLink((l) => (l === 'offline' ? l : streamingNow ? 'live' : 'polling')); }, [streamingNow]);
+  const lastTick = useRef(trigger.tick);
+  useEffect(() => {
+    if (!enabled || trigger.tick === lastTick.current) return undefined;
+    lastTick.current = trigger.tick;
+    if (!trigger.type || !isFlowEvent(trigger.type)) return undefined;
+    const timer = setTimeout(() => { void load(); }, 400);
+    return () => clearTimeout(timer);
+  }, [enabled, trigger.tick, trigger.type, load]);
 
   return { snapshot, status, error, link, batch, reload: load };
 }
