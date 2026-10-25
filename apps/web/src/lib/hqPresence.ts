@@ -60,7 +60,14 @@ export type WorkstationLike = Readonly<{
   taskTitles: readonly string[]; observedAt: string;
 }>;
 
-export type MeetingEvidence = Readonly<{ liveMeetings: number; agentIds: ReadonlySet<string> }>;
+/** A live meeting held in an office room (the stored `room_id` of the meeting). Only stored participants are listed. */
+export type RoomMeeting = Readonly<{ meetingId: string; title: string; agentIds: readonly string[]; people: number }>;
+
+export type MeetingEvidence = Readonly<{
+  liveMeetings: number; agentIds: ReadonlySet<string>;
+  /** Live meetings by office room id. A meeting with no room link is counted above but belongs to no room. */
+  rooms: ReadonlyMap<string, RoomMeeting>;
+}>;
 
 /** Maps task-derived workstation status plus meeting evidence to one display status per agent. */
 export function agentPresence(records: readonly WorkstationLike[], meetings: MeetingEvidence | null): HqAgentPresence[] {
@@ -91,7 +98,7 @@ export function unreportedStatuses(meetings: MeetingEvidence | null): StatusKey[
   return meetings ? [] : ['meeting'];
 }
 
-type MeetingRow = Readonly<{ id: string; status: string }>;
+type MeetingRow = Readonly<{ id: string; status: string; title?: string; room_id?: string | null }>;
 type ParticipantRow = Readonly<{ actor_id: string; kind: string }>;
 
 /**
@@ -100,18 +107,32 @@ type ParticipantRow = Readonly<{ actor_id: string; kind: string }>;
  */
 export async function loadMeetingEvidence(read: <T>(path: string) => Promise<T>): Promise<MeetingEvidence | null> {
   try {
-    const list = await read<{ items: MeetingRow[]; next_cursor: string | null }>('/api/v1/agent-meetings?limit=100');
+    const list = await read<{ items: MeetingRow[]; next_cursor: string | null }>('/api/v1/agent-meetings?status=active&limit=100');
     if (!Array.isArray(list.items)) return null;
     const active = list.items.filter((m) => m.status === 'active').slice(0, 20);
     const agentIds = new Set<string>();
+    const rooms = new Map<string, RoomMeeting>();
     for (const meeting of active) {
       const detail = await read<{ participants?: ParticipantRow[] }>(`/api/v1/agent-meetings/${encodeURIComponent(meeting.id)}`);
-      for (const p of detail.participants ?? []) if (p.kind === 'agent') agentIds.add(p.actor_id);
+      const agents: string[] = [];
+      let people = 0;
+      for (const p of detail.participants ?? []) {
+        if (p.kind === 'agent') { agentIds.add(p.actor_id); agents.push(p.actor_id); } else people += 1;
+      }
+      // One live meeting per room is shown; a second one in the same room keeps the first (oldest id) and is still counted above.
+      if (typeof meeting.room_id === 'string' && meeting.room_id !== '' && !rooms.has(meeting.room_id)) {
+        rooms.set(meeting.room_id, { meetingId: meeting.id, title: meeting.title ?? '', agentIds: agents, people });
+      }
     }
     // More than one page of meetings might hide a live one: treat that as not fully known.
     if (list.next_cursor) return null;
-    return { liveMeetings: active.length, agentIds };
+    return { liveMeetings: active.length, agentIds, rooms };
   } catch {
     return null;
   }
+}
+
+/** The rooms that have a live meeting: what the scene, the labels and the list show as "In a meeting". */
+export function liveMeetingRoomIdsOf(meetings: MeetingEvidence | null): ReadonlySet<string> {
+  return new Set(meetings ? [...meetings.rooms.keys()] : []);
 }

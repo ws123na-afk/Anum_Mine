@@ -41,3 +41,8 @@ Neither the frontend nor this management API can execute paid model calls.
 This branch starts from current GitHub `main`, not from the four local agent
 worktrees. It modifies only the new meeting store/API/tests and adds one route
 registration in `main.py`, avoiding changes to the office 3D/frontend modules.
+
+
+## Room link (migration 0108)
+
+`POST /api/v1/agent-meetings` accepts an optional `room_id`: an office room of kind `meeting` in the same workspace (404 for a room that is not visible in the workspace, 422 for another kind). `room_id` is returned by create, get, list and the room bundle, is carried by the `agent_meeting.create` and `agent_meeting.state_change` audit records and the `state` meeting event, and `GET /agent-meetings` accepts `status=` and `room_id=` filters. Deleting the room clears only the link. Details: [departments, modules and meeting rooms](ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md).

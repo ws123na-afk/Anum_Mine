@@ -1,14 +1,17 @@
 import {useCallback,useEffect,useState} from 'react';
 import * as api from './lib/api';
 import {describeError} from './lib/errors';
-type Meeting={id:string;title:string;status:string;revision:number};
+import {t} from './lib/i18n';
+type Meeting={id:string;title:string;status:string;revision:number;room_id?:string|null};
+export type MeetingRoomChoice={id:string;label:string};
 type Turn={id:string;sequence:number;speaker_id:string;role:string;body:string};
 const root='/api/v1/agent-meetings';
-export function AgentMeetingSessions({onClose}:{onClose:()=>void}){
+export function AgentMeetingSessions({onClose,rooms=[],initialRoomId=null}:{onClose:()=>void;rooms?:readonly MeetingRoomChoice[];initialRoomId?:string|null}){
  const [list,setList]=useState<Meeting[]>([]),[chosen,setChosen]=useState<string|null>(null);
  const [turns,setTurns]=useState<Turn[]>([]),[title,setTitle]=useState(''),[error,setError]=useState('');
  const [working,setWorking]=useState(false);
- const [agentId,setAgentId]=useState('');
+ const [agentId,setAgentId]=useState(''),[roomId,setRoomId]=useState<string>(initialRoomId??'');
+ const roomName=(id:string|null|undefined)=>id?rooms.find(r=>r.id===id)?.label??id:null;
  const refresh=useCallback(async()=>{
   const initial=api.currentScope();let cursor:string|null=null;const found:Meeting[]=[];
   for(let n=0;n<100;n++){
@@ -53,20 +56,24 @@ export function AgentMeetingSessions({onClose}:{onClose:()=>void}){
   </header>
   <p role="status">Generate recorded AI meeting contributions using your configured model. All runs require an active meeting and are limited by the saved meeting budget. No external actions are executed.</p>
   <form onSubmit={e=>{e.preventDefault();void run(async()=>{
-   const m=await api.apiRequest<Meeting>(root,{method:'POST',body:JSON.stringify({title:title.trim()})});
+   const m=await api.apiRequest<Meeting>(root,{method:'POST',body:JSON.stringify({title:title.trim(),...(roomId?{room_id:roomId}:{})})});
    setChosen(m.id);setTitle('');
   })}} style={{display:'flex',gap:8}}>
    <input value={title} maxLength={200} required aria-label="New meeting title" onChange={e=>setTitle(e.target.value)}/>
+   <select value={roomId} aria-label={t('hq.meetings.room')} title={t('hq.meetings.roomHint')} onChange={e=>setRoomId(e.target.value)}>
+    <option value="">{t('hq.meetings.noRoom')}</option>
+    {rooms.map(r=><option key={r.id} value={r.id}>{r.label}</option>)}
+   </select>
    <button disabled={working||!title.trim()}>Create meeting</button>
    <button type="button" disabled={working} onClick={()=>void run(async()=>{})}>Refresh</button>
   </form>
   {error&&<p role="alert">{error}</p>}
   <div style={{display:'grid',gridTemplateColumns:'minmax(180px,1fr) minmax(260px,2fr)',gap:20,marginTop:16}}>
    <div>{list.map(m=><button type="button" key={m.id} aria-pressed={chosen===m.id} onClick={()=>setChosen(m.id)}
-    style={{display:'block',width:'100%',textAlign:'left',marginBottom:8}}>{m.title} ({m.status})</button>)}
+    style={{display:'block',width:'100%',textAlign:'left',marginBottom:8}}>{m.title} ({m.status}){m.room_id?` · ${roomName(m.room_id)}`:''}</button>)}
     {!list.length&&<p>No meetings saved yet.</p>}
    </div>
-   <div>{selected?<><h3>{selected.title}</h3><p>Status: {selected.status}</p>
+   <div>{selected?<><h3>{selected.title}</h3><p>Status: {selected.status}</p>{selected.room_id&&<p data-testid="meeting-room-link">{t('hq.meetings.inRoom',{name:roomName(selected.room_id)??''})}</p>}
     {(['active','paused','finished','cancelled'] as const).map(status=>
      <button type="button" key={status} disabled={working||status===selected.status||['finished','cancelled','failed'].includes(selected.status)}
       onClick={()=>void run(()=>api.apiRequest(root+'/'+encodeURIComponent(selected.id)+'/state',

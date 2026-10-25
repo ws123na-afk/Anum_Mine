@@ -103,8 +103,9 @@ def _work(kind: str, key: str, en: str, ar: str, w: float, d: float, desks: int,
 # ANUM 360 Commerce, Tyre Pulse, Corporate Services, Knowledge & AI, New Ventures) plus two small ones (Personal
 # Office, Career & Employment). The departments of the master list are floors and rooms inside the right building.
 # A room carries a team department only where the office team concept has a matching one (sales, support,
-# operations, finance, tyre_engineering); that link is what lets the Organisation gaps panel propose an agent for
-# an empty department.
+# operations, finance, tyre_engineering, marketing, technology, research, legal, compliance, security, hr,
+# procurement); that link opens the room's module and lets the Organisation gaps panel propose an agent for an
+# empty department. Rooms with no matching department (Facilities, Command Center, AI Labs, Data...) stay unset.
 def _floor(level: int, en: str, ar: str, rooms: tuple[RoomSpec, ...], width: float = DEFAULT_WIDTH_M) -> FloorSpec:
     return FloorSpec(level, en, ar, rooms, width)
 
@@ -113,7 +114,7 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
     BuildingSpec(1, "hq", "ANUM HQ", "مقر ANUM", (
         _floor(-1, "Basement: Facilities, Parking, Security", "القبو: المرافق والمواقف والأمن", (
             _office("facilities", "Facilities Office", "مكتب المرافق", 10, 8, 3, None, "slate"),
-            _office("security-operations", "Security Operations", "عمليات الأمن", 12, 8, 5, None, "crimson", "south",
+            _office("security-operations", "Security Operations", "عمليات الأمن", 12, 8, 5, "security", "crimson", "south",
                     (("monitor", 5), ("display", 3), ("network_switch", 1))),
             _work("warehouse", "parking-logistics", "Parking and Logistics", "المواقف والخدمات اللوجستية", 14, 10, 2, None, "slate"),
         ), 38.0),
@@ -153,7 +154,7 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
         ), 36.0),
         _floor(1, "Floor 1: Sales and Marketing", "الطابق 1: المبيعات والتسويق", (
             _office("sales-office", "Sales Office", "مكتب المبيعات", 12, 8, 6, "sales", "forest"),
-            _office("marketing-studio", "Marketing Studio", "استوديو التسويق", 12, 8, 5, None, "crimson"),
+            _office("marketing-studio", "Marketing Studio", "استوديو التسويق", 12, 8, 5, "marketing", "crimson"),
             _meeting("meeting-room", "Meeting Room", "غرفة الاجتماعات", 8, 6, 8, "sapphire"),
         ), 34.0),
         _floor(2, "Floor 2: Customer Experience", "الطابق 2: تجربة العملاء", (
@@ -178,15 +179,15 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
     )),
     BuildingSpec(4, "corporate-services", "Corporate Services", "الخدمات المؤسسية", (
         _floor(0, "Ground floor: HR, Finance and Procurement", "الطابق الأرضي: الموارد البشرية والمالية والمشتريات", (
-            _office("hr", "HR", "الموارد البشرية", 10, 8, 4, None, "forest"),
+            _office("hr", "HR", "الموارد البشرية", 10, 8, 4, "hr", "forest"),
             _office("finance-office", "Finance Office", "المكتب المالي", 12, 8, 6, "finance", "brass"),
             _office("wealth-office", "Wealth Office", "مكتب الثروة", 10, 8, 3, "finance", "brass"),
-            _office("procurement", "Procurement", "المشتريات", 10, 8, 4, "operations", "teal"),
+            _office("procurement", "Procurement", "المشتريات", 10, 8, 4, "procurement", "teal"),
         ), 34.0),
         _floor(1, "Floor 1: Legal, Compliance and Governance", "الطابق 1: القانونية والامتثال والحوكمة", (
-            _office("legal-office", "Legal Office", "المكتب القانوني", 10, 8, 4, None, "slate"),
-            _office("compliance-office", "Compliance Office", "مكتب الامتثال", 10, 8, 4, None, "slate"),
-            _office("governance-office", "Governance Office", "مكتب الحوكمة", 10, 8, 3, None, "slate"),
+            _office("legal-office", "Legal Office", "المكتب القانوني", 10, 8, 4, "legal", "slate"),
+            _office("compliance-office", "Compliance Office", "مكتب الامتثال", 10, 8, 4, "compliance", "slate"),
+            _office("governance-office", "Governance Office", "مكتب الحوكمة", 10, 8, 3, "compliance", "slate"),
             _meeting("audit-room", "Audit Room", "غرفة التدقيق", 8, 6, 8, "sapphire"),
         ), 34.0),
     )),
@@ -198,23 +199,23 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
             _office("automation", "Automation", "الأتمتة", 10, 8, 4, None, "sapphire"),
         ), 34.0),
         _floor(1, "Floor 1: Technology and Engineering", "الطابق 1: التقنية والهندسة", (
-            _office("development", "Development", "التطوير", 14, 9, 8, None, "sapphire", "south",
+            _office("development", "Development", "التطوير", 14, 9, 8, "technology", "sapphire", "south",
                     (("monitor", 8), ("whiteboard", 1), ("charging_station", 1))),
-            _office("deployments", "Deployments", "النشر", 10, 8, 4, None, "sapphire", "south",
+            _office("deployments", "Deployments", "النشر", 10, 8, 4, "technology", "sapphire", "south",
                     (("monitor", 4), ("server_rack", 1), ("network_switch", 1))),
-            _office("incidents", "Incidents", "الحوادث", 10, 8, 4, None, "crimson", "south",
+            _office("incidents", "Incidents", "الحوادث", 10, 8, 4, "technology", "crimson", "south",
                     (("monitor", 4), ("display", 2), ("whiteboard", 1))),
         ), 34.0),
         _floor(2, "Floor 2: Research and Intelligence", "الطابق 2: البحث والاستخبارات", (
-            _office("research-room", "Research Room", "غرفة البحث", 12, 8, 6, None, "amethyst"),
-            _office("intelligence-desk", "Intelligence Desk", "مكتب الاستخبارات", 10, 8, 4, None, "amethyst"),
+            _office("research-room", "Research Room", "غرفة البحث", 12, 8, 6, "research", "amethyst"),
+            _office("intelligence-desk", "Intelligence Desk", "مكتب الاستخبارات", 10, 8, 4, "research", "amethyst"),
             _meeting("briefing-room", "Briefing Room", "غرفة الإحاطة", 8, 6, 8, "sapphire"),
         ), 34.0),
     )),
     BuildingSpec(6, "new-ventures", "New Ventures", "المشاريع الجديدة", (
         _floor(0, "Ground floor: Investments, R&D and Future Businesses", "الطابق الأرضي: الاستثمارات والبحث والتطوير والأعمال المستقبلية", (
             _office("investments", "Investments", "الاستثمارات", 12, 8, 4, "finance", "brass"),
-            _office("research-development", "R&D", "البحث والتطوير", 12, 8, 6, None, "amethyst"),
+            _office("research-development", "R&D", "البحث والتطوير", 12, 8, 6, "research", "amethyst"),
             _office("future-businesses", "Future Businesses", "الأعمال المستقبلية", 12, 8, 4, None, "teal"),
             _meeting("meeting-room", "Meeting Room", "غرفة الاجتماعات", 8, 6, 8, "sapphire"),
         ), 34.0),
@@ -338,6 +339,9 @@ def plan_building(spec: BuildingSpec, facts: Facts, timezone: str) -> dict[str, 
             existing = facts.rooms.get(rid)
             if existing is not None:
                 item.update(action="skip", reason=EXISTS, desks=[])
+                fill = department_fill(existing, rspec)
+                if fill is not None:
+                    item["department_set"] = fill
             elif not usable:
                 item.update(action="skip", reason=FLOOR_UNAVAILABLE, desks=[])
             elif rspec.en in names:
@@ -367,7 +371,8 @@ def plan_building(spec: BuildingSpec, facts: Facts, timezone: str) -> dict[str, 
             "width_m": width_m, "depth_m": depth_m, "action": f_action, "reason": f_reason, "rooms": rooms_out,
         })
     counts = count_plan(floors_out, b_exists)
-    status = "complete" if not any(counts["create"].values()) else ("new" if not b_exists else "partial")
+    pending = any(counts["create"].values()) or counts["update"]["room_departments"] > 0
+    status = "complete" if not pending else ("new" if not b_exists else "partial")
     return {
         "key": spec.key, "number": spec.number, "id": bid, "name": {"en": spec.en, "ar": spec.ar},
         "timezone": timezone, "action": "skip" if b_exists else "create", "reason": EXISTS if b_exists else None,
@@ -375,9 +380,23 @@ def plan_building(spec: BuildingSpec, facts: Facts, timezone: str) -> dict[str, 
     }
 
 
+def department_fill(existing: Mapping[str, Any], spec: RoomSpec) -> dict[str, str | None] | None:
+    """The one change a re-run may make to a room that already exists: give a campus room its department.
+
+    Only a room of the master list (matched by its stable id) whose department is still empty or ``custom`` is
+    touched, and only to the department the master list names. A department the owner chose is never replaced,
+    and nothing else about the room (name, position, size, desks) is ever changed.
+    """
+    current = existing.get("team_department")
+    if spec.department is None or current not in (None, "custom") or current == spec.department:
+        return None
+    return {"from": current, "to": spec.department}
+
+
 def count_plan(floors: list[dict[str, Any]], building_exists: bool) -> dict[str, dict[str, int]]:
     create = {"buildings": 0 if building_exists else 1, "floors": 0, "rooms": 0, "desks": 0}
     skip = {"buildings": 1 if building_exists else 0, "floors": 0, "rooms": 0, "desks": 0}
+    update = {"room_departments": 0}
     for f in floors:
         create["floors"] += 1 if f["action"] == "create" else 0
         skip["floors"] += 1 if f["action"] == "skip" else 0
@@ -387,7 +406,8 @@ def count_plan(floors: list[dict[str, Any]], building_exists: bool) -> dict[str,
                 create["desks"] += len(r["desks"])
             else:
                 skip["rooms"] += 1
-    return {"create": create, "skip": skip}
+                update["room_departments"] += 1 if r.get("department_set") else 0
+    return {"create": create, "skip": skip, "update": update}
 
 
 def plan_campus(facts: Facts, timezone: str, keys: list[str] | None = None) -> list[dict[str, Any]]:
@@ -396,14 +416,20 @@ def plan_campus(facts: Facts, timezone: str, keys: list[str] | None = None) -> l
 
 
 def totals(plans: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
-    out = {"create": {"buildings": 0, "floors": 0, "rooms": 0, "desks": 0}, "skip": {"buildings": 0, "floors": 0, "rooms": 0, "desks": 0}}
+    out = {"create": {"buildings": 0, "floors": 0, "rooms": 0, "desks": 0}, "skip": {"buildings": 0, "floors": 0, "rooms": 0, "desks": 0},
+           "update": {"room_departments": 0}}
     for p in plans:
         if not p["selected"]:
             continue
-        for side in ("create", "skip"):
+        for side in ("create", "skip", "update"):
             for k, v in p["counts"][side].items():
                 out[side][k] += v
     return out
+
+
+def has_work(plan: Mapping[str, Any]) -> bool:
+    """True when a confirm would write something for this building: a new record or a department to fill."""
+    return any(plan["counts"]["create"].values()) or plan["counts"]["update"]["room_departments"] > 0
 
 
 # --------------------------------------------------------------------------- hash

@@ -25,8 +25,12 @@ export const OFFICE_EQUIPMENT_KINDS = [
   'charging_station', 'first_aid_kit',
 ] as const;
 export type OfficeEquipmentKind = (typeof OFFICE_EQUIPMENT_KINDS)[number];
-/** The existing team concept (team_models.Department). */
-export const OFFICE_TEAM_DEPARTMENTS = ['sales', 'support', 'operations', 'finance', 'tyre_engineering', 'custom'] as const;
+/** The existing team concept (team_models.Department), plus the departments added with room modules. */
+export const OFFICE_TEAM_DEPARTMENTS = [
+  'sales', 'support', 'operations', 'finance', 'tyre_engineering',
+  'marketing', 'technology', 'research', 'legal', 'compliance', 'security', 'hr', 'procurement',
+  'custom',
+] as const;
 export type OfficeTeamDepartment = (typeof OFFICE_TEAM_DEPARTMENTS)[number];
 export const OFFICE_TEMPLATE_IDS = ['open_office', 'meeting_room', 'reception', 'warehouse', 'workshop'] as const;
 export type OfficeTemplateId = (typeof OFFICE_TEMPLATE_IDS)[number];

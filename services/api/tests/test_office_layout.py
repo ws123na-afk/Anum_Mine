@@ -81,7 +81,7 @@ def test_literals_match_catalogues():
     (RoomUpdate, {"expected_revision": 1, "rotation": 45}),
     (RoomUpdate, {"expected_revision": 1, "kind": None}),
     (RoomUpdate, {"expected_revision": 1, "color": "pink"}),
-    (RoomUpdate, {"expected_revision": 1, "team_department": "legal"}),
+    (RoomUpdate, {"expected_revision": 1, "team_department": "astrology"}),
     (RoomUpdate, {"expected_revision": 1, "notes": "x" * 2001}),
     (RoomUpdate, {"expected_revision": 1, "name": "   "}),
     (RoomUpdate, {"expected_revision": 1, "notes": "bad\x00text"}),

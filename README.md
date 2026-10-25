@@ -98,6 +98,7 @@ x-user-roles: owner,member
 - [ANUM MINE headquarters live flow, stuck work and office teams](docs/ANUM_MINE_HQ_LIVE_FLOW.md)
 - [ANUM MINE headquarters governed agent provisioning](docs/ANUM_MINE_AGENT_PROVISIONING.md)
 - [ANUM MINE starter campus: one click Set up my campus](docs/ANUM_MINE_STARTER_CAMPUS.md)
+- [ANUM MINE departments with real modules, agent roles for them and meetings tied to rooms](docs/ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md)
 - [ANUM MINE Executive PA tools and executive desk](docs/ANUM_MINE_EXECUTIVE_PA.md)
 - [ANUM MINE Live Employee Workstations](docs/ANUM_MINE_WORKSTATIONS_MODULE.md)
 - [ANUM MINE Reception & Visitor Operations](docs/ANUM_MINE_RECEPTION_MODULE.md)

@@ -9,7 +9,7 @@ Live text meetings between governed agents, with the owner moderating. Everythin
 | --- | --- |
 | `workspaceId` | Workspace the room belongs to. Checked against the signed-in scope; a mismatch shows "switch workspace". |
 | `meetingId` | The live agent meeting to open (`/api/v1/agent-meetings/{id}`). |
-| `roomId` | An office room id. No persisted room to meeting link exists yet, so without `meetingId` the panel shows a picker of this workspace's meetings. |
+| `roomId` | An office room id. Meetings now store their room (`room_id`, see [departments, modules and meeting rooms](ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md)); the office opens the live meeting of a room by its id (`#office/meeting/<id>`). Without `meetingId` the panel still shows a picker of this workspace's meetings. |
 | `onClose` | Called by the Close button. |
 
 The panel is container-query responsive (one column under 760 px of panel width, transcript plus side column above), so a narrow side-panel slot and a full page both work. Deep link: `#office/meeting/<id>` renders `MeetingRoomPage` (full page). `MeetingsView` lists live agent meetings above the imported ones with "Open room" links; imported meetings are unchanged.
@@ -37,4 +37,4 @@ Reads need `task:read`; writes need `workspace:manage` and, for moderation, owne
 `docs/meetings.md` states meetings have no automatic expiry. The owner can export, and delete the transcript of an ended meeting (messages, events, leases); usage totals, confirmed decisions and created tasks remain. An automatic retention window needs an owner decision and is not built.
 
 ## Not built
-Model drafted extraction of decisions and action items; a persisted office room to meeting link; automatic periodic running of turns from the room (the room starts one governed turn at a time; the unattended worker remains a managed service).
+Model drafted extraction of decisions and action items; automatic periodic running of turns from the room (the room starts one governed turn at a time; the unattended worker remains a managed service).

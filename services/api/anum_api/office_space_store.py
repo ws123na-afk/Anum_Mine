@@ -321,6 +321,17 @@ class SqlOfficeSpaceStore:
         )
         return dict(self.session.execute(stmt).mappings().one())
 
+    def fill_room_department(self, context: TenantContext, room_id: str, department: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """Set a room's department only while it is still empty or ``custom`` (the starter campus backfill).
+
+        Locks the row and re-checks under the lock, so a department an owner chose in between is never replaced.
+        Returns (before, after), or None when the room is gone or already has a real department.
+        """
+        row = self._lock(context, "rooms", room_id)
+        if row is None or row["team_department"] not in (None, "custom"):
+            return None
+        return row, self._apply(context, "rooms", room_id, {"team_department": department})
+
     def _floor_rooms(self, context: TenantContext, floor_id: str, lock: bool = False) -> list[dict[str, Any]]:
         t = _SQL_TABLES["rooms"]
         query = select(t).where(*self._scope("rooms", context), t.c.floor_id == floor_id).order_by(t.c.id)
