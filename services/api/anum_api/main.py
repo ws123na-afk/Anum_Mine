@@ -240,6 +240,7 @@ from .office_campus_api import router as office_campus_router
 from .office_presence_api import router as office_presence_router
 from .office_flow_api import router as office_flow_router
 from .office_provisioning_api import router as office_provisioning_router
+from .office_staff_desks_api import router as office_staff_desks_router
 from .office_assign_api import router as office_assign_router
 from .office_building_api import router as office_building_router
 from .office_starter_campus_api import router as office_starter_campus_router
@@ -440,6 +441,7 @@ app.include_router(office_provisioning_router)
 app.include_router(office_assign_router)
 app.include_router(office_building_router)
 app.include_router(office_starter_campus_router)
+app.include_router(office_staff_desks_router)
 app.include_router(executive_router)
 app.include_router(live_agent_meeting_router)
 app.include_router(executive_pa_router)
