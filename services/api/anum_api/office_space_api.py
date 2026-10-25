@@ -25,6 +25,7 @@ from .authorization import Permission
 from .dependencies import event_runtime, require_permission, tenant_context
 from .errors import ApplicationError, ErrorCode, ErrorDetail
 from .events import CanonicalEventName, create_event
+from .office_layout_history import LAYOUT_ACTIONS
 from .office_space_store import SpaceStoreError, SqlOfficeSpaceStore
 from .scoped_store import open_scoped_store
 from .schemas import TenantContext, new_id, utc_now
@@ -313,7 +314,11 @@ def _store(context: TenantContext) -> Iterator[SqlOfficeSpaceStore]:
     # Setting anum.user_id is required by agent_profiles' private-agent RLS.
     with open_scoped_store(context, None, SqlOfficeSpaceStore, user_scoped=True) as store:
         store.pending_events = []  # type: ignore[attr-defined]
+        store.touched_floors = {}  # type: ignore[attr-defined]
         yield store
+        # Still inside the unit of work: the layout revision commits or rolls back with the change itself.
+        for floor_id, action in store.touched_floors.items():  # type: ignore[attr-defined]
+            store.record_floor_revision(context, floor_id, action)
     # Reached only after the unit of work committed: now other open browsers hear of it.
     event_runtime.after_commit(store.pending_events)  # type: ignore[attr-defined]
 
@@ -376,6 +381,12 @@ def _audit(
         metadata["before"] = before
     if after is not None:
         metadata["after"] = after
+    if action in LAYOUT_ACTIONS:
+        touched = floor_id
+        if touched is None and kind == "desks":
+            touched = store.floor_id_of(context, "rooms", (after or before or {}).get("room_id", ""))
+        if touched is not None and hasattr(store, "touched_floors"):
+            store.touched_floors[touched] = action  # type: ignore[attr-defined]
     repository = SqlAlchemyRepository(store.session)
     repository.record_audit(
         AuditRecord(

@@ -159,7 +159,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 8.3 | Persisted layouts with optimistic concurrency | Complete | Ran, CI | `expected_revision` on every patch and delete, 409 on conflict; `PUT /floors/{id}/layout` is atomic; `test_office_layout.py` pass; PG tests CI | none |
 | 8.4 | Layout audit | Complete | Read | `_audit` with before and after on every write (`office_space_api.py`) | none |
 | 8.5 | Work moving through offices and stuck work | Complete | Ran | `office_flow.py`, `GET /office/flow`, item trails, `test_office_flow.py` pass; `e2e/hq-live-flow.spec.ts` | Orders have no local history: trail says `not_recorded` |
-| 8.6 | Layout revision history and restore | Missing | Read | Revisions are a counter per row; no route lists past versions or restores one | PR: read-only "layout history" of a floor built from the `office.*` audit records, and "restore this version" as a normal atomic save |
+| 8.6 | Layout revision history and restore | Complete | Read, CI | Append-only `office_floor_revisions` (migration 0112, forced RLS, purge policy, lifecycle list, cap per floor) written in the same transaction as every layout change; `GET /office-layout/floors/{id}/revisions[/{n}]`, restore `POST .../restore` (`workspace:manage`, click only, payload hash, head check 409, exact unassign list, idempotent, new revision, audited). `test_office_layout_history.py`, `test_postgres_layout_history.py` (CI only), `docs/ANUM_MINE_LAYOUT_HISTORY.md` | Floors only (not building rename); revisions start at the first tracked change after the migration |
 | 8.7 | Events are authorised | Complete | Read | `task:read` and `event:read` required on the stream; events carry ids, not payload text | none |
 
 ## Section 9. Live agent meetings
@@ -205,9 +205,9 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 11.3 | Arrange desks and assign agents | Complete | Read, CI | `DeskPanel.tsx`, `PATCH /desks/{id}/assignment` | none |
 | 11.4 | Save and reload | Complete | Read, CI | Atomic floor save, draft model, rebase on conflict (`hqBuilder/draftModel.ts`) | none |
 | 11.5 | Undo and redo | Complete | Ran | `hqBuilder/draftModel.ts` history; `hqBuilderDraft.test.ts` pass | Draft level only, before saving |
-| 11.6 | Revisions (browse, restore) | Missing | Read | See 8.6 | See 8.6 |
+| 11.6 | Revisions (browse, restore) | Complete | Read, CI | History tab with list, diff preview, restore dialog (`hqBuilder/HistoryTab.tsx`, `RestoreDialog.tsx`, `MiniPlan.tsx`); all states, English and Arabic, five viewports; `hqLayoutHistory.test.ts`, `e2e/hq-layout-history.spec.ts` | none |
 | 11.7 | Audit | Complete | Read | See 8.4 | none |
-| 11.8 | Templates | Partial | Read, CI | Fixed room templates and room copy (`GET /office-spaces/templates`, `/rooms/from-template`, `/rooms/{id}/copy`, `office_layout.py`, `test_office_layout.py` pass) | No floor, building or whole-office template. Starter campus is in flight |
+| 11.8 | Templates | Complete | Read, CI | Fixed room templates and room copy (`office_layout.py`), plus owner-named floor and building templates (`office_layout_templates`, `POST /office-layout/templates/from-floor`, `/from-building`, `/floors/from-template`, `/buildings/from-template`; desks empty, no agent copied); Templates tab | Whole-office JSON export and import not built (optional); a template makes a new floor or building, not an edit of an existing floor |
 | 11.9 | Edit directly in the 3D scene | Missing | Read | Editing is on the 2D plan canvas only | Optional. A drag handle in 3D is large work; the plan is enough unless the owner asks |
 | 11.10 | Delete with safeguards | Complete | Read | Versioned deletes (`expected_revision` query), restricted-state 409 | none |
 | 11.11 | English and Arabic builder | Complete | Read, CI | `lib/messages/builder.en.ts`, `builder.ar.ts`, `name_ar` on rooms; `hq-builder-responsive.spec.ts` | none |
@@ -253,7 +253,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 14.7 | Layouts persist with concurrency control and audit | Complete | Ran, CI | 8.3, 8.4 |
 | 14.8 | Live agent meetings run within limits and end with summary, decisions, tasks and export | Complete | Read, CI | Limits, summary, model-drafted and typed decisions, decision to work links, action item to task and export (9.1 to 9.10) | None for this row; see the gaps in 9.4 and 9.11 |
 | 14.9 | Work history is searchable and replay is shown only where verified | Partial | Ran, CI | History panel (10.2 to 10.5, 10.9); the "only where verified" rule is kept (10.6) | No real replay of presence or occupancy (owner decision O8) |
-| 14.10 | The owner can create, edit, arrange, assign, save, restore and template an office | Partial | Read, CI | All but restore and whole-office templates (8.6, 11.8) |
+| 14.10 | The owner can create, edit, arrange, assign, save, restore and template an office | Complete | Read, CI | Create, edit, arrange, assign, save (11.1 to 11.5), restore (8.6, 11.6), floor and building templates (11.8) | JSON export and import of a template is the one optional piece left |
 | 14.11 | Tenants and workspaces stay isolated | Complete | CI | 4.7, 4.8 (PG tests CI only) |
 | 14.12 | Fallbacks, reduced motion and performance budgets hold | Complete | Read, CI | 3.9, 3.12, 3.14; budget run on a real device is missing (3.10) |
 | 14.13 | Tests and screenshots cover every state | Partial | Read, CI | Tests broad (12.1, 12.2); screenshots not kept (12.3) |
@@ -269,7 +269,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 6. **Fix the second guided tour (6.5, 6.11).** Done in this change: one tour from the real tour endpoint, Arabic narration, no invented stops.
 7. **Use the presence stream in the web (8.1, 8.2).** Cut polling and close the gap with the server design; then re-run the load test on the Oracle VM (H-09).
 8. **Meeting summary and decision to work links (9.6, 9.9, 9.7).** Owner-confirmed summary, decisions linked to tasks, linked items in the export.
-9. **Layout history and restore (8.6, 11.6).** From the existing audit records, restore as a normal save.
+9. **Done in PR claude/hq-layout-history: layout history and restore (8.6, 11.6) and floor and building templates (11.8).** Stored snapshots written in the save's own transaction, a click only governed restore, and a History and Templates tab.
 10. **Close the open security findings (9.3, 9.12, 9.13, 12.7).** Workspace meeting cap, audit each turn, decide transcript visibility. Done in the meeting budget PR (S-02, S-03, S-04); S-05 and owner decision O5 (retention) stay open.
 
 Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a screenshot sweep artifact (12.3), the migration number clash (13.3), the `hq.en` and `hq.ar` key parity test (13.5), desk and figure visuals for all eight states (5.5).
@@ -299,12 +299,12 @@ Rows counted: 139 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
-| Complete | 84 |
-| Partial | 45 |
-| Missing | 9 |
+| Complete | 88 |
+| Partial | 43 |
+| Missing | 7 |
 | Not applicable | 1 |
 | Total | 139 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 79, Partial 36, Missing 9, Not applicable 1 (total 125).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 82, Partial 35, Missing 7, Not applicable 1 (total 125).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.

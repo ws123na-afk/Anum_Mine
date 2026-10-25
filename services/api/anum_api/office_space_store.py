@@ -17,23 +17,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from . import office_layout as layout
+from .office_layout_history import LayoutHistoryMixin
+from .office_layout_templates import TemplateMixin
+from .office_space_errors import SpaceStoreError
 from .schemas import TenantContext
-
-
-class SpaceStoreError(Exception):
-    """A refused office change.
-
-    ``code`` picks the HTTP status (invalid 422, not_found 404, conflict and restricted
-    409). ``reason`` is a stable machine code and ``issues`` lists each problem as
-    (location, machine code, message), so a client can mark the exact rooms involved.
-    """
-
-    def __init__(self, code: str, message: str, *, reason: str | None = None,
-                 issues: tuple[tuple[str, str, str], ...] = ()):
-        super().__init__(message)
-        self.code = code
-        self.reason = reason
-        self.issues = tuple(issues)
 
 
 _TABLES = {
@@ -114,7 +101,7 @@ def _refuse(issues: list[layout.LayoutIssue], message: str) -> SpaceStoreError:
     )
 
 
-class SqlOfficeSpaceStore:
+class SqlOfficeSpaceStore(LayoutHistoryMixin, TemplateMixin):
     def __init__(self, session: Session):
         self.session = session
 
@@ -190,6 +177,8 @@ class SqlOfficeSpaceStore:
         expected = set(_COLUMNS[kind])
         if set(fields) != expected:
             raise SpaceStoreError("invalid", "Unexpected office record fields")
+        if kind in ("rooms", "desks"):
+            self._pre_lock(context, "floors" if kind == "rooms" else "rooms", fields["floor_id"] if kind == "rooms" else fields["room_id"])
         if kind == "desks":
             # Lock the room before counting desks. Concurrent creations serialize
             # here, so capacity cannot be exceeded by two owner requests.
@@ -275,12 +264,19 @@ class SqlOfficeSpaceStore:
             raise SpaceStoreError("conflict", "This agent already occupies another desk") from exc
 
     def delete_desk(self, context: TenantContext, desk_id: str, revision: int) -> None:
+        self._pre_lock(context, "desks", desk_id)
         result = self.session.execute(text("""
             delete from office_desks where tenant_id = :tenant and workspace_id = :workspace
             and id = :id and revision = :revision returning id
         """), self._params(context, id=desk_id, revision=revision)).first()
         if result is None:
             self._raise_revision(context, "desks", desk_id)
+
+    def _pre_lock(self, context: TenantContext, kind: str, item_id: str) -> None:
+        """Take the floor lock before any row lock of a room or desk change: one lock order for every writer."""
+        floor_id = self.floor_id_of(context, kind, item_id)
+        if floor_id is not None:
+            self.begin_floor_change(context, floor_id)
 
     def _raise_revision(self, context: TenantContext, kind: str, item_id: str) -> None:
         if self.get(context, kind, item_id) is None:
@@ -351,6 +347,7 @@ class SqlOfficeSpaceStore:
     def patch(self, context: TenantContext, kind: str, item_id: str, revision: int,
               changes: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         """Revision checked partial update of a building, floor, room or desk."""
+        self._pre_lock(context, kind, item_id)
         before = self._lock_checked(context, kind, item_id, revision)
         if kind == "floors":
             self._check_floor_patch(context, before, changes)
@@ -420,7 +417,7 @@ class SqlOfficeSpaceStore:
         room = self.get(context, "rooms", room_id)
         if room is None:
             raise SpaceStoreError("not_found", "Room not found")
-        floor = self._lock(context, "floors", room["floor_id"])
+        floor = self.begin_floor_change(context, room["floor_id"])
         if floor is None:
             raise SpaceStoreError("not_found", "Floor not found")
         before = self._lock_checked(context, "rooms", room_id, revision)
@@ -453,7 +450,7 @@ class SqlOfficeSpaceStore:
     def save_floor_layout(self, context: TenantContext, floor_id: str, rooms: list[Mapping[str, Any]],
                           desks: list[Mapping[str, Any]]) -> dict[str, Any]:
         """All or nothing: validate the final layout, then write every room and desk."""
-        floor = self._lock(context, "floors", floor_id)
+        floor = self.begin_floor_change(context, floor_id)
         if floor is None:
             raise SpaceStoreError("not_found", "Floor not found in this workspace")
         room_rows = {r["id"]: r for r in self._floor_rooms(context, floor_id, lock=True)}
@@ -572,6 +569,7 @@ class SqlOfficeSpaceStore:
         return before
 
     def delete_room(self, context: TenantContext, room_id: str, revision: int) -> dict[str, Any]:
+        self._pre_lock(context, "rooms", room_id)
         before = self._lock_checked(context, "rooms", room_id, revision)
         desks = self._room_desks(context, [room_id])
         if desks:
@@ -635,7 +633,7 @@ class SqlOfficeSpaceStore:
         source = self.get(context, "rooms", source_id)
         if source is None:
             raise SpaceStoreError("not_found", "Room not found in this workspace")
-        floor = self._lock(context, "floors", floor_id or source["floor_id"])
+        floor = self.begin_floor_change(context, floor_id or source["floor_id"])
         if floor is None:
             raise SpaceStoreError("not_found", "Floor not found in this workspace")
         values: dict[str, Any] = {"id": new_id, "floor_id": floor["id"],
@@ -658,7 +656,7 @@ class SqlOfficeSpaceStore:
     def create_room_from_template(self, context: TenantContext, template: layout.RoomTemplate, room_id: str,
                                   floor_id: str, name: str | None, x: float | None, z: float | None,
                                   with_desks: bool) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        floor = self._lock(context, "floors", floor_id)
+        floor = self.begin_floor_change(context, floor_id)
         if floor is None:
             raise SpaceStoreError("not_found", "Floor not found in this workspace")
         px, pz = self._place(context, floor, template.width, template.depth, x, z, None)
@@ -686,7 +684,7 @@ class SqlOfficeSpaceStore:
         Same floor lock, bounds and overlap rules as a template room; used by the starter campus, which has
         already planned the spot and relies on this to refuse anything that does not fit.
         """
-        floor = self._lock(context, "floors", floor_id)
+        floor = self.begin_floor_change(context, floor_id)
         if floor is None:
             raise SpaceStoreError("not_found", "Floor not found in this workspace")
         px, pz = self._place(context, floor, width, depth, x, z, None)

@@ -52,6 +52,8 @@ An existing production agent status or meeting status is not created by adding a
 - Existing repository checks and app CI must also pass. Database tests require the PostgreSQL test fixture and migration head.
 
 ## Office builder API (migration `0105_office_builder`)
+
+Layout revision history, restore and floor and building templates (migration `0112_layout_history`) are in [ANUM_MINE_LAYOUT_HISTORY.md](ANUM_MINE_LAYOUT_HISTORY.md). Every layout write below takes the floor lock first and records a revision when its unit of work ends.
 Data and API for the owner's office builder. The visual editor in the web app (section "Web builder" below) calls these endpoints. Everything below is under `/api/v1/office-spaces`, needs PostgreSQL (memory mode answers 503) and runs in one RLS-scoped transaction with its audit record and its event.
 
 ### Decisions (owner delegated, 25 October 2026)

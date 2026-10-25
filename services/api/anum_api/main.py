@@ -234,6 +234,7 @@ from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
 from .audit_log import router as audit_log_router
 from .office_history_api import router as office_history_router
+from .office_layout_history_api import router as office_layout_history_router
 from .workspace_admin import router as workspace_admin_router
 from .office_space_api import router as office_space_router
 from .office_campus_api import router as office_campus_router
@@ -432,6 +433,7 @@ app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
 app.include_router(audit_log_router)
 app.include_router(office_history_router)
+app.include_router(office_layout_history_router)
 app.include_router(workspace_admin_router)
 app.include_router(office_space_router)
 app.include_router(office_campus_router)

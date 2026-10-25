@@ -112,14 +112,14 @@ export function useBuilder({ api, load, scopeKey }: UseBuilderOptions) {
     return { building: building?.id ?? '', floor: chosen?.id ?? '' };
   }, []);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (want?: { building?: string; floor?: string }) => {
     setPhase((p) => (p === 'ready' ? p : 'loading'));
     setBusy(true);
     try {
       const records = await load();
       const key = live.current.scopeKey;
       loadedScope.current = key;
-      const pick = pickInitial(records, buildingIdRef.current, floorIdRef.current);
+      const pick = pickInitial(records, want?.building ?? buildingIdRef.current, want?.floor ?? floorIdRef.current);
       setData(records);
       setBuildingIdState(pick.building);
       setFloorIdState(pick.floor);

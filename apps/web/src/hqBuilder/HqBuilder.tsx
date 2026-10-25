@@ -3,7 +3,7 @@
 // that is saved as one atomic layout. Only owners (workspace:manage) edit; everyone else gets a
 // read-only view with the reason. All data comes from /api/v1/office-spaces; nothing is kept in
 // the browser.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { ArrowLeft, Maximize2, Redo2, RefreshCw, RotateCw, Save, Undo2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import * as api from '../lib/api.ts';
 import { loadOrgSources } from '../lib/orgChart.ts';
@@ -11,6 +11,7 @@ import { createOfficeSpaceClient } from '../lib/officeSpaceClient.ts';
 import { t, type MessageKey } from '../lib/i18n.ts';
 import { useLocale } from '../useLocale';
 import { createBuilderApi } from './builderApi.ts';
+import { createHistoryApi } from './historyApi.ts';
 import { changedDeskIds, changedRoomIds } from './draftModel.ts';
 import { explainIssue } from './explain.ts';
 import { planView } from './geometry.ts';
@@ -25,9 +26,13 @@ import { useBuilder } from './useBuilderState.ts';
 import './hqBuilder.css';
 
 const builderApi = createBuilderApi(api.apiRequest, api.apiRequestVoid);
+const historyApi = createHistoryApi(api.apiRequest, api.apiRequestVoid);
+// History and templates are loaded only when their tab is opened (hq performance budget).
+const HistoryTab = lazy(() => import('./HistoryTab.tsx').then((m) => ({ default: m.HistoryTab })));
+const TemplatesTab = lazy(() => import('./TemplatesTab.tsx').then((m) => ({ default: m.TemplatesTab })));
 const officeClient = createOfficeSpaceClient(api.apiRequest, api.apiRequestVoid, api.currentScope);
 
-type Tab = 'room' | 'rooms' | 'floor';
+type Tab = 'room' | 'rooms' | 'floor' | 'history' | 'templates';
 type Role = { state: 'checking' } | { state: 'known'; role: string } | { state: 'unknown' };
 
 function useMedia(query: string): boolean {
@@ -302,7 +307,7 @@ export function HqBuilder({ onClose }: { onClose: () => void }) {
         )}
         <aside className="hqbPanel" aria-label={t('hqb.panel.label')} hidden={narrow && !panelOpen}>
           <div className="hqbTabs" role="tablist" aria-label={t('hqb.panel.label')}>
-            {(['room', 'rooms', 'floor'] as const).map((id) => (
+            {(['room', 'rooms', 'floor', 'history', 'templates'] as const).map((id) => (
               <button key={id} type="button" role="tab" id={`hqb-tab-${id}`} aria-selected={tab === id} aria-controls="hqb-tabpanel" onClick={() => setTab(id)}>{t(`hqb.tab.${id}` as MessageKey)}</button>
             ))}
           </div>
@@ -312,6 +317,11 @@ export function HqBuilder({ onClose }: { onClose: () => void }) {
               : <p className="hqbHint">{t('hqb.room.pick')}</p>)}
             {tab === 'rooms' && <RoomsTab b={b} editable={editable} />}
             {tab === 'floor' && <FloorTab b={b} editable={editable} />}
+            {(tab === 'history' || tab === 'templates') && (
+              <Suspense fallback={<p className="hqbHint" role="status">{t('hqh.loading')}</p>}>
+                {tab === 'history' ? <HistoryTab b={b} api={historyApi} editable={editable} /> : <TemplatesTab b={b} api={historyApi} editable={editable} />}
+              </Suspense>
+            )}
           </div>
         </aside>
       </div>

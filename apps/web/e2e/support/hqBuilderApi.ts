@@ -1,5 +1,6 @@
 import type { Page, Route } from '@playwright/test';
 import { mockOrgChart } from './orgChartApi';
+import { mockLayoutHistory, type HistoryMock, type HistoryMockOptions } from './hqLayoutHistoryApi';
 
 // A stateful mock of the office builder API (docs/ANUM_MINE_OFFICE_REGISTRY_BACKEND.md, "Office
 // builder API"). It enforces the same rules as the server for the paths the specs use: revision
@@ -9,7 +10,7 @@ const stamp = '2026-10-25T08:00:00Z';
 const scope = { tenant_id: 'tenant_local', workspace_id: 'workspace_foundation' };
 const base = (id: string, revision = 1) => ({ id, revision, ...scope, created_at: stamp, updated_at: stamp });
 
-export interface BuilderMockOptions {
+export interface BuilderMockOptions extends HistoryMockOptions {
   role?: 'owner' | 'member' | 'viewer';
   /** Every write answers 403, like a caller without workspace:manage. */
   forbidWrites?: boolean;
@@ -24,6 +25,8 @@ export interface BuilderMock {
   requests: { method: string; path: string; body: Json | null }[];
   rooms: Map<string, Json>;
   desks: Map<string, Json>;
+  /** The layout history and template mock (docs/ANUM_MINE_LAYOUT_HISTORY.md). */
+  history: HistoryMock;
   floors: Map<string, Json>;
   /** Simulates another editor: bumps a room's revision (and optionally moves it) behind the page's back. */
   touchRoom(id: string, patch?: Json): void;
@@ -78,7 +81,7 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
   if (options.extraRooms) floors.set('floor-1', { ...floors.get('floor-1'), width_m: 200, depth_m: 200 });
 
   const mock: BuilderMock = {
-    requests: [], rooms, desks, floors,
+    requests: [], rooms, desks, floors, history: undefined as unknown as HistoryMock,
     touchRoom(id, patch = {}) {
       const current = rooms.get(id);
       if (current) rooms.set(id, { ...current, ...patch, revision: Number(current.revision) + 1 });
@@ -233,6 +236,8 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
     }
     return error(route, 404, 'Not found');
   });
+  // Registered last: Playwright runs the newest matching route first, and the org chart mock owns http://localhost:8000/**.
+  mock.history = await mockLayoutHistory(page, rooms, desks, floors, options, options.role ?? 'owner');
   return mock;
 }
 

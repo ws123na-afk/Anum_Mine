@@ -279,6 +279,8 @@ class Settings(BaseSettings):
     office_flow_order_ship_grace_minutes: int = Field(default=0, ge=0, le=43_200)
     office_flow_recent_done_minutes: int = Field(default=30, ge=1, le=1_440)
     office_flow_failed_window_hours: int = Field(default=24, ge=1, le=720)
+    # Office layout history (docs/ANUM_MINE_LAYOUT_HISTORY.md): revisions kept per floor; the oldest are pruned.
+    office_layout_revision_cap: int = Field(default=50, ge=5, le=500)
     # Workspace file bytes (docs/files.md): "local" filesystem, "memory", or "s3"
     # (any S3-compatible endpoint, SeaweedFS locally).
     object_storage_backend: str = Field(default="local", pattern="^(local|memory|s3)$")
