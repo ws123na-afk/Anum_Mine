@@ -196,6 +196,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         "business_payment_notices": "0096_invoice_credit_notes",
         **{name: "0097_office_spaces" for name in ("office_buildings", "office_floors", "office_rooms", "office_desks")},
             "office_create_keys": "0099_office_create_keys",
+            "office_agent_provisions": "0106_agent_provisioning",
             **{name: "0104_meeting_room" for name in (
                 "agent_meeting_events", "agent_meeting_agenda", "agent_meeting_outputs",
                 "agent_meeting_attendance", "agent_meeting_files")},

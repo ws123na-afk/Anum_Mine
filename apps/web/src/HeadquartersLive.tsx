@@ -18,6 +18,8 @@ import { HqFlowDock } from './HqFlowDock';
 import { HqFlowOverlay } from './HqFlowOverlay';
 import { HqTeamPanel } from './HqTeamPanel';
 import { useOfficeFlow } from './useOfficeFlow';
+import { OrgGapsPanel } from './hq-provisioning/OrgGapsPanel';
+import { useProvisioningGaps } from './hq-provisioning/useProvisioning';
 import { t } from './lib/i18n';
 import { useLocale } from './useLocale';
 import './headquartersLive.css';
@@ -48,7 +50,7 @@ function roomIcon(kind:string){
   default:return <Building2 size={16}/>;
  }
 }
-type Overlay = 'none'|'spaces'|'workstations'|'reception'|'tour'|'agentMeetings'|'teams';
+type Overlay = 'none'|'spaces'|'workstations'|'reception'|'tour'|'agentMeetings'|'teams'|'gaps';
 export function HeadquartersLive({onClose}:{onClose:()=>void}){
  const [state,setState]=useState<OfficeState|null>(null);
  const [overlay,setOverlay]=useState<Overlay>('none');
@@ -59,6 +61,7 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
  const host=useRef<HTMLDivElement>(null);
  useLocale();
  const flow=useOfficeFlow();
+ const gaps=useProvisioningGaps(flow.snapshot?.as_of??0);
  const [flowOpen,setFlowOpen]=useState(false);
  const [roomFilter,setRoomFilter]=useState<string|null>(null);
  const controller=useMemo(()=>new HeadquartersController({
@@ -221,6 +224,7 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
      <button onClick={()=>setOverlay('spaces')}><Building2 size={17}/>Manage spaces</button>
      <button onClick={()=>setFlowOpen(v=>!v)} aria-pressed={flowOpen}><Layers size={17}/>{t('hqFlow.open')}</button>
      <button onClick={()=>setOverlay('teams')}><Users size={17}/>{t('hqTeam.title')}</button>
+     <button onClick={()=>setOverlay('gaps')}><Users size={17}/>{gaps.gaps&&gaps.gaps.gaps.length>0?t('hqProv.openCount',{count:gaps.gaps.gaps.length}):t('hqProv.open')}</button>
      <button onClick={()=>setOverlay('workstations')}><Users size={17}/>Live workstations</button>
      <button onClick={()=>setOverlay('agentMeetings')}><Users size={17}/>Agent meeting sessions</button>
      <button onClick={()=>setOverlay('reception')}><DoorOpen size={17}/>Reception desk</button>
@@ -293,6 +297,10 @@ export function HeadquartersLive({onClose}:{onClose:()=>void}){
    {overlay==='teams'?<div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqTeam.title')}>
      <HqTeamPanel buildingId={building?.id??null} refreshKey={flow.snapshot?.as_of??0} onNavigate={goTo} onOpenSpaces={()=>setOverlay('spaces')}
       onFocusRoom={id=>{focusRoomById(id);setOverlay('none')}}/>
+     <OrgGapsPanel state={gaps} onNavigate={goTo} onProvisioned={()=>{void flow.reload();void controller.refresh()}}/>
+    </div>:
+    overlay==='gaps'?<div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqProv.title')}>
+     <OrgGapsPanel state={gaps} onNavigate={goTo} onProvisioned={()=>{void flow.reload();void controller.refresh()}}/>
     </div>:
     overlay==='spaces'?<OfficeSpaceLiveManager onClose={()=>{setOverlay('none');void controller.refresh()}}/>:
     overlay==='workstations'?<OfficeWorkstations onClose={()=>setOverlay('none')}/>:

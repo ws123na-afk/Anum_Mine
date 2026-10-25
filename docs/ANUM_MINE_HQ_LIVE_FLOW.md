@@ -1,6 +1,6 @@
 # ANUM MINE headquarters: live flow, stuck work and office teams
 
-Status: built in this change (API, contract, web, tests). Web and API only; no migration.
+Status: built in this change (API, contract, web, tests). Web and API only; no migration. Handler placement of orders and unowned leads was added by [agent provisioning](ANUM_MINE_AGENT_PROVISIONING.md) (migration 0106).
 
 The headquarters shows work moving through the offices that handle it, shows where it is stuck, and shows the real team of every office. Everything on screen comes from a stored record. A marker moves only because the server's answer moved an item. Nothing wanders for decoration.
 
@@ -44,7 +44,7 @@ Each item has `kind`, `stage`, `status`, `location` (building, floor, room, desk
 
 Stages: `arrived` (created or queued, not started), `in_office` (a running run, or an open lead that has an owner with a desk), `waiting_human` (a live pending approval), `blocked` (failed, expired approval, paused agent), `done` (finished in the last 30 minutes, then gone).
 
-`location` is null with a stated reason when no record places the item: `plain_runtime` (task without an agent), `agent_has_no_desk`, `no_owner`, `owner_is_person` (the lead belongs to a person, who has no workstation), `no_order_office` (nothing links orders to an agent or office). Such items are listed as "Not in an office yet" and never drawn in a room.
+`location` is null with a stated reason when no record places the item: `plain_runtime` (task without an agent), `agent_has_no_desk`, `no_owner`, `owner_is_person` (the lead belongs to a person, who has no workstation), `no_order_office` (no confirmed orders handler; with one, the order sits in the handler's office and `agent_has_no_desk` applies if the handler has no desk). Such items are listed as "Not in an office yet" and never drawn in a room.
 
 ## What stuck means
 
@@ -96,7 +96,7 @@ This change does not edit the campus and building scene (PR #221 owns it). On `m
 ## Gaps, said plainly
 
 - Nothing records a task moving from one agent to another, so flow arrows between offices exist only when an item's own record changes office (for example a lead that gets an owner). Delegation between agents is not drawn.
-- Orders have no office: no record links an order to an agent. They are listed with a ship overdue rule and shown as not in an office. Owner decision: which agent or office handles orders.
+- Orders have no office until an owner confirms a handler: no commerce record links an order to an agent. [Governed agent provisioning](ANUM_MINE_AGENT_PROVISIONING.md) builds the Orders Desk agent and records it as the orders handler; open orders then sit in its office (`location.via: "handler"`). Without a handler they stay listed with a ship overdue rule and shown as not in an office.
 - Lead owners are free text (`assigned_to`); only a value equal to an agent id places a lead in an office.
 - Agents have no separate role field; the team shows department and description.
 - Other workspaces on the campus get no counts here (one workspace per request, by design).

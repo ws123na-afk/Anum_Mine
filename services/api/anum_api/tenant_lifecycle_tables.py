@@ -336,6 +336,7 @@ _ORDER = (
     "setup_plan_items",
     "executive_grants",
     "campus_workspace_profiles",
+    "office_agent_provisions",
     "office_create_keys",
     "office_desks",
     "office_rooms",

@@ -69,6 +69,8 @@ class CanonicalEventName(StrEnum):
     TYRE_ALERTS_RAISED = "tyre_alerts.raised"
     # Office builder (docs/ANUM_MINE_OFFICE_REGISTRY_BACKEND.md): ids and revisions only.
     OFFICE_LAYOUT_CHANGED = "office.layout_changed"
+    # A confirmed office role was built (docs/ANUM_MINE_AGENT_PROVISIONING.md): ids only.
+    OFFICE_AGENT_PROVISIONED = "office.agent_provisioned"
     MEETING_IMPORTED = "meeting.imported"
     MEETING_SUMMARIZED = "meeting.summarized"
     MEETING_FAILED = "meeting.failed"
