@@ -8,6 +8,7 @@
  *   pieces has roof on both sides). Where a building already draws its own parapet the cap simply sits on the edge.
  * - Rooftop plant: air conditioning units, vent stacks and plant housings on free roof area. Free means no other triangle between the
  *   roof and 3.2 m above it, at least 1 m from the roof edge, and not on a cell an earlier unit took.
+ * - Window sills: a slim stone sill under every sixth window pane (at most 160 per building), so the sun draws a shadow line under the glass.
  * - Planters: concrete troughs with a clipped shrub along the foot of ground floor walls, every 12 m, never next to anything lit
  *   (an entrance) or on something already standing there.
  */
@@ -15,7 +16,8 @@ import { MeshBuilder, MAT, VERTEX_FLOATS, hex, mix, scale, seeded, type Rgb } fr
 import { groundLevels } from './hqBakedAo.ts';
 
 export const DETAIL_TRIANGLES_CAP = 2600;
-export type DetailResult = Readonly<{ vertices: Float32Array; coping: number; units: number; planters: number; triangles: number }>;
+export type DetailResult = Readonly<{ vertices: Float32Array; coping: number; units: number; planters: number; sills: number; triangles: number }>;
+export const MAX_SILLS = 160;
 
 const STONE: Rgb = hex('#cfc8b8'), UNIT: Rgb = hex('#aeb6bd'), DARK: Rgb = hex('#3a4148'), PLANTER: Rgb = hex('#bdb6a6'), SHRUB: Rgb = hex('#2e5f38');
 
@@ -75,7 +77,7 @@ export function deriveDetail(v: Float32Array, o: { seed?: string; maxTriangles?:
   const cap_ = o.maxTriangles ?? DETAIL_TRIANGLES_CAP;
   const tris = readTris(v);
   const room = () => m.triangleCount < cap_ - 40;
-  let coping = 0, units = 0, planters = 0;
+  let coping = 0, units = 0, planters = 0, sills = 0;
 
   // Roofs: horizontal, upward facing triangles at least 3.5 m up, grouped by height.
   const roofs = new Map<number, Tri[]>();
@@ -152,6 +154,28 @@ export function deriveDetail(v: Float32Array, o: { seed?: string; maxTriangles?:
     }
   }
 
+  // Window sills: panes are vertical quads (em 2 and up) split in two triangles; the one with two vertices on the bottom edge gives the sill line.
+  let paneIndex = 0;
+  for (let k = 0; k < tris.length && sills < MAX_SILLS; k++) {
+    const t = tris[k];
+    if (t.em < 2 || Math.abs(t.ny) > 0.2) continue;
+    const lo = Math.min(...t.y), hi = Math.max(...t.y);
+    if (hi - lo < 0.8 || hi - lo > 6) continue;
+    const bottom = [0, 1, 2].filter((i) => t.y[i] - lo < 0.02);
+    if (bottom.length !== 2) continue;
+    paneIndex += 1;
+    if (paneIndex % 6 !== 1 || !room()) continue;
+    const [i0, i1] = bottom;
+    const len = Math.hypot(t.x[i1] - t.x[i0], t.z[i1] - t.z[i0]);
+    if (len < 0.5 || len > 8) continue;
+    const nx = v[k * 3 * VERTEX_FLOATS + 3], nz = v[k * 3 * VERTEX_FLOATS + 5];
+    // A sill: 0.16 m deep, centred 0.1 m out from the pane, just under its bottom edge.
+    const cx = (t.x[i0] + t.x[i1]) / 2 + nx * 0.1, cz = (t.z[i0] + t.z[i1]) / 2 + nz * 0.1;
+    const ux = (t.x[i1] - t.x[i0]) / len, uz = (t.z[i1] - t.z[i0]) / len;
+    m.withMat(MAT.concrete, () => cap(m, cx - ux * (len / 2 + 0.06), cz - uz * (len / 2 + 0.06), cx + ux * (len / 2 + 0.06), cz + uz * (len / 2 + 0.06), lo - 0.07, 0.16, 0.07, STONE));
+    sills += 1;
+  }
+
   // Planters along the foot of ground floor walls.
   const levels = groundLevels(v);
   const ground = levels.length ? levels[0] : 0;
@@ -193,5 +217,5 @@ export function deriveDetail(v: Float32Array, o: { seed?: string; maxTriangles?:
     }
   }
   const out = m.toFloat32();
-  return { vertices: out, coping, units, planters, triangles: m.triangleCount };
+  return { vertices: out, coping, units, planters, sills, triangles: m.triangleCount };
 }

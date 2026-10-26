@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MeshBuilder, MAT, VERTEX_FLOATS, hex } from '../src/lib/hqGeometry.ts';
-import { DETAIL_TRIANGLES_CAP, deriveDetail } from '../src/lib/hqDetailPass.ts';
+import { DETAIL_TRIANGLES_CAP, MAX_SILLS, deriveDetail } from '../src/lib/hqDetailPass.ts';
 import { buildExterior, EXTERIOR_KINDS } from '../src/hqAssets/exterior/index.ts';
 
 const GREY = hex('#9a9a9a');
@@ -60,6 +60,25 @@ test('planters stand along ground floor walls, not next to lit doors, and stay u
     if (v[i + 1] > 1.2 || v[i + 10] !== MAT.concrete) continue;
     assert.ok(!(Math.abs(v[i]) < 3 && v[i + 2] > 9.5 && v[i + 2] < 13.2), 'nothing in front of the lit entrance');
   }
+});
+
+test('window sills sit under panes, out from the wall, and never exceed the cap', () => {
+  const b = new MeshBuilder();
+  b.plane(-50, 0, -50, 100, 100, GREY);
+  b.box(-20, 0, -5, 40, 14, 10, GREY, { skip: ['top', 'bottom'] });
+  // A row of 24 panes on the south wall (z = 5): each a vertical quad, 1.6 m wide and 1.8 m high, glass weight 2.5.
+  for (let i = 0; i < 24; i++) b.quad([-19 + i * 1.65, 3, 5.04], [-19 + i * 1.65 + 1.6, 3, 5.04], [-19 + i * 1.65 + 1.6, 4.8, 5.04], [-19 + i * 1.65, 4.8, 5.04], hex('#7aa4c4'), 2.5);
+  const r = deriveDetail(b.toFloat32());
+  assert.ok(r.sills >= 3 && r.sills <= 6, `sills ${r.sills}`);
+  const v = r.vertices;
+  let minY = Infinity, maxZ = -Infinity;
+  for (let i = 0; i < v.length; i += VERTEX_FLOATS) { if (v[i + 10] === MAT.concrete && v[i + 1] < 3.1 && v[i + 1] > 1 && v[i + 2] > 4.9) { minY = Math.min(minY, v[i + 1]); maxZ = Math.max(maxZ, v[i + 2]); } }
+  assert.ok(minY < 3 && minY > 2.8, `under the pane ${minY}`);
+  assert.ok(maxZ > 5.1 && maxZ < 5.4, `out from the wall ${maxZ}`);
+  const many = new MeshBuilder();
+  many.plane(-50, 0, -50, 100, 100, GREY);
+  for (let row = 0; row < 40; row++) for (let i = 0; i < 40; i++) many.quad([i * 2, 1 + row * 3, 5.04], [i * 2 + 1.5, 1 + row * 3, 5.04], [i * 2 + 1.5, 2.8 + row * 3, 5.04], [i * 2, 2.8 + row * 3, 5.04], hex('#7aa4c4'), 2.5);
+  assert.ok(deriveDetail(many.toFloat32()).sills <= MAX_SILLS);
 });
 
 test('an empty or roofless scene yields nothing, and every real exterior building stays inside the cap', () => {
