@@ -560,7 +560,8 @@ export class HqRenderer {
     try {
       const [baked, campus] = await Promise.all([import('./hqSceneFx.ts'), this.campusFxAllowed() ? import('./hqCampusFx.ts') : Promise.resolve(null)]);
       this.sceneFx = baked; this.campusFx = campus;
-      if (!this.disposed && this.lastScene) this.setScene(this.lastScene);
+      // Build the scene again only when the new chunks change it: a floor view on a software rasteriser takes none of them, and a second build would restart its lifts.
+      if (!this.disposed && this.lastScene && (!this.software || this.lastScene.scenery !== undefined || this.photoPin)) this.setScene(this.lastScene);
     } catch { this.sceneFx = null; }
   }
 
