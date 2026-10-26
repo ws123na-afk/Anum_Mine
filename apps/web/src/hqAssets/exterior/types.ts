@@ -11,8 +11,8 @@
 import type { Rgb } from '../../lib/hqGeometry.ts';
 import type { Aabb } from '../../lib/hqMath.ts';
 
-export type ExteriorKind = 'warehouse' | 'tyreWorkshop' | 'officeTower' | 'adminBlock' | 'retailBlock' | 'executiveHq';
-export const EXTERIOR_KINDS: readonly ExteriorKind[] = ['warehouse', 'tyreWorkshop', 'officeTower', 'adminBlock', 'retailBlock', 'executiveHq'];
+export type ExteriorKind = 'warehouse' | 'tyreWorkshop' | 'officeTower' | 'adminBlock' | 'retailBlock' | 'executiveHq' | 'personalVilla';
+export const EXTERIOR_KINDS: readonly ExteriorKind[] = ['warehouse', 'tyreWorkshop', 'officeTower', 'adminBlock', 'retailBlock', 'executiveHq', 'personalVilla'];
 
 export type ExteriorSchemeName = 'white' | 'sandstone' | 'slate' | 'graphite';
 

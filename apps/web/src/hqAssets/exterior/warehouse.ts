@@ -3,7 +3,8 @@
  * roller doors on the front, a glazed office annex with the sign board, clerestory windows, and a
  * raised loading bay on the east side with dock doors, bumpers, a canopy and a backed-in truck.
  */
-import { hex, scale, type Rgb } from '../../lib/hqGeometry.ts';
+import { MAT, hex, scale, type Rgb } from '../../lib/hqGeometry.ts';
+import { beaconLight } from './facadeKit.ts';
 import { WARM, acUnit, castShadow, truck } from '../../lib/hqProps.ts';
 import { clamp, entrance, faceBox, faceQuad, finish, makeCtx, paneRow, rectFaces, signBoard, type Ctx, type Face } from './parts.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
@@ -14,7 +15,7 @@ const YELLOW = hex('#e8c34a');
 function rollerDoor(ctx: Ctx, f: Face, u0: number, u1: number, h: number, color: Rgb): void {
   const { b } = ctx;
   faceBox(b, f, u0 - 0.2, u1 + 0.2, 0, h + 0.2, 0, 0.12, YELLOW);
-  faceQuad(b, f, u0, u1, 0, h, color, 0, 0.14);
+  b.withMat(MAT.roller, () => faceQuad(b, f, u0, u1, 0, h, color, 0, 0.14));
   for (let y = 0.5; y < h; y += 0.5) faceQuad(b, f, u0, u1, y, y + 0.06, scale(color, 0.55), 0, 0.15);
   faceBox(b, f, (u0 + u1) / 2 - 0.25, (u0 + u1) / 2 + 0.25, h + 0.35, h + 0.6, 0, 0.3, hex('#2a313b'));
   faceQuad(b, f, (u0 + u1) / 2 - 0.2, (u0 + u1) / 2 + 0.2, h + 0.2, h + 0.34, WARM, 1.0, 0.32);
@@ -84,6 +85,7 @@ export function buildWarehouse(params: ExteriorParams = {}): ExteriorAsset {
     b.box(vx - 0.1, ry + 1.0, -0.8, 2.0, 0.12, 1.6, hex('#6e7782'));
   }
   if (!ctx.lean) acUnit(b, x1 - 7, ey + slope * (z1 * 0.2) + 0.1, z1 * 0.4, 2.6, 1.8);
+  beaconLight(ctx, 0, ry + 0.2, 0);
 
   // Roller doors on the front, spread over the part of the front that is not the annex.
   const annexW = Math.min(10, W * 0.24);

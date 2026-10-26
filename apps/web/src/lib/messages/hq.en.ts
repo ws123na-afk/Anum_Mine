@@ -93,6 +93,7 @@ export const hqEn = {
   'hq.cam.north': 'Face north',
   'hq.cam.light': 'Lighting',
   'hq.cam.day': 'Day',
+  'hq.cam.dusk': 'Blue hour',
   'hq.cam.night': 'Night',
   'hq.tool.label': 'Scene controls',
   'hq.tool.rotateLeft': 'Rotate left',

@@ -6,8 +6,9 @@
  */
 import { hex, scale, type Rgb } from '../../lib/hqGeometry.ts';
 import { WARM, WINDOW_BASE, acUnit, bench, castShadow, planter } from '../../lib/hqProps.ts';
-import { clamp, curtainWall, entrance, faceBox, faceQuad, finish, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
+import { STOREY, clamp, curtainWall, entrance, faceBox, faceQuad, finish, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
 import { accentBand, slabBand } from './towerParts.ts';
+import { beaconLight, canopy, signFrame } from './facadeKit.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
 
 const AWNINGS: readonly Rgb[] = [hex('#c0453a'), hex('#2f6a8f'), hex('#d9b25f'), hex('#3d6b52'), hex('#7a4a8a'), hex('#e0803a')];
@@ -16,7 +17,7 @@ export function buildRetailBlock(params: ExteriorParams = {}): ExteriorAsset {
   const ctx = makeCtx('retailBlock', params, 0.62);
   const { b, rnd, scheme } = ctx;
   const W = clamp(params.width, 22, 60, 36), D = clamp(params.depth, 14, 34, 22);
-  const GH = 4.6, UH = 3.8, y0 = 0.4;
+  const GH = STOREY, UH = STOREY, y0 = 0.4;
   const H = GH + UH;
   const x0 = -W / 2, z0 = -D / 2, x1 = W / 2, z1 = D / 2;
   const F = rectFaces(x0, z0, W, D);
@@ -78,7 +79,10 @@ export function buildRetailBlock(params: ExteriorParams = {}): ExteriorAsset {
   entrance(ctx, PF.south, pw / 2, y0, 4.2, 3.4, 2.4, scheme.accent);
   const sign = signBoard(ctx, PF.south, pw / 2, y0 + 5.0, Math.min(pw - 1, 7.5), 1.6, 0.05);
 
+  // A wide cantilevered canopy over the forecourt in front of the portal, with a lit soffit, and a blank signage frame beside it.
+  canopy(ctx, F.south, W / 2, Math.min(W * 0.7, 26), y0 + 4.3, 4.2, { columns: true });
   // Roof.
+  beaconLight(ctx, x1 - 1.5, y0 + H + 0.55, z0 + 1.5);
   slabBand(ctx, x0, z0, W, D, y0 + H, 0.55);
   accentBand(ctx, x0, z0, W, D, y0 + H + 0.55, 0.24, 0.65);
   b.plane(x0 + 0.3, y0 + H + 0.57, z0 + 0.3, W - 0.6, D - 0.6, scale(scheme.roof, 0.9));
@@ -87,10 +91,7 @@ export function buildRetailBlock(params: ExteriorParams = {}): ExteriorAsset {
     acUnit(b, x1 - 13, y0 + H + 0.55, z0 + 2.5, 2.8, 2.2);
     acUnit(b, x0 + 4, y0 + H + 0.55, z0 + 3, 3, 2.2);
     // Pylon at the front-left corner, trolley bay, benches and planters.
-    b.box(x0 - 1.2, 0, z1 + 5, 0.7, 6.4, 0.7, scheme.trim, { grad: 0.2 });
-    b.box(x0 - 2.0, 6.4, z1 + 4.8, 2.3, 2.0, 0.5, hex('#0e1b26'));
-    b.box(x0 - 2.0, 6.4, z1 + 5.3, 2.3, 0.07, 0.04, scheme.accent, { emissive: 0.9, shade: false });
-    b.box(x0 - 1.9, 6.5, z1 + 5.3, 2.1, 0.07, 0.04, scheme.accent, { emissive: 0.9, shade: false });
+    signFrame(ctx, x0 - 1.4, z1 + 5, 3.4, 6.2);
     b.box(x1 - 7, 0, z1 + 3.4, 5, 0.12, 2.4, scale(scheme.stone, 1.1));
     b.box(x1 - 7, 2.1, z1 + 3.4, 5, 0.14, 2.4, scheme.trim);
     for (const sx of [x1 - 7.1, x1 - 2.2]) b.box(sx, 0, z1 + 3.4, 0.14, 2.2, 0.14, scheme.trim);

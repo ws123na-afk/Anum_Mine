@@ -226,5 +226,6 @@ test('exterior assets become campus meshes with a lettered sign quad, in the sig
     if (shape.vertices[i + 10] === MAT.sign) { found = true; assert.ok(shape.vertices[i + 11] >= cell.u0 - 1e-6 && shape.vertices[i + 11] <= cell.u1 + 1e-6); }
   }
   assert.ok(found, 'the sign quad is in the mesh');
-  assert.equal(drawExterior({ ...p, kind: 'personal', icon: null }, 'villa', 0, 1), null, 'the villa is not an exterior asset');
+  const villa = drawExterior({ ...p, kind: 'personal', icon: null }, 'villa', 0, 1);
+  assert.ok(villa !== null && villa.triangles > 500, 'the villa is an exterior asset too');
 });

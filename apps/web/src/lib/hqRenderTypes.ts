@@ -2,6 +2,7 @@
 import type { Aabb } from './hqMath.ts';
 import type { Vec3 } from './headquartersProjection.ts';
 import type { ModelGroup, ModelPlacement } from './hqModels.ts';
+import type { SceneryPlan } from '../hqAssets/environment/scenery.ts';
 import type { AmbientMotion } from '../hqAssets/interior/ambient.ts';
 
 /** `fallbackOf`: the item is the procedural stand-in for a model group and is drawn only while that group could not be loaded. */
@@ -41,6 +42,8 @@ export type RenderScene = Readonly<{
   models?: readonly ModelPlacement[];
   /** Soft light halos for the night glow: x, y, z, radius, r, g, b, strength per halo. */
   halos?: Float32Array;
+  /** Exterior scenery in motion (traffic loops, water ripples). Drawn only while the scenery level is above 0. */
+  scenery?: SceneryPlan;
   /** Targets of the lift groups named by `RenderItem.lift`. A group missing here stays where it is. */
   lifts?: Readonly<Record<string, LiftSpec>>;
 }>;
@@ -52,6 +55,8 @@ export type RenderStats = {
   /** Ambient parts in the scene, and whether they are moving right now (false under reduced motion, in a hidden tab, or at the lowest quality). */
   ambient: number; ambientMoving: boolean;
   /** Model layer: placements drawn, models loaded of those asked for, bytes fetched, load time in ms, groups that fell back. */
+  /** Exterior scenery motion: level 0 to 2 (0 = still), frames drawn by its loop, the scene clock in seconds and the vehicles placed. */
+  scenery: { level: number; frames: number; clock: number; vehicles: number };
   models: { placed: number; figures: number; loaded: number; asked: number; bytes: number; loadMs: number; fallbacks: string[]; looks: string[] };
 };
 
