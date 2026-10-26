@@ -13,7 +13,7 @@ const SHOTS = process.env.HQ_BM_SHOTS;
 const hq = (page: Page) => page.locator('.hqLive');
 const SIZES = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const;
 const noOverflow = async (page: Page) => expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
-const shot = async (page: Page, name: string) => { if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: `${SHOTS}/${name}.png` }); } };
+const shot = async (page: Page, name: string) => { if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await hq(page).screenshot({ path: `${SHOTS}/${name}.png` }); } };
 
 async function open(page: Page, options: HqMockOptions = {}, { reducedMotion = false, flow = true }: { reducedMotion?: boolean; flow?: boolean } = {}) {
   await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
@@ -24,9 +24,11 @@ async function open(page: Page, options: HqMockOptions = {}, { reducedMotion = f
   await expect(hq(page).getByRole('heading', { level: 1 })).toBeVisible();
 }
 
-async function enter(page: Page, name: string) {
-  await hq(page).getByRole('button', { name: new RegExp('^' + name + '\\.') }).click({ timeout: 60_000 });
-  await hq(page).getByRole('button', { name: `Open ${name}` }).click();
+// Buildings are entered from the list: its Open button is reachable at every viewport (the stage cards can sit under panels on small screens).
+async function enter(page: Page, name: string, listLabel = 'List') {
+  const list = hq(page).getByRole('button', { name: listLabel, exact: true });
+  await list.click();
+  await hq(page).locator('.hqListBuilding', { has: page.getByRole('heading', { level: 3, name, exact: true }) }).locator('.hqListRow > button').click();
   await expect(hq(page).getByRole('heading', { level: 2, name })).toBeVisible();
 }
 
@@ -125,37 +127,32 @@ test.describe('rooms and modules', () => {
     await open(page);
     await openRoomFromList(page, 'Facilities Office');
     await expect(page.locator('.hqSide [data-testid="room-module"]')).toHaveAttribute('href', '#tasks');
-    await page.locator('.hqListRoom', { hasText: /^Marketing Studio/ }).first().click();
+    await hq(page).getByRole('button', { name: 'List', exact: true }).click();
+    await page.locator('.hqListRoom', { hasText: /^Marketing Studio/ }).first().click({ timeout: 20_000 });
     await expect(page.locator('.hqSide [data-testid="room-module"]')).toHaveAttribute('href', '#marketing');
-    await page.locator('.hqListRoom', { hasText: /^Executive Office/ }).first().click();
+    await hq(page).getByRole('button', { name: 'List', exact: true }).click();
+    await page.locator('.hqListRoom', { hasText: /^Executive Office/ }).first().click({ timeout: 20_000 });
     await expect(page.locator('.hqSide [data-testid="room-module"]')).toHaveAttribute('href', '#executive');
   });
 
   test('every room in the list opens a module or says why not (no dead rows)', async ({ page }) => {
     await open(page);
-    let total = 0;
-    for (const name of ['ANUM HQ', 'ANUM 360 Commerce', 'Tyre Pulse', 'Founder Personal Office']) {
-      await enter(page, name);
-      await hq(page).getByRole('button', { name: 'List', exact: true }).click();
-      const rows = page.locator('.hqListRooms li');
-      await expect(rows.first()).toBeVisible();
-      const count = await rows.count();
-      total += count;
-      for (let i = 0; i < count; i++) {
-        const row = rows.nth(i);
-        const link = await row.locator('[data-testid="room-module"]').count();
-        const none = await row.locator('[data-testid="room-module-none"]').count();
-        expect(link + none, await row.innerText()).toBeGreaterThan(0);
-      }
-      await hq(page).getByRole('button', { name: '3D', exact: true }).click();
-      await hq(page).getByRole('button', { name: 'Back to campus' }).click();
+    await hq(page).getByRole('button', { name: 'List', exact: true }).click();
+    const rows = page.locator('.hqListRooms li');
+    await expect(rows.first()).toBeVisible();
+    const count = await rows.count();
+    // The list shows the rooms of every building of the campus, not only the open one.
+    expect(count).toBe(14);
+    for (let i = 0; i < count; i++) {
+      const row = rows.nth(i);
+      const link = await row.locator('[data-testid="room-module"]').count();
+      const none = await row.locator('[data-testid="room-module-none"]').count();
+      expect(link + none, await row.innerText()).toBeGreaterThan(0);
     }
-    expect(total).toBe(14);
   });
 });
 
 test.describe('floors: eased cut-away, highlight, buttons and keyboard', () => {
-  const floorName = (page: Page) => hq(page).locator('.hqFloorControl select');
   async function inHq(page: Page, options?: { reducedMotion?: boolean }) {
     await open(page, {}, options);
     await enter(page, 'ANUM HQ');
@@ -193,9 +190,8 @@ test.describe('floors: eased cut-away, highlight, buttons and keyboard', () => {
     await expect(count).toHaveText('3 / 3');
     await page.keyboard.press('PageDown');
     await expect(count).toHaveText('2 / 3');
-    // The floor select keeps its own keys (the page does not change floor under the person's hands).
-    await floorName(page).focus();
-    await page.keyboard.press('PageUp');
+    // A held modifier key is not a floor change.
+    await page.keyboard.press('Control+PageUp');
     await expect(count).toHaveText('2 / 3');
   });
 
@@ -235,7 +231,7 @@ test.describe('Arabic', () => {
   test('the panels, the command centre kind and the floor note read right to left', async ({ page }) => {
     await useSavedLocale(page, 'ar');
     await open(page);
-    await enter(page, 'Tyre Pulse');
+    await enter(page, 'Tyre Pulse', 'قائمة');
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
     const tyre = hq(page).getByRole('region', { name: 'أسطول الإطارات' });
     await expect(tyre).toContainText('إطارات مركّبة');
@@ -255,6 +251,14 @@ for (const [w, h] of SIZES) {
       await noOverflow(page);
       await expect(hq(page).locator('.hqBottomPanels')).toBeVisible();
       await shot(page, `${file}-${w}x${h}`);
+      if (file === 'hq') {
+        // Floor 2 (the command centre floor): the floor below is a shell, the open floor is outlined.
+        await hq(page).getByRole('button', { name: 'Floor above' }).last().click();
+        await expect(page.getByTestId('hq-floor-count')).toHaveText('2 / 3');
+        await page.waitForTimeout(900);
+        await noOverflow(page);
+        await shot(page, `hq-floor2-${w}x${h}`);
+      }
       await hq(page).getByRole('button', { name: 'Back to campus' }).click();
     }
     // The command centre room inspector.

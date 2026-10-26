@@ -358,7 +358,7 @@ export function BuildingView(props: BuildingViewProps) {
           <BottomToolbar
             inside={{ active: inside, disabled: !selectedRoom || view === 'top', onToggle: toggleInside }}
             onRotateLeft={() => change((c) => rotateBy(c, -20))} onRotateRight={() => change((c) => rotateBy(c, 20))}
-            onPrev={() => stepFloor(-1)} onNext={() => stepFloor(1)} prevLabel={t('hq.floor.down')} nextLabel={t('hq.floor.up')}
+            onPrev={() => stepFloor(-1)} onNext={() => stepFloor(1)} prevDisabled={activeIndex <= 0} nextDisabled={activeIndex >= floors.length - 1} prevLabel={t('hq.floor.down')} nextLabel={t('hq.floor.up')}
             onZoomIn={() => change((c) => dolly(c, -250))} onZoomOut={() => change((c) => dolly(c, 250))}
             fullscreen={props.fullscreen} onFullscreen={props.onToggleFullscreen}
           />
