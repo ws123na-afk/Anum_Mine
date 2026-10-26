@@ -23,17 +23,22 @@ test(`labels ${BUILDING}`, async ({ page }) => {
   if (process.env.LBL_FLOW !== '0') await mockFlow(page);
   await page.goto('/#office-preview');
   await expect(page.locator('canvas.hqCanvas')).toHaveAttribute('data-engine', /three/, { timeout: 120_000 });
-  await hq(page).getByRole('button', { name: new RegExp(`^${BUILDING}\\.`) }).first().click({ force: true });
-  await hq(page).getByRole('button', { name: `Open ${BUILDING}` }).click();
+  await hq(page).getByRole('button', { name: new RegExp(`^${BUILDING}\\.`) }).first().dispatchEvent('click');
+  await hq(page).getByRole('button', { name: new RegExp(`^(Open|\u0641\u062a\u062d) \u2068?${BUILDING}\u2069?$`) }).click();
   await expect(hq(page).getByRole('heading', { level: 2, name: BUILDING })).toBeVisible();
   await page.waitForTimeout(3000);
-  if (process.env.LBL_FULL === '1') { await hq(page).getByRole('button', { name: 'Full screen' }).click(); await page.waitForTimeout(2500); }
-  if (process.env.LBL_HIDE === '1') { const h = hq(page).getByRole('button', { name: /Hide side panels/ }); if (await h.count()) await h.click({ timeout: 4000 }).catch(() => undefined); const c = hq(page).getByRole('button', { name: /Collapse the floor list/ }); if (await c.count()) await c.click().catch(() => undefined); await page.waitForTimeout(1500); }
+  if (process.env.LBL_FULL === '1') { await hq(page).getByRole('button', { name: /^(Full screen|\u0645\u0644\u0621 \u0627\u0644\u0634\u0627\u0634\u0629)$/ }).click(); await page.waitForTimeout(2500); }
+  if (process.env.LBL_HIDE === '1') { const h = hq(page).getByRole('button', { name: /Hide side panels|\u0625\u062e\u0641\u0627\u0621 \u0627\u0644\u0644\u0648\u062d\u0627\u062a \u0627\u0644\u062c\u0627\u0646\u0628\u064a\u0629/ }); if (await h.count()) await h.click({ timeout: 4000 }).catch(() => undefined); const c = hq(page).getByRole('button', { name: /Collapse the floor list/ }); if (await c.count()) await c.click().catch(() => undefined); await page.waitForTimeout(1500); }
   if (process.env.LBL_ALL === '1') { await hq(page).getByRole('checkbox', { name: /All floors/ }).check(); await page.waitForTimeout(3000); }
   const rail = hq(page).getByRole('group', { name: 'Floors of this building' });
   for (const f of FLOORS) {
     if (await rail.getByRole('button').count()) await rail.getByRole('button').nth(f).click();
     await page.waitForTimeout(4500);
-    await page.screenshot({ path: `${OUT}/${process.env.LBL_FULL === '1' ? 'fs-' : ''}${BUILDING.replace(/\W+/g, '-')}-f${f}${process.env.LBL_ALL === '1' ? '-stack' : ''}-${LIGHT}-${LANG}-${W}x${H}.png` });
+    if (process.env.LBL_ROOM) {
+      await hq(page).getByRole('button', { name: new RegExp(`^${process.env.LBL_ROOM}`) }).first().click({ force: true });
+      for (let z = 0; z < Number(process.env.LBL_ZOOM ?? 2); z++) { await hq(page).getByRole('button', { name: /Zoom in/ }).first().click(); await page.waitForTimeout(400); }
+      await page.waitForTimeout(4000);
+    }
+    await page.screenshot({ path: `${OUT}/${process.env.LBL_FULL === '1' ? 'fs-' : ''}${BUILDING.replace(/\W+/g, '-')}-f${f}${process.env.LBL_ALL === '1' ? '-stack' : ''}${process.env.LBL_ROOM ? '-room' : ''}-${LIGHT}-${LANG}-${W}x${H}.png` });
   }
 });

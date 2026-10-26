@@ -132,8 +132,8 @@ test('the Back to campus card names the building with a status dot and real fact
   await expect(card.getByRole('heading', { level: 2, name: 'Al Noor Fleet HQ' })).toBeVisible();
   await expect(card.getByRole('img', { name: /Presence is reporting/ })).toBeVisible();
   const facts = card.getByRole('list', { name: 'Building totals' });
-  await expect(facts).toContainText('Floors3');
-  await expect(facts).toContainText('Rooms5');
+  await expect(facts).toContainText('3Floors');
+  await expect(facts).toContainText('5Rooms');
   await card.getByRole('button', { name: 'Back to campus' }).click();
   await expect(hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ })).toBeVisible();
 });
@@ -172,7 +172,7 @@ test('flow not connected: the flow strip says so, with no number', async ({ page
 test('presence denied: People is "-" and the facts never invent a count', async ({ page }) => {
   await open(page, { stream: 'denied', presence: 'missing' });
   const facts = hq(page).locator('.hqBackCard').getByRole('list', { name: 'Building totals' });
-  await expect(facts).toContainText('Floors3');
+  await expect(facts).toContainText('3Floors');
   await expect(hq(page).locator('.hqBackCard').getByRole('img', { name: /Presence is (reporting|not reporting)/ })).toBeVisible();
 });
 

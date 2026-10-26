@@ -21,7 +21,9 @@ export type LabelInput = Readonly<{
 /** `crowded`: no free spot at any density, so the card stays at its anchor unseen and unclickable but in the tab order, and a focus brings it forward. */
 export type LabelPlacement = Readonly<{ id: string; x: number; y: number; depth: number; shown: boolean; shifted: number; density: Density; occluded: boolean; crowded?: boolean }>;
 export type Size = Readonly<{ w: number; h: number }>;
-export type LayoutOptions = Readonly<{ eye?: Vec3 | null }>;
+export type Rect = Readonly<{ x0: number; y0: number; x1: number; y1: number }>;
+/** `keepOut`: screen rectangles of the controls drawn over the scene; a card is never put under them. */
+export type LayoutOptions = Readonly<{ eye?: Vec3 | null; keepOut?: readonly Rect[] }>;
 
 const MAX_SHIFTS = 7;
 
@@ -76,13 +78,24 @@ export function layoutLabels(
     items.push({ input, x: px.x, y: px.y, depth: p.depth });
   }
   items.sort((a, b) => (a.input.priority ?? 1) - (b.input.priority ?? 1) || a.depth - b.depth);
-  const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
+  const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [...(options.keepOut ?? [])];
   // `bottomInset` keeps cards clear of the toolbar along the bottom edge of the stage, so a card is never under a control.
   const limit = height - bottomInset;
   const set = (item: Item, x: number, y: number, size: Size, density: Density, shifted: number) => {
     placed.push({ x0: x - size.w / 2, x1: x + size.w / 2, y0: y - size.h, y1: y });
     out.set(item.input.id, { id: item.input.id, x, y, depth: item.depth, shown: true, shifted, density, occluded: false });
   };
+  // A seated agent shows where it sits or gives way, so its smallest card is reserved first: a room card gives up detail
+  // around it instead of hiding it, and the agent then takes the richest density that still fits.
+  const reserved = new Map<string, { x0: number; y0: number; x1: number; y1: number }>();
+  const clampHome = (item: Item, w: number, h: number) => ({ x: Math.max(w / 2 + 4, Math.min(width - w / 2 - 4, item.x)), y: Math.min(Math.max(item.y, h + 6), limit) });
+  for (const item of items) {
+    const tiers = item.input.tiers;
+    if (!tiers || tiers.length < 2 || (item.input.priority ?? 1) < 2) continue;
+    const { w, h } = sizeOf(item.input.id, tiers[tiers.length - 1]);
+    const home = clampHome(item, w, h);
+    reserved.set(item.input.id, { x0: home.x - w / 2, x1: home.x + w / 2, y0: home.y - h, y1: home.y });
+  }
   for (const item of items) {
     const tiers: readonly Density[] = item.input.tiers?.length ? item.input.tiers : ['full'];
     const adaptive = tiers.length > 1;
@@ -91,18 +104,25 @@ export function layoutLabels(
     for (let ti = 0; ti < tiers.length && !done; ti++) {
       const density = tiers[ti];
       const { w, h } = sizeOf(item.input.id, density);
-      const overlaps = (x: number, y: number) => placed.some((q) => x - w / 2 < q.x1 - 2 && x + w / 2 > q.x0 + 2 && y - h < q.y1 - 2 && y > q.y0 + 2);
+      const hits = (q: { x0: number; y0: number; x1: number; y1: number }, x: number, y: number) => x - w / 2 < q.x1 - 2 && x + w / 2 > q.x0 + 2 && y - h < q.y1 - 2 && y > q.y0 + 2;
+      const keepReserved = (item.input.priority ?? 1) > 0;
+      const overlaps = (x: number, y: number) => placed.some((q) => hits(q, x, y)) || (keepReserved && [...reserved].some(([id, q]) => id !== item.input.id && hits(q, x, y)));
       const inside = (x: number, y: number) => x - w / 2 >= 4 && x + w / 2 <= width - 4 && y - h >= 4 && y <= limit;
       // The first spot is the anchor itself, pulled into the stage when the anchor sits just outside it.
-      const home = { x: Math.max(w / 2 + 4, Math.min(width - w / 2 - 4, item.x)), y: Math.min(Math.max(item.y, h + 6), limit) };
+      const home = clampHome(item, w, h);
       if (!overlaps(home.x, home.y) && inside(home.x, home.y)) { set(item, home.x, home.y, { w, h }, density, 0); done = true; break; }
+      // A room card keeps its detail by stepping up (twice at most) before it gives any up; a seated agent never steps.
+      if (adaptive && ti < lastIndex && (item.input.priority ?? 1) < 2) {
+        const up = [1, 2].map((k) => ({ x: home.x, y: home.y - k * h * 1.05 })).find((c) => inside(c.x, c.y) && !overlaps(c.x, c.y));
+        if (up) { set(item, up.x, up.y, { w, h }, density, Math.round((home.y - up.y) / (h * 1.05))); done = true; break; }
+      }
       // An adaptive label first gives up detail (the next tier); only its last tier looks for another spot.
       if (adaptive && ti < lastIndex) continue;
       // Candidate spots around the anchor, nearest first: straight up (the usual case), then down and sideways.
       const spots: Array<{ x: number; y: number; cost: number }> = [];
       // A secondary card (a seated agent) never moves off its anchor: it shows where it sits or gives way.
       const secondary = adaptive && (item.input.priority ?? 1) >= 2;
-      const reach = secondary ? 0 : adaptive ? 2 : MAX_SHIFTS, sideways = secondary ? 0 : 2;
+      const reach = secondary ? 0 : adaptive ? 4 : MAX_SHIFTS, sideways = secondary ? 0 : 2;
       for (let iy = -reach; iy <= reach; iy++) {
         for (let ix = -sideways; ix <= sideways; ix++) {
           const x = item.x + ix * w * 1.05, y = item.y + iy * h * 1.05;
@@ -124,19 +144,20 @@ export function layoutLabels(
   return labels.map((l) => out.get(l.id)!);
 }
 
-type Memo = { vp: Float32Array; width: number; height: number; inset: number; labels: readonly LabelInput[]; eye: string };
+type Memo = { vp: Float32Array; width: number; height: number; inset: number; labels: readonly LabelInput[]; eye: string; keep: string };
 const memos = new WeakMap<object, Memo>();
 
 /** Writes placements to the label wrappers (display, transform, z-index, density) and caches card sizes. */
 export function placeLabels(
   labels: readonly LabelInput[], nodes: ReadonlyMap<string, HTMLElement>, sizes: Map<string, Size>,
-  vp: Mat4, width: number, height: number, bottomInset = 0, eye: Vec3 | null = null,
+  vp: Mat4, width: number, height: number, bottomInset = 0, eye: Vec3 | null = null, keepOut: readonly Rect[] = [],
 ): void {
   const eyeKey = eye ? `${eye.x.toFixed(2)},${eye.y.toFixed(2)},${eye.z.toFixed(2)}` : '';
+  const keep = keepOut.map((r) => `${Math.round(r.x0)},${Math.round(r.y0)},${Math.round(r.x1)},${Math.round(r.y1)}`).join(';');
   const prev = memos.get(sizes);
   // A frame with the same camera, size and labels would write the same values: skip it.
-  if (prev && prev.labels === labels && prev.width === width && prev.height === height && prev.inset === bottomInset && prev.eye === eyeKey && prev.vp.every((v, i) => v === vp[i])) return;
-  memos.set(sizes, { vp: Float32Array.from(vp), width, height, inset: bottomInset, labels, eye: eyeKey });
+  if (prev && prev.labels === labels && prev.width === width && prev.height === height && prev.inset === bottomInset && prev.eye === eyeKey && prev.keep === keep && prev.vp.every((v, i) => v === vp[i])) return;
+  memos.set(sizes, { vp: Float32Array.from(vp), width, height, inset: bottomInset, labels, eye: eyeKey, keep });
   const sizeOf = (id: string, density: Density): Size => {
     const key = `${id}|${density}`;
     const cached = sizes.get(key);
@@ -153,7 +174,7 @@ export function placeLabels(
     sizes.set(key, size);
     return size;
   };
-  const placements = layoutLabels(labels, vp, width, height, sizeOf, bottomInset, { eye });
+  const placements = layoutLabels(labels, vp, width, height, sizeOf, bottomInset, { eye, keepOut });
   for (let i = 0; i < labels.length; i++) {
     const node = nodes.get(labels[i].id);
     const p = placements[i];
@@ -168,4 +189,25 @@ export function placeLabels(
     node.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) translate(-50%, -100%)`;
     node.style.zIndex = String(Math.max(1, Math.round(5000 - p.depth * 10) - (labels[i].priority ?? 0) * 1000));
   }
+}
+
+/**
+ * Reads the rectangles (relative to the stage) of the elements matching `selector` next to the stage, and again whenever one of them or the
+ * stage changes size. Returns the function that stops it.
+ */
+export function bindKeepOut(stage: HTMLElement, selector: string, onChange: (rects: readonly Rect[]) => void): () => void {
+  const scope = stage.parentElement;
+  if (!scope) return () => undefined;
+  const read = () => {
+    const box = stage.getBoundingClientRect();
+    onChange([...scope.querySelectorAll<HTMLElement>(selector)].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { x0: r.left - box.left - 6, y0: r.top - box.top - 6, x1: r.right - box.left + 6, y1: r.bottom - box.top + 6 };
+    }).filter((r) => r.x1 - r.x0 > 14 && r.y1 - r.y0 > 14));
+  };
+  read();
+  const observer = new ResizeObserver(read);
+  observer.observe(stage);
+  scope.querySelectorAll<HTMLElement>(selector).forEach((el) => observer.observe(el));
+  return () => observer.disconnect();
 }

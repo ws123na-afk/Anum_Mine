@@ -133,3 +133,26 @@ test('occluded labels are hidden and flagged, labels without occluders are not',
   assert.equal(out[0].occluded, true);
   assert.equal(out[1].occluded, false);
 });
+
+test('keep-out rectangles (the controls over the scene) are never covered by a card', () => {
+  const anchor = { x: 0, y: 4, z: 0 };
+  const free = layoutLabels([{ id: 'a', anchor, tiers: ['full', 'compact', 'dot'] }], vp, 1200, 700, sizeOf);
+  const p = free[0];
+  const keepOut = [{ x0: p.x - 120, x1: p.x + 120, y0: p.y - 70, y1: p.y + 10 }];
+  const out = layoutLabels([{ id: 'a', anchor, tiers: ['full', 'compact', 'dot'] }], vp, 1200, 700, sizeOf, 0, { keepOut });
+  const q = out[0];
+  assert.ok(q.shown);
+  const w = sizes[q.density].w, h = sizes[q.density].h;
+  const overlaps = q.x - w / 2 < keepOut[0].x1 - 2 && q.x + w / 2 > keepOut[0].x0 + 2 && q.y - h < keepOut[0].y1 - 2 && q.y > keepOut[0].y0 + 2;
+  assert.equal(overlaps, false);
+});
+
+test('a room card gives up detail around a seated agent instead of hiding it', () => {
+  const out = layoutLabels([
+    { id: 'room', anchor: { x: 0, y: 4, z: 0 }, priority: 1, tiers: ['full', 'compact', 'dot'] },
+    { id: 'agent', anchor: { x: 0, y: 3.2, z: 0 }, priority: 2, tiers: ['full', 'compact', 'dot'] },
+  ], vp, 1200, 700, sizeOf);
+  assert.ok(out[0].shown && out[1].shown, 'both stay on the screen');
+  const boxes = out.map((p) => ({ x0: p.x - sizes[p.density].w / 2, x1: p.x + sizes[p.density].w / 2, y0: p.y - sizes[p.density].h, y1: p.y }));
+  assert.ok(!(boxes[0].x0 < boxes[1].x1 - 2 && boxes[0].x1 > boxes[1].x0 + 2 && boxes[0].y0 < boxes[1].y1 - 2 && boxes[0].y1 > boxes[1].y0 + 2), 'and do not overlap');
+});

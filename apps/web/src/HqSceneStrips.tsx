@@ -37,11 +37,11 @@ export function SceneBackCard(props: {
       </nav>
       <ul className="hqCounters hqFacts" aria-label={t('hq.counters.label')}>
         <li className="hqFactKind"><span>{props.kindLabel}</span></li>
-        <li><span>{t('hq.counters.people')}</span><strong>{props.totals ? props.totals.agents : '-'}</strong></li>
-        <li><span>{t('hq.counters.floors')}</span><strong>{props.floors}</strong></li>
-        <li><span>{t('hq.counters.rooms')}</span><strong>{props.rooms}</strong></li>
-        {props.meetings !== null && <li><span>{t('hq.counters.meetings')}</span><strong>{props.meetings}</strong></li>}
-        {props.orders !== null && <li><span>{t('hqLabels.facts.orders')}</span><strong>{props.orders.toLocaleString()}</strong></li>}
+        <li><strong>{props.totals ? props.totals.agents : '-'}</strong><span>{t('hq.counters.people')}</span></li>
+        <li><strong>{props.floors}</strong><span>{t('hq.counters.floors')}</span></li>
+        <li><strong>{props.rooms}</strong><span>{t('hq.counters.rooms')}</span></li>
+        {props.meetings !== null && <li><strong>{props.meetings}</strong><span>{t('hq.counters.meetings')}</span></li>}
+        {props.orders !== null && <li><strong>{props.orders.toLocaleString()}</strong><span>{t('hqLabels.facts.orders')}</span></li>}
       </ul>
     </div>
   );

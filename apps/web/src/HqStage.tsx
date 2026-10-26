@@ -10,7 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { HqRenderer } from './lib/hqThreeRenderer.ts';
 import type { RenderScene } from './lib/hqRenderTypes.ts';
 import { pickNearest, type Aabb, type PickTarget } from './lib/hqMath.ts';
-import type { Density, placeLabels as PlaceLabels } from './lib/hqLabels.ts';
+import type { Density, Rect, placeLabels as PlaceLabels } from './lib/hqLabels.ts';
 import { cameraEye, dolly, isCameraAtRest, orbit, pan, screenRay, stepCamera, type CameraState } from './lib/headquartersSpatial.ts';
 import { alignYaw, applyCameraAction, keyToCameraAction } from './lib/hqCamera.ts';
 import type { Vec3 } from './lib/headquartersProjection.ts';
@@ -51,8 +51,8 @@ type Props = Readonly<{
   labels: readonly StageLabel[];
   /** Dragging with the primary button moves the scene sideways instead of turning it (the toolbar's Pan). */
   panMode?: boolean;
-  /** Pixels along the bottom edge that label cards keep clear (the dock of controls); default 64. */
-  labelInset?: number;
+  /** Elements next to the stage (CSS selector, searched in the stage's parent) that cards keep clear of: the controls drawn over the scene. */
+  labelKeepOut?: string;
   /** Called with the footprint inputs on every drawn frame (the minimap listens). */
   onView?: (camera: CameraState, aspect: number) => void;
   onUnavailable: (reason: string) => void;
@@ -78,6 +78,7 @@ export function HqStage(props: Props) {
   const labelEls = useRef(new Map<string, HTMLDivElement>());
   const labelSizes = useRef(new Map<string, { w: number; h: number }>());
   const labelsRef = useRef(labels);
+  const keepOut = useRef<readonly Rect[]>([]);
   const lastModelSig = useRef('');
   const size = useRef({ width: 1, height: 1 });
   const pointers = useRef(new Map<number, Pointer>());
@@ -105,9 +106,12 @@ export function HqStage(props: Props) {
     let resizeObserver: ResizeObserver | null = null;
     // The label placement loads with the renderer: nothing is placed before the scene draws, so it stays out of the page's own chunk.
     let placeLabels: typeof PlaceLabels | null = null;
+    let stopKeepOut: (() => void) | null = null;
     Promise.all([import('./lib/hqThreeRenderer.ts'), import('./lib/hqLabels.ts')]).then(([{ HqRenderer: Renderer }, labelLib]) => {
       if (cancelled) return;
       placeLabels = labelLib.placeLabels;
+      // The controls over the scene are read when they change size (never per frame), so a card is not drawn under one.
+      if (propsRef.current.labelKeepOut && host.current) stopKeepOut = labelLib.bindKeepOut(host.current, propsRef.current.labelKeepOut, (rects) => { keepOut.current = rects; created?.requestFrame(); });
       const r: HqRenderer | null = Renderer.create(el, {
         onLost: () => {
           setStatus('recovering');
@@ -120,7 +124,7 @@ export function HqStage(props: Props) {
         onError: (error) => propsRef.current.onUnavailable(error.message),
         onFrame: (vp, aspect) => {
           const { width, height } = size.current;
-          placeLabels?.(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, propsRef.current.labelInset ?? 64, cameraEye(live.current));
+          placeLabels?.(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, 64, cameraEye(live.current), keepOut.current);
           propsRef.current.onView?.(live.current, aspect);
           if (canvas.current) propsRef.current.onCanvasFrame?.(canvas.current);
           const s = created?.stats;
@@ -168,6 +172,7 @@ export function HqStage(props: Props) {
     return () => {
       cancelled = true;
       resizeObserver?.disconnect();
+      stopKeepOut?.();
       if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
       created?.dispose();
       renderer.current = null;
@@ -179,7 +184,7 @@ export function HqStage(props: Props) {
   useEffect(() => { renderer.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
   useEffect(() => { if (scene) renderer.current?.setScene(scene); }, [scene]);
   useEffect(() => { renderer.current?.setHighlight(props.hoverId, props.selectedId); }, [props.hoverId, props.selectedId]);
-  useLayoutEffect(() => { labelSizes.current.clear(); renderer.current?.requestFrame(); }, [labels, props.labelInset]);
+  useLayoutEffect(() => { labelSizes.current.clear(); renderer.current?.requestFrame(); }, [labels]);
 
   // Camera changes from the controls tween; changes the stage itself emitted are already in place.
   useEffect(() => {

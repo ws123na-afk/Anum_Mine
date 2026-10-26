@@ -91,19 +91,6 @@ export function BuildingView(props: BuildingViewProps) {
   const activeIndex = Math.max(0, floors.findIndex((f) => f.id === floor.id));
   const [showAll, setShowAll] = useState(false);
   const [panMode, setPanMode] = useState(false);
-  // The labels keep clear of the dock of controls along the bottom edge, whatever height it has at this width.
-  const dockRef = useRef<HTMLDivElement>(null);
-  const [dockInset, setDockInset] = useState(64);
-  useEffect(() => {
-    const el = dockRef.current;
-    if (!el) return undefined;
-    const read = () => setDockInset(Math.max(64, Math.round(el.getBoundingClientRect().height) + 14));
-    read();
-    const ro = new ResizeObserver(read);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
   const deskState = useMemo(() => {
     const map = new Map<string, DeskVisual>();
     for (const f of floors) {
@@ -316,14 +303,14 @@ export function BuildingView(props: BuildingViewProps) {
       list.push({
         id: spec.id, anchor: spec.anchor, priority: spec.priority, maxDistance: spec.maxDistance, tiers: spec.tiers, occluders: spec.occluders,
         node: <RoomLabelCard name={room.label} kind={room.kind} sub={roomSubtitle(room, c.desks)} working={c.working} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId}
-          onPick={() => (onFloor ? pickRoom(room.id) : props.onSelectFloor(floors[spec.floor].id))} />,
+          onPick={() => (onFloor ? pickRoom(room.id) : latest.current.onSelectFloor(floors[spec.floor].id))} />,
       });
     }
     if (stacked) {
       for (const tag of floorTagSpecs({ floors, activeIndex })) {
         const f = floors[tag.floor];
         list.push({ id: tag.id, anchor: tag.anchor, alternatives: tag.alternatives, priority: tag.priority, maxDistance: tag.maxDistance, tiers: tag.tiers,
-          node: <FloorTagCard name={f.name} rooms={f.rooms.length} active={tag.floor === activeIndex} onPick={() => props.onSelectFloor(f.id)} /> });
+          node: <FloorTagCard name={f.name} rooms={f.rooms.length} active={tag.floor === activeIndex} onPick={() => latest.current.onSelectFloor(f.id)} /> });
       }
     }
     // Agent cards: only for a desk with a real agent record (registry assignment or presence), on the active floor.
@@ -351,7 +338,7 @@ export function BuildingView(props: BuildingViewProps) {
       }
     }
     return [...list, ...flowLabels];
-  }, [roomById, insideRoomId, props.wall, scene, floor, floors, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, props.onSelectFloor, activeIndex, pickRoom, flowLabels, overview, stacked]);
+  }, [roomById, insideRoomId, props.wall, scene, floor, floors, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels, overview, stacked]);
 
   const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
   const insideRoom = insideRoomId ? roomById.get(insideRoomId) ?? null : null;
@@ -407,7 +394,7 @@ export function BuildingView(props: BuildingViewProps) {
           scene={renderScene} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
           onCamera={(c) => { stopGlide(); setCamera(keep(c)); }} night={night} reducedMotion={props.reducedMotion}
           hoverId={null} selectedId={null} onHover={() => undefined}
-          onPick={pickRoom} labels={labels} panMode={panMode} labelInset={dockInset} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
+          onPick={pickRoom} labels={labels} panMode={panMode} labelKeepOut="[data-keepout]" onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
         />
         {floor.rooms.length === 0 && (
           <div className="hqEmptyFloor" role="status">
@@ -417,7 +404,7 @@ export function BuildingView(props: BuildingViewProps) {
             <button type="button" className="hqPrimary" onClick={props.onManageSpaces}>{t('hq.manageSpaces')}</button>
           </div>
         )}
-        <div className="hqOverlay hqOverlayTopLeft">
+        <div className="hqOverlay hqOverlayTopLeft" data-keepout="">
           <Suspense fallback={<div className="hqBackCard"><button type="button" className="hqBack" onClick={props.onBack}><ArrowLeft aria-hidden="true" className="flip" />{t('hq.back')}</button></div>}>
             <SceneBackCard
               name={props.workspaceName} kindLabel={props.kindLabel} totals={agents} floors={floors.length} rooms={roomsTotal} meetings={props.liveMeetings} onBack={props.onBack}
@@ -425,18 +412,18 @@ export function BuildingView(props: BuildingViewProps) {
             />
           </Suspense>
         </div>
-        <div className="hqOverlay hqOverlayFlow">
+        <div className="hqOverlay hqOverlayFlow" data-keepout="">
           <Suspense fallback={null}><FlowStrip snapshot={props.flow?.snapshot} /></Suspense>
         </div>
-        <div className="hqOverlay hqOverlayRight">
+        <div className="hqOverlay hqOverlayRight" data-keepout="">
           <CameraTools
             yaw={camera.yaw} night={night} onNight={props.onNight}
             onZoomIn={() => change((c) => zoomBy(c, 0.8))} onZoomOut={() => change((c) => zoomBy(c, 1.25))}
             onReset={() => { setInside(false); setCamera(view === 'top' ? topView(home) : home); }} onNorth={() => change(faceNorth)}
           />
         </div>
-        {props.side && <div className="hqOverlay hqSideOverlay">{props.side}</div>}
-        <div className="hqOverlay hqOverlayBottom hqDock" ref={dockRef}>
+        {props.side && <div className="hqOverlay hqSideOverlay" data-keepout="">{props.side}</div>}
+        <div className="hqOverlay hqOverlayBottom hqDock" data-keepout="">
           <div className="hqDockOps">
             <Suspense fallback={null}><LiveOpsStrip totals={agents} unreported={props.unreported} snapshot={props.flow?.snapshot} /></Suspense>
           </div>
