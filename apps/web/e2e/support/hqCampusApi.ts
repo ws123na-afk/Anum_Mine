@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import { mockWorkspaceApi } from './workspaceApi';
 import { agentAvatars, seedAgents } from './orgChartApi';
+import { readFileSync } from 'node:fs';
 
 // A mock of what the ANUM MINE headquarters reads (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md): the
 // office registry of the open workspace, the caller's workspaces, the campus endpoint, agents and
@@ -12,7 +13,7 @@ const workspace = 'workspace_foundation';
 export interface HqMockOptions {
   /** 'api' serves the campus endpoint, 'missing' answers 404 (memberships stand in), 'denied' answers 403. */
   campus?: 'api' | 'missing' | 'denied';
-  layout?: 'full' | 'empty' | 'none' | 'starter';
+  layout?: 'full' | 'empty' | 'none' | 'starter' | 'campus';
   commerce?: 'connected' | 'none' | 'denied';
   tyre?: 'connected' | 'none';
   meetings?: 'live' | 'none' | 'failing';
@@ -50,7 +51,19 @@ function starterFixture() {
   return { buildings, floors, rooms, desks: base.desks };
 }
 
-export function officeFixture(layout: 'full' | 'empty' | 'none' | 'starter'): { buildings: unknown[]; floors: unknown[]; rooms: unknown[]; desks: unknown[] } {
+/** The real starter campus (8 buildings, 18 floors, 62 rooms, 220 desks): the API planner's own output, positions included. */
+function starterCampusFixture() {
+  const fx = JSON.parse(readFileSync(new URL('../../test/fixtures/starterCampus.json', import.meta.url), 'utf8')) as { buildings: Record<string, unknown>[]; floors: Record<string, unknown>[]; rooms: Record<string, unknown>[]; desks: Record<string, unknown>[] };
+  return {
+    buildings: fx.buildings.map((b) => record(String(b.id), { name: b.name, timezone: 'Asia/Dubai', latitude: null, longitude: null })),
+    floors: fx.floors.map((f) => record(String(f.id), { building_id: f.building_id, level: f.level, name: f.name })),
+    rooms: fx.rooms.map((r) => record(String(r.id), r)),
+    desks: fx.desks.map((d) => record(String(d.id), d)),
+  };
+}
+
+export function officeFixture(layout: 'full' | 'empty' | 'none' | 'starter' | 'campus'): { buildings: unknown[]; floors: unknown[]; rooms: unknown[]; desks: unknown[] } {
+  if (layout === 'campus') return starterCampusFixture();
   if (layout === 'starter') return starterFixture();
   if (layout === 'none') return { buildings: [], floors: [], rooms: [], desks: [] };
   const buildings = [record('bld_hq', { name: 'Al Noor Fleet HQ', timezone: 'Asia/Dubai', latitude: null, longitude: null })];

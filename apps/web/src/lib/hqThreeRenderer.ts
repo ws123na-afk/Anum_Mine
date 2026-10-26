@@ -16,17 +16,18 @@ import {
   ACESFilmicToneMapping, AmbientLight, BackSide, BufferGeometry, CanvasTexture, Color, DirectionalLight, DoubleSide, Float32BufferAttribute, Fog, HalfFloatType,
   HemisphereLight, LinearMipmapLinearFilter, Material, Mesh, MeshLambertMaterial, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, PCFShadowMap,
   PerspectiveCamera, PMREMGenerator, RepeatWrapping, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, Vector2, WebGLRenderer, WebGLRenderTarget,
-  LinearFilter, type IUniform,
+  LinearFilter, Matrix4, type IUniform,
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { VERTEX_FLOATS, MAT } from './hqGeometry.ts';
+import { poseAt, type AmbientMotion } from '../hqAssets/interior/ambient.ts';
 import { cameraEye, type CameraState } from './headquartersSpatial.ts';
 import { lightingFor } from './hqLighting.ts';
 import { clipPlanes, viewProjection } from './hqMath.ts';
-import type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
+import type { AmbientItem, RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
 import { ModelLayer } from './hqModelLayer.ts';
 import type { ModelGroup } from './hqModels.ts';
@@ -136,6 +137,17 @@ function readQualityOverride(): Quality | null {
 }
 
 /** True on a software rasteriser (SwiftShader, llvmpipe): it gets the light settings. Probed on a scratch canvas before the real context exists. */
+/**
+ * Ambient scenery moves on a GPU by default and stays still on a software rasteriser (it would cost frames the quality ladder
+ * needs). `localStorage["anum.hq.ambient"]` = "on" or "off" pins it, for tests and for a person who wants it one way.
+ */
+function readAmbientOverride(): boolean | null {
+  try {
+    const raw = window.localStorage.getItem('anum.hq.ambient');
+    return raw === 'on' ? true : raw === 'off' ? false : null;
+  } catch { return null; }
+}
+
 function probeSoftwareRenderer(): boolean {
   try {
     const scratch = document.createElement('canvas');
@@ -152,7 +164,7 @@ type Quality = 0 | 1 | 2 | 3;
 const SHADOW_SIZE: Record<Quality, number> = { 0: 0, 1: 1024, 2: 1024, 3: 2048 };
 
 export class HqRenderer {
-  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
+  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(40, 1, 0.2, 1000);
@@ -182,6 +194,13 @@ export class HqRenderer {
   private lastSunKey = '';
   private quality: Quality = 3;
   private reducedMotion = false;
+  /** Moving scenery: each part keeps the middle of its bounds as the pivot. */
+  private ambientParts: { mesh: Mesh; motion: AmbientMotion; px: number; py: number; pz: number }[] = [];
+  private ambientTimer: number | null = null;
+  private ambientAllowed = true;
+  private readonly rest = new Matrix4();
+  private readonly pose = new Matrix4();
+  private readonly onVisibility = () => { if (!document.hidden) this.requestFrame(); };
   private cheap = false;
   private lost = false;
   private disposed = false;
@@ -201,6 +220,7 @@ export class HqRenderer {
     this.onRestoredEvent = () => { this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.cb.onRestored?.(); this.requestFrame(); };
     canvas.addEventListener('webglcontextlost', this.onLostEvent);
     canvas.addEventListener('webglcontextrestored', this.onRestoredEvent);
+    document.addEventListener('visibilitychange', this.onVisibility);
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = ACESFilmicToneMapping;
     renderer.outputColorSpace = SRGBColorSpace;
@@ -227,6 +247,7 @@ export class HqRenderer {
     const made = new HqRenderer(canvas, renderer, cb, cheap ? 0.7 : maxDpr);
     try {
       made.cheap = cheap;
+      made.ambientAllowed = readAmbientOverride() ?? !cheap;
       made.buildMaterials();
       made.buildSky();
       if (!cheap) made.buildEnvironments();
@@ -358,6 +379,53 @@ export class HqRenderer {
   private disposeMeshes(): void {
     for (const mesh of this.meshes) { this.scene.remove(mesh); mesh.geometry.dispose(); }
     this.meshes = [];
+    this.ambientParts = [];
+  }
+
+  /** A moving part: its meshes keep their own matrix (`stepAmbient` sets it), never cast shadows and are never culled. */
+  private addAmbient(item: AmbientItem, scene: RenderScene): void {
+    const first = this.meshes.length;
+    this.addItem(item, false, scene);
+    const px = (item.bounds.min.x + item.bounds.max.x) / 2, py = (item.bounds.min.y + item.bounds.max.y) / 2, pz = (item.bounds.min.z + item.bounds.max.z) / 2;
+    for (let i = first; i < this.meshes.length; i++) {
+      const mesh = this.meshes[i];
+      mesh.matrixAutoUpdate = false;
+      mesh.frustumCulled = false;
+      mesh.castShadow = false;
+      this.ambientParts.push({ mesh, motion: item.motion, px, py, pz });
+    }
+  }
+
+  /** True while ambient scenery should move: allowed here, no reduced motion, tab visible, quality above the lowest. */
+  private ambientActive(): boolean {
+    return this.ambientAllowed && !this.reducedMotion && !this.lost && this.quality > 0 && typeof document !== 'undefined' && !document.hidden;
+  }
+
+  private stepAmbient(): void {
+    if (!this.ambientParts.length) { this.stats.ambient = 0; this.stats.ambientMoving = false; return; }
+    const moving = this.ambientActive();
+    const t = performance.now() / 1000;
+    for (const part of this.ambientParts) {
+      const pose = poseAt(part.motion, t, !moving);
+      part.mesh.visible = pose.visible;
+      if (pose.spin === 0 && pose.dx === 0 && pose.dy === 0 && pose.dz === 0) { part.mesh.matrix.copy(this.rest.identity()); }
+      else {
+        // Spin about the vertical axis through the part's middle, then translate.
+        this.pose.makeTranslation(part.px + pose.dx, part.py + pose.dy, part.pz + pose.dz);
+        this.pose.multiply(this.rest.makeRotationY(pose.spin));
+        this.pose.multiply(this.rest.makeTranslation(-part.px, -part.py, -part.pz));
+        part.mesh.matrix.copy(this.pose);
+      }
+      part.mesh.matrixWorldNeedsUpdate = true;
+    }
+    this.stats.ambient = this.ambientParts.length;
+    this.stats.ambientMoving = moving;
+  }
+
+  /** The next ambient frame: about 12 a second, 4 a second once drawing is slow. Not scheduled while frozen. */
+  private scheduleAmbient(): void {
+    if (this.ambientTimer !== null || this.disposed || !this.ambientParts.length || !this.ambientActive()) return;
+    this.ambientTimer = window.setTimeout(() => { this.ambientTimer = null; this.requestFrame(); }, this.stats.avgDrawMs > 35 ? 250 : 83);
   }
 
   private addItem(item: RenderItem, transparent: boolean, scene: RenderScene): void {
@@ -423,6 +491,7 @@ export class HqRenderer {
     if (this.layer) { this.readyGroups = scene.models?.length ? this.layer.readyNow(scene.models) : new Set(); this.layer.setNight(this.night); }
     for (const item of scene.opaque) this.addItem(item, false, scene);
     for (const item of scene.glass) this.addItem(item, true, scene);
+    for (const item of scene.ambient ?? []) this.addAmbient(item, scene);
     if (this.layer) {
       this.layer.setHalos(scene.halos);
       void this.layer.setPlacements(scene.models ?? []).catch(() => undefined);
@@ -604,6 +673,7 @@ export class HqRenderer {
       this.fog.near = cs.distance * 1.8 + 60; this.fog.far = cs.distance * 4 + 260;
       this.shared.uDetail.value.set(cs.distance * 0.7 + 25, cs.distance * 1.6 + 70);
       this.applyLighting();
+      this.stepAmbient();
       if (this.shadowDirty && this.renderer.shadowMap.enabled) { this.renderer.shadowMap.needsUpdate = true; this.shadowDirty = false; }
       this.renderer.info.reset();
       const useBloom = this.quality >= 2 && !this.reducedMotion && this.night > 0.04;
@@ -624,6 +694,7 @@ export class HqRenderer {
       this.fail(error);
       return;
     }
+    this.scheduleAmbient();
     const ms = performance.now() - started;
     const s = this.stats;
     s.frames += 1; s.lastDrawMs = ms;
@@ -645,6 +716,8 @@ export class HqRenderer {
     if (this.disposed) return;
     this.disposed = true;
     if (this.raf !== null) cancelAnimationFrame(this.raf);
+    if (this.ambientTimer !== null) window.clearTimeout(this.ambientTimer);
+    document.removeEventListener('visibilitychange', this.onVisibility);
     this.canvas.removeEventListener('webglcontextlost', this.onLostEvent);
     this.canvas.removeEventListener('webglcontextrestored', this.onRestoredEvent);
     this.disposeMeshes();

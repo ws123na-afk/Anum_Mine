@@ -174,7 +174,7 @@ export class HeadquartersController {
 export function adaptOfficeRegistry(records:Readonly<{
  buildings:readonly {id:string;name:string;timezone:string;revision:number}[];
  floors:readonly {id:string;name:string;level:number;building_id:string;revision:number}[];
- rooms:readonly {id:string;name:string;floor_id:string;kind:string;capacity:number;revision:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;team_department?:string|null}[];
+ rooms:readonly {id:string;name:string;floor_id:string;kind:string;capacity:number;revision:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;team_department?:string|null;door_side?:string|null;rotation?:number|null}[];
  desks:readonly {id:string;room_id:string;label:string;agent_id:string|null;revision:number}[];
 }>):Registry{
  const kinds=new Set(['office','meeting','reception','workshop','warehouse','lounge']);

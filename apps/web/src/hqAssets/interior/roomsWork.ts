@@ -14,7 +14,7 @@ import type { RoomCtx } from './types.ts';
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-function drawStations(c: RoomCtx, look: StationLook, extra: { monitors?: 1 | 2 | 3; headset?: boolean } = {}): void {
+export function drawStations(c: RoomCtx, look: StationLook, extra: { monitors?: 1 | 2 | 3; headset?: boolean } = {}): void {
   for (const st of c.stations) {
     workstation(c.b, c.y, { monitors: extra.monitors, headset: extra.headset, ...st }, c.S, { floor: c.floor, plant: false, lite: c.lite, ...look });
   }

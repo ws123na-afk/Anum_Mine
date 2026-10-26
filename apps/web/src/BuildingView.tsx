@@ -195,7 +195,9 @@ export function BuildingView(props: BuildingViewProps) {
     glass: scene.glass.vertices.length ? [{ id: 'glass', vertices: scene.glass.vertices, bounds: scene.glass.bounds, cull: false }] : [],
     glassAlpha: 0.2,
     // The entrance sign on the front lawn is lettered with the real building name.
-    signs: [{ title: 'ANUM MINE', subtitle: props.workspaceName }],
+    // Cell 0 is the entrance sign; the cells after it are the real room names and the floor sign (`scene.signs`).
+    signs: [{ title: 'ANUM MINE', subtitle: props.workspaceName }, ...scene.signs],
+    ambient: scene.ambient.map((a) => ({ id: a.id, vertices: a.vertices, bounds: a.bounds, cull: false, motion: a.motion })),
     shadow: scene.shadow,
     models: scene.models,
     halos: scene.halos,

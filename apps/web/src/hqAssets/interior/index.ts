@@ -15,12 +15,14 @@ import { workstation, type StationSpec } from './furniture.ts';
 import { Local } from './local.ts';
 import { executive, lounge, meetingRoom, reception } from './roomsFront.ts';
 import { warehouse, workshop } from './roomsIndustrial.ts';
-import { customerCare, openOffice, operationsRoom } from './roomsWork.ts';
+import { customerCare, drawStations, openOffice, operationsRoom } from './roomsWork.ts';
+import { financeOffice, pantry, restroom, salesOffice, serverRoom } from './roomsSupport.ts';
 import { resolveScheme } from './scheme.ts';
-import { INTERIOR_KINDS, type InteriorKind, type InteriorOptions, type InteriorResult, type RoomCtx, type RoomFrame } from './types.ts';
+import { INTERIOR_KINDS, type DoorSide, type InteriorKind, type InteriorOptions, type InteriorResult, type RoomCtx, type RoomFrame } from './types.ts';
 
 export { INTERIOR_KINDS } from './types.ts';
-export type { InteriorKind, InteriorOptions, InteriorResult, RoomFrame } from './types.ts';
+export type { DoorSide, InteriorKind, InteriorOptions, InteriorResult, RoomFrame } from './types.ts';
+export { ambientParts, ambientTag, ambientTagsOf, parseAmbientTag, poseAt, REST_POSE, type AmbientKind, type AmbientMotion, type AmbientPart, type AmbientPose } from './ambient.ts';
 export { SCHEMES, resolveScheme, type InteriorScheme, type InteriorSchemeName } from './scheme.ts';
 export { seatedFigure, standingFigure, FIGURE_TRIANGLE_CAP, type SeatedPose, type StandingPose, type SeatedOptions, type StandingOptions, type FigureOptions } from './figures.ts';
 export { workstation, SCREEN_LOOK, type StationSpec, type StationState, type StationLook } from './furniture.ts';
@@ -41,6 +43,11 @@ export const INTERIOR_TRIANGLE_CAP: Readonly<Record<InteriorKind, number>> = {
   warehouse: 6000,
   workshop: 3000,
   executive: 3600,
+  server: 3400,
+  pantry: 1700,
+  restroom: 1500,
+  finance: 1900,
+  sales: 1900,
 };
 
 /** One empty workstation (desk, up to three monitors, chair). */
@@ -57,6 +64,11 @@ export const REFERENCE_FRAMES: Readonly<Record<InteriorKind, { width: number; de
   warehouse: { width: 10, depth: 8 },
   workshop: { width: 9, depth: 7 },
   executive: { width: 8, depth: 7 },
+  server: { width: 9, depth: 7 },
+  pantry: { width: 7, depth: 5.5 },
+  restroom: { width: 6, depth: 4.5 },
+  finance: { width: 10, depth: 7 },
+  sales: { width: 10, depth: 7 },
 };
 
 /**
@@ -73,17 +85,88 @@ export const MIN_FRAMES: Readonly<Record<InteriorKind, { width: number; depth: n
   warehouse: { width: 8, depth: 7 },
   workshop: { width: 7.5, depth: 6 },
   executive: { width: 7, depth: 6 },
+  server: { width: 7, depth: 5 },
+  pantry: { width: 5.5, depth: 4.5 },
+  restroom: { width: 4.5, depth: 3.6 },
+  finance: { width: 8, depth: 6 },
+  sales: { width: 8, depth: 6 },
 };
 
 const BUILDERS: Readonly<Record<InteriorKind, (c: RoomCtx) => number>> = {
   reception, meeting: meetingRoom, office: openOffice, lounge, 'customer-care': customerCare, operations: operationsRoom, warehouse, workshop, executive,
+  server: serverRoom, pantry, restroom, finance: financeOffice, sales: salesOffice,
 };
 
 const DEFAULT_FLOOR = hex('#e4dccb');
 
-/** Append one furnished room to `b`. Returns the kind and the triangles added. */
+/** Quarter turns a model slot gains when the room is turned from a south door to this side (0 faces +z, 1 faces -x, 2 faces -z, 3 faces +x). */
+const SIDE_TURNS: Readonly<Record<DoorSide, number>> = { south: 0, west: 1, north: 2, east: 3 };
+
+/** Where a point of the room as dressed with a south door lands when the room is turned to face `side`; offsets are from the room's middle. */
+export function turnOffset(side: DoorSide, dx: number, dz: number): [number, number] {
+  if (side === 'north') return [-dx, -dz];
+  if (side === 'east') return [dz, -dx];
+  if (side === 'west') return [-dz, dx];
+  return [dx, dz];
+}
+
+/** The inverse of `turnOffset`: a point of the turned room back in the south-door frame. */
+export function unturnOffset(side: DoorSide, dx: number, dz: number): [number, number] {
+  if (side === 'north') return [-dx, -dz];
+  if (side === 'east') return [-dz, dx];
+  if (side === 'west') return [dz, -dx];
+  return [dx, dz];
+}
+
+/**
+ * Append one furnished room to `b`. Returns the kind and the triangles added. The room is dressed with the door in the
+ * south wall and turned to the wall of `options.doorSide` (a quarter or half turn about the room's middle, so the
+ * footprint stays the frame). Stations are given in world coordinates and are mapped into the turned frame and back.
+ */
 export function buildInteriorRoom(b: MeshBuilder, kind: InteriorKind, frame: RoomFrame, options: InteriorOptions): InteriorResult {
   const before = b.triangleCount;
+  const side = options.doorSide ?? 'south';
+  if (side === 'south') {
+    dress(b, kind, frame, options);
+  } else {
+    const swap = side === 'east' || side === 'west';
+    const cw = swap ? frame.depth : frame.width, cd = swap ? frame.width : frame.depth;
+    const cx = frame.x + frame.width / 2, cz = frame.z + frame.depth / 2;
+    const canon: RoomFrame = { x: cx - cw / 2, y: frame.y, z: cz - cd / 2, width: cw, depth: cd };
+    const stations = options.stations?.map((st) => {
+      const [qx, qz] = unturnOffset(side, st.x - cx, st.z - cz);
+      return { ...st, x: cx + qx, z: cz + qz, rot: (((st.rot ?? 0) - SIDE_TURNS[side]) % 4 + 4) % 4 };
+    });
+    const temp = new MeshBuilder();
+    dress(temp, kind, canon, { ...options, stations, doorSide: undefined });
+    appendTurned(b, temp, cx, cz, side);
+  }
+  return { kind, triangles: b.triangleCount - before };
+}
+
+/** Copy `src` into `dst`, turned about the vertical axis through (cx, cz) to face `side`. Tags, classes and light halos come along. */
+function appendTurned(dst: MeshBuilder, src: MeshBuilder, cx: number, cz: number, side: DoorSide): void {
+  const v = src.toFloat32();
+  const tags = src.triangleTags();
+  const at = (i: number): number[] => { const [x, z] = turnOffset(side, v[i] - cx, v[i + 2] - cz); return [cx + x, v[i + 1], cz + z]; };
+  for (let i = 0; i < v.length; i += VERTEX_FLOATS * 3) {
+    const j = i + VERTEX_FLOATS, k = i + 2 * VERTEX_FLOATS;
+    dst.mat = v[i + 10] as MatId;
+    dst.tag = tags[i / (VERTEX_FLOATS * 3)] ?? null;
+    dst.tri(at(i), at(j), at(k), [v[i + 6], v[i + 7], v[i + 8]], v[i + 9]);
+  }
+  dst.tag = null;
+  for (const slot of src.slots) {
+    const [x, z] = turnOffset(side, slot.x - cx, slot.z - cz);
+    dst.slots.push({ ...slot, x: cx + x, z: cz + z, rot: (slot.rot + SIDE_TURNS[side]) % 4 });
+  }
+  for (let h = 0; h < src.halos.length; h += 8) {
+    const [x, z] = turnOffset(side, src.halos[h] - cx, src.halos[h + 2] - cz);
+    dst.halos.push(cx + x, src.halos[h + 1], cz + z, ...src.halos.slice(h + 3, h + 8));
+  }
+}
+
+function dress(b: MeshBuilder, kind: InteriorKind, frame: RoomFrame, options: InteriorOptions): void {
   const min = MIN_FRAMES[kind];
   if (frame.width < min.width || frame.depth < min.depth) {
     // Dress the room at its minimum size, then shrink it uniformly into the real frame.
@@ -97,7 +180,6 @@ export function buildInteriorRoom(b: MeshBuilder, kind: InteriorKind, frame: Roo
   } else {
     drawRoom(b, kind, frame, options);
   }
-  return { kind, triangles: b.triangleCount - before };
 }
 
 function drawRoom(b: MeshBuilder, kind: InteriorKind, frame: RoomFrame, options: InteriorOptions): void {
@@ -110,6 +192,8 @@ function drawRoom(b: MeshBuilder, kind: InteriorKind, frame: RoomFrame, options:
     stations: options.stations ?? [], frame,
   };
   BUILDERS[kind](ctx);
+  // A desk is a registry record: a room whose kit does not place desks itself still shows each one it is given.
+  if (kind === 'warehouse' || kind === 'workshop') drawStations(ctx, { plant: false, chairTone: ctx.S.fabric });
 }
 
 /** Copy `src` into `dst`, scaled by `s` about the frame's minimum corner at floor level. */
@@ -126,6 +210,9 @@ function appendScaled(dst: MeshBuilder, src: MeshBuilder, frame: RoomFrame, s: n
   }
   dst.tag = null;
   for (const slot of src.slots) dst.slots.push({ ...slot, x: frame.x + (slot.x - frame.x) * s, y: frame.y + (slot.y - frame.y) * s, z: frame.z + (slot.z - frame.z) * s, width: slot.width * s });
+  for (let h = 0; h < src.halos.length; h += 8) {
+    dst.halos.push(frame.x + (src.halos[h] - frame.x) * s, frame.y + (src.halos[h + 1] - frame.y) * s, frame.z + (src.halos[h + 2] - frame.z) * s, src.halos[h + 3] * s, ...src.halos.slice(h + 4, h + 8));
+  }
 }
 
 /** A standalone mesh in the same shape as `SceneMesh`, for tests, previews and caching. */
@@ -142,11 +229,17 @@ export function buildInteriorMesh(kind: InteriorKind, frame: RoomFrame, options:
 export function interiorKindFor(kind: string, name = ''): InteriorKind | null {
   const n = name.toLowerCase();
   if (kind === 'office') {
-    if (/(customer|care|support|help|service)/.test(n)) return 'customer-care';
-    if (/(operation|dispatch|control|command)/.test(n)) return 'operations';
-    if (/(exec|ceo|director|board|owner)/.test(n)) return 'executive';
+    if (/(server|data cent|datacent|network|infrastructure|engineering|automation|ai lab|deployment|incident|it room)/.test(n)) return 'server';
+    if (/(customer|care|support|help|service|ticket|message)/.test(n)) return 'customer-care';
+    if (/(operation|dispatch|control|command|security)/.test(n)) return 'operations';
+    if (/(exec|ceo|director|board|owner|personal)/.test(n)) return 'executive';
+    if (/(financ|wealth|account|audit|treasury|invest|procure)/.test(n)) return 'finance';
+    if (/(sales|marketing|commerce|retail|marketplace|order|e-?com)/.test(n)) return 'sales';
+    if (/(pantry|kitchen|cafe|canteen|break room)/.test(n)) return 'pantry';
+    if (/(restroom|toilet|wc\b|washroom|bathroom)/.test(n)) return 'restroom';
     return 'office';
   }
+  if (kind === 'lounge' && /(pantry|kitchen|cafe|canteen)/.test(n)) return 'pantry';
   if (kind === 'reception' || kind === 'meeting' || kind === 'lounge' || kind === 'warehouse' || kind === 'workshop') return kind;
   return (INTERIOR_KINDS as readonly string[]).includes(kind) ? (kind as InteriorKind) : null;
 }
