@@ -147,6 +147,8 @@ export function interiorKindFor(kind: string, name = ''): InteriorKind | null {
     if (/(exec|ceo|director|board|owner)/.test(n)) return 'executive';
     return 'office';
   }
+  // The command centre is a kind of its own and always gets the operations room with its video wall, whatever it is called.
+  if (kind === 'command') return 'operations';
   if (kind === 'reception' || kind === 'meeting' || kind === 'lounge' || kind === 'warehouse' || kind === 'workshop') return kind;
   return (INTERIOR_KINDS as readonly string[]).includes(kind) ? (kind as InteriorKind) : null;
 }

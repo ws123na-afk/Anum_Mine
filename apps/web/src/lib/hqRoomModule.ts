@@ -5,7 +5,7 @@
  * set by the builder and the starter campus), never the words in its name. Order of the decision:
  *  1. the stored department (a mapped department opens its module; a department without a module,
  *     such as `custom`, says so honestly),
- *  2. the room kind (meeting, workshop, warehouse, reception),
+ *  2. the room kind (meeting, workshop, warehouse, reception, command centre),
  *  3. the building kind (rooms in the executive tower open the executive desk),
  *  4. the room name, as a last resort, and the owner is told to set a department,
  *  5. the old generic kind fallback (office to Tasks, lounge to Calendar).
@@ -88,6 +88,8 @@ export const KIND_MODULES: Readonly<Record<string, Entry>> = {
   workshop: view('tyre', 'tyre'),
   warehouse: view('commerce', 'commerce'),
   reception: { id: 'none', target: { type: 'none', why: 'no_visitor_register' } },
+  /** The operations command centre opens the live flow (the same module as the operations department). */
+  command: { id: 'operations', target: { type: 'flow' } },
 };
 
 const GENERIC_KIND: Readonly<Record<string, Entry>> = {
@@ -99,7 +101,7 @@ const GENERIC_KIND: Readonly<Record<string, Entry>> = {
 export const NAME_PATTERNS: ReadonlyArray<Readonly<{ re: RegExp; entry: Entry }>> = [
   { re: /financ|account|treasur|مال|محاسب/i, entry: DEPARTMENT_MODULES.finance },
   { re: /sales|crm|مبيع/i, entry: DEPARTMENT_MODULES.sales },
-  { re: /support|customer|care|help ?desk|دعم|عملاء/i, entry: DEPARTMENT_MODULES.support },
+  { re: /support|customer|\bcare\b|help ?desk|دعم|عملاء/i, entry: DEPARTMENT_MODULES.support },
   { re: /tyre|tire|إطار|اطار/i, entry: DEPARTMENT_MODULES.tyre_engineering },
   { re: /operation|command|dispatch|عمليات/i, entry: DEPARTMENT_MODULES.operations },
   { re: /executive|ceo|board|تنفيذ/i, entry: DEPARTMENT_MODULES.executive },

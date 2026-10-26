@@ -124,6 +124,7 @@ export const builderEn = {
   'hqb.kind.workshop': 'Workshop',
   'hqb.kind.warehouse': 'Warehouse',
   'hqb.kind.lounge': 'Lounge',
+  'hqb.kind.command': 'Command centre',
   'hqb.color.slate': 'Slate',
   'hqb.color.forest': 'Forest',
   'hqb.color.brass': 'Brass',

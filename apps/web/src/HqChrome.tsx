@@ -71,7 +71,7 @@ export function CameraTools(props: {
 }
 
 export function BottomToolbar(props: {
-  onRotateLeft: () => void; onRotateRight: () => void; onPrev?: () => void; onNext?: () => void;
+  onRotateLeft: () => void; onRotateRight: () => void; onPrev?: () => void; onNext?: () => void; prevDisabled?: boolean; nextDisabled?: boolean;
   prevLabel?: string; nextLabel?: string; fullscreen: boolean; onFullscreen: () => void;
   onZoomIn: () => void; onZoomOut: () => void;
   /** The Inside view of the selected room: absent on screens that have no rooms. */
@@ -82,8 +82,8 @@ export function BottomToolbar(props: {
   return (
     <div className="hqToolbar" role="toolbar" aria-label={t('hq.tool.label')}>
       <button type="button" onClick={props.onRotateLeft} data-draws="" aria-label={t('hq.tool.rotateLeft')} title={t('hq.tool.rotateLeft')}><RotateCcw aria-hidden="true" /><span>{t('hq.tool.rotateLeft')}</span></button>
-      {props.onPrev && <button type="button" onClick={props.onPrev} aria-label={props.prevLabel ?? t('hq.tool.prev')} title={props.prevLabel ?? t('hq.tool.prev')}><ChevronLeft aria-hidden="true" className="flip" /></button>}
-      {props.onNext && <button type="button" onClick={props.onNext} aria-label={props.nextLabel ?? t('hq.tool.next')} title={props.nextLabel ?? t('hq.tool.next')}><ChevronRight aria-hidden="true" className="flip" /></button>}
+      {props.onPrev && <button type="button" disabled={props.prevDisabled} onClick={props.onPrev} aria-label={props.prevLabel ?? t('hq.tool.prev')} title={props.prevLabel ?? t('hq.tool.prev')}><ChevronLeft aria-hidden="true" className="flip" /></button>}
+      {props.onNext && <button type="button" disabled={props.nextDisabled} onClick={props.onNext} aria-label={props.nextLabel ?? t('hq.tool.next')} title={props.nextLabel ?? t('hq.tool.next')}><ChevronRight aria-hidden="true" className="flip" /></button>}
       <button type="button" onClick={props.onRotateRight} data-draws="" aria-label={t('hq.tool.rotateRight')} title={t('hq.tool.rotateRight')}><RotateCw aria-hidden="true" /><span>{t('hq.tool.rotateRight')}</span></button>
       {props.inside && (
         <button type="button" onClick={props.inside.onToggle} disabled={props.inside.disabled && !props.inside.active} aria-pressed={props.inside.active} data-testid="hq-inside" data-draws=""

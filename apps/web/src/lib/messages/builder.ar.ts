@@ -125,6 +125,7 @@ export const builderAr: Record<keyof typeof builderEn, Message> = {
   'hqb.kind.workshop': 'ورشة',
   'hqb.kind.warehouse': 'مستودع',
   'hqb.kind.lounge': 'استراحة',
+  'hqb.kind.command': 'مركز القيادة',
   'hqb.color.slate': 'رمادي',
   'hqb.color.forest': 'أخضر غابة',
   'hqb.color.brass': 'نحاسي',

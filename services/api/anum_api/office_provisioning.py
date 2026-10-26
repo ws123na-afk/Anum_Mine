@@ -23,7 +23,7 @@ from typing import Any
 
 CATALOG_VERSION = 1
 TEMPLATE_PREFIX = "hq:"
-WORK_ROOM_KINDS = ("office", "workshop", "warehouse")
+WORK_ROOM_KINDS = ("office", "workshop", "warehouse", "command")
 NOT_DONE = ("arrived", "in_office", "waiting_human", "blocked")
 APPROVAL_CODES = ("approval_waiting", "approval_expired", "approval_missing")
 

@@ -58,10 +58,10 @@ EquipmentKind = Literal[
 ]
 RoomColor = Literal["slate", "forest", "brass", "sapphire", "amethyst", "crimson", "teal", "sand"]
 TeamDepartment = Literal["sales", "support", "operations", "finance", "tyre_engineering", "marketing", "technology", "research", "legal", "compliance", "security", "hr", "procurement", "custom"]
-RoomKind = Literal["office", "meeting", "reception", "workshop", "warehouse", "lounge"]
+RoomKind = Literal["office", "meeting", "reception", "workshop", "warehouse", "lounge", "command"]
 DoorSide = Literal["north", "south", "east", "west"]
 Rotation = Literal[0, 90, 180, 270]
-TemplateId = Literal["open_office", "meeting_room", "reception", "warehouse", "workshop"]
+TemplateId = Literal["open_office", "meeting_room", "reception", "warehouse", "workshop", "command_center"]
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 

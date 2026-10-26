@@ -6,9 +6,9 @@ export type Actor = Readonly<{id:string;scope:Scope;permissions:ReadonlySet<Perm
 export type PolicyOutcome = Readonly<{allowed:boolean;reason:string;route:OfficeRoute|null}>;
 const ROUTE_BY_KIND:Readonly<Record<RoomGeometry['kind'],OfficeRoute>>={
  office:'tasks',meeting:'meetings',reception:'team',workshop:'tyre',
- warehouse:'commerce',lounge:'calendar',
+ warehouse:'commerce',lounge:'calendar',command:'command',
 };
-const MANAGE_KINDS=new Set<RoomGeometry['kind']>(['office','workshop','warehouse']);
+const MANAGE_KINDS=new Set<RoomGeometry['kind']>(['office','workshop','warehouse','command']);
 export function routeForRoom(room:RoomGeometry):OfficeRoute{return ROUTE_BY_KIND[room.kind]}
 export function mayEnterRoom(actor:Actor,room:RoomGeometry,expectedScope:Scope):PolicyOutcome{
  if(!actor.active)return {allowed:false,reason:'Workspace membership is inactive',route:null};
