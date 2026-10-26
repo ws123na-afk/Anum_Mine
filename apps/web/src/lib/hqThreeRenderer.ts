@@ -790,7 +790,7 @@ export class HqRenderer {
 
   /** What the plan shader chunk needs to put a plan atlas behind the glass (see `hqGlassShader.applyPlan`): the renderer itself, whose shared uniforms, glass material, stats and frame request it uses, and the three.js classes. */
   glassHooks() {
-    return { r: this, T: { DataTexture, Vector4 } };
+    return { r: this, T: DataTexture };
   }
 
   /** Decide where each lift group goes: a new target eases from `from` (or from where the group stands), unseen groups jump. */

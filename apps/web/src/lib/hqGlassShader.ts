@@ -91,6 +91,13 @@ export const PLAN_COLOR = `
     }
   }`;
 
+/** The few members of a three.js Vector4 the uniform upload reads. */
+class Vec4 {
+  x = 0; y = 0; z = 0; w = 0;
+  set(x: number, y: number, z: number, w: number): this { this.x = x; this.y = y; this.z = z; this.w = w; return this; }
+  toArray(a: number[], o = 0): number[] { a[o] = this.x; a[o + 1] = this.y; a[o + 2] = this.z; a[o + 3] = this.w; return a; }
+}
+
 /** Adds the plan uniforms to the renderer's shared uniforms (the classes come from the renderer, so this chunk imports nothing). */
 export function installPlan(shared: Record<string, { value: unknown }>, V4: new () => unknown): void {
   shared.uPlanTex = { value: null };
@@ -119,7 +126,7 @@ export function fillUniforms(u: Record<string, { value: unknown }>, plan: PlanSo
 const RGBA_FORMAT = 1023, UNSIGNED_BYTE = 1009, NEAREST_FILTER = 1003;
 type Disposable = { dispose(): void } | null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Hooks = Readonly<{ r: any; T: Record<string, any> }>;
+type Hooks = Readonly<{ r: any; T: any }>;
 
 /**
  * Everything the renderer does for a plan atlas, in this chunk: the first time it adds the uniforms and rewrites the glass program
@@ -130,7 +137,7 @@ export function applyPlan(h: Hooks, plan: PlanSource & { revision: string; data:
   if (plan.revision === r.stats.glassPlan) return;
   const shared = r.shared, glass = r.materials.get('glass');
   if (!shared.uPlanTex) {
-    installPlan(shared, h.T.Vector4);
+    installPlan(shared, Vec4);
     if (glass) {
       const before = glass.onBeforeCompile;
       glass.onBeforeCompile = (shader: { fragmentShader: string }, renderer: unknown) => { before(shader, renderer); shader.fragmentShader = patchGlass(shader.fragmentShader); };
@@ -139,7 +146,7 @@ export function applyPlan(h: Hooks, plan: PlanSource & { revision: string; data:
     }
   }
   (shared.uPlanTex.value as Disposable)?.dispose();
-  const tex = new (h.T.DataTexture as new (d: Uint8Array, w: number, h: number, f: unknown, t: unknown) => Record<string, unknown> & { dispose(): void })(plan.data.slice(), plan.width, plan.height, RGBA_FORMAT, UNSIGNED_BYTE);
+  const tex = new (h.T as new (d: Uint8Array, w: number, h: number, f: unknown, t: unknown) => Record<string, unknown> & { dispose(): void })(plan.data.slice(), plan.width, plan.height, RGBA_FORMAT, UNSIGNED_BYTE);
   tex.magFilter = tex.minFilter = NEAREST_FILTER;
   tex.generateMipmaps = false;
   tex.needsUpdate = true;

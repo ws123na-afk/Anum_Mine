@@ -62,8 +62,8 @@ The stage fetches the plan shader chunk the first time a scene has a plan; that 
 
 ## Budgets
 
-Measured with the performance spec's own gzip, after merging main (33e82b8): lazy HQ entry chunk 127,467 bytes gzip (limit 140,000; main is 134,518), renderer chunk 159,991 (limit
-160,000; main is 159,967, so the plan hooks cost 24 bytes), plan kit 3,900 and plan shader 2,063, both fetched only when a campus has a registry building with rooms. No limit was raised. To fit,
+Measured with the performance spec's own gzip, after merging main (fae3323): lazy HQ entry chunk 127,926 bytes gzip (limit 140,000; main is 134,518), renderer chunk 159,995 (limit
+160,000; main is about 159,985, so the plan hooks cost about 10 bytes), plan kit 3,900 and plan shader 2,141, both fetched only when a campus has a registry building with rooms. No limit was raised. To fit,
 the plan code that would have gone into the renderer lives in the shader chunk (uniforms, program rewrite, texture upload) and the dynamic import sits in the stage. Read this honestly: with a
 third importer the bundler now hoists the geometry and ambient code into a shared chunk (about 13,300 bytes gzip) that loads together with the entry, so the file the performance spec measures shrank
 while the headquarters payload (entry plus shared chunk, about 140,500) grew by about 6 kB gzip over main. That is an artefact of chunking, not a limit met by moving code.
