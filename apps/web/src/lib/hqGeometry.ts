@@ -20,6 +20,12 @@ export const VERTEX_FLOATS = 13;
  */
 export const MAT = {
   flat: 0, concrete: 1, tile: 2, asphalt: 3, grass: 4, wood: 5, metal: 6, water: 7, glass: 8, roller: 9, sign: 10, court: 11, paint: 12,
+  /** Leaves and fronds: they sway in the wind (scenery only). */
+  foliage: 13,
+  /** Flags and pennants: they ripple in the wind (scenery only). The u texture coordinate is the distance from the pole, 0..1. */
+  cloth: 14,
+  /** Aviation lights on rooftops: they blink (scenery only). */
+  beacon: 15,
 } as const;
 export type MatId = (typeof MAT)[keyof typeof MAT];
 

@@ -13,20 +13,20 @@ import { classifySurfaces } from './hqSurfaces.ts';
 import { signAtlasLayout } from './hqTextures.ts';
 
 const EXTERIOR_OF: Readonly<Partial<Record<Archetype, ExteriorKind>>> = {
-  executive: 'executiveHq', tower: 'officeTower', admin: 'adminBlock', retail: 'retailBlock', warehouse: 'warehouse', workshop: 'tyreWorkshop',
+  executive: 'executiveHq', tower: 'officeTower', admin: 'adminBlock', retail: 'retailBlock', warehouse: 'warehouse', workshop: 'tyreWorkshop', villa: 'personalVilla',
 };
 
 export type ExteriorShape = Readonly<{
   vertices: Float32Array; bounds: Aabb; triangles: number; anchor: Vec3; door: Vec3; box: Aabb; halos: Float32Array;
 }>;
 
-/** The asset for this building, or null for a type the asset set does not cover (the villa). */
+/** The asset for this building, or null for a type the asset set does not cover (none now: every campus type has an asset). */
 export function drawExterior(p: Placement, archetype: Archetype, signIndex: number, signCount: number): ExteriorShape | null {
   const kind = EXTERIOR_OF[archetype];
   if (!kind) return null;
   // The assets have their own size ranges (a tower is at least 8 storeys, the executive building at least 30 m wide):
   // ask for the smallest storey count that keeps the executive building the tallest on the campus.
-  const levels = archetype === 'executive' ? Math.min(16, Math.max(8, p.levels * 2)) : archetype === 'tower' ? 6 : p.levels;
+  const levels = archetype === 'executive' ? Math.min(10, Math.max(8, p.levels + 3)) : archetype === 'tower' ? 6 : p.levels;
   const asset: ExteriorAsset = buildExterior(kind, { seed: 'bld:' + p.workspaceId, width: p.width, depth: p.depth, levels, origin: { x: p.x, z: p.z } });
   // The lettered sign lies a hair in front of the asset's blank board and covers it (the board's own mark is in the texture).
   const cell = signAtlasLayout(signCount).cell(signIndex);

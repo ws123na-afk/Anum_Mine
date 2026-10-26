@@ -240,10 +240,15 @@ export function stamp(b: MeshBuilder, t: Template, p: Placement): void {
   // Normals turn with the heading (a uniform scale leaves them unit length), so smooth shaded templates stay smooth.
   const N = (i: number): number[] => [v[i + 3] * cs + v[i + 5] * sn, v[i + 4], -v[i + 3] * sn + v[i + 5] * cs];
   const C = (i: number): Rgb => [v[i + 6], v[i + 7], v[i + 8]];
+  // A template triangle with its own surface class (foliage, say) keeps it; a plain one takes the class the caller set on the builder.
+  const callerMat = b.mat;
   for (let i = 0; i + 3 * VERTEX_FLOATS <= v.length; i += 3 * VERTEX_FLOATS) {
     const a = i, c1 = i + VERTEX_FLOATS, c2 = i + 2 * VERTEX_FLOATS;
+    const own = v[a + 10];
+    b.mat = own === 0 ? callerMat : (own as typeof b.mat);
     b.triN(P(a), P(c1), P(c2), N(a), N(c1), N(c2), C(a), C(c1), C(c2), v[a + 9]);
   }
+  b.mat = callerMat;
 }
 
 /** Deterministic integer pick. */

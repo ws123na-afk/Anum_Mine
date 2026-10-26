@@ -3,7 +3,7 @@
  * and flower beds. Trees are built once per species and variant at a nominal height and stamped
  * with a scale and heading, so a campus of hundreds of trees pays for each species once.
  */
-import { MeshBuilder, hex, mix, scale, seeded, type Rgb } from '../../lib/hqGeometry.ts';
+import { MAT, MeshBuilder, hex, mix, scale, seeded, type Rgb } from '../../lib/hqGeometry.ts';
 import { STONE, blobShadow } from '../../lib/hqProps.ts';
 import { Frame, makeTemplate, pick, range, scoped, stamp, type AssetResult, type GlowPoint, type Placement, type Template } from './common.ts';
 import { lengths, ribbon, directionAt, type P2 } from './paths.ts';
@@ -53,17 +53,20 @@ function frond(b: MeshBuilder, cx: number, cy: number, cz: number, ang: number, 
   const at = (t: number): [number, number, number] => [cx + dx * len * t, cy + Math.sin(t * Math.PI * 0.55) * len * 0.3 - droop * t * t, cz + dz * len * t];
   const half = (t: number) => wid * (t < 0.3 ? 0.55 + t * 1.5 : 1 - (t - 0.3) * 1.2);
   let prev = at(0), pw = half(0) * 0.4;
+  const keep = b.mat;
+  b.mat = MAT.foliage;
   for (let i = 1; i <= 4; i++) {
     const t = i / 4, p = at(t), w = i === 4 ? 0.02 : half(t);
     const shade = scale(col, 1.12 - 0.3 * t);
     b.quad([prev[0] - sx * pw, prev[1], prev[2] - sz * pw], [prev[0] + sx * pw, prev[1], prev[2] + sz * pw], [p[0] + sx * w, p[1], p[2] + sz * w], [p[0] - sx * w, p[1], p[2] - sz * w], shade);
     prev = p; pw = w;
   }
+  b.mat = keep;
 }
 
 /** A foliage puff: smooth, lumpy and round, so a crown reads as leaves and not as a stack of faceted stones. */
 function puff(b: MeshBuilder, x: number, y: number, z: number, rx: number, ry: number, rz: number, color: Rgb, seed: number, lat = 4, lon = 8): void {
-  b.smoothBlob(x, y, z, rx, ry, rz, color, { lat, lon, lump: 0.13, tone: 0.2, seed });
+  b.withMat(MAT.foliage, () => b.smoothBlob(x, y, z, rx, ry, rz, color, { lat, lon, lump: 0.13, tone: 0.2, seed }));
 }
 
 function buildTree(b: MeshBuilder, sp: TreeSpecies, variant: number): void {
@@ -91,7 +94,7 @@ function buildTree(b: MeshBuilder, sp: TreeSpecies, variant: number): void {
     for (const [x, y, z, r] of spots) puff(b, x + (rnd() - 0.5) * 0.4, H * y, z + (rnd() - 0.5) * 0.4, r, r * 0.78, r, leaf(), n++);
   } else if (sp === 'cypress') {
     b.prism(0, 0, 0, 0.22, 0.18, H * 0.14, 5, BARK, { capTop: false });
-    b.smoothBlob(0, H * 0.56, 0, H * 0.15, H * 0.44, H * 0.15, leaf(), { lat: 6, lon: 7, lump: 0.07, tone: 0.2, seed: 3 });
+    b.withMat(MAT.foliage, () => b.smoothBlob(0, H * 0.56, 0, H * 0.15, H * 0.44, H * 0.15, leaf(), { lat: 6, lon: 7, lump: 0.07, tone: 0.2, seed: 3 }));
   } else if (sp === 'acacia') {
     limb(b, [0, 0, 0], [0.5, H * 0.5, 0.2], 0.3, 0.2, BARK);
     limb(b, [0.5, H * 0.5, 0.2], [-1.2, H * 0.78, 0.4], 0.16, 0.1, BARK);
@@ -111,7 +114,7 @@ function buildTree(b: MeshBuilder, sp: TreeSpecies, variant: number): void {
     for (const [x, y, z, r] of [[0, 0.78, 0, 1.9], [-1.2, 0.68, 0.3, 1.4], [1.4, 0.7, -0.3, 1.5]] as const) puff(b, x, H * y, z, r, r * 0.76, r, leaf(), n++);
     for (let i = 0; i < 9; i++) {
       const a = rnd() * Math.PI * 2, rr = 0.9 + rnd() * 1.4;
-      b.smoothBlob(Math.cos(a) * rr, H * (0.7 + rnd() * 0.22), Math.sin(a) * rr, 0.4, 0.3, 0.4, mix(bloom, hex('#ffffff'), rnd() * 0.25), { lat: 2, lon: 5, lump: 0.05, tone: 0.1, seed: n++ });
+      b.withMat(MAT.foliage, () => b.smoothBlob(Math.cos(a) * rr, H * (0.7 + rnd() * 0.22), Math.sin(a) * rr, 0.4, 0.3, 0.4, mix(bloom, hex('#ffffff'), rnd() * 0.25), { lat: 2, lon: 5, lump: 0.05, tone: 0.1, seed: n++ }));
     }
   }
 }

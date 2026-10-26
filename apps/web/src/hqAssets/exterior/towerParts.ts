@@ -1,7 +1,8 @@
 /** Parts shared by the glass tower and the executive HQ: crown, accent band, roof terrace and flag pole. */
 import { hex, scale, type Rgb } from '../../lib/hqGeometry.ts';
-import { WARM, acUnit, antenna, planter } from '../../lib/hqProps.ts';
+import { acUnit, antenna, planter } from '../../lib/hqProps.ts';
 import { faceQuad, paneRow, rectFaces, type Ctx } from './parts.ts';
+import { beaconLight, pennant } from './facadeKit.ts';
 
 /** A lit accent ring around a block at height y (four thin boxes in one, skip top and bottom). */
 export function accentBand(ctx: Ctx, x: number, z: number, w: number, d: number, y: number, h = 0.28, emissive = 0.8): void {
@@ -39,8 +40,20 @@ export function crown(ctx: Ctx, cx: number, cz: number, w: number, d: number, y:
   for (const f of Object.values(LF)) paneRow(ctx, f, 0.4, f.len - 0.4, y2 + 0.3, y2 + lh - 0.3, Math.max(2, Math.floor(f.len / 1.6)), 0.12, 1);
   b.box(lx - 0.35, y2 + lh, lz - 0.35, lw + 0.7, 0.35, ld + 0.7, scheme.accent, { emissive: 0.7, shade: false });
   const top = y2 + lh + 0.35;
-  b.prism(cx, top, cz, 0.2, 0.05, grand ? 11 : 8, 5, hex('#9aa5b1'), { capTop: false });
-  b.box(cx - 0.2, top + (grand ? 11 : 8), cz - 0.2, 0.4, 0.4, 0.4, hex('#ff5a5a'), { emissive: 1, shade: false });
+  if (grand) {
+    // The crown of the headquarters: two raked blades that meet at the apex like the ANUM mark, joined by a lit crossbar, and a beacon at the tip.
+    const mh = 9.5, half = Math.min(2.6, lw * 0.5);
+    for (const sgn of [-1, 1]) {
+      const bx = cx + sgn * half;
+      b.quad([bx - 0.14, top, cz - 0.07], [bx + 0.14, top, cz - 0.07], [cx + sgn * 0.12 + 0.1, top + mh, cz - 0.07], [cx + sgn * 0.12 - 0.1, top + mh, cz - 0.07], scale(scheme.accent, 0.95), 0.85);
+      b.quad([bx + 0.14, top, cz + 0.07], [bx - 0.14, top, cz + 0.07], [cx + sgn * 0.12 - 0.1, top + mh, cz + 0.07], [cx + sgn * 0.12 + 0.1, top + mh, cz + 0.07], scale(scheme.accent, 0.8), 0.85);
+    }
+    b.quad([cx - half * 0.55, top + mh * 0.34, cz - 0.07], [cx + half * 0.55, top + mh * 0.34, cz - 0.07], [cx + half * 0.55, top + mh * 0.34 + 0.2, cz - 0.07], [cx - half * 0.55, top + mh * 0.34 + 0.2, cz - 0.07], hex('#bff7ea'), 0.95);
+    beaconLight(ctx, cx, top + mh - 0.2, cz);
+  } else {
+    b.prism(cx, top, cz, 0.2, 0.05, 6, 5, hex('#9aa5b1'), { capTop: false });
+    beaconLight(ctx, cx, top + 5.6, cz);
+  }
   return top;
 }
 
@@ -63,12 +76,7 @@ export function terrace(ctx: Ctx, x: number, z: number, w: number, d: number, y:
   }
 }
 
-/** A flag pole with a plain accent pennant (no flag artwork). */
+/** A flag pole with a plain accent pennant (no flag artwork) that ripples in the wind. */
 export function flagPole(ctx: Ctx, x: number, z: number, h: number, color?: Rgb): void {
-  const { b, scheme } = ctx;
-  b.prism(x, 0, z, 0.14, 0.07, h, 5, hex('#c9d0d6'), { capTop: false });
-  const c = color ?? scheme.accent;
-  b.quad([x, h - 0.2, z], [x + 1.5, h - 0.2, z], [x + 1.5, h - 1.3, z], [x, h - 1.3, z], c, 0.25);
-  b.quad([x + 1.5, h - 0.2, z], [x, h - 0.2, z], [x, h - 1.3, z], [x + 1.5, h - 1.3, z], scale(c, 0.8), 0.25);
-  b.box(x - 0.08, h, z - 0.08, 0.16, 0.16, 0.16, WARM, { emissive: 0.8, shade: false });
+  pennant(ctx, x, z, h, color);
 }

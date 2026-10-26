@@ -6,7 +6,8 @@
  * a React re-render per frame. The canvas itself is decorative for assistive technology: the same
  * things are reachable through the label buttons and the List view.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
+import { readNightPreset, subscribeNightPreset, targetBlend } from './lib/hqLightPreset.ts';
 import type { HqRenderer } from './lib/hqThreeRenderer.ts';
 import type { RenderScene } from './lib/hqRenderTypes.ts';
 import { pickNearest, type PickTarget } from './lib/hqMath.ts';
@@ -62,7 +63,8 @@ export function HqStage(props: Props) {
   const live = useRef<CameraState>(camera);
   const goal = useRef<CameraState>(camera);
   const emitted = useRef(new WeakSet<object>());
-  const nightNow = useRef(night ? 1 : 0);
+  const preset = useSyncExternalStore(subscribeNightPreset, readNightPreset, () => 'night' as const);
+  const nightNow = useRef(targetBlend(night, readNightPreset()));
   const anim = useRef<number | null>(null);
   const lastTick = useRef(0);
   const labelEls = useRef(new Map<string, HTMLDivElement>());
@@ -122,6 +124,10 @@ export function HqStage(props: Props) {
             canvas.current.dataset.dpr = s.dpr.toFixed(2);
             canvas.current.dataset.shadow = String(s.shadowSize);
             canvas.current.dataset.bloom = s.bloom ? 'true' : 'false';
+            canvas.current.dataset.ambientLevel = String(s.ambient.level);
+            canvas.current.dataset.ambientFrames = String(s.ambient.frames);
+            canvas.current.dataset.ambientClock = s.ambient.clock.toFixed(2);
+            canvas.current.dataset.ambientVehicles = String(s.ambient.vehicles);
             canvas.current.dataset.modelsPlaced = String(s.models.placed);
             canvas.current.dataset.modelFigures = String(s.models.figures);
             // Avatar styles drawn: build/hair/outfit/skin per figure (codes only, never a name), and a count per build.
@@ -194,7 +200,7 @@ export function HqStage(props: Props) {
 
   // Day and night blend.
   useEffect(() => {
-    const to = night ? 1 : 0;
+    const to = targetBlend(night, preset);
     if (reducedMotion) { nightNow.current = to; renderer.current?.setNight(to); return; }
     let raf = 0;
     let last = performance.now();
@@ -208,7 +214,7 @@ export function HqStage(props: Props) {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [night, reducedMotion]);
+  }, [night, preset, reducedMotion]);
 
   // Wheel zoom needs a non-passive listener to stop the page from scrolling.
   useEffect(() => {

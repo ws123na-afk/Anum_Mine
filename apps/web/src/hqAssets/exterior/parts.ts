@@ -108,6 +108,7 @@ export function ledge(ctx: Ctx, f: Face, uFrom: number, uTo: number, y: number, 
 // ---------------------------------------------------------------- windows
 
 const COOL = hex('#cfe6ff');
+const SPANDREL = hex('#2a333d');
 
 /**
  * One window pane. Night rule: a pane is lit with probability `ctx.lit`; a lit pane carries
@@ -162,6 +163,8 @@ export function curtainWall(
       // Near floor-to-ceiling glass with slim mullions, and a pale slab edge between storeys: the grid reads as glass, not as dark boxes.
       paneRow(ctx, f, inset, f.len - inset, ly + levelH * 0.12, ly + levelH * 0.9, cols, 0.06, 0.55 + 0.45 * ((l + 1) / levels));
       if (l > 0 && !ctx.lean) faceQuad(ctx.b, f, inset - 0.2, f.len - inset + 0.2, ly - 0.14, ly + 0.1, scheme.wall, 0, 0.07);
+      // The opaque spandrel under every window row: the dark band between the slab edge and the glass.
+      if (!ctx.lean) faceQuad(ctx.b, f, inset, f.len - inset, ly + 0.1, ly + levelH * 0.12, SPANDREL, 0, 0.065);
     }
   }
   return y + h;

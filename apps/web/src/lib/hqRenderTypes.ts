@@ -2,6 +2,7 @@
 import type { Aabb } from './hqMath.ts';
 import type { Vec3 } from './headquartersProjection.ts';
 import type { ModelGroup, ModelPlacement } from './hqModels.ts';
+import type { AmbientPlan } from '../hqAssets/environment/ambient.ts';
 
 /** `fallbackOf`: the item is the procedural stand-in for a model group and is drawn only while that group could not be loaded. */
 export type RenderItem = Readonly<{ id: string; vertices: Float32Array; bounds: Aabb; cull?: boolean; fallbackOf?: ModelGroup }>;
@@ -21,6 +22,8 @@ export type RenderScene = Readonly<{
   models?: readonly ModelPlacement[];
   /** Soft light halos for the night glow: x, y, z, radius, r, g, b, strength per halo. */
   halos?: Float32Array;
+  /** Scenery in motion (traffic loops, water ripples). Drawn only while the ambient level is above 0. */
+  ambient?: AmbientPlan;
 }>;
 
 export type RenderStats = {
@@ -28,6 +31,8 @@ export type RenderStats = {
   /** Shadow map size in pixels (0 = off) and whether the night glow pass is on. */
   shadowSize: number; bloom: boolean;
   /** Model layer: placements drawn, models loaded of those asked for, bytes fetched, load time in ms, groups that fell back. */
+  /** Ambient motion: level 0 to 2 (0 = still), frames drawn by the ambient loop and the scene clock in seconds. */
+  ambient: { level: number; frames: number; clock: number; vehicles: number };
   models: { placed: number; figures: number; loaded: number; asked: number; bytes: number; loadMs: number; fallbacks: string[]; looks: string[] };
 };
 

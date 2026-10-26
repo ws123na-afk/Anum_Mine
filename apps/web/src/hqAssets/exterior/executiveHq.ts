@@ -7,6 +7,7 @@ import { hex, scale } from '../../lib/hqGeometry.ts';
 import { TEAL, anumMark, castShadow, hedge, lamp, pool } from '../../lib/hqProps.ts';
 import { clamp, curtainWall, faceBox, faceQuad, fins, finish, ledge, makeCtx, rectFaces, signBoard, type Face } from './parts.ts';
 import { accentBand, crown, flagPole, slabBand, terrace } from './towerParts.ts';
+import { atriumVault, balconyRun, canopy, roofDeck } from './facadeKit.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
 
 export function buildExecutiveHq(params: ExteriorParams = {}): ExteriorAsset {
@@ -53,6 +54,7 @@ export function buildExecutiveHq(params: ExteriorParams = {}): ExteriorAsset {
   faceBox(b, frontPlane, pu0 - 0.4, pu0 + pW + 0.4, y0 + colH + 1.7, y0 + colH + 1.95, 0, pD + 0.3, scale(scheme.wall, 0.95));
   faceQuad(b, frontPlane, pu0 - 0.4, pu0 + pW + 0.4, y0 + colH + 1.72, y0 + colH + 1.8, scheme.accent, 0.8, pD + 0.32);
   const sign = signBoard(ctx, frontPlane, W / 2, y0 + colH + 0.45, Math.min(pW - 2, 15), 1.3, pD + 0.22);
+  void canopy;
   // Steps (five, wide) and lit risers.
   for (let i = 0; i < 5; i++) {
     const w = pW + 3 - i * 0.5;
@@ -64,6 +66,11 @@ export function buildExecutiveHq(params: ExteriorParams = {}): ExteriorAsset {
   const tw = W * 0.5, td = D * 0.5;
   const tx = -tw / 2, tz = z0 + 2.4;
   terrace(ctx, x0 + 0.4, z0 + 0.4, W - 0.8, D - 0.8, podTop + 0.7, { x: tx - 0.6, z: tz - 0.6, w: tw + 1.2, d: td + 1.2 });
+  // The atrium: a glazed barrel vault on the podium roof in front of the tower, lit warm from below at night, and a roof garden with a pool beside it.
+  if (!ctx.lean) {
+    atriumVault(ctx, 0, tz + td + 1.0, Math.min(tw * 0.74, 11), 5.2, podTop + 2.05, 2.3);
+    roofDeck(ctx, x0 + 1.2, tz + td + 0.8, Math.max(5.6, W * 0.2), Math.min(7, z1 - (tz + td) - 2), podTop + 0.96, { pool: true, pergola: true, loungers: 3, shrubs: 5 });
+  }
   const hx = x0 + W * 0.84, hz = tz + td + 4.2;
   b.prism(hx, podTop + 0.95, hz, 3.4, 3.4, 0.08, 18, hex('#3b4452'));
   b.prism(hx, podTop + 1.03, hz, 2.7, 2.7, 0.02, 18, hex('#e8d36a'), { emissive: 0.25 });
@@ -84,6 +91,8 @@ export function buildExecutiveHq(params: ExteriorParams = {}): ExteriorAsset {
     for (let l = 1; l <= lower; l++) ledge(ctx, f, 0.3, f.len - 0.3, ty + l * TLH - 0.55, 0.5, 0.1);
   }
   for (let l = 3; l < lower; l += 3) { slabBand(ctx, tx, tz, tw, td, ty + l * TLH - 0.12, 0.4); accentBand(ctx, tx, tz, tw, td, ty + l * TLH + 0.28, 0.14, 0.7); }
+  // Balconies with glass balustrades on both flanks of the lower shaft.
+  if (!ctx.lean) for (const l of [1, 2]) for (const f of [TF.east, TF.west]) balconyRun(ctx, f, 2.2, f.len - 2.2, ty + l * TLH + 0.1, { depth: 1.5 });
   const midY = ty + lower * TLH;
   slabBand(ctx, tx, tz, tw, td, midY - 0.1, 0.5);
   const inset = Math.min(3.2, tw * 0.1);
