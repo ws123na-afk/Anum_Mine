@@ -58,7 +58,7 @@
 .hqBackCard .hqBack { flex: none; white-space: nowrap; }
 .hqBackCard, .hqBackCard .hqCrumbs { min-width: 0; }
 .hqBackCard .hqCrumbs li.hqBuildingTitle { flex: 1 1 0; min-width: 0; overflow: hidden; }
-.hqBackCard { background: var(--hq-glass); backdrop-filter: blur(8px); border: 1px solid var(--hq-glass-line); border-radius: 14px; color: var(--hq-glass-text); display: grid; gap: 4px 14px; grid-template-columns: auto; padding: 8px 12px; }
+.hqBackCard { background: var(--hq-glass); backdrop-filter: blur(8px); border: 1px solid var(--hq-glass-line); border-radius: 14px; color: var(--hq-glass-text); display: grid; gap: 4px 14px; grid-template-columns: minmax(0, 1fr); overflow: hidden; padding: 8px 12px; }
 .hqBackCard .hqCrumbs ol { flex-wrap: nowrap; gap: 10px; }
 .hqBackCard .hqBack { background: rgba(255, 255, 255, .08); border-color: var(--hq-glass-line); color: inherit; }
 .hqBackCard .hqBuildingTitle { gap: 8px; min-width: 0; }
@@ -144,3 +144,7 @@
   .hqBuilding .hqSideOverlay { bottom: 64px; max-height: 48%; top: auto; }
   .hqBackCard .hqBuildingTitle h2 { font-size: var(--text-base); }
 }
+
+/* Narrow scene: the building name drops under the Back button instead of being cut. */
+.hqSceneWrap[data-s641="0"] .hqBackCard .hqCrumbs ol { flex-wrap: wrap; row-gap: 4px; }
+.hqSceneWrap[data-s641="0"] .hqBackCard .hqCrumbs li.hqBuildingTitle { flex: 1 1 100%; }
