@@ -270,7 +270,7 @@ class FilePickerInvoiceSaver implements InvoiceDocumentSaver {
   const FilePickerInvoiceSaver();
   @override
   Future<bool> save(String fileName, Uint8List bytes) async {
-    final path = await FilePicker.platform.saveFile(
+    final path = await FilePicker.saveFile(
       dialogTitle: fileName,
       fileName: fileName,
       bytes: bytes,

@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+
+import '../../src/infrastructure/picked_file_size.dart';
 
 /// A text file attached to a question. The assistant has no file tools in
 /// chat (docs/conversations.md), so the file's text travels inside the
@@ -64,16 +67,17 @@ class DeviceChatAttachmentPicker implements ChatAttachmentPicker {
 
   @override
   Future<ChatAttachment?> pick() async {
-    final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: chatAttachmentExtensions,
-        withData: true);
-    final file = result?.files.singleOrNull;
+    final file = await FilePicker.pickFile(
+        type: FileType.custom, allowedExtensions: chatAttachmentExtensions);
     if (file == null) return null;
-    final bytes = file.bytes;
-    if (bytes == null) throw const ChatAttachmentException('encoding');
-    if (file.size > chatAttachmentMaxBytes) {
+    if ((await pickedFileSize(file) ?? 0) > chatAttachmentMaxBytes) {
       throw const ChatAttachmentException('size');
+    }
+    final Uint8List bytes;
+    try {
+      bytes = await file.readAsBytes();
+    } on Object {
+      throw const ChatAttachmentException('encoding');
     }
     return readChatAttachment(file.name, bytes);
   }

@@ -37,3 +37,7 @@ Budgets show the estimated model cost and tokens used this UTC calendar month, a
 ## Learn more
 
 [Model Gateway](../model-gateway.md)
+
+## Agent meeting budget
+
+A separate card limits what live agent meetings may spend in a month across the whole workspace (default USD 50). Owners can change it or return to the default. When it is used up, running meetings pause and none can start or resume until the month resets or you raise the limit. See [live meeting budget](../ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md).

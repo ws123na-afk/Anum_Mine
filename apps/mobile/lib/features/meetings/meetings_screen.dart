@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
+
+import '../../src/infrastructure/picked_file_size.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -18,14 +20,12 @@ typedef MeetingFilePicker = Future<(String, String, int)?> Function(
 );
 
 Future<(String, String, int)?> pickMeetingFile(List<String> extensions) async {
-  final picked = await FilePicker.platform.pickFiles(
+  final file = await FilePicker.pickFile(
     type: FileType.custom,
     allowedExtensions: [for (final e in extensions) e.replaceFirst('.', '')],
-    withData: false,
   );
-  final file = picked?.files.firstOrNull;
   if (file?.path == null) return null;
-  return (file!.path!, file.name, file.size);
+  return (file!.path!, file.name, await pickedFileSize(file) ?? 0);
 }
 
 String _statusKey(String status) => 'meetings.status.$status';
