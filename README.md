@@ -120,6 +120,7 @@ x-user-roles: owner,member
 - [ANUM MINE headquarters baseline audit (code to feature matrix, CI, issue register)](docs/ANUM_MINE_HQ_BASELINE_AUDIT.md)
 - [ANUM MINE feature completion matrix (requirement by requirement status, evidence, gaps, top 10 actions)](docs/ANUM_MINE_FEATURE_COMPLETION_MATRIX.md)
 - [ANUM MINE headquarters performance budget](docs/ANUM_MINE_HQ_PERFORMANCE_BUDGET.md)
+- [ANUM MINE headquarters graphics check, frame governor, GPU recovery and the owner-run GPU script](docs/ANUM_MINE_HQ_GPU_CHECK.md)
 - [ANUM MINE headquarters streaming and load testing](docs/ANUM_MINE_HQ_LOAD_TESTING.md)
 - [ANUM MINE headquarters security review](docs/ANUM_MINE_HQ_SECURITY_REVIEW.md)
 - [ANUM MINE headquarters deployment checklist and rollback](docs/ANUM_MINE_HQ_DEPLOYMENT_AND_ROLLBACK.md)

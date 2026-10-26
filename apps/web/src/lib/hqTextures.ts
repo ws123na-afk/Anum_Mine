@@ -157,24 +157,6 @@ const LATIN_SIGN_FONT = 'system-ui, "Segoe UI", sans-serif';
 const ARABIC_SIGN_FONT = '"Noto Sans Arabic", Inter, "Segoe UI", Tahoma, system-ui, sans-serif';
 const ARABIC_SAMPLE = 'المستوى الطابق';
 
-/** True when any sign holds Arabic script and so needs the Arabic face. */
-export const signsNeedArabic = (signs: readonly SignText[]): boolean => signs.some((s) => hasArabicScript(s.title) || hasArabicScript(s.subtitle));
-
-/**
- * Loads the Arabic face the signs are drawn with. A canvas does not wait for a web font, so the renderer draws the
- * atlas once, calls this, and draws it again when it resolves. Resolves at once without a document or font API.
- */
-export function ensureSignFonts(signs: readonly SignText[]): Promise<void> {
-  if (!signsNeedArabic(signs) || typeof document === 'undefined' || !document.fonts?.load) return Promise.resolve();
-  return document.fonts.load('700 30px "Noto Sans Arabic"', ARABIC_SAMPLE).then(() => undefined, () => undefined);
-}
-
-/** True while the Arabic face is not ready yet (the first draw falls back to a system face). */
-export function signFontsPending(signs: readonly SignText[]): boolean {
-  if (!signsNeedArabic(signs) || typeof document === 'undefined' || !document.fonts?.check) return false;
-  try { return !document.fonts.check('700 30px "Noto Sans Arabic"', ARABIC_SAMPLE); } catch { return false; }
-}
-
 /**
  * The sign atlas: one dark board per cell with the ANUM mark, the wordmark and the building name. A sign with Arabic text
  * is drawn right to left: the mark moves to the right edge, the text is shaped by the canvas (direction "rtl") and
@@ -208,26 +190,22 @@ export function drawSignAtlas(signs: readonly SignText[]): HTMLCanvasElement | n
     const textX = rtl ? x + SIGN_CELL_W - 116 : x + 116;
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = rtl ? 'right' : 'left';
-    const spaced = ctx as CanvasRenderingContext2D & { letterSpacing?: string; direction?: CanvasDirection };
+    const spaced = ctx as CanvasRenderingContext2D & { letterSpacing?: string };
+    ctx.direction = rtl ? 'rtl' : 'ltr';
     const face = (text: string, size: number) => `700 ${size}px ${hasArabicScript(text) ? ARABIC_SIGN_FONT : LATIN_SIGN_FONT}`;
-    const dir = (text: string): CanvasDirection => (hasArabicScript(text) ? 'rtl' : 'ltr');
     ctx.fillStyle = '#8fe3d1';
-    spaced.direction = dir(sign.title);
     ctx.font = face(sign.title, 30);
     // Letter spacing is for the Latin wordmark only.
-    spaced.letterSpacing = hasArabicScript(sign.title) ? '0px' : '6px';
+    spaced.letterSpacing = rtl ? '0px' : '6px';
     ctx.fillText(sign.title, textX, y + 52, maxW);
     spaced.letterSpacing = '0px';
     if (sign.subtitle) {
       ctx.fillStyle = '#f2f6fa';
-      spaced.direction = dir(sign.subtitle);
       let size = 38;
       ctx.font = face(sign.subtitle, size);
       while (size > 18 && ctx.measureText(sign.subtitle).width > maxW) { size -= 2; ctx.font = face(sign.subtitle, size); }
       ctx.fillText(sign.subtitle, textX, y + 98, maxW);
     }
-    spaced.direction = 'ltr';
-    ctx.textAlign = 'left';
   });
   return el;
 }

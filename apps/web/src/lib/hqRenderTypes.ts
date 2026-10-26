@@ -4,6 +4,7 @@ import type { Vec3 } from './headquartersProjection.ts';
 import type { ModelGroup, ModelPlacement } from './hqModels.ts';
 import type { SceneryPlan } from '../hqAssets/environment/scenery.ts';
 import type { AmbientMotion } from '../hqAssets/interior/ambient.ts';
+import type { QualityState } from './hqQualityTiers.ts';
 
 /** `fallbackOf`: the item is the procedural stand-in for a model group and is drawn only while that group could not be loaded. */
 export type RenderItem = Readonly<{
@@ -23,7 +24,8 @@ export const LIFT_MS = 360;
 export const easeLift = (t: number): number => { const x = Math.max(0, Math.min(1, t)); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
 
 /** The text of one sign (the real building name over the ANUM MINE wordmark). Index matches the sign cell the scene was built with. */
-export type SignText = Readonly<{ title: string; subtitle: string }>;
+/** `fontsReady` only changes the sign key: the atlas is drawn again once the Arabic face has loaded (a canvas does not wait for a web font). */
+export type SignText = Readonly<{ title: string; subtitle: string; fontsReady?: boolean }>;
 
 /** A scenery piece the renderer moves on its own (a fan, a light glint, a lift indicator); see `hqAssets/interior/ambient.ts`. */
 export type AmbientItem = RenderItem & Readonly<{ motion: AmbientMotion }>;
@@ -61,5 +63,7 @@ export type RenderStats = {
 };
 
 export type RendererCallbacks = Readonly<{
+  /** The tier, its reason or the governor's rung changed (also once at start). */
+  onQuality?: (state: QualityState) => void;
   onLost?: () => void; onRestored?: () => void; onError?: (error: Error) => void; onFrame?: (vp: Float32Array, aspect: number) => void;
 }>;

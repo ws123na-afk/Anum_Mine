@@ -12,7 +12,6 @@ import { expandCampus } from '../src/lib/campusRegistry.ts';
 import { filterBuildings } from '../src/lib/campusModel.ts';
 import { floorEntries, roomStops, stripStops, planModel } from '../src/hq-nav/navModel.ts';
 import { arabicMissing, deskLabel, indexRoomNames, nameOf, otherName, pickName, roomName, roomNameFor, sceneName, searchText } from '../src/lib/registryNames.ts';
-import { signsNeedArabic } from '../src/lib/hqTextures.ts';
 
 afterEach(() => setLocale('en'));
 
@@ -150,14 +149,14 @@ describe('building signs', () => {
     assert.ok(scene.signs.some((s) => s.title === 'LEVEL 0' && s.subtitle === 'Ground floor'));
     assert.ok(scene.signs.some((s) => s.title === 'RECEPTION' && s.subtitle === 'Reception'));
     assert.ok(scene.signs.some((s) => s.title === 'OFFICE' && s.subtitle === 'Back Office'));
-    assert.equal(signsNeedArabic(scene.signs), false);
+    assert.equal(scene.signs.some((s) => hasArabicScript(s.title + s.subtitle)), false);
   });
   test('Arabic signs carry the Arabic room and floor names and an Arabic title', () => {
     const scene = buildBuildingScene([floor(0, 'Ground floor', 'الطابق الأرضي'), floor(1, 'Floor 1', null)], { activeIndex: 0, locale: 'ar' });
     assert.ok(scene.signs.some((s) => s.title === 'المستوى 0' && s.subtitle === 'الطابق الأرضي'));
     assert.ok(scene.signs.some((s) => s.title === 'الاستقبال' && s.subtitle === 'الاستقبال'));
     assert.ok(scene.signs.some((s) => s.title === 'المكتب' && s.subtitle === 'Back Office'), 'a room with no Arabic name shows its English name');
-    assert.equal(signsNeedArabic(scene.signs), true);
+    assert.equal(scene.signs.some((s) => hasArabicScript(s.title + s.subtitle)), true);
     const second = buildBuildingScene([floor(0, 'Ground floor', 'الطابق الأرضي'), floor(1, 'Floor 1', null)], { activeIndex: 1, locale: 'ar' });
     assert.ok(second.signs.some((s) => s.title === 'المستوى 1' && s.subtitle === 'Floor 1'), 'a floor with no Arabic name shows its English name');
     assert.equal(scene.signCount, buildBuildingScene([floor(0, 'Ground floor', 'الطابق الأرضي'), floor(1, 'Floor 1', null)], { activeIndex: 0 }).signCount, 'the sign cells do not depend on the language');

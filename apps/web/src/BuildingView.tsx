@@ -31,6 +31,7 @@ import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import { roomName, sceneName } from './lib/registryNames.ts';
 import { useLocale } from './useLocale';
+import { useArabicSignFont } from './lib/arabicFont.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
 import type { WallModel } from './lib/hqCommandWall.ts';
 
@@ -87,6 +88,7 @@ const STACK_PITCH = 19;
 export function BuildingView(props: BuildingViewProps) {
   const { building, floor, view, night, presence } = props;
   const locale = useLocale();
+  const fontsReady = useArabicSignFont(locale === 'ar');
   const floorTitle = sceneName(floor, locale);
   const floors = building.floors;
   const activeIndex = Math.max(0, floors.findIndex((f) => f.id === floor.id));
@@ -258,13 +260,13 @@ export function BuildingView(props: BuildingViewProps) {
     glassAlpha: 0.2,
     // The entrance sign on the front lawn is lettered with the real building name.
     // Cell 0 is the entrance sign; the cells after it are the real room names and the floor sign (`scene.signs`).
-    signs: [{ title: 'ANUM MINE', subtitle: props.workspaceName }, ...scene.signs],
+    signs: [{ title: 'ANUM MINE', subtitle: props.workspaceName }, ...scene.signs].map((s) => ({ ...s, fontsReady })),
     ambient: scene.ambient.map((a) => ({ id: a.id, vertices: a.vertices, bounds: a.bounds, cull: false, motion: a.motion })),
     shadow: scene.shadow,
     models: scene.models,
     halos: scene.halos,
     lifts,
-  }), [scene, props.workspaceName, lifts]);
+  }), [scene, props.workspaceName, lifts, fontsReady]);
 
   const flowAnchor = useCallback((id: string) => scene.rooms.find((r) => r.id === id)?.anchor, [scene]);
   const flowLabels = useFlowLabels({

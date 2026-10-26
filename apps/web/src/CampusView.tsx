@@ -18,6 +18,7 @@ import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import { sceneName } from './lib/registryNames.ts';
 import { useLocale } from './useLocale';
+import { useArabicSignFont } from './lib/arabicFont.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
 import { useNavLayout } from './hq-nav/useNavLayout.ts';
 import { cardDensities, cardTags, type CardDensity } from './hq-nav/navModel.ts';
@@ -60,6 +61,7 @@ export type CampusViewProps = Readonly<{
 
 export function CampusView(props: CampusViewProps) {
   const locale = useLocale();
+  const fontsReady = useArabicSignFont(locale === 'ar');
   const { campus, view, night, selectedId } = props;
   const placements = useMemo(() => layoutCampus(campus.buildings), [campus.buildings]);
   const scene = useMemo(() => buildCampusScene(placements), [placements]);
@@ -124,11 +126,11 @@ export function CampusView(props: CampusViewProps) {
   const renderScene = useMemo(() => ({
     opaque: [{ id: 'scenery', vertices: scene.scenery.vertices, bounds: scene.scenery.bounds, cull: false }, ...scene.buildings.map((b) => ({ id: b.workspaceId, vertices: b.mesh.vertices, bounds: b.mesh.bounds }))],
     glass: [],
-    signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: sceneName(byId.get(b.workspaceId) ?? { name: '' }, locale) }))],
+    signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: sceneName(byId.get(b.workspaceId) ?? { name: '' }, locale), fontsReady }))],
     shadow: scene.shadow,
     halos: scene.halos,
     scenery: scene.motion,
-  }), [scene, byId, locale]);
+  }), [scene, byId, locale, fontsReady]);
 
   // A phone-sized stage has room for two full cards and a handful of compact ones.
   const compact = useNavLayout().layout.compact;
