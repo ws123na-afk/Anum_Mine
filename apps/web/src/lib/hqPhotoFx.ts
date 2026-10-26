@@ -37,6 +37,8 @@ const PARAMS: Readonly<Record<string, readonly [number, number, number, number]>
 };
 
 export const POINT_LIGHTS = 4;
+/** World radius in metres and strength of the screen space occlusion. */
+const AO_RADIUS = 3.2, AO_SCALE = 1.35;
 /** Candela of a full strength interior light: about the glow of a lit lobby at 4 m. */
 const LIGHT_CANDELA = 36;
 
@@ -102,7 +104,7 @@ export class PhotoFx {
   /** Overrides for the grade and the occlusion radius while running: the look is tuned in one session with these (`__anumHqTune` in the console). */
   setTune(t: Readonly<{ grade?: Partial<Grade>; aoRadius?: number; aoScale?: number }>): void {
     this.tune = t;
-    this.gtao?.updateGtaoMaterial({ radius: t.aoRadius ?? 2.6, scale: t.aoScale ?? 1.1 });
+    this.gtao?.updateGtaoMaterial({ radius: t.aoRadius ?? AO_RADIUS, scale: t.aoScale ?? AO_SCALE });
   }
 
   private hidden: Object3D | null = null;
@@ -148,8 +150,8 @@ export class PhotoFx {
     composer.addPass(new RenderPass(this.scene, this.camera));
     this.gtao = new GTAOPass(this.scene, this.camera, Math.round(width), Math.round(height));
     this.gtao.output = GTAOPass.OUTPUT.Default;
-    this.gtao.updateGtaoMaterial({ radius: 2.6, distanceExponent: 1.4, thickness: 1.6, scale: 1.1, samples: 12, distanceFallOff: 1, screenSpaceRadius: false });
-    this.gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, radiusExponent: 1, rings: 2, samples: 12 });
+    this.gtao.updateGtaoMaterial({ radius: AO_RADIUS, distanceExponent: 1.4, thickness: 1.6, scale: AO_SCALE, samples: 16, distanceFallOff: 1, screenSpaceRadius: false });
+    this.gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 8, radiusExponent: 1, rings: 2, samples: 16 });
     composer.addPass(this.withoutHidden(this.gtao));
     this.bokeh = new BokehPass(this.scene, this.camera, { focus: 60, aperture: 0.00005, maxblur: 0.004 });
     composer.addPass(this.withoutHidden(this.bokeh));

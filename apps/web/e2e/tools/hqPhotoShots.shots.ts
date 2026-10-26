@@ -30,7 +30,7 @@ async function settle(page: Page) {
   await page.waitForTimeout(4000);
 }
 const shot = async (page: Page, name: string) => {
-  await page.addStyleTag({ content: '.hqLive :is(.hqOverlay,.hqPanel,.hqLabels,.hqNotice,.hqNote,.hqStats,.hqSideInline,.hqMenuWrap,.hqGhost,.hqTotalsInline,.hqHead){visibility:hidden !important} .hqLive [role=status],.hqLive [role=alert],.hqLive [aria-live]{visibility:hidden !important}' });
+  await page.addStyleTag({ content: '.hqLive :is(.hqOverlay,.hqPanel,.hqLabels,.hqNotice,.hqNote,.hqStats,.hqSideInline,.hqMenuWrap,.hqGhost,.hqTotalsInline,.hqHead,.hqFlowDock){visibility:hidden !important} .hqLive [role=status],.hqLive [role=alert],.hqLive [aria-live]{visibility:hidden !important}' });
   await page.locator('canvas.hqCanvas').screenshot({ path: `${OUT}/${name}.png` });
 };
 

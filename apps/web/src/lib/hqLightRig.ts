@@ -82,9 +82,9 @@ export function gradeFor(night: number): Grade {
   out.exposure *= lightingFor(n).exposure;
   return out;
 }
-const DAY: Grade = { exposure: 1.42, vignette: 0.22, grain: 0.025, shafts: 0.35, dof: 0.6, ao: 1.0, saturation: 1.2, contrast: 0.32, contact: 0.5 };
-const HOUR: Grade = { exposure: 1.4, vignette: 0.3, grain: 0.035, shafts: 0.6, dof: 0.7, ao: 1.0, saturation: 1.22, contrast: 0.3, contact: 0.7 };
-const NIGHT: Grade = { exposure: 1.32, vignette: 0.38, grain: 0.05, shafts: 0.25, dof: 0.8, ao: 1.1, saturation: 1.15, contrast: 0.26, contact: 0.9 };
+const DAY: Grade = { exposure: 1.28, vignette: 0.24, grain: 0.025, shafts: 0.35, dof: 0.6, ao: 1.5, saturation: 1.3, contrast: 0.5, contact: 0.5 };
+const HOUR: Grade = { exposure: 1.23, vignette: 0.32, grain: 0.035, shafts: 0.6, dof: 0.7, ao: 1.4, saturation: 1.3, contrast: 0.45, contact: 0.7 };
+const NIGHT: Grade = { exposure: 1.2, vignette: 0.38, grain: 0.05, shafts: 0.25, dof: 0.8, ao: 1.5, saturation: 1.2, contrast: 0.4, contact: 0.9 };
 
 /** The part of the picture kept sharp: the depth range around the focus distance, as a fraction of it (a camera at a building gets a blurred skyline). */
 export function focusRange(distance: number): Readonly<{ focus: number; aperture: number; maxBlur: number }> {

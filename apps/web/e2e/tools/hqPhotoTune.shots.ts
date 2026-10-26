@@ -17,7 +17,7 @@ test('tune: grade variants in one session', async ({ page }) => {
   await page.goto('/#office-preview');
   await expect(page.locator('canvas.hqCanvas')).toHaveAttribute('data-engine', /three/, { timeout: 120_000 });
   await expect.poll(() => page.locator('canvas.hqCanvas').getAttribute('data-fx'), { timeout: 900_000, intervals: [3000] }).toContain('agx');
-  await page.addStyleTag({ content: '.hqLive :is(.hqOverlay,.hqPanel,.hqLabels,.hqNotice,.hqNote,.hqStats,.hqSideInline,.hqMenuWrap,.hqGhost,.hqTotalsInline,.hqHead){visibility:hidden !important} .hqLive [role=status],.hqLive [role=alert],.hqLive [aria-live]{visibility:hidden !important}' });
+  await page.addStyleTag({ content: '.hqLive :is(.hqOverlay,.hqPanel,.hqLabels,.hqNotice,.hqNote,.hqStats,.hqSideInline,.hqMenuWrap,.hqGhost,.hqTotalsInline,.hqHead,.hqFlowDock){visibility:hidden !important} .hqLive [role=status],.hqLive [role=alert],.hqLive [aria-live]{visibility:hidden !important}' });
   for (const [name, tune] of Object.entries(VARIANTS)) {
     await page.evaluate((t) => (window as unknown as { __anumHqTune: (t: unknown) => void }).__anumHqTune(t), tune);
     await page.waitForTimeout(Number(process.env.LOOK_FRAME_WAIT ?? 8000));
