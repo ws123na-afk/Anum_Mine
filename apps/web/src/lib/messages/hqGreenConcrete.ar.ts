@@ -4,6 +4,7 @@ import type { Message } from './types.ts';
 
 export const hqGreenConcreteAr: Record<keyof typeof hqGreenConcreteEn, Message> = {
   'hqGc.open': 'إضافة جرين كونكريت',
+  'hqGc.sc.intro': 'أضف شركة جرين كونكريت بمركز القيادة والمقاعد والورديات والأشخاص. خطوة منفصلة: تراجعها أولًا ثم تؤكد بنقرة.',
   'hqGc.title': 'إضافة جرين كونكريت',
   'hqGc.close': 'إغلاق',
   'hqGc.cancel': 'إلغاء',

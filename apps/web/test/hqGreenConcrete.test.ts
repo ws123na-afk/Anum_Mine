@@ -158,3 +158,12 @@ test('presence truth: a screen is lit only for fresh work of a person who is on 
   assert.equal(deskVisual(manager, presence('working')), 'working', 'the manager seat is always on');
   assert.equal(WORK_STATUSES.has('working'), true);
 });
+
+test('role titles are translated only for the roles the action sets', async () => {
+  const { roleText } = await import('../src/lib/hqRoles.ts');
+  setLocale('ar');
+  assert.notEqual(roleText('PMV manager'), 'PMV manager');
+  assert.equal(roleText('Sales and outreach'), 'Sales and outreach', 'any other role stays as stored');
+  setLocale('en');
+  assert.equal(roleText('PMV manager'), 'PMV manager');
+});

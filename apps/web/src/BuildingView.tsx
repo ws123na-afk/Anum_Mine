@@ -30,6 +30,7 @@ import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { RoomGeometry, SceneBuilding, SceneDesk, SceneFloor } from './lib/headquartersProjection.ts';
 import { deskShiftLine, WORK_STATUSES } from './lib/hqShifts.ts';
 import { deskVisual } from './lib/hqDeskState.ts';
+import { roleText } from './lib/hqRoles.ts';
 import { presenceForDesk, totalsOf, type HqPresenceIndex } from './lib/hqPresence.ts';
 import type { StatusKey } from './lib/campusModel.ts';
 import type { HqView } from './HqChrome';
@@ -366,7 +367,7 @@ export function BuildingView(props: BuildingViewProps) {
       const hidden = p?.reason === 'agent_not_visible' || key.startsWith('desk:');
       list.push({
         id: 'desk:' + dh.id, anchor: dh.anchor, priority: key === props.selectedAgentId ? 0 : 2, maxDistance: 140, tiers: ['full', 'compact', 'dot'],
-        node: <AgentLabelCard offShift={deskShiftLine(desk.shiftInfo, p ? WORK_STATUSES.has(p.status) : false)} chip={hidden ? null : { id: key, avatar: props.agentStyles?.get(key)?.avatar ?? null, department: props.agentStyles?.get(key)?.department ?? p?.role ?? null }} name={hidden ? t('hq.agent.private') : (p?.name || desk.agent?.name || t('hq.agent.assigned'))} role={p?.role ?? null} status={p?.status ?? null} stale={p?.stale === true} selected={key === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(key, desk)} />,
+        node: <AgentLabelCard offShift={deskShiftLine(desk.shiftInfo, p ? WORK_STATUSES.has(p.status) : false)} chip={hidden ? null : { id: key, avatar: props.agentStyles?.get(key)?.avatar ?? null, department: props.agentStyles?.get(key)?.department ?? p?.role ?? null }} name={hidden ? t('hq.agent.private') : (p?.name || desk.agent?.name || t('hq.agent.assigned'))} role={p?.role ? roleText(p.role) : null} status={p?.status ?? null} stale={p?.stale === true} selected={key === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(key, desk)} />,
       });
     }
     const wallRoomId = props.selectedRoomId ?? insideRoomId;

@@ -35,10 +35,10 @@ test(`green concrete ${SCENE}`, async ({ page }) => {
   await page.screenshot({ path: `${OUT}/${SCENE}-0-campus-${W}.png` });
   const card = hq(page).locator('.hqBuildingCard').first();
   await card.click({ force: true });
-  await hq(page).getByRole('button', { name: /^(Open|فتح)/ }).first().click();
+  await hq(page).getByRole('button', { name: /^(Open |فتح |افتح )/ }).first().click();
   await page.waitForTimeout(4000);
   await page.screenshot({ path: `${OUT}/${SCENE}-1-building-${W}.png` });
-  await hq(page).getByRole('button', { name: /^Command Center|^مركز القيادة/ }).first().click({ force: true });
+  await hq(page).locator('.hqRoomCard').first().click({ force: true });
   await page.waitForTimeout(1500);
   const inside = hq(page).getByRole('button', { name: /Go inside the selected room|الدخول/ }).first();
   if (process.env.GC_INSIDE === '1' && await inside.count()) await inside.click();

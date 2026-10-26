@@ -5,6 +5,7 @@ import type { HqView } from '../HqChrome';
 import { statusLabel } from '../HqChrome';
 import { hqCommands } from '../lib/hqExtensions.ts';
 import type { SceneFloor } from '../lib/headquartersProjection.ts';
+import { roleText } from '../lib/hqRoles.ts';
 import { t, type MessageKey } from '../lib/i18n.ts';
 import { roomName, sceneName } from '../lib/registryNames.ts';
 import { initialsOf, planModel, type PersonRow } from './navModel.ts';
@@ -91,7 +92,7 @@ export function PeopleList(props: { rows: readonly PersonRow[]; presenceKnown: b
                   <span className="hqAvatar" aria-hidden="true">{r.name && r.state !== 'private' ? initialsOf(r.name) : '?'}</span>
                   <span className="hqPersonText">
                     <strong>{name}</strong>
-                    <small>{[r.role, r.roomLabel ? t('hqNav.people.in', { room: r.roomLabel }) : null].filter(Boolean).join(', ')}</small>
+                    <small>{[r.role ? roleText(r.role) : null, r.roomLabel ? t('hqNav.people.in', { room: r.roomLabel }) : null].filter(Boolean).join(', ')}</small>
                   </span>
                   <span className={`hqPill tone-${tone}`} data-stale={r.stale}>{chip}{r.stale ? ` (${t('hq.agent.stale')})` : ''}</span>
                 </button>

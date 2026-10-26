@@ -677,7 +677,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
       <AssignHost onAssigned={() => void flow.reload()} onNavigate={goTo}
         seatedAgentIds={(rid) => new Set((registryBuilding?.floors ?? []).flatMap((f) => f.desks).filter((d) => d.roomId === rid && d.agentId).map((d) => d.agentId as string))} />
       {starterOpen && <Suspense fallback={null}><StarterCampusDialog onClose={() => setStarterOpen(false)}
-        onCreated={() => { void controller.refresh(); void flow.reload(); void gaps.reload(); }} onOpenGaps={() => setOverlay('gaps')} /></Suspense>}
+        onCreated={() => { void controller.refresh(); void flow.reload(); void gaps.reload(); }} onOpenGaps={() => setOverlay('gaps')}
+        onOpenGreen={() => { setStarterOpen(false); setGreenOpen(true); }} /></Suspense>}
 
       {greenOpen && <Suspense fallback={null}><GreenConcreteDialog onClose={() => setGreenOpen(false)}
         onCreated={() => { void controller.refresh(); void flow.reload(); void gaps.reload(); }} /></Suspense>}

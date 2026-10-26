@@ -7,7 +7,7 @@ import { ApiError, describeError, isPermissionDenied } from '../lib/errors';
 import { t, type MessageKey } from '../lib/i18n';
 import { useModal } from '../Dialog';
 import { useLocale } from '../useLocale';
-import { roleText } from '../HqPanels';
+import { roleText } from '../lib/hqRoles';
 import { canConfirm, createGreenConcreteClient } from './client';
 import { PlanMap } from './PlanMap';
 import './hqGreenConcrete.css';

@@ -14,6 +14,7 @@ import { STATUS_TONE } from './lib/campusModel.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import { deskLabel, roomName } from './lib/registryNames.ts';
 import { HqShiftBar } from './HqShiftBar';
+import { roleText } from './lib/hqRoles.ts';
 import { deskShiftLine, roomHasShiftDesks, WORK_STATUSES, type DeskShiftInfo, type ShiftSnapshot, type ShiftView } from './lib/hqShifts.ts';
 
 // The wall's code loads only when an operations room is opened.
@@ -26,13 +27,6 @@ export function StatusPill({ presence }: { presence: HqAgentPresence | undefined
       {presence ? statusLabel(presence.status) : t('hq.status.unavailable')}{presence?.stale ? ` (${t('hq.agent.stale')})` : ''}
     </span>
   );
-}
-
-/** Role titles the Green Concrete action sets are shown in the page language; any other role stays as stored. */
-export function roleText(role: string): string {
-  const key = `hqGc.role.${role}` as MessageKey;
-  const text = t(key);
-  return text === key ? role : text;
 }
 
 /** The status pill of a desk: the work state, or "Off shift" / "Off shift, work waiting" for a person whose shift is not now. */

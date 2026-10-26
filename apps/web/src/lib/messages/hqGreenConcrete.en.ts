@@ -3,6 +3,7 @@ import type { Message } from './types.ts';
 
 export const hqGreenConcreteEn = {
   'hqGc.open': 'Add Green Concrete',
+  'hqGc.sc.intro': 'Add the company Green Concrete with its Command Center, seats, shifts and people. It is a separate step: you review it first and confirm with a click.',
   'hqGc.title': 'Add Green Concrete',
   'hqGc.close': 'Close',
   'hqGc.cancel': 'Cancel',

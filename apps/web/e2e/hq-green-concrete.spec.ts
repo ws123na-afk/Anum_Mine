@@ -3,6 +3,8 @@ import { expect as baseExpect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { openHq } from './support/hqApi';
+import { openBuilder } from './support/hqBuilderApi';
+import { mockStarterCampus } from './support/hqStarterCampusApi';
 import { mockFlow } from './support/hqFlowApi';
 import { mockProvisioning } from './support/hqProvisioningApi';
 import { FX, greenRegistry, mockGreenAction, mockGreenWork, newState, person, type GreenState } from './support/hqGreenConcreteApi';
@@ -198,14 +200,14 @@ test('Arabic: right to left, names and roles read in Arabic, the shift is told i
   await shot(page, 'green-room-panel-ar');
 });
 
-test('axe: the room panel with the shift bar, English and Arabic', async ({ page }) => {
-  for (const locale of ['en', 'ar'] as const) {
+for (const locale of ['en', 'ar'] as const) {
+  test(`axe: the room panel with the shift bar (${locale})`, async ({ page }) => {
     await openRoom(page, { locale });
     await page.waitForTimeout(400);
     const results = await new AxeBuilder({ page }).include('.hqLive').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze();
     expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([]);
-  }
-});
+  });
+}
 
 // ---------------------------------------------------------------- the owner's action
 
@@ -252,6 +254,20 @@ test('Add Green Concrete: the preview lists everything, the hours are defaults, 
   expect(state.confirms[0]).toMatchObject({ input_mode: 'click', timezone: 'Asia/Dubai' });
   expect(String(state.confirms[0].payload_hash)).toMatch(/^[0-9a-f]{64}$/);
   await shot(page, 'green-created-dialog');
+});
+
+test('Add Green Concrete is also reachable from Office tools, Set up my campus', async ({ page }) => {
+  await page.clock.setFixedTime(NOON);
+  const state = newState(() => NOON.getTime());
+  await openHq(page, {
+    registry: greenRegistry(), noWebgl: true,
+    beforeGoto: async (p) => { await mockFlow(p); await mockProvisioning(p); await mockStarterCampus(p); await mockGreenWork(p, state); await mockGreenAction(p, state, {}); },
+  });
+  await hq(page).getByRole('button', { name: /Office tools/ }).click();
+  await hq(page).getByRole('button', { name: 'Set up my campus' }).click();
+  await page.getByTestId('sc-green-open').click();
+  await expect(dialog(page)).toBeVisible();
+  await expect(dialog(page).getByTestId('gc-people').locator('tbody tr')).toHaveCount(10);
 });
 
 test('Add Green Concrete: already set up says so and offers nothing to click', async ({ page }) => {
@@ -301,12 +317,34 @@ for (const size of SIZES) {
   });
 }
 
-test('axe: the Add Green Concrete dialog, English and Arabic', async ({ page }) => {
-  for (const locale of ['en', 'ar'] as const) {
+for (const locale of ['en', 'ar'] as const) {
+  test(`axe: the Add Green Concrete dialog (${locale})`, async ({ page }) => {
     await openAction(page, { locale });
     const results = await new AxeBuilder({ page }).include('.hqGcDialog').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze();
     expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([]);
-  }
+  });
+}
+
+test('builder: the shift hours of a building and the seat fields of a desk are saved, and a bad hour is refused', async ({ page }) => {
+  const mock = await openBuilder(page);
+  await expect(page.getByRole('dialog', { name: 'Office builder' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Floor' }).click();
+  const hours = page.getByTestId('hqb-shift-hours');
+  await expect(hours).toContainText('Leave both empty to use the defaults');
+  await page.getByTestId('hqb-day-start').fill('7am');
+  await expect(hours).toContainText('Use hours like 07:00');
+  await expect(page.getByRole('button', { name: 'Save building' })).toBeDisabled();
+  await page.getByTestId('hqb-day-start').fill('06:30');
+  await page.getByTestId('hqb-night-start').fill('18:30');
+  await page.getByRole('button', { name: 'Save building' }).click();
+  await expect.poll(() => mock.requests.find((r) => r.method === 'PATCH' && r.path.startsWith('/buildings/'))?.body).toMatchObject({ shift_day_start: '06:30', shift_night_start: '18:30' });
+  // The seat fields of a desk.
+  await page.locator('.hqbSvg [data-room-id="r-sales"] .hqbRoomBody').click();
+  await page.getByRole('button', { name: /Desk 2/ }).click();
+  await page.getByTestId('hqb-seat-shift').selectOption('night');
+  await page.getByTestId('hqb-seat-order').fill('2');
+  await page.getByTestId('hqb-seat-save').click();
+  await expect.poll(() => mock.requests.find((r) => r.method === 'PATCH' && r.path === '/desks/d-2')?.body).toMatchObject({ shift: 'night', seat_order: 2 });
 });
 
 test('the facts the spec relies on are the planner fixture', () => {
