@@ -59,7 +59,7 @@ export type NavScene = Readonly<{
   workspaceId: string;
   /** The open registry building, when the workspace has several (a target may name another one). */
   buildingId?: string | null;
-  floors: ReadonlyArray<Readonly<{ id: string; level: number; name: string; rooms: ReadonlyArray<Readonly<{ id: string; label: string }>> }>>;
+  floors: ReadonlyArray<Readonly<{ id: string; level: number; name: string; nameAr?: string | null; rooms: ReadonlyArray<Readonly<{ id: string; label: string; labelAr?: string | null }>> }>>;
   agents: ReadonlyArray<Readonly<{ id: string; name: string; roomId: string | null }>>;
 }>;
 
@@ -70,14 +70,15 @@ export type NavResolution =
 
 const fold = (s: string) => s.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().trim();
 
-function pickOne<T>(rows: readonly T[], id: (r: T) => string, name: (r: T) => string, query: string): T | 'ambiguous' | null {
+function pickOne<T>(rows: readonly T[], id: (r: T) => string, name: (r: T) => string, query: string, alt: (r: T) => string | null | undefined = () => null): T | 'ambiguous' | null {
   const q = fold(query);
+  const names = (r: T) => [fold(name(r)), fold(alt(r) ?? '')];
   const byId = rows.filter((r) => fold(id(r)) === q);
   if (byId.length === 1) return byId[0];
-  const exact = rows.filter((r) => fold(name(r)) === q);
+  const exact = rows.filter((r) => names(r).includes(q));
   if (exact.length === 1) return exact[0];
   if (exact.length > 1) return 'ambiguous';
-  const partial = rows.filter((r) => fold(name(r)).includes(q));
+  const partial = rows.filter((r) => names(r).some((n) => n.includes(q)));
   if (partial.length === 1) return partial[0];
   return partial.length > 1 ? 'ambiguous' : null;
 }
@@ -91,7 +92,7 @@ export function resolveNavTarget(target: HqNavTarget, campus: Campus, open: NavS
   let workspaceId = open?.workspaceId ?? null;
   let buildingId: string | null = null;
   if (target.building !== undefined) {
-    const found = pickOne(campus.buildings, (b) => b.workspace_id, (b) => b.name, target.building);
+    const found = pickOne(campus.buildings, (b) => b.workspace_id, (b) => b.name, target.building, (b) => b.nameAr);
     if (found === 'ambiguous') return { kind: 'error', code: 'ambiguous', message: `More than one building matches "${target.building}".` };
     if (!found) return { kind: 'error', code: 'not-found', message: `No building matches "${target.building}".` };
     if (!found.accessible) return { kind: 'error', code: 'not-accessible', message: `${found.name} is not available to you right now.` };
@@ -109,7 +110,7 @@ export function resolveNavTarget(target: HqNavTarget, campus: Campus, open: NavS
     const q = String(target.floor);
     const level = Number(q);
     const byLevel = Number.isFinite(level) && q.trim() !== '' ? open.floors.filter((f) => f.level === level) : [];
-    const floor = byLevel.length === 1 ? byLevel[0] : pickOne(open.floors, (f) => f.id, (f) => f.name, q);
+    const floor = byLevel.length === 1 ? byLevel[0] : pickOne(open.floors, (f) => f.id, (f) => f.name, q, (f) => f.nameAr);
     if (floor === 'ambiguous') return { kind: 'error', code: 'ambiguous', message: `More than one floor matches "${q}".` };
     if (!floor) return { kind: 'error', code: 'not-found', message: `No floor matches "${q}".` };
     floorId = floor.id;
@@ -119,7 +120,7 @@ export function resolveNavTarget(target: HqNavTarget, campus: Campus, open: NavS
   if (target.room !== undefined) {
     const pool = floorId ? open.floors.filter((f) => f.id === floorId) : open.floors;
     const rooms = pool.flatMap((f) => f.rooms.map((r) => ({ ...r, floorId: f.id })));
-    const room = pickOne(rooms, (r) => r.id, (r) => r.label, target.room);
+    const room = pickOne(rooms, (r) => r.id, (r) => r.label, target.room, (r) => r.labelAr);
     if (room === 'ambiguous') return { kind: 'error', code: 'ambiguous', message: `More than one room matches "${target.room}".` };
     if (!room) return { kind: 'error', code: 'not-found', message: `No room matches "${target.room}".` };
     roomId = room.id;

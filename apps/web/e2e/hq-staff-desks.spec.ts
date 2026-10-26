@@ -234,9 +234,9 @@ test('Arabic shows Arabic names, right to left', async ({ page }) => {
   const d = dialog(page);
   await expect(page.locator('.hqSdBackdrop')).toHaveAttribute('dir', 'rtl');
   await expect(d.getByRole('heading', { name: 'تعيين وكلاء لحرمي' })).toBeVisible();
-  await expect(d.getByText('مقر ANUM')).toBeVisible();
+  await expect(d.getByText('المقر الرئيسي لأنوم')).toBeVisible();
   await expect(d.getByText('الوكلاء في مساحة العمل هذه: 0 من 200')).toBeVisible();
-  await d.getByRole('button', { name: /عرض الغرف: مقر ANUM/ }).click();
+  await d.getByRole('button', { name: /عرض الغرف: المقر الرئيسي لأنوم/ }).click();
   await expect(d.locator('.hqSdRoom').filter({ hasText: 'مكتب المرافق' })).toBeVisible();
   await shot(page, 'arabic-1440');
 });

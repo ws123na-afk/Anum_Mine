@@ -13,6 +13,8 @@ import type { Campus } from '../lib/campusModel.ts';
 import type { SceneBuilding, SceneDesk, SceneFloor } from '../lib/headquartersProjection.ts';
 import type { HqPresenceIndex } from '../lib/hqPresence.ts';
 import { t } from '../lib/i18n.ts';
+import { roomName, sceneName } from '../lib/registryNames.ts';
+import { useLocale } from '../useLocale';
 import { HqCameraBridge } from './cameraBridge.ts';
 import { currentStopId, peopleAtPosts, roomStops, stripStops, type StripStop } from './navModel.ts';
 import { MOVE_ICONS } from './moveIcons.tsx';
@@ -75,6 +77,7 @@ function hash(parts: readonly string[]): string {
 type Drawer = null | 'floors' | 'side';
 
 export function HqNavigation(props: HqNavigationProps) {
+  const locale = useLocale();
   const { handles, level, view, campus, building, floor } = props;
   const { layout, focus, stripOpen, toggleRail, toggleSide, toggleStrip, toggleFocus } = useNavLayout();
   const [drawer, setDrawer] = useState<Drawer>(null);
@@ -94,8 +97,8 @@ export function HqNavigation(props: HqNavigationProps) {
   useLayoutEffect(() => { setSlot(level === 'building' ? root.current?.querySelector('.hqStripSlot') ?? null : null); });
 
   // ---- thumbnails ---------------------------------------------------------------------------------------------
-  const campusSig = useMemo(() => hash((campus?.buildings ?? []).map((b) => `${b.workspace_id}:${b.kind}:${b.floors ?? 0}`).sort()), [campus]);
-  const buildingSig = useMemo(() => hash((building?.floors ?? []).flatMap((f) => f.rooms.map((r) => `${r.id}:${r.revision}:${r.x}:${r.z}:${r.width}:${r.depth}`))), [building]);
+  const campusSig = useMemo(() => hash([locale, ...(campus?.buildings ?? []).map((b) => `${b.workspace_id}:${b.kind}:${b.floors ?? 0}`).sort()]), [campus, locale]);
+  const buildingSig = useMemo(() => hash([locale, ...(building?.floors ?? []).flatMap((f) => f.rooms.map((r) => `${r.id}:${r.revision}:${r.x}:${r.z}:${r.width}:${r.depth}`))]), [building, locale]);
   const keyFor = useCallback((place: string) => thumbKey({
     tenantId: props.tenantId, workspaceId: props.workspaceId, signature: place.startsWith('floor:') || place.startsWith('room:') ? buildingSig : campusSig, place, night: props.night,
   }), [props.tenantId, props.workspaceId, buildingSig, campusSig, props.night]);
@@ -131,7 +134,7 @@ export function HqNavigation(props: HqNavigationProps) {
   }, [navOn, props.webglOk, view, placeNow, props.night, handles]);
 
   // ---- quick views ------------------------------------------------------------------------------------------
-  const stops = useMemo(() => stripStops(campus, building, props.openKey), [campus, building, props.openKey]);
+  const stops = useMemo(() => stripStops(campus, building, props.openKey), [campus, building, props.openKey, locale]);
   const currentId = currentStopId({ level, selectedBuildingId: props.selectedBuildingId, selectedRoomId: props.selectedRoomId, currentWorkspaceId: props.openKey });
   const stopKey = useCallback((stop: StripStop) => keyFor(stop.id), [keyFor]);
 
@@ -157,16 +160,16 @@ export function HqNavigation(props: HqNavigationProps) {
 
   const pickFloor = useCallback((id: string) => {
     const f = building?.floors.find((x) => x.id === id);
-    target.current = { stopId: `floor:${id}`, name: f?.name ?? '' };
+    target.current = { stopId: `floor:${id}`, name: f ? sceneName(f) : '' };
     if (id === floor?.id) handles.bridge.flyHome(); else props.onFloor(id);
-    if (f) setLive(t('hqNav.live.floor', { name: f.name }));
+    if (f) setLive(t('hqNav.live.floor', { name: sceneName(f) }));
     setDrawer(null);
   }, [building, floor?.id, handles, props]);
 
   const pickRoom = useCallback((roomId: string) => {
     const f = floor?.rooms.find((r) => r.id === roomId);
     if (!f || !floor) return;
-    target.current = { stopId: `room:${roomId}`, name: f.label };
+    target.current = { stopId: `room:${roomId}`, name: roomName(f) };
     props.onRoom(floor.id, roomId);
     handles.bridge.flyToFrame(roomId);
   }, [floor, handles, props]);
@@ -185,10 +188,10 @@ export function HqNavigation(props: HqNavigationProps) {
   }, [campus, building, props]);
   const suggestions = useMemo(() => {
     const out: Array<{ id: string; label: string; target: { building?: string; room?: string } }> = [];
-    for (const b of (campus?.buildings ?? []).filter((x) => x.accessible && !x.archived && x.workspace_id !== props.openKey).slice(0, 3)) out.push({ id: `b:${b.workspace_id}`, label: t('hqNav.moves.takeTo', { name: b.name }), target: { building: b.workspace_id } });
+    for (const b of (campus?.buildings ?? []).filter((x) => x.accessible && !x.archived && x.workspace_id !== props.openKey).slice(0, 3)) out.push({ id: `b:${b.workspace_id}`, label: t('hqNav.moves.takeTo', { name: sceneName(b) }), target: { building: b.workspace_id } });
     if (level === 'building') for (const s of roomStops(building, 3)) if (s.kind === 'room') out.push({ id: `r:${s.roomId}`, label: t('hqNav.moves.takeTo', { name: s.label }), target: { room: s.roomId } });
     return out;
-  }, [campus, building, level, props.openKey]);
+  }, [campus, building, level, props.openKey, locale]);
 
   const openDrawer = (which: Exclude<Drawer, null>) => (event: React.MouseEvent<HTMLElement>) => { opener.current = event.currentTarget; setDrawer(which); };
   const closeDrawer = useCallback(() => { setDrawer(null); opener.current?.focus(); }, []);

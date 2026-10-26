@@ -8,6 +8,8 @@ import { useSavedLocale } from './support/workspaceApi';
 test.describe.configure({ timeout: 240_000 });
 const hq = (page: Page) => page.locator('.hqLive');
 const canvas = (page: Page) => hq(page).locator('canvas.hqCanvas');
+// With Arabic names (the registry names go through registryNames.ts) the list shows the Arabic name of a building.
+const ARABIC_NAMES: Record<string, string> = { 'ANUM 360 Commerce': 'أنوم 360 للتجارة' };
 const wrap = (page: Page) => hq(page).locator('.hqSceneWrap');
 
 async function distinctColours(page: Page): Promise<number> {
@@ -34,7 +36,7 @@ async function openBuilding(page: Page, name = 'ANUM 360 Commerce', light: 'day'
   await expect(canvas(page)).toHaveAttribute('data-engine', /three/, { timeout: 90_000 });
   // Buildings are entered from the list, whose Open button is reachable in every language and at every size.
   await hq(page).getByRole('button', { name: /^(List|قائمة)$/ }).click();
-  await hq(page).locator('.hqListBuilding', { has: page.getByRole('heading', { level: 3, name, exact: true }) }).locator('.hqListRow > button').click();
+  await hq(page).locator('.hqListBuilding', { has: page.getByRole('heading', { level: 3, name: ARABIC_NAMES[name] ? new RegExp(`^(${name}|${ARABIC_NAMES[name]})$`) : name, exact: true }) }).locator('.hqListRow > button').click();
   await expect(wrap(page)).toBeVisible();
   await expect.poll(async () => Number(await canvas(page).getAttribute('data-triangles')), { timeout: 60_000 }).toBeGreaterThan(15_000);
 }

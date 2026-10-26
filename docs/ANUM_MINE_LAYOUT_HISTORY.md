@@ -46,8 +46,8 @@ action) writes nothing.
 | `GET /templates?kind=` | `task:read` | Summaries only. |
 | `POST /templates/from-floor`, `POST /templates/from-building` | `workspace:manage` | Owner named. Rooms that are not placed on the plan are left out and counted. |
 | `PATCH /templates/{id}`, `DELETE /templates/{id}?expected_revision=` | `workspace:manage` | Rename and delete with an optimistic revision. |
-| `POST /floors/from-template` | `workspace:manage` | New floor in an existing building. |
-| `POST /buildings/from-template` | `workspace:manage` | New building with all the template's floors. |
+| `POST /floors/from-template` | `workspace:manage` | New floor in an existing building. Keeps the template's Arabic floor and room names; a new English `name` needs its own `name_ar` (the old Arabic name would no longer fit). |
+| `POST /buildings/from-template` | `workspace:manage` | New building with all the template's floors, each with its Arabic name. The building takes the optional `name_ar` of the request. |
 
 ### Restore rules
 

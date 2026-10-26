@@ -1,7 +1,7 @@
 /** Starter campus client (contract: packages/contracts/src/officeStarterCampus.ts, spec: docs/ANUM_MINE_STARTER_CAMPUS.md).
  * A preview stores nothing. Only `confirm` writes, and it always sends `input_mode: "click"` with the hash the
  * person was shown and exactly the buildings that hash was made for. */
-import type { StarterBuilding, StarterCampusConfirm, StarterCampusPreview, StarterCampusResult, StarterCounts } from '@anum/contracts';
+import type { ArabicNamesConfirm, ArabicNamesPreview, ArabicNamesResult, StarterBuilding, StarterCampusConfirm, StarterCampusPreview, StarterCampusResult, StarterCounts } from '@anum/contracts';
 
 export type StarterRequester = <T>(path: string, init: RequestInit) => Promise<T>;
 export class StarterCampusApiError extends Error { constructor(message: string) { super(message); this.name = 'StarterCampusApiError'; } }
@@ -26,6 +26,26 @@ export function createStarterCampusClient(request: StarterRequester, scope: Scop
         throw new StarterCampusApiError('The answer belongs to another workspace');
       }
       return body;
+    },
+    /** The existing records that would get an Arabic name (empty name_ar and a master English name). Stores nothing. */
+    async arabicPreview(): Promise<ArabicNamesPreview> {
+      const started = scope();
+      const body = await request<ArabicNamesPreview>(`${BASE}/arabic-names/preview`, { method: 'GET' });
+      const now = scope();
+      if (!body || body.version !== 1 || !HASH.test(body.payload_hash) || !Array.isArray(body.items)) throw new StarterCampusApiError('The list is not version 1');
+      if (now.workspaceId !== started.workspaceId || now.tenantId !== started.tenantId || body.workspace_id !== started.workspaceId) {
+        throw new StarterCampusApiError('The answer belongs to another workspace');
+      }
+      return body;
+    },
+    /** Adds exactly the names `arabicPreview` listed. Only call it from a click handler. */
+    async arabicConfirm(preview: ArabicNamesPreview): Promise<ArabicNamesResult> {
+      const body: ArabicNamesConfirm = { payload_hash: preview.payload_hash, input_mode: 'click' };
+      const result = await request<ArabicNamesResult>(`${BASE}/arabic-names/confirm`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (!result || result.version !== 1 || typeof result.filled !== 'number') throw new StarterCampusApiError('The result is not version 1');
+      return result;
     },
     /** Confirms exactly what `preview` returned. Only call it from a click handler. */
     async confirm(preview: StarterCampusPreview): Promise<StarterCampusResult> {

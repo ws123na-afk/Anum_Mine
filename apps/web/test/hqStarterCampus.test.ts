@@ -84,3 +84,36 @@ describe('starter campus rules', () => {
     assert.ok(keys(en).length > 60);
   });
 });
+
+describe('add Arabic names client', () => {
+  const arPreview = (patch: Record<string, unknown> = {}) => ({
+    version: 1, catalog_version: 1, workspace_id: 'w', payload_hash: HASH, can_confirm: true, total: 1,
+    items: [{ kind: 'buildings', id: 'campus-01-hq', name: 'ANUM HQ', name_ar: 'المقر الرئيسي لأنوم' }],
+    counts: { buildings: 1, floors: 0, rooms: 0 },
+    rules: { overwrites: false, fills_empty_only: true, matches_master_names_only: true, changes_other_fields: false }, ...patch });
+  test('the list is a GET without a body; the confirm sends the shown hash and a click, nothing else', async () => {
+    const calls: { path: string; init: RequestInit }[] = [];
+    const client = createStarterCampusClient(async <T>(path: string, init: RequestInit) => {
+      calls.push({ path, init });
+      return (init.method === 'GET' ? arPreview() : { version: 1, outcome: 'filled', payload_hash: HASH, filled: 1, counts: { buildings: 1, floors: 0, rooms: 0 }, skipped: 0 }) as T;
+    }, () => scope);
+    const shown = await client.arabicPreview();
+    const done = await client.arabicConfirm(shown);
+    assert.equal(done.filled, 1);
+    assert.equal(calls[0].path, '/api/v1/office/starter-campus/arabic-names/preview');
+    assert.equal(calls[0].init.body, undefined);
+    assert.equal(calls[1].path, '/api/v1/office/starter-campus/arabic-names/confirm');
+    assert.deepEqual(JSON.parse(String(calls[1].init.body)), { payload_hash: HASH, input_mode: 'click' });
+  });
+  test('refuses an answer for another workspace, without a hash, or a result that is not version 1', async () => {
+    await assert.rejects(createStarterCampusClient(async <T>() => arPreview({ workspace_id: 'other' }) as T, () => scope).arabicPreview(), /another workspace/);
+    await assert.rejects(createStarterCampusClient(async <T>() => arPreview({ payload_hash: 'x' }) as T, () => scope).arabicPreview(), /version 1/);
+    const bad = createStarterCampusClient(async <T>() => ({ version: 2 }) as T, () => scope);
+    await assert.rejects(bad.arabicConfirm(arPreview() as never), /version 1/);
+  });
+  test('every message of the section exists in English and Arabic', () => {
+    const keys = Object.keys(en).filter((k) => k.startsWith('hqSc.ar.'));
+    assert.ok(keys.length >= 10);
+    for (const k of keys) assert.ok(k in ar, k);
+  });
+});

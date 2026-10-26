@@ -21,6 +21,8 @@ import { CORE_DEPTH, CORE_WIDTH, drawCore } from '../hqAssets/interior/core.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
 import { markerParts, STATE_LOOK, type VisualState } from '../hqAssets/interior/stateVisual.ts';
 import { placementsFromSlots, type ModelGroup, type ModelPlacement } from './hqModels.ts';
+import { translate, type Locale, type MessageKey } from './i18n.ts';
+import { pickName } from './registryNames.ts';
 
 /** The one floor height of the building: floor n has its floor surface at y = n * FLOOR_PITCH, with a slab of `SLAB` under it. */
 export const FLOOR_PITCH = 4.2;
@@ -40,6 +42,8 @@ export type BuildingSceneOptions = Readonly<{
    */
   cutaway?: boolean;
   selectedRoomId?: string | null;
+  /** The language of the sign lettering (room plates and the floor sign); English when absent. Names fall back to English when a record has no Arabic name. */
+  locale?: Locale;
   /** Visual state per desk id; missing means "assigned or vacant by registry only". */
   deskState?: ReadonlyMap<string, DeskVisual>;
   /** Rooms with a live meeting: the screen and table light up. */
@@ -422,11 +426,12 @@ export function buildingLayout(floors: readonly SceneFloor[]): Readonly<{ boxes:
   return { boxes: floors.map((f, i) => ({ ...content[i], core: f.rooms.length >= 2 ? core : null })), box, content };
 }
 
-const KIND_TITLE: Readonly<Record<string, string>> = {
-  reception: 'RECEPTION', meeting: 'MEETING', office: 'OFFICE', lounge: 'LOUNGE', 'customer-care': 'SUPPORT', operations: 'OPERATIONS',
-  warehouse: 'WAREHOUSE', workshop: 'WORKSHOP', executive: 'EXECUTIVE', server: 'SERVER AREA', pantry: 'PANTRY', restroom: 'RESTROOM',
-  finance: 'FINANCE', sales: 'SALES',
-};
+/** The lettering over a room plate: the kind of interior in capitals (English) or its Arabic name; an unknown kind is "ROOM". */
+function plateTitle(locale: Locale, kind: string): string {
+  const key = `hq.sign.${kind}` as MessageKey;
+  const title = translate(locale, key);
+  return title === key ? translate(locale, 'hq.sign.room') : title;
+}
 
 /** Largest number of room name plates on the active floor (the atlas stays small). */
 const MAX_PLATES = 64;
@@ -439,6 +444,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
   const ambientChunks = new Map<string, Float32Array[]>();
   const rooms: BuildingRoomHandle[] = [];
   const desks: BuildingDeskHandle[] = [];
+  const locale: Locale = options.locale ?? 'en';
   const active = Math.max(0, Math.min(floors.length - 1, options.activeIndex));
   const last = options.showAll ? floors.length - 1 : active;
   // One footprint for the whole plinth (lawn, car park, planting); each floor has its own footprint (rooms, margin and core).
@@ -514,7 +520,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
       const live = options.meetingRoomIds?.has(room.id) === true;
       const interior = interiorKindFor(room.kind, room.label);
       const plateIndex = isActive && !cachedGhost && ri < MAX_PLATES && nextPlate < signCount ? nextPlate++ : -1;
-      if (plateIndex > 0) signs.push({ title: KIND_TITLE[interior ?? 'office'] ?? 'ROOM', subtitle: room.label });
+      if (plateIndex > 0) signs.push({ title: plateTitle(locale, interior ?? 'office'), subtitle: pickName(room.label, room.labelAr, locale) });
       const shell = drawRoomShell(fo, fg, amb, {
         x: room.x, z: room.z, width: room.width, depth: room.depth, y, kind: interior, registryKind: room.kind, accent, selected, ghost,
         doorSide: room.doorSide ?? 'south', plate: plateIndex > 0 ? atlas.cell(plateIndex) : null,
@@ -569,7 +575,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
     }
     if (fb.core) {
       const coreIndex = isActive && nextPlate < signCount ? nextPlate++ : -1;
-      if (coreIndex > 0) signs.push({ title: `LEVEL ${floor.level}`, subtitle: floor.name });
+      if (coreIndex > 0) signs.push({ title: translate(locale, 'hq.sign.level', { level: String(floor.level) }), subtitle: pickName(floor.name, floor.nameAr, locale) });
       drawCore(fo, fg, amb, { x: fb.core.x, z: fb.core.z, y, plate: coreIndex > 0 ? atlas.cell(coreIndex) : null, ghost });
     }
     if (!ghost) {

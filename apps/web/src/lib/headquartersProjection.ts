@@ -10,10 +10,10 @@
 export type Scope = Readonly<{ tenantId:string; workspaceId:string }>;
 export type Vec2 = Readonly<{x:number;y:number}>;
 export type Vec3 = Readonly<{x:number;y:number;z:number}>;
-export type Building = Readonly<{id:string;name:string;timezone:string;revision:number}>;
-export type Floor = Readonly<{id:string;building_id:string;level:number;name:string;revision:number}>;
+export type Building = Readonly<{id:string;name:string;name_ar?:string|null;timezone:string;revision:number}>;
+export type Floor = Readonly<{id:string;building_id:string;level:number;name:string;name_ar?:string|null;revision:number}>;
 export type RoomKind = 'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge'|'command';
-export type Room = Readonly<{id:string;floor_id:string;name:string;kind:RoomKind;capacity:number;revision:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;team_department?:string|null;door_side?:string|null;rotation?:number|null}>;
+export type Room = Readonly<{id:string;floor_id:string;name:string;name_ar?:string|null;kind:RoomKind;capacity:number;revision:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;team_department?:string|null;door_side?:string|null;rotation?:number|null}>;
 export type Desk = Readonly<{id:string;room_id:string;label:string;agent_id:string|null;revision:number}>;
 export type Registry = Readonly<{buildings:readonly Building[];floors:readonly Floor[];rooms:readonly Room[];desks:readonly Desk[]}>;
 export type AgentEvidence = Readonly<{
@@ -22,7 +22,7 @@ export type AgentEvidence = Readonly<{
 }>;
 export type DoorSide='north'|'south'|'east'|'west';
 export type RoomGeometry = Readonly<{
- id:string; floorId:string; buildingId:string; label:string; kind:RoomKind;
+ id:string; floorId:string; buildingId:string; label:string; /** The Arabic name, when the room has one (display only; `label` stays the English name). */ labelAr?:string|null; kind:RoomKind;
  x:number; z:number; width:number; depth:number; height:number;
  capacity:number; revision:number; deskIds:readonly string[];
  /** The department stored on the room by the builder or the starter campus; null when none was set. */
@@ -36,11 +36,11 @@ export type SceneDesk = Readonly<{
  agent:AgentEvidence|null; assignmentVisible:boolean;
 }>;
 export type SceneFloor = Readonly<{
- id:string; name:string; level:number; rooms:readonly RoomGeometry[];
+ id:string; name:string; /** The Arabic name, when the floor has one. */ nameAr?:string|null; level:number; rooms:readonly RoomGeometry[];
  desks:readonly SceneDesk[]; bounds:Readonly<{width:number;depth:number}>;
 }>;
 export type SceneBuilding = Readonly<{
- id:string; name:string; timezone:string; floors:readonly SceneFloor[];
+ id:string; name:string; /** The Arabic name, when the building has one. */ nameAr?:string|null; timezone:string; floors:readonly SceneFloor[];
 }>;
 export type ProjectionIssue = Readonly<{
  code:'DUPLICATE_ID'|'ORPHAN_FLOOR'|'ORPHAN_ROOM'|'ORPHAN_DESK'|'INVALID_DIMENSIONS'|'CAPACITY_OVERFLOW'|'ASSIGNMENT_CONFLICT'|'STALE_EVIDENCE';
@@ -81,7 +81,7 @@ export function layoutRoomsOnFloor(rooms:readonly Room[],floor:Floor,buildingId:
   const depth=ROOM_DEPTH*(room.kind==='workshop'?1.3:1);
   const x=col*(ROOM_WIDTH*1.4+AISLE)-12;
   const z=row*(ROOM_DEPTH*1.7+AISLE)-5;
-  return {id:room.id,floorId:floor.id,buildingId,label:room.name,kind:room.kind,
+  return {id:room.id,floorId:floor.id,buildingId,label:room.name,labelAr:room.name_ar??null,kind:room.kind,
    x:room.scene_x??x,z:room.scene_z??z,width:room.scene_width??width,depth:room.scene_depth??depth,height:3.2,capacity:room.capacity,revision:room.revision,deskIds:[],teamDepartment:room.team_department??null,evidence:'registry',
    ...(room.door_side==='north'||room.door_side==='south'||room.door_side==='east'||room.door_side==='west'?{doorSide:room.door_side as DoorSide}:{})};
  });
@@ -136,9 +136,9 @@ export function projectHeadquarters(scope:Scope,registry:Registry,evidence:reado
    const desks=augmented.flatMap(room=>placeDesks(room,registry.desks.filter(d=>d.room_id===room.id),agentMap,observedAt.getTime(),issues));
    const width=Math.max(20,...augmented.map(r=>r.x+r.width+10));
    const depth=Math.max(16,...augmented.map(r=>r.z+r.depth+8));
-   return {id:floor.id,name:floor.name,level:floor.level,rooms:augmented,desks,bounds:{width,depth}};
+   return {id:floor.id,name:floor.name,nameAr:floor.name_ar??null,level:floor.level,rooms:augmented,desks,bounds:{width,depth}};
   });
-  return {id:building.id,name:building.name,timezone:building.timezone,floors};
+  return {id:building.id,name:building.name,nameAr:building.name_ar??null,timezone:building.timezone,floors};
  });
  return {scope:{...scope},buildings,issues,generatedAt:observedAt.toISOString(),source:'authenticated-office-registry'};
 }

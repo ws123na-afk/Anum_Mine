@@ -7,6 +7,7 @@
  * leaves the surface colour as authored and lighter or darker pixels add grain.
  */
 import { seeded } from './hqGeometry.ts';
+import { hasArabicScript } from './arabicScript.ts';
 import type { SignText } from './hqRenderTypes.ts';
 
 export const SIGN_CELL_W = 512;
@@ -151,7 +152,16 @@ export function drawMaterialTexture(kind: MaterialTextureKind): HTMLCanvasElemen
   return el;
 }
 
-/** The sign atlas: one dark board per cell with the ANUM mark, the wordmark and the building name. */
+const LATIN_SIGN_FONT = 'system-ui, "Segoe UI", sans-serif';
+/** The self-hosted Arabic face (public/fonts/fonts.css) first, then Latin faces for the Latin words of a mixed name. */
+const ARABIC_SIGN_FONT = '"Noto Sans Arabic", Inter, "Segoe UI", Tahoma, system-ui, sans-serif';
+const ARABIC_SAMPLE = 'المستوى الطابق';
+
+/**
+ * The sign atlas: one dark board per cell with the ANUM mark, the wordmark and the building name. A sign with Arabic text
+ * is drawn right to left: the mark moves to the right edge, the text is shaped by the canvas (direction "rtl") and
+ * right aligned beside it, with no letter spacing (spacing breaks the joined Arabic letters). Latin signs are unchanged.
+ */
 export function drawSignAtlas(signs: readonly SignText[]): HTMLCanvasElement | null {
   const layout = signAtlasLayout(signs.length);
   const made = canvas(layout.width, layout.height);
@@ -162,31 +172,38 @@ export function drawSignAtlas(signs: readonly SignText[]): HTMLCanvasElement | n
   signs.forEach((sign, i) => {
     const col = i % SIGN_COLS, row = Math.floor(i / SIGN_COLS);
     const x = col * SIGN_CELL_W, y = row * SIGN_CELL_H;
+    const rtl = hasArabicScript(sign.title) || hasArabicScript(sign.subtitle);
     const bg = ctx.createLinearGradient(x, y, x, y + SIGN_CELL_H);
     bg.addColorStop(0, '#142c3d'); bg.addColorStop(1, '#0b1722');
     ctx.fillStyle = bg;
     ctx.fillRect(x, y, SIGN_CELL_W, SIGN_CELL_H);
-    // Accent rule and the triangular A mark.
+    // Accent rule and the triangular A mark (mirrored to the right edge on a right to left sign).
     ctx.fillStyle = '#45d0b5';
     ctx.fillRect(x, y + SIGN_CELL_H - 6, SIGN_CELL_W, 6);
+    const mx = (offset: number) => (rtl ? x + SIGN_CELL_W - offset : x + offset);
     ctx.beginPath();
-    ctx.moveTo(x + 24, y + 104); ctx.lineTo(x + 58, y + 22); ctx.lineTo(x + 92, y + 104);
-    ctx.lineTo(x + 76, y + 104); ctx.lineTo(x + 58, y + 58); ctx.lineTo(x + 40, y + 104);
+    ctx.moveTo(mx(24), y + 104); ctx.lineTo(mx(58), y + 22); ctx.lineTo(mx(92), y + 104);
+    ctx.lineTo(mx(76), y + 104); ctx.lineTo(mx(58), y + 58); ctx.lineTo(mx(40), y + 104);
     ctx.closePath(); ctx.fill();
-    ctx.fillRect(x + 46, y + 80, 24, 8);
-    const textX = x + 116, maxW = SIGN_CELL_W - 116 - 20;
+    ctx.fillRect(rtl ? mx(70) : mx(46), y + 80, 24, 8);
+    const maxW = SIGN_CELL_W - 116 - 20;
+    const textX = rtl ? x + SIGN_CELL_W - 116 : x + 116;
     ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#8fe3d1';
-    ctx.font = '700 30px system-ui, "Segoe UI", sans-serif';
+    ctx.textAlign = rtl ? 'right' : 'left';
     const spaced = ctx as CanvasRenderingContext2D & { letterSpacing?: string };
-    spaced.letterSpacing = '6px';
+    ctx.direction = rtl ? 'rtl' : 'ltr';
+    const face = (text: string, size: number) => `700 ${size}px ${hasArabicScript(text) ? ARABIC_SIGN_FONT : LATIN_SIGN_FONT}`;
+    ctx.fillStyle = '#8fe3d1';
+    ctx.font = face(sign.title, 30);
+    // Letter spacing is for the Latin wordmark only.
+    spaced.letterSpacing = rtl ? '0px' : '6px';
     ctx.fillText(sign.title, textX, y + 52, maxW);
     spaced.letterSpacing = '0px';
     if (sign.subtitle) {
       ctx.fillStyle = '#f2f6fa';
       let size = 38;
-      ctx.font = `700 ${size}px system-ui, "Segoe UI", sans-serif`;
-      while (size > 18 && ctx.measureText(sign.subtitle).width > maxW) { size -= 2; ctx.font = `700 ${size}px system-ui, "Segoe UI", sans-serif`; }
+      ctx.font = face(sign.subtitle, size);
+      while (size > 18 && ctx.measureText(sign.subtitle).width > maxW) { size -= 2; ctx.font = face(sign.subtitle, size); }
       ctx.fillText(sign.subtitle, textX, y + 98, maxW);
     }
   });

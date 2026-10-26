@@ -11,6 +11,7 @@ import type { Vec3 } from './lib/headquartersProjection.ts';
 import type { FlowChange } from './lib/officeFlow.ts';
 import type { ChangeBatch } from './useOfficeFlow';
 import { t } from './lib/i18n.ts';
+import { roomName } from './lib/registryNames.ts';
 
 const TRAVEL_MS = 900;
 const MARKER_LIFE_MS = 5000;
@@ -76,7 +77,7 @@ export function useFlowLabels(props: Readonly<{
       const r = rollup[room.id];
       const base = anchorOf(room.id);
       if (!r || !base || r.items === 0) continue;
-      const label = t('hqFlow.badge', { room: room.label, items: r.items, stuck: r.stuck, waiting: r.waiting });
+      const label = t('hqFlow.badge', { room: roomName(room), items: r.items, stuck: r.stuck, waiting: r.waiting });
       out.push({
         id: 'flow:' + room.id, anchor: { ...base, y: base.y + 0.4 }, priority: 1.5, maxDistance: 160,
         node: (

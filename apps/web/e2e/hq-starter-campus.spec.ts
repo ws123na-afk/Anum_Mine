@@ -178,8 +178,8 @@ test('Arabic shows Arabic names, right to left', async ({ page }) => {
   const d = dialog(page);
   await expect(d.locator('.hqScBackdrop, :scope')).toBeVisible();
   await expect(page.locator('.hqScBackdrop')).toHaveAttribute('dir', 'rtl');
-  await expect(d.getByText('مقر ANUM')).toBeVisible();
-  await expect(d.getByText('تاير بالس')).toBeVisible();
+  await expect(d.getByText('المقر الرئيسي لأنوم')).toBeVisible();
+  await expect(d.getByText('تاير بلس')).toBeVisible();
   await d.locator('.hqScBuilding').nth(0).getByRole('button').click();
   await expect(d.getByText('الاستقبال')).toBeVisible();
   await shot(page, 'arabic-1440');

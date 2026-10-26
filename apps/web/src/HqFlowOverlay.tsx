@@ -7,6 +7,7 @@ import { projectToStage, roomBadgePoint, type StagePoint } from './lib/hqFlowPro
 import type { FlowChange } from './lib/officeFlow';
 import type { ChangeBatch } from './useOfficeFlow';
 import { t } from './lib/i18n';
+import { roomName } from './lib/registryNames.ts';
 import { useLocale } from './useLocale';
 import './hqFlow.css';
 
@@ -67,7 +68,7 @@ export function HqFlowOverlay({ floor, camera, snapshot, batch, selectedRoomId, 
       const r = rollup[room.id];
       const p = roomPoint.get(room.id);
       if (!r || !p || r.items === 0) return null;
-      const label = t('hqFlow.badge', { room: room.label, items: r.items, stuck: r.stuck, waiting: r.waiting });
+      const label = t('hqFlow.badge', { room: roomName(room), items: r.items, stuck: r.stuck, waiting: r.waiting });
       return <button key={room.id} type="button" className={`hqFlowBadge${room.id === selectedRoomId ? ' selected' : ''}`}
         data-worst={r.worst ?? 'none'} data-room={room.id} style={{ left: `${p.left}%`, top: `${p.top}%` }}
         aria-label={label} title={label} onClick={() => onSelectRoom(room.id)}>

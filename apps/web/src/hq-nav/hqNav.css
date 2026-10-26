@@ -23,7 +23,7 @@
 .kind-reception { --hqnav-kind: #d9a441; } .kind-office { --hqnav-kind: #5aa2e6; } .kind-meeting { --hqnav-kind: #b48cff; }
 .kind-workshop { --hqnav-kind: #e3875a; } .kind-warehouse { --hqnav-kind: #8a93a3; } .kind-lounge { --hqnav-kind: #6fd39a; }
 .hqRailText { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
-.hqRailText strong { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hqRailText strong { font-size: var(--text-sm); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
 .hqRailText small { color: var(--d-muted); font-size: var(--text-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Side panel. */

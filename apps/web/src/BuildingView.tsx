@@ -33,6 +33,9 @@ import { floorLifts } from './lib/hqFloorLift.ts';
 import { LIFT_MS, easeLift } from './lib/hqRenderTypes.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
+import { roomName, sceneName } from './lib/registryNames.ts';
+import { useLocale } from './useLocale';
+import { useArabicSignFont } from './lib/arabicFont.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
 import type { WallModel } from './lib/hqCommandWall.ts';
 
@@ -85,6 +88,9 @@ const ROOM_ICON = { meeting: Users, reception: DoorOpen, warehouse: HardDrive } 
 
 export function BuildingView(props: BuildingViewProps) {
   const { building, floor, view, night, presence } = props;
+  const locale = useLocale();
+  const fontsReady = useArabicSignFont(locale === 'ar');
+  const floorTitle = sceneName(floor, locale);
   const floors = building.floors;
   const activeIndex = Math.max(0, floors.findIndex((f) => f.id === floor.id));
   // The section view: every floor at once, the walls facing the camera and the roof taken away (docs/ANUM_MINE_HQ_CUTAWAY.md).
@@ -121,8 +127,8 @@ export function BuildingView(props: BuildingViewProps) {
   // The overview and the top view look straight down at the open floor: the floors above would hide it, so they stay out of those views.
   const stackOn = showAll && !props.overview && view !== 'top';
   const scene = useMemo(
-    () => buildBuildingScene(floors, { activeIndex, showAll: stackOn, cutaway: true, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks }),
-    [floors, activeIndex, stackOn, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks],
+    () => buildBuildingScene(floors, { activeIndex, showAll: stackOn, cutaway: true, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks, locale }),
+    [floors, activeIndex, stackOn, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks, locale],
   );
   const [wrap, aspect] = useAspect();
   const { overview } = props;
@@ -285,13 +291,13 @@ export function BuildingView(props: BuildingViewProps) {
     glassAlpha: 0.2,
     // The entrance sign on the front lawn is lettered with the real building name.
     // Cell 0 is the entrance sign; the cells after it are the real room names and the floor sign (`scene.signs`).
-    signs: [{ title: 'ANUM MINE', subtitle: props.workspaceName }, ...scene.signs],
+    signs: [{ title: 'ANUM MINE', subtitle: props.workspaceName }, ...scene.signs].map((s) => ({ ...s, fontsReady })),
     ambient: scene.ambient.map((a) => ({ id: a.id, vertices: a.vertices, bounds: a.bounds, cull: false, motion: a.motion })),
     shadow: scene.shadow,
     models: scene.models,
     halos: scene.halos,
     lifts,
-  }), [scene, props.workspaceName, lifts]);
+  }), [scene, props.workspaceName, lifts, fontsReady]);
 
   const flowAnchor = useCallback((id: string) => scene.rooms.find((r) => r.id === id)?.anchor, [scene]);
   const flowLabels = useFlowLabels({
@@ -387,7 +393,7 @@ export function BuildingView(props: BuildingViewProps) {
           <label className="hqSelect">
             <span className="hqSrOnly">{t('hq.building.pick')}</span>
             <select value={building.id} onChange={(e) => props.onSelectBuilding(e.target.value)}>
-              {props.buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              {props.buildings.map((b) => <option key={b.id} value={b.id}>{sceneName(b, locale)}</option>)}
             </select>
             <ChevronDown aria-hidden="true" />
           </label>
@@ -398,7 +404,7 @@ export function BuildingView(props: BuildingViewProps) {
             <span className="hqSrOnly">{t('hq.floor.pick')}</span>
             <Layers aria-hidden="true" />
             <select value={floor.id} onChange={(e) => props.onSelectFloor(e.target.value)}>
-              {floors.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              {floors.map((f) => <option key={f.id} value={f.id}>{sceneName(f, locale)}</option>)}
             </select>
           </label>
           <button type="button" onClick={() => stepFloor(1)} disabled={activeIndex >= floors.length - 1} aria-label={t('hq.floor.up')}><ArrowLeft aria-hidden="true" className="flipOpposite" /></button>
@@ -413,10 +419,10 @@ export function BuildingView(props: BuildingViewProps) {
       </div>
 
       <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-facade-live">{facadeSaid ? t(`hq.facade.${facade}Now` as MessageKey) : ''}</p>
-      <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-floor-live">{t('hq.floor.now', { name: floor.name, index: activeIndex + 1, count: floors.length })}</p>
+      <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-floor-live">{t('hq.floor.now', { name: floorTitle, index: activeIndex + 1, count: floors.length })}</p>
       <div className="hqSceneWrap" ref={wrap} data-facade={cut.facade} data-cut-sides={cut.cutSides.join(' ')} data-roof-open={cut.roofOpen} data-stack={stackOn} data-camera-yaw={camera.yaw.toFixed(1)} data-camera-distance={camera.distance.toFixed(2)} data-camera-eye-y={(camera.target.y + Math.sin((camera.pitch * Math.PI) / 180) * camera.distance).toFixed(2)}>
         <HqStage
-          label={t('hq.building.stageLabel', { name: props.workspaceName, floor: floor.name })} description={t('hq.building.stageHelp')}
+          label={t('hq.building.stageLabel', { name: props.workspaceName, floor: floorTitle })} description={t('hq.building.stageHelp')}
           scene={renderScene} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
           onCamera={(c) => { stopGlide(); setCamera(keep(c)); }} night={night} reducedMotion={props.reducedMotion}
           hoverId={null} selectedId={null} onHover={() => undefined}
@@ -475,7 +481,7 @@ function RoomCard(props: { room: RoomGeometry; assigned: number; working: number
   return (
     <button type="button" className="hqLabelCard hqRoomCard" data-selected={props.selected} data-live={props.live} data-kind={props.room.kind} aria-pressed={props.selected} onClick={props.onPick}>
       <span className="hqLabelIcon"><Icon aria-hidden="true" /></span>
-      <span className="hqLabelText"><strong>{props.room.label}</strong><small>{props.live ? t('hq.room.inMeeting') : sub}</small></span>
+      <span className="hqLabelText"><strong>{roomName(props.room)}</strong><small>{props.live ? t('hq.room.inMeeting') : sub}</small></span>
     </button>
   );
 }

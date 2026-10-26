@@ -61,3 +61,23 @@ export interface StarterCampusResult {
   version: 1; outcome: StarterCampusOutcome; payload_hash: string; timezone: string;
   buildings: StarterCampusResultItem[]; totals: StarterCounts; departments_set: number; agents_created: 0;
 }
+
+/**
+ * "Add Arabic names" for campuses set up before names had an Arabic form.
+ * Server: office_arabic_names_api.py. `GET /api/v1/office/starter-campus/arabic-names/preview` stores nothing;
+ * `POST .../confirm` needs `workspace:manage`, the hash shown and `input_mode: "click"`. It fills ONLY an empty
+ * Arabic name whose English name is a name of the master list, never overwrites, and changes no other field.
+ */
+export type ArabicNameKind = 'buildings' | 'floors' | 'rooms';
+export interface ArabicNameCounts { buildings: number; floors: number; rooms: number }
+export interface ArabicNameItem { kind: ArabicNameKind; id: string; name: string; name_ar: string }
+export interface ArabicNamesPreview {
+  version: 1; catalog_version: number; workspace_id: string; payload_hash: string; can_confirm: boolean;
+  items: ArabicNameItem[]; counts: ArabicNameCounts; total: number;
+  rules: { overwrites: false; fills_empty_only: true; matches_master_names_only: true; changes_other_fields: false };
+}
+export interface ArabicNamesConfirm { payload_hash: string; input_mode: 'click' }
+export type ArabicNamesOutcome = 'filled' | 'nothing_to_add';
+export interface ArabicNamesResult {
+  version: 1; outcome: ArabicNamesOutcome; payload_hash: string; filled: number; counts: ArabicNameCounts; skipped: number;
+}

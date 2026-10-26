@@ -12,6 +12,7 @@ import { presenceForDesk, type HqAgentPresence, type HqPresenceIndex, type RoomM
 import { profileHash } from './lib/orgChart.ts';
 import { STATUS_TONE } from './lib/campusModel.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
+import { deskLabel, roomName } from './lib/registryNames.ts';
 
 // The wall's code loads only when an operations room is opened.
 const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
@@ -40,9 +41,9 @@ export function RoomPanel(props: Readonly<{
   const { room } = props;
   const assigned = props.desks.filter((d) => d.agentId || presenceForDesk(props.presence, d)).length;
   return (
-    <aside className="hqPanel hqSide" aria-label={t('hq.room.panel', { name: room.label })}>
+    <aside className="hqPanel hqSide" aria-label={t('hq.room.panel', { name: roomName(room) })}>
       <div className="hqPanelHead">
-        <h2>{room.label}</h2>
+        <h2>{roomName(room)}</h2>
         <button type="button" className="hqIconButton" onClick={props.onClose} aria-label={t('hq.panel.close')}><X aria-hidden="true" /></button>
       </div>
       <p className="hqMuted">{t(`hq.roomKind.${room.kind}` as MessageKey)} · {t('hq.room.capacity', { count: room.capacity })}</p>
@@ -70,16 +71,16 @@ export function RoomPanel(props: Readonly<{
                 <li key={d.id}>
                   {key
                     ? <button type="button" onClick={() => props.onOpenAgent(key, d)}>
-                      <span className="hqLabelText"><strong>{hidden ? t('hq.agent.private') : (p?.name || t('hq.agent.assigned'))}</strong><small>{d.label}</small></span>
+                      <span className="hqLabelText"><strong>{hidden ? t('hq.agent.private') : (p?.name || t('hq.agent.assigned'))}</strong><small>{deskLabel(d.label)}</small></span>
                       <StatusPill presence={p} />
                     </button>
-                    : <div className="hqVacant"><span className="hqLabelText"><strong>{d.label}</strong><small>{t('hq.room.vacant')}</small></span></div>}
+                    : <div className="hqVacant"><span className="hqLabelText"><strong>{deskLabel(d.label)}</strong><small>{t('hq.room.vacant')}</small></span></div>}
                 </li>
               );
             })}
           </ul>
         )}
-      {props.desks.some((d) => d.agentId) && <button type="button" className="hqPrimary" onClick={() => openAssign({ roomId: room.id, roomName: room.label, source: 'room' })}><ClipboardPlus aria-hidden="true" />{t('hqAssign.openRoom')}</button>}
+      {props.desks.some((d) => d.agentId) && <button type="button" className="hqPrimary" onClick={() => openAssign({ roomId: room.id, roomName: roomName(room), source: 'room' })}><ClipboardPlus aria-hidden="true" />{t('hqAssign.openRoom')}</button>}
       <RoomModuleAction roomId={room.id} room={{ department: room.teamDepartment, kind: room.kind, name: room.label, buildingKind: props.buildingKind }} liveMeetingId={props.meeting?.meetingId ?? null} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? noop} onOpenGaps={props.onOpenGaps ?? noop} />
     </aside>
   );

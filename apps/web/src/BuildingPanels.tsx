@@ -2,6 +2,7 @@
 import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
 import { commerceFlow } from './lib/hqModules.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
+import { roomName, sceneName } from './lib/registryNames.ts';
 import type { RoomGeometry, SceneFloor } from './lib/headquartersProjection.ts';
 import { Building2, DoorOpen, HardDrive, Users } from 'lucide-react';
 
@@ -69,15 +70,16 @@ export function TyrePanel({ state }: { state: ModuleState<TyreLive> }) {
 /** Every room of the active floor as a plain list under the scene: the same facts as the cards, always reachable by keyboard and screen reader. */
 export function FloorRooms(props: { floor: SceneFloor; has: (desk: SceneFloor['desks'][number]) => boolean; selectedRoomId: string | null; onPick: (id: string) => void; onLeave: () => void }) {
   const { floor } = props;
+  const floorTitle = sceneName(floor);
   const rows = floor.rooms.map((room) => {
     const desks = floor.desks.filter((d) => d.roomId === room.id);
     return { room, desks: desks.length, agents: desks.filter((d) => d.agentId || props.has(d)).length };
   });
   const totals = rows.reduce((n, r) => ({ desks: n.desks + r.desks, agents: n.agents + r.agents }), { desks: 0, agents: 0 });
   return (
-    <section className="hqPanel hqFloorRooms" aria-label={t('hqFloor.listTitle', { floor: floor.name })} data-testid="hq-floor-rooms">
+    <section className="hqPanel hqFloorRooms" aria-label={t('hqFloor.listTitle', { floor: floorTitle })} data-testid="hq-floor-rooms">
       <header>
-        <h2>{t('hqFloor.listTitle', { floor: floor.name })}</h2>
+        <h2>{t('hqFloor.listTitle', { floor: floorTitle })}</h2>
         <p className="hqMuted">{t('hqFloor.summary', { rooms: rows.length, desks: totals.desks, agents: totals.agents })}</p>
         <button type="button" className="hqGhost" onClick={props.onLeave}>{t('hqFloor.back')}</button>
       </header>
@@ -85,7 +87,7 @@ export function FloorRooms(props: { floor: SceneFloor; has: (desk: SceneFloor['d
         {rows.map(({ room, desks, agents }) => (
           <li key={room.id}>
             <button type="button" data-selected={room.id === props.selectedRoomId} aria-pressed={room.id === props.selectedRoomId} onClick={() => props.onPick(room.id)}>
-              <strong dir="auto">{room.label}</strong>
+              <strong>{roomName(room)}</strong>
               <small>{t(`hq.roomKind.${room.kind}` as MessageKey)}. {t('hqFloor.stats', { desks, agents })}</small>
             </button>
           </li>
@@ -101,7 +103,7 @@ export function OverviewCard(props: { room: RoomGeometry; desks: number; assigne
   return (
     <button type="button" className="hqLabelCard hqOverviewCard" data-selected={props.selected} data-kind={props.room.kind} aria-pressed={props.selected} onClick={props.onPick}>
       <span className="hqLabelIcon"><Icon aria-hidden="true" /></span>
-      <span className="hqLabelText"><strong>{props.room.label}</strong><small>{t(`hq.roomKind.${props.room.kind}` as MessageKey)}</small><small>{t('hqFloor.stats', { desks: props.desks, agents: props.assigned })}</small></span>
+      <span className="hqLabelText"><strong>{roomName(props.room)}</strong><small>{t(`hq.roomKind.${props.room.kind}` as MessageKey)}</small><small>{t('hqFloor.stats', { desks: props.desks, agents: props.assigned })}</small></span>
     </button>
   );
 }

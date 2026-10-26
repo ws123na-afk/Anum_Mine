@@ -41,7 +41,7 @@ def capture_floor(floor: Mapping[str, Any], snapshot: Mapping[str, Any]) -> tupl
             "desks": [{"label": d["label"], "x": d["pos_x"], "z": d["pos_z"]} for d in desks_by_room.get(r["id"], [])],
         })
     return {
-        "level": floor["level"], "name": floor["name"],
+        "level": floor["level"], "name": floor["name"], "name_ar": floor.get("name_ar"),
         "width_m": snapshot["floor"]["width_m"] or layout.DEFAULT_FLOOR_WIDTH_M,
         "depth_m": snapshot["floor"]["depth_m"] or layout.DEFAULT_FLOOR_DEPTH_M,
         "rooms": rooms,
@@ -160,12 +160,15 @@ class TemplateMixin:
         return before
 
     def build_floor_from_definition(self, context: TenantContext, definition: Mapping[str, Any], floor_id: str,
-                                    building_id: str, level: int, name: str) -> dict[str, Any]:
+                                    building_id: str, level: int, name: str, name_ar: str | None = None) -> dict[str, Any]:
         """Create the floor, its rooms and EMPTY desks through the builder's own placement checks."""
         try:
-            floor = self.create(context, "floors", floor_id, {  # type: ignore[attr-defined]
+            fields: dict[str, Any] = {
                 "building_id": building_id, "level": level, "name": name,
-                "width_m": float(definition["width_m"]), "depth_m": float(definition["depth_m"])})
+                "width_m": float(definition["width_m"]), "depth_m": float(definition["depth_m"])}
+            if name_ar:
+                fields["name_ar"] = name_ar
+            floor = self.create(context, "floors", floor_id, fields)  # type: ignore[attr-defined]
             room_ids: list[str] = []
             desk_count = 0
             for index, room in enumerate(definition["rooms"], start=1):

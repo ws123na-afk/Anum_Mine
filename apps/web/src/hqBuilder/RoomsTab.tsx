@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { OfficeRoomKind, OfficeRoomTemplate } from '@anum/contracts';
 import { getLocale, t, type MessageKey } from '../lib/i18n.ts';
+import { arabicMissing, pickName } from '../lib/registryNames.ts';
 import { ROOM_KINDS } from './labels.ts';
 import { roomSeverity } from './validate.ts';
 import type { BuilderController } from './useBuilderState.ts';
@@ -40,7 +41,7 @@ export function RoomsTab({ b, editable }: Props) {
           <ul className="hqbList">
             {unplaced.map((r) => (
               <li key={r.id}>
-                <span dir="auto">{r.name}</span>
+                <span dir="auto">{pickName(r.name, r.name_ar)}</span>
                 {editable && <button type="button" onClick={() => b.placeRoom(r.id)}>{t('hqb.room.placeOnPlan')}</button>}
               </li>
             ))}
@@ -54,8 +55,8 @@ export function RoomsTab({ b, editable }: Props) {
           return (
             <li key={r.id}>
               <button type="button" className="hqbRoomRow" aria-pressed={r.id === b.selectedRoomId} data-tone={tone} onClick={() => b.setSelectedRoomId(r.id)}>
-                <strong dir="auto">{arabic && r.name_ar ? r.name_ar : r.name}</strong>
-                <small>{t(`hqb.kind.${r.kind}` as MessageKey)} · {t('hqb.rooms.capacity', { count: r.capacity })}{tone === 'error' ? ` · ${t('hqb.canvas.problem')}` : ''}</small>
+                <strong dir="auto">{pickName(r.name, r.name_ar)}</strong>
+                <small>{t(`hqb.kind.${r.kind}` as MessageKey)} · {t('hqb.rooms.capacity', { count: r.capacity })}{tone === 'error' ? ` · ${t('hqb.canvas.problem')}` : ''}{arabicMissing(r.name_ar) ? ` · ${t('hqb.noArabicName')}` : ''}</small>
               </button>
             </li>
           );
