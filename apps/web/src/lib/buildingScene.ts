@@ -426,7 +426,9 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
     }
     // Detail ladder: a floor with many desks or rooms is dressed lite so the frame stays cheap.
     const lite = floor.desks.length > 48 || floor.rooms.length > 24;
-    floor.rooms.forEach((room, ri) => {
+    let ri = -1;
+    for (const room of floor.rooms) {
+      ri += 1;
       const accent = ACCENT_BY_KIND[room.kind] ?? ACCENT_BY_KIND.office;
       const selected = options.selectedRoomId === room.id;
       const live = options.meetingRoomIds?.has(room.id) === true;
@@ -484,7 +486,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
           anchor: { x: room.x + room.width / 2, y: y + WALL_HEIGHT + 0.5, z: room.z + room.depth * 0.45 },
         });
       }
-    });
+    }
     if (fb.core) {
       const coreIndex = isActive ? signCount - 1 : -1;
       if (coreIndex > 0) signs.push({ title: `LEVEL ${floor.level}`, subtitle: floor.name });
