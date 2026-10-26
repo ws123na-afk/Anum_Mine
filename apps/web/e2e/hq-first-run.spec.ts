@@ -58,6 +58,13 @@ async function noOverflow(page: Page, selector: string | null = '.hqFirstRun') {
   }, selector);
   expect(problems).toEqual([]);
 }
+const wide = (page: Page) => (page.viewportSize()?.width ?? 0) >= 1024;
+/** The floor control exists at every size (the floor rail is a drawer on a phone). */
+async function pickFloor(page: Page, level: number) {
+  const select = hq(page).locator('.hqFloorControl select');
+  const label = await select.locator('option').evaluateAll((os, n) => os.map((o) => o.textContent ?? '').find((x) => x.startsWith(`Floor ${n}`)) ?? '', level);
+  await select.selectOption({ label });
+}
 async function enterHq(page: Page, name = 'ANUM HQ') {
   // Building names are stored in one language (the registry has no Arabic column), so the name is the same in both.
   // dispatchEvent: on a narrow stage the campus map overlay can sit over the label, which is only a pointer matter.
@@ -94,7 +101,7 @@ test('an empty workspace shows the first-run panel with the real numbers, and no
 test('one click confirms exactly the plan on screen, and the campus appears without a reload', async ({ page }) => {
   await open(page);
   await expect(createButton(page)).toBeEnabled({ timeout: 20_000 });
-  const shown = (await panel(page).getByTestId('fr-hash').innerText()).replace(/^.*Plan fingerprint: (\S+ \S+)\..*$/s, '$1');
+  const shown = (await panel(page).getByTestId('fr-hash').innerText()).replace(/^.*Plan fingerprint: (\S+ \S+)\s*$/s, '$1');
   await page.evaluate(() => { (window as unknown as { __kept: boolean }).__kept = true; });
   await createButton(page).click();
   await expect(panel(page)).toHaveCount(0, { timeout: 20_000 });
@@ -115,7 +122,7 @@ test('one click confirms exactly the plan on screen, and the campus appears with
 test('the building view shows every room of the floor, and the floor overview labels each one', async ({ page }) => {
   await open(page, { prebuilt: true });
   await enterHq(page);
-  await hq(page).getByRole('button', { name: /^Floor 2/ }).first().click();
+  await pickFloor(page, 2);
   const stage = hq(page).locator('.hqBuilding .hqStage');
   await expect(hq(page).locator('.hqBuilding .hqRoomCard')).toHaveCount(5);
   // Every room card sits inside the picture: the camera frames the whole 38 m floor, not one room of it.
@@ -151,14 +158,21 @@ test('the building view shows every room of the floor, and the floor overview la
   await expect(page.getByRole('complementary', { name: 'Room Command Center' })).toBeVisible();
   await expect(hq(page).locator('.hqSceneWrap')).toHaveAttribute('data-camera-distance', distance!);
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  // The floor rail reaches the same mode, and Escape leaves it.
-  const rail = page.getByTestId('hq-rail-overview');
-  await expect(rail).toHaveAttribute('aria-pressed', 'true');
-  await rail.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect(cards).toHaveCount(0);
-  await rail.click();
+  // The floor rail (inline from 1024 px; a drawer on narrower screens) reaches the same mode.
+  if (wide(page)) {
+    const rail = page.getByTestId('hq-rail-overview');
+    await expect(rail).toHaveAttribute('aria-pressed', 'true');
+    await rail.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(cards).toHaveCount(0);
+    await rail.click();
+  } else {
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await toggle.click();
+  }
   await expect(cards).toHaveCount(5);
+  // Escape leaves it.
   await hq(page).locator('.hqBuilding .hqStage').focus();
   await page.keyboard.press('Escape');
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
@@ -172,7 +186,7 @@ test('the floor overview works with the floors, the fold control, the navigation
   const cards = hq(page).locator('.hqOverviewCard');
   await expect(cards).toHaveCount(3); // the basement: facilities, security, parking
   // Another floor keeps the mode and shows that floor's rooms.
-  await hq(page).getByRole('button', { name: /^Floor 1/ }).first().click();
+  await pickFloor(page, 1);
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await expect(cards).toHaveCount(4);
   await expect(cards.filter({ hasText: 'Reception' })).toContainText('Reception');
@@ -300,15 +314,16 @@ test('another browser creating the campus shows up here without a reload', async
 
 test('the same one-click flow is offered from the assistant as a card that still needs the click', async ({ page }) => {
   await open(page);
-  await page.locator('#pa-input').fill('set up my campus');
-  await page.locator('#pa-input').press('Enter');
+  // The executive dock sits beside the scene on a wide screen; on a phone the same sentence goes to ANUM Command.
+  const input = wide(page) ? page.locator('#pa-input') : (await page.goto('/#command'), page.getByRole('textbox', { name: /Command|request|What/i }).first());
+  await input.fill('set up my campus');
+  await input.press('Enter');
   const card = page.getByTestId('campus-proposal');
   await expect(card).toBeVisible({ timeout: 20_000 });
   await expect(card).toContainText('8 buildings, 18 floors, 62 rooms and 220 empty desks');
   await expect(card).toContainText('Plan fingerprint');
   expect(posts()).toHaveLength(0);
-  await page.locator('#pa-input').fill('yes');
-  await page.locator('#pa-input').press('Enter');
+  if (wide(page)) { await input.fill('yes'); await input.press('Enter'); } // a typed "yes" is not a confirmation
   expect(posts()).toHaveLength(0);
   await card.getByTestId('campus-proposal-create').click();
   await expect(card).toContainText('Created 8 buildings, 18 floors, 62 rooms and 220 desks');
