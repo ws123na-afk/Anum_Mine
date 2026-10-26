@@ -337,6 +337,7 @@ export class HqRenderer {
   private quality: Quality = 3;
   /** Lazy effect chunks: baked AO, roof detail and contact discs (every tier but the cheap path's CPU limits), and the photographic tier. */
   private sceneFx: typeof import('./hqSceneFx.ts') | null = null;
+  private campusFx: typeof import('./hqCampusFx.ts') | null = null;
   private photo: PhotoFx | null = null;
   private photoOn = false;
   private gpu: GpuClass = 'unknown';
@@ -445,7 +446,9 @@ export class HqRenderer {
   /** Loads the baked AO / detail / contact chunk once; a scene that arrived before it was ready is built again with it. */
   private async loadSceneFx(): Promise<void> {
     try {
-      this.sceneFx = await import('./hqSceneFx.ts');
+      // Baked occlusion for every tier (no three.js in that chunk); roof detail and contact discs only off the cheap software path.
+      const [baked, campus] = await Promise.all([import('./hqSceneFx.ts'), this.cheap ? Promise.resolve(null) : import('./hqCampusFx.ts')]);
+      this.sceneFx = baked; this.campusFx = campus;
       if (!this.disposed && this.lastScene) this.setScene(this.lastScene);
     } catch { this.sceneFx = null; }
   }
@@ -733,7 +736,7 @@ export class HqRenderer {
 
   /** Campus only (not a building's floors): roof coping and plant, planters and the soft contact discs under cars, trees and wall feet. */
   private addCampusDetail(scene: RenderScene): void {
-    const fx = this.sceneFx;
+    const fx = this.campusFx;
     if (!fx || !scene.scenery || this.cheap) return;
     const contacts: Float32Array[] = [];
     for (const item of scene.opaque) {
