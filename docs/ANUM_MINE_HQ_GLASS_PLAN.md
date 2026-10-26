@@ -57,7 +57,7 @@ change rebuilds the shells and the atlas. The canvas shows `data-glass-plan` (th
   idle, stale, unknown, seated figure, room light), a facade pane maps to the room behind it (for every sampled pane of the 5 floor headquarters of the starter campus the atlas
   texel is the floor colour of the real room at that position, or a desk, or the table), pane tagging, all seven kinds drawn on the real footprint, the scene using the plan shell only for
   planned buildings, shader source.
-- `e2e/hq-glass-plan.spec.ts`: the atlas reaches the GPU and the frame is not blank; day, dusk and night; a close view of the headquarters (parallax path switched on) at dusk and night;
+- `e2e/hq-glass-plan.spec.ts`: the atlas reaches the GPU and the frame is not blank; day, dusk and night; a close view of the headquarters (parallax path switched on) at dusk and night and one on the software path;
   changing a room in the registry moves the atlas revision without a reload; the campus at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 has no sideways scroll.
 
 ## Budgets
