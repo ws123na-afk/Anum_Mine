@@ -11,6 +11,8 @@ export const SIDES: readonly Side[] = ['north', 'south', 'east', 'west'];
 
 /** The elevation of the section view: low enough to look into every floor, high enough to read the floor plans. */
 export const CUT_PITCH = 32;
+/** Buildings up to this many floors open with every floor drawn; a taller tower opens on the open floor alone (the stack costs a rebuild per floor), and "All floors" turns it on. */
+export const STACK_AUTO_MAX = 8;
 /** A wall changes only once the camera has gone this far (degrees of azimuth) past the line where it was edge on. */
 export const CUT_BAND = 9;
 

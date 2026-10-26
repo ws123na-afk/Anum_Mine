@@ -72,10 +72,14 @@ test('the stacked view draws every floor of the 3 floor building above the one b
   await page.setViewportSize({ width: 1366, height: 768 });
   await openBuilding(page, 'ANUM 360 Commerce');
   await expect.poll(async () => Number(await canvas(page).getAttribute('data-triangles')), { timeout: 60_000 }).toBeGreaterThan(15_000);
-  const single = Number(await canvas(page).getAttribute('data-triangles'));
   const all = hq(page).getByRole('checkbox', { name: /All floors/ });
+  // The cutaway opens with every floor drawn: switch to the open floor alone to measure one floor, then back to the stack.
+  const settle = async (on: boolean) => expect(async () => { if ((await all.isChecked()) !== on) await all.click(); await expect(all).toBeChecked({ checked: on, timeout: 2000 }); await page.waitForTimeout(1500); await expect(all).toBeChecked({ checked: on, timeout: 1000 }); }).toPass({ timeout: 40_000 });
+  await settle(false);
+  await page.waitForTimeout(1500);
+  const single = Number(await canvas(page).getAttribute('data-triangles'));
   // The page can rebuild the view once while it settles; retry until the choice sticks.
-  await expect(async () => { if (!(await all.isChecked())) await all.click(); await expect(all).toBeChecked({ timeout: 2000 }); await page.waitForTimeout(1500); await expect(all).toBeChecked({ timeout: 1000 }); }).toPass({ timeout: 40_000 });
+  await settle(true);
   // Three furnished floors in view instead of one: far more geometry, and a taller scene to frame (the unit tests pin the heights).
   await expect.poll(async () => Number(await canvas(page).getAttribute('data-triangles')), { timeout: 60_000 }).toBeGreaterThan(single * 1.4);
   await expect.poll(() => distinctColours(page), { timeout: 60_000 }).toBeGreaterThan(40);

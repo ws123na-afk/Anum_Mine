@@ -88,6 +88,7 @@ Counts per status are in the last section ("Totals"), computed from the tables i
 | 3.13 | Minimap, compass, zoom, reset | Complete | Read | `CampusView.tsx` minimap, `HqChrome.tsx` compass and zoom, `viewFootprint` in `hqCamera.ts` | none |
 | 3.14 | 2D and list fallback | Complete | Read, CI | `HqPlanFallback.tsx`, `CampusListView.tsx`; `hq-scene.spec.ts` "no WebGL", `hq-campus.spec.ts` "without WebGL" | none |
 | 3.15 | LOD, instancing, culling | Partial | Read | Frustum culling per mesh (`cull`), a "lite" interior detail level for big buildings (`buildingScene.ts`), adaptive pixel ratio | No GPU instancing (meshes are merged per surface class) and no distance LOD for figures. PR: measure first with the performance spec at 200 desks, then add instancing only if it fails the budget |
+| 3.16 | Cutaway section of the building (front facade and roof removed, all floors, Cutaway and Closed) | Partial | Read, Ran | `lib/hqCutaway.ts`, `lib/buildingScene.ts` (`walls`, `dimmed`), `BuildingView.tsx`; `test/hqCutaway.test.ts`, `e2e/hq-cutaway.spec.ts`; [cutaway](ANUM_MINE_HQ_CUTAWAY.md) | Lower floors show only their front 6 to 7 m under the slab above; side by side with renders 22 and 24 on a real GPU: Not verified; dimmed floors are rebuilt on every floor change; clicking a room on another floor does not switch floors |
 
 ## Section 4. Building and campus structure
 
@@ -298,16 +299,16 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 
 ## Totals
 
-Rows counted: 141 (sections 1 to 14).
+Rows counted: 142 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
 | Complete | 107 |
-| Partial | 30 |
+| Partial | 31 |
 | Missing | 3 |
 | Not applicable | 1 |
-| Total | 141 |
+| Total | 142 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 100, Partial 23, Missing 3, Not applicable 1 (total 127). Recounted from the tables on 26 October 2026; earlier changes had left these totals behind.
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 100, Partial 24, Missing 3, Not applicable 1 (total 128). Recounted from the tables on 26 October 2026; earlier changes had left these totals behind.
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.

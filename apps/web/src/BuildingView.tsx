@@ -16,7 +16,7 @@ import { AvatarChip } from './AvatarStyleEditor';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { visualOfStatus } from './hqAssets/interior/stateVisual.ts';
 import { buildBuildingScene, FLOOR_PITCH, WALL_HEIGHT, type DeskVisual } from './lib/buildingScene.ts';
-import { CUT_PITCH, cutLifts, cutawayInfo, facingSides, snapYaw, type Facade, type Side } from './lib/hqCutaway.ts';
+import { CUT_PITCH, STACK_AUTO_MAX, cutLifts, cutawayInfo, facingSides, snapYaw, type Facade, type Side } from './lib/hqCutaway.ts';
 import { HOME_YAW, buildingFitCamera, floorOverviewCamera, clampInside, clampTarget, insideCamera, isInsideView, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { RoomGeometry, SceneBuilding, SceneDesk, SceneFloor } from './lib/headquartersProjection.ts';
@@ -85,7 +85,7 @@ export function BuildingView(props: BuildingViewProps) {
   const floors = building.floors;
   const activeIndex = Math.max(0, floors.findIndex((f) => f.id === floor.id));
   // The section view: every floor at once, the walls facing the camera and the roof taken away (docs/ANUM_MINE_HQ_CUTAWAY.md).
-  const [showAll, setShowAll] = useState(true);
+  const [showAll, setShowAll] = useState(() => floors.length <= STACK_AUTO_MAX);
   const [facade, setFacade] = useState<Facade>('cutaway');
   const [cutSides, setCutSides] = useState<readonly Side[]>(() => facingSides(35));
   const [facadeNote, setFacadeNote] = useState('');
