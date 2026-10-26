@@ -96,3 +96,11 @@ is the same; the buildings, the light and the motion changed.
 
 Renderer chunk 158.2 kB gzip (limit 160 kB), HQ entry chunk 138.6 kB (limit 140 kB on main); neither limit was raised. Per-asset triangle caps rose
 (office tower 3800, admin block 2600, executive HQ 5600, personal villa 2400) because of the added detail; the campus uses the smaller sizes.
+
+## Photographic pass, 26 October 2026
+
+The next pass is in [the photographic look](ANUM_MINE_HQ_PHOTOREAL.md): procedural PBR detail maps, baked and screen space occlusion, contact shadows, a
+camera fitted shadow, warm point lights, light shafts, depth of field, AgX tone mapping with a grade per preset, roof coping, rooftop plant, window sills and
+planters, behind the ultra tier and a photographic extension that a pin or a measured promotion switches on. Of the honest list above it narrows
+"no ambient occlusion", "no volumetric light" and "software GL pins the light quality" (software GL still does; the extension runs on a real GPU path and
+was checked on software GL for single frames only). Still different: no bevels or window reveals, no instanced vegetation variety, no people (data rule).
