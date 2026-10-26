@@ -6,6 +6,8 @@ Used by infra/render/keycloak.Dockerfile at image build (docs/deploy-render.md).
 development realm seeds a `dev` user with a published password and allows only
 localhost redirect URIs. A shared Keycloak gets:
 
+* the display name `ANUM` (the development realm's "ANUM (local development)" makes the login theme
+  show its non-production notice);
 * no users at all (the realm's `users` list is dropped; people are created in the
   admin console with their `tenant_id` attribute, docs/identity.md);
 * the `anum-web` client's redirect URIs, web origins and post-logout redirects set to
@@ -62,6 +64,9 @@ def shared_realm(realm: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of ``realm`` that is safe to import into a shared Keycloak."""
     result = json.loads(json.dumps(realm))
     result.pop("users", None)
+    # The sign-in pages show the realm's name; "(local development)" belongs to the dev realm only
+    # (the ANUM login theme shows its non-production notice from that text).
+    result["displayName"] = "ANUM"
     result.update(json.loads(json.dumps(TWO_FACTOR_POLICY)))
     for client in result.get("clients", []):
         if client.get("clientId") not in {"anum-web", "anum-desktop"}:
