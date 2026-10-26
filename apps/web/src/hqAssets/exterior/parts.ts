@@ -123,14 +123,14 @@ export function pane(ctx: Ctx, f: Face, u0: number, u1: number, y0: number, y1: 
   ctx.windows.total += 1;
   if (!lit) {
     const c = hex('#9fb4c8');
-    b.quadV(pt(f, u0, y0, off), pt(f, u1, y0, off), pt(f, u1, y1, off), pt(f, u0, y1, off), scale(c, 0.8), scale(c, 0.8), c, c, WINDOW_BASE);
+    b.quadPane(pt(f, u0, y0, off), pt(f, u1, y0, off), pt(f, u1, y1, off), pt(f, u0, y1, off), scale(c, 0.8), scale(c, 0.8), c, c, WINDOW_BASE);
     return;
   }
   ctx.windows.lit += 1;
   const tone = roll > 0.86 ? mix(COOL, hex('#8fd0ff'), rnd()) : mix(WARM, hex('#ffe9b8'), rnd() * 0.7);
   const glow = WINDOW_BASE + (roll < 0.3 ? 0.45 : 0.8 + 0.15 * lift);
   const bot = scale(tone, 0.72 * lift + 0.2);
-  b.quadV(pt(f, u0, y0, off), pt(f, u1, y0, off), pt(f, u1, y1, off), pt(f, u0, y1, off), bot, bot, tone, tone, glow);
+  b.quadPane(pt(f, u0, y0, off), pt(f, u1, y0, off), pt(f, u1, y1, off), pt(f, u0, y1, off), bot, bot, tone, tone, glow);
 }
 
 /** A row of equal panes along a facade, from `uFrom` to `uTo`, between heights y0 and y1. */
@@ -162,7 +162,7 @@ export function curtainWall(
       const ly = y + l * levelH;
       // Near floor-to-ceiling glass with slim mullions, and a pale slab edge between storeys: the grid reads as glass, not as dark boxes.
       paneRow(ctx, f, inset, f.len - inset, ly + levelH * 0.12, ly + levelH * 0.9, cols, 0.06, 0.55 + 0.45 * ((l + 1) / levels));
-      if (l > 0 && !ctx.lean) faceQuad(ctx.b, f, inset - 0.2, f.len - inset + 0.2, ly - 0.14, ly + 0.1, scheme.wall, 0, 0.07);
+      if (l > 0 && !ctx.lean) faceQuad(ctx.b, f, inset - 0.2, f.len - inset + 0.2, ly - 0.14, ly + 0.1, mix(scheme.wall, WARM, 0.25), 0.4, 0.07);
       // The opaque spandrel under every window row: the dark band between the slab edge and the glass.
       if (!ctx.lean) faceQuad(ctx.b, f, inset, f.len - inset, ly + 0.1, ly + levelH * 0.12, SPANDREL, 0, 0.065);
     }

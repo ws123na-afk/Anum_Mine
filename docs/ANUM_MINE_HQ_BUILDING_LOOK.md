@@ -65,6 +65,12 @@ is the same; the buildings, the light and the motion changed.
   balcony, a timber clad entrance, a roof terrace with a plunge pool, a garden pool with loungers, palms, and a gate wall with the sign board.
 - **Facade detail.** Dark spandrels under every window row, slab edges, vertical fins, ledges, mullion gaps, balconies, louvres, a lit lobby and a
   lit canopy soffit. The building name is lettered from the real building name on the sign board (the board itself is blank in the mesh).
+- **See-through glass with lit rooms.** Every exterior window pane carries local coordinates and the glass shader draws a room behind it (ceiling light,
+  darker floor, desks and a few screens, warm or cool white per room), dim by day, glowing from the blue hour on, with a thin lit floor plate between
+  storeys so floors read from outside. It is interior mapping in the fragment shader, not alpha blending: no extra overdraw and no sorting, so the
+  software path pays only a few arithmetic operations per glass pixel. The executive lobby has turnstiles under the portico. It is a fake interior:
+  the real furnished floors are drawn by the interior pipeline when a building is opened, and the exterior shell is not yet generated from their
+  stacked volume (see the gaps below).
 - **Reflective glass.** Glass reflects a sky gradient chosen by the way the face looks, with a sun glint and a Fresnel edge, in every light preset, so
   neighbouring faces read differently. It is computed in the shader, so it also works on the software path.
 - **Blue hour.** A third light preset: deep blue zenith, warm orange horizon band, lavender haze, low warm sun, lit windows against bluish glass.
@@ -84,7 +90,9 @@ is the same; the buildings, the light and the motion changed.
 - No CC0 glTF building models were added: nothing was found and licence reviewed in this pass, so the credits line is unchanged.
 - Motion is off by default on software GL (CI) and was therefore verified there by switching it on (`anum.hq.ambient`), not by eye on a real GPU.
 
+- The see-through rooms are a shader illusion repeated per pane, not the real floors: they do not match the interior layout or count of a building. Wrapping the shell round the real stacked floor volume (height = floors x floor height) waits for the interior pipeline's shared floor height constant.
+
 ### Budgets
 
-Renderer chunk 156.7 kB gzip (limit 160 kB), HQ entry chunk 134.6 kB (limit 135 kB); neither limit was raised. Per-asset triangle caps rose
+Renderer chunk 157.2 kB gzip (limit 160 kB), HQ entry chunk 130.2 kB (limit 135 kB); neither limit was raised. Per-asset triangle caps rose
 (office tower 3800, admin block 2600, executive HQ 5600, personal villa 2400) because of the added detail; the campus uses the smaller sizes.

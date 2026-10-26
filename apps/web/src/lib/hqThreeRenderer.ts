@@ -54,11 +54,12 @@ const srgbToLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1
 
 // ---------------------------------------------------------------- shader patches
 
-const VERT_COMMON = 'attribute float aEm;\nvarying float vEm;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\nuniform float uTime;\nuniform float uAmb;';
-const VERT_BODY = 'vEm = aEm;\nvWPos = (modelMatrix * vec4(position, 1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * normal);';
+const VERT_COMMON = 'attribute float aEm;\nvarying float vEm;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\nvarying vec2 vPUv;\nuniform float uTime;\nuniform float uAmb;';
+const VERT_BODY = 'vPUv = uv;\nvEm = aEm;\nvWPos = (modelMatrix * vec4(position, 1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * normal);';
 const FRAG_COMMON = `varying float vEm;
 varying vec3 vWPos;
 varying vec3 vWNrm;
+varying vec2 vPUv;
 uniform float uNight;
 uniform float uLit;
 uniform float uTime;
@@ -72,7 +73,20 @@ uniform vec3 uSkyHor;
 uniform vec3 uSunDir;
 uniform vec3 uSunCol;
 uniform vec4 uRipples[${MAX_RIPPLES}];
-float hq_hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }`;
+float hq_hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+/* A lit room seen through a pane: ceiling light, darker floor, desks and a few screens (q is 0..1 across the pane, seed picks the room). */
+vec3 hq_room(vec2 q, float seed) {
+  float ceilL = smoothstep(0.78, 0.9, q.y) * (1.0 - smoothstep(0.93, 0.99, q.y));
+  float flo = smoothstep(0.0, 0.25, q.y);
+  float cx = floor(q.x * 5.0);
+  float desks = step(0.14, q.y) * step(q.y, 0.34) * step(0.42, hq_hash(vec2(cx, seed)));
+  float fx = fract(q.x * 5.0);
+  float scr = step(0.34, q.y) * step(q.y, 0.47) * step(0.8, hq_hash(vec2(cx + 3.0, seed))) * step(0.3, fx) * step(fx, 0.7);
+  vec3 wallC = mix(vec3(1.0, 0.8, 0.54), vec3(0.82, 0.88, 0.98), step(0.85, seed));
+  vec3 room = wallC * (0.3 + 0.7 * flo) + vec3(1.0, 0.93, 0.78) * ceilL * 1.3;
+  room = mix(room, room * 0.32, desks);
+  return room + vec3(0.35, 0.65, 1.0) * scr * 0.9;
+}`;
 
 /** Leaves and fronds lean with the wind: more the higher they are, out of step with their neighbours. Frozen (rest pose) when uAmb is 0. */
 const SWAY_FOLIAGE = `
@@ -107,6 +121,10 @@ const TRIPLANAR = `
 const GLASS_COLOR = `
   float glowW = clamp(vEm - 2.0, 0.0, 1.0);
   vec3 paneLit = diffuseColor.rgb;
+  // The room behind a pane (exterior panes carry local coordinates): a ceiling light, a darker floor, a few desks with screens.
+  float hqHas = step(0.0005, max(vPUv.x, vPUv.y));
+  vec3 hqRoom = vec3(0.0);
+  if (hqHas > 0.5) hqRoom = hq_room(vPUv, hq_hash(floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6)) + 3.0));
   {
     float gy = clamp(vWPos.y / 48.0, 0.0, 1.0);
     vec2 cell = floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6));
@@ -126,6 +144,9 @@ const GLASS_COLOR = `
     refl += uSunCol * sunSpec * (0.55 + 0.6 * (1.0 - uNight));
     float keep = 1.0 - 0.8 * glowW * uLit;
     diffuseColor.rgb = mix(diffuseColor.rgb, refl, (0.16 + 0.5 * fr) * keep);
+    // See through: the lit room shows in the glass, dim by day, glowing from the blue hour on; an unlit pane shows a dark room.
+    float seeIn = hqHas * (1.0 - 0.75 * fr) * mix(0.42, 0.9, uLit);
+    diffuseColor.rgb = mix(diffuseColor.rgb, hqRoom * mix(0.35, 0.18, step(glowW, 0.05)), seeIn);
   }`;
 /** Lit panes glow warm. A few of them drift slowly in brightness (a screen, a lamp being dimmed): never on and off, never a pattern of life. */
 const GLASS_EMISSIVE = `
@@ -133,7 +154,8 @@ const GLASS_EMISSIVE = `
     vec2 wc = floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6));
     float hh = hq_hash(wc + 7.0);
     float drift = 1.0 - uAmb * 0.16 * step(0.9, hh) * (0.5 + 0.5 * sin(uTime * (0.45 + hh * 1.1) + hh * 60.0));
-    totalEmissiveRadiance += paneLit * uLit * glowW * 1.9 * drift;
+    vec3 lamp = mix(paneLit, hqRoom * 1.05, hqHas);
+    totalEmissiveRadiance += lamp * uLit * glowW * mix(1.9, 1.3, hqHas) * drift;
   }`;
 const GENERIC_EMISSIVE = `
   {

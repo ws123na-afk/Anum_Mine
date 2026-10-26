@@ -7,7 +7,7 @@ import { hex, scale } from '../../lib/hqGeometry.ts';
 import { TEAL, anumMark, castShadow, hedge, lamp, pool } from '../../lib/hqProps.ts';
 import { clamp, curtainWall, faceBox, faceQuad, fins, finish, ledge, makeCtx, rectFaces, signBoard, type Face } from './parts.ts';
 import { accentBand, crown, flagPole, slabBand, terrace } from './towerParts.ts';
-import { atriumVault, balconyRun, canopy, roofDeck } from './facadeKit.ts';
+import { atriumVault, balconyRun, roofDeck } from './facadeKit.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
 
 export function buildExecutiveHq(params: ExteriorParams = {}): ExteriorAsset {
@@ -54,7 +54,12 @@ export function buildExecutiveHq(params: ExteriorParams = {}): ExteriorAsset {
   faceBox(b, frontPlane, pu0 - 0.4, pu0 + pW + 0.4, y0 + colH + 1.7, y0 + colH + 1.95, 0, pD + 0.3, scale(scheme.wall, 0.95));
   faceQuad(b, frontPlane, pu0 - 0.4, pu0 + pW + 0.4, y0 + colH + 1.72, y0 + colH + 1.8, scheme.accent, 0.8, pD + 0.32);
   const sign = signBoard(ctx, frontPlane, W / 2, y0 + colH + 0.45, Math.min(pW - 2, 15), 1.3, pD + 0.22);
-  void canopy;
+  // Lobby turnstiles under the portico: four slim gates with a lit top strip (furniture, not a count of anyone).
+  for (let i = 0; i < 4; i++) {
+    const tx0 = x0 + W / 2 - 3.3 + i * 2.2;
+    b.box(tx0, y0, z1 + pD - 3.2, 0.34, 1.05, 1.3, hex('#2a333d'), { grad: 0.15 });
+    b.box(tx0 + 0.04, y0 + 1.05, z1 + pD - 3.1, 0.26, 0.04, 1.1, hex('#7fe8d4'), { emissive: 0.9, shade: false });
+  }
   // Steps (five, wide) and lit risers.
   for (let i = 0; i < 5; i++) {
     const w = pW + 3 - i * 0.5;

@@ -10,7 +10,7 @@ import { MAT, MeshBuilder, hex, mix, scale, seeded, type Rgb } from './hqGeometr
 import { GROUND, STONE, WATER, bench, flatPoly, lamp } from './hqProps.ts';
 import { buildingGarden, globeMonument, campusEnvironment, carPark, carParkSize, pond, ripplesOf, tennisCourt, tree, trafficPlan, truck, van, type AmbientPlan, type Exclusion } from '../hqAssets/environment/index.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
-import { archetypeOf, drawBuilding, type Archetype } from './campusBuildings.ts';
+import { archetypeOf, type Archetype } from './campusBuildings.ts';
 import { drawExterior } from './campusExteriors.ts';
 import { campusExtent, type Placement } from './campusModel.ts';
 import type { Aabb } from './hqMath.ts';
@@ -104,16 +104,9 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
   placements.forEach((p, index) => {
     const archetype = archetypeOf(p);
     const asset = drawExterior(p, archetype, index, signCount);
-    let mesh: SceneMesh, anchor: Vec3, door: Vec3;
-    if (asset) {
-      mesh = { vertices: asset.vertices, bounds: asset.bounds, triangles: asset.triangles };
-      anchor = asset.anchor; door = asset.door;
-      buildingHalos.push(...asset.halos);
-    } else {
-      const b = new MeshBuilder();
-      const shape = drawBuilding(b, p, 'bld:' + p.workspaceId, index, signCount);
-      mesh = freeze(b); anchor = shape.anchor; door = shape.door;
-    }
+    const mesh: SceneMesh = { vertices: asset.vertices, bounds: asset.bounds, triangles: asset.triangles };
+    const anchor: Vec3 = asset.anchor, door: Vec3 = asset.door;
+    buildingHalos.push(...asset.halos);
     buildings.push({
       workspaceId: p.workspaceId, mesh, anchor, door, signIndex: index, archetype,
       box: { min: { x: p.x - p.width / 2 - 1.2, y: 0, z: p.z - p.depth / 2 - 1.2 }, max: { x: p.x + p.width / 2 + 1.2, y: mesh.bounds.max.y, z: p.z + p.depth / 2 + 1.2 } },
