@@ -3,7 +3,7 @@
  * bottom toolbar, totals panel with donut, and the minimap. The app's own sidebar and top bar stay
  * the only navigation; this file adds only what is specific to the scene.
  */
-import { Box, DoorOpen, ChevronLeft, ChevronRight, Crosshair, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Maximize } from 'lucide-react';
+import { Box, DoorOpen, ChevronLeft, ChevronRight, Crosshair, LayoutGrid, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Maximize } from 'lucide-react';
 import { useId, useRef, useState, type ReactElement } from 'react';
 import { arcPath, donutArcs, STATUS_ORDER, STATUS_TONE, type CampusTotals, type Placement, type StatusKey } from './lib/campusModel.ts';
 import { mapToWorld, worldToMap } from './lib/hqCamera.ts';
@@ -73,6 +73,8 @@ export function BottomToolbar(props: {
   onZoomIn: () => void; onZoomOut: () => void;
   /** The Inside view of the selected room: absent on screens that have no rooms. */
   inside?: { active: boolean; disabled: boolean; onToggle: () => void };
+  /** The whole active floor from above, every room labelled (spec: docs/ANUM_MINE_FLOOR_OVERVIEW.md). */
+  overview?: { active: boolean; onToggle: () => void };
 }) {
   return (
     <div className="hqToolbar" role="toolbar" aria-label={t('hq.tool.label')}>
@@ -84,6 +86,12 @@ export function BottomToolbar(props: {
         <button type="button" onClick={props.inside.onToggle} disabled={props.inside.disabled && !props.inside.active} aria-pressed={props.inside.active} data-testid="hq-inside" data-draws=""
           aria-label={props.inside.active ? t('hq.inside.leave') : t('hq.inside.enter')} title={props.inside.disabled && !props.inside.active ? t('hq.inside.pickRoom') : props.inside.active ? t('hq.inside.leave') : t('hq.inside.enter')}>
           <DoorOpen aria-hidden="true" /><span>{props.inside.active ? t('hq.inside.leaveShort') : t('hq.inside.enterShort')}</span>
+        </button>
+      )}
+      {props.overview && (
+        <button type="button" onClick={props.overview.onToggle} aria-pressed={props.overview.active} data-testid="hq-overview" data-draws=""
+          aria-label={props.overview.active ? t('hqFloor.leave') : t('hqFloor.enter')} title={props.overview.active ? t('hqFloor.leave') : t('hqFloor.enter')}>
+          <LayoutGrid aria-hidden="true" /><span>{t('hqFloor.short')}</span>
         </button>
       )}
       <span className="hqToolbarSep" aria-hidden="true" />

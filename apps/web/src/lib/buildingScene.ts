@@ -66,6 +66,8 @@ export type BuildingScene = Readonly<{
   desks: readonly BuildingDeskHandle[];
   bounds: Aabb;
   center: Vec3;
+  /** The floor footprint every floor shares (metres, slab edge to slab edge), without the lawn round it. */
+  footprint: Readonly<{ x0: number; x1: number; z0: number; z1: number }>;
   /** Sign cells: one, for the entrance sign on the front lawn (the stage draws the real building name there). */
   signCount: number;
   /** The region that casts and receives shadows. */
@@ -583,7 +585,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
     max: { x: fx1 + pad, y: last * FLOOR_PITCH + WALL_HEIGHT + 1, z: fz1 + pad },
   };
   return {
-    ghosts: ghostFloors, opaque: ob, glass: gb, rooms, desks, bounds,
+    ghosts: ghostFloors, opaque: ob, glass: gb, rooms, desks, bounds, footprint: { x0: fx0, x1: fx1, z0: fz0, z1: fz1 },
     center: { x: (fx0 + fx1) / 2, y: (active * FLOOR_PITCH) / 2, z: (fz0 + fz1) / 2 },
     signCount: 1,
     shadow: { center: { x: cx, y: 0, z: (fz0 + fz1) / 2 }, radius: Math.hypot(fx1 - fx0 + reach * 2, fz1 - fz0 + reach * 2) * 0.5 },

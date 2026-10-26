@@ -14,6 +14,7 @@
 /* The stage gives some height to the strip. */
 .hqNav[data-nav="on"] .hqStage { block-size: clamp(380px, calc(100dvh - 210px - var(--hqnav-strip, 0px) - var(--hqnav-tools, 0px)), 820px); }
 .hqNav[data-nav="on"] .hqBuilding .hqStage { block-size: clamp(360px, calc(100dvh - 360px - var(--hqnav-strip, 0px) - var(--hqnav-tools, 0px)), 780px); }
+.hqNav[data-nav="on"] .hqBuilding[data-overview="true"] .hqStage { block-size: clamp(440px, calc(100dvh - 280px - var(--hqnav-tools, 0px)), 900px); }
 .hqNav[data-strip="open"] { --hqnav-strip: 112px; }
 .hqNav[data-strip="closed"] { --hqnav-strip: 40px; }
 

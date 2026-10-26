@@ -13,6 +13,7 @@ import {
   createPaClient, parseUtterance, publishNavigation, summaryFigures,
   type Briefing, type InputMode, type Location, type PaResult, type PaTool, type PaToolName, type Tour, type TourStop,
 } from './lib/executivePa';
+import { parseCampusRequest } from './lib/hqCampusCommand';
 import { answerQuestion, createBuildingClient, missingQuestion, parseBuildingRequest, proposalArgs, type BuildingAsk } from './lib/hqBuildingCommand';
 import { assignHostAvailable, openAssign, parseAssignSentence, titleFromWork } from './lib/hqAssign';
 import { agentClient } from './hq-assign/useAssignAgents';
@@ -22,9 +23,11 @@ import type { BriefingOpen } from './PaBriefingCard';
 import './executivePanel.css';
 
 // The briefing card loads only when a briefing is asked for (the dock stays small).
+// The campus proposal card ("set up my campus") loads when asked for; its button is the only way to create.
+const CampusProposalCard = lazy(() => import('./hq-first-run/CampusProposalCard'));
 const PaBriefingCard = lazy(() => import('./PaBriefingCard').then((m) => ({ default: m.PaBriefingCard })));
 
-interface Entry { id: number; who: 'you' | 'pa'; text: string; tone?: 'ok' | 'warn' | 'error'; card?: { proposal: BuildingProposal; mode: 'typed' | 'voice'; args: BuildingAsk } }
+interface Entry { id: number; who: 'you' | 'pa'; text: string; tone?: 'ok' | 'warn' | 'error'; card?: { proposal: BuildingProposal; mode: 'typed' | 'voice'; args: BuildingAsk }; campus?: 'typed' | 'voice' }
 interface Pending { tool: PaToolName; args: Record<string, unknown>; proposal: PaResult; mode: InputMode }
 
 const mk = (key: string, vars?: Record<string, string | number>) => t(key as MessageKey, vars);
@@ -59,9 +62,9 @@ export function ExecutivePanel({ onOpenView, onLocation, onOpenTask }: {
   const counter = useRef(0);
   const talk = useRef<ReturnType<typeof createPushToTalk> | null>(null);
 
-  const say = useCallback((who: Entry['who'], body: string, tone?: Entry['tone'], card?: Entry['card']) => {
+  const say = useCallback((who: Entry['who'], body: string, tone?: Entry['tone'], card?: Entry['card'], campus?: Entry['campus']) => {
     counter.current += 1;
-    setLog((old) => [...old.slice(-49), { id: counter.current, who, text: body, tone, card }]);
+    setLog((old) => [...old.slice(-49), { id: counter.current, who, text: body, tone, card, campus }]);
   }, []);
 
   const loadTools = useCallback(async () => {
@@ -190,6 +193,7 @@ export function ExecutivePanel({ onOpenView, onLocation, onOpenTask }: {
     say('you', sentence);
     setText(''); setFromVoice(false); setPending(null);
     const mode2: InputMode = mode;
+    if (parseCampusRequest(sentence)) { say('pa', t('hqFr.cmd.title'), undefined, undefined, mode2 === 'voice' ? 'voice' : 'typed'); return; }
     const building = parseBuildingRequest(sentence);
     if (building) { proposeBuilding(building, mode2); return; }
     if (asking.current) { proposeBuilding(answerQuestion(asking.current, sentence), mode2); return; }
@@ -304,7 +308,10 @@ export function ExecutivePanel({ onOpenView, onLocation, onOpenTask }: {
 
     <div className="paLog" role="log" aria-label={t('pa.log')} aria-live="polite">
       {log.length === 0 && <p className="muted">{t('pa.logEmpty')}</p>}
-      {log.map((e) => e.card
+      {log.map((e) => e.campus
+        ? <div key={e.id} className={`paLine ${e.who}`}><strong>{t('pa.assistant')}</strong>
+          <Suspense fallback={<p className="muted" role="status">{t('hqFr.loading')}</p>}><CampusProposalCard inputMode={e.campus} onShow={() => { window.location.hash = '#office'; }} /></Suspense></div>
+        : e.card
         ? <div key={e.id} className={`paLine ${e.who}`}><strong>{t('pa.assistant')}</strong>
           <BuildingProposalCard proposal={e.card.proposal} inputMode={e.card.mode} onReview={() => proposeBuilding(e.card!.args, 'typed')}
             onShow={(id) => { publishNavigation({ building_id: id }); onLocation?.({ building_id: id }); }} /></div>

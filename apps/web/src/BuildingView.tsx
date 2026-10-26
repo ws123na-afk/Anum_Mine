@@ -15,8 +15,8 @@ import { BottomToolbar, CameraTools, TotalsPanel, statusLabel } from './HqChrome
 import { AvatarChip } from './AvatarStyleEditor';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { visualOfStatus } from './hqAssets/interior/stateVisual.ts';
-import { buildBuildingScene, frameBuilding, type DeskVisual } from './lib/buildingScene.ts';
-import { buildingCamera, clampInside, clampTarget, insideCamera, isInsideView, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
+import { buildBuildingScene, FLOOR_PITCH, WALL_HEIGHT, type DeskVisual } from './lib/buildingScene.ts';
+import { buildingFitCamera, floorOverviewCamera, clampInside, clampTarget, insideCamera, isInsideView, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { RoomGeometry, SceneBuilding, SceneDesk, SceneFloor } from './lib/headquartersProjection.ts';
 import { presenceForDesk, totalsOf, type HqPresenceIndex } from './lib/hqPresence.ts';
@@ -60,6 +60,9 @@ export type BuildingViewProps = Readonly<{
   onToggleFullscreen: () => void;
   onUnavailable: (reason: string) => void;
   onNight: (night: boolean) => void;
+  /** Floor overview: the whole active floor from above with every room labelled (state lives in the page so the floor rail can switch it too). */
+  overview: boolean;
+  onOverview: (on: boolean) => void;
   /** The navigation layer's camera bridge and thumbnail capture (flights, snapshots). */
   nav?: HqNavHandles;
   /** The open room or workstation panel, drawn over the scene (stacked under it on narrow screens). */
@@ -111,9 +114,18 @@ export function BuildingView(props: BuildingViewProps) {
     () => buildBuildingScene(floors, { activeIndex, showAll, cutaway: true, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks }),
     [floors, activeIndex, showAll, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks],
   );
-  const frame = useMemo(() => frameBuilding(scene, activeIndex), [scene, activeIndex]);
   const [wrap, aspect] = useAspect();
-  const home = useMemo(() => buildingCamera(frame.target, frame.distance, aspect), [frame.target.x, frame.target.z, frame.distance, activeIndex, aspect]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { overview } = props;
+  // The home camera fits the footprint, the turn of the isometric view and the shape of the stage; the overview camera fits the active floor from above.
+  const fp = scene.footprint;
+  const topY = (showAll ? floors.length - 1 : activeIndex) * FLOOR_PITCH;
+  const buildingHome = useMemo(
+    () => buildingFitCamera({ x0: fp.x0 - 1, x1: fp.x1 + 1, z0: fp.z0 - 1, z1: fp.z1 + 1, y0: activeIndex * FLOOR_PITCH - 0.4, y1: topY + WALL_HEIGHT + 0.4 }, aspect),
+    [fp.x0, fp.x1, fp.z0, fp.z1, activeIndex, topY, aspect]);
+  const overviewHome = useMemo(
+    () => floorOverviewCamera({ x0: fp.x0 - 0.6, x1: fp.x1 + 0.6, z0: fp.z0 - 0.6, z1: fp.z1 + 0.6, y0: activeIndex * FLOOR_PITCH, y1: activeIndex * FLOOR_PITCH + WALL_HEIGHT }, aspect),
+    [fp.x0, fp.x1, fp.z0, fp.z1, activeIndex, aspect]);
+  const home = overview ? overviewHome : buildingHome;
   const [camera, setCamera] = useState<CameraState>(home);
   const homeRef = useRef(home);
   const shownFloor = useRef(activeIndex);
@@ -184,10 +196,15 @@ export function BuildingView(props: BuildingViewProps) {
       setInside(false);
       goTo(latest.current.view === 'top' ? topView(homeRef.current) : homeRef.current);
     } else if (selectedRoom) {
+      if (latest.current.overview) latest.current.onOverview(false);
       setInsideRoomId(selectedRoom.id);
       goTo(insideOf(selectedRoom));
     }
   }, [goTo, insideOf, selectedRoom, setInside]);
+  const toggleOverview = useCallback(() => {
+    setInside(false);
+    latest.current.onOverview(!latest.current.overview);
+  }, [setInside]);
   useEffect(() => {
     const current = insideRef.current;
     if (!current) return;
@@ -208,7 +225,8 @@ export function BuildingView(props: BuildingViewProps) {
   const pickRoom = useCallback((id: string | null) => {
     const room = id ? roomById.get(id) ?? null : null;
     latest.current.onSelectRoom(room);
-    if (room) focusRoom(room);
+    // In the floor overview a pick only selects: the whole floor stays in view.
+    if (room && !latest.current.overview) focusRoom(room);
   }, [roomById, focusRoom]);
 
   const targets: PickTarget[] = useMemo(() => scene.rooms.filter((r) => r.floorIndex === activeIndex).map((r) => ({ id: r.id, box: r.box })), [scene, activeIndex]);
@@ -256,9 +274,12 @@ export function BuildingView(props: BuildingViewProps) {
       const working = desks.filter((d) => presenceForDesk(presence, d)?.status === 'working').length;
       list.push({
         id: 'room:' + room.id, anchor: handle.anchor, priority: room.id === props.selectedRoomId ? 0 : 1, maxDistance: 160,
-        node: <RoomCard room={room} assigned={assigned} working={working} known={presence !== null} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId} onPick={() => pickRoom(room.id)} />,
+        node: overview
+          ? <OverviewCard room={room} desks={desks.length} assigned={assigned} selected={room.id === props.selectedRoomId} onPick={() => pickRoom(room.id)} />
+          : <RoomCard room={room} assigned={assigned} working={working} known={presence !== null} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId} onPick={() => pickRoom(room.id)} />,
       });
     }
+    if (overview) return [...list, ...flowLabels];
     for (const dh of scene.desks) {
       if (dh.floorIndex !== activeIndex) continue;
       const desk = floor.desks.find((d) => d.id === dh.id);
@@ -282,7 +303,7 @@ export function BuildingView(props: BuildingViewProps) {
       }
     }
     return [...list, ...flowLabels];
-  }, [roomById, insideRoomId, props.wall, scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels]);
+  }, [roomById, insideRoomId, props.wall, scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels, overview]);
 
   const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
   const insideRoom = insideRoomId ? roomById.get(insideRoomId) ?? null : null;
@@ -293,8 +314,11 @@ export function BuildingView(props: BuildingViewProps) {
   const modules = useMemo(() => buildingModules(building), [building]);
 
   return (
-    <div className="hqBuilding" data-inside={inside} onKeyDown={(e) => {
-      if (e.key === 'Escape' && insideRef.current) { e.stopPropagation(); toggleInside(); return; }
+    <div className="hqBuilding" data-inside={inside} data-overview={overview} onKeyDown={(e) => {
+      if (e.key === 'Escape') {
+        if (insideRef.current) { e.stopPropagation(); toggleInside(); } else if (latest.current.overview) { e.stopPropagation(); latest.current.onOverview(false); }
+        return;
+      }
       // Page Up and Page Down move between floors (never while typing in a field or holding a modifier).
       if ((e.key === 'PageUp' || e.key === 'PageDown') && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
         const tag = (e.target as HTMLElement).tagName;
@@ -375,6 +399,7 @@ export function BuildingView(props: BuildingViewProps) {
         <div className="hqOverlay hqOverlayBottom">
           <BottomToolbar
             inside={{ active: inside, disabled: !selectedRoom || view === 'top', onToggle: toggleInside }}
+            overview={{ active: overview, onToggle: toggleOverview }}
             onRotateLeft={() => change((c) => rotateBy(c, -20))} onRotateRight={() => change((c) => rotateBy(c, 20))}
             onPrev={() => stepFloor(-1)} onNext={() => stepFloor(1)} prevDisabled={activeIndex <= 0} nextDisabled={activeIndex >= floors.length - 1} prevLabel={t('hq.floor.down')} nextLabel={t('hq.floor.up')}
             onZoomIn={() => change((c) => dolly(c, -250))} onZoomOut={() => change((c) => dolly(c, 250))}
@@ -384,6 +409,8 @@ export function BuildingView(props: BuildingViewProps) {
       </div>
 
       <div className="hqStripSlot" />
+
+      {overview && floor.rooms.length > 0 && <FloorRooms floor={floor} presence={presence} selectedRoomId={props.selectedRoomId} onPick={pickRoom} onLeave={() => props.onOverview(false)} />}
 
       <div className="hqBottomPanels">
         <TotalsPanel
@@ -408,6 +435,46 @@ function RoomCard(props: { room: RoomGeometry; assigned: number; working: number
       <span className="hqLabelIcon"><Icon aria-hidden="true" /></span>
       <span className="hqLabelText"><strong>{props.room.label}</strong><small>{props.live ? t('hq.room.inMeeting') : sub}</small></span>
     </button>
+  );
+}
+
+/** The room card of the floor overview: the name, the kind, the desks and the people at them; a button that selects the room. */
+function OverviewCard(props: { room: RoomGeometry; desks: number; assigned: number; selected: boolean; onPick: () => void }) {
+  const Icon = (ROOM_ICON as Record<string, typeof Users>)[props.room.kind] ?? Building2;
+  return (
+    <button type="button" className="hqLabelCard hqOverviewCard" data-selected={props.selected} data-kind={props.room.kind} aria-pressed={props.selected} onClick={props.onPick}>
+      <span className="hqLabelIcon"><Icon aria-hidden="true" /></span>
+      <span className="hqLabelText"><strong>{props.room.label}</strong><small>{t(`hq.roomKind.${props.room.kind}` as MessageKey)}</small><small>{t('hqFloor.stats', { desks: props.desks, agents: props.assigned })}</small></span>
+    </button>
+  );
+}
+
+/** Every room of the active floor as a plain list under the scene: the same facts as the cards, always reachable by keyboard and screen reader. */
+function FloorRooms(props: { floor: SceneFloor; presence: HqPresenceIndex | null; selectedRoomId: string | null; onPick: (id: string) => void; onLeave: () => void }) {
+  const { floor } = props;
+  const rows = floor.rooms.map((room) => {
+    const desks = floor.desks.filter((d) => d.roomId === room.id);
+    return { room, desks: desks.length, agents: desks.filter((d) => d.agentId || presenceForDesk(props.presence, d)).length };
+  });
+  const totals = rows.reduce((n, r) => ({ desks: n.desks + r.desks, agents: n.agents + r.agents }), { desks: 0, agents: 0 });
+  return (
+    <section className="hqPanel hqFloorRooms" aria-label={t('hqFloor.listTitle', { floor: floor.name })} data-testid="hq-floor-rooms">
+      <header>
+        <h2>{t('hqFloor.listTitle', { floor: floor.name })}</h2>
+        <p className="hqMuted">{t('hqFloor.summary', { rooms: rows.length, desks: totals.desks, agents: totals.agents })}</p>
+        <button type="button" className="hqGhost" onClick={props.onLeave}>{t('hqFloor.back')}</button>
+      </header>
+      <ul>
+        {rows.map(({ room, desks, agents }) => (
+          <li key={room.id}>
+            <button type="button" data-selected={room.id === props.selectedRoomId} aria-pressed={room.id === props.selectedRoomId} onClick={() => props.onPick(room.id)}>
+              <strong dir="auto">{room.label}</strong>
+              <small>{t(`hq.roomKind.${room.kind}` as MessageKey)}. {t('hqFloor.stats', { desks, agents })}</small>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

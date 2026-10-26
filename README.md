@@ -101,6 +101,7 @@ x-user-roles: owner,member
 - [ANUM MINE headquarters governed agent provisioning](docs/ANUM_MINE_AGENT_PROVISIONING.md)
 - [ANUM MINE headquarters: assign work in place and add a building by asking](docs/ANUM_MINE_ASSIGN_WORK.md)
 - [ANUM MINE starter campus: one click Set up my campus](docs/ANUM_MINE_STARTER_CAMPUS.md)
+- [ANUM MINE floor overview: the whole floor on one screen, and the fitted building camera](docs/ANUM_MINE_FLOOR_OVERVIEW.md)
 - [ANUM MINE Staff my campus: a reviewed paused agent for every empty desk](docs/ANUM_MINE_STAFF_DESKS.md)
 - [ANUM MINE departments with real modules, agent roles for them and meetings tied to rooms](docs/ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md)
 - [ANUM MINE headquarters building modules, command centre room kind, personal office and floor transitions](docs/ANUM_MINE_HQ_BUILDING_MODULES.md)
