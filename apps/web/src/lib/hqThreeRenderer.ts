@@ -20,7 +20,7 @@ import {
   ACESFilmicToneMapping, AmbientLight, BackSide, BufferGeometry, CanvasTexture, Color, DirectionalLight, DoubleSide, Float32BufferAttribute, Fog, HalfFloatType,
   HemisphereLight, LinearMipmapLinearFilter, Material, Mesh, MeshLambertMaterial, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, PCFShadowMap,
   PerspectiveCamera, PMREMGenerator, RepeatWrapping, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, Vector2, Vector3, Vector4, WebGLRenderer, WebGLRenderTarget,
-  LinearFilter, Matrix4, type IUniform,
+  LinearFilter, Matrix4, DataTexture, NearestFilter, RGBAFormat, UnsignedByteType, type IUniform,
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
@@ -35,6 +35,7 @@ import { SCENERY_FPS, MAX_RIPPLES, sceneryLevelFor, readSceneryOverride, type Sc
 import { clipPlanes, viewProjection } from './hqMath.ts';
 import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
+import type { GlassPlanData } from './hqPlanAtlas.ts';
 import { ModelLayer } from './hqModelLayer.ts';
 import type { ModelGroup } from './hqModels.ts';
 
@@ -75,6 +76,7 @@ uniform vec3 uSunDir;
 uniform vec3 uSunCol;
 uniform vec4 uRipples[${MAX_RIPPLES}];
 float hq_hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+/*HQ_PLAN_COMMON*/
 #ifdef HQ_RICH
 /* A lit room seen through a pane: ceiling light, darker floor, desks and a few screens (q is 0..1 across the pane, seed picks the room). */
 vec3 hq_room(vec2 q, float seed) {
@@ -127,11 +129,14 @@ const GLASS_COLOR = `
   // The room behind a pane (exterior panes carry local coordinates): a ceiling light, a darker floor, a few desks with screens.
   float hqHas = step(0.0005, max(vPUv.x, vPUv.y));
   vec3 hqRoom = vec3(0.0);
+  float hqPlan = 0.0;
+  vec3 hqEmit = vec3(0.0);
 #ifdef HQ_RICH
-  if (hqHas > 0.5) hqRoom = hq_room(vPUv, hq_hash(floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6)) + 3.0));
+  if (hqHas > 0.5 && vPUv.x < 1.5) hqRoom = hq_room(vPUv, hq_hash(floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6)) + 3.0));
 #else
   hqHas = 0.0;
 #endif
+  /*HQ_PLAN_COLOR*/
   {
     float gy = clamp(vWPos.y / 48.0, 0.0, 1.0);
     vec2 cell = floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6));
@@ -161,7 +166,7 @@ const GLASS_EMISSIVE = `
     vec2 wc = floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6));
     float hh = hq_hash(wc + 7.0);
     float drift = 1.0 - uAmb * 0.16 * step(0.9, hh) * (0.5 + 0.5 * sin(uTime * (0.45 + hh * 1.1) + hh * 60.0));
-    vec3 lamp = mix(paneLit, hqRoom * 1.05, hqHas);
+    vec3 lamp = hqPlan > 0.5 ? hqEmit : mix(paneLit, hqRoom * 1.05, hqHas);
     totalEmissiveRadiance += lamp * uLit * glowW * mix(1.9, 1.3, hqHas) * drift;
   }`;
 const GENERIC_EMISSIVE = `
@@ -204,7 +209,10 @@ const HIGHLIGHT = '  totalEmissiveRadiance += vec3(0.08, 0.2, 0.17) * uHighlight
 type Shared = {
   uNight: IUniform<number>; uLit: IUniform<number>; uTime: IUniform<number>; uAmb: IUniform<number>; uDetail: IUniform<Vector2>;
   uSkyTop: IUniform<Color>; uSkyHor: IUniform<Color>; uSunDir: IUniform<Vector3>; uSunCol: IUniform<Color>; uRipples: IUniform<Vector4[]>;
+  uPlanTex: IUniform<Texture | null>; uPlanRect: IUniform<Vector4[]>; uPlanInfo: IUniform<Vector4[]>; uPlanGrid: IUniform<Vector2>; uPlanCount: IUniform<number>;
 };
+/** The glass plan shader code, set once the lazy chunk has loaded (see `HqRenderer.applyGlassPlan`). */
+let planShader: typeof import('./hqGlassShader.ts') | null = null;
 type Variant = 'std' | 'glass' | 'water' | 'foliage' | 'cloth' | 'beacon';
 
 /** `rich` adds the lit rooms behind glass, the water rings and the sky's clouds; a software rasteriser compiles and runs the plain programs. */
@@ -224,13 +232,15 @@ function patched(material: Material, shared: Shared, opts: { texture?: Texture; 
     let frag = shader.fragmentShader.replace('#include <common>', `#include <common>\n${FRAG_COMMON}`);
     if (opts.texture) frag = frag.replace('#include <map_fragment>', `#include <map_fragment>\n${TRIPLANAR}`);
     if (variant === 'glass') frag = frag.replace('#include <color_fragment>', `#include <color_fragment>\n${GLASS_COLOR}`);
+    // The plan impostor (hqGlassShader.ts, a separate lazy chunk) fills the markers once it has loaded; until then they are empty.
+    frag = frag.replace('/*HQ_PLAN_COMMON*/', variant === 'glass' && planShader ? planShader.PLAN_COMMON : '').replace('/*HQ_PLAN_COLOR*/', variant === 'glass' && planShader ? planShader.PLAN_COLOR : '');
     if (variant === 'water') frag = frag.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${WATER_NORMAL}`);
     const emissive = variant === 'glass' ? GLASS_EMISSIVE : variant === 'beacon' ? BEACON_EMISSIVE : GENERIC_EMISSIVE;
     frag = frag.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${emissive}${variant === 'water' ? WATER_GLINT : ''}\n${HIGHLIGHT}`);
     shader.fragmentShader = (opts.rich ? '#define HQ_RICH\n' : '') + frag;
   };
   // A distinct cache key per variant so the programs are not shared between patched and plain materials.
-  material.customProgramCacheKey = () => `hq-${variant}-${opts.texture ? 'tex' : 'plain'}-${opts.rich ? 'rich' : 'lean'}`;
+  material.customProgramCacheKey = () => `hq-${variant}-${opts.texture ? 'tex' : 'plain'}-${opts.rich ? 'rich' : 'lean'}${variant === 'glass' && planShader ? '-plan' : ''}`;
 }
 
 // ---------------------------------------------------------------- sky
@@ -305,7 +315,7 @@ type Quality = 0 | 1 | 2 | 3;
 const SHADOW_SIZE: Record<Quality, number> = { 0: 0, 1: 1024, 2: 1024, 3: 2048 };
 
 export class HqRenderer {
-  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
+  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, glassPlan: '', scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(40, 1, 0.2, 1000);
@@ -316,11 +326,16 @@ export class HqRenderer {
     uNight: { value: 0 }, uLit: { value: 0 }, uTime: { value: 0 }, uAmb: { value: 0 }, uDetail: { value: new Vector2(60, 200) },
     uSkyTop: { value: new Color() }, uSkyHor: { value: new Color() }, uSunDir: { value: new Vector3(0, -1, 0) }, uSunCol: { value: new Color() },
     uRipples: { value: Array.from({ length: MAX_RIPPLES }, () => new Vector4(0, 0, 0, 0)) },
+    uPlanTex: { value: null }, uPlanRect: { value: Array.from({ length: 16 }, () => new Vector4()) }, uPlanInfo: { value: Array.from({ length: 16 }, () => new Vector4()) },
+    uPlanGrid: { value: new Vector2(1, 1) }, uPlanCount: { value: 0 },
   };
   private readonly materials = new Map<Cls, Material>();
   private readonly textures: Texture[] = [];
   private signTexture: Texture | null = null;
   private signKey = '';
+  private planTexture: DataTexture | null = null;
+  private planRevision = '';
+  private wantedPlan: GlassPlanData | null = null;
   private envs: Array<Texture | undefined> = [];
   private sky: Mesh | null = null;
   private meshes: Mesh[] = [];
@@ -684,6 +699,7 @@ export class HqRenderer {
     if (key !== this.signKey) {
       this.signKey = key;
       this.signTexture?.dispose();
+    this.planTexture?.dispose();
       this.signTexture = null;
       const source = scene.signs && scene.signs.length ? drawSignAtlas(scene.signs) : null;
       if (source) {
@@ -700,6 +716,50 @@ export class HqRenderer {
     this.startLifts(scene.lifts);
     this.shadowDirty = true;
     this.requestFrame();
+  }
+
+
+  /**
+   * The plan impostor behind the glass: the atlas becomes one nearest-filtered texture and the per-building rectangles become
+   * uniforms. The shader code is a lazy chunk, fetched the first time a scene carries a plan; the glass programs are rebuilt
+   * once with it. A new revision of the same size only rewrites the texture bytes.
+   */
+  setGlassPlan(plan: GlassPlanData | null | undefined): void {
+    this.wantedPlan = plan ?? null;
+    if (!plan) { this.shared.uPlanCount.value = 0; this.stats.glassPlan = ''; return; }
+    if (plan.revision === this.planRevision) return;
+    const apply = (): void => {
+      const want = this.wantedPlan;
+      if (!want || this.disposed) return;
+      if (this.planTexture && this.planTexture.image.width === want.width && this.planTexture.image.height === want.height) {
+        (this.planTexture.image.data as Uint8Array).set(want.data);
+      } else {
+        this.planTexture?.dispose();
+        const tex = new DataTexture(want.data.slice(), want.width, want.height, RGBAFormat, UnsignedByteType);
+        tex.magFilter = tex.minFilter = NearestFilter;
+        tex.colorSpace = NoColorSpace;
+        tex.generateMipmaps = false;
+        this.planTexture = tex;
+      }
+      this.planTexture.needsUpdate = true;
+      const u = this.shared;
+      u.uPlanTex.value = this.planTexture;
+      u.uPlanGrid.value.set(want.cols, want.rows);
+      u.uPlanCount.value = want.buildings.length;
+      want.buildings.forEach((b, i) => {
+        u.uPlanRect.value[i].set(b.rect[0], b.rect[1], 1 / (b.rect[2] - b.rect[0]), 1 / (b.rect[3] - b.rect[1]));
+        u.uPlanInfo.value[i].set(b.storeys, b.baseY, b.pitch, 0);
+      });
+      this.planRevision = want.revision;
+      this.stats.glassPlan = want.revision;
+      this.requestFrame();
+    };
+    if (planShader) { apply(); return; }
+    void import('./hqGlassShader.ts').then((m) => {
+      planShader = m;
+      for (const cls of ['glass'] as const) { const material = this.materials.get(cls); if (material) material.needsUpdate = true; }
+      apply();
+    }).catch(() => undefined);
   }
 
   /** Decide where each lift group goes: a new target eases from `from` (or from where the group stands), unseen groups jump. */
@@ -1005,6 +1065,7 @@ export class HqRenderer {
     for (const material of this.materials.values()) material.dispose();
     for (const texture of this.textures) texture.dispose();
     this.signTexture?.dispose();
+    this.planTexture?.dispose();
     if (this.sky) { this.sky.geometry.dispose(); (this.sky.material as Material).dispose(); }
     for (const env of this.envs) env?.dispose();
     this.scenery?.dispose();

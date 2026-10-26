@@ -10,6 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { readNightPreset, subscribeNightPreset, targetBlend } from './lib/hqLightPreset.ts';
 import type { HqRenderer } from './lib/hqThreeRenderer.ts';
 import type { RenderScene } from './lib/hqRenderTypes.ts';
+import type { GlassPlanData } from './lib/hqPlanAtlas.ts';
 import { pickNearest, type PickTarget } from './lib/hqMath.ts';
 import { placeLabels } from './lib/hqLabels.ts';
 import { dolly, isCameraAtRest, orbit, pan, screenRay, stepCamera, type CameraState } from './lib/headquartersSpatial.ts';
@@ -33,6 +34,8 @@ type Props = Readonly<{
   label: string;
   description: string;
   scene: RenderScene | null;
+  /** The plan atlas the glass looks through (campus only). Changing it never rebuilds the scene meshes. */
+  glassPlan?: GlassPlanData | null;
   pickTargets: readonly PickTarget[];
   camera: CameraState;
   homeCamera: CameraState;
@@ -124,6 +127,7 @@ export function HqStage(props: Props) {
             canvas.current.dataset.dpr = s.dpr.toFixed(2);
             canvas.current.dataset.shadow = String(s.shadowSize);
             canvas.current.dataset.bloom = s.bloom ? 'true' : 'false';
+            canvas.current.dataset.glassPlan = s.glassPlan;
             canvas.current.dataset.sceneryLevel = String(s.scenery.level);
             canvas.current.dataset.sceneryFrames = String(s.scenery.frames);
             canvas.current.dataset.sceneryClock = s.scenery.clock.toFixed(2);
@@ -148,6 +152,7 @@ export function HqStage(props: Props) {
       r.setCamera(live.current);
       r.setNight(nightNow.current);
       if (propsRef.current.scene) r.setScene(propsRef.current.scene);
+      r.setGlassPlan(propsRef.current.glassPlan);
       r.setHighlight(propsRef.current.hoverId, propsRef.current.selectedId);
       resizeObserver = new ResizeObserver(() => {
         const box = el.getBoundingClientRect();
@@ -171,6 +176,11 @@ export function HqStage(props: Props) {
 
   useEffect(() => { renderer.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
   useEffect(() => { if (scene) renderer.current?.setScene(scene); }, [scene]);
+  // The revision of the plan atlas the scene asks for (the drawn one is `data-glass-plan`): a layout or presence change moves it.
+  useEffect(() => {
+    renderer.current?.setGlassPlan(props.glassPlan);
+    if (canvas.current) canvas.current.dataset.glassPlanWanted = props.glassPlan?.revision ?? '';
+  }, [props.glassPlan]);
   useEffect(() => { renderer.current?.setHighlight(props.hoverId, props.selectedId); }, [props.hoverId, props.selectedId]);
   useLayoutEffect(() => { labelSizes.current.clear(); renderer.current?.requestFrame(); }, [labels]);
 
