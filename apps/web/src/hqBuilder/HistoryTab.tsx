@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { OfficeLayoutRevision, OfficeLayoutRevisionDetail, OfficeLayoutRevisionList } from '@anum/contracts';
 import { formatDateTime, t } from '../lib/i18n.ts';
+import { pickName } from '../lib/registryNames.ts';
 import type { HistoryApi } from './historyApi.ts';
 import { historyProblem, revisionTitle, STATUS_ORDER, summaryText, type HistoryProblem } from './historyModel.ts';
 import { MiniPlan } from './MiniPlan.tsx';
@@ -236,7 +237,7 @@ export function HistoryTab({ b, api, editable }: Props) {
 
       {dialog && detail && detail.against === 'current' && (
         <RestoreDialog
-          detail={detail} floorName={b.floor?.name ?? '-'} busy={restoring} problem={restoreProblem}
+          detail={detail} floorName={b.floor ? pickName(b.floor.name, b.floor.name_ar) : '-'} busy={restoring} problem={restoreProblem}
           onRestore={(ids) => void restore(ids)} onClose={() => setDialog(false)} onReload={() => void reloadAfterRefusal()}
         />
       )}

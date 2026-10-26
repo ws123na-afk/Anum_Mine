@@ -119,6 +119,7 @@ function RoomForm({ b, api, record, people, peopleReady, editable }: { b: Builde
         <label className="hqbField"><span>{t('hqb.room.nameAr')}</span>
           <input value={nameAr} maxLength={100} dir="rtl" lang="ar" disabled={off} onChange={(e) => setNameAr(e.target.value)} />
         </label>
+        {!nameAr.trim() && <p className="hqbHint" role="note">{t('hqb.nameAr.hint')}</p>}
         <div className="hqbRow">
           <label className="hqbGrow"><span>{t('hqb.room.kind')}</span>
             <select value={kind} disabled={off} onChange={(e) => setKind(e.target.value as OfficeRoomKind)}>

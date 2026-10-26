@@ -12,6 +12,7 @@ import { filterBuildings, readingOrder, buildingStatus, workspaceOf, type Campus
 import type { SceneBuilding } from './lib/headquartersProjection.ts';
 import type { RoomMeeting } from './lib/hqPresence.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
+import { roomName, sceneName } from './lib/registryNames.ts';
 
 export function CampusListView(props: Readonly<{
   campus: Campus;
@@ -32,7 +33,7 @@ export function CampusListView(props: Readonly<{
   const visible = buildings.filter((b) => {
     if (!q) return true;
     if (filterBuildings([b], q).length) return true;
-    return b.workspace_id === props.currentWorkspaceId && props.detail.some((sb) => sb.floors.some((f) => f.rooms.some((r) => fold(r.label).includes(q))));
+    return b.workspace_id === props.currentWorkspaceId && props.detail.some((sb) => sb.floors.some((f) => f.rooms.some((r) => fold(`${r.label} ${r.labelAr ?? ''}`).includes(q))));
   });
   return (
     <section className="hqList" aria-label={t('hq.list.label')}>
@@ -55,20 +56,20 @@ export function CampusListView(props: Readonly<{
                 <div className="hqListRow">
                   <span className="hqStatusDot" aria-hidden="true" data-status={status} />
                   <div className="hqListName">
-                    <h3>{b.name}</h3>
+                    <h3 dir="auto">{sceneName(b)}</h3>
                     <p className="hqMuted">{t(`hq.kind.${b.kind}` as MessageKey)}{b.floors ? ` · ${t('hq.building.floors', { count: b.floors })}` : ''} · {buildingSummary(b)}</p>
                   </div>
                   {b.accessible
-                    ? <button type="button" className="hqGhost" onClick={() => props.onEnter(b.workspace_id)} aria-label={t('hq.building.enter', { name: b.name })}>{t('hq.list.open')}<ArrowRight aria-hidden="true" className="flip" /></button>
+                    ? <button type="button" className="hqGhost" onClick={() => props.onEnter(b.workspace_id)} aria-label={t('hq.building.enter', { name: sceneName(b) })}>{t('hq.list.open')}<ArrowRight aria-hidden="true" className="flip" /></button>
                     : <span className="hqMuted">{t('hq.detail.notAccessible')}</span>}
                 </div>
                 {current && props.detail.filter((sb) => !b.registryBuildingId || sb.id === b.registryBuildingId).map((sb) => (
-                  <ul key={sb.id} className="hqListFloors" aria-label={t('hq.list.floorsOf', { name: sb.name })}>
+                  <ul key={sb.id} className="hqListFloors" aria-label={t('hq.list.floorsOf', { name: sceneName(sb) })}>
                     {sb.floors.map((f) => {
-                      const rooms = f.rooms.filter((r) => !q || fold(r.label).includes(q) || filterBuildings([b], q).length > 0);
+                      const rooms = f.rooms.filter((r) => !q || fold(`${r.label} ${r.labelAr ?? ''}`).includes(q) || filterBuildings([b], q).length > 0);
                       return (
                         <li key={f.id}>
-                          <h4>{f.name}</h4>
+                          <h4 dir="auto">{sceneName(f)}</h4>
                           {rooms.length === 0 ? <p className="hqMuted">{t('hq.list.noRooms')}</p> : (
                             <ul className="hqListRooms">
                               {rooms.map((r) => {
@@ -77,7 +78,7 @@ export function CampusListView(props: Readonly<{
                                 return (
                                   <li key={r.id} data-in-meeting={live ? 'true' : undefined}>
                                     <button type="button" className="hqListRoom" onClick={() => props.onOpenRoom(workspaceOf(b), f.id, r.id)}>
-                                      <strong>{r.label}</strong>
+                                      <strong dir="auto">{roomName(r)}</strong>
                                       <small>{t(`hq.roomKind.${r.kind}` as MessageKey)} · {t('hq.list.desks', { count: desks.length })}</small>
                                     </button>
                                     {live && <span className="hqPill tone-ok" data-testid="list-in-meeting">{t('hq.room.inMeeting')}</span>}

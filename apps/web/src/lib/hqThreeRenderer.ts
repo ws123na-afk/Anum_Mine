@@ -33,8 +33,8 @@ import { DUSK, lightingFor } from './hqLighting.ts';
 import { SceneryLayer } from './hqSceneryLayer.ts';
 import { SCENERY_FPS, MAX_RIPPLES, sceneryLevelFor, readSceneryOverride, type SceneryLevel } from '../hqAssets/environment/scenery.ts';
 import { clipPlanes, viewProjection } from './hqMath.ts';
-import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
-import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
+import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks, type SignText } from './hqRenderTypes.ts';
+import { drawMaterialTexture, drawSignAtlas, ensureSignFonts, signFontsPending, type MaterialTextureKind } from './hqTextures.ts';
 import { ModelLayer } from './hqModelLayer.ts';
 import type { ModelGroup } from './hqModels.ts';
 
@@ -680,22 +680,7 @@ export class HqRenderer {
       this.shared.uRipples.value[i].set(on ? ripples![i * 3] : 0, on ? ripples![i * 3 + 1] : 0, on ? ripples![i * 3 + 2] : 0, 0);
     }
     this.shadowRegion = scene.shadow ? { center: { ...scene.shadow.center }, radius: scene.shadow.radius } : null;
-    const key = JSON.stringify(scene.signs ?? []);
-    if (key !== this.signKey) {
-      this.signKey = key;
-      this.signTexture?.dispose();
-      this.signTexture = null;
-      const source = scene.signs && scene.signs.length ? drawSignAtlas(scene.signs) : null;
-      if (source) {
-        const tex = new CanvasTexture(source);
-        tex.colorSpace = SRGBColorSpace;
-        tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
-        this.signTexture = tex;
-      }
-      const sign = this.materials.get('sign') as MeshBasicMaterial;
-      sign.map = this.signTexture;
-      sign.needsUpdate = true;
-    }
+    this.applySigns(scene.signs ?? []);
     this.applyHighlight();
     this.startLifts(scene.lifts);
     this.shadowDirty = true;
@@ -991,6 +976,35 @@ export class HqRenderer {
   }
 
   private scheduleSceneryIfRunning(): void { if (this.level > 0) this.scheduleScenery(); }
+
+  /** Draws the sign atlas when the lettering changed. Arabic signs are drawn again once the Arabic face has loaded. */
+  private applySigns(signs: readonly SignText[]): void {
+    const key = JSON.stringify(signs);
+    if (key === this.signKey) return;
+    this.signKey = key;
+    this.drawSigns(signs);
+    if (signFontsPending(signs)) {
+      void ensureSignFonts(signs).then(() => {
+        // Only the lettering that is still on show is redrawn; a newer scene already replaced it.
+        if (this.signKey === key && !this.disposed) { this.drawSigns(signs); this.requestFrame(); }
+      });
+    }
+  }
+
+  private drawSigns(signs: readonly SignText[]): void {
+    this.signTexture?.dispose();
+    this.signTexture = null;
+    const source = signs.length ? drawSignAtlas(signs) : null;
+    if (source) {
+      const tex = new CanvasTexture(source);
+      tex.colorSpace = SRGBColorSpace;
+      tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+      this.signTexture = tex;
+    }
+    const sign = this.materials.get('sign') as MeshBasicMaterial;
+    sign.map = this.signTexture;
+    sign.needsUpdate = true;
+  }
 
   dispose(): void {
     if (this.disposed) return;

@@ -32,7 +32,14 @@ from .schemas import TenantContext
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/office/starter-campus/arabic-names", tags=["office starter campus"])
 VERSION = 1
-_TABLES = {"buildings": "office_buildings", "floors": "office_floors", "rooms": "office_rooms"}
+_SELECTS = {
+    "buildings": text("select id, name, name_ar from office_buildings where tenant_id = :t and workspace_id = :w "
+                      "and (name_ar is null or btrim(name_ar) = '') order by id limit :n"),
+    "floors": text("select id, name, name_ar from office_floors where tenant_id = :t and workspace_id = :w "
+                   "and (name_ar is null or btrim(name_ar) = '') order by id limit :n"),
+    "rooms": text("select id, name, name_ar from office_rooms where tenant_id = :t and workspace_id = :w "
+                  "and (name_ar is null or btrim(name_ar) = '') order by id limit :n"),
+}
 _LIMIT = 5000
 
 
@@ -46,12 +53,8 @@ class ConfirmBody(BaseModel):
 
 def _rows(session: Any, context: TenantContext) -> dict[str, list[dict[str, Any]]]:
     """Records of this workspace that still have no Arabic name (RLS and the explicit scope both apply)."""
-    out: dict[str, list[dict[str, Any]]] = {}
-    for kind, table in _TABLES.items():
-        # The table name comes from the fixed map above, never from a request.
-        query = text(f"select id, name, name_ar from {table} where tenant_id = :t and workspace_id = :w "  # noqa: S608
-                     "and (name_ar is null or btrim(name_ar) = '') order by id limit :n")
-        out[kind] = [dict(r) for r in session.execute(query, {"t": context.tenant_id, "w": context.workspace_id, "n": _LIMIT}).mappings()]
+    params = {"t": context.tenant_id, "w": context.workspace_id, "n": _LIMIT}
+    out = {kind: [dict(r) for r in session.execute(query, params).mappings()] for kind, query in _SELECTS.items()}
     return out
 
 
