@@ -72,7 +72,7 @@ export const hqGpuEn = {
   'hqGpu.col.median': 'Median',
   'hqGpu.col.p95': '95th percentile',
   'hqGpu.col.worst': 'Worst',
-  'hqGpu.col.fps': 'Frames per second',
+  'hqGpu.col.fps': 'frames per second',
   'hqGpu.col.dropped': 'Dropped frames',
   'hqGpu.col.calls': 'Draw calls',
   'hqGpu.col.triangles': 'Triangles',

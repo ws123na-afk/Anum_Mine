@@ -1,4 +1,5 @@
 /** Reads what the browser says about its graphics (browser only). The pure report and verdict logic is in `lib/hqGpuReport.ts`. */
+import type { HqRenderer } from '../lib/hqThreeRenderer.ts';
 import { USED_EXTENSIONS, describeAgent, isSoftwareRenderer, type GpuProbe } from '../lib/hqGpuReport.ts';
 
 type AnyGl = WebGL2RenderingContext | WebGLRenderingContext;
@@ -48,3 +49,6 @@ export function readGpuProbe(live: WebGL2RenderingContext | null): GpuProbe {
   } catch { /* a locked-down browser: report that nothing could be read */ }
   return { ...NONE, dpr: window.devicePixelRatio || 1, viewport: { width: window.innerWidth, height: window.innerHeight } };
 }
+
+/** The live scene's WebGL context (a cast to the renderer's own field, so the renderer chunk carries no accessor for it). */
+export const liveContext = (r: HqRenderer | null): WebGL2RenderingContext | null => (r ? ((r as unknown as { renderer: { getContext(): unknown } }).renderer.getContext() as WebGL2RenderingContext) : null);

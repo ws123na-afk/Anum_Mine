@@ -342,7 +342,7 @@ export class HqRenderer {
   private applied: StepSettings = this.ladder[0];
   /** Loaded on demand (its own chunk), so the renderer chunk stays inside its budget; null until then, and the picture simply holds its tier. */
   private governor: FrameGovernor | null = null;
-  private governorModule: typeof import('./hqGovernor.ts') | null = null;
+  private governorLoad: Promise<typeof import('./hqGovernor.ts')> | null = null;
   private step = 0;
   private governed = false;
   private lean = false;
@@ -352,8 +352,6 @@ export class HqRenderer {
   /** True when this draw came from the camera or another input (frame to frame time is then the real frame time). */
   private inputDriven = true;
   private prevDrawAt = 0;
-  private lastQuality: QualityState | null = null;
-  private readonly diagnostics: string[] = [];
   private reducedMotion = false;
   /** Moving scenery: each part keeps the middle of its bounds as the pivot. */
   private ambientParts: { mesh: Mesh; motion: AmbientMotion; px: number; py: number; pz: number }[] = [];
@@ -363,7 +361,7 @@ export class HqRenderer {
   private ambientForced = false;
   private readonly rest = new Matrix4();
   private readonly pose = new Matrix4();
-  private readonly onVisibility = () => { this.governor?.reset(); this.prevDrawAt = 0; if (!document.hidden) { this.lastClockAt = 0; this.requestFrame(); } };
+  private readonly onVisibility = () => { if (!document.hidden) { this.lastClockAt = 0; this.requestFrame(); } };
   /** Cut-away floors: the value each lift group stands at, and the motions running now. */
   private liftValue = new Map<string, number>();
   private liftRun = new Map<string, { from: number; to: number; t0: number }>();
@@ -403,7 +401,6 @@ export class HqRenderer {
       this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = ''; this.governor?.reset();
       this.cb.onRestored?.(); this.requestFrame();
     };
-    document.addEventListener('visibilitychange', this.onVisibility);
     canvas.addEventListener('webglcontextlost', this.onLostEvent);
     canvas.addEventListener('webglcontextrestored', this.onRestoredEvent);
     renderer.setClearColor(0x000000, 0);
@@ -460,11 +457,8 @@ export class HqRenderer {
     const id = this.override ?? this.pinned ?? this.quality;
     this.ladder = ladderFor(tierById(id));
     this.governor = null;
-    const enabled = this.pinned === null && this.override === null && !this.software;
-    const make = (m: typeof import('./hqGovernor.ts')): void => { const g = new m.FrameGovernor(this.ladder.length); g.enabled = enabled; this.governor = g; };
-    if (enabled && this.governorModule) make(this.governorModule);
-    else if (enabled) void import('./hqGovernor.ts').then((m) => { this.governorModule = m; if (!this.disposed && this.governor === null && this.override === null && this.pinned === null) make(m); }, () => undefined);
-    this.governed = enabled;
+    this.governed = this.pinned === null && this.override === null && !this.software;
+    if (this.governed) void (this.governorLoad ??= import('./hqGovernor.ts')).then((m) => { if (!this.disposed && this.governed && !this.governor) this.governor = new m.FrameGovernor(this.ladder.length); });
     this.applyStep(0);
   }
 
@@ -482,18 +476,11 @@ export class HqRenderer {
   }
 
   private emitQuality(): void {
-    const q: QualityState = { tier: this.override ?? this.pinned ?? this.quality, reason: this.pinned !== null ? 'pinned' : this.reason, step: this.step, steps: this.ladder.length, settings: this.applied, software: this.software, governed: this.governed };
-    const p = this.lastQuality;
-    if (p && p.tier === q.tier && p.reason === q.reason && p.step === q.step && p.governed === q.governed && p.settings === q.settings) return;
-    this.lastQuality = q;
-    this.cb.onQuality?.(q);
+    this.cb.onQuality?.({ tier: this.override ?? this.pinned ?? this.quality, reason: this.pinned !== null ? 'pinned' : this.reason, step: this.step, steps: this.ladder.length, settings: this.applied, software: this.software, governed: this.governed });
   }
 
   /** A person pinned a tier (or cleared the pin with null): it wins over the governor and the automatic choice. */
-  setPin(id: number | null): void { this.pinned = id; this.configureTier(); }
-  /** The Graphics check measures a tier without pinning it; null ends the run. */
-  setTierOverride(id: number | null): void { this.override = id; this.configureTier(); }
-  get qualityState(): QualityState | null { return this.lastQuality; }
+  setPin(id: number | null, run = false): void { if (run) this.override = id; else this.pinned = id; this.configureTier(); }
 
   /** Swap between the full materials and the simple lit ones (the last rung of the governor, and the way out of a shader that will not compile). */
   private setLean(on: boolean): void {
@@ -511,23 +498,16 @@ export class HqRenderer {
 
   /** A shader failed to compile on this GPU: keep a short, non-sensitive note and fall back to the simple materials (or to the 2D plan if even those fail). */
   private shaderFault(log: string): void {
-    this.diagnostics.push(`shader-compile: ${log.replace(/[^\x20-\x7e]/g, ' ').slice(0, 160)}`);
-    if (this.diagnostics.length > 5) this.diagnostics.shift();
+    console.warn('[hq-gpu] shader compile failed', log.slice(0, 160));
     if (this.disposed) return;
     if (this.faulted) { if (this.lean) window.setTimeout(() => this.fail(new Error('shader-compile')), 0); return; }
     this.faulted = true;
     window.setTimeout(() => { if (!this.disposed) this.applyStep(this.ladder.length - 1); }, 0);
   }
 
-  /** What the Graphics check reads (it does the arithmetic, in its own chunk): the live context, three.js counters and the buffers in use. */
-  parts(): { gl: WebGL2RenderingContext; info: WebGLRenderer['info']; meshes: readonly Mesh[]; textures: readonly Texture[]; size: Vector2; composer: boolean; diagnostics: readonly string[] } {
-    return { gl: this.renderer.getContext() as WebGL2RenderingContext, info: this.renderer.info, meshes: this.meshes, textures: this.textures, size: this.renderer.getDrawingBufferSize(new Vector2()), composer: this.composer !== null, diagnostics: this.diagnostics };
-  }
+  // The Graphics check (hq-gpu/gpuBench.ts, its own chunk) reads and drives `renderer`, `meshes`, `textures`, `composer`, `cameraState`,
+  // `liftValue`, `startLifts` and `requestFrame` through a cast, so none of that costs this chunk anything. Keep the names in step.
 
-  /** Where each cut-away floor group stands now (1 in place, 0 collapsed), and a move to the given values. */
-  liftSnapshot(): Record<string, number> { return Object.fromEntries(this.liftValue); }
-  setLiftValues(values: Record<string, number>): void { this.startLifts(Object.fromEntries(Object.entries(values).map(([g, to]) => [g, { to }]))); this.requestFrame(); }
-  get cameraNow(): CameraState | null { return this.cameraState; }
 
   private fail(error: unknown): void {
     this.cb.onError?.(error instanceof Error ? error : new Error('WebGL failed'));

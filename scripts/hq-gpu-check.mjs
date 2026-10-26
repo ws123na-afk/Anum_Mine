@@ -23,6 +23,7 @@
  */
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -69,7 +70,7 @@ async function glFacts(page) {
 async function openPanel(page) {
   const hq = page.locator('.hqLive');
   await hq.getByRole('button', { name: 'Office tools' }).click();
-  await hq.getByRole('button', { name: 'Graphics check' }).click();
+  await hq.getByRole('button', { name: 'Graphics check', exact: true }).click();
   await page.getByTestId('hq-gpu-check').waitFor({ state: 'visible' });
 }
 
@@ -141,7 +142,7 @@ export async function runCheck(page, o, log = console.log) {
     log('No building could be opened, so the floor change was not timed. The campus report is complete.');
   }
 
-  const read = async (f) => JSON.parse((await import('node:fs/promises')).readFile ? await (await import('node:fs/promises')).readFile(f, 'utf8') : '{}');
+  const read = async (f) => JSON.parse(await readFile(f, 'utf8'));
   const reports = {};
   for (const [label, r] of [['campus', campus], ['building', building]]) if (r) reports[label] = await read(r.file);
   const summary = { generatedAt: new Date().toISOString(), softwareOnly: software, renderer: facts.renderer, lengthSeconds: o.length, screenshots: shots.map((s) => path.basename(s)), reports: Object.fromEntries(Object.entries(reports).map(([k, v]) => [k, v.verdict])), verdictText: { campus: campus.verdict, building: building ? building.verdict : null } };

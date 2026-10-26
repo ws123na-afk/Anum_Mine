@@ -12,7 +12,7 @@ import { HQ_TIERS, QUALITY_PIN_KEY } from '../lib/hqQualityTiers.ts';
 import { reasonText, tierName } from '../lib/hqGpuText.ts';
 import { t } from '../lib/i18n.ts';
 import { useLocale } from '../useLocale';
-import { readGpuProbe } from './gpuProbe.ts';
+import { liveContext, readGpuProbe } from './gpuProbe.ts';
 import './hqGpuCheck.css';
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])';
@@ -35,7 +35,7 @@ export default function HqGpuCheckPanel({ onClose }: { onClose: () => void }) {
   const root = useRef<HTMLElement>(null);
   const opener = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement);
   const abort = useRef<AbortController | null>(null);
-  const [probe, setProbe] = useState<GpuProbe>(() => readGpuProbe(getLiveRenderer()?.parts().gl ?? null));
+  const [probe, setProbe] = useState<GpuProbe>(() => readGpuProbe(liveContext(getLiveRenderer())));
   const [results, setResults] = useState<TierResult[]>([]);
   const [run, setRun] = useState<Run>({ state: 'idle' });
   const [seconds, setSeconds] = useState<number>(5);
@@ -77,7 +77,7 @@ export default function HqGpuCheckPanel({ onClose }: { onClose: () => void }) {
       const { runBenchmark } = await import('./gpuBench.ts');
       const got = await runBenchmark(renderer, ids, seconds * 1000, controller.signal, ({ tier, index, total }) => setRun({ state: 'running', tier, index, total }));
       setResults((previous) => [...previous.filter((p) => !got.some((g) => g.tier === p.tier)), ...got].sort((a, b) => a.tier - b.tier));
-      setProbe(readGpuProbe(renderer.parts().gl));
+      setProbe(readGpuProbe(liveContext(renderer)));
       setRun(controller.signal.aborted ? { state: 'stopped' } : { state: 'done', count: got.length });
     } catch {
       setRun({ state: 'error' });
@@ -136,17 +136,17 @@ export default function HqGpuCheckPanel({ onClose }: { onClose: () => void }) {
             <h3 id="hqGpuDevice">{t('hqGpu.section.device')}</h3>
             <dl className="hqGpuFacts" data-testid="hq-gpu-facts">
               <dt>{t('hqGpu.fact.webgl')}</dt><dd data-fact="webgl">{probe.webglVersion === 0 ? t('hqGpu.fact.webgl.none') : `WebGL ${probe.webglVersion}`}</dd>
-              <dt>{t('hqGpu.fact.renderer')}</dt><dd data-fact="renderer" dir="ltr">{probe.renderer || '-'}</dd>
-              <dt>{t('hqGpu.fact.vendor')}</dt><dd dir="ltr">{probe.vendor || '-'}</dd>
+              <dt>{t('hqGpu.fact.renderer')}</dt><dd data-fact="renderer"><bdi>{probe.renderer || '-'}</bdi></dd>
+              <dt>{t('hqGpu.fact.vendor')}</dt><dd><bdi>{probe.vendor || '-'}</bdi></dd>
               <dt>{t('hqGpu.fact.software')}</dt><dd data-fact="software" data-software={String(probe.software)}>{softwareText}</dd>
-              <dt>{t('hqGpu.fact.texture')}</dt><dd dir="ltr">{probe.maxTextureSize || '-'}</dd>
-              <dt>{t('hqGpu.fact.dpr')}</dt><dd dir="ltr">{probe.dpr.toFixed(2)}</dd>
+              <dt>{t('hqGpu.fact.texture')}</dt><dd><bdi>{probe.maxTextureSize || '-'}</bdi></dd>
+              <dt>{t('hqGpu.fact.dpr')}</dt><dd><bdi>{probe.dpr.toFixed(2)}</bdi></dd>
               <dt>{t('hqGpu.fact.extensions')}</dt>
-              <dd dir="ltr"><ul className="hqGpuExt">{Object.entries(report.gpu.used).map(([name, have]) => (
-                <li key={name} data-have={String(have)}>{name} <span>{have ? t('hqGpu.fact.extensions.have') : t('hqGpu.fact.extensions.missing')}</span></li>
+              <dd><ul className="hqGpuExt">{Object.entries(report.gpu.used).map(([name, have]) => (
+                <li key={name} data-have={String(have)}><bdi>{name}</bdi> <span>{have ? t('hqGpu.fact.extensions.have') : t('hqGpu.fact.extensions.missing')}</span></li>
               ))}</ul></dd>
-              <dt>{t('hqGpu.fact.cores')}</dt><dd dir="ltr">{probe.cores ?? t('hqGpu.fact.unknown')}</dd>
-              <dt>{t('hqGpu.fact.memory')}</dt><dd dir="ltr">{probe.deviceMemoryGb !== null ? `${probe.deviceMemoryGb} GB` : t('hqGpu.fact.unknown')}</dd>
+              <dt>{t('hqGpu.fact.cores')}</dt><dd><bdi>{probe.cores ?? t('hqGpu.fact.unknown')}</bdi></dd>
+              <dt>{t('hqGpu.fact.memory')}</dt><dd><bdi>{probe.deviceMemoryGb !== null ? `${probe.deviceMemoryGb} GB` : t('hqGpu.fact.unknown')}</bdi></dd>
             </dl>
             {probe.webglVersion > 0 && !probe.unmasked && <p className="hqGpuHint">{t('hqGpu.fact.masked')}</p>}
           </section>
@@ -188,15 +188,15 @@ export default function HqGpuCheckPanel({ onClose }: { onClose: () => void }) {
               <ul className="hqGpuCards" data-testid="hq-gpu-results">
                 {results.map((r) => (
                   <li key={r.tier} data-tier={r.key} className="hqGpuCard">
-                    <h4>{tierName(r.tier)}<span dir="ltr">{r.frames.fps > 0 ? `${r.frames.fps.toFixed(0)} ${t('hqGpu.col.fps')}` : '-'}</span></h4>
+                    <h4>{tierName(r.tier)}<span><bdi>{r.frames.fps > 0 ? `${r.frames.fps.toFixed(0)} ${t('hqGpu.col.fps')}` : '-'}</bdi></span></h4>
                     <dl>
-                      <dt>{t('hqGpu.col.median')}</dt><dd dir="ltr">{ms1(r.frames.medianMs)} ms</dd>
-                      <dt>{t('hqGpu.col.p95')}</dt><dd dir="ltr">{ms1(r.frames.p95Ms)} ms</dd>
-                      <dt>{t('hqGpu.col.worst')}</dt><dd dir="ltr">{ms1(r.frames.worstMs)} ms</dd>
-                      <dt>{t('hqGpu.col.dropped')}</dt><dd dir="ltr">{r.frames.droppedFrames}</dd>
-                      <dt>{t('hqGpu.col.calls')}</dt><dd dir="ltr">{r.drawCalls}</dd>
-                      <dt>{t('hqGpu.col.triangles')}</dt><dd dir="ltr">{r.triangles.toLocaleString('en')}</dd>
-                      <dt>{t('hqGpu.col.memory')}</dt><dd dir="ltr">{r.memoryEstimateMb.toFixed(0)} MB</dd>
+                      <dt>{t('hqGpu.col.median')}</dt><dd><bdi>{ms1(r.frames.medianMs)} ms</bdi></dd>
+                      <dt>{t('hqGpu.col.p95')}</dt><dd><bdi>{ms1(r.frames.p95Ms)} ms</bdi></dd>
+                      <dt>{t('hqGpu.col.worst')}</dt><dd><bdi>{ms1(r.frames.worstMs)} ms</bdi></dd>
+                      <dt>{t('hqGpu.col.dropped')}</dt><dd><bdi>{r.frames.droppedFrames}</bdi></dd>
+                      <dt>{t('hqGpu.col.calls')}</dt><dd><bdi>{r.drawCalls}</bdi></dd>
+                      <dt>{t('hqGpu.col.triangles')}</dt><dd><bdi>{r.triangles.toLocaleString('en')}</bdi></dd>
+                      <dt>{t('hqGpu.col.memory')}</dt><dd><bdi>{r.memoryEstimateMb.toFixed(0)} MB</bdi></dd>
                     </dl>
                   </li>
                 ))}
