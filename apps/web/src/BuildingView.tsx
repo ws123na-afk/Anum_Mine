@@ -409,7 +409,7 @@ export function BuildingView(props: BuildingViewProps) {
           </div>
         )}
         <div className="hqOverlay hqOverlayTopLeft" data-keepout="">
-          <Suspense fallback={null}>
+          <Suspense fallback={<h2 className="hqSrOnly">{props.workspaceName}</h2>}>
             <SceneBackCard
               name={props.workspaceName} kindLabel={props.kindLabel} totals={agents} floors={floors.length} rooms={roomsTotal} meetings={props.liveMeetings} onBack={props.onBack}
               orders={modules.panels.includes('commerce') && props.commerce.state === 'ready' ? props.commerce.data.orders : null}

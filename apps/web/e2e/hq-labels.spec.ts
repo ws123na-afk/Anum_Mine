@@ -78,6 +78,9 @@ test('no agents seated: no agent cards, and the strips say so without a made-up 
 
 test('the density rule: cards never overlap, and a crowded view uses the smaller densities', async ({ page }) => {
   await open(page);
+  // A scene narrower than 641 px squeezes cards onto their anchors (a phone); the no-overlap rule is for a scene wide enough to follow it.
+  await hq(page).getByRole('button', { name: /Hide side panels/ }).click();
+  await page.waitForTimeout(800);
   await page.waitForTimeout(1500);
   const result = await page.evaluate(() => {
     const out: { id: string; d: string | undefined; r: { x0: number; x1: number; y0: number; y1: number } }[] = [];
@@ -128,6 +131,7 @@ test('single floor: only that floor is labelled; the stacked view labels every f
 test('the Back to campus card names the building with a status dot and real facts', async ({ page }) => {
   await open(page);
   const card = hq(page).locator('.hqBackCard');
+  await expect(card).toBeVisible({ timeout: 30_000 });
   await expect(card.getByRole('button', { name: 'Back to campus' })).toBeVisible();
   await expect(card.getByRole('heading', { level: 2, name: 'Al Noor Fleet HQ' })).toBeVisible();
   await expect(card.getByRole('img', { name: /Presence is reporting/ })).toBeVisible();
@@ -178,7 +182,7 @@ test('presence denied: People is "-" and the facts never invent a count', async 
 
 test('Arabic, right to left: Arabic subtitles, mirrored chrome, no sideways scroll, axe clean', async ({ page }) => {
   await open(page, { locale: 'ar' });
-  await expect(hq(page).locator('.hqBackCard')).toBeVisible();
+  await expect(hq(page).locator('.hqBackCard')).toBeVisible({ timeout: 30_000 }); // a lazy chunk
   const card = roomCards(page).first();
   await expect(card).toHaveAccessibleName(/مكتب|استقبال/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);

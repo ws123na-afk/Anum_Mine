@@ -23,7 +23,7 @@ export type LabelPlacement = Readonly<{ id: string; x: number; y: number; depth:
 export type Size = Readonly<{ w: number; h: number }>;
 export type Rect = Readonly<{ x0: number; y0: number; x1: number; y1: number }>;
 /** `keepOut`: screen rectangles of the controls drawn over the scene; a card is never put under them. */
-export type LayoutOptions = Readonly<{ eye?: Vec3 | null; keepOut?: readonly Rect[] }>;
+export type LayoutOptions = Readonly<{ eye?: Vec3 | null; keepOut?: readonly Rect[]; /** A phone-sized scene: no card is left out; one with no free spot sits on its anchor in its smallest density, even over another. */ squeeze?: boolean }>;
 
 const MAX_SHIFTS = 7;
 
@@ -134,6 +134,7 @@ export function layoutLabels(
       if (pick) { set(item, pick.x, pick.y, { w, h }, density, Math.round(Math.abs(pick.y - item.y) / (h * 1.05))); done = true; break; }
       // No free spot. Building and room cards are the way into the scene, so they stay (on the least covered spot);
       // only the secondary agent cards give way, and so does a crowded label that has a dot to fall back on.
+      if (options.squeeze && adaptive) { set(item, home.x, home.y, { w, h }, density, 0); done = true; break; }
       if ((item.input.priority ?? 1) >= 2 || (adaptive && (item.input.priority ?? 1) >= 1)) { out.set(item.input.id, { id: item.input.id, x: home.x, y: home.y, depth: item.depth, shown: false, shifted: 0, density, occluded: false, crowded: true }); done = true; break; }
       const area = (x: number, y: number) => placed.reduce((sum, q) => sum + Math.max(0, Math.min(x + w / 2, q.x1) - Math.max(x - w / 2, q.x0)) * Math.max(0, Math.min(y, q.y1) - Math.max(y - h, q.y0)), 0);
       const best = spots.filter((c) => inside(c.x, c.y)).sort((p, q) => area(p.x, p.y) - area(q.x, q.y) || p.cost - q.cost)[0] ?? home;
@@ -174,7 +175,7 @@ export function placeLabels(
     sizes.set(key, size);
     return size;
   };
-  const placements = layoutLabels(labels, vp, width, height, sizeOf, bottomInset, { eye, keepOut });
+  const placements = layoutLabels(labels, vp, width, height, sizeOf, bottomInset, { eye, keepOut, squeeze: width < 641 });
   for (let i = 0; i < labels.length; i++) {
     const node = nodes.get(labels[i].id);
     const p = placements[i];
@@ -202,8 +203,6 @@ export function bindKeepOut(stage: HTMLElement, selector: string, onChange: (rec
     const box = stage.getBoundingClientRect();
     // The scene's width steps for the chrome's CSS (a CSS size container would change how the page's columns are sized).
     for (const w of [641, 700, 1340, 1600]) { const v = box.width >= w ? '1' : '0'; if (scope.dataset['s' + w] !== v) scope.dataset['s' + w] = v; }
-    // A phone-sized scene is covered by its own controls: there the cards may sit under them (they stay reachable), as before.
-    if (box.width < 641) { onChange([]); return; }
     onChange([...scope.querySelectorAll<HTMLElement>(selector)].map((el) => {
       const r = el.getBoundingClientRect();
       return { x0: r.left - box.left - 6, y0: r.top - box.top - 6, x1: r.right - box.left + 6, y1: r.bottom - box.top + 6 };
