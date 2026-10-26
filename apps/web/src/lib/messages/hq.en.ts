@@ -139,6 +139,7 @@ export const hqEn = {
   'hq.sign.sales': 'SALES',
   'hq.sign.room': 'ROOM',
   'hq.sign.level': 'LEVEL {level}',
+  'hq.desk.number': 'Desk {number}',
   'hq.room.vacant': 'Vacant',
   'hq.room.openModule': 'Open {kind}',
   'hq.room.assigned': '{count} assigned',

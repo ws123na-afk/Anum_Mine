@@ -6,7 +6,7 @@
  * the English name when there is not, so nothing is ever blank. Only the builder says that an Arabic name is missing
  * (`arabicMissing`); the rest of the product just shows the English name. Pure: the unit runner covers it.
  */
-import { getLocale, type Locale } from './i18n.ts';
+import { getLocale, translate, type Locale } from './i18n.ts';
 
 export type RegistryNamed = Readonly<{ name: string; name_ar?: string | null }>;
 export type SceneNamed = Readonly<{ name: string; nameAr?: string | null }>;
@@ -57,3 +57,10 @@ export function indexRoomNames(rooms: Iterable<Readonly<{ id: string; labelAr?: 
 }
 /** A room named only by id and English name, in the current language (English when the index has no Arabic name for it). */
 export const roomNameFor = (id: string, english: string, locale: Locale = getLocale()): string => pickName(english, arabicByRoomId.get(id), locale);
+
+const DEFAULT_DESK = /^Desk (\d{1,4})$/;
+/** A desk label in the current language: only the default "Desk N" a campus or the builder gives is translated; a label somebody typed stays as typed. */
+export function deskLabel(label: string, locale: Locale = getLocale()): string {
+  const match = locale === 'ar' ? DEFAULT_DESK.exec(label) : null;
+  return match ? translate(locale, 'hq.desk.number', { number: match[1] }) : label;
+}

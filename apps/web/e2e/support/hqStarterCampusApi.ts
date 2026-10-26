@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test';
+import { ARABIC_NAMES_NONE } from './hqArabicNamesApi';
 
 // Mock of the starter campus API (docs/ANUM_MINE_STARTER_CAMPUS.md): preview and confirm. The plan is plainly fake
 // test data in the real response shape; the mock keeps the one rule the UI relies on: the hash changes with the selection.
@@ -75,6 +76,7 @@ export async function mockStarterCampus(page: Page): Promise<StarterCampusMock> 
     const path = url.pathname.replace('/api/v1/office/starter-campus', '');
     const raw = request.postData();
     mock.requests.push({ method: request.method(), path: path + url.search, body: raw ? JSON.parse(raw) : null });
+    if (path.startsWith('/arabic-names')) return json(route, ARABIC_NAMES_NONE);
     if (path === '/preview') {
       if (previewFail !== null) return json(route, { detail: previewFail === 403 ? 'Forbidden' : 'The service failed.' }, previewFail);
       const asked = url.searchParams.get('buildings');

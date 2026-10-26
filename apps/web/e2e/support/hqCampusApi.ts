@@ -55,8 +55,8 @@ function starterFixture() {
 function starterCampusFixture() {
   const fx = JSON.parse(readFileSync(new URL('../../test/fixtures/starterCampus.json', import.meta.url), 'utf8')) as { buildings: Record<string, unknown>[]; floors: Record<string, unknown>[]; rooms: Record<string, unknown>[]; desks: Record<string, unknown>[] };
   return {
-    buildings: fx.buildings.map((b) => record(String(b.id), { name: b.name, timezone: 'Asia/Dubai', latitude: null, longitude: null })),
-    floors: fx.floors.map((f) => record(String(f.id), { building_id: f.building_id, level: f.level, name: f.name })),
+    buildings: fx.buildings.map((b) => record(String(b.id), { name: b.name, name_ar: b.name_ar ?? null, timezone: 'Asia/Dubai', latitude: null, longitude: null })),
+    floors: fx.floors.map((f) => record(String(f.id), { building_id: f.building_id, level: f.level, name: f.name, name_ar: f.name_ar ?? null })),
     rooms: fx.rooms.map((r) => record(String(r.id), r)),
     desks: fx.desks.map((d) => record(String(d.id), d)),
   };

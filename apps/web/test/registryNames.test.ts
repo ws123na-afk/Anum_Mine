@@ -11,7 +11,7 @@ import type { Campus, CampusBuilding } from '../src/lib/campusModel.ts';
 import { expandCampus } from '../src/lib/campusRegistry.ts';
 import { filterBuildings } from '../src/lib/campusModel.ts';
 import { floorEntries, roomStops, stripStops, planModel } from '../src/hq-nav/navModel.ts';
-import { arabicMissing, indexRoomNames, nameOf, otherName, pickName, roomName, roomNameFor, sceneName, searchText } from '../src/lib/registryNames.ts';
+import { arabicMissing, deskLabel, indexRoomNames, nameOf, otherName, pickName, roomName, roomNameFor, sceneName, searchText } from '../src/lib/registryNames.ts';
 import { signsNeedArabic } from '../src/lib/hqTextures.ts';
 
 afterEach(() => setLocale('en'));
@@ -81,6 +81,16 @@ const floor = (level: number, name: string, nameAr: string | null): SceneFloor =
   desks: [],
 });
 const building: SceneBuilding = { id: 'b', name: 'ANUM HQ', nameAr: 'المقر الرئيسي لأنوم', timezone: 'Asia/Dubai', floors: [floor(0, 'Ground floor', 'الطابق الأرضي'), floor(1, 'Floor 1', null)] };
+
+describe('desk labels', () => {
+  test('only the default Desk N label is translated, and only in Arabic mode', () => {
+    assert.equal(deskLabel('Desk 12', 'ar'), 'مكتب 12');
+    assert.equal(deskLabel('Desk 12', 'en'), 'Desk 12');
+    assert.equal(deskLabel('Front desk', 'ar'), 'Front desk');
+    assert.equal(deskLabel('Desk 12 (spare)', 'ar'), 'Desk 12 (spare)');
+    assert.equal(deskLabel('Desk 12345', 'ar'), 'Desk 12345');
+  });
+});
 
 describe('navigation model', () => {
   test('floors, room stops and the plan follow the language and fall back to English', () => {

@@ -12,7 +12,7 @@ import { presenceForDesk, type HqAgentPresence, type HqPresenceIndex, type RoomM
 import { profileHash } from './lib/orgChart.ts';
 import { STATUS_TONE } from './lib/campusModel.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
-import { roomName } from './lib/registryNames.ts';
+import { deskLabel, roomName } from './lib/registryNames.ts';
 
 // The wall's code loads only when an operations room is opened.
 const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
@@ -71,10 +71,10 @@ export function RoomPanel(props: Readonly<{
                 <li key={d.id}>
                   {key
                     ? <button type="button" onClick={() => props.onOpenAgent(key, d)}>
-                      <span className="hqLabelText"><strong>{hidden ? t('hq.agent.private') : (p?.name || t('hq.agent.assigned'))}</strong><small>{d.label}</small></span>
+                      <span className="hqLabelText"><strong>{hidden ? t('hq.agent.private') : (p?.name || t('hq.agent.assigned'))}</strong><small>{deskLabel(d.label)}</small></span>
                       <StatusPill presence={p} />
                     </button>
-                    : <div className="hqVacant"><span className="hqLabelText"><strong>{d.label}</strong><small>{t('hq.room.vacant')}</small></span></div>}
+                    : <div className="hqVacant"><span className="hqLabelText"><strong>{deskLabel(d.label)}</strong><small>{t('hq.room.vacant')}</small></span></div>}
                 </li>
               );
             })}

@@ -138,6 +138,7 @@ export const hqAr = {
   'hq.sign.sales': 'المبيعات',
   'hq.sign.room': 'غرفة',
   'hq.sign.level': 'المستوى {level}',
+  'hq.desk.number': 'مكتب {number}',
   'hq.room.vacant': 'شاغر',
   'hq.room.openModule': 'فتح {kind}',
   'hq.room.assigned': '{count} معيّن',
