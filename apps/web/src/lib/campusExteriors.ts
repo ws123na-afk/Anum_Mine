@@ -12,7 +12,7 @@ import type { Aabb } from './hqMath.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
 import { signAtlasLayout } from './hqTextures.ts';
 
-const EXTERIOR_OF: Readonly<Record<Archetype, ExteriorKind>> = {
+export const EXTERIOR_OF: Readonly<Record<Archetype, ExteriorKind>> = {
   executive: 'executiveHq', tower: 'officeTower', admin: 'adminBlock', retail: 'retailBlock', warehouse: 'warehouse', workshop: 'tyreWorkshop', villa: 'personalVilla',
 };
 
@@ -27,6 +27,11 @@ export function drawExterior(p: Placement, archetype: Archetype, signIndex: numb
   // ask for the smallest storey count that keeps the executive building the tallest on the campus.
   const levels = archetype === 'executive' ? Math.min(10, Math.max(8, p.levels + 3)) : archetype === 'tower' ? 6 : p.levels;
   const asset: ExteriorAsset = buildExterior(kind, { seed: 'bld:' + p.workspaceId, width: p.width, depth: p.depth, levels, origin: { x: p.x, z: p.z } });
+  return shapeOf(asset, signIndex, signCount);
+}
+
+/** Letters the sign board and classifies the surfaces of any exterior asset (generic or generated from floor plans). */
+export function shapeOf(asset: ExteriorAsset, signIndex: number, signCount: number): ExteriorShape {
   // The lettered sign lies a hair in front of the asset's blank board and covers it (the board's own mark is in the texture).
   const cell = signAtlasLayout(signCount).cell(signIndex);
   const s = asset.sign;

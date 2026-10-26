@@ -8,6 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { BottomToolbar, CameraTools, Minimap, TotalsPanel, statusLabel, type HqView } from './HqChrome';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { buildCampusScene } from './lib/campusScene.ts';
+import { layoutKey, planSize, type PlanInput } from './lib/hqPlanFrame.ts';
+import type { GlassPlanData } from './lib/hqPlanAtlas.ts';
+import type { PlannedSize } from './lib/campusModel.ts';
 import {
   buildingStatus, campusTotals, layoutCampus, readingOrder, stepBuilding,
   type Campus, type CampusBuilding, type CampusBuildingKind, type StatusKey,
@@ -37,6 +40,11 @@ const iconOf = (b: CampusBuilding): ReactElement => (b.icon ? BUILDING_ICONS[b.i
 
 export type CampusViewProps = Readonly<{
   campus: Campus;
+  /**
+   * The real floor plans and occupancy of the registry buildings on the campus, by campus building id. A building listed here is
+   * drawn from its plans (footprint, storeys, the rooms behind its glass); any other building keeps the generic look.
+   */
+  plans?: ReadonlyMap<string, PlanInput>;
   unreported: readonly StatusKey[];
   view: Exclude<HqView, 'list'>;
   night: boolean;
@@ -63,8 +71,43 @@ export function CampusView(props: CampusViewProps) {
   const locale = useLocale();
   const fontsReady = useArabicSignFont(locale === 'ar');
   const { campus, view, night, selectedId } = props;
-  const placements = useMemo(() => layoutCampus(campus.buildings), [campus.buildings]);
-  const scene = useMemo(() => buildCampusScene(placements), [placements]);
+  // Floor plans: the scene (footprints, shells) follows the layout only; presence moves the glass atlas, never the meshes.
+  const plans = props.plans;
+  const plansRef = useRef(plans);
+  plansRef.current = plans;
+  const layoutSig = useMemo(() => (plans ? [...plans].map(([id, p]) => `${id}:${layoutKey(p.floors)}`).join('|') : ''), [plans]);
+  const sizes = useMemo(() => {
+    const map = new Map<string, PlannedSize>();
+    for (const [id, p] of plansRef.current ?? []) { const size = planSize(p.floors); if (size) map.set(id, size); }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutSig]);
+  const [kit, setKit] = useState<typeof import('./lib/hqPlanKit.ts') | null>(null);
+  useEffect(() => {
+    if (!sizes.size || kit) return;
+    let live = true;
+    void import('./lib/hqPlanKit.ts').then((m) => { if (live) setKit(m); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [sizes, kit]);
+  // Presence refreshes the buildings every few seconds; the placements (and so the meshes) only move when the layout does.
+  const rawPlacements = useMemo(() => layoutCampus(campus.buildings, sizes), [campus.buildings, sizes]);
+  const stablePlacements = useRef(rawPlacements);
+  if (JSON.stringify(stablePlacements.current) !== JSON.stringify(rawPlacements)) stablePlacements.current = rawPlacements;
+  const placements = stablePlacements.current;
+  const scene = useMemo(() => {
+    const p = plansRef.current;
+    if (kit && p && sizes.size) return buildCampusScene(placements, { draw: kit.plannedDrawer(kit.plannedRows(placements, p), p) });
+    return buildCampusScene(placements);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placements, kit, layoutSig]);
+  const atlasCache = useRef<GlassPlanData | null>(null);
+  const glassPlan = useMemo(() => {
+    if (!kit || !plans || !sizes.size) { atlasCache.current = null; return null; }
+    const next = kit.planAtlas(placements, plans, kit.plannedRows(placements, plans));
+    if (next && atlasCache.current?.revision === next.revision) return atlasCache.current;
+    atlasCache.current = next;
+    return next;
+  }, [kit, plans, placements, sizes]);
   const byId = useMemo(() => new Map(campus.buildings.map((b) => [b.workspace_id, b])), [campus.buildings]);
   const order = useMemo(() => readingOrder(campus.buildings).map((b) => b.workspace_id), [campus.buildings]);
   const [wrap, aspect] = useAspect();
@@ -174,7 +217,7 @@ export function CampusView(props: CampusViewProps) {
     <div className="hqSceneWrap" ref={wrap}>
       <HqStage
         label={t('hq.campus.stageLabel')} description={t('hq.campus.stageHelp')}
-        scene={renderScene} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
+        scene={renderScene} glassPlan={glassPlan} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
         onCamera={(c) => setCamera(clampTarget(c, scene.groundRadius * 0.8))} night={night} reducedMotion={props.reducedMotion}
         hoverId={hover} selectedId={selectedId} onHover={setHover}
         onPick={(id) => { if (id) activate(id); else props.onSelect(null); }}

@@ -56,6 +56,8 @@ export type RenderStats = {
   shadowSize: number; bloom: boolean;
   /** Ambient parts in the scene, and whether they are moving right now (false under reduced motion, in a hidden tab, or at the lowest quality). */
   ambient: number; ambientMoving: boolean;
+  /** Revision of the plan atlas on the GPU ('' when none). */
+  glassPlan?: string;
   /** Model layer: placements drawn, models loaded of those asked for, bytes fetched, load time in ms, groups that fell back. */
   /** Exterior scenery motion: level 0 to 2 (0 = still), frames drawn by its loop, the scene clock in seconds and the vehicles placed. */
   scenery: { level: number; frames: number; clock: number; vehicles: number };

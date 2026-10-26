@@ -9,7 +9,8 @@
  * "Presence unavailable" and shows no count.
  */
 import { departmentsOf, initialsOf } from '../hq-nav/navModel.ts';
-import { EMPTY_TOTALS, campusTotals, type Campus, type CampusBuilding, type CampusBuildingKind, type CampusTotals, type StatusKey } from './campusModel.ts';
+import { planInputOf, type PlanInput } from './hqPlanFrame.ts';
+import { EMPTY_TOTALS, campusTotals, workspaceOf, type Campus, type CampusBuilding, type CampusBuildingKind, type CampusTotals, type StatusKey } from './campusModel.ts';
 import { starterKey } from './hqBuildingModules.ts';
 import type { SceneBuilding } from './headquartersProjection.ts';
 import { presenceForDesk, type HqPresenceIndex } from './hqPresence.ts';
@@ -78,4 +79,20 @@ export function expandCampus(campus: Campus, workspaceId: string, registry: read
   });
   const buildings = [...campus.buildings.filter((b) => b.workspace_id !== workspaceId), ...expanded];
   return { ...campus, buildings, totals: campusTotals(buildings).totals };
+}
+
+/**
+ * The floor plans behind the campus buildings of the open workspace, by campus building id: each registry building (or the
+ * workspace's only registry building) that has at least one room. Other workspaces' buildings are never in here, so they keep
+ * the generic look; presence decides which desks are lit (`planInputOf`).
+ */
+export function registryPlans(campus: Campus, workspaceId: string, registry: readonly SceneBuilding[], presence: HqPresenceIndex | null): Map<string, PlanInput> {
+  const plans = new Map<string, PlanInput>();
+  for (const b of campus.buildings) {
+    if (workspaceOf(b) !== workspaceId) continue;
+    const source = b.registryBuildingId ? registry.find((r) => r.id === b.registryBuildingId) : registry.length === 1 && b.workspace_id === workspaceId ? registry[0] : undefined;
+    const input = source ? planInputOf(source, presence) : null;
+    if (input) plans.set(b.workspace_id, input);
+  }
+  return plans;
 }

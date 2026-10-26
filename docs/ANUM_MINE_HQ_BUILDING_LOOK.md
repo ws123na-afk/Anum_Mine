@@ -68,9 +68,9 @@ is the same; the buildings, the light and the motion changed.
 - **See-through glass with lit rooms** (hardware GL, or any renderer with `localStorage["anum.hq.ambient"]` pinned; a software rasteriser gets plain glass, plain water and a cloudless sky, which compile and run faster and keep CI inside its timeouts). Every exterior window pane carries local coordinates and the glass shader draws a room behind it (ceiling light,
   darker floor, desks and a few screens, warm or cool white per room), dim by day, glowing from the blue hour on, with a thin lit floor plate between
   storeys so floors read from outside. It is interior mapping in the fragment shader, not alpha blending: no extra overdraw and no sorting, so the
-  software path pays only a few arithmetic operations per glass pixel. The executive lobby has turnstiles under the portico. It is a fake interior:
-  the real furnished floors are drawn by the interior pipeline when a building is opened, and the exterior shell is not yet generated from their
-  stacked volume (see the gaps below).
+  software path pays only a few arithmetic operations per glass pixel. The executive lobby has turnstiles under the portico. For a registry building the room behind a pane is the real room of
+  that floor (see the [glass plan](ANUM_MINE_HQ_GLASS_PLAN.md)); for any other building it is still a generic room, and the furnished floors are drawn by
+  the interior pipeline when a building is opened.
 - **Reflective glass.** Glass reflects a sky gradient chosen by the way the face looks, with a sun glint and a Fresnel edge, in every light preset, so
   neighbouring faces read differently. It is computed in the shader, so it also works on the software path.
 - **Blue hour.** A third light preset: deep blue zenith, warm orange horizon band, lavender haze, low warm sun, lit windows against bluish glass.
@@ -90,7 +90,7 @@ is the same; the buildings, the light and the motion changed.
 - No CC0 glTF building models were added: nothing was found and licence reviewed in this pass, so the credits line is unchanged.
 - Motion is off by default on software GL (CI) and was therefore verified there by switching it on (`anum.hq.ambient`), not by eye on a real GPU.
 
-- The see-through rooms are a shader illusion repeated per pane, not the real floors: they do not match the interior layout or count of a building. The storey pitch of every multi-storey shell is now `STOREY` = 4.2 m, equal to `FLOOR_PITCH` in `lib/buildingScene.ts` (a unit test keeps them equal), so a glass storey lines up with floor n of the interior stack. The shell is still built from its own plan, not from each floor's plan, and its plinth sits 0.3 to 0.9 m above floor 0.
+- The see-through rooms are no longer a repeated pattern: buildings of the office registry are drawn from their floor plans and the glass shows the real rooms ([glass plan](ANUM_MINE_HQ_GLASS_PLAN.md)). A building with no registry floors (and every other workspace's building) still shows the generic room and the old shell, which is the fallback and not the real layout.
 
 ### Budgets
 

@@ -68,6 +68,7 @@ Counts per status are in the last section ("Totals"), computed from the tables i
 | 2.7 | Cinematic quality (lighting, depth, atmosphere) | Partial | Read | Physically based materials, shadow map, sky environment, fog, bloom at night (`lib/hqThreeRenderer.ts`) | Visual quality not judged by this audit: Not verified. PR 245 (in flight) adds models, glass relief and night halos |
 | 2.8 | Characters match the concept's professional avatars | Partial | Read | See 5.3 | See 5.3 |
 | 2.9 | Ambient scenery motion (traffic loops, water ripples, tree and flag sway, drifting clouds, window light drift, rooftop beacon) that never implies people or work | Complete | Read, Ran, CI | `hqAssets/environment/scenery.ts`, `lib/hqSceneryLayer.ts`, `lib/hqThreeRenderer.ts`; `docs/ANUM_MINE_HQ_SCENERY_MOTION.md`; `test/hqSceneryMotion.test.ts`, `e2e/hq-exterior-look.spec.ts` | Off by default on a software renderer; a real GPU run for frame cost is missing (3.10). Person and agent movement is a separate, record backed system and is not part of this row |
+| 2.10 | What is seen through the glass is that building's real floors and rooms, and the shell follows the floor plans | Partial | Read, Ran | Plan atlas `lib/hqPlanAtlas.ts`, shell from the plans `hqAssets/exterior/planShell.ts`, frame and keys `lib/hqPlanFrame.ts`, interior-mapped shader `lib/hqGlassShader.ts`, wiring `CampusView.tsx`, `campusRegistry.registryPlans`; `test/hqGlassPlan.test.ts`, `e2e/hq-glass-plan.spec.ts`; [glass plan](ANUM_MINE_HQ_GLASS_PLAN.md) | Parallax is on the hardware path (switched on by hand in the sandbox); a software rasteriser reads one texel. Not verified on a real GPU. Room rotation is not in the scene projection yet. No cross-dissolve to the opened building: that is a separate scene |
 
 ## Section 3. 3D engine
 
@@ -303,16 +304,16 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 
 ## Totals
 
-Rows counted: 147 (sections 1 to 14).
+Rows counted: 148 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
 | Complete | 110 |
-| Partial | 33 |
+| Partial | 34 |
 | Missing | 3 |
 | Not applicable | 1 |
-| Total | 147 |
+| Total | 148 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 103, Partial 26, Missing 3, Not applicable 1 (total 133). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 4.11 by the label work).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 103, Partial 27, Missing 3, Not applicable 1 (total 134). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 4.11 by the label work).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { readNightPreset, subscribeNightPreset, targetBlend } from './lib/hqLightPreset.ts';
 import type { HqRenderer } from './lib/hqThreeRenderer.ts';
 import type { RenderScene } from './lib/hqRenderTypes.ts';
+import type { GlassPlanData } from './lib/hqPlanAtlas.ts';
 import { setGpuState } from './lib/hqGpuState.ts';
 import { setLiveRenderer } from './lib/hqGpuBridge.ts';
 import { emitGpuTelemetry } from './lib/hqGpuTelemetry.ts';
@@ -46,6 +47,8 @@ type Props = Readonly<{
   label: string;
   description: string;
   scene: RenderScene | null;
+  /** The plan atlas the glass looks through (campus only). Changing it never rebuilds the scene meshes. */
+  glassPlan?: GlassPlanData | null;
   pickTargets: readonly PickTarget[];
   camera: CameraState;
   homeCamera: CameraState;
@@ -69,6 +72,12 @@ type Props = Readonly<{
   className?: string;
   children?: ReactNode;
 }>;
+
+/** Hands the plan atlas to the renderer; the plan shader (its own lazy chunk) is fetched the first time a scene has a plan, and the renderer then draws it. */
+function giveGlassPlan(r: HqRenderer | null, plan: GlassPlanData | null | undefined, stillWanted: () => boolean): void {
+  if (!r || !plan) { if (r) r.stats.glassPlan = ''; return; }
+  void import('./lib/hqGlassShader.ts').then((m) => { if (stillWanted()) m.applyPlan(r.glassHooks(), plan); }).catch(() => undefined);
+}
 
 type Pointer = { x: number; y: number };
 
@@ -144,7 +153,7 @@ export function HqStage(props: Props) {
           const modelSig = s ? `${s.models.placed}/${s.models.figures}/${s.models.loaded}/${s.models.asked}/${s.models.fallbacks.join(',')}/${s.models.looks.join('|')}` : '';
           const modelsChanged = modelSig !== lastModelSig.current;
           if (modelsChanged) lastModelSig.current = modelSig;
-          if (s && (s.frames === 1 || s.frames % 10 === 0 || modelsChanged) && canvas.current) {
+          if (s && (s.frames === 1 || s.frames % 10 === 0 || modelsChanged || s.glassPlan !== (canvas.current?.dataset.glassPlan ?? '')) && canvas.current) {
             canvas.current.dataset.drawMs = s.avgDrawMs.toFixed(2);
             canvas.current.dataset.triangles = String(Math.round(s.triangles));
             canvas.current.dataset.drawn = String(s.drawn);
@@ -152,6 +161,7 @@ export function HqStage(props: Props) {
             canvas.current.dataset.dpr = s.dpr.toFixed(2);
             canvas.current.dataset.shadow = String(s.shadowSize);
             canvas.current.dataset.bloom = s.bloom ? 'true' : 'false';
+            canvas.current.dataset.glassPlan = s.glassPlan;
             canvas.current.dataset.sceneryLevel = String(s.scenery.level);
             canvas.current.dataset.sceneryFrames = String(s.scenery.frames);
             canvas.current.dataset.sceneryClock = s.scenery.clock.toFixed(2);
@@ -177,6 +187,7 @@ export function HqStage(props: Props) {
       r.setCamera(live.current);
       r.setNight(nightNow.current);
       if (propsRef.current.scene) r.setScene(propsRef.current.scene);
+      { const plan = propsRef.current.glassPlan; giveGlassPlan(r, plan, () => propsRef.current.glassPlan === plan); }
       r.setHighlight(propsRef.current.hoverId, propsRef.current.selectedId);
       resizeObserver = new ResizeObserver(() => {
         const box = el.getBoundingClientRect();
@@ -203,6 +214,12 @@ export function HqStage(props: Props) {
 
   useEffect(() => { renderer.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
   useEffect(() => { if (scene) renderer.current?.setScene(scene); }, [scene]);
+  // The revision of the plan atlas the scene asks for (the drawn one is `data-glass-plan`): a layout or presence change moves it.
+  useEffect(() => {
+    const plan = props.glassPlan;
+    if (canvas.current) canvas.current.dataset.glassPlanWanted = plan?.revision ?? '';
+    giveGlassPlan(renderer.current, plan, () => propsRef.current.glassPlan === plan);
+  }, [props.glassPlan]);
   useEffect(() => { renderer.current?.setHighlight(props.hoverId, props.selectedId); }, [props.hoverId, props.selectedId]);
   useLayoutEffect(() => { labelSizes.current.clear(); renderer.current?.requestFrame(); }, [labels]);
 
