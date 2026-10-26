@@ -96,3 +96,7 @@ is the same; the buildings, the light and the motion changed.
 
 Renderer chunk 158.2 kB gzip (limit 160 kB), HQ entry chunk 138.6 kB (limit 140 kB on main); neither limit was raised. Per-asset triangle caps rose
 (office tower 3800, admin block 2600, executive HQ 5600, personal villa 2400) because of the added detail; the campus uses the smaller sizes.
+
+## Cutaway section, 26 October 2026
+
+The building view opens as a dollhouse section like concept renders 22 and 24: front walls and roof removed by camera azimuth, all floors stacked, the open floor highlighted and the others dimmed, a Cutaway / Closed toggle and 90 degree rotate snaps. What it is, how it is built and what still differs from the renders: [cutaway](ANUM_MINE_HQ_CUTAWAY.md).
