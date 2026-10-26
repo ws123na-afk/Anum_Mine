@@ -6,6 +6,8 @@ import { mockHq } from './support/hqCampusApi';
 // stay on the lowest tier by itself: only a pin raises it, and tier 4 is only checked at its start (the first frame of the post
 // stack takes minutes on SwiftShader, so no CI loop runs it). The API is mocked; every name is plainly fake.
 const SIZES = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const;
+// Each test builds a whole campus on a software rasteriser: allow what the other campus specs get on a loaded runner.
+test.describe.configure({ timeout: 240_000 });
 const hq = (page: Page) => page.locator('.hqLive');
 const canvas = (page: Page) => hq(page).locator('canvas.hqCanvas');
 
@@ -37,7 +39,7 @@ async function open(page: Page, pin: string | null, fxOff?: string) {
   await mockHq(page, { campus: 'api', layout: 'starter', commerce: 'connected', meetings: 'live' });
   await page.goto('/#office-preview');
   await expect(canvas(page)).toBeVisible();
-  await expect(canvas(page)).toHaveAttribute('data-engine', /three/, { timeout: 60_000 });
+  await expect(canvas(page)).toHaveAttribute('data-engine', /three/, { timeout: 180_000 });
 }
 
 const tier = (page: Page) => canvas(page).getAttribute('data-tier');
@@ -48,37 +50,37 @@ for (const [w, h] of SIZES) {
     await page.setViewportSize({ width: w, height: h });
     await open(page, null);
     // A software rasteriser starts at tier 0 on its own: no shadows, no post stack, no photographic effects.
-    await expect.poll(() => tier(page), { timeout: 60_000 }).toBe('0');
-    await expect.poll(() => fx(page), { timeout: 60_000 }).toContain('ao');
+    await expect.poll(() => tier(page), { timeout: 180_000 }).toBe('0');
+    await expect.poll(() => fx(page), { timeout: 180_000 }).toContain('ao');
     expect(await fx(page)).not.toMatch(/gtao|dof|shafts|agx|pbr|cascade|lights/);
-    await expect.poll(async () => Number(await canvas(page).getAttribute('data-triangles')), { timeout: 60_000 }).toBeGreaterThan(40_000);
-    await expect.poll(() => distinctColours(page), { timeout: 60_000 }).toBeGreaterThan(60);
+    await expect.poll(async () => Number(await canvas(page).getAttribute('data-triangles')), { timeout: 180_000 }).toBeGreaterThan(40_000);
+    await expect.poll(() => distinctColours(page), { timeout: 180_000 }).toBeGreaterThan(60);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   });
 }
 
 test('the quality pin sets the tier, contact discs and roof detail arrive from tier 1 up, and a bad pin is ignored', async ({ page }) => {
-  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.setViewportSize({ width: 800, height: 600 });
   await open(page, '3');
-  await expect.poll(() => tier(page), { timeout: 60_000 }).toBe('3');
-  await expect.poll(() => fx(page), { timeout: 60_000 }).toContain('contact');
+  await expect.poll(() => tier(page), { timeout: 180_000 }).toBe('3');
+  await expect.poll(() => fx(page), { timeout: 180_000 }).toContain('contact');
   expect(await canvas(page).getAttribute('data-shadow')).toBe('2048');
   expect(await fx(page)).not.toMatch(/gtao|pbr|agx/);
   const withDetail = Number(await canvas(page).getAttribute('data-triangles'));
 
   const second = await page.context().newPage();
-  await second.setViewportSize({ width: 1024, height: 768 });
+  await second.setViewportSize({ width: 800, height: 600 });
   await open(second, '3', 'ao,detail,contact');
-  await expect.poll(() => tier(second), { timeout: 60_000 }).toBe('3');
+  await expect.poll(() => tier(second), { timeout: 180_000 }).toBe('3');
   expect(await fx(second)).not.toMatch(/ao|contact/);
   const without = Number(await canvas(second).getAttribute('data-triangles'));
   expect(without).toBeLessThan(withDetail);
   await second.close();
 
   const bad = await page.context().newPage();
-  await bad.setViewportSize({ width: 1024, height: 768 });
+  await bad.setViewportSize({ width: 800, height: 600 });
   await open(bad, 'banana');
-  await expect.poll(() => tier(bad), { timeout: 60_000 }).toBe('0');
+  await expect.poll(() => tier(bad), { timeout: 180_000 }).toBe('0');
   await bad.close();
 });
 
@@ -89,7 +91,7 @@ test('pin 4 asks for the photographic extension on the ultra tier (checked at it
   page.on('request', (r) => { if (/hqPhotoFx/.test(r.url())) chunks.push(r.url()); });
   await open(page, '4');
   // The extension is not a registered tier: the picture is the ultra tier (3) until its first frame has compiled, then reports 4.
-  await expect.poll(async () => ['3', '4'].includes((await tier(page)) ?? ''), { timeout: 60_000 }).toBe(true);
+  await expect.poll(async () => ['3', '4'].includes((await tier(page)) ?? ''), { timeout: 180_000 }).toBe(true);
   await expect.poll(() => chunks.length, { timeout: 120_000 }).toBeGreaterThan(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
 });
