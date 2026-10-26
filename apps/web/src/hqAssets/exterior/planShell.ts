@@ -12,8 +12,7 @@
  */
 import { MAT, VERTEX_FLOATS, hex, scale } from '../../lib/hqGeometry.ts';
 import { WARM } from '../../lib/hqProps.ts';
-import { CORE_DEPTH, CORE_WIDTH } from '../interior/core.ts';
-import { PLINTH, STOREY_PITCH, type PlanFrame, type PlanStorey } from '../../lib/hqPlanFrame.ts';
+import { PLAN_CORE, PLINTH, STOREY_PITCH, type PlanFrame, type PlanStorey } from '../../lib/hqPlanFrame.ts';
 import { beaconLight, canopy, louvres, roofDeck } from './facadeKit.ts';
 import { curtainWall, entrance, faceBox, faceQuad, finish, makeCtx, rectFaces, signBoard, type Ctx } from './parts.ts';
 import { accentBand, crown, slabBand, terrace } from './towerParts.ts';
@@ -73,8 +72,8 @@ export function buildPlanShell(kind: ExteriorKind, frame: PlanFrame, params: Pla
   // The service core rises above the roof as a lift tower.
   if (last.core) {
     const kx = lx(last.core.x), kz = lz(last.core.z);
-    b.box(kx, roofY - 0.2, kz, CORE_WIDTH, 3.4, CORE_DEPTH * 0.5, scale(scheme.wall, 0.96), { grad: 0.12 });
-    b.box(kx - 0.1, roofY + 3.2, kz - 0.1, CORE_WIDTH + 0.2, 0.3, CORE_DEPTH * 0.5 + 0.2, scheme.accent, { emissive: 0.6, shade: false });
+    b.box(kx, roofY - 0.2, kz, PLAN_CORE.w, 3.4, PLAN_CORE.d * 0.5, scale(scheme.wall, 0.96), { grad: 0.12 });
+    b.box(kx - 0.1, roofY + 3.2, kz - 0.1, PLAN_CORE.w + 0.2, 0.3, PLAN_CORE.d * 0.5 + 0.2, scheme.accent, { emissive: 0.6, shade: false });
   }
 
   // Setbacks: a roof deck on the biggest free strip of a storey that has a smaller one above it.

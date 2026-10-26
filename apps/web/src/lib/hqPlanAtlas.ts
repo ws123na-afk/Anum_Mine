@@ -12,8 +12,7 @@
  * Pure and deterministic: the same plans give the same bytes, so the unit runner pins it and a revision label says when to redraw.
  */
 import type { SceneFloor } from './headquartersProjection.ts';
-import { CORE_DEPTH, CORE_WIDTH } from '../hqAssets/interior/core.ts';
-import { PLINTH, STOREY_PITCH, hash32, layoutKey, occupancyKey, type PlanFrame, type PlanInput } from './hqPlanFrame.ts';
+import { PLAN_CORE, PLINTH, STOREY_PITCH, hash32, layoutKey, occupancyKey, type PlanFrame, type PlanInput } from './hqPlanFrame.ts';
 
 export const MAX_PLAN_BUILDINGS = 16;
 export const PLAN_TILE = 128;
@@ -117,9 +116,9 @@ function paintStorey(tile: Tile, floor: SceneFloor, rect: Readonly<{ x0: number;
   tile.rect(rect.x0, rect.z0, rect.x1, rect.z1, CORRIDOR, encodeAlpha(LIGHT.corridor, false));
   // The service core: lobby stone, the lift shaft (dark) and the stair well.
   if (core) {
-    tile.rect(core.x, core.z, core.x + CORE_WIDTH, core.z + CORE_DEPTH, LOBBY, encodeAlpha(LIGHT.corridor, false));
-    tile.rect(core.x + 1.9, core.z, core.x + CORE_WIDTH, core.z + 4.0, STEEL, encodeAlpha(0.2, false));
-    tile.outline(core.x, core.z, core.x + CORE_WIDTH, core.z + CORE_DEPTH, WALL, wallA, { side: 'west', u: tile.pz(core.z + CORE_DEPTH - 1.5), w: tile.T * (2.4 / tile.frame.d) });
+    tile.rect(core.x, core.z, core.x + PLAN_CORE.w, core.z + PLAN_CORE.d, LOBBY, encodeAlpha(LIGHT.corridor, false));
+    tile.rect(core.x + 1.9, core.z, core.x + PLAN_CORE.w, core.z + 4.0, STEEL, encodeAlpha(0.2, false));
+    tile.outline(core.x, core.z, core.x + PLAN_CORE.w, core.z + PLAN_CORE.d, WALL, wallA, { side: 'west', u: tile.pz(core.z + PLAN_CORE.d - 1.5), w: tile.T * (2.4 / tile.frame.d) });
   }
   const deskById = new Map(floor.desks.map((d) => [d.id, d]));
   for (const room of floor.rooms) {

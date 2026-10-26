@@ -62,9 +62,11 @@ change rebuilds the shells and the atlas. The canvas shows `data-glass-plan` (th
 
 ## Budgets
 
-Lazy HQ entry chunk 130,844 bytes gzip (limit 140,000), renderer chunk 158,409 (limit 160,000, was 157,793: the plan hooks in the glass program and the texture upload are
-about 0.6 kB), plan kit chunk 3,888 and plan shader chunk 1,363, both fetched only when a campus has a registry building with rooms. No budget was raised. The entry chunk shrank because the
-bundler now shares the geometry and ambient code between the entry, the kit and the renderer in one chunk (13.3 kB gzip), which also loads with the headquarters.
+Lazy HQ entry chunk 130,864 bytes gzip (limit 140,000; it was 138,297 before), renderer chunk 158,409 (limit 160,000; was 157,792: the plan hooks in the glass program and the texture
+upload are about 0.6 kB), plan kit chunk 3,894 and plan shader chunk 1,363, both fetched only when a campus has a registry building with rooms. No limit was raised. Read this honestly: with a
+third importer the bundler now hoists the geometry and ambient code into a shared chunk (13,290 bytes gzip) that loads together with the entry, so the file the performance spec measures shrank
+while the headquarters payload (entry plus shared chunk, 144,154) grew by about 5.9 kB gzip over the 138,297 of before. That is an artefact of chunking, not a limit met by moving code; the
+real increase is the plan wiring in the entry (about 2 kB) and the separate compression of the shared chunk.
 
 Software GL cost (SwiftShader, 1440x900, dusk, orbiting the campus, plan impostor on against `anum.hq.glassplan = off`, three runs each): the average draw time is dominated by noise
 (last samples 16.7, 8.3 and 21.4 ms with the plan against 36.5, 6.7 and 18.8 ms without), so the one texel lookup of the lean path costs nothing measurable and stays on. The first frames after the

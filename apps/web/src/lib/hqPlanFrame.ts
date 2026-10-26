@@ -9,6 +9,7 @@
  */
 import type { SceneBuilding, SceneFloor } from './headquartersProjection.ts';
 import { FLOOR_PITCH, buildingLayout } from './buildingScene.ts';
+import { CORE_DEPTH, CORE_WIDTH } from '../hqAssets/interior/core.ts';
 import { presenceForDesk, type HqPresenceIndex } from './hqPresence.ts';
 
 /** What the glass impostor of one building is made from. `lit` and `seated` hold desk ids. */
@@ -19,6 +20,9 @@ export type PlanInput = Readonly<{
   /** Desks that have an agent assigned (a registry fact). */
   seated: ReadonlySet<string>;
 }>;
+
+/** The service core of a floor (the interior's `CORE_WIDTH` and `CORE_DEPTH`), re-exported so the lazy plan chunks do not import the interior kit. */
+export const PLAN_CORE = Object.freeze({ w: CORE_WIDTH, d: CORE_DEPTH });
 
 /** Height of the plinth: floor 0 of the shell stands this high; floor n is at `PLINTH + n * STOREY_PITCH`. */
 export const PLINTH = 0.9;
