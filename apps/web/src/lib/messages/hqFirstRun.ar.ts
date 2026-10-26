@@ -25,7 +25,7 @@ export const hqFirstRunAr: Record<keyof typeof hqFirstRunEn, Message> = {
   'hqFr.creating': 'جار إنشاء حرمك...',
   'hqFr.reviewLeft': 'راجع ما تبقى',
   'hqFr.review': 'راجع الخطة الجديدة',
-  'hqFr.hash': 'بصمة الخطة: {hash}. يتحقق الخادم من أنك تؤكد هذه الخطة بالضبط.',
+  'hqFr.hash': 'بصمة الخطة: {hash}',
   'hqFr.clickOnly': 'لا يؤكد هذا إلا النقر على الزر. لا تكفي إجابة مكتوبة أو منطوقة.',
   'hqFr.ownersOnly': 'مالك مساحة العمل وحده يستطيع إنشاء الحرم (صلاحية workspace:manage). يمكنك معاينة القائمة. اطلب من المالك فتح هذه الصفحة والضغط على الزر.',
   'hqFr.rules': 'لا يُنشأ أي وكيل ولا يجلس أحد على المكاتب. أي شيء موجود يبقى كما هو.',

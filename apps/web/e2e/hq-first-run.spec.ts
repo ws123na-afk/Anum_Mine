@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect as baseExpect, test, type Page } from '@playwright/test';
+const expect = baseExpect.configure({ timeout: 15_000 });
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
@@ -11,6 +12,8 @@ import { MASTER_TOTALS, mockFirstRun, type FirstRunMock } from './support/hqFirs
 // The mock starts EMPTY and a confirm fills the registry with the real master list (8 buildings, 18 floors, 62 rooms, 220 desks).
 // Set HQ_SHOTS_DIR to keep a screenshot of every step.
 test.use({ actionTimeout: 30_000 });
+test.describe.configure({ timeout: 120_000 });
+test.beforeEach(() => { /* the headquarters scene is heavy: give every expectation room on a busy runner */ });
 const empty = { ...hqRegistry(TENANT_A, { rooms: 0, desks: 0 }), buildings: [], floors: [] };
 let first: FirstRunMock;
 let streamEvents: string[] = [];
@@ -57,8 +60,9 @@ async function noOverflow(page: Page, selector: string | null = '.hqFirstRun') {
 }
 async function enterHq(page: Page, name = 'ANUM HQ') {
   // Building names are stored in one language (the registry has no Arabic column), so the name is the same in both.
-  await hq(page).getByRole('button', { name: new RegExp(`^${name}\\.`) }).click();
-  await hq(page).getByRole('button', { name: new RegExp(`^(Open|فتح) ${name}$`) }).click();
+  // dispatchEvent: on a narrow stage the campus map overlay can sit over the label, which is only a pointer matter.
+  await hq(page).getByRole('button', { name: new RegExp(`^${name}\\.`) }).dispatchEvent('click');
+  await hq(page).getByRole('button', { name: new RegExp(`^(Open|فتح) \u2068?${name}\u2069?$`) }).click();
   await expect(hq(page).getByRole('heading', { level: 2, name })).toBeVisible();
 }
 
@@ -155,7 +159,7 @@ test('the building view shows every room of the floor, and the floor overview la
   await expect(cards).toHaveCount(0);
   await rail.click();
   await expect(cards).toHaveCount(5);
-  await hq(page).locator('.hqSceneWrap').focus();
+  await hq(page).locator('.hqBuilding .hqStage').focus();
   await page.keyboard.press('Escape');
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 });

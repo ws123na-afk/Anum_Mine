@@ -60,6 +60,7 @@ export function FirstRunPanel({ onCreated, onKeep, onClose, onManageSpaces }: Fi
 
         {phase === 'loading' && <p className="hqFrNote" role="status"><Loader2 aria-hidden="true" className="hqFrSpin" /> {t('hqFr.loading')}</p>}
         {phase === 'denied' && <p className="hqFrNote hqFrFail" role="alert"><LockKeyhole aria-hidden="true" /> {t('hqFr.denied')}</p>}
+        {(phase === 'denied' || phase === 'error') && onManageSpaces && <div className="hqFrActions"><button type="button" className="hqFrGhost" onClick={onManageSpaces} title={t('hqFr.manual')}>{t('hq.manageSpaces')}</button></div>}
         {phase === 'error' && (
           <div className="hqFrNote hqFrFail" role="alert">
             <p><TriangleAlert aria-hidden="true" /> {t('hqFr.error', { detail: setup.detail ?? '' })}</p>
@@ -115,6 +116,7 @@ export function FirstRunPanel({ onCreated, onKeep, onClose, onManageSpaces }: Fi
               </button>
               {setup.stale && phase === 'ready' && <button type="button" onClick={setup.reload}>{t('hqFr.review')}</button>}
               {needsReview && <button type="button" onClick={onClose}>{t('hqFr.note.close')}</button>}
+              {onManageSpaces && !busy && <button type="button" className="hqFrGhost" onClick={onManageSpaces} title={t('hqFr.manual')}>{t('hq.manageSpaces')}</button>}
             </div>
             <p className="hqFrNote">{preview.can_confirm ? t('hqFr.clickOnly') : t('hqFr.ownersOnly')} {t('hqFr.rules')}</p>
             <p className="hqFrNote hqFrHash" data-testid="fr-hash"><ShieldCheck aria-hidden="true" /> {t('hqFr.hash', { hash: shortHash(preview.payload_hash) })}</p>
@@ -124,9 +126,6 @@ export function FirstRunPanel({ onCreated, onKeep, onClose, onManageSpaces }: Fi
           <footer>
             <div className="hqFrActions"><button type="button" className="hqFrPrimary" data-autofocus onClick={onClose}>{t('hqFr.land')}</button></div>
           </footer>
-        )}
-        {onManageSpaces && phase !== 'done' && !busy && (
-          <p className="hqFrManual"><button type="button" className="hqFrLink" onClick={onManageSpaces}>{t('hq.manageSpaces')}</button><span>{t('hqFr.manual')}</span></p>
         )}
       </div>
     </section>

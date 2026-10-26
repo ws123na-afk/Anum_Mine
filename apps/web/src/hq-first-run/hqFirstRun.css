@@ -1,7 +1,7 @@
 /* First-run panel inside the headquarters scene (src/hq-first-run). Words and icons carry every state, colour never alone.
    Glass on the scene like the label cards, so it reads in day and night. Over the scene on a wide stage; in the page flow, above it, on a narrow one. */
 .hqFirstRun { align-items: center; background: linear-gradient(180deg, rgba(5, 12, 20, .18), rgba(5, 12, 20, .58)); display: grid; inset: 0; justify-items: center; padding: var(--d-s3); pointer-events: none; position: absolute; z-index: 30; }
-.hqFrCard { background: rgba(8, 14, 22, .96); backdrop-filter: blur(10px); border: 1px solid var(--hq-glass-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-2); color: var(--hq-glass-text); display: grid; gap: var(--d-s3); max-block-size: 100%; max-inline-size: 560px; overflow-y: auto; padding: var(--d-s4); pointer-events: auto; width: 100%; }
+.hqFrCard { background: rgba(8, 14, 22, .96); backdrop-filter: blur(10px); border: 1px solid var(--hq-glass-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-2); color: var(--hq-glass-text); display: grid; gap: var(--d-s2); max-block-size: 100%; max-inline-size: 560px; overflow-y: auto; padding: var(--d-s3) var(--d-s4); pointer-events: auto; width: 100%; }
 .hqFrCard header { align-items: flex-start; display: flex; gap: var(--d-s3); }
 .hqFrCard h2 { font-size: var(--text-lg); line-height: 1.2; margin: 0; overflow-wrap: anywhere; }
 .hqFrIcon { align-items: center; background: color-mix(in srgb, var(--d-accent) 22%, transparent); border-radius: 12px; color: var(--d-accent); display: inline-flex; flex: none; height: 40px; justify-content: center; width: 40px; }
@@ -12,7 +12,7 @@
 .hqFrFail { background: rgba(120, 28, 28, .45); border: 1px solid #ff9b8f; border-radius: var(--d-r-control); color: #ffe3de; padding: var(--d-s2) var(--d-s3); }
 .hqFrWarn { background: rgba(110, 80, 10, .45); border: 1px solid #f2c46b; border-radius: var(--d-r-control); color: #fff0c8; padding: var(--d-s2) var(--d-s3); }
 .hqFrStats { display: grid; gap: var(--d-s2); grid-template-columns: repeat(4, minmax(0, 1fr)); list-style: none; margin: 0; padding: 0; }
-.hqFrStats li { align-items: center; background: rgba(255, 255, 255, .06); border: 1px solid var(--hq-glass-line); border-radius: var(--d-r-control); display: grid; gap: 2px; justify-items: center; min-width: 0; padding: var(--d-s2); text-align: center; }
+.hqFrStats li { align-items: center; background: rgba(255, 255, 255, .06); border: 1px solid var(--hq-glass-line); border-radius: var(--d-r-control); display: grid; gap: 2px; justify-items: center; min-width: 0; padding: 6px; text-align: center; }
 .hqFrStats svg { color: var(--d-accent); height: 16px; width: 16px; }
 .hqFrStats strong { font-size: var(--text-xl); font-variant-numeric: tabular-nums; line-height: 1; }
 .hqFrStats span { color: var(--hq-glass-muted); font-size: var(--text-2xs); overflow-wrap: anywhere; }
@@ -28,8 +28,9 @@
 .hqFrActions .hqFrPrimary { align-items: center; background: var(--d-primary); border-color: transparent; color: var(--d-on-primary); display: inline-flex; font-weight: 700; gap: 8px; justify-content: center; }
 .hqFrActions .hqFrPrimary:hover:not(:disabled) { background: var(--d-primary-hover); }
 .hqFrActions button:disabled { cursor: not-allowed; opacity: .55; }
+.hqFrGhost { margin-inline-start: auto; }
 .hqFrManual { align-items: baseline; color: var(--hq-glass-muted); display: flex; flex-wrap: wrap; font-size: var(--text-xs); gap: 4px 10px; margin: 0; }
-.hqFrHash { font-variant-numeric: tabular-nums; }
+.hqFrHash { flex-wrap: nowrap; font-size: var(--text-2xs); font-variant-numeric: tabular-nums; }
 .hqFrSpin { animation: hqFrSpin 1s linear infinite; }
 @keyframes hqFrSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .hqFrSpin { animation: none; } }

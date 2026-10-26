@@ -24,7 +24,7 @@ export const hqFirstRunEn = {
   'hqFr.creating': 'Creating your campus...',
   'hqFr.reviewLeft': 'Review what is left',
   'hqFr.review': 'Review the new plan',
-  'hqFr.hash': 'Plan fingerprint: {hash}. The server checks that you confirm exactly this plan.',
+  'hqFr.hash': 'Plan fingerprint: {hash}',
   'hqFr.clickOnly': 'Only a click on the button confirms this. A typed or spoken answer cannot.',
   'hqFr.ownersOnly': 'Only a workspace owner can create the campus (the workspace:manage permission). You can still preview the list. Ask an owner to open this page and press the button.',
   'hqFr.rules': 'No agents are created and nobody is seated. Anything that already exists is kept as it is.',
