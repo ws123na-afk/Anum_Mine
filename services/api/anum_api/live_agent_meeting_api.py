@@ -6,6 +6,7 @@ governance and database reservation adapters pass integration tests.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import contextmanager
 from collections.abc import Iterator
@@ -23,6 +24,7 @@ from .authorization import Permission
 from .dependencies import has_permission, require_permission, tenant_context
 from .errors import ApplicationError, ErrorCode
 from . import live_agent_meeting_budget as meeting_budget
+from . import live_agent_meeting_rate as turn_rate
 from .live_agent_meeting_audit import audit_event, audit_in_new_transaction
 from .live_agent_meeting_store import LiveMeetingStoreError, SqlLiveMeetingStore
 from .scoped_store import open_scoped_store
@@ -326,6 +328,26 @@ def add_agent_participant(
         return updated
 
 
+async def _admit_turns(context: TenantContext, meeting_id: str, turns: int) -> None:
+    """S-05: refuse with 429 and a Retry-After when this person or workspace is over its turn rate.
+
+    The refusal is audited with ids and counts only. A failure to audit never replaces the refusal."""
+    decision = turn_rate.limiter.acquire(
+        context, turns, actor_limit=settings.meeting_turns_per_minute_actor,
+        workspace_limit=settings.meeting_turns_per_minute_workspace)
+    if decision.allowed:
+        return
+    try:
+        await asyncio.to_thread(
+            audit_in_new_transaction, context, "agent_meeting.turn_rate_limited", meeting_id, outcome="denied",
+            meeting_id=meeting_id, code="rate_limited", scope=decision.scope, requested_turns=turns,
+            limit=decision.limit, retry_after_seconds=decision.retry_after_seconds)
+    except Exception:  # noqa: BLE001 - best effort, the refusal below is what the caller needs
+        logger.warning("Could not audit a meeting turn rate refusal", exc_info=True)
+    raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, turn_rate.refusal_message(decision),
+                        headers={"Retry-After": str(decision.retry_after_seconds)})
+
+
 @router.post("/{meeting_id}/execute-turn")
 async def execute_turn(
     meeting_id: MeetingId, body: ExecuteTurn,
@@ -337,6 +359,7 @@ async def execute_turn(
     The request key is idempotent and must be reused after a client timeout.
     """
     require_permission(context, Permission.WORKSPACE_MANAGE)
+    await _admit_turns(context, meeting_id, 1)
     try:
         gateway = build_default_model_gateway()
         result = await execute_meeting_turn(context, meeting_id, body.request_key, gateway)
@@ -356,6 +379,7 @@ async def run_meeting(
     turns. This synchronous bounded round is not an unattended job worker.
     """
     require_permission(context, Permission.WORKSPACE_MANAGE)
+    await _admit_turns(context, meeting_id, body.turns)
     gateway = build_default_model_gateway()
     results = []
     try:

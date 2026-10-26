@@ -71,5 +71,5 @@ The owner-triggered meeting summary is a model call and is metered like a turn: 
 * O5, retention windows for meeting transcripts, is still open: only the manual `DELETE /transcript` exists.
 * The cap counts the gateway's cost estimate, not an invoice. A model without a price estimate reports no cost and the meeting
   refuses the turn already ("Model must report a cost estimate"), so no unpriced spend enters.
-* The rate of turns per minute (S-05) is not part of this change.
+* The rate of turns per minute (S-05) is not part of this change; see [turn rate](ANUM_MINE_AUTONOMOUS_MEETINGS.md#turn-rate-s-05).
 * An organisation-wide cap across workspaces is not built; the cap is per workspace as decided.

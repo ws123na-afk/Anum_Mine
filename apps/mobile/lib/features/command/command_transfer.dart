@@ -125,8 +125,8 @@ class HttpCommandTransfer implements CommandTransfer {
 
   @override
   Future<String?> pickFile() async {
-    final picked = await FilePicker.platform.pickFiles(withData: false);
-    return picked?.files.single.path;
+    final picked = await FilePicker.pickFile();
+    return picked?.path;
   }
 
   @override
@@ -138,7 +138,7 @@ class HttpCommandTransfer implements CommandTransfer {
 
   @override
   Future<bool> save(String fileName, Uint8List bytes) async =>
-      await FilePicker.platform
-          .saveFile(dialogTitle: fileName, fileName: fileName, bytes: bytes) !=
+      await FilePicker.saveFile(
+          dialogTitle: fileName, fileName: fileName, bytes: bytes) !=
       null;
 }

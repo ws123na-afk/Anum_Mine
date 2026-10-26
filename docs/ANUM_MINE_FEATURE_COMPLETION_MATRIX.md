@@ -107,6 +107,7 @@ Counts per status are in the last section ("Totals"), computed from the tables i
 | 4.8 | Cross-workspace executive view only by explicit grant | Complete | Ran, CI | `executive_api.py` grants (owner approves with payload hash, narrow only, revocable); `executive_pa.py`; `ExecutiveCommandCenter.tsx`; `test_executive_pa.py` pass | Postgres side of grants is CI only |
 | 4.9 | First run: an empty workspace offers the campus inside the scene | Complete | Ran, CI | `hq-first-run/FirstRunPanel.tsx` shows the real plan numbers, the list, the plan fingerprint and one button; confirm sends the shown hash with `input_mode: "click"`; the campus, floors and rooms appear without a reload (own click or another browser's `office.layout_changed`); loading, error, denied, stale 409, refused confirm, partial retry; the assistant card (`CampusProposalCard`) needs the same click; `test/hqFirstRun.test.ts`, `e2e/hq-first-run.spec.ts`; `docs/ANUM_MINE_STARTER_CAMPUS.md#first-run` | The master list is still code, not editable in the app. Building names are stored in one language |
 | 4.10 | Whole floor on one screen, every room labelled and clickable | Complete | Ran, CI | Floor overview mode and the fitted building camera (`lib/hqCamera.ts` `fitDistance`, `BuildingView.tsx`, floor rail "Whole floor"); cause of "only one room": a flat camera factor that cropped 38 m floors; `test/hqFirstRun.test.ts`, `e2e/hq-first-run.spec.ts`; `docs/ANUM_MINE_FLOOR_OVERVIEW.md` | Cards hide in the overview only desk and agent figures; people are listed in the room panel |
+| 4.11 | Room and agent label cards like the concept renders: dark glass room cards, white agent cards with the real state, Back to campus card, floor selector, live strips | Complete | Ran, CI | `lib/hqLabels.ts` (density full, compact, dot; slab depth test; no overlap), `lib/hqLabelModel.ts` (anchors at room centres at the floor height, subtitles from the registry), `HqLabelCards.tsx`, `HqSceneStrips.tsx`, `hqLabels.css`; `test/hqLabelModel.test.ts`, `e2e/hq-labels.spec.ts`; spec `docs/ANUM_MINE_HQ_LABELS.md` | Subtitles are generated from kind, desks and department, so they read plainer than the hand-written concept lines. No Offline state in a team card (presence has none). Pan toggle added to the camera bar
 
 ## Section 5. Digital characters and AI employees
 
@@ -196,12 +197,12 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 10.1 | Evidence history API | Complete | Ran | `GET /api/v1/office-history`, `/at`, `/correlations/{id}` (`office_history_api.py`); `test_office_history_api.py` pass; `docs/ANUM_MINE_F09_AUDITED_HISTORY_API.md` | none |
 | 10.2 | Searchable timeline in the product | Complete | Ran, CI | `HqHistoryPanel.tsx` (Office tools, History; room inspector, agent card and Team card entry points), event type, actor, room, agent and date filters, infinite scroll and "Load older records" while `next_cursor` is set; `test/hqHistory.test.ts`, `e2e/hq-history.spec.ts`; `docs/ANUM_MINE_HQ_HISTORY_PANEL.md` | none. Department and project filters are not offered: audit records carry neither |
 | 10.3 | Free-text search | Complete | Ran | `GET /office-history` takes `q` (actor, action, target), `since`, `until`; `test_office_history_http.py`, `test_office_history_api.py` | Search does not look inside recorded metadata |
-| 10.4 | Correlation ids | Partial | Ran, CI | The record side panel shows the correlation id and lists the records of the same request (`GET /correlations/{id}`) and the task, run, approval or meeting it points at, with a summary read from the existing routes; `e2e/hq-history.spec.ts` | No link in the other direction: a task, meeting or approval screen does not open its correlation view |
+| 10.4 | Correlation ids | Partial | Ran, CI | The record side panel shows the correlation id and lists the records of the same request (`GET /correlations/{id}`, paged with a count, an honest message for a record without an id), a button that opens the whole request as the timeline (which can be exported), and the task, run, approval or meeting it points at, with a summary read from the existing routes and a "Show records that name this task" action; `lib/hqHistory.ts`, `e2e/hq-history.spec.ts`, `e2e/hq-history-export.spec.ts` | No link in the other direction: a task, meeting or approval screen does not open its correlation view (those screens are outside the lazy History chunk). Full transcript text and past snapshots stay out (owner decisions O5, O8: not decided here)
 | 10.5 | Replay of the office at a past time | Partial | Ran, CI | Room history slider over the room's stored audit records: before and after values per step, "Cannot be reconstructed for this time" for gaps, times before the oldest loaded record and the future; `lib/hqRoomHistory.ts`, `test/hqHistory.test.ts`, `e2e/hq-history.spec.ts` | Layout changes of one room only. Past presence, occupancy and whole-office replay need time-indexed snapshots (new tables, retention, owner decision O8); nothing is stored by this change and none is drawn |
 | 10.6 | Replay only where verified | Complete | Read | `EVIDENCE_NOTICE`, no invented status, `unknown` fields | none |
 | 10.7 | Item trail (task, lead, order) | Complete | Ran | `GET /office/flow/items/{kind}/{id}/trail`, allow-listed fields; `test_office_flow.py` | Orders: `not_recorded` |
 | 10.8 | Access limited | Complete | Ran | Owners and authorised organisation admins only (`HISTORY_ACCESS`) | none |
-| 10.9 | History export | Partial | Ran, CI | "Export these records (CSV)" calls the existing audited audit export (`GET /audit/export`, permission `audit:export`) with the same filters; `e2e/hq-history.spec.ts` | Not offered for room or agent views or the "Other" type, because the audit export cannot express them. No JSON button in the panel |
+| 10.9 | History export | Partial | Ran, CI | "Export these records (CSV)" is offered for every view. The office, a named type and one request use the audited audit export (`GET /audit/export`, permission `audit:export`) with the same filters. Room views, agent views and the "Other" type read the same audited export as JSON, keep only the rows the view shows and save them as CSV on the device (`lib/hqHistoryExport.ts`, `lib/hqHistoryExportApi.ts`), so nothing beyond what the permission already gives; keys that could hold secrets or conversation text are dropped; a viewer without the permission sees it disabled with who can grant it; `test/hqHistoryExport.test.ts`, `e2e/hq-history-export.spec.ts` | No JSON button in the panel. A narrowed export reads the whole matching audit export before narrowing (large logs take longer); a server-side room or agent filter would avoid that. The audit record of the export names the broad filters, not the room or agent
 
 ## Section 11. Office management
 
@@ -229,7 +230,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 12.4 | Web unit tests and typecheck | Complete | Ran | 168 of 168 and `tsc` pass | none |
 | 12.5 | Backend unit tests | Complete | Ran | 138 of 138 pass | none |
 | 12.6 | PostgreSQL and RLS tests | Complete | CI | `test_postgres_hq_rls.py`, `test_postgres_office_*`, `test_postgres_live_agent_meeting_*` | Not verified locally: no test database credentials here |
-| 12.7 | Security tests and review | Partial | Read | `docs/ANUM_MINE_HQ_SECURITY_REVIEW.md`, `e2e/hq-csp.spec.ts`, RLS test | S-02, S-03 and S-04 are closed (see 9.3, 9.12, 9.13). Open: S-05 (turn rate) |
+| 12.7 | Security tests and review | Partial | Read | `docs/ANUM_MINE_HQ_SECURITY_REVIEW.md`, `e2e/hq-csp.spec.ts`, RLS test | S-02, S-03, S-04 and S-05 are closed (see 9.3, 9.12, 9.13; S-05 is a per person and per workspace turn rate on `execute-turn` and `run`, `tests/test_live_agent_meeting_turn_rate.py`, per process memory so N replicas allow N times the rate). Still open: S-10 (stream per scope, confirm on Oracle) and S-11 (example names in the concept view and reception). Row stays Partial; totals unchanged |
 | 12.8 | Accessibility | Complete | Read, CI | `e2e/hq-a11y.spec.ts`: English and Arabic, light and dark | Open H-13 (close button covered by header in the overlay) was found; status not re-checked |
 | 12.9 | Load and streaming | Partial | Read | `scripts/hq-load/hq_load.py`, `docs/ANUM_MINE_HQ_LOAD_TESTING.md` | Never run on the Oracle VM with PostgreSQL; H-09 open |
 | 12.10 | Rollback | Complete | Read | `VITE_ANUM_HQ=off` (`lib/headquartersFlag.ts`), expand-only migrations, `docs/ANUM_MINE_HQ_DEPLOYMENT_AND_ROLLBACK.md` | No rehearsal recorded |
@@ -278,7 +279,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 7. **Done in PR claude/hq-live-scene: the web uses the presence stream (8.1, 8.2, 14.6), shows all eight states (5.5), the operations wall (2.6), the filtered flow dock (7.2) and the Inside camera (3.4).** Still to do: re-run the load test on the Oracle VM (H-09).
 8. **Meeting summary and decision to work links (9.6, 9.9, 9.7).** Owner-confirmed summary, decisions linked to tasks, linked items in the export.
 9. **Done in PR claude/hq-layout-history: layout history and restore (8.6, 11.6) and floor and building templates (11.8).** Stored snapshots written in the save's own transaction, a click only governed restore, and a History and Templates tab.
-10. **Close the open security findings (9.3, 9.12, 9.13, 12.7).** Workspace meeting cap, audit each turn, decide transcript visibility. Done in the meeting budget PR (S-02, S-03, S-04); S-05 and owner decision O5 (retention) stay open.
+10. **Close the open security findings (9.3, 9.12, 9.13, 12.7).** Workspace meeting cap, audit each turn, decide transcript visibility. Done in the meeting budget PR (S-02, S-03, S-04) and the turn rate change (S-05); owner decision O5 (retention) stays open.
 
 Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a screenshot sweep artifact (12.3), the migration number clash (13.3), the `hq.en` and `hq.ar` key parity test (13.5).
 
@@ -303,16 +304,16 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 
 ## Totals
 
-Rows counted: 147 (sections 1 to 14).
+Rows counted: 148 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
-| Complete | 109 |
+| Complete | 110 |
 | Partial | 34 |
 | Missing | 3 |
 | Not applicable | 1 |
-| Total | 147 |
+| Total | 148 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 102, Partial 27, Missing 3, Not applicable 1 (total 133). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 103, Partial 27, Missing 3, Not applicable 1 (total 134). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 4.11 by the label work).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.
