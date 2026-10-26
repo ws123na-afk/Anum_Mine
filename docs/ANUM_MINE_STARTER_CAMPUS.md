@@ -50,11 +50,41 @@ Rooms are packed row by row on a floor with a 2 metre margin and 2 metre gaps; e
 
 ## Web
 
-`apps/web/src/hq-starter-campus/`. Entries: Office tools, **Set up my campus**, and the empty-campus state ("This workspace has no office layout yet"). The dialog reads the preview, lists every building with a checkbox (all on by default, already complete buildings disabled), a details section per building with every floor, room, skip reason and desk label, the totals, and the rules (no agents, existing kept, time zone). Changing the ticks re-reads the plan so the hash always matches what is ticked. Confirm is one click and is disabled for non-owners (with the reason), with nothing ticked, with nothing to create, and while a request runs. After the run it shows the result per building and offers Organisation gaps. States: loading, error with retry, denied (who can help), stale plan (409) with Review again, partly failed with Review what is left. English and Arabic (right to left), keyboard (focus moves in, Escape closes, focus returns), screen reader (dialog, live regions, labelled controls), responsive down to 390 pixels.
+`apps/web/src/hq-starter-campus/`. Entries: the [first-run panel](#first-run) in the scene, Office tools, **Set up my campus**, and the empty-campus state ("This workspace has no office layout yet"). The dialog reads the preview, lists every building with a checkbox (all on by default, already complete buildings disabled), a details section per building with every floor, room, skip reason and desk label, the totals, and the rules (no agents, existing kept, time zone). Changing the ticks re-reads the plan so the hash always matches what is ticked. Confirm is one click and is disabled for non-owners (with the reason), with nothing ticked, with nothing to create, and while a request runs. After the run it shows the result per building and offers Organisation gaps. States: loading, error with retry, denied (who can help), stale plan (409) with Review again, partly failed with Review what is left. English and Arabic (right to left), keyboard (focus moves in, Escape closes, focus returns), screen reader (dialog, live regions, labelled controls), responsive down to 390 pixels.
+
+## First run
+
+A workspace with no buildings (or one empty shell) no longer needs a hidden click. The headquarters scene shows the first-run panel (`apps/web/src/hq-first-run/`, a lazy chunk): "Create your campus", the real numbers from `GET /preview` (8 buildings, 18 floors, 62 rooms, 220 empty desks on an empty workspace), a **Preview the list** with every building and its counts, the plan fingerprint (the first 16 characters of `payload_hash`) and ONE primary button, **Create my campus**. The panel sits over the scene on a wide stage and above it, in the page flow, on a narrow one (container query at 640 px).
+
+- The button confirms exactly the plan on screen: `POST /confirm` with that `payload_hash`, `input_mode: "click"` and the same buildings. The panel has no other way to create; typing or speaking cannot confirm, and a person without `workspace:manage` sees the button disabled with who can do it (`can_confirm` from the server) while the list stays readable.
+- Without a reload: a created run reads the office registry, the campus, the live flow and the organisation gaps again, lands the camera on the campus (`flyHome`) and shows a note with the totals. Another browser creating the campus arrives through the shell's `office.layout_changed` event (the page reads again 300 ms after any event) and the panel closes by itself because the registry now has buildings.
+- States: loading ("Reading the plan..."), error with Try again, denied (403, who to ask), nothing to create ("already set up"), stale plan (409: nothing is created, the new plan is read and shown, one more click creates it), a refused confirm (what failed, the button stays), a partly failed run (the buildings that were created are on the campus, the failed ones are listed with the server's reason, the panel stays; **Review what is left** re-reads the plan, then **Create the missing buildings**). The by-hand way (Manage spaces) is always one click away.
+- The reviewed dialog under Office tools ("Set up my campus", building by building) is unchanged.
+- Command and the executive dock: "set up my campus", "create my campus" (and the Arabic forms) show the same plan as a proposal card (`CampusProposalCard`, parser `lib/hqCampusCommand.ts`). The sentence only decides whether to show the card; the card reads the plan with the same `GET /preview` and its button is the only way to create. No server tool or route was added, so nothing a spoken or typed sentence can reach confirms anything.
+
+Why one room used to be all anyone saw: the building camera framed the footprint with a flat 0.8 factor on its longest side. The starter floors are 28 to 38 m wide and the isometric view turns the footprint by 35 degrees, so the picture was cropped to roughly one room on a normal stage. The camera now fits every corner of the footprint (walls included) to the stage's own shape (`fitDistance` in `lib/hqCamera.ts`), and the [floor overview](ANUM_MINE_FLOOR_OVERVIEW.md) shows the whole floor on demand.
+
+### Fixture for the browser tests
+
+`apps/web/e2e/support/starterCampusMaster.json` is the master list with the packer's positions. Regenerate it from the repository root with:
+
+```
+cd services/api && python3 -c "
+import json
+from anum_api import office_starter_campus as c
+out=[]
+for b in c.CAMPUS:
+    fl=[]
+    for f in b.floors:
+        pos,depth=c.pack(f.rooms,f.width)
+        fl.append(dict(level=f.level,en=f.en,ar=f.ar,w=f.width,d=depth,rooms=[dict(key=r.key,en=r.en,ar=r.ar,kind=r.kind,x=pos[r.key][0],z=pos[r.key][1],w=r.width,d=r.depth,cap=r.capacity,desks=r.desks,dept=r.department) for r in f.rooms]))
+    out.append(dict(number=b.number,key=b.key,en=b.en,ar=b.ar,floors=fl))
+print(json.dumps(out,separators=(',',':'),ensure_ascii=False))" > ../../apps/web/e2e/support/starterCampusMaster.json
+```
 
 ## Tests
 
-API unit `tests/test_office_starter_campus.py` (master list, geometry, planner, user edits, hash); PostgreSQL as the app role `tests/test_postgres_office_starter_campus.py` (preview stores nothing, click and hash rules, full build, idempotency, partial and re-run, user edits kept, a failing building leaves nothing, two confirms at once, tenant isolation, gaps panel proposes agents); web unit `apps/web/test/hqStarterCampus.test.ts`; browser `apps/web/e2e/hq-starter-campus.spec.ts` with the mock `e2e/support/hqStarterCampusApi.ts` (main path, selection, permissions, every error state, empty state, keyboard, Arabic, five viewports).
+API unit `tests/test_office_starter_campus.py` (master list, geometry, planner, user edits, hash); PostgreSQL as the app role `tests/test_postgres_office_starter_campus.py` (preview stores nothing, click and hash rules, full build, idempotency, partial and re-run, user edits kept, a failing building leaves nothing, two confirms at once, tenant isolation, gaps panel proposes agents); web unit `apps/web/test/hqStarterCampus.test.ts`; first run: web unit `apps/web/test/hqFirstRun.test.ts`, browser `apps/web/e2e/hq-first-run.spec.ts` (stateful mock `e2e/support/hqFirstRunApi.ts`: empty workspace, confirm fills the registry with the real master list; every state, Command card, Arabic, five viewports); browser `apps/web/e2e/hq-starter-campus.spec.ts` with the mock `e2e/support/hqStarterCampusApi.ts` (main path, selection, permissions, every error state, empty state, keyboard, Arabic, five viewports).
 
 ## Not built yet
 
