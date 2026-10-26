@@ -1,5 +1,5 @@
 /* Why something moves at a building, and why a feed is off (docs/ANUM_MINE_HQ_CAMPUS_MOTION.md). Colour is never the only signal: the words carry it. */
-.hqBuildingCard .hqWorkLine { display: block; margin-block-start: 2px; font-size: 0.72rem; line-height: 1.25; max-inline-size: 22ch; white-space: normal; }
+.hqBuildingCard .hqWorkLine { display: block; margin-block-start: 2px; font-size: var(--text-xs); line-height: 1.25; max-inline-size: 22ch; white-space: normal; }
 .hqBuildingCard .hqWorkLine[data-work] { color: var(--hq-ok, #7fd6c2); font-weight: 600; }
 .hqBuildingCard .hqWorkLine[data-work]::before { content: ""; display: inline-block; inline-size: 0.5em; block-size: 0.5em; margin-inline-end: 0.4em; border-radius: 50%; background: currentColor; }
 .hqBuildingCard .hqWorkLine[data-feed] { opacity: 0.8; font-style: italic; }
