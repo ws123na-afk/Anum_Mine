@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { arcPath, buildingStatus, campusFromApi, campusFromMemberships, campusTotals, donutArcs, filterBuildings, layoutCampus, readingOrder, stepBuilding, type CampusBuilding, type CampusTotals } from '../src/lib/campusModel.ts';
+import { arcPath, buildingStatus, campusFromApi, campusFromMemberships, campusTotals, donutArcs, filterBuildings, layoutCampus, PLAZA, readingOrder, stepBuilding, type CampusBuilding, type CampusTotals } from '../src/lib/campusModel.ts';
 
 const totals = (over: Partial<CampusTotals> = {}): CampusTotals => ({ agents: 0, working: 0, queued: 0, meeting: 0, waiting_approval: 0, blocked: 0, idle: 0, paused: 0, unknown: 0, ...over });
 const b = (id: string, over: Partial<CampusBuilding> = {}): CampusBuilding => ({ workspace_id: id, tenant_id: 'tenant-a', name: id, kind: 'business', icon: null, floors: 2, accessible: true, totals: null, presence_verified_at: null, ...over });
@@ -29,11 +29,13 @@ test('donut arcs cover the circle once and skip empty statuses', () => {
   assert.match(arcPath(50, 50, 40, 28, 0, Math.PI * 2), /^M .* Z M .* Z$/);
 });
 
-test('layout puts the executive tower in the middle and keeps every building apart', () => {
+test('layout puts the executive tower on the north side of the plaza and keeps every building apart', () => {
   const list = [b('exec', { kind: 'executive', floors: 3 }), ...Array.from({ length: 12 }, (_, i) => b('w' + i))];
   const layout = layoutCampus(list);
   assert.equal(layout.length, 13);
-  assert.deepEqual([layout[0].x, layout[0].z, layout[0].kind], [0, 0, 'executive']);
+  // The middle belongs to the plaza (test/hqCenterPlaza.test.ts); the executive building stands due north of it, its door looking down on the fountain.
+  assert.equal(layout[0].kind, 'executive');
+  assert.ok(Math.abs(layout[0].x) < 1e-6 && layout[0].z < -PLAZA.clear);
   for (let i = 0; i < layout.length; i++) {
     for (let j = i + 1; j < layout.length; j++) {
       const p = layout[i], q = layout[j];

@@ -15,7 +15,7 @@ import {
   buildingStatus, campusTotals, layoutCampus, readingOrder, stepBuilding,
   type Campus, type CampusBuilding, type CampusBuildingKind, type StatusKey,
 } from './lib/campusModel.ts';
-import { campusCamera, clampTarget, faceNorth, rotateBy, threeDView, topView, viewFootprint, zoomBy } from './lib/hqCamera.ts';
+import { campusCamera, campusFraming, clampTarget, faceNorth, rotateBy, threeDView, topView, viewFootprint, zoomBy } from './lib/hqCamera.ts';
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
@@ -111,7 +111,8 @@ export function CampusView(props: CampusViewProps) {
   const byId = useMemo(() => new Map(campus.buildings.map((b) => [b.workspace_id, b])), [campus.buildings]);
   const order = useMemo(() => readingOrder(campus.buildings).map((b) => b.workspace_id), [campus.buildings]);
   const [wrap, aspect] = useAspect();
-  const home = useMemo(() => campusCamera(scene.extent.radius, 0, aspect), [scene.extent.radius, aspect]);
+  const framing = campusFraming(scene.extent);
+  const home = useMemo(() => campusCamera(framing.radius, framing.centerZ, aspect), [framing.radius, framing.centerZ, aspect]);
   const [camera, setCamera] = useState<CameraState>(home);
   const [hover, setHover] = useState<string | null>(null);
   const [footprint, setFootprint] = useState<ReadonlyArray<{ x: number; z: number }> | null>(null);

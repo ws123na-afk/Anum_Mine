@@ -4,6 +4,7 @@
  */
 import { assertCamera, cameraBasis, dolly, dot, orbit, pan, vsub, type CameraState } from './headquartersSpatial.ts';
 import type { Vec3 } from './headquartersProjection.ts';
+import { PLAZA } from './campusModel.ts';
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -20,6 +21,19 @@ export function aspectFit(aspect: number): number {
 export function campusCamera(radius: number, centerZ = 0, aspect = 1.7): CameraState {
   const distance = clamp((radius * 2.05 + 38) * aspectFit(aspect), 64, 540);
   return { target: { x: 0, y: 0, z: centerZ }, distance, yaw: HOME_YAW, pitch: HOME_PITCH, fov: 40, minDistance: 14, maxDistance: 560 };
+}
+
+/**
+ * What the home camera frames for a campus: the middle of its ground plan and the radius that holds it. The plaza sits at the origin and
+ * the executive building stands far to the north, so the plan is lopsided; framing its box (the front gardens run on the +z side) instead of a circle
+ * about the origin keeps the buildings as large as the stage allows.
+ */
+export function campusFraming(extent: Readonly<{ minX: number; maxX: number; minZ: number; maxZ: number; radius: number }>): { radius: number; centerZ: number } {
+  // The plaza and its roundabout are always in the picture, whatever the buildings are.
+  const plaza = PLAZA.outer + 2;
+  const minZ = Math.min(extent.minZ - 4, -plaza), maxZ = Math.max(extent.maxZ + 14, plaza);
+  const half = Math.max(Math.abs(extent.minX) + 6, Math.abs(extent.maxX) + 6, plaza);
+  return { radius: Math.max(30, half, (maxZ - minZ) / 2), centerZ: (minZ + maxZ) / 2 };
 }
 
 export function buildingCamera(target: Vec3, distance: number, aspect = 1.7): CameraState {
