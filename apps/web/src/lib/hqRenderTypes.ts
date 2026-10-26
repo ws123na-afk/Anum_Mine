@@ -2,7 +2,8 @@
 import type { Aabb } from './hqMath.ts';
 import type { Vec3 } from './headquartersProjection.ts';
 import type { ModelGroup, ModelPlacement } from './hqModels.ts';
-import type { AmbientPlan } from '../hqAssets/environment/ambient.ts';
+import type { SceneryPlan } from '../hqAssets/environment/scenery.ts';
+import type { AmbientMotion } from '../hqAssets/interior/ambient.ts';
 
 /** `fallbackOf`: the item is the procedural stand-in for a model group and is drawn only while that group could not be loaded. */
 export type RenderItem = Readonly<{
@@ -24,10 +25,15 @@ export const easeLift = (t: number): number => { const x = Math.max(0, Math.min(
 /** The text of one sign (the real building name over the ANUM MINE wordmark). Index matches the sign cell the scene was built with. */
 export type SignText = Readonly<{ title: string; subtitle: string }>;
 
+/** A scenery piece the renderer moves on its own (a fan, a light glint, a lift indicator); see `hqAssets/interior/ambient.ts`. */
+export type AmbientItem = RenderItem & Readonly<{ motion: AmbientMotion }>;
+
 export type RenderScene = Readonly<{
   opaque: readonly RenderItem[];
   glass: readonly RenderItem[];
   glassAlpha?: number;
+  /** Moving scenery. Frozen under reduced motion and while the tab is hidden; never drawn for a person or for work. */
+  ambient?: readonly AmbientItem[];
   /** Sign lettering, in sign-cell order (see `signAtlasLayout`). */
   signs?: readonly SignText[];
   /** The region that casts and receives shadows (a sphere round the buildings); without it there are no shadows. */
@@ -36,8 +42,8 @@ export type RenderScene = Readonly<{
   models?: readonly ModelPlacement[];
   /** Soft light halos for the night glow: x, y, z, radius, r, g, b, strength per halo. */
   halos?: Float32Array;
-  /** Scenery in motion (traffic loops, water ripples). Drawn only while the ambient level is above 0. */
-  ambient?: AmbientPlan;
+  /** Exterior scenery in motion (traffic loops, water ripples). Drawn only while the scenery level is above 0. */
+  scenery?: SceneryPlan;
   /** Targets of the lift groups named by `RenderItem.lift`. A group missing here stays where it is. */
   lifts?: Readonly<Record<string, LiftSpec>>;
 }>;
@@ -46,9 +52,11 @@ export type RenderStats = {
   frames: number; lastDrawMs: number; avgDrawMs: number; drawn: number; culled: number; triangles: number; dpr: number;
   /** Shadow map size in pixels (0 = off) and whether the night glow pass is on. */
   shadowSize: number; bloom: boolean;
+  /** Ambient parts in the scene, and whether they are moving right now (false under reduced motion, in a hidden tab, or at the lowest quality). */
+  ambient: number; ambientMoving: boolean;
   /** Model layer: placements drawn, models loaded of those asked for, bytes fetched, load time in ms, groups that fell back. */
-  /** Ambient motion: level 0 to 2 (0 = still), frames drawn by the ambient loop and the scene clock in seconds. */
-  ambient: { level: number; frames: number; clock: number; vehicles: number };
+  /** Exterior scenery motion: level 0 to 2 (0 = still), frames drawn by its loop, the scene clock in seconds and the vehicles placed. */
+  scenery: { level: number; frames: number; clock: number; vehicles: number };
   models: { placed: number; figures: number; loaded: number; asked: number; bytes: number; loadMs: number; fallbacks: string[]; looks: string[] };
 };
 

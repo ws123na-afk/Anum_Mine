@@ -29,7 +29,7 @@ export const SCHEMES: Readonly<Record<InteriorSchemeName, InteriorScheme>> = {
   walnut: {
     name: 'walnut', wood: hex('#8a6244'), woodDark: hex('#4a2f20'), marble: hex('#ece8df'), metal: hex('#9aa5b1'), dark: hex('#26313b'),
     paper: hex('#f2f0ea'), fabric: hex('#4a6073'), fabricAlt: hex('#b58a54'), leather: hex('#5a3a2a'), brass: hex('#c9a24a'),
-    rug: hex('#6f8394'), pot: hex('#c9c2b2'), accent: hex('#45d0b5'),
+    rug: hex('#8f7b66'), pot: hex('#c9c2b2'), accent: hex('#45d0b5'),
   },
   oak: {
     name: 'oak', wood: hex('#c79b62'), woodDark: hex('#7a5a3a'), marble: hex('#f1eee6'), metal: hex('#aab4be'), dark: hex('#2d3640'),

@@ -8,7 +8,7 @@
  */
 import { MAT, MeshBuilder, hex, mix, scale, seeded, type Rgb } from './hqGeometry.ts';
 import { GROUND, STONE, WATER, bench, flatPoly, lamp } from './hqProps.ts';
-import { buildingGarden, globeMonument, campusEnvironment, carPark, carParkSize, pond, ripplesOf, tennisCourt, tree, trafficPlan, truck, van, type AmbientPlan, type Exclusion } from '../hqAssets/environment/index.ts';
+import { buildingGarden, globeMonument, campusEnvironment, carPark, carParkSize, pond, ripplesOf, tennisCourt, tree, trafficPlan, truck, van, type SceneryPlan, type Exclusion } from '../hqAssets/environment/index.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
 import { archetypeOf, type Archetype } from './campusBuildings.ts';
 import { drawExterior } from './campusExteriors.ts';
@@ -39,7 +39,7 @@ export type CampusScene = Readonly<{
   /** Soft light halos (x, y, z, radius, r, g, b, strength per halo) for the night glow. */
   halos: Float32Array;
   /** Scenery that moves for its own sake (traffic loops, water ripples); never read from a record. */
-  ambient: AmbientPlan;
+  motion: SceneryPlan;
 }>;
 
 const freeze = (b: MeshBuilder): SceneMesh => ({ vertices: b.toFloat32(), bounds: b.bounds(), triangles: b.triangleCount });
@@ -202,7 +202,7 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
     scenery: freeze(scenery), buildings, monument: { x: monument.x, y: 10.2, z: monument.z }, extent, groundRadius, triangles: total, signCount, canalRadius: ringHalf + 24,
     shadow: { center: { x: 0, y: 0, z: 0 }, radius: ringHalf * 1.2 + 6 },
     halos: new Float32Array([...s.halos, ...buildingHalos]),
-    ambient: {
+    motion: {
       ...trafficPlan({ cx: 0, cz: 0, halfW: ringHalf, halfD: ringHalf, cornerRadius: 16 }, { seed: 'anum-mine' }),
       ripples: ripplesOf([{ x: monument.x, z: monument.z, r: 9 }, ...ponds.map(([x, z, r]) => ({ x, z, r }))]),
     },

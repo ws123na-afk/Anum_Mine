@@ -20,5 +20,5 @@ export * from './plaza.ts';
 export * from './furniture.ts';
 export * from './skyline.ts';
 export * from './campusEnvironment.ts';
-export * from './ambient.ts';
+export * from './scenery.ts';
 export * from './budgets.ts';

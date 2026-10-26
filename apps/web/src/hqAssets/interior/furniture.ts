@@ -5,6 +5,7 @@
  */
 import { MeshBuilder, hex, mix, scale, type Rgb } from '../../lib/hqGeometry.ts';
 import { WARM } from '../../lib/hqProps.ts';
+import { ambientTag } from './ambient.ts';
 import { Local } from './local.ts';
 import type { InteriorScheme } from './scheme.ts';
 import { seatedFigure, type SeatedPose } from './figures.ts';
@@ -107,7 +108,10 @@ export function tallPlant(L: Local, lx: number, lz: number, S: InteriorScheme, s
   L.limb([lx, 0.4 * s, lz], [lx + 0.05 * s, 1.2 * s, lz], 0.05 * s, 0.05 * s, 0.03 * s, 0.03 * s, hex('#6b5238'));
   const g = [hex('#2f7d46'), hex('#3f8a55'), hex('#5fa862'), hex('#2b6a40')];
   const offs = [[0, 1.55, 0, 0.34], [0.2, 1.3, 0.1, 0.26], [-0.2, 1.2, -0.08, 0.26], [0.05, 1.05, -0.2, 0.22], [-0.05, 1.85, 0.05, 0.22]] as const;
-  offs.forEach(([ox, oy, oz, r], i) => L.blob(lx + ox * s, oy * s, lz + oz * s, r * s, r * 1.25 * s, r * s, g[(i + seed) % g.length], 6));
+  // The leaves drift a little in the draught (scenery: see ambient.ts); the pot and stem stay put.
+  L.b.tagged(ambientTag('sway', 7, 0.035, 'x', (seed % 4) / 4), () => {
+    offs.forEach(([ox, oy, oz, r], i) => L.blob(lx + ox * s, oy * s, lz + oz * s, r * s, r * 1.25 * s, r * s, g[(i + seed) % g.length], 6));
+  });
 }
 
 export function deskPlant(L: Local, lx: number, ly: number, lz: number, S: InteriorScheme): void {
@@ -293,7 +297,7 @@ export function workstation(b: MeshBuilder, y: number, spec: StationSpec, S: Int
     b.halo(lampX, y + H + 0.3, lampZ, 1.3, hex('#ffe0a0'), 0.7);
   }
   if (look.plant) deskPlant(L, W / 2 - 0.1, H, 0.27, S);
-  if (look.floor) L.box(-W / 2 - 0.1, 0.016, -1.25, W + 0.2, 0.008, D + 1.55, scale(look.floor, 0.64), { skip: ['bottom'], shade: false, emissive: 0.3 });
+  if (look.floor) L.box(-W / 2 - 0.1, 0.016, -1.25, W + 0.2, 0.008, D + 1.55, scale(look.floor, 0.84), { skip: ['bottom'], shade: false, emissive: 0.4 });
   if (!spec.noChair) {
     taskChair(L, 0, -0.8, look.chairTone ?? S.fabric);
     if (spec.occupantSeed) {

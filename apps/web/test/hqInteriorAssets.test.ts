@@ -14,7 +14,7 @@ const frameOf = (kind: InteriorKind, scaleBy = 1, x = 0, y = 0, z = 0) => ({
 });
 
 /** Rooms that draw the stations they are given (the others ignore them: their furniture is fixed). */
-const STATION_KINDS: readonly InteriorKind[] = ['office', 'customer-care', 'operations', 'executive'];
+const STATION_KINDS: readonly InteriorKind[] = ['office', 'customer-care', 'operations', 'executive', 'finance', 'sales', 'server', 'warehouse', 'workshop'];
 
 test('every room kind builds within its measured triangle cap', () => {
   for (const kind of INTERIOR_KINDS) {

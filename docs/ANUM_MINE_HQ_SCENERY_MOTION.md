@@ -1,7 +1,7 @@
-# ANUM MINE headquarters: ambient scenery motion
+# ANUM MINE headquarters: exterior scenery motion
 
 Status: built on 26 October 2026 with the exterior pass ([building look](ANUM_MINE_HQ_BUILDING_LOOK.md)). The owner said the scene felt static.
-This page says what now moves, what never does, and how the motion stops.
+The interior counterpart (lift indicators, glints, rack lights, leaves, fans) is in [interiors](ANUM_MINE_HQ_INTERIORS.md) and shares the pin `localStorage["anum.hq.ambient"]` ("on"/"off" there, 0 to 2 or "on"/"off" here). This page says what now moves outside, what never does, and how the motion stops.
 
 ## The rule
 
@@ -13,7 +13,7 @@ different system, backed by presence records (see [presence and campus](ANUM_MIN
 
 | Motion | How it is drawn | Cost |
 |---|---|---|
-| Traffic: up to 18 cars, SUVs and vans on two lanes of the ring road, keeping right | One instanced mesh in three parts (paint, dark trim, head and tail lights), matrices written per frame into preallocated objects (`lib/hqAmbientLayer.ts`). Pose is a pure function of the scene clock (`hqAssets/environment/ambient.ts`). One speed per lane, so no vehicle catches another | about 120 triangles per vehicle, one draw call per part |
+| Traffic: up to 18 cars, SUVs and vans on two lanes of the ring road, keeping right | One instanced mesh in three parts (paint, dark trim, head and tail lights), matrices written per frame into preallocated objects (`lib/hqSceneryLayer.ts`). Pose is a pure function of the scene clock (`hqAssets/environment/scenery.ts`). One speed per lane, so no vehicle catches another | about 120 triangles per vehicle, one draw call per part |
 | Water: swell, rings from the fountain and ponds, a few glints on the sun side | Fragment shader on the water class; up to four ripple sources come from the campus plan | none beyond the water pixels |
 | Trees and fronds sway, flags and pennants ripple | Surface classes `foliage` and `cloth` (`MAT.foliage`, `MAT.cloth`); a vertex shader offsets by height and phase. A flag's `u` texture coordinate is its distance from the pole | vertex work only |
 | Clouds drift across the sky | Noise in the sky dome shader; cover and tint follow day, blue hour and night | sky pixels only |
@@ -27,7 +27,7 @@ People, agents, desks, anything in an interior, anything that shows a count, a s
 ## Levels and when they apply
 
 Level 0 is still, 1 runs at 15 frames a second (traffic, water, clouds), 2 at 30 (adds sway, window drift and the beacon).
-`ambientLevelFor` in `ambient.ts` decides, and the renderer re-checks it every frame:
+`sceneryLevelFor` in `ambient.ts` decides, and the renderer re-checks it every frame:
 
 | Condition | Level |
 |---|---|
@@ -38,7 +38,7 @@ Level 0 is still, 1 runs at 15 frames a second (traffic, water, clouds), 2 at 30
 | sustained slow frames (3 seconds) | one notch down, before bloom, shadows or the pixel ratio are touched |
 
 A person or a test can pin the level with `localStorage["anum.hq.ambient"]` = 0, 1 or 2; reduced motion and a hidden tab still win.
-The canvas reports `data-ambient-level`, `data-ambient-frames`, `data-ambient-clock` and `data-ambient-vehicles`.
+The canvas reports `data-scenery-level`, `data-scenery-frames`, `data-scenery-clock` and `data-scenery-vehicles`.
 
 ## Light presets
 
@@ -48,5 +48,5 @@ The choice is kept in `localStorage["anum.hq.preset"]` (`lib/hqLightPreset.ts`),
 
 ## Tests
 
-`test/hqAmbientMotion.test.ts` (lanes, spacing, poses, ripples, levels, vehicle parts, light presets, surface classes) and
+`test/hqSceneryMotion.test.ts` (lanes, spacing, poses, ripples, levels, vehicle parts, light presets, surface classes) and
 `e2e/hq-exterior-look.spec.ts` (still by default on software GL, runs when switched on, frozen under reduced motion, day, blue hour and night differ, five viewports).

@@ -5,13 +5,13 @@
  * Sedan, SUV and van are the same part set scaled by `VEHICLE_SCALE`. No lettering, no plate, no brand.
  */
 import { MeshBuilder, hex, type Rgb } from '../../lib/hqGeometry.ts';
-import type { VehicleKind } from './ambient.ts';
+import type { VehicleKind } from './scenery.ts';
 
-export const AMBIENT_VEHICLE_TRIANGLES_CAP = 140;
+export const SCENERY_VEHICLE_TRIANGLES_CAP = 140;
 /** Width, height and length factors per kind. */
 export const VEHICLE_SCALE: Readonly<Record<VehicleKind, readonly [number, number, number]>> = { 0: [1, 1, 1], 1: [1.07, 1.18, 1.06], 2: [1.12, 1.55, 1.12] };
 
-export type AmbientVehicleParts = Readonly<{ body: Float32Array; trim: Float32Array; lights: Float32Array; triangles: number }>;
+export type SceneryVehicleParts = Readonly<{ body: Float32Array; trim: Float32Array; lights: Float32Array; triangles: number }>;
 
 const WHITE: Rgb = [1, 1, 1];
 const GLASS = hex('#1d2a38');
@@ -19,9 +19,9 @@ const TYRE = hex('#15191e');
 const HEAD = hex('#fff1c9');
 const TAIL = hex('#ff2e2e');
 
-let cached: AmbientVehicleParts | null = null;
+let cached: SceneryVehicleParts | null = null;
 
-export function ambientVehicleParts(): AmbientVehicleParts {
+export function sceneryVehicleParts(): SceneryVehicleParts {
   if (cached) return cached;
   const body = new MeshBuilder(), trim = new MeshBuilder(), lights = new MeshBuilder();
   const hw = 0.92, L = 2.2;

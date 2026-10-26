@@ -124,10 +124,11 @@ export function HqStage(props: Props) {
             canvas.current.dataset.dpr = s.dpr.toFixed(2);
             canvas.current.dataset.shadow = String(s.shadowSize);
             canvas.current.dataset.bloom = s.bloom ? 'true' : 'false';
-            canvas.current.dataset.ambientLevel = String(s.ambient.level);
-            canvas.current.dataset.ambientFrames = String(s.ambient.frames);
-            canvas.current.dataset.ambientClock = s.ambient.clock.toFixed(2);
-            canvas.current.dataset.ambientVehicles = String(s.ambient.vehicles);
+            canvas.current.dataset.sceneryLevel = String(s.scenery.level);
+            canvas.current.dataset.sceneryFrames = String(s.scenery.frames);
+            canvas.current.dataset.sceneryClock = s.scenery.clock.toFixed(2);
+            canvas.current.dataset.sceneryVehicles = String(s.scenery.vehicles);
+            canvas.current.dataset.ambient = s.ambientMoving ? String(s.ambient) + ' moving' : String(s.ambient);
             canvas.current.dataset.modelsPlaced = String(s.models.placed);
             canvas.current.dataset.modelFigures = String(s.models.figures);
             // Avatar styles drawn: build/hair/outfit/skin per figure (codes only, never a name), and a count per build.

@@ -75,7 +75,7 @@ is the same; the buildings, the light and the motion changed.
   neighbouring faces read differently. It is computed in the shader, so it also works on the software path.
 - **Blue hour.** A third light preset: deep blue zenith, warm orange horizon band, lavender haze, low warm sun, lit windows against bluish glass.
 - **Reflection maps** for day, blue hour and night on hardware GL.
-- **Scenery in motion**, see [ambient motion](ANUM_MINE_HQ_AMBIENT_MOTION.md).
+- **Scenery in motion**, see [ambient motion](ANUM_MINE_HQ_SCENERY_MOTION.md).
 - **Heights.** Measured on the campus sizes: the glass office tower is 37 m to its roof plant (was 49 m), the executive HQ stays the landmark at about 58 m to the tip of the crown (was 58 m, but with a thin spire instead of the blades). The tower no longer repeats the executive silhouette.
 
 ### What still differs (honest list)
@@ -90,9 +90,9 @@ is the same; the buildings, the light and the motion changed.
 - No CC0 glTF building models were added: nothing was found and licence reviewed in this pass, so the credits line is unchanged.
 - Motion is off by default on software GL (CI) and was therefore verified there by switching it on (`anum.hq.ambient`), not by eye on a real GPU.
 
-- The see-through rooms are a shader illusion repeated per pane, not the real floors: they do not match the interior layout or count of a building. Wrapping the shell round the real stacked floor volume (height = floors x floor height) waits for the interior pipeline's shared floor height constant.
+- The see-through rooms are a shader illusion repeated per pane, not the real floors: they do not match the interior layout or count of a building. The storey pitch of every multi-storey shell is now `STOREY` = 4.2 m, equal to `FLOOR_PITCH` in `lib/buildingScene.ts` (a unit test keeps them equal), so a glass storey lines up with floor n of the interior stack. The shell is still built from its own plan, not from each floor's plan, and its plinth sits 0.3 to 0.9 m above floor 0.
 
 ### Budgets
 
-Renderer chunk 157.6 kB gzip (limit 160 kB), HQ entry chunk 131.8 kB (limit 135 kB); neither limit was raised. Per-asset triangle caps rose
+Renderer chunk 158.2 kB gzip (limit 160 kB), HQ entry chunk 138.6 kB (limit 140 kB on main); neither limit was raised. Per-asset triangle caps rose
 (office tower 3800, admin block 2600, executive HQ 5600, personal villa 2400) because of the added detail; the campus uses the smaller sizes.

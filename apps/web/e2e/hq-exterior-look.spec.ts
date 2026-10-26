@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { mockHq } from './support/hqCampusApi';
 
-// The exterior look and the ambient motion of the 3D campus (docs/ANUM_MINE_HQ_BUILDING_LOOK.md, docs/ANUM_MINE_HQ_AMBIENT_MOTION.md).
+// The exterior look and the ambient motion of the 3D campus (docs/ANUM_MINE_HQ_BUILDING_LOOK.md, docs/ANUM_MINE_HQ_SCENERY_MOTION.md).
 // It checks that day, blue hour and night each draw a real, different frame, that scenery motion is off by default on a
 // software renderer and under reduced motion, and that it runs (vehicles, scene clock) when it is switched on.
 // With LOOK_DIR set it also writes the screenshots used for the before and after comparison. The API is mocked, every name is fake.
@@ -77,20 +77,20 @@ test('scenery motion is off by default on a software renderer', async ({ page })
   await page.setViewportSize({ width: 1440, height: 900 });
   await open(page, 'day');
   await page.waitForTimeout(2500);
-  expect(await canvas(page).getAttribute('data-ambient-level')).toBe('0');
-  const a = await canvas(page).getAttribute('data-ambient-clock');
+  expect(await canvas(page).getAttribute('data-scenery-level')).toBe('0');
+  const a = await canvas(page).getAttribute('data-scenery-clock');
   await page.waitForTimeout(1500);
-  expect(await canvas(page).getAttribute('data-ambient-clock')).toBe(a);
+  expect(await canvas(page).getAttribute('data-scenery-clock')).toBe(a);
 });
 
 test('scenery motion runs when switched on: traffic is placed and the scene clock advances', async ({ page }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await open(page, 'dusk', { ambient: 1 });
-  await expect.poll(async () => Number(await canvas(page).getAttribute('data-ambient-vehicles')), { timeout: 30_000 }).toBeGreaterThan(5);
-  await expect.poll(async () => Number(await canvas(page).getAttribute('data-ambient-frames')), { timeout: 60_000 }).toBeGreaterThan(5);
-  const a = Number(await canvas(page).getAttribute('data-ambient-clock'));
-  await expect.poll(async () => Number(await canvas(page).getAttribute('data-ambient-clock')), { timeout: 60_000 }).toBeGreaterThan(a + 0.4);
+  await expect.poll(async () => Number(await canvas(page).getAttribute('data-scenery-vehicles')), { timeout: 30_000 }).toBeGreaterThan(5);
+  await expect.poll(async () => Number(await canvas(page).getAttribute('data-scenery-frames')), { timeout: 60_000 }).toBeGreaterThan(5);
+  const a = Number(await canvas(page).getAttribute('data-scenery-clock'));
+  await expect.poll(async () => Number(await canvas(page).getAttribute('data-scenery-clock')), { timeout: 60_000 }).toBeGreaterThan(a + 0.4);
   await shot(page, 'campus-dusk-moving');
 });
 
@@ -99,10 +99,10 @@ test('reduced motion freezes scenery motion even when it is switched on', async 
   await page.setViewportSize({ width: 1440, height: 900 });
   await open(page, 'dusk', { ambient: 2 });
   await page.waitForTimeout(2500);
-  expect(await canvas(page).getAttribute('data-ambient-level')).toBe('0');
-  const a = await canvas(page).getAttribute('data-ambient-clock');
+  expect(await canvas(page).getAttribute('data-scenery-level')).toBe('0');
+  const a = await canvas(page).getAttribute('data-scenery-clock');
   await page.waitForTimeout(1500);
-  expect(await canvas(page).getAttribute('data-ambient-clock')).toBe(a);
+  expect(await canvas(page).getAttribute('data-scenery-clock')).toBe(a);
 });
 
 for (const [w, h] of SIZES) {

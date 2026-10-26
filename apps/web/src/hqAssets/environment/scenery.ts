@@ -21,11 +21,11 @@ export type Lane = Readonly<{ pts: Float32Array; cum: Float32Array; total: numbe
 /** 0 sedan, 1 SUV, 2 van: only the proportions differ. */
 export type VehicleKind = 0 | 1 | 2;
 
-export type AmbientVehicle = Readonly<{ lane: number; start: number; speed: number; color: Rgb; kind: VehicleKind }>;
+export type SceneryVehicle = Readonly<{ lane: number; start: number; speed: number; color: Rgb; kind: VehicleKind }>;
 
-export type AmbientPlan = Readonly<{
+export type SceneryPlan = Readonly<{
   lanes: readonly Lane[];
-  vehicles: readonly AmbientVehicle[];
+  vehicles: readonly SceneryVehicle[];
   /** x, z, radius per water surface that shows ripples (at most `MAX_RIPPLES`). */
   ripples: Float32Array;
 }>;
@@ -37,7 +37,7 @@ export const LANE_SPEEDS: readonly [number, number] = [8.2, 9.4];
 /** Vehicles are at least this far apart along a lane (centre to centre), so a loop never has two on top of each other. */
 export const MIN_GAP = 17;
 
-export const EMPTY_PLAN: AmbientPlan = { lanes: [], vehicles: [], ripples: new Float32Array(0) };
+export const EMPTY_PLAN: SceneryPlan = { lanes: [], vehicles: [], ripples: new Float32Array(0) };
 
 export function laneOf(path: readonly P2[]): Lane {
   const { at, total } = lengths(path, true);
@@ -57,7 +57,7 @@ export type TrafficOptions = Readonly<{ seed?: string; count?: number }>;
  * counter-clockwise on screen and the inner one clockwise. Vehicles are spread evenly with a small
  * seeded jitter; every vehicle of a lane has the lane's speed, so none ever catches up with another.
  */
-export function trafficPlan(ring: RingGeometry, o: TrafficOptions = {}): Pick<AmbientPlan, 'lanes' | 'vehicles'> {
+export function trafficPlan(ring: RingGeometry, o: TrafficOptions = {}): Pick<SceneryPlan, 'lanes' | 'vehicles'> {
   const r = ring.cornerRadius ?? 16;
   const outer = roundedRectPath(ring.cx, ring.cz, ring.halfW + LANE_OFFSET, ring.halfD + LANE_OFFSET, r + LANE_OFFSET, 6).slice().reverse();
   const inner = roundedRectPath(ring.cx, ring.cz, ring.halfW - LANE_OFFSET, ring.halfD - LANE_OFFSET, Math.max(2, r - LANE_OFFSET), 6);
@@ -66,7 +66,7 @@ export function trafficPlan(ring: RingGeometry, o: TrafficOptions = {}): Pick<Am
   const palette = [...CAR_PALETTE, hex('#e8ebee'), hex('#2f4b66')];
   const wanted = o.count ?? Math.round((lanes[0].total + lanes[1].total) / 70);
   const count = Math.max(2, Math.min(18, wanted));
-  const vehicles: AmbientVehicle[] = [];
+  const vehicles: SceneryVehicle[] = [];
   lanes.forEach((lane, li) => {
     const n = Math.max(1, Math.min(Math.floor(lane.total / MIN_GAP), li === 0 ? Math.ceil(count / 2) : Math.floor(count / 2)));
     const gap = lane.total / n;
@@ -104,7 +104,7 @@ export function sampleLane(lane: Lane, s: number, out: LanePose): LanePose {
 }
 
 /** Where vehicle `i` is at clock `t` seconds. */
-export function vehiclePose(plan: Pick<AmbientPlan, 'lanes' | 'vehicles'>, i: number, t: number, out: LanePose): LanePose {
+export function vehiclePose(plan: Pick<SceneryPlan, 'lanes' | 'vehicles'>, i: number, t: number, out: LanePose): LanePose {
   const v = plan.vehicles[i];
   return sampleLane(plan.lanes[v.lane], v.start + v.speed * t, out);
 }
@@ -123,30 +123,33 @@ export function ripplesOf(surfaces: readonly Readonly<{ x: number; z: number; r:
  * Ambient levels. 0 = still (the picture a software renderer, a reduced motion preference or a hidden tab gets),
  * 1 = vehicles, water and clouds at 15 frames a second, 2 = adds sway, window shimmer and the beacon at 30.
  */
-export type AmbientLevel = 0 | 1 | 2;
-export const AMBIENT_FPS: Readonly<Record<AmbientLevel, number>> = { 0: 0, 1: 15, 2: 30 };
+export type SceneryLevel = 0 | 1 | 2;
+export const SCENERY_FPS: Readonly<Record<SceneryLevel, number>> = { 0: 0, 1: 15, 2: 30 };
 
-export type AmbientInputs = Readonly<{
+export type SceneryInputs = Readonly<{
   /** A software rasteriser (SwiftShader, llvmpipe): everything stays still unless a person or a test pins a level. */
   software: boolean; reducedMotion: boolean; hidden: boolean;
   /** `localStorage["anum.hq.ambient"]` as 0 to 2, or null. Reduced motion and a hidden tab still win. */
-  forced: AmbientLevel | null;
+  forced: SceneryLevel | null;
   /** Canvas pixels (device): above 4 million the top level is too heavy. */
   pixels: number;
   /** How many notches sustained slow frames have taken off so far. */
   slowSteps: number;
 }>;
 
-export function ambientLevelFor(i: AmbientInputs): AmbientLevel {
+export function sceneryLevelFor(i: SceneryInputs): SceneryLevel {
   if (i.reducedMotion || i.hidden) return 0;
-  const base: AmbientLevel = i.forced !== null ? i.forced : i.software ? 0 : i.pixels > 4_000_000 ? 1 : 2;
-  return Math.max(0, base - i.slowSteps) as AmbientLevel;
+  const base: SceneryLevel = i.forced !== null ? i.forced : i.software ? 0 : i.pixels > 4_000_000 ? 1 : 2;
+  return Math.max(0, base - i.slowSteps) as SceneryLevel;
 }
 
-export function readAmbientOverride(storage: Pick<Storage, 'getItem'> | null): AmbientLevel | null {
+export function readSceneryOverride(storage: Pick<Storage, 'getItem'> | null): SceneryLevel | null {
   try {
     const raw = storage?.getItem('anum.hq.ambient');
     if (raw === null || raw === undefined) return null;
+    // The same switch pins the interior scenery ("on" / "off") and this one (0, 1 or 2).
+    if (raw === 'on') return 2;
+    if (raw === 'off') return 0;
     const n = Number(raw);
     return n === 0 || n === 1 || n === 2 ? n : null;
   } catch { return null; }

@@ -4,9 +4,9 @@ import { MeshBuilder, MAT, VERTEX_FLOATS } from '../src/lib/hqGeometry.ts';
 import { DUSK, LIGHT_PRESETS, blendFor, lightingFor } from '../src/lib/hqLighting.ts';
 import { targetBlend } from '../src/lib/hqLightPreset.ts';
 import {
-  AMBIENT_FPS, LANE_SPEEDS, MAX_RIPPLES, MIN_GAP, ambientLevelFor, readAmbientOverride, ripplesOf, sampleLane, trafficPlan, vehiclePose, type LanePose,
-} from '../src/hqAssets/environment/ambient.ts';
-import { AMBIENT_VEHICLE_TRIANGLES_CAP, ambientVehicleParts } from '../src/hqAssets/environment/ambientVehicle.ts';
+  SCENERY_FPS, LANE_SPEEDS, MAX_RIPPLES, MIN_GAP, sceneryLevelFor, readSceneryOverride, ripplesOf, sampleLane, trafficPlan, vehiclePose, type LanePose,
+} from '../src/hqAssets/environment/scenery.ts';
+import { SCENERY_VEHICLE_TRIANGLES_CAP, sceneryVehicleParts } from '../src/hqAssets/environment/sceneryVehicle.ts';
 import { treeTemplate, tree } from '../src/hqAssets/environment/planting.ts';
 import { buildExterior } from '../src/hqAssets/exterior/index.ts';
 import { buildCampusScene } from '../src/lib/campusScene.ts';
@@ -71,28 +71,30 @@ test('ripples keep the biggest water surfaces, at most four, and ignore bad inpu
   assert.equal(r[5], 7);
 });
 
-test('ambient level: still on a software renderer, under reduced motion and in a hidden tab; a person can pin a level; slow frames step it down', () => {
+test('scenery level: still on a software renderer, under reduced motion and in a hidden tab; a person can pin a level; slow frames step it down', () => {
   const base = { software: false, reducedMotion: false, hidden: false, forced: null, pixels: 1_000_000, slowSteps: 0 } as const;
-  assert.equal(ambientLevelFor(base), 2);
-  assert.equal(ambientLevelFor({ ...base, pixels: 5_000_000 }), 1);
-  assert.equal(ambientLevelFor({ ...base, software: true }), 0);
-  assert.equal(ambientLevelFor({ ...base, software: true, forced: 1 }), 1);
-  assert.equal(ambientLevelFor({ ...base, reducedMotion: true }), 0);
-  assert.equal(ambientLevelFor({ ...base, reducedMotion: true, forced: 2 }), 0);
-  assert.equal(ambientLevelFor({ ...base, hidden: true, forced: 2 }), 0);
-  assert.equal(ambientLevelFor({ ...base, slowSteps: 1 }), 1);
-  assert.equal(ambientLevelFor({ ...base, slowSteps: 5 }), 0);
-  assert.equal(AMBIENT_FPS[0], 0);
-  assert.ok(AMBIENT_FPS[1] < AMBIENT_FPS[2]);
-  assert.equal(readAmbientOverride({ getItem: () => '1' }), 1);
-  assert.equal(readAmbientOverride({ getItem: () => '7' }), null);
-  assert.equal(readAmbientOverride({ getItem: () => { throw new Error('blocked'); } }), null);
-  assert.equal(readAmbientOverride(null), null);
+  assert.equal(sceneryLevelFor(base), 2);
+  assert.equal(sceneryLevelFor({ ...base, pixels: 5_000_000 }), 1);
+  assert.equal(sceneryLevelFor({ ...base, software: true }), 0);
+  assert.equal(sceneryLevelFor({ ...base, software: true, forced: 1 }), 1);
+  assert.equal(sceneryLevelFor({ ...base, reducedMotion: true }), 0);
+  assert.equal(sceneryLevelFor({ ...base, reducedMotion: true, forced: 2 }), 0);
+  assert.equal(sceneryLevelFor({ ...base, hidden: true, forced: 2 }), 0);
+  assert.equal(sceneryLevelFor({ ...base, slowSteps: 1 }), 1);
+  assert.equal(sceneryLevelFor({ ...base, slowSteps: 5 }), 0);
+  assert.equal(SCENERY_FPS[0], 0);
+  assert.ok(SCENERY_FPS[1] < SCENERY_FPS[2]);
+  assert.equal(readSceneryOverride({ getItem: () => '1' }), 1);
+  assert.equal(readSceneryOverride({ getItem: () => '7' }), null);
+  assert.equal(readSceneryOverride({ getItem: () => 'on' }), 2);
+  assert.equal(readSceneryOverride({ getItem: () => 'off' }), 0);
+  assert.equal(readSceneryOverride({ getItem: () => { throw new Error('blocked'); } }), null);
+  assert.equal(readSceneryOverride(null), null);
 });
 
 test('the instanced vehicle is three small parts with finite geometry, lights and no text', () => {
-  const p = ambientVehicleParts();
-  assert.ok(p.triangles > 40 && p.triangles <= AMBIENT_VEHICLE_TRIANGLES_CAP, String(p.triangles));
+  const p = sceneryVehicleParts();
+  assert.ok(p.triangles > 40 && p.triangles <= SCENERY_VEHICLE_TRIANGLES_CAP, String(p.triangles));
   for (const part of [p.body, p.trim, p.lights]) {
     assert.equal(part.length % (VERTEX_FLOATS * 3), 0);
     assert.ok(part.every(Number.isFinite));
@@ -151,9 +153,9 @@ test('the campus scene carries a traffic plan and ripples, all of it scenery wit
     { workspaceId: 'w2', x: 45, z: 0, width: 17, depth: 14, height: 14, levels: 3, kind: 'business', icon: 'chart' },
     { workspaceId: 'w3', x: -45, z: 10, width: 11, depth: 10, height: 8, levels: 2, kind: 'personal', icon: null },
   ]);
-  assert.ok(scene.ambient.vehicles.length >= 6);
-  assert.ok(scene.ambient.ripples.length >= 3 && scene.ambient.ripples.length <= MAX_RIPPLES * 3);
-  assert.deepEqual(Object.keys(scene.ambient).sort(), ['lanes', 'ripples', 'vehicles']);
+  assert.ok(scene.motion.vehicles.length >= 6);
+  assert.ok(scene.motion.ripples.length >= 3 && scene.motion.ripples.length <= MAX_RIPPLES * 3);
+  assert.deepEqual(Object.keys(scene.motion).sort(), ['lanes', 'ripples', 'vehicles']);
   assert.ok(scene.buildings.every((bd) => bd.archetype !== 'villa' || bd.mesh.triangles > 500), 'the villa is an asset');
 });
 

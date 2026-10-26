@@ -180,7 +180,9 @@ test('every room kind is furnished, and a person is drawn only at a desk with an
   const bare = buildBuildingScene([{ ...floor, rooms: floor.rooms.map((r) => ({ ...r, kind: 'office' as const })) }], { activeIndex: 0 });
   assert.notEqual(bare.triangles, empty.triangles, 'room kinds change the furniture');
   assert.ok(empty.triangles > 8000, 'the interior and its landscaping are dense enough: ' + empty.triangles);
-  assert.equal(empty.signCount, 1);
+  // Sign cells: the entrance, one plate per room of the floor and the floor sign of the service core.
+  assert.equal(empty.signCount, 1 + floor.rooms.length + 1);
+  assert.equal(empty.signs.length, floor.rooms.length + 1);
   assert.ok(empty.shadow.radius > 20 && Number.isFinite(empty.shadow.center.x));
   assert.ok(empty.opaque.vertices.every(Number.isFinite));
   assert.equal(buildBuildingScene([floor], { activeIndex: 0, people: new Map([['d0', 'a1']]) }).triangles, seated.triangles);

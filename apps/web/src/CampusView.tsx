@@ -124,7 +124,7 @@ export function CampusView(props: CampusViewProps) {
     signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: byId.get(b.workspaceId)?.name ?? '' }))],
     shadow: scene.shadow,
     halos: scene.halos,
-    ambient: scene.ambient,
+    scenery: scene.motion,
   }), [scene, byId]);
 
   // A phone-sized stage has room for two full cards and a handful of compact ones.

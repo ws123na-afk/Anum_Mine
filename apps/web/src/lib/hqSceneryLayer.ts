@@ -1,15 +1,15 @@
 /**
  * The three.js side of the ambient motion: instanced traffic on the ring road lanes. Loaded only through the
  * renderer's dynamic import. A frame writes one matrix per vehicle into preallocated objects and allocates
- * nothing. Vehicles are scenery (see `hqAssets/environment/ambient.ts`): nothing here reads a record.
+ * nothing. Vehicles are scenery (see `hqAssets/environment/scenery.ts`): nothing here reads a record.
  */
 import {
   BufferGeometry, Color, Float32BufferAttribute, InstancedMesh, MeshBasicMaterial, MeshLambertMaterial, MeshStandardMaterial, Matrix4, Quaternion, Vector3,
   type Material, type Scene,
 } from 'three';
 import { VERTEX_FLOATS } from './hqGeometry.ts';
-import { vehiclePose, type AmbientPlan, type LanePose } from '../hqAssets/environment/ambient.ts';
-import { VEHICLE_SCALE, ambientVehicleParts } from '../hqAssets/environment/ambientVehicle.ts';
+import { vehiclePose, type SceneryPlan, type LanePose } from '../hqAssets/environment/scenery.ts';
+import { VEHICLE_SCALE, sceneryVehicleParts } from '../hqAssets/environment/sceneryVehicle.ts';
 
 const srgbToLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 
@@ -30,10 +30,10 @@ function geometryOf(v: Float32Array): BufferGeometry {
   return g;
 }
 
-export class AmbientLayer {
+export class SceneryLayer {
   private meshes: InstancedMesh[] = [];
   private lights: MeshBasicMaterial | null = null;
-  private plan: AmbientPlan | null = null;
+  private plan: SceneryPlan | null = null;
   private readonly geometries: BufferGeometry[] = [];
   private readonly materials: Material[] = [];
   private readonly pose: LanePose = { x: 0, z: 0, heading: 0 };
@@ -50,12 +50,12 @@ export class AmbientLayer {
   get count(): number { return this.plan?.vehicles.length ?? 0; }
 
   /** Replaces the traffic. A plan without vehicles removes the meshes. */
-  setPlan(plan: AmbientPlan | undefined): void {
+  setPlan(plan: SceneryPlan | undefined): void {
     this.clear();
     this.plan = plan && plan.vehicles.length ? plan : null;
     if (!this.plan) return;
     const n = this.plan.vehicles.length;
-    const parts = ambientVehicleParts();
+    const parts = sceneryVehicleParts();
     const make = (data: Float32Array, material: Material, tinted: boolean): InstancedMesh => {
       const geometry = geometryOf(data);
       this.geometries.push(geometry); this.materials.push(material);

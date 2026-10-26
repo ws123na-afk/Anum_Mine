@@ -8,7 +8,7 @@
  * This module is only ever loaded through a dynamic import from `HqStage.tsx`, so three.js stays
  * out of every other chunk and out of the unit runner.
  *
- * Ambient motion (scenery only, see `hqAssets/environment/ambient.ts`): traffic loops, water ripples, tree and flag
+ * Ambient motion (scenery only, see `hqAssets/environment/scenery.ts`): traffic loops, water ripples, tree and flag
  * sway, drifting clouds, gently shimmering window light and a blinking rooftop beacon, all driven by one scene clock.
  * The clock stops, and every motion with it, under reduced motion, in a hidden tab and on a software rasteriser.
  *
@@ -20,19 +20,20 @@ import {
   ACESFilmicToneMapping, AmbientLight, BackSide, BufferGeometry, CanvasTexture, Color, DirectionalLight, DoubleSide, Float32BufferAttribute, Fog, HalfFloatType,
   HemisphereLight, LinearMipmapLinearFilter, Material, Mesh, MeshLambertMaterial, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, PCFShadowMap,
   PerspectiveCamera, PMREMGenerator, RepeatWrapping, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, Vector2, Vector3, Vector4, WebGLRenderer, WebGLRenderTarget,
-  LinearFilter, type IUniform,
+  LinearFilter, Matrix4, type IUniform,
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { VERTEX_FLOATS, MAT } from './hqGeometry.ts';
+import { poseAt, type AmbientMotion } from '../hqAssets/interior/ambient.ts';
 import { cameraEye, type CameraState } from './headquartersSpatial.ts';
 import { DUSK, lightingFor } from './hqLighting.ts';
-import { AmbientLayer } from './hqAmbientLayer.ts';
-import { AMBIENT_FPS, MAX_RIPPLES, ambientLevelFor, readAmbientOverride, type AmbientLevel } from '../hqAssets/environment/ambient.ts';
+import { SceneryLayer } from './hqSceneryLayer.ts';
+import { SCENERY_FPS, MAX_RIPPLES, sceneryLevelFor, readSceneryOverride, type SceneryLevel } from '../hqAssets/environment/scenery.ts';
 import { clipPlanes, viewProjection } from './hqMath.ts';
-import { LIFT_MS, easeLift, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
+import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
 import { ModelLayer } from './hqModelLayer.ts';
 import type { ModelGroup } from './hqModels.ts';
@@ -266,6 +267,17 @@ function readQualityOverride(): Quality | null {
 }
 
 /** True on a software rasteriser (SwiftShader, llvmpipe): it gets the light settings. Probed on a scratch canvas before the real context exists. */
+/**
+ * Ambient scenery moves on a GPU by default and stays still on a software rasteriser (it would cost frames the quality ladder
+ * needs). `localStorage["anum.hq.ambient"]` = "on" or "off" pins it, for tests and for a person who wants it one way.
+ */
+function readAmbientOverride(): boolean | null {
+  try {
+    const raw = window.localStorage.getItem('anum.hq.ambient');
+    return raw === 'on' ? true : raw === 'off' ? false : null;
+  } catch { return null; }
+}
+
 function probeSoftwareRenderer(): boolean {
   try {
     const scratch = document.createElement('canvas');
@@ -282,7 +294,7 @@ type Quality = 0 | 1 | 2 | 3;
 const SHADOW_SIZE: Record<Quality, number> = { 0: 0, 1: 1024, 2: 1024, 3: 2048 };
 
 export class HqRenderer {
-  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
+  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(40, 1, 0.2, 1000);
@@ -315,6 +327,15 @@ export class HqRenderer {
   private lastSunKey = '';
   private quality: Quality = 3;
   private reducedMotion = false;
+  /** Moving scenery: each part keeps the middle of its bounds as the pivot. */
+  private ambientParts: { mesh: Mesh; motion: AmbientMotion; px: number; py: number; pz: number }[] = [];
+  private ambientTimer: number | null = null;
+  private ambientAllowed = true;
+  /** Pinned on by `anum.hq.ambient`: moves even at the lowest quality. */
+  private ambientForced = false;
+  private readonly rest = new Matrix4();
+  private readonly pose = new Matrix4();
+  private readonly onVisibility = () => { if (!document.hidden) { this.lastClockAt = 0; this.requestFrame(); } };
   /** Cut-away floors: the value each lift group stands at, and the motions running now. */
   private liftValue = new Map<string, number>();
   private liftRun = new Map<string, { from: number; to: number; t0: number }>();
@@ -331,16 +352,15 @@ export class HqRenderer {
   private readonly onRestoredEvent: () => void;
   private sizeKey = '';
   // Ambient motion: one scene clock, the level it runs at, and the loop that keeps frames coming while it is above 0.
-  private ambient: AmbientLayer | null = null;
+  private scenery: SceneryLayer | null = null;
   private clock = 0;
   private lastClockAt = 0;
   private lastDrawAt = 0;
-  private ambientRaf: number | null = null;
+  private sceneryRaf: number | null = null;
   private slowSteps = 0;
   private software = false;
-  private forcedAmbient: AmbientLevel | null = null;
-  private level: AmbientLevel = 0;
-  private readonly onVisibility: () => void;
+  private forcedScenery: SceneryLevel | null = null;
+  private level: SceneryLevel = 0;
 
   private constructor(canvas: HTMLCanvasElement, renderer: WebGLRenderer, cb: RendererCallbacks, maxDpr: number) {
     this.canvas = canvas; this.renderer = renderer; this.cb = cb; this.maxDpr = maxDpr;
@@ -348,8 +368,6 @@ export class HqRenderer {
     this.onRestoredEvent = () => { this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.cb.onRestored?.(); this.requestFrame(); };
     canvas.addEventListener('webglcontextlost', this.onLostEvent);
     canvas.addEventListener('webglcontextrestored', this.onRestoredEvent);
-    this.onVisibility = () => { if (!document.hidden) { this.lastClockAt = 0; this.requestFrame(); } };
-    document.addEventListener('visibilitychange', this.onVisibility);
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = ACESFilmicToneMapping;
     renderer.outputColorSpace = SRGBColorSpace;
@@ -378,7 +396,10 @@ export class HqRenderer {
     try {
       made.cheap = cheap;
       made.software = software;
-      try { made.forcedAmbient = readAmbientOverride(window.localStorage); } catch { made.forcedAmbient = null; }
+      try { made.forcedScenery = readSceneryOverride(window.localStorage); } catch { made.forcedScenery = null; }
+      const pin = readAmbientOverride();
+      made.ambientAllowed = pin ?? !cheap;
+      made.ambientForced = pin === true;
       made.buildMaterials();
       made.buildSky();
     } catch (error) {
@@ -509,6 +530,53 @@ export class HqRenderer {
   private disposeMeshes(): void {
     for (const mesh of this.meshes) { this.scene.remove(mesh); mesh.geometry.dispose(); }
     this.meshes = [];
+    this.ambientParts = [];
+  }
+
+  /** A moving part: its meshes keep their own matrix (`stepAmbient` sets it), never cast shadows and are never culled. */
+  private addAmbient(item: AmbientItem, scene: RenderScene): void {
+    const first = this.meshes.length;
+    this.addItem(item, false, scene);
+    const px = (item.bounds.min.x + item.bounds.max.x) / 2, py = (item.bounds.min.y + item.bounds.max.y) / 2, pz = (item.bounds.min.z + item.bounds.max.z) / 2;
+    for (let i = first; i < this.meshes.length; i++) {
+      const mesh = this.meshes[i];
+      mesh.matrixAutoUpdate = false;
+      mesh.frustumCulled = false;
+      mesh.castShadow = false;
+      this.ambientParts.push({ mesh, motion: item.motion, px, py, pz });
+    }
+  }
+
+  /** True while ambient scenery should move: allowed here, no reduced motion, tab visible, quality above the lowest. */
+  private ambientActive(): boolean {
+    return this.ambientAllowed && !this.reducedMotion && !this.lost && (this.quality > 0 || this.ambientForced) && typeof document !== 'undefined' && !document.hidden;
+  }
+
+  private stepAmbient(): void {
+    if (!this.ambientParts.length) { this.stats.ambient = 0; this.stats.ambientMoving = false; return; }
+    const moving = this.ambientActive();
+    const t = performance.now() / 1000;
+    for (const part of this.ambientParts) {
+      const pose = poseAt(part.motion, t, !moving);
+      part.mesh.visible = pose.visible;
+      if (pose.spin === 0 && pose.dx === 0 && pose.dy === 0 && pose.dz === 0) { part.mesh.matrix.copy(this.rest.identity()); }
+      else {
+        // Spin about the vertical axis through the part's middle, then translate.
+        this.pose.makeTranslation(part.px + pose.dx, part.py + pose.dy, part.pz + pose.dz);
+        this.pose.multiply(this.rest.makeRotationY(pose.spin));
+        this.pose.multiply(this.rest.makeTranslation(-part.px, -part.py, -part.pz));
+        part.mesh.matrix.copy(this.pose);
+      }
+      part.mesh.matrixWorldNeedsUpdate = true;
+    }
+    this.stats.ambient = this.ambientParts.length;
+    this.stats.ambientMoving = moving;
+  }
+
+  /** The next ambient frame: about 12 a second, 4 a second once drawing is slow. Not scheduled while frozen. */
+  private scheduleAmbient(): void {
+    if (this.ambientTimer !== null || this.disposed || !this.ambientParts.length || !this.ambientActive()) return;
+    this.ambientTimer = window.setTimeout(() => { this.ambientTimer = null; this.requestFrame(); }, this.stats.avgDrawMs > 35 ? 250 : 83);
   }
 
   private addItem(item: RenderItem, transparent: boolean, scene: RenderScene): void {
@@ -575,15 +643,16 @@ export class HqRenderer {
     if (this.layer) { this.readyGroups = scene.models?.length ? this.layer.readyNow(scene.models) : new Set(); this.layer.setNight(this.night); }
     for (const item of scene.opaque) this.addItem(item, false, scene);
     for (const item of scene.glass) this.addItem(item, true, scene);
+    for (const item of scene.ambient ?? []) this.addAmbient(item, scene);
     if (this.layer) {
       this.layer.setHalos(scene.halos);
       void this.layer.setPlacements(scene.models ?? []).catch(() => undefined);
     }
-    if (scene.ambient?.vehicles.length || this.ambient) {
-      if (!this.ambient) this.ambient = new AmbientLayer(this.scene, this.cheap);
-      this.ambient.setPlan(scene.ambient);
+    if (scene.scenery?.vehicles.length || this.scenery) {
+      if (!this.scenery) this.scenery = new SceneryLayer(this.scene, this.cheap);
+      this.scenery.setPlan(scene.scenery);
     }
-    const ripples = scene.ambient?.ripples;
+    const ripples = scene.scenery?.ripples;
     for (let i = 0; i < MAX_RIPPLES; i++) {
       const on = !!ripples && i * 3 + 2 < ripples.length;
       this.shared.uRipples.value[i].set(on ? ripples![i * 3] : 0, on ? ripples![i * 3 + 1] : 0, on ? ripples![i * 3 + 2] : 0, 0);
@@ -690,21 +759,21 @@ export class HqRenderer {
     this.raf = requestAnimationFrame(() => { this.raf = null; this.draw(); });
   }
 
-  /** The level ambient motion runs at right now (0 = still): reduced motion, a hidden tab, a software rasteriser and slow frames all lower it. */
-  private ambientLevelNow(): AmbientLevel {
+  /** The level scenery motion runs at right now (0 = still): reduced motion, a hidden tab, a software rasteriser and slow frames all lower it. */
+  private sceneryLevelNow(): SceneryLevel {
     const pixels = this.canvas.clientWidth * this.canvas.clientHeight * (window.devicePixelRatio || 1) ** 2;
-    return ambientLevelFor({ software: this.software, reducedMotion: this.reducedMotion, hidden: document.hidden, forced: this.forcedAmbient, pixels, slowSteps: this.slowSteps });
+    return sceneryLevelFor({ software: this.software, reducedMotion: this.reducedMotion, hidden: document.hidden, forced: this.forcedScenery, pixels, slowSteps: this.slowSteps });
   }
 
-  /** Keeps frames coming at the ambient frame rate while the level is above 0; a still scene draws only when something asks. */
-  private scheduleAmbient(): void {
-    if (this.ambientRaf !== null || this.disposed || this.lost) return;
-    this.ambientRaf = requestAnimationFrame(() => {
-      this.ambientRaf = null;
+  /** Keeps frames coming at the scenery frame rate while the level is above 0; a still scene draws only when something asks. */
+  private scheduleScenery(): void {
+    if (this.sceneryRaf !== null || this.disposed || this.lost) return;
+    this.sceneryRaf = requestAnimationFrame(() => {
+      this.sceneryRaf = null;
       if (this.disposed) return;
-      const fps = AMBIENT_FPS[this.level];
+      const fps = SCENERY_FPS[this.level];
       if (fps === 0) return;
-      if (performance.now() - this.lastDrawAt >= 1000 / fps - 3) this.draw(); else this.scheduleAmbient();
+      if (performance.now() - this.lastDrawAt >= 1000 / fps - 3) this.draw(); else this.scheduleScenery();
     });
   }
 
@@ -733,7 +802,7 @@ export class HqRenderer {
     sh.uSkyHor.value.r += light.glow[0] * 0.5; sh.uSkyHor.value.g += light.glow[1] * 0.5; sh.uSkyHor.value.b += light.glow[2] * 0.5;
     sh.uSunDir.value.set(light.sunDir[0], light.sunDir[1], light.sunDir[2]);
     set(sh.uSunCol.value, light.sunColor);
-    this.ambient?.setLit(light.lit);
+    this.scenery?.setLit(light.lit);
     if (this.sky) {
       const u = (this.sky.material as ShaderMaterial).uniforms;
       set(u.zenith.value, light.zenith);
@@ -828,14 +897,14 @@ export class HqRenderer {
     if (this.disposed || this.lost || !this.cameraState) return;
     const started = performance.now();
     // Two requests in one animation frame (a camera move and the ambient loop) draw once.
-    if (started - this.lastDrawAt < 3 && this.stats.frames > 0) { this.scheduleAmbientIfRunning(); return; }
+    if (started - this.lastDrawAt < 3 && this.stats.frames > 0) { this.scheduleSceneryIfRunning(); return; }
     this.lastDrawAt = started;
-    this.level = this.ambientLevelNow();
+    this.level = this.sceneryLevelNow();
     if (this.level > 0 && this.lastClockAt > 0) this.clock += Math.min(0.1, Math.max(0, (started - this.lastClockAt) / 1000));
     this.lastClockAt = started;
     this.shared.uTime.value = this.clock;
     this.shared.uAmb.value = this.level >= 2 ? 1 : 0;
-    this.ambient?.update(this.clock);
+    this.scenery?.update(this.clock);
     try {
       const { width, height, dpr } = this.resize();
       const aspect = width / height;
@@ -854,6 +923,7 @@ export class HqRenderer {
       this.shared.uDetail.value.set(cs.distance * 0.7 + 25, cs.distance * 1.6 + 70);
       const lifting = this.stepLifts();
       this.applyLighting();
+      this.stepAmbient();
       if (this.shadowDirty && this.renderer.shadowMap.enabled) { this.renderer.shadowMap.needsUpdate = true; this.shadowDirty = false; }
       this.renderer.info.reset();
       const useBloom = this.quality >= 2 && !this.reducedMotion && this.night > 0.04;
@@ -865,8 +935,8 @@ export class HqRenderer {
         this.renderer.render(this.scene, this.camera);
       }
       this.stats.bloom = useBloom;
-      this.stats.ambient.level = this.level; this.stats.ambient.clock = this.clock; this.stats.ambient.vehicles = this.ambient?.count ?? 0;
-      if (this.level > 0) this.stats.ambient.frames += 1;
+      this.stats.scenery.level = this.level; this.stats.scenery.clock = this.clock; this.stats.scenery.vehicles = this.scenery?.count ?? 0;
+      if (this.level > 0) this.stats.scenery.frames += 1;
       if (this.layer) Object.assign(this.stats.models, this.layer.stats);
       this.stats.triangles = this.renderer.info.render.triangles;
       this.stats.drawn = this.renderer.info.render.calls;
@@ -877,9 +947,10 @@ export class HqRenderer {
       this.fail(error);
       return;
     }
+    this.scheduleAmbient();
     const ms = performance.now() - started;
     const s = this.stats;
-    this.scheduleAmbientIfRunning();
+    this.scheduleSceneryIfRunning();
     s.frames += 1; s.lastDrawMs = ms;
     // The first frames compile shaders and upload buffers; they say nothing about steady drawing, so the average starts after them.
     const warm = s.frames > 3;
@@ -897,12 +968,14 @@ export class HqRenderer {
     }
   }
 
-  private scheduleAmbientIfRunning(): void { if (this.level > 0) this.scheduleAmbient(); }
+  private scheduleSceneryIfRunning(): void { if (this.level > 0) this.scheduleScenery(); }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     if (this.raf !== null) cancelAnimationFrame(this.raf);
+    if (this.ambientTimer !== null) window.clearTimeout(this.ambientTimer);
+    document.removeEventListener('visibilitychange', this.onVisibility);
     this.canvas.removeEventListener('webglcontextlost', this.onLostEvent);
     this.canvas.removeEventListener('webglcontextrestored', this.onRestoredEvent);
     this.disposeMeshes();
@@ -912,9 +985,8 @@ export class HqRenderer {
     this.signTexture?.dispose();
     if (this.sky) { this.sky.geometry.dispose(); (this.sky.material as Material).dispose(); }
     for (const env of this.envs) env?.dispose();
-    this.ambient?.dispose();
-    document.removeEventListener('visibilitychange', this.onVisibility);
-    if (this.ambientRaf !== null) cancelAnimationFrame(this.ambientRaf);
+    this.scenery?.dispose();
+    if (this.sceneryRaf !== null) cancelAnimationFrame(this.sceneryRaf);
     this.composer?.dispose();
     this.sun.shadow.map?.dispose();
     this.renderer.dispose();
