@@ -7,7 +7,7 @@
  * a record behind it reads "Presence unavailable" or "Not connected".
  * Extension points are documented in docs/ANUM_MINE_HQ_EXTENSION_POINTS.md.
  */
-import { AlertTriangle, Building2, Compass, DoorOpen, History, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
+import { AlertTriangle, Building2, CheckCircle2, Compass, DoorOpen, History, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AgentMeetingSessions } from './AgentMeetingSessions';
 import { BuildingView, type AgentStyleInfo } from './BuildingView';
@@ -23,6 +23,7 @@ import * as api from './lib/api.ts';
 import { campusTotals, workspaceOf, type Campus, type CampusBuildingKind } from './lib/campusModel.ts';
 import { expandCampus } from './lib/campusRegistry.ts';
 import { HeadquartersController, adaptOfficeRegistry, type OfficeState } from './lib/headquartersController.ts';
+import type { StarterCampusResult } from '@anum/contracts';
 import type { AgentEvidence, RoomGeometry, SceneDesk } from './lib/headquartersProjection.ts';
 import { loadCampus, type CampusSource } from './lib/hqCampusLoader.ts';
 import { hqCommands, resolveNavTarget, type HqAgentRef, type HqCallbacks, type HqNavResult, type HqNavTarget, type HqRoomRef, type HqSlots } from './lib/hqExtensions.ts';
@@ -50,6 +51,8 @@ import { AssignHost } from './hq-assign/AssignHost';
 // Loaded only when the owner opens it, so its code and styles stay out of the headquarters chunk (e2e/hq-performance.spec.ts budget).
 const StarterCampusDialog = lazy(() => import('./hq-starter-campus/StarterCampusDialog').then((m) => ({ default: m.StarterCampusDialog })));
 const HqHistoryPanel = lazy(() => import('./HqHistoryPanel'));
+// First run: the panel that offers to create the campus inside the scene of a workspace with no buildings (docs/ANUM_MINE_STARTER_CAMPUS.md#first-run).
+const FirstRunPanel = lazy(() => import('./hq-first-run/FirstRunPanel'));
 import { useProvisioningGaps } from './hq-provisioning/useProvisioning';
 const StaffDesksDialog = lazy(() => import('./hq-staff-desks/StaffDesksDialog').then((m) => ({ default: m.StaffDesksDialog })));
 import './hqFlow.css';
@@ -92,6 +95,11 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [toolsOpen, setToolsOpen] = useState(false);
   const [starterOpen, setStarterOpen] = useState(false);
+  // Floor overview (docs/ANUM_MINE_FLOOR_OVERVIEW.md): the whole active floor from above, every room labelled.
+  const [overview, setOverview] = useState(false);
+  // A partly failed first run keeps its panel (some buildings exist, so the "no buildings" test alone would close it too soon).
+  const [firstRunKeep, setFirstRunKeep] = useState(false);
+  const [campusNote, setCampusNote] = useState<string | null>(null);
   const [staffOpen, setStaffOpen] = useState(false);
   const flow = useOfficeFlow(true, { tick: props.live ?? 0, type: props.liveEvent ?? null, streaming: props.streamLive === true });
   const gaps = useProvisioningGaps(flow.snapshot?.as_of ?? 0);
@@ -133,6 +141,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
     api.getCurrentMembership().then((mine) => { if (active) setCanManage(mine.active && mine.role === 'owner'); }).catch(() => { if (active) setCanManage(false); });
     return () => { active = false; };
   }, [scope.tenantId, scope.workspaceId]);
+
+  useEffect(() => { if (level !== 'building') setOverview(false); }, [level]);
 
   const navHandles: HqNavHandles = useMemo(() => ({ bridge: new HqCameraBridge(), capture: new ThumbCapture() }), []);
   navHandles.bridge.setReducedMotion(reducedMotion);
@@ -432,6 +442,17 @@ export function HeadquartersLive(props: HeadquartersProps) {
     }
   }, [refreshCampus]);
 
+  // The starter campus wrote buildings: read everything again (the registry, the campus, the flow and the gaps) and land the camera on the campus.
+  const onCampusCreated = useCallback((result: StarterCampusResult) => {
+    campusLoadedAt.current = 0;
+    setLevel('campus'); setCampusPick(null); setRoomId(null); setAgentId(null); setAgentDesk(null); setOverview(false);
+    const t0 = result.totals;
+    setCampusNote(result.outcome === 'already_set_up' ? t('hqFr.note.already')
+      : result.outcome === 'partial' ? t('hqFr.note.partial', { buildings: t0.buildings })
+        : t('hqFr.note.created', { ...t0 }));
+    void Promise.all([controller.refresh(), refreshCampus(), flow.reload(), gaps.reload()]).then(() => navHandles.bridge.flyHome());
+  }, [controller, refreshCampus, flow.reload, gaps.reload, navHandles]);
+
   const retry = () => { campusLoadedAt.current = 0; void controller.refresh(); void refreshCampus(); };
   const roomsForRoom = floor && roomId ? floor.rooms.find((r) => r.id === roomId) ?? null : null;
   const roomDesks = floor && roomsForRoom ? floor.desks.filter((d) => d.roomId === roomsForRoom.id) : [];
@@ -465,6 +486,10 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const status = state?.status;
   const connection = status === 'ready' ? t('hq.conn.ready') : status === 'refreshing' ? t('hq.conn.updating') : status === 'stale' ? t('hq.conn.stale') : status === 'error' ? t('hq.conn.error') : t('hq.conn.connecting');
   const loading = !campus && !campusError;
+  // No buildings in the registry (or one empty shell): the scene offers to create the campus instead of showing a bare lot.
+  const noLayout = projection !== null && (projection.buildings.length === 0
+    || (projection.buildings.length === 1 && projection.buildings[0].floors.every((f) => f.rooms.length === 0)));
+  const showFirstRun = (noLayout && !campusError?.denied) || firstRunKeep;
 
   const buildingKind: CampusBuildingKind = currentBuilding?.kind ?? 'business';
   currentBuildingKind.current = currentBuilding?.kind ?? null;
@@ -522,17 +547,25 @@ export function HeadquartersLive(props: HeadquartersProps) {
         </div>
       )}
 
+      {campusNote && (
+        <div className="hqNotice" role="status" data-testid="hq-campus-note">
+          <CheckCircle2 aria-hidden="true" /><span>{campusNote}</span>
+          <button type="button" className="hqGhost" onClick={() => setCampusNote(null)}>{t('hqFr.note.close')}</button>
+        </div>
+      )}
+
       <div className="hqMain">
         <HqNavigation
           handles={navHandles} level={level} view={effectiveView} webglOk={webglOk} night={night} campus={campus}
           tenantId={scope.tenantId} workspaceId={scope.workspaceId} openKey={openKey} selectedBuildingId={campusPick}
           building={registryBuilding} floor={floor} selectedRoomId={roomId} presence={presenceIndex}
           onView={(v) => { if (v === '3d' && !webglOk) return; setView(v); }}
-          onShowCampus={() => setLevel('campus')} onSelectBuilding={setCampusPick} onEnter={enterBuilding} onFloor={goFloor}
+          onShowCampus={() => setLevel('campus')} onSelectBuilding={setCampusPick} onEnter={enterBuilding} onFloor={goFloor} floorOverview={overview} onFloorOverview={setOverview}
           onRoom={(fid, rid) => openRoomById(fid, rid)} onAgent={(id, desk) => selectAgent(id, desk)}
           onOverlay={(o) => setOverlay(o)} onGo={goTo}
           dock={props.renderPaDock ? props.renderPaDock({ close: () => undefined }) : null}
-          scene={<>
+          scene={<div className="hqSceneHost">
+          {showFirstRun && <Suspense fallback={null}><FirstRunPanel onCreated={onCampusCreated} onKeep={setFirstRunKeep} onClose={() => setFirstRunKeep(false)} onManageSpaces={() => setOverlay('spaces')} /></Suspense>}
           {loading && <div className="hqLoading" role="status" aria-busy="true"><span className="hqSpinner" aria-hidden="true" />{t('hq.loading')}</div>}
           {campus && effectiveView === 'list' && (
             <CampusListView
@@ -566,8 +599,11 @@ export function HeadquartersLive(props: HeadquartersProps) {
               onBack={() => setLevel('campus')} onSelectBuilding={(id) => controller.selectBuilding(id)} onSelectFloor={goFloor}
               onSelectRoom={selectRoom} onSelectAgent={(id, desk) => selectAgent(id, desk)}
               nav={navHandles} onManageSpaces={() => setOverlay('spaces')} onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight}
+              overview={overview} onOverview={setOverview}
               side={sidePanel}
             />
+          ) : showFirstRun ? (
+            <div className="hqEmptyScene hqEmptyCompact"><button type="button" className="hqGhost" onClick={() => setLevel('campus')}>{t('hq.back')}</button></div>
           ) : (
             <div className="hqEmptyScene" role="status">
               <DoorOpen aria-hidden="true" />
@@ -579,7 +615,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
               <button type="button" className="hqGhost" onClick={() => setLevel('campus')}>{t('hq.back')}</button>
             </div>
           ))}
-          </>}
+          </div>}
           flowDock={
           <HqFlowDock snapshot={flow.snapshot} status={flow.status} error={flow.error} link={flow.link} batch={flow.batch}
             rooms={roomLabels} open={flowOpen} onToggle={() => setFlowOpen((v) => !v)} onReload={() => void flow.reload()}

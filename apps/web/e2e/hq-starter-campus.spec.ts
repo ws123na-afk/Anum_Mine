@@ -152,22 +152,24 @@ test('a stale hash is refused with a way back, and a partly failed run names the
   await shot(page, 'partial-1440');
 });
 
-test('an empty campus offers Set up my campus and keyboard users can operate the dialog', async ({ page }) => {
+test('an empty campus offers the first-run panel; Set up my campus under Office tools still opens the dialog for keyboard users', async ({ page }) => {
   await open(page, { registry: empty });
   await page.locator('.hqLive').getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
   await page.locator('.hqLive').getByRole('button', { name: 'Open Al Noor Fleet HQ' }).click();
-  const state = page.locator('.hqEmptyScene');
-  await expect(state).toBeVisible();
-  await expect(state.getByText('Create the standard campus in one step')).toBeVisible();
+  // The scene itself offers the one-click flow (e2e/hq-first-run.spec.ts has its states) ...
+  const panel = page.getByTestId('hq-first-run');
+  await expect(panel.getByRole('heading', { name: 'Create your campus' })).toBeVisible({ timeout: 20_000 });
   await shot(page, 'empty-state-1440');
-  await state.getByRole('button', { name: 'Set up my campus' }).focus();
+  // ... and the reviewed dialog (building by building) stays under Office tools.
+  await tools(page).focus();
+  await page.keyboard.press('Enter');
+  await page.locator('.hqLive').getByRole('button', { name: 'Set up my campus' }).focus();
   await page.keyboard.press('Enter');
   const d = dialog(page);
   await expect(d).toBeVisible({ timeout: 20_000 });
   await page.keyboard.press('Tab');
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toHaveCount(0);
-  await expect(state.getByRole('button', { name: 'Set up my campus' })).toBeFocused();
 });
 
 test('Arabic shows Arabic names, right to left', async ({ page }) => {

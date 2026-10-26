@@ -59,6 +59,8 @@ export type BuildingScene = Readonly<{
   desks: readonly BuildingDeskHandle[];
   bounds: Aabb;
   center: Vec3;
+  /** The footprint that holds every floor (metres, slab edge to slab edge, the union of the per-floor footprints), without the lawn round it. */
+  footprint: Readonly<{ x0: number; x1: number; z0: number; z1: number }>;
   /** Sign cells: the entrance sign first (the stage letters it with the real building name), then one plate per room of the active floor, then the floor sign of the core. */
   signCount: number;
   /** The lettering of the cells after the entrance, in cell order: the real room names and the floor name. */
@@ -587,7 +589,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
     max: { x: fx1 + pad, y: last * FLOOR_PITCH + WALL_HEIGHT + 1, z: fz1 + pad },
   };
   return {
-    opaque: ob, glass: gb, rooms, desks, bounds,
+    opaque: ob, glass: gb, rooms, desks, bounds, footprint: { x0: fx0, x1: fx1, z0: fz0, z1: fz1 },
     center: { x: (boxes[active]?.x0 ?? fx0) / 2 + (boxes[active]?.x1 ?? fx1) / 2, y: (active * FLOOR_PITCH) / 2, z: (boxes[active]?.z0 ?? fz0) / 2 + (boxes[active]?.z1 ?? fz1) / 2 },
     activeBox: { x0: boxes[active]?.x0 ?? fx0, z0: boxes[active]?.z0 ?? fz0, x1: boxes[active]?.x1 ?? fx1, z1: boxes[active]?.z1 ?? fz1 },
     signCount,

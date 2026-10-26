@@ -52,6 +52,9 @@ export type HqNavigationProps = Readonly<{
   onSelectBuilding: (workspaceId: string | null) => void;
   onEnter: (workspaceId: string) => void;
   onFloor: (floorId: string) => void;
+  /** The floor overview switch of the floor rail. */
+  floorOverview: boolean;
+  onFloorOverview: (on: boolean) => void;
   onRoom: (floorId: string, roomId: string) => void;
   onAgent: (agentId: string, desk: SceneDesk) => void;
   onOverlay: (overlay: NavOverlay) => void;
@@ -255,7 +258,7 @@ export function HqNavigation(props: HqNavigationProps) {
         </div>
       )}
       <div className="hqNavGrid">
-        {railOn && building && <Suspense fallback={null}><FloorRail building={building} activeFloorId={floor?.id ?? null} slim={layout.rail === 'slim'} thumbKeyOf={(id) => keyFor(`floor:${id}`)} onPick={pickFloor} onToggle={toggleRail} /></Suspense>}
+        {railOn && building && <Suspense fallback={null}><FloorRail building={building} activeFloorId={floor?.id ?? null} slim={layout.rail === 'slim'} thumbKeyOf={(id) => keyFor(`floor:${id}`)} onPick={pickFloor} onToggle={toggleRail} overview={props.floorOverview} onOverview={() => props.onFloorOverview(!props.floorOverview)} /></Suspense>}
         <div className="hqMainStage">
           {props.scene}
           {stripOn && (slot ? createPortal(stripNode, slot) : stripNode)}
@@ -272,7 +275,7 @@ export function HqNavigation(props: HqNavigationProps) {
       {drawer === 'floors' && building && (
         <div className="hqDrawer start" role="dialog" aria-modal="false" aria-label={t('hqNav.drawer.floors')}>
           <button type="button" className="hqIconButton hqDrawerClose" onClick={closeDrawer} aria-label={t('hqNav.drawer.close')}><X aria-hidden="true" /></button>
-          <Suspense fallback={null}><FloorRail building={building} activeFloorId={floor?.id ?? null} slim={false} drawer thumbKeyOf={(id) => keyFor(`floor:${id}`)} onPick={pickFloor} /></Suspense>
+          <Suspense fallback={null}><FloorRail building={building} activeFloorId={floor?.id ?? null} slim={false} drawer thumbKeyOf={(id) => keyFor(`floor:${id}`)} onPick={pickFloor} overview={props.floorOverview} onOverview={() => { props.onFloorOverview(!props.floorOverview); closeDrawer(); }} /></Suspense>
         </div>
       )}
       {drawer === 'side' && (
