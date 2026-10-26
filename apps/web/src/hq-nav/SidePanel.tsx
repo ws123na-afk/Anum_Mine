@@ -83,8 +83,8 @@ export function PeopleList(props: { rows: readonly PersonRow[]; presenceKnown: b
         <ul>
           {rows.map((r) => {
             const name = r.state === 'private' ? t('hq.agent.private') : r.name ?? t('hq.agent.assigned');
-            const chip = r.state === 'not_connected' ? (props.presenceKnown ? t('hqNav.people.notConnected') : t('hqNav.people.unavailable')) : r.status ? statusLabel(r.status) : t('hq.status.unknown');
-            const tone = r.state === 'known' && r.status ? STATUS_TONE[r.status] : 'faint';
+            const chip = r.offShift ? t(r.offShift === 'off_waiting' ? 'hqGc.offWaiting' : 'hqGc.off') : r.state === 'not_connected' ? (props.presenceKnown ? t('hqNav.people.notConnected') : t('hqNav.people.unavailable')) : r.status ? statusLabel(r.status) : t('hq.status.unknown');
+            const tone = r.state === 'known' && r.status && !r.offShift ? STATUS_TONE[r.status] : 'faint';
             return (
               <li key={r.key}>
                 <button type="button" className="hqPerson" disabled={!r.agentId} aria-label={`${t('hqNav.people.open', { name })}. ${chip}.`} onClick={() => r.agentId && props.onOpen(r)}>

@@ -72,7 +72,7 @@ export const hqGreenConcreteAr: Record<keyof typeof hqGreenConcreteEn, Message> 
   'hqGc.shift.hours': 'من {start} إلى {end}',
   'hqGc.shift.hoursDefault': 'ساعات افتراضية لم يؤكدها المالك بعد',
   'hqGc.shift.bar': 'عرض الوردية',
-  'hqGc.shift.showing': 'المعروض {shift}: {state}',
+  'hqGc.shift.showing': '{shift}: {state}',
   'hqGc.shift.onNow': 'في الوردية الآن',
   'hqGc.shift.offNow': 'خارج الوردية الآن',
   'hqGc.shift.toggle': 'اعرض {shift}',

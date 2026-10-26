@@ -140,3 +140,21 @@ test('seat labels read in Arabic and stay as typed in English', () => {
   setLocale('en');
   assert.equal(deskLabel('Night seat 2'), 'Night seat 2');
 });
+
+test('presence truth: a screen is lit only for fresh work of a person who is on shift; off shift and unknown stay dim', async () => {
+  const { deskVisual } = await import('../src/lib/hqDeskState.ts');
+  const day = applyShiftView(project().buildings, 'active', DAY)[0].floors[0].desks;
+  const night = applyShiftView(project().buildings, 'other', DAY)[0].floors[0].desks.filter((d) => d.shift === 'night');
+  const presence = (status: string, stale = false) => ({ agentId: 'a', name: 'A', role: null, status, taskTitles: ['t'], observedAt: '2026-10-26T08:00:00Z', stale }) as never;
+  assert.equal(deskVisual(day[0], presence('working')), 'working');
+  assert.equal(deskVisual(day[0], presence('queued')), 'queued');
+  assert.equal(deskVisual(day[0], presence('working', true)), 'unknown', 'a stale record proves nothing');
+  assert.equal(deskVisual(day[0], undefined), 'assigned', 'assigned with no record is not working');
+  for (const status of ['working', 'queued', 'waiting_approval', 'blocked', 'meeting', 'idle', 'paused']) {
+    assert.equal(deskVisual(night[0], presence(status)), 'offshift', `an off shift person is never lit (${status})`);
+  }
+  assert.equal(deskVisual({ agentId: null, shiftInfo: undefined }, undefined), 'vacant', 'nobody is drawn at a desk with no one');
+  const manager = day.find((d) => d.seatKind === 'manager')!;
+  assert.equal(deskVisual(manager, presence('working')), 'working', 'the manager seat is always on');
+  assert.equal(WORK_STATUSES.has('working'), true);
+});

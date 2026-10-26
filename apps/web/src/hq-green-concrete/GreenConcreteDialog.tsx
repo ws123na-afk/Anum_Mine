@@ -75,7 +75,7 @@ export function GreenConcreteDialog({ onClose, onCreated }: GreenConcreteDialogP
         <h2 id={titleId}>{done ? t(`hqGc.done.${done.outcome}` as MessageKey) : t('hqGc.title')}</h2>
         <button type="button" className="hqGcX" aria-label={t('hqGc.close')} onClick={onClose} disabled={busy}><X size={16} aria-hidden="true" /></button>
       </header>
-      <div className="hqGcBody">
+      <div className="hqGcBody" tabIndex={0} role="region" aria-label={t('hqGc.title')}>
         {load.kind === 'loading' && <p className="hqGcNote" role="status"><Loader2 size={14} className="hqGcSpin" aria-hidden="true" /> {t('hqGc.loading')}</p>}
         {load.kind === 'denied' && <p className="hqGcNote hqGcFail" role="alert">{t('hqGc.denied')}</p>}
         {load.kind === 'error' && <div className="hqGcNote hqGcFail" role="alert">
@@ -147,7 +147,7 @@ function PlanView({ preview, nothing }: { preview: GreenConcretePreview; nothing
     </section>
     <section className="hqGcSection" aria-label={t('hqGc.people.title', { count: preview.people.length })}>
       <h3>{t('hqGc.people.title', { count: preview.people.length })}</h3>
-      <div className="hqGcTableWrap">
+      <div className="hqGcTableWrap" tabIndex={0} role="region" aria-label={t('hqGc.people.title', { count: preview.people.length })}>
         <table className="hqGcPeople" data-testid="gc-people">
           <thead><tr><th scope="col">{t('hqGc.people.name')}</th><th scope="col">{t('hqGc.people.role')}</th><th scope="col">{t('hqGc.people.shift')}</th><th scope="col">{t('hqGc.people.seat')}</th><th scope="col">{t('hqGc.people.state')}</th></tr></thead>
           <tbody>

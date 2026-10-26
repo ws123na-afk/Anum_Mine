@@ -25,6 +25,10 @@ Total for an empty workspace: **8 buildings, 18 floors, 62 rooms, 220 desks**. T
 
 The Command Center of ANUM HQ is created with the room kind `command` (opens the live flow and carries the operations wall); the campus draws HQ as the executive tower, Personal Office as the villa, Tyre Pulse as the workshop and Commerce as the shop pavilion. See [building modules](ANUM_MINE_HQ_BUILDING_MODULES.md).
 
+## Green Concrete is a separate action
+
+**Add Green Concrete** (Office tools) is a second owner-triggered, previewed, click-confirmed action built the same way: it adds one company (building, floor, command room, ten seats) and its ten people as paused agents. It is not part of the master list, does not change the eight starter buildings and uses its own stable ids (`gc-...`). See [Green Concrete](ANUM_MINE_GREEN_CONCRETE.md).
+
 ## Endpoints
 
 Under `/api/v1/office/starter-campus`. PostgreSQL only (the memory backend answers 503, never fake data). Contract: `packages/contracts/src/officeStarterCampus.ts`.

@@ -29,6 +29,7 @@ import { HOME_YAW, buildingFitCamera, floorOverviewCamera, clampInside, clampTar
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { RoomGeometry, SceneBuilding, SceneDesk, SceneFloor } from './lib/headquartersProjection.ts';
 import { deskShiftLine, WORK_STATUSES } from './lib/hqShifts.ts';
+import { deskVisual } from './lib/hqDeskState.ts';
 import { presenceForDesk, totalsOf, type HqPresenceIndex } from './lib/hqPresence.ts';
 import type { StatusKey } from './lib/campusModel.ts';
 import type { HqView } from './HqChrome';
@@ -108,10 +109,7 @@ export function BuildingView(props: BuildingViewProps) {
     for (const f of floors) {
       for (const d of f.desks) {
         const p = presenceForDesk(presence, d);
-        if (!d.agentId && !p) { map.set(d.id, 'vacant'); continue; }
-        // A person whose shift is not now: a dark screen whatever work is waiting (the label says "Off shift", never "absent").
-        if (d.shiftInfo && !d.shiftInfo.onShift) { map.set(d.id, 'offshift'); continue; }
-        map.set(d.id, p ? visualOfStatus(p.status, p.stale) : 'assigned');
+        map.set(d.id, deskVisual(d, p));
       }
     }
     return map;

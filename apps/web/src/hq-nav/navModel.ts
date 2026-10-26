@@ -158,6 +158,8 @@ export function planModel(floor: SceneFloor | null, size = 100, pad = 4): PlanMo
 
 // ---------------------------------------------------------------- people at their posts
 
+import { deskShiftLine, WORK_STATUSES } from '../lib/hqShifts.ts';
+
 export type PersonRow = Readonly<{
   key: string;
   /** The agent id, or null for a private agent (no name is shown). */
@@ -170,6 +172,8 @@ export type PersonRow = Readonly<{
   state: 'known' | 'not_connected' | 'private';
   roomLabel: string;
   desk: SceneDesk;
+  /** Set when the person is off shift now (their work state is then told as "Off shift"). */
+  offShift?: 'off' | 'off_waiting';
 }>;
 
 /**
@@ -188,7 +192,9 @@ export function peopleAtPosts(floor: SceneFloor | null, presence: HqPresenceInde
     const base = { key: desk.id, roomLabel: roomLabel.get(desk.roomId) ?? '', desk };
     if (hidden) { rows.push({ ...base, agentId: null, name: null, role: null, status: record?.status ?? null, stale: false, state: 'private' }); continue; }
     if (!record) { rows.push({ ...base, agentId: desk.agentId, name: desk.agent?.name || null, role: null, status: null, stale: false, state: 'not_connected' }); continue; }
-    rows.push({ ...base, agentId: record.agentId, name: record.name || desk.agent?.name || null, role: record.role, status: record.status, stale: record.stale === true, state: 'known' });
+    const line = deskShiftLine(desk.shiftInfo, WORK_STATUSES.has(record.status));
+    rows.push({ ...base, agentId: record.agentId, name: record.name || desk.agent?.name || null, role: record.role, status: record.status, stale: record.stale === true, state: 'known',
+      ...(line === 'off' || line === 'off_waiting' ? { offShift: line } : {}) });
   }
   return rows.sort((a, b) => a.roomLabel.localeCompare(b.roomLabel) || (a.name === null ? 1 : 0) - (b.name === null ? 1 : 0) || (a.name ?? '').localeCompare(b.name ?? '') || a.key.localeCompare(b.key));
 }

@@ -52,7 +52,7 @@
 .hqGcRecords li{padding:6px 10px;border:1px solid #2f4d5f;border-radius:8px;background:#0f2a3d;overflow-wrap:anywhere}
 .hqGcSection h3{margin:0 0 6px;font-size:var(--text-xs)}
 .hqGcMap{margin:0;display:grid;gap:6px}
-.hqGcMap svg{width:100%;max-width:520px;height:auto;justify-self:center;background:#0a1d2c;border-radius:10px}
+.hqGcMap svg{width:100%;max-width:400px;height:auto;justify-self:center;background:#0a1d2c;border-radius:10px}
 .hqGcMap .room{fill:#10293b;stroke:#3d6570;stroke-width:.08}
 .hqGcMap .wall{fill:#4bd6bc;opacity:.55}
 .hqGcMap .door{fill:#f2c46b}
@@ -74,3 +74,4 @@
 @media(prefers-reduced-motion:reduce){.hqGcSpin{animation:none}}
 @media(max-width:580px){.hqGcBackdrop{padding:0;align-items:end}.hqGcDialog{max-height:100dvh;border-radius:14px 14px 0 0}.hqGcRow{flex-wrap:wrap}}
 
+.hqGcMap .join{fill:#8a6244;stroke:#e6c9a6;stroke-width:.06}
