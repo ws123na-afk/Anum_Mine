@@ -12,8 +12,10 @@
  * sway, drifting clouds, gently shimmering window light and a blinking rooftop beacon, all driven by one scene clock.
  * The clock stops, and every motion with it, under reduced motion, in a hidden tab and on a software rasteriser.
  *
- * Quality steps down on sustained slow frames: ambient motion first, then bloom, the shadow map size, shadows,
- * then the pixel ratio. Reduced motion turns bloom off. A browser without WebGL 2 gets null from
+ * Quality is a tier from `hqQualityTiers.ts`. On sustained slow frames ambient motion steps down first, then the frame governor
+ * (`hqGovernor.ts`) walks its ladder: pixel ratio, shadow map, shadows, bloom, then the simple materials; it climbs back slowly
+ * when frames are healthy, and never runs while the tier is pinned, on a software rasteriser or in a hidden tab. A shader that
+ * fails to compile switches to the simple materials. Reduced motion turns bloom off. A browser without WebGL 2 gets null from
  * `create` and the page falls back to the list and the 2D plan.
  */
 import {
@@ -36,7 +38,9 @@ import { clipPlanes, viewProjection } from './hqMath.ts';
 import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
 import { ModelLayer } from './hqModelLayer.ts';
-import { PHOTO, SHADOW_SIZE, SLOW_FRAMES_TO_STEP_DOWN, PROMOTE_FRAMES, classifyRenderer, initialTier, parseFxOff, parsePin, shouldPromote, slowFrameMs, type FxName, type GpuClass, type Quality } from './hqQualityTier.ts';
+import { QUALITY_PIN_KEY, ladderFor, parsePin, tierById, type QualityState, type StepSettings, type TierReason } from './hqQualityTiers.ts';
+import type { FrameGovernor } from './hqGovernor.ts';
+import { PROMOTE_FRAMES, classifyRenderer, parseFxOff, shouldPromote, type FxName, type GpuClass } from './hqQualityTier.ts';
 import type { PhotoFx, PbrHook } from './hqPhotoFx.ts';
 import type { ModelGroup } from './hqModels.ts';
 
@@ -272,9 +276,14 @@ const SKY_FRAG = `varying vec3 vDir; uniform vec3 zenith; uniform vec3 horizon; 
 
 // ---------------------------------------------------------------- the renderer
 
-/** A person (or a test) can pin the quality with `localStorage["anum.hq.quality"]` = 0 to 4 (3 = shadows and night glow, 4 = the photographic tier, see `hqQualityTier.ts`). */
-function readQualityOverride(): Quality | null {
-  try { return parsePin(window.localStorage.getItem('anum.hq.quality')); } catch { return null; }
+/** A person (or the Graphics check, or a test) can pin a registered tier with `localStorage["anum.hq.quality"]`; the pin always wins. */
+function readQualityOverride(): number | null {
+  try { return parsePin(window.localStorage.getItem(QUALITY_PIN_KEY)); } catch { return null; }
+}
+
+/** `anum.hq.quality` = 4 pins the top registered tier with the photographic effects of `hqPhotoFx.ts` on top (not a registry tier: the Graphics check measures registered tiers only). */
+function readPhotoPin(): boolean {
+  try { return window.localStorage.getItem(QUALITY_PIN_KEY)?.trim() === '4'; } catch { return false; }
 }
 
 /** True on a software rasteriser (SwiftShader, llvmpipe): it gets the light settings. Probed on a scratch canvas before the real context exists. */
@@ -334,20 +343,39 @@ export class HqRenderer {
   private shadowRegion: { center: { x: number; y: number; z: number }; radius: number } | null = null;
   private shadowDirty = true;
   private lastSunKey = '';
-  private quality: Quality = 3;
-  /** Lazy effect chunks: baked AO, roof detail and contact discs (every tier but the cheap path's CPU limits), and the photographic tier. */
+  /** The tier in force: the automatic one, a pin, or a Graphics check run (`override`). */
+  private quality = 3;
+  private reason: TierReason = 'automatic';
+  private pinned: number | null = null;
+  private override: number | null = null;
+  private ladder: readonly StepSettings[] = ladderFor(tierById(3));
+  private applied: StepSettings = this.ladder[0];
+  /** Loaded on demand (its own chunk), so the renderer chunk stays inside its budget; null until then, and the picture simply holds its tier. */
+  private governor: FrameGovernor | null = null;
+  private governorLoad: Promise<typeof import('./hqGovernor.ts')> | null = null;
+  private step = 0;
+  private governed = false;
+  private lean = false;
+  /** A shader failed to compile here: the simple materials stay on for every tier. */
+  private faulted = false;
+  private lastScene: RenderScene | null = null;
+  /** Lazy effect chunks: baked occlusion (every tier), roof detail and contact discs (off the cheap path), and the photographic extension. */
   private sceneFx: typeof import('./hqSceneFx.ts') | null = null;
   private campusFx: typeof import('./hqCampusFx.ts') | null = null;
   private photo: PhotoFx | null = null;
   private photoOn = false;
+  /** The photographic effects are wanted: pinned with `anum.hq.quality` = 4, or promoted after a measured probe. They run only on the full rung of the ladder. */
+  private photoPin = false;
+  private photoAuto = false;
   private gpu: GpuClass = 'unknown';
-  private pinned = false;
-  /** Effects switched off by `anum.hq.fxoff` (see `FX_NAMES`). */
-  private fxOff: ReadonlySet<FxName> = new Set();
   private demoted = false;
   private probed = false;
-  private lastScene: RenderScene | null = null;
+  /** Effects switched off by `anum.hq.fxoff` (see `FX_NAMES`). */
+  private fxOff: ReadonlySet<FxName> = new Set();
   private contactMesh: Mesh | null = null;
+  /** True when this draw came from the camera or another input (frame to frame time is then the real frame time). */
+  private inputDriven = true;
+  private prevDrawAt = 0;
   private reducedMotion = false;
   /** Moving scenery: each part keeps the middle of its bounds as the pivot. */
   private ambientParts: { mesh: Mesh; motion: AmbientMotion; px: number; py: number; pz: number }[] = [];
@@ -367,7 +395,6 @@ export class HqRenderer {
   private raf: number | null = null;
   private maxDpr: number;
   private dprScale = 1;
-  private slowFrames = 0;
   private readonly cb: RendererCallbacks;
   private readonly canvas: HTMLCanvasElement;
   private readonly onLostEvent: () => void;
@@ -382,20 +409,29 @@ export class HqRenderer {
   private slowSteps = 0;
   private software = false;
   /** False on a software rasteriser (unless scenery is pinned on): plain glass, water and sky programs, which compile and run faster. */
-  private get rich(): boolean { return !this.software || this.forcedScenery !== null; }
+  private get rich(): boolean { return !this.lean && (!this.software || this.forcedScenery !== null); }
   private forcedScenery: SceneryLevel | null = null;
   private level: SceneryLevel = 0;
 
   private constructor(canvas: HTMLCanvasElement, renderer: WebGLRenderer, cb: RendererCallbacks, maxDpr: number) {
     this.canvas = canvas; this.renderer = renderer; this.cb = cb; this.maxDpr = maxDpr;
     this.onLostEvent = () => { this.lost = true; this.cb.onLost?.(); };
-    this.onRestoredEvent = () => { this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.cb.onRestored?.(); this.requestFrame(); };
+    this.onRestoredEvent = () => {
+      // three.js re-creates its own state; what lived in render targets (reflection maps, the glow pass, the shadow map) is gone and is rebuilt on demand.
+      for (const env of this.envs) env?.dispose();
+      this.envs = [];
+      this.composer?.dispose(); this.composer = null; this.bloom = null;
+      this.sun.shadow.map?.dispose(); this.sun.shadow.map = null;
+      this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = ''; this.governor?.reset();
+      this.cb.onRestored?.(); this.requestFrame();
+    };
     canvas.addEventListener('webglcontextlost', this.onLostEvent);
     canvas.addEventListener('webglcontextrestored', this.onRestoredEvent);
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = ACESFilmicToneMapping;
     renderer.outputColorSpace = SRGBColorSpace;
     renderer.info.autoReset = false;
+    renderer.debug.onShaderError = (gl, program) => this.shaderFault(String(gl.getProgramInfoLog(program) ?? ''));
     renderer.shadowMap.type = PCFShadowMap;
     renderer.shadowMap.autoUpdate = false;
     this.scene.fog = this.fog;
@@ -409,7 +445,8 @@ export class HqRenderer {
   static create(canvas: HTMLCanvasElement, cb: RendererCallbacks = {}, maxDpr = 2): HqRenderer | null {
     // A software rasteriser (SwiftShader, llvmpipe) cannot afford PBR shading, a shadow map or antialiasing:
     // it gets simple lit materials, no reflection map, no antialiasing and a lower pixel ratio, unless quality is pinned.
-    const forced = readQualityOverride();
+    const photoPin = readPhotoPin();
+    const forced = photoPin ? 3 : readQualityOverride();
     const gpu = probeGpu();
     const software = gpu === 'software';
     const cheap = forced === null && software;
@@ -422,7 +459,7 @@ export class HqRenderer {
       made.cheap = cheap;
       made.software = software;
       made.gpu = gpu;
-      made.pinned = forced !== null;
+      made.photoPin = photoPin;
       try { made.fxOff = parseFxOff(window.localStorage.getItem('anum.hq.fxoff')); } catch { /* storage blocked */ }
       if (window.localStorage.getItem('anum.hq.bench') === '1') {
         const hooks = window as unknown as { __anumHqBench: unknown; __anumHqTune: unknown };
@@ -441,23 +478,87 @@ export class HqRenderer {
       return null;
     }
     const pixels = canvas.clientWidth * canvas.clientHeight * (window.devicePixelRatio || 1) ** 2;
-    made.quality = initialTier(forced, gpu, pixels);
+    made.pinned = forced;
+    if (forced !== null) { made.quality = forced; made.reason = 'pinned'; }
+    else if (cheap) { made.quality = 0; made.reason = 'software'; }
+    else if (pixels > 4_000_000) { made.quality = 2; made.reason = 'large-canvas'; }
+    made.configureTier();
     void made.loadSceneFx();
-    if (made.quality >= PHOTO) void made.enablePhoto();
+    if (photoPin) void made.enablePhoto();
     return made;
   }
 
-  /** Loads the baked AO / detail / contact chunk once; a scene that arrived before it was ready is built again with it. */
+  /** Rebuild the ladder and governor for the tier in force and apply the top rung. */
+  private configureTier(): void {
+    const id = this.override ?? this.pinned ?? this.quality;
+    this.ladder = ladderFor(tierById(id));
+    this.governor = null;
+    this.governed = this.pinned === null && this.override === null && !this.software;
+    if (this.governed) void (this.governorLoad ??= import('./hqGovernor.ts')).then((m) => { if (!this.disposed && this.governed && !this.governor) this.governor = new m.FrameGovernor(this.ladder.length); });
+    this.applyStep(0);
+  }
+
+  private applyStep(step: number): void {
+    this.step = step;
+    const next = this.ladder[Math.min(step, this.ladder.length - 1)];
+    const wantLean = next.lean || this.faulted;
+    const lean = wantLean !== this.lean;
+    this.applied = wantLean && !next.lean ? { ...next, lean: true } : next;
+    this.dprScale = next.dprScale;
+    this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = '';
+    if (lean) this.setLean(wantLean);
+    if (step > 0 && this.photoAuto) { this.photoAuto = false; this.demoted = true; this.leavePhoto(); }
+    this.emitQuality();
+    this.requestFrame();
+  }
+
+  private emitQuality(): void {
+    this.cb.onQuality?.({ tier: this.override ?? this.pinned ?? this.quality, reason: this.pinned !== null ? 'pinned' : this.reason, step: this.step, steps: this.ladder.length, settings: this.applied, software: this.software, governed: this.governed });
+  }
+
+  /** A person pinned a tier (or cleared the pin with null): it wins over the governor and the automatic choice. */
+  setPin(id: number | null, run = false): void { if (run) this.override = id; else this.pinned = id; this.configureTier(); }
+
+  /** Swap between the full materials and the simple lit ones (the last rung of the governor, and the way out of a shader that will not compile). */
+  private setLean(on: boolean): void {
+    if (this.lean === on) return;
+    this.lean = on;
+    this.cheap = on || (this.pinned === null && this.software);
+    for (const m of this.materials.values()) m.dispose();
+    for (const tex of this.textures) tex.dispose();
+    this.textures.length = 0; this.materials.clear();
+    if (this.sky) { this.scene.remove(this.sky); this.sky.geometry.dispose(); (this.sky.material as Material).dispose(); this.sky = null; }
+    try { this.buildMaterials(); this.buildSky(); } catch (error) { this.fail(error); return; }
+    for (const m of this.materials.values()) m.needsUpdate = true;
+    if (this.lastScene) this.setScene(this.lastScene);
+  }
+
+  /** A shader failed to compile on this GPU: keep a short, non-sensitive note and fall back to the simple materials (or to the 2D plan if even those fail). */
+  private shaderFault(log: string): void {
+    console.warn('[hq-gpu] shader compile failed', log.slice(0, 160));
+    if (this.disposed) return;
+    if (this.faulted) { if (this.lean) window.setTimeout(() => this.fail(new Error('shader-compile')), 0); return; }
+    this.faulted = true;
+    window.setTimeout(() => { if (!this.disposed) this.applyStep(this.ladder.length - 1); }, 0);
+  }
+
+  // The Graphics check (hq-gpu/gpuBench.ts, its own chunk) reads and drives `renderer`, `meshes`, `textures`, `composer`, `cameraState`,
+  // `liftValue`, `startLifts` and `requestFrame` through a cast, so none of that costs this chunk anything. Keep the names in step.
+
+
+  /** True while the photographic effects draw: wanted, loaded, on the full rung and not in the simple materials. */
+  private photoActive(): boolean { return (this.photoPin || this.photoAuto) && this.photoOn && this.photo !== null && this.step === 0 && !this.lean; }
+
+  /** Loads baked occlusion for every tier (no three.js in that chunk), then roof detail and contact discs off the cheap path; a scene that arrived first is built again. */
   private async loadSceneFx(): Promise<void> {
     try {
-      // Baked occlusion for every tier (no three.js in that chunk); roof detail and contact discs only off the cheap software path.
       const [baked, campus] = await Promise.all([import('./hqSceneFx.ts'), this.cheap ? Promise.resolve(null) : import('./hqCampusFx.ts')]);
       this.sceneFx = baked; this.campusFx = campus;
       if (!this.disposed && this.lastScene) this.setScene(this.lastScene);
     } catch { this.sceneFx = null; }
   }
 
-  /** Loads the photographic tier (PBR detail maps, post stack, point lights) and recompiles the materials with it. */
+  /** Loads the photographic extension (PBR detail maps, post stack, point lights) and recompiles the materials with it. */
   private async enablePhoto(): Promise<void> {
     try {
       const mod = await import('./hqPhotoFx.ts');
@@ -465,7 +566,7 @@ export class HqRenderer {
       this.photo = new mod.PhotoFx(this.renderer, this.scene, this.camera, this.fxOff);
       this.photo.setPrepassHidden(this.contactMesh);
       this.setPhotoOn(true);
-    } catch (error) { this.quality = 3; this.demoted = true; this.fail(error); }
+    } catch (error) { this.photoPin = false; this.photoAuto = false; this.demoted = true; this.fail(error); }
   }
 
   private setPhotoOn(on: boolean): void {
@@ -477,12 +578,19 @@ export class HqRenderer {
     this.requestFrame();
   }
 
+  /** Leaves the photographic effects for good (a slow GPU, a pass that failed): the picture keeps the ultra tier. */
+  private leavePhoto(): void {
+    this.photoPin = false; this.photoAuto = false; this.demoted = true;
+    this.setPhotoOn(false);
+    this.renderer.toneMapping = ACESFilmicToneMapping;
+  }
+
   /**
-   * Once, a second after the frames are warm: on a discrete or Apple GPU at tier 3 (and never after a pin or a step down) draw a short
-   * burst of frames with a finish after each, so the time is GPU time, and step up to the photographic tier when they were fast.
+   * Once, a second after the frames are warm: on a discrete or Apple GPU at the ultra tier (never after a pin or a step down) draw a short
+   * burst of frames with a finish after each, so the time is GPU time, and switch the photographic effects on when they were fast.
    */
   private probePromotion(): void {
-    if (this.probed || this.quality !== 3 || this.pinned || this.demoted || this.software || this.disposed) return;
+    if (this.probed || this.pinned !== null || this.override !== null || this.demoted || this.software || this.disposed || this.quality !== 3 || this.step !== 0) return;
     this.probed = true;
     window.setTimeout(() => {
       if (this.disposed || this.lost || document.hidden) { this.probed = false; return; }
@@ -495,8 +603,8 @@ export class HqRenderer {
         times.push(performance.now() - t0);
       }
       const pixels = this.canvas.clientWidth * this.canvas.clientHeight * (window.devicePixelRatio || 1) ** 2;
-      if (shouldPromote({ tier: this.quality, gpu: this.gpu, pixels, pinned: this.pinned, demoted: this.demoted, reducedMotion: this.reducedMotion, probeMs: times })) {
-        this.quality = PHOTO; this.lastSunKey = ''; this.shadowDirty = true;
+      if (shouldPromote({ tier: 3, gpu: this.gpu, pixels, pinned: false, demoted: this.demoted, reducedMotion: this.reducedMotion, probeMs: times })) {
+        this.photoAuto = true; this.lastSunKey = ''; this.shadowDirty = true;
         void this.enablePhoto();
       }
     }, 1200);
@@ -638,7 +746,7 @@ export class HqRenderer {
 
   /** True while ambient scenery should move: allowed here, no reduced motion, tab visible, quality above the lowest. */
   private ambientActive(): boolean {
-    return this.ambientAllowed && !this.reducedMotion && !this.lost && (this.quality > 0 || this.ambientForced) && typeof document !== 'undefined' && !document.hidden;
+    return this.ambientAllowed && !this.reducedMotion && !this.lost && (this.applied.shadowSize > 0 || this.applied.bloom || this.ambientForced) && typeof document !== 'undefined' && !document.hidden;
   }
 
   private stepAmbient(): void {
@@ -665,7 +773,7 @@ export class HqRenderer {
   /** The next ambient frame: about 12 a second, 4 a second once drawing is slow. Not scheduled while frozen. */
   private scheduleAmbient(): void {
     if (this.ambientTimer !== null || this.disposed || !this.ambientParts.length || !this.ambientActive()) return;
-    this.ambientTimer = window.setTimeout(() => { this.ambientTimer = null; this.requestFrame(); }, this.stats.avgDrawMs > 35 ? 250 : 83);
+    this.ambientTimer = window.setTimeout(() => { this.ambientTimer = null; this.inputDriven = false; this.requestFrame(); }, this.stats.avgDrawMs > 35 ? 250 : 83);
   }
 
   /**
@@ -738,7 +846,7 @@ export class HqRenderer {
     }
   }
 
-  /** Campus only (not a building's floors): roof coping and plant, planters and the soft contact discs under cars, trees and wall feet. */
+  /** Campus only (not a building's floors): roof coping and plant, window sills, planters and the soft contact discs under cars, trees and wall feet. */
   private addCampusDetail(scene: RenderScene): void {
     const fx = this.campusFx;
     if (!fx || !scene.scenery || this.cheap) return;
@@ -896,7 +1004,7 @@ export class HqRenderer {
       if (this.disposed) return;
       const fps = SCENERY_FPS[this.level];
       if (fps === 0) return;
-      if (performance.now() - this.lastDrawAt >= 1000 / fps - 3) this.draw(); else this.scheduleScenery();
+      if (performance.now() - this.lastDrawAt >= 1000 / fps - 3) { this.inputDriven = false; this.draw(); } else this.scheduleScenery();
     });
   }
 
@@ -949,17 +1057,16 @@ export class HqRenderer {
     const gain = 0.9 + 1.3 * light.lit;
     sign.color.setRGB(gain, gain, gain);
     // Shadow light: from the sun (or moon) towards the middle of the region.
-    // The photographic tier fits one big shadow map to what the camera looks at instead of the whole campus.
-    const fitted = this.photoOn && this.photo && this.quality >= PHOTO && !this.fxOff.has('cascade') && this.shadowRegion && this.cameraState;
-    const region = fitted ? this.photo!.fit(this.cameraState!, this.shadowRegion!, SHADOW_SIZE[this.quality]) : this.shadowRegion;
-    const on = region !== null && this.quality > 0;
+    // The photographic effects fit one big shadow map to what the camera looks at instead of the whole campus.
+    const photo = this.photoActive();
+    const shadowSize = photo ? 4096 : this.applied.shadowSize;
+    const region = photo && !this.fxOff.has('cascade') && this.shadowRegion && this.cameraState ? this.photo!.fit(this.cameraState, this.shadowRegion, shadowSize) : this.shadowRegion;
+    const on = region !== null && shadowSize > 0;
     if (on && region) {
-      const d = new Vector2(light.sunDir[0], light.sunDir[2]);
-      void d;
       const dir = { x: light.sunDir[0], y: light.sunDir[1], z: light.sunDir[2] };
       const len = Math.hypot(dir.x, dir.y, dir.z);
       const R = region.radius;
-      const key = `${region.center.x.toFixed(1)},${region.center.z.toFixed(1)},${R.toFixed(1)},${(dir.x / len).toFixed(2)},${(dir.z / len).toFixed(2)},${this.quality}`;
+      const key = `${region.center.x.toFixed(1)},${region.center.z.toFixed(1)},${R.toFixed(1)},${(dir.x / len).toFixed(2)},${(dir.z / len).toFixed(2)},${shadowSize}`;
       if (key !== this.lastSunKey) {
         this.lastSunKey = key;
         this.sun.position.set(region.center.x - (dir.x / len) * R * 2, region.center.y - (dir.y / len) * R * 2, region.center.z - (dir.z / len) * R * 2);
@@ -968,8 +1075,8 @@ export class HqRenderer {
         cam.left = -R; cam.right = R; cam.top = R; cam.bottom = -R; cam.near = 0.5; cam.far = R * 4.5;
         cam.updateProjectionMatrix();
         this.sun.target.updateMatrixWorld();
-        const size = SHADOW_SIZE[this.quality];
-        this.sun.shadow.radius = this.quality >= PHOTO ? 4 : 2.5;
+        const size = shadowSize;
+        this.sun.shadow.radius = photo ? 4 : 2.5;
         this.sun.shadow.normalBias = (1.6 * 2 * R) / Math.max(1, size);
         if (this.sun.shadow.mapSize.x !== size) { this.sun.shadow.mapSize.set(size, size); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
         this.shadowDirty = true;
@@ -986,7 +1093,7 @@ export class HqRenderer {
       for (const material of this.materials.values()) material.needsUpdate = true;
     }
     this.sun.castShadow = shadowsOn;
-    this.stats.shadowSize = shadowsOn ? SHADOW_SIZE[this.quality] : 0;
+    this.stats.shadowSize = shadowsOn ? shadowSize : 0;
     if (this.contactMesh) (this.contactMesh.material as MeshBasicMaterial).opacity = 0.6 + 0.25 * this.night;
   }
 
@@ -1025,6 +1132,10 @@ export class HqRenderer {
     const started = performance.now();
     // Two requests in one animation frame (a camera move and the ambient loop) draw once.
     if (started - this.lastDrawAt < 3 && this.stats.frames > 0) { this.scheduleSceneryIfRunning(); return; }
+    const interval = this.prevDrawAt > 0 ? started - this.prevDrawAt : 0;
+    const chained = this.inputDriven;
+    this.inputDriven = true;
+    this.prevDrawAt = started;
     this.lastDrawAt = started;
     this.level = this.sceneryLevelNow();
     if (this.level > 0 && this.lastClockAt > 0) this.clock += Math.min(0.1, Math.max(0, (started - this.lastClockAt) / 1000));
@@ -1053,16 +1164,16 @@ export class HqRenderer {
       this.stepAmbient();
       if (this.shadowDirty && this.renderer.shadowMap.enabled) { this.renderer.shadowMap.needsUpdate = true; this.shadowDirty = false; }
       this.renderer.info.reset();
-      let usePhoto = this.photoOn && this.photo !== null && this.quality >= PHOTO;
-      const useBloom = !usePhoto && this.quality >= 2 && !this.reducedMotion && this.night > 0.04;
+      let usePhoto = this.photoActive();
+      const useBloom = !usePhoto && this.applied.bloom && !this.reducedMotion && this.night > 0.04;
       if (usePhoto) {
         try {
           this.photo!.frame({ camera: cs, viewProjection: viewProjection(cs, aspect), width, height, dpr, night: this.night, time: this.clock, halos: this.lastScene?.halos, reducedMotion: this.reducedMotion });
         } catch (error) {
-          // A pass that cannot run on this GPU: drop to the high tier for good and draw this frame the plain way.
-          this.stepDownFromPhoto();
+          // A pass that cannot run on this GPU: leave the photographic effects for good and draw this frame the plain way.
+          this.leavePhoto();
           usePhoto = false;
-          this.cb.onError?.(error instanceof Error ? error : new Error('photographic tier failed'));
+          this.cb.onError?.(error instanceof Error ? error : new Error('photographic effects failed'));
           this.renderer.render(this.scene, this.camera);
         }
       } else if (useBloom) {
@@ -1073,7 +1184,7 @@ export class HqRenderer {
         this.renderer.render(this.scene, this.camera);
       }
       this.stats.bloom = useBloom || usePhoto;
-      this.stats.tier = this.quality;
+      this.stats.tier = usePhoto ? 4 : this.override ?? this.pinned ?? this.quality;
       this.stats.fx = this.fxList(usePhoto);
       this.stats.scenery.level = this.level; this.stats.scenery.clock = this.clock; this.stats.scenery.vehicles = this.scenery?.count ?? 0;
       if (this.level > 0) this.stats.scenery.frames += 1;
@@ -1096,38 +1207,29 @@ export class HqRenderer {
     // The first frames compile shaders and upload buffers; they say nothing about steady drawing, so the average starts after them.
     const warm = s.frames > 3;
     if (warm) s.avgDrawMs = s.avgDrawMs === 0 ? ms : s.avgDrawMs * 0.9 + ms * 0.1;
-    // Adaptive quality: three seconds of slow frames take one notch off (bloom, then shadow size, then shadows, then pixel ratio).
     if (!warm) return;
-    this.slowFrames = ms > slowFrameMs(this.quality) ? this.slowFrames + 1 : Math.max(0, this.slowFrames - 1);
-    if (this.slowFrames > SLOW_FRAMES_TO_STEP_DOWN) {
-      this.slowFrames = 0;
-      // Ambient motion is the newest cost and the first to go: it keeps frames coming, so it steps down before the picture does.
-      if (this.level > 0) this.slowSteps += 1;
-      else if (this.quality >= PHOTO) this.stepDownFromPhoto();
-      else if (this.quality > 0) { this.quality = (this.quality - 1) as Quality; this.shadowDirty = true; this.lastSunKey = ''; }
-      else if (this.dprScale > 0.6) this.dprScale = Math.max(0.6, this.dprScale * 0.8);
-      this.requestFrame();
-    }
-  }
-
-  /** Leaves the photographic tier for good (a slow GPU or a pass that failed): PBR detail and the post stack go, the high tier stays. */
-  private stepDownFromPhoto(): void {
-    this.quality = 3; this.demoted = true;
-    this.setPhotoOn(false);
-    this.renderer.toneMapping = ACESFilmicToneMapping;
+    // The frame governor judges frame to frame time while the camera or a cut-away is moving (that is what a person sees), and the draw call
+    // alone when ambient motion paces the frames. Slow frames spend ambient motion first, then walk the ladder.
+    const frameMs = chained && interval > 0 && interval < 250 ? Math.max(ms, interval) : ms;
+    const gov = this.governor;
+    if (!gov) return;
+    if (document.hidden) { gov.reset(); return; }
+    const decision = gov.sample(frameMs, started);
+    if (decision === 'down' && this.level > 0) { this.slowSteps += 1; gov.defer(started); this.requestFrame(); }
+    else if (decision) { gov.apply(decision, started); this.applyStep(gov.step); }
   }
 
   /** What is on right now, for the canvas attributes and the docs: a comma list. */
   private fxList(photo: boolean): string {
     const on: string[] = [];
-    if (this.sceneFx) on.push('ao');
+    if (this.sceneFx && !this.fxOff.has('ao')) on.push('ao');
     if (this.contactMesh) on.push('contact');
     if (this.photoOn && !this.fxOff.has('pbr')) on.push('pbr');
     if (photo) on.push(...(['gtao', 'dof', 'shafts', 'grain', 'lights', 'cascade'] as const).filter((n) => !this.fxOff.has(n)), 'agx');
     return on.join(',');
   }
 
-  /** `window.__anumHqBench(n)` (only with `anum.hq.bench` = 1): n frames, each followed by a GPU finish, as the median milliseconds and the triangles drawn. */
+  /** `window.__anumHqBench(n, off)` (only with `anum.hq.bench` = 1): n frames, each followed by a GPU finish, as the median milliseconds, with the named effects off. */
   bench(n: number, off?: string[]): { ms: number; triangles: number; calls: number } {
     if (off) {
       const next = parseFxOff(off.join(','));

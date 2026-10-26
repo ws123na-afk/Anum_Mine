@@ -4,6 +4,7 @@ import type { Vec3 } from './headquartersProjection.ts';
 import type { ModelGroup, ModelPlacement } from './hqModels.ts';
 import type { SceneryPlan } from '../hqAssets/environment/scenery.ts';
 import type { AmbientMotion } from '../hqAssets/interior/ambient.ts';
+import type { QualityState } from './hqQualityTiers.ts';
 
 /** `fallbackOf`: the item is the procedural stand-in for a model group and is drawn only while that group could not be loaded. */
 export type RenderItem = Readonly<{
@@ -63,5 +64,7 @@ export type RenderStats = {
 };
 
 export type RendererCallbacks = Readonly<{
+  /** The tier, its reason or the governor's rung changed (also once at start). */
+  onQuality?: (state: QualityState) => void;
   onLost?: () => void; onRestored?: () => void; onError?: (error: Error) => void; onFrame?: (vp: Float32Array, aspect: number) => void;
 }>;

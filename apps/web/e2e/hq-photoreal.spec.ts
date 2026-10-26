@@ -82,14 +82,14 @@ test('the quality pin sets the tier, contact discs and roof detail arrive from t
   await bad.close();
 });
 
-test('pin 4 reaches the photographic tier (checked at its start: the chunk loads, the shadow map is the fitted 4096 one)', async ({ page }) => {
+test('pin 4 asks for the photographic extension on the ultra tier (checked at its start: the chunk loads, the pin is not read as a bad value)', async ({ page }) => {
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 390, height: 844 });
   const chunks: string[] = [];
   page.on('request', (r) => { if (/hqPhotoFx/.test(r.url())) chunks.push(r.url()); });
   await open(page, '4');
-  await expect.poll(() => tier(page), { timeout: 60_000 }).toBe('4');
-  await expect.poll(() => canvas(page).getAttribute('data-shadow'), { timeout: 120_000 }).toBe('4096');
-  await expect.poll(() => chunks.length, { timeout: 60_000 }).toBeGreaterThan(0);
+  // The extension is not a registered tier: the picture is the ultra tier (3) until its first frame has compiled, then reports 4.
+  await expect.poll(async () => ['3', '4'].includes((await tier(page)) ?? ''), { timeout: 60_000 }).toBe(true);
+  await expect.poll(() => chunks.length, { timeout: 120_000 }).toBeGreaterThan(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
 });
