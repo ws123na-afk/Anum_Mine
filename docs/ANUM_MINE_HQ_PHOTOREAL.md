@@ -220,7 +220,7 @@ What is still worse or different (honest):
 - The step down ladder reads CPU time per frame. A GPU bound slow frame shows up there only through the work the driver blocks on; the promotion probe
   does time the GPU (it finishes each frame).
 - The PBR maps bind to surface classes, so one marble map serves every tile surface, polished lobby floors and outdoor paving alike.
-- Software GL, and every browser without WebGL 2, keep the previous look (plus baked occlusion on WebGL 2 software).
+- Software GL, and every browser without WebGL 2, keep the previous look (plus baked occlusion on the campus on a software rasteriser, never on a floor view there).
 
 ## Tests
 

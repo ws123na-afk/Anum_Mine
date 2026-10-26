@@ -793,7 +793,8 @@ export class HqRenderer {
 
   private addItem(item: RenderItem, transparent: boolean, scene: RenderScene): void {
     // Baked ambient occlusion (and tall walls cut so it has a gradient to carry): a vertex colour multiplier, free per frame.
-    const baked = !transparent && this.sceneFx && !this.fxOff.has('ao') ? this.sceneFx.prepare(item.vertices, this.cheap || this.software) : null;
+    // A software rasteriser bakes the campus only: a floor view rebuilds on every click and a bake is CPU time its slow frames cannot spare.
+    const baked = !transparent && this.sceneFx && !this.fxOff.has('ao') && (!this.software || this.lastScene?.scenery !== undefined) ? this.sceneFx.prepare(item.vertices, this.cheap || this.software) : null;
     const v = baked ? baked.vertices : item.vertices;
     const aoOf = baked ? baked.ao : null;
     const total = v.length / VERTEX_FLOATS;
