@@ -72,6 +72,10 @@ services:
       - "8080:8080"
     volumes:
       - ../keycloak/anum-realm.json:/opt/keycloak/data/import/anum-realm.json:ro
+      # The ANUM login theme (loginTheme "anum" in the realm) is a child of keycloak.v2, which
+      # Keycloak 25 does not have: this local server keeps the default look. To preview the theme
+      # on a server, raise the image to 26.4 and mount ../keycloak/themes/anum at
+      # /opt/keycloak/themes/anum, or use infra/keycloak/preview/preview.sh (docs/identity.md#login-theme).
 
   s3:
     # S3-compatible object storage (SeaweedFS). MinIO no longer publishes community

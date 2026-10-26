@@ -465,6 +465,39 @@ def converge_registration(kcadm: Kcadm, log: Callable[[str], None]) -> None:
             log(f"{REGISTRATION_FLOW}: {provider} REQUIRED")
 
 
+APPEARANCE = {
+    "displayName": "ANUM",
+    "internationalizationEnabled": True,
+    "supportedLocales": ["en", "ar"],
+    "defaultLocale": "en",
+}
+
+
+def converge_appearance(kcadm: Kcadm, log: Callable[[str], None]) -> None:
+    """Select the ANUM login theme and the sign-in page language list on a running realm.
+
+    Keycloak imports the realm file only once, and the image installs the theme without selecting
+    it, so a realm created earlier shows the default look until this runs. A display name the
+    owner changed by hand is kept; only the dev text "(local development)" and an empty name are
+    replaced.
+    """
+    themes = {theme.get("name") for theme in ((kcadm.get("serverinfo") or {}).get("themes") or {}).get("login", [])}
+    realm = kcadm.get(f"realms/{REALM}")
+    wanted: dict[str, Any] = {key: value for key, value in APPEARANCE.items() if key != "displayName"}
+    name = realm.get("displayName") or ""
+    if not name or "local development" in name.lower():
+        wanted["displayName"] = APPEARANCE["displayName"]
+    if LOGIN_THEME in themes:
+        wanted["loginTheme"] = LOGIN_THEME
+    else:
+        log(f"WARNING: the {LOGIN_THEME} login theme is not installed; rebuild the Keycloak image (docs/identity.md#login-theme)")
+    changed = {key: value for key, value in wanted.items() if realm.get(key) != value}
+    if changed:
+        kcadm.update(f"realms/{REALM}", {**realm, **changed})
+        for key in sorted(changed):
+            log(f"realm {key}: {realm.get(key)!r} -> {changed[key]!r}")
+
+
 def sign_up(kcadm: Kcadm, enable: bool, privacy_url: str = "", log: Callable[[str], None] = print) -> None:
     realm = kcadm.get(f"realms/{REALM}")
     if not enable:
@@ -618,6 +651,7 @@ def status(kcadm: Kcadm) -> list[str]:
             f"{provider}: {'enabled' if idp.get('enabled') else 'disabled'}, client {idp.get('config', {}).get('clientId')}"
             + ("" if ok else "  (not using the ANUM flows: run apply)")
         )
+    lines.append(f"login theme: {realm.get('loginTheme') or 'default (run apply)'}, display name {realm.get('displayName')!r}")
     lines.append(
         "self sign-up: "
         + (
@@ -661,6 +695,7 @@ def main(argv: Sequence[str], stdin: Any = None) -> int:
     try:
         if args.action == "apply":
             converge_flows(kcadm, print)
+            converge_appearance(kcadm, print)
             found = repoint_providers(kcadm, print)
             print(f"social sign-in flows are configured; providers: {', '.join(found) or 'none yet'}")
         elif args.action == "set-provider":
