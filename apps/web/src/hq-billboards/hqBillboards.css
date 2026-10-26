@@ -1,0 +1,41 @@
+/* Billboard cards (docs/ANUM_MINE_HQ_BILLBOARDS.md). The label layer sets data-density on the wrapper: full, compact, dot. */
+.hqBillboard { background: var(--hq-glass); backdrop-filter: blur(6px); border: 1px solid var(--hq-glass-line); border-radius: 12px; box-shadow: 0 6px 18px rgba(0, 0, 0, .35); color: var(--hq-glass-text);
+  display: flex; flex-direction: column; max-width: min(300px, 86vw); min-width: 0; overflow: hidden; width: max-content; }
+.hqBillboard[data-selected="true"] { border-color: var(--d-accent); box-shadow: 0 0 0 1px var(--d-accent), 0 8px 22px rgba(0, 0, 0, .4); }
+.hqBbHead { align-items: center; background: transparent; border: 0; color: inherit; cursor: pointer; display: flex; gap: 8px; min-height: 44px; padding: 6px 10px 6px 6px; text-align: start; width: 100%; }
+.hqBbHead:focus-visible, .hqBbOpen:focus-visible { outline: 2px solid #fff; outline-offset: -2px; box-shadow: 0 0 0 4px var(--d-accent); }
+.hqBbGlyph { background: linear-gradient(#142c3d, #0b1722); border: 2px solid #45d0b5; border-radius: 4px; flex: none; height: 22px; width: 32px; box-shadow: 0 5px 0 -3px #45d0b5; }
+.hqBbTitle { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.hqBbTitle strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hqBbTitle small { color: var(--hq-glass-muted); font-size: var(--text-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hqBbBody { border-top: 1px solid var(--hq-glass-line); display: flex; flex-direction: column; gap: 6px; padding: 7px 10px 9px; }
+.hqBbCols { display: grid; gap: 8px; }
+.hqBbRows { align-content: start; display: grid; gap: 5px; margin: 0; }
+.hqSceneWrap[data-s700="1"] .hqBillboard { max-width: 460px; }
+.hqSceneWrap[data-s700="1"] .hqBbCols { gap: 14px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.hqBbRows[data-col="about"] [data-field="roomNames"] dd, .hqBbRows[data-col="about"] [data-field="departments"] dd { -webkit-box-orient: vertical; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.hqBbRow dd[title] { cursor: default; }
+.hqBbRow { align-items: baseline; display: grid; gap: 1px; }
+.hqBbRow dt { color: var(--hq-glass-muted); font-size: var(--text-2xs); text-transform: none; }
+.hqBbRow dd, .hqBbTime { font-size: var(--text-2xs); margin: 0; overflow-wrap: anywhere; }
+.hqBbRow[data-connected="false"] dd { color: var(--hq-glass-muted); font-style: italic; }
+.hqBbTime { color: var(--hq-glass-muted); font-size: var(--text-2xs); margin: 0; }
+.hqBbTime[data-stale="true"], .hqBbRow[data-stale="true"] dd { color: var(--hq-meeting); }
+.hqBbTotal { font-weight: 700; }
+.hqBbParts { display: flex; flex-wrap: wrap; gap: 2px 10px; list-style: none; margin: 2px 0 0; padding: 0; }
+.hqBbParts li { font-size: var(--text-2xs); color: var(--hq-glass-muted); }
+.hqBbParts b { color: var(--hq-glass-text); }
+.hqBbOpen { align-items: center; background: rgb(var(--c-accent) / .22); border: 1px solid var(--d-accent); border-radius: 8px; color: #8fe3d1; cursor: pointer; display: flex; font-size: var(--text-xs); gap: 6px; justify-content: space-between; min-height: 36px; padding: 4px 10px; }
+.hqBbNote { color: var(--hq-glass-muted); font-size: var(--text-2xs); margin: 0; }
+[dir="rtl"] .hqBbOpen .flip { transform: scaleX(-1); }
+
+.hqLabelAnchor[data-density="compact"] .hqBbBody, .hqLabelAnchor[data-density="dot"] .hqBbBody { display: none; }
+.hqLabelAnchor[data-density="dot"] .hqBbTitle { display: none; }
+.hqLabelAnchor[data-density="dot"] .hqBillboard { width: auto; }
+.hqLabelAnchor[data-density="dot"] .hqBbHead { min-height: 0; padding: 4px; }
+.hqLabelAnchor:focus-within .hqBillboard .hqBbBody { display: flex; }
+.hqLabelAnchor:focus-within .hqBillboard .hqBbTitle { display: flex; }
+@media (max-width: 640px) {
+  .hqBillboard { max-width: min(250px, 78vw); }
+  .hqBbRow[data-field="departments"], .hqBbRow[data-field="roomNames"] { display: none; }
+}

@@ -39,6 +39,8 @@ export type StageLabel = Readonly<{
   occluders?: readonly Aabb[];
   /** Other anchors for the same label; the one nearest the eye is used. */
   alternatives?: readonly Vec3[];
+  /** A large card (a billboard): the placement searches in small steps for a free spot. */
+  fine?: boolean;
 }>;
 
 export type StageStatus = 'ok' | 'recovering';

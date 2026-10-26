@@ -30,6 +30,8 @@ export type LabelInput = Readonly<{
   occluders?: readonly Aabb[];
   /** Other anchors for the same label (a floor tag sits on the edge of the floor nearest the eye). */
   alternatives?: readonly Vec3[];
+  /** A large card (a billboard): search for a free spot in small steps around the anchor instead of whole card heights. */
+  fine?: boolean;
 }>;
 /** `crowded`: no free spot at any density, so the card stays at its anchor unseen and unclickable but in the tab order, and a focus brings it forward. */
 export type LabelPlacement = Readonly<{ id: string; x: number; y: number; depth: number; shown: boolean; shifted: number; density: Density; occluded: boolean; crowded?: boolean }>;
@@ -139,21 +141,29 @@ export function layoutLabels(
         if (up) { set(item, up.x, up.y, { w, h }, density, Math.round((home.y - up.y) / (h * 1.05))); done = true; break; }
       }
       // An adaptive label first gives up detail (the next tier); only its last tier looks for another spot.
-      if (adaptive && ti < lastIndex) continue;
+      // (A `fine` label, a large card, first looks for a free spot at this density and gives up detail only when there is none.)
+      if (adaptive && ti < lastIndex && !item.input.fine) continue;
       // Candidate spots around the anchor, nearest first: straight up (the usual case), then down and sideways.
       const spots: Array<{ x: number; y: number; cost: number }> = [];
       // A secondary card (a seated agent) never moves off its anchor: it shows where it sits or gives way.
       const secondary = adaptive && (item.input.priority ?? 1) >= 2;
       const reach = secondary ? 0 : adaptive ? 4 : MAX_SHIFTS, sideways = secondary ? 0 : 2;
-      for (let iy = -reach; iy <= reach; iy++) {
-        for (let ix = -sideways; ix <= sideways; ix++) {
-          const x = item.x + ix * w * 1.05, y = item.y + iy * h * 1.05;
-          spots.push({ x, y, cost: Math.abs(iy) * (iy < 0 ? 1 : 1.3) + Math.abs(ix) * 3 });
+      if (item.input.fine) {
+        for (let dy = -h * 1.5; dy <= h * 1.5; dy += 20) {
+          for (let dx = -w * 1.6; dx <= w * 1.6; dx += 20) spots.push({ x: item.x + dx, y: item.y + dy, cost: (Math.abs(dy) + Math.abs(dx) * 0.7) / 20 });
+        }
+      } else {
+        for (let iy = -reach; iy <= reach; iy++) {
+          for (let ix = -sideways; ix <= sideways; ix++) {
+            const x = item.x + ix * w * 1.05, y = item.y + iy * h * 1.05;
+            spots.push({ x, y, cost: Math.abs(iy) * (iy < 0 ? 1 : 1.3) + Math.abs(ix) * 3 });
+          }
         }
       }
       spots.sort((p, q) => p.cost - q.cost);
       const pick = spots.find((c) => inside(c.x, c.y) && !overlaps(c.x, c.y));
       if (pick) { set(item, pick.x, pick.y, { w, h }, density, Math.round(Math.abs(pick.y - item.y) / (h * 1.05))); done = true; break; }
+      if (adaptive && ti < lastIndex) continue;
       // No free spot. Building and room cards are the way into the scene, so they stay (on the least covered spot);
       // only the secondary agent cards give way, and so does a crowded label that has a dot to fall back on.
       if (options.squeeze && adaptive) { set(item, home.x, home.y, { w, h }, density, 0); done = true; break; }
@@ -221,20 +231,30 @@ export function placeLabels(
 export function bindKeepOut(stage: HTMLElement, selector: string, onChange: (rects: readonly Rect[]) => void): () => void {
   const scope = stage.parentElement;
   if (!scope) return () => undefined;
+  const observed = new Set<Element>();
+  let last = '';
   const read = () => {
     const box = stage.getBoundingClientRect();
     // The scene's width steps for the chrome's CSS (a CSS size container would change how the page's columns are sized).
     for (const w of [641, 700, 1340, 1600]) { const v = box.width >= w ? '1' : '0'; if (scope.dataset['s' + w] !== v) scope.dataset['s' + w] = v; }
-    onChange([...scope.querySelectorAll<HTMLElement>(selector)].map((el) => {
+    const rects = [...scope.querySelectorAll<HTMLElement>(selector)].map((el) => {
       const r = el.getBoundingClientRect();
       return { x0: r.left - box.left - 6, y0: r.top - box.top - 6, x1: r.right - box.left + 6, y1: r.bottom - box.top + 6 };
-    }).filter((r) => r.x1 - r.x0 > 14 && r.y1 - r.y0 > 14));
+    }).filter((r) => r.x1 - r.x0 > 14 && r.y1 - r.y0 > 14);
+    const key = rects.map((r) => `${Math.round(r.x0)},${Math.round(r.y0)},${Math.round(r.x1)},${Math.round(r.y1)}`).join(';');
+    if (key === last) return;
+    last = key;
+    onChange(rects);
   };
-  read();
+  const watch = () => scope.querySelectorAll<HTMLElement>(selector).forEach((el) => { if (!observed.has(el)) { observed.add(el); observer.observe(el); } });
   const observer = new ResizeObserver(read);
   observer.observe(stage);
-  scope.querySelectorAll<HTMLElement>(selector).forEach((el) => observer.observe(el));
-  return () => observer.disconnect();
+  watch();
+  read();
+  // A panel that opens later (the building detail) is watched from then on.
+  const mutations = new MutationObserver(() => { watch(); read(); });
+  mutations.observe(scope, { childList: true });
+  return () => { observer.disconnect(); mutations.disconnect(); };
 }
 
 /* The stacked view's extras: the slab of each floor as a solid box, the slabs over a floor, and one tag per floor on its edge nearest the eye. */

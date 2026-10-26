@@ -93,6 +93,7 @@ Counts per status are in the last section ("Totals"), computed from the tables i
 | 3.16 | Runtime frame governor and quality tiers | Partial | Read, Ran, CI | `lib/hqQualityTiers.ts` (one tier registry), `lib/hqGovernor.ts` (rolling median, hysteresis, no flip-flop), `lib/hqThreeRenderer.ts` (pixel ratio, then shadows, then glow, then simple materials; never when pinned, on software or hidden), the header chip in `HqChrome.tsx`; `test/hqGpu.test.ts` with simulated frame times | Thresholds are reasoned defaults, never tuned on a real GPU. GPU time is not measured directly, frame time stands in for it |
 | 3.17 | Graphics check panel and owner GPU script | Partial | Read, Ran, CI | Office tools, Graphics check (`hq-gpu/HqGpuCheckPanel.tsx`, lazy): device facts, per tier benchmark with a scripted orbit and floor change, verdict, pin, anonymous JSON report; `scripts/hq-gpu-check.mjs`; `docs/ANUM_MINE_HQ_GPU_CHECK.md`; `e2e/hq-gpu-check.spec.ts`, `hq-gpu-script.spec.ts`, axe, English and Arabic, five viewport sizes | Logic verified on software GL only (the panel reports the software rasteriser honestly). No real GPU result exists yet: the owner runs the script on a Windows PC with a GPU and sends the report |
 | 3.18 | Cutaway section of the building (front facade and roof removed, all floors, Cutaway and Closed) | Partial | Read, Ran | `lib/hqCutaway.ts`, `lib/buildingScene.ts` (`walls`, `dimmed`), `BuildingView.tsx`; `test/hqCutaway.test.ts`, `e2e/hq-cutaway.spec.ts`; [cutaway](ANUM_MINE_HQ_CUTAWAY.md) | Lower floors show only their front 6 to 7 m under the slab above; side by side with renders 22 and 24 on a real GPU: Not verified; dimmed floors are rebuilt on every floor change; clicking a room on another floor does not switch floors |
+| 3.19 | Building billboards: a board in front of each building with its name, and a card with what the building does and its real work details | Partial | Read, Ran | `hq-billboards/` (lazy chunk: `billboardModel.ts`, `billboardSites.ts`, `BillboardCard.tsx`), `CampusView.tsx`; `test/hqBillboard.test.ts` (property and whitelist tests, Not connected), `e2e/hq-billboards.spec.ts` (five buildings, five sizes, English and Arabic, axe); [billboards](ANUM_MINE_HQ_BILLBOARDS.md) | Looked at on software GL only, not a real GPU; the 3D board carries the name only (details are the card); open work and room details exist for the open workspace's registry buildings only, every other building says Not connected |
 
 ## Section 4. Building and campus structure
 
@@ -305,16 +306,16 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 
 ## Totals
 
-Rows counted: 148 (sections 1 to 14).
+Rows counted: 149 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
 | Complete | 110 |
-| Partial | 34 |
+| Partial | 35 |
 | Missing | 3 |
 | Not applicable | 1 |
-| Total | 148 |
+| Total | 149 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 103, Partial 27, Missing 3, Not applicable 1 (total 134). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 4.11 by the label work).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 103, Partial 28, Missing 3, Not applicable 1 (total 135). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 3.19 by the billboards, row 4.11 by the label work).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.

@@ -26,6 +26,7 @@ import { hqStarterCampusAr } from './hqStarterCampus.ar.ts';
 import { hqFirstRunAr } from './hqFirstRun.ar.ts';
 import { hqFloorAr } from './hqFloor.ar.ts';
 import { hqLabelsAr } from './hqLabels.ar.ts';
+import { hqBillboardAr } from './hqBillboard.ar.ts';
 import { hqStaffDesksAr } from './hqStaffDesks.ar.ts';
 import { teamAr } from './team.ar.ts';
 import { appCallsAr } from './appCalls.ar.ts';
@@ -3261,6 +3262,7 @@ export const ar: Record<MessageKey, Message> = {
   ...hqFirstRunAr,
   ...hqFloorAr,
   ...hqLabelsAr,
+  ...hqBillboardAr,
   ...hqStaffDesksAr,
   // ---- واجهة ANUM 360 ومركز الأوامر ----
   'brand.name': 'ANUM 360',

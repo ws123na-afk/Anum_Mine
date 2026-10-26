@@ -253,6 +253,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
     [flow.status, flow.snapshot, presenceList, livePresence.link]);
   const isOperationsRoom = useCallback((room: RoomGeometry) => resolveRoomModule({ department: room.teamDepartment, kind: room.kind, name: room.label, buildingKind: currentBuildingKind.current }).target.type === 'flow', []);
   const flowReload = flow.reload;
+  const billboardFlow = useMemo(() => ({ status: flow.status, snapshot: flow.snapshot }), [flow.status, flow.snapshot]);
   const wallProp = useMemo(() => ({ model: wallModel, isOperations: isOperationsRoom, onReload: () => void flowReload() }), [wallModel, isOperationsRoom, flowReload]);
   const presenceIndex = useMemo(() => (presenceList ? indexPresence(presenceList) : null), [presenceList]);
   const presenceOf = useCallback((id: string, desk: SceneDesk | null) => presenceIndex?.byAgent.get(id) ?? (desk ? presenceIndex?.byDesk.get(desk.id) : undefined), [presenceIndex]);
@@ -595,7 +596,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           )}
           {campus && webglOk && effectiveView !== 'list' && level === 'campus' && (
             <CampusView
-              campus={campus} plans={plans} unreported={unreported} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
+              campus={campus} plans={plans} flow={billboardFlow} unreported={unreported} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
               currentWorkspaceId={openKey} avatars={avatars} departments={departments} nav={navHandles} selectedId={campusPick} onSelect={setCampusPick} onEnter={enterBuilding}
               onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight} onSaveProfile={saveProfile}
             />
