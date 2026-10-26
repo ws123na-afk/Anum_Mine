@@ -136,11 +136,11 @@ export function bakeVertexAo(v: Float32Array, o: AoOptions = {}): Float32Array {
 }
 
 
-/** Heights above a wall's base level at which tall wall triangles are cut, so the contact gradient is resolved where it matters. */
-const CUTS = [0.6, 1.8, 3.6, 7.2, 14.4, 28.8, 57.6];
+/** Heights above a wall's base level at which tall, wide wall triangles are cut (only the lowest 7.2 m: that is where the contact gradient lives), so the contact gradient is resolved where it matters. */
+const CUTS = [0.6, 1.8, 3.6, 7.2];
 
 /**
- * Cuts tall, wall-like triangles (not panes) along horizontal planes above the level they stand on, interpolating every vertex
+ * Cuts tall, wide, wall-like triangles (not panes, fins or mullions) along horizontal planes above the level they stand on, interpolating every vertex
  * attribute. A plain 40 m wall is two triangles with vertices only at its corners, which could carry no gradient; after the cut
  * it has vertices at 0.6, 1.8, 3.6 m and so on. Returns the input when nothing needed cutting.
  */
@@ -155,6 +155,9 @@ export function refineWalls(v: Float32Array, levels: readonly number[] = groundL
     const ys = [v[o + 1], v[o + F + 1], v[o + 2 * F + 1]];
     const lo = Math.min(...ys), hi = Math.max(...ys);
     if (Math.abs(v[o + 4]) >= 0.7 || v[o + 9] >= 2 || hi - lo < 1.5 || v[o + 10] === MAT.sign || v[o + 10] === MAT.foliage) continue;
+    // Only wide faces: a fin or a mullion is thin, its two ends carry the gradient well enough.
+    const span = Math.max(Math.abs(v[o] - v[o + F]), Math.abs(v[o + 2] - v[o + F + 2]), Math.abs(v[o] - v[o + 2 * F]), Math.abs(v[o + 2] - v[o + 2 * F + 2]), Math.abs(v[o + F] - v[o + 2 * F]), Math.abs(v[o + F + 2] - v[o + 2 * F + 2]));
+    if (span < 3.5) continue;
     let base = Number.NaN;
     for (const l of levels) if (l <= lo + 0.05) base = l;
     if (Number.isNaN(base)) continue;

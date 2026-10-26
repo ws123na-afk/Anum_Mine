@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { mockHq } from '../support/hqCampusApi';
 
 // Cost of each photographic effect, one at a time (docs/ANUM_MINE_HQ_PHOTOREAL.md). Not a CI spec. The renderer exposes
-// `window.__anumHqBench(n, off)` when `anum.hq.bench` = 1: n frames, each ended by a GPU finish, with the named effects off.
+// `window.__anumHqBench(n, off)` when `anum.hq.bench` = 1: n frames, each ended by a one pixel read that waits for the GPU, with the named effects off.
 // On a software rasteriser the milliseconds are CPU rasterising time (only the ratios mean anything); on a real GPU they are real.
 //   HQ_PORT=4311 LOOK_DIR=<dir> LOOK_Q=4 pnpm exec playwright test -c playwright.hq.shots.config.ts --project=desktop -g bench
 const OUT = process.env.LOOK_DIR ?? 'test-results/photoreal';

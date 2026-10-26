@@ -281,6 +281,9 @@ function readQualityOverride(): number | null {
   try { return parsePin(window.localStorage.getItem(QUALITY_PIN_KEY)); } catch { return null; }
 }
 
+/** Waits for the GPU: a one pixel read cannot return before every command before it has run (`finish` does not wait in Chrome). */
+function syncGpu(gl: WebGL2RenderingContext | WebGLRenderingContext): void { gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); }
+
 /** `anum.hq.quality` = 4 pins the top registered tier with the photographic effects of `hqPhotoFx.ts` on top (not a registry tier: the Graphics check measures registered tiers only). */
 function readPhotoPin(): boolean {
   try { return window.localStorage.getItem(QUALITY_PIN_KEY)?.trim() === '4'; } catch { return false; }
@@ -587,7 +590,7 @@ export class HqRenderer {
 
   /**
    * Once, a second after the frames are warm: on a discrete or Apple GPU at the ultra tier (never after a pin or a step down) draw a short
-   * burst of frames with a finish after each, so the time is GPU time, and switch the photographic effects on when they were fast.
+   * burst of frames with a one pixel read after each, so the time is GPU time, and switch the photographic effects on when they were fast.
    */
   private probePromotion(): void {
     if (this.probed || this.pinned !== null || this.override !== null || this.demoted || this.software || this.disposed || this.quality !== 3 || this.step !== 0) return;
@@ -599,7 +602,7 @@ export class HqRenderer {
       for (let i = 0; i < PROMOTE_FRAMES; i++) {
         const t0 = performance.now();
         this.renderer.render(this.scene, this.camera);
-        gl.finish();
+        syncGpu(gl);
         times.push(performance.now() - t0);
       }
       const pixels = this.canvas.clientWidth * this.canvas.clientHeight * (window.devicePixelRatio || 1) ** 2;
@@ -1229,7 +1232,7 @@ export class HqRenderer {
     return on.join(',');
   }
 
-  /** `window.__anumHqBench(n, off)` (only with `anum.hq.bench` = 1): n frames, each followed by a GPU finish, as the median milliseconds, with the named effects off. */
+  /** `window.__anumHqBench(n, off)` (only with `anum.hq.bench` = 1): n frames, each ended by a one pixel read that waits for the GPU, as the median milliseconds, with the named effects off. */
   bench(n: number, off?: string[]): { ms: number; triangles: number; calls: number } {
     if (off) {
       const next = parseFxOff(off.join(','));
@@ -1247,7 +1250,7 @@ export class HqRenderer {
       this.lastDrawAt = -1e9;
       const t0 = performance.now();
       this.draw();
-      gl.finish();
+      syncGpu(gl);
       times.push(performance.now() - t0);
     }
     times.sort((a, b) => a - b);

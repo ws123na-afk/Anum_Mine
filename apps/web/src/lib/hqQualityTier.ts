@@ -11,7 +11,7 @@ export type GpuClass = 'software' | 'discrete' | 'apple' | 'integrated' | 'mobil
 
 /** Above this many device pixels the extension is never promoted (a 4K canvas): the post stack cost scales with pixels. */
 export const PIXELS_BEFORE_STEP_DOWN = 4_000_000;
-/** Promotion needs a probe of this many frames at or under `PROMOTE_MS` each (GPU time, with a finish after every frame). */
+/** Promotion needs a probe of this many frames at or under `PROMOTE_MS` each (GPU time, a one pixel read after every frame). */
 export const PROMOTE_FRAMES = 24;
 export const PROMOTE_MS = 7;
 
