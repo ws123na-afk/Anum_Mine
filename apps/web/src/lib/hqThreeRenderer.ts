@@ -424,7 +424,11 @@ export class HqRenderer {
       made.gpu = gpu;
       made.pinned = forced !== null;
       try { made.fxOff = parseFxOff(window.localStorage.getItem('anum.hq.fxoff')); } catch { /* storage blocked */ }
-      if (window.localStorage.getItem('anum.hq.bench') === '1') (window as unknown as { __anumHqBench: unknown }).__anumHqBench = (n: number, off?: string[]) => made.bench(n, off);
+      if (window.localStorage.getItem('anum.hq.bench') === '1') {
+        const hooks = window as unknown as { __anumHqBench: unknown; __anumHqTune: unknown };
+        hooks.__anumHqBench = (n: number, off?: string[]) => made.bench(n, off);
+        hooks.__anumHqTune = (t: Parameters<PhotoFx['setTune']>[0]) => { made.photo?.setTune(t); made.requestFrame(); };
+      }
       try { made.forcedScenery = readSceneryOverride(window.localStorage); } catch { made.forcedScenery = null; }
       const pin = readAmbientOverride();
       made.ambientAllowed = pin ?? !cheap;

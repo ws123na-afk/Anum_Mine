@@ -98,6 +98,13 @@ export class PhotoFx {
     return hook;
   }
 
+  private tune: Readonly<{ grade?: Partial<Grade>; aoRadius?: number; aoScale?: number }> = {};
+  /** Overrides for the grade and the occlusion radius while running: the look is tuned in one session with these (`__anumHqTune` in the console). */
+  setTune(t: Readonly<{ grade?: Partial<Grade>; aoRadius?: number; aoScale?: number }>): void {
+    this.tune = t;
+    this.gtao?.updateGtaoMaterial({ radius: t.aoRadius ?? 2.6, scale: t.aoScale ?? 1.1 });
+  }
+
   private hidden: Object3D | null = null;
   /** An object that stays in the picture but is left out of the depth and normal prepasses of the occlusion and focus passes (the flat contact discs). */
   setPrepassHidden(object: Object3D | null): void { this.hidden = object; }
@@ -166,7 +173,7 @@ export class PhotoFx {
   /** Draws one frame through the stack with AgX tone mapping, then puts the renderer's tone mapping back for the direct path. */
   frame(f: PhotoFrame): void {
     const composer = this.composer ?? this.build(f.width, f.height, f.dpr);
-    const g = gradeFor(f.night);
+    const g = { ...gradeFor(f.night), ...this.tune.grade };
     if (this.gtao) this.gtao.enabled = !this.off.has('gtao');
     if (this.bokeh) this.bokeh.enabled = !this.off.has('dof');
     if (this.shafts) this.shafts.enabled = !this.off.has('shafts');
