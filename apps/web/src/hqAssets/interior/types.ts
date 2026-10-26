@@ -6,11 +6,16 @@ import type { StationSpec } from './furniture.ts';
 /** The room kinds this folder dresses. The first six match the registry's `RoomGeometry.kind`. */
 export type InteriorKind =
   | 'reception' | 'meeting' | 'office' | 'lounge' | 'warehouse' | 'workshop'
-  | 'customer-care' | 'operations' | 'executive';
+  | 'customer-care' | 'operations' | 'executive'
+  | 'server' | 'pantry' | 'restroom' | 'finance' | 'sales';
 
 export const INTERIOR_KINDS: readonly InteriorKind[] = [
   'reception', 'meeting', 'office', 'lounge', 'customer-care', 'operations', 'warehouse', 'workshop', 'executive',
+  'server', 'pantry', 'restroom', 'finance', 'sales',
 ];
+
+/** The wall the door is in. The kits are dressed with the door in the south wall (local +z) and turned for the others. */
+export type DoorSide = 'north' | 'south' | 'east' | 'west';
 
 /** Where the room is: minimum corner on the plan, the height of its floor surface, and its size. */
 export type RoomFrame = Readonly<{ x: number; y: number; z: number; width: number; depth: number }>;
@@ -32,6 +37,8 @@ export type InteriorOptions = Readonly<{
    * figure is drawn only for a station that carries `occupantSeed`.
    */
   stations?: readonly StationSpec[];
+  /** The wall the door is in (the registry's `door_side`). The room is dressed to face it. Default `south`. */
+  doorSide?: DoorSide;
 }>;
 
 export type InteriorResult = Readonly<{ kind: InteriorKind; triangles: number }>;

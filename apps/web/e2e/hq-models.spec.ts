@@ -19,8 +19,9 @@ async function enterFleetBuilding(page: Page, options: HqMockOptions = {}) {
 
 test('the building draws loaded sofas and one seated person per assigned desk, within the byte budget', async ({ page }) => {
   await enterFleetBuilding(page);
-  // Ground floor fixture: Customer Care desk 1 (agent) and Tyre Analysis desk 1 (agent) are assigned; desk 2 is vacant.
-  await expect.poll(() => canvas(page).getAttribute('data-model-figures'), { timeout: 60_000 }).toBe('2');
+  // Ground floor fixture: Customer Care desk 1 (agent) and Tyre Analysis desk 1 (agent) are assigned, and the presence record puts one
+  // person at Customer Care desk 2. The workshop draws the desk it is given, so the Tyre Analysis person is drawn too: three.
+  await expect.poll(() => canvas(page).getAttribute('data-model-figures'), { timeout: 60_000 }).toBe('3');
   const loaded = await canvas(page).getAttribute('data-models-loaded');
   expect(loaded).toMatch(/^(\d+)\/\1$/);
   expect(await canvas(page).getAttribute('data-model-fallbacks')).toBe('');
@@ -31,12 +32,12 @@ test('the building draws loaded sofas and one seated person per assigned desk, w
 test('a desk without an assignment draws no one', async ({ page }) => {
   await enterFleetBuilding(page, { extraDesks: [{ id: 'desk_e1', roomId: 'room_care', label: 'Desk 3', agentId: null }, { id: 'desk_e2', roomId: 'room_care', label: 'Desk 4', agentId: null }] });
   await expect.poll(() => canvas(page).getAttribute('data-models-loaded'), { timeout: 60_000 }).toMatch(/^(\d+)\/\1$/);
-  expect(await canvas(page).getAttribute('data-model-figures')).toBe('2');
+  expect(await canvas(page).getAttribute('data-model-figures')).toBe('3');
 });
 
 test('a new assignment adds one person and nothing else changes the head count', async ({ page }) => {
   await enterFleetBuilding(page, { extraDesks: [{ id: 'desk_e1', roomId: 'room_care', label: 'Desk 3', agentId: 'agent_extra' }] });
-  await expect.poll(() => canvas(page).getAttribute('data-model-figures'), { timeout: 60_000 }).toBe('3');
+  await expect.poll(() => canvas(page).getAttribute('data-model-figures'), { timeout: 60_000 }).toBe('4');
 });
 
 test('when the model files cannot be downloaded the procedural furniture and people stay', async ({ page }) => {
