@@ -124,6 +124,7 @@ x-user-roles: owner,member
 - [ANUM MINE headquarters deployment checklist and rollback](docs/ANUM_MINE_HQ_DEPLOYMENT_AND_ROLLBACK.md)
 - [ANUM MINE headquarters realism pass: glTF models, gap analysis against the concept renders, licences and measurements](docs/ANUM_MINE_HQ_REALISM_ASSETS.md)
 - [ANUM MINE headquarters building and campus look pass: what differed from each concept render, what changed, what still differs](docs/ANUM_MINE_HQ_BUILDING_LOOK.md)
+- [ANUM MINE headquarters glass plan: the rooms seen through the glass are the real floors, the shell follows the floor plans, occupancy truth, budgets](docs/ANUM_MINE_HQ_GLASS_PLAN.md)
 - [ANUM MINE headquarters interiors: room kits, floor shell, door sides, service core, ambient scenery, starter campus completeness](docs/ANUM_MINE_HQ_INTERIORS.md)
 - [ANUM MINE headquarters ambient scenery motion: what moves, what never moves, quality levels and reduced motion](docs/ANUM_MINE_HQ_SCENERY_MOTION.md)
 - [ANUM MINE campus, live presence, workstation work and executive overview](docs/ANUM_MINE_PRESENCE_AND_CAMPUS.md)
