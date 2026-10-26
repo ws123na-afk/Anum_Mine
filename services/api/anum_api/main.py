@@ -246,6 +246,7 @@ from .office_assign_api import router as office_assign_router
 from .office_building_api import router as office_building_router
 from .office_starter_campus_api import router as office_starter_campus_router
 from .office_arabic_names_api import router as office_arabic_names_router
+from .office_green_concrete_api import router as office_green_concrete_router
 from .executive_api import router as executive_router
 from .live_agent_meeting_api import router as live_agent_meeting_router
 from .executive_pa import router as executive_pa_router
@@ -445,6 +446,7 @@ app.include_router(office_assign_router)
 app.include_router(office_building_router)
 app.include_router(office_starter_campus_router)
 app.include_router(office_arabic_names_router)
+app.include_router(office_green_concrete_router)
 app.include_router(office_staff_desks_router)
 app.include_router(executive_router)
 app.include_router(live_agent_meeting_router)
