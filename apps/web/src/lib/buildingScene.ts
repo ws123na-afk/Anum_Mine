@@ -64,11 +64,15 @@ export type BuildingDeskHandle = Readonly<{ id: string; roomId: string; floorInd
 
 /** A floor other than the active one, drawn as a simple shell. `y` is the floor's own level: the stage collapses it towards that level. */
 export type GhostFloor = Readonly<{ floorIndex: number; y: number; opaque: SceneMesh; glass: SceneMesh }>;
+/** One outer wall (or the roof) of one floor in the section view: its own mesh so the stage can lower it (`cut:<side>` lift group) when it faces the camera. `y` is the floor level it collapses to. */
+export type WallPiece = Readonly<{ side: 'north' | 'south' | 'east' | 'west' | 'roof'; floorIndex: number; y: number; opaque: SceneMesh; glass: SceneMesh }>;
 const GHOST_CACHE = new WeakMap<SceneFloor, { key: string; value: GhostFloor }>();
 
 export type BuildingScene = Readonly<{
   /** Cut-away mode only: every floor other than the active one (empty otherwise). */
   ghosts: readonly GhostFloor[];
+  /** The outer skin of every dressed floor, one piece per side, and the roof (not part of `opaque`, so the stage can lower them). */
+  walls: readonly WallPiece[];
   opaque: SceneMesh;
   glass: SceneMesh;
   rooms: readonly BuildingRoomHandle[];
@@ -125,7 +129,17 @@ function concat(list: readonly Float32Array[]): Float32Array {
 /** What a ghost floor depends on: its own records, its plan and core, and a selected room only when it is one of its rooms. */
 const ghostKey = (floor: SceneFloor, fi: number, b: FloorBox, selected: string | null | undefined): string =>
   `${b.x0}|${b.z0}|${b.x1}|${b.z1}|${b.core ? `${b.core.x},${b.core.z}` : '-'}|${fi}|${selected && floor.rooms.some((r) => r.id === selected) ? selected : ''}`;
-const freeze = (b: MeshBuilder): SceneMesh => ({ vertices: b.toFloat32(), bounds: b.bounds(), triangles: b.triangleCount });
+/** How much the floors other than the open one are dimmed in the section view (colour and glow, never the glass class). */
+const DIM = 0.8;
+function dimmed(v: Float32Array, k: number): Float32Array {
+  if (k >= 1) return v;
+  for (let i = 0; i < v.length; i += VERTEX_FLOATS) {
+    v[i + 6] *= k; v[i + 7] *= k; v[i + 8] *= k;
+    if (v[i + 9] < 2) v[i + 9] *= k;
+  }
+  return v;
+}
+const freeze = (b: MeshBuilder, k = 1): SceneMesh => ({ vertices: dimmed(b.toFloat32(), k), bounds: b.bounds(), triangles: b.triangleCount });
 
 /** A soft contact shadow under furniture: a slightly larger, darker patch of the floor. */
 function contact(b: MeshBuilder, x: number, z: number, w: number, d: number, y: number, floor: Rgb): void {
@@ -457,6 +471,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
   // active one are simply not built (the original behaviour, kept for the unit runner and other callers).
   const cutaway = options.cutaway === true;
   const ghostFloors: GhostFloor[] = [];
+  const walls: WallPiece[] = [];
   const floorEnd = cutaway ? floors.length - 1 : last;
 
   for (let fi = 0; fi <= floorEnd && fi < floors.length; fi++) {
@@ -464,6 +479,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
     const fb = boxes[fi];
     const y = fi * FLOOR_PITCH;
     const isActive = dressed(fi);
+    const isOpen = fi === active;
     const ghost = !isActive;
     let fo = opaque;
     let fg = glass;
@@ -475,11 +491,14 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
       fo = new MeshBuilder();
       fg = new MeshBuilder();
     }
-    const slabTone = ghost ? hex('#8d98a3') : hex('#b7c0c8');
+    // The section view dims every dressed floor but the open one (its own builders, merged dimmed at the end of the floor).
+    const dim = cutaway && !ghost && !isOpen;
+    if (dim) { fo = new MeshBuilder(); fg = new MeshBuilder(); }
+    const slabTone = ghost ? hex('#8d98a3') : isOpen ? hex('#b7c0c8') : hex('#9aa5ae');
     // Slab and plinth edge in the accent of the building.
     fo.box(fb.x0, y - SLAB, fb.z0, fb.x1 - fb.x0, SLAB, fb.z1 - fb.z0, slabTone);
     fo.box(fb.x0 - 0.15, y - SLAB, fb.z0 - 0.15, fb.x1 - fb.x0 + 0.3, 0.08, 0.15, ghost ? hex('#3f7f74') : hex('#45d0b5'), { emissive: ghost ? 0.25 : 0.5, shade: false });
-    if (!ghost) {
+    if (!ghost && (isOpen || !cutaway)) {
       // The open floor is outlined on its near sides too, in a brighter line, so it reads as the one being looked at.
       fo.box(fb.x0 - 0.15, y - SLAB, fb.z1, fb.x1 - fb.x0 + 0.3, 0.1, 0.15, hex('#7ff0d6'), { emissive: 1, shade: false });
       fo.box(fb.x1, y - SLAB, fb.z0 - 0.15, 0.15, 0.1, fb.z1 - fb.z0 + 0.3, hex('#7ff0d6'), { emissive: 1, shade: false });
@@ -492,7 +511,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
     }
     // Detail ladder: a floor with many desks or rooms is dressed lite so the frame stays cheap.
     const stacked = options.showAll === true && last > 0;
-    const lite = floor.desks.length > 48 || floor.rooms.length > 24 || stacked;
+    const lite = floor.desks.length > 48 || floor.rooms.length > 24 || (stacked && !(cutaway && isOpen));
     let ri = -1;
     for (const room of floor.rooms) {
       ri += 1;
@@ -560,36 +579,43 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
       drawCore(fo, fg, amb, { x: fb.core.x, z: fb.core.z, y, plate: coreIndex > 0 ? atlas.cell(coreIndex) : null, ghost });
     }
     if (!ghost) {
-      // The building's outer skin on its two back sides (north and west): a solid base, glass above, posts and a roof-line rail.
-      const skin = (x: number, z: number, w: number, d: number) => {
-        fo.box(x, y, z, w, 1.1, d, hex('#e6eaed'), { grad: 0.15, emissive: 0.15 });
-        fg.box(x, y + 1.1, z, w, WALL_HEIGHT + 0.4 - 1.1, d, hex('#9fd4e6'), { shade: false });
-        fo.box(x, y + WALL_HEIGHT + 0.4, z, w, 0.1, d, hex('#59656f'));
+      // The building's outer skin: a solid base, glass above, posts and a roof-line rail, one piece per side so the stage can lower the ones facing the camera.
+      const skin = (o: MeshBuilder, g: MeshBuilder, x: number, z: number, w: number, d: number) => {
+        o.box(x, y, z, w, 1.1, d, hex('#e6eaed'), { grad: 0.15, emissive: 0.15 });
+        g.box(x, y + 1.1, z, w, WALL_HEIGHT + 0.4 - 1.1, d, hex('#9fd4e6'), { shade: false });
+        o.box(x, y + WALL_HEIGHT + 0.4, z, w, 0.1, d, hex('#59656f'));
         const long = Math.max(w, d);
         for (let m = 0; m <= long; m += 2.2) {
-          if (w > d) fo.box(Math.min(x + m, x + w - 0.08), y + 1.1, z, 0.08, WALL_HEIGHT + 0.4 - 1.1, d, hex('#3c4852'));
-          else fo.box(x, y + 1.1, Math.min(z + m, z + d - 0.08), w, WALL_HEIGHT + 0.4 - 1.1, 0.08, hex('#3c4852'));
+          if (w > d) o.box(Math.min(x + m, x + w - 0.08), y + 1.1, z, 0.08, WALL_HEIGHT + 0.4 - 1.1, d, hex('#3c4852'));
+          else o.box(x, y + 1.1, Math.min(z + m, z + d - 0.08), w, WALL_HEIGHT + 0.4 - 1.1, 0.08, hex('#3c4852'));
         }
       };
-      skin(fb.x0, fb.z0, fb.x1 - fb.x0, 0.2);
-      skin(fb.x0, fb.z0, 0.2, fb.z1 - fb.z0);
-      // The two near sides stay open to the camera: a low frameless glass balustrade with a brushed steel rail and posts.
-      const rail = (x: number, z: number, w: number, d: number) => {
-        fg.box(x, y, z, w, 1.05, d, hex('#9fd4e6'), { shade: false });
-        fo.withMat(MAT.metal, () => {
-          fo.box(x - 0.02, y + 1.05, z - 0.02, w + 0.04, 0.06, d + 0.04, hex('#aeb8c2'));
-          const long = Math.max(w, d);
-          for (let m = 0; m <= long; m += 2.4) {
-            if (w > d) fo.box(Math.min(x + m, x + w - 0.06), y, z - 0.02, 0.06, 1.05, d + 0.04, hex('#8d98a3'));
-            else fo.box(x - 0.02, y, Math.min(z + m, z + d - 0.06), w + 0.04, 1.05, 0.06, hex('#8d98a3'));
-          }
-        });
-      };
-      rail(fb.x0, fb.z1 - 0.1, fb.x1 - fb.x0, 0.05);
-      rail(fb.x1 - 0.1, fb.z0, 0.05, fb.z1 - fb.z0);
+      const sides: Array<[WallPiece['side'], number, number, number, number]> = [
+        ['north', fb.x0, fb.z0, fb.x1 - fb.x0, 0.2], ['west', fb.x0, fb.z0, 0.2, fb.z1 - fb.z0],
+        ['south', fb.x0, fb.z1 - 0.2, fb.x1 - fb.x0, 0.2], ['east', fb.x1 - 0.2, fb.z0, 0.2, fb.z1 - fb.z0],
+      ];
+      {
+        for (const [side, x, z, w, d] of sides) {
+          const so = new MeshBuilder(), sg = new MeshBuilder();
+          skin(so, sg, x, z, w, d);
+          walls.push({ side, floorIndex: fi, y, opaque: freeze(so, dim ? DIM : 1), glass: freeze(sg) });
+        }
+        if (fi === last) {
+          // The roof: the slab the next floor would stand on, with a parapet; it lifts away in the cut-away view.
+          const ro = new MeshBuilder(), ry = (fi + 1) * FLOOR_PITCH - SLAB;
+          ro.box(fb.x0 - 0.2, ry, fb.z0 - 0.2, fb.x1 - fb.x0 + 0.4, SLAB, fb.z1 - fb.z0 + 0.4, hex('#8d98a3'));
+          walls.push({ side: 'roof', floorIndex: fi, y: ry, opaque: freeze(ro, dim ? DIM : 1), glass: freeze(new MeshBuilder()) });
+        }
+      }
       // Low planters along the front and the east edge.
       for (let px = fb.x0 + 1; px < fb.x1 - 0.8; px += 3.2) planter(fo, px, fb.z1 - 0.35, 0.6, rnd);
       for (let pz = fb.z0 + 1; pz < fb.z1 - 0.8; pz += 3.2) planter(fo, fb.x1 - 0.35, pz, 0.6, rnd);
+    }
+    if (dim) {
+      // Merged into the building dimmed (colour and glow by DIM).
+      opaque.append(dimmed(fo.toFloat32(), DIM));
+      glass.append(fg.toFloat32());
+      opaque.halos.push(...fo.halos);
     }
     if (cachedGhost) {
       const value: GhostFloor = { floorIndex: fi, y, opaque: freeze(fo), glass: freeze(fg) };
@@ -656,10 +682,10 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
   const ob = freeze(opaque), gb = freeze(glass);
   const bounds: Aabb = {
     min: { x: fx0 - pad, y: -0.9, z: fz0 - pad },
-    max: { x: fx1 + pad, y: last * FLOOR_PITCH + WALL_HEIGHT + 1, z: fz1 + pad },
+    max: { x: fx1 + pad, y: last * FLOOR_PITCH + WALL_HEIGHT + 1.3, z: fz1 + pad },
   };
   return {
-    ghosts: ghostFloors, opaque: ob, glass: gb, rooms, desks, bounds, footprint: { x0: fx0, x1: fx1, z0: fz0, z1: fz1 },
+    ghosts: ghostFloors, walls, opaque: ob, glass: gb, rooms, desks, bounds, footprint: { x0: fx0, x1: fx1, z0: fz0, z1: fz1 },
     center: { x: (layout.content[active]?.x0 ?? fx0) / 2 + (layout.content[active]?.x1 ?? fx1) / 2, y: (active * FLOOR_PITCH) / 2, z: (layout.content[active]?.z0 ?? fz0) / 2 + (layout.content[active]?.z1 ?? fz1) / 2 },
     activeBox: layout.content[active] ?? { x0: fx0, z0: fz0, x1: fx1, z1: fz1 },
     levels: last + 1,
@@ -668,7 +694,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
     ambient,
     shadow: { center: { x: cx, y: 0, z: (fz0 + fz1) / 2 }, radius: Math.hypot(fx1 - fx0 + reach * 2, fz1 - fz0 + reach * 2) * 0.5 },
     // Everything built, including the stand-ins (the renderer draws them only while a model could not be loaded).
-    triangles: ob.triangles + gb.triangles + fallback.figure.triangleCount + fallback.sofa.triangleCount
+    triangles: ob.triangles + gb.triangles + walls.reduce((n, w) => n + w.opaque.triangles + w.glass.triangles, 0) + fallback.figure.triangleCount + fallback.sofa.triangleCount
       + ghostFloors.filter((g) => g.floorIndex <= last).reduce((n, g) => n + g.opaque.triangles + g.glass.triangles, 0),
     models: placementsFromSlots(slots),
     fallbacks: { figure: freeze(fallback.figure), sofa: freeze(fallback.sofa) },

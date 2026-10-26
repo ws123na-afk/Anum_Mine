@@ -198,6 +198,10 @@ test.describe('floors: eased cut-away, highlight, buttons and keyboard', () => {
   test('"All floors" shows the whole stack and floors still change', async ({ page }) => {
     await inHq(page);
     const all = hq(page).getByLabel('All floors');
+    // The cutaway opens with every floor drawn; the box turns it off (the open floor alone) and on again.
+    await expect(all).toBeChecked();
+    await all.click();
+    await expect(all).not.toBeChecked();
     await all.click();
     await expect(all).toBeChecked();
     const above = hq(page).getByRole('button', { name: 'Floor above' }).last();
