@@ -226,7 +226,7 @@ function drawPlate(b: MeshBuilder, o: ShellOptions, dw: ReturnType<typeof doorWa
 function drawCeilingLights(opaque: MeshBuilder, amb: MeshBuilder, o: ShellOptions): void {
   const { x, z, width: w, depth: d, y } = o;
   const cols = Math.max(1, Math.floor(w / 2.7)), rows = Math.max(1, Math.floor(d / 2.7));
-  const pw = Math.min(1.1, (w / cols) * 0.5), pd = Math.min(0.55, (d / rows) * 0.3);
+  const pw = Math.min(0.9, (w / cols) * 0.4), pd = Math.min(0.42, (d / rows) * 0.24);
   const py = y + 2.82;
   const lamp = hex('#fff1d0');
   let halos = 0;
@@ -234,7 +234,8 @@ function drawCeilingLights(opaque: MeshBuilder, amb: MeshBuilder, o: ShellOption
     for (let j = 0; j < rows; j++) {
       const cx = x + ((i + 0.5) * w) / cols, cz = z + ((j + 0.5) * d) / rows;
       opaque.box(cx - pw / 2, py, cz - pd / 2, pw, 0.05, pd, lamp, { emissive: 0.95, shade: false, skip: ['bottom'] });
-      opaque.box(cx - pw / 2 - 0.02, py + 0.05, cz - pd / 2 - 0.02, pw + 0.04, 0.02, pd + 0.04, hex('#59656f'), { skip: ['bottom'] });
+      // A pale diffuser frame: from the cut-away camera the panel reads as a lit fixture, not a dark lid.
+      opaque.box(cx - pw / 2 - 0.03, py + 0.05, cz - pd / 2 - 0.03, pw + 0.06, 0.015, pd + 0.06, hex('#f4ead0'), { skip: ['bottom'], emissive: 0.8, shade: false });
       for (const sx of [-1, 1]) opaque.box(cx + sx * pw * 0.4 - 0.006, py + 0.07, cz - 0.006, 0.012, WALL_HEIGHT - 2.82 - 0.07 + 0.0, 0.012, hex('#8d98a3'));
       // The glint: a brighter strip that slides along the panel (scenery: a gentle shimmer of the light).
       amb.tagged(ambientTag('slide', 7 + ((i + j) % 3), pw * 0.7, 'x', ((i * 3 + j) % 5) / 5), () => {

@@ -198,6 +198,8 @@ export class HqRenderer {
   private ambientParts: { mesh: Mesh; motion: AmbientMotion; px: number; py: number; pz: number }[] = [];
   private ambientTimer: number | null = null;
   private ambientAllowed = true;
+  /** Pinned on by `anum.hq.ambient`: moves even at the lowest quality. */
+  private ambientForced = false;
   private readonly rest = new Matrix4();
   private readonly pose = new Matrix4();
   private readonly onVisibility = () => { if (!document.hidden) this.requestFrame(); };
@@ -247,7 +249,9 @@ export class HqRenderer {
     const made = new HqRenderer(canvas, renderer, cb, cheap ? 0.7 : maxDpr);
     try {
       made.cheap = cheap;
-      made.ambientAllowed = readAmbientOverride() ?? !cheap;
+      const pin = readAmbientOverride();
+      made.ambientAllowed = pin ?? !cheap;
+      made.ambientForced = pin === true;
       made.buildMaterials();
       made.buildSky();
       if (!cheap) made.buildEnvironments();
@@ -398,7 +402,7 @@ export class HqRenderer {
 
   /** True while ambient scenery should move: allowed here, no reduced motion, tab visible, quality above the lowest. */
   private ambientActive(): boolean {
-    return this.ambientAllowed && !this.reducedMotion && !this.lost && this.quality > 0 && typeof document !== 'undefined' && !document.hidden;
+    return this.ambientAllowed && !this.reducedMotion && !this.lost && (this.quality > 0 || this.ambientForced) && typeof document !== 'undefined' && !document.hidden;
   }
 
   private stepAmbient(): void {
