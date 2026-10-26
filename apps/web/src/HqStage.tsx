@@ -10,6 +10,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { readNightPreset, subscribeNightPreset, targetBlend } from './lib/hqLightPreset.ts';
 import type { HqRenderer } from './lib/hqThreeRenderer.ts';
 import type { RenderScene } from './lib/hqRenderTypes.ts';
+import { setGpuState } from './lib/hqGpuState.ts';
+import { setLiveRenderer } from './lib/hqGpuBridge.ts';
 import { pickNearest, type PickTarget } from './lib/hqMath.ts';
 import { placeLabels } from './lib/hqLabels.ts';
 import { dolly, isCameraAtRest, orbit, pan, screenRay, stepCamera, type CameraState } from './lib/headquartersSpatial.ts';
@@ -98,9 +100,10 @@ export function HqStage(props: Props) {
     import('./lib/hqThreeRenderer.ts').then(({ HqRenderer: Renderer }) => {
       if (cancelled) return;
       const r: HqRenderer | null = Renderer.create(el, {
+        onQuality: (state) => setGpuState(state),
         onLost: () => {
           setStatus('recovering');
-          lostTimer.current = window.setTimeout(() => propsRef.current.onUnavailable('context-lost'), 5000);
+          lostTimer.current = window.setTimeout(() => propsRef.current.onUnavailable('context-lost'), 8000);
         },
         onRestored: () => {
           if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
@@ -144,6 +147,7 @@ export function HqStage(props: Props) {
       if (!r) { propsRef.current.onUnavailable('webgl-unavailable'); return; }
       created = r;
       renderer.current = r;
+      setLiveRenderer(r);
       r.setReducedMotion(propsRef.current.reducedMotion);
       r.setCamera(live.current);
       r.setNight(nightNow.current);
@@ -164,6 +168,8 @@ export function HqStage(props: Props) {
       if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
       created?.dispose();
       renderer.current = null;
+      setLiveRenderer(null);
+      setGpuState(null);
     };
     // The renderer is created once per mounted stage.
     // eslint-disable-next-line react-hooks/exhaustive-deps
