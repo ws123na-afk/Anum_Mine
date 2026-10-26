@@ -84,7 +84,7 @@ export const PLAN_COLOR = `
       vec3 lin = rgb * rgb;
       // Light falls off fast: a vacant room or a corridor is dim, a room with somebody at work glows, a lit screen is bright.
       hqRoom = lin * (mix(0.22, 0.07, uNight) + lt * lt);
-      hqEmit = lin * lt * lt * vec3(1.0, 0.92, 0.78) * 1.8;
+      hqEmit = lin * lt * lt * lt * vec3(1.0, 0.92, 0.78) * 2.6;
       hqHas = 1.0;
       hqPlan = 1.0;
       glowW = 1.0;

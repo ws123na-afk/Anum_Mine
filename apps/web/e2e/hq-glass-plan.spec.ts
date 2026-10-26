@@ -11,7 +11,7 @@ const hq = (page: Page) => page.locator('.hqLive');
 const canvas = (page: Page) => hq(page).locator('canvas.hqCanvas');
 type Look = 'day' | 'dusk' | 'night';
 
-async function open(page: Page, look: Look, opts: { ambient?: 0 | 1 | 2; layout?: 'starter-full' | 'campus' | 'starter' } = {}) {
+async function open(page: Page, look: Look, opts: { ambient?: 0 | 1 | 2; layout?: 'starter-full' | 'campus' | 'starter'; roomEdits?: Record<string, Record<string, unknown>> } = {}) {
   await page.addInitScript(([l, a]) => {
     try {
       localStorage.setItem('anum.hq.light', l === 'day' ? 'day' : 'night');
@@ -19,9 +19,9 @@ async function open(page: Page, look: Look, opts: { ambient?: 0 | 1 | 2; layout?
       if (a !== null) localStorage.setItem('anum.hq.ambient', String(a));
     } catch { /* storage blocked */ }
   }, [look, opts.ambient ?? null] as const);
-  await mockHq(page, { campus: 'api', layout: opts.layout ?? 'starter-full', commerce: 'connected', meetings: 'live' });
+  await mockHq(page, { campus: 'api', layout: opts.layout ?? 'starter-full', commerce: 'connected', meetings: 'live', roomEdits: opts.roomEdits });
   await page.goto('/#office-preview');
-  await expect(canvas(page)).toBeVisible();
+  await expect(canvas(page)).toBeVisible({ timeout: 60_000 });
   await expect(canvas(page)).toHaveAttribute('data-engine', /three/, { timeout: 60_000 });
   await expect.poll(async () => Number(await canvas(page).getAttribute('data-triangles')), { timeout: 60_000 }).toBeGreaterThan(40_000);
 }
@@ -109,20 +109,28 @@ for (const look of ['dusk', 'night'] as const) {
   });
 }
 
+test('a close view on the software path (one texel behind each pane) is a real frame', async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page, 'night');
+  await planReady(page);
+  await frameBuilding(page, /^ANUM HQ\./);
+  await zoomIn(page, 4);
+  await shot(page, 'plan-closer-hq-night-lean');
+  const mean = await meanColour(page);
+  expect(mean[0] + mean[1] + mean[2]).toBeGreaterThan(40);
+});
+
 test('changing the layout updates the plan atlas without a reload', async ({ page }) => {
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await open(page, 'dusk');
+  const roomEdits: Record<string, Record<string, unknown>> = {};
+  await open(page, 'dusk', { roomEdits });
   await planReady(page);
   const before = await wantedOf(page);
   await page.evaluate(() => { (window as unknown as { __kept: boolean }).__kept = true; });
-  // The registry now holds a moved room: the next scene refresh draws a different plan.
-  await page.route('http://localhost:8000/api/v1/office-spaces/rooms', async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as { items: Array<Record<string, unknown>>; next_cursor: null };
-    body.items = body.items.map((r) => (r.id === 'campus-01-hq-facilities' ? { ...r, scene_x: 5, scene_width: 9 } : r));
-    await route.fulfill({ response, body: JSON.stringify(body) });
-  });
+  // The registry now holds a moved room (as after an `office.layout_changed`): the next scene refresh draws a different plan.
+  roomEdits['campus-01-hq-facilities'] = { scene_x: 5, scene_width: 9 };
   await expect.poll(async () => await wantedOf(page), { timeout: 90_000 }).not.toBe(before);
   await expect.poll(async () => await planOf(page), { timeout: 30_000 }).toBe(await wantedOf(page));
   expect(await page.evaluate(() => (window as unknown as { __kept?: boolean }).__kept)).toBe(true);

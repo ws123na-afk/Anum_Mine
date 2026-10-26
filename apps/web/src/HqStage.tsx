@@ -119,7 +119,7 @@ export function HqStage(props: Props) {
           const modelSig = s ? `${s.models.placed}/${s.models.figures}/${s.models.loaded}/${s.models.asked}/${s.models.fallbacks.join(',')}/${s.models.looks.join('|')}` : '';
           const modelsChanged = modelSig !== lastModelSig.current;
           if (modelsChanged) lastModelSig.current = modelSig;
-          if (s && (s.frames === 1 || s.frames % 10 === 0 || modelsChanged) && canvas.current) {
+          if (s && (s.frames === 1 || s.frames % 10 === 0 || modelsChanged || s.glassPlan !== (canvas.current?.dataset.glassPlan ?? '')) && canvas.current) {
             canvas.current.dataset.drawMs = s.avgDrawMs.toFixed(2);
             canvas.current.dataset.triangles = String(Math.round(s.triangles));
             canvas.current.dataset.drawn = String(s.drawn);
