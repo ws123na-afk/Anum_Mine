@@ -83,9 +83,9 @@ Reflection maps are baked on first use per light preset (day, blue hour, night) 
 
 ## Photographic look pass, 26 October 2026
 
-See [the photographic look](ANUM_MINE_HQ_PHOTOREAL.md). Lazy HQ JS 134,318 bytes gzip (limit 140,000), renderer chunk 104,562 (limit 160,000), HQ CSS 11,861.
+See [the photographic look](ANUM_MINE_HQ_PHOTOREAL.md). Lazy HQ JS 134,594 bytes gzip (limit 140,000), renderer chunk 104,594 (limit 160,000), HQ CSS 11,861.
 No existing limit was raised. The renderer chunk dropped because `three.core` became its own chunk (a second lazy importer of three.js appeared), so
-`e2e/hq-performance.spec.ts` gained two budgets: the whole renderer path (renderer + `three.core` + baked occlusion) at most 170,000 bytes (166,469 now;
+`e2e/hq-performance.spec.ts` gained two budgets: the whole renderer path (renderer + `three.core` + baked occlusion) at most 170,000 bytes (166,498 now;
 main measured 159,967 for the renderer alone), and the chunks only the upper levels fetch (`hqPhotoFx` + `hqCampusFx`) at most 20,000 (17,626 now).
 Frame cost of each effect and the CPU cost of the once-per-scene work are in the photographic look doc; software GL (CI) keeps the low level and pays
 only the baked occlusion bake (about 0.2 s once per distinct scene, cached by content so a rebuilt floor is not baked again).

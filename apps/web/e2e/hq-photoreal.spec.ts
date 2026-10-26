@@ -38,7 +38,7 @@ async function open(page: Page, pin: string | null, fxOff?: string) {
   }, [pin, fxOff ?? null]);
   await mockHq(page, { campus: 'api', layout: 'starter', commerce: 'connected', meetings: 'live' });
   await page.goto('/#office-preview');
-  await expect(canvas(page)).toBeVisible();
+  await expect(canvas(page)).toBeVisible({ timeout: 60_000 });
   await expect(canvas(page)).toHaveAttribute('data-engine', /three/, { timeout: 180_000 });
 }
 

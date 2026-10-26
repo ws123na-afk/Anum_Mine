@@ -161,16 +161,16 @@ Gzip sizes of the built chunks (26 October 2026, after merging main with the fra
 
 | Chunk | Bytes | Limit | Loaded by |
 |---|---|---|---|
-| `HeadquartersEntrypoint` JS | 134 318 | 140 000 (unchanged) | the headquarters page |
-| `hqThreeRenderer` | 104 562 | 160 000 (unchanged) | the 3D scene |
+| `HeadquartersEntrypoint` JS | 134 594 | 140 000 (unchanged) | the headquarters page |
+| `hqThreeRenderer` | 104 594 | 160 000 (unchanged) | the 3D scene |
 | `three.core` (new, split out) | 58 675 | - | the 3D scene |
 | `hqSceneFx` + `hqBakedAo` | 269 + 2 963 | - | every level, baked occlusion |
 | `hqCampusFx` | 3 592 | - | every level but low: roof and window detail, contact discs |
 | `hqPhotoFx` | 14 034 | - | the photographic extension only |
 
-The renderer chunk alone fell from 159 967 (33 bytes under its limit on main) to 104 562 because the bundler moved `three.core` into its own chunk when
+The renderer chunk alone fell from 159 967 (33 bytes under its limit on main) to 104 594 because the bundler moved `three.core` into its own chunk when
 a second lazy chunk (`hqPhotoFx`) also imported three.js. That is a re-shuffle, not a saving, so `e2e/hq-performance.spec.ts` now also budgets the whole
-path a lower level downloads: renderer + `three.core` + baked occlusion = 166 469 bytes against a new limit of 170 000 (main's equivalent was 159 967: the
+path a lower level downloads: renderer + `three.core` + baked occlusion = 166 498 bytes against a new limit of 170 000 (main's equivalent was 159 967: the
 extension costs a low level 6.5 kB, all of it baked occlusion and the glue), and the two chunks only the upper levels fetch, 17 626 bytes against 20 000.
 No existing limit was raised; the two new ones are justified here. Software GL at the low level fetches the renderer path only (it bakes at most 260 000
 vertices, no detail, no contact discs).
