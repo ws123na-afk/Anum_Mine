@@ -66,7 +66,8 @@ class FinanceIntelView extends StatelessWidget {
             IntelSupervisor(controller: c, overview: o, strings: s),
             IntelReports(controller: c, strings: s),
             if (c.repository is ApiFinanceIntelRepository)
-              FinanceBrokerStatement(api: (c.repository as ApiFinanceIntelRepository).api),
+              FinanceBrokerStatement(
+                  api: (c.repository as ApiFinanceIntelRepository).api),
             _Positions(controller: c, overview: o, strings: s),
             _Decisions(controller: c, strings: s),
             _Risk(overview: o, strings: s),
