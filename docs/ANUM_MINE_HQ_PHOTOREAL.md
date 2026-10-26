@@ -179,7 +179,7 @@ vertices, no detail, no contact discs).
 ## Before and after
 
 Rendered at 1440x900 in software GL (SwiftShader, single frames): the ultra tier as on main on the left, the photographic extension on the right, then
-opened side by side with concept renders 21 (campus, blue hour) and 25 (close view, dusk). Screenshots are in the pull request description.
+opened side by side with concept renders 21 (campus, blue hour) and 25 (close view, dusk). The screenshots are not committed (size); the session that produced this pass kept them with the pull request notes.
 
 What is better, looking at the pictures:
 
