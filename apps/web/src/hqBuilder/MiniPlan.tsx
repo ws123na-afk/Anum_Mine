@@ -1,6 +1,7 @@
 import type { OfficeLayoutDiff } from '@anum/contracts';
 import { t } from '../lib/i18n.ts';
 import { miniView } from './historyModel.ts';
+import { roomNameFor } from '../lib/registryNames.ts';
 
 interface Props { diff: OfficeLayoutDiff; floor: { width_m: number | null; depth_m: number | null }; label: string }
 
@@ -29,7 +30,7 @@ export function MiniPlan({ diff, floor, label }: Props) {
           <rect x={room.box.x} y={room.box.z} width={room.box.width} height={room.box.depth} />
           {room.status !== 'same' && (
             <text x={room.box.x + room.box.width / 2} y={room.box.z + room.box.depth / 2} fontSize={text} textAnchor="middle" dominantBaseline="middle">
-              {room.name}
+              {roomNameFor(room.id, room.name)}
             </text>
           )}
         </g>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronUp, Hourglass, MapPin, RefreshCcw, WifiOff, X } from 'lucide-react';
 import type { OfficeFlowItem, OfficeFlowSnapshot, OfficeFlowSourceState, OfficeFlowTrail } from '@anum/contracts';
 import { t, formatDateTime, type MessageKey } from './lib/i18n';
+import { roomNameFor } from './lib/registryNames.ts';
 import { actionHash, actionText, ageText, changeAnnouncement, reasonText } from './lib/officeFlow';
 import { flowClient, type ChangeBatch, type FlowLink, type FlowStatus } from './useOfficeFlow';
 import { useLocale } from './useLocale';
@@ -130,8 +131,8 @@ function FlowCard({ item, roomName, onFocusRoom, onNavigate }: {
     </div>
     <p className="hqFlowWhere">
       <MapPin size={13} aria-hidden="true" />
-      {loc ? <>{t('hqFlow.where', { room: loc.room_name })}{loc.agent_name ? ` · ${loc.agent_name}` : ''}{' '}
-        <button type="button" className="hqLinkButton" aria-label={t('hqFlow.showRoom', { room: loc.room_name })} onClick={() => onFocusRoom(loc.room_id)}>
+      {loc ? <>{t('hqFlow.where', { room: roomNameFor(loc.room_id, loc.room_name) })}{loc.agent_name ? ` · ${loc.agent_name}` : ''}{' '}
+        <button type="button" className="hqLinkButton" aria-label={t('hqFlow.showRoom', { room: roomNameFor(loc.room_id, loc.room_name) })} onClick={() => onFocusRoom(loc.room_id)}>
           {t('hqFlow.showInOffice')}</button></>
         : <span>{item.location_reason ? t(`hqFlow.noOffice.${item.location_reason}` as MessageKey) : t('hqFlow.unlocated')}</span>}
     </p>
@@ -144,7 +145,7 @@ function FlowCard({ item, roomName, onFocusRoom, onNavigate }: {
           if (item.kind === 'task' && (stuck.action === 'open_task' || stuck.action === 'retry_task') && openTaskPanel(item.id)) return;
           onNavigate(actionHash(stuck.action));
         }}>{actionText(stuck.action)}</button>
-        {loc?.agent_id && <button type="button" onClick={() => openAssign({ agentId: loc.agent_id, roomId: loc.room_id, roomName: loc.room_name, source: 'flow_dock' })}>{t('hqAssign.openFor', { name: loc.agent_name ?? '' })}</button>}</p>
+        {loc?.agent_id && <button type="button" onClick={() => openAssign({ agentId: loc.agent_id, roomId: loc.room_id, roomName: roomNameFor(loc.room_id, loc.room_name), source: 'flow_dock' })}>{t('hqAssign.openFor', { name: loc.agent_name ?? '' })}</button>}</p>
     </div>}
     <details className="hqFlowHistory" onToggle={toggleHistory}>
       <summary>{t('hqFlow.history')}</summary>

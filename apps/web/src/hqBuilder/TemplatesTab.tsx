@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { OfficeLayoutTemplate, OfficeLayoutTemplateList } from '@anum/contracts';
 import { formatDateTime, t } from '../lib/i18n.ts';
+import { pickName } from '../lib/registryNames.ts';
 import { makeOfficeId } from './builderApi.ts';
 import type { HistoryApi } from './historyApi.ts';
 import { historyProblem, type HistoryProblem } from './historyModel.ts';
@@ -28,6 +29,7 @@ export function TemplatesTab({ b, api, editable }: Props) {
   const [buildingName, setBuildingName] = useState('');
   const [action, setAction] = useState<Action>(null);
   const [text, setText] = useState('');
+  const [textAr, setTextAr] = useState('');
   const [level, setLevel] = useState(1);
   const [zone, setZone] = useState('');
 
@@ -64,16 +66,17 @@ export function TemplatesTab({ b, api, editable }: Props) {
     setActionProblem(null);
     setAction({ kind, id: tpl.id });
     setText(kind === 'rename' ? tpl.name : tpl.kind === 'floor' ? tpl.name : `${tpl.name} 2`);
+    setTextAr('');
     setLevel(nextLevel());
   };
 
   const apply = (tpl: OfficeLayoutTemplate) => run(async () => {
     if (tpl.kind === 'floor') {
-      const made = await api.floorFromTemplate({ template_id: tpl.id, id: makeOfficeId('floor'), building_id: b.buildingId, level, name: text.trim() || undefined });
+      const made = await api.floorFromTemplate({ template_id: tpl.id, id: makeOfficeId('floor'), building_id: b.buildingId, level, name: text.trim() || undefined, name_ar: textAr.trim() || undefined });
       await b.reload({ building: b.buildingId, floor: made.floor.id });
-      return t('hqt.notice.floorMade', { name: made.floor.name, rooms: made.room_ids.length });
+      return t('hqt.notice.floorMade', { name: pickName(made.floor.name, made.floor.name_ar), rooms: made.room_ids.length });
     }
-    const made = await api.buildingFromTemplate({ template_id: tpl.id, id: makeOfficeId('building'), name: text.trim(), timezone: zone });
+    const made = await api.buildingFromTemplate({ template_id: tpl.id, id: makeOfficeId('building'), name: text.trim(), name_ar: textAr.trim() || undefined, timezone: zone });
     await b.reload({ building: made.building.id });
     return t('hqt.notice.buildingMade', { name: made.building.name, floors: made.floor_ids.length });
   });
@@ -145,6 +148,7 @@ export function TemplatesTab({ b, api, editable }: Props) {
                 {manage && action?.id === tpl.id && action.kind === 'apply' && (
                   <form className="hqbRoomForm" onSubmit={(e) => { e.preventDefault(); void apply(tpl); }}>
                     <label className="hqbField"><span>{t(tpl.kind === 'floor' ? 'hqt.apply.floorName' : 'hqt.apply.buildingName')}</span><input value={text} maxLength={100} dir="auto" disabled={busy} onChange={(e) => setText(e.target.value)} /></label>
+                    <label className="hqbField"><span>{t(tpl.kind === 'floor' ? 'hqb.floor.nameAr' : 'hqb.building.nameAr')}</span><input value={textAr} maxLength={100} dir="rtl" lang="ar" disabled={busy} onChange={(e) => setTextAr(e.target.value)} /></label>
                     {tpl.kind === 'floor'
                       ? <label className="hqbField"><span>{t('hqb.floor.level')}</span><input type="number" min={-20} max={120} value={level} disabled={busy} onChange={(e) => setLevel(Math.round(Number(e.target.value)))} /></label>
                       : <label className="hqbField"><span>{t('hqt.apply.timezone')}</span><input value={zone} maxLength={80} dir="ltr" disabled={busy} onChange={(e) => setZone(e.target.value)} /></label>}

@@ -24,7 +24,8 @@ export const LIFT_MS = 360;
 export const easeLift = (t: number): number => { const x = Math.max(0, Math.min(1, t)); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
 
 /** The text of one sign (the real building name over the ANUM MINE wordmark). Index matches the sign cell the scene was built with. */
-export type SignText = Readonly<{ title: string; subtitle: string }>;
+/** `fontsReady` only changes the sign key: the atlas is drawn again once the Arabic face has loaded (a canvas does not wait for a web font). */
+export type SignText = Readonly<{ title: string; subtitle: string; fontsReady?: boolean }>;
 
 /** A scenery piece the renderer moves on its own (a fan, a light glint, a lift indicator); see `hqAssets/interior/ambient.ts`. */
 export type AmbientItem = RenderItem & Readonly<{ motion: AmbientMotion }>;

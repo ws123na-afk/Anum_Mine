@@ -66,7 +66,7 @@ async function pickFloor(page: Page, level: number) {
   await select.selectOption({ label });
 }
 async function enterHq(page: Page, name = 'ANUM HQ') {
-  // Building names are stored in one language (the registry has no Arabic column), so the name is the same in both.
+  // The card carries the building's name in the language of the page: the Arabic name in Arabic mode.
   // dispatchEvent: on a narrow stage the campus map overlay can sit over the label, which is only a pointer matter.
   await hq(page).getByRole('button', { name: new RegExp(`^${name}\\.`) }).dispatchEvent('click');
   await hq(page).getByRole('button', { name: new RegExp(`^(Open|فتح) \u2068?${name}\u2069?$`) }).click();
@@ -362,13 +362,13 @@ test('Arabic shows the panel right to left with Arabic text', async ({ page }) =
   await expect(p.getByRole('button', { name: 'أنشئ حرمي' })).toBeEnabled();
   await expect(p).toContainText('220');
   await p.getByRole('button', { name: 'معاينة القائمة' }).click();
-  await expect(p.getByRole('list', { name: 'معاينة القائمة' }).getByRole('listitem').first()).toContainText('مقر ANUM');
+  await expect(p.getByRole('list', { name: 'معاينة القائمة' }).getByRole('listitem').first()).toContainText('المقر الرئيسي لأنوم');
   expect(await page.evaluate(() => getComputedStyle(document.querySelector('.hqFrCard')!).direction)).toBe('rtl');
   await shot(page, 'first-run-ar-1440');
   await p.getByRole('button', { name: 'أنشئ حرمي' }).click();
   await expect(panel(page)).toHaveCount(0, { timeout: 20_000 });
   await expect(page.getByTestId('hq-campus-note')).toContainText('حرمك جاهز');
-  await enterHq(page);
+  await enterHq(page, 'المقر الرئيسي لأنوم');
   await hq(page).getByTestId('hq-overview').click();
   await expect(hq(page).locator('.hqOverviewCard').first()).toContainText(/المكاتب \d+، الوكلاء \d+/);
   await shot(page, 'floor-overview-ar-1440');
@@ -391,7 +391,7 @@ for (const size of SIZES) {
       await expect(hq(page).locator('.hqSceneHost')).toBeVisible();
       await noOverflow(page, null);
       await shot(page, `campus-${locale}-${size.name}`);
-      await enterHq(page);
+      await enterHq(page, locale === 'ar' ? 'المقر الرئيسي لأنوم' : 'ANUM HQ');
       await noOverflow(page, null);
       await shot(page, `building-${locale}-${size.name}`);
       await hq(page).getByTestId('hq-overview').click();

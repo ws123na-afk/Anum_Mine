@@ -116,3 +116,12 @@ export interface OfficeLayoutTemplate {
 
 export interface OfficeLayoutTemplateList { items: OfficeLayoutTemplate[]; can_manage: boolean }
 export interface OfficeLayoutTemplateSaved extends OfficeLayoutTemplate { skipped_unplaced_rooms: number }
+
+/** `POST /floors/from-template`: the template's Arabic name goes with its own English name; send `name_ar` with a new `name`. */
+export interface OfficeFloorFromTemplateRequest {
+  template_id: string; id: string; building_id: string; level: number; name?: string; name_ar?: string;
+}
+/** `POST /buildings/from-template`: the floors keep their Arabic names; the building takes `name_ar` if sent. */
+export interface OfficeBuildingFromTemplateRequest {
+  template_id: string; id: string; name: string; name_ar?: string; timezone: string;
+}
