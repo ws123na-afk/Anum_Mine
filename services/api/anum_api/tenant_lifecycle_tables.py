@@ -342,6 +342,8 @@ _ORDER = (
     "office_agent_provisions",
     "office_desk_staffing",
     "office_create_keys",
+    "office_floor_revisions",
+    "office_layout_templates",
     "office_desks",
     "office_rooms",
     "office_floors",

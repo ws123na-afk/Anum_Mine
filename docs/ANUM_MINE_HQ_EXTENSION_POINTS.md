@@ -83,6 +83,10 @@ import { ExecutivePaDock } from './ExecutivePanel';
 
 The PA moves the view only through `hqCommands.navigateTo`, so the dock needs no other access to the scene. The tour list comes from `GET /api/v1/executive-pa/tour`; the Guided visit (Office tools) reads the same endpoint and moves the view with `hqCommands.navigateTo`, so it shows only rooms the person can access. The daily briefing is `GET /api/v1/executive-pa/briefing` and the `daily_briefing` tool ([Executive PA](ANUM_MINE_EXECUTIVE_PA.md#daily-briefing)); a new briefing source is one more loader in `anum_api/pa_briefing.py` (`_LOADERS`, `SECTION_KEYS`) plus its `TEXT` templates in both languages.
 
+## Layout history and templates
+
+A new layout action, a new room or desk column, and whole-office template export are described under "Extension points" in [ANUM_MINE_LAYOUT_HISTORY.md](ANUM_MINE_LAYOUT_HISTORY.md). The History and Templates tabs of the builder are lazy chunks (`HqBuilder.tsx`); keep any new builder tab lazy as well.
+
 ## History panel
 
 `HqHistoryPanel` (docs: [ANUM_MINE_HQ_HISTORY_PANEL.md](ANUM_MINE_HQ_HISTORY_PANEL.md)) is mounted by `HeadquartersLive` and opened from three places: Office tools, History; a "Room history" button under the room panel and an "Agent history" button under the workstation panel (both also when `renderRoomPanel` or `renderWorkstationPanel` replaces the built-in panel); and `HqTeamPanel`'s optional `onHistory({ agentId, name })`, which adds a "History of NAME" link to each team card. Another workstream that opens the history passes a `HistoryLaunch` (`{ id, scope, tab? }`, scope `office`, `room`, `agent` or `correlation`, see `lib/hqHistory.ts`); the panel needs the room list (`id`, `label`, `deskIds`), the agent list and an id to name map from the caller. It is read only and uses the same permission as `/api/v1/office-history`.

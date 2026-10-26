@@ -111,6 +111,7 @@ x-user-roles: owner,member
 - [ANUM MINE autonomous meeting rounds, API and safety gates](docs/ANUM_MINE_AUTONOMOUS_MEETINGS.md)
 - [ANUM MINE headquarters market research and office builder plan](docs/ANUM_MINE_HQ_MARKET_RESEARCH.md)
 - [ANUM MINE Office Registry production backend](docs/ANUM_MINE_OFFICE_REGISTRY_BACKEND.md)
+- [ANUM MINE layout history, restore and templates](docs/ANUM_MINE_LAYOUT_HISTORY.md)
 - [ANUM MINE headquarters: campus, building cutaway and extension points](docs/ANUM_MINE_HQ_EXTENSION_POINTS.md)
 - [ANUM MINE headquarters baseline audit (code to feature matrix, CI, issue register)](docs/ANUM_MINE_HQ_BASELINE_AUDIT.md)
 - [ANUM MINE feature completion matrix (requirement by requirement status, evidence, gaps, top 10 actions)](docs/ANUM_MINE_FEATURE_COMPLETION_MATRIX.md)

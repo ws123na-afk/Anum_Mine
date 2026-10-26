@@ -60,8 +60,8 @@
 .hqbEmpty p { color: var(--b-muted); }
 
 .hqbPanel { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--b-panel); border-inline-start: 1px solid var(--b-line); }
-.hqbTabs { display: flex; gap: 4px; padding: 8px 8px 0; border-bottom: 1px solid var(--b-line); }
-.hqbTabs button { flex: 1; border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 0; background: transparent; }
+.hqbTabs { display: flex; gap: 3px; padding: 8px 8px 0; border-bottom: 1px solid var(--b-line); flex-wrap: wrap; flex: none; }
+.hqbTabs button { flex: 1 0 auto; padding-inline: 6px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 0; background: transparent; }
 .hqbTabs button[aria-selected=true] { background: var(--b-panel-2); border-color: var(--b-accent); color: #fff; font-weight: 600; }
 .hqbTabPanel { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
 
@@ -187,3 +187,41 @@
 @media (prefers-reduced-motion: reduce) {
   .hqbRoomBody { transition: none; }
 }
+
+/* Layout history and templates (docs/ANUM_MINE_LAYOUT_HISTORY.md) */
+.hqhTab { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.hqhList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.hqb .hqhItem { width: 100%; flex-direction: column; align-items: flex-start; gap: 2px; text-align: start; }
+.hqb .hqhItem small, .hqhTpl small { color: var(--b-muted); font-size: var(--text-xs); }
+.hqb .hqhItem[aria-pressed=true] { border-color: var(--b-accent); background: #1c5560; }
+.hqhItemHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hqhBadge { padding: 1px 8px; border-radius: 999px; border: 1px solid var(--b-accent); color: #85ded5; font-size: var(--text-2xs); }
+.hqhTpl { display: flex; flex-direction: column; gap: 4px; padding: 10px; border: 1px solid #2c485c; border-radius: 8px; background: #0e2436; }
+.hqhTplHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hqhToggle { display: flex; gap: 6px; flex-wrap: wrap; }
+.hqb .hqhToggle button[aria-pressed=true] { border-color: var(--b-accent); background: #1c5560; }
+.hqhPlan { direction: ltr; display: block; width: 100%; height: auto; max-height: 260px; background: #07151f; border: 1px solid #2c485c; border-radius: 8px; }
+.hqhFloor { fill: #0d2638; stroke: #6fb4c6; stroke-width: .25; stroke-dasharray: 1.2 .8; }
+.hqhRoom rect { fill: #6b8fa3; fill-opacity: .3; stroke: #6b8fa3; stroke-width: .25; }
+.hqhRoom text { fill: #fff; stroke: #06131d; stroke-width: .35; paint-order: stroke; pointer-events: none; }
+.hqhRoom[data-status=added] rect { fill: var(--c-forest); fill-opacity: .55; stroke: var(--b-accent); stroke-width: .6; }
+.hqhRoom[data-status=removed] rect { fill: #ff4d4d; fill-opacity: .35; stroke: var(--b-error); stroke-width: .6; stroke-dasharray: 1.4 .8; }
+.hqhRoom[data-status=moved] rect { fill: var(--c-brass); fill-opacity: .5; stroke: var(--b-warn); stroke-width: .6; }
+.hqhRoom[data-status=changed] rect { fill: var(--c-sapphire); fill-opacity: .5; stroke: #9bbcf5; stroke-width: .6; }
+.hqhFrom { fill: none; stroke: var(--b-warn); stroke-width: .3; stroke-dasharray: .8 .8; }
+.hqhDesk { fill: #cfe9ef; fill-opacity: .8; }
+.hqhLegend, .hqhChanges, .hqhUnassign { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; flex-wrap: wrap; }
+.hqhChanges, .hqhUnassign { flex-direction: column; gap: 4px; font-size: var(--text-sm); }
+.hqhUnassign { list-style: disc; padding-inline-start: 18px; }
+.hqhChip { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: var(--text-2xs); border: 1px solid var(--b-line); }
+.hqhChip[data-status=added] { border-color: var(--b-accent); color: #85ded5; }
+.hqhChip[data-status=removed] { border-color: var(--b-error); color: var(--b-error); }
+.hqhChip[data-status=moved] { border-color: var(--b-warn); color: var(--b-warn); }
+.hqhChip[data-status=changed] { border-color: #9bbcf5; color: #9bbcf5; }
+.hqhOverlay { position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 12px; background: #000a; }
+.hqhDialog { width: min(560px, 100%); max-height: 100%; display: flex; flex-direction: column; gap: 10px; padding: 14px; overflow: hidden; background: var(--b-panel); border: 1px solid var(--b-accent); border-radius: 12px; box-shadow: 0 15px 60px #000; }
+.hqhDialog:focus-visible { outline: 3px solid var(--b-accent); }
+.hqhDialogBody { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.hqhDialogBody p { margin: 0; }
+.hqhDialogActions { flex: 0 0 auto; }
+.hqb .hqbCheck input[type=checkbox] { flex: none; width: 20px; height: 20px; min-height: 0; margin: 0; }
