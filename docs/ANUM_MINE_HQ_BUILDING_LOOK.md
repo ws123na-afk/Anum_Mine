@@ -94,5 +94,5 @@ is the same; the buildings, the light and the motion changed.
 
 ### Budgets
 
-Renderer chunk 157.2 kB gzip (limit 160 kB), HQ entry chunk 130.2 kB (limit 135 kB); neither limit was raised. Per-asset triangle caps rose
+Renderer chunk 157.6 kB gzip (limit 160 kB), HQ entry chunk 131.8 kB (limit 135 kB); neither limit was raised. Per-asset triangle caps rose
 (office tower 3800, admin block 2600, executive HQ 5600, personal villa 2400) because of the added detail; the campus uses the smaller sizes.
