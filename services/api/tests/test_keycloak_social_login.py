@@ -471,3 +471,77 @@ def test_wrapper_reads_provider_secrets_without_echo_and_sends_them_on_stdin() -
     assert "unset google_secret" in text
     assert not re.search(r"echo[^\n]*\$(google_secret|password|secret)", text)
     assert '--privacy-url "$PRIVACY_URL"' in text
+
+
+# --------------------------------------------------------------------------- login theme (look)
+
+
+def test_apply_selects_the_login_theme_and_languages_on_an_existing_realm(keycloak: FakeKeycloak) -> None:
+    keycloak.realm["displayName"] = "ANUM (local development)"
+    log, sink = quiet()
+    sl.converge_appearance(kcadm(keycloak), sink)
+    assert keycloak.realm["loginTheme"] == "anum" and keycloak.realm["displayName"] == "ANUM"
+    assert keycloak.realm["supportedLocales"] == ["en", "ar"] and keycloak.realm["internationalizationEnabled"] is True
+    assert any("loginTheme" in line for line in log)
+    keycloak.calls.clear()
+    sl.converge_appearance(kcadm(keycloak), lambda _: None)
+    assert all(call[1] == "get" for call in keycloak.calls)  # second run only reads
+
+
+def test_apply_keeps_a_display_name_the_owner_chose(keycloak: FakeKeycloak) -> None:
+    keycloak.realm["displayName"] = "Acme Fleet"
+    sl.converge_appearance(kcadm(keycloak), lambda _: None)
+    assert keycloak.realm["displayName"] == "Acme Fleet"
+
+
+def test_apply_without_the_theme_installed_warns_and_leaves_the_theme_unset() -> None:
+    keycloak = FakeKeycloak(theme=False)
+    log, sink = quiet()
+    sl.converge_appearance(kcadm(keycloak), sink)
+    assert "loginTheme" not in keycloak.realm and any(line.startswith("WARNING: the anum login theme") for line in log)
+
+
+def test_dev_and_shared_realms_select_the_theme() -> None:
+    import json
+
+    realm = json.loads((REPO_ROOT / "infra" / "keycloak" / "anum-realm.json").read_text(encoding="utf-8"))
+    assert realm["loginTheme"] == "anum" and realm["supportedLocales"] == ["en", "ar"]
+    assert sl.LOGIN_THEME == realm["loginTheme"]
+
+
+def test_theme_properties_load_the_anum_styles_after_the_parents() -> None:
+    props = (THEME / "theme.properties").read_text(encoding="utf-8")
+    assert "parent=keycloak.v2" in props
+    assert re.search(r"^styles=css/styles\.css css/anum\.css$", props, re.M)
+    assert (THEME / "resources" / "css" / "anum.css").is_file()
+
+
+def test_theme_templates_use_only_messages_both_languages_define() -> None:
+    english = (THEME / "messages" / "messages_en.properties").read_text(encoding="utf-8")
+    arabic = (THEME / "messages" / "messages_ar.properties").read_text(encoding="utf-8")
+    keys = lambda text: {line.split("=", 1)[0] for line in text.splitlines() if "=" in line}
+    for name in ("template.ftl", "social-providers.ftl"):
+        used = set(re.findall(r"msg\((?:'|\")(anum[A-Za-z]+)", (THEME / name).read_text(encoding="utf-8")))
+        assert used and used <= keys(english) and used <= keys(arabic), (name, used - keys(english))
+    assert "'" not in english.replace("\n", " ").split("anumBrandName=", 1)[1]  # MessageFormat eats single quotes
+
+
+def test_theme_keeps_the_layout_accessible_and_right_to_left_safe() -> None:
+    css = (THEME / "resources" / "css" / "anum.css").read_text(encoding="utf-8")
+    # Logical properties only: Arabic mirrors the page.
+    assert not re.search(r"(?<![-\w])(margin|padding|border)-(left|right)\s*:|(?<![-\w])(left|right)\s*:|text-align:\s*(left|right)", css)
+    assert ":focus-visible" in css and "prefers-color-scheme: dark" in css and "prefers-reduced-motion" in css
+    template = (THEME / "template.ftl").read_text(encoding="utf-8")
+    assert "<main " in template and 'id="kc-page-title"' in template and 'role="${(message.type' in template
+    assert 'id="login-select-toggle"' in template and "locale.rtl" in template
+    # The non-production notice comes from the realm's own display name, never a hard-coded flag.
+    assert "local development" in template and "realm.displayName" in template
+
+
+def test_theme_files_have_no_em_or_en_dashes_and_the_fonts_ship_their_licences() -> None:
+    for path in THEME.rglob("*"):
+        if path.is_file() and path.suffix in {".ftl", ".css", ".properties", ".js", ".svg"}:
+            text = path.read_text(encoding="utf-8")
+            assert "\u2014" not in text and "\u2013" not in text, path
+    fonts = THEME / "resources" / "fonts"
+    assert {p.name for p in fonts.iterdir()} == {"inter-latin-var.woff2", "noto-sans-arabic-var.woff2", "OFL-Inter.txt", "OFL-NotoSansArabic.txt"}
