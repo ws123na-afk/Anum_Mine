@@ -56,3 +56,26 @@ test('minimap coordinates round trip', () => {
   assert.ok(Math.abs(w.x - 30) < 1e-9 && Math.abs(w.z + 20) < 1e-9);
   assert.deepEqual(worldToMap(0, 0, 100, 200), { x: 100, y: 100 });
 });
+
+import { INSIDE_EYE_HEIGHT, clampInside, insideCamera, isInsideView } from '../src/lib/hqCamera.ts';
+import { cameraEye } from '../src/lib/headquartersSpatial.ts';
+import { test as insideTest } from 'node:test';
+import insideAssert from 'node:assert/strict';
+
+insideTest('the inside camera sits at eye height inside the room and turns on the spot', () => {
+  const room = { x: 10, z: 4, width: 8, depth: 5 };
+  const cam = insideCamera(room, 4.26);
+  const eye = cameraEye(cam);
+  insideAssert.ok(Math.abs(eye.y - (4.26 + INSIDE_EYE_HEIGHT)) < 0.1);
+  insideAssert.ok(eye.x > room.x && eye.x < room.x + room.width && eye.z > room.z && eye.z < room.z + room.depth);
+  insideAssert.ok(isInsideView(cam));
+  const turned = cameraEye({ ...cam, yaw: cam.yaw + 90 });
+  insideAssert.ok(Math.hypot(turned.x - eye.x, turned.z - eye.z) < 0.1, 'rotating keeps the eye where it is');
+});
+
+insideTest('the inside camera cannot be walked through a wall', () => {
+  const room = { x: 0, z: 0, width: 6, depth: 4 };
+  const cam = insideCamera(room, 0);
+  const out = clampInside({ ...cam, target: { ...cam.target, x: 50, z: -20 } }, room);
+  insideAssert.ok(out.target.x <= 6 - 0.35 && out.target.z >= 0.35);
+});

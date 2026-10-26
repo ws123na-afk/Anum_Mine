@@ -17,6 +17,7 @@ import { meetingRoomAr } from './meetingRoom.ar.ts';
 import { builderAr } from './builder.ar.ts';
 import { hqFlowAr } from './hqFlow.ar.ts';
 import { hqHistoryAr } from './hqHistory.ar.ts';
+import { hqLiveAr } from './hqLive.ar.ts';
 import { hqProvisioningAr } from './hqProvisioning.ar.ts';
 import { hqNavAr } from './hqNav.ar.ts';
 import { hqAssignAr } from './hqAssign.ar.ts';
@@ -3247,6 +3248,7 @@ export const ar: Record<MessageKey, Message> = {
   ...builderAr,
   ...hqFlowAr,
   ...hqHistoryAr,
+  ...hqLiveAr,
   ...hqProvisioningAr,
   ...hqNavAr,
   ...hqAssignAr,

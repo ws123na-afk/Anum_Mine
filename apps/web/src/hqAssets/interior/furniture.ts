@@ -9,17 +9,14 @@ import { Local } from './local.ts';
 import type { InteriorScheme } from './scheme.ts';
 import { seatedFigure, type SeatedPose } from './figures.ts';
 import type { FigureLook } from '../../lib/hqAvatar.ts';
+import { markerParts, STATE_LOOK, type VisualState } from './stateVisual.ts';
 
-export type StationState = 'working' | 'waiting' | 'idle' | 'unknown' | 'vacant' | 'assigned';
+export type StationState = VisualState;
 
-export const SCREEN_LOOK: Readonly<Record<StationState, { color: Rgb; emissive: number }>> = {
-  working: { color: hex('#58f0cf'), emissive: 1 },
-  waiting: { color: hex('#ffc861'), emissive: 0.95 },
-  idle: { color: hex('#6aa7ff'), emissive: 0.55 },
-  unknown: { color: hex('#8b95a5'), emissive: 0.3 },
-  assigned: { color: hex('#8b95a5'), emissive: 0.25 },
-  vacant: { color: hex('#232c36'), emissive: 0 },
-};
+/** Screen colour and glow per state; the table lives in `stateVisual.ts` with the light, pose and marker. */
+export const SCREEN_LOOK: Readonly<Record<StationState, { color: Rgb; emissive: number }>> = Object.fromEntries(
+  (Object.keys(STATE_LOOK) as VisualState[]).map((k) => [k, { color: STATE_LOOK[k].screen, emissive: STATE_LOOK[k].emissive }]),
+) as Record<StationState, { color: Rgb; emissive: number }>;
 
 export const BLACK = hex('#14181d');
 
@@ -264,9 +261,18 @@ export function workstation(b: MeshBuilder, y: number, spec: StationSpec, S: Int
     L.box(cx - 0.02, H, 0.16, 0.04, 0.2, 0.03, BLACK);
     L.box(cx - mw / 2, H + 0.2, 0.15, mw, 0.34, 0.035, BLACK);
     L.box(cx - mw / 2 + 0.02, H + 0.22, 0.128, mw - 0.04, 0.3, 0.008, screen.color, { emissive: screen.emissive, shade: false });
-    if (state !== 'vacant') {
+    if (STATE_LOOK[state].content) {
       for (let k = 0; k < 3; k++) L.box(cx - mw / 2 + 0.05, H + 0.27 + k * 0.08, 0.12, (mw - 0.1) * (0.5 + 0.15 * ((k + i) % 3)), 0.02, 0.004, hex('#f4fffb'), { emissive: Math.min(1, screen.emissive + 0.1), shade: false });
     }
+  }
+  // The status light on the bezel and the marker above the monitors: the state told by shape and light, not by colour alone.
+  const look2 = STATE_LOOK[state];
+  if (look2.light) {
+    const lx = ((n - 1) / 2) * (mw + 0.03) + mw / 2 - 0.07;
+    L.box(lx, H + 0.205, 0.124, 0.04, 0.014, 0.008, look2.light, { emissive: look2.lightEmissive, shade: false });
+  }
+  for (const part of markerParts(look2.marker)) {
+    L.box(part.u - part.w / 2, H + 0.54 + part.v - part.h / 2, 0.14, part.w, part.h, 0.02, part.color, { emissive: part.emissive, shade: false });
   }
   L.box(-0.2, H, -0.2, 0.4, 0.015, 0.14, hex('#c9d1d9'));
   if (!lite) {
@@ -292,7 +298,7 @@ export function workstation(b: MeshBuilder, y: number, spec: StationSpec, S: Int
     taskChair(L, 0, -0.8, look.chairTone ?? S.fabric);
     if (spec.occupantSeed) {
       const [fx, fz] = L.pt(0, -0.82);
-      seatedFigure(b, fx, y, fz, { seed: spec.occupantSeed, rot: (spec.rot ?? 0) + 2, pose: spec.pose ?? 'typing', headset: spec.headset, look: spec.look });
+      seatedFigure(b, fx, y, fz, { seed: spec.occupantSeed, rot: (spec.rot ?? 0) + 2, pose: spec.pose ?? STATE_LOOK[state].pose, headset: spec.headset, look: spec.look });
     }
   }
 }

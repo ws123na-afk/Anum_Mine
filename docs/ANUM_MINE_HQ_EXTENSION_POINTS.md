@@ -182,6 +182,16 @@ sizes and limits: [ANUM_MINE_HQ_REALISM_ASSETS.md](ANUM_MINE_HQ_REALISM_ASSETS.m
 
 Orbit by dragging, pan with Shift or the right button, zoom with the wheel or pinch. With the scene focused: arrows pan, Q and E rotate, plus and minus zoom, 0 resets. Reduced motion jumps the camera instead of tweening. The renderer is three.js (see "How the scene is drawn"): per-mesh frustum culling, render on demand, the shadow map redrawn only when needed, a pixel ratio capped at 2 and lowered after sustained slow frames. A lost context shows "Restoring the 3D view" and three.js rebuilds its buffers; if it does not come back in 5 seconds the page switches to the List view. The canvas dataset (`data-engine`, `data-draw-ms`, `data-triangles`, `data-drawn`, `data-culled`, `data-dpr`, `data-shadow`, `data-bloom`) exposes the renderer and the measured draw time for tests.
 
+## Live scene
+
+Docs: [ANUM_MINE_HQ_LIVE_SCENE.md](ANUM_MINE_HQ_LIVE_SCENE.md). Extension points:
+
+- **Presence source.** `usePresenceLive()` is the only place the page reads presence. Another consumer calls it too and shares the one stream (`acquirePresenceHub` keys the hub by tenant and workspace). Never open a second stream.
+- **A new desk state or marker.** Add the state to `STATE_LOOK` and `visualOfStatus` in `hqAssets/interior/stateVisual.ts`, a marker shape to `markerParts`, and the label and help text to `hq.*` and `hq.stateHelp.*`. `test/hqStateVisual.test.ts` fails if two states look alike.
+- **A wall tile.** Add the id to `WallTileId` and a `tile(...)` line in `lib/hqCommandWall.ts` with its source, then the `hq.wall.<id>` label. A tile must say "Not connected" when its source is down.
+- **A camera preset.** `lib/hqCamera.ts` holds pure presets (`insideCamera`, `clampInside`); `BuildingView` decides when to use them.
+- **Opening the flow dock for a room.** `RoomModuleAction` passes its `roomId` to `onOpenFlow(roomId)`; the host sets the dock's room filter.
+
 ## Not finished here
 
 - Thumbnails exist only for places seen in this tab (a second renderer for a background survey was judged too heavy for the performance budget); until then the strip shows an icon and the rail shows the plan.
