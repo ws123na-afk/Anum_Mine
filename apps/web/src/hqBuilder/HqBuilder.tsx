@@ -9,6 +9,7 @@ import * as api from '../lib/api.ts';
 import { loadOrgSources } from '../lib/orgChart.ts';
 import { createOfficeSpaceClient } from '../lib/officeSpaceClient.ts';
 import { t, type MessageKey } from '../lib/i18n.ts';
+import { pickName } from '../lib/registryNames.ts';
 import { useLocale } from '../useLocale';
 import { createBuilderApi } from './builderApi.ts';
 import { createHistoryApi } from './historyApi.ts';
@@ -49,7 +50,7 @@ function useMedia(query: string): boolean {
 }
 
 export function HqBuilder({ onClose }: { onClose: () => void }) {
-  useLocale();
+  const locale = useLocale();
   const scopeKey = JSON.stringify(api.currentScope());
   const b = useBuilder({ api: builderApi, load: officeClient.load, scopeKey });
   const [role, setRole] = useState<Role>({ state: 'checking' });
@@ -101,8 +102,8 @@ export function HqBuilder({ onClose }: { onClose: () => void }) {
 
   const canvasRooms = useMemo<CanvasRoom[]>(() => b.floorRecords.flatMap((r) => {
     const draft = b.present.rooms[r.id];
-    return draft ? [{ id: r.id, name: r.name, kind: r.kind, color: r.color ?? null, draft }] : [];
-  }), [b.floorRecords, b.present.rooms]);
+    return draft ? [{ id: r.id, name: pickName(r.name, r.name_ar, locale), kind: r.kind, color: r.color ?? null, draft }] : [];
+  }), [b.floorRecords, b.present.rooms, locale]);
   const canvasDesks = useMemo<CanvasDesk[]>(() => {
     const ids = new Set(b.floorRecords.map((r) => r.id));
     return b.data.desks.filter((d) => ids.has(d.room_id) && b.present.desks[d.id]).map((d) => ({ id: d.id, label: d.label, draft: b.present.desks[d.id], seated: d.agent_id != null }));
@@ -195,12 +196,12 @@ export function HqBuilder({ onClose }: { onClose: () => void }) {
         <div className="hqbTitle"><small>{t('hqb.eyebrow')}</small><h2>{t('hqb.title')}</h2></div>
         <label className="hqbInline"><span>{t('hqb.header.building')}</span>
           <select value={b.buildingId} onChange={(e) => { if (confirmDiscard()) b.setBuildingId(e.target.value); }}>
-            {b.data.buildings.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+            {b.data.buildings.map((x) => <option key={x.id} value={x.id}>{pickName(x.name, x.name_ar, locale)}</option>)}
           </select>
         </label>
         <label className="hqbInline"><span>{t('hqb.header.floor')}</span>
           <select value={b.floorId} onChange={(e) => { if (confirmDiscard()) b.setFloorId(e.target.value); }}>
-            {floors.map((f) => <option key={f.id} value={f.id}>{f.level === 0 ? 'G' : f.level} · {f.name}</option>)}
+            {floors.map((f) => <option key={f.id} value={f.id}>{f.level === 0 ? 'G' : f.level} · {pickName(f.name, f.name_ar, locale)}</option>)}
           </select>
         </label>
         <div className="hqbHeaderEnd">
@@ -327,7 +328,7 @@ export function HqBuilder({ onClose }: { onClose: () => void }) {
       </div>
 
       <footer className="hqbStatus">
-        <span>{t('hqb.status.floor', { name: b.floor?.name ?? '-', rooms: placedCount, desks: deskCount })}</span>
+        <span>{t('hqb.status.floor', { name: b.floor ? pickName(b.floor.name, b.floor.name_ar, locale) : '-', rooms: placedCount, desks: deskCount })}</span>
         <span>{b.bounds ? t('hqb.canvas.floorSize', { width: b.bounds.width, depth: b.bounds.depth }) : t('hqb.status.noBounds')}</span>
         <details className="hqbIssues" data-has-issues={b.issues.length ? 'true' : 'false'}>
           <summary>{b.issues.length === 0 ? t('hqb.status.noProblems') : t('hqb.status.problems', { errors: errorCount, warnings: warningCount })}</summary>

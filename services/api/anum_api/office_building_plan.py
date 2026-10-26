@@ -106,6 +106,7 @@ def plan_building(
                           "name": t.name, "name_ar": t.name_ar, "kind": t.kind, "capacity": t.capacity,
                           "x": spot[0], "z": spot[1], "width": t.width, "depth": t.depth})
         plan_floors.append({"id": fid, "level": level, "name": floor_name(level, lang),
+                            "name_ar": floor_name(level, "ar"),
                             "width_m": FLOOR_W, "depth_m": FLOOR_D, "rooms": rooms})
     return {"lang": lang, "building": {"id": bid, "name": cleaned, "timezone": timezone},
             "floors": plan_floors,

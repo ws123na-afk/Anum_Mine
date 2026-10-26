@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test';
+import { ARABIC_NAMES_NONE } from './hqArabicNamesApi';
 import { readFileSync } from 'node:fs';
 import { campusFixture } from './hqCampusApi';
 
@@ -65,8 +66,8 @@ export async function mockFirstRun(page: Page, options: { prebuilt?: boolean } =
 
   const built = () => CAMPUS.filter((b) => done.has(b.key));
   const registry = {
-    buildings: () => built().map((b) => ({ ...base(bid(b)), name: b.en, timezone: 'Asia/Dubai', latitude: null, longitude: null })),
-    floors: () => built().flatMap((b) => b.floors.map((f) => ({ ...base(`${bid(b)}-l${f.level}`), building_id: bid(b), level: f.level, name: f.en, width_m: f.w, depth_m: f.d }))),
+    buildings: () => built().map((b) => ({ ...base(bid(b)), name: b.en, name_ar: b.ar, timezone: 'Asia/Dubai', latitude: null, longitude: null })),
+    floors: () => built().flatMap((b) => b.floors.map((f) => ({ ...base(`${bid(b)}-l${f.level}`), building_id: bid(b), level: f.level, name: f.en, name_ar: f.ar, width_m: f.w, depth_m: f.d }))),
     rooms: () => built().flatMap((b) => b.floors.flatMap((f) => f.rooms.map((r) => ({
       ...base(`${bid(b)}-${r.key}`.slice(0, 80)), floor_id: `${bid(b)}-l${f.level}`, name: r.en, name_ar: r.ar, kind: r.kind, capacity: r.cap,
       scene_x: r.x, scene_z: r.z, scene_width: r.w, scene_depth: r.d, team_department: r.dept,
@@ -122,6 +123,7 @@ export async function mockFirstRun(page: Page, options: { prebuilt?: boolean } =
     const path = url.pathname.replace('/api/v1/office/starter-campus', '');
     const raw = request.postData();
     mock.requests.push({ method: request.method(), path: path + url.search, body: raw ? JSON.parse(raw) : null });
+    if (path.startsWith('/arabic-names')) return json(route, ARABIC_NAMES_NONE);
     if (path === '/preview') {
       if (hold) await hold;
       if (previewFail !== null) return json(route, { detail: previewFail === 403 ? 'Forbidden' : 'The service failed.' }, previewFail);

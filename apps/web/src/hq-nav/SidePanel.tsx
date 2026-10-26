@@ -6,6 +6,7 @@ import { statusLabel } from '../HqChrome';
 import { hqCommands } from '../lib/hqExtensions.ts';
 import type { SceneFloor } from '../lib/headquartersProjection.ts';
 import { t, type MessageKey } from '../lib/i18n.ts';
+import { roomName, sceneName } from '../lib/registryNames.ts';
 import { initialsOf, planModel, type PersonRow } from './navModel.ts';
 
 export type Move = Readonly<{ id: string; label: string; icon: ReactNode; run: () => void }>;
@@ -40,9 +41,9 @@ export function FloorPlan(props: { floor: SceneFloor | null; selectedRoomId: str
   const { floor } = props;
   const plan = planModel(floor, 100, 4);
   const selected = floor?.rooms.find((r) => r.id === props.selectedRoomId) ?? null;
-  const heading = floor ? (selected ? t('hqNav.plan.headingRoom', { floor: floor.name, room: selected.label }) : t('hqNav.plan.heading', { floor: floor.name })) : '';
+  const heading = floor ? (selected ? t('hqNav.plan.headingRoom', { floor: sceneName(floor), room: roomName(selected) }) : t('hqNav.plan.heading', { floor: sceneName(floor) })) : '';
   return (
-    <section className="hqPlan" aria-label={floor ? t('hqNav.plan.label', { floor: floor.name }) : t('hqNav.tab.plan')}>
+    <section className="hqPlan" aria-label={floor ? t('hqNav.plan.label', { floor: sceneName(floor) }) : t('hqNav.tab.plan')}>
       <div className="hqPlanHead">
         <h3>{heading}</h3>
         <div className="hqSegment" role="group" aria-label={t('hqNav.plan.mode')}>

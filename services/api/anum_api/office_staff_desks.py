@@ -126,11 +126,11 @@ def plan_staffing(
             room_views.append({
                 "id": r["id"], "name": r["name"], "name_ar": r.get("name_ar"), "kind": r["kind"],
                 "team_department": r.get("team_department"), "floor_id": floor["id"], "floor_level": floor["level"],
-                "floor_name": floor.get("name"), "template_id": template.id if template else None, "role_source": source,
+                "floor_name": floor.get("name"), "floor_name_ar": floor.get("name_ar"), "template_id": template.id if template else None, "role_source": source,
                 "desks": desk_views, "counts": _count(desk_views),
             })
         out_buildings.append({
-            "id": b["id"], "name": b["name"], "selected": in_run, "rooms": room_views,
+            "id": b["id"], "name": b["name"], "name_ar": b.get("name_ar"), "selected": in_run, "rooms": room_views,
             "counts": _count([d for rv in room_views for d in rv["desks"]]),
         })
     return {"buildings": out_buildings, "free_slots_after": slots}

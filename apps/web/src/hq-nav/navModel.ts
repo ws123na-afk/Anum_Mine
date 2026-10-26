@@ -9,6 +9,7 @@
 import type { Campus, CampusBuilding, StatusKey } from '../lib/campusModel.ts';
 import type { RoomGeometry, SceneBuilding, SceneDesk, SceneFloor } from '../lib/headquartersProjection.ts';
 import { presenceForDesk, type HqPresenceIndex } from '../lib/hqPresence.ts';
+import { roomName, sceneName } from '../lib/registryNames.ts';
 
 // ---------------------------------------------------------------- floors
 
@@ -32,7 +33,7 @@ export function floorEntries(building: SceneBuilding | null): FloorEntry[] {
     for (const room of floor.rooms) counts.set(room.kind, (counts.get(room.kind) ?? 0) + 1);
     const kinds = [...counts.entries()].map(([kind, count]) => ({ kind, count })).sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind));
     return {
-      id: floor.id, name: floor.name, level: floor.level, rooms: floor.rooms.length,
+      id: floor.id, name: sceneName(floor), level: floor.level, rooms: floor.rooms.length,
       assigned: floor.desks.filter((d) => d.agentId).length, kinds,
     };
   });
@@ -68,7 +69,7 @@ export function roomStops(building: SceneBuilding | null, max = MAX_ROOM_STOPS):
   }
   chosen = chosen.slice().sort((a, b) => rank(a.room.kind) - rank(b.room.kind) || a.floor.level - b.floor.level || a.room.label.localeCompare(b.room.label));
   return chosen.slice(0, max).map(({ room, floor }) => ({
-    id: `room:${room.id}`, kind: 'room' as const, roomId: room.id, floorId: floor.id, floorName: floor.name, label: room.label, roomKind: room.kind,
+    id: `room:${room.id}`, kind: 'room' as const, roomId: room.id, floorId: floor.id, floorName: sceneName(floor), label: roomName(room), roomKind: room.kind,
   }));
 }
 
@@ -79,7 +80,7 @@ export function stripStops(campus: Campus | null, building: SceneBuilding | null
     const order = campus.buildings.slice().sort((a, b) => (a.kind === 'executive' ? -1 : 0) - (b.kind === 'executive' ? -1 : 0) || a.name.localeCompare(b.name) || a.workspace_id.localeCompare(b.workspace_id));
     for (const b of order) {
       if (b.archived) continue;
-      stops.push({ id: `building:${b.workspace_id}`, kind: 'building', workspaceId: b.workspace_id, name: b.name, accessible: b.accessible, current: b.workspace_id === currentWorkspaceId });
+      stops.push({ id: `building:${b.workspace_id}`, kind: 'building', workspaceId: b.workspace_id, name: sceneName(b), accessible: b.accessible, current: b.workspace_id === currentWorkspaceId });
     }
   }
   return [...stops, ...roomStops(building)];
@@ -150,7 +151,7 @@ export function planModel(floor: SceneFloor | null, size = 100, pad = 4): PlanMo
   const height = Math.max(Math.round(size * 0.35), Math.min(size * 1.4, Math.round(spanZ * scale + pad * 2)));
   const fit = Math.min(scale, (height - pad * 2) / spanZ);
   const ox = pad + ((size - pad * 2) - spanX * fit) / 2, oy = pad + ((height - pad * 2) - spanZ * fit) / 2;
-  const rooms = floor.rooms.map((r): PlanRect => ({ id: r.id, label: r.label, kind: r.kind, x: ox + (r.x - minX) * fit, y: oy + (r.z - minZ) * fit, w: r.width * fit, h: r.depth * fit }));
+  const rooms = floor.rooms.map((r): PlanRect => ({ id: r.id, label: roomName(r), kind: r.kind, x: ox + (r.x - minX) * fit, y: oy + (r.z - minZ) * fit, w: r.width * fit, h: r.depth * fit }));
   const desks = floor.desks.map((d): PlanDot => ({ id: d.id, x: ox + (d.position.x - minX) * fit, y: oy + (d.position.z - minZ) * fit, assigned: d.agentId !== null }));
   return { width: size, height, rooms, desks };
 }
@@ -178,7 +179,7 @@ export type PersonRow = Readonly<{
  */
 export function peopleAtPosts(floor: SceneFloor | null, presence: HqPresenceIndex | null): PersonRow[] {
   if (!floor) return [];
-  const roomLabel = new Map(floor.rooms.map((r) => [r.id, r.label]));
+  const roomLabel = new Map(floor.rooms.map((r) => [r.id, roomName(r)]));
   const rows: PersonRow[] = [];
   for (const desk of floor.desks) {
     const record = presenceForDesk(presence, desk);

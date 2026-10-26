@@ -464,7 +464,7 @@ export function useBuilder({ api, load, scopeKey }: UseBuilderOptions) {
 
   // ---- Floor and building ----
 
-  const saveFloor = useCallback(async (patch: { name?: string; level?: number; width_m?: number; depth_m?: number }): Promise<boolean> => {
+  const saveFloor = useCallback(async (patch: { name?: string; name_ar?: string | null; level?: number; width_m?: number; depth_m?: number }): Promise<boolean> => {
     const current = live.current.data.floors.find((f) => f.id === live.current.floorId);
     if (!current) return false;
     const updated = await run(() => api.patchFloor(current.id, { ...patch, expected_revision: current.revision }));
@@ -474,10 +474,10 @@ export function useBuilder({ api, load, scopeKey }: UseBuilderOptions) {
     return true;
   }, [api, run]);
 
-  const saveBuildingName = useCallback(async (name: string): Promise<boolean> => {
+  const saveBuilding = useCallback(async (patch: { name?: string; name_ar?: string | null }): Promise<boolean> => {
     const current = live.current.data.buildings.find((b) => b.id === buildingIdRef.current);
     if (!current) return false;
-    const updated = await run(() => api.patchBuilding(current.id, { name, expected_revision: current.revision }));
+    const updated = await run(() => api.patchBuilding(current.id, { ...patch, expected_revision: current.revision }));
     if (!updated) return false;
     setData((d) => ({ ...d, buildings: d.buildings.map((b) => (b.id === updated.id ? updated : b)) }));
     setNotice(t('hqb.status.floorSaved'));
@@ -526,7 +526,7 @@ export function useBuilder({ api, load, scopeKey }: UseBuilderOptions) {
     reload, reloadAndReapply, reloadDiscarding, discard, save,
     moveRoom, rotate, setDoor, moveDesk, placeDesk, placeRoom, undo: doUndo, redo: doRedo,
     addFromTemplate, addBlank, copyRoom, saveRoomDetails, deleteRoom, addDesk, renameDesk, deleteDesk, seatAgent,
-    saveFloor, saveBuildingName, deleteFloor, deleteBuilding,
+    saveFloor, saveBuilding, deleteFloor, deleteBuilding,
     nameOf,
   };
 }

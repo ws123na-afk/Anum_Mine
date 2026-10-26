@@ -66,6 +66,7 @@ Data and API for the owner's office builder. The visual editor in the web app (s
 | Permissions | Every layout edit needs `workspace:manage` (owner), as before. Assigning an agent keeps its current permission (`workspace:manage`). Reads need `task:read`. No new permission. |
 | Equipment and notes | Equipment is a list of `{kind, quantity, note?}` from a fixed catalogue (monitor, display, whiteboard, projector, conference_phone, video_conference_kit, printer, server_rack, network_switch, workbench, shelving, locker, charging_station, first_aid_kit), each kind once, at most 20. Free text lives in `description` (500) and `notes` (2000). Stored as one JSON column on the room. |
 | Room details | `description`, `color` (palette name: slate, forest, brass, sapphire, amethyst, crimson, teal, sand), optional Arabic name `name_ar`. |
+| Arabic names | Buildings, floors and rooms each have an optional `name_ar` (1 to 100 characters, one line, no control characters; `null` clears it). Create bodies accept it, `PATCH` sets or clears it, templates and copies carry it, and the English `name` stays the stable one. See [Arabic names](ANUM_MINE_ARABIC_NAMES.md). |
 | Templates | Five fixed server side templates: open_office, meeting_room, reception, warehouse, workshop (`GET /templates`, English and Arabic names, size, capacity, equipment). No owner saved templates yet. |
 | Deleting | A building is deleted only when it has no floors, a floor only when it has no rooms, a room only when it has no desks. Otherwise 409 with a `details` list naming what blocks it. |
 | Edits | Live with a revision check on every change (no draft step). A multi room save is atomic. |
@@ -94,6 +95,9 @@ Validation answers 422, stale revisions and blocked deletes 409, other tenants' 
 
 ### Schema
 Expand only. `office_floors`: `width_m`, `depth_m`. `office_rooms`: `rotation` (default 0), `door_side` (default south), `description`, `notes`, `color`, `name_ar`, `equipment` (jsonb array), `team_department`, with check constraints. `office_desks`: `pos_x`, `pos_z`. No new table, so the forced RLS and purge policies of `0097` already cover the columns. The previous release keeps working against the new schema. Numbers are renumbered at merge if another migration lands first.
+
+### Arabic names (migration `0114_building_floor_name_ar`)
+Expand only: a nullable `name_ar varchar(100)` on `office_buildings` and `office_floors` (rooms have had it since 0105). No backfill, no new table: the forced RLS and purge policies of `0097` already cover the columns, and the previous release keeps working against the new schema. Details, the Add Arabic names action and the web behaviour are in [ANUM_MINE_ARABIC_NAMES.md](ANUM_MINE_ARABIC_NAMES.md).
 
 ### Tests
 `tests/test_office_layout.py` (geometry rules, catalogue drift, request models), `tests/test_postgres_office_builder.py` (database role, atomic save, delete guards, copy, templates, audit values, event, team counts, member and cross tenant refusals). Contract types: `packages/contracts/src/officeBuilder.ts`.

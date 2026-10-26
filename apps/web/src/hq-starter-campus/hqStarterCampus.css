@@ -54,3 +54,7 @@
 @keyframes hqScSpin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.hqScSpin{animation:none}}
 @media(max-width:580px){.hqScBackdrop{padding:0;align-items:end}.hqScDialog{max-height:100dvh;border-radius:14px 14px 0 0}.hqScRow{flex-wrap:wrap}}
+
+.hqScArabic h3{display:flex;align-items:center;gap:6px;margin:0}
+.hqScArabicList{list-style:none;margin:0;padding:0;display:grid;gap:3px;color:#c3d7df;font-size:var(--text-2xs)}
+.hqScArabicList li{overflow-wrap:anywhere}
