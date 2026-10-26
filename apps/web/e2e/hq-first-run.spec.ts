@@ -128,6 +128,7 @@ test('the building view shows every room of the floor, and the floor overview la
   // Every room card sits inside the picture: the camera frames the whole 38 m floor, not one room of it.
   const box = (await stage.boundingBox())!;
   for (const card of await hq(page).locator('.hqBuilding .hqRoomCard').all()) {
+    await expect(card).toBeVisible(); // the cards are placed on the first drawn frame
     const b = (await card.boundingBox())!;
     expect(b.x + b.width / 2, 'card centre inside the stage').toBeGreaterThan(box.x);
     expect(b.x + b.width / 2).toBeLessThan(box.x + box.width);
@@ -153,7 +154,14 @@ test('the building view shows every room of the floor, and the floor overview la
   await expect(rooms).toContainText('Rooms 5, desks 26, agents seated 0.');
   await shot(page, 'floor-overview-1440');
   // Picking a room selects it and keeps the whole floor in view.
-  const distance = await hq(page).locator('.hqSceneWrap').getAttribute('data-camera-distance');
+  // Let the camera finish moving to the overview framing (it glides and eases) before reading it: three equal reads in a row.
+  let distance: string | null = null;
+  for (let i = 0, same = 0; i < 40 && same < 2; i++) {
+    const now = await hq(page).locator('.hqSceneWrap').getAttribute('data-camera-distance');
+    same = now === distance ? same + 1 : 0;
+    distance = now;
+    await page.waitForTimeout(300);
+  }
   await cards.filter({ hasText: 'Command Center' }).click();
   await expect(page.getByRole('complementary', { name: 'Room Command Center' })).toBeVisible();
   await expect(hq(page).locator('.hqSceneWrap')).toHaveAttribute('data-camera-distance', distance!);

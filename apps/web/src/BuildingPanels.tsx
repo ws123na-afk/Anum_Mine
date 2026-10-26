@@ -3,11 +3,7 @@ import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
 import { commerceFlow } from './lib/hqModules.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import { roomName, sceneName } from './lib/registryNames.ts';
-import type { RoomGeometry, SceneFloor } from './lib/headquartersProjection.ts';
-import { Building2, DoorOpen, HardDrive, Users } from 'lucide-react';
-
-const ROOM_ICON = { meeting: Users, reception: DoorOpen, warehouse: HardDrive } as const;
-
+import type { SceneFloor } from './lib/headquartersProjection.ts';
 
 function NotConnected(props: { title: string; state: ModuleState<unknown>; setupHash: string }) {
   const s = props.state;
@@ -94,16 +90,5 @@ export function FloorRooms(props: { floor: SceneFloor; has: (desk: SceneFloor['d
         ))}
       </ul>
     </section>
-  );
-}
-
-/** The room card of the floor overview: the name, the kind, the desks and the people at them; a button that selects the room. */
-export function OverviewCard(props: { room: RoomGeometry; desks: number; assigned: number; selected: boolean; onPick: () => void }) {
-  const Icon = (ROOM_ICON as Record<string, typeof Users>)[props.room.kind] ?? Building2;
-  return (
-    <button type="button" className="hqLabelCard hqOverviewCard" data-selected={props.selected} data-kind={props.room.kind} aria-pressed={props.selected} onClick={props.onPick}>
-      <span className="hqLabelIcon"><Icon aria-hidden="true" /></span>
-      <span className="hqLabelText"><strong>{roomName(props.room)}</strong><small>{t(`hq.roomKind.${props.room.kind}` as MessageKey)}</small><small>{t('hqFloor.stats', { desks: props.desks, agents: props.assigned })}</small></span>
-    </button>
   );
 }

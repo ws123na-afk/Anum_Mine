@@ -306,16 +306,8 @@
 .hqSceneWrap .hqLink { color: #8fe3d1; }
 .hqTaskList { max-height: 40vh; overflow: auto; }
 
-/* In a building the cards start compact so they never pile up: a room is its icon and name, an agent is a status-ringed avatar.
-   Hover, focus or selection opens the full card. The details stay in the accessibility tree the whole time. */
+/* Label density (full, compact, dot) is decided per frame by lib/hqLabels.ts and styled in hqLabels.css. */
 .hqLabelAnchor:hover, .hqLabelAnchor:focus-within { z-index: 9999 !important; }
-.hqRoomCard:not(:hover):not(:focus-visible):not([data-selected="true"]) .hqLabelText small,
-.hqAgentCard:not(:hover):not(:focus-visible):not([data-selected="true"]) .hqLabelText {
-  clip: rect(0 0 0 0); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px;
-}
-.hqRoomCard { min-height: 36px; padding: 4px 10px 4px 4px; }
-.hqRoomCard .hqLabelIcon { height: 26px; width: 26px; }
-.hqRoomCard[data-live="true"] { border-color: var(--hq-meeting); }
 /* Floor overview (docs/ANUM_MINE_FLOOR_OVERVIEW.md): every room card shows its facts at once; the list under the scene repeats them. */
 .hqOverviewCard { max-width: 168px; min-height: 48px; padding: 4px 10px 4px 4px; }
 .hqOverviewCard .hqLabelIcon { height: 28px; width: 28px; }
@@ -331,10 +323,6 @@
 .hqFloorRooms li button[data-selected="true"] { border-color: var(--d-accent); box-shadow: 0 0 0 1px var(--d-accent); }
 .hqFloorRooms li small { color: var(--d-muted); font-size: var(--text-2xs); }
 .hqBuilding[data-overview="true"] .hqSceneWrap { outline: 1px dashed color-mix(in srgb, var(--d-accent) 60%, transparent); outline-offset: -1px; }
-.hqAgentCard { transition: border-radius .12s; }
-.hqAgentCard:not(:hover):not(:focus-visible):not([data-selected="true"]) { border-radius: 999px; min-width: 0; padding: 3px; }
-.hqAgentCard .hqAvatar { box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone, var(--hq-faint)) 85%, transparent); }
-.hqAgentCard[data-stale="true"] .hqAvatar { opacity: .6; }
 
 /* Readiness fixes (F14): the app's global `strong, h1-h3 { color: var(--d-text) }` made headquarters
    text near-black on the dark panels in the light app theme. The surface owns its own colours in every app theme. */
