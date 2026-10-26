@@ -17,6 +17,8 @@ export type CampusBuilding = Readonly<{
   workspace_id: string;
   tenant_id: string;
   name: string;
+  /** The Arabic name of a registry building, when it has one (display only; placement and sorting use `name`). */
+  nameAr?: string | null;
   /** What the building looks like. Without an owner's classification (`kindKnown` false) it is drawn as a plain business building. */
   kind: CampusBuildingKind;
   /** False until an owner sets the building type; it is never guessed. */
@@ -216,7 +218,7 @@ export function campusExtent(placements: readonly Placement[]): { minX: number; 
 export function filterBuildings(buildings: readonly CampusBuilding[], query: string): CampusBuilding[] {
   const q = query.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().trim();
   if (!q) return [...buildings];
-  return buildings.filter((b) => `${b.name} ${b.kind}`.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().includes(q));
+  return buildings.filter((b) => `${b.name} ${b.nameAr ?? ''} ${b.kind}`.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().includes(q));
 }
 
 /** The next or previous workspace id in reading order (wraps). Null when there are no buildings. */

@@ -156,7 +156,8 @@ def _apply_building(context: TenantContext, spec: sc.BuildingSpec, zone: str, ex
         skipped: list[dict[str, str]] = []
         filled: list[dict[str, Any]] = []
         if fresh["action"] == "create":
-            row = store.create(context, "buildings", spec.id, {"name": spec.en, "timezone": zone, "latitude": None, "longitude": None})
+            row = store.create(context, "buildings", spec.id, {"name": spec.en, "name_ar": spec.ar, "timezone": zone,
+                                                                "latitude": None, "longitude": None})
             created["buildings"] += 1
             ids.append(spec.id)
             snaps["building"] = _snap("buildings", row)
@@ -166,7 +167,7 @@ def _apply_building(context: TenantContext, spec: sc.BuildingSpec, zone: str, ex
             if floor["action"] == "create":
                 row = store.create(context, "floors", floor["id"], {
                     "building_id": spec.id, "level": floor["level"], "name": floor["name"]["en"],
-                    "width_m": floor["width_m"], "depth_m": floor["depth_m"]})
+                    "name_ar": floor["name"]["ar"], "width_m": floor["width_m"], "depth_m": floor["depth_m"]})
                 created["floors"] += 1
                 ids.append(floor["id"])
                 snaps["floors"].append(_snap("floors", row))

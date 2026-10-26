@@ -135,7 +135,7 @@ def confirm_proposal(body: ConfirmBody, response: Response, idempotency_key: Cre
             room_ids: list[str] = []
             for f in content["floors"]:
                 floor = store.create(context, "floors", f["id"], {"building_id": b["id"], "level": f["level"], "name": f["name"],
-                                                                 "width_m": f["width_m"], "depth_m": f["depth_m"]})
+                                                                 "name_ar": f["name_ar"], "width_m": f["width_m"], "depth_m": f["depth_m"]})
                 _audit(store, context, "office.floor.create", f["id"], kind="floors", after=_snap("floors", floor), floor_id=f["id"])
                 for r in f["rooms"]:
                     template = layout.template_by_id(r["template_id"])

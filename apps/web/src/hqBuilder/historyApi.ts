@@ -35,9 +35,9 @@ export function createHistoryApi(request: OfficeRequester, remove: OfficeVoidReq
       request<OfficeLayoutTemplate>(`${ROOT}/templates/${enc(id)}`, { method: 'PATCH', body: json({ name, expected_revision: revision }) }),
     deleteTemplate: (id: string, revision: number) =>
       remove(`${ROOT}/templates/${enc(id)}?${new URLSearchParams({ expected_revision: String(revision) }).toString()}`, { method: 'DELETE' }),
-    floorFromTemplate: (body: { template_id: string; id: string; building_id: string; level: number; name?: string }) =>
+    floorFromTemplate: (body: { template_id: string; id: string; building_id: string; level: number; name?: string; name_ar?: string }) =>
       request<FloorFromTemplateResult>(`${ROOT}/floors/from-template`, { method: 'POST', body: json(body) }),
-    buildingFromTemplate: (body: { template_id: string; id: string; name: string; timezone: string }) =>
+    buildingFromTemplate: (body: { template_id: string; id: string; name: string; name_ar?: string; timezone: string }) =>
       request<BuildingFromTemplateResult>(`${ROOT}/buildings/from-template`, { method: 'POST', body: json(body) }),
   };
 }

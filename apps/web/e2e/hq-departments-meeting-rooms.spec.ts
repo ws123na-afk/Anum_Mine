@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { ARABIC_NAMES_NONE } from './support/hqArabicNamesApi';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { mockFlow } from './support/hqFlowApi';
 import { mockProvisioning } from './support/hqProvisioningApi';
@@ -260,6 +261,7 @@ test('Set up my campus offers to fill the department of existing campus rooms an
   await openHq(page, { registry: registry(), beforeGoto: async (p) => {
     await p.route(/http:\/\/localhost:8000\/api\/v1\/office\/starter-campus\/.*/, async (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (path.includes('/arabic-names/')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ARABIC_NAMES_NONE) });
       if (path.endsWith('/preview')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(preview) });
       confirmed = route.request().postDataJSON() as Record<string, unknown>;
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ version: 1, outcome: 'created', payload_hash: 'ab'.repeat(32), timezone: 'Asia/Dubai',

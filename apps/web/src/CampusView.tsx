@@ -19,6 +19,9 @@ import { campusCamera, clampTarget, faceNorth, rotateBy, threeDView, topView, vi
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
+import { sceneName } from './lib/registryNames.ts';
+import { useLocale } from './useLocale';
+import { useArabicSignFont } from './lib/arabicFont.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
 import { useNavLayout } from './hq-nav/useNavLayout.ts';
 import { cardDensities, cardTags, type CardDensity } from './hq-nav/navModel.ts';
@@ -65,6 +68,8 @@ export type CampusViewProps = Readonly<{
 }>;
 
 export function CampusView(props: CampusViewProps) {
+  const locale = useLocale();
+  const fontsReady = useArabicSignFont(locale === 'ar');
   const { campus, view, night, selectedId } = props;
   // Floor plans: the scene (footprints, shells) follows the layout only; presence moves the glass atlas, never the meshes.
   const plans = props.plans;
@@ -164,11 +169,11 @@ export function CampusView(props: CampusViewProps) {
   const renderScene = useMemo(() => ({
     opaque: [{ id: 'scenery', vertices: scene.scenery.vertices, bounds: scene.scenery.bounds, cull: false }, ...scene.buildings.map((b) => ({ id: b.workspaceId, vertices: b.mesh.vertices, bounds: b.mesh.bounds }))],
     glass: [],
-    signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: byId.get(b.workspaceId)?.name ?? '' }))],
+    signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: sceneName(byId.get(b.workspaceId) ?? { name: '' }, locale), fontsReady }))],
     shadow: scene.shadow,
     halos: scene.halos,
     scenery: scene.motion,
-  }), [scene, byId]);
+  }), [scene, byId, locale, fontsReady]);
 
   // A phone-sized stage has room for two full cards and a handful of compact ones.
   const compact = useNavLayout().layout.compact;
@@ -236,7 +241,7 @@ export function CampusView(props: CampusViewProps) {
         <Minimap
           placements={placements} extent={scene.extent.radius} selectedId={selectedId} footprint={footprint}
           onJump={(x, z) => change((c) => ({ ...c, target: { x, y: 0, z } }))} onSelect={(id) => select(id)}
-          nameOf={(id) => byId.get(id)?.name ?? id}
+          nameOf={(id) => { const found = byId.get(id); return found ? sceneName(found, locale) : id; }}
         />
       </div>
       <div className="hqOverlay hqOverlayBottom">
@@ -248,7 +253,7 @@ export function CampusView(props: CampusViewProps) {
         />
       </div>
       {selected && (
-        <aside className="hqOverlay hqOverlayTopLeft hqPanel hqDetail" aria-label={t('hq.detail.label', { name: selected.name })}>
+        <aside className="hqOverlay hqOverlayTopLeft hqPanel hqDetail" aria-label={t('hq.detail.label', { name: sceneName(selected, locale) })}>
           <BuildingDetail building={selected} current={selected.workspace_id === props.currentWorkspaceId || selected.registryBuildingId !== undefined} onEnter={() => props.onEnter(selected.workspace_id)} onClose={() => props.onSelect(null)} onSaveProfile={props.onSaveProfile} />
         </aside>
       )}
@@ -285,14 +290,14 @@ function BuildingCard(props: {
   return (
     <button
       type="button" className="hqLabelCard hqBuildingCard" data-selected={props.selected} data-status={status} data-kind={b.kind} data-density={props.density}
-      aria-label={`${b.name}. ${summary}.${props.selected ? ' ' + t('hq.building.pressToOpen') : ''}`}
-      aria-pressed={props.selected} title={props.density === 'dot' ? b.name : undefined}
+      aria-label={`${sceneName(b)}. ${summary}.${props.selected ? ' ' + t('hq.building.pressToOpen') : ''}`}
+      aria-pressed={props.selected} title={props.density === 'dot' ? sceneName(b) : undefined}
       onClick={props.onActivate} onMouseEnter={() => props.onHover(true)} onMouseLeave={() => props.onHover(false)}
     >
       <span className="hqLabelIcon">{iconOf(b)}</span>
       {props.density !== 'dot' && (
         <span className="hqLabelText">
-          <strong>{b.name}</strong>
+          <strong>{sceneName(b)}</strong>
           {tags.length > 0 && <span className="hqCardTags" aria-hidden="true">{tags.map((tag, i) => <span key={i}>{tagText(tag)}</span>)}</span>}
           <small>{summary}</small>
         </span>
@@ -312,7 +317,7 @@ function BuildingDetail(props: { building: CampusBuilding; current: boolean; onE
   return (
     <>
       <div className="hqPanelHead">
-        <h2>{b.name}</h2>
+        <h2>{sceneName(b)}</h2>
         <button type="button" className="hqIconButton" onClick={props.onClose} aria-label={t('hq.detail.close')}>×</button>
       </div>
       <p className="hqMuted">{b.registryBuildingId ? (b.workspaceName ?? '') : b.kindKnown === false ? t('hq.kind.unset') : t(`hq.kind.${b.kind}` as MessageKey)}{b.floors ? ` · ${t('hq.building.floors', { count: b.floors })}` : ''}{b.archived ? ` · ${t('hq.detail.archived')}` : ''}</p>
@@ -326,7 +331,7 @@ function BuildingDetail(props: { building: CampusBuilding; current: boolean; onE
         ? <p className="hqNote">{t('hq.detail.notAccessible')}</p>
         : <>
           {!props.current && <p className="hqNote">{t('hq.detail.switchNote')}</p>}
-          <button type="button" className="hqPrimary" onClick={props.onEnter}>{t('hq.building.enter', { name: b.name })}<ArrowRight aria-hidden="true" className="flip" /></button>
+          <button type="button" className="hqPrimary" onClick={props.onEnter}>{t('hq.building.enter', { name: sceneName(b) })}<ArrowRight aria-hidden="true" className="flip" /></button>
         </>}
     </>
   );

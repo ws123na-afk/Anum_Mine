@@ -71,7 +71,7 @@ export function expandCampus(campus: Campus, workspaceId: string, registry: read
     const rooms = b.floors.reduce((n, f) => n + f.rooms.length, 0);
     const desks = b.floors.reduce((n, f) => n + f.desks.length, 0);
     return {
-      ...home, workspace_id: registryKey(workspaceId, b.id), realWorkspaceId: workspaceId, registryBuildingId: b.id, workspaceName: home.name, name: b.name,
+      ...home, workspace_id: registryKey(workspaceId, b.id), realWorkspaceId: workspaceId, registryBuildingId: b.id, workspaceName: home.name, name: b.name, nameAr: b.nameAr ?? null,
       // The registry holds no building type, so none is ever labelled; the look follows the starter campus id (`registryLook`).
       ...registryLook(b.id), kindKnown: false, role: home.role, profileRevision: null,
       floors: b.floors.length || null, rooms, desks, totals: facts.totals, people: facts.people, departments: facts.departments,

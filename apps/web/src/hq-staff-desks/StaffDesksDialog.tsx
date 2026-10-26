@@ -6,6 +6,7 @@ import * as api from '../lib/api';
 import { ApiError, describeError, isPermissionDenied } from '../lib/errors';
 import { t, type MessageKey } from '../lib/i18n';
 import { useModal } from '../Dialog';
+import { deskLabel, pickName } from '../lib/registryNames';
 import { useLocale } from '../useLocale';
 import { canConfirm, createStaffDesksClient, DESK_STATES, flatten, money, pageOf, summarize } from './client';
 import { TurnOnPanel } from './TurnOnPanel';
@@ -25,11 +26,12 @@ export interface StaffDesksDialogProps {
 const PAGE = 25;
 const doneTone = (d: Done) => (d.failure && !d.results.length ? 'failed' : d.failure || d.results.some((r) => r.status === 'failed') ? 'partial' : 'ok');
 const keyOf = (keys: Iterable<string>, skip: Iterable<string>, max: number | null) => JSON.stringify([[...keys].sort(), [...skip].sort(), max]);
-const nameOf = (en: string, ar: string | null, locale: 'en' | 'ar') => (locale === 'ar' && ar ? ar : en);
+const nameOf = (en: string, ar: string | null, locale: 'en' | 'ar') => pickName(en, ar, locale);
 const stateText = (s: string) => t(`hqSd.state.${s}` as MessageKey);
 
-export function buildingName(b: { id: string; name: string }, locale: 'en' | 'ar'): string {
+export function buildingName(b: { id: string; name: string; name_ar?: string | null }, locale: 'en' | 'ar'): string {
   if (locale !== 'ar') return b.name;
+  if (b.name_ar?.trim()) return pickName(b.name, b.name_ar, locale);
   const key = `hqSd.building.${b.id}` as MessageKey;
   const text = t(key);
   return text === key ? b.name : text;
@@ -308,12 +310,12 @@ function DeskList({ preview, locale, onKeepEmpty }: { preview: StaffDesksPreview
           return <li key={desk.id} data-state={desk.state}>
             <div>
               <strong>{desk.agent?.name ?? `${nameOf(room.name, room.name_ar, locale)} ${desk.number}`}</strong>
-              <small>{bn}, {t('hqSd.desks.where', { floor: room.floor_level, room: nameOf(room.name, room.name_ar, locale), desk: desk.label })}
+              <small>{bn}, {t('hqSd.desks.where', { floor: room.floor_level, room: nameOf(room.name, room.name_ar, locale), desk: deskLabel(desk.label, locale) })}
                 {desk.agent && <> {' · '}{roleName(desk.agent.template_id)}</>}</small>
             </div>
             <span className="hqSdBadge" data-state={desk.state}>{stateText(desk.state)}</span>
             {(flipable || desk.state === 'keep_empty') && preview.can_confirm && <button type="button" disabled={pending === desk.id}
-              aria-label={`${desk.state === 'keep_empty' ? t('hqSd.staffAgain') : t('hqSd.keepEmpty')}: ${desk.label}, ${nameOf(room.name, room.name_ar, locale)}`}
+              aria-label={`${desk.state === 'keep_empty' ? t('hqSd.staffAgain') : t('hqSd.keepEmpty')}: ${deskLabel(desk.label, locale)}, ${nameOf(room.name, room.name_ar, locale)}`}
               onClick={() => void act(desk.id, desk.state !== 'keep_empty')}>{desk.state === 'keep_empty' ? t('hqSd.staffAgain') : t('hqSd.keepEmpty')}</button>}
           </li>;
         })}

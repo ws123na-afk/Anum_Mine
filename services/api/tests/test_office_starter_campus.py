@@ -223,7 +223,33 @@ def test_web_fixture_of_the_master_list_matches() -> None:
 
     path = Path(__file__).resolve().parents[3] / "apps" / "web" / "test" / "fixtures" / "starterCampusRooms.json"
     expected = [
-        {"building": b.key, "building_id": b.id, "floor": f.level, "room": r.key, "name": r.en, "kind": r.kind, "department": r.department}
+        {"building": b.key, "building_id": b.id, "floor": f.level, "room": r.key, "name": r.en, "name_ar": r.ar, "kind": r.kind, "department": r.department}
         for b in sc.CAMPUS for f in b.floors for r in f.rooms
     ]
     assert json.loads(path.read_text(encoding="utf-8")) == expected, "regenerate apps/web/test/fixtures/starterCampusRooms.json from CAMPUS"
+
+
+def test_web_registry_fixture_has_the_planner_names_in_both_languages() -> None:
+    """The registry the web and browser tests share (apps/web/test/fixtures/starterCampus.json) equals the master list's names."""
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[3] / "apps" / "web" / "test" / "fixtures" / "starterCampus.json"
+    fx = json.loads(path.read_text(encoding="utf-8"))
+    assert [(b["id"], b["name"], b["name_ar"]) for b in fx["buildings"]] == [(b.id, b.en, b.ar) for b in sc.CAMPUS]
+    assert [(f["id"], f["name"], f["name_ar"]) for f in fx["floors"]] == [(sc.floor_id(b, f), f.en, f.ar) for b in sc.CAMPUS for f in b.floors]
+    assert [(r["id"], r["name"], r["name_ar"]) for r in fx["rooms"]] == [
+        (sc.room_id(b, r), r.en, r.ar) for b in sc.CAMPUS for f in b.floors for r in f.rooms]
+
+
+def test_web_browser_master_fixture_matches() -> None:
+    """The browser tests' fake server (e2e/support/starterCampusMaster.json) is generated from the master list; keep it equal."""
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[3] / "apps" / "web" / "e2e" / "support" / "starterCampusMaster.json"
+    master = json.loads(path.read_text(encoding="utf-8"))
+    assert [(b["key"], b["en"], b["ar"]) for b in master] == [(b.key, b.en, b.ar) for b in sc.CAMPUS]
+    assert [(f["en"], f["ar"]) for b in master for f in b["floors"]] == [(f.en, f.ar) for b in sc.CAMPUS for f in b.floors]
+    assert [(r["key"], r["en"], r["ar"], r["kind"]) for b in master for f in b["floors"] for r in f["rooms"]] == [
+        (r.key, r.en, r.ar, r.kind) for b in sc.CAMPUS for f in b.floors for r in f.rooms]

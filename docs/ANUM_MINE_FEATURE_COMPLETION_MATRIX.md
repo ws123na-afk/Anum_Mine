@@ -242,8 +242,9 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 13.2 | Docs updated and indexed in the same change | Complete | Ran | README lists every HQ doc; `pnpm docs:check` | none |
 | 13.3 | Migrations expand only, ids at most 32 characters, one chain | Partial | Read | 0097 to 0106 are additive (`0105_office_builder.py` header states it) | Two files are numbered 0099 (`0099_office_create_keys.py`, `0099_office_room_geometry.py`); ids chain correctly (finding H-12). PR: rename one file to remove the duplicate number |
 | 13.4 | Real data only, no invented people or activity in the live view | Partial | Read | Presence, work, flow, meetings and modules are record-backed with honest empty states; the invented Reception panel is gone from the live view (PR claude/hq-room-modules) | The second guided tour with invented descriptions is gone (6.5). The concept preview toggle stays visibly separate; owner decision O12 |
-| 13.5 | English and Arabic | Partial | Read | `lib/messages/hq.en.ts` (210 lines) and `hq.ar.ts` (209), `hqFlow.*`, `builder.*`; `hq-campus.spec.ts` "Arabic ... right to left"; `hq-a11y.spec.ts` | Key parity of `hq.en` and `hq.ar` not checked key by key. `GuidedExecutiveTour.tsx` and `ReceptionOperations.tsx` are English only. PR: a unit test that fails when a key exists in one language only, and translate those two panels |
+| 13.5 | English and Arabic | Partial | Read | `lib/messages/hq.en.ts` and `hq.ar.ts` (the unit test `test/i18n.test.ts` fails when a key exists in one language only), `hqFlow.*`, `builder.*`; `hq-campus.spec.ts` "Arabic ... right to left"; `hq-a11y.spec.ts`; registry names are covered by 13.7 | `GuidedExecutiveTour.tsx` and `ReceptionOperations.tsx` are English only. The legacy `OfficeSpaceLiveManager.tsx` (Manage spaces) is English only and has no Arabic name fields (the builder has them). PR: translate those panels |
 | 13.6 | Every state handled (loading, empty with next action, error, denied, large) | Complete | Read, CI | `e2e/hq-campus.spec.ts` "refused campus read explains who can fix it", "no saved layout says what to do next", list search; paged history API | none |
+| 13.7 | Building, floor and room names have an Arabic form, shown in Arabic mode with an English fallback | Complete | Read, Ran | Migration `0114_building_floor_name_ar` (nullable `name_ar` on buildings and floors; rooms had it since 0105), create, edit, templates and the starter campus carry it, `GET|POST /api/v1/office/starter-campus/arabic-names/*` (owner click, hash, fills empty names of master records only), one web helper `lib/registryNames.ts`, builder fields (right to left), Arabic sign atlas (`hqTextures.ts`); `test_postgres_office_arabic_names.py`, `test_office_starter_campus.py`, `test/registryNames.test.ts`, `e2e/hq-arabic-names.spec.ts`; `docs/ANUM_MINE_ARABIC_NAMES.md` | PostgreSQL and browser tests run in CI. Workspace and agent names are not registry records and stay as typed. Campuses made before 0114 show English names until the owner clicks Add Arabic names (Office tools, Set up my campus) |
 | 13.7 | No em or en dashes, no secrets, no model names | Complete | Ran | This file checked with a search; gitleaks and CodeQL green on main | Repo-wide dash check not run |
 
 ## Section 14. Acceptance criteria (derived)
@@ -301,16 +302,16 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 
 ## Totals
 
-Rows counted: 145 (sections 1 to 14).
+Rows counted: 146 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
-| Complete | 108 |
+| Complete | 109 |
 | Partial | 33 |
 | Missing | 3 |
 | Not applicable | 1 |
-| Total | 145 |
+| Total | 146 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 101, Partial 26, Missing 3, Not applicable 1 (total 131). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work; the earlier totals were one Complete row behind).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 102, Partial 26, Missing 3, Not applicable 1 (total 132). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work; the earlier totals were one Complete row behind).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.

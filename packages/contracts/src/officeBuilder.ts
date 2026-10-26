@@ -53,10 +53,39 @@ export type OfficeBuilderErrorCode =
   | 'BUILDING_NOT_EMPTY' | 'FLOOR_PRESENT' | 'FLOOR_NOT_EMPTY' | 'ROOM_PRESENT'
   | 'ROOM_NOT_EMPTY' | 'DESK_PRESENT';
 
+/** Create bodies: `name_ar` is optional everywhere (absent means no Arabic name, never an empty string). */
+export interface OfficeBuildingCreate {
+  id: string;
+  name: string;
+  name_ar?: string;
+  timezone: string;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+export interface OfficeFloorCreate {
+  id: string;
+  building_id: string;
+  level: number;
+  name: string;
+  name_ar?: string;
+  width_m?: number;
+  depth_m?: number;
+}
+export interface OfficeRoomCreate {
+  id: string;
+  floor_id: string;
+  name: string;
+  name_ar?: string;
+  kind: OfficeRoomKind;
+  capacity: number;
+}
+
 /** PATCH bodies: send only what changes. `null` clears color, name_ar, team_department and coordinates. */
 export interface OfficeBuildingUpdate {
   expected_revision: number;
   name?: string;
+  /** One line, 1 to 100 characters; `null` clears it. */
+  name_ar?: string | null;
   timezone?: string;
   latitude?: number | null;
   longitude?: number | null;
@@ -64,6 +93,7 @@ export interface OfficeBuildingUpdate {
 export interface OfficeFloorUpdate {
   expected_revision: number;
   name?: string;
+  name_ar?: string | null;
   level?: number;
   /** Send both or neither. */
   width_m?: number;

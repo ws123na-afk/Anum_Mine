@@ -141,3 +141,16 @@ def test_the_hash_binds_tenant_workspace_user_building_and_every_item() -> None:
 def test_cost_is_the_sum_of_caps() -> None:
     cost = sd.cost_summary(world()["buildings"])
     assert cost["agents"] == 3 and cost["max_monthly_usd"] == 15.0
+
+
+def test_the_plan_carries_the_arabic_names_of_buildings_and_floors() -> None:
+    buildings = [{"id": "b1", "name": "ANUM HQ", "name_ar": "المقر الرئيسي لأنوم"}, {"id": "b2", "name": "Plain"}]
+    floors = [{"id": "f1", "building_id": "b1", "level": 0, "name": "Ground floor", "name_ar": "الطابق الأرضي"},
+              {"id": "f2", "building_id": "b2", "level": 0, "name": "G"}]
+    rooms = [{"id": "r1", "floor_id": "f1", "name": "Orders", "name_ar": None, "kind": "office", "capacity": 6, "team_department": "operations"},
+             {"id": "r2", "floor_id": "f2", "name": "Zebra", "name_ar": None, "kind": "office", "capacity": 6, "team_department": None}]
+    plan = sd.plan_staffing(buildings=buildings, floors=floors, rooms=rooms, desks=[], ledger={}, live_agents=set(), markers={},
+                            agent_count=0, selected=None, exclude_rooms=set(), max_agents=None, lang="ar")
+    by_id = {b["id"]: b for b in plan["buildings"]}
+    assert by_id["b1"]["name_ar"] == "المقر الرئيسي لأنوم" and by_id["b2"]["name_ar"] is None
+    assert by_id["b1"]["rooms"][0]["floor_name_ar"] == "الطابق الأرضي" and by_id["b2"]["rooms"][0]["floor_name_ar"] is None
