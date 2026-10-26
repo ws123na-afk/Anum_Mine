@@ -228,7 +228,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 | 12.4 | Web unit tests and typecheck | Complete | Ran | 168 of 168 and `tsc` pass | none |
 | 12.5 | Backend unit tests | Complete | Ran | 138 of 138 pass | none |
 | 12.6 | PostgreSQL and RLS tests | Complete | CI | `test_postgres_hq_rls.py`, `test_postgres_office_*`, `test_postgres_live_agent_meeting_*` | Not verified locally: no test database credentials here |
-| 12.7 | Security tests and review | Partial | Read | `docs/ANUM_MINE_HQ_SECURITY_REVIEW.md`, `e2e/hq-csp.spec.ts`, RLS test | S-02, S-03 and S-04 are closed (see 9.3, 9.12, 9.13). Open: S-05 (turn rate) |
+| 12.7 | Security tests and review | Partial | Read | `docs/ANUM_MINE_HQ_SECURITY_REVIEW.md`, `e2e/hq-csp.spec.ts`, RLS test | S-02, S-03, S-04 and S-05 are closed (see 9.3, 9.12, 9.13; S-05 is a per person and per workspace turn rate on `execute-turn` and `run`, `tests/test_live_agent_meeting_turn_rate.py`, per process memory so N replicas allow N times the rate). Still open: S-10 (stream per scope, confirm on Oracle) and S-11 (example names in the concept view and reception). Row stays Partial; totals unchanged |
 | 12.8 | Accessibility | Complete | Read, CI | `e2e/hq-a11y.spec.ts`: English and Arabic, light and dark | Open H-13 (close button covered by header in the overlay) was found; status not re-checked |
 | 12.9 | Load and streaming | Partial | Read | `scripts/hq-load/hq_load.py`, `docs/ANUM_MINE_HQ_LOAD_TESTING.md` | Never run on the Oracle VM with PostgreSQL; H-09 open |
 | 12.10 | Rollback | Complete | Read | `VITE_ANUM_HQ=off` (`lib/headquartersFlag.ts`), expand-only migrations, `docs/ANUM_MINE_HQ_DEPLOYMENT_AND_ROLLBACK.md` | No rehearsal recorded |
@@ -277,7 +277,7 @@ Today a room panel shows the room, its desks and presence, then one link chosen 
 7. **Done in PR claude/hq-live-scene: the web uses the presence stream (8.1, 8.2, 14.6), shows all eight states (5.5), the operations wall (2.6), the filtered flow dock (7.2) and the Inside camera (3.4).** Still to do: re-run the load test on the Oracle VM (H-09).
 8. **Meeting summary and decision to work links (9.6, 9.9, 9.7).** Owner-confirmed summary, decisions linked to tasks, linked items in the export.
 9. **Done in PR claude/hq-layout-history: layout history and restore (8.6, 11.6) and floor and building templates (11.8).** Stored snapshots written in the save's own transaction, a click only governed restore, and a History and Templates tab.
-10. **Close the open security findings (9.3, 9.12, 9.13, 12.7).** Workspace meeting cap, audit each turn, decide transcript visibility. Done in the meeting budget PR (S-02, S-03, S-04); S-05 and owner decision O5 (retention) stay open.
+10. **Close the open security findings (9.3, 9.12, 9.13, 12.7).** Workspace meeting cap, audit each turn, decide transcript visibility. Done in the meeting budget PR (S-02, S-03, S-04) and the turn rate change (S-05); owner decision O5 (retention) stays open.
 
 Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a screenshot sweep artifact (12.3), the migration number clash (13.3), the `hq.en` and `hq.ar` key parity test (13.5).
 
