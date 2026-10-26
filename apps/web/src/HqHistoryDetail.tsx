@@ -4,7 +4,7 @@ import type { OfficeHistoryEvidence } from '@anum/contracts';
 import { RecordRow } from './HqHistoryParts';
 import { historyClient } from './useHqHistory';
 import { describeError, isPermissionDenied } from './lib/errors';
-import { HISTORY_PATH, PAGE_SIZE, sourceRefs, type SourceKind, type SourceRef } from './lib/hqHistory';
+import { HISTORY_PATH, PAGE_SIZE, mergeItems, sourceRefs, type SourceKind, type SourceRef } from './lib/hqHistory';
 import { type SourceSummary } from './lib/hqHistoryApi';
 import { actionLabel, fieldLabel, outcomeLabel, valueLabel, whenLabel, whoLabel, type NameMap } from './lib/hqHistoryText';
 import { recordDiffs } from './lib/hqRoomHistory';
@@ -15,8 +15,8 @@ const SHOWN_KEYS = new Set(['before', 'after', 'office_resource', 'resource_kind
 
 const kindLabel = (kind: SourceKind) => t(`hqHist.source.${kind}` as MessageKey);
 
-function SourceCard({ source, names, onLocateRoom, canLocate, onNavigate }: {
-  source: SourceRef; names: NameMap; onLocateRoom?: (roomId: string) => void; canLocate: boolean; onNavigate?: (hash: string) => void;
+function SourceCard({ source, names, onLocateRoom, canLocate, onNavigate, onShowRecords }: {
+  source: SourceRef; names: NameMap; onLocateRoom?: (roomId: string) => void; canLocate: boolean; onNavigate?: (hash: string) => void; onShowRecords?: (id: string) => void;
 }) {
   const [state, setState] = useState<{ kind: 'idle' } | { kind: 'loading' } | { kind: 'ready'; summary: SourceSummary } | { kind: 'error'; denied: boolean; missing: boolean; detail: string }>({ kind: 'idle' });
   const kind = kindLabel(source.kind);
@@ -38,6 +38,9 @@ function SourceCard({ source, names, onLocateRoom, canLocate, onNavigate }: {
           <button type="button" className="hqGhost" onClick={() => void show()} disabled={state.kind === 'loading'}>{t('hqHist.source.show', { kind, id: source.id })}</button>
         )}
         {state.kind === 'ready' && <button type="button" className="hqGhost" onClick={() => setState({ kind: 'idle' })}>{t('hqHist.source.hide')}</button>}
+        {onShowRecords && (source.kind === 'task' || source.kind === 'run' || source.kind === 'approval' || source.kind === 'meeting') && (
+          <button type="button" className="hqGhost" onClick={() => onShowRecords(source.id)}>{t('hqHist.source.records', { kind })}</button>
+        )}
         {source.kind === 'room' && canLocate && onLocateRoom && (
           <button type="button" className="hqGhost" onClick={() => onLocateRoom(source.id)}><MapPin aria-hidden="true" />{t('hqHist.source.locate')}</button>
         )}
@@ -65,16 +68,28 @@ function SourceCard({ source, names, onLocateRoom, canLocate, onNavigate }: {
   );
 }
 
-function Related({ record, names, onOpen }: { record: OfficeHistoryEvidence; names: NameMap; onOpen: (r: OfficeHistoryEvidence) => void }) {
-  const [state, setState] = useState<{ kind: 'idle' } | { kind: 'loading' } | { kind: 'ready'; items: OfficeHistoryEvidence[]; more: boolean } | { kind: 'error'; detail: string }>({ kind: 'idle' });
+function Related({ record, names, onOpen, onOpenRequest }: { record: OfficeHistoryEvidence; names: NameMap; onOpen: (r: OfficeHistoryEvidence) => void; onOpenRequest?: (correlationId: string) => void }) {
+  const [state, setState] = useState<{ kind: 'idle' } | { kind: 'loading' } | { kind: 'ready'; items: OfficeHistoryEvidence[]; cursor: string | null; busy: boolean } | { kind: 'error'; detail: string }>({ kind: 'idle' });
   useEffect(() => { setState({ kind: 'idle' }); }, [record.id]);
   const load = async () => {
     setState({ kind: 'loading' });
     try {
       const page = await historyClient.page(`${HISTORY_PATH}/correlations/${encodeURIComponent(record.correlation_id)}?limit=${PAGE_SIZE}`);
-      setState({ kind: 'ready', items: page.items, more: page.next_cursor !== null });
+      setState({ kind: 'ready', items: page.items, cursor: page.next_cursor, busy: false });
     } catch (failure) { setState({ kind: 'error', detail: describeError(failure) }); }
   };
+  const older = async () => {
+    if (state.kind !== 'ready' || !state.cursor || state.busy) return;
+    const { items, cursor } = state;
+    setState({ ...state, busy: true });
+    try {
+      const page = await historyClient.page(`${HISTORY_PATH}/correlations/${encodeURIComponent(record.correlation_id)}?limit=${PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`);
+      setState({ kind: 'ready', items: mergeItems(items, page.items), cursor: page.next_cursor, busy: false });
+    } catch (failure) { setState({ kind: 'error', detail: describeError(failure) }); }
+  };
+  if (!record.correlation_id.trim()) {
+    return <section aria-labelledby="hqHistRelated"><h3 id="hqHistRelated">{t('hqHist.related')}</h3><p className="hqHistHint">{t('hqHist.related.missing')}</p></section>;
+  }
   return (
     <section aria-labelledby="hqHistRelated">
       <h3 id="hqHistRelated">{t('hqHist.related')}</h3>
@@ -84,7 +99,12 @@ function Related({ record, names, onOpen }: { record: OfficeHistoryEvidence; nam
         {state.kind === 'error' && <p className="hqHistError" role="alert">{t('hqHist.related.error', { detail: state.detail })} <button type="button" className="hqLinkButton" onClick={() => void load()}>{t('hqHist.retry')}</button></p>}
         {state.kind === 'ready' && (state.items.length <= 1
           ? <p className="hqHistHint">{t('hqHist.related.none')}</p>
-          : <ul className="hqHistList">{state.items.map((r) => <RecordRow key={r.id} record={r} names={names} onOpen={onOpen} current={r.id === record.id} />)}</ul>)}
+          : <>
+            <p className="hqHistCount" role="status">{t(state.cursor ? 'hqHist.related.countMore' : 'hqHist.related.count', { count: state.items.length })}</p>
+            <ul className="hqHistList">{state.items.map((r) => <RecordRow key={r.id} record={r} names={names} onOpen={onOpen} current={r.id === record.id} />)}</ul>
+            {state.cursor && <button type="button" className="hqGhost" onClick={() => void older()} disabled={state.busy}>{state.busy ? t('hqHist.loadingMore') : t('hqHist.more')}</button>}
+            {onOpenRequest && <button type="button" className="hqGhost" onClick={() => onOpenRequest(record.correlation_id)}>{t('hqHist.related.timeline')}</button>}
+          </>)}
       </div>
     </section>
   );
@@ -94,6 +114,7 @@ function Related({ record, names, onOpen }: { record: OfficeHistoryEvidence; nam
 export function RecordDetail(props: {
   record: OfficeHistoryEvidence; names: NameMap; roomIds: ReadonlySet<string>;
   onBack: () => void; onOpenRecord: (r: OfficeHistoryEvidence) => void; onLocateRoom?: (roomId: string) => void; onNavigate?: (hash: string) => void;
+  onShowRecords?: (id: string) => void; onOpenRequest?: (correlationId: string) => void;
 }) {
   const { record, names } = props;
   const heading = useRef<HTMLHeadingElement>(null);
@@ -138,12 +159,12 @@ export function RecordDetail(props: {
         <h3 id="hqHistSources">{t('hqHist.sources')}</h3>
         {sources.length === 0 ? <p className="hqHistHint">{t('hqHist.sources.none')}</p> : (
           <ul className="hqHistSources">{sources.map((s) => (
-            <SourceCard key={`${s.kind}:${s.id}`} source={s} names={names} onLocateRoom={props.onLocateRoom} canLocate={props.roomIds.has(s.id)} onNavigate={props.onNavigate} />
+            <SourceCard key={`${s.kind}:${s.id}`} source={s} names={names} onLocateRoom={props.onLocateRoom} canLocate={props.roomIds.has(s.id)} onNavigate={props.onNavigate} onShowRecords={props.onShowRecords} />
           ))}</ul>
         )}
       </section>
 
-      <Related record={record} names={names} onOpen={props.onOpenRecord} />
+      <Related record={record} names={names} onOpen={props.onOpenRecord} onOpenRequest={props.onOpenRequest} />
 
       <section aria-labelledby="hqHistMeta">
         <h3 id="hqHistMeta">{t('hqHist.detail.metadata')}</h3>

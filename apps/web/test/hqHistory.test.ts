@@ -47,11 +47,12 @@ describe('query building', () => {
     const r = historyQuery(EMPTY_FILTERS, { kind: 'correlation', correlationId: 'a/b c' }, null);
     assert.ok(r.ok && r.path.startsWith('/api/v1/office-history/correlations/a%2Fb%20c?'));
   });
-  test('the CSV export is offered only when the audit export can match the timeline', () => {
+  test('the CSV export filters cover every view; room, agent and Other are narrowed afterwards', () => {
     assert.deepEqual(exportFilters({ ...EMPTY_FILTERS, category: 'office', q: 'x' }, OFFICE_SCOPE), { action: 'office.*', q: 'x' });
-    assert.equal(exportFilters({ ...EMPTY_FILTERS, category: 'other' }, OFFICE_SCOPE), null);
-    assert.equal(exportFilters(EMPTY_FILTERS, { kind: 'agent', agentId: 'a', name: 'A' }), null);
-    assert.equal(exportFilters(EMPTY_FILTERS, { kind: 'room', roomId: 'r', label: 'R', deskIds: [] }), null);
+    assert.deepEqual(exportFilters({ ...EMPTY_FILTERS, category: 'other' }, OFFICE_SCOPE), {});
+    assert.deepEqual(exportFilters(EMPTY_FILTERS, { kind: 'agent', agentId: 'a', name: 'A' }), {});
+    assert.deepEqual(exportFilters(EMPTY_FILTERS, { kind: 'room', roomId: 'r', label: 'R', deskIds: [] }), {});
+    assert.equal(exportFilters({ ...EMPTY_FILTERS, from: 'nope' }, OFFICE_SCOPE), null);
     assert.deepEqual(exportFilters(EMPTY_FILTERS, { kind: 'correlation', correlationId: 'c1' }), { correlationId: 'c1' });
   });
 });

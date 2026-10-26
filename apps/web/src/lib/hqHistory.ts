@@ -117,7 +117,7 @@ export function scopeIds(scope: HistoryScope): ReadonlySet<string> | null {
 }
 
 /** True when the record names the scope's room, desk or agent as actor, target or anywhere in its recorded values. */
-export function relatesTo(record: OfficeHistoryEvidence, scope: HistoryScope): boolean {
+export function relatesTo(record: Pick<OfficeHistoryEvidence, 'actor' | 'target' | 'metadata'>, scope: HistoryScope): boolean {
   const ids = scopeIds(scope);
   if (!ids) return true;
   return ids.has(record.actor) || ids.has(record.target) || mentions(record.metadata, ids);
@@ -216,13 +216,15 @@ export function hasBeforeAfter(record: OfficeHistoryEvidence): boolean {
 
 // --------------------------------------------------------------------------- export
 
-/** The audit export filters equal to the visible timeline, or null when the export would not match it. */
+/**
+ * The audit export filters that cover the visible timeline, or null when the dates are invalid. For a
+ * room or agent view, or the "Other" type, the server filters are only the broad part (text, actor,
+ * dates, type prefix); `exportNarrowing` then keeps the rows the view shows (lib/hqHistoryExport.ts).
+ */
 export function exportFilters(filters: HistoryFilters, scope: HistoryScope): { actor?: string; action?: string; q?: string; since?: string; until?: string; correlationId?: string } | null {
-  if (scope.kind === 'room' || scope.kind === 'agent') return null;
   const out: { actor?: string; action?: string; q?: string; since?: string; until?: string; correlationId?: string } = {};
   if (scope.kind === 'correlation') return { correlationId: scope.correlationId };
-  if (filters.category === 'other') return null;
-  if (filters.category !== 'all') {
+  if (filters.category !== 'all' && filters.category !== 'other') {
     const prefix = CATEGORY_ACTION_PREFIX[filters.category];
     if (!prefix) return null;
     out.action = `${prefix}*`;

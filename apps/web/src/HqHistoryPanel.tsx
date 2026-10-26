@@ -10,7 +10,9 @@ import { HistoryFilterForm, RecordList, useSentinel, type PickOption } from './H
 import { RecordDetail } from './HqHistoryDetail';
 import { RoomSlider } from './HqRoomSlider';
 import { useHqHistory } from './useHqHistory';
-import { downloadAuditExport } from './lib/adminApi';
+import { downloadAuditExport, getWorkspacePermissions } from './lib/adminApi';
+import { downloadNarrowedExport } from './lib/hqHistoryExportApi';
+import { exportNarrowing, narrowedFilename } from './lib/hqHistoryExport';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { EMPTY_FILTERS, OFFICE_SCOPE, countActive, exportFilters, filtersActive, type HistoryFilters, type HistoryScope } from './lib/hqHistory';
 import type { NameMap } from './lib/hqHistoryText';
@@ -42,6 +44,9 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
   const [sliderRoom, setSliderRoom] = useState(launch.scope.kind === 'room' ? launch.scope.roomId : '');
   const [exportNote, setExportNote] = useState<{ text: string; error: boolean } | null>(null);
   const [exporting, setExporting] = useState(false);
+  // null until known; a failed lookup stays null and the server decides when the person clicks.
+  const [mayExport, setMayExport] = useState<boolean | null>(null);
+  useEffect(() => { let live = true; getWorkspacePermissions().then((p) => { if (live) setMayExport(p.canExportAudit); }).catch(() => undefined); return () => { live = false; }; }, []);
   const root = useRef<HTMLElement>(null);
   const opener = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement);
   const lastRow = useRef<string | null>(null);
@@ -106,18 +111,29 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
     else if (agentId) { const a = agents.find((x) => x.id === agentId); setScope({ kind: 'agent', agentId, name: a?.label ?? agentId }); }
     else if (scope.kind === 'room' || scope.kind === 'agent') setScope(OFFICE_SCOPE);
   };
+  // From a record's source (task, run, approval, meeting): the stored records that name it, as a plain text search.
+  const showRecordsNaming = (id: string) => { setScope(OFFICE_SCOPE); setFilters({ ...EMPTY_FILTERS, q: id }); setSelected(null); setTab('timeline'); };
+  // From a record: the whole request (same correlation id) as the timeline, which can also be exported.
+  const openRequest = (correlationId: string) => { setScope({ kind: 'correlation', correlationId }); setSelected(null); setTab('timeline'); };
   const reset = () => { setFilters(EMPTY_FILTERS); setScope(OFFICE_SCOPE); setSelected(null); };
 
   const more = useSentinel(history.loadOlder, history.status === 'ready' && history.state.cursor !== null && !history.busy, history.state.items.length + history.state.pagesRead);
 
   const csv = exportFilters(filters, scope);
+  const exportKeep = exportNarrowing(filters, scope);
   const download = async () => {
     if (!csv) return;
     setExporting(true);
     setExportNote(null);
     try {
-      const name = await downloadAuditExport(csv, 'csv');
-      setExportNote({ text: t('hqHist.export.done', { name }), error: false });
+      const keep = exportNarrowing(filters, scope);
+      if (keep) {
+        const saved = await downloadNarrowedExport(csv, keep, narrowedFilename(scope, new Date().toISOString().slice(0, 10)));
+        setExportNote({ text: saved.rows === 0 ? t('hqHist.export.none') : t('hqHist.export.doneRows', { name: saved.name, count: saved.rows }), error: false });
+      } else {
+        const name = await downloadAuditExport(csv, 'csv');
+        setExportNote({ text: t('hqHist.export.done', { name }), error: false });
+      }
     } catch (failure) {
       setExportNote({ text: isPermissionDenied(failure) ? t('hqHist.export.denied') : t('hqHist.export.error', { detail: describeError(failure) }), error: true });
     } finally { setExporting(false); }
@@ -153,7 +169,7 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
         </div>
         <div className="hqHistBody" id="hqHistBody" role="tabpanel" aria-labelledby={`hqHistTab-${tab}`}>
           {selected ? (
-            <RecordDetail record={selected} names={names} roomIds={roomIds} onBack={back} onOpenRecord={open} onLocateRoom={props.onLocateRoom} onNavigate={props.onNavigate} />
+            <RecordDetail record={selected} names={names} roomIds={roomIds} onBack={back} onOpenRecord={open} onLocateRoom={props.onLocateRoom} onNavigate={props.onNavigate} onShowRecords={showRecordsNaming} onOpenRequest={openRequest} />
           ) : tab === 'room' ? (
             <RoomSlider rooms={rooms} roomId={sliderRoom} onPickRoom={setSliderRoom} names={names} onOpenRecord={open} />
           ) : (
@@ -166,10 +182,12 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
               {(roomScope || agentScope) && <p className="hqHistHint">{t('hqHist.scope.note')}</p>}
               <div className="hqHistExport">
                 {csv ? (
-                  <button type="button" className="hqGhost" onClick={() => void download()} disabled={exporting} title={t('hqHist.export.why')}>
+                  <button type="button" className="hqGhost" onClick={() => void download()} disabled={exporting || mayExport === false} title={t('hqHist.export.why')}>
                     <Download aria-hidden="true" />{exporting ? t('hqHist.export.working') : t('hqHist.export')}
                   </button>
                 ) : <p className="hqHistHint">{t('hqHist.export.off')}</p>}
+                {csv && mayExport === false && <p className="hqHistHint" role="note">{t('hqHist.export.denied')}</p>}
+                {csv && exportKeep && <p className="hqHistHint">{t('hqHist.export.narrowed')}</p>}
                 {exportNote && <p className={exportNote.error ? 'hqHistError' : 'hqHistHint'} role={exportNote.error ? 'alert' : 'status'}>{exportNote.text}</p>}
               </div>
 
