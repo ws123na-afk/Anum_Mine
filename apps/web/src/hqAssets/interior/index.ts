@@ -10,7 +10,7 @@
  * passed in as `stations`; a person appears only at a station with `occupantSeed`. Screens are lit
  * only for a station state or a `live` flag the caller derived from persisted records.
  */
-import { MeshBuilder, VERTEX_FLOATS, hex, seeded, type MatId, type Rgb } from '../../lib/hqGeometry.ts';
+import { MeshBuilder, VERTEX_FLOATS, hex, mix, seeded, type MatId, type Rgb } from '../../lib/hqGeometry.ts';
 import { workstation, type StationSpec } from './furniture.ts';
 import { Local } from './local.ts';
 import { executive, lounge, meetingRoom, reception } from './roomsFront.ts';
@@ -43,11 +43,11 @@ export const INTERIOR_TRIANGLE_CAP: Readonly<Record<InteriorKind, number>> = {
   warehouse: 6000,
   workshop: 3000,
   executive: 3600,
-  server: 3400,
-  pantry: 1700,
-  restroom: 1500,
-  finance: 1900,
-  sales: 1900,
+  server: 2100,
+  pantry: 950,
+  restroom: 750,
+  finance: 1550,
+  sales: 1550,
 };
 
 /** One empty workstation (desk, up to three monitors, chair). */
@@ -193,7 +193,7 @@ function drawRoom(b: MeshBuilder, kind: InteriorKind, frame: RoomFrame, options:
   };
   BUILDERS[kind](ctx);
   // A desk is a registry record: a room whose kit does not place desks itself still shows each one it is given.
-  if (kind === 'warehouse' || kind === 'workshop') drawStations(ctx, { plant: false, chairTone: ctx.S.fabric });
+  if (kind === 'warehouse' || kind === 'workshop') drawStations(ctx, { plant: false, chairTone: mix(ctx.S.fabric, hex('#14181d'), 0.6) });
 }
 
 /** Copy `src` into `dst`, scaled by `s` about the frame's minimum corner at floor level. */

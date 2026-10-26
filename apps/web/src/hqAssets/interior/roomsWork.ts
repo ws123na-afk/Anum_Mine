@@ -43,7 +43,7 @@ export function openOffice(c: RoomCtx): number {
   tallPlant(R, 0.5, d * 0.5, S, 1, 2);
   rug(b, c.frame.x + 0.8, y, c.frame.z + d * 0.18, w - 2.2, d * 0.7, mix(S.rug, accent, 0.08), scale(S.rug, 0.8));
   contact(b, c.frame.x + w - 0.6, c.frame.z + 0.9, 0.5, lockers * 0.42 + 0.2, y, floor);
-  drawStations(c, { plant: false, chairTone: S.fabric });
+  drawStations(c, { plant: false, chairTone: mix(S.fabric, hex('#14181d'), 0.6) });
   return 0;
 }
 
