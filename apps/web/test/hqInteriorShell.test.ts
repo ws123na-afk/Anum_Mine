@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MeshBuilder, VERTEX_FLOATS } from '../src/lib/hqGeometry.ts';
-import { buildBuildingScene, floorBoxOf, frameBuilding } from '../src/lib/buildingScene.ts';
+import { FLOOR_PITCH, SLAB, WALL_HEIGHT, buildBuildingScene, buildingLayout, frameBuilding } from '../src/lib/buildingScene.ts';
 import type { RoomGeometry, SceneFloor } from '../src/lib/headquartersProjection.ts';
 import {
   INTERIOR_KINDS, REFERENCE_FRAMES, ambientTag, buildInteriorMesh, interiorKindFor, layoutStations, parseAmbientTag, poseAt, turnOffset, unturnOffset,
@@ -162,11 +162,54 @@ test('a floor builds ambient parts that do not depend on desks, people or states
 test('the camera frames the active floor, its rooms and its core', () => {
   const rooms = [room('a', 0, 0, 10, 8), room('b', 12, 0, 8, 7)];
   const f: SceneFloor = { id: 'f', name: 'G', level: 0, rooms, desks: [], bounds: { width: 30, depth: 20 } };
-  const box = floorBoxOf(f);
+  const { box, content } = buildingLayout([f]);
   assert.ok(box.core && box.x1 >= 20 + CORE_WIDTH && box.z1 - box.z0 >= CORE_DEPTH);
   const scene = buildBuildingScene([f], { activeIndex: 0 });
   const frame = frameBuilding(scene, 0);
-  assert.equal(frame.target.x, (box.x0 + box.x1) / 2);
-  assert.equal(frame.target.z, (box.z0 + box.z1) / 2);
-  assert.equal(floorBoxOf({ ...f, rooms: [rooms[0]] }).core, null);
+  assert.equal(frame.target.x, (content[0].x0 + content[0].x1) / 2);
+  assert.equal(frame.target.z, (content[0].z0 + content[0].z1) / 2);
+  assert.equal(buildingLayout([{ ...f, rooms: [rooms[0]] }]).box.core, null);
+});
+
+const stackOf = (n: number): SceneFloor[] => Array.from({ length: n }, (_, i) => ({
+  id: `f${i}`, name: `Floor ${i + 1}`, level: i,
+  // Each floor has its own plan: a smaller one sits inside the building volume of the larger ones.
+  rooms: [room(`a${i}`, 0, 0, 10 + (i % 2) * 4, 8), room(`b${i}`, 12 + (i % 2) * 4, 0, 8, 7 + i)],
+  desks: [], bounds: { width: 40, depth: 30 },
+}));
+
+test('floors are stacked: each at its own height, a slab between, one footprint and the core above the core', () => {
+  const floors = stackOf(8);
+  const scene = buildBuildingScene(floors, { activeIndex: 7, showAll: true });
+  assert.equal(scene.levels, 8);
+  const ys = floors.map((_, i) => scene.rooms.find((r) => r.id === `a${i}`)!.box.min.y);
+  ys.forEach((y, i) => assert.equal(y, i * FLOOR_PITCH));
+  for (let i = 1; i < ys.length; i++) assert.ok(ys[i] > ys[i - 1]);
+  // The top of a floor (walls, skin and the rail above them) stays under the slab of the floor above.
+  assert.ok(WALL_HEIGHT + 0.5 < FLOOR_PITCH - SLAB, 'slabs do not overlap the floor below');
+  // Every room of every floor lies in the one building footprint.
+  const fp = scene.footprint;
+  for (const f of floors) for (const r of f.rooms) assert.ok(r.x >= fp.x0 && r.x + r.width <= fp.x1 && r.z >= fp.z0 && r.z + r.depth <= fp.z1);
+  // Stacked: the bounds reach the top floor; single floor view: only up to the active floor.
+  assert.ok(scene.bounds.max.y >= 7 * FLOOR_PITCH + WALL_HEIGHT);
+  const single = buildBuildingScene(floors, { activeIndex: 2 });
+  assert.equal(single.levels, 3);
+  assert.ok(single.bounds.max.y < 3 * FLOOR_PITCH + WALL_HEIGHT + 1.5);
+  // The stacked camera looks at the middle of the whole stack; a single floor at its own height.
+  const stacked = frameBuilding(scene, 7, true);
+  assert.ok(stacked.target.y > 3 * FLOOR_PITCH && stacked.target.y < 5 * FLOOR_PITCH);
+  assert.equal(frameBuilding(single, 2).target.y, 2 * FLOOR_PITCH + WALL_HEIGHT * 0.5);
+  assert.ok(stacked.distance > frameBuilding(single, 2).distance);
+});
+
+test('the stacked view dresses every floor, the single view only the open one', () => {
+  const floors = stackOf(3);
+  const one = buildBuildingScene(floors, { activeIndex: 2 });
+  const all = buildBuildingScene(floors, { activeIndex: 2, showAll: true });
+  assert.equal(one.rooms.length, 2);
+  assert.equal(all.rooms.length, 6);
+  assert.deepEqual([...new Set(all.rooms.map((r) => r.floorIndex))].sort(), [0, 1, 2]);
+  // One plate per dressed room plus a floor sign per core, behind the entrance sign.
+  assert.equal(all.signCount, 1 + 3 * 3);
+  assert.equal(all.signs.length, 3 * 3);
 });

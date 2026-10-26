@@ -22,9 +22,10 @@ import { classifySurfaces } from './hqSurfaces.ts';
 import { markerParts, STATE_LOOK, type VisualState } from '../hqAssets/interior/stateVisual.ts';
 import { placementsFromSlots, type ModelGroup, type ModelPlacement } from './hqModels.ts';
 
+/** The one floor height of the building: floor n has its floor surface at y = n * FLOOR_PITCH, with a slab of `SLAB` under it. */
 export const FLOOR_PITCH = 4.2;
 export const WALL_HEIGHT = SHELL_WALL;
-const SLAB = 0.3;
+export const SLAB = 0.3;
 
 export type DeskVisual = VisualState;
 
@@ -69,6 +70,8 @@ export type BuildingScene = Readonly<{
   ambient: readonly AmbientPart[];
   /** The footprint of the active floor (rooms, margin and core), for framing the camera. */
   activeBox: Readonly<{ x0: number; z0: number; x1: number; z1: number }>;
+  /** Floors drawn from the ground up (the stacked view draws them all; otherwise the active floor and those under it). */
+  levels: number;
   /** The region that casts and receives shadows. */
   shadow: Readonly<{ center: Vec3; radius: number }>;
   triangles: number;
@@ -359,18 +362,36 @@ function furnish(b: MeshBuilder, room: RoomGeometry, y: number, accent: Rgb, liv
 
 type FloorBox = Readonly<{ x0: number; z0: number; x1: number; z1: number; core: Readonly<{ x: number; z: number }> | null }>;
 
-/** The footprint of one floor: its rooms with a margin, plus the service core on the east when the floor has rooms to serve. */
-export function floorBoxOf(floor: SceneFloor): FloorBox {
-  if (!floor.rooms.length) return { x0: -8, z0: -6, x1: 8, z1: 6, core: null };
-  const x0 = Math.min(...floor.rooms.map((r) => r.x)) - 1.2;
-  const z0 = Math.min(...floor.rooms.map((r) => r.z)) - 1.2;
-  let x1 = Math.max(...floor.rooms.map((r) => r.x + r.width)) + 1.2;
-  let z1 = Math.max(...floor.rooms.map((r) => r.z + r.depth)) + 1.2;
-  if (floor.rooms.length < 2) return { x0, z0, x1, z1, core: null };
-  const core = { x: x1 + 0.4, z: z0 + 0.8 };
-  x1 = core.x + CORE_WIDTH + 0.8;
-  z1 = Math.max(z1, core.z + CORE_DEPTH + 0.8);
-  return { x0, z0, x1, z1, core };
+/**
+ * One building volume for every floor: all floors share the origin (the rooms of every floor with a margin, plus the service
+ * core on the east), so each floor sits directly on the one below it and the lift and stair core lines up from floor to floor.
+ * `box` is that volume (the footprint); `content` and `boxes` are the plan each floor actually uses (its rooms and the core), which
+ * is the slab drawn for it and what the camera frames: a smaller floor sits inside the plan of a larger one.
+ */
+export function buildingLayout(floors: readonly SceneFloor[]): Readonly<{ boxes: readonly FloorBox[]; box: FloorBox; content: readonly Readonly<{ x0: number; z0: number; x1: number; z1: number }>[] }> {
+  const placed = floors.filter((f) => f.rooms.length > 0);
+  if (!placed.length) {
+    const empty: FloorBox = { x0: -8, z0: -6, x1: 8, z1: 6, core: null };
+    return { boxes: floors.map(() => empty), box: empty, content: floors.map(() => empty) };
+  }
+  const rooms = placed.flatMap((f) => f.rooms);
+  const x0 = Math.min(...rooms.map((r) => r.x)) - 1.2;
+  const z0 = Math.min(...rooms.map((r) => r.z)) - 1.2;
+  const rx1 = Math.max(...rooms.map((r) => r.x + r.width)) + 1.2;
+  const rz1 = Math.max(...rooms.map((r) => r.z + r.depth)) + 1.2;
+  const withCore = placed.some((f) => f.rooms.length >= 2);
+  const core = withCore ? { x: rx1 + 0.4, z: z0 + 0.8 } : null;
+  const x1 = core ? core.x + CORE_WIDTH + 0.8 : rx1;
+  const z1 = core ? Math.max(rz1, core.z + CORE_DEPTH + 0.8) : rz1;
+  const box: FloorBox = { x0, z0, x1, z1, core };
+  const content = floors.map((f) => {
+    if (!f.rooms.length) return { x0, z0, x1, z1 };
+    const cx0 = Math.min(...f.rooms.map((r) => r.x)) - 1.2, cz0 = Math.min(...f.rooms.map((r) => r.z)) - 1.2;
+    const cx1 = Math.max(...f.rooms.map((r) => r.x + r.width)) + 1.2, cz1 = Math.max(...f.rooms.map((r) => r.z + r.depth)) + 1.2;
+    return f.rooms.length >= 2 && core ? { x0: cx0, z0: Math.min(cz0, core.z - 0.8), x1: x1, z1: Math.max(cz1, core.z + CORE_DEPTH + 0.8) } : { x0: cx0, z0: cz0, x1: cx1, z1: cz1 };
+  });
+  // Each floor's slab is its own plan (the rooms, a margin and the shared core), all on the one origin: a smaller floor sits inside the plan of a larger one and the floors under it stay visible beside it.
+  return { boxes: floors.map((f, i) => ({ ...content[i], core: f.rooms.length >= 2 ? core : null })), box, content };
 }
 
 const KIND_TITLE: Readonly<Record<string, string>> = {
@@ -394,18 +415,19 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
   const last = options.showAll ? floors.length - 1 : active;
   // One footprint for the whole plinth (lawn, car park, planting); each floor has its own footprint (rooms, margin and core).
   const all = floors.flatMap((f) => f.rooms);
-  const boxes = floors.map(floorBoxOf);
-  const fx0 = boxes.length ? Math.min(...boxes.map((q) => q.x0)) : -8;
-  const fz0 = boxes.length ? Math.min(...boxes.map((q) => q.z0)) : -6;
-  const fx1 = boxes.length ? Math.max(...boxes.map((q) => q.x1)) : 8;
-  const fz1 = boxes.length ? Math.max(...boxes.map((q) => q.z1)) : 6;
+  const layout = buildingLayout(floors);
+  const boxes = layout.boxes;
+  const fx0 = layout.box.x0, fz0 = layout.box.z0, fx1 = layout.box.x1, fz1 = layout.box.z1;
   const rnd = seeded('anum-building-interior');
   const slots: ModelSlot[] = [];
   const fallback: Record<ModelGroup, MeshBuilder> = { figure: new MeshBuilder(), sofa: new MeshBuilder() };
   // Sign atlas order: 0 the entrance (the stage letters it), then one plate per room of the active floor, then the floor sign of the core.
-  const activeRooms = floors[active]?.rooms ?? [];
-  const plateCount = Math.min(MAX_PLATES, activeRooms.length);
-  const signCount = 1 + plateCount + 1;
+  // The stacked view (`showAll`) dresses every floor it draws; otherwise only the active floor is dressed and the floors under it are shells.
+  const dressed = (fi: number) => fi === active || (options.showAll === true && fi <= last);
+  let plateTotal = 0;
+  for (let fi = 0; fi <= last && fi < floors.length; fi++) if (dressed(fi)) plateTotal += Math.min(MAX_PLATES, floors[fi].rooms.length) + (boxes[fi].core ? 1 : 0);
+  const signCount = 1 + Math.min(plateTotal, MAX_PLATES * 2);
+  let nextPlate = 1;
   const atlas = signAtlasLayout(signCount);
   const signs: SignLabel[] = [];
   const addAmbient = (data: Float32Array, tag: string) => { const list = ambientChunks.get(tag); if (list) list.push(data); else ambientChunks.set(tag, [data]); };
@@ -414,7 +436,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
     const floor = floors[fi];
     const fb = boxes[fi];
     const y = fi * FLOOR_PITCH;
-    const isActive = fi === active;
+    const isActive = dressed(fi);
     const ghost = !isActive;
     const slabTone = ghost ? hex('#8d98a3') : hex('#b7c0c8');
     // Slab and plinth edge in the accent of the building.
@@ -427,7 +449,8 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
       for (let gz = Math.ceil(fb.z0 / 3) * 3; gz < fb.z1; gz += 3) opaque.plane(fb.x0, y + 0.008, gz, fb.x1 - fb.x0, 0.04, hex('#bfb298'), 0.3);
     }
     // Detail ladder: a floor with many desks or rooms is dressed lite so the frame stays cheap.
-    const lite = floor.desks.length > 48 || floor.rooms.length > 24;
+    const stacked = options.showAll === true && last > 0;
+    const lite = floor.desks.length > 48 || floor.rooms.length > 24 || stacked;
     let ri = -1;
     for (const room of floor.rooms) {
       ri += 1;
@@ -435,7 +458,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
       const selected = options.selectedRoomId === room.id;
       const live = options.meetingRoomIds?.has(room.id) === true;
       const interior = interiorKindFor(room.kind, room.label);
-      const plateIndex = isActive && ri < MAX_PLATES ? 1 + ri : -1;
+      const plateIndex = isActive && ri < MAX_PLATES && nextPlate < signCount ? nextPlate++ : -1;
       if (plateIndex > 0) signs.push({ title: KIND_TITLE[interior ?? 'office'] ?? 'ROOM', subtitle: room.label });
       const shell = drawRoomShell(opaque, glass, amb, {
         x: room.x, z: room.z, width: room.width, depth: room.depth, y, kind: interior, registryKind: room.kind, accent, selected, ghost,
@@ -490,7 +513,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
       }
     }
     if (fb.core) {
-      const coreIndex = isActive ? signCount - 1 : -1;
+      const coreIndex = isActive && nextPlate < signCount ? nextPlate++ : -1;
       if (coreIndex > 0) signs.push({ title: `LEVEL ${floor.level}`, subtitle: floor.name });
       drawCore(opaque, glass, amb, { x: fb.core.x, z: fb.core.z, y, plate: coreIndex > 0 ? atlas.cell(coreIndex) : null, ghost });
     }
@@ -590,8 +613,9 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
   };
   return {
     opaque: ob, glass: gb, rooms, desks, bounds, footprint: { x0: fx0, x1: fx1, z0: fz0, z1: fz1 },
-    center: { x: (boxes[active]?.x0 ?? fx0) / 2 + (boxes[active]?.x1 ?? fx1) / 2, y: (active * FLOOR_PITCH) / 2, z: (boxes[active]?.z0 ?? fz0) / 2 + (boxes[active]?.z1 ?? fz1) / 2 },
-    activeBox: { x0: boxes[active]?.x0 ?? fx0, z0: boxes[active]?.z0 ?? fz0, x1: boxes[active]?.x1 ?? fx1, z1: boxes[active]?.z1 ?? fz1 },
+    center: { x: (layout.content[active]?.x0 ?? fx0) / 2 + (layout.content[active]?.x1 ?? fx1) / 2, y: (active * FLOOR_PITCH) / 2, z: (layout.content[active]?.z0 ?? fz0) / 2 + (layout.content[active]?.z1 ?? fz1) / 2 },
+    activeBox: layout.content[active] ?? { x0: fx0, z0: fz0, x1: fx1, z1: fz1 },
+    levels: last + 1,
     signCount,
     signs,
     ambient,
@@ -604,12 +628,14 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
   };
 }
 
-/** Camera target and distance that frame the active floor: its own footprint (rooms and core), not the whole plinth. */
-export function frameBuilding(scene: BuildingScene, activeIndex: number): { target: Vec3; distance: number } {
+/** Camera target and distance that frame the active floor, or the whole stack when it is drawn: its own footprint (rooms and core), not the whole plinth. */
+export function frameBuilding(scene: BuildingScene, activeIndex: number, stacked = false): { target: Vec3; distance: number } {
   const width = scene.activeBox.x1 - scene.activeBox.x0;
   const depth = scene.activeBox.z1 - scene.activeBox.z0;
+  const height = stacked ? (scene.levels - 1) * FLOOR_PITCH + WALL_HEIGHT : WALL_HEIGHT;
+  const y0 = stacked ? 0 : activeIndex * FLOOR_PITCH;
   return {
-    target: { x: (scene.activeBox.x0 + scene.activeBox.x1) / 2, y: activeIndex * FLOOR_PITCH * 0.6, z: (scene.activeBox.z0 + scene.activeBox.z1) / 2 },
-    distance: Math.min(260, Math.max(14, Math.max(width, depth * 1.15) * 0.8)),
+    target: { x: (scene.activeBox.x0 + scene.activeBox.x1) / 2, y: y0 + height * 0.5, z: (scene.activeBox.z0 + scene.activeBox.z1) / 2 },
+    distance: Math.min(260, Math.max(14, Math.max(width, depth * 1.15, height * 1.6) * 0.8)),
   };
 }

@@ -49,10 +49,10 @@ export function fitDistance(target: Vec3, box: Footprint, angle: { yaw: number; 
 }
 
 /** The home camera of a building: the whole footprint at the active floor, walls included, inside the stage at any size. */
-export function buildingFitCamera(box: Footprint, aspect: number): CameraState {
+export function buildingFitCamera(box: Footprint, aspect: number, pitch = 44): CameraState {
   const target = { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2, z: (box.z0 + box.z1) / 2 };
-  const distance = clamp(fitDistance(target, box, { yaw: HOME_YAW, pitch: 44, fov: 40 }, aspect), 14, 300);
-  return { target, distance, yaw: HOME_YAW, pitch: 44, fov: 40, minDistance: 6, maxDistance: 320 };
+  const distance = clamp(fitDistance(target, box, { yaw: HOME_YAW, pitch, fov: 40 }, aspect), 14, 300);
+  return { target, distance, yaw: HOME_YAW, pitch, fov: 40, minDistance: 6, maxDistance: 320 };
 }
 
 /** Floor overview: the whole active floor seen from high above at a slight turn, so every room is on screen and readable. */

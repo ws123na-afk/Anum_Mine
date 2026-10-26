@@ -25,6 +25,7 @@ test(`interior ${BUILDING}`, async ({ page }) => {
   await page.waitForTimeout(2500);
   if (process.env.INT_FULL === '1') await hq(page).getByRole('button', { name: 'Full screen' }).click();
   await page.waitForTimeout(1500);
+  if (process.env.INT_ALL === '1') { await hq(page).getByRole('checkbox', { name: /All floors/ }).check(); await page.waitForTimeout(2500); }
   const rail = hq(page).getByRole('navigation', { name: `Floors of ${BUILDING}` });
   const buttons = rail.getByRole('button');
   for (const f of FLOORS) {

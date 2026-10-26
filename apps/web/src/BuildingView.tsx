@@ -76,6 +76,9 @@ export type AgentStyleInfo = Readonly<{ avatar: AvatarAppearance | null; departm
 
 const ROOM_ICON = { meeting: Users, reception: DoorOpen, warehouse: HardDrive } as const;
 
+/** The stacked view is a section: a lower camera so every floor's open front shows (a high one sees only the roof slab). */
+const STACK_PITCH = 19;
+
 export function BuildingView(props: BuildingViewProps) {
   const { building, floor, view, night, presence } = props;
   const floors = building.floors;
@@ -117,8 +120,8 @@ export function BuildingView(props: BuildingViewProps) {
   const fp = scene.footprint;
   const topY = (showAll ? floors.length - 1 : activeIndex) * FLOOR_PITCH;
   const buildingHome = useMemo(
-    () => buildingFitCamera({ x0: fp.x0 - 1, x1: fp.x1 + 1, z0: fp.z0 - 1, z1: fp.z1 + 1, y0: activeIndex * FLOOR_PITCH - 0.4, y1: topY + WALL_HEIGHT + 0.4 }, aspect),
-    [fp.x0, fp.x1, fp.z0, fp.z1, activeIndex, topY, aspect]);
+    () => buildingFitCamera({ x0: fp.x0 - 1, x1: fp.x1 + 1, z0: fp.z0 - 1, z1: fp.z1 + 1, y0: (showAll ? 0 : activeIndex * FLOOR_PITCH) - 0.4, y1: topY + WALL_HEIGHT + 0.4 }, aspect, showAll && floors.length > 1 ? STACK_PITCH : undefined),
+    [fp.x0, fp.x1, fp.z0, fp.z1, activeIndex, showAll, topY, aspect]);
   const overviewHome = useMemo(
     () => floorOverviewCamera({ x0: fp.x0 - 0.6, x1: fp.x1 + 0.6, z0: fp.z0 - 0.6, z1: fp.z1 + 0.6, y0: activeIndex * FLOOR_PITCH, y1: activeIndex * FLOOR_PITCH + WALL_HEIGHT }, aspect),
     [fp.x0, fp.x1, fp.z0, fp.z1, activeIndex, aspect]);
@@ -150,7 +153,7 @@ export function BuildingView(props: BuildingViewProps) {
     const room = roomById.get(id);
     if (!room) return null;
     const c = cameraRef.current;
-    return { ...c, target: { x: room.x + room.width / 2, y: activeIndex * 4.2, z: room.z + room.depth / 2 }, distance: Math.max(c.minDistance, Math.min(c.maxDistance, Math.max(room.width, room.depth) * 2.8 + 6)) };
+    return { ...c, target: { x: room.x + room.width / 2, y: activeIndex * FLOOR_PITCH, z: room.z + room.depth / 2 }, distance: Math.max(c.minDistance, Math.min(c.maxDistance, Math.max(room.width, room.depth) * 2.8 + 6)) };
   }, [roomById, activeIndex]);
   const focusRoom = useCallback((room: RoomGeometry) => {
     const next = frameOf(room.id);
@@ -160,7 +163,7 @@ export function BuildingView(props: BuildingViewProps) {
   }, [frameOf]);
   // Inside: a low camera in the selected room. It follows the selection, and leaves with the room, the floor or the view.
   const selectedRoom = props.selectedRoomId ? roomById.get(props.selectedRoomId) ?? null : null;
-  const insideOf = useCallback((room: RoomGeometry) => insideCamera(room, activeIndex * 4.2 + 0.06), [activeIndex]);
+  const insideOf = useCallback((room: RoomGeometry) => insideCamera(room, activeIndex * FLOOR_PITCH + 0.06), [activeIndex]);
   const goTo = useCallback((next: CameraState) => {
     if (latest.current.nav && !latest.current.reducedMotion) latest.current.nav.bridge.flyTo(next);
     else setCamera(next);

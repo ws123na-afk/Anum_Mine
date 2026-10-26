@@ -67,3 +67,17 @@ test('the server area, pantry and every other kit of the starter campus build wi
   await openBuilding(page, 'Knowledge & AI');
   await expect.poll(async () => Number(await canvas(page).getAttribute('data-triangles')), { timeout: 60_000 }).toBeGreaterThan(10_000);
 });
+
+test('the stacked view draws every floor of the 3 floor building above the one below it', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await openBuilding(page, 'ANUM 360 Commerce');
+  await expect.poll(async () => Number(await canvas(page).getAttribute('data-triangles')), { timeout: 60_000 }).toBeGreaterThan(15_000);
+  const single = Number(await canvas(page).getAttribute('data-triangles'));
+  const all = hq(page).getByRole('checkbox', { name: /All floors/ });
+  // The page can rebuild the view once while it settles; retry until the choice sticks.
+  await expect(async () => { if (!(await all.isChecked())) await all.click(); await expect(all).toBeChecked({ timeout: 2000 }); await page.waitForTimeout(1500); await expect(all).toBeChecked({ timeout: 1000 }); }).toPass({ timeout: 40_000 });
+  // Three furnished floors in view instead of one: far more geometry, and a taller scene to frame (the unit tests pin the heights).
+  await expect.poll(async () => Number(await canvas(page).getAttribute('data-triangles')), { timeout: 60_000 }).toBeGreaterThan(single * 1.4);
+  await expect.poll(() => distinctColours(page), { timeout: 60_000 }).toBeGreaterThan(40);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+});
