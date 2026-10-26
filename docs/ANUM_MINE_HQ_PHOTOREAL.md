@@ -178,7 +178,31 @@ vertices, no detail, no contact discs).
 
 ## Before and after
 
-COMPARE_TEXT
+Rendered at 1440x900 in software GL (SwiftShader, single frames): the ultra tier as on main on the left, the photographic extension on the right, then
+opened side by side with concept renders 21 (campus, blue hour) and 25 (close view, dusk). Screenshots are in the pull request description.
+
+What is better, looking at the pictures:
+
+- **Blue hour and night campus.** Warm glass now blooms into the haze, the sky and ground take a graded teal and amber instead of flat green, the vignette
+  and grain give a lens look. The campus reads much closer to render 21's mood than before; it is still a toy-scale model with sparse lights.
+- **Depth.** Tower bases, balcony undersides and tree feet are darker where light would not reach (baked and GTAO), roofs have a stone edge, plant units and
+  a shadow line under windows, so flat boxes read less like paper. Close up (render 25) the roof edges, plant and sills are the visible gain.
+- **Interior floor.** Desks and walls in the building view get contact darkening and the glass walls pick up the grade; the rooms read as lit spaces.
+- **Day.** More contrast and colour than AgX alone gives, deeper shadows; subtle.
+
+What is still worse or different (honest):
+
+- **Close views are hazy.** Bloom on the brightest lit glass, the light shafts and the depth of field soften the close up at the blue hour more than the concept
+  render does (it is crisp with glowing glass). The bloom strength and grade are runtime tunable (`__anumHqTune`) and were set from the three campus
+  views, not from this close up; they want a pass on a real GPU.
+- Render 21 has hundreds of lit paths, plazas, cars with headlights and trees with uplights; the scene has the halo and lamp lights it had. People, delivery
+  trucks and a crowd are data rule exclusions.
+- Materials are generated detail on flat colours: no brand textures, no signage text, no photographic facade materials (stone cladding, metal panels, wood
+  soffits). Glass has a sky reflection and a lit room, not the neighbouring buildings.
+- Building shapes are the seven families; curved canopies, green walls and rooftop pools of the concept are not built.
+- Water is the existing shader (rings, glints), no reflections of the buildings.
+- All of this was seen on a software rasteriser. Frame cost and the look on a real GPU are not verified here.
+
 
 ## Honest list of what still differs
 
