@@ -46,9 +46,9 @@ generated from its floor plans instead of a generic box. Nothing may be invented
 
 `HeadquartersLive` (`registryPlans`) gives `CampusView` a map of plans by campus building id, built from the open workspace's projection and presence.
 `CampusView` sizes the placements from the plans, draws the planned shells (the kit is `import('./lib/hqPlanKit.ts')`, so the entry chunk never carries
-it) and passes the atlas to `HqStage`, which hands it to `HqRenderer.setGlassPlan`. A presence change moves only the atlas bytes (no scene rebuild); a layout
+it) and passes the atlas to `HqStage`, which hands it to the renderer through the plan shader chunk. A presence change moves only the atlas bytes (no scene rebuild); a layout
 change rebuilds the shells and the atlas. The canvas shows `data-glass-plan` (the revision on the GPU) and `data-glass-plan-wanted` (the revision the scene asks for).
-`localStorage["anum.hq.glassplan"] = "off"` turns the impostor off (plain glass), for measuring or a driver that struggles with it.
+The stage fetches the plan shader chunk the first time a scene has a plan; that chunk adds its uniforms, rewrites the glass program (`patchGlass`, with its own program cache key) and uploads the atlas, so the renderer chunk carries only a small hook (`glassHooks`). A glass program that no longer contains the expected lines is left unchanged (the generic rooms stay).
 
 ## Tests
 
@@ -62,13 +62,13 @@ change rebuilds the shells and the atlas. The canvas shows `data-glass-plan` (th
 
 ## Budgets
 
-Lazy HQ entry chunk 130,864 bytes gzip (limit 140,000; it was 138,297 before), renderer chunk 158,409 (limit 160,000; was 157,792: the plan hooks in the glass program and the texture
-upload are about 0.6 kB), plan kit chunk 3,894 and plan shader chunk 1,363, both fetched only when a campus has a registry building with rooms. No limit was raised. Read this honestly: with a
-third importer the bundler now hoists the geometry and ambient code into a shared chunk (13,290 bytes gzip) that loads together with the entry, so the file the performance spec measures shrank
-while the headquarters payload (entry plus shared chunk, 144,154) grew by about 5.9 kB gzip over the 138,297 of before. That is an artefact of chunking, not a limit met by moving code; the
-real increase is the plan wiring in the entry (about 2 kB) and the separate compression of the shared chunk.
+Measured with the performance spec's own gzip, after merging main (GPU check, 1ee22c5): lazy HQ entry chunk 132,803 bytes gzip (limit 140,000; main is 139,637), renderer chunk 159,994 (limit
+160,000; main is 159,944, so the plan hooks cost 50 bytes), plan kit 3,903 and plan shader 2,034, both fetched only when a campus has a registry building with rooms. No limit was raised. To fit,
+the plan code that would have gone into the renderer lives in the shader chunk (uniforms, program rewrite, texture upload) and the dynamic import sits in the stage. Read this honestly: with a
+third importer the bundler now hoists the geometry and ambient code into a shared chunk (13,302 bytes gzip) that loads together with the entry, so the file the performance spec measures shrank
+while the headquarters payload (entry plus shared chunk, about 146,100) grew by about 6.5 kB gzip over the 139,637 of main. That is an artefact of chunking, not a limit met by moving code.
 
-Software GL cost (SwiftShader, 1440x900, dusk, orbiting the campus, plan impostor on against `anum.hq.glassplan = off`, three runs each): the average draw time is dominated by noise
+Software GL cost (SwiftShader, 1440x900, dusk, orbiting the campus, plan impostor on against the plan switched off in a scratch build, three runs each): the average draw time is dominated by noise
 (last samples 16.7, 8.3 and 21.4 ms with the plan against 36.5, 6.7 and 18.8 ms without), so the one texel lookup of the lean path costs nothing measurable and stays on. The first frames after the
 plan chunk arrives include one recompile of the glass program (a few hundred milliseconds on SwiftShader), the same size of hitch as any first compile there.
 

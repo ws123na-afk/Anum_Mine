@@ -10,6 +10,9 @@ import { arcPath, donutArcs, STATUS_ORDER, STATUS_TONE, type CampusTotals, type 
 import { mapToWorld, worldToMap } from './lib/hqCamera.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import type { PresenceLink } from './lib/presenceStream.ts';
+import { getGpuState, subscribeGpuState } from './lib/hqGpuState.ts';
+import { chipLabel, isReduced, reasonText } from './lib/hqGpuText.ts';
+import { tierById } from './lib/hqQualityTiers.ts';
 
 export type HqView = '3d' | 'top' | 'list';
 
@@ -21,6 +24,19 @@ export function PresenceLinkChip({ link }: { link: PresenceLink }) {
     <span className={`hqConn hqLink tone-${tone}`} role="status" data-testid="hq-live-link" data-link={link} title={t(`hq.live.${key}.hint` as MessageKey)}>
       {t(`hq.live.${key}` as MessageKey)}
     </span>
+  );
+}
+
+/** The current graphics tier next to the live status chips. It opens the Graphics check; the tooltip says why this tier is in force. */
+export function GraphicsChip({ onOpen }: { onOpen: () => void }) {
+  const state = useSyncExternalStore(subscribeGpuState, getGpuState, getGpuState);
+  if (!state) return null;
+  const reduced = isReduced(state);
+  return (
+    <button type="button" className={`hqConn hqGpuChip tone-${reduced ? 'warn' : 'ok'}`} data-testid="hq-gpu-chip" data-tier={tierById(state.tier).key} data-reduced={String(reduced)}
+      title={reasonText(state)} aria-label={`${chipLabel(state)}. ${t('hqGpu.chip.open')}`} onClick={onOpen}>
+      {chipLabel(state)}
+    </button>
   );
 }
 

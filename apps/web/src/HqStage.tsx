@@ -11,6 +11,10 @@ import { readNightPreset, subscribeNightPreset, targetBlend } from './lib/hqLigh
 import type { HqRenderer } from './lib/hqThreeRenderer.ts';
 import type { RenderScene } from './lib/hqRenderTypes.ts';
 import type { GlassPlanData } from './lib/hqPlanAtlas.ts';
+import { setGpuState } from './lib/hqGpuState.ts';
+import { setLiveRenderer } from './lib/hqGpuBridge.ts';
+import { emitGpuTelemetry } from './lib/hqGpuTelemetry.ts';
+import { tierById } from './lib/hqQualityTiers.ts';
 import { pickNearest, type PickTarget } from './lib/hqMath.ts';
 import { placeLabels } from './lib/hqLabels.ts';
 import { dolly, isCameraAtRest, orbit, pan, screenRay, stepCamera, type CameraState } from './lib/headquartersSpatial.ts';
@@ -55,6 +59,12 @@ type Props = Readonly<{
   className?: string;
   children?: ReactNode;
 }>;
+
+/** Hands the plan atlas to the renderer; the plan shader (its own lazy chunk) is fetched the first time a scene has a plan, and the renderer then draws it. */
+function giveGlassPlan(r: HqRenderer | null, plan: GlassPlanData | null | undefined, stillWanted: () => boolean): void {
+  if (!r || !plan) { if (r) r.stats.glassPlan = ''; return; }
+  void import('./lib/hqGlassShader.ts').then((m) => { if (stillWanted()) m.applyPlan(r.glassHooks(), plan); }).catch(() => undefined);
+}
 
 type Pointer = { x: number; y: number };
 
@@ -101,13 +111,17 @@ export function HqStage(props: Props) {
     import('./lib/hqThreeRenderer.ts').then(({ HqRenderer: Renderer }) => {
       if (cancelled) return;
       const r: HqRenderer | null = Renderer.create(el, {
+        onQuality: (state) => { setGpuState(state); emitGpuTelemetry({ kind: 'quality', tier: tierById(state.tier).key, step: state.step, reason: state.reason }); },
         onLost: () => {
           setStatus('recovering');
-          lostTimer.current = window.setTimeout(() => propsRef.current.onUnavailable('context-lost'), 5000);
+          emitGpuTelemetry({ kind: 'context-lost' });
+          lostTimer.current = window.setTimeout(() => propsRef.current.onUnavailable('context-lost'), 8000);
         },
         onRestored: () => {
           if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
           setStatus('ok');
+          emitGpuTelemetry({ kind: 'context-restored' });
+          if (propsRef.current.scene) renderer.current?.setScene(propsRef.current.scene);
         },
         onError: (error) => propsRef.current.onUnavailable(error.message),
         onFrame: (vp, aspect) => {
@@ -148,11 +162,12 @@ export function HqStage(props: Props) {
       if (!r) { propsRef.current.onUnavailable('webgl-unavailable'); return; }
       created = r;
       renderer.current = r;
+      setLiveRenderer(r);
       r.setReducedMotion(propsRef.current.reducedMotion);
       r.setCamera(live.current);
       r.setNight(nightNow.current);
       if (propsRef.current.scene) r.setScene(propsRef.current.scene);
-      r.setGlassPlan(propsRef.current.glassPlan);
+      { const plan = propsRef.current.glassPlan; giveGlassPlan(r, plan, () => propsRef.current.glassPlan === plan); }
       r.setHighlight(propsRef.current.hoverId, propsRef.current.selectedId);
       resizeObserver = new ResizeObserver(() => {
         const box = el.getBoundingClientRect();
@@ -169,6 +184,8 @@ export function HqStage(props: Props) {
       if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
       created?.dispose();
       renderer.current = null;
+      setLiveRenderer(null);
+      setGpuState(null);
     };
     // The renderer is created once per mounted stage.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -178,8 +195,9 @@ export function HqStage(props: Props) {
   useEffect(() => { if (scene) renderer.current?.setScene(scene); }, [scene]);
   // The revision of the plan atlas the scene asks for (the drawn one is `data-glass-plan`): a layout or presence change moves it.
   useEffect(() => {
-    renderer.current?.setGlassPlan(props.glassPlan);
-    if (canvas.current) canvas.current.dataset.glassPlanWanted = props.glassPlan?.revision ?? '';
+    const plan = props.glassPlan;
+    if (canvas.current) canvas.current.dataset.glassPlanWanted = plan?.revision ?? '';
+    giveGlassPlan(renderer.current, plan, () => propsRef.current.glassPlan === plan);
   }, [props.glassPlan]);
   useEffect(() => { renderer.current?.setHighlight(props.hoverId, props.selectedId); }, [props.hoverId, props.selectedId]);
   useLayoutEffect(() => { labelSizes.current.clear(); renderer.current?.requestFrame(); }, [labels]);

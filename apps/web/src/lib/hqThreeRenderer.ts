@@ -12,15 +12,17 @@
  * sway, drifting clouds, gently shimmering window light and a blinking rooftop beacon, all driven by one scene clock.
  * The clock stops, and every motion with it, under reduced motion, in a hidden tab and on a software rasteriser.
  *
- * Quality steps down on sustained slow frames: ambient motion first, then bloom, the shadow map size, shadows,
- * then the pixel ratio. Reduced motion turns bloom off. A browser without WebGL 2 gets null from
+ * Quality is a tier from `hqQualityTiers.ts`. On sustained slow frames ambient motion steps down first, then the frame governor
+ * (`hqGovernor.ts`) walks its ladder: pixel ratio, shadow map, shadows, bloom, then the simple materials; it climbs back slowly
+ * when frames are healthy, and never runs while the tier is pinned, on a software rasteriser or in a hidden tab. A shader that
+ * fails to compile switches to the simple materials. Reduced motion turns bloom off. A browser without WebGL 2 gets null from
  * `create` and the page falls back to the list and the 2D plan.
  */
 import {
   ACESFilmicToneMapping, AmbientLight, BackSide, BufferGeometry, CanvasTexture, Color, DirectionalLight, DoubleSide, Float32BufferAttribute, Fog, HalfFloatType,
   HemisphereLight, LinearMipmapLinearFilter, Material, Mesh, MeshLambertMaterial, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, PCFShadowMap,
   PerspectiveCamera, PMREMGenerator, RepeatWrapping, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, Vector2, Vector3, Vector4, WebGLRenderer, WebGLRenderTarget,
-  LinearFilter, Matrix4, DataTexture, NearestFilter, RGBAFormat, UnsignedByteType, type IUniform,
+  LinearFilter, Matrix4, DataTexture, type IUniform,
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
@@ -35,8 +37,9 @@ import { SCENERY_FPS, MAX_RIPPLES, sceneryLevelFor, readSceneryOverride, type Sc
 import { clipPlanes, viewProjection } from './hqMath.ts';
 import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
-import type { GlassPlanData } from './hqPlanAtlas.ts';
 import { ModelLayer } from './hqModelLayer.ts';
+import { QUALITY_PIN_KEY, ladderFor, parsePin, tierById, type QualityState, type StepSettings, type TierReason } from './hqQualityTiers.ts';
+import type { FrameGovernor } from './hqGovernor.ts';
 import type { ModelGroup } from './hqModels.ts';
 
 export type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
@@ -76,7 +79,6 @@ uniform vec3 uSunDir;
 uniform vec3 uSunCol;
 uniform vec4 uRipples[${MAX_RIPPLES}];
 float hq_hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-/*HQ_PLAN_COMMON*/
 #ifdef HQ_RICH
 /* A lit room seen through a pane: ceiling light, darker floor, desks and a few screens (q is 0..1 across the pane, seed picks the room). */
 vec3 hq_room(vec2 q, float seed) {
@@ -129,15 +131,12 @@ const GLASS_COLOR = `
   // The room behind a pane (exterior panes carry local coordinates): a ceiling light, a darker floor, a few desks with screens.
   float hqHas = step(0.0005, max(vPUv.x, vPUv.y));
   vec3 hqRoom = vec3(0.0);
-  float hqPlan = 0.0;
-  vec3 hqEmit = vec3(0.0);
 #ifdef HQ_RICH
-  if (hqHas > 0.5 && vPUv.x < 1.5) hqRoom = hq_room(vPUv, hq_hash(floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6)) + 3.0));
+  if (hqHas > 0.5) hqRoom = hq_room(vPUv, hq_hash(floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6)) + 3.0));
 #else
   hqHas = 0.0;
 #endif
-  if (vPUv.x >= 1.5) hqHas = 0.0;
-  /*HQ_PLAN_COLOR*/
+
   {
     float gy = clamp(vWPos.y / 48.0, 0.0, 1.0);
     vec2 cell = floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6));
@@ -167,7 +166,7 @@ const GLASS_EMISSIVE = `
     vec2 wc = floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6));
     float hh = hq_hash(wc + 7.0);
     float drift = 1.0 - uAmb * 0.16 * step(0.9, hh) * (0.5 + 0.5 * sin(uTime * (0.45 + hh * 1.1) + hh * 60.0));
-    vec3 lamp = hqPlan > 0.5 ? hqEmit : mix(paneLit, hqRoom * 1.05, hqHas);
+    vec3 lamp = mix(paneLit, hqRoom * 1.05, hqHas);
     totalEmissiveRadiance += lamp * uLit * glowW * mix(1.9, 1.3, hqHas) * drift;
   }`;
 const GENERIC_EMISSIVE = `
@@ -210,12 +209,7 @@ const HIGHLIGHT = '  totalEmissiveRadiance += vec3(0.08, 0.2, 0.17) * uHighlight
 type Shared = {
   uNight: IUniform<number>; uLit: IUniform<number>; uTime: IUniform<number>; uAmb: IUniform<number>; uDetail: IUniform<Vector2>;
   uSkyTop: IUniform<Color>; uSkyHor: IUniform<Color>; uSunDir: IUniform<Vector3>; uSunCol: IUniform<Color>; uRipples: IUniform<Vector4[]>;
-  uPlanTex: IUniform<Texture | null>; uPlanRect: IUniform<Vector4[]>; uPlanInfo: IUniform<Vector4[]>; uPlanGrid: IUniform<Vector2>; uPlanCount: IUniform<number>;
 };
-/** The glass plan shader code, set once the lazy chunk has loaded (see `HqRenderer.applyGlassPlan`). */
-let planShader: typeof import('./hqGlassShader.ts') | null = null;
-/** `localStorage["anum.hq.glassplan"] = "off"` turns the plan impostor off (panes show plain glass): a switch for measuring and for a driver that struggles with it. */
-const planPinnedOff = (): boolean => { try { return window.localStorage.getItem('anum.hq.glassplan') === 'off'; } catch { return false; } };
 type Variant = 'std' | 'glass' | 'water' | 'foliage' | 'cloth' | 'beacon';
 
 /** `rich` adds the lit rooms behind glass, the water rings and the sky's clouds; a software rasteriser compiles and runs the plain programs. */
@@ -235,15 +229,13 @@ function patched(material: Material, shared: Shared, opts: { texture?: Texture; 
     let frag = shader.fragmentShader.replace('#include <common>', `#include <common>\n${FRAG_COMMON}`);
     if (opts.texture) frag = frag.replace('#include <map_fragment>', `#include <map_fragment>\n${TRIPLANAR}`);
     if (variant === 'glass') frag = frag.replace('#include <color_fragment>', `#include <color_fragment>\n${GLASS_COLOR}`);
-    // The plan impostor (hqGlassShader.ts, a separate lazy chunk) fills the markers once it has loaded; until then they are empty.
-    frag = frag.replace('/*HQ_PLAN_COMMON*/', variant === 'glass' && planShader ? planShader.PLAN_COMMON : '').replace('/*HQ_PLAN_COLOR*/', variant === 'glass' && planShader ? planShader.PLAN_COLOR : '');
     if (variant === 'water') frag = frag.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${WATER_NORMAL}`);
     const emissive = variant === 'glass' ? GLASS_EMISSIVE : variant === 'beacon' ? BEACON_EMISSIVE : GENERIC_EMISSIVE;
     frag = frag.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${emissive}${variant === 'water' ? WATER_GLINT : ''}\n${HIGHLIGHT}`);
     shader.fragmentShader = (opts.rich ? '#define HQ_RICH\n' : '') + frag;
   };
   // A distinct cache key per variant so the programs are not shared between patched and plain materials.
-  material.customProgramCacheKey = () => `hq-${variant}-${opts.texture ? 'tex' : 'plain'}-${opts.rich ? 'rich' : 'lean'}${variant === 'glass' && planShader ? '-plan' : ''}`;
+  material.customProgramCacheKey = () => `hq-${variant}-${opts.texture ? 'tex' : 'plain'}-${opts.rich ? 'rich' : 'lean'}`;
 }
 
 // ---------------------------------------------------------------- sky
@@ -280,14 +272,9 @@ const SKY_FRAG = `varying vec3 vDir; uniform vec3 zenith; uniform vec3 horizon; 
 
 // ---------------------------------------------------------------- the renderer
 
-/** A person (or a test) can pin the quality with `localStorage["anum.hq.quality"]` = 0 to 3 (3 = shadows and night glow). */
-function readQualityOverride(): Quality | null {
-  try {
-    const raw = window.localStorage.getItem('anum.hq.quality');
-    if (raw === null) return null;
-    const n = Number(raw);
-    return n === 0 || n === 1 || n === 2 || n === 3 ? (n as Quality) : null;
-  } catch { return null; }
+/** A person (or the Graphics check, or a test) can pin a registered tier with `localStorage["anum.hq.quality"]`; the pin always wins. */
+function readQualityOverride(): number | null {
+  try { return parsePin(window.localStorage.getItem(QUALITY_PIN_KEY)); } catch { return null; }
 }
 
 /** True on a software rasteriser (SwiftShader, llvmpipe): it gets the light settings. Probed on a scratch canvas before the real context exists. */
@@ -314,31 +301,25 @@ function probeSoftwareRenderer(): boolean {
   } catch { return false; }
 }
 
-type Quality = 0 | 1 | 2 | 3;
-const SHADOW_SIZE: Record<Quality, number> = { 0: 0, 1: 1024, 2: 1024, 3: 2048 };
 
 export class HqRenderer {
-  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, glassPlan: '', scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
+  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(40, 1, 0.2, 1000);
   private readonly sun = new DirectionalLight(0xffffff, 1);
   private readonly hemi = new HemisphereLight(0xffffff, 0x444444, 1);
   private readonly fog = new Fog(0xffffff, 100, 500);
-  private readonly shared: Shared = {
+  /** The plan uniforms are added by the plan shader chunk (`installPlan`) before the glass programs are rebuilt. */
+  private readonly shared: Shared & Record<string, IUniform> = {
     uNight: { value: 0 }, uLit: { value: 0 }, uTime: { value: 0 }, uAmb: { value: 0 }, uDetail: { value: new Vector2(60, 200) },
     uSkyTop: { value: new Color() }, uSkyHor: { value: new Color() }, uSunDir: { value: new Vector3(0, -1, 0) }, uSunCol: { value: new Color() },
     uRipples: { value: Array.from({ length: MAX_RIPPLES }, () => new Vector4(0, 0, 0, 0)) },
-    uPlanTex: { value: null }, uPlanRect: { value: Array.from({ length: 16 }, () => new Vector4()) }, uPlanInfo: { value: Array.from({ length: 16 }, () => new Vector4()) },
-    uPlanGrid: { value: new Vector2(1, 1) }, uPlanCount: { value: 0 },
   };
   private readonly materials = new Map<Cls, Material>();
   private readonly textures: Texture[] = [];
   private signTexture: Texture | null = null;
   private signKey = '';
-  private planTexture: DataTexture | null = null;
-  private planRevision = '';
-  private wantedPlan: GlassPlanData | null = null;
   private envs: Array<Texture | undefined> = [];
   private sky: Mesh | null = null;
   private meshes: Mesh[] = [];
@@ -354,7 +335,25 @@ export class HqRenderer {
   private shadowRegion: { center: { x: number; y: number; z: number }; radius: number } | null = null;
   private shadowDirty = true;
   private lastSunKey = '';
-  private quality: Quality = 3;
+  /** The tier in force: the automatic one, a pin, or a Graphics check run (`override`). */
+  private quality = 3;
+  private reason: TierReason = 'automatic';
+  private pinned: number | null = null;
+  private override: number | null = null;
+  private ladder: readonly StepSettings[] = ladderFor(tierById(3));
+  private applied: StepSettings = this.ladder[0];
+  /** Loaded on demand (its own chunk), so the renderer chunk stays inside its budget; null until then, and the picture simply holds its tier. */
+  private governor: FrameGovernor | null = null;
+  private governorLoad: Promise<typeof import('./hqGovernor.ts')> | null = null;
+  private step = 0;
+  private governed = false;
+  private lean = false;
+  /** A shader failed to compile here: the simple materials stay on for every tier. */
+  private faulted = false;
+  private lastScene: RenderScene | null = null;
+  /** True when this draw came from the camera or another input (frame to frame time is then the real frame time). */
+  private inputDriven = true;
+  private prevDrawAt = 0;
   private reducedMotion = false;
   /** Moving scenery: each part keeps the middle of its bounds as the pivot. */
   private ambientParts: { mesh: Mesh; motion: AmbientMotion; px: number; py: number; pz: number }[] = [];
@@ -374,7 +373,6 @@ export class HqRenderer {
   private raf: number | null = null;
   private maxDpr: number;
   private dprScale = 1;
-  private slowFrames = 0;
   private readonly cb: RendererCallbacks;
   private readonly canvas: HTMLCanvasElement;
   private readonly onLostEvent: () => void;
@@ -389,20 +387,29 @@ export class HqRenderer {
   private slowSteps = 0;
   private software = false;
   /** False on a software rasteriser (unless scenery is pinned on): plain glass, water and sky programs, which compile and run faster. */
-  private get rich(): boolean { return !this.software || this.forcedScenery !== null; }
+  private get rich(): boolean { return !this.lean && (!this.software || this.forcedScenery !== null); }
   private forcedScenery: SceneryLevel | null = null;
   private level: SceneryLevel = 0;
 
   private constructor(canvas: HTMLCanvasElement, renderer: WebGLRenderer, cb: RendererCallbacks, maxDpr: number) {
     this.canvas = canvas; this.renderer = renderer; this.cb = cb; this.maxDpr = maxDpr;
     this.onLostEvent = () => { this.lost = true; this.cb.onLost?.(); };
-    this.onRestoredEvent = () => { this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.cb.onRestored?.(); this.requestFrame(); };
+    this.onRestoredEvent = () => {
+      // three.js re-creates its own state; what lived in render targets (reflection maps, the glow pass, the shadow map) is gone and is rebuilt on demand.
+      for (const env of this.envs) env?.dispose();
+      this.envs = [];
+      this.composer?.dispose(); this.composer = null; this.bloom = null;
+      this.sun.shadow.map?.dispose(); this.sun.shadow.map = null;
+      this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = ''; this.governor?.reset();
+      this.cb.onRestored?.(); this.requestFrame();
+    };
     canvas.addEventListener('webglcontextlost', this.onLostEvent);
     canvas.addEventListener('webglcontextrestored', this.onRestoredEvent);
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = ACESFilmicToneMapping;
     renderer.outputColorSpace = SRGBColorSpace;
     renderer.info.autoReset = false;
+    renderer.debug.onShaderError = (gl, program) => this.shaderFault(String(gl.getProgramInfoLog(program) ?? ''));
     renderer.shadowMap.type = PCFShadowMap;
     renderer.shadowMap.autoUpdate = false;
     this.scene.fog = this.fog;
@@ -439,11 +446,70 @@ export class HqRenderer {
       return null;
     }
     const pixels = canvas.clientWidth * canvas.clientHeight * (window.devicePixelRatio || 1) ** 2;
-    if (forced !== null) made.quality = forced;
-    else if (cheap) made.quality = 0;
-    else if (pixels > 4_000_000) made.quality = 2;
+    made.pinned = forced;
+    if (forced !== null) { made.quality = forced; made.reason = 'pinned'; }
+    else if (cheap) { made.quality = 0; made.reason = 'software'; }
+    else if (pixels > 4_000_000) { made.quality = 2; made.reason = 'large-canvas'; }
+    made.configureTier();
     return made;
   }
+
+  /** Rebuild the ladder and governor for the tier in force and apply the top rung. */
+  private configureTier(): void {
+    const id = this.override ?? this.pinned ?? this.quality;
+    this.ladder = ladderFor(tierById(id));
+    this.governor = null;
+    this.governed = this.pinned === null && this.override === null && !this.software;
+    if (this.governed) void (this.governorLoad ??= import('./hqGovernor.ts')).then((m) => { if (!this.disposed && this.governed && !this.governor) this.governor = new m.FrameGovernor(this.ladder.length); });
+    this.applyStep(0);
+  }
+
+  private applyStep(step: number): void {
+    this.step = step;
+    const next = this.ladder[Math.min(step, this.ladder.length - 1)];
+    const wantLean = next.lean || this.faulted;
+    const lean = wantLean !== this.lean;
+    this.applied = wantLean && !next.lean ? { ...next, lean: true } : next;
+    this.dprScale = next.dprScale;
+    this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = '';
+    if (lean) this.setLean(wantLean);
+    this.emitQuality();
+    this.requestFrame();
+  }
+
+  private emitQuality(): void {
+    this.cb.onQuality?.({ tier: this.override ?? this.pinned ?? this.quality, reason: this.pinned !== null ? 'pinned' : this.reason, step: this.step, steps: this.ladder.length, settings: this.applied, software: this.software, governed: this.governed });
+  }
+
+  /** A person pinned a tier (or cleared the pin with null): it wins over the governor and the automatic choice. */
+  setPin(id: number | null, run = false): void { if (run) this.override = id; else this.pinned = id; this.configureTier(); }
+
+  /** Swap between the full materials and the simple lit ones (the last rung of the governor, and the way out of a shader that will not compile). */
+  private setLean(on: boolean): void {
+    if (this.lean === on) return;
+    this.lean = on;
+    this.cheap = on || (this.pinned === null && this.software);
+    for (const m of this.materials.values()) m.dispose();
+    for (const tex of this.textures) tex.dispose();
+    this.textures.length = 0; this.materials.clear();
+    if (this.sky) { this.scene.remove(this.sky); this.sky.geometry.dispose(); (this.sky.material as Material).dispose(); this.sky = null; }
+    try { this.buildMaterials(); this.buildSky(); } catch (error) { this.fail(error); return; }
+    for (const m of this.materials.values()) m.needsUpdate = true;
+    if (this.lastScene) this.setScene(this.lastScene);
+  }
+
+  /** A shader failed to compile on this GPU: keep a short, non-sensitive note and fall back to the simple materials (or to the 2D plan if even those fail). */
+  private shaderFault(log: string): void {
+    console.warn('[hq-gpu] shader compile failed', log.slice(0, 160));
+    if (this.disposed) return;
+    if (this.faulted) { if (this.lean) window.setTimeout(() => this.fail(new Error('shader-compile')), 0); return; }
+    this.faulted = true;
+    window.setTimeout(() => { if (!this.disposed) this.applyStep(this.ladder.length - 1); }, 0);
+  }
+
+  // The Graphics check (hq-gpu/gpuBench.ts, its own chunk) reads and drives `renderer`, `meshes`, `textures`, `composer`, `cameraState`,
+  // `liftValue`, `startLifts` and `requestFrame` through a cast, so none of that costs this chunk anything. Keep the names in step.
+
 
   private fail(error: unknown): void {
     this.cb.onError?.(error instanceof Error ? error : new Error('WebGL failed'));
@@ -580,7 +646,7 @@ export class HqRenderer {
 
   /** True while ambient scenery should move: allowed here, no reduced motion, tab visible, quality above the lowest. */
   private ambientActive(): boolean {
-    return this.ambientAllowed && !this.reducedMotion && !this.lost && (this.quality > 0 || this.ambientForced) && typeof document !== 'undefined' && !document.hidden;
+    return this.ambientAllowed && !this.reducedMotion && !this.lost && (this.applied.shadowSize > 0 || this.applied.bloom || this.ambientForced) && typeof document !== 'undefined' && !document.hidden;
   }
 
   private stepAmbient(): void {
@@ -607,7 +673,7 @@ export class HqRenderer {
   /** The next ambient frame: about 12 a second, 4 a second once drawing is slow. Not scheduled while frozen. */
   private scheduleAmbient(): void {
     if (this.ambientTimer !== null || this.disposed || !this.ambientParts.length || !this.ambientActive()) return;
-    this.ambientTimer = window.setTimeout(() => { this.ambientTimer = null; this.requestFrame(); }, this.stats.avgDrawMs > 35 ? 250 : 83);
+    this.ambientTimer = window.setTimeout(() => { this.ambientTimer = null; this.inputDriven = false; this.requestFrame(); }, this.stats.avgDrawMs > 35 ? 250 : 83);
   }
 
   /**
@@ -677,6 +743,7 @@ export class HqRenderer {
   }
 
   setScene(scene: RenderScene): void {
+    this.lastScene = scene;
     this.disposeMeshes();
     if (scene.models?.length && !this.layer) this.layer = new ModelLayer(this.scene, this.cheap, (ready) => this.applyReady(ready), () => this.requestFrame());
     if (!this.layer && scene.halos?.length) this.layer = new ModelLayer(this.scene, this.cheap, (ready) => this.applyReady(ready), () => this.requestFrame());
@@ -702,7 +769,6 @@ export class HqRenderer {
     if (key !== this.signKey) {
       this.signKey = key;
       this.signTexture?.dispose();
-    this.planTexture?.dispose();
       this.signTexture = null;
       const source = scene.signs && scene.signs.length ? drawSignAtlas(scene.signs) : null;
       if (source) {
@@ -722,48 +788,9 @@ export class HqRenderer {
   }
 
 
-  /**
-   * The plan impostor behind the glass: the atlas becomes one nearest-filtered texture and the per-building rectangles become
-   * uniforms. The shader code is a lazy chunk, fetched the first time a scene carries a plan; the glass programs are rebuilt
-   * once with it. A new revision of the same size only rewrites the texture bytes.
-   */
-  setGlassPlan(plan: GlassPlanData | null | undefined): void {
-    this.wantedPlan = plan ?? null;
-    if (plan && planPinnedOff()) plan = null;
-    if (!plan) { this.shared.uPlanCount.value = 0; this.stats.glassPlan = ''; return; }
-    if (plan.revision === this.planRevision) return;
-    const apply = (): void => {
-      const want = this.wantedPlan;
-      if (!want || this.disposed) return;
-      if (this.planTexture && this.planTexture.image.width === want.width && this.planTexture.image.height === want.height) {
-        (this.planTexture.image.data as Uint8Array).set(want.data);
-      } else {
-        this.planTexture?.dispose();
-        const tex = new DataTexture(want.data.slice(), want.width, want.height, RGBAFormat, UnsignedByteType);
-        tex.magFilter = tex.minFilter = NearestFilter;
-        tex.colorSpace = NoColorSpace;
-        tex.generateMipmaps = false;
-        this.planTexture = tex;
-      }
-      this.planTexture.needsUpdate = true;
-      const u = this.shared;
-      u.uPlanTex.value = this.planTexture;
-      u.uPlanGrid.value.set(want.cols, want.rows);
-      u.uPlanCount.value = want.buildings.length;
-      want.buildings.forEach((b, i) => {
-        u.uPlanRect.value[i].set(b.rect[0], b.rect[1], 1 / (b.rect[2] - b.rect[0]), 1 / (b.rect[3] - b.rect[1]));
-        u.uPlanInfo.value[i].set(b.storeys, b.baseY, b.pitch, 0);
-      });
-      this.planRevision = want.revision;
-      this.stats.glassPlan = want.revision;
-      this.requestFrame();
-    };
-    if (planShader) { apply(); return; }
-    void import('./hqGlassShader.ts').then((m) => {
-      planShader = m;
-      for (const cls of ['glass'] as const) { const material = this.materials.get(cls); if (material) material.needsUpdate = true; }
-      apply();
-    }).catch(() => undefined);
+  /** What the plan shader chunk needs to put a plan atlas behind the glass (see `hqGlassShader.applyPlan`). */
+  glassHooks() {
+    return { u: this.shared, g: this.materials.get('glass'), T: { DataTexture, Vector4 }, s: this.stats, r: () => this.requestFrame() };
   }
 
   /** Decide where each lift group goes: a new target eases from `from` (or from where the group stands), unseen groups jump. */
@@ -859,7 +886,7 @@ export class HqRenderer {
       if (this.disposed) return;
       const fps = SCENERY_FPS[this.level];
       if (fps === 0) return;
-      if (performance.now() - this.lastDrawAt >= 1000 / fps - 3) this.draw(); else this.scheduleScenery();
+      if (performance.now() - this.lastDrawAt >= 1000 / fps - 3) { this.inputDriven = false; this.draw(); } else this.scheduleScenery();
     });
   }
 
@@ -913,14 +940,12 @@ export class HqRenderer {
     sign.color.setRGB(gain, gain, gain);
     // Shadow light: from the sun (or moon) towards the middle of the region.
     const region = this.shadowRegion;
-    const on = region !== null && this.quality > 0;
+    const on = region !== null && this.applied.shadowSize > 0;
     if (on && region) {
-      const d = new Vector2(light.sunDir[0], light.sunDir[2]);
-      void d;
       const dir = { x: light.sunDir[0], y: light.sunDir[1], z: light.sunDir[2] };
       const len = Math.hypot(dir.x, dir.y, dir.z);
       const R = region.radius;
-      const key = `${region.center.x.toFixed(1)},${region.center.z.toFixed(1)},${R.toFixed(1)},${(dir.x / len).toFixed(2)},${(dir.z / len).toFixed(2)},${this.quality}`;
+      const key = `${region.center.x.toFixed(1)},${region.center.z.toFixed(1)},${R.toFixed(1)},${(dir.x / len).toFixed(2)},${(dir.z / len).toFixed(2)},${this.applied.shadowSize}`;
       if (key !== this.lastSunKey) {
         this.lastSunKey = key;
         this.sun.position.set(region.center.x - (dir.x / len) * R * 2, region.center.y - (dir.y / len) * R * 2, region.center.z - (dir.z / len) * R * 2);
@@ -929,7 +954,7 @@ export class HqRenderer {
         cam.left = -R; cam.right = R; cam.top = R; cam.bottom = -R; cam.near = 0.5; cam.far = R * 4.5;
         cam.updateProjectionMatrix();
         this.sun.target.updateMatrixWorld();
-        const size = SHADOW_SIZE[this.quality];
+        const size = this.applied.shadowSize;
         this.sun.shadow.normalBias = (1.6 * 2 * R) / Math.max(1, size);
         if (this.sun.shadow.mapSize.x !== size) { this.sun.shadow.mapSize.set(size, size); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
         this.shadowDirty = true;
@@ -946,7 +971,7 @@ export class HqRenderer {
       for (const material of this.materials.values()) material.needsUpdate = true;
     }
     this.sun.castShadow = shadowsOn;
-    this.stats.shadowSize = shadowsOn ? SHADOW_SIZE[this.quality] : 0;
+    this.stats.shadowSize = shadowsOn ? this.applied.shadowSize : 0;
   }
 
   private resize(): { width: number; height: number; dpr: number } {
@@ -984,6 +1009,10 @@ export class HqRenderer {
     const started = performance.now();
     // Two requests in one animation frame (a camera move and the ambient loop) draw once.
     if (started - this.lastDrawAt < 3 && this.stats.frames > 0) { this.scheduleSceneryIfRunning(); return; }
+    const interval = this.prevDrawAt > 0 ? started - this.prevDrawAt : 0;
+    const chained = this.inputDriven;
+    this.inputDriven = true;
+    this.prevDrawAt = started;
     this.lastDrawAt = started;
     this.level = this.sceneryLevelNow();
     if (this.level > 0 && this.lastClockAt > 0) this.clock += Math.min(0.1, Math.max(0, (started - this.lastClockAt) / 1000));
@@ -1012,7 +1041,7 @@ export class HqRenderer {
       this.stepAmbient();
       if (this.shadowDirty && this.renderer.shadowMap.enabled) { this.renderer.shadowMap.needsUpdate = true; this.shadowDirty = false; }
       this.renderer.info.reset();
-      const useBloom = this.quality >= 2 && !this.reducedMotion && this.night > 0.04;
+      const useBloom = this.applied.bloom && !this.reducedMotion && this.night > 0.04;
       if (useBloom) {
         const composer = this.ensureComposer(width, height, dpr);
         if (this.bloom) { this.bloom.strength = 0.5 * Math.min(1, this.night * 1.4); this.bloom.threshold = 1.05; this.bloom.radius = 0.4; }
@@ -1041,17 +1070,16 @@ export class HqRenderer {
     // The first frames compile shaders and upload buffers; they say nothing about steady drawing, so the average starts after them.
     const warm = s.frames > 3;
     if (warm) s.avgDrawMs = s.avgDrawMs === 0 ? ms : s.avgDrawMs * 0.9 + ms * 0.1;
-    // Adaptive quality: three seconds of slow frames take one notch off (bloom, then shadow size, then shadows, then pixel ratio).
     if (!warm) return;
-    this.slowFrames = ms > 30 ? this.slowFrames + 1 : Math.max(0, this.slowFrames - 1);
-    if (this.slowFrames > 20) {
-      this.slowFrames = 0;
-      // Ambient motion is the newest cost and the first to go: it keeps frames coming, so it steps down before the picture does.
-      if (this.level > 0) this.slowSteps += 1;
-      else if (this.quality > 0) { this.quality = (this.quality - 1) as Quality; this.shadowDirty = true; this.lastSunKey = ''; }
-      else if (this.dprScale > 0.6) this.dprScale = Math.max(0.6, this.dprScale * 0.8);
-      this.requestFrame();
-    }
+    // The frame governor judges frame to frame time while the camera or a cut-away is moving (that is what a person sees), and the draw call
+    // alone when ambient motion paces the frames. Slow frames spend ambient motion first, then walk the ladder.
+    const frameMs = chained && interval > 0 && interval < 250 ? Math.max(ms, interval) : ms;
+    const gov = this.governor;
+    if (!gov) return;
+    if (document.hidden) { gov.reset(); return; }
+    const decision = gov.sample(frameMs, started);
+    if (decision === 'down' && this.level > 0) { this.slowSteps += 1; gov.defer(started); this.requestFrame(); }
+    else if (decision) { gov.apply(decision, started); this.applyStep(gov.step); }
   }
 
   private scheduleSceneryIfRunning(): void { if (this.level > 0) this.scheduleScenery(); }
@@ -1069,7 +1097,6 @@ export class HqRenderer {
     for (const material of this.materials.values()) material.dispose();
     for (const texture of this.textures) texture.dispose();
     this.signTexture?.dispose();
-    this.planTexture?.dispose();
     if (this.sky) { this.sky.geometry.dispose(); (this.sky.material as Material).dispose(); }
     for (const env of this.envs) env?.dispose();
     this.scenery?.dispose();

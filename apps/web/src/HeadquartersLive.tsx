@@ -7,7 +7,7 @@
  * a record behind it reads "Presence unavailable" or "Not connected".
  * Extension points are documented in docs/ANUM_MINE_HQ_EXTENSION_POINTS.md.
  */
-import { AlertTriangle, Building2, CheckCircle2, Compass, DoorOpen, History, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
+import { AlertTriangle, Building2, CheckCircle2, Compass, DoorOpen, Gauge, History, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AgentMeetingSessions } from './AgentMeetingSessions';
 import { BuildingView, type AgentStyleInfo } from './BuildingView';
@@ -15,7 +15,7 @@ import { CampusListView } from './CampusListView';
 import { CampusView } from './CampusView';
 import { GuidedExecutiveTour } from './GuidedExecutiveTour';
 import { HqPlanFallback } from './HqPlanFallback';
-import { PresenceLinkChip, ViewSwitch, type HqView } from './HqChrome';
+import { GraphicsChip, PresenceLinkChip, ViewSwitch, type HqView } from './HqChrome';
 import { AgentPanel, RoomPanel } from './HqPanels';
 import { OfficeSpaceLiveManager } from './OfficeSpaceLiveManager';
 import { OfficeWorkstations } from './OfficeWorkstations';
@@ -52,6 +52,7 @@ import { AssignHost } from './hq-assign/AssignHost';
 // Loaded only when the owner opens it, so its code and styles stay out of the headquarters chunk (e2e/hq-performance.spec.ts budget).
 const StarterCampusDialog = lazy(() => import('./hq-starter-campus/StarterCampusDialog').then((m) => ({ default: m.StarterCampusDialog })));
 const HqHistoryPanel = lazy(() => import('./HqHistoryPanel'));
+const HqGpuCheckPanel = lazy(() => import('./hq-gpu/HqGpuCheckPanel'));
 // First run: the panel that offers to create the campus inside the scene of a workspace with no buildings (docs/ANUM_MINE_STARTER_CAMPUS.md#first-run).
 const FirstRunPanel = lazy(() => import('./hq-first-run/FirstRunPanel'));
 import { useProvisioningGaps } from './hq-provisioning/useProvisioning';
@@ -116,6 +117,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [fullscreen, setFullscreen] = useState(false);
   const [webglOk, setWebglOk] = useState(true);
   const [webglNote, setWebglNote] = useState<string | null>(null);
+  const [gpuOpen, setGpuOpen] = useState(false);
   const [level, setLevel] = useState<'campus' | 'building'>('campus');
   const [campusPick, setCampusPick] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -318,6 +320,9 @@ export function HeadquartersLive(props: HeadquartersProps) {
     setView(level === 'building' ? 'top' : 'list');
   }, [level]);
 
+  /** Try the 3D view again after it fell back (a context that never came back, a driver reset). */
+  const retry3d = useCallback(() => { setWebglOk(true); setWebglNote(null); setView('3d'); }, []);
+
   // Entering buildings, rooms and agents.
   const switchTo = useCallback(async (workspaceId: string, tenantId: string | null, pending: HqNavTarget) => {
     const p = latestProps.current;
@@ -512,6 +517,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           {props.headerExtra}
           <PresenceLinkChip link={livePresence.link} />
           <span className={`hqConn tone-${status === 'ready' ? 'ok' : status === 'error' ? 'stop' : 'warn'}`} role="status">{connection}</span>
+          {webglOk && <GraphicsChip onOpen={() => setGpuOpen(true)} />}
           <button type="button" className="hqIconButton" onClick={retry} disabled={state?.busy} aria-label={t('hq.refresh')} title={t('hq.refresh')}><RefreshCcw aria-hidden="true" /></button>
           <ViewSwitch view={effectiveView} onChange={(v) => { if (v === "3d" && !webglOk) return; setView(v); }} />
           <div className="hqMenuWrap">
@@ -524,6 +530,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
                 <li><button type="button" onClick={() => { setOverlay('gaps'); setToolsOpen(false); }}><Users aria-hidden="true" />{gaps.gaps && gaps.gaps.gaps.length > 0 ? t('hqProv.openCount', { count: gaps.gaps.gaps.length }) : t('hqProv.open')}</button></li>
                 <li><button type="button" onClick={() => { setOverlay('teams'); setToolsOpen(false); }}><Users aria-hidden="true" />{t('hqTeam.title')}</button></li>
                 <li><button type="button" onClick={() => { openHistory({ kind: 'office' }); setToolsOpen(false); }}><History aria-hidden="true" />{t('hqHist.open')}</button></li>
+                <li><button type="button" onClick={() => { setGpuOpen(true); setToolsOpen(false); }}><Gauge aria-hidden="true" />{t('hqGpu.open')}</button></li>
                 {([
                   ['spaces', LayoutGrid, 'hq.tools.spaces'], ['workstations', Users, 'hq.tools.workstations'], ['agentMeetings', Users, 'hq.tools.meetings'],
                   ['tour', Compass, 'hq.tools.tour'],
@@ -538,7 +545,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
       </header>
 
       {!webglOk && (
-        <p className="hqNotice" role="status"><AlertTriangle aria-hidden="true" />{t('hq.webgl.off')}{webglNote ? ` (${webglNote})` : ''}</p>
+        <p className="hqNotice" role="status"><AlertTriangle aria-hidden="true" /><span>{t('hq.webgl.off')}{webglNote ? ` (${webglNote})` : ''}</span><button type="button" className="hqGhost" data-testid="hq-retry-3d" onClick={retry3d}>{t('hqGpu.notice.retry')}</button></p>
       )}
       {campusError && (
         <div className="hqNotice error" role="alert">
@@ -630,6 +637,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
           }
         />
       </div>
+
+      {gpuOpen && <Suspense fallback={null}><HqGpuCheckPanel onClose={() => setGpuOpen(false)} /></Suspense>}
 
       {historyLaunch && (
         <Suspense fallback={null}><HqHistoryPanel launch={historyLaunch} rooms={historyRooms} agents={historyAgents} names={historyNames} onClose={() => setHistoryLaunch(null)}

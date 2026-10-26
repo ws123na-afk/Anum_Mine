@@ -14,7 +14,7 @@ export const PLAN_COMMON = `
 uniform sampler2D uPlanTex;
 uniform vec4 uPlanRect[${MAX_PLAN_SLOTS}];
 uniform vec4 uPlanInfo[${MAX_PLAN_SLOTS}];
-uniform vec2 uPlanGrid;
+uniform vec4 uPlanGrid;
 uniform float uPlanCount;
 /* One texel of a building's storey at a world position; alpha is zero outside the plan. */
 vec4 hq_planAt(int bi, int fl, vec2 xz) {
@@ -22,7 +22,7 @@ vec4 hq_planAt(int bi, int fl, vec2 xz) {
   vec2 q = (xz - R.xy) * R.zw;
   float inside = step(0.0, q.x) * step(q.x, 1.0) * step(0.0, q.y) * step(q.y, 1.0);
   q = clamp(q, vec2(0.003), vec2(0.997));
-  vec4 t = texture2D(uPlanTex, (vec2(float(fl), float(bi)) + q) / uPlanGrid);
+  vec4 t = texture2D(uPlanTex, (vec2(float(fl), float(bi)) + q) / uPlanGrid.xy);
   t.a *= inside;
   return t;
 }
@@ -90,3 +90,88 @@ export const PLAN_COLOR = `
       glowW = 1.0;
     }
   }`;
+
+/** Adds the plan uniforms to the renderer's shared uniforms (the classes come from the renderer, so this chunk imports nothing). */
+export function installPlan(shared: Record<string, { value: unknown }>, V4: new () => unknown): void {
+  shared.uPlanTex = { value: null };
+  shared.uPlanRect = { value: Array.from({ length: MAX_PLAN_SLOTS }, () => new V4()) };
+  shared.uPlanInfo = { value: Array.from({ length: MAX_PLAN_SLOTS }, () => new V4()) };
+  shared.uPlanGrid = { value: new V4() };
+  shared.uPlanCount = { value: 0 };
+}
+
+type Vec4Like = { set(x: number, y: number, z: number, w: number): unknown };
+export type PlanSource = Readonly<{ cols: number; rows: number; buildings: ReadonlyArray<Readonly<{ rect: readonly number[]; storeys: number; baseY: number; pitch: number }>> }>;
+
+/** Points the glass uniforms at an atlas texture and its per-building rectangles (world x0, z0, 1/width, 1/depth) and storey info. */
+export function fillUniforms(u: Record<string, { value: unknown }>, plan: PlanSource, texture: unknown): void {
+  const rect = u.uPlanRect.value as Vec4Like[], info = u.uPlanInfo.value as Vec4Like[];
+  u.uPlanTex.value = texture;
+  (u.uPlanGrid.value as Vec4Like).set(plan.cols, plan.rows, 0, 0);
+  u.uPlanCount.value = plan.buildings.length;
+  plan.buildings.forEach((b, i) => {
+    rect[i].set(b.rect[0], b.rect[1], 1 / (b.rect[2] - b.rect[0]), 1 / (b.rect[3] - b.rect[1]));
+    info[i].set(b.storeys, b.baseY, b.pitch, 0);
+  });
+}
+
+/** three.js constants (stable across versions): RGBAFormat, UnsignedByteType, NearestFilter. */
+const RGBA_FORMAT = 1023, UNSIGNED_BYTE = 1009, NEAREST_FILTER = 1003;
+type Disposable = { dispose(): void } | null;
+type Hooks = Readonly<{
+  /** The renderer's shared uniforms, the glass material, the three.js classes needed, the stats and a redraw request. */
+  u: Record<string, { value: unknown }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  g: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  T: Record<string, any>;
+  s: { glassPlan?: string };
+  r: () => void;
+}>;
+
+/**
+ * Everything the renderer does for a plan atlas, in this chunk: the first time it adds the uniforms and rewrites the glass program
+ * (`patchGlass`, with its own program cache key), then for each revision a fresh nearest-filtered texture and the building rectangles.
+ */
+export function applyPlan(h: Hooks, plan: PlanSource & { revision: string; data: Uint8Array; width: number; height: number }): void {
+  if (plan.revision === h.s.glassPlan) return;
+  const shared = h.u, glass = h.g;
+  if (!shared.uPlanTex) {
+    installPlan(shared, h.T.Vector4);
+    if (glass) {
+      const before = glass.onBeforeCompile;
+      glass.onBeforeCompile = (shader: { fragmentShader: string }, renderer: unknown) => { before(shader, renderer); shader.fragmentShader = patchGlass(shader.fragmentShader); };
+      glass.customProgramCacheKey = () => 'hq-glass-plan';
+      glass.needsUpdate = true;
+    }
+  }
+  (shared.uPlanTex.value as Disposable)?.dispose();
+  const tex = new (h.T.DataTexture as new (d: Uint8Array, w: number, h: number, f: unknown, t: unknown) => Record<string, unknown> & { dispose(): void })(plan.data.slice(), plan.width, plan.height, RGBA_FORMAT, UNSIGNED_BYTE);
+  tex.magFilter = tex.minFilter = NEAREST_FILTER;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  fillUniforms(shared, plan, tex);
+  h.s.glassPlan = plan.revision;
+  h.r();
+}
+
+const HASH_LINE = 'float hq_hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }';
+const ROOM_DECL = '  vec3 hqRoom = vec3(0.0);';
+const ROOM_CALL = 'if (hqHas > 0.5) hqRoom = hq_room(';
+const LEAN_END = '  hqHas = 0.0;\n#endif';
+const LAMP = 'vec3 lamp = mix(paneLit, hqRoom * 1.05, hqHas);';
+
+/**
+ * Rewrites the renderer's glass fragment program so that panes carrying an atlas row look into the plan: declarations, the
+ * uniforms and lookup functions, the plan colour after the generic room, and the plan's own light for the night glow.
+ * A program that does not contain every expected line is returned unchanged (the generic rooms stay).
+ */
+export function patchGlass(frag: string): string {
+  for (const part of [HASH_LINE, ROOM_DECL, ROOM_CALL, LEAN_END, LAMP]) if (!frag.includes(part)) return frag;
+  return frag
+    .replace(HASH_LINE, `${HASH_LINE}\n${PLAN_COMMON}`)
+    .replace(ROOM_DECL, `${ROOM_DECL}\n  float hqPlan = 0.0;\n  vec3 hqEmit = vec3(0.0);`)
+    .replace(ROOM_CALL, 'if (hqHas > 0.5 && vPUv.x < 1.5) hqRoom = hq_room(')
+    .replace(LEAN_END, `${LEAN_END}\n  if (vPUv.x >= 1.5) hqHas = 0.0;\n${PLAN_COLOR}`)
+    .replace(LAMP, 'vec3 lamp = hqPlan > 0.5 ? hqEmit : mix(paneLit, hqRoom * 1.05, hqHas);');
+}
