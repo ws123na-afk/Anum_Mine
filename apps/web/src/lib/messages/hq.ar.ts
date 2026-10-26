@@ -92,6 +92,7 @@ export const hqAr = {
   'hq.cam.north': 'التوجه نحو الشمال',
   'hq.cam.light': 'الإضاءة',
   'hq.cam.day': 'نهار',
+  'hq.cam.dusk': 'الغروب',
   'hq.cam.night': 'ليل',
   'hq.tool.label': 'عناصر التحكم بالمشهد',
   'hq.tool.rotateLeft': 'تدوير لليسار',

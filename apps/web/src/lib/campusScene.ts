@@ -8,9 +8,9 @@
  */
 import { MAT, MeshBuilder, hex, mix, scale, seeded, type Rgb } from './hqGeometry.ts';
 import { GROUND, STONE, WATER, bench, flatPoly, lamp } from './hqProps.ts';
-import { buildingGarden, globeMonument, campusEnvironment, carPark, carParkSize, pond, tennisCourt, tree, truck, van, type Exclusion } from '../hqAssets/environment/index.ts';
+import { buildingGarden, globeMonument, campusEnvironment, carPark, carParkSize, pond, ripplesOf, tennisCourt, tree, trafficPlan, truck, van, type SceneryPlan, type Exclusion } from '../hqAssets/environment/index.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
-import { archetypeOf, drawBuilding, type Archetype } from './campusBuildings.ts';
+import { archetypeOf, type Archetype } from './campusBuildings.ts';
 import { drawExterior } from './campusExteriors.ts';
 import { campusExtent, type Placement } from './campusModel.ts';
 import type { Aabb } from './hqMath.ts';
@@ -38,6 +38,8 @@ export type CampusScene = Readonly<{
   shadow: Readonly<{ center: Vec3; radius: number }>;
   /** Soft light halos (x, y, z, radius, r, g, b, strength per halo) for the night glow. */
   halos: Float32Array;
+  /** Scenery that moves for its own sake (traffic loops, water ripples); never read from a record. */
+  motion: SceneryPlan;
 }>;
 
 const freeze = (b: MeshBuilder): SceneMesh => ({ vertices: b.toFloat32(), bounds: b.bounds(), triangles: b.triangleCount });
@@ -102,16 +104,9 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
   placements.forEach((p, index) => {
     const archetype = archetypeOf(p);
     const asset = drawExterior(p, archetype, index, signCount);
-    let mesh: SceneMesh, anchor: Vec3, door: Vec3;
-    if (asset) {
-      mesh = { vertices: asset.vertices, bounds: asset.bounds, triangles: asset.triangles };
-      anchor = asset.anchor; door = asset.door;
-      buildingHalos.push(...asset.halos);
-    } else {
-      const b = new MeshBuilder();
-      const shape = drawBuilding(b, p, 'bld:' + p.workspaceId, index, signCount);
-      mesh = freeze(b); anchor = shape.anchor; door = shape.door;
-    }
+    const mesh: SceneMesh = { vertices: asset.vertices, bounds: asset.bounds, triangles: asset.triangles };
+    const anchor: Vec3 = asset.anchor, door: Vec3 = asset.door;
+    buildingHalos.push(...asset.halos);
     buildings.push({
       workspaceId: p.workspaceId, mesh, anchor, door, signIndex: index, archetype,
       box: { min: { x: p.x - p.width / 2 - 1.2, y: 0, z: p.z - p.depth / 2 - 1.2 }, max: { x: p.x + p.width / 2 + 1.2, y: mesh.bounds.max.y, z: p.z + p.depth / 2 + 1.2 } },
@@ -207,5 +202,9 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
     scenery: freeze(scenery), buildings, monument: { x: monument.x, y: 10.2, z: monument.z }, extent, groundRadius, triangles: total, signCount, canalRadius: ringHalf + 24,
     shadow: { center: { x: 0, y: 0, z: 0 }, radius: ringHalf * 1.2 + 6 },
     halos: new Float32Array([...s.halos, ...buildingHalos]),
+    motion: {
+      ...trafficPlan({ cx: 0, cz: 0, halfW: ringHalf, halfD: ringHalf, cornerRadius: 16 }, { seed: 'anum-mine' }),
+      ripples: ripplesOf([{ x: monument.x, z: monument.z, r: 9 }, ...ponds.map(([x, z, r]) => ({ x, z, r }))]),
+    },
   };
 }
