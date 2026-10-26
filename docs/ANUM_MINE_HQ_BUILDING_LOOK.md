@@ -65,7 +65,7 @@ is the same; the buildings, the light and the motion changed.
   balcony, a timber clad entrance, a roof terrace with a plunge pool, a garden pool with loungers, palms, and a gate wall with the sign board.
 - **Facade detail.** Dark spandrels under every window row, slab edges, vertical fins, ledges, mullion gaps, balconies, louvres, a lit lobby and a
   lit canopy soffit. The building name is lettered from the real building name on the sign board (the board itself is blank in the mesh).
-- **See-through glass with lit rooms.** Every exterior window pane carries local coordinates and the glass shader draws a room behind it (ceiling light,
+- **See-through glass with lit rooms** (hardware GL, or any renderer with `localStorage["anum.hq.ambient"]` pinned; a software rasteriser gets plain glass, plain water and a cloudless sky, which compile and run faster and keep CI inside its timeouts). Every exterior window pane carries local coordinates and the glass shader draws a room behind it (ceiling light,
   darker floor, desks and a few screens, warm or cool white per room), dim by day, glowing from the blue hour on, with a thin lit floor plate between
   storeys so floors read from outside. It is interior mapping in the fragment shader, not alpha blending: no extra overdraw and no sorting, so the
   software path pays only a few arithmetic operations per glass pixel. The executive lobby has turnstiles under the portico. It is a fake interior:

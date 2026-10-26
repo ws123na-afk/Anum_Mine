@@ -50,3 +50,7 @@ The choice is kept in `localStorage["anum.hq.preset"]` (`lib/hqLightPreset.ts`),
 
 `test/hqSceneryMotion.test.ts` (lanes, spacing, poses, ripples, levels, vehicle parts, light presets, surface classes) and
 `e2e/hq-exterior-look.spec.ts` (still by default on software GL, runs when switched on, frozen under reduced motion, day, blue hour and night differ, five viewports).
+
+## Software rasterisers
+
+On SwiftShader or llvmpipe (CI) the scene also leaves out what would never move there and what costs shader compile time before the first frame: vehicles are not placed, leaves, flags and rooftop lights are drawn as plain surfaces, and the glass, water and sky programs are the lean ones (no lit rooms, no rings, no clouds). Pinning `anum.hq.ambient` brings all of it back, which is how `e2e/hq-exterior-look.spec.ts` checks the motion and the screenshots were taken.

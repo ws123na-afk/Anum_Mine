@@ -75,6 +75,7 @@ uniform vec3 uSunDir;
 uniform vec3 uSunCol;
 uniform vec4 uRipples[${MAX_RIPPLES}];
 float hq_hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+#ifdef HQ_RICH
 /* A lit room seen through a pane: ceiling light, darker floor, desks and a few screens (q is 0..1 across the pane, seed picks the room). */
 vec3 hq_room(vec2 q, float seed) {
   float ceilL = smoothstep(0.78, 0.9, q.y) * (1.0 - smoothstep(0.93, 0.99, q.y));
@@ -87,7 +88,8 @@ vec3 hq_room(vec2 q, float seed) {
   vec3 room = wallC * (0.3 + 0.7 * flo) + vec3(1.0, 0.93, 0.78) * ceilL * 1.3;
   room = mix(room, room * 0.32, desks);
   return room + vec3(0.35, 0.65, 1.0) * scr * 0.9;
-}`;
+}
+#endif`;
 
 /** Leaves and fronds lean with the wind: more the higher they are, out of step with their neighbours. Frozen (rest pose) when uAmb is 0. */
 const SWAY_FOLIAGE = `
@@ -125,7 +127,11 @@ const GLASS_COLOR = `
   // The room behind a pane (exterior panes carry local coordinates): a ceiling light, a darker floor, a few desks with screens.
   float hqHas = step(0.0005, max(vPUv.x, vPUv.y));
   vec3 hqRoom = vec3(0.0);
+#ifdef HQ_RICH
   if (hqHas > 0.5) hqRoom = hq_room(vPUv, hq_hash(floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6)) + 3.0));
+#else
+  hqHas = 0.0;
+#endif
   {
     float gy = clamp(vWPos.y / 48.0, 0.0, 1.0);
     vec2 cell = floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6));
@@ -171,6 +177,7 @@ const BEACON_EMISSIVE = `
   }`;
 /** Water: a calm swell, rings spreading from the fountain and ponds, and a few glints on the sun side. */
 const WATER_NORMAL = `
+#ifdef HQ_RICH
   {
     vec2 wp = vWPos.xz;
     float t = uTime;
@@ -185,7 +192,8 @@ const WATER_NORMAL = `
       }
     }
     normal = normalize(normal + (viewMatrix * vec4(g.x, 0.0, g.y, 0.0)).xyz);
-  }`;
+  }
+#endif`;
 const WATER_GLINT = `
   {
     float s = sin(vWPos.x * 2.3 + uTime * 1.7) * sin(vWPos.z * 2.1 - uTime * 1.3);
@@ -199,7 +207,8 @@ type Shared = {
 };
 type Variant = 'std' | 'glass' | 'water' | 'foliage' | 'cloth' | 'beacon';
 
-function patched(material: Material, shared: Shared, opts: { texture?: Texture; scale?: number; variant?: Variant }): void {
+/** `rich` adds the lit rooms behind glass, the water rings and the sky's clouds; a software rasteriser compiles and runs the plain programs. */
+function patched(material: Material, shared: Shared, opts: { texture?: Texture; scale?: number; variant?: Variant; rich?: boolean }): void {
   const hl: IUniform<number> = { value: 0 };
   const variant = opts.variant ?? 'std';
   material.userData.hl = hl;
@@ -218,10 +227,10 @@ function patched(material: Material, shared: Shared, opts: { texture?: Texture; 
     if (variant === 'water') frag = frag.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${WATER_NORMAL}`);
     const emissive = variant === 'glass' ? GLASS_EMISSIVE : variant === 'beacon' ? BEACON_EMISSIVE : GENERIC_EMISSIVE;
     frag = frag.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${emissive}${variant === 'water' ? WATER_GLINT : ''}\n${HIGHLIGHT}`);
-    shader.fragmentShader = frag;
+    shader.fragmentShader = (opts.rich ? '#define HQ_RICH\n' : '') + frag;
   };
   // A distinct cache key per variant so the programs are not shared between patched and plain materials.
-  material.customProgramCacheKey = () => `hq-${variant}-${opts.texture ? 'tex' : 'plain'}`;
+  material.customProgramCacheKey = () => `hq-${variant}-${opts.texture ? 'tex' : 'plain'}-${opts.rich ? 'rich' : 'lean'}`;
 }
 
 // ---------------------------------------------------------------- sky
@@ -240,12 +249,14 @@ const SKY_FRAG = `varying vec3 vDir; uniform vec3 zenith; uniform vec3 horizon; 
     float t = clamp(d.y, -1.0, 1.0);
     vec3 sky = mix(horizon, zenith, pow(max(t, 0.0), 0.55));
     sky += glow * exp(-abs(t) * 9.0);
+#ifdef HQ_RICH
     if (uCloud > 0.001 && t > 0.015) {
       vec2 p = d.xz / (t + 0.2) * 1.15 + vec2(uTime * 0.012, uTime * 0.004);
       float n = 0.55 * vn(p) + 0.3 * vn(p * 2.1 + 3.7) + 0.15 * vn(p * 4.3 + 9.1);
       float c = smoothstep(0.52 - uCloud * 0.14, 0.82, n) * smoothstep(0.015, 0.2, t) * uCloud;
       sky = mix(sky, uCloudCol, clamp(c, 0.0, 0.85));
     }
+#endif
     vec3 col = t >= 0.0 ? sky : mix(horizon * 0.8, ground, clamp(-t * 3.0, 0.0, 1.0));
     float s = max(dot(d, normalize(sunDir)), 0.0);
     col += sunColor * (pow(s, sunPower) * 6.0 + pow(s, 4.0) * 0.25) * uDisc;
@@ -359,6 +370,8 @@ export class HqRenderer {
   private sceneryRaf: number | null = null;
   private slowSteps = 0;
   private software = false;
+  /** False on a software rasteriser (unless scenery is pinned on): plain glass, water and sky programs, which compile and run faster. */
+  private get rich(): boolean { return !this.software || this.forcedScenery !== null; }
   private forcedScenery: SceneryLevel | null = null;
   private level: SceneryLevel = 0;
 
@@ -439,7 +452,7 @@ export class HqRenderer {
         ? new MeshLambertMaterial({ vertexColors: true, side: DoubleSide })
         : new MeshStandardMaterial({ vertexColors: true, roughness: params.roughness, metalness: params.metalness, envMapIntensity: params.env ?? 1, side: DoubleSide });
       const texture = kind ? this.texture(kind) : undefined;
-      patched(m, this.shared, { texture, scale: TEX_SCALE[cls], variant });
+      patched(m, this.shared, { texture, scale: TEX_SCALE[cls], variant, rich: this.rich });
       this.materials.set(cls, m);
     };
     std('flat', { roughness: 0.82, metalness: 0 });
@@ -489,7 +502,7 @@ export class HqRenderer {
         sunDir: { value: [0, 1, 0] }, sunColor: { value: new Color() }, sunPower: { value: 40 }, uDisc: { value: 0.0 },
         uTime: { value: 0 }, uCloud: { value: 0 }, uCloudCol: { value: new Color() },
       },
-      vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
+      vertexShader: SKY_VERT, fragmentShader: SKY_FRAG, defines: this.rich ? { HQ_RICH: '' } : {},
     });
     const dome = new Mesh(new SphereGeometry(1, 24, 12), material);
     dome.frustumCulled = false; dome.renderOrder = -10;
@@ -579,6 +592,15 @@ export class HqRenderer {
     this.ambientTimer = window.setTimeout(() => { this.ambientTimer = null; this.requestFrame(); }, this.stats.avgDrawMs > 35 ? 250 : 83);
   }
 
+  /**
+   * On a software rasteriser the moving surface classes (leaves, flags, rooftop lights) are drawn as plain flat surfaces: they would never
+   * move there, and each extra shader program is seconds of compile time before the first frame. A person or a test who pins scenery motion
+   * on gets them.
+   */
+  private stillClass(cls: Cls): Cls {
+    return this.software && this.forcedScenery === null && (cls === 'foliage' || cls === 'cloth' || cls === 'beacon') ? 'flat' : cls;
+  }
+
   private addItem(item: RenderItem, transparent: boolean, scene: RenderScene): void {
     const v = item.vertices;
     const total = v.length / VERTEX_FLOATS;
@@ -586,7 +608,7 @@ export class HqRenderer {
     for (let t = 0; t + 2 < total; t += 3) {
       const base = t * VERTEX_FLOATS;
       const em = v[base + 9];
-      const cls: Cls = transparent ? 'pane' : em >= 2 ? 'glass' : (CLASS_OF_MAT[v[base + 10]] ?? 'flat');
+      const cls: Cls = transparent ? 'pane' : em >= 2 ? 'glass' : this.stillClass(CLASS_OF_MAT[v[base + 10]] ?? 'flat');
       let list = buckets.get(cls);
       if (!list) { list = []; buckets.set(cls, list); }
       list.push(t);
@@ -650,7 +672,7 @@ export class HqRenderer {
     }
     if (scene.scenery?.vehicles.length || this.scenery) {
       if (!this.scenery) this.scenery = new SceneryLayer(this.scene, this.cheap);
-      this.scenery.setPlan(scene.scenery);
+      this.scenery.setPlan(this.software && this.forcedScenery === null ? undefined : scene.scenery);
     }
     const ripples = scene.scenery?.ripples;
     for (let i = 0; i < MAX_RIPPLES; i++) {
