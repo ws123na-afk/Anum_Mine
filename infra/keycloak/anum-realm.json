@@ -1,6 +1,10 @@
 {
   "realm": "anum",
   "displayName": "ANUM (local development)",
+  "loginTheme": "anum",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["en", "ar"],
+  "defaultLocale": "en",
   "enabled": true,
   "sslRequired": "external",
   "registrationAllowed": false,
