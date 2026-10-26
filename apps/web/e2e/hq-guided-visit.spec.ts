@@ -72,12 +72,14 @@ test('states: loading failure with retry, no rooms, registry not connected', asy
   await expect(visit(page).getByRole('alert')).toContainText('Could not build the visit');
   await expect(visit(page).getByRole('button', { name: 'Retry' })).toBeVisible();
   await page.unrouteAll();
-  await page.reload();
+  // Leave the page first so its WebGL context is released; a reload would build a second scene with no API mocks while the next visit starts.
+  await page.goto('about:blank');
   await openVisit(page, 'empty');
   await expect(visit(page).getByRole('status').filter({ hasText: 'There are no rooms to visit yet.' })).toBeVisible();
   await expect(visit(page).getByRole('button', { name: 'Begin visit' })).toHaveCount(0);
   await page.unrouteAll();
-  await page.reload();
+  // Leave the page first so its WebGL context is released; a reload would build a second scene with no API mocks while the next visit starts.
+  await page.goto('about:blank');
   await openVisit(page, 'not_connected');
   await expect(visit(page).getByRole('status').filter({ hasText: 'The office registry is not available on this server.' })).toBeVisible();
 });
