@@ -233,6 +233,17 @@ _PATTERNS: list[tuple[re.Pattern[str], Callable[[re.Match[str]], str]]] = [
         ),
     ),
     (
+        # live_agent_meeting_rate.refusal_message
+        re.compile(
+            r"^(?P<who>You have|This workspace has) started the most agent meeting turns allowed in one minute "
+            r"\((?P<limit>\d+)\)\. Wait (?P<seconds>\d+) seconds and try again\.$"
+        ),
+        lambda m: (
+            f"{'بدأت' if m['who'] == 'You have' else 'بدأت مساحة العمل'} أقصى عدد مسموح من أدوار اجتماعات الوكلاء "
+            f"في الدقيقة الواحدة ({m['limit']}). انتظر {m['seconds']} ثانية ثم حاول مرة أخرى."
+        ),
+    ),
+    (
         # model_budget.budget_exceeded_message, for refusals that only carry the sentence.
         re.compile(
             r"^This (?P<owner>organization|workspace) has used its monthly model budget \((?P<measure>estimated cost|tokens)\)\. "
