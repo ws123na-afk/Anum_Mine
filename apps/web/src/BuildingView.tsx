@@ -10,20 +10,24 @@ import { useFlowLabels } from './HqFlowStage';
 import { ArrowLeft, Building2, ChevronDown, ChevronRight, DoorOpen, HardDrive, Layers, Users } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+const CommercePanels = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.CommercePanels })));
+const OverviewCard = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.OverviewCard })));
+const FloorRooms = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.FloorRooms })));
+const TyrePanel = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.TyrePanel })));
 const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
 import { BottomToolbar, CameraTools, TotalsPanel, statusLabel } from './HqChrome';
 import { AvatarChip } from './AvatarStyleEditor';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { visualOfStatus } from './hqAssets/interior/stateVisual.ts';
 import { buildBuildingScene, FLOOR_PITCH, WALL_HEIGHT, type DeskVisual } from './lib/buildingScene.ts';
-import { buildingFitCamera, floorOverviewCamera, clampInside, clampTarget, insideCamera, isInsideView, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
+import { CUT_PITCH, STACK_AUTO_MAX, cutLifts, facingSides, snapYaw, type CutawayInfo, type Facade, type Side } from './lib/hqCutaway.ts';
+import { HOME_YAW, buildingFitCamera, floorOverviewCamera, clampInside, clampTarget, insideCamera, isInsideView, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { RoomGeometry, SceneBuilding, SceneDesk, SceneFloor } from './lib/headquartersProjection.ts';
 import { presenceForDesk, totalsOf, type HqPresenceIndex } from './lib/hqPresence.ts';
 import { STATUS_TONE, type StatusKey } from './lib/campusModel.ts';
 import type { HqView } from './HqChrome';
 import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
-import { commerceFlow } from './lib/hqModules.ts';
 import { buildingModules } from './lib/hqBuildingModules.ts';
 import { floorLifts } from './lib/hqFloorLift.ts';
 import { LIFT_MS, easeLift } from './lib/hqRenderTypes.ts';
@@ -82,9 +86,6 @@ export type AgentStyleInfo = Readonly<{ avatar: AvatarAppearance | null; departm
 
 const ROOM_ICON = { meeting: Users, reception: DoorOpen, warehouse: HardDrive } as const;
 
-/** The stacked view is a section: a lower camera so every floor's open front shows (a high one sees only the roof slab). */
-const STACK_PITCH = 19;
-
 export function BuildingView(props: BuildingViewProps) {
   const { building, floor, view, night, presence } = props;
   const locale = useLocale();
@@ -92,7 +93,11 @@ export function BuildingView(props: BuildingViewProps) {
   const floorTitle = sceneName(floor, locale);
   const floors = building.floors;
   const activeIndex = Math.max(0, floors.findIndex((f) => f.id === floor.id));
-  const [showAll, setShowAll] = useState(false);
+  // The section view: every floor at once, the walls facing the camera and the roof taken away (docs/ANUM_MINE_HQ_CUTAWAY.md).
+  const [showAll, setShowAll] = useState(() => floors.length <= STACK_AUTO_MAX);
+  const [facade, setFacade] = useState<Facade>('cutaway');
+  const [cutSides, setCutSides] = useState<readonly Side[]>(() => facingSides(35));
+  const [facadeSaid, setFacadeSaid] = useState(false);
 
   const deskState = useMemo(() => {
     const map = new Map<string, DeskVisual>();
@@ -119,24 +124,30 @@ export function BuildingView(props: BuildingViewProps) {
     for (const [deskId, agentId] of people) { const info = props.agentStyles?.get(agentId); if (info) map.set(deskId, info); }
     return map;
   }, [people, props.agentStyles]);
+  // The overview and the top view look straight down at the open floor: the floors above would hide it, so they stay out of those views.
+  const stackOn = showAll && !props.overview && view !== 'top';
   const scene = useMemo(
-    () => buildBuildingScene(floors, { activeIndex, showAll, cutaway: true, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks, locale }),
-    [floors, activeIndex, showAll, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks, locale],
+    () => buildBuildingScene(floors, { activeIndex, showAll: stackOn, cutaway: true, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks, locale }),
+    [floors, activeIndex, stackOn, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks, locale],
   );
   const [wrap, aspect] = useAspect();
   const { overview } = props;
   // The home camera fits the footprint, the turn of the isometric view and the shape of the stage; the overview camera fits the active floor from above.
   const fp = scene.footprint;
-  const topY = (showAll ? floors.length - 1 : activeIndex) * FLOOR_PITCH;
-  const buildingHome = useMemo(
-    () => buildingFitCamera({ x0: fp.x0 - 1, x1: fp.x1 + 1, z0: fp.z0 - 1, z1: fp.z1 + 1, y0: (showAll ? 0 : activeIndex * FLOOR_PITCH) - 0.4, y1: topY + WALL_HEIGHT + 0.4 }, aspect, showAll && floors.length > 1 ? STACK_PITCH : undefined),
-    [fp.x0, fp.x1, fp.z0, fp.z1, activeIndex, showAll, topY, aspect]);
+  const topY = (stackOn ? floors.length - 1 : activeIndex) * FLOOR_PITCH;
+  // The azimuth the home camera looks from: a diagonal view (HOME_YAW plus a multiple of 90) the rotate buttons step through.
+  const [homeYaw, setHomeYaw] = useState(HOME_YAW);
+  const fitBox = useMemo(
+    () => ({ x0: fp.x0 - 1, x1: fp.x1 + 1, z0: fp.z0 - 1, z1: fp.z1 + 1, y0: (stackOn ? 0 : activeIndex * FLOOR_PITCH) - 0.4, y1: topY + WALL_HEIGHT + 0.4 }),
+    [fp.x0, fp.x1, fp.z0, fp.z1, activeIndex, stackOn, topY]);
+  const buildingHome = useMemo(() => buildingFitCamera(fitBox, aspect, CUT_PITCH, homeYaw), [fitBox, aspect, homeYaw]);
   const overviewHome = useMemo(
     () => floorOverviewCamera({ x0: fp.x0 - 0.6, x1: fp.x1 + 0.6, z0: fp.z0 - 0.6, z1: fp.z1 + 0.6, y0: activeIndex * FLOOR_PITCH, y1: activeIndex * FLOOR_PITCH + WALL_HEIGHT }, aspect),
     [fp.x0, fp.x1, fp.z0, fp.z1, activeIndex, aspect]);
   const home = overview ? overviewHome : buildingHome;
   const [camera, setCamera] = useState<CameraState>(home);
   const homeRef = useRef(home);
+  const turning = useRef(false);
   const shownFloor = useRef(activeIndex);
   // A short eased glide of the camera to the new floor's framing. It makes no announcement of its own (the floor note does) and a
   // person's own camera input or the next change of floor ends it.
@@ -149,7 +160,7 @@ export function BuildingView(props: BuildingViewProps) {
     const step = (now: number) => {
       const k = easeLift((now - t0) / LIFT_MS);
       const mix = (a: number, b: number) => a + (b - a) * k;
-      setCamera({ ...to, target: { x: mix(from.target.x, to.target.x), y: mix(from.target.y, to.target.y), z: mix(from.target.z, to.target.z) }, distance: mix(from.distance, to.distance), yaw: mix(from.yaw, to.yaw), pitch: mix(from.pitch, to.pitch) });
+      setCamera({ ...to, target: { x: mix(from.target.x, to.target.x), y: mix(from.target.y, to.target.y), z: mix(from.target.z, to.target.z) }, distance: mix(from.distance, to.distance), yaw: k >= 1 ? ((to.yaw % 360) + 360) % 360 : mix(from.yaw, to.yaw), pitch: mix(from.pitch, to.pitch) });
       glideRaf.current = k < 1 ? requestAnimationFrame(step) : null;
     };
     glideRaf.current = requestAnimationFrame(step);
@@ -164,6 +175,7 @@ export function BuildingView(props: BuildingViewProps) {
   useEffect(() => {
     if (homeRef.current === home) return;
     homeRef.current = home;
+    if (turning.current) { turning.current = false; return; } // a rotate snap already flies there
     if (insideRef.current) return; // the Inside view keeps its own camera
     const next = view === 'top' ? topView(home) : home;
     // A change of floor glides the camera to the new floor (reduced motion jumps); any other new framing is applied at once.
@@ -180,6 +192,23 @@ export function BuildingView(props: BuildingViewProps) {
 
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
+  // Which outer walls face the camera, with a dead band (hqCutaway.ts); frozen while the camera is inside a room.
+  useEffect(() => {
+    if (isInsideView(camera)) return;
+    setCutSides((p) => { const n = facingSides(camera.yaw, p); return n[0] === p[0] && n[1] === p[1] ? p : n; });
+  }, [camera]);
+  const effectiveFacade: Facade = facade === 'cutaway' || props.overview || view === 'top' ? 'cutaway' : 'closed';
+  const cut = useMemo((): CutawayInfo => ({ facade: effectiveFacade, cutSides: effectiveFacade === 'cutaway' ? cutSides : [], roofOpen: effectiveFacade === 'cutaway', floors: floors.length, activeIndex }), [effectiveFacade, cutSides, floors.length, activeIndex]);
+  // A turn of 90 degrees to the next diagonal view, flown there (reduced motion jumps); free turns (keys, drag) keep the camera as it is.
+  const turn = (dir: 1 | -1) => {
+    const c = cameraRef.current;
+    if (isInsideView(c) || view === 'top' || latest.current.overview) { change((x) => rotateBy(x, dir * 20)); return; }
+    const yaw = snapYaw(c.yaw, dir);
+    const fit = buildingFitCamera(fitBox, aspect, CUT_PITCH, yaw);
+    turning.current = true;
+    setHomeYaw(((yaw % 360) + 360) % 360);
+    if (latest.current.reducedMotion) setCamera({ ...fit, yaw: ((yaw % 360) + 360) % 360 }); else glide(fit);
+  };
   // The camera that frames one room of the open floor, or null when the room is not on it.
   const frameOf = useCallback((id: string): CameraState | null => {
     const room = roomById.get(id);
@@ -243,18 +272,20 @@ export function BuildingView(props: BuildingViewProps) {
   const lastActive = useRef(activeIndex);
   useEffect(() => { lastActive.current = activeIndex; }, [activeIndex]);
   const lifts = useMemo(
-    () => floorLifts(scene.ghosts.map((g) => g.floorIndex), activeIndex, showAll, lastActive.current !== activeIndex ? lastActive.current : null),
-    [scene, activeIndex, showAll],
+    () => ({ ...floorLifts(scene.ghosts.map((g) => g.floorIndex), activeIndex, stackOn, lastActive.current !== activeIndex ? lastActive.current : null), ...cutLifts(cut) }),
+    [scene, activeIndex, stackOn, cut],
   );
   const renderScene = useMemo(() => ({
     opaque: [
       { id: 'building', vertices: scene.opaque.vertices, bounds: scene.opaque.bounds, cull: false },
+      ...scene.walls.map((w) => ({ id: `cut-o:${w.side}:${w.floorIndex}`, vertices: w.opaque.vertices, bounds: w.opaque.bounds, cull: false, lift: { group: `cut:${w.side}`, y: w.y } })),
       ...scene.ghosts.map((g) => ({ id: `floor-o:${g.floorIndex}`, vertices: g.opaque.vertices, bounds: g.opaque.bounds, cull: false, lift: { group: `floor:${g.floorIndex}`, y: g.y } })),
       // The procedural sofas and people stay in the scene and are hidden only while a loaded model replaces them.
       ...(['sofa', 'figure'] as const).filter((g) => scene.fallbacks[g].vertices.length).map((g) => ({ id: `fallback-${g}`, vertices: scene.fallbacks[g].vertices, bounds: scene.fallbacks[g].bounds, cull: false, fallbackOf: g })),
     ],
     glass: [
       ...(scene.glass.vertices.length ? [{ id: 'glass', vertices: scene.glass.vertices, bounds: scene.glass.bounds, cull: false }] : []),
+      ...scene.walls.filter((w) => w.glass.vertices.length).map((w) => ({ id: `cut-g:${w.side}:${w.floorIndex}`, vertices: w.glass.vertices, bounds: w.glass.bounds, cull: false, lift: { group: `cut:${w.side}`, y: w.y } })),
       ...scene.ghosts.filter((g) => g.glass.vertices.length).map((g) => ({ id: `floor-g:${g.floorIndex}`, vertices: g.glass.vertices, bounds: g.glass.bounds, cull: false, lift: { group: `floor:${g.floorIndex}`, y: g.y } })),
     ],
     glassAlpha: 0.2,
@@ -286,7 +317,7 @@ export function BuildingView(props: BuildingViewProps) {
       list.push({
         id: 'room:' + room.id, anchor: handle.anchor, priority: room.id === props.selectedRoomId ? 0 : 1, maxDistance: 160,
         node: overview
-          ? <OverviewCard room={room} desks={desks.length} assigned={assigned} selected={room.id === props.selectedRoomId} onPick={() => pickRoom(room.id)} />
+          ? <Suspense fallback={null}><OverviewCard room={room} desks={desks.length} assigned={assigned} selected={room.id === props.selectedRoomId} onPick={() => pickRoom(room.id)} /></Suspense>
           : <RoomCard room={room} assigned={assigned} working={working} known={presence !== null} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId} onPick={() => pickRoom(room.id)} />,
       });
     }
@@ -378,12 +409,18 @@ export function BuildingView(props: BuildingViewProps) {
           </label>
           <button type="button" onClick={() => stepFloor(1)} disabled={activeIndex >= floors.length - 1} aria-label={t('hq.floor.up')}><ArrowLeft aria-hidden="true" className="flipOpposite" /></button>
           <span className="hqFloorCount" data-testid="hq-floor-count">{t('hq.floor.count', { index: activeIndex + 1, count: floors.length })}</span>
+          <div className="hqSegment" role="group" aria-label={t('hq.facade.label')}>
+            {(['cutaway', 'closed'] as const).map((f) => (
+              <button key={f} type="button" aria-pressed={facade === f} data-testid={`hq-facade-${f}`} onClick={() => { setFacade(f); setFacadeSaid(true); }}>{t(`hq.facade.${f}` as MessageKey)}</button>
+            ))}
+          </div>
           <label className="hqCheck"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /><span>{t('hq.floor.showAll')}</span></label>
         </div>
       </div>
 
+      <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-facade-live">{facadeSaid ? t(`hq.facade.${facade}Now` as MessageKey) : ''}</p>
       <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-floor-live">{t('hq.floor.now', { name: floorTitle, index: activeIndex + 1, count: floors.length })}</p>
-      <div className="hqSceneWrap" ref={wrap} data-camera-distance={camera.distance.toFixed(2)} data-camera-eye-y={(camera.target.y + Math.sin((camera.pitch * Math.PI) / 180) * camera.distance).toFixed(2)}>
+      <div className="hqSceneWrap" ref={wrap} data-facade={cut.facade} data-cut-sides={cut.cutSides.join(' ')} data-roof-open={cut.roofOpen} data-stack={stackOn} data-camera-yaw={camera.yaw.toFixed(1)} data-camera-distance={camera.distance.toFixed(2)} data-camera-eye-y={(camera.target.y + Math.sin((camera.pitch * Math.PI) / 180) * camera.distance).toFixed(2)}>
         <HqStage
           label={t('hq.building.stageLabel', { name: props.workspaceName, floor: floorTitle })} description={t('hq.building.stageHelp')}
           scene={renderScene} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
@@ -403,7 +440,7 @@ export function BuildingView(props: BuildingViewProps) {
           <CameraTools
             yaw={camera.yaw} night={night} onNight={props.onNight}
             onZoomIn={() => change((c) => zoomBy(c, 0.8))} onZoomOut={() => change((c) => zoomBy(c, 1.25))}
-            onReset={() => { setInside(false); setCamera(view === 'top' ? topView(home) : home); }} onNorth={() => change(faceNorth)}
+            onReset={() => { setInside(false); setHomeYaw(HOME_YAW); setCamera(view === 'top' ? topView(home) : buildingFitCamera(fitBox, aspect, CUT_PITCH, HOME_YAW)); }} onNorth={() => change(faceNorth)}
           />
         </div>
         {props.side && <div className="hqOverlay hqSideOverlay">{props.side}</div>}
@@ -411,7 +448,7 @@ export function BuildingView(props: BuildingViewProps) {
           <BottomToolbar
             inside={{ active: inside, disabled: !selectedRoom || view === 'top', onToggle: toggleInside }}
             overview={{ active: overview, onToggle: toggleOverview }}
-            onRotateLeft={() => change((c) => rotateBy(c, -20))} onRotateRight={() => change((c) => rotateBy(c, 20))}
+            onRotateLeft={() => turn(-1)} onRotateRight={() => turn(1)}
             onPrev={() => stepFloor(-1)} onNext={() => stepFloor(1)} prevDisabled={activeIndex <= 0} nextDisabled={activeIndex >= floors.length - 1} prevLabel={t('hq.floor.down')} nextLabel={t('hq.floor.up')}
             onZoomIn={() => change((c) => dolly(c, -250))} onZoomOut={() => change((c) => dolly(c, 250))}
             fullscreen={props.fullscreen} onFullscreen={props.onToggleFullscreen}
@@ -421,7 +458,7 @@ export function BuildingView(props: BuildingViewProps) {
 
       <div className="hqStripSlot" />
 
-      {overview && floor.rooms.length > 0 && <FloorRooms floor={floor} presence={presence} selectedRoomId={props.selectedRoomId} onPick={pickRoom} onLeave={() => props.onOverview(false)} />}
+      {overview && floor.rooms.length > 0 && <Suspense fallback={null}><FloorRooms floor={floor} has={(d) => !!presenceForDesk(presence, d)} selectedRoomId={props.selectedRoomId} onPick={pickRoom} onLeave={() => props.onOverview(false)} /></Suspense>}
 
       <div className="hqBottomPanels">
         <TotalsPanel
@@ -429,8 +466,8 @@ export function BuildingView(props: BuildingViewProps) {
           note={presence && agents && agents.agents === 0 ? t('hq.team.none') : null}
         />
         {modules.panels.includes('os') && props.wall && <Suspense fallback={null}><HqCommandWall model={props.wall.model} variant="panel" onReload={props.wall.onReload} /></Suspense>}
-        {modules.panels.includes('commerce') && <CommercePanels state={props.commerce} />}
-        {modules.panels.includes('tyre') && <TyrePanel state={props.tyre} />}
+        {modules.panels.includes('commerce') && <Suspense fallback={null}><CommercePanels state={props.commerce} /></Suspense>}
+        {modules.panels.includes('tyre') && <Suspense fallback={null}><TyrePanel state={props.tyre} /></Suspense>}
       </div>
     </div>
   );
@@ -449,47 +486,6 @@ function RoomCard(props: { room: RoomGeometry; assigned: number; working: number
   );
 }
 
-/** The room card of the floor overview: the name, the kind, the desks and the people at them; a button that selects the room. */
-function OverviewCard(props: { room: RoomGeometry; desks: number; assigned: number; selected: boolean; onPick: () => void }) {
-  const Icon = (ROOM_ICON as Record<string, typeof Users>)[props.room.kind] ?? Building2;
-  return (
-    <button type="button" className="hqLabelCard hqOverviewCard" data-selected={props.selected} data-kind={props.room.kind} aria-pressed={props.selected} onClick={props.onPick}>
-      <span className="hqLabelIcon"><Icon aria-hidden="true" /></span>
-      <span className="hqLabelText"><strong>{roomName(props.room)}</strong><small>{t(`hq.roomKind.${props.room.kind}` as MessageKey)}</small><small>{t('hqFloor.stats', { desks: props.desks, agents: props.assigned })}</small></span>
-    </button>
-  );
-}
-
-/** Every room of the active floor as a plain list under the scene: the same facts as the cards, always reachable by keyboard and screen reader. */
-function FloorRooms(props: { floor: SceneFloor; presence: HqPresenceIndex | null; selectedRoomId: string | null; onPick: (id: string) => void; onLeave: () => void }) {
-  const { floor } = props;
-  const floorTitle = sceneName(floor);
-  const rows = floor.rooms.map((room) => {
-    const desks = floor.desks.filter((d) => d.roomId === room.id);
-    return { room, desks: desks.length, agents: desks.filter((d) => d.agentId || presenceForDesk(props.presence, d)).length };
-  });
-  const totals = rows.reduce((n, r) => ({ desks: n.desks + r.desks, agents: n.agents + r.agents }), { desks: 0, agents: 0 });
-  return (
-    <section className="hqPanel hqFloorRooms" aria-label={t('hqFloor.listTitle', { floor: floorTitle })} data-testid="hq-floor-rooms">
-      <header>
-        <h2>{t('hqFloor.listTitle', { floor: floorTitle })}</h2>
-        <p className="hqMuted">{t('hqFloor.summary', { rooms: rows.length, desks: totals.desks, agents: totals.agents })}</p>
-        <button type="button" className="hqGhost" onClick={props.onLeave}>{t('hqFloor.back')}</button>
-      </header>
-      <ul>
-        {rows.map(({ room, desks, agents }) => (
-          <li key={room.id}>
-            <button type="button" data-selected={room.id === props.selectedRoomId} aria-pressed={room.id === props.selectedRoomId} onClick={() => props.onPick(room.id)}>
-              <strong>{roomName(room)}</strong>
-              <small>{t(`hq.roomKind.${room.kind}` as MessageKey)}. {t('hqFloor.stats', { desks, agents })}</small>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
 function AgentCard(props: { chip: { id: string; avatar: AvatarAppearance | null; department: string | null } | null; name: string; role: string | null; status: StatusKey | null; stale: boolean; selected: boolean; onPick: () => void }) {
   const tone = props.status ? STATUS_TONE[props.status] : 'faint';
   return (
@@ -503,63 +499,5 @@ function AgentCard(props: { chip: { id: string; avatar: AvatarAppearance | null;
         <span className={`hqPill tone-${tone}`}>{props.status ? statusLabel(props.status) : t('hq.status.unavailable')}{props.stale ? ` (${t('hq.agent.stale')})` : ''}</span>
       </span>
     </button>
-  );
-}
-
-function NotConnected(props: { title: string; state: ModuleState<unknown>; setupHash: string }) {
-  const s = props.state;
-  return (
-    <section className="hqPanel hqModule" aria-label={props.title}>
-      <h2>{props.title}</h2>
-      {s.state === 'loading' && <p className="hqMuted" role="status">{t('hq.module.loading')}</p>}
-      {s.state === 'not_connected' && <div className="hqUnavailable"><strong>{t('hq.module.notConnected')}</strong><a href={props.setupHash}>{t('hq.module.setup')}</a></div>}
-      {s.state === 'forbidden' && <div className="hqUnavailable"><strong>{t('hq.module.forbidden')}</strong><span>{t('hq.module.forbiddenHint')}</span></div>}
-      {s.state === 'error' && <div className="hqUnavailable" role="alert"><strong>{t('hq.module.error')}</strong><span>{s.message}</span></div>}
-    </section>
-  );
-}
-
-function CommercePanels({ state }: { state: ModuleState<CommerceLive> }) {
-  if (state.state !== 'ready') return <NotConnected title={t('hq.commerce.title')} state={state} setupHash="#commerce" />;
-  const c = state.data;
-  return (
-    <>
-      <section className="hqPanel hqModule" aria-label={t('hq.commerce.title')}>
-        <h2>{t('hq.commerce.title')}</h2>
-        <ul className="hqStats">
-          <li><strong>{c.orders}</strong><span>{t('hq.commerce.orders')}</span></li>
-          <li><strong>{c.waiting}</strong><span>{t('hq.commerce.waiting')}</span></li>
-          <li><strong>{c.late}</strong><span>{t('hq.commerce.late')}</span></li>
-          {c.lowStock !== null && <li><strong>{c.lowStock}</strong><span>{t('hq.commerce.lowStock')}</span></li>}
-          <li><strong>{c.openAlerts}</strong><span>{t('hq.commerce.alerts')}</span></li>
-        </ul>
-      </section>
-      <section className="hqPanel hqModule" aria-label={t('hq.flow.title')}>
-        <h2>{t('hq.flow.title')}</h2>
-        <ol className="hqFlow">
-          {commerceFlow(c).map((step) => (
-            <li key={step.key}><strong>{step.count}</strong><span>{t(`hq.flow.${step.key}` as MessageKey)}</span></li>
-          ))}
-        </ol>
-      </section>
-    </>
-  );
-}
-
-function TyrePanel({ state }: { state: ModuleState<TyreLive> }) {
-  if (state.state !== 'ready') return <NotConnected title={t('hq.tyre.title')} state={state} setupHash="#tyre" />;
-  const d = state.data;
-  return (
-    <section className="hqPanel hqModule" aria-label={t('hq.tyre.title')}>
-      <h2>{t('hq.tyre.title')}</h2>
-      <ul className="hqStats">
-        <li><strong>{d.vehicles}</strong><span>{t('hq.tyre.vehicles')}</span></li>
-        <li><strong>{d.fitted}</strong><span>{t('hq.tyre.fitted')}</span></li>
-        {d.inStock !== null && <li><strong>{d.inStock}</strong><span>{t('hq.tyre.stock')}</span></li>}
-        <li><strong>{d.belowMinimum}</strong><span>{t('hq.tyre.below')}</span></li>
-        <li><strong>{d.overdueInspections}</strong><span>{t('hq.tyre.overdue')}</span></li>
-        <li><strong>{d.dueNext30}</strong><span>{t('hq.tyre.due')}</span></li>
-      </ul>
-    </section>
   );
 }

@@ -91,6 +91,7 @@ Counts per status are in the last section ("Totals"), computed from the tables i
 | 3.15 | LOD, instancing, culling | Partial | Read | Frustum culling per mesh (`cull`), a "lite" interior detail level for big buildings (`buildingScene.ts`), adaptive pixel ratio | No GPU instancing (meshes are merged per surface class) and no distance LOD for figures. PR: measure first with the performance spec at 200 desks, then add instancing only if it fails the budget |
 | 3.16 | Runtime frame governor and quality tiers | Partial | Read, Ran, CI | `lib/hqQualityTiers.ts` (one tier registry), `lib/hqGovernor.ts` (rolling median, hysteresis, no flip-flop), `lib/hqThreeRenderer.ts` (pixel ratio, then shadows, then glow, then simple materials; never when pinned, on software or hidden), the header chip in `HqChrome.tsx`; `test/hqGpu.test.ts` with simulated frame times | Thresholds are reasoned defaults, never tuned on a real GPU. GPU time is not measured directly, frame time stands in for it |
 | 3.17 | Graphics check panel and owner GPU script | Partial | Read, Ran, CI | Office tools, Graphics check (`hq-gpu/HqGpuCheckPanel.tsx`, lazy): device facts, per tier benchmark with a scripted orbit and floor change, verdict, pin, anonymous JSON report; `scripts/hq-gpu-check.mjs`; `docs/ANUM_MINE_HQ_GPU_CHECK.md`; `e2e/hq-gpu-check.spec.ts`, `hq-gpu-script.spec.ts`, axe, English and Arabic, five viewport sizes | Logic verified on software GL only (the panel reports the software rasteriser honestly). No real GPU result exists yet: the owner runs the script on a Windows PC with a GPU and sends the report |
+| 3.18 | Cutaway section of the building (front facade and roof removed, all floors, Cutaway and Closed) | Partial | Read, Ran | `lib/hqCutaway.ts`, `lib/buildingScene.ts` (`walls`, `dimmed`), `BuildingView.tsx`; `test/hqCutaway.test.ts`, `e2e/hq-cutaway.spec.ts`; [cutaway](ANUM_MINE_HQ_CUTAWAY.md) | Lower floors show only their front 6 to 7 m under the slab above; side by side with renders 22 and 24 on a real GPU: Not verified; dimmed floors are rebuilt on every floor change; clicking a room on another floor does not switch floors |
 
 ## Section 4. Building and campus structure
 
@@ -302,16 +303,16 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 
 ## Totals
 
-Rows counted: 145 (sections 1 to 14).
+Rows counted: 146 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
 | Complete | 109 |
-| Partial | 32 |
+| Partial | 33 |
 | Missing | 3 |
 | Not applicable | 1 |
-| Total | 145 |
+| Total | 146 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 102, Partial 25, Missing 3, Not applicable 1 (total 131). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work; the earlier totals were one Complete row behind).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 102, Partial 26, Missing 3, Not applicable 1 (total 132). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.

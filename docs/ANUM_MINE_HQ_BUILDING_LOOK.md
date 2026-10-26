@@ -104,3 +104,6 @@ camera fitted shadow, warm point lights, light shafts, depth of field, AgX tone 
 planters, behind the ultra tier and a photographic extension that a pin or a measured promotion switches on. Of the honest list above it narrows
 "no ambient occlusion", "no volumetric light" and "software GL pins the light quality" (software GL still does; the extension runs on a real GPU path and
 was checked on software GL for single frames only). Still different: no bevels or window reveals, no instanced vegetation variety, no people (data rule).
+## Cutaway section, 26 October 2026
+
+The building view opens as a dollhouse section like concept renders 22 and 24: front walls and roof removed by camera azimuth, all floors stacked, the open floor highlighted and the others dimmed, a Cutaway / Closed toggle and 90 degree rotate snaps. What it is, how it is built and what still differs from the renders: [cutaway](ANUM_MINE_HQ_CUTAWAY.md).

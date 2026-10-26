@@ -128,6 +128,7 @@ x-user-roles: owner,member
 - [ANUM MINE headquarters building and campus look pass: what differed from each concept render, what changed, what still differs](docs/ANUM_MINE_HQ_BUILDING_LOOK.md)
 - [ANUM MINE headquarters photographic look: quality tiers 0 to 4, procedural PBR materials, baked and screen space occlusion, contact shadows, post effects, measured cost, how to reach the top tier](docs/ANUM_MINE_HQ_PHOTOREAL.md)
 - [ANUM MINE headquarters interiors: room kits, floor shell, door sides, service core, ambient scenery, starter campus completeness](docs/ANUM_MINE_HQ_INTERIORS.md)
+- [ANUM MINE headquarters cutaway section: front walls and roof removed by camera azimuth, all floors, Cutaway and Closed, 90 degree rotate snaps, label hook](docs/ANUM_MINE_HQ_CUTAWAY.md)
 - [ANUM MINE headquarters ambient scenery motion: what moves, what never moves, quality levels and reduced motion](docs/ANUM_MINE_HQ_SCENERY_MOTION.md)
 - [ANUM MINE campus, live presence, workstation work and executive overview](docs/ANUM_MINE_PRESENCE_AND_CAMPUS.md)
 - [Business gap register (Order 001)](docs/business/ANUM_BUSINESS_GAP_REGISTER.md)
