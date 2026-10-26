@@ -92,3 +92,7 @@ Inside the open headquarters, "ask {agent} to ..." and "start a task to ..." ope
 
 ## Tests
 `services/api/tests/test_executive_pa.py`, `services/api/tests/test_pa_briefing.py` (every source, states, tenant scope, Arabic, the figure guard, voice and typed, no decision tool), `apps/web/test/executivePa.test.ts`, `apps/web/test/guidedExecutiveTour.test.ts`, `apps/web/e2e/executive.spec.ts` (journey, honest states, Arabic, five viewport sizes without overflow), `apps/web/e2e/pa-briefing.spec.ts` (typed and spoken briefing, links, states, Arabic, five sizes) and `apps/web/e2e/hq-guided-visit.spec.ts` (the visit on real rooms, states, Arabic narration, five sizes). The briefing adds no SQL and no migration: it reads existing stores, so no new PostgreSQL test was needed.
+
+## Set up my campus
+
+"Set up my campus" or "create my campus" (typed or spoken, English or Arabic) shows the starter campus plan as a card in the dock and in ANUM Command (`CampusProposalCard`). The sentence only shows the card. The card reads the plan with `GET /office/starter-campus/preview` and its button is the only way to create: it sends the shown `payload_hash` with `input_mode: "click"`. No registered tool and no route accepts a spoken or typed confirmation. See [starter campus, first run](ANUM_MINE_STARTER_CAMPUS.md#first-run).

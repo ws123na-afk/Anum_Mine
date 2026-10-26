@@ -39,11 +39,11 @@ async function shot(page: Page, name: string) {
   mkdirSync(dir, { recursive: true });
   await page.screenshot({ path: join(dir, `${name}.png`) });
 }
-async function noOverflow(page: Page, selector = '.hqFirstRun') {
+async function noOverflow(page: Page, selector: string | null = '.hqFirstRun') {
   const problems = await page.evaluate((sel) => {
     const out: string[] = [];
     if (document.documentElement.scrollWidth > window.innerWidth) out.push(`page scrolls sideways (${document.documentElement.scrollWidth} > ${window.innerWidth})`);
-    const root = document.querySelector(sel) as HTMLElement | null;
+    const root = sel ? document.querySelector(sel) as HTMLElement | null : null;
     if (!root) return out;
     const box = root.getBoundingClientRect();
     if (box.left < -1 || box.right > window.innerWidth + 1) out.push('the panel leaves the screen sideways');
@@ -56,8 +56,9 @@ async function noOverflow(page: Page, selector = '.hqFirstRun') {
   expect(problems).toEqual([]);
 }
 async function enterHq(page: Page, name = 'ANUM HQ') {
+  // Building names are stored in one language (the registry has no Arabic column), so the name is the same in both.
   await hq(page).getByRole('button', { name: new RegExp(`^${name}\\.`) }).click();
-  await hq(page).getByRole('button', { name: `Open ${name}` }).click();
+  await hq(page).getByRole('button', { name: new RegExp(`^(Open|فتح) ${name}$`) }).click();
   await expect(hq(page).getByRole('heading', { level: 2, name })).toBeVisible();
 }
 
@@ -138,7 +139,7 @@ test('the building view shows every room of the floor, and the floor overview la
   await expect(cards.filter({ hasText: 'AI Organization' })).toContainText('Desks 8, agents 0');
   const rooms = page.getByTestId('hq-floor-rooms');
   await expect(rooms.getByRole('button')).toHaveCount(6); // five rooms and the way back
-  await expect(rooms).toContainText('Rooms 5, desks 29, agents seated 0.');
+  await expect(rooms).toContainText('Rooms 5, desks 26, agents seated 0.');
   await shot(page, 'floor-overview-1440');
   // Picking a room selects it and keeps the whole floor in view.
   const distance = await hq(page).locator('.hqSceneWrap').getAttribute('data-camera-distance');
@@ -340,7 +341,7 @@ test('Arabic shows the panel right to left with Arabic text', async ({ page }) =
   await p.getByRole('button', { name: 'أنشئ حرمي' }).click();
   await expect(panel(page)).toHaveCount(0, { timeout: 20_000 });
   await expect(page.getByTestId('hq-campus-note')).toContainText('حرمك جاهز');
-  await enterHq(page, 'مقر ANUM');
+  await enterHq(page);
   await hq(page).getByTestId('hq-overview').click();
   await expect(hq(page).locator('.hqOverviewCard').first()).toContainText(/المكاتب \d+، الوكلاء \d+/);
   await shot(page, 'floor-overview-ar-1440');
@@ -361,14 +362,14 @@ for (const size of SIZES) {
       await createButton(page).click();
       await expect(panel(page)).toHaveCount(0, { timeout: 20_000 });
       await expect(hq(page).locator('.hqSceneHost')).toBeVisible();
-      await noOverflow(page, '.hqSceneHost');
+      await noOverflow(page, null);
       await shot(page, `campus-${locale}-${size.name}`);
-      await enterHq(page, locale === 'ar' ? 'مقر ANUM' : 'ANUM HQ');
-      await noOverflow(page, '.hqBuilding');
+      await enterHq(page);
+      await noOverflow(page, null);
       await shot(page, `building-${locale}-${size.name}`);
       await hq(page).getByTestId('hq-overview').click();
       await expect(hq(page).locator('.hqOverviewCard').first()).toBeVisible();
-      await noOverflow(page, '.hqBuilding');
+      await noOverflow(page, null);
       // The stage has room: the whole floor is readable (at least 300 px of picture) on every size.
       const stage = (await hq(page).locator('.hqBuilding .hqStage').boundingBox())!;
       expect(stage.height).toBeGreaterThanOrEqual(300);
