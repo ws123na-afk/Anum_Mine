@@ -136,6 +136,7 @@ const GLASS_COLOR = `
 #else
   hqHas = 0.0;
 #endif
+  if (vPUv.x >= 1.5) hqHas = 0.0;
   /*HQ_PLAN_COLOR*/
   {
     float gy = clamp(vWPos.y / 48.0, 0.0, 1.0);
@@ -213,6 +214,8 @@ type Shared = {
 };
 /** The glass plan shader code, set once the lazy chunk has loaded (see `HqRenderer.applyGlassPlan`). */
 let planShader: typeof import('./hqGlassShader.ts') | null = null;
+/** `localStorage["anum.hq.glassplan"] = "off"` turns the plan impostor off (panes show plain glass): a switch for measuring and for a driver that struggles with it. */
+const planPinnedOff = (): boolean => { try { return window.localStorage.getItem('anum.hq.glassplan') === 'off'; } catch { return false; } };
 type Variant = 'std' | 'glass' | 'water' | 'foliage' | 'cloth' | 'beacon';
 
 /** `rich` adds the lit rooms behind glass, the water rings and the sky's clouds; a software rasteriser compiles and runs the plain programs. */
@@ -726,6 +729,7 @@ export class HqRenderer {
    */
   setGlassPlan(plan: GlassPlanData | null | undefined): void {
     this.wantedPlan = plan ?? null;
+    if (plan && planPinnedOff()) plan = null;
     if (!plan) { this.shared.uPlanCount.value = 0; this.stats.glassPlan = ''; return; }
     if (plan.revision === this.planRevision) return;
     const apply = (): void => {
