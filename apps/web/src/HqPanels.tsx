@@ -43,7 +43,7 @@ export function RoomPanel(props: Readonly<{
   return (
     <aside className="hqPanel hqSide" aria-label={t('hq.room.panel', { name: roomName(room) })}>
       <div className="hqPanelHead">
-        <h2 dir="auto">{roomName(room)}</h2>
+        <h2>{roomName(room)}</h2>
         <button type="button" className="hqIconButton" onClick={props.onClose} aria-label={t('hq.panel.close')}><X aria-hidden="true" /></button>
       </div>
       <p className="hqMuted">{t(`hq.roomKind.${room.kind}` as MessageKey)} · {t('hq.room.capacity', { count: room.capacity })}</p>

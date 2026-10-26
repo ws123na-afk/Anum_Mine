@@ -37,8 +37,7 @@ export function floorEntries(building: SceneBuilding | null): FloorEntry[] {
       assigned: floor.desks.filter((d) => d.agentId).length, kinds,
     };
   });
-  const english = new Map(building.floors.map((f) => [f.id, f.name]));
-  return rows.sort((a, b) => b.level - a.level || (english.get(a.id) ?? '').localeCompare(english.get(b.id) ?? '') || a.id.localeCompare(b.id));
+  return rows.sort((a, b) => b.level - a.level || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
 
 // ---------------------------------------------------------------- quick-view strip

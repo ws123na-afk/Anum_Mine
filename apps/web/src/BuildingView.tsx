@@ -442,7 +442,7 @@ function RoomCard(props: { room: RoomGeometry; assigned: number; working: number
   return (
     <button type="button" className="hqLabelCard hqRoomCard" data-selected={props.selected} data-live={props.live} data-kind={props.room.kind} aria-pressed={props.selected} onClick={props.onPick}>
       <span className="hqLabelIcon"><Icon aria-hidden="true" /></span>
-      <span className="hqLabelText"><strong dir="auto">{roomName(props.room)}</strong><small>{props.live ? t('hq.room.inMeeting') : sub}</small></span>
+      <span className="hqLabelText"><strong>{roomName(props.room)}</strong><small>{props.live ? t('hq.room.inMeeting') : sub}</small></span>
     </button>
   );
 }
@@ -453,7 +453,7 @@ function OverviewCard(props: { room: RoomGeometry; desks: number; assigned: numb
   return (
     <button type="button" className="hqLabelCard hqOverviewCard" data-selected={props.selected} data-kind={props.room.kind} aria-pressed={props.selected} onClick={props.onPick}>
       <span className="hqLabelIcon"><Icon aria-hidden="true" /></span>
-      <span className="hqLabelText"><strong dir="auto">{roomName(props.room)}</strong><small>{t(`hq.roomKind.${props.room.kind}` as MessageKey)}</small><small>{t('hqFloor.stats', { desks: props.desks, agents: props.assigned })}</small></span>
+      <span className="hqLabelText"><strong>{roomName(props.room)}</strong><small>{t(`hq.roomKind.${props.room.kind}` as MessageKey)}</small><small>{t('hqFloor.stats', { desks: props.desks, agents: props.assigned })}</small></span>
     </button>
   );
 }
@@ -478,7 +478,7 @@ function FloorRooms(props: { floor: SceneFloor; presence: HqPresenceIndex | null
         {rows.map(({ room, desks, agents }) => (
           <li key={room.id}>
             <button type="button" data-selected={room.id === props.selectedRoomId} aria-pressed={room.id === props.selectedRoomId} onClick={() => props.onPick(room.id)}>
-              <strong dir="auto">{roomName(room)}</strong>
+              <strong>{roomName(room)}</strong>
               <small>{t(`hq.roomKind.${room.kind}` as MessageKey)}. {t('hqFloor.stats', { desks, agents })}</small>
             </button>
           </li>

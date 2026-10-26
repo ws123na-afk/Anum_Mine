@@ -252,7 +252,7 @@ function BuildingCard(props: {
       <span className="hqLabelIcon">{iconOf(b)}</span>
       {props.density !== 'dot' && (
         <span className="hqLabelText">
-          <strong dir="auto">{sceneName(b)}</strong>
+          <strong>{sceneName(b)}</strong>
           {tags.length > 0 && <span className="hqCardTags" aria-hidden="true">{tags.map((tag, i) => <span key={i}>{tagText(tag)}</span>)}</span>}
           <small>{summary}</small>
         </span>
@@ -272,7 +272,7 @@ function BuildingDetail(props: { building: CampusBuilding; current: boolean; onE
   return (
     <>
       <div className="hqPanelHead">
-        <h2 dir="auto">{sceneName(b)}</h2>
+        <h2>{sceneName(b)}</h2>
         <button type="button" className="hqIconButton" onClick={props.onClose} aria-label={t('hq.detail.close')}>×</button>
       </div>
       <p className="hqMuted">{b.registryBuildingId ? (b.workspaceName ?? '') : b.kindKnown === false ? t('hq.kind.unset') : t(`hq.kind.${b.kind}` as MessageKey)}{b.floors ? ` · ${t('hq.building.floors', { count: b.floors })}` : ''}{b.archived ? ` · ${t('hq.detail.archived')}` : ''}</p>

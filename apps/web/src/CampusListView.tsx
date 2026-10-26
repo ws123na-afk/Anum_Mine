@@ -56,7 +56,7 @@ export function CampusListView(props: Readonly<{
                 <div className="hqListRow">
                   <span className="hqStatusDot" aria-hidden="true" data-status={status} />
                   <div className="hqListName">
-                    <h3 dir="auto">{sceneName(b)}</h3>
+                    <h3>{sceneName(b)}</h3>
                     <p className="hqMuted">{t(`hq.kind.${b.kind}` as MessageKey)}{b.floors ? ` · ${t('hq.building.floors', { count: b.floors })}` : ''} · {buildingSummary(b)}</p>
                   </div>
                   {b.accessible
@@ -69,7 +69,7 @@ export function CampusListView(props: Readonly<{
                       const rooms = f.rooms.filter((r) => !q || fold(`${r.label} ${r.labelAr ?? ''}`).includes(q) || filterBuildings([b], q).length > 0);
                       return (
                         <li key={f.id}>
-                          <h4 dir="auto">{sceneName(f)}</h4>
+                          <h4>{sceneName(f)}</h4>
                           {rooms.length === 0 ? <p className="hqMuted">{t('hq.list.noRooms')}</p> : (
                             <ul className="hqListRooms">
                               {rooms.map((r) => {
@@ -78,7 +78,7 @@ export function CampusListView(props: Readonly<{
                                 return (
                                   <li key={r.id} data-in-meeting={live ? 'true' : undefined}>
                                     <button type="button" className="hqListRoom" onClick={() => props.onOpenRoom(workspaceOf(b), f.id, r.id)}>
-                                      <strong dir="auto">{roomName(r)}</strong>
+                                      <strong>{roomName(r)}</strong>
                                       <small>{t(`hq.roomKind.${r.kind}` as MessageKey)} · {t('hq.list.desks', { count: desks.length })}</small>
                                     </button>
                                     {live && <span className="hqPill tone-ok" data-testid="list-in-meeting">{t('hq.room.inMeeting')}</span>}
