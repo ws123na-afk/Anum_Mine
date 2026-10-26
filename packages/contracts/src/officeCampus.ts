@@ -16,6 +16,8 @@ export interface CampusFloorSummary {
   building_id: string;
   level: number;
   name: string;
+  /** Arabic display name; null until one is set (the web falls back to `name`). */
+  name_ar: string | null;
 }
 
 /** One building per workspace the signed-in person is an active member of. */

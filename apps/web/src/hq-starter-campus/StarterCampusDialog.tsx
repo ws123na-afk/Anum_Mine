@@ -7,6 +7,7 @@ import { ApiError, describeError, isPermissionDenied } from '../lib/errors';
 import { t, type MessageKey } from '../lib/i18n';
 import { useModal } from '../Dialog';
 import { useLocale } from '../useLocale';
+import { ArabicNamesSection } from './ArabicNamesSection';
 import { canConfirm, createStarterCampusClient, departmentFills, deskLabels, selectable } from './client';
 import './hqStarterCampus.css';
 
@@ -94,6 +95,7 @@ export function StarterCampusDialog({ onClose, onCreated, onOpenGaps }: StarterC
         </div>}
         {done ? <ResultView result={done} locale={locale} />
           : ready && <PlanView preview={preview} ticked={ticked} locale={locale} fetching={fetching} onChange={toggle} />}
+        {!done && ready && <ArabicNamesSection client={starterCampusClient} onChanged={onCreated} />}
         {!done && failure && <div className="hqScNote hqScFail" role="alert">
           <p>{t('hqSc.confirmFailed', { detail: failure.detail })}</p>
           {failure.stale && <p>{t('hqSc.stale')} <button type="button" onClick={reviewAgain}>{t('hqSc.review')}</button></p>}

@@ -27,7 +27,7 @@ export interface AssignResponse {
 }
 
 export interface BuildingPlanRoom { id: string; template_id: string; name: string; name_ar: string; kind: string; capacity: number; x: number; z: number; width: number; depth: number }
-export interface BuildingPlanFloor { id: string; level: number; name: string; width_m: number; depth_m: number; rooms: BuildingPlanRoom[] }
+export interface BuildingPlanFloor { id: string; level: number; name: string; name_ar: string; width_m: number; depth_m: number; rooms: BuildingPlanRoom[] }
 
 /** `GET /api/v1/office/building-proposals?name=&floors=&lang=` and the assistant tool `propose_add_building`. Creates nothing. */
 export interface BuildingProposal {

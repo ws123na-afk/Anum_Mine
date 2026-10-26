@@ -26,13 +26,13 @@ export interface StaffDesk {
 
 export interface StaffRoom {
   id: string; name: string; name_ar: string | null; kind: string; team_department: string | null;
-  floor_id: string; floor_level: number; floor_name: string | null;
+  floor_id: string; floor_level: number; floor_name: string | null; floor_name_ar?: string | null;
   template_id: string | null; role_source: 'kind' | 'name' | 'department' | 'none';
   desks: StaffDesk[]; counts: StaffDeskCounts;
 }
 
 export interface StaffBuilding {
-  id: string; name: string; selected: boolean; rooms: StaffRoom[]; counts: StaffDeskCounts;
+  id: string; name: string; name_ar?: string | null; selected: boolean; rooms: StaffRoom[]; counts: StaffDeskCounts;
 }
 
 export interface StaffRole {

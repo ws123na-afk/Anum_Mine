@@ -63,7 +63,8 @@ const overlaps = (a: Json, b: Json) =>
   && Math.min(Number(a.z) + Number(a.d), Number(b.z) + Number(b.d)) - Math.max(Number(a.z), Number(b.z)) > 1e-6;
 
 export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions = {}): Promise<BuilderMock> {
-  const floors = new Map<string, Json>([['floor-1', { ...base('floor-1'), building_id: 'building-1', level: 0, name: 'Ground floor', width_m: 60, depth_m: 40 }]]);
+  const floors = new Map<string, Json>([['floor-1', { ...base('floor-1'), building_id: 'building-1', level: 0, name: 'Ground floor', name_ar: null, width_m: 60, depth_m: 40 }]]);
+  const buildings = new Map<string, Json>([['building-1', { ...base('building-1'), name: 'Dubai HQ', name_ar: null, timezone: 'Asia/Dubai', latitude: null, longitude: null }]]);
   const rooms = new Map<string, Json>();
   const desks = new Map<string, Json>();
   if (!options.empty) {
@@ -104,7 +105,7 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
     if (method === 'GET') {
       const list = path.match(/^\/(buildings|floors|rooms|desks)$/);
       if (list) {
-        const items = list[1] === 'buildings' ? [{ ...base('building-1'), name: 'Dubai HQ', timezone: 'Asia/Dubai', latitude: null, longitude: null }]
+        const items = list[1] === 'buildings' ? [...buildings.values()]
           : list[1] === 'floors' ? [...floors.values()] : list[1] === 'rooms' ? [...rooms.values()] : [...desks.values()];
         return json({ items, next_cursor: null });
       }
@@ -208,7 +209,7 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
     // ---- patches
     const patch = path.match(/^\/(rooms|desks|floors|buildings)\/([^/]+)(\/assignment)?$/);
     if (patch && method === 'PATCH') {
-      const store = patch[1] === 'rooms' ? rooms : patch[1] === 'desks' ? desks : patch[1] === 'floors' ? floors : null;
+      const store = patch[1] === 'rooms' ? rooms : patch[1] === 'desks' ? desks : patch[1] === 'floors' ? floors : buildings;
       const current = store?.get(patch[2]);
       if (!store || !current) return error(route, 404, 'Not found');
       if (current.revision !== body?.expected_revision) return error(route, 409, 'Office layout changed. Reload before retrying', [issue(`${patch[1]}.${patch[2]}`, 'STALE_REVISION', 'changed')]);

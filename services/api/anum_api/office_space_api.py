@@ -46,9 +46,15 @@ class StrictBody(BaseModel):
 class BuildingCreate(StrictBody):
     id: Identifier
     name: str = Field(min_length=1, max_length=100)
+    name_ar: str | None = Field(default=None, min_length=1, max_length=100)
     timezone: str = Field(min_length=3, max_length=80)
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+
+    @field_validator("name_ar")
+    @classmethod
+    def _ar(cls, value: str | None) -> str | None:
+        return _arabic_name(value)
 
 
 EquipmentKind = Literal[
@@ -73,22 +79,42 @@ def _plain_text(value: str | None, *, multiline: bool = False) -> str | None:
     return value.strip() if multiline else " ".join(value.split())
 
 
+def _arabic_name(value: str | None) -> str | None:
+    """Optional Arabic display name: one line, no control characters."""
+    cleaned = _plain_text(value)
+    if value is not None and not cleaned:
+        raise ValueError("Name cannot be blank")
+    return cleaned
+
+
 class FloorCreate(StrictBody):
     id: Identifier
     building_id: Identifier
     level: int = Field(ge=-20, le=120)
     name: str = Field(min_length=1, max_length=100)
+    name_ar: str | None = Field(default=None, min_length=1, max_length=100)
     # Metres. New floors default to 60 by 40; the room editor stays inside these bounds.
     width_m: float = Field(default=layout.DEFAULT_FLOOR_WIDTH_M, ge=1, le=1000)
     depth_m: float = Field(default=layout.DEFAULT_FLOOR_DEPTH_M, ge=1, le=1000)
+
+    @field_validator("name_ar")
+    @classmethod
+    def _ar(cls, value: str | None) -> str | None:
+        return _arabic_name(value)
 
 
 class RoomCreate(StrictBody):
     id: Identifier
     floor_id: Identifier
     name: str = Field(min_length=1, max_length=100)
+    name_ar: str | None = Field(default=None, min_length=1, max_length=100)
     kind: RoomKind
     capacity: int = Field(ge=1, le=5000)
+
+    @field_validator("name_ar")
+    @classmethod
+    def _ar(cls, value: str | None) -> str | None:
+        return _arabic_name(value)
 
 
 class DeskCreate(StrictBody):
@@ -131,9 +157,15 @@ class _Patch(StrictBody):
 class BuildingUpdate(_Patch):
     _non_null = ("name", "timezone")
     name: str | None = Field(default=None, min_length=1, max_length=100)
+    name_ar: str | None = Field(default=None, min_length=1, max_length=100)
     timezone: str | None = Field(default=None, min_length=3, max_length=80)
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+
+    @field_validator("name_ar")
+    @classmethod
+    def _ar(cls, value: str | None) -> str | None:
+        return _arabic_name(value)
 
     @field_validator("timezone")
     @classmethod
@@ -149,9 +181,15 @@ class BuildingUpdate(_Patch):
 class FloorUpdate(_Patch):
     _non_null = ("name", "level", "width_m", "depth_m")
     name: str | None = Field(default=None, min_length=1, max_length=100)
+    name_ar: str | None = Field(default=None, min_length=1, max_length=100)
     level: int | None = Field(default=None, ge=-20, le=120)
     width_m: float | None = Field(default=None, ge=1, le=1000)
     depth_m: float | None = Field(default=None, ge=1, le=1000)
+
+    @field_validator("name_ar")
+    @classmethod
+    def _ar(cls, value: str | None) -> str | None:
+        return _arabic_name(value)
 
     @model_validator(mode="after")
     def _size_pair(self) -> "FloorUpdate":
@@ -346,8 +384,8 @@ def _plain(value: Any) -> Any:
 
 
 _AUDIT_FIELDS = {
-    "buildings": ("name", "timezone", "latitude", "longitude"),
-    "floors": ("building_id", "level", "name", "width_m", "depth_m"),
+    "buildings": ("name", "name_ar", "timezone", "latitude", "longitude"),
+    "floors": ("building_id", "level", "name", "name_ar", "width_m", "depth_m"),
     "rooms": ("floor_id", "name", "kind", "capacity", "scene_x", "scene_z", "scene_width", "scene_depth",
               "rotation", "door_side", "description", "notes", "color", "name_ar", "equipment", "team_department"),
     "desks": ("room_id", "label", "agent_id", "pos_x", "pos_z"),
@@ -412,6 +450,8 @@ def _create(
         try:
             item_id = body.id
             fields = body.model_dump(exclude={"id"})
+            if fields.get("name_ar") is None:
+                fields.pop("name_ar", None)  # absent means NULL; also keeps old idempotency hashes valid
             if kind == "desks":
                 fields["agent_id"] = None
             row, created = store.create_with_key(context, kind, item_id, fields, key)

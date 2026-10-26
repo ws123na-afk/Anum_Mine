@@ -68,7 +68,7 @@ Why one room used to be all anyone saw: the building camera framed the footprint
 
 ### Fixture for the browser tests
 
-`apps/web/e2e/support/starterCampusMaster.json` is the master list with the packer's positions. Regenerate it from the repository root with:
+`apps/web/e2e/support/starterCampusMaster.json` is the master list with the packer's positions (English and Arabic names). The unit tests also share `apps/web/test/fixtures/starterCampusRooms.json` (room names in both languages) and `starterCampus.json` (the registry with `name_ar`); `test_office_starter_campus.py` fails when any of them differs from the planner. Regenerate the master file from the repository root with:
 
 ```
 cd services/api && python3 -c "
@@ -84,6 +84,18 @@ for b in c.CAMPUS:
 print(json.dumps(out,separators=(',',':'),ensure_ascii=False))" > ../../apps/web/e2e/support/starterCampusMaster.json
 ```
 
+## Add Arabic names
+
+For a campus that was set up before names had an Arabic form. Under Office tools, Set up my campus, the dialog has an "Add Arabic names" section.
+
+- `GET /api/v1/office/starter-campus/arabic-names/preview` (`task:read`): the buildings, floors and rooms that would get an Arabic name, with the Arabic text, `counts`, and a `payload_hash`. Nothing is stored.
+- `POST /api/v1/office/starter-campus/arabic-names/confirm` (`workspace:manage`): needs the hash shown and `input_mode: "click"`. A typed or spoken confirmation is refused with 403, and no registered tool calls it.
+- A record is filled only when its Arabic name is empty AND its English name is a name of the starter master list. A name the owner typed is never replaced, a record the owner renamed no longer matches and is left alone, and no other field (position, size, kind, desks) is touched. The write re-checks both conditions under a row lock, so a name typed in between survives. A second click, or a stale click, writes nothing (`outcome: "nothing_to_add"`, or 409 when the list changed).
+- One transaction per click, under the same per-workspace writer lock as the starter campus. One audit record `office.starter_campus.arabic_names` with ids and counts only (never the names), and the usual `office.layout_changed` event (ids only). A filled room is a layout revision of its floor (its snapshot holds `name_ar`).
+- The web section shows loading, error with retry, denied (who can do it), nothing to add, the count and a short list, a disabled button with the owner note for people who cannot confirm, and the result.
+
+Contract: `packages/contracts/src/officeStarterCampus.ts` (`ArabicNamesPreview`, `ArabicNamesConfirm`, `ArabicNamesResult`). Tests: `tests/test_postgres_office_arabic_names.py` (as the app role: click and hash rules, fill only where empty and matching, idempotent, a change between preview and click, isolation and RLS, audit without text), `tests/test_office_starter_campus.py` (the planner and the web fixtures), web `test/hqStarterCampus.test.ts`, `e2e/hq-arabic-names.spec.ts`.
+
 ## Tests
 
 API unit `tests/test_office_starter_campus.py` (master list, geometry, planner, user edits, hash); PostgreSQL as the app role `tests/test_postgres_office_starter_campus.py` (preview stores nothing, click and hash rules, full build, idempotency, partial and re-run, user edits kept, a failing building leaves nothing, two confirms at once, tenant isolation, gaps panel proposes agents); web unit `apps/web/test/hqStarterCampus.test.ts`; first run: web unit `apps/web/test/hqFirstRun.test.ts`, browser `apps/web/e2e/hq-first-run.spec.ts` (stateful mock `e2e/support/hqFirstRunApi.ts`: empty workspace, confirm fills the registry with the real master list; every state, Command card, Arabic, five viewports); browser `apps/web/e2e/hq-starter-campus.spec.ts` with the mock `e2e/support/hqStarterCampusApi.ts` (main path, selection, permissions, every error state, empty state, keyboard, Arabic, five viewports).
@@ -93,5 +105,5 @@ API unit `tests/test_office_starter_campus.py` (master list, geometry, planner, 
 - The time zone is taken from the workspace's buildings (else Asia/Dubai); there is no field to pick it in the dialog and no coordinates are set.
 - The master list is code (data in `office_starter_campus.py`), not editable by the owner in the app.
 - A deleted room is recreated on the next run; there is no "do not recreate" memory.
-- Room names are stored in English with the Arabic name in `name_ar`; building and floor names have no Arabic column, so the Arabic names show in the setup dialog only.
+- Buildings, floors and rooms are stored with their English name and their Arabic name (`name_ar`, migration 0114): a new campus is created with Arabic names on all 8 buildings, 18 floors and 62 rooms (professional Modern Standard Arabic, for example ANUM HQ is المقر الرئيسي لأنوم, ANUM 360 Commerce is أنوم 360 للتجارة, Tyre Pulse is تاير بلس, floors are الطابق الأول, الطابق الثاني and so on). A campus made before 0114 has no Arabic names yet: the owner adds them with one click (see Add Arabic names below).
 - Other open browsers learn of the new records through the existing `office.layout_changed` event only where they already listen to it.

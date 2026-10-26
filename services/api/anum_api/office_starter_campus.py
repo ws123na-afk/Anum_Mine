@@ -117,20 +117,20 @@ def _floor(level: int, en: str, ar: str, rooms: tuple[RoomSpec, ...], width: flo
 
 
 CAMPUS: Final[tuple[BuildingSpec, ...]] = (
-    BuildingSpec(1, "hq", "ANUM HQ", "مقر ANUM", (
+    BuildingSpec(1, "hq", "ANUM HQ", "المقر الرئيسي لأنوم", (
         _floor(-1, "Basement: Facilities, Parking, Security", "القبو: المرافق والمواقف والأمن", (
             _office("facilities", "Facilities Office", "مكتب المرافق", 10, 8, 3, None, "slate"),
             _office("security-operations", "Security Operations", "عمليات الأمن", 12, 8, 5, "security", "crimson", "south",
                     (("monitor", 5), ("display", 3), ("network_switch", 1))),
             _work("warehouse", "parking-logistics", "Parking and Logistics", "المواقف والخدمات اللوجستية", 14, 10, 2, None, "slate"),
         ), 38.0),
-        _floor(1, "Floor 1: Reception and Meeting Rooms", "الطابق 1: الاستقبال وغرف الاجتماعات", (
+        _floor(1, "Floor 1: Reception and Meeting Rooms", "الطابق الأول: الاستقبال وغرف الاجتماعات", (
             RoomSpec("reception", "Reception", "الاستقبال", "reception", 10, 6, 4, 0, None, "brass", "south", _RECEPTION),
             _meeting("meeting-a", "Meeting Room A", "غرفة الاجتماعات أ", 8, 6, 8),
             _meeting("meeting-b", "Meeting Room B", "غرفة الاجتماعات ب", 8, 6, 8),
             _meeting("meeting-c", "Meeting Room C", "غرفة الاجتماعات ج", 10, 7, 12),
         ), 38.0),
-        _floor(2, "Floor 2: Operations and Management", "الطابق 2: العمليات والإدارة", (
+        _floor(2, "Floor 2: Operations and Management", "الطابق الثاني: العمليات والإدارة", (
             _command("command-center", "Command Center", "مركز القيادة", 14, 10, 6),
             _office("ai-organization", "AI Organization", "المؤسسة الذكية", 16, 10, 8, None, "amethyst", "south",
                     (("monitor", 8), ("display", 2), ("server_rack", 1))),
@@ -138,7 +138,7 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
             _office("assets", "Assets", "الأصول", 10, 8, 4, "operations", "teal"),
             _office("suppliers", "Suppliers", "الموردون", 10, 8, 4, "operations", "teal"),
         ), 38.0),
-        _floor(3, "Floor 3: Executive and Strategy", "الطابق 3: التنفيذي والاستراتيجية", (
+        _floor(3, "Floor 3: Executive and Strategy", "الطابق الثالث: التنفيذي والاستراتيجية", (
             _office("executive-office", "Executive Office", "المكتب التنفيذي", 14, 9, 3, None, "brass", "south",
                     (("monitor", 3), ("display", 1), ("whiteboard", 1))),
             _meeting("boardroom", "Boardroom", "قاعة مجلس الإدارة", 16, 9, 16, "brass"),
@@ -149,7 +149,7 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
             RoomSpec("events-hall", "Events Hall", "قاعة الفعاليات", "lounge", 14, 9, 40, 0, None, "brass", "south", _LOUNGE),
         ), 38.0),
     )),
-    BuildingSpec(2, "commerce", "ANUM 360 Commerce", "ANUM 360 التجارة", (
+    BuildingSpec(2, "commerce", "ANUM 360 Commerce", "أنوم 360 للتجارة", (
         _floor(0, "Ground floor: E-commerce, Retail and Marketplace", "الطابق الأرضي: التجارة الإلكترونية والتجزئة والسوق", (
             _office("ecommerce", "E-commerce", "التجارة الإلكترونية", 12, 8, 6, "sales", "forest"),
             _office("retail", "Retail", "التجزئة", 12, 8, 6, "sales", "forest"),
@@ -157,26 +157,26 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
             _office("orders", "Orders", "الطلبات", 12, 8, 6, "operations", "forest"),
             _work("warehouse", "warehouse", "Warehouse", "المستودع", 16, 12, 4, "operations", "slate"),
         ), 36.0),
-        _floor(1, "Floor 1: Sales and Marketing", "الطابق 1: المبيعات والتسويق", (
+        _floor(1, "Floor 1: Sales and Marketing", "الطابق الأول: المبيعات والتسويق", (
             _office("sales-office", "Sales Office", "مكتب المبيعات", 12, 8, 6, "sales", "forest"),
             _office("marketing-studio", "Marketing Studio", "استوديو التسويق", 12, 8, 5, "marketing", "crimson"),
             _meeting("meeting-room", "Meeting Room", "غرفة الاجتماعات", 8, 6, 8, "sapphire"),
         ), 34.0),
-        _floor(2, "Floor 2: Customer Experience", "الطابق 2: تجربة العملاء", (
+        _floor(2, "Floor 2: Customer Experience", "الطابق الثاني: تجربة العملاء", (
             _office("customer-service", "Customer Service", "خدمة العملاء", 12, 8, 6, "support", "forest"),
             _office("support", "Support", "الدعم", 12, 8, 6, "support", "forest"),
             _office("messages", "Messages", "الرسائل", 10, 8, 4, "support", "forest"),
             _office("tickets", "Tickets", "التذاكر", 10, 8, 4, "support", "forest"),
         ), 34.0),
     )),
-    BuildingSpec(3, "tyre-pulse", "Tyre Pulse", "تاير بالس", (
+    BuildingSpec(3, "tyre-pulse", "Tyre Pulse", "تاير بلس", (
         _floor(0, "Ground floor: Workshop, Warehouse and Logistics", "الطابق الأرضي: الورشة والمستودع والخدمات اللوجستية", (
             _work("workshop", "workshop", "Workshop", "الورشة", 14, 10, 4, "tyre_engineering", "sand", "east"),
             _work("workshop", "maintenance", "Maintenance", "الصيانة", 12, 9, 4, "tyre_engineering", "sand", "east"),
             _work("warehouse", "warehouse", "Warehouse", "المستودع", 16, 12, 4, "operations", "slate"),
             _office("logistics", "Logistics", "الخدمات اللوجستية", 10, 8, 4, "operations", "teal"),
         ), 36.0),
-        _floor(1, "Floor 1: Fleet, Tyre Engineering and Inspections", "الطابق 1: الأسطول وهندسة الإطارات والفحص", (
+        _floor(1, "Floor 1: Fleet, Tyre Engineering and Inspections", "الطابق الأول: الأسطول وهندسة الإطارات والفحص", (
             _office("fleet", "Fleet", "الأسطول", 12, 8, 6, "operations", "teal"),
             _office("tyre-engineering", "Tyre Engineering", "هندسة الإطارات", 10, 8, 4, "tyre_engineering", "teal"),
             _office("inspections", "Inspections", "الفحص", 8, 7, 3, "tyre_engineering", "teal"),
@@ -189,7 +189,7 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
             _office("wealth-office", "Wealth Office", "مكتب الثروة", 10, 8, 3, "finance", "brass"),
             _office("procurement", "Procurement", "المشتريات", 10, 8, 4, "procurement", "teal"),
         ), 34.0),
-        _floor(1, "Floor 1: Legal, Compliance and Governance", "الطابق 1: القانونية والامتثال والحوكمة", (
+        _floor(1, "Floor 1: Legal, Compliance and Governance", "الطابق الأول: القانونية والامتثال والحوكمة", (
             _office("legal-office", "Legal Office", "المكتب القانوني", 10, 8, 4, "legal", "slate"),
             _office("compliance-office", "Compliance Office", "مكتب الامتثال", 10, 8, 4, "compliance", "slate"),
             _office("governance-office", "Governance Office", "مكتب الحوكمة", 10, 8, 3, "compliance", "slate"),
@@ -203,7 +203,7 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
             _office("data", "Data", "البيانات", 12, 8, 6, None, "sapphire"),
             _office("automation", "Automation", "الأتمتة", 10, 8, 4, None, "sapphire"),
         ), 34.0),
-        _floor(1, "Floor 1: Technology and Engineering", "الطابق 1: التقنية والهندسة", (
+        _floor(1, "Floor 1: Technology and Engineering", "الطابق الأول: التقنية والهندسة", (
             _office("development", "Development", "التطوير", 14, 9, 8, "technology", "sapphire", "south",
                     (("monitor", 8), ("whiteboard", 1), ("charging_station", 1))),
             _office("deployments", "Deployments", "النشر", 10, 8, 4, "technology", "sapphire", "south",
@@ -211,7 +211,7 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
             _office("incidents", "Incidents", "الحوادث", 10, 8, 4, "technology", "crimson", "south",
                     (("monitor", 4), ("display", 2), ("whiteboard", 1))),
         ), 34.0),
-        _floor(2, "Floor 2: Research and Intelligence", "الطابق 2: البحث والاستخبارات", (
+        _floor(2, "Floor 2: Research and Intelligence", "الطابق الثاني: البحث والاستخبارات", (
             _office("research-room", "Research Room", "غرفة البحث", 12, 8, 6, "research", "amethyst"),
             _office("intelligence-desk", "Intelligence Desk", "مكتب الاستخبارات", 10, 8, 4, "research", "amethyst"),
             _meeting("briefing-room", "Briefing Room", "غرفة الإحاطة", 8, 6, 8, "sapphire"),
@@ -435,6 +435,57 @@ def totals(plans: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
 def has_work(plan: Mapping[str, Any]) -> bool:
     """True when a confirm would write something for this building: a new record or a department to fill."""
     return any(plan["counts"]["create"].values()) or plan["counts"]["update"]["room_departments"] > 0
+
+
+# --------------------------------------------------------------------------- arabic names backfill
+
+ARABIC_KINDS: Final = ("buildings", "floors", "rooms")
+
+
+def _norm_name(value: str) -> str:
+    return " ".join(value.split()).casefold()
+
+
+def _arabic_lookup() -> dict[str, dict[str, str]]:
+    """English master name to Arabic master name, per record kind. A name the master list renders two ways is left out."""
+    seen: dict[str, dict[str, set[str]]] = {k: {} for k in ARABIC_KINDS}
+    for b in CAMPUS:
+        seen["buildings"].setdefault(_norm_name(b.en), set()).add(b.ar)
+        for f in b.floors:
+            seen["floors"].setdefault(_norm_name(f.en), set()).add(f.ar)
+            for r in f.rooms:
+                seen["rooms"].setdefault(_norm_name(r.en), set()).add(r.ar)
+    return {k: {en: next(iter(ars)) for en, ars in names.items() if len(ars) == 1} for k, names in seen.items()}
+
+
+ARABIC_BY_NAME: Final = _arabic_lookup()
+
+
+def plan_arabic_names(rows: Mapping[str, list[Mapping[str, Any]]]) -> dict[str, Any]:
+    """Which existing records would get an Arabic name: empty ``name_ar`` AND an English name of the master list.
+
+    Pure. A record that already has an Arabic name is never listed (nothing is overwritten), and a record the owner
+    renamed no longer matches a master name, so it is left alone.
+    """
+    items: list[dict[str, Any]] = []
+    counts = dict.fromkeys(ARABIC_KINDS, 0)
+    for kind in ARABIC_KINDS:
+        for row in sorted(rows.get(kind, []), key=lambda r: r["id"]):
+            if (row.get("name_ar") or "").strip():
+                continue
+            arabic = ARABIC_BY_NAME[kind].get(_norm_name(row["name"]))
+            if arabic is None:
+                continue
+            counts[kind] += 1
+            items.append({"kind": kind, "id": row["id"], "name": row["name"], "name_ar": arabic})
+    return {"items": items, "counts": counts, "total": len(items)}
+
+
+def arabic_proposal_hash(tenant_id: str, workspace_id: str, user_id: str, plan: Mapping[str, Any]) -> str:
+    """Bound to who confirms, where, and the exact records and texts shown."""
+    content = {"v": CATALOG_VERSION, "items": [[i["kind"], i["id"], i["name"], i["name_ar"]] for i in plan["items"]]}
+    return hashlib.sha256(canonical({"op": "starter-campus.arabic-names", "t": tenant_id, "w": workspace_id,
+                                     "u": user_id, "p": content}).encode()).hexdigest()
 
 
 # --------------------------------------------------------------------------- hash
