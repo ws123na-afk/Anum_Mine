@@ -10,7 +10,7 @@ interface RoomSeed { key: string; en: string; ar: string; kind: string; w: numbe
 interface BuildingSeed { key: string; n: number; en: string; ar: string; floors: { level: number; en: string; ar: string; w: number; d: number; rooms: RoomSeed[] }[]; status: 'new' | 'partial' | 'complete' }
 
 const SEEDS: BuildingSeed[] = [
-  { key: 'hq', n: 1, en: 'ANUM HQ', ar: 'مقر ANUM', status: 'new', floors: [
+  { key: 'hq', n: 1, en: 'ANUM HQ', ar: 'المقر الرئيسي لأنوم', status: 'new', floors: [
     { level: 0, en: 'Ground floor', ar: 'الطابق الأرضي', w: 38, d: 19, rooms: [
       { key: 'reception', en: 'Reception', ar: 'الاستقبال', kind: 'reception', w: 10, d: 6, desks: 0 },
       { key: 'meeting-a', en: 'Meeting Room A', ar: 'غرفة الاجتماعات أ', kind: 'meeting', w: 8, d: 6, desks: 0 }] },
@@ -21,7 +21,7 @@ const SEEDS: BuildingSeed[] = [
     { level: 0, en: 'Ground floor', ar: 'الطابق الأرضي', w: 34, d: 24, rooms: [
       { key: 'executive-office', en: 'Executive Office', ar: 'المكتب التنفيذي', kind: 'office', w: 14, d: 9, desks: 3 },
       { key: 'boardroom', en: 'Boardroom', ar: 'قاعة مجلس الإدارة', kind: 'meeting', w: 16, d: 9, desks: 0 }] }] },
-  { key: 'tyre-pulse', n: 3, en: 'Tyre Pulse', ar: 'تاير بالس', status: 'partial', floors: [
+  { key: 'tyre-pulse', n: 3, en: 'Tyre Pulse', ar: 'تاير بلس', status: 'partial', floors: [
     { level: 0, en: 'Ground floor', ar: 'الطابق الأرضي', w: 36, d: 37, rooms: [
       { key: 'fleet', en: 'Fleet', ar: 'الأسطول', kind: 'office', w: 12, d: 8, desks: 6, dept: 'operations', skip: 'exists' },
       { key: 'maintenance', en: 'Maintenance', ar: 'الصيانة', kind: 'workshop', w: 12, d: 9, desks: 4, dept: 'tyre_engineering' },

@@ -328,7 +328,7 @@ export function HqBuilder({ onClose }: { onClose: () => void }) {
       </div>
 
       <footer className="hqbStatus">
-        <span>{t('hqb.status.floor', { name: b.floor?.name ?? '-', rooms: placedCount, desks: deskCount })}</span>
+        <span>{t('hqb.status.floor', { name: b.floor ? pickName(b.floor.name, b.floor.name_ar, locale) : '-', rooms: placedCount, desks: deskCount })}</span>
         <span>{b.bounds ? t('hqb.canvas.floorSize', { width: b.bounds.width, depth: b.bounds.depth }) : t('hqb.status.noBounds')}</span>
         <details className="hqbIssues" data-has-issues={b.issues.length ? 'true' : 'false'}>
           <summary>{b.issues.length === 0 ? t('hqb.status.noProblems') : t('hqb.status.problems', { errors: errorCount, warnings: warningCount })}</summary>

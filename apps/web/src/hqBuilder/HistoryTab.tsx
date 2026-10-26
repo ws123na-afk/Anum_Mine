@@ -140,7 +140,7 @@ export function HistoryTab({ b, api, editable }: Props) {
     <div className="hqhTab">
       <section className="hqbSection" aria-labelledby="hqh-title">
         <div className="hqbRow">
-          <h3 id="hqh-title" className="hqbGrow">{t('hqh.title', { floor: b.floor?.name ?? '-' })}</h3>
+          <h3 id="hqh-title" className="hqbGrow">{t('hqh.title', { floor: b.floor ? pickName(b.floor.name, b.floor.name_ar) : '-' })}</h3>
           <button type="button" disabled={loading} onClick={() => void loadList()}>{t('hqh.refresh')}</button>
         </div>
         <p className="hqbHint">{list ? t('hqh.keep', { cap: list.cap }) : t('hqh.keepGeneric')}</p>

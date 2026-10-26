@@ -260,6 +260,8 @@
   .hqOverlayBottomRight { display: none; }
   .hqToolbar button span { display: none; }
   .hqLabelCard { max-width: 170px; }
+  /* A long name (an Arabic building name is often two words or more) wraps to two lines instead of ending in an ellipsis. */
+  .hqLabelText strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; white-space: normal; }
   .hqLabelText small { display: none; }
   .hqAgentCard .hqPill { display: none; }
   .hqCounters { gap: var(--d-s3); }
