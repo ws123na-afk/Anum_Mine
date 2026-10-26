@@ -57,12 +57,14 @@ class FloorFromTemplate(_Strict):
     building_id: Identifier
     level: int = Field(ge=-20, le=120)
     name: Name | None = None
+    name_ar: Name | None = None
 
 
 class BuildingFromTemplate(_Strict):
     template_id: Identifier
     id: Identifier
     name: Name
+    name_ar: Name | None = None
     timezone: str = Field(min_length=3, max_length=80)
 
 
@@ -214,8 +216,10 @@ def floor_from_template(body: FloorFromTemplate, context: TenantContext = Depend
             if store.get(context, "buildings", body.building_id) is None:
                 raise SpaceStoreError("not_found", "Building not found in this workspace")
             definition = tpl["definition"]
+            # The template's Arabic name goes with its own English name; a new English name needs its own Arabic one.
+            name_ar = _clean(body.name_ar) if body.name_ar else (definition.get("name_ar") if body.name is None else None)
             built = store.build_floor_from_definition(context, definition, body.id, body.building_id, body.level,
-                                                      body.name or definition["name"])
+                                                      body.name or definition["name"], name_ar)
             _audit(store, context, "office.floor.create_from_template", body.id, kind="floors",
                    after={**_snap("floors", built["floor"]), "template_id": tpl["id"], "rooms": len(built["room_ids"]), "desks": built["desks"]},
                    floor_id=body.id, ids=[body.id, *built["room_ids"]])
@@ -234,14 +238,17 @@ def building_from_template(body: BuildingFromTemplate, context: TenantContext = 
     with _store(context) as store:
         try:
             tpl = store.get_template(context, body.template_id, "building")
-            building = store.create(context, "buildings", body.id, {"name": _clean(body.name), "timezone": body.timezone,
-                                                                    "latitude": None, "longitude": None})
+            fields = {"name": _clean(body.name), "timezone": body.timezone, "latitude": None, "longitude": None}
+            if body.name_ar:
+                fields["name_ar"] = _clean(body.name_ar)
+            building = store.create(context, "buildings", body.id, fields)
             _audit(store, context, "office.building.create", body.id, kind="buildings", after=_snap("buildings", building),
                    ids=[body.id])
             floor_ids, room_total, desk_total = [], 0, 0
             for index, definition in enumerate(tpl["definition"]["floors"], start=1):
                 floor_id = f"{body.id[:70]}-f{index}"
-                built = store.build_floor_from_definition(context, definition, floor_id, body.id, definition["level"], definition["name"])
+                built = store.build_floor_from_definition(context, definition, floor_id, body.id, definition["level"], definition["name"],
+                                                          definition.get("name_ar"))
                 floor_ids.append(floor_id)
                 room_total += len(built["room_ids"])
                 desk_total += built["desks"]

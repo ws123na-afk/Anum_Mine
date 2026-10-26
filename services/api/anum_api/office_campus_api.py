@@ -54,9 +54,9 @@ def _building(context: TenantContext, name: str | None, role: str, archived: boo
         profile = session.execute(text(
             "select kind, icon, revision from campus_workspace_profiles where tenant_id = :t and workspace_id = :w"), p).first()
         floors = [
-            {"id": r.id, "level": r.level, "name": r.name, "building_id": r.building_id}
+            {"id": r.id, "level": r.level, "name": r.name, "name_ar": r.name_ar, "building_id": r.building_id}
             for r in session.execute(text(
-                "select id, level, name, building_id from office_floors where tenant_id = :t and workspace_id = :w "
+                "select id, level, name, name_ar, building_id from office_floors where tenant_id = :t and workspace_id = :w "
                 "order by level, id limit :n"), {**p, "n": MAX_FLOORS})
         ]
         counts = session.execute(text(

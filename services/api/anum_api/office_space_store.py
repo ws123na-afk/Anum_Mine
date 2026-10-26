@@ -38,16 +38,16 @@ _COLUMNS = {
 }
 # Columns that exist on a read but are not part of a create request.
 _EXTRA_COLUMNS = {
-    "buildings": (),
-    "floors": (),
+    "buildings": ("name_ar",),
+    "floors": ("name_ar",),
     "rooms": ("scene_x", "scene_z", "scene_width", "scene_depth", "rotation", "door_side", "description",
               "notes", "color", "name_ar", "equipment", "team_department"),
     "desks": ("pos_x", "pos_z"),
 }
 # Columns a PATCH may change, per resource (the API models are the first filter).
 _PATCHABLE = {
-    "buildings": ("name", "timezone", "latitude", "longitude"),
-    "floors": ("name", "level", "width_m", "depth_m"),
+    "buildings": ("name", "name_ar", "timezone", "latitude", "longitude"),
+    "floors": ("name", "name_ar", "level", "width_m", "depth_m"),
     "rooms": ("name", "kind", "capacity", "rotation", "door_side", "description", "notes", "color",
               "name_ar", "equipment", "team_department"),
     "desks": ("label", "pos_x", "pos_z"),
@@ -175,7 +175,9 @@ class SqlOfficeSpaceStore(LayoutHistoryMixin, TemplateMixin):
         self._table(kind)
         office_table = _SQL_TABLES[kind]
         expected = set(_COLUMNS[kind])
-        if set(fields) != expected:
+        # The Arabic name is the one optional create field: absent means NULL, never an empty string.
+        given = set(fields) - ({"name_ar"} if kind in ("buildings", "floors", "rooms") else set())
+        if given != expected:
             raise SpaceStoreError("invalid", "Unexpected office record fields")
         if kind in ("rooms", "desks"):
             self._pre_lock(context, "floors" if kind == "rooms" else "rooms", fields["floor_id"] if kind == "rooms" else fields["room_id"])
@@ -327,6 +329,23 @@ class SqlOfficeSpaceStore(LayoutHistoryMixin, TemplateMixin):
         if row is None or row["team_department"] not in (None, "custom"):
             return None
         return row, self._apply(context, "rooms", room_id, {"team_department": department})
+
+    def fill_arabic_name(self, context: TenantContext, kind: str, item_id: str, expected_name: str,
+                         name_ar: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """Set an Arabic name on a building, floor or room only while it has none (the "Add Arabic names" action).
+
+        Locks the row and re-checks under the lock: an Arabic name typed in between is never replaced, and a record
+        renamed since the preview (its English name is no longer the one shown) is left alone. Returns (before, after),
+        or None when nothing was changed.
+        """
+        if kind not in ("buildings", "floors", "rooms"):
+            raise SpaceStoreError("invalid", "Unknown office resource")
+        if kind == "rooms":
+            self._pre_lock(context, "rooms", item_id)  # the floor lock first: one lock order for every writer
+        row = self._lock(context, kind, item_id)
+        if row is None or (row.get("name_ar") or "").strip() or row["name"] != expected_name:
+            return None
+        return row, self._apply(context, kind, item_id, {"name_ar": name_ar})
 
     def _floor_rooms(self, context: TenantContext, floor_id: str, lock: bool = False) -> list[dict[str, Any]]:
         t = _SQL_TABLES["rooms"]
