@@ -12,8 +12,10 @@
  * sway, drifting clouds, gently shimmering window light and a blinking rooftop beacon, all driven by one scene clock.
  * The clock stops, and every motion with it, under reduced motion, in a hidden tab and on a software rasteriser.
  *
- * Quality steps down on sustained slow frames: ambient motion first, then bloom, the shadow map size, shadows,
- * then the pixel ratio. Reduced motion turns bloom off. A browser without WebGL 2 gets null from
+ * Quality is a tier from `hqQualityTiers.ts`. On sustained slow frames ambient motion steps down first, then the frame governor
+ * (`hqGovernor.ts`) walks its ladder: pixel ratio, shadow map, shadows, bloom, then the simple materials; it climbs back slowly
+ * when frames are healthy, and never runs while the tier is pinned, on a software rasteriser or in a hidden tab. A shader that
+ * fails to compile switches to the simple materials. Reduced motion turns bloom off. A browser without WebGL 2 gets null from
  * `create` and the page falls back to the list and the 2D plan.
  */
 import {
@@ -36,6 +38,8 @@ import { clipPlanes, viewProjection } from './hqMath.ts';
 import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
 import { ModelLayer } from './hqModelLayer.ts';
+import { QUALITY_PIN_KEY, ladderFor, parsePin, tierById, type QualityState, type StepSettings, type TierReason } from './hqQualityTiers.ts';
+import type { FrameGovernor } from './hqGovernor.ts';
 import type { ModelGroup } from './hqModels.ts';
 
 export type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
@@ -267,14 +271,9 @@ const SKY_FRAG = `varying vec3 vDir; uniform vec3 zenith; uniform vec3 horizon; 
 
 // ---------------------------------------------------------------- the renderer
 
-/** A person (or a test) can pin the quality with `localStorage["anum.hq.quality"]` = 0 to 3 (3 = shadows and night glow). */
-function readQualityOverride(): Quality | null {
-  try {
-    const raw = window.localStorage.getItem('anum.hq.quality');
-    if (raw === null) return null;
-    const n = Number(raw);
-    return n === 0 || n === 1 || n === 2 || n === 3 ? (n as Quality) : null;
-  } catch { return null; }
+/** A person (or the Graphics check, or a test) can pin a registered tier with `localStorage["anum.hq.quality"]`; the pin always wins. */
+function readQualityOverride(): number | null {
+  try { return parsePin(window.localStorage.getItem(QUALITY_PIN_KEY)); } catch { return null; }
 }
 
 /** True on a software rasteriser (SwiftShader, llvmpipe): it gets the light settings. Probed on a scratch canvas before the real context exists. */
@@ -301,8 +300,6 @@ function probeSoftwareRenderer(): boolean {
   } catch { return false; }
 }
 
-type Quality = 0 | 1 | 2 | 3;
-const SHADOW_SIZE: Record<Quality, number> = { 0: 0, 1: 1024, 2: 1024, 3: 2048 };
 
 export class HqRenderer {
   readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
@@ -336,7 +333,25 @@ export class HqRenderer {
   private shadowRegion: { center: { x: number; y: number; z: number }; radius: number } | null = null;
   private shadowDirty = true;
   private lastSunKey = '';
-  private quality: Quality = 3;
+  /** The tier in force: the automatic one, a pin, or a Graphics check run (`override`). */
+  private quality = 3;
+  private reason: TierReason = 'automatic';
+  private pinned: number | null = null;
+  private override: number | null = null;
+  private ladder: readonly StepSettings[] = ladderFor(tierById(3));
+  private applied: StepSettings = this.ladder[0];
+  /** Loaded on demand (its own chunk), so the renderer chunk stays inside its budget; null until then, and the picture simply holds its tier. */
+  private governor: FrameGovernor | null = null;
+  private governorLoad: Promise<typeof import('./hqGovernor.ts')> | null = null;
+  private step = 0;
+  private governed = false;
+  private lean = false;
+  /** A shader failed to compile here: the simple materials stay on for every tier. */
+  private faulted = false;
+  private lastScene: RenderScene | null = null;
+  /** True when this draw came from the camera or another input (frame to frame time is then the real frame time). */
+  private inputDriven = true;
+  private prevDrawAt = 0;
   private reducedMotion = false;
   /** Moving scenery: each part keeps the middle of its bounds as the pivot. */
   private ambientParts: { mesh: Mesh; motion: AmbientMotion; px: number; py: number; pz: number }[] = [];
@@ -356,7 +371,6 @@ export class HqRenderer {
   private raf: number | null = null;
   private maxDpr: number;
   private dprScale = 1;
-  private slowFrames = 0;
   private readonly cb: RendererCallbacks;
   private readonly canvas: HTMLCanvasElement;
   private readonly onLostEvent: () => void;
@@ -371,20 +385,29 @@ export class HqRenderer {
   private slowSteps = 0;
   private software = false;
   /** False on a software rasteriser (unless scenery is pinned on): plain glass, water and sky programs, which compile and run faster. */
-  private get rich(): boolean { return !this.software || this.forcedScenery !== null; }
+  private get rich(): boolean { return !this.lean && (!this.software || this.forcedScenery !== null); }
   private forcedScenery: SceneryLevel | null = null;
   private level: SceneryLevel = 0;
 
   private constructor(canvas: HTMLCanvasElement, renderer: WebGLRenderer, cb: RendererCallbacks, maxDpr: number) {
     this.canvas = canvas; this.renderer = renderer; this.cb = cb; this.maxDpr = maxDpr;
     this.onLostEvent = () => { this.lost = true; this.cb.onLost?.(); };
-    this.onRestoredEvent = () => { this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.cb.onRestored?.(); this.requestFrame(); };
+    this.onRestoredEvent = () => {
+      // three.js re-creates its own state; what lived in render targets (reflection maps, the glow pass, the shadow map) is gone and is rebuilt on demand.
+      for (const env of this.envs) env?.dispose();
+      this.envs = [];
+      this.composer?.dispose(); this.composer = null; this.bloom = null;
+      this.sun.shadow.map?.dispose(); this.sun.shadow.map = null;
+      this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = ''; this.governor?.reset();
+      this.cb.onRestored?.(); this.requestFrame();
+    };
     canvas.addEventListener('webglcontextlost', this.onLostEvent);
     canvas.addEventListener('webglcontextrestored', this.onRestoredEvent);
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = ACESFilmicToneMapping;
     renderer.outputColorSpace = SRGBColorSpace;
     renderer.info.autoReset = false;
+    renderer.debug.onShaderError = (gl, program) => this.shaderFault(String(gl.getProgramInfoLog(program) ?? ''));
     renderer.shadowMap.type = PCFShadowMap;
     renderer.shadowMap.autoUpdate = false;
     this.scene.fog = this.fog;
@@ -421,11 +444,70 @@ export class HqRenderer {
       return null;
     }
     const pixels = canvas.clientWidth * canvas.clientHeight * (window.devicePixelRatio || 1) ** 2;
-    if (forced !== null) made.quality = forced;
-    else if (cheap) made.quality = 0;
-    else if (pixels > 4_000_000) made.quality = 2;
+    made.pinned = forced;
+    if (forced !== null) { made.quality = forced; made.reason = 'pinned'; }
+    else if (cheap) { made.quality = 0; made.reason = 'software'; }
+    else if (pixels > 4_000_000) { made.quality = 2; made.reason = 'large-canvas'; }
+    made.configureTier();
     return made;
   }
+
+  /** Rebuild the ladder and governor for the tier in force and apply the top rung. */
+  private configureTier(): void {
+    const id = this.override ?? this.pinned ?? this.quality;
+    this.ladder = ladderFor(tierById(id));
+    this.governor = null;
+    this.governed = this.pinned === null && this.override === null && !this.software;
+    if (this.governed) void (this.governorLoad ??= import('./hqGovernor.ts')).then((m) => { if (!this.disposed && this.governed && !this.governor) this.governor = new m.FrameGovernor(this.ladder.length); });
+    this.applyStep(0);
+  }
+
+  private applyStep(step: number): void {
+    this.step = step;
+    const next = this.ladder[Math.min(step, this.ladder.length - 1)];
+    const wantLean = next.lean || this.faulted;
+    const lean = wantLean !== this.lean;
+    this.applied = wantLean && !next.lean ? { ...next, lean: true } : next;
+    this.dprScale = next.dprScale;
+    this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = '';
+    if (lean) this.setLean(wantLean);
+    this.emitQuality();
+    this.requestFrame();
+  }
+
+  private emitQuality(): void {
+    this.cb.onQuality?.({ tier: this.override ?? this.pinned ?? this.quality, reason: this.pinned !== null ? 'pinned' : this.reason, step: this.step, steps: this.ladder.length, settings: this.applied, software: this.software, governed: this.governed });
+  }
+
+  /** A person pinned a tier (or cleared the pin with null): it wins over the governor and the automatic choice. */
+  setPin(id: number | null, run = false): void { if (run) this.override = id; else this.pinned = id; this.configureTier(); }
+
+  /** Swap between the full materials and the simple lit ones (the last rung of the governor, and the way out of a shader that will not compile). */
+  private setLean(on: boolean): void {
+    if (this.lean === on) return;
+    this.lean = on;
+    this.cheap = on || (this.pinned === null && this.software);
+    for (const m of this.materials.values()) m.dispose();
+    for (const tex of this.textures) tex.dispose();
+    this.textures.length = 0; this.materials.clear();
+    if (this.sky) { this.scene.remove(this.sky); this.sky.geometry.dispose(); (this.sky.material as Material).dispose(); this.sky = null; }
+    try { this.buildMaterials(); this.buildSky(); } catch (error) { this.fail(error); return; }
+    for (const m of this.materials.values()) m.needsUpdate = true;
+    if (this.lastScene) this.setScene(this.lastScene);
+  }
+
+  /** A shader failed to compile on this GPU: keep a short, non-sensitive note and fall back to the simple materials (or to the 2D plan if even those fail). */
+  private shaderFault(log: string): void {
+    console.warn('[hq-gpu] shader compile failed', log.slice(0, 160));
+    if (this.disposed) return;
+    if (this.faulted) { if (this.lean) window.setTimeout(() => this.fail(new Error('shader-compile')), 0); return; }
+    this.faulted = true;
+    window.setTimeout(() => { if (!this.disposed) this.applyStep(this.ladder.length - 1); }, 0);
+  }
+
+  // The Graphics check (hq-gpu/gpuBench.ts, its own chunk) reads and drives `renderer`, `meshes`, `textures`, `composer`, `cameraState`,
+  // `liftValue`, `startLifts` and `requestFrame` through a cast, so none of that costs this chunk anything. Keep the names in step.
+
 
   private fail(error: unknown): void {
     this.cb.onError?.(error instanceof Error ? error : new Error('WebGL failed'));
@@ -562,7 +644,7 @@ export class HqRenderer {
 
   /** True while ambient scenery should move: allowed here, no reduced motion, tab visible, quality above the lowest. */
   private ambientActive(): boolean {
-    return this.ambientAllowed && !this.reducedMotion && !this.lost && (this.quality > 0 || this.ambientForced) && typeof document !== 'undefined' && !document.hidden;
+    return this.ambientAllowed && !this.reducedMotion && !this.lost && (this.applied.shadowSize > 0 || this.applied.bloom || this.ambientForced) && typeof document !== 'undefined' && !document.hidden;
   }
 
   private stepAmbient(): void {
@@ -589,7 +671,7 @@ export class HqRenderer {
   /** The next ambient frame: about 12 a second, 4 a second once drawing is slow. Not scheduled while frozen. */
   private scheduleAmbient(): void {
     if (this.ambientTimer !== null || this.disposed || !this.ambientParts.length || !this.ambientActive()) return;
-    this.ambientTimer = window.setTimeout(() => { this.ambientTimer = null; this.requestFrame(); }, this.stats.avgDrawMs > 35 ? 250 : 83);
+    this.ambientTimer = window.setTimeout(() => { this.ambientTimer = null; this.inputDriven = false; this.requestFrame(); }, this.stats.avgDrawMs > 35 ? 250 : 83);
   }
 
   /**
@@ -659,6 +741,7 @@ export class HqRenderer {
   }
 
   setScene(scene: RenderScene): void {
+    this.lastScene = scene;
     this.disposeMeshes();
     if (scene.models?.length && !this.layer) this.layer = new ModelLayer(this.scene, this.cheap, (ready) => this.applyReady(ready), () => this.requestFrame());
     if (!this.layer && scene.halos?.length) this.layer = new ModelLayer(this.scene, this.cheap, (ready) => this.applyReady(ready), () => this.requestFrame());
@@ -795,7 +878,7 @@ export class HqRenderer {
       if (this.disposed) return;
       const fps = SCENERY_FPS[this.level];
       if (fps === 0) return;
-      if (performance.now() - this.lastDrawAt >= 1000 / fps - 3) this.draw(); else this.scheduleScenery();
+      if (performance.now() - this.lastDrawAt >= 1000 / fps - 3) { this.inputDriven = false; this.draw(); } else this.scheduleScenery();
     });
   }
 
@@ -849,14 +932,12 @@ export class HqRenderer {
     sign.color.setRGB(gain, gain, gain);
     // Shadow light: from the sun (or moon) towards the middle of the region.
     const region = this.shadowRegion;
-    const on = region !== null && this.quality > 0;
+    const on = region !== null && this.applied.shadowSize > 0;
     if (on && region) {
-      const d = new Vector2(light.sunDir[0], light.sunDir[2]);
-      void d;
       const dir = { x: light.sunDir[0], y: light.sunDir[1], z: light.sunDir[2] };
       const len = Math.hypot(dir.x, dir.y, dir.z);
       const R = region.radius;
-      const key = `${region.center.x.toFixed(1)},${region.center.z.toFixed(1)},${R.toFixed(1)},${(dir.x / len).toFixed(2)},${(dir.z / len).toFixed(2)},${this.quality}`;
+      const key = `${region.center.x.toFixed(1)},${region.center.z.toFixed(1)},${R.toFixed(1)},${(dir.x / len).toFixed(2)},${(dir.z / len).toFixed(2)},${this.applied.shadowSize}`;
       if (key !== this.lastSunKey) {
         this.lastSunKey = key;
         this.sun.position.set(region.center.x - (dir.x / len) * R * 2, region.center.y - (dir.y / len) * R * 2, region.center.z - (dir.z / len) * R * 2);
@@ -865,7 +946,7 @@ export class HqRenderer {
         cam.left = -R; cam.right = R; cam.top = R; cam.bottom = -R; cam.near = 0.5; cam.far = R * 4.5;
         cam.updateProjectionMatrix();
         this.sun.target.updateMatrixWorld();
-        const size = SHADOW_SIZE[this.quality];
+        const size = this.applied.shadowSize;
         this.sun.shadow.normalBias = (1.6 * 2 * R) / Math.max(1, size);
         if (this.sun.shadow.mapSize.x !== size) { this.sun.shadow.mapSize.set(size, size); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
         this.shadowDirty = true;
@@ -882,7 +963,7 @@ export class HqRenderer {
       for (const material of this.materials.values()) material.needsUpdate = true;
     }
     this.sun.castShadow = shadowsOn;
-    this.stats.shadowSize = shadowsOn ? SHADOW_SIZE[this.quality] : 0;
+    this.stats.shadowSize = shadowsOn ? this.applied.shadowSize : 0;
   }
 
   private resize(): { width: number; height: number; dpr: number } {
@@ -920,6 +1001,10 @@ export class HqRenderer {
     const started = performance.now();
     // Two requests in one animation frame (a camera move and the ambient loop) draw once.
     if (started - this.lastDrawAt < 3 && this.stats.frames > 0) { this.scheduleSceneryIfRunning(); return; }
+    const interval = this.prevDrawAt > 0 ? started - this.prevDrawAt : 0;
+    const chained = this.inputDriven;
+    this.inputDriven = true;
+    this.prevDrawAt = started;
     this.lastDrawAt = started;
     this.level = this.sceneryLevelNow();
     if (this.level > 0 && this.lastClockAt > 0) this.clock += Math.min(0.1, Math.max(0, (started - this.lastClockAt) / 1000));
@@ -948,7 +1033,7 @@ export class HqRenderer {
       this.stepAmbient();
       if (this.shadowDirty && this.renderer.shadowMap.enabled) { this.renderer.shadowMap.needsUpdate = true; this.shadowDirty = false; }
       this.renderer.info.reset();
-      const useBloom = this.quality >= 2 && !this.reducedMotion && this.night > 0.04;
+      const useBloom = this.applied.bloom && !this.reducedMotion && this.night > 0.04;
       if (useBloom) {
         const composer = this.ensureComposer(width, height, dpr);
         if (this.bloom) { this.bloom.strength = 0.5 * Math.min(1, this.night * 1.4); this.bloom.threshold = 1.05; this.bloom.radius = 0.4; }
@@ -977,17 +1062,16 @@ export class HqRenderer {
     // The first frames compile shaders and upload buffers; they say nothing about steady drawing, so the average starts after them.
     const warm = s.frames > 3;
     if (warm) s.avgDrawMs = s.avgDrawMs === 0 ? ms : s.avgDrawMs * 0.9 + ms * 0.1;
-    // Adaptive quality: three seconds of slow frames take one notch off (bloom, then shadow size, then shadows, then pixel ratio).
     if (!warm) return;
-    this.slowFrames = ms > 30 ? this.slowFrames + 1 : Math.max(0, this.slowFrames - 1);
-    if (this.slowFrames > 20) {
-      this.slowFrames = 0;
-      // Ambient motion is the newest cost and the first to go: it keeps frames coming, so it steps down before the picture does.
-      if (this.level > 0) this.slowSteps += 1;
-      else if (this.quality > 0) { this.quality = (this.quality - 1) as Quality; this.shadowDirty = true; this.lastSunKey = ''; }
-      else if (this.dprScale > 0.6) this.dprScale = Math.max(0.6, this.dprScale * 0.8);
-      this.requestFrame();
-    }
+    // The frame governor judges frame to frame time while the camera or a cut-away is moving (that is what a person sees), and the draw call
+    // alone when ambient motion paces the frames. Slow frames spend ambient motion first, then walk the ladder.
+    const frameMs = chained && interval > 0 && interval < 250 ? Math.max(ms, interval) : ms;
+    const gov = this.governor;
+    if (!gov) return;
+    if (document.hidden) { gov.reset(); return; }
+    const decision = gov.sample(frameMs, started);
+    if (decision === 'down' && this.level > 0) { this.slowSteps += 1; gov.defer(started); this.requestFrame(); }
+    else if (decision) { gov.apply(decision, started); this.applyStep(gov.step); }
   }
 
   private scheduleSceneryIfRunning(): void { if (this.level > 0) this.scheduleScenery(); }
