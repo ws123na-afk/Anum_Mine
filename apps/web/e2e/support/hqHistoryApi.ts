@@ -53,7 +53,7 @@ export function historyFixture(): HistoryRecord[] {
 }
 
 export interface HistoryMock { requests: URL[]; exports: URL[]; setRecords(r: HistoryRecord[]): void; failNext(): void }
-export interface HistoryMockOptions { mode?: 'ok' | 'denied' | 'error' | 'empty'; records?: HistoryRecord[]; hold?: () => Promise<void> }
+export interface HistoryMockOptions { mode?: 'ok' | 'denied' | 'error' | 'empty'; /** The audit export answers 403 (a viewer without audit:export). */ exportDenied?: boolean; /** When set, answers the workspace permissions read with this export flag. */ canExport?: boolean; records?: HistoryRecord[]; hold?: () => Promise<void> }
 
 function page(records: HistoryRecord[], url: URL) {
   const limit = Math.min(200, Number(url.searchParams.get('limit') ?? 60));
@@ -91,6 +91,11 @@ export async function mockHistory(p: Page, options: HistoryMockOptions = {}): Pr
     if (failures > 0 || options.mode === 'error') { failures = Math.max(0, failures - 1); return json(route, 500, { detail: 'The audit store is busy.' }); }
     return json(route, 200, page(options.mode === 'empty' ? [] : records, url));
   });
+  if (options.canExport !== undefined) {
+    await p.route(/http:\/\/localhost:8000\/api\/v1\/workspaces\/current\/permissions(\?.*)?$/, (route) => json(route, 200, {
+      workspace_id: WS, role: 'owner', organization_admin: false, can_manage_workspace: true, can_create_workspace: true, can_manage_members: true, can_read_audit: true, can_export_audit: options.canExport,
+    }));
+  }
   await p.route(/http:\/\/localhost:8000\/api\/v1\/tasks\/task_1(\?.*)?$/, (route) => json(route, 200, {
     id: 'task_1', title: 'Plan October tyre rotation', prompt: 'private words that must not show', status: 'running', tenant_id: 'tenant_local', workspace_id: WS,
     created_at: '2026-10-20T09:00:00Z', updated_at: '2026-10-20T10:00:00Z', agent_id: 'agent_fleet',
@@ -99,6 +104,17 @@ export async function mockHistory(p: Page, options: HistoryMockOptions = {}): Pr
   await p.route(/http:\/\/localhost:8000\/api\/v1\/audit\/export(\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     mock.exports.push(url);
+    if (options.exportDenied) return json(route, 403, { detail: 'Permission audit:export is required' });
+    if (url.searchParams.get('format') === 'json') {
+      const action = url.searchParams.get('action');
+      const q = url.searchParams.get('q')?.toLowerCase();
+      const actor = url.searchParams.get('actor');
+      const rows = records
+        .filter((r) => (!actor || r.actor === actor) && (!q || `${r.actor} ${r.action} ${r.target}`.toLowerCase().includes(q)))
+        .filter((r) => !action || (action.endsWith('*') ? r.action.startsWith(action.slice(0, -1)) : r.action === action))
+        .map((r) => ({ id: r.id, created_at: r.timestamp, actor: r.actor, action: r.action, target: r.target, outcome: r.outcome, correlation_id: r.correlation_id, tenant_id: 'tenant_local', workspace_id: WS, metadata: r.metadata }));
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) });
+    }
     await route.fulfill({ status: 200, contentType: 'text/csv; charset=utf-8', headers: { 'content-disposition': 'attachment; filename="audit-example.csv"', 'access-control-expose-headers': 'content-disposition' }, body: 'id,action\naudit_0001,office.room.create\n' });
   });
   return mock;
