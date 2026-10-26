@@ -298,7 +298,7 @@ export class HqRenderer {
   private readonly textures: Texture[] = [];
   private signTexture: Texture | null = null;
   private signKey = '';
-  private envs: Texture[] = [];
+  private envs: Array<Texture | undefined> = [];
   private sky: Mesh | null = null;
   private meshes: Mesh[] = [];
   private layer: ModelLayer | null = null;
@@ -381,7 +381,6 @@ export class HqRenderer {
       try { made.forcedAmbient = readAmbientOverride(window.localStorage); } catch { made.forcedAmbient = null; }
       made.buildMaterials();
       made.buildSky();
-      if (!cheap) made.buildEnvironments();
     } catch (error) {
       made.dispose();
       cb.onError?.(error instanceof Error ? error : new Error('WebGL setup failed'));
@@ -478,31 +477,31 @@ export class HqRenderer {
   }
 
   /** A procedural sky (zenith, horizon, ground and the sun or moon disc) baked into reflection maps for day and night. */
-  private buildEnvironments(): void {
+  /** The reflection map of a light preset (0 day, 1 blue hour, 2 night), baked on first use: each bake costs real time on a slow GPU, so only the presets a person visits are paid for. */
+  private envFor(index: 0 | 1 | 2): Texture {
+    const cached = this.envs[index];
+    if (cached) return cached;
+    const night = index === 0 ? 0 : index === 1 ? DUSK : 1;
     const pmrem = new PMREMGenerator(this.renderer);
-    const make = (night: number): Texture => {
-      const light = lightingFor(night);
-      const lin = (t: readonly [number, number, number]) => new Color().setRGB(t[0], t[1], t[2], SRGBColorSpace);
-      const material = new ShaderMaterial({
-        side: BackSide, depthWrite: false,
-        uniforms: {
-          zenith: { value: lin(light.zenith) }, horizon: { value: lin(light.fog) }, ground: { value: lin(light.ground) }, glow: { value: lin(light.glow) },
-          sunDir: { value: [-light.sunDir[0], -light.sunDir[1], -light.sunDir[2]] },
-          sunColor: { value: lin(light.sunColor) }, sunPower: { value: night > 0.3 ? 6 : 26 }, uDisc: { value: 1 },
-          uTime: { value: 0 }, uCloud: { value: 0 }, uCloudCol: { value: new Color() },
-        },
-        vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
-      });
-      const sphere = new Mesh(new SphereGeometry(50, 32, 16), material);
-      const envScene = new Scene();
-      envScene.add(sphere);
-      const target = pmrem.fromScene(envScene, 0.03);
-      sphere.geometry.dispose(); material.dispose();
-      return target.texture;
-    };
-    // Day, blue hour and night: the reflection map follows the light preset.
-    this.envs = [make(0), make(DUSK), make(1)];
-    pmrem.dispose();
+    const light = lightingFor(night);
+    const lin = (t: readonly [number, number, number]) => new Color().setRGB(t[0], t[1], t[2], SRGBColorSpace);
+    const material = new ShaderMaterial({
+      side: BackSide, depthWrite: false,
+      uniforms: {
+        zenith: { value: lin(light.zenith) }, horizon: { value: lin(light.fog) }, ground: { value: lin(light.ground) }, glow: { value: lin(light.glow) },
+        sunDir: { value: [-light.sunDir[0], -light.sunDir[1], -light.sunDir[2]] },
+        sunColor: { value: lin(light.sunColor) }, sunPower: { value: night > 0.3 ? 6 : 26 }, uDisc: { value: 1 },
+        uTime: { value: 0 }, uCloud: { value: 0 }, uCloudCol: { value: new Color() },
+      },
+      vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
+    });
+    const sphere = new Mesh(new SphereGeometry(50, 32, 16), material);
+    const envScene = new Scene();
+    envScene.add(sphere);
+    const target = pmrem.fromScene(envScene, 0.03);
+    sphere.geometry.dispose(); material.dispose(); pmrem.dispose();
+    this.envs[index] = target.texture;
+    return target.texture;
   }
 
   // -------------------------------------------------------------- scene
@@ -721,7 +720,7 @@ export class HqRenderer {
     this.hemi.intensity = light.hemiIntensity;
     set(this.fog.color, light.fog);
     this.renderer.toneMappingExposure = light.exposure;
-    this.scene.environment = this.cheap || !this.envs.length ? null : this.envs[this.night < 0.29 ? 0 : this.night < 0.79 ? 1 : 2];
+    this.scene.environment = this.cheap ? null : this.envFor(this.night < 0.29 ? 0 : this.night < 0.79 ? 1 : 2);
     this.scene.environmentIntensity = light.envIntensity;
     if (this.cheap) this.hemi.intensity = light.hemiIntensity + light.envIntensity * 0.8;
     const sh = this.shared;
@@ -912,7 +911,7 @@ export class HqRenderer {
     for (const texture of this.textures) texture.dispose();
     this.signTexture?.dispose();
     if (this.sky) { this.sky.geometry.dispose(); (this.sky.material as Material).dispose(); }
-    for (const env of this.envs) env.dispose();
+    for (const env of this.envs) env?.dispose();
     this.ambient?.dispose();
     document.removeEventListener('visibilitychange', this.onVisibility);
     if (this.ambientRaf !== null) cancelAnimationFrame(this.ambientRaf);
