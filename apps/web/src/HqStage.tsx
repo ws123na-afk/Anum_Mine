@@ -17,6 +17,9 @@ import { alignYaw, applyCameraAction, keyToCameraAction } from './lib/hqCamera.t
 import type { Vec3 } from './lib/headquartersProjection.ts';
 import { t } from './lib/i18n.ts';
 
+// Started with the stage's own chunk, so the placement code arrives while the renderer loads.
+const labelsLoad = import('./lib/hqLabels.ts');
+
 export type StageLabel = Readonly<{
   id: string;
   anchor: Vec3;
@@ -109,7 +112,7 @@ export function HqStage(props: Props) {
     // The label placement loads with the renderer: nothing is placed before the scene draws, so it stays out of the page's own chunk.
     let placeLabels: typeof PlaceLabels | null = null;
     let stopKeepOut: (() => void) | null = null;
-    Promise.all([import('./lib/hqThreeRenderer.ts'), import('./lib/hqLabels.ts')]).then(([{ HqRenderer: Renderer }, labelLib]) => {
+    Promise.all([import('./lib/hqThreeRenderer.ts'), labelsLoad]).then(([{ HqRenderer: Renderer }, labelLib]) => {
       if (cancelled) return;
       placeLabels = labelLib.placeLabels;
       // The controls over the scene are read when they change size (never per frame), so a card is not drawn under one.

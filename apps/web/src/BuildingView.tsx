@@ -17,7 +17,7 @@ const FlowStrip = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m
 const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
 import { BottomToolbar, CameraTools, TotalsPanel } from './HqChrome';
 import { AgentLabelCard, FloorTagCard, RoomKindIcon, RoomLabelCard } from './HqLabelCards';
-import { floorNameParts, floorTagSpecs, roomLabelSpecs, roomSubtitle, slabsAbove } from './lib/hqLabelModel.ts';
+import { floorNameParts, roomLabelSpecs, roomSubtitle } from './lib/hqLabelModel.ts';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { visualOfStatus } from './hqAssets/interior/stateVisual.ts';
 import { buildBuildingScene, FLOOR_PITCH, WALL_HEIGHT, type DeskVisual } from './lib/buildingScene.ts';
@@ -167,7 +167,7 @@ export function BuildingView(props: BuildingViewProps) {
     const floorChanged = shownFloor.current !== activeIndex;
     shownFloor.current = activeIndex;
     if (floorChanged && !latest.current.reducedMotion) glide(next);
-    else setCamera(next);
+    else { stopGlide(); setCamera(next); } // a glide still running toward an older framing must not overwrite the new one
   }, [home, view]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setInside(false); setCamera((c) => (view === 'top' ? topView(isInsideView(c) ? homeRef.current : c) : threeDView(isInsideView(c) ? homeRef.current : c))); }, [view]);
 
@@ -271,7 +271,11 @@ export function BuildingView(props: BuildingViewProps) {
     selectedRoomId: props.selectedRoomId, reducedMotion: props.reducedMotion, onPickRoom: (id) => { pickRoom(id); props.flow?.onPickRoom(id); },
   });
 
-  const stacked = showAll && floors.length > 1;
+  const wantsStack = showAll && floors.length > 1;
+  // The stacked view's helpers load the first time it is asked for; until then the labels are the single floor's.
+  const [stackLib, setStackLib] = useState<typeof import('./lib/hqLabelStacked.ts') | null>(null);
+  useEffect(() => { if (wantsStack && !stackLib) void import('./lib/hqLabelStacked.ts').then(setStackLib); }, [wantsStack, stackLib]);
+  const stacked = wantsStack && stackLib !== null;
   const floorChoices = useMemo(() => floors.map((f) => ({ id: f.id, name: f.name, short: floorNameParts(f.name).short })), [floors]);
   const labels: StageLabel[] = useMemo(() => {
     const list: StageLabel[] = [];
@@ -295,7 +299,7 @@ export function BuildingView(props: BuildingViewProps) {
       return [...list, ...flowLabels];
     }
     // Room cards: one per room of the floor(s) the view shows, hung at the room centre at that floor's height (docs/ANUM_MINE_HQ_LABELS.md).
-    for (const spec of roomLabelSpecs({ floors, activeIndex, mode: stacked ? 'stacked' : 'single', selectedRoomId: props.selectedRoomId, wallHeight: WALL_HEIGHT })) {
+    for (const spec of roomLabelSpecs({ floors, activeIndex, mode: stacked ? 'stacked' : 'single', selectedRoomId: props.selectedRoomId, wallHeight: WALL_HEIGHT, above: stacked ? stackLib?.slabsAbove(floors) : undefined })) {
       const room = roomsOf(spec.floor).find((r) => r.id === spec.roomId);
       if (!room) continue;
       const c = countsOf(spec.floor, room.id);
@@ -306,15 +310,15 @@ export function BuildingView(props: BuildingViewProps) {
           onPick={() => (onFloor ? pickRoom(room.id) : latest.current.onSelectFloor(floors[spec.floor].id))} />,
       });
     }
-    if (stacked) {
-      for (const tag of floorTagSpecs({ floors, activeIndex })) {
+    if (stacked && stackLib) {
+      for (const tag of stackLib.floorTagSpecs({ floors, activeIndex })) {
         const f = floors[tag.floor];
         list.push({ id: tag.id, anchor: tag.anchor, alternatives: tag.alternatives, priority: tag.priority, maxDistance: tag.maxDistance, tiers: tag.tiers,
           node: <FloorTagCard name={f.name} rooms={f.rooms.length} active={tag.floor === activeIndex} onPick={() => latest.current.onSelectFloor(f.id)} /> });
       }
     }
     // Agent cards: only for a desk with a real agent record (registry assignment or presence), on the active floor.
-    const above = stacked ? slabsAbove(floors)[activeIndex] : undefined;
+    const above = stacked ? stackLib?.slabsAbove(floors)[activeIndex] : undefined;
     for (const dh of scene.desks) {
       if (dh.floorIndex !== activeIndex) continue;
       const desk = floor.desks.find((d) => d.id === dh.id);
@@ -338,7 +342,7 @@ export function BuildingView(props: BuildingViewProps) {
       }
     }
     return [...list, ...flowLabels];
-  }, [roomById, insideRoomId, props.wall, scene, floor, floors, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels, overview, stacked]);
+  }, [roomById, insideRoomId, props.wall, scene, floor, floors, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels, overview, stacked, stackLib]);
 
   const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
   const insideRoom = insideRoomId ? roomById.get(insideRoomId) ?? null : null;
@@ -405,7 +409,7 @@ export function BuildingView(props: BuildingViewProps) {
           </div>
         )}
         <div className="hqOverlay hqOverlayTopLeft" data-keepout="">
-          <Suspense fallback={<div className="hqBackCard"><button type="button" className="hqBack" onClick={props.onBack}><ArrowLeft aria-hidden="true" className="flip" />{t('hq.back')}</button></div>}>
+          <Suspense fallback={null}>
             <SceneBackCard
               name={props.workspaceName} kindLabel={props.kindLabel} totals={agents} floors={floors.length} rooms={roomsTotal} meetings={props.liveMeetings} onBack={props.onBack}
               orders={modules.panels.includes('commerce') && props.commerce.state === 'ready' ? props.commerce.data.orders : null}
@@ -439,7 +443,7 @@ export function BuildingView(props: BuildingViewProps) {
           />
           </div>
           <div className="hqDockFloors">
-            <Suspense fallback={null}><FloorSelector floors={floorChoices} activeId={floor.id} stacked={stacked} onPick={props.onSelectFloor} onStack={setShowAll} /></Suspense>
+            <Suspense fallback={null}><FloorSelector floors={floorChoices} activeId={floor.id} stacked={wantsStack} onPick={props.onSelectFloor} onStack={setShowAll} /></Suspense>
           </div>
         </div>
       </div>

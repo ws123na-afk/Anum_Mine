@@ -104,38 +104,34 @@
 .hqOpsStrip p strong, .hqFlowStrip p strong { color: var(--hq-glass-text); font-size: var(--text-xs); }
 
 /* The bottom dock: Live operations on the left, the camera bar in the middle, the floor selector on the right.
-   The scene is a size container, so the dock takes the mock's three-column layout when there is room and gives way in steps. */
-.hqBuilding .hqSceneWrap { container: hqscene / inline-size; }
+   The dock takes the mock's three-column layout when the scene is wide and gives way in steps. */
+/* The scene's width steps are data attributes of the scene (data-s641, data-s700, data-s1340, data-s1600, "1" when the scene is at least that wide), written by `bindKeepOut`. A CSS size container would let the scene's width stop depending on its content and move the page's columns. */
 .hqBuilding .hqDock { align-items: flex-end; bottom: var(--d-s3); display: grid; gap: 8px; grid-template-columns: 1fr; inset-inline: var(--d-s3); justify-content: stretch; pointer-events: none; }
 .hqDock > * { pointer-events: none; }
 .hqDock > * > * { pointer-events: auto; }
 .hqDockOps { display: none; gap: 8px; justify-self: start; }
 .hqDockTools { display: flex; justify-content: center; }
 .hqDockFloors { display: none; justify-content: flex-end; }
-@container hqscene (min-width: 700px) { .hqDockFloors { display: flex; order: -1; } }
+.hqSceneWrap[data-s700="1"] .hqDockFloors { display: flex; order: -1; }
 .hqOverlayFlow { display: none; }
-@container hqscene (min-width: 1340px) {
-  /* The side panel stops above the Live operations strip. */
-  .hqBuilding .hqSideOverlay { max-height: calc(100% - 96px - 112px); }
-  .hqOverlayFlow { display: block; inset-inline-end: 84px; top: var(--d-s3); }
-  .hqBuilding .hqDock { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
-  .hqDockOps { display: flex; }
-  .hqDockFloors { order: 0; }
-}
-@container hqscene (max-width: 640px) {
-  .hqBackCard .hqFacts li:nth-child(n+4) { display: none; }
-  .hqBackCard { padding: 6px 10px; }
-}
+/* The side panel stops above the Live operations strip. */
+.hqSceneWrap[data-s1340="1"] .hqSideOverlay { max-height: calc(100% - 96px - 112px); }
+.hqSceneWrap[data-s1340="1"] .hqOverlayFlow { display: block; inset-inline-end: 84px; top: var(--d-s3); }
+.hqSceneWrap[data-s1340="1"] .hqDock { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.hqSceneWrap[data-s1340="1"] .hqDockOps { display: flex; }
+.hqSceneWrap[data-s1340="1"] .hqDockFloors { order: 0; }
+.hqSceneWrap[data-s641="0"] .hqBackCard .hqFacts li:nth-child(n+4) { display: none; }
+.hqSceneWrap[data-s641="0"] .hqBackCard { padding: 6px 10px; }
 @media (prefers-reduced-motion: reduce) { .hqLabelAnchor { animation: none; } }
 
 /* Full screen: the stage takes the window height (the mock is a full-window composition). */
 .hqLive:fullscreen .hqBuilding .hqStage, .hqLive:fullscreen .hqNav[data-nav="on"] .hqBuilding .hqStage { block-size: max(480px, calc(100dvh - 250px)); }
 
 /* The camera bar shows its words only when the scene is wide enough for them; the icons keep their names and tooltips. */
-@container hqscene (max-width: 1599px) { .hqBuilding .hqToolbar button span { display: none; } }
+.hqSceneWrap:not([data-s1600="1"]) .hqToolbar button span { display: none; }
 
 .hqFloorSelector .hqFloorButtons button { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
-@container hqscene (min-width: 700px) { .hqBuilding .hqDockTools .hqToolbar { flex-wrap: nowrap; } }
+.hqSceneWrap[data-s700="1"] .hqDockTools .hqToolbar { flex-wrap: nowrap; }
 
 /* A card with no free spot at any density stays in the tab order, unseen, and comes forward on focus. */
 .hqLabelAnchor[data-hidden="crowded"] { opacity: 0; }

@@ -38,7 +38,7 @@ Cards also keep clear of the controls drawn over the scene (the Back to campus c
 - **Live operations strip** (bottom left) and **Current flow strip** (top, beside the camera tools) show from 1340 px of scene width. Under that the same numbers are in the panels under the scene.
 - Full screen gives the scene the window height.
 
-The scene is a size container, so these steps follow the width of the scene, not the window.
+These steps follow the width of the scene, not the window: `bindKeepOut` writes `data-s641`, `data-s700`, `data-s1340` and `data-s1600` on the scene. (A CSS size container was tried and dropped: it let the scene width stop depending on its content and moved the page columns.)
 
 ## Accessibility, language, motion
 

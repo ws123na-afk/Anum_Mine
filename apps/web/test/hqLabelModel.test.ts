@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { floorExtent, floorNameParts, floorShowsLabels, floorTagSpecs, FLOOR_PITCH_M, roomAnchor, roomLabelSpecs, roomSubtitle, slabsAbove, SLAB_M, STACKED_LABEL_Y } from '../src/lib/hqLabelModel.ts';
+import { floorNameParts, floorShowsLabels, FLOOR_PITCH_M, roomAnchor, roomLabelSpecs, roomSubtitle, SLAB_M, STACKED_LABEL_Y } from '../src/lib/hqLabelModel.ts';
+import { floorExtent, floorTagSpecs, slabsAbove } from '../src/lib/hqLabelStacked.ts';
 import { isOccluded, layoutLabels, segmentHitsBox, type LabelInput } from '../src/lib/hqLabels.ts';
 import { campusCamera } from '../src/lib/hqCamera.ts';
 import { viewProjection } from '../src/lib/hqMath.ts';
@@ -39,7 +40,7 @@ test('single mode labels only the active floor, hung above the room at that floo
 });
 
 test('stacked mode labels every floor inside the floor, below the slab above, and lists the slabs that can hide it', () => {
-  const specs = roomLabelSpecs({ floors, activeIndex: 0, mode: 'stacked', selectedRoomId: null, wallHeight: WALL_HEIGHT });
+  const specs = roomLabelSpecs({ floors, activeIndex: 0, mode: 'stacked', selectedRoomId: null, wallHeight: WALL_HEIGHT, above: slabsAbove(floors) });
   assert.equal(specs.length, 4);
   for (const s of specs) {
     assert.equal(s.anchor.y, s.floor * FLOOR_PITCH + STACKED_LABEL_Y);

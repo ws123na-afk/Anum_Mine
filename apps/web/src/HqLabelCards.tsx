@@ -17,10 +17,7 @@ const KIND_PATH: Readonly<Record<string, string>> = {
   office: 'M4 8h16v11H4zM9 8V5h6v3M4 13h16',
   meeting: 'M3 17h18M5 17v-3a7 7 0 0 1 14 0v3M9 9h.01M15 9h.01M12 6h.01',
   reception: 'M4 18h16M6 18a6 6 0 0 1 12 0M12 8V5M10 5h4',
-  workshop: 'M14 6a4 4 0 1 0 4 4l-3 1-2-2 1-3zM12 12l-7 7',
   warehouse: 'M3 10l9-6 9 6v9H3zM8 19v-6h8v6',
-  lounge: 'M5 9h11v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zM16 10h2a2 2 0 0 1 0 4h-2',
-  command: 'M3 5h18v11H3zM8 20h8M12 16v4',
 };
 export function RoomKindIcon({ kind }: { kind: string }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={KIND_PATH[kind] ?? 'M4 20V6l8-3 8 3v14M9 20v-5h6v5'} /></svg>;
