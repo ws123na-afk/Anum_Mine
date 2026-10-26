@@ -3,7 +3,7 @@
  * bottom toolbar, totals panel with donut, and the minimap. The app's own sidebar and top bar stay
  * the only navigation; this file adds only what is specific to the scene.
  */
-import { Box, DoorOpen, ChevronLeft, ChevronRight, Crosshair, LayoutGrid, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Maximize } from 'lucide-react';
+import { Box, DoorOpen, Hand, ChevronLeft, ChevronRight, Crosshair, LayoutGrid, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Maximize } from 'lucide-react';
 import { useId, useRef, useState, type ReactElement } from 'react';
 import { arcPath, donutArcs, STATUS_ORDER, STATUS_TONE, type CampusTotals, type Placement, type StatusKey } from './lib/campusModel.ts';
 import { mapToWorld, worldToMap } from './lib/hqCamera.ts';
@@ -75,6 +75,8 @@ export function BottomToolbar(props: {
   inside?: { active: boolean; disabled: boolean; onToggle: () => void };
   /** The whole active floor from above, every room labelled (spec: docs/ANUM_MINE_FLOOR_OVERVIEW.md). */
   overview?: { active: boolean; onToggle: () => void };
+  /** Dragging moves the scene sideways while on (the mock's Pan). */
+  pan?: { active: boolean; onToggle: () => void };
 }) {
   return (
     <div className="hqToolbar" role="toolbar" aria-label={t('hq.tool.label')}>
@@ -92,6 +94,11 @@ export function BottomToolbar(props: {
         <button type="button" onClick={props.overview.onToggle} aria-pressed={props.overview.active} data-testid="hq-overview" data-draws=""
           aria-label={props.overview.active ? t('hqFloor.leave') : t('hqFloor.enter')} title={props.overview.active ? t('hqFloor.leave') : t('hqFloor.enter')}>
           <LayoutGrid aria-hidden="true" /><span>{t('hqFloor.short')}</span>
+        </button>
+      )}
+      {props.pan && (
+        <button type="button" onClick={props.pan.onToggle} aria-pressed={props.pan.active} data-testid="hq-pan" data-draws="" aria-label={t('hqLabels.pan')} title={t('hqLabels.panHint')}>
+          <Hand aria-hidden="true" /><span>{t('hqLabels.pan')}</span>
         </button>
       )}
       <span className="hqToolbarSep" aria-hidden="true" />

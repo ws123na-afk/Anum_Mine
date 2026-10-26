@@ -1,0 +1,138 @@
+/* HQ label layer and scene chrome (docs/ANUM_MINE_HQ_LABELS.md). Colours come from the --hq-* tokens of headquartersLive.css. */
+
+/* Density: lib/hqLabels.ts writes data-density on each label wrapper (full, compact, dot). The full text stays in the accessibility tree. */
+.hqLabelAnchor { animation: hqLabelIn .16s ease-out; }
+@keyframes hqLabelIn { from { opacity: 0; } to { opacity: 1; } }
+.hqRoomCard { gap: 9px; max-width: 250px; min-height: 46px; padding: 5px 12px 5px 5px; }
+.hqRoomCard .hqLabelIcon { border-radius: 9px; height: 34px; width: 34px; }
+.hqRoomCard .hqLabelIcon svg { height: 20px; width: 20px; }
+.hqRoomCard .hqLabelText strong { font-size: var(--text-sm); font-weight: 650; }
+.hqRoomCard[data-live="true"] { border-color: var(--hq-meeting); }
+.hqRoomCard[data-live="true"] .hqLabelIcon { background: rgba(242, 181, 76, .22); color: var(--hq-meeting); }
+.hqRoomCard[data-kind="meeting"] .hqLabelIcon { background: rgba(242, 181, 76, .2); color: var(--hq-meeting); }
+.hqRoomCard[data-kind="reception"] .hqLabelIcon, .hqRoomCard[data-kind="lounge"] .hqLabelIcon { background: rgba(106, 167, 255, .2); color: var(--hq-info); }
+
+.hqLabelAnchor[data-density="compact"] .hqLabelText small,
+.hqLabelAnchor[data-density="compact"] .hqAgentCard .hqLabelText .hqPill,
+.hqLabelAnchor[data-density="compact"] .hqAgentGo,
+.hqLabelAnchor[data-density="dot"] .hqLabelText,
+.hqLabelAnchor[data-density="dot"] .hqAgentGo { display: none; }
+.hqLabelAnchor[data-density="compact"] .hqRoomCard { min-height: 36px; padding: 3px 10px 3px 3px; }
+.hqLabelAnchor[data-density="compact"] .hqRoomCard .hqLabelIcon { height: 28px; width: 28px; }
+.hqLabelAnchor[data-density="compact"] .hqAgentCard { min-width: 0; }
+.hqLabelAnchor[data-density="dot"] .hqRoomCard { border-radius: 999px; min-height: 0; padding: 3px; }
+.hqLabelAnchor[data-density="dot"] .hqRoomCard .hqLabelIcon { border-radius: 50%; height: 24px; width: 24px; }
+.hqLabelAnchor[data-density="dot"] .hqRoomCard .hqLabelIcon svg { height: 14px; width: 14px; }
+.hqLabelAnchor[data-density="dot"] .hqAgentCard { border-radius: 999px; min-width: 0; padding: 3px; }
+.hqLabelAnchor[data-density="dot"] .hqFloorTag .hqLabelText small { display: none; }
+/* Hover, keyboard focus and selection open the full card (it is raised above its neighbours). */
+.hqLabelAnchor:hover .hqLabelText, .hqLabelAnchor:focus-within .hqLabelText { display: flex; }
+.hqLabelAnchor:hover .hqLabelText small, .hqLabelAnchor:focus-within .hqLabelText small,
+.hqLabelAnchor:hover .hqAgentCard .hqPill, .hqLabelAnchor:focus-within .hqAgentCard .hqPill { display: inline-block; }
+.hqLabelAnchor:hover .hqLabelText small, .hqLabelAnchor:focus-within .hqLabelText small { display: block; }
+.hqLabelAnchor:hover .hqAgentGo, .hqLabelAnchor:focus-within .hqAgentGo { display: block; }
+.hqLabelAnchor:hover .hqRoomCard, .hqLabelAnchor:focus-within .hqRoomCard { border-radius: 12px; padding: 5px 12px 5px 5px; }
+.hqLabelCard:focus-visible, .hqAgentCard:focus-visible, .hqFloorSelector button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 4px var(--d-accent); }
+
+/* How many people are working in the room right now (presence only). */
+.hqRoomWorking { align-items: center; background: color-mix(in srgb, var(--hq-ok) 28%, transparent); border: 1px solid var(--hq-ok); border-radius: 999px; color: #d8f7e6; display: inline-flex; flex: none; font-size: var(--text-2xs); font-weight: 700; height: 20px; justify-content: center; min-width: 20px; padding: 0 5px; }
+.hqLabelAnchor[data-density="compact"] .hqRoomWorking, .hqLabelAnchor[data-density="dot"] .hqRoomWorking { display: none; }
+.hqLabelAnchor:hover .hqRoomWorking, .hqLabelAnchor:focus-within .hqRoomWorking { display: inline-flex; }
+
+/* Agent card (white, as in the mock): avatar, name, role, status chip, chevron. */
+.hqAgentCard { align-items: center; border-radius: 12px; gap: 8px; max-width: 220px; min-width: 168px; padding: 5px 8px 5px 5px; }
+.hqAgentCard .hqLabelText { gap: 1px; }
+.hqAgentCard .hqLabelText strong { font-weight: 700; }
+.hqAgentCard .hqLabelText .hqPill { align-self: flex-start; display: inline-flex; gap: 4px; margin-top: 2px; }
+.hqAgentCard .hqLabelText .hqPill::before { background: var(--tone, var(--hq-faint)); border-radius: 50%; content: ""; height: 6px; margin-block: auto; width: 6px; }
+.hqAgentCard .hqAvatar, .hqAgentCard .avatarChip { box-shadow: 0 0 0 2px color-mix(in srgb, var(--tone, var(--hq-faint)) 85%, transparent); }
+.hqAgentGo { color: #6b7685; flex: none; height: 16px; margin-inline-start: auto; width: 16px; }
+.hqAgentCard[data-stale="true"] .hqAvatar { opacity: .6; }
+
+/* Floor tag of the stacked view. */
+.hqFloorTag { min-height: 36px; padding: 4px 12px; }
+.hqFloorTag .hqLabelText strong { font-size: var(--text-xs); letter-spacing: .04em; text-transform: uppercase; }
+
+/* The Back to campus card, top left of the scene. */
+.hqBuilding .hqOverlayTopLeft { max-width: calc(100% - 84px); }
+.hqBackCard { background: var(--hq-glass); backdrop-filter: blur(8px); border: 1px solid var(--hq-glass-line); border-radius: 14px; color: var(--hq-glass-text); display: grid; gap: 4px 14px; grid-template-columns: auto; padding: 8px 12px; }
+.hqBackCard .hqCrumbs ol { flex-wrap: nowrap; gap: 10px; }
+.hqBackCard .hqBack { background: rgba(255, 255, 255, .08); border-color: var(--hq-glass-line); color: inherit; }
+.hqBackCard .hqBuildingTitle { gap: 8px; min-width: 0; }
+.hqBackCard .hqBuildingTitle > svg { color: #8fe3d1; flex: none; height: 26px; width: 26px; }
+.hqBackCard .hqBuildingTitle > div { align-items: center; display: flex; gap: 8px; min-width: 0; }
+.hqBackCard .hqBuildingTitle h2 { font-size: var(--text-lg); margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hqBackDot { background: var(--hq-faint); border-radius: 50%; flex: none; height: 10px; width: 10px; }
+.hqBackDot[data-tone="ok"] { background: var(--hq-ok); box-shadow: 0 0 8px var(--hq-ok); }
+.hqBackDot[data-tone="stop"] { background: var(--hq-stop); box-shadow: 0 0 8px var(--hq-stop); }
+.hqBackCard .hqFacts { align-items: baseline; color: var(--hq-glass-muted); flex-wrap: wrap; font-size: var(--text-xs); gap: 2px 12px; }
+.hqBackCard .hqFacts li { align-items: baseline; flex-direction: row; gap: 5px; }
+.hqBackCard .hqFacts span { color: var(--hq-glass-muted); font-size: var(--text-xs); letter-spacing: 0; text-transform: none; }
+.hqBackCard .hqFacts strong { color: var(--hq-glass-text); font-size: var(--text-xs); }
+.hqBackCard .hqFactKind span { color: var(--hq-glass-text); font-weight: 600; }
+.hqBackCard .hqFacts li + li::before { content: "\00B7"; margin-inline-end: 7px; }
+.hqBuilding .hqSideOverlay { top: 96px; max-height: calc(100% - 108px); }
+
+/* Floor selector (Floor 1 / Floor 2 ...) and the stack switch. */
+.hqFloorSelector { align-items: center; background: var(--hq-glass); backdrop-filter: blur(8px); border: 1px solid var(--hq-glass-line); border-radius: 14px; color: var(--hq-glass-text); display: flex; gap: 4px; padding: 4px; }
+.hqFloorButtons { display: flex; gap: 2px; }
+.hqFloorSelector button { align-items: center; background: transparent; border: 1px solid transparent; border-radius: 10px; color: inherit; cursor: pointer; display: inline-flex; font-size: var(--text-xs); font-weight: 600; justify-content: center; min-height: 36px; min-width: 40px; padding: 0 12px; white-space: nowrap; }
+.hqFloorSelector button:hover { background: rgba(255, 255, 255, .1); }
+.hqFloorSelector button[aria-pressed="true"] { background: var(--d-primary); }
+.hqFloorSelector .hqFloorStack { border-inline-start: 1px solid var(--hq-glass-line); border-radius: 10px; margin-inline-start: 2px; padding: 0 9px; }
+.hqFloorSelector .hqFloorStack svg { height: 18px; width: 18px; }
+.hqFloorSelector .hqFloorStack[aria-pressed="true"] { background: var(--d-primary); }
+
+/* Live operations and Current flow strips, bottom left. */
+.hqOpsStrip, .hqFlowStrip { background: var(--hq-glass); backdrop-filter: blur(8px); border: 1px solid var(--hq-glass-line); border-radius: 14px; color: var(--hq-glass-text); padding: 8px 12px; }
+.hqOpsStrip h3, .hqFlowStrip h3 { color: var(--hq-glass-muted); font-size: var(--text-xs); font-weight: 600; margin: 0 0 4px; }
+.hqOpsStrip ul, .hqFlowStrip ol { display: flex; gap: 14px; list-style: none; margin: 0; padding: 0; }
+.hqOpsStrip li, .hqFlowStrip li { align-items: center; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.hqOpsStrip strong { color: var(--tone, var(--hq-glass-text)); font-size: var(--text-xl); line-height: 1.1; }
+.hqOpsStrip span, .hqFlowStrip span { color: var(--hq-glass-muted); font-size: var(--text-2xs); white-space: nowrap; }
+.hqFlowStrip ol { gap: 6px; }
+.hqFlowStrip li { background: rgba(255, 255, 255, .06); border-radius: 10px; flex-direction: row; gap: 6px; padding: 4px 8px; }
+.hqFlowStrip li b { align-items: center; background: var(--hq-info); border-radius: 50%; color: #06141f; display: inline-flex; font-size: var(--text-2xs); height: 18px; justify-content: center; width: 18px; }
+.hqFlowStrip li[data-stage="blocked"] b { background: var(--hq-stop); }
+.hqFlowStrip li[data-stage="waiting_human"] b { background: var(--hq-meeting); }
+.hqFlowStrip li[data-stage="done"] b { background: var(--hq-ok); }
+.hqFlowStrip li strong { color: var(--hq-glass-text); font-size: var(--text-sm); }
+.hqOpsStrip p, .hqFlowStrip p { color: var(--hq-glass-muted); font-size: var(--text-xs); margin: 0; max-width: 260px; }
+.hqOpsStrip p strong, .hqFlowStrip p strong { color: var(--hq-glass-text); font-size: var(--text-xs); }
+
+/* The bottom dock: Live operations on the left, the camera bar in the middle, the floor selector on the right.
+   The scene is a size container, so the dock takes the mock's three-column layout when there is room and gives way in steps. */
+.hqBuilding .hqSceneWrap { container: hqscene / inline-size; }
+.hqBuilding .hqDock { align-items: flex-end; bottom: var(--d-s3); display: grid; gap: 8px; grid-template-columns: 1fr; inset-inline: var(--d-s3); justify-content: stretch; pointer-events: none; }
+.hqDock > * { pointer-events: none; }
+.hqDock > * > * { pointer-events: auto; }
+.hqDockOps { display: none; gap: 8px; justify-self: start; }
+.hqDockTools { display: flex; justify-content: center; }
+.hqDockFloors { display: none; justify-content: flex-end; }
+@container hqscene (min-width: 700px) { .hqDockFloors { display: flex; order: -1; } }
+.hqOverlayFlow { display: none; }
+@container hqscene (min-width: 1340px) {
+  .hqOverlayFlow { display: block; inset-inline-end: 84px; top: var(--d-s3); }
+  .hqBuilding .hqDock { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .hqDockOps { display: flex; }
+  .hqDockFloors { order: 0; }
+}
+@container hqscene (max-width: 640px) {
+  .hqBackCard .hqFacts li:nth-child(n+4) { display: none; }
+  .hqBackCard { padding: 6px 10px; }
+}
+@media (prefers-reduced-motion: reduce) { .hqLabelAnchor { animation: none; } }
+
+/* Full screen: the stage takes the window height (the mock is a full-window composition). */
+.hqLive:fullscreen .hqBuilding .hqStage, .hqLive:fullscreen .hqNav[data-nav="on"] .hqBuilding .hqStage { block-size: max(480px, calc(100dvh - 250px)); }
+
+/* The camera bar shows its words only when the scene is wide enough for them; the icons keep their names and tooltips. */
+@container hqscene (max-width: 1599px) { .hqBuilding .hqToolbar button span { display: none; } }
+
+.hqFloorSelector .hqFloorButtons button { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+@container hqscene (min-width: 700px) { .hqBuilding .hqDockTools .hqToolbar { flex-wrap: nowrap; } }
+
+/* A card with no free spot at any density stays in the tab order, unseen, and comes forward on focus. */
+.hqLabelAnchor[data-hidden="crowded"] { opacity: 0; }
+.hqLabelAnchor[data-hidden="crowded"] > * { pointer-events: none; }
+.hqLabelAnchor[data-hidden="crowded"]:focus-within { opacity: 1; }

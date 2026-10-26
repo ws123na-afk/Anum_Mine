@@ -9,9 +9,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { HqRenderer } from './lib/hqThreeRenderer.ts';
 import type { RenderScene } from './lib/hqRenderTypes.ts';
-import { pickNearest, type PickTarget } from './lib/hqMath.ts';
-import { placeLabels } from './lib/hqLabels.ts';
-import { dolly, isCameraAtRest, orbit, pan, screenRay, stepCamera, type CameraState } from './lib/headquartersSpatial.ts';
+import { pickNearest, type Aabb, type PickTarget } from './lib/hqMath.ts';
+import type { Density, placeLabels as PlaceLabels } from './lib/hqLabels.ts';
+import { cameraEye, dolly, isCameraAtRest, orbit, pan, screenRay, stepCamera, type CameraState } from './lib/headquartersSpatial.ts';
 import { alignYaw, applyCameraAction, keyToCameraAction } from './lib/hqCamera.ts';
 import type { Vec3 } from './lib/headquartersProjection.ts';
 import { t } from './lib/i18n.ts';
@@ -24,6 +24,12 @@ export type StageLabel = Readonly<{
   maxDistance?: number;
   /** Lower numbers are drawn on top when labels overlap. */
   priority?: number;
+  /** The densities the label may take, richest first (docs/ANUM_MINE_HQ_LABELS.md). */
+  tiers?: readonly Density[];
+  /** Solid boxes that hide the label while they stand between the eye and the anchor. */
+  occluders?: readonly Aabb[];
+  /** Other anchors for the same label; the one nearest the eye is used. */
+  alternatives?: readonly Vec3[];
 }>;
 
 export type StageStatus = 'ok' | 'recovering';
@@ -43,6 +49,10 @@ type Props = Readonly<{
   onHover: (id: string | null) => void;
   onPick: (id: string | null) => void;
   labels: readonly StageLabel[];
+  /** Dragging with the primary button moves the scene sideways instead of turning it (the toolbar's Pan). */
+  panMode?: boolean;
+  /** Pixels along the bottom edge that label cards keep clear (the dock of controls); default 64. */
+  labelInset?: number;
   /** Called with the footprint inputs on every drawn frame (the minimap listens). */
   onView?: (camera: CameraState, aspect: number) => void;
   onUnavailable: (reason: string) => void;
@@ -93,8 +103,11 @@ export function HqStage(props: Props) {
     let cancelled = false;
     let created: HqRenderer | null = null;
     let resizeObserver: ResizeObserver | null = null;
-    import('./lib/hqThreeRenderer.ts').then(({ HqRenderer: Renderer }) => {
+    // The label placement loads with the renderer: nothing is placed before the scene draws, so it stays out of the page's own chunk.
+    let placeLabels: typeof PlaceLabels | null = null;
+    Promise.all([import('./lib/hqThreeRenderer.ts'), import('./lib/hqLabels.ts')]).then(([{ HqRenderer: Renderer }, labelLib]) => {
       if (cancelled) return;
+      placeLabels = labelLib.placeLabels;
       const r: HqRenderer | null = Renderer.create(el, {
         onLost: () => {
           setStatus('recovering');
@@ -107,7 +120,7 @@ export function HqStage(props: Props) {
         onError: (error) => propsRef.current.onUnavailable(error.message),
         onFrame: (vp, aspect) => {
           const { width, height } = size.current;
-          placeLabels(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, 64);
+          placeLabels?.(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, propsRef.current.labelInset ?? 64, cameraEye(live.current));
           propsRef.current.onView?.(live.current, aspect);
           if (canvas.current) propsRef.current.onCanvasFrame?.(canvas.current);
           const s = created?.stats;
@@ -166,7 +179,7 @@ export function HqStage(props: Props) {
   useEffect(() => { renderer.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
   useEffect(() => { if (scene) renderer.current?.setScene(scene); }, [scene]);
   useEffect(() => { renderer.current?.setHighlight(props.hoverId, props.selectedId); }, [props.hoverId, props.selectedId]);
-  useLayoutEffect(() => { labelSizes.current.clear(); renderer.current?.requestFrame(); }, [labels]);
+  useLayoutEffect(() => { labelSizes.current.clear(); renderer.current?.requestFrame(); }, [labels, props.labelInset]);
 
   // Camera changes from the controls tween; changes the stage itself emitted are already in place.
   useEffect(() => {
@@ -258,7 +271,7 @@ export function HqStage(props: Props) {
       g.pinch = d;
       return;
     }
-    const panning = g.button === 2 || g.button === 1 || event.shiftKey;
+    const panning = g.button === 2 || g.button === 1 || event.shiftKey || propsRef.current.panMode === true;
     emit(panning ? pan(live.current, dx, dy) : orbit(live.current, dx, -dy));
   };
   const up = (event: React.PointerEvent<HTMLCanvasElement>) => {
