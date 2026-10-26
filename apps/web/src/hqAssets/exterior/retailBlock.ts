@@ -6,7 +6,7 @@
  */
 import { hex, scale, type Rgb } from '../../lib/hqGeometry.ts';
 import { WARM, WINDOW_BASE, acUnit, bench, castShadow, planter } from '../../lib/hqProps.ts';
-import { clamp, curtainWall, entrance, faceBox, faceQuad, finish, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
+import { STOREY, clamp, curtainWall, entrance, faceBox, faceQuad, finish, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
 import { accentBand, slabBand } from './towerParts.ts';
 import { beaconLight, canopy, signFrame } from './facadeKit.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
@@ -17,7 +17,7 @@ export function buildRetailBlock(params: ExteriorParams = {}): ExteriorAsset {
   const ctx = makeCtx('retailBlock', params, 0.62);
   const { b, rnd, scheme } = ctx;
   const W = clamp(params.width, 22, 60, 36), D = clamp(params.depth, 14, 34, 22);
-  const GH = 4.6, UH = 3.8, y0 = 0.4;
+  const GH = STOREY, UH = STOREY, y0 = 0.4;
   const H = GH + UH;
   const x0 = -W / 2, z0 = -D / 2, x1 = W / 2, z1 = D / 2;
   const F = rectFaces(x0, z0, W, D);

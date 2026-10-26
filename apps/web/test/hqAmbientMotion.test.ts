@@ -10,6 +10,8 @@ import { AMBIENT_VEHICLE_TRIANGLES_CAP, ambientVehicleParts } from '../src/hqAss
 import { treeTemplate, tree } from '../src/hqAssets/environment/planting.ts';
 import { buildExterior } from '../src/hqAssets/exterior/index.ts';
 import { buildCampusScene } from '../src/lib/campusScene.ts';
+import { STOREY } from '../src/hqAssets/exterior/parts.ts';
+import { FLOOR_PITCH } from '../src/lib/buildingScene.ts';
 
 const RING = { cx: 0, cz: 0, halfW: 110, halfD: 100, cornerRadius: 16 };
 
@@ -153,4 +155,8 @@ test('the campus scene carries a traffic plan and ripples, all of it scenery wit
   assert.ok(scene.ambient.ripples.length >= 3 && scene.ambient.ripples.length <= MAX_RIPPLES * 3);
   assert.deepEqual(Object.keys(scene.ambient).sort(), ['lanes', 'ripples', 'vehicles']);
   assert.ok(scene.buildings.every((bd) => bd.archetype !== 'villa' || bd.mesh.triangles > 500), 'the villa is an asset');
+});
+
+test('the exterior storey pitch is the interior floor pitch, so glass storeys line up with the stacked floors', () => {
+  assert.equal(STOREY, FLOOR_PITCH);
 });

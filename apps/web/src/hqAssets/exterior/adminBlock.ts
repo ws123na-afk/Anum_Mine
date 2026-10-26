@@ -5,7 +5,7 @@
  */
 import { hex, scale } from '../../lib/hqGeometry.ts';
 import { WARM, acUnit, bench, castShadow, hedge, planter, solarRow } from '../../lib/hqProps.ts';
-import { clamp, curtainWall, entrance, faceBox, faceQuad, fins, finish, ledge, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
+import { STOREY, clamp, curtainWall, entrance, faceBox, faceQuad, fins, finish, ledge, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
 import { accentBand, flagPole, slabBand } from './towerParts.ts';
 import { balconyRun, beaconLight, louvres, roofDeck } from './facadeKit.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
@@ -15,7 +15,7 @@ export function buildAdminBlock(params: ExteriorParams = {}): ExteriorAsset {
   const { b, rnd, scheme } = ctx;
   const W = clamp(params.width, 24, 64, 38), D = clamp(params.depth, 12, 30, 17);
   const levels = Math.round(clamp(params.levels, 2, 5, 3));
-  const LH = 3.7, y0 = 0.45;
+  const LH = STOREY, y0 = 0.45;
   const H = levels * LH;
   const x0 = -W / 2, z0 = -D / 2, x1 = W / 2, z1 = D / 2;
   const F = rectFaces(x0, z0, W, D);

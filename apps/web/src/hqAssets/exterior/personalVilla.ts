@@ -10,7 +10,7 @@ import { WARM, castShadow } from '../../lib/hqProps.ts';
 import { stamp } from '../environment/common.ts';
 import { treeTemplate } from '../environment/planting.ts';
 import { balconyRun, canopy, leaf, pennant, roofDeck } from './facadeKit.ts';
-import { clamp, entrance, faceBox, faceQuad, finish, ledge, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
+import { STOREY, clamp, entrance, faceBox, faceQuad, finish, ledge, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
 
 const TIMBER = hex('#9b7550');
@@ -20,7 +20,7 @@ export function buildPersonalVilla(params: ExteriorParams = {}): ExteriorAsset {
   const ctx = makeCtx('personalVilla', params, 0.5);
   const { b, rnd, scheme } = ctx;
   const W = clamp(params.width, 14, 26, 18), D = clamp(params.depth, 12, 22, 15);
-  const GH = 3.6, UH = 3.3, y0 = 0.35;
+  const GH = STOREY, UH = STOREY, y0 = 0.35;
   const x0 = -W / 2, z0 = -D / 2;
   // Ground floor: a long volume across the back; the front strip is the entrance court.
   const gw = W * 0.94, gd = D * 0.66;

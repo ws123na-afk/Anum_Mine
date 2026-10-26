@@ -5,7 +5,7 @@
  */
 import { hex, scale } from '../../lib/hqGeometry.ts';
 import { TEAL, anumMark, castShadow, hedge, lamp, pool } from '../../lib/hqProps.ts';
-import { clamp, curtainWall, faceBox, faceQuad, fins, finish, ledge, makeCtx, rectFaces, signBoard, type Face } from './parts.ts';
+import { STOREY, clamp, curtainWall, faceBox, faceQuad, fins, finish, ledge, makeCtx, rectFaces, signBoard, type Face } from './parts.ts';
 import { accentBand, crown, flagPole, slabBand, terrace } from './towerParts.ts';
 import { atriumVault, balconyRun, roofDeck } from './facadeKit.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
@@ -15,7 +15,7 @@ export function buildExecutiveHq(params: ExteriorParams = {}): ExteriorAsset {
   const { b, rnd, scheme } = ctx;
   const W = clamp(params.width, 30, 64, 42), D = clamp(params.depth, 26, 50, 34);
   const levels = Math.round(clamp(params.levels, 6, 26, 13));
-  const PL = 3, PLH = 4.4, TLH = 3.8, y0 = 0.9;
+  const PL = 3, PLH = STOREY, TLH = STOREY, y0 = 0.9;
   const x0 = -W / 2, z0 = -D / 2, z1 = D / 2;
   const F = rectFaces(x0, z0, W, D);
   const podH = PL * PLH;

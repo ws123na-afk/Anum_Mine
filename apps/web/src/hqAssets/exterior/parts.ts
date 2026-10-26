@@ -26,6 +26,9 @@ export function resolveScheme(p: ExteriorParams, rnd: () => number): Scheme {
   return p.accent ? { ...base, accent: p.accent } : base;
 }
 
+/** The storey pitch of every multi-storey exterior: the same number as `FLOOR_PITCH` in `lib/buildingScene.ts` (a unit test keeps them equal), so a glass storey here lines up with floor n of the interior stack. */
+export const STOREY = 4.2;
+
 export const clamp = (v: number | undefined, lo: number, hi: number, fallback: number): number =>
   Math.min(hi, Math.max(lo, Number.isFinite(v as number) ? (v as number) : fallback));
 

@@ -8,7 +8,7 @@
 import { scale, hex } from '../../lib/hqGeometry.ts';
 import { WARM, acUnit, castShadow, solarRow } from '../../lib/hqProps.ts';
 import { balconyRun, beaconLight, canopy, leaf, louvres, pennant, roofDeck } from './facadeKit.ts';
-import { clamp, curtainWall, entrance, faceBox, fins, finish, ledge, makeCtx, rectFaces, signBoard } from './parts.ts';
+import { STOREY, clamp, curtainWall, entrance, faceBox, fins, finish, ledge, makeCtx, rectFaces, signBoard } from './parts.ts';
 import { accentBand, slabBand, terrace } from './towerParts.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
 
@@ -17,7 +17,7 @@ export function buildOfficeTower(params: ExteriorParams = {}): ExteriorAsset {
   const { b, scheme } = ctx;
   const W = clamp(params.width, 14, 40, 22), D = clamp(params.depth, 14, 40, 22);
   const levels = Math.round(clamp(params.levels, 5, 32, 10));
-  const LH = 3.8, PH = 4.4;
+  const LH = STOREY, PH = STOREY;
   const PW = W + 10, PD = D + 8;
   const px = -PW / 2, pz = -PD / 2;
   const front = PD / 2;
