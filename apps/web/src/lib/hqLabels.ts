@@ -202,6 +202,8 @@ export function bindKeepOut(stage: HTMLElement, selector: string, onChange: (rec
     const box = stage.getBoundingClientRect();
     // The scene's width steps for the chrome's CSS (a CSS size container would change how the page's columns are sized).
     for (const w of [641, 700, 1340, 1600]) { const v = box.width >= w ? '1' : '0'; if (scope.dataset['s' + w] !== v) scope.dataset['s' + w] = v; }
+    // A phone-sized scene is covered by its own controls: there the cards may sit under them (they stay reachable), as before.
+    if (box.width < 641) { onChange([]); return; }
     onChange([...scope.querySelectorAll<HTMLElement>(selector)].map((el) => {
       const r = el.getBoundingClientRect();
       return { x0: r.left - box.left - 6, y0: r.top - box.top - 6, x1: r.right - box.left + 6, y1: r.bottom - box.top + 6 };
