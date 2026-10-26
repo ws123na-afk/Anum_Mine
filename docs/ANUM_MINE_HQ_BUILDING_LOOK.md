@@ -46,3 +46,46 @@ triangles in all. Light quality ladder unchanged (bloom, then shadow size, then 
 
 `test/hqBuildingLook.test.ts` (smooth blob, stamped normals, globe and garden determinism and caps, lighting), `e2e/hq-building-look.spec.ts`
 (non-blank frame, geometry counts and no sideways scroll at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844, campus by day and building at night).
+
+## Exterior pass, 26 October 2026 (silhouettes, facades, blue hour, scenery motion)
+
+Compared at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 in software GL (SwiftShader) by day, at the blue hour and at night, against the
+concept renders 21 to 30 of the [visual reference](ANUM_MINE_VISUAL_REFERENCE.md). Screenshots are in the pull request description. The renderer
+is the same; the buildings, the light and the motion changed.
+
+### What now matches
+
+- **A distinct silhouette per building kind.** Executive HQ: a three storey podium with a columned portico, a glazed barrel vault atrium and a roof
+  garden with a pool on the podium roof, a stepped tower with balconies, and a crown of two raked blades that meet like the ANUM mark, with a blinking
+  beacon. Glass office tower: a two storey podium with a planted roof edge, a shaft that steps in on one side, a roof deck with a plunge pool, balconies
+  with glass balustrades, a louvred plant enclosure with solar rows and a beacon. Admin block: louvres over the top floor, balconies on both wings, a
+  roof deck with a pergola, an atrium bay with a columned portico. Retail: a wide cantilevered canopy with a lit soffit, awnings, a blank signage frame
+  (two posts and a dark panel with an LED edge, no text or brand). Tyre workshop: bay doors rolled up two thirds with the roller texture, lit bays with
+  a hoist frame. Warehouse: roller doors, dock bay and canopy, beacon. Personal villa (new): offset white volumes, a cantilevered upper floor with a
+  balcony, a timber clad entrance, a roof terrace with a plunge pool, a garden pool with loungers, palms, and a gate wall with the sign board.
+- **Facade detail.** Dark spandrels under every window row, slab edges, vertical fins, ledges, mullion gaps, balconies, louvres, a lit lobby and a
+  lit canopy soffit. The building name is lettered from the real building name on the sign board (the board itself is blank in the mesh).
+- **Reflective glass.** Glass reflects a sky gradient chosen by the way the face looks, with a sun glint and a Fresnel edge, in every light preset, so
+  neighbouring faces read differently. It is computed in the shader, so it also works on the software path.
+- **Blue hour.** A third light preset: deep blue zenith, warm orange horizon band, lavender haze, low warm sun, lit windows against bluish glass.
+- **Reflection maps** for day, blue hour and night on hardware GL.
+- **Scenery in motion**, see [ambient motion](ANUM_MINE_HQ_AMBIENT_MOTION.md).
+- **Heights.** The executive tower is now about 49 m to the crown (was about 70 m), the office tower about 52 m by default and 35 m on the campus, so the
+  campus reads as a group of mid-rise buildings with one landmark, closer to the concept renders than a stack of equal towers.
+
+### What still differs (honest list)
+
+- It is still a low poly procedural scene. Glass shows no interior behind it (only lit panes), there is no ambient occlusion, no volumetric light, no
+  bloom or shadow on software GL, and no real reflection of neighbouring buildings.
+- The concept renders show 3 to 5 storey wide blocks with whole walls of glass and visible furnished interiors from outside; ours keep paned grids.
+- No people on paths and plazas, no crowds, no delivery or forklift activity: that would invent activity (data rule).
+- No tree-lined canals with boats, no stadium, no distant city skyline beyond the existing backdrop.
+- Plaza lighting is a few halos, not the continuous glowing paths of the concept.
+- Curved facades and green walls are not built; the vault and the raked crown blades are the only curved or raked forms.
+- No CC0 glTF building models were added: nothing was found and licence reviewed in this pass, so the credits line is unchanged.
+- Motion is off by default on software GL (CI) and was therefore verified there by switching it on (`anum.hq.ambient`), not by eye on a real GPU.
+
+### Budgets
+
+Renderer chunk 156.7 kB gzip (limit 160 kB), HQ entry chunk 133.6 kB (limit 135 kB); neither limit was raised. Per-asset triangle caps rose
+(office tower 3800, admin block 2600, executive HQ 5600, personal villa 2400) because of the added detail; the campus uses the smaller sizes.
