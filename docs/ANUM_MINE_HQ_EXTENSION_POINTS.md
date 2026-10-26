@@ -19,7 +19,8 @@ Web only. Code: `apps/web/src/HeadquartersLive.tsx` (container), `CampusView.tsx
 | Agent counts, statuses | `GET /api/v1/office/presence` (states with provenance and `stale`; a private agent is `desk:<id>`); without it the browser reads workstation evidence (agents plus open tasks) and participants of `active` agent meetings | "Presence unavailable"; a status those sources cannot tell (meetings when the list failed) shows "-" |
 | Desk work panel | `GET /api/v1/office/workstations/{desk}/work` (tasks with run phase, checkpoint and steps, approvals, errors, documents) | Task titles from presence, with a note |
 | Meeting room state | `liveMeetingRoomIds` prop supplied by the meetings workstream; sessions are not bound to rooms in the current API | The room shows no meeting state |
-| Live operations, current flow | Commerce setup and dashboard of the open workspace | "Not connected" with the setup link, "No access", or the error |
+| Live operations, current flow | Commerce setup and dashboard of the open workspace (orders, waiting, late, low stock, alerts, returns); shown by the buildings that sell (see [building modules](ANUM_MINE_HQ_BUILDING_MODULES.md)) | "Not connected" with the setup link, "No access", or the error |
+| ANUM OS wall | `GET /office/flow` and the presence list of the open workspace; shown under ANUM HQ and the corporate buildings | "Not connected" per tile |
 | Tyre panel | Tyre setup and dashboard of the open workspace | Same |
 
 A queued task reads as Queued, never as working. Workspaces other than the open one show no counts until the campus endpoint supplies verified presence.

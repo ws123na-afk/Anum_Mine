@@ -27,7 +27,7 @@ async function distinctColours(page: Page): Promise<number> {
 
 async function openBuilding(page: Page, name: string, ambient?: 'on' | 'off') {
   await page.addInitScript((a) => { try { localStorage.setItem('anum.hq.light', 'night'); if (a) localStorage.setItem('anum.hq.ambient', a); } catch { /* storage blocked */ } }, ambient);
-  await mockHq(page, { campus: 'api', layout: 'campus', commerce: 'connected', meetings: 'live' });
+  await mockHq(page, { campus: 'api', layout: 'starter-full', commerce: 'connected', meetings: 'live' });
   await page.goto('/#office-preview');
   await expect(canvas(page)).toHaveAttribute('data-engine', /three/, { timeout: 60_000 });
   await hq(page).getByRole('button', { name: new RegExp(`^${name}\\.`) }).first().click({ force: true });

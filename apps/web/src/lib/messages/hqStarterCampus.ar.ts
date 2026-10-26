@@ -43,6 +43,7 @@ export const hqStarterCampusAr: Record<keyof typeof hqStarterCampusEn, Message> 
   'hqSc.kind.workshop': 'ورشة',
   'hqSc.kind.warehouse': 'مستودع',
   'hqSc.kind.lounge': 'استراحة',
+  'hqSc.kind.command': 'مركز قيادة',
   'hqSc.dept': 'مرتبطة بفريق {department}',
   'hqSc.dept.sales': 'المبيعات',
   'hqSc.dept.support': 'الدعم',

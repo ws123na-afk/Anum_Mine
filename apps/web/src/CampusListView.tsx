@@ -5,9 +5,10 @@
  */
 import { ArrowRight, Search } from 'lucide-react';
 import { useId, useMemo, useState } from 'react';
+import { moduleBuildingKind } from './lib/hqBuildingModules.ts';
 import { RoomModuleAction } from './HqRoomModule';
 import { buildingSummary } from './CampusView';
-import { filterBuildings, readingOrder, buildingStatus, type Campus } from './lib/campusModel.ts';
+import { filterBuildings, readingOrder, buildingStatus, workspaceOf, type Campus } from './lib/campusModel.ts';
 import type { SceneBuilding } from './lib/headquartersProjection.ts';
 import type { RoomMeeting } from './lib/hqPresence.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
@@ -47,7 +48,7 @@ export function CampusListView(props: Readonly<{
       ) : (
         <ul className="hqListBuildings">
           {visible.map((b) => {
-            const current = b.workspace_id === props.currentWorkspaceId;
+            const current = workspaceOf(b) === props.currentWorkspaceId;
             const status = buildingStatus(b);
             return (
               <li key={b.workspace_id} className="hqListBuilding" data-status={status}>
@@ -61,7 +62,7 @@ export function CampusListView(props: Readonly<{
                     ? <button type="button" className="hqGhost" onClick={() => props.onEnter(b.workspace_id)} aria-label={t('hq.building.enter', { name: b.name })}>{t('hq.list.open')}<ArrowRight aria-hidden="true" className="flip" /></button>
                     : <span className="hqMuted">{t('hq.detail.notAccessible')}</span>}
                 </div>
-                {current && props.detail.map((sb) => (
+                {current && props.detail.filter((sb) => !b.registryBuildingId || sb.id === b.registryBuildingId).map((sb) => (
                   <ul key={sb.id} className="hqListFloors" aria-label={t('hq.list.floorsOf', { name: sb.name })}>
                     {sb.floors.map((f) => {
                       const rooms = f.rooms.filter((r) => !q || fold(r.label).includes(q) || filterBuildings([b], q).length > 0);
@@ -75,12 +76,12 @@ export function CampusListView(props: Readonly<{
                                 const live = props.liveMeetings?.get(r.id) ?? null;
                                 return (
                                   <li key={r.id} data-in-meeting={live ? 'true' : undefined}>
-                                    <button type="button" className="hqListRoom" onClick={() => props.onOpenRoom(b.workspace_id, f.id, r.id)}>
+                                    <button type="button" className="hqListRoom" onClick={() => props.onOpenRoom(workspaceOf(b), f.id, r.id)}>
                                       <strong>{r.label}</strong>
                                       <small>{t(`hq.roomKind.${r.kind}` as MessageKey)} · {t('hq.list.desks', { count: desks.length })}</small>
                                     </button>
                                     {live && <span className="hqPill tone-ok" data-testid="list-in-meeting">{t('hq.room.inMeeting')}</span>}
-                                    <RoomModuleAction variant="list" roomId={r.id} liveMeetingId={live?.meetingId ?? null} room={{ department: r.teamDepartment, kind: r.kind, name: r.label, buildingKind: b.kind }} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? (() => undefined)} onOpenGaps={props.onOpenGaps ?? (() => undefined)} />
+                                    <RoomModuleAction variant="list" roomId={r.id} liveMeetingId={live?.meetingId ?? null} room={{ department: r.teamDepartment, kind: r.kind, name: r.label, buildingKind: moduleBuildingKind(b) }} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? (() => undefined)} onOpenGaps={props.onOpenGaps ?? (() => undefined)} />
                                   </li>
                                 );
                               })}

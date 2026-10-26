@@ -24,6 +24,9 @@ import { STATUS_TONE, type StatusKey } from './lib/campusModel.ts';
 import type { HqView } from './HqChrome';
 import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
 import { commerceFlow } from './lib/hqModules.ts';
+import { buildingModules } from './lib/hqBuildingModules.ts';
+import { floorLifts } from './lib/hqFloorLift.ts';
+import { LIFT_MS, easeLift } from './lib/hqRenderTypes.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
@@ -111,7 +114,7 @@ export function BuildingView(props: BuildingViewProps) {
     return map;
   }, [people, props.agentStyles]);
   const scene = useMemo(
-    () => buildBuildingScene(floors, { activeIndex, showAll, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks }),
+    () => buildBuildingScene(floors, { activeIndex, showAll, cutaway: true, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks }),
     [floors, activeIndex, showAll, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks],
   );
   const [wrap, aspect] = useAspect();
@@ -128,6 +131,24 @@ export function BuildingView(props: BuildingViewProps) {
   const home = overview ? overviewHome : buildingHome;
   const [camera, setCamera] = useState<CameraState>(home);
   const homeRef = useRef(home);
+  const shownFloor = useRef(activeIndex);
+  // A short eased glide of the camera to the new floor's framing. It makes no announcement of its own (the floor note does) and a
+  // person's own camera input or the next change of floor ends it.
+  const glideRaf = useRef<number | null>(null);
+  const stopGlide = () => { if (glideRaf.current !== null) { cancelAnimationFrame(glideRaf.current); glideRaf.current = null; } };
+  const glide = (to: CameraState) => {
+    if (glideRaf.current !== null) cancelAnimationFrame(glideRaf.current);
+    const from = cameraRef.current;
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const k = easeLift((now - t0) / LIFT_MS);
+      const mix = (a: number, b: number) => a + (b - a) * k;
+      setCamera({ ...to, target: { x: mix(from.target.x, to.target.x), y: mix(from.target.y, to.target.y), z: mix(from.target.z, to.target.z) }, distance: mix(from.distance, to.distance), yaw: mix(from.yaw, to.yaw), pitch: mix(from.pitch, to.pitch) });
+      glideRaf.current = k < 1 ? requestAnimationFrame(step) : null;
+    };
+    glideRaf.current = requestAnimationFrame(step);
+  };
+  useEffect(() => () => { if (glideRaf.current !== null) cancelAnimationFrame(glideRaf.current); }, []);
   // Inside holds its own room: closing the room panel (to see the room) must not throw the camera back out.
   const [insideRoomId, setInsideRoomId] = useState<string | null>(null);
   const inside = insideRoomId !== null;
@@ -138,8 +159,13 @@ export function BuildingView(props: BuildingViewProps) {
     if (homeRef.current === home) return;
     homeRef.current = home;
     if (insideRef.current) return; // the Inside view keeps its own camera
-    setCamera(view === 'top' ? topView(home) : home);
-  }, [home, view]);
+    const next = view === 'top' ? topView(home) : home;
+    // A change of floor glides the camera to the new floor (reduced motion jumps); any other new framing is applied at once.
+    const floorChanged = shownFloor.current !== activeIndex;
+    shownFloor.current = activeIndex;
+    if (floorChanged && !latest.current.reducedMotion) glide(next);
+    else setCamera(next);
+  }, [home, view]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setInside(false); setCamera((c) => (view === 'top' ? topView(isInsideView(c) ? homeRef.current : c) : threeDView(isInsideView(c) ? homeRef.current : c))); }, [view]);
 
   const latest = useRef(props);
@@ -207,13 +233,24 @@ export function BuildingView(props: BuildingViewProps) {
   }, [roomById, focusRoom]);
 
   const targets: PickTarget[] = useMemo(() => scene.rooms.filter((r) => r.floorIndex === activeIndex).map((r) => ({ id: r.id, box: r.box })), [scene, activeIndex]);
+  // The floor the person was on before this one, so the floor they just left can ease away instead of vanishing.
+  const lastActive = useRef(activeIndex);
+  useEffect(() => { lastActive.current = activeIndex; }, [activeIndex]);
+  const lifts = useMemo(
+    () => floorLifts(scene.ghosts.map((g) => g.floorIndex), activeIndex, showAll, lastActive.current !== activeIndex ? lastActive.current : null),
+    [scene, activeIndex, showAll],
+  );
   const renderScene = useMemo(() => ({
     opaque: [
       { id: 'building', vertices: scene.opaque.vertices, bounds: scene.opaque.bounds, cull: false },
+      ...scene.ghosts.map((g) => ({ id: `floor-o:${g.floorIndex}`, vertices: g.opaque.vertices, bounds: g.opaque.bounds, cull: false, lift: { group: `floor:${g.floorIndex}`, y: g.y } })),
       // The procedural sofas and people stay in the scene and are hidden only while a loaded model replaces them.
       ...(['sofa', 'figure'] as const).filter((g) => scene.fallbacks[g].vertices.length).map((g) => ({ id: `fallback-${g}`, vertices: scene.fallbacks[g].vertices, bounds: scene.fallbacks[g].bounds, cull: false, fallbackOf: g })),
     ],
-    glass: scene.glass.vertices.length ? [{ id: 'glass', vertices: scene.glass.vertices, bounds: scene.glass.bounds, cull: false }] : [],
+    glass: [
+      ...(scene.glass.vertices.length ? [{ id: 'glass', vertices: scene.glass.vertices, bounds: scene.glass.bounds, cull: false }] : []),
+      ...scene.ghosts.filter((g) => g.glass.vertices.length).map((g) => ({ id: `floor-g:${g.floorIndex}`, vertices: g.glass.vertices, bounds: g.glass.bounds, cull: false, lift: { group: `floor:${g.floorIndex}`, y: g.y } })),
+    ],
     glassAlpha: 0.2,
     // The entrance sign on the front lawn is lettered with the real building name.
     // Cell 0 is the entrance sign; the cells after it are the real room names and the floor sign (`scene.signs`).
@@ -222,7 +259,8 @@ export function BuildingView(props: BuildingViewProps) {
     shadow: scene.shadow,
     models: scene.models,
     halos: scene.halos,
-  }), [scene, props.workspaceName]);
+    lifts,
+  }), [scene, props.workspaceName, lifts]);
 
   const flowAnchor = useCallback((id: string) => scene.rooms.find((r) => r.id === id)?.anchor, [scene]);
   const flowLabels = useFlowLabels({
@@ -275,14 +313,24 @@ export function BuildingView(props: BuildingViewProps) {
   const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
   const insideRoom = insideRoomId ? roomById.get(insideRoomId) ?? null : null;
   const keep = (c: CameraState): CameraState => (insideRoom && isInsideView(c) ? clampInside(c, insideRoom) : clampTarget(c, 400));
-  const change = (fn: (c: CameraState) => CameraState) => setCamera((c) => keep(fn(c)));
+  const change = (fn: (c: CameraState) => CameraState) => { stopGlide(); setCamera((c) => keep(fn(c))); };
   const stepFloor = (d: 1 | -1) => { const f = floors[activeIndex + d]; if (f) props.onSelectFloor(f.id); };
   const roomsTotal = floors.reduce((n, f) => n + f.rooms.length, 0);
+  const modules = useMemo(() => buildingModules(building), [building]);
 
   return (
     <div className="hqBuilding" data-inside={inside} data-overview={overview} onKeyDown={(e) => {
-      if (e.key !== 'Escape') return;
-      if (insideRef.current) { e.stopPropagation(); toggleInside(); } else if (latest.current.overview) { e.stopPropagation(); latest.current.onOverview(false); }
+      if (e.key === 'Escape') {
+        if (insideRef.current) { e.stopPropagation(); toggleInside(); } else if (latest.current.overview) { e.stopPropagation(); latest.current.onOverview(false); }
+        return;
+      }
+      // Page Up and Page Down move between floors (never while typing in a field or holding a modifier).
+      if ((e.key === 'PageUp' || e.key === 'PageDown') && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        e.preventDefault();
+        stepFloor(e.key === 'PageUp' ? 1 : -1);
+      }
     }}>
       <div className="hqBuildingBar">
         <nav className="hqCrumbs" aria-label={t('hq.crumb.label')}>
@@ -323,15 +371,17 @@ export function BuildingView(props: BuildingViewProps) {
             </select>
           </label>
           <button type="button" onClick={() => stepFloor(1)} disabled={activeIndex >= floors.length - 1} aria-label={t('hq.floor.up')}><ArrowLeft aria-hidden="true" className="flipOpposite" /></button>
+          <span className="hqFloorCount" data-testid="hq-floor-count">{t('hq.floor.count', { index: activeIndex + 1, count: floors.length })}</span>
           <label className="hqCheck"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /><span>{t('hq.floor.showAll')}</span></label>
         </div>
       </div>
 
+      <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-floor-live">{t('hq.floor.now', { name: floor.name, index: activeIndex + 1, count: floors.length })}</p>
       <div className="hqSceneWrap" ref={wrap} data-camera-distance={camera.distance.toFixed(2)} data-camera-eye-y={(camera.target.y + Math.sin((camera.pitch * Math.PI) / 180) * camera.distance).toFixed(2)}>
         <HqStage
           label={t('hq.building.stageLabel', { name: props.workspaceName, floor: floor.name })} description={t('hq.building.stageHelp')}
           scene={renderScene} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
-          onCamera={(c) => setCamera(keep(c))} night={night} reducedMotion={props.reducedMotion}
+          onCamera={(c) => { stopGlide(); setCamera(keep(c)); }} night={night} reducedMotion={props.reducedMotion}
           hoverId={null} selectedId={null} onHover={() => undefined}
           onPick={pickRoom} labels={labels} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
         />
@@ -356,7 +406,7 @@ export function BuildingView(props: BuildingViewProps) {
             inside={{ active: inside, disabled: !selectedRoom || view === 'top', onToggle: toggleInside }}
             overview={{ active: overview, onToggle: toggleOverview }}
             onRotateLeft={() => change((c) => rotateBy(c, -20))} onRotateRight={() => change((c) => rotateBy(c, 20))}
-            onPrev={() => stepFloor(-1)} onNext={() => stepFloor(1)} prevLabel={t('hq.floor.down')} nextLabel={t('hq.floor.up')}
+            onPrev={() => stepFloor(-1)} onNext={() => stepFloor(1)} prevDisabled={activeIndex <= 0} nextDisabled={activeIndex >= floors.length - 1} prevLabel={t('hq.floor.down')} nextLabel={t('hq.floor.up')}
             onZoomIn={() => change((c) => dolly(c, -250))} onZoomOut={() => change((c) => dolly(c, 250))}
             fullscreen={props.fullscreen} onFullscreen={props.onToggleFullscreen}
           />
@@ -372,8 +422,9 @@ export function BuildingView(props: BuildingViewProps) {
           title={t('hq.team.title')} totals={agents} unreported={props.unreported} compact verifiedAt={props.verifiedAt}
           note={presence && agents && agents.agents === 0 ? t('hq.team.none') : null}
         />
-        <CommercePanels state={props.commerce} />
-        <TyrePanel state={props.tyre} />
+        {modules.panels.includes('os') && props.wall && <Suspense fallback={null}><HqCommandWall model={props.wall.model} variant="panel" onReload={props.wall.onReload} /></Suspense>}
+        {modules.panels.includes('commerce') && <CommercePanels state={props.commerce} />}
+        {modules.panels.includes('tyre') && <TyrePanel state={props.tyre} />}
       </div>
     </div>
   );
@@ -472,6 +523,7 @@ function CommercePanels({ state }: { state: ModuleState<CommerceLive> }) {
           <li><strong>{c.orders}</strong><span>{t('hq.commerce.orders')}</span></li>
           <li><strong>{c.waiting}</strong><span>{t('hq.commerce.waiting')}</span></li>
           <li><strong>{c.late}</strong><span>{t('hq.commerce.late')}</span></li>
+          {c.lowStock !== null && <li><strong>{c.lowStock}</strong><span>{t('hq.commerce.lowStock')}</span></li>}
           <li><strong>{c.openAlerts}</strong><span>{t('hq.commerce.alerts')}</span></li>
         </ul>
       </section>
@@ -495,6 +547,8 @@ function TyrePanel({ state }: { state: ModuleState<TyreLive> }) {
       <h2>{t('hq.tyre.title')}</h2>
       <ul className="hqStats">
         <li><strong>{d.vehicles}</strong><span>{t('hq.tyre.vehicles')}</span></li>
+        <li><strong>{d.fitted}</strong><span>{t('hq.tyre.fitted')}</span></li>
+        {d.inStock !== null && <li><strong>{d.inStock}</strong><span>{t('hq.tyre.stock')}</span></li>}
         <li><strong>{d.belowMinimum}</strong><span>{t('hq.tyre.below')}</span></li>
         <li><strong>{d.overdueInspections}</strong><span>{t('hq.tyre.overdue')}</span></li>
         <li><strong>{d.dueNext30}</strong><span>{t('hq.tyre.due')}</span></li>

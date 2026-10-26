@@ -146,7 +146,14 @@ def test_room_details_kind_capacity_and_team(db: None, database_engine: Engine) 
     assert forbid.status_code == 409 and types(forbid) == ["KIND_FORBIDS_DESKS"]
     cleared = patch("/rooms/a", {"expected_revision": 2, "color": None, "name_ar": None, "team_department": None})
     assert cleared["color"] is None and cleared["team_department"] is None
-    assert patch("/rooms/a", {"expected_revision": 3, "capacity": 10, "kind": "workshop"})["kind"] == "workshop"
+    workshop = patch("/rooms/a", {"expected_revision": 3, "capacity": 10, "kind": "workshop"})
+    assert workshop["kind"] == "workshop"
+    # The command centre kind is stored (migration 0113 widened the check) and keeps its operator desks.
+    command = patch("/rooms/a", {"expected_revision": workshop["revision"], "kind": "command"})
+    assert command["kind"] == "command"
+    assert post("/desks", {"id": "d3", "room_id": "a", "label": "D3"})["room_id"] == "a"
+    bad = client.patch(f"{API}/rooms/a", headers=H(), json={"expected_revision": command["revision"], "kind": "stadium"})
+    assert bad.status_code == 422
     room("b")
     dup = client.patch(f"{API}/rooms/b", headers=H(), json={"expected_revision": 1, "name": "A"})
     assert dup.status_code == 409 and types(dup) == ["ROOM_NAME_TAKEN"]
@@ -272,8 +279,10 @@ def test_copy_room_and_templates(db: None) -> None:
     explicit = client.post(f"{API}/rooms/a/copy", headers=H(), json={"id": "a3", "name": "Far", "x": 1, "z": 1})
     assert explicit.status_code == 422 and set(types(explicit)) == {"ROOM_OVERLAP"}
     catalogue = get("/templates")
-    assert [t["id"] for t in catalogue["items"]] == ["open_office", "meeting_room", "reception", "warehouse", "workshop"]
+    assert [t["id"] for t in catalogue["items"]] == ["open_office", "meeting_room", "reception", "warehouse", "workshop", "command_center"]
     assert catalogue["units"] == "metres" and "monitor" in catalogue["equipment_kinds"]
+    command = post("/rooms/from-template", {"id": "cmd1", "floor_id": "g", "template_id": "command_center", "with_desks": True})
+    assert command["room"]["kind"] == "command" and len(command["desks"]) == 6 and command["room"]["color"] == "crimson"
     made = post("/rooms/from-template", {"id": "open1", "floor_id": "g", "template_id": "open_office", "with_desks": True})
     assert made["room"]["kind"] == "office" and len(made["desks"]) == 12
     assert all(d["pos_x"] is not None for d in made["desks"]) and made["room"]["name_ar"] == "مكتب مفتوح"

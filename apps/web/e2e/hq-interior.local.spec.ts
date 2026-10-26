@@ -15,7 +15,7 @@ test(`interior ${BUILDING}`, async ({ page }) => {
   test.setTimeout(180_000);
   await page.setViewportSize({ width: W, height: H });
   await page.addInitScript((l) => { try { localStorage.setItem('anum.hq.light', l); } catch { /* */ } }, LIGHT);
-  await mockHq(page, { campus: 'api', layout: 'campus', commerce: 'connected', meetings: 'live' });
+  await mockHq(page, { campus: 'api', layout: 'starter-full', commerce: 'connected', meetings: 'live' });
   await page.goto('/#office-preview');
   await expect(page.locator('canvas.hqCanvas')).toHaveAttribute('data-engine', /three/, { timeout: 120_000 });
   await hq(page).getByRole('button', { name: new RegExp(`^${BUILDING}\\.`) }).first().click({ force: true });

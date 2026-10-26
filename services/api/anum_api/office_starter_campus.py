@@ -89,6 +89,12 @@ def _office(key: str, en: str, ar: str, w: float, d: float, desks: int, dept: st
                     equip if equip is not None else (("monitor", max(desks, 1)), ("whiteboard", 1)))
 
 
+def _command(key: str, en: str, ar: str, w: float, d: float, desks: int) -> RoomSpec:
+    """The operations command centre: its own room kind (not an office named by words), crimson, with the wall equipment."""
+    return RoomSpec(key, en, ar, "command", w, d, max(desks + 4, 8), desks, None, "crimson", "south",
+                    (("monitor", desks), ("display", 4), ("network_switch", 1)))
+
+
 def _meeting(key: str, en: str, ar: str, w: float, d: float, seats: int, color: str = "sapphire", door: str = "south") -> RoomSpec:
     return RoomSpec(key, en, ar, "meeting", w, d, seats, 0, None, color, door, _MEETING)
 
@@ -105,7 +111,7 @@ def _work(kind: str, key: str, en: str, ar: str, w: float, d: float, desks: int,
 # A room carries a team department only where the office team concept has a matching one (sales, support,
 # operations, finance, tyre_engineering, marketing, technology, research, legal, compliance, security, hr,
 # procurement); that link opens the room's module and lets the Organisation gaps panel propose an agent for an
-# empty department. Rooms with no matching department (Facilities, Command Center, AI Labs, Data...) stay unset.
+# empty department. Rooms with no matching department (Facilities, AI Labs, Data...) stay unset; the Command Center is the "command" room kind, which opens the live flow by its kind.
 def _floor(level: int, en: str, ar: str, rooms: tuple[RoomSpec, ...], width: float = DEFAULT_WIDTH_M) -> FloorSpec:
     return FloorSpec(level, en, ar, rooms, width)
 
@@ -125,8 +131,7 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
             _meeting("meeting-c", "Meeting Room C", "غرفة الاجتماعات ج", 10, 7, 12),
         ), 38.0),
         _floor(2, "Floor 2: Operations and Management", "الطابق 2: العمليات والإدارة", (
-            _office("command-center", "Command Center", "مركز القيادة", 14, 10, 6, None, "crimson", "south",
-                    (("monitor", 6), ("display", 4), ("network_switch", 1))),
+            _command("command-center", "Command Center", "مركز القيادة", 14, 10, 6),
             _office("ai-organization", "AI Organization", "المؤسسة الذكية", 16, 10, 8, None, "amethyst", "south",
                     (("monitor", 8), ("display", 2), ("server_rack", 1))),
             _office("operations-office", "Operations Office", "مكتب العمليات", 10, 8, 4, "operations", "teal"),

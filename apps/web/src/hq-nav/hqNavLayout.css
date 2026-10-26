@@ -37,8 +37,8 @@
    and screen readers (and show whole while focused) but give the row back to the scene. "All floors" stays visible. */
 .hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl > button,
 .hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl .compactSelect { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; width: 1px; }
-.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl:focus-within > button,
-.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl:focus-within .compactSelect { clip-path: none; height: auto; overflow: visible; position: static; width: auto; }
+.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl:has(> button:focus-visible, .compactSelect :focus-visible) > button,
+.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl:has(> button:focus-visible, .compactSelect :focus-visible) .compactSelect { clip-path: none; height: auto; overflow: visible; position: static; width: auto; }
 /* Short screens: the campus map duplicates the quick views, so it gives the scene its corner back. */
 @media (max-height: 820px) { .hqNav[data-nav="on"] .hqOverlayBottomRight { display: none; } }
 
