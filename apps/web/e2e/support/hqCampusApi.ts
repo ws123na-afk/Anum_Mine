@@ -12,7 +12,7 @@ const workspace = 'workspace_foundation';
 export interface HqMockOptions {
   /** 'api' serves the campus endpoint, 'missing' answers 404 (memberships stand in), 'denied' answers 403. */
   campus?: 'api' | 'missing' | 'denied';
-  layout?: 'full' | 'empty' | 'none' | 'starter';
+  layout?: 'full' | 'empty' | 'none' | 'starter' | 'campus';
   commerce?: 'connected' | 'none' | 'denied';
   tyre?: 'connected' | 'none';
   meetings?: 'live' | 'none' | 'failing';
@@ -50,8 +50,59 @@ function starterFixture() {
   return { buildings, floors, rooms, desks: base.desks };
 }
 
-export function officeFixture(layout: 'full' | 'empty' | 'none' | 'starter'): { buildings: unknown[]; floors: unknown[]; rooms: unknown[]; desks: unknown[] } {
+/**
+ * Four buildings with the stable ids the starter campus gives its buildings (`campus-01-hq`...): ANUM HQ over three floors
+ * with a command centre, ANUM 360 Commerce, Tyre Pulse and the personal office. Rooms carry the departments the starter campus sets.
+ */
+function campusFixture4() {
+  const buildings = [
+    record('campus-01-hq', { name: 'ANUM HQ', timezone: 'Asia/Dubai', latitude: null, longitude: null }),
+    record('campus-02-commerce', { name: 'ANUM 360 Commerce', timezone: 'Asia/Dubai', latitude: null, longitude: null }),
+    record('campus-03-tyre-pulse', { name: 'Tyre Pulse', timezone: 'Asia/Dubai', latitude: null, longitude: null }),
+    record('campus-07-personal', { name: 'Founder Personal Office', timezone: 'Asia/Dubai', latitude: null, longitude: null }),
+  ];
+  const floor = (id: string, building: string, level: number, name: string) => record(id, { building_id: building, level, name });
+  const floors = [
+    floor('campus-01-hq-l1', 'campus-01-hq', 1, 'Floor 1: Reception and Meeting Rooms'),
+    floor('campus-01-hq-l2', 'campus-01-hq', 2, 'Floor 2: Operations and Management'),
+    floor('campus-01-hq-l3', 'campus-01-hq', 3, 'Floor 3: Executive and Strategy'),
+    floor('campus-02-commerce-l0', 'campus-02-commerce', 0, 'Ground floor'),
+    floor('campus-03-tyre-pulse-l0', 'campus-03-tyre-pulse', 0, 'Ground floor'),
+    floor('campus-07-personal-l0', 'campus-07-personal', 0, 'Ground floor'),
+  ];
+  const room = (id: string, floorId: string, name: string, kind: string, capacity: number, geo: [number, number, number, number], department: string | null = null) => record(id, {
+    floor_id: floorId, name, kind, capacity, scene_x: geo[0], scene_z: geo[1], scene_width: geo[2], scene_depth: geo[3], team_department: department,
+  });
+  const rooms = [
+    room('campus-01-hq-reception', 'campus-01-hq-l1', 'Reception', 'reception', 4, [0, 0, 10, 6]),
+    room('campus-01-hq-meeting-a', 'campus-01-hq-l1', 'Meeting Room A', 'meeting', 8, [12, 0, 8, 6]),
+    room('campus-01-hq-command-center', 'campus-01-hq-l2', 'Command Center', 'command', 10, [0, 0, 14, 10]),
+    room('campus-01-hq-marketing', 'campus-01-hq-l2', 'Marketing Studio', 'office', 6, [16, 0, 12, 8], 'marketing'),
+    room('campus-01-hq-facilities', 'campus-01-hq-l2', 'Facilities Office', 'office', 4, [0, 12, 10, 8]),
+    room('campus-01-hq-executive', 'campus-01-hq-l3', 'Executive Office', 'office', 5, [0, 0, 14, 9]),
+    room('campus-01-hq-boardroom', 'campus-01-hq-l3', 'Boardroom', 'meeting', 16, [16, 0, 16, 9]),
+    room('campus-02-commerce-sales', 'campus-02-commerce-l0', 'Sales Office', 'office', 8, [0, 0, 12, 8], 'sales'),
+    room('campus-02-commerce-orders', 'campus-02-commerce-l0', 'Orders', 'office', 8, [14, 0, 12, 8], 'operations'),
+    room('campus-02-commerce-warehouse', 'campus-02-commerce-l0', 'Warehouse', 'warehouse', 8, [0, 10, 16, 12], 'operations'),
+    room('campus-03-tyre-pulse-workshop', 'campus-03-tyre-pulse-l0', 'Workshop', 'workshop', 8, [0, 0, 14, 10], 'tyre_engineering'),
+    room('campus-03-tyre-pulse-fleet', 'campus-03-tyre-pulse-l0', 'Fleet', 'office', 6, [16, 0, 12, 8], 'operations'),
+    room('campus-07-personal-office', 'campus-07-personal-l0', 'Personal Office', 'office', 4, [0, 0, 10, 8]),
+    room('campus-07-personal-lounge', 'campus-07-personal-l0', 'Lounge', 'lounge', 6, [12, 0, 8, 6]),
+  ];
+  const desk = (id: string, roomId: string, label: string, agent: string | null) => record(id, { room_id: roomId, label, agent_id: agent });
+  const desks = [
+    desk('desk_c1', 'campus-01-hq-command-center', 'Desk 1', 'agent_fleet'),
+    desk('desk_c2', 'campus-01-hq-command-center', 'Desk 2', null),
+    desk('desk_m1', 'campus-01-hq-marketing', 'Desk 1', 'agent_leads'),
+    desk('desk_s1', 'campus-02-commerce-sales', 'Desk 1', 'agent_care'),
+    desk('desk_t1', 'campus-03-tyre-pulse-workshop', 'Desk 1', 'agent_invoice'),
+  ];
+  return { buildings, floors, rooms, desks };
+}
+
+export function officeFixture(layout: 'full' | 'empty' | 'none' | 'starter' | 'campus'): { buildings: unknown[]; floors: unknown[]; rooms: unknown[]; desks: unknown[] } {
   if (layout === 'starter') return starterFixture();
+  if (layout === 'campus') return campusFixture4();
   if (layout === 'none') return { buildings: [], floors: [], rooms: [], desks: [] };
   const buildings = [record('bld_hq', { name: 'Al Noor Fleet HQ', timezone: 'Asia/Dubai', latitude: null, longitude: null })];
   const floors = [
@@ -264,7 +315,7 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
     }
     if (path === '/api/v1/commerce/dashboard') {
       return json({ start: '2026-10-22', end: '2026-10-22', tz: 'Asia/Dubai', currency: 'AED', currencies: [], by_channel: [{ channel: 'amazon', label: 'Amazon', marketplace_id: 'x', marketplace: 'Amazon.ae', currency: 'AED', revenue: 100, orders: 12, units: 14 }, { channel: 'noon', label: 'noon', marketplace_id: 'y', marketplace: 'noon UAE', currency: 'AED', revenue: 50, orders: 5, units: 6 }],
-        by_day: [], top_products: [], pending_orders: [], pending_total: 7, late_total: 2, low_stock: [], returns: { count: 3, units: 3, amount: {}, rate: 0.1 }, price_alerts: [], open_alerts: 1, fees: {}, truncated: false, connectors: 1 });
+        by_day: [], top_products: [], pending_orders: [], pending_total: 7, late_total: 2, low_stock: [{ listing_id: 'l1', sku: 'SKU-1', title: 'Sample tyre', channel: 'amazon', marketplace: 'Amazon.ae', quantity: 1, threshold: 5 }, { listing_id: 'l2', sku: 'SKU-2', title: 'Sample rim', channel: 'noon', marketplace: 'noon UAE', quantity: 0, threshold: 3 }], returns: { count: 3, units: 3, amount: {}, rate: 0.1 }, price_alerts: [], open_alerts: 1, fees: {}, truncated: false, connectors: 1 });
     }
     if (path === '/api/v1/tyre/setup') return json({ connection: options.tyre === 'connected' ? { kind: 'supabase' } : null, mapping: null, mapping_problems: [], assumptions: {}, discovery: null, sync: null, fields: {}, presets: [], can_manage: true, can_operate: true, delivery_channels: [] });
     if (path === '/api/v1/tyre/dashboard') return json({ summary: { as_of: now, currency: 'AED', vehicles: 42, tyres_fitted: 250, tyres_in_stock: 30, tyres_removed_last_30_days: 4, tyres_with_readings: 200, average_tread_mm: 8, below_minimum: 3, in_warning_band: 5, pressure_checked: 100, pressure_compliant_pct: 90, under_inflated: 2, over_inflated: 1, overdue_inspections: 6, due_next_30_days: 11, due_next_90_days: 20, cost_per_1000_km: null, cost_per_hour: null, min_tread_mm: 3 }, synced_at: now, alert_counts: { critical: 1, warning: 2 }, top_alerts: [], due_soon: [], due_by_month: {} });

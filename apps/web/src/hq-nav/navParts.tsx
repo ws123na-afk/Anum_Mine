@@ -1,11 +1,12 @@
 /** Small shared pieces of the navigation layer: the thumbnail box, keyboard focus movement and icons by room kind. */
-import { Briefcase, Building2, Coffee, DoorOpen, HardDrive, Map as MapIcon, Users, Wrench } from 'lucide-react';
+import { Briefcase, Building2, Coffee, DoorOpen, MonitorUp, HardDrive, Map as MapIcon, Users, Wrench } from 'lucide-react';
 import { useEffect, useState, type KeyboardEvent, type ReactElement } from 'react';
 import { getThumb, subscribeThumbs } from './thumbs.ts';
 
 export const ROOM_ICONS: Record<string, ReactElement> = {
   reception: <DoorOpen aria-hidden="true" />, meeting: <Users aria-hidden="true" />, office: <Briefcase aria-hidden="true" />,
   workshop: <Wrench aria-hidden="true" />, warehouse: <HardDrive aria-hidden="true" />, lounge: <Coffee aria-hidden="true" />,
+  command: <MonitorUp aria-hidden="true" />,
 };
 export const CAMPUS_ICON = <MapIcon aria-hidden="true" />;
 export const BUILDING_ICON = <Building2 aria-hidden="true" />;

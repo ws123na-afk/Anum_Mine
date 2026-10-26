@@ -22,7 +22,7 @@ import type { CampusBuildingKind, Placement } from './campusModel.ts';
 export type Archetype = 'executive' | 'tower' | 'admin' | 'retail' | 'warehouse' | 'workshop' | 'villa';
 
 const ICON_TYPE: Readonly<Record<string, Archetype>> = {
-  truck: 'warehouse', factory: 'warehouse', chart: 'tower', briefcase: 'tower', store: 'retail', building: 'admin', shield: 'admin', landmark: 'admin', home: 'villa', user: 'villa',
+  workshop: 'workshop', truck: 'warehouse', factory: 'warehouse', chart: 'tower', briefcase: 'tower', store: 'retail', building: 'admin', shield: 'admin', landmark: 'admin', home: 'villa', user: 'villa',
 };
 
 /** Which type a placement is drawn as. Pure, so a unit test can pin it down. */

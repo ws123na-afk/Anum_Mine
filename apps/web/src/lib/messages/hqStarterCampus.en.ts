@@ -42,6 +42,7 @@ export const hqStarterCampusEn = {
   'hqSc.kind.workshop': 'workshop',
   'hqSc.kind.warehouse': 'warehouse',
   'hqSc.kind.lounge': 'lounge',
+  'hqSc.kind.command': 'command centre',
   'hqSc.dept': 'linked to the {department} team',
   'hqSc.dept.sales': 'sales',
   'hqSc.dept.support': 'support',

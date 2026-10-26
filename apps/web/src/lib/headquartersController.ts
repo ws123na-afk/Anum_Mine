@@ -177,7 +177,7 @@ export function adaptOfficeRegistry(records:Readonly<{
  rooms:readonly {id:string;name:string;floor_id:string;kind:string;capacity:number;revision:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;team_department?:string|null}[];
  desks:readonly {id:string;room_id:string;label:string;agent_id:string|null;revision:number}[];
 }>):Registry{
- const kinds=new Set(['office','meeting','reception','workshop','warehouse','lounge']);
+ const kinds=new Set(['office','meeting','reception','workshop','warehouse','lounge','command']);
  for(const room of records.rooms){if(!kinds.has(room.kind))throw new Error('Unknown office room kind in server response')}
  // The adapter's office API has already validated tenant and workspace fields.
  return records as Registry;

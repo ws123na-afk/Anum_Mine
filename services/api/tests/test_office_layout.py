@@ -113,3 +113,9 @@ def test_valid_patches_keep_only_what_was_sent():
                               "equipment": [{"kind": "monitor", "quantity": 2, "note": "dual"}]}
     assert DeskUpdate(expected_revision=1, pos_x=None, pos_z=None).changes() == {"pos_x": None, "pos_z": None}
     assert FloorUpdate(expected_revision=1, width_m=30, depth_m=20).changes() == {"width_m": 30, "depth_m": 20}
+
+
+def test_command_room_kind_has_a_template_and_desks() -> None:
+    assert "command" in layout.ROOM_KINDS and "command" in layout.DESK_ROOM_KINDS
+    template = layout.template_by_id("command_center")
+    assert template is not None and template.kind == "command" and template.desks == 6

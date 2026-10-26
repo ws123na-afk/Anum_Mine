@@ -203,3 +203,27 @@ def test_a_rerun_fills_only_an_empty_or_custom_department_of_a_campus_room() -> 
     facts.rooms[legal]["team_department"] = "legal"
     facts.rooms[sales]["team_department"] = "sales"
     assert all(p["status"] == "complete" for p in sc.plan_campus(facts, ZONE))
+
+
+def test_command_center_is_the_command_room_kind() -> None:
+    """The operations command centre is a room kind of its own (opens the live flow), not an office named by words."""
+    rooms = [r for b in sc.CAMPUS for f in b.floors for r in f.rooms if r.kind == "command"]
+    assert [r.en for r in rooms] == ["Command Center"]
+    room = rooms[0]
+    assert room.desks == 6 and "command" in layout.DESK_ROOM_KINDS and room.color == "crimson"
+    assert ("display", 4) in room.equipment
+    # Nothing else in the master list is decorated as a command room by its name only.
+    assert all(r.kind != "office" or "command" not in r.en.lower() for b in sc.CAMPUS for f in b.floors for r in f.rooms)
+
+
+def test_web_fixture_of_the_master_list_matches() -> None:
+    """The web unit tests audit every starter room (kind and department) from a fixture; it must equal the master list."""
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[3] / "apps" / "web" / "test" / "fixtures" / "starterCampusRooms.json"
+    expected = [
+        {"building": b.key, "building_id": b.id, "floor": f.level, "room": r.key, "name": r.en, "kind": r.kind, "department": r.department}
+        for b in sc.CAMPUS for f in b.floors for r in f.rooms
+    ]
+    assert json.loads(path.read_text(encoding="utf-8")) == expected, "regenerate apps/web/test/fixtures/starterCampusRooms.json from CAMPUS"

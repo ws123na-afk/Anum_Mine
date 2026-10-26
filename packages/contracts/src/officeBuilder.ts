@@ -8,10 +8,10 @@
 
 export const OFFICE_BUILDER_VERSION = 1 as const;
 
-export const OFFICE_ROOM_KINDS = ['office', 'meeting', 'reception', 'workshop', 'warehouse', 'lounge'] as const;
+export const OFFICE_ROOM_KINDS = ['office', 'meeting', 'reception', 'workshop', 'warehouse', 'lounge', 'command'] as const;
 export type OfficeRoomKind = (typeof OFFICE_ROOM_KINDS)[number];
 /** Rooms of these kinds may hold permanent desks. */
-export const OFFICE_DESK_ROOM_KINDS = ['office', 'workshop', 'warehouse'] as const;
+export const OFFICE_DESK_ROOM_KINDS = ['office', 'workshop', 'warehouse', 'command'] as const;
 export const OFFICE_ROTATIONS = [0, 90, 180, 270] as const;
 export type OfficeRotation = (typeof OFFICE_ROTATIONS)[number];
 export const OFFICE_DOOR_SIDES = ['north', 'south', 'east', 'west'] as const;
@@ -32,7 +32,7 @@ export const OFFICE_TEAM_DEPARTMENTS = [
   'custom',
 ] as const;
 export type OfficeTeamDepartment = (typeof OFFICE_TEAM_DEPARTMENTS)[number];
-export const OFFICE_TEMPLATE_IDS = ['open_office', 'meeting_room', 'reception', 'warehouse', 'workshop'] as const;
+export const OFFICE_TEMPLATE_IDS = ['open_office', 'meeting_room', 'reception', 'warehouse', 'workshop', 'command_center'] as const;
 export type OfficeTemplateId = (typeof OFFICE_TEMPLATE_IDS)[number];
 
 export const OFFICE_DEFAULT_FLOOR_WIDTH_M = 60;

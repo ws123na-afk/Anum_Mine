@@ -42,7 +42,7 @@ export function OfficeSpaceRegistry({onClose}:{onClose:()=>void}){
     </button>}):<p>No rooms match this floor and search.</p>}</div>
     <form className="spaceRegistryCreate" onSubmit={e=>{e.preventDefault();execute({type:'room.add',room:{id:'room-'+crypto.randomUUID(),floorId:floor,name:newRoom,kind:roomKind,capacity}},()=>setNewRoom(''))}}>
      <h4>Create room in selected floor</h4><label>Name<input required maxLength={100} value={newRoom} onChange={e=>setNewRoom(e.target.value)} placeholder="e.g., Fleet Command"/></label>
-     <div className="spaceRegistryFormRow"><label>Room type<select value={roomKind} onChange={e=>setRoomKind(e.target.value as SpaceKind)}>{(['office','meeting','reception','workshop','warehouse','lounge'] as const).map(k=><option key={k}>{k}</option>)}</select></label><label>Capacity<input type="number" min={1} max={5000} value={capacity} onChange={e=>setCapacity(Number(e.target.value))}/></label></div>
+     <div className="spaceRegistryFormRow"><label>Room type<select value={roomKind} onChange={e=>setRoomKind(e.target.value as SpaceKind)}>{(['office','meeting','reception','workshop','warehouse','lounge','command'] as const).map(k=><option key={k}>{k}</option>)}</select></label><label>Capacity<input type="number" min={1} max={5000} value={capacity} onChange={e=>setCapacity(Number(e.target.value))}/></label></div>
      <button type="submit" className="spaceRegistryPrimary">Create room</button>
     </form>
    </section>
@@ -50,7 +50,7 @@ export function OfficeSpaceRegistry({onClose}:{onClose:()=>void}){
     {!selected?<div className="spaceRegistryPlaceholder"><LayoutGrid size={30}/><h4>Choose a room</h4><p>Inspect room capacity, desks and example assignments.</p></div>:<><div className="spaceRegistrySelected"><div><h4>{selected.name}</h4><p>{selected.kind} · {selected.capacity} person capacity</p></div><span>{desks.length} desk(s)</span></div>
       <div className="spaceRegistryDeskList">{desks.length?desks.map(d=><article key={d.id}><span className="spaceRegistryDeskIcon"><UserRound size={18}/></span><div><strong>{d.label}</strong><small>{d.agentId?'Assigned: '+d.agentId:'Vacant workstation'}</small></div>{d.agentId&&<button type="button" onClick={()=>execute({type:'desk.unassign',deskId:d.id})}>Unassign</button>}</article>):<p>No desks in this room. Add one if the room type allows workstations.</p>}</div>
       <div className="spaceRegistryDetailActions">
-        {['office','workshop','warehouse'].includes(selected.kind)&&<button type="button" onClick={()=>execute({type:'desk.add',desk:{id:'desk-'+crypto.randomUUID(),roomId:selected.id,label:'Workstation '+(desks.length+1),agentId:null}})}>+ Add workstation</button>}
+        {['office','workshop','warehouse','command'].includes(selected.kind)&&<button type="button" onClick={()=>execute({type:'desk.add',desk:{id:'desk-'+crypto.randomUUID(),roomId:selected.id,label:'Workstation '+(desks.length+1),agentId:null}})}>+ Add workstation</button>}
         {desks.some(d=>d.agentId===null)&&<form onSubmit={e=>{e.preventDefault();const vacant=desks.find(d=>!d.agentId);if(vacant)execute({type:'desk.assign',deskId:vacant.id,agentId:agent},()=>setAgent(''))}}>
          <label>Assign example agent ID<input required pattern="[A-Za-z0-9][A-Za-z0-9._:-]*" maxLength={100} placeholder="Existing agent ID (demo)" value={agent} onChange={e=>setAgent(e.target.value)}/></label><button type="submit">Assign vacant desk</button>
         </form>}
