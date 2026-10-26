@@ -145,3 +145,38 @@ export function mapToWorld(px: number, py: number, extent: number, size: number)
   const e = Math.max(1, extent);
   return { x: (px / size) * 2 * e - e, z: (py / size) * 2 * e - e };
 }
+
+// ---------------------------------------------------------------- inside a room
+
+/** A seated or standing person's eye height, in metres above the floor of the open floor. */
+export const INSIDE_EYE_HEIGHT = 1.5;
+const INSIDE_EYE = 0.05;
+
+export type InsideRoom = Readonly<{ x: number; z: number; width: number; depth: number }>;
+
+/**
+ * "Inside" view of one room: a low interior camera at eye height, a metre in from the room's front wall and looking
+ * across the room. The orbit pivot sits 5 cm from the eye, so turning (buttons, keys, drag) turns the view on the spot
+ * instead of swinging the camera round the room. Pure: the caller decides whether to fly there or jump.
+ */
+export function insideCamera(room: InsideRoom, floorY: number, yaw = 0): CameraState {
+  const margin = Math.min(0.9, room.depth * 0.25);
+  const next: CameraState = {
+    target: { x: room.x + room.width / 2, y: floorY + INSIDE_EYE_HEIGHT, z: room.z + room.depth - margin },
+    distance: INSIDE_EYE, yaw, pitch: 7, fov: 62, minDistance: INSIDE_EYE, maxDistance: 0.4,
+  };
+  assertCamera(next);
+  return next;
+}
+
+export function isInsideView(camera: CameraState): boolean {
+  return camera.maxDistance <= 0.4 && camera.fov >= 60;
+}
+
+/** Keep the eye inside the room (a drag or the arrow keys cannot walk through a wall). */
+export function clampInside(camera: CameraState, room: InsideRoom): CameraState {
+  const m = 0.35;
+  const x = Math.max(room.x + m, Math.min(room.x + room.width - m, camera.target.x));
+  const z = Math.max(room.z + m, Math.min(room.z + room.depth - m, camera.target.z));
+  return x === camera.target.x && z === camera.target.z ? camera : { ...camera, target: { ...camera.target, x, z } };
+}

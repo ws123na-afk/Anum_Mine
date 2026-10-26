@@ -97,6 +97,7 @@ x-user-roles: owner,member
 - [ANUM MINE Executive PA Guided Tour](docs/ANUM_MINE_EXECUTIVE_PA_TOUR.md)
 - [ANUM MINE headquarters live flow, stuck work and office teams](docs/ANUM_MINE_HQ_LIVE_FLOW.md)
 - [ANUM MINE headquarters history panel and room history slider](docs/ANUM_MINE_HQ_HISTORY_PANEL.md)
+- [ANUM MINE headquarters live scene: presence stream, desk states, operations wall, Inside camera](docs/ANUM_MINE_HQ_LIVE_SCENE.md)
 - [ANUM MINE headquarters governed agent provisioning](docs/ANUM_MINE_AGENT_PROVISIONING.md)
 - [ANUM MINE headquarters: assign work in place and add a building by asking](docs/ANUM_MINE_ASSIGN_WORK.md)
 - [ANUM MINE starter campus: one click Set up my campus](docs/ANUM_MINE_STARTER_CAMPUS.md)

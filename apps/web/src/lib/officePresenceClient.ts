@@ -95,3 +95,18 @@ export function createPresenceClient(request: PresenceRequester, scope: () => { 
   };
   return { load };
 }
+
+export type DeltaOutcome =
+  | { kind: 'applied'; state: PresenceState }
+  /** A frame this connection already applied (or an older one): ignore it. */
+  | { kind: 'duplicate' }
+  /** A frame was skipped, or the frame is broken: the state cannot be trusted, take a new snapshot. */
+  | { kind: 'gap' };
+
+/** Like `applyPresenceDelta`, but tells a repeat (harmless) from a gap (resynchronise). */
+export function classifyPresenceDelta(state: PresenceState, delta: OfficePresenceDeltaFrame): DeltaOutcome {
+  if (!delta || delta.version !== 1 || !Number.isInteger(delta.sequence) || !Array.isArray(delta.changed) || !Array.isArray(delta.removed)) return { kind: 'gap' };
+  if (delta.sequence <= state.sequence) return { kind: 'duplicate' };
+  const next = applyPresenceDelta(state, delta);
+  return next ? { kind: 'applied', state: next } : { kind: 'gap' };
+}

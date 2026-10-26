@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 import { mockWorkspaceApi } from './workspaceApi';
 import { agentAvatars, seedAgents } from './orgChartApi';
 
@@ -18,6 +18,13 @@ export interface HqMockOptions {
   meetings?: 'live' | 'none' | 'failing';
   /** 'api' serves GET /office/presence and the desk work record, 'missing' answers 404 so the browser reads tasks and meetings itself. */
   presence?: 'api' | 'missing';
+  /**
+   * GET /office/presence/stream (docs/ANUM_MINE_HQ_LIVE_SCENE.md). 'unsupported' (default) answers 404, so the page polls the snapshot;
+   * 'live' answers the first request with the snapshot and holds later ones until `stream.send(body)` (the stream then ends and the
+   * page reconnects with Last-Event-ID, as it does when the server bounds a stream); 'blocked' answers 200 with a page that is not
+   * an event stream (a proxy in the way); 'down' fails the connection; 'denied' answers 403.
+   */
+  stream?: 'unsupported' | 'live' | 'blocked' | 'down' | 'denied';
   /** Extra desks (plainly fake) on top of the fixture, for the scene specs: a desk with an agent id is a registry assignment. */
   extraDesks?: ReadonlyArray<{ id: string; roomId: string; label: string; agentId: string | null }>;
   /** 'conflict' makes the building profile save answer 409. */
@@ -120,6 +127,16 @@ export function presenceFixture() {
   return { version: 1, workspace_id: workspace, as_of: now, cursor: null, totals, items };
 }
 
+/** One SSE frame of the presence stream. */
+export const sseFrame = (event: 'snapshot' | 'delta', data: unknown, id: string) => `id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+export const presenceItem = (agent: string, name: string, state: string, extra: Record<string, unknown> = {}) => ({
+  key: agent, agent_id: agent, agent_name: name, desk_id: null, state,
+  provenance: { kind: state === 'idle' ? 'none' : 'task', run_id: null, task_id: null, approval_id: null, meeting_id: null, reason: null },
+  task: null, last_verified_at: new Date().toISOString(), stale: false, ...extra,
+});
+export const sseDelta = (sequence: number, changed: unknown[], id: string, removed: string[] = []) =>
+  sseFrame('delta', { version: 1, sequence, as_of: new Date().toISOString(), totals: {}, changed, removed }, id);
+
 /** GET /api/v1/office/workstations/{desk}/work (packages/contracts/src/officeWorkstation.ts). */
 export function workFixture(deskId: string) {
   const base = { version: 1, workspace_id: workspace, as_of: now, desk: { id: deskId, room_id: 'room_tyre', label: 'Desk 1' } };
@@ -158,6 +175,30 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
   const calls: string[] = [];
   /** Specs flip `active` to finish the live meeting; `created` records meetings started from the UI (with their room_id). */
   const meeting = { active: options.meetings === 'live', roomId: options.meetingRoomId ?? null, created: [] as Array<Record<string, unknown>> };
+  const streamState = { requests: [] as Array<{ lastEventId: string | null }>, held: [] as Array<{ route: Route; timer: ReturnType<typeof setTimeout> }>, queued: [] as string[], items: presenceFixture().items as Array<Record<string, unknown>>, event: 1 };
+  const sse = (route: Route, body: string) => route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body });
+  const snapshotFrame = () => sseFrame('snapshot', { ...presenceFixture(), as_of: new Date().toISOString(), items: streamState.items, cursor: `evt_${streamState.event}`, sequence: 0 }, `evt_${streamState.event}`);
+  const stream = {
+    requests: streamState.requests,
+    /** How many requests wait for the server's next frame right now (a page keeps one stream open, never several). */
+    open: () => streamState.held.length,
+    /**
+     * What the server does next on the open stream: like the real one, a connection starts with a snapshot of the current state and
+     * then sends the delta, after which the stream ends (a bounded lifetime) and the page reconnects with Last-Event-ID.
+     * `sequence` overrides the delta's number (a skipped number is a lost frame); `raw` sends these frames instead of a delta.
+     */
+    async deliver(change: { changed?: Array<Record<string, unknown>>; removed?: string[]; sequence?: number; raw?: string } = {}): Promise<void> {
+      const before = snapshotFrame();
+      streamState.event += 1;
+      const body = change.raw ?? sseDelta(change.sequence ?? 1, change.changed ?? [], `evt_${streamState.event}`, change.removed ?? []);
+      for (const item of change.changed ?? []) {
+        const at = streamState.items.findIndex((i) => i.key === item.key);
+        if (at >= 0) streamState.items[at] = item; else streamState.items.push(item);
+      }
+      const held = streamState.held.shift();
+      if (held) { clearTimeout(held.timer); await sse(held.route, before + body); } else streamState.queued.push(before + body);
+    },
+  };
   const profileCalls: Array<{ kind: string; icon: string; expected_revision?: number }> = [];
   await page.route('http://localhost:8000/**', async (route) => {
     const url = new URL(route.request().url());
@@ -176,6 +217,21 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
       if (options.campus === 'api') return json(campusFixture);
       if (options.campus === 'denied') return error(403, 'forbidden', 'You cannot read the campus.');
       return error(404, 'not_found', 'Not found.');
+    }
+    if (path === '/api/v1/office/presence/stream') {
+      const mode = options.presence === 'missing' ? 'unsupported' : options.stream ?? 'unsupported';
+      streamState.requests.push({ lastEventId: route.request().headers()['last-event-id'] ?? null });
+      if (mode === 'unsupported') return error(404, 'not_found', 'Not found.');
+      if (mode === 'denied') return error(403, 'forbidden', 'You cannot read presence.');
+      if (mode === 'down') return route.abort('connectionrefused');
+      if (mode === 'blocked') return route.fulfill({ status: 200, contentType: 'text/html', body: '<html>proxy</html>' });
+      const queued = streamState.queued.shift();
+      if (streamState.requests.length === 1) return sse(route, snapshotFrame());
+      if (queued !== undefined) return sse(route, queued);
+      // A quiet stream: the snapshot comes at once on a real server; here the answer waits a moment so the page does not reconnect in a tight loop.
+      const timer = setTimeout(() => { const at = streamState.held.findIndex((h) => h.route === route); if (at >= 0) streamState.held.splice(at, 1); void sse(route, snapshotFrame()).catch(() => undefined); }, 1500);
+      streamState.held.push({ route, timer });
+      return undefined;
     }
     if (path === '/api/v1/office/presence') return options.presence === 'missing' ? error(404, 'not_found', 'Not found.') : json(presenceFixture());
     const work = /^\/api\/v1\/office\/workstations\/([^/]+)\/work$/.exec(path);
@@ -214,5 +270,5 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
     if (path === '/api/v1/tyre/dashboard') return json({ summary: { as_of: now, currency: 'AED', vehicles: 42, tyres_fitted: 250, tyres_in_stock: 30, tyres_removed_last_30_days: 4, tyres_with_readings: 200, average_tread_mm: 8, below_minimum: 3, in_warning_band: 5, pressure_checked: 100, pressure_compliant_pct: 90, under_inflated: 2, over_inflated: 1, overdue_inspections: 6, due_next_30_days: 11, due_next_90_days: 20, cost_per_1000_km: null, cost_per_hour: null, min_tread_mm: 3 }, synced_at: now, alert_counts: { critical: 1, warning: 2 }, top_alerts: [], due_soon: [], due_by_month: {} });
     return route.fallback();
   });
-  return { calls, profileCalls, meeting };
+  return { calls, profileCalls, meeting, stream };
 }

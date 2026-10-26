@@ -17,13 +17,14 @@ import type { AvatarAppearance } from '@anum/contracts';
 import { figureLook, roleFamily, type FigureLook } from './hqAvatar.ts';
 import { buildInteriorRoom, interiorKindFor, type StationSpec, type StationState } from '../hqAssets/interior/index.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
+import { markerParts, STATE_LOOK, type VisualState } from '../hqAssets/interior/stateVisual.ts';
 import { placementsFromSlots, type ModelGroup, type ModelPlacement } from './hqModels.ts';
 
 export const FLOOR_PITCH = 4.2;
 export const WALL_HEIGHT = 3.0;
 const SLAB = 0.3;
 
-export type DeskVisual = 'working' | 'waiting' | 'idle' | 'unknown' | 'vacant' | 'assigned';
+export type DeskVisual = VisualState;
 
 export type BuildingSceneOptions = Readonly<{
   /** Index into `floors` of the floor shown in full. */
@@ -79,18 +80,10 @@ const WOOD = hex('#8a6a4a');
 const WALNUT = hex('#5a3c28');
 const DARK = hex('#26313b');
 const MARBLE = hex('#ece8df');
-const SCREEN: Record<DeskVisual, { color: Rgb; emissive: number }> = {
-  working: { color: hex('#58f0cf'), emissive: 1 },
-  waiting: { color: hex('#ffc861'), emissive: 0.95 },
-  idle: { color: hex('#6aa7ff'), emissive: 0.55 },
-  unknown: { color: hex('#8b95a5'), emissive: 0.3 },
-  assigned: { color: hex('#8b95a5'), emissive: 0.25 },
-  vacant: { color: hex('#232c36'), emissive: 0 },
-};
+const SCREEN = Object.fromEntries((Object.keys(STATE_LOOK) as VisualState[]).map((k) => [k, { color: STATE_LOOK[k].screen, emissive: STATE_LOOK[k].emissive }])) as Record<DeskVisual, { color: Rgb; emissive: number }>;
 
-const STATION_OF: Readonly<Record<DeskVisual, StationState>> = {
-  working: 'working', waiting: 'waiting', idle: 'idle', unknown: 'unknown', vacant: 'vacant', assigned: 'unknown',
-};
+/** Every desk state has its own station look (screen, light, pose, marker); see hqAssets/interior/stateVisual.ts. */
+const STATION_OF: Readonly<Record<DeskVisual, StationState>> = Object.fromEntries((Object.keys(STATE_LOOK) as VisualState[]).map((k) => [k, k])) as Record<DeskVisual, StationState>;
 
 const freeze = (b: MeshBuilder): SceneMesh => ({ vertices: b.toFloat32(), bounds: b.bounds(), triangles: b.triangleCount });
 
@@ -207,6 +200,12 @@ function desk(b: MeshBuilder, d: SceneDesk, y: number, spacing: number, state: D
   b.box(x + w * 0.46, y + h + 0.09 * k, z + dep * 0.18, w * 0.08, 0.16 * k, 0.08, DARK);
   b.box(x + w * 0.22, y + h + 0.25 * k, z + dep * 0.12, w * 0.56, 0.46 * k, 0.06, DARK);
   b.box(x + w * 0.25, y + h + 0.29 * k, z + dep * 0.12 + 0.05, w * 0.5, 0.38 * k, 0.03, screen.color, { emissive: screen.emissive, shade: false });
+  // The status light on the bezel and the marker above the monitor (shape, not only colour).
+  const look = STATE_LOOK[state];
+  if (look.light) b.box(x + w * 0.68, y + h + 0.26 * k, z + dep * 0.12 + 0.07, w * 0.05, 0.025 * k, 0.015, look.light, { emissive: look.lightEmissive, shade: false });
+  for (const part of markerParts(look.marker)) {
+    b.box(x + w * 0.5 + part.u * k - (part.w * k) / 2, y + h + 0.71 * k + part.v * k - (part.h * k) / 2, z + dep * 0.12 + 0.02, part.w * k, part.h * k, 0.03, part.color, { emissive: part.emissive, shade: false });
+  }
   b.box(x + w * 0.28, y + h + 0.09 * k, z + dep * 0.55, w * 0.44, 0.03 * k, dep * 0.22, hex('#aab4be'));
   b.box(x + w * 0.76, y + h + 0.09 * k, z + dep * 0.55, w * 0.08, 0.03 * k, dep * 0.16, hex('#aab4be'));
   // A mug, a paper stack and a task lamp.

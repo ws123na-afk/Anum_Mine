@@ -11,13 +11,15 @@ export type RoomModuleActionProps = Readonly<{
   /** The live meeting held in this room (stored `room_id` on the meeting), so the link opens that meeting. */
   liveMeetingId?: string | null;
   /** Toggles the live flow dock. */
-  onOpenFlow: () => void;
+  /** Toggles the live flow dock; the room id lets the dock show only this room's work. */
+  onOpenFlow: (roomId?: string) => void;
+  roomId?: string;
   /** Opens the Organisation gaps view. */
   onOpenGaps: () => void;
   variant?: 'panel' | 'list';
 }>;
 
-export function RoomModuleAction({ room, canManage = false, liveMeetingId = null, onOpenFlow, onOpenGaps, variant = 'panel' }: RoomModuleActionProps) {
+export function RoomModuleAction({ room, roomId, canManage = false, liveMeetingId = null, onOpenFlow, onOpenGaps, variant = 'panel' }: RoomModuleActionProps) {
   const m = resolveRoomModule({ ...room, liveMeetingId });
   const cls = variant === 'panel' ? 'hqPrimary' : 'hqGhost';
   const moduleName = t(`hqRoomModule.name.${m.id}` as MessageKey);
@@ -31,7 +33,7 @@ export function RoomModuleAction({ room, canManage = false, liveMeetingId = null
       {liveMeetingId && m.target.type !== 'meeting' && (
         <a className={cls} href={meetingHash(liveMeetingId)} data-testid="room-live-meeting">{t('hqRoomModule.openMeeting')}<ArrowRight aria-hidden="true" className="flip" /></a>
       )}
-      {m.target.type === 'flow' && <button type="button" className={cls} data-testid="room-module" onClick={onOpenFlow}>{label}<ArrowRight aria-hidden="true" className="flip" /></button>}
+      {m.target.type === 'flow' && <button type="button" className={cls} data-testid="room-module" onClick={() => onOpenFlow(roomId)}>{label}<ArrowRight aria-hidden="true" className="flip" /></button>}
       {m.target.type === 'none' && (
         <>
           <p className="hqNote" data-testid="room-module-none">{t(m.target.why === 'no_visitor_register' ? 'hqRoomModule.noVisitor' : 'hqRoomModule.noModule')}</p>

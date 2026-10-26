@@ -8,12 +8,15 @@ import type { OfficeFlowSnapshot } from '@anum/contracts';
 import type { ChangeBatch } from './useOfficeFlow';
 import { useFlowLabels } from './HqFlowStage';
 import { ArrowLeft, Building2, ChevronDown, ChevronRight, DoorOpen, HardDrive, Layers, Users } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+
+const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
 import { BottomToolbar, CameraTools, TotalsPanel, statusLabel } from './HqChrome';
 import { AvatarChip } from './AvatarStyleEditor';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
+import { visualOfStatus } from './hqAssets/interior/stateVisual.ts';
 import { buildBuildingScene, frameBuilding, type DeskVisual } from './lib/buildingScene.ts';
-import { buildingCamera, clampTarget, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
+import { buildingCamera, clampInside, clampTarget, insideCamera, isInsideView, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { RoomGeometry, SceneBuilding, SceneDesk, SceneFloor } from './lib/headquartersProjection.ts';
 import { presenceForDesk, totalsOf, type HqPresenceIndex } from './lib/hqPresence.ts';
@@ -24,6 +27,7 @@ import { commerceFlow } from './lib/hqModules.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
+import type { WallModel } from './lib/hqCommandWall.ts';
 
 export type BuildingViewProps = Readonly<{
   workspaceName: string;
@@ -61,15 +65,13 @@ export type BuildingViewProps = Readonly<{
   flow?: Readonly<{ snapshot: OfficeFlowSnapshot | null; batch: ChangeBatch; onPickRoom: (roomId: string) => void }>;
   /** Avatar style and department per agent id, from the agent profiles; an agent with no entry is drawn with the default style. */
   agentStyles?: ReadonlyMap<string, AgentStyleInfo>;
+  /** The operations wall: real numbers (or "Not connected") drawn over an operations room while it is selected. */
+  wall?: Readonly<{ model: WallModel; isOperations: (room: RoomGeometry) => boolean; onReload: () => void }>;
 }>;
 
 export type AgentStyleInfo = Readonly<{ avatar: AvatarAppearance | null; department: string | null }>;
 
 const ROOM_ICON = { meeting: Users, reception: DoorOpen, warehouse: HardDrive } as const;
-
-const DESK_VISUAL: Record<StatusKey, DeskVisual> = {
-  working: 'working', queued: 'idle', meeting: 'idle', waiting_approval: 'waiting', blocked: 'waiting', idle: 'idle', paused: 'unknown', unknown: 'unknown',
-};
 
 export function BuildingView(props: BuildingViewProps) {
   const { building, floor, view, night, presence } = props;
@@ -83,7 +85,7 @@ export function BuildingView(props: BuildingViewProps) {
       for (const d of f.desks) {
         const p = presenceForDesk(presence, d);
         if (!d.agentId && !p) { map.set(d.id, 'vacant'); continue; }
-        map.set(d.id, p ? (p.stale ? 'unknown' : DESK_VISUAL[p.status]) : 'assigned');
+        map.set(d.id, p ? visualOfStatus(p.status, p.stale) : 'assigned');
       }
     }
     return map;
@@ -111,12 +113,19 @@ export function BuildingView(props: BuildingViewProps) {
   const home = useMemo(() => buildingCamera(frame.target, frame.distance, aspect), [frame.target.x, frame.target.z, frame.distance, activeIndex, aspect]); // eslint-disable-line react-hooks/exhaustive-deps
   const [camera, setCamera] = useState<CameraState>(home);
   const homeRef = useRef(home);
+  // Inside holds its own room: closing the room panel (to see the room) must not throw the camera back out.
+  const [insideRoomId, setInsideRoomId] = useState<string | null>(null);
+  const inside = insideRoomId !== null;
+  const insideRef = useRef<string | null>(null);
+  insideRef.current = insideRoomId;
+  const setInside = useCallback((on: boolean) => { if (!on) setInsideRoomId(null); }, []);
   useEffect(() => {
     if (homeRef.current === home) return;
     homeRef.current = home;
+    if (insideRef.current) return; // the Inside view keeps its own camera
     setCamera(view === 'top' ? topView(home) : home);
   }, [home, view]);
-  useEffect(() => { setCamera((c) => (view === 'top' ? topView(c) : threeDView(c))); }, [view]);
+  useEffect(() => { setInside(false); setCamera((c) => (view === 'top' ? topView(isInsideView(c) ? homeRef.current : c) : threeDView(isInsideView(c) ? homeRef.current : c))); }, [view]);
 
   const latest = useRef(props);
   latest.current = props;
@@ -137,8 +146,33 @@ export function BuildingView(props: BuildingViewProps) {
     if (latest.current.nav && !latest.current.reducedMotion) latest.current.nav.bridge.flyTo(next);
     else setCamera(next);
   }, [frameOf]);
+  // Inside: a low camera in the selected room. It follows the selection, and leaves with the room, the floor or the view.
+  const selectedRoom = props.selectedRoomId ? roomById.get(props.selectedRoomId) ?? null : null;
+  const insideOf = useCallback((room: RoomGeometry) => insideCamera(room, activeIndex * 4.2 + 0.06), [activeIndex]);
+  const goTo = useCallback((next: CameraState) => {
+    if (latest.current.nav && !latest.current.reducedMotion) latest.current.nav.bridge.flyTo(next);
+    else setCamera(next);
+  }, []);
+  const toggleInside = useCallback(() => {
+    if (insideRef.current) {
+      setInside(false);
+      goTo(latest.current.view === 'top' ? topView(homeRef.current) : homeRef.current);
+    } else if (selectedRoom) {
+      setInsideRoomId(selectedRoom.id);
+      goTo(insideOf(selectedRoom));
+    }
+  }, [goTo, insideOf, selectedRoom, setInside]);
+  useEffect(() => {
+    const current = insideRef.current;
+    if (!current) return;
+    if (selectedRoom) { setInsideRoomId(selectedRoom.id); goTo(insideOf(selectedRoom)); return; }
+    // The selection went away: stay in the room, unless the floor changed and the room is no longer on it.
+    if (!roomById.has(current)) { setInsideRoomId(null); setCamera(homeNowRef.current); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRoom?.id, activeIndex]);
   const homeNow = useRef(home);
   homeNow.current = view === 'top' ? topView(home) : home;
+  const homeNowRef = homeNow;
   const frameRef = useRef(frameOf);
   frameRef.current = frameOf;
   useEffect(() => props.nav?.bridge.attach({
@@ -200,16 +234,27 @@ export function BuildingView(props: BuildingViewProps) {
         node: <AgentCard chip={hidden ? null : { id: key, avatar: props.agentStyles?.get(key)?.avatar ?? null, department: props.agentStyles?.get(key)?.department ?? p?.role ?? null }} name={hidden ? t('hq.agent.private') : (p?.name || desk.agent?.name || t('hq.agent.assigned'))} role={p?.role ?? null} status={p?.status ?? null} stale={p?.stale === true} selected={key === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(key, desk)} />,
       });
     }
+    const wallRoomId = props.selectedRoomId ?? insideRoomId;
+    if (props.wall && wallRoomId) {
+      const room = roomById.get(wallRoomId);
+      const handle = roomHandle.get(wallRoomId);
+      if (room && handle && props.wall.isOperations(room)) {
+        // The board hangs where the room's video wall is: on the back wall, so the Inside view looks straight at it.
+        list.push({ id: 'wall:' + room.id, anchor: { x: (handle.box.min.x + handle.box.max.x) / 2, y: handle.box.min.y + 1.7, z: handle.box.min.z + 0.5 }, priority: 0, maxDistance: 220, node: <Suspense fallback={null}><HqCommandWall model={props.wall.model} variant="scene" onReload={props.wall.onReload} /></Suspense> });
+      }
+    }
     return [...list, ...flowLabels];
-  }, [scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels]);
+  }, [roomById, insideRoomId, props.wall, scene, floor, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels]);
 
   const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
-  const change = (fn: (c: CameraState) => CameraState) => setCamera((c) => clampTarget(fn(c), 400));
+  const insideRoom = insideRoomId ? roomById.get(insideRoomId) ?? null : null;
+  const keep = (c: CameraState): CameraState => (insideRoom && isInsideView(c) ? clampInside(c, insideRoom) : clampTarget(c, 400));
+  const change = (fn: (c: CameraState) => CameraState) => setCamera((c) => keep(fn(c)));
   const stepFloor = (d: 1 | -1) => { const f = floors[activeIndex + d]; if (f) props.onSelectFloor(f.id); };
   const roomsTotal = floors.reduce((n, f) => n + f.rooms.length, 0);
 
   return (
-    <div className="hqBuilding">
+    <div className="hqBuilding" data-inside={inside} onKeyDown={(e) => { if (e.key === 'Escape' && insideRef.current) { e.stopPropagation(); toggleInside(); } }}>
       <div className="hqBuildingBar">
         <nav className="hqCrumbs" aria-label={t('hq.crumb.label')}>
           <ol>
@@ -253,11 +298,11 @@ export function BuildingView(props: BuildingViewProps) {
         </div>
       </div>
 
-      <div className="hqSceneWrap" ref={wrap}>
+      <div className="hqSceneWrap" ref={wrap} data-camera-distance={camera.distance.toFixed(2)} data-camera-eye-y={(camera.target.y + Math.sin((camera.pitch * Math.PI) / 180) * camera.distance).toFixed(2)}>
         <HqStage
           label={t('hq.building.stageLabel', { name: props.workspaceName, floor: floor.name })} description={t('hq.building.stageHelp')}
           scene={renderScene} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
-          onCamera={(c) => setCamera(clampTarget(c, 400))} night={night} reducedMotion={props.reducedMotion}
+          onCamera={(c) => setCamera(keep(c))} night={night} reducedMotion={props.reducedMotion}
           hoverId={null} selectedId={null} onHover={() => undefined}
           onPick={pickRoom} labels={labels} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
         />
@@ -273,12 +318,13 @@ export function BuildingView(props: BuildingViewProps) {
           <CameraTools
             yaw={camera.yaw} night={night} onNight={props.onNight}
             onZoomIn={() => change((c) => zoomBy(c, 0.8))} onZoomOut={() => change((c) => zoomBy(c, 1.25))}
-            onReset={() => setCamera(view === 'top' ? topView(home) : home)} onNorth={() => change(faceNorth)}
+            onReset={() => { setInside(false); setCamera(view === 'top' ? topView(home) : home); }} onNorth={() => change(faceNorth)}
           />
         </div>
         {props.side && <div className="hqOverlay hqSideOverlay">{props.side}</div>}
         <div className="hqOverlay hqOverlayBottom">
           <BottomToolbar
+            inside={{ active: inside, disabled: !selectedRoom || view === 'top', onToggle: toggleInside }}
             onRotateLeft={() => change((c) => rotateBy(c, -20))} onRotateRight={() => change((c) => rotateBy(c, 20))}
             onPrev={() => stepFloor(-1)} onNext={() => stepFloor(1)} prevLabel={t('hq.floor.down')} nextLabel={t('hq.floor.up')}
             onZoomIn={() => change((c) => dolly(c, -250))} onZoomOut={() => change((c) => dolly(c, 250))}

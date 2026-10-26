@@ -3,13 +3,25 @@
  * bottom toolbar, totals panel with donut, and the minimap. The app's own sidebar and top bar stay
  * the only navigation; this file adds only what is specific to the scene.
  */
-import { Box, ChevronLeft, ChevronRight, Crosshair, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Maximize } from 'lucide-react';
+import { Box, DoorOpen, ChevronLeft, ChevronRight, Crosshair, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Maximize } from 'lucide-react';
 import { useId, useRef, useState, type ReactElement } from 'react';
 import { arcPath, donutArcs, STATUS_ORDER, STATUS_TONE, type CampusTotals, type Placement, type StatusKey } from './lib/campusModel.ts';
 import { mapToWorld, worldToMap } from './lib/hqCamera.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
+import type { PresenceLink } from './lib/presenceStream.ts';
 
 export type HqView = '3d' | 'top' | 'list';
+
+/** Whether the people on the scene are updating by themselves: Live, Reconnecting, Polling, or Not connected. */
+export function PresenceLinkChip({ link }: { link: PresenceLink }) {
+  const key = link === 'live' ? 'live' : link === 'reconnecting' ? 'reconnecting' : link === 'polling' ? 'polling' : link === 'connecting' ? 'connecting' : link === 'denied' ? 'denied' : 'offline';
+  const tone = link === 'live' ? 'ok' : link === 'polling' || link === 'reconnecting' || link === 'connecting' ? 'warn' : 'stop';
+  return (
+    <span className={`hqConn hqLink tone-${tone}`} role="status" data-testid="hq-live-link" data-link={link} title={t(`hq.live.${key}.hint` as MessageKey)}>
+      {t(`hq.live.${key}` as MessageKey)}
+    </span>
+  );
+}
 
 export const statusLabel = (key: StatusKey): string => t(`hq.status.${key}` as MessageKey);
 
@@ -59,6 +71,8 @@ export function BottomToolbar(props: {
   onRotateLeft: () => void; onRotateRight: () => void; onPrev?: () => void; onNext?: () => void;
   prevLabel?: string; nextLabel?: string; fullscreen: boolean; onFullscreen: () => void;
   onZoomIn: () => void; onZoomOut: () => void;
+  /** The Inside view of the selected room: absent on screens that have no rooms. */
+  inside?: { active: boolean; disabled: boolean; onToggle: () => void };
 }) {
   return (
     <div className="hqToolbar" role="toolbar" aria-label={t('hq.tool.label')}>
@@ -66,6 +80,12 @@ export function BottomToolbar(props: {
       {props.onPrev && <button type="button" onClick={props.onPrev} aria-label={props.prevLabel ?? t('hq.tool.prev')} title={props.prevLabel ?? t('hq.tool.prev')}><ChevronLeft aria-hidden="true" className="flip" /></button>}
       {props.onNext && <button type="button" onClick={props.onNext} aria-label={props.nextLabel ?? t('hq.tool.next')} title={props.nextLabel ?? t('hq.tool.next')}><ChevronRight aria-hidden="true" className="flip" /></button>}
       <button type="button" onClick={props.onRotateRight} data-draws="" aria-label={t('hq.tool.rotateRight')} title={t('hq.tool.rotateRight')}><RotateCw aria-hidden="true" /><span>{t('hq.tool.rotateRight')}</span></button>
+      {props.inside && (
+        <button type="button" onClick={props.inside.onToggle} disabled={props.inside.disabled && !props.inside.active} aria-pressed={props.inside.active} data-testid="hq-inside" data-draws=""
+          aria-label={props.inside.active ? t('hq.inside.leave') : t('hq.inside.enter')} title={props.inside.disabled && !props.inside.active ? t('hq.inside.pickRoom') : props.inside.active ? t('hq.inside.leave') : t('hq.inside.enter')}>
+          <DoorOpen aria-hidden="true" /><span>{props.inside.active ? t('hq.inside.leaveShort') : t('hq.inside.enterShort')}</span>
+        </button>
+      )}
       <span className="hqToolbarSep" aria-hidden="true" />
       <button type="button" onClick={props.onZoomOut} data-draws="" aria-label={t('hq.cam.zoomOut')} title={t('hq.cam.zoomOut')}><Minus aria-hidden="true" /></button>
       <button type="button" onClick={props.onZoomIn} data-draws="" aria-label={t('hq.cam.zoomIn')} title={t('hq.cam.zoomIn')}><Plus aria-hidden="true" /></button>

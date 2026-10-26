@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { mockHq } from './support/hqCampusApi';
+import { sceneReady } from './support/hqScene';
 import { useSavedLocale } from './support/workspaceApi';
 
 // The guided visit of the headquarters (docs/ANUM_MINE_EXECUTIVE_PA.md#guided-tour): every stop is a room from
@@ -32,14 +33,16 @@ async function openVisit(page: Page, tour: Tour, size = { width: 1440, height: 9
   await page.setViewportSize(size);
   await page.goto('/#office-preview');
   await expect(hq(page).getByRole('heading', { level: 1 })).toBeVisible();
-  await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible();
+  await sceneReady(page);
   await expect(hq(page).locator('.hqBuildingCard').first()).toBeAttached({ timeout: 60_000 });
   await hq(page).getByRole('button', { name: /^(Office tools|أدوات المكتب)/ }).click();
   await page.getByRole('button', { name: /^(Guided visit|جولة إرشادية)$/ }).click();
   await expect(visit(page)).toBeVisible();
   return seen;
 }
-const noOverflow = async (page: Page) => expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+// The scene's label cards are placed on the next drawn frame after a resize, so the width settles a moment after `setViewportSize`: wait for it
+// to settle (a persistent overflow still fails) instead of reading it in the middle of the move.
+const noOverflow = async (page: Page) => expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), { timeout: 15_000, intervals: [100, 250, 500, 1000] }).toBeLessThanOrEqual(0);
 
 test('the visit walks the real rooms only, describes them from the registry and moves the view', async ({ page }) => {
   await openVisit(page, 'ready');

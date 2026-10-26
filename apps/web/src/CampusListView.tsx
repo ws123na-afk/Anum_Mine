@@ -19,7 +19,7 @@ export function CampusListView(props: Readonly<{
   detail: readonly SceneBuilding[];
   onEnter: (workspaceId: string) => void;
   onOpenRoom: (workspaceId: string, floorId: string, roomId: string) => void;
-  canManage?: boolean; onOpenFlow?: () => void; onOpenGaps?: () => void;
+  canManage?: boolean; onOpenFlow?: (roomId?: string) => void; onOpenGaps?: () => void;
   /** Live meetings by room id (stored on the meeting). A room in the map shows "In a meeting". */
   liveMeetings?: ReadonlyMap<string, RoomMeeting>;
 }>) {
@@ -80,7 +80,7 @@ export function CampusListView(props: Readonly<{
                                       <small>{t(`hq.roomKind.${r.kind}` as MessageKey)} · {t('hq.list.desks', { count: desks.length })}</small>
                                     </button>
                                     {live && <span className="hqPill tone-ok" data-testid="list-in-meeting">{t('hq.room.inMeeting')}</span>}
-                                    <RoomModuleAction variant="list" liveMeetingId={live?.meetingId ?? null} room={{ department: r.teamDepartment, kind: r.kind, name: r.label, buildingKind: b.kind }} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? (() => undefined)} onOpenGaps={props.onOpenGaps ?? (() => undefined)} />
+                                    <RoomModuleAction variant="list" roomId={r.id} liveMeetingId={live?.meetingId ?? null} room={{ department: r.teamDepartment, kind: r.kind, name: r.label, buildingKind: b.kind }} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? (() => undefined)} onOpenGaps={props.onOpenGaps ?? (() => undefined)} />
                                   </li>
                                 );
                               })}

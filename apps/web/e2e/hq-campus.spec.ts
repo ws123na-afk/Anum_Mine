@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mockHq, type HqMockOptions } from './support/hqCampusApi';
 import { useSavedLocale } from './support/workspaceApi';
+import { reloadReleasingGl, sceneReady } from './support/hqScene';
 
 // ANUM MINE headquarters (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md): the campus of workspaces, the
 // building cutaway, the accessible list, the no-WebGL fallback and the navigation command. The API is
@@ -24,7 +25,7 @@ async function enterFleetBuilding(page: Page) {
 test('the campus shows one building per workspace with real counts, and opens a building', async ({ page }) => {
   await openOffice(page);
   const canvas = hq(page).locator('canvas.hqCanvas');
-  await expect(canvas).toBeVisible();
+  await sceneReady(page);
   for (const name of ['Executive HQ', 'Al Noor Fleet HQ', 'Tyre Pulse HQ', 'ANUM360 Commerce', 'Personal Office', 'Legal and Compliance']) {
     await expect(hq(page).getByRole('button', { name: new RegExp('^' + name + '\\.') })).toBeAttached();
   }
@@ -53,15 +54,15 @@ test('the scene runs on the three.js renderer and the quality can be pinned: sha
   await page.addInitScript(() => { try { if (localStorage.getItem('anum.hq.quality') === null) localStorage.setItem('anum.hq.quality', '3'); localStorage.setItem('anum.hq.light', 'night'); } catch { /* storage blocked */ } });
   await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
   await page.goto('/#office-preview');
-  await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible();
+  await sceneReady(page);
   await expect.poll(async () => (await stats()).engine ?? '', { timeout: 90_000 }).toMatch(/three/i);
   // Highest quality at night: a 2048 px shadow map and the bloom pass for lit windows and signs.
   await expect.poll(async () => (await stats()).shadow, { timeout: 90_000 }).toBe('2048');
   await expect.poll(async () => (await stats()).bloom, { timeout: 90_000 }).toBe('true');
   // Lowest quality: no shadow map and no glow.
   await page.evaluate(() => localStorage.setItem('anum.hq.quality', '0'));
-  await page.reload();
-  await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible();
+  await reloadReleasingGl(page);
+  await sceneReady(page);
   await expect.poll(async () => (await stats()).shadow, { timeout: 90_000 }).toBe('0');
   expect((await stats()).bloom).toBe('false');
 });
@@ -73,7 +74,7 @@ test('night glow is off under reduced motion', async ({ page }) => {
   await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
   await page.goto('/#office-preview');
   const canvas = hq(page).locator('canvas.hqCanvas');
-  await expect(canvas).toBeVisible();
+  await sceneReady(page);
   await expect.poll(async () => canvas.evaluate((el) => (el as HTMLCanvasElement).dataset.shadow ?? ''), { timeout: 90_000 }).toBe('2048');
   expect(await canvas.getAttribute('data-bloom')).toBe('false');
 });
@@ -86,7 +87,7 @@ test('night and day both draw and the toggle keeps the page inside the viewport'
   await page.waitForTimeout(700);
   await hq(page).getByRole('button', { name: 'Day', exact: true }).click();
   await expect(hq(page).locator('.hqStage')).toHaveAttribute('data-night', 'false');
-  await expect(canvas).toBeVisible();
+  await sceneReady(page);
   expect(Number(await canvas.getAttribute('data-triangles'))).toBeGreaterThan(20000);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
 });
@@ -262,7 +263,7 @@ test('the scene is reachable from the keyboard', async ({ page }) => {
   await page.keyboard.press('q');
   await page.keyboard.press('+');
   await page.keyboard.press('0');
-  await expect(canvas).toBeVisible();
+  await sceneReady(page);
   await expect(hq(page).getByRole('button', { name: 'Next building' })).toBeEnabled();
 });
 
@@ -285,7 +286,7 @@ test('without WebGL the list and the 2D floor plan take over', async ({ page }) 
 test('a lost GPU context is announced and the scene comes back', async ({ page }) => {
   await openOffice(page);
   const canvas = hq(page).locator('canvas.hqCanvas');
-  await expect(canvas).toBeVisible();
+  await sceneReady(page);
   // The renderer loads on demand: wait until it owns the canvas before taking its GPU context away.
   await expect(canvas).toHaveAttribute('data-engine', /three/, { timeout: 30_000 });
   await page.evaluate(() => {
@@ -335,7 +336,7 @@ test('the executive PA dock sits beside the scene and its navigation moves the c
     if (path.endsWith('/invoke')) return json({ tool: 'navigate', status: 'ok', navigate: { building_id: stop.building_id, floor_id: stop.floor_id, room_id: stop.room_id } });
     return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
   });
-  await page.reload();
+  await reloadReleasingGl(page);
   const dock = hq(page).getByRole('complementary', { name: /assistant|PA/i });
   await expect(dock).toBeVisible();
   await dock.locator('#pa-input').fill('go to Finance');
@@ -383,7 +384,7 @@ test('draw time stays low while the camera moves (measured on this machine)', as
   test.setTimeout(120_000);
   await openOffice(page);
   const canvas = hq(page).locator('canvas.hqCanvas');
-  await expect(canvas).toBeVisible();
+  await sceneReady(page);
   const box = (await canvas.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   const frames = await page.evaluate(async () => {
