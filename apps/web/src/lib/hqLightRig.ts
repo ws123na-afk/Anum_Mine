@@ -89,5 +89,5 @@ const NIGHT: Grade = { exposure: 1.0, vignette: 0.38, grain: 0.05, shafts: 0.25,
 /** The part of the picture kept sharp: the depth range around the focus distance, as a fraction of it (a camera at a building gets a blurred skyline). */
 export function focusRange(distance: number): Readonly<{ focus: number; aperture: number; maxBlur: number }> {
   const focus = Math.max(8, distance);
-  return { focus, aperture: 0.0000085 * Math.min(1, 160 / focus), maxBlur: 0.0042 };
+  return { focus, aperture: 0.00005 * Math.min(1, 120 / focus), maxBlur: 0.004 };
 }

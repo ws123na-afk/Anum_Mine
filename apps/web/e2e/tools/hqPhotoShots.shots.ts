@@ -18,6 +18,14 @@ async function open(page: Page, layout: 'full' | 'starter', light: string) {
   await expect(hq(page).getByRole('heading', { level: 1 })).toBeVisible();
   await expect(page.locator('canvas.hqCanvas')).toHaveAttribute('data-engine', /three/, { timeout: 120_000 });
   await page.waitForTimeout(Number(process.env.LOOK_WAIT ?? 6000));
+  await settle(page);
+}
+
+/** Tier 4 on software GL needs minutes for the first frame (shader compile): wait until the post stack reports it ran. */
+async function settle(page: Page) {
+  if (Q !== '4') return;
+  await expect.poll(() => page.locator('canvas.hqCanvas').getAttribute('data-fx'), { timeout: 420_000, intervals: [3000] }).toContain('gtao');
+  await page.waitForTimeout(4000);
 }
 const shot = async (page: Page, name: string) => {
   await page.addStyleTag({ content: '.hqStage > :not(canvas){visibility:hidden !important}' });
@@ -26,7 +34,7 @@ const shot = async (page: Page, name: string) => {
 
 for (const light of LIGHTS) {
   test(`campus ${light}`, async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(900_000);
     await page.setViewportSize({ width: 1440, height: 900 });
     await open(page, 'starter', light);
     await shot(page, `campus-${light}`);
@@ -35,18 +43,18 @@ for (const light of LIGHTS) {
     const i = Math.min(n - 1, Number(process.env.LOOK_STOP ?? 1));
     if (i >= 0) {
       await stops.nth(i).click({ force: true });
-      await page.waitForTimeout(5500);
+      await page.waitForTimeout(Q === '4' ? 20_000 : 5500);
       await shot(page, `close-${light}`);
     }
   });
   test(`building ${light}`, async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(900_000);
     await page.setViewportSize({ width: 1440, height: 900 });
     await open(page, 'full', light);
     await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click({ force: true });
     await hq(page).getByRole('button', { name: 'Open Al Noor Fleet HQ' }).click();
     await expect(hq(page).getByRole('heading', { level: 2, name: 'Al Noor Fleet HQ' })).toBeVisible();
-    await page.waitForTimeout(7000);
+    await page.waitForTimeout(Q === '4' ? 25_000 : 7000);
     await shot(page, `room-${light}`);
   });
 }
