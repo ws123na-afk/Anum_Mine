@@ -26,6 +26,7 @@ import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
 import { commerceFlow } from './lib/hqModules.ts';
 import { buildingModules } from './lib/hqBuildingModules.ts';
 import { floorLifts } from './lib/hqFloorLift.ts';
+import { LIFT_MS, easeLift } from './lib/hqRenderTypes.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
@@ -116,6 +117,23 @@ export function BuildingView(props: BuildingViewProps) {
   const [camera, setCamera] = useState<CameraState>(home);
   const homeRef = useRef(home);
   const shownFloor = useRef(activeIndex);
+  // A short eased glide of the camera to the new floor's framing. It makes no announcement of its own (the floor note does) and a
+  // person's own camera input or the next change of floor ends it.
+  const glideRaf = useRef<number | null>(null);
+  const stopGlide = () => { if (glideRaf.current !== null) { cancelAnimationFrame(glideRaf.current); glideRaf.current = null; } };
+  const glide = (to: CameraState) => {
+    if (glideRaf.current !== null) cancelAnimationFrame(glideRaf.current);
+    const from = cameraRef.current;
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const k = easeLift((now - t0) / LIFT_MS);
+      const mix = (a: number, b: number) => a + (b - a) * k;
+      setCamera({ ...to, target: { x: mix(from.target.x, to.target.x), y: mix(from.target.y, to.target.y), z: mix(from.target.z, to.target.z) }, distance: mix(from.distance, to.distance), yaw: mix(from.yaw, to.yaw), pitch: mix(from.pitch, to.pitch) });
+      glideRaf.current = k < 1 ? requestAnimationFrame(step) : null;
+    };
+    glideRaf.current = requestAnimationFrame(step);
+  };
+  useEffect(() => () => { if (glideRaf.current !== null) cancelAnimationFrame(glideRaf.current); }, []);
   // Inside holds its own room: closing the room panel (to see the room) must not throw the camera back out.
   const [insideRoomId, setInsideRoomId] = useState<string | null>(null);
   const inside = insideRoomId !== null;
@@ -130,7 +148,7 @@ export function BuildingView(props: BuildingViewProps) {
     // A change of floor glides the camera to the new floor (reduced motion jumps); any other new framing is applied at once.
     const floorChanged = shownFloor.current !== activeIndex;
     shownFloor.current = activeIndex;
-    if (floorChanged && latest.current.nav && !latest.current.reducedMotion) latest.current.nav.bridge.flyTo(next);
+    if (floorChanged && !latest.current.reducedMotion) glide(next);
     else setCamera(next);
   }, [home, view]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setInside(false); setCamera((c) => (view === 'top' ? topView(isInsideView(c) ? homeRef.current : c) : threeDView(isInsideView(c) ? homeRef.current : c))); }, [view]);
@@ -269,7 +287,7 @@ export function BuildingView(props: BuildingViewProps) {
   const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
   const insideRoom = insideRoomId ? roomById.get(insideRoomId) ?? null : null;
   const keep = (c: CameraState): CameraState => (insideRoom && isInsideView(c) ? clampInside(c, insideRoom) : clampTarget(c, 400));
-  const change = (fn: (c: CameraState) => CameraState) => setCamera((c) => keep(fn(c)));
+  const change = (fn: (c: CameraState) => CameraState) => { stopGlide(); setCamera((c) => keep(fn(c))); };
   const stepFloor = (d: 1 | -1) => { const f = floors[activeIndex + d]; if (f) props.onSelectFloor(f.id); };
   const roomsTotal = floors.reduce((n, f) => n + f.rooms.length, 0);
   const modules = useMemo(() => buildingModules(building), [building]);
@@ -334,7 +352,7 @@ export function BuildingView(props: BuildingViewProps) {
         <HqStage
           label={t('hq.building.stageLabel', { name: props.workspaceName, floor: floor.name })} description={t('hq.building.stageHelp')}
           scene={renderScene} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
-          onCamera={(c) => setCamera(keep(c))} night={night} reducedMotion={props.reducedMotion}
+          onCamera={(c) => { stopGlide(); setCamera(keep(c)); }} night={night} reducedMotion={props.reducedMotion}
           hoverId={null} selectedId={null} onHover={() => undefined}
           onPick={pickRoom} labels={labels} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
         />

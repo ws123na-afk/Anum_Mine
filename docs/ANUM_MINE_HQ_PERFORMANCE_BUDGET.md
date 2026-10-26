@@ -65,6 +65,6 @@ Raise a budget only with a measured reason written here; never to make the test 
 
 ## Look pass, 25 October 2026
 
-Building modules and floor cut-away (see [building modules](ANUM_MINE_HQ_BUILDING_MODULES.md)): lazy HQ JS 130,923 bytes gzip, renderer chunk 154,939, CSS 11,521; no budget was raised.
+Building modules and floor cut-away (see [building modules](ANUM_MINE_HQ_BUILDING_MODULES.md)): lazy HQ JS 131,231 bytes gzip, renderer chunk 154,879, CSS 11,542; no budget was raised.
 
 No budget was raised. After the [building look pass](ANUM_MINE_HQ_BUILDING_LOOK.md): lazy HQ JS 131,351 bytes gzip (limit 135,000), renderer chunk 153,657 (limit 160,000). The starter campus is about 77,000 triangles (the environment kit cap rose from 26,000 to 36,000 for rounder foliage); frame work stays bounded because the scene is static and the quality ladder is unchanged.
