@@ -164,3 +164,19 @@ test('a room card gives up detail around a seated agent instead of hiding it', (
   const boxes = out.map((p) => ({ x0: p.x - sizes[p.density].w / 2, x1: p.x + sizes[p.density].w / 2, y0: p.y - sizes[p.density].h, y1: p.y }));
   assert.ok(!(boxes[0].x0 < boxes[1].x1 - 2 && boxes[0].x1 > boxes[1].x0 + 2 && boxes[0].y0 < boxes[1].y1 - 2 && boxes[0].y1 > boxes[1].y0 + 2), 'and do not overlap');
 });
+
+test('a building or room off the edge of the stage stays reachable (parked inside the stage, invisible); an agent card is hidden', () => {
+  const far = { x: 400, y: 4, z: 0 };
+  const out = layoutLabels([
+    { id: 'building', anchor: far, priority: 0 },
+    { id: 'room', anchor: far, priority: 1, tiers: ['full', 'compact', 'dot'] },
+    { id: 'agent', anchor: far, priority: 2, tiers: ['full', 'compact', 'dot'] },
+  ], vp, 1200, 700, sizeOf, 60);
+  const [building, room, agent] = out;
+  for (const p of [building, room]) {
+    assert.equal(p.shown, false, 'not drawn');
+    assert.equal(p.crowded, true, 'kept in the page for keyboard and screen readers');
+    assert.ok(p.x >= 0 && p.x <= 1200 && p.y >= 0 && p.y <= 640, 'parked inside the stage so a focused card can be seen');
+  }
+  assert.equal(agent.crowded, undefined, 'an agent card off the edge is hidden');
+});

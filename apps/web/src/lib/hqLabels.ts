@@ -87,7 +87,16 @@ export function layoutLabels(
     const px = ndcToPixels(p, width, height);
     const away = input.maxDistance !== undefined && p.depth > input.maxDistance;
     const inView = p.visible && !away && px.x > -60 && px.x < width + 60 && px.y > -90 && px.y < height + 120;
-    if (!inView) { hide(input, p.depth); continue; }
+    if (!inView) {
+      // A building or room that is only off the edge of the stage stays in the page for keyboard and screen reader users (invisible,
+      // shown where it can be reached when it takes focus); an agent card, or a card beyond its distance, is hidden.
+      if (away || (input.priority ?? 1) >= 2) { hide(input, p.depth); continue; }
+      const { w, h } = sizeOf(input.id, input.tiers?.[input.tiers.length - 1] ?? 'full');
+      const x = Math.max(w / 2 + 4, Math.min(width - w / 2 - 4, Number.isFinite(px.x) ? px.x : width / 2));
+      const y = Math.min(Math.max(Number.isFinite(px.y) ? px.y : height / 2, h + 6), height - bottomInset);
+      out.set(input.id, { id: input.id, x, y, depth: p.depth, shown: false, shifted: 0, density: 'full', occluded: false, crowded: true });
+      continue;
+    }
     items.push({ input, x: px.x, y: px.y, depth: p.depth });
   }
   items.sort((a, b) => (a.input.priority ?? 1) - (b.input.priority ?? 1) || a.depth - b.depth);
