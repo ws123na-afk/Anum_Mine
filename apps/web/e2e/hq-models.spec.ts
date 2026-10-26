@@ -15,6 +15,9 @@ async function enterFleetBuilding(page: Page, options: HqMockOptions = {}) {
   await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
   await hq(page).getByRole('button', { name: 'Open Al Noor Fleet HQ' }).click();
   await expect(hq(page).getByRole('heading', { level: 2, name: 'Al Noor Fleet HQ' })).toBeVisible();
+  // These specs count the people of the open floor. The cutaway draws every floor by default, so switch to the open floor alone.
+  await hq(page).getByRole('checkbox', { name: /All floors/ }).uncheck();
+  await expect(hq(page).locator('.hqSceneWrap')).toHaveAttribute('data-stack', 'false');
 }
 
 test('the building draws loaded sofas and one seated person per assigned desk, within the byte budget', async ({ page }) => {
@@ -32,7 +35,7 @@ test('the building draws loaded sofas and one seated person per assigned desk, w
 test('a desk without an assignment draws no one', async ({ page }) => {
   await enterFleetBuilding(page, { extraDesks: [{ id: 'desk_e1', roomId: 'room_care', label: 'Desk 3', agentId: null }, { id: 'desk_e2', roomId: 'room_care', label: 'Desk 4', agentId: null }] });
   await expect.poll(() => canvas(page).getAttribute('data-models-loaded'), { timeout: 60_000 }).toMatch(/^(\d+)\/\1$/);
-  expect(await canvas(page).getAttribute('data-model-figures')).toBe('3');
+  await expect.poll(() => canvas(page).getAttribute('data-model-figures'), { timeout: 30_000 }).toBe('3');
 });
 
 test('a new assignment adds one person and nothing else changes the head count', async ({ page }) => {

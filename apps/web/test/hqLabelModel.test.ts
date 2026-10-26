@@ -52,7 +52,7 @@ test('stacked mode labels every floor inside the floor, below the slab above, an
   for (const s of specs) {
     assert.equal(s.anchor.y, s.floor * FLOOR_PITCH + STACKED_LABEL_Y);
     assert.ok(s.anchor.y < (s.floor + 1) * FLOOR_PITCH - SLAB_M, 'the label hangs under the slab of the floor above');
-    assert.equal(s.occluders.length, floors.length - 1 - s.floor, 'one slab per floor above');
+    assert.equal(s.occluders.length, s.floor === 0 ? 0 : floors.length - 1 - s.floor, 'one slab per floor above, none over the open floor');
   }
   assert.deepEqual(specs.filter((s) => s.floor === 2).map((s) => s.occluders.length), [0], 'the top floor has no slab over it');
 });

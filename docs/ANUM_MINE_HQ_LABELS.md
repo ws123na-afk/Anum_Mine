@@ -21,7 +21,7 @@ Code: `apps/web/src/lib/hqLabels.ts` (placement), `lib/hqLabelModel.ts` (what th
 
 - A label is anchored to the room centre at its floor's height: `y = floorIndex * FLOOR_PITCH` (`lib/buildingScene.ts`) plus the wall height and half a metre in the single floor view, or `STACKED_LABEL_Y` (1.9 m) inside the floor in the stacked view.
 - Single floor view: only the active floor has labels. Every other floor is cut away, so it has none.
-- Stacked view (All floors): every floor has labels, hung inside its floor under the slab above. The renderer's slabs are known boxes, so a label is hidden by a depth test while any slab of a higher floor stands between the eye and its anchor (`isOccluded`, a segment against box test run per frame on the camera eye). Each floor also gets one tag on the edge of its floor nearest the eye, so no slab can cover it; clicking it shows that floor. A room label of another floor opens that floor; the room panel opens from the floor itself.
+- Stacked view (All floors, the section view's default): room and agent cards stay on the open floor only, hung above the rooms like the single floor view, so the stack does not carry every room's card at once. Each floor also gets one tag on the edge of its floor nearest the eye, so no slab can cover it; clicking it shows that floor. The depth test (`isOccluded`, a segment against box test on the camera eye, with the floor slabs as boxes) and the stacked anchors (`STACKED_LABEL_Y`) are kept in `lib/hqLabels.ts` and `lib/hqLabelModel.ts` and unit tested, but the building view does not use them while the cutaway keeps the open floor visible. A card whose anchor leaves the stage is not drawn but stays in the page (invisible, drawn at the edge when it takes focus) for keyboard and screen reader users; agent cards and cards beyond their distance are hidden.
 - The floor overview keeps its own room cards (kind, desks, agents).
 
 ## Density
@@ -53,7 +53,7 @@ No React render per frame. The cards are DOM nodes written by `placeLabels` only
 
 ## Tests
 
-- Unit: `test/hqLabelModel.test.ts` (subtitle facts, anchors and floor height, slab occlusion, density with 60 rooms, agents that do not move), `test/hqLabelsPresence.test.ts` (placement).
+- Unit: `test/hqLabelModel.test.ts` (subtitle facts, anchors and floor height, slab occlusion (library), density with 60 rooms, agents that do not move), `test/hqLabelsPresence.test.ts` (placement).
 - Browser: `e2e/hq-labels.spec.ts` (cards, density, stacked view, states: no agents, presence not connected, flow not connected, denied, Arabic, axe). Local render check: `e2e/hq-labels-look.local.spec.ts`.
 
 ## Not in this change

@@ -63,7 +63,7 @@ export function roomLabelSpecs(args: Readonly<{
         id: `room:${room.id}`, kind: 'room', roomId: room.id, floor: fi,
         anchor: roomAnchor(room, fi, args.mode, args.wallHeight, pitch), priority: selected ? 0 : 1,
         tiers: selected ? ['full'] : args.mode === 'stacked' ? ['compact', 'dot'] : ['full', 'compact', 'dot'],
-        occluders: args.mode === 'stacked' ? args.above?.[fi] ?? [] : [], maxDistance: 160,
+        occluders: args.mode === 'stacked' && fi !== args.activeIndex ? args.above?.[fi] ?? [] : [], maxDistance: 160,
       });
     }
   });

@@ -29,7 +29,7 @@ function threeFloors(seated: readonly string[] = ['agent_fleet', 'agent_leads', 
   return { buildings: base.buildings, floors, rooms, desks };
 }
 
-async function open(page: Page, options: Parameters<typeof openHq>[1] & { flowFail?: number | null; flowSources?: Record<string, string> } = {}) {
+async function open(page: Page, options: Parameters<typeof openHq>[1] & { flowFail?: number | null; flowSources?: Record<string, string>; stacked?: boolean } = {}) {
   const mock = await openHq(page, {
     registry: threeFloors() as unknown as ReturnType<typeof hqRegistry>, ...options,
     beforeGoto: async (p) => { const flow = await mockFlow(p); if (options.flowSources) flow.set(flowItems(), options.flowSources); if (options.flowFail !== undefined) flow.failWith(options.flowFail); },
@@ -39,6 +39,8 @@ async function open(page: Page, options: Parameters<typeof openHq>[1] & { flowFa
   await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).dispatchEvent('click', undefined, { timeout: 60_000 });
   await hq(page).getByRole('button', { name: /^(Open|فتح) \u2068?Al Noor Fleet HQ\u2069?$/ }).click();
   await expect(hq(page).getByRole('heading', { level: 2, name: 'Al Noor Fleet HQ' })).toBeVisible();
+  // The section view opens with every floor (docs/ANUM_MINE_HQ_CUTAWAY.md); these tests read one floor unless they ask for the stack.
+  if (options.stacked !== true) await hq(page).locator('.hqCheck input[type="checkbox"]').first().uncheck();
   return mock;
 }
 const roomCards = (page: Page) => hq(page).locator('.hqBuilding .hqRoomCard');
@@ -100,7 +102,7 @@ test('the density rule: cards never overlap, and a crowded view uses the smaller
   }
 });
 
-test('single floor: only that floor is labelled; the stacked view labels every floor, tags each floor and hides what a slab covers', async ({ page }) => {
+test('single floor: only that floor is labelled; the stacked view tags every floor and keeps the open floor labelled', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await open(page);
   await hq(page).getByRole('button', { name: /Hide side panels/ }).click();
@@ -111,17 +113,12 @@ test('single floor: only that floor is labelled; the stacked view labels every f
   await expect(hq(page).locator('.hqRoomCard', { hasText: 'Alpha Boardroom' })).toHaveCount(1);
   await expect(roomCards(page)).toHaveCount(1);
   await selector.getByRole('button', { name: 'Stack the floors' }).click();
-  await expect(roomCards(page)).toHaveCount(5);
+  // The stack tags every floor; the room cards stay on the open floor (the other floors are reached by their tag).
   await expect(hq(page).locator('.hqFloorTag')).toHaveCount(3);
-  await page.waitForTimeout(1500);
-  // Depth test: a card whose floor has a slab over it from the camera is not drawn (display none) and flagged occluded.
+  await expect(roomCards(page)).toHaveCount(1);
+  await page.waitForTimeout(2000);
   await expect(hq(page).locator('.hqFloorTag[data-selected="true"]')).toBeVisible();
-  // Seen from straight above, the floors over the ground floor rooms cover them: those cards are hidden by the depth test, not drawn on the roof.
-  await hq(page).locator('.hqSegment').getByRole('button', { name: 'Top' }).click();
-  await page.waitForTimeout(2500);
-  const slabbed = hq(page).locator('.hqLabelAnchor[data-occluded="true"]');
-  expect(await slabbed.count(), 'the ground floor cards under the upper floors are behind their slabs').toBeGreaterThan(0);
-  for (const node of await slabbed.all()) expect(await node.evaluate((el) => (el as HTMLElement).style.display)).toBe('none');
+  await expect(hq(page).locator('.hqRoomCard', { hasText: 'Alpha Boardroom' })).toBeVisible();
   await hq(page).locator('.hqSegment').getByRole('button', { name: '3D' }).click();
   await page.waitForTimeout(1500);
   await hq(page).locator('.hqFloorTag', { hasText: 'Floor 2' }).evaluate((el) => (el as HTMLElement).click());

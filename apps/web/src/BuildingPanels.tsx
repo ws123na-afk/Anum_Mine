@@ -1,10 +1,9 @@
-/**
- * The commerce and tyre module panels under a building scene: real numbers only for a connected module, otherwise why not
- * ("Not connected", "No access", "Unavailable") with a link to the setup. Split out of the building view.
- */
+/** The module panels of a building (commerce, tyre): a lazy chunk, fetched only when a building shows one. */
 import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
 import { commerceFlow } from './lib/hqModules.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
+import { roomName, sceneName } from './lib/registryNames.ts';
+import type { SceneFloor } from './lib/headquartersProjection.ts';
 
 function NotConnected(props: { title: string; state: ModuleState<unknown>; setupHash: string }) {
   const s = props.state;
@@ -59,6 +58,36 @@ export function TyrePanel({ state }: { state: ModuleState<TyreLive> }) {
         <li><strong>{d.belowMinimum}</strong><span>{t('hq.tyre.below')}</span></li>
         <li><strong>{d.overdueInspections}</strong><span>{t('hq.tyre.overdue')}</span></li>
         <li><strong>{d.dueNext30}</strong><span>{t('hq.tyre.due')}</span></li>
+      </ul>
+    </section>
+  );
+}
+
+/** Every room of the active floor as a plain list under the scene: the same facts as the cards, always reachable by keyboard and screen reader. */
+export function FloorRooms(props: { floor: SceneFloor; has: (desk: SceneFloor['desks'][number]) => boolean; selectedRoomId: string | null; onPick: (id: string) => void; onLeave: () => void }) {
+  const { floor } = props;
+  const floorTitle = sceneName(floor);
+  const rows = floor.rooms.map((room) => {
+    const desks = floor.desks.filter((d) => d.roomId === room.id);
+    return { room, desks: desks.length, agents: desks.filter((d) => d.agentId || props.has(d)).length };
+  });
+  const totals = rows.reduce((n, r) => ({ desks: n.desks + r.desks, agents: n.agents + r.agents }), { desks: 0, agents: 0 });
+  return (
+    <section className="hqPanel hqFloorRooms" aria-label={t('hqFloor.listTitle', { floor: floorTitle })} data-testid="hq-floor-rooms">
+      <header>
+        <h2>{t('hqFloor.listTitle', { floor: floorTitle })}</h2>
+        <p className="hqMuted">{t('hqFloor.summary', { rooms: rows.length, desks: totals.desks, agents: totals.agents })}</p>
+        <button type="button" className="hqGhost" onClick={props.onLeave}>{t('hqFloor.back')}</button>
+      </header>
+      <ul>
+        {rows.map(({ room, desks, agents }) => (
+          <li key={room.id}>
+            <button type="button" data-selected={room.id === props.selectedRoomId} aria-pressed={room.id === props.selectedRoomId} onClick={() => props.onPick(room.id)}>
+              <strong>{roomName(room)}</strong>
+              <small>{t(`hq.roomKind.${room.kind}` as MessageKey)}. {t('hqFloor.stats', { desks, agents })}</small>
+            </button>
+          </li>
+        ))}
       </ul>
     </section>
   );
