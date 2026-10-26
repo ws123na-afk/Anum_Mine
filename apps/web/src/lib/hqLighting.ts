@@ -35,8 +35,8 @@ const DAY: Key = {
 };
 // Blue hour: a low warm sun behind the horizon, a lavender haze, a deep blue zenith and an orange rim, like the owner's concept renders.
 const DUSKK: Key = {
-  sunDir: [-0.7, -0.3, -0.5], sunColor: [1.0, 0.6, 0.38], sky: [0.46, 0.5, 0.8], ground: [0.3, 0.28, 0.36], fog: [0.46, 0.46, 0.68],
-  sunIntensity: 1.9, hemiIntensity: 0.78, envIntensity: 0.4, exposure: 1.42, zenith: [0.07, 0.12, 0.34], glow: [0.6, 0.27, 0.12], cloud: 0.55,
+  sunDir: [-0.7, -0.3, -0.5], sunColor: [1.0, 0.7, 0.5], sky: [0.4, 0.5, 0.88], ground: [0.24, 0.27, 0.4], fog: [0.42, 0.45, 0.7],
+  sunIntensity: 1.6, hemiIntensity: 0.85, envIntensity: 0.4, exposure: 1.42, zenith: [0.07, 0.12, 0.34], glow: [0.6, 0.27, 0.12], cloud: 0.55,
 };
 const NIGHT: Key = {
   sunDir: [0.35, -0.72, 0.3], sunColor: [0.5, 0.6, 1.0], sky: [0.36, 0.44, 0.74], ground: [0.24, 0.26, 0.38], fog: [0.1, 0.14, 0.29],

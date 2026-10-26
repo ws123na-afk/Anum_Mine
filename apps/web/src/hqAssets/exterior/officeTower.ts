@@ -16,7 +16,7 @@ export function buildOfficeTower(params: ExteriorParams = {}): ExteriorAsset {
   const ctx = makeCtx('officeTower', params, 0.55);
   const { b, scheme } = ctx;
   const W = clamp(params.width, 14, 40, 22), D = clamp(params.depth, 14, 40, 22);
-  const levels = Math.round(clamp(params.levels, 5, 32, 18));
+  const levels = Math.round(clamp(params.levels, 5, 32, 10));
   const LH = 3.8, PH = 4.4;
   const PW = W + 10, PD = D + 8;
   const px = -PW / 2, pz = -PD / 2;
@@ -96,7 +96,7 @@ export function buildOfficeTower(params: ExteriorParams = {}): ExteriorAsset {
   }
 
   return finish(ctx, {
-    kind: 'officeTower', footprint: { width: PW, depth: PD }, height: top + 0.8,
+    kind: 'officeTower', footprint: { width: PW, depth: PD }, height: top,
     anchor: { x: 0, y: top + 3, z: bz + bd / 2 },
     door: { x: 0, y: 0, z: front + 8 },
     sign, ground: [px - 3, pz - 3, px + PW + 3, front + 9],

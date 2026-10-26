@@ -3,9 +3,10 @@
  * interiors), a showroom and counter at one end, a deep accent fascia carrying the sign board and
  * a generic wheel emblem, outdoor tyre stacks and a rack, an air-hose post and a pylon.
  */
-import { hex, scale } from '../../lib/hqGeometry.ts';
+import { MAT, hex, scale } from '../../lib/hqGeometry.ts';
 import { WARM, WINDOW_BASE, acUnit, castShadow } from '../../lib/hqProps.ts';
 import { clamp, entrance, faceBox, faceDisc, faceQuad, finish, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
+import { beaconLight } from './facadeKit.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
 
 const RUBBER = hex('#1b1f24');
@@ -33,6 +34,7 @@ export function buildTyreWorkshop(params: ExteriorParams = {}): ExteriorAsset {
   b.box(x0 - 0.5, H + 0.4, z0 - 0.25, 0.25, 0.5, D + 0.5, scheme.trim);
   b.box(x1 + 0.25, H + 0.4, z0 - 0.25, 0.25, 0.5, D + 0.5, scheme.trim);
   acUnit(b, x1 - 7, H + 0.4, z0 + 3, 3, 2);
+  beaconLight(ctx, x0 + 2, H + 0.4, z0 + 2);
   if (!ctx.lean) acUnit(b, x1 - 11, H + 0.4, z0 + 3.5, 2.4, 1.8);
   // Roof-edge sign tower stub is left to the sign board; a flue stack at the back.
   b.prism(x0 + 4, H + 0.4, z0 + 3, 0.35, 0.3, 2.2, 6, hex('#8a949f'));
@@ -49,6 +51,10 @@ export function buildTyreWorkshop(params: ExteriorParams = {}): ExteriorAsset {
     const c = showW + 0.5 + span * (i + 0.5);
     faceBox(b, F.south, c - bayW / 2 - 0.25, c + bayW / 2 + 0.25, 0, 3.9, 0, 0.14, hex('#2a313b'));
     faceQuad(b, F.south, c - bayW / 2, c + bayW / 2, 0.15, 3.65, hex('#2b3541'), WINDOW_BASE + 0, 0.15);
+    // The roller door is rolled up two thirds: slats above, a lit bay with a hoist frame below.
+    b.withMat(MAT.roller, () => faceQuad(b, F.south, c - bayW / 2, c + bayW / 2, 2.45, 3.65, hex('#cfd5da'), 0, 0.2));
+    faceBox(b, F.south, c - 1.7, c - 1.5, 0.15, 2.3, -0.9, -0.7, hex('#59636e'));
+    faceBox(b, F.south, c + 1.5, c + 1.7, 0.15, 2.3, -0.9, -0.7, hex('#59636e'));
     // Lit interior glow: a warm panel behind two slat lines, brighter in some bays.
     ctx.windows.total += 1;
     const on = rnd() < Math.max(ctx.lit, 0.34);

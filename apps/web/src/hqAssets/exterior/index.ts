@@ -31,7 +31,7 @@ export const EXTERIOR_BUILDERS: Readonly<Record<ExteriorKind, ExteriorBuilder>> 
 
 /** Triangle caps per kind at default size and full detail (measured, with headroom; tests enforce them). */
 export const TRIANGLE_CAPS: Readonly<Record<ExteriorKind, number>> = {
-  warehouse: 1700, tyreWorkshop: 1500, officeTower: 3000, adminBlock: 1700, retailBlock: 1300, executiveHq: 3900, personalVilla: 2400,
+  warehouse: 1700, tyreWorkshop: 1500, officeTower: 3800, adminBlock: 2600, retailBlock: 1300, executiveHq: 5600, personalVilla: 2400,
 };
 
 /**

@@ -7,6 +7,7 @@ import { hex, scale } from '../../lib/hqGeometry.ts';
 import { WARM, acUnit, bench, castShadow, hedge, planter, solarRow } from '../../lib/hqProps.ts';
 import { clamp, curtainWall, entrance, faceBox, faceQuad, fins, finish, ledge, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
 import { accentBand, flagPole, slabBand } from './towerParts.ts';
+import { balconyRun, beaconLight, louvres, roofDeck } from './facadeKit.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
 
 export function buildAdminBlock(params: ExteriorParams = {}): ExteriorAsset {
@@ -51,6 +52,12 @@ export function buildAdminBlock(params: ExteriorParams = {}): ExteriorAsset {
   fins(ctx, F.south, 1.0, gapFrom, y0 + 1.0, y0 + H, 4.4, 0.4, 0.2);
   fins(ctx, F.south, gapTo, W - 1.0, y0 + 1.0, y0 + H, 4.4, 0.4, 0.2);
   for (const f of [F.east, F.west]) fins(ctx, f, 1.0, D - 1.0, y0 + 1.0, y0 + H, 4.4, 0.35, 0.2);
+  // Brise-soleil: horizontal louvres over the top-floor windows of both wings, and a balcony run on each wing's second floor.
+  if (!ctx.lean) {
+    louvres(ctx, F.south, 0.6, gapFrom + 0.2, y0 + H - LH + 0.9, y0 + H - 0.5, 5, 0.9);
+    louvres(ctx, F.south, gapTo - 0.2, W - 0.6, y0 + H - LH + 0.9, y0 + H - 0.5, 5, 0.9);
+    if (levels > 2) { balconyRun(ctx, F.east, 1.4, F.east.len - 1.4, y0 + LH * 2 + 0.05, { depth: 1.3 }); balconyRun(ctx, F.west, 1.4, F.west.len - 1.4, y0 + LH * 2 + 0.05, { depth: 1.3 }); }
+  }
   // Wing end piers (the front corners read as heavy stone).
   for (const x of [x0 - 0.3, x1 - 0.9]) b.box(x, y0, z1 - 0.3, 1.2, H, 0.5, scheme.trim, { grad: 0.2 });
 
@@ -89,6 +96,8 @@ export function buildAdminBlock(params: ExteriorParams = {}): ExteriorAsset {
     acUnit(b, x1 - 12, y0 + H + 0.55, z0 + 2.2, 2.6, 2.0);
   }
   b.box(x0 + W * 0.7, y0 + H + 0.55, z0 + D * 0.5, 4, 2.4, 4, scale(scheme.wall, 0.95), { grad: 0.12 });
+  if (!ctx.lean) roofDeck(ctx, x0 + 2, z0 + D * 0.45, Math.min(12, W * 0.3), D * 0.42, y0 + H + 0.55, { pool: false, pergola: true, loungers: 2, shrubs: 4 });
+  beaconLight(ctx, x1 - 1.2, y0 + H + 0.55, z1 - 1.2);
 
   if (!ctx.lean) {
     // Forecourt: three flag poles with plain pennants, hedges, planters and benches.

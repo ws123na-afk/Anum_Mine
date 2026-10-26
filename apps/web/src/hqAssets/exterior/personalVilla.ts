@@ -7,7 +7,8 @@
  */
 import { MAT, hex, mix, scale } from '../../lib/hqGeometry.ts';
 import { WARM, castShadow } from '../../lib/hqProps.ts';
-import { tree } from '../environment/planting.ts';
+import { stamp } from '../environment/common.ts';
+import { treeTemplate } from '../environment/planting.ts';
 import { balconyRun, canopy, leaf, pennant, roofDeck } from './facadeKit.ts';
 import { clamp, entrance, faceBox, faceQuad, finish, ledge, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
@@ -88,9 +89,9 @@ export function buildPersonalVilla(params: ExteriorParams = {}): ExteriorAsset {
       b.box(ppx + 0.4 + i * 1.3, 0.16, ppz + pd + 1.0, 0.7, 0.3, 1.9, hex('#f2efe7'), { grad: 0.1 });
       b.box(ppx + 0.4 + i * 1.3, 0.46, ppz + pd + 1.0, 0.7, 0.3, 0.6, hex('#e6e2d8'), { grad: 0.1 });
     }
-    tree(b, gx + gw + 4, gz + 7.2, { species: 'datePalm', seed: ctx.seed + 'p1', shadow: false });
-    tree(b, gx - 3.2, gz + gd * 0.6, { species: 'datePalm', seed: ctx.seed + 'p2', shadow: false });
-    tree(b, ppx + pw + 1.6, ppz + 1.5, { species: 'olive', seed: ctx.seed + 'o1', shadow: false });
+    stamp(b, treeTemplate('datePalm', 0), { x: gx + gw + 4, z: gz + 7.2, y: 0.06, rot: 3, scale: 0.9 });
+    stamp(b, treeTemplate('datePalm', 0), { x: gx - 3.2, z: gz + gd * 0.6, y: 0.06, rot: 1, scale: 0.9 });
+    stamp(b, treeTemplate('olive', 1), { x: ppx + pw + 1.6, z: ppz + 1.5, y: 0.06, rot: 3, scale: 0.9 });
     for (let i = 0; i < 6; i++) leaf(ctx, gx + 1 + i * (gw / 6), 0.6, gz + gd + 1.1, 0.6, 0.5, 0.55, mix(hex('#2f6b43'), hex('#5a9a54'), rnd()));
     pennant(ctx, gx - 1.8, gz + gd + 3.2, 7.2);
   }
@@ -99,11 +100,11 @@ export function buildPersonalVilla(params: ExteriorParams = {}): ExteriorAsset {
   const wallZ = gz + gd + D * 0.34 + 4.2;
   const FW = { ox: x0, oz: wallZ, tx: 1, tz: 0, nx: 0, nz: 1, len: W } as const;
   b.box(x0, 0, wallZ - 0.4, W, 0.9, 0.4, hex('#d8d2c4'), { grad: 0.1 });
-  b.box(x0 + W * 0.5 - 3.2, 0, wallZ - 0.6, 6.4, 2.4, 0.6, scale(scheme.stone, 1.05), { grad: 0.15 });
-  const sign = signBoard(ctx, FW, W / 2, 0.85, 5.4, 1.3, 0.04);
+  b.box(x0 + W * 0.5 - 3.2, 0, wallZ - 0.6, 6.4, 3.3, 0.6, scale(scheme.stone, 1.05), { grad: 0.15 });
+  const sign = signBoard(ctx, FW, W / 2, 1.7, 5.4, 1.3, 0.04);
 
   return finish(ctx, {
-    kind: 'personalVilla', footprint: { width: W, depth: D }, height: uy + UH + 0.8,
+    kind: 'personalVilla', footprint: { width: W, depth: D }, height: uy + UH + 0.3,
     anchor: { x: 0, y: uy + UH + 4.2, z: gz + gd * 0.4 },
     door: { x: 0, y: 0, z: wallZ + 8 },
     sign, ground: [x0 - 8, z0 - 3, x0 + W + 16, wallZ + 9],
