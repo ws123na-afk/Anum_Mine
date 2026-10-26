@@ -62,11 +62,11 @@ The stage fetches the plan shader chunk the first time a scene has a plan; that 
 
 ## Budgets
 
-Measured with the performance spec's own gzip, after merging main (GPU check, 1ee22c5): lazy HQ entry chunk 132,803 bytes gzip (limit 140,000; main is 139,637), renderer chunk 159,994 (limit
-160,000; main is 159,944, so the plan hooks cost 50 bytes), plan kit 3,903 and plan shader 2,034, both fetched only when a campus has a registry building with rooms. No limit was raised. To fit,
+Measured with the performance spec's own gzip, after merging main (135fbb2): lazy HQ entry chunk 127,231 bytes gzip (limit 140,000; main is 134,264), renderer chunk 159,991 (limit
+160,000; main is 159,967, so the plan hooks cost 24 bytes), plan kit 3,902 and plan shader 2,063, both fetched only when a campus has a registry building with rooms. No limit was raised. To fit,
 the plan code that would have gone into the renderer lives in the shader chunk (uniforms, program rewrite, texture upload) and the dynamic import sits in the stage. Read this honestly: with a
-third importer the bundler now hoists the geometry and ambient code into a shared chunk (13,302 bytes gzip) that loads together with the entry, so the file the performance spec measures shrank
-while the headquarters payload (entry plus shared chunk, about 146,100) grew by about 6.5 kB gzip over the 139,637 of main. That is an artefact of chunking, not a limit met by moving code.
+third importer the bundler now hoists the geometry and ambient code into a shared chunk (about 13,300 bytes gzip) that loads together with the entry, so the file the performance spec measures shrank
+while the headquarters payload (entry plus shared chunk, about 140,500) grew by about 6 kB gzip over main. That is an artefact of chunking, not a limit met by moving code.
 
 Software GL cost (SwiftShader, 1440x900, dusk, orbiting the campus, plan impostor on against the plan switched off in a scratch build, three runs each): the average draw time is dominated by noise
 (last samples 16.7, 8.3 and 21.4 ms with the plan against 36.5, 6.7 and 18.8 ms without), so the one texel lookup of the lean path costs nothing measurable and stays on. The first frames after the

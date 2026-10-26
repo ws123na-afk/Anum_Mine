@@ -118,24 +118,17 @@ export function fillUniforms(u: Record<string, { value: unknown }>, plan: PlanSo
 /** three.js constants (stable across versions): RGBAFormat, UnsignedByteType, NearestFilter. */
 const RGBA_FORMAT = 1023, UNSIGNED_BYTE = 1009, NEAREST_FILTER = 1003;
 type Disposable = { dispose(): void } | null;
-type Hooks = Readonly<{
-  /** The renderer's shared uniforms, the glass material, the three.js classes needed, the stats and a redraw request. */
-  u: Record<string, { value: unknown }>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  g: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  T: Record<string, any>;
-  s: { glassPlan?: string };
-  r: () => void;
-}>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Hooks = Readonly<{ r: any; T: Record<string, any> }>;
 
 /**
  * Everything the renderer does for a plan atlas, in this chunk: the first time it adds the uniforms and rewrites the glass program
  * (`patchGlass`, with its own program cache key), then for each revision a fresh nearest-filtered texture and the building rectangles.
  */
 export function applyPlan(h: Hooks, plan: PlanSource & { revision: string; data: Uint8Array; width: number; height: number }): void {
-  if (plan.revision === h.s.glassPlan) return;
-  const shared = h.u, glass = h.g;
+  const r = h.r;
+  if (plan.revision === r.stats.glassPlan) return;
+  const shared = r.shared, glass = r.materials.get('glass');
   if (!shared.uPlanTex) {
     installPlan(shared, h.T.Vector4);
     if (glass) {
@@ -151,8 +144,8 @@ export function applyPlan(h: Hooks, plan: PlanSource & { revision: string; data:
   tex.generateMipmaps = false;
   tex.needsUpdate = true;
   fillUniforms(shared, plan, tex);
-  h.s.glassPlan = plan.revision;
-  h.r();
+  r.stats.glassPlan = plan.revision;
+  r.requestFrame();
 }
 
 const HASH_LINE = 'float hq_hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }';
