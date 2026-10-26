@@ -14,7 +14,7 @@ const hq = (page: Page) => page.locator('.hqLive');
 mkdirSync(OUT, { recursive: true });
 
 async function open(page: Page, layout: 'full' | 'starter', light: string) {
-  await page.addInitScript(([l, q, off]) => { try { localStorage.setItem('anum.hq.light', l!); if (q) localStorage.setItem('anum.hq.quality', q); if (off) localStorage.setItem('anum.hq.fxoff', off); } catch { /* storage blocked */ } }, [light, Q, OFF]);
+  await page.addInitScript(([l, q, off]) => { try { localStorage.setItem('anum.hq.light', l === 'dusk' ? 'night' : l!); localStorage.setItem('anum.hq.preset', l === 'dusk' ? 'dusk' : 'night'); if (q) localStorage.setItem('anum.hq.quality', q); if (off) localStorage.setItem('anum.hq.fxoff', off); } catch { /* storage blocked */ } }, [light, Q, OFF]);
   await mockHq(page, { campus: 'api', layout, commerce: 'connected', meetings: 'live' });
   await page.goto('/#office-preview');
   await expect(hq(page).getByRole('heading', { level: 1 })).toBeVisible();
