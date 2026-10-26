@@ -85,10 +85,14 @@ Reflection maps are baked on first use per light preset (day, blue hour, night) 
 
 ## Photographic look pass, 26 October 2026
 
-See [the photographic look](ANUM_MINE_HQ_PHOTOREAL.md). Lazy HQ JS 135,099 bytes gzip (limit 140,000), renderer chunk 104,605 (limit 160,000), HQ CSS 11,861.
+See [the photographic look](ANUM_MINE_HQ_PHOTOREAL.md). Lazy HQ JS 128,116 bytes gzip (limit 140,000), renderer chunk 104,620 (limit 160,000), HQ CSS 11,861.
 No existing limit was raised. The renderer chunk dropped because `three.core` became its own chunk (a second lazy importer of three.js appeared), so
-`e2e/hq-performance.spec.ts` gained two budgets: the whole renderer path (renderer + `three.core` + baked occlusion) at most 170,000 bytes (166,511 now;
-main measured 159,967 for the renderer alone), and the chunks only the upper levels fetch (`hqPhotoFx` + `hqCampusFx`) at most 20,000 (17,630 now).
+`e2e/hq-performance.spec.ts` gained two budgets: the whole renderer path (renderer + `three.core` + baked occlusion) at most 170,000 bytes (166,518 now;
+main measured 159,967 for the renderer alone), and the chunks only the upper levels fetch (`hqPhotoFx` + `hqCampusFx`) at most 20,000 (17,614 now).
 Frame cost of each effect and the CPU cost of the once-per-scene work are in the photographic look doc; software GL (CI) keeps the low level and pays
 only the baked occlusion bake (about 0.2 s once per distinct scene, cached by content so a rebuilt floor is not baked again).
 After the [cutaway section](ANUM_MINE_HQ_CUTAWAY.md) (26 October 2026, merged with main at 134,264): lazy HQ JS 134,518 bytes gzip (measured with Node gzipSync as the budget spec does; 139,847 before main made the Manage spaces page lazy) (limit 140,000) and renderer chunk 159,967 (limit 160,000, unchanged: walls and the roof reuse the existing floor lift, so the renderer got no opacity path). The section view cost about 560 bytes of code (the wall azimuth and snap maths, the per side wall pieces, the dimming, the toggle); to stay under the limit while main sat near it, the commerce and tyre module panels, the overview room list and the overview card of the building view moved into their own lazy chunk (`BuildingPanels`, 1.4 kB gzip, fetched only when a building shows a module panel or the overview opens). No budget was raised. The default view now draws every floor of a building up to 8 floors: an 8 floor stack is about 129,000 triangles and 18 floors 282,000 (`test/hqCutaway.test.ts` pins 180,000 and 340,000), so a taller tower opens on the open floor alone.
+
+## Glass plan pass (26 October 2026)
+
+After the [glass plan](ANUM_MINE_HQ_GLASS_PLAN.md) (merged with main at fae3323): lazy HQ JS 127,926 bytes gzip (limit 140,000; a shared geometry and ambient chunk of about 13,300 now loads with it, so entry plus shared is about 140,500 against 134,518 on main), renderer chunk 159,995 (limit 160,000; main is about 159,985, the plan hooks cost about 10 bytes because the uniforms, program rewrite and texture upload live in the shader chunk), plus two lazy chunks fetched only for a campus with registry floors: the plan kit (shell, atlas, 3,900) and the plan shader (2,141). No budget was raised; the atlas generator and the interior mapping shader stay out of the renderer chunk on purpose. The atlas is at most 2048 by 2048 RGBA (4 MB for the starter campus: 8 buildings of up to 8 storeys at 128 px), rebuilt only when its revision changes.

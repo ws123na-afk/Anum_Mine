@@ -58,6 +58,8 @@ export type RenderStats = {
   ambient: number; ambientMoving: boolean;
   /** The quality tier in use (0 basic to 4 photo, see `hqQualityTier.ts`) and the effects on right now, a comma list. */
   tier: number; fx: string;
+  /** Revision of the plan atlas on the GPU ('' when none). */
+  glassPlan?: string;
   /** Model layer: placements drawn, models loaded of those asked for, bytes fetched, load time in ms, groups that fell back. */
   /** Exterior scenery motion: level 0 to 2 (0 = still), frames drawn by its loop, the scene clock in seconds and the vehicles placed. */
   scenery: { level: number; frames: number; clock: number; vehicles: number };

@@ -28,6 +28,8 @@ export interface HqMockOptions {
   stream?: 'unsupported' | 'live' | 'blocked' | 'down' | 'denied';
   /** Extra desks (plainly fake) on top of the fixture, for the scene specs: a desk with an agent id is a registry assignment. */
   extraDesks?: ReadonlyArray<{ id: string; roomId: string; label: string; agentId: string | null }>;
+  /** Edits applied to room records by id when the registry is read (a spec fills it after load to move a room: the layout changed). */
+  roomEdits?: Record<string, Record<string, unknown>>;
   /** 'conflict' makes the building profile save answer 409. */
   profile?: 'ok' | 'conflict';
   /** The office room the live meeting (`meeting_live`) is held in; null or omitted means a meeting with no room link. */
@@ -275,7 +277,10 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
     if (path === '/api/v1/executive-pa/tools') return json({ tools: [] });
     if (path === '/api/v1/executive-pa/tour') return json({ status: 'empty', stops: [] });
     const listed = /^\/api\/v1\/office-spaces\/(buildings|floors|rooms|desks)$/.exec(path);
-    if (listed && method === 'GET') return json({ items: office[listed[1] as keyof typeof office], next_cursor: null });
+    if (listed && method === 'GET') {
+      const items = office[listed[1] as keyof typeof office] as Array<Record<string, unknown>>;
+      return json({ items: listed[1] === 'rooms' && options.roomEdits ? items.map((r) => ({ ...r, ...(options.roomEdits![String(r.id)] ?? {}) })) : items, next_cursor: null });
+    }
     if (path === '/api/v1/me/workspace-memberships') return json(memberships);
     if (path === '/api/v1/office/campus') {
       if (options.campus === 'api') return json(campusFixture);

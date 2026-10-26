@@ -20,7 +20,7 @@ import { AgentPanel, RoomPanel } from './HqPanels';
 import { OfficeWorkstations } from './OfficeWorkstations';
 import * as api from './lib/api.ts';
 import { campusTotals, workspaceOf, type Campus, type CampusBuildingKind } from './lib/campusModel.ts';
-import { expandCampus } from './lib/campusRegistry.ts';
+import { expandCampus, registryPlans } from './lib/campusRegistry.ts';
 import { HeadquartersController, adaptOfficeRegistry, type OfficeState } from './lib/headquartersController.ts';
 import type { StarterCampusResult } from '@anum/contracts';
 import type { AgentEvidence, RoomGeometry, SceneDesk } from './lib/headquartersProjection.ts';
@@ -291,6 +291,9 @@ export function HeadquartersLive(props: HeadquartersProps) {
     // A workspace whose office registry holds several buildings shows each of them on the campus (never another workspace's registry).
     return expandCampus(merged, scope.workspaceId, projection?.buildings ?? [], presenceIndex);
   }, [loaded, localTotals, floorCount, verifiedAt, scope.workspaceId, projection, presenceIndex]);
+
+  // The real floor plans behind the registry buildings: the glass of the campus shows these rooms.
+  const plans = useMemo(() => (campus ? registryPlans(campus, scope.workspaceId, projection?.buildings ?? [], presenceIndex) : undefined), [campus, scope.workspaceId, projection, presenceIndex]);
 
   // The campus building that is open: the registry building when the workspace has several, else the workspace's own building.
   const currentBuilding = campus?.buildings.find((b) => workspaceOf(b) === scope.workspaceId && (!b.registryBuildingId || b.registryBuildingId === registryBuilding?.id)) ?? null;
@@ -592,7 +595,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           )}
           {campus && webglOk && effectiveView !== 'list' && level === 'campus' && (
             <CampusView
-              campus={campus} unreported={unreported} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
+              campus={campus} plans={plans} unreported={unreported} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
               currentWorkspaceId={openKey} avatars={avatars} departments={departments} nav={navHandles} selectedId={campusPick} onSelect={setCampusPick} onEnter={enterBuilding}
               onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight} onSaveProfile={saveProfile}
             />

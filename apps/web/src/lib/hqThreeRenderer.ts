@@ -22,7 +22,7 @@ import {
   ACESFilmicToneMapping, AmbientLight, BackSide, BufferGeometry, CanvasTexture, Color, DirectionalLight, DoubleSide, Float32BufferAttribute, Fog, HalfFloatType,
   HemisphereLight, LinearMipmapLinearFilter, Material, Mesh, MeshLambertMaterial, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, PCFShadowMap,
   PerspectiveCamera, PMREMGenerator, RepeatWrapping, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, Vector2, Vector3, Vector4, WebGLRenderer, WebGLRenderTarget,
-  LinearFilter, Matrix4, type IUniform,
+  LinearFilter, Matrix4, DataTexture, type IUniform,
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
@@ -138,6 +138,7 @@ const GLASS_COLOR = `
 #else
   hqHas = 0.0;
 #endif
+
   {
     float gy = clamp(vWPos.y / 48.0, 0.0, 1.0);
     vec2 cell = floor(vec2(vWPos.x + vWPos.z, vWPos.y / 3.6));
@@ -322,7 +323,8 @@ export class HqRenderer {
   private readonly sun = new DirectionalLight(0xffffff, 1);
   private readonly hemi = new HemisphereLight(0xffffff, 0x444444, 1);
   private readonly fog = new Fog(0xffffff, 100, 500);
-  private readonly shared: Shared = {
+  /** The plan uniforms are added by the plan shader chunk (`installPlan`) before the glass programs are rebuilt. */
+  private readonly shared: Shared & Record<string, IUniform> = {
     uNight: { value: 0 }, uLit: { value: 0 }, uTime: { value: 0 }, uAmb: { value: 0 }, uDetail: { value: new Vector2(60, 200) },
     uSkyTop: { value: new Color() }, uSkyHor: { value: new Color() }, uSunDir: { value: new Vector3(0, -1, 0) }, uSunCol: { value: new Color() },
     uRipples: { value: Array.from({ length: MAX_RIPPLES }, () => new Vector4(0, 0, 0, 0)) },
@@ -917,6 +919,12 @@ export class HqRenderer {
     this.startLifts(scene.lifts);
     this.shadowDirty = true;
     this.requestFrame();
+  }
+
+
+  /** What the plan shader chunk needs to put a plan atlas behind the glass (see `hqGlassShader.applyPlan`): the renderer itself, whose shared uniforms, glass material, stats and frame request it uses, and the three.js classes. */
+  glassHooks() {
+    return { r: this, T: DataTexture };
   }
 
   /** Decide where each lift group goes: a new target eases from `from` (or from where the group stands), unseen groups jump. */

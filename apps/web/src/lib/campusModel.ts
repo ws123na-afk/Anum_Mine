@@ -154,26 +154,45 @@ const SIZE: Record<CampusBuildingKind, { w: number; d: number }> = {
 const RING_CAPACITY = [7, 12, 18, 24];
 const RING_RADIUS = [38, 66, 94, 122];
 
-/** Deterministic placement: the executive tower in the middle, the rest on rings ordered by name. */
-export function layoutCampus(buildings: readonly CampusBuilding[]): Placement[] {
+/** Size of a building drawn from its real floor plans: footprint, storeys and roof height (see `hqPlanFrame.ts`). */
+export type PlannedSize = Readonly<{ w: number; d: number; levels: number; height: number }>;
+
+/**
+ * Deterministic placement: the executive tower in the middle, the rest on rings ordered by name. A building drawn from its floor
+ * plans (`sizes`, keyed by workspace id) keeps its real footprint, and the rings widen so that real footprints never overlap.
+ */
+export function layoutCampus(buildings: readonly CampusBuilding[], sizes?: ReadonlyMap<string, PlannedSize>): Placement[] {
   const executive = buildings.find((b) => b.kind === 'executive');
   const others = buildings.filter((b) => b !== executive).slice().sort((a, b) => a.name.localeCompare(b.name) || a.workspace_id.localeCompare(b.workspace_id));
   const out: Placement[] = [];
   const make = (b: CampusBuilding, x: number, z: number): Placement => {
     const size = SIZE[b.kind];
+    const planned = sizes?.get(b.workspace_id);
+    if (planned) {
+      return { workspaceId: b.workspace_id, x, z, width: planned.w, depth: planned.d, levels: Math.max(1, planned.levels), kind: b.kind, icon: b.icon ?? null, height: planned.height + 6 };
+    }
     const levels = Math.max(b.kind === 'executive' ? 4 : 1, Math.min(14, b.floors ?? (b.kind === 'personal' ? 1 : 2)));
     return {
       workspaceId: b.workspace_id, x, z, width: size.w, depth: size.d, levels, kind: b.kind, icon: b.icon ?? null,
       height: levels * FLOOR_HEIGHT * (b.kind === 'executive' ? 1.25 : 1) + 1.2,
     };
   };
+  const reach = (b: CampusBuilding): number => { const s = sizes?.get(b.workspace_id); return s ? Math.hypot(s.w, s.d) / 2 + 6 : 0; };
+  const execReach = executive ? reach(executive) : 0;
   if (executive) out.push(make(executive, 0, 0));
   let index = 0;
+  let inner = execReach;
   for (let ring = 0; index < others.length; ring++) {
     const capacity = RING_CAPACITY[Math.min(ring, RING_CAPACITY.length - 1)];
-    const radius = RING_RADIUS[Math.min(ring, RING_RADIUS.length - 1)] + Math.max(0, ring - 3) * 28;
+    let radius = RING_RADIUS[Math.min(ring, RING_RADIUS.length - 1)] + Math.max(0, ring - 3) * 28;
     const count = Math.min(capacity, others.length - index);
     const slots = ring === 0 && count < capacity ? Math.max(count, 3) : count;
+    if (sizes?.size) {
+      // Real footprints: clear the inner ring or the middle building, and leave the chord between neighbours wide enough.
+      const widest = Math.max(...others.slice(index, index + count).map(reach));
+      radius = Math.max(radius, inner + widest + 8, (slots * (widest * 2 + 6)) / (Math.PI * 2));
+      inner = radius + widest;
+    }
     for (let i = 0; i < count; i++) {
       const angle = Math.PI * 0.75 + ((i + (slots > count ? 0.5 : 0)) / slots) * Math.PI * 2;
       out.push(make(others[index + i], Math.cos(angle) * radius, Math.sin(angle) * radius));

@@ -11,7 +11,7 @@ import { GROUND, STONE, WATER, bench, flatPoly, lamp } from './hqProps.ts';
 import { buildingGarden, globeMonument, campusEnvironment, carPark, carParkSize, pond, ripplesOf, tennisCourt, tree, trafficPlan, truck, van, type SceneryPlan, type Exclusion } from '../hqAssets/environment/index.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
 import { archetypeOf, type Archetype } from './campusBuildings.ts';
-import { drawExterior } from './campusExteriors.ts';
+import { drawExterior, type ExteriorShape } from './campusExteriors.ts';
 import { campusExtent, type Placement } from './campusModel.ts';
 import type { Aabb } from './hqMath.ts';
 import type { Vec3 } from './headquartersProjection.ts';
@@ -67,7 +67,10 @@ function circleCrossings(x0: number, z0: number, x1: number, z1: number, r: numb
   return [(-bq - s) / (2 * a), (-bq + s) / (2 * a)].filter((t) => t >= 0 && t <= 1);
 }
 
-export function buildCampusScene(placements: readonly Placement[]): CampusScene {
+/** `draw` may replace the generic exterior of a building (the shell generated from its floor plans); returning undefined keeps the generic one. */
+export type CampusSceneOptions = Readonly<{ draw?: (p: Placement, archetype: Archetype, signIndex: number, signCount: number) => ExteriorShape | undefined }>;
+
+export function buildCampusScene(placements: readonly Placement[], options: CampusSceneOptions = {}): CampusScene {
   const extent = campusExtent(placements);
   // The ring road, canal and fence of the environment kit surround the buildings; the ground reaches past the skyline.
   const ringHalf = Math.max(56, extent.radius + 28);
@@ -103,7 +106,7 @@ export function buildCampusScene(placements: readonly Placement[]): CampusScene 
   const segments: Array<[number, number, number, number]> = [];
   placements.forEach((p, index) => {
     const archetype = archetypeOf(p);
-    const asset = drawExterior(p, archetype, index, signCount);
+    const asset = options.draw?.(p, archetype, index, signCount) ?? drawExterior(p, archetype, index, signCount);
     const mesh: SceneMesh = { vertices: asset.vertices, bounds: asset.bounds, triangles: asset.triangles };
     const anchor: Vec3 = asset.anchor, door: Vec3 = asset.door;
     buildingHalos.push(...asset.halos);
