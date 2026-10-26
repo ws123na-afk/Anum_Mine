@@ -112,7 +112,7 @@ def hdr(role="owner", user="rate_owner"):
 
 def test_run_answers_429_with_retry_after_and_audits_ids_and_counts_only(audited):
     assert rate.limiter.acquire(ctx("rate_owner", "rate_tenant", "rate_workspace"), 3, actor_limit=3, workspace_limit=20).allowed
-    response = client.post("/api/v1/agent-meetings/m1/run", json={"run_key": "key-12345678", "turns": 2}, headers=hdr())
+    response = client.post("/api/v1/agent-meetings/m1/run", json={"run_key": "example-key-one", "turns": 2}, headers=hdr())
     assert response.status_code == 429
     assert int(response.headers["retry-after"]) >= 1
     body = response.json()["error"]
@@ -120,19 +120,19 @@ def test_run_answers_429_with_retry_after_and_audits_ids_and_counts_only(audited
     (args, kwargs), = audited
     assert args[1] == "agent_meeting.turn_rate_limited" and kwargs["outcome"] == "denied"
     assert kwargs["requested_turns"] == 2 and kwargs["scope"] == "actor"
-    assert "key-12345678" not in repr(kwargs)
+    assert "example-key-one" not in repr(kwargs)
 
 
 def test_execute_turn_is_limited_too_and_arabic_follows_accept_language(audited):
     rate.limiter.acquire(ctx("rate_owner", "rate_tenant", "rate_workspace"), 3, actor_limit=3, workspace_limit=20)
-    response = client.post("/api/v1/agent-meetings/m1/execute-turn", json={"request_key": "key-12345678"},
+    response = client.post("/api/v1/agent-meetings/m1/execute-turn", json={"request_key": "example-key-one"},
                            headers={**hdr(), "accept-language": "ar"})
     assert response.status_code == 429
     assert "ثانية" in response.json()["error"]["message"]
 
 
 def test_a_member_without_manage_is_refused_before_the_limiter(audited):
-    response = client.post("/api/v1/agent-meetings/m1/run", json={"run_key": "key-12345678", "turns": 1},
+    response = client.post("/api/v1/agent-meetings/m1/run", json={"run_key": "example-key-one", "turns": 1},
                            headers=hdr(role="viewer", user="rate_viewer"))
     assert response.status_code == 403
     assert rate.limiter._hits == {}
