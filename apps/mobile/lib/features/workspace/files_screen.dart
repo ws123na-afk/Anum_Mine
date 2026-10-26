@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+
+import '../../src/infrastructure/picked_file_size.dart';
 import 'package:flutter/material.dart';
 
 import '../../src/theme/anum_theme.dart';
@@ -18,11 +20,10 @@ import 'workspace_models.dart';
 typedef FilePickerFn = Future<List<(String, String, int)>> Function();
 
 Future<List<(String, String, int)>> pickDeviceFiles() async {
-  final picked =
-      await FilePicker.platform.pickFiles(allowMultiple: true, withData: false);
+  final picked = await FilePicker.pickFiles();
   return [
-    for (final f in picked?.files ?? const <PlatformFile>[])
-      if (f.path != null) (f.path!, f.name, f.size)
+    for (final f in picked)
+      if (f.path != null) (f.path!, f.name, await pickedFileSize(f) ?? 0)
   ];
 }
 

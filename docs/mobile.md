@@ -192,15 +192,15 @@ Every amount goes through one formatter, `lib/src/localization/money_format.dart
 
 `intl` (`^0.20.2`, the range `flutter_localizations` pins) is a direct dependency for money formatting ([Money and KPI tiles](#money-and-kpi-tiles)); it was already in the build through `flutter_localizations`.
 
-`firebase_core` 4.15 and `firebase_messaging` 16.7 (phone push) were checked against `android.builtInKotlin=false` before adding them: `firebase_messaging`'s Android code is Java only, and `firebase_core` applies `kotlin-android` itself when built-in Kotlin is off, so neither needs a pin.
+`firebase_core` 5.0 and `firebase_messaging` 17.0 (phone push) were checked against `android.builtInKotlin=false`: `firebase_messaging`'s Android code is Java only, and `firebase_core` applies `kotlin-android` itself when built-in Kotlin is off, so neither needs a pin. Their iOS side builds on Firebase Apple SDK 13 and needs iOS 15, which is the app's deployment target (`ios/Podfile`, `IPHONEOS_DEPLOYMENT_TARGET`). Version 17 deprecates `getToken`, `deleteToken` and `onTokenRefresh` in favour of installation-ID registration (`register`, `onRegistered`); the API still addresses a phone by its FCM registration token, so `FirebasePushMessaging` keeps the token calls behind narrow `ignore: deprecated_member_use` comments until the server can send by installation ID.
 
-`url_launcher` opens pull request and run links in the browser. `url_launcher_android` is held at 6.3.29, the last release written in Java: 6.3.30 and later rely on AGP 9 built-in Kotlin like `file_picker` 11 (below) and would not compile while `android.builtInKotlin=false`. `AndroidManifest.xml` declares the `https` VIEW intent in `<queries>` for Android 11 package visibility.
+`url_launcher` opens pull request and run links in the browser. `url_launcher_android` is held at 6.3.29, the last release written in Java: 6.3.30 and later keep Kotlin sources and rely on AGP 9 built-in Kotlin (6.3.33 declares only `com.android.library`), so they would compile nothing while `android.builtInKotlin=false`. `AndroidManifest.xml` declares the `https` VIEW intent in `<queries>` for Android 11 package visibility.
 
-`file_picker` is held at 10.3.10. Version 11 applies no Kotlin plugin under AGP 9 and relies on AGP's built-in Kotlin, but `android/gradle.properties` sets `android.builtInKotlin=false` because `flutter_tts` still applies the Kotlin Gradle Plugin itself; with both, 11's Kotlin sources are never compiled and the debug build fails with `cannot find symbol FilePickerPlugin`. Upgrade once every plugin builds with built-in Kotlin (then set `android.builtInKotlin=true`). 11.0.2 fixes an Android path traversal (CWE-22) when resolving paths from external content providers, so this is the first follow-up once `flutter_tts` supports built-in Kotlin.
+`file_picker` is 13.1.0. Versions 11 and 12 relied on AGP 9 built-in Kotlin and compiled nothing here (`cannot find symbol FilePickerPlugin`), but 13 is federated and its Android implementation `android_file_picker` 2.x applies `org.jetbrains.kotlin.android` itself whenever `android.builtInKotlin=false` (checked in its `android/build.gradle.kts`), so it builds with this configuration; check that file again before any bump. It includes the Android path traversal fix from 11.0.2. The API is static and returns plain values: `FilePicker.pickFile`, `FilePicker.pickFiles` (a list, empty on cancel) and `FilePicker.saveFile` (needs `fileName` and `bytes`, returns a `Uri?`); `PlatformFile` has no `size` or `bytes`, so the app reads `PlatformFile.readAsBytes()` and takes the size from `pickedFileSize` (`lib/src/infrastructure/picked_file_size.dart`). Tests and the journey tests replace `FilePickerPlatform.instance` with a fake (`test/file_picker_migration_test.dart`, `integration_test/journeys/files.dart`). `flutter_tts` still applies the Kotlin plugin itself, which is why `android.builtInKotlin` stays `false`.
 
 In-app calls between teammates ([In-app calls](in-app-calls.md#clients)) add `flutter_webrtc`, pinned at 1.6.2+hotfix.4: its Android plugin is Java plus one Kotlin file and applies `kotlin-android` itself when `android.builtInKotlin=false` (checked in its `android/build.gradle`), so it compiles with this configuration; check that file again before any bump. It fetches the WebRTC Android library from Maven Central and `audioswitch` from JitPack and adds about 10 MB per ABI. CallKit and ConnectionService are not used (see the calls doc).
 
-Voice calls with the assistant add no plugin. `camera` (its default `camera_android_camerax`) and `image_picker_android` declare only `com.android.library` and keep Kotlin sources, so like `file_picker` 11 they need AGP built-in Kotlin and would compile nothing here; live camera video and server speech (recorder and audio player) in calls wait for `android.builtInKotlin=true`. Until then **Video** picks a photo with `file_picker` (already a dependency).
+Voice calls with the assistant add no plugin. `camera` (its default `camera_android_camerax`) and `image_picker_android` declare only `com.android.library` and keep Kotlin sources, so they need AGP built-in Kotlin and would compile nothing here; live camera video and server speech (recorder and audio player) in calls wait for `android.builtInKotlin=true`. Until then **Video** picks a photo with `file_picker` (already a dependency).
 
 ## Fonts
 
@@ -322,6 +322,55 @@ For the owner's phone and testers who are not on a Play track. Every "Release cl
 An APK signed with the debug key cannot later be replaced by the Play build (different signature): uninstall it before installing from Play. With the signing secrets set, the APK is signed with the upload key, which still differs from Play's app signing key, so the same applies.
 
 If sign-in fails in the browser with "Invalid parameter: redirect_uri", check the Keycloak client below; if the app says the build is misconfigured, a repository variable holds a non-https or development address.
+
+### Release from the Mac (iOS to TestFlight)
+
+For a build made by hand on the owner's Mac instead of the `release-clients.yml` iOS job. It needs Xcode (27.0 was installed when this was checked), CocoaPods, the Flutter SDK and an Apple Developer Program membership. Nothing below is committed: signing identities, the API key and the Firebase file stay on the Mac.
+
+What the owner must supply (the repository holds none of these):
+
+| Item | Where it comes from |
+| --- | --- |
+| Apple Developer team | developer.apple.com, Membership details (the ten-character Team ID), and the same Apple ID signed in to Xcode (Settings, Accounts). |
+| App ID and app record | Identifier `com.anum.app` in Certificates, Identifiers and Profiles, and an app record with that bundle ID in App Store Connect, Apps, New App. Without the record the upload is refused. |
+| Signing | Automatic: Xcode creates the Apple Distribution certificate and the App Store provisioning profile for `com.anum.app` when a team is selected. |
+| Upload credentials | Either your Apple ID with an app-specific password (account.apple.com, Sign-In and Security) for Transporter or Xcode, or an App Store Connect API key (Users and Access, Integrations: Key ID, Issuer ID and the `AuthKey_<Key ID>.p8` file). |
+| Firebase file (optional) | `GoogleService-Info.plist` of the Firebase iOS app `com.anum.app` in `apps/mobile/ios/Runner/` ([Owner steps: Firebase project](#owner-steps-firebase-project)). Without it the app builds and push stays off. For push, also add the Push Notifications capability in Xcode and commit `Runner/Runner.entitlements`. |
+| Version and build number | `version:` in `apps/mobile/pubspec.yaml` is `0.1.0+1`; every upload to TestFlight needs a build number higher than the last one for that version. |
+
+Steps:
+
+1. Check the toolchain: `flutter doctor -v` must show Xcode and CocoaPods without errors (`export LANG=en_US.UTF-8` silences the CocoaPods locale warning).
+2. `cd apps/mobile && flutter pub get`.
+3. Pick the team once: `open ios/Runner.xcworkspace`, select the Runner target, Signing & Capabilities, tick Automatically manage signing, choose your Team. The bundle identifier stays `com.anum.app`. Do not commit the team change unless you want it to be the project default; the pipeline passes `DEVELOPMENT_TEAM` itself.
+4. Write the production values to a file outside the repository, for example `~/anum-production.json`:
+
+   ```json
+   {
+     "ANUM_API_URL": "https://api.anum360os.com/",
+     "ANUM_OIDC_ISSUER": "https://auth.anum360os.com/realms/anum",
+     "ANUM_WEB_APP_URL": "https://app.anum360os.com/"
+   }
+   ```
+
+5. Build the signed IPA (the number after `--build-number` is yours to raise on every upload):
+
+   ```bash
+   flutter build ipa --release --build-name=0.1.0 --build-number=2 \
+     --obfuscate --split-debug-info=build/symbols \
+     --dart-define-from-file="$HOME/anum-production.json"
+   ```
+
+   The archive is `build/ios/archive/Runner.xcarchive` and the IPA `build/ios/ipa/*.ipa`. Keep `build/symbols/` for the build you upload: it turns crash stacks readable ([Crash Symbols](#crash-symbols)).
+6. Upload to App Store Connect, any one of:
+   - Xcode: `open build/ios/archive/Runner.xcarchive`, then Window, Organizer, select the archive, Distribute App, App Store Connect, Upload.
+   - Transporter (Mac App Store): drag in the `.ipa` and sign in with the Apple ID.
+   - Command line with an API key: put `AuthKey_<Key ID>.p8` in `~/.appstoreconnect/private_keys/` and run `xcrun altool --upload-app --type ios --file build/ios/ipa/<name>.ipa --apiKey <Key ID> --apiIssuer <Issuer ID>`.
+7. In App Store Connect, TestFlight, wait for the build to finish processing, answer the export-compliance question (the app uses only standard HTTPS and the system keychain), add yourself or a group under Internal Testing, and install through the TestFlight app. External testers need a first Beta App Review.
+
+For a build on a connected iPhone without TestFlight: choose your team as in step 3, plug the phone in (Developer Mode on), and run `flutter run --release --dart-define-from-file="$HOME/anum-production.json" -d <device id>`.
+
+To compile without signing (what CI's `Flutter iOS compile check` does): `flutter build ios --debug --no-codesign --dart-define=ANUM_API_URL=http://127.0.0.1:8000/`. This passes on the owner's Mac with Xcode 27.0 and Flutter 3.47. The first run also lets Flutter add Swift Package Manager integration to `ios/Runner.xcodeproj` and the workspace for the plugins that support it; that change is not needed in the repository and can be discarded with `git checkout ios/Runner.xcodeproj ios/Runner.xcworkspace`.
 
 ### Keycloak Client for the Apps
 
@@ -503,7 +552,7 @@ Install and identity
 - [ ] Disable the user or revoke the session in Keycloak: the next refresh signs the app out.
 - [ ] Sign-out ends the Keycloak session (a new sign-in asks for credentials) and clears the session and tokens from secure storage even when the browser step is cancelled (only the remembered workspace choice stays).
 - [ ] A Keycloak user without `default_workspace_id` and with several workspaces gets the workspace list after sign-in; after a choice, sign-out and sign-in open the same workspace.
-- [ ] On Android, install the new build over one that stored a session with `flutter_secure_storage` 9 (any build before the 10.x upgrade): the session survives (the plugin migrates it to its new ciphers) or, if migration fails, the app shows the sign-in screen instead of crashing.
+- [ ] On Android, install the new build over one that stored a session with `flutter_secure_storage` 10.x: the session survives the upgrade to 11.x, or, if the plugin cannot read it, the app shows the sign-in screen instead of crashing. Builds older than 10.x lose their stored session on purpose (11 removed the legacy ciphers), so they must sign in once.
 - [ ] On iOS, install the new build over one that stored a session before the device-only keychain class: the session survives the first launch, and a restore of an encrypted backup onto another device asks for sign-in.
 - [ ] Android: a screenshot and a screen recording of any screen come out black, and the recent-apps card is blank.
 - [ ] iOS: the app-switcher card shows the plain cover, not the workspace; starting a screen recording or AirPlay mirroring covers the app until it stops; returning to the app removes the cover at once.
