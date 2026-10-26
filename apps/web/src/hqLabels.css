@@ -5,7 +5,7 @@
 @keyframes hqLabelIn { from { opacity: 0; } to { opacity: 1; } }
 .hqRoomCard { gap: 9px; max-width: 250px; min-height: 46px; padding: 5px 12px 5px 5px; }
 .hqRoomCard .hqLabelIcon { border-radius: 9px; height: 34px; width: 34px; }
-.hqRoomCard .hqLabelIcon svg { height: 20px; width: 20px; }
+.hqRoomCard .hqLabelIcon::before { height: 20px; width: 20px; }
 .hqRoomCard .hqLabelText strong { font-size: var(--text-sm); font-weight: 650; }
 .hqRoomCard[data-live="true"] { border-color: var(--hq-meeting); }
 .hqRoomCard[data-live="true"] .hqLabelIcon { background: rgba(242, 181, 76, .22); color: var(--hq-meeting); }
@@ -22,7 +22,7 @@
 .hqLabelAnchor[data-density="compact"] .hqAgentCard { min-width: 0; }
 .hqLabelAnchor[data-density="dot"] .hqRoomCard { border-radius: 999px; min-height: 0; padding: 3px; }
 .hqLabelAnchor[data-density="dot"] .hqRoomCard .hqLabelIcon { border-radius: 50%; height: 24px; width: 24px; }
-.hqLabelAnchor[data-density="dot"] .hqRoomCard .hqLabelIcon svg { height: 14px; width: 14px; }
+.hqLabelAnchor[data-density="dot"] .hqRoomCard .hqLabelIcon::before { height: 14px; width: 14px; }
 .hqLabelAnchor[data-density="dot"] .hqAgentCard { border-radius: 999px; min-width: 0; padding: 3px; }
 .hqLabelAnchor[data-density="dot"] .hqFloorTag .hqLabelText small { display: none; }
 /* Hover, keyboard focus and selection open the full card (it is raised above its neighbours). */
@@ -148,3 +148,14 @@
 /* Narrow scene: the building name drops under the Back button instead of being cut. */
 .hqSceneWrap[data-s641="0"] .hqBackCard .hqCrumbs ol { flex-wrap: wrap; row-gap: 4px; }
 .hqSceneWrap[data-s641="0"] .hqBackCard .hqCrumbs li.hqBuildingTitle { flex: 1 1 100%; }
+
+/* Room kind drawings (CSS masks, so the headquarters chunk carries no icon code). The kind is the room record's kind. */
+.hqLabelIcon::before { background: currentColor; content: ""; display: block; height: 20px; width: 20px; -webkit-mask: var(--hq-kind-icon) center / contain no-repeat; mask: var(--hq-kind-icon) center / contain no-repeat; }
+.hqLabelIcon { --hq-kind-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27black%27%20stroke-width=%271.8%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27M4%2020V6l8-3%208%203v14M9%2020v-5h6v5%27/%3E%3C/svg%3E"); }
+.hqLabelIcon[data-kind="office"] { --hq-kind-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27black%27%20stroke-width=%271.8%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27M4%208h16v11H4zM9%208V5h6v3M4%2013h16%27/%3E%3C/svg%3E"); }
+.hqLabelIcon[data-kind="meeting"] { --hq-kind-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27black%27%20stroke-width=%271.8%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27M3%2017h18M5%2017v-3a7%207%200%200%201%2014%200v3M9%209h.01M15%209h.01M12%206h.01%27/%3E%3C/svg%3E"); }
+.hqLabelIcon[data-kind="reception"] { --hq-kind-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27black%27%20stroke-width=%271.8%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27M4%2018h16M6%2018a6%206%200%200%201%2012%200M12%208V5M10%205h4%27/%3E%3C/svg%3E"); }
+.hqLabelIcon[data-kind="workshop"] { --hq-kind-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27black%27%20stroke-width=%271.8%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27M14%206a4%204%200%201%200%204%204l-3%201-2-2%201-3zM12%2012l-7%207%27/%3E%3C/svg%3E"); }
+.hqLabelIcon[data-kind="warehouse"] { --hq-kind-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27black%27%20stroke-width=%271.8%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27M3%2010l9-6%209%206v9H3zM8%2019v-6h8v6%27/%3E%3C/svg%3E"); }
+.hqLabelIcon[data-kind="lounge"] { --hq-kind-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27black%27%20stroke-width=%271.8%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27M5%209h11v5a4%204%200%200%201-4%204H9a4%204%200%200%201-4-4zM16%2010h2a2%202%200%200%201%200%204h-2%27/%3E%3C/svg%3E"); }
+.hqLabelIcon[data-kind="command"] { --hq-kind-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27black%27%20stroke-width=%271.8%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27M3%205h18v11H3zM8%2020h8M12%2016v4%27/%3E%3C/svg%3E"); }

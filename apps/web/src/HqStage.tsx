@@ -10,6 +10,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { readNightPreset, subscribeNightPreset, targetBlend } from './lib/hqLightPreset.ts';
 import type { HqRenderer } from './lib/hqThreeRenderer.ts';
 import type { RenderScene } from './lib/hqRenderTypes.ts';
+import { setGpuState } from './lib/hqGpuState.ts';
+import { setLiveRenderer } from './lib/hqGpuBridge.ts';
+import { emitGpuTelemetry } from './lib/hqGpuTelemetry.ts';
+import { tierById } from './lib/hqQualityTiers.ts';
 import { pickNearest, type Aabb, type PickTarget } from './lib/hqMath.ts';
 import type { Density, Rect, placeLabels as PlaceLabels } from './lib/hqLabels.ts';
 import { cameraEye, dolly, isCameraAtRest, orbit, pan, screenRay, stepCamera, type CameraState } from './lib/headquartersSpatial.ts';
@@ -118,13 +122,17 @@ export function HqStage(props: Props) {
       // The controls over the scene are read when they change size (never per frame), so a card is not drawn under one.
       if (propsRef.current.labelKeepOut && host.current) stopKeepOut = labelLib.bindKeepOut(host.current, propsRef.current.labelKeepOut, (rects) => { keepOut.current = rects; created?.requestFrame(); });
       const r: HqRenderer | null = Renderer.create(el, {
+        onQuality: (state) => { setGpuState(state); emitGpuTelemetry({ kind: 'quality', tier: tierById(state.tier).key, step: state.step, reason: state.reason }); },
         onLost: () => {
           setStatus('recovering');
-          lostTimer.current = window.setTimeout(() => propsRef.current.onUnavailable('context-lost'), 5000);
+          emitGpuTelemetry({ kind: 'context-lost' });
+          lostTimer.current = window.setTimeout(() => propsRef.current.onUnavailable('context-lost'), 8000);
         },
         onRestored: () => {
           if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
           setStatus('ok');
+          emitGpuTelemetry({ kind: 'context-restored' });
+          if (propsRef.current.scene) renderer.current?.setScene(propsRef.current.scene);
         },
         onError: (error) => propsRef.current.onUnavailable(error.message),
         onFrame: (vp, aspect) => {
@@ -164,6 +172,7 @@ export function HqStage(props: Props) {
       if (!r) { propsRef.current.onUnavailable('webgl-unavailable'); return; }
       created = r;
       renderer.current = r;
+      setLiveRenderer(r);
       r.setReducedMotion(propsRef.current.reducedMotion);
       r.setCamera(live.current);
       r.setNight(nightNow.current);
@@ -185,6 +194,8 @@ export function HqStage(props: Props) {
       if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
       created?.dispose();
       renderer.current = null;
+      setLiveRenderer(null);
+      setGpuState(null);
     };
     // The renderer is created once per mounted stage.
     // eslint-disable-next-line react-hooks/exhaustive-deps

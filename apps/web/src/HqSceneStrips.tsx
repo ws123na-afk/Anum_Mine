@@ -6,6 +6,7 @@
 import type { OfficeFlowSnapshot, OfficeFlowStage } from '@anum/contracts';
 import { ArrowLeft, Building2, Layers } from 'lucide-react';
 import type { CampusTotals, StatusKey } from './lib/campusModel.ts';
+import { floorNameParts } from './lib/hqLabelModel.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 
 export type BackTone = 'ok' | 'stop' | 'faint';
@@ -48,13 +49,13 @@ export function SceneBackCard(props: {
 }
 
 
-export function FloorSelector(props: { floors: ReadonlyArray<{ id: string; name: string; short: string }>; activeId: string; stacked: boolean; onPick: (id: string) => void; onStack: (on: boolean) => void }) {
+export function FloorSelector(props: { floors: ReadonlyArray<{ id: string; name: string }>; activeId: string; stacked: boolean; onPick: (id: string) => void; onStack: (on: boolean) => void }) {
   return (
     <div className="hqFloorSelector" role="group" aria-label={t('hqLabels.selector.label')}>
       <div className="hqFloorButtons">
         {props.floors.map((f) => (
           <button key={f.id} type="button" data-active={f.id === props.activeId && !props.stacked} aria-pressed={f.id === props.activeId} aria-label={t('hqLabels.selector.aria', { name: f.name })} title={f.name} onClick={() => props.onPick(f.id)}>
-            {f.short}
+            {floorNameParts(f.name).short}
           </button>
         ))}
       </div>

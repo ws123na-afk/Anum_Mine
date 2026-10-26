@@ -16,8 +16,9 @@ const LiveOpsStrip = lazy(() => import('./HqSceneStrips').then((m) => ({ default
 const FlowStrip = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.FlowStrip })));
 const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
 import { BottomToolbar, CameraTools, TotalsPanel } from './HqChrome';
-import { AgentLabelCard, FloorTagCard, RoomKindIcon, RoomLabelCard } from './HqLabelCards';
-import { floorNameParts, roomLabelSpecs, roomSubtitle } from './lib/hqLabelModel.ts';
+import { AgentLabelCard, FloorTagCard, RoomLabelCard } from './HqLabelCards';
+import { roomLabelSpecs, roomSubtitle } from './lib/hqLabelModel.ts';
+import { CommercePanels, TyrePanel } from './HqModulePanels';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { visualOfStatus } from './hqAssets/interior/stateVisual.ts';
 import { buildBuildingScene, FLOOR_PITCH, WALL_HEIGHT, type DeskVisual } from './lib/buildingScene.ts';
@@ -28,7 +29,6 @@ import { presenceForDesk, totalsOf, type HqPresenceIndex } from './lib/hqPresenc
 import type { StatusKey } from './lib/campusModel.ts';
 import type { HqView } from './HqChrome';
 import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
-import { commerceFlow } from './lib/hqModules.ts';
 import { buildingModules } from './lib/hqBuildingModules.ts';
 import { floorLifts } from './lib/hqFloorLift.ts';
 import { LIFT_MS, easeLift } from './lib/hqRenderTypes.ts';
@@ -273,10 +273,9 @@ export function BuildingView(props: BuildingViewProps) {
 
   const wantsStack = showAll && floors.length > 1;
   // The stacked view's helpers load the first time it is asked for; until then the labels are the single floor's.
-  const [stackLib, setStackLib] = useState<typeof import('./lib/hqLabelStacked.ts') | null>(null);
-  useEffect(() => { if (wantsStack && !stackLib) void import('./lib/hqLabelStacked.ts').then(setStackLib); }, [wantsStack, stackLib]);
+  const [stackLib, setStackLib] = useState<typeof import('./lib/hqLabels.ts') | null>(null);
+  useEffect(() => { if (wantsStack && !stackLib) void import('./lib/hqLabels.ts').then(setStackLib); }, [wantsStack, stackLib]);
   const stacked = wantsStack && stackLib !== null;
-  const floorChoices = useMemo(() => floors.map((f) => ({ id: f.id, name: f.name, short: floorNameParts(f.name).short })), [floors]);
   const labels: StageLabel[] = useMemo(() => {
     const list: StageLabel[] = [];
     const roomHandle = new Map(scene.rooms.map((r) => [r.id, r]));
@@ -443,7 +442,7 @@ export function BuildingView(props: BuildingViewProps) {
           />
           </div>
           <div className="hqDockFloors">
-            <Suspense fallback={null}><FloorSelector floors={floorChoices} activeId={floor.id} stacked={wantsStack} onPick={props.onSelectFloor} onStack={setShowAll} /></Suspense>
+            <Suspense fallback={null}><FloorSelector floors={floors} activeId={floor.id} stacked={wantsStack} onPick={props.onSelectFloor} onStack={setShowAll} /></Suspense>
           </div>
         </div>
       </div>
@@ -469,7 +468,7 @@ export function BuildingView(props: BuildingViewProps) {
 function OverviewCard(props: { room: RoomGeometry; desks: number; assigned: number; selected: boolean; onPick: () => void }) {
   return (
     <button type="button" className="hqLabelCard hqOverviewCard" data-selected={props.selected} data-kind={props.room.kind} aria-pressed={props.selected} onClick={props.onPick}>
-      <span className="hqLabelIcon"><RoomKindIcon kind={props.room.kind} /></span>
+      <span className="hqLabelIcon" data-kind={props.room.kind} aria-hidden="true" />
       <span className="hqLabelText"><strong>{props.room.label}</strong><small>{t(`hq.roomKind.${props.room.kind}` as MessageKey)}</small><small>{t('hqFloor.stats', { desks: props.desks, agents: props.assigned })}</small></span>
     </button>
   );
@@ -499,64 +498,6 @@ function FloorRooms(props: { floor: SceneFloor; presence: HqPresenceIndex | null
             </button>
           </li>
         ))}
-      </ul>
-    </section>
-  );
-}
-
-function NotConnected(props: { title: string; state: ModuleState<unknown>; setupHash: string }) {
-  const s = props.state;
-  return (
-    <section className="hqPanel hqModule" aria-label={props.title}>
-      <h2>{props.title}</h2>
-      {s.state === 'loading' && <p className="hqMuted" role="status">{t('hq.module.loading')}</p>}
-      {s.state === 'not_connected' && <div className="hqUnavailable"><strong>{t('hq.module.notConnected')}</strong><a href={props.setupHash}>{t('hq.module.setup')}</a></div>}
-      {s.state === 'forbidden' && <div className="hqUnavailable"><strong>{t('hq.module.forbidden')}</strong><span>{t('hq.module.forbiddenHint')}</span></div>}
-      {s.state === 'error' && <div className="hqUnavailable" role="alert"><strong>{t('hq.module.error')}</strong><span>{s.message}</span></div>}
-    </section>
-  );
-}
-
-function CommercePanels({ state }: { state: ModuleState<CommerceLive> }) {
-  if (state.state !== 'ready') return <NotConnected title={t('hq.commerce.title')} state={state} setupHash="#commerce" />;
-  const c = state.data;
-  return (
-    <>
-      <section className="hqPanel hqModule" aria-label={t('hq.commerce.title')}>
-        <h2>{t('hq.commerce.title')}</h2>
-        <ul className="hqStats">
-          <li><strong>{c.orders}</strong><span>{t('hq.commerce.orders')}</span></li>
-          <li><strong>{c.waiting}</strong><span>{t('hq.commerce.waiting')}</span></li>
-          <li><strong>{c.late}</strong><span>{t('hq.commerce.late')}</span></li>
-          {c.lowStock !== null && <li><strong>{c.lowStock}</strong><span>{t('hq.commerce.lowStock')}</span></li>}
-          <li><strong>{c.openAlerts}</strong><span>{t('hq.commerce.alerts')}</span></li>
-        </ul>
-      </section>
-      <section className="hqPanel hqModule" aria-label={t('hq.flow.title')}>
-        <h2>{t('hq.flow.title')}</h2>
-        <ol className="hqFlow">
-          {commerceFlow(c).map((step) => (
-            <li key={step.key}><strong>{step.count}</strong><span>{t(`hq.flow.${step.key}` as MessageKey)}</span></li>
-          ))}
-        </ol>
-      </section>
-    </>
-  );
-}
-
-function TyrePanel({ state }: { state: ModuleState<TyreLive> }) {
-  if (state.state !== 'ready') return <NotConnected title={t('hq.tyre.title')} state={state} setupHash="#tyre" />;
-  const d = state.data;
-  return (
-    <section className="hqPanel hqModule" aria-label={t('hq.tyre.title')}>
-      <h2>{t('hq.tyre.title')}</h2>
-      <ul className="hqStats">
-        <li><strong>{d.vehicles}</strong><span>{t('hq.tyre.vehicles')}</span></li>
-        <li><strong>{d.fitted}</strong><span>{t('hq.tyre.fitted')}</span></li>
-        {d.inStock !== null && <li><strong>{d.inStock}</strong><span>{t('hq.tyre.stock')}</span></li>}
-        <li><strong>{d.belowMinimum}</strong><span>{t('hq.tyre.below')}</span></li>
-        <li><strong>{d.overdueInspections}</strong><span>{t('hq.tyre.overdue')}</span></li>
-        <li><strong>{d.dueNext30}</strong><span>{t('hq.tyre.due')}</span></li>
       </ul>
     </section>
   );

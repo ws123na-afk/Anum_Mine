@@ -50,7 +50,7 @@ export function roomAnchor(room: Pick<RoomGeometry, 'x' | 'z' | 'width' | 'depth
  */
 export function roomLabelSpecs(args: Readonly<{
   floors: readonly Pick<SceneFloor, 'id' | 'rooms'>[]; activeIndex: number; mode: LabelMode; selectedRoomId: string | null; wallHeight: number; pitch?: number;
-  /** The slabs over each floor (`slabsAbove` in `hqLabelStacked.ts`), needed in the stacked view only. */
+  /** The slabs over each floor (`slabsAbove` in `hqLabels.ts`), needed in the stacked view only. */
   above?: readonly (readonly Aabb[])[];
 }>): RoomLabelSpec[] {
   const pitch = args.pitch ?? FLOOR_PITCH_M;
@@ -82,3 +82,7 @@ export function floorNameParts(name: string): { short: string; rest: string | nu
   const rest = name.slice(i + 1).trim();
   return { short: name.slice(0, i).trim(), rest: rest || null };
 }
+
+
+
+

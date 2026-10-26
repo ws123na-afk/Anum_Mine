@@ -100,7 +100,13 @@
 .hqLabels { inset: 0; isolation: isolate; overflow: hidden; pointer-events: none; position: absolute; z-index: 1; }
 .hqLabelAnchor { left: 0; pointer-events: none; position: absolute; top: 0; will-change: transform; }
 .hqLabelAnchor > * { pointer-events: auto; }
-.hqRecovering { align-items: center; background: var(--hq-glass); color: var(--hq-glass-text); display: flex; inset: 0; justify-content: center; position: absolute; }
+/* A banner, not a cover: the office stays usable (list, labels, tools) while the graphics card restores. */
+.hqRecovering { background: var(--hq-glass); border: 1px solid var(--hq-glass-line); border-radius: var(--d-r-control); color: var(--hq-glass-text); inset-block-start: var(--d-s3); inset-inline-start: 50%; max-width: calc(100% - 2 * var(--d-s3)); padding: var(--d-s2) var(--d-s3); pointer-events: none; position: absolute; transform: translateX(-50%); z-index: 5; }
+[dir="rtl"] .hqRecovering { transform: translateX(50%); }
+.hqGpuChip { cursor: pointer; background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: inherit; min-height: 32px; padding: 0 var(--d-s2); }
+.hqGpuChip:hover { border-color: var(--d-line-hover); }
+.hqGpuChip:focus-visible { outline: 2px solid var(--d-accent); outline-offset: 2px; }
+.hqNotice .hqGhost { flex: none; }
 
 .hqLabelCard { align-items: center; backdrop-filter: blur(6px); background: var(--hq-glass); border: 1px solid var(--hq-glass-line); border-radius: 12px; box-shadow: 0 6px 18px rgba(0, 0, 0, .35); color: var(--hq-glass-text);
   cursor: pointer; display: flex; gap: 8px; max-width: 260px; min-height: 44px; padding: 6px 10px 6px 6px; text-align: start; }

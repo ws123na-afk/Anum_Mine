@@ -3,13 +3,16 @@
  * bottom toolbar, totals panel with donut, and the minimap. The app's own sidebar and top bar stay
  * the only navigation; this file adds only what is specific to the scene.
  */
-import { Box, DoorOpen, Hand, ChevronLeft, ChevronRight, Crosshair, LayoutGrid, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Sunset, Maximize } from 'lucide-react';
+import { Box, DoorOpen, ChevronLeft, ChevronRight, Crosshair, LayoutGrid, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Sunset, Maximize } from 'lucide-react';
 import { useId, useRef, useState, useSyncExternalStore, type ReactElement } from 'react';
 import { readNightPreset, subscribeNightPreset, writeNightPreset } from './lib/hqLightPreset.ts';
 import { arcPath, donutArcs, STATUS_ORDER, STATUS_TONE, type CampusTotals, type Placement, type StatusKey } from './lib/campusModel.ts';
 import { mapToWorld, worldToMap } from './lib/hqCamera.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import type { PresenceLink } from './lib/presenceStream.ts';
+import { getGpuState, subscribeGpuState } from './lib/hqGpuState.ts';
+import { chipLabel, isReduced, reasonText } from './lib/hqGpuText.ts';
+import { tierById } from './lib/hqQualityTiers.ts';
 
 export type HqView = '3d' | 'top' | 'list';
 
@@ -21,6 +24,19 @@ export function PresenceLinkChip({ link }: { link: PresenceLink }) {
     <span className={`hqConn hqLink tone-${tone}`} role="status" data-testid="hq-live-link" data-link={link} title={t(`hq.live.${key}.hint` as MessageKey)}>
       {t(`hq.live.${key}` as MessageKey)}
     </span>
+  );
+}
+
+/** The current graphics tier next to the live status chips. It opens the Graphics check; the tooltip says why this tier is in force. */
+export function GraphicsChip({ onOpen }: { onOpen: () => void }) {
+  const state = useSyncExternalStore(subscribeGpuState, getGpuState, getGpuState);
+  if (!state) return null;
+  const reduced = isReduced(state);
+  return (
+    <button type="button" className={`hqConn hqGpuChip tone-${reduced ? 'warn' : 'ok'}`} data-testid="hq-gpu-chip" data-tier={tierById(state.tier).key} data-reduced={String(reduced)}
+      title={reasonText(state)} aria-label={`${chipLabel(state)}. ${t('hqGpu.chip.open')}`} onClick={onOpen}>
+      {chipLabel(state)}
+    </button>
   );
 }
 
@@ -101,7 +117,7 @@ export function BottomToolbar(props: {
       )}
       {props.pan && (
         <button type="button" onClick={props.pan.onToggle} aria-pressed={props.pan.active} data-testid="hq-pan" data-draws="" aria-label={t('hqLabels.pan')} title={t('hqLabels.panHint')}>
-          <Hand aria-hidden="true" /><span>{t('hqLabels.pan')}</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2v20M2 12h20M15 19l-3 3-3-3M19 9l3 3-3 3M5 9l-3 3 3 3M9 5l3-3 3 3" /></svg><span>{t('hqLabels.pan')}</span>
         </button>
       )}
       <span className="hqToolbarSep" aria-hidden="true" />

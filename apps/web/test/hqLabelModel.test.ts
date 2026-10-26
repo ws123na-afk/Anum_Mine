@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { floorNameParts, floorShowsLabels, FLOOR_PITCH_M, roomAnchor, roomLabelSpecs, roomSubtitle, SLAB_M, STACKED_LABEL_Y } from '../src/lib/hqLabelModel.ts';
-import { floorExtent, floorTagSpecs, slabsAbove } from '../src/lib/hqLabelStacked.ts';
-import { isOccluded, layoutLabels, segmentHitsBox, type LabelInput } from '../src/lib/hqLabels.ts';
+import { FLOOR_PITCH_M as PLACE_PITCH, SLAB_M as PLACE_SLAB, floorExtent, floorTagSpecs, isOccluded, ndcToPixels, projectToNdc, layoutLabels, segmentHitsBox, slabsAbove, type LabelInput } from '../src/lib/hqLabels.ts';
 import { campusCamera } from '../src/lib/hqCamera.ts';
-import { viewProjection } from '../src/lib/hqMath.ts';
+import { viewProjection, projectToNdc as mathProject, ndcToPixels as mathPixels } from '../src/lib/hqMath.ts';
 import { cameraEye } from '../src/lib/headquartersSpatial.ts';
 import { setLocale } from '../src/lib/i18n.ts';
-import { FLOOR_PITCH, WALL_HEIGHT } from '../src/lib/buildingScene.ts';
+import { FLOOR_PITCH, SLAB, WALL_HEIGHT } from '../src/lib/buildingScene.ts';
 
 const room = (id: string, x: number, z: number, extra: Record<string, unknown> = {}) => ({ id, label: id, kind: 'office' as const, x, z, width: 8, depth: 6, teamDepartment: null, ...extra });
 const floors = [
@@ -16,7 +15,15 @@ const floors = [
   { id: 'f2', rooms: [room('d', 0, 0)] },
 ];
 
-test('the model uses the building scene floor pitch', () => assert.equal(FLOOR_PITCH_M, FLOOR_PITCH));
+test('the model and the placement module use the building scene floor pitch and slab, and the projection of hqMath', () => {
+  assert.equal(FLOOR_PITCH_M, FLOOR_PITCH);
+  assert.equal(SLAB_M, SLAB);
+  assert.equal(PLACE_PITCH, FLOOR_PITCH);
+  assert.equal(PLACE_SLAB, SLAB);
+  const vp2 = viewProjection(campusCamera(60), 1.6);
+  for (const p of [{ x: 1, y: 2, z: 3 }, { x: -20, y: 4, z: 80 }, { x: 0, y: 0, z: -500 }]) assert.deepEqual(projectToNdc(vp2, p), mathProject(vp2, p));
+  assert.deepEqual(ndcToPixels({ x: 0.25, y: -0.5 }, 800, 600), mathPixels({ x: 0.25, y: -0.5 }, 800, 600));
+});
 
 test('the room subtitle states registry facts only: kind, desks, a known department', () => {
   setLocale('en');
