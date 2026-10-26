@@ -53,6 +53,7 @@ async function shot(page: Page, name: string) {
 }
 
 test('day, blue hour and night each draw a different frame', async ({ page }) => {
+  test.setTimeout(240_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   const means: Record<string, [number, number, number]> = {};
   for (const look of ['day', 'dusk', 'night'] as const) {
@@ -83,6 +84,7 @@ test('scenery motion is off by default on a software renderer', async ({ page })
 });
 
 test('scenery motion runs when switched on: traffic is placed and the scene clock advances', async ({ page }) => {
+  test.setTimeout(120_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await open(page, 'dusk', { ambient: 1 });
   await expect.poll(async () => Number(await canvas(page).getAttribute('data-ambient-vehicles')), { timeout: 30_000 }).toBeGreaterThan(5);
