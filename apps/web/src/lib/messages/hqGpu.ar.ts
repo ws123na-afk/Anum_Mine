@@ -101,5 +101,4 @@ export const hqGpuAr: Record<keyof typeof hqGpuEn, Message> = {
   'hqGpu.report.copyFailed': 'لم يسمح المتصفح بالنسخ. احفظ التقرير بدلًا من ذلك.',
   'hqGpu.report.privacy': 'يحتوي التقرير على معلومات الرسومات والأزمنة فقط: لا اسم ولا حساب ولا مساحة عمل ولا عنوان ولا رابط صفحة.',
   'hqGpu.notice.retry': 'جرّب ثلاثي الأبعاد مرة أخرى',
-  'hqGpu.notice.recovering': 'أُعيد ضبط بطاقة الرسومات. جارٍ استعادة العرض ثلاثي الأبعاد، ويبقى المكتب قابلًا للاستخدام.',
 };

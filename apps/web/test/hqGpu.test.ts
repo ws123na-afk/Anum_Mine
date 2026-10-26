@@ -240,3 +240,24 @@ test('the quality store notifies subscribers once per change', () => {
   setGpuState(null);
   assert.equal(calls, 1);
 });
+
+// ------------------------------------------------------------ the optional telemetry hook is off unless a sink exists
+
+test('telemetry: nothing happens without a sink, and events are cleaned before they reach one', async () => {
+  const { emitGpuTelemetry, setGpuTelemetrySink, cleanGpuEvent, gpuTelemetryBuildFlag } = await import('../src/lib/hqGpuTelemetry.ts');
+  assert.equal(gpuTelemetryBuildFlag(undefined), false);
+  assert.equal(gpuTelemetryBuildFlag('off'), false);
+  assert.equal(gpuTelemetryBuildFlag('on'), true);
+  const seen: unknown[] = [];
+  emitGpuTelemetry({ kind: 'quality', tier: 'high', step: 1, reason: 'automatic' });
+  assert.deepEqual(seen, []);
+  setGpuTelemetrySink((e) => seen.push(e));
+  emitGpuTelemetry({ kind: 'quality', tier: 'high', step: 1, reason: 'automatic' });
+  emitGpuTelemetry({ kind: 'quality', tier: 'ANGLE (NVIDIA RTX 3060)', step: 1, reason: 'person@example.com' });
+  emitGpuTelemetry({ kind: 'nonsense' as 'quality' });
+  assert.deepEqual(seen, [{ kind: 'quality', tier: 'high', step: 1, reason: 'automatic' }, { kind: 'quality', tier: undefined, step: 1, reason: undefined }]);
+  setGpuTelemetrySink(() => { throw new Error('listener failed'); });
+  emitGpuTelemetry({ kind: 'context-lost' });
+  setGpuTelemetrySink(null);
+  assert.equal(cleanGpuEvent({ kind: 'fallback', step: -1 })?.step, undefined);
+});

@@ -98,5 +98,4 @@ export const hqGpuEn = {
   'hqGpu.report.copyFailed': 'Your browser would not allow copying. Save the report instead.',
   'hqGpu.report.privacy': 'The report holds graphics and timing facts only: no name, account, workspace, address or page link.',
   'hqGpu.notice.retry': 'Try 3D again',
-  'hqGpu.notice.recovering': 'The graphics card reset. Restoring the 3D view; the office stays usable.',
 } as const;

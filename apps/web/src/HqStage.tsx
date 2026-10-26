@@ -12,6 +12,8 @@ import type { HqRenderer } from './lib/hqThreeRenderer.ts';
 import type { RenderScene } from './lib/hqRenderTypes.ts';
 import { setGpuState } from './lib/hqGpuState.ts';
 import { setLiveRenderer } from './lib/hqGpuBridge.ts';
+import { emitGpuTelemetry } from './lib/hqGpuTelemetry.ts';
+import { tierById } from './lib/hqQualityTiers.ts';
 import { pickNearest, type PickTarget } from './lib/hqMath.ts';
 import { placeLabels } from './lib/hqLabels.ts';
 import { dolly, isCameraAtRest, orbit, pan, screenRay, stepCamera, type CameraState } from './lib/headquartersSpatial.ts';
@@ -100,14 +102,17 @@ export function HqStage(props: Props) {
     import('./lib/hqThreeRenderer.ts').then(({ HqRenderer: Renderer }) => {
       if (cancelled) return;
       const r: HqRenderer | null = Renderer.create(el, {
-        onQuality: (state) => setGpuState(state),
+        onQuality: (state) => { setGpuState(state); emitGpuTelemetry({ kind: 'quality', tier: tierById(state.tier).key, step: state.step, reason: state.reason }); },
         onLost: () => {
           setStatus('recovering');
+          emitGpuTelemetry({ kind: 'context-lost' });
           lostTimer.current = window.setTimeout(() => propsRef.current.onUnavailable('context-lost'), 8000);
         },
         onRestored: () => {
           if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
           setStatus('ok');
+          emitGpuTelemetry({ kind: 'context-restored' });
+          if (propsRef.current.scene) renderer.current?.setScene(propsRef.current.scene);
         },
         onError: (error) => propsRef.current.onUnavailable(error.message),
         onFrame: (vp, aspect) => {

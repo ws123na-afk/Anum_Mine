@@ -39,7 +39,7 @@ import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene,
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
 import { ModelLayer } from './hqModelLayer.ts';
 import { QUALITY_PIN_KEY, ladderFor, parsePin, tierById, type QualityState, type StepSettings, type TierReason } from './hqQualityTiers.ts';
-import { FrameGovernor } from './hqGovernor.ts';
+import type { FrameGovernor } from './hqGovernor.ts';
 import type { ModelGroup } from './hqModels.ts';
 
 export type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
@@ -340,7 +340,11 @@ export class HqRenderer {
   private override: number | null = null;
   private ladder: readonly StepSettings[] = ladderFor(tierById(3));
   private applied: StepSettings = this.ladder[0];
-  private governor = new FrameGovernor(this.ladder.length);
+  /** Loaded on demand (its own chunk), so the renderer chunk stays inside its budget; null until then, and the picture simply holds its tier. */
+  private governor: FrameGovernor | null = null;
+  private governorModule: typeof import('./hqGovernor.ts') | null = null;
+  private step = 0;
+  private governed = false;
   private lean = false;
   /** A shader failed to compile here: the simple materials stay on for every tier. */
   private faulted = false;
@@ -359,7 +363,7 @@ export class HqRenderer {
   private ambientForced = false;
   private readonly rest = new Matrix4();
   private readonly pose = new Matrix4();
-  private readonly onVisibility = () => { this.governor.reset(); this.prevDrawAt = 0; if (!document.hidden) { this.lastClockAt = 0; this.requestFrame(); } };
+  private readonly onVisibility = () => { this.governor?.reset(); this.prevDrawAt = 0; if (!document.hidden) { this.lastClockAt = 0; this.requestFrame(); } };
   /** Cut-away floors: the value each lift group stands at, and the motions running now. */
   private liftValue = new Map<string, number>();
   private liftRun = new Map<string, { from: number; to: number; t0: number }>();
@@ -396,7 +400,7 @@ export class HqRenderer {
       this.envs = [];
       this.composer?.dispose(); this.composer = null; this.bloom = null;
       this.sun.shadow.map?.dispose(); this.sun.shadow.map = null;
-      this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = ''; this.governor.reset();
+      this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = ''; this.governor?.reset();
       this.cb.onRestored?.(); this.requestFrame();
     };
     document.addEventListener('visibilitychange', this.onVisibility);
@@ -455,13 +459,17 @@ export class HqRenderer {
   private configureTier(): void {
     const id = this.override ?? this.pinned ?? this.quality;
     this.ladder = ladderFor(tierById(id));
-    this.governor = new FrameGovernor(this.ladder.length);
-    this.governor.enabled = this.pinned === null && this.override === null && !this.software;
+    this.governor = null;
+    const enabled = this.pinned === null && this.override === null && !this.software;
+    const make = (m: typeof import('./hqGovernor.ts')): void => { const g = new m.FrameGovernor(this.ladder.length); g.enabled = enabled; this.governor = g; };
+    if (enabled && this.governorModule) make(this.governorModule);
+    else if (enabled) void import('./hqGovernor.ts').then((m) => { this.governorModule = m; if (!this.disposed && this.governor === null && this.override === null && this.pinned === null) make(m); }, () => undefined);
+    this.governed = enabled;
     this.applyStep(0);
   }
 
   private applyStep(step: number): void {
-    this.governor.step = step;
+    this.step = step;
     const next = this.ladder[Math.min(step, this.ladder.length - 1)];
     const wantLean = next.lean || this.faulted;
     const lean = wantLean !== this.lean;
@@ -474,7 +482,7 @@ export class HqRenderer {
   }
 
   private emitQuality(): void {
-    const q: QualityState = { tier: this.override ?? this.pinned ?? this.quality, reason: this.pinned !== null ? 'pinned' : this.reason, step: this.governor.step, steps: this.ladder.length, settings: this.applied, software: this.software, governed: this.governor.enabled };
+    const q: QualityState = { tier: this.override ?? this.pinned ?? this.quality, reason: this.pinned !== null ? 'pinned' : this.reason, step: this.step, steps: this.ladder.length, settings: this.applied, software: this.software, governed: this.governed };
     const p = this.lastQuality;
     if (p && p.tier === q.tier && p.reason === q.reason && p.step === q.step && p.governed === q.governed && p.settings === q.settings) return;
     this.lastQuality = q;
@@ -511,19 +519,14 @@ export class HqRenderer {
     window.setTimeout(() => { if (!this.disposed) this.applyStep(this.ladder.length - 1); }, 0);
   }
 
-  /** What the Graphics check reads: the live context, three.js counters and rough sizes. */
-  probe(): { gl: WebGL2RenderingContext; memory: { geometries: number; textures: number }; programs: number; geometryBytes: number; textureBytes: number; canvasPx: number; shadowSize: number; composer: boolean; diagnostics: readonly string[] } {
-    let geometryBytes = 0;
-    for (const m of this.meshes) for (const a of Object.values(m.geometry.attributes)) geometryBytes += (a.array as Float32Array).byteLength;
-    let textureBytes = 0;
-    for (const t of this.textures) { const img = t.image as { width?: number; height?: number } | undefined; textureBytes += (img?.width ?? 0) * (img?.height ?? 0) * 4 * 1.34; }
-    const { width, height } = this.renderer.getDrawingBufferSize(new Vector2());
-    return { gl: this.renderer.getContext() as WebGL2RenderingContext, memory: { ...this.renderer.info.memory }, programs: this.renderer.info.programs?.length ?? 0, geometryBytes, textureBytes, canvasPx: width * height, shadowSize: this.stats.shadowSize, composer: this.composer !== null, diagnostics: this.diagnostics };
+  /** What the Graphics check reads (it does the arithmetic, in its own chunk): the live context, three.js counters and the buffers in use. */
+  parts(): { gl: WebGL2RenderingContext; info: WebGLRenderer['info']; meshes: readonly Mesh[]; textures: readonly Texture[]; size: Vector2; composer: boolean; diagnostics: readonly string[] } {
+    return { gl: this.renderer.getContext() as WebGL2RenderingContext, info: this.renderer.info, meshes: this.meshes, textures: this.textures, size: this.renderer.getDrawingBufferSize(new Vector2()), composer: this.composer !== null, diagnostics: this.diagnostics };
   }
 
-  /** Cut-away floors in the scene (for a benchmark that changes floor), and a move of all of them to `to` (0 collapsed, 1 in place). */
-  liftGroups(): string[] { return [...new Set(this.meshes.map((m) => (m.userData.lift as { group: string } | null)?.group).filter((g): g is string => !!g))]; }
-  setLifts(to: number): void { this.startLifts(Object.fromEntries(this.liftGroups().map((g) => [g, { to }]))); this.requestFrame(); }
+  /** Where each cut-away floor group stands now (1 in place, 0 collapsed), and a move to the given values. */
+  liftSnapshot(): Record<string, number> { return Object.fromEntries(this.liftValue); }
+  setLiftValues(values: Record<string, number>): void { this.startLifts(Object.fromEntries(Object.entries(values).map(([g, to]) => [g, { to }]))); this.requestFrame(); }
   get cameraNow(): CameraState | null { return this.cameraState; }
 
   private fail(error: unknown): void {
@@ -951,8 +954,6 @@ export class HqRenderer {
     const region = this.shadowRegion;
     const on = region !== null && this.applied.shadowSize > 0;
     if (on && region) {
-      const d = new Vector2(light.sunDir[0], light.sunDir[2]);
-      void d;
       const dir = { x: light.sunDir[0], y: light.sunDir[1], z: light.sunDir[2] };
       const len = Math.hypot(dir.x, dir.y, dir.z);
       const R = region.radius;
@@ -1085,10 +1086,12 @@ export class HqRenderer {
     // The frame governor judges frame to frame time while the camera or a cut-away is moving (that is what a person sees), and the draw call
     // alone when ambient motion paces the frames. Slow frames spend ambient motion first, then walk the ladder.
     const frameMs = chained && interval > 0 && interval < 250 ? Math.max(ms, interval) : ms;
-    if (document.hidden) { this.governor.reset(); return; }
-    const decision = this.governor.sample(frameMs, started);
-    if (decision === 'down' && this.level > 0) { this.slowSteps += 1; this.governor.defer(started); this.requestFrame(); }
-    else if (decision) { this.governor.apply(decision, started); this.applyStep(this.governor.step); }
+    const gov = this.governor;
+    if (!gov) return;
+    if (document.hidden) { gov.reset(); return; }
+    const decision = gov.sample(frameMs, started);
+    if (decision === 'down' && this.level > 0) { this.slowSteps += 1; gov.defer(started); this.requestFrame(); }
+    else if (decision) { gov.apply(decision, started); this.applyStep(gov.step); }
   }
 
   private scheduleSceneryIfRunning(): void { if (this.level > 0) this.scheduleScenery(); }
