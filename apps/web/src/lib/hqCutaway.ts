@@ -42,11 +42,6 @@ export function snapYaw(yaw: number, dir: 1 | -1): number {
 /** What is cut right now: the walls and the roof, and how many floors are drawn. Exposed on the stage (`data-cut-*`) for the label layer. */
 export type CutawayInfo = Readonly<{ facade: Facade; cutSides: readonly Side[]; roofOpen: boolean; floors: number; activeIndex: number }>;
 
-export function cutawayInfo(facade: Facade, sides: readonly Side[], floors: number, activeIndex: number): CutawayInfo {
-  const open = facade === 'cutaway';
-  return { facade, cutSides: open ? sides : [], roofOpen: open, floors, activeIndex };
-}
-
 /** Lift targets of the wall and roof groups (see `RenderScene.lifts`): a cut wall collapses to its floor, a kept one stands. */
 export function cutLifts(info: CutawayInfo): Record<string, { to: number }> {
   const out: Record<string, { to: number }> = { 'cut:roof': { to: info.roofOpen ? 0 : 1 } };

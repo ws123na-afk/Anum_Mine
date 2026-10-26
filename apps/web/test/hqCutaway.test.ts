@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { FLOOR_PITCH, WALL_HEIGHT, buildBuildingScene } from '../src/lib/buildingScene.ts';
 import { HOME_YAW, buildingFitCamera } from '../src/lib/hqCamera.ts';
-import { CUT_BAND, CUT_PITCH, cutLifts, cutawayInfo, facingSides, snapYaw, type Side } from '../src/lib/hqCutaway.ts';
+import { CUT_BAND, CUT_PITCH, cutLifts, facingSides, snapYaw, type Side } from '../src/lib/hqCutaway.ts';
 import { cameraBasis, cameraEye, type CameraState } from '../src/lib/headquartersSpatial.ts';
 import type { RoomGeometry, SceneFloor } from '../src/lib/headquartersProjection.ts';
 
@@ -40,9 +40,9 @@ describe('which walls face the camera', () => {
     }
   });
   test('the open and closed lifts: cut walls and the roof go to 0, kept walls stay', () => {
-    const open = cutLifts(cutawayInfo('cutaway', ['south', 'east'], 3, 0));
+    const open = cutLifts({ facade: 'cutaway', cutSides: ['south', 'east'], roofOpen: true, floors: 3, activeIndex: 0 });
     assert.deepEqual(open, { 'cut:roof': { to: 0 }, 'cut:north': { to: 1 }, 'cut:south': { to: 0 }, 'cut:east': { to: 0 }, 'cut:west': { to: 1 } });
-    const closed = cutLifts(cutawayInfo('closed', ['south', 'east'], 3, 0));
+    const closed = cutLifts({ facade: 'closed', cutSides: [], roofOpen: false, floors: 3, activeIndex: 0 });
     assert.ok(Object.values(closed).every((l) => l.to === 1));
   });
 });
@@ -115,9 +115,7 @@ describe('the section scene', () => {
     const bright = (fi: number) => { const w = all.walls.find((x) => x.side === 'north' && x.floorIndex === fi)!; return lum(w.opaque.vertices) / w.opaque.triangles; };
     assert.ok(bright(0) < bright(1) * 0.9 && bright(2) < bright(1) * 0.9, 'the floors other than the open one are dimmed');
   });
-  test('the outer skin stays in the building when the section view is off, and the single floor has its roof', () => {
-    const plain = buildBuildingScene(floors, { activeIndex: 1, showAll: true });
-    assert.equal(plain.walls.length, 0);
+  test('the single floor has its own four walls and its roof', () => {
     const one = buildBuildingScene(floors, { activeIndex: 1, cutaway: true });
     assert.equal(one.walls.filter((w) => w.side === 'roof')[0].floorIndex, 1);
     assert.equal(one.walls.filter((w) => w.side === 'north').length, 1);

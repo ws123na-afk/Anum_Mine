@@ -10,13 +10,17 @@ import { useFlowLabels } from './HqFlowStage';
 import { ArrowLeft, Building2, ChevronDown, ChevronRight, DoorOpen, HardDrive, Layers, Users } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+const CommercePanels = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.CommercePanels })));
+const OverviewCard = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.OverviewCard })));
+const FloorRooms = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.FloorRooms })));
+const TyrePanel = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.TyrePanel })));
 const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
 import { BottomToolbar, CameraTools, TotalsPanel, statusLabel } from './HqChrome';
 import { AvatarChip } from './AvatarStyleEditor';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { visualOfStatus } from './hqAssets/interior/stateVisual.ts';
 import { buildBuildingScene, FLOOR_PITCH, WALL_HEIGHT, type DeskVisual } from './lib/buildingScene.ts';
-import { CUT_PITCH, STACK_AUTO_MAX, cutLifts, cutawayInfo, facingSides, snapYaw, type Facade, type Side } from './lib/hqCutaway.ts';
+import { CUT_PITCH, STACK_AUTO_MAX, cutLifts, facingSides, snapYaw, type CutawayInfo, type Facade, type Side } from './lib/hqCutaway.ts';
 import { HOME_YAW, buildingFitCamera, floorOverviewCamera, clampInside, clampTarget, insideCamera, isInsideView, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { RoomGeometry, SceneBuilding, SceneDesk, SceneFloor } from './lib/headquartersProjection.ts';
@@ -24,7 +28,6 @@ import { presenceForDesk, totalsOf, type HqPresenceIndex } from './lib/hqPresenc
 import { STATUS_TONE, type StatusKey } from './lib/campusModel.ts';
 import type { HqView } from './HqChrome';
 import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
-import { commerceFlow } from './lib/hqModules.ts';
 import { buildingModules } from './lib/hqBuildingModules.ts';
 import { floorLifts } from './lib/hqFloorLift.ts';
 import { LIFT_MS, easeLift } from './lib/hqRenderTypes.ts';
@@ -88,7 +91,7 @@ export function BuildingView(props: BuildingViewProps) {
   const [showAll, setShowAll] = useState(() => floors.length <= STACK_AUTO_MAX);
   const [facade, setFacade] = useState<Facade>('cutaway');
   const [cutSides, setCutSides] = useState<readonly Side[]>(() => facingSides(35));
-  const [facadeNote, setFacadeNote] = useState('');
+  const [facadeSaid, setFacadeSaid] = useState(false);
 
   const deskState = useMemo(() => {
     const map = new Map<string, DeskVisual>();
@@ -189,18 +192,16 @@ export function BuildingView(props: BuildingViewProps) {
     setCutSides((p) => { const n = facingSides(camera.yaw, p); return n[0] === p[0] && n[1] === p[1] ? p : n; });
   }, [camera]);
   const effectiveFacade: Facade = facade === 'cutaway' || props.overview || view === 'top' ? 'cutaway' : 'closed';
-  const cut = useMemo(() => cutawayInfo(effectiveFacade, cutSides, floors.length, activeIndex), [effectiveFacade, cutSides, floors.length, activeIndex]);
+  const cut = useMemo((): CutawayInfo => ({ facade: effectiveFacade, cutSides: effectiveFacade === 'cutaway' ? cutSides : [], roofOpen: effectiveFacade === 'cutaway', floors: floors.length, activeIndex }), [effectiveFacade, cutSides, floors.length, activeIndex]);
   // A turn of 90 degrees to the next diagonal view, flown there (reduced motion jumps); free turns (keys, drag) keep the camera as it is.
   const turn = (dir: 1 | -1) => {
     const c = cameraRef.current;
     if (isInsideView(c) || view === 'top' || latest.current.overview) { change((x) => rotateBy(x, dir * 20)); return; }
     const yaw = snapYaw(c.yaw, dir);
     const fit = buildingFitCamera(fitBox, aspect, CUT_PITCH, yaw);
-    const atHome = Math.abs(c.distance - homeRef.current.distance) < 0.6 && Math.hypot(c.target.x - homeRef.current.target.x, c.target.z - homeRef.current.target.z) < 0.6;
-    const next = atHome ? fit : { ...c, yaw };
     turning.current = true;
     setHomeYaw(((yaw % 360) + 360) % 360);
-    if (latest.current.reducedMotion) setCamera({ ...next, yaw: ((yaw % 360) + 360) % 360 }); else glide(next);
+    if (latest.current.reducedMotion) setCamera({ ...fit, yaw: ((yaw % 360) + 360) % 360 }); else glide(fit);
   };
   // The camera that frames one room of the open floor, or null when the room is not on it.
   const frameOf = useCallback((id: string): CameraState | null => {
@@ -310,7 +311,7 @@ export function BuildingView(props: BuildingViewProps) {
       list.push({
         id: 'room:' + room.id, anchor: handle.anchor, priority: room.id === props.selectedRoomId ? 0 : 1, maxDistance: 160,
         node: overview
-          ? <OverviewCard room={room} desks={desks.length} assigned={assigned} selected={room.id === props.selectedRoomId} onPick={() => pickRoom(room.id)} />
+          ? <Suspense fallback={null}><OverviewCard room={room} desks={desks.length} assigned={assigned} selected={room.id === props.selectedRoomId} onPick={() => pickRoom(room.id)} /></Suspense>
           : <RoomCard room={room} assigned={assigned} working={working} known={presence !== null} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId} onPick={() => pickRoom(room.id)} />,
       });
     }
@@ -404,14 +405,14 @@ export function BuildingView(props: BuildingViewProps) {
           <span className="hqFloorCount" data-testid="hq-floor-count">{t('hq.floor.count', { index: activeIndex + 1, count: floors.length })}</span>
           <div className="hqSegment" role="group" aria-label={t('hq.facade.label')}>
             {(['cutaway', 'closed'] as const).map((f) => (
-              <button key={f} type="button" aria-pressed={facade === f} data-testid={`hq-facade-${f}`} onClick={() => { setFacade(f); setFacadeNote(t(`hq.facade.${f}Now` as MessageKey)); }}>{t(`hq.facade.${f}` as MessageKey)}</button>
+              <button key={f} type="button" aria-pressed={facade === f} data-testid={`hq-facade-${f}`} onClick={() => { setFacade(f); setFacadeSaid(true); }}>{t(`hq.facade.${f}` as MessageKey)}</button>
             ))}
           </div>
           <label className="hqCheck"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /><span>{t('hq.floor.showAll')}</span></label>
         </div>
       </div>
 
-      <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-facade-live">{facadeNote}</p>
+      <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-facade-live">{facadeSaid ? t(`hq.facade.${facade}Now` as MessageKey) : ''}</p>
       <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-floor-live">{t('hq.floor.now', { name: floor.name, index: activeIndex + 1, count: floors.length })}</p>
       <div className="hqSceneWrap" ref={wrap} data-facade={cut.facade} data-cut-sides={cut.cutSides.join(' ')} data-roof-open={cut.roofOpen} data-stack={stackOn} data-camera-yaw={camera.yaw.toFixed(1)} data-camera-distance={camera.distance.toFixed(2)} data-camera-eye-y={(camera.target.y + Math.sin((camera.pitch * Math.PI) / 180) * camera.distance).toFixed(2)}>
         <HqStage
@@ -451,7 +452,7 @@ export function BuildingView(props: BuildingViewProps) {
 
       <div className="hqStripSlot" />
 
-      {overview && floor.rooms.length > 0 && <FloorRooms floor={floor} presence={presence} selectedRoomId={props.selectedRoomId} onPick={pickRoom} onLeave={() => props.onOverview(false)} />}
+      {overview && floor.rooms.length > 0 && <Suspense fallback={null}><FloorRooms floor={floor} has={(d) => !!presenceForDesk(presence, d)} selectedRoomId={props.selectedRoomId} onPick={pickRoom} onLeave={() => props.onOverview(false)} /></Suspense>}
 
       <div className="hqBottomPanels">
         <TotalsPanel
@@ -459,8 +460,8 @@ export function BuildingView(props: BuildingViewProps) {
           note={presence && agents && agents.agents === 0 ? t('hq.team.none') : null}
         />
         {modules.panels.includes('os') && props.wall && <Suspense fallback={null}><HqCommandWall model={props.wall.model} variant="panel" onReload={props.wall.onReload} /></Suspense>}
-        {modules.panels.includes('commerce') && <CommercePanels state={props.commerce} />}
-        {modules.panels.includes('tyre') && <TyrePanel state={props.tyre} />}
+        {modules.panels.includes('commerce') && <Suspense fallback={null}><CommercePanels state={props.commerce} /></Suspense>}
+        {modules.panels.includes('tyre') && <Suspense fallback={null}><TyrePanel state={props.tyre} /></Suspense>}
       </div>
     </div>
   );
@@ -479,46 +480,6 @@ function RoomCard(props: { room: RoomGeometry; assigned: number; working: number
   );
 }
 
-/** The room card of the floor overview: the name, the kind, the desks and the people at them; a button that selects the room. */
-function OverviewCard(props: { room: RoomGeometry; desks: number; assigned: number; selected: boolean; onPick: () => void }) {
-  const Icon = (ROOM_ICON as Record<string, typeof Users>)[props.room.kind] ?? Building2;
-  return (
-    <button type="button" className="hqLabelCard hqOverviewCard" data-selected={props.selected} data-kind={props.room.kind} aria-pressed={props.selected} onClick={props.onPick}>
-      <span className="hqLabelIcon"><Icon aria-hidden="true" /></span>
-      <span className="hqLabelText"><strong>{props.room.label}</strong><small>{t(`hq.roomKind.${props.room.kind}` as MessageKey)}</small><small>{t('hqFloor.stats', { desks: props.desks, agents: props.assigned })}</small></span>
-    </button>
-  );
-}
-
-/** Every room of the active floor as a plain list under the scene: the same facts as the cards, always reachable by keyboard and screen reader. */
-function FloorRooms(props: { floor: SceneFloor; presence: HqPresenceIndex | null; selectedRoomId: string | null; onPick: (id: string) => void; onLeave: () => void }) {
-  const { floor } = props;
-  const rows = floor.rooms.map((room) => {
-    const desks = floor.desks.filter((d) => d.roomId === room.id);
-    return { room, desks: desks.length, agents: desks.filter((d) => d.agentId || presenceForDesk(props.presence, d)).length };
-  });
-  const totals = rows.reduce((n, r) => ({ desks: n.desks + r.desks, agents: n.agents + r.agents }), { desks: 0, agents: 0 });
-  return (
-    <section className="hqPanel hqFloorRooms" aria-label={t('hqFloor.listTitle', { floor: floor.name })} data-testid="hq-floor-rooms">
-      <header>
-        <h2>{t('hqFloor.listTitle', { floor: floor.name })}</h2>
-        <p className="hqMuted">{t('hqFloor.summary', { rooms: rows.length, desks: totals.desks, agents: totals.agents })}</p>
-        <button type="button" className="hqGhost" onClick={props.onLeave}>{t('hqFloor.back')}</button>
-      </header>
-      <ul>
-        {rows.map(({ room, desks, agents }) => (
-          <li key={room.id}>
-            <button type="button" data-selected={room.id === props.selectedRoomId} aria-pressed={room.id === props.selectedRoomId} onClick={() => props.onPick(room.id)}>
-              <strong dir="auto">{room.label}</strong>
-              <small>{t(`hq.roomKind.${room.kind}` as MessageKey)}. {t('hqFloor.stats', { desks, agents })}</small>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
 function AgentCard(props: { chip: { id: string; avatar: AvatarAppearance | null; department: string | null } | null; name: string; role: string | null; status: StatusKey | null; stale: boolean; selected: boolean; onPick: () => void }) {
   const tone = props.status ? STATUS_TONE[props.status] : 'faint';
   return (
@@ -532,63 +493,5 @@ function AgentCard(props: { chip: { id: string; avatar: AvatarAppearance | null;
         <span className={`hqPill tone-${tone}`}>{props.status ? statusLabel(props.status) : t('hq.status.unavailable')}{props.stale ? ` (${t('hq.agent.stale')})` : ''}</span>
       </span>
     </button>
-  );
-}
-
-function NotConnected(props: { title: string; state: ModuleState<unknown>; setupHash: string }) {
-  const s = props.state;
-  return (
-    <section className="hqPanel hqModule" aria-label={props.title}>
-      <h2>{props.title}</h2>
-      {s.state === 'loading' && <p className="hqMuted" role="status">{t('hq.module.loading')}</p>}
-      {s.state === 'not_connected' && <div className="hqUnavailable"><strong>{t('hq.module.notConnected')}</strong><a href={props.setupHash}>{t('hq.module.setup')}</a></div>}
-      {s.state === 'forbidden' && <div className="hqUnavailable"><strong>{t('hq.module.forbidden')}</strong><span>{t('hq.module.forbiddenHint')}</span></div>}
-      {s.state === 'error' && <div className="hqUnavailable" role="alert"><strong>{t('hq.module.error')}</strong><span>{s.message}</span></div>}
-    </section>
-  );
-}
-
-function CommercePanels({ state }: { state: ModuleState<CommerceLive> }) {
-  if (state.state !== 'ready') return <NotConnected title={t('hq.commerce.title')} state={state} setupHash="#commerce" />;
-  const c = state.data;
-  return (
-    <>
-      <section className="hqPanel hqModule" aria-label={t('hq.commerce.title')}>
-        <h2>{t('hq.commerce.title')}</h2>
-        <ul className="hqStats">
-          <li><strong>{c.orders}</strong><span>{t('hq.commerce.orders')}</span></li>
-          <li><strong>{c.waiting}</strong><span>{t('hq.commerce.waiting')}</span></li>
-          <li><strong>{c.late}</strong><span>{t('hq.commerce.late')}</span></li>
-          {c.lowStock !== null && <li><strong>{c.lowStock}</strong><span>{t('hq.commerce.lowStock')}</span></li>}
-          <li><strong>{c.openAlerts}</strong><span>{t('hq.commerce.alerts')}</span></li>
-        </ul>
-      </section>
-      <section className="hqPanel hqModule" aria-label={t('hq.flow.title')}>
-        <h2>{t('hq.flow.title')}</h2>
-        <ol className="hqFlow">
-          {commerceFlow(c).map((step) => (
-            <li key={step.key}><strong>{step.count}</strong><span>{t(`hq.flow.${step.key}` as MessageKey)}</span></li>
-          ))}
-        </ol>
-      </section>
-    </>
-  );
-}
-
-function TyrePanel({ state }: { state: ModuleState<TyreLive> }) {
-  if (state.state !== 'ready') return <NotConnected title={t('hq.tyre.title')} state={state} setupHash="#tyre" />;
-  const d = state.data;
-  return (
-    <section className="hqPanel hqModule" aria-label={t('hq.tyre.title')}>
-      <h2>{t('hq.tyre.title')}</h2>
-      <ul className="hqStats">
-        <li><strong>{d.vehicles}</strong><span>{t('hq.tyre.vehicles')}</span></li>
-        <li><strong>{d.fitted}</strong><span>{t('hq.tyre.fitted')}</span></li>
-        {d.inStock !== null && <li><strong>{d.inStock}</strong><span>{t('hq.tyre.stock')}</span></li>}
-        <li><strong>{d.belowMinimum}</strong><span>{t('hq.tyre.below')}</span></li>
-        <li><strong>{d.overdueInspections}</strong><span>{t('hq.tyre.overdue')}</span></li>
-        <li><strong>{d.dueNext30}</strong><span>{t('hq.tyre.due')}</span></li>
-      </ul>
-    </section>
   );
 }

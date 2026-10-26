@@ -81,7 +81,7 @@ test('rotating snaps 90 degrees and re-picks the cut walls; four turns come back
   for (let i = 0; i < 4; i++) {
     await hq(page).getByRole('button', { name: 'Rotate right' }).click();
     await expect.poll(yaw, { timeout: 5000 }).toBeCloseTo(yaws[i], 0);
-    expect([...(await wrap(page).getAttribute('data-cut-sides'))!.split(' ')].sort().join(' ')).toBe(sides[i].split(' ').sort().join(' '));
+    await expect.poll(async () => (await wrap(page).getAttribute('data-cut-sides'))!.split(' ').sort().join(' '), { timeout: 5000 }).toBe(sides[i].split(' ').sort().join(' '));
   }
   await hq(page).getByRole('button', { name: 'Rotate left' }).click();
   await expect.poll(yaw, { timeout: 5000 }).toBeCloseTo(305, 0);

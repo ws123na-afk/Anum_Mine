@@ -31,13 +31,13 @@ Labels are owned by the label module; this view does not edit it. It exposes:
 
 - `BuildingScene.rooms`: every dressed floor's rooms, each with `floorIndex` and a world space `anchor` (above the room, at the middle of its depth), and `BuildingScene.desks` with `anchor`. In the cutaway all floors are present, not only the open one.
 - `data-facade` (`cutaway` or `closed`), `data-cut-sides` (for example `south east`), `data-roof-open`, `data-stack` and `data-camera-yaw` on `.hqSceneWrap`.
-- `cutawayInfo(facade, sides, floors, activeIndex)` in `lib/hqCutaway.ts`: the same facts as a value, for code that works in the same module.
+- the `CutawayInfo` type in `lib/hqCutaway.ts`: the same facts as a value (`facade`, `cutSides`, `roofOpen`, `floors`, `activeIndex`).
 
 A label whose room is on a floor under a cut wall can stay where it is: the wall is removed, so the anchor is in the open.
 
 ## Cost
 
-Measured on the synthetic floors of `test/hqCutaway.test.ts` (3 rooms, 10 desks each) in Node: a 3 floor stack builds in about 0.5 s, 8 floors about 1.4 s and 53,000 and 129,000 triangles, 18 floors about 2.4 s and 282,000 triangles. A floor change rebuilds the stack (the highlight is part of the geometry), which is why a tower above 8 floors opens on the open floor alone. Gap: the dimmed floors are not cached between floor changes the way the shells of the single floor view are. Bundle: the lazy HQ chunk grew by 1.3 kB gzip (limit 140,000 unchanged); the renderer chunk did not change.
+Measured on the synthetic floors of `test/hqCutaway.test.ts` (3 rooms, 10 desks each) in Node: a 3 floor stack builds in about 0.5 s, 8 floors about 1.4 s and 53,000 and 129,000 triangles, 18 floors about 2.4 s and 282,000 triangles. A floor change rebuilds the stack (the highlight is part of the geometry), which is why a tower above 8 floors opens on the open floor alone. Gap: the dimmed floors are not cached between floor changes the way the shells of the single floor view are. Bundle: about 0.6 kB gzip of code; the module panels and overview list of the building view became a lazy chunk to stay inside the 140,000 limit ([budget](ANUM_MINE_HQ_PERFORMANCE_BUDGET.md)); the renderer chunk did not change.
 
 ## Tests
 

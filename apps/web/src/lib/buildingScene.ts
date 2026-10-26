@@ -67,7 +67,7 @@ const GHOST_CACHE = new WeakMap<SceneFloor, { key: string; value: GhostFloor }>(
 export type BuildingScene = Readonly<{
   /** Cut-away mode only: every floor other than the active one (empty otherwise). */
   ghosts: readonly GhostFloor[];
-  /** Cut-away mode only: the outer skin of every dressed floor, one piece per side, and the roof; empty otherwise (the skin is then part of `opaque`). */
+  /** The outer skin of every dressed floor, one piece per side, and the roof (not part of `opaque`, so the stage can lower them). */
   walls: readonly WallPiece[];
   opaque: SceneMesh;
   glass: SceneMesh;
@@ -573,8 +573,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
       drawCore(fo, fg, amb, { x: fb.core.x, z: fb.core.z, y, plate: coreIndex > 0 ? atlas.cell(coreIndex) : null, ghost });
     }
     if (!ghost) {
-      // The building's outer skin: a solid base, glass above, posts and a roof-line rail. Without cut-away only the two back sides
-      // (north and west) get it, the near two a low glass balustrade; the section view builds all four as pieces the stage lowers.
+      // The building's outer skin: a solid base, glass above, posts and a roof-line rail, one piece per side so the stage can lower the ones facing the camera.
       const skin = (o: MeshBuilder, g: MeshBuilder, x: number, z: number, w: number, d: number) => {
         o.box(x, y, z, w, 1.1, d, hex('#e6eaed'), { grad: 0.15, emissive: 0.15 });
         g.box(x, y + 1.1, z, w, WALL_HEIGHT + 0.4 - 1.1, d, hex('#9fd4e6'), { shade: false });
@@ -589,7 +588,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
         ['north', fb.x0, fb.z0, fb.x1 - fb.x0, 0.2], ['west', fb.x0, fb.z0, 0.2, fb.z1 - fb.z0],
         ['south', fb.x0, fb.z1 - 0.2, fb.x1 - fb.x0, 0.2], ['east', fb.x1 - 0.2, fb.z0, 0.2, fb.z1 - fb.z0],
       ];
-      if (cutaway) {
+      {
         for (const [side, x, z, w, d] of sides) {
           const so = new MeshBuilder(), sg = new MeshBuilder();
           skin(so, sg, x, z, w, d);
@@ -599,36 +598,18 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
           // The roof: the slab the next floor would stand on, with a parapet; it lifts away in the cut-away view.
           const ro = new MeshBuilder(), ry = (fi + 1) * FLOOR_PITCH - SLAB;
           ro.box(fb.x0 - 0.2, ry, fb.z0 - 0.2, fb.x1 - fb.x0 + 0.4, SLAB, fb.z1 - fb.z0 + 0.4, hex('#8d98a3'));
-          ro.box(fb.x0 - 0.2, ry + SLAB, fb.z0 - 0.2, fb.x1 - fb.x0 + 0.4, 0.15, 0.15, hex('#59656f'));
-          ro.box(fb.x0 - 0.2, ry + SLAB, fb.z1 + 0.05, fb.x1 - fb.x0 + 0.4, 0.15, 0.15, hex('#59656f'));
           walls.push({ side: 'roof', floorIndex: fi, y: ry, opaque: freeze(ro, dim ? DIM : 1), glass: freeze(new MeshBuilder()) });
         }
-      } else {
-        skin(fo, fg, fb.x0, fb.z0, fb.x1 - fb.x0, 0.2);
-        skin(fo, fg, fb.x0, fb.z0, 0.2, fb.z1 - fb.z0);
-        const rail = (x: number, z: number, w: number, d: number) => {
-          fg.box(x, y, z, w, 1.05, d, hex('#9fd4e6'), { shade: false });
-          fo.withMat(MAT.metal, () => {
-            fo.box(x - 0.02, y + 1.05, z - 0.02, w + 0.04, 0.06, d + 0.04, hex('#aeb8c2'));
-            const long = Math.max(w, d);
-            for (let m = 0; m <= long; m += 2.4) {
-              if (w > d) fo.box(Math.min(x + m, x + w - 0.06), y, z - 0.02, 0.06, 1.05, d + 0.04, hex('#8d98a3'));
-              else fo.box(x - 0.02, y, Math.min(z + m, z + d - 0.06), w + 0.04, 1.05, 0.06, hex('#8d98a3'));
-            }
-          });
-        };
-        rail(fb.x0, fb.z1 - 0.1, fb.x1 - fb.x0, 0.05);
-        rail(fb.x1 - 0.1, fb.z0, 0.05, fb.z1 - fb.z0);
       }
       // Low planters along the front and the east edge.
       for (let px = fb.x0 + 1; px < fb.x1 - 0.8; px += 3.2) planter(fo, px, fb.z1 - 0.35, 0.6, rnd);
       for (let pz = fb.z0 + 1; pz < fb.z1 - 0.8; pz += 3.2) planter(fo, fb.x1 - 0.35, pz, 0.6, rnd);
     }
     if (dim) {
-      // Merged into the building dimmed: colour and glow by DIM, the halos of its lights by the same factor.
+      // Merged into the building dimmed (colour and glow by DIM).
       opaque.append(dimmed(fo.toFloat32(), DIM));
       glass.append(fg.toFloat32());
-      for (let h = 0; h + 7 < fo.halos.length; h += 8) opaque.halos.push(...fo.halos.slice(h, h + 7), fo.halos[h + 7] * DIM);
+      opaque.halos.push(...fo.halos);
     }
     if (cachedGhost) {
       const value: GhostFloor = { floorIndex: fi, y, opaque: freeze(fo), glass: freeze(fg) };

@@ -15,6 +15,8 @@ async function enterFleetBuilding(page: Page, options: HqMockOptions = {}) {
   await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
   await hq(page).getByRole('button', { name: 'Open Al Noor Fleet HQ' }).click();
   await expect(hq(page).getByRole('heading', { level: 2, name: 'Al Noor Fleet HQ' })).toBeVisible();
+  // These specs count the people of the open floor. The cutaway draws every floor by default, so switch to the open floor alone.
+  await hq(page).getByRole('checkbox', { name: /All floors/ }).uncheck();
 }
 
 test('the building draws loaded sofas and one seated person per assigned desk, within the byte budget', async ({ page }) => {
