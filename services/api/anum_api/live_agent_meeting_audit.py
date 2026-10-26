@@ -22,6 +22,8 @@ ALLOWED_FIELDS = frozenset({
     # Review and linking (summary, decisions): ids and short state codes before and after, never text.
     "output_id", "output_kind", "previous_state", "new_state", "drafts_created", "dropped", "used_before_usd",
     "target_kind", "target_id", "input_mode", "edited",
+    # Turn rate refusals (S-05): counts and seconds only.
+    "scope", "requested_turns", "limit", "retry_after_seconds",
 })
 MAX_TEXT = 80
 

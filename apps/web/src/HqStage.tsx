@@ -14,12 +14,15 @@ import { setGpuState } from './lib/hqGpuState.ts';
 import { setLiveRenderer } from './lib/hqGpuBridge.ts';
 import { emitGpuTelemetry } from './lib/hqGpuTelemetry.ts';
 import { tierById } from './lib/hqQualityTiers.ts';
-import { pickNearest, type PickTarget } from './lib/hqMath.ts';
-import { placeLabels } from './lib/hqLabels.ts';
-import { dolly, isCameraAtRest, orbit, pan, screenRay, stepCamera, type CameraState } from './lib/headquartersSpatial.ts';
+import { pickNearest, type Aabb, type PickTarget } from './lib/hqMath.ts';
+import type { Density, Rect, placeLabels as PlaceLabels } from './lib/hqLabels.ts';
+import { cameraEye, dolly, isCameraAtRest, orbit, pan, screenRay, stepCamera, type CameraState } from './lib/headquartersSpatial.ts';
 import { alignYaw, applyCameraAction, keyToCameraAction } from './lib/hqCamera.ts';
 import type { Vec3 } from './lib/headquartersProjection.ts';
 import { t } from './lib/i18n.ts';
+
+// Started with the stage's own chunk, so the placement code arrives while the renderer loads.
+const labelsLoad = import('./lib/hqLabels.ts');
 
 export type StageLabel = Readonly<{
   id: string;
@@ -29,6 +32,12 @@ export type StageLabel = Readonly<{
   maxDistance?: number;
   /** Lower numbers are drawn on top when labels overlap. */
   priority?: number;
+  /** The densities the label may take, richest first (docs/ANUM_MINE_HQ_LABELS.md). */
+  tiers?: readonly Density[];
+  /** Solid boxes that hide the label while they stand between the eye and the anchor. */
+  occluders?: readonly Aabb[];
+  /** Other anchors for the same label; the one nearest the eye is used. */
+  alternatives?: readonly Vec3[];
 }>;
 
 export type StageStatus = 'ok' | 'recovering';
@@ -48,6 +57,10 @@ type Props = Readonly<{
   onHover: (id: string | null) => void;
   onPick: (id: string | null) => void;
   labels: readonly StageLabel[];
+  /** Dragging with the primary button moves the scene sideways instead of turning it (the toolbar's Pan). */
+  panMode?: boolean;
+  /** Elements next to the stage (CSS selector, searched in the stage's parent) that cards keep clear of: the controls drawn over the scene. */
+  labelKeepOut?: string;
   /** Called with the footprint inputs on every drawn frame (the minimap listens). */
   onView?: (camera: CameraState, aspect: number) => void;
   onUnavailable: (reason: string) => void;
@@ -74,6 +87,7 @@ export function HqStage(props: Props) {
   const labelEls = useRef(new Map<string, HTMLDivElement>());
   const labelSizes = useRef(new Map<string, { w: number; h: number }>());
   const labelsRef = useRef(labels);
+  const keepOut = useRef<readonly Rect[]>([]);
   const lastModelSig = useRef('');
   const size = useRef({ width: 1, height: 1 });
   const pointers = useRef(new Map<number, Pointer>());
@@ -99,8 +113,14 @@ export function HqStage(props: Props) {
     let cancelled = false;
     let created: HqRenderer | null = null;
     let resizeObserver: ResizeObserver | null = null;
-    import('./lib/hqThreeRenderer.ts').then(({ HqRenderer: Renderer }) => {
+    // The label placement loads with the renderer: nothing is placed before the scene draws, so it stays out of the page's own chunk.
+    let placeLabels: typeof PlaceLabels | null = null;
+    let stopKeepOut: (() => void) | null = null;
+    Promise.all([import('./lib/hqThreeRenderer.ts'), labelsLoad]).then(([{ HqRenderer: Renderer }, labelLib]) => {
       if (cancelled) return;
+      placeLabels = labelLib.placeLabels;
+      // The controls over the scene are read when they change size (never per frame), so a card is not drawn under one.
+      if (propsRef.current.labelKeepOut && host.current) stopKeepOut = labelLib.bindKeepOut(host.current, propsRef.current.labelKeepOut, (rects) => { keepOut.current = rects; created?.requestFrame(); });
       const r: HqRenderer | null = Renderer.create(el, {
         onQuality: (state) => { setGpuState(state); emitGpuTelemetry({ kind: 'quality', tier: tierById(state.tier).key, step: state.step, reason: state.reason }); },
         onLost: () => {
@@ -117,7 +137,7 @@ export function HqStage(props: Props) {
         onError: (error) => propsRef.current.onUnavailable(error.message),
         onFrame: (vp, aspect) => {
           const { width, height } = size.current;
-          placeLabels(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, 64);
+          placeLabels?.(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, 64, cameraEye(live.current), keepOut.current);
           propsRef.current.onView?.(live.current, aspect);
           if (canvas.current) propsRef.current.onCanvasFrame?.(canvas.current);
           const s = created?.stats;
@@ -172,6 +192,7 @@ export function HqStage(props: Props) {
     return () => {
       cancelled = true;
       resizeObserver?.disconnect();
+      stopKeepOut?.();
       if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
       created?.dispose();
       renderer.current = null;
@@ -277,7 +298,7 @@ export function HqStage(props: Props) {
       g.pinch = d;
       return;
     }
-    const panning = g.button === 2 || g.button === 1 || event.shiftKey;
+    const panning = g.button === 2 || g.button === 1 || event.shiftKey || propsRef.current.panMode === true;
     emit(panning ? pan(live.current, dx, dy) : orbit(live.current, dx, -dy));
   };
   const up = (event: React.PointerEvent<HTMLCanvasElement>) => {

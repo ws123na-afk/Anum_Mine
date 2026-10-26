@@ -21,6 +21,10 @@ agent's selected model route and its existing profile instructions.
 - `POST /api/v1/agent-meetings/{id}/run`: idempotent bounded three-turn round
 - `GET /api/v1/agent-meetings/{id}/turns`: saved transcript
 
+### Turn rate (S-05)
+
+`execute-turn` and `run` are limited per person (default 6 turns a minute) and per workspace (default 20), after the `workspace:manage` check. `run` asks for all its turns at once, so a refused round starts none. Over the rate the API answers `429 rate_limited` with a `Retry-After` header and a message such as "You have started the most agent meeting turns allowed in one minute (6). Wait 42 seconds and try again." (Arabic with `Accept-Language: ar`). The refusal is audited as `agent_meeting.turn_rate_limited` with the meeting id, scope (`actor` or `workspace`), requested turns, limit and seconds, never text. Set `ANUM_MEETING_TURNS_PER_MINUTE_ACTOR` and `ANUM_MEETING_TURNS_PER_MINUTE_WORKSPACE`. The counters live in the API process, so with several replicas the ceiling is the limit times the replicas. The web room shows the server's sentence through its normal error line.
+
 Client requests authenticate through the existing session, tenant and
 workspace headers. All database operations use the forced-RLS scoped session.
 Human and agent role labels do not confer additional permissions.

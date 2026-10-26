@@ -103,6 +103,7 @@ x-user-roles: owner,member
 - [ANUM MINE starter campus: one click Set up my campus](docs/ANUM_MINE_STARTER_CAMPUS.md)
 - [ANUM MINE Arabic names of buildings, floors and rooms](docs/ANUM_MINE_ARABIC_NAMES.md)
 - [ANUM MINE floor overview: the whole floor on one screen, and the fitted building camera](docs/ANUM_MINE_FLOOR_OVERVIEW.md)
+- [ANUM MINE headquarters label cards and scene chrome: room and agent cards, density rule, floor selector, live strips](docs/ANUM_MINE_HQ_LABELS.md)
 - [ANUM MINE Staff my campus: a reviewed paused agent for every empty desk](docs/ANUM_MINE_STAFF_DESKS.md)
 - [ANUM MINE departments with real modules, agent roles for them and meetings tied to rooms](docs/ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md)
 - [ANUM MINE headquarters building modules, command centre room kind, personal office and floor transitions](docs/ANUM_MINE_HQ_BUILDING_MODULES.md)

@@ -94,6 +94,8 @@ export function BottomToolbar(props: {
   inside?: { active: boolean; disabled: boolean; onToggle: () => void };
   /** The whole active floor from above, every room labelled (spec: docs/ANUM_MINE_FLOOR_OVERVIEW.md). */
   overview?: { active: boolean; onToggle: () => void };
+  /** Dragging moves the scene sideways while on (the mock's Pan). */
+  pan?: { active: boolean; onToggle: () => void };
 }) {
   return (
     <div className="hqToolbar" role="toolbar" aria-label={t('hq.tool.label')}>
@@ -111,6 +113,11 @@ export function BottomToolbar(props: {
         <button type="button" onClick={props.overview.onToggle} aria-pressed={props.overview.active} data-testid="hq-overview" data-draws=""
           aria-label={props.overview.active ? t('hqFloor.leave') : t('hqFloor.enter')} title={props.overview.active ? t('hqFloor.leave') : t('hqFloor.enter')}>
           <LayoutGrid aria-hidden="true" /><span>{t('hqFloor.short')}</span>
+        </button>
+      )}
+      {props.pan && (
+        <button type="button" onClick={props.pan.onToggle} aria-pressed={props.pan.active} data-testid="hq-pan" data-draws="" aria-label={t('hqLabels.pan')} title={t('hqLabels.panHint')}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2v20M2 12h20M15 19l-3 3-3-3M19 9l3 3-3 3M5 9l-3 3 3 3M9 5l3-3 3 3" /></svg><span>{t('hqLabels.pan')}</span>
         </button>
       )}
       <span className="hqToolbarSep" aria-hidden="true" />

@@ -367,6 +367,10 @@ class Settings(BaseSettings):
     # workspace gets this quota), and how long a signed download or preview link works.
     files_workspace_quota_bytes: int = Field(default=2 * 1024 * 1024 * 1024, ge=1)
     files_link_ttl_seconds: int = Field(default=300, ge=30, le=3600)
+    # Live agent meeting turns started per minute (S-05, anum_api/live_agent_meeting_rate.py): by one
+    # person, and by the whole workspace. ``run`` counts one per turn it executes (up to three).
+    meeting_turns_per_minute_actor: int = Field(default=6, ge=3, le=600)
+    meeting_turns_per_minute_workspace: int = Field(default=20, ge=3, le=6000)
     rate_limit_enabled: bool = True
     rate_limit_requests_per_minute: int = 600
     rate_limit_burst: int = 120

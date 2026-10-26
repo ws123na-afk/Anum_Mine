@@ -175,7 +175,7 @@ test('the room view keeps only records that name the room or its desks', async (
   await expect(panel.getByText('Room: Alpha Room 1')).toBeVisible();
   await expect(panel.getByRole('button', { name: /Open record: Task updated/ })).toHaveCount(0);
   await expect(panel.getByRole('button', { name: 'Show the whole office' })).toBeVisible();
-  await expect(panel.getByText('CSV export is not available for this view')).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Export these records (CSV)' })).toBeEnabled();
 });
 
 test('who may read history: a denied answer explains and offers no data', async ({ page }) => {
@@ -224,10 +224,10 @@ test('CSV export uses the audit export with the same filters', async ({ page }) 
   expect(history.exports[0].searchParams.get('format')).toBe('csv');
   expect(history.exports[0].searchParams.get('action')).toBe('office.*');
   await expect(panel.getByText('Saved audit-example.csv.')).toBeVisible();
-  // The "Other" type cannot be matched by the audit export, so it is not offered.
+  // The "Other" type is narrowed on the device: see hq-history-export.spec.ts.
   await panel.getByLabel('Event type').selectOption('other');
   await panel.getByRole('button', { name: 'Apply filters' }).click();
-  await expect(panel.getByText('CSV export is not available for this view')).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Export these records (CSV)' })).toBeEnabled();
 });
 
 test('keyboard: Escape closes a record first, then the panel, and focus returns to the opener', async ({ page }) => {
