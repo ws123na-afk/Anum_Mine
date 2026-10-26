@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MeshBuilder, MAT, VERTEX_FLOATS, hex } from '../src/lib/hqGeometry.ts';
-import { CONTACT_FLOATS, MAX_CONTACTS, bakeScene, bakeVertexAo, deriveContacts, groundLevels, refineWalls } from '../src/lib/hqBakedAo.ts';
+import { CONTACT_FLOATS, MAX_CONTACTS, bakeScene, contentKey, bakeVertexAo, deriveContacts, groundLevels, refineWalls } from '../src/lib/hqBakedAo.ts';
 
 const GREY = hex('#aaaaaa');
 
@@ -134,4 +134,15 @@ test('timing: baking a campus sized scene stays well under two seconds (logged f
   deriveContacts(v);
   console.log(`AO_BAKE_MS vertices=${v.length / VERTEX_FLOATS} ao=${ao.toFixed(0)} contacts=${(performance.now() - t1).toFixed(0)}`);
   assert.ok(ao < 2000);
+});
+
+test('the content key is equal for equal geometry and changes with any float', () => {
+  const { v } = scene();
+  const copy = new Float32Array(v);
+  assert.equal(contentKey(v), contentKey(copy));
+  copy[copy.length - 1] += 0.5;
+  assert.notEqual(contentKey(v), contentKey(copy));
+  const sub = v.subarray(VERTEX_FLOATS * 3);
+  assert.notEqual(contentKey(sub), contentKey(v));
+  assert.match(contentKey(new Float32Array(0)), /^0:/);
 });

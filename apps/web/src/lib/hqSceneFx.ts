@@ -5,7 +5,7 @@
  * (pure, tested); this file caches their results per vertex array and builds the one transparent mesh for the discs.
  */
 import { BufferGeometry, DataTexture, Float32BufferAttribute, LinearFilter, Uint32BufferAttribute, Mesh, MeshBasicMaterial, RGBAFormat, UnsignedByteType, type Texture } from 'three';
-import { bakeScene, deriveContacts, CONTACT_FLOATS } from './hqBakedAo.ts';
+import { bakeScene, contentKey, deriveContacts, CONTACT_FLOATS } from './hqBakedAo.ts';
 import { deriveDetail } from './hqDetailPass.ts';
 
 export type Prepared = Readonly<{ vertices: Float32Array; ao: Float32Array }>;
@@ -14,15 +14,23 @@ export type Prepared = Readonly<{ vertices: Float32Array; ao: Float32Array }>;
 export const CHEAP_AO_VERTICES = 260_000;
 
 const aoCache = new WeakMap<Float32Array, Prepared>();
+/** A scene that is rebuilt with identical geometry (live data redraws a floor every few seconds) must not be baked again: look it up by content. */
+const byContent = new Map<string, Prepared>();
+const MAX_CONTENT_ENTRIES = 12;
 const detailCache = new WeakMap<Float32Array, Float32Array | null>();
 const contactCache = new WeakMap<Float32Array, Float32Array>();
 
 export function prepare(v: Float32Array, cheap: boolean): Prepared {
   let hit = aoCache.get(v);
+  if (hit) return hit;
+  const key = `${cheap ? 'c' : 'f'}${contentKey(v)}`;
+  hit = byContent.get(key);
   if (!hit) {
     hit = bakeScene(v, cheap ? { maxVertices: CHEAP_AO_VERTICES } : {});
-    aoCache.set(v, hit);
+    byContent.set(key, hit);
+    if (byContent.size > MAX_CONTENT_ENTRIES) byContent.delete(byContent.keys().next().value as string);
   }
+  aoCache.set(v, hit);
   return hit;
 }
 

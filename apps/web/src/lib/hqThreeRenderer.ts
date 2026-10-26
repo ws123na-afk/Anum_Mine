@@ -36,7 +36,7 @@ import { clipPlanes, viewProjection } from './hqMath.ts';
 import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
 import { ModelLayer } from './hqModelLayer.ts';
-import { PHOTO, SHADOW_SIZE, SLOW_FRAMES_TO_STEP_DOWN, PROMOTE_FRAMES, TIER_NAMES, classifyRenderer, initialTier, parseFxOff, parsePin, shouldPromote, slowFrameMs, type FxName, type GpuClass, type Quality } from './hqQualityTier.ts';
+import { PHOTO, SHADOW_SIZE, SLOW_FRAMES_TO_STEP_DOWN, PROMOTE_FRAMES, classifyRenderer, initialTier, parseFxOff, parsePin, shouldPromote, slowFrameMs, type FxName, type GpuClass, type Quality } from './hqQualityTier.ts';
 import type { PhotoFx, PbrHook } from './hqPhotoFx.ts';
 import type { ModelGroup } from './hqModels.ts';
 

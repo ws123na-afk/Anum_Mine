@@ -169,7 +169,6 @@ export class PhotoFx {
     const g = gradeFor(f.night);
     if (this.gtao) this.gtao.enabled = !this.off.has('gtao');
     if (this.bokeh) this.bokeh.enabled = !this.off.has('dof');
-    if (this.bloom) this.bloom.enabled = !this.off.has('bloom');
     if (this.shafts) this.shafts.enabled = !this.off.has('shafts');
     if (this.grade) this.grade.enabled = !this.off.has('grain');
     const light = lightingFor(f.night);
@@ -183,6 +182,7 @@ export class PhotoFx {
       const u = this.bokeh.uniforms as Record<string, IUniform<number>>;
       u.focus.value = r.focus; u.aperture.value = r.aperture * g.dof; u.maxblur.value = r.maxBlur * g.dof;
     }
+    if (this.bloom) this.bloom.enabled = !this.off.has('bloom') && !f.reducedMotion;
     if (this.bloom) { this.bloom.strength = 0.14 + 0.4 * Math.min(1, f.night * 1.4); this.bloom.threshold = 1.0; this.bloom.radius = 0.4; }
     if (this.shafts) {
       const u = this.shafts.uniforms as Record<string, IUniform>;
