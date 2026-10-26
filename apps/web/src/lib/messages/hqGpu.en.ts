@@ -65,7 +65,7 @@ export const hqGpuEn = {
   'hqGpu.measure.cancel': 'Stop',
   'hqGpu.measure.hint': 'The camera orbits the scene and, in a building, a floor is lifted and put back while frames are timed. The picture may stutter for a few seconds.',
   'hqGpu.progress': 'Measuring {tier}, {done} of {total}',
-  'hqGpu.progress.done': 'Done. {count} tiers measured.',
+  'hqGpu.progress.done': 'Done. Tiers measured: {count}.',
   'hqGpu.progress.stopped': 'Stopped.',
   'hqGpu.progress.error': 'The measurement could not finish. Close the panel and try again.',
   'hqGpu.col.tier': 'Tier',

@@ -70,10 +70,10 @@ test.describe('graphics check', () => {
     const panel = page.getByTestId('hq-gpu-check');
     await panel.getByTestId('hq-gpu-length').selectOption('2');
     await panel.getByTestId('hq-gpu-bench').click();
-    await expect(panel.getByTestId('hq-gpu-progress')).toContainText(/Done\. 4 tiers measured/, { timeout: 120_000 });
-    const rows = panel.getByTestId('hq-gpu-results').locator('tbody tr');
+    await expect(panel.getByTestId('hq-gpu-progress')).toContainText(/Done\. Tiers measured: 4/, { timeout: 120_000 });
+    const rows = panel.getByTestId('hq-gpu-results').locator('li');
     await expect(rows).toHaveCount(HQ_TIERS.length);
-    for (const tier of HQ_TIERS) await expect(panel.getByTestId('hq-gpu-results').locator(`tr[data-tier="${tier.key}"]`)).toHaveCount(1);
+    for (const tier of HQ_TIERS) await expect(panel.getByTestId('hq-gpu-results').locator(`li[data-tier="${tier.key}"]`)).toHaveCount(1);
     const verdict = panel.getByTestId('hq-gpu-verdict');
     await expect(verdict).toHaveAttribute('data-kind', 'software');
     await expect(verdict).toContainText('draws in software');
@@ -100,7 +100,7 @@ test.describe('graphics check', () => {
     const panel = page.getByTestId('hq-gpu-check');
     await panel.getByTestId('hq-gpu-length').selectOption('2');
     await panel.getByTestId('hq-gpu-measure').click();
-    await expect(panel.getByTestId('hq-gpu-progress')).toContainText(/Done\. 1 tiers measured/, { timeout: 60_000 });
+    await expect(panel.getByTestId('hq-gpu-progress')).toContainText(/Done\. Tiers measured: 1/, { timeout: 60_000 });
     const [download] = await Promise.all([page.waitForEvent('download'), panel.getByTestId('hq-gpu-download').click()]);
     expect(download.suggestedFilename()).toBe('anum-hq-graphics-report.json');
     const path = await download.path();
@@ -127,7 +127,6 @@ test.describe('context loss and shader failure', () => {
     (window as unknown as { __ext: typeof ext }).__ext = ext;
     ext.loseContext();
   });
-  const frames = (page: Page) => hq(page).locator('canvas.hqCanvas').evaluate((el) => Number((el as HTMLCanvasElement).dataset.sceneryFrames ?? '0') + Number((el as HTMLCanvasElement).dataset.drawn ?? '0'));
 
   test('a lost context shows a banner that does not block the page, then the scene comes back and keeps drawing', async ({ page }) => {
     test.setTimeout(150_000);
@@ -153,31 +152,27 @@ test.describe('context loss and shader failure', () => {
     await expect(hq(page).getByText(/3D is not available in this browser/)).toBeVisible({ timeout: 30_000 });
     await expect(hq(page).getByText(/context-lost/)).toBeVisible();
     // The list is usable meanwhile.
-    await expect(hq(page).getByRole('button', { name: /^Executive HQ\./ })).toBeAttached();
+    await expect(hq(page).getByRole('button', { name: 'Open Executive HQ' })).toBeVisible();
     await page.evaluate(() => (window as unknown as { __ext: { restoreContext(): void } }).__ext.restoreContext());
     await hq(page).getByTestId('hq-retry-3d').click();
     await expect(hq(page).getByText(/3D is not available in this browser/)).toHaveCount(0);
     await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('hq-gpu-chip')).toBeVisible({ timeout: 60_000 });
-    void frames;
   });
 
   test('a shader that fails to link switches to the simple materials and keeps the scene on screen', async ({ page }) => {
     test.setTimeout(180_000);
     await openOffice(page, () => {
-      // The first program link fails once, as a driver bug would; later ones work.
+      // Quality is pinned to 1 (full materials, shadows) and the first program link fails once, as a driver bug would; later ones work.
+      try { localStorage.setItem('anum.hq.quality', '1'); } catch { /* storage blocked */ }
       const proto = WebGL2RenderingContext.prototype;
       const original = proto.getProgramParameter;
       let failed = false;
       proto.getProgramParameter = function (this: WebGL2RenderingContext, program: WebGLProgram, pname: number) {
-        if (pname === this.LINK_STATUS && !failed && (window as unknown as { __armShader?: boolean }).__armShader) { failed = true; return false; }
+        if (pname === this.LINK_STATUS && !failed) { failed = true; return false; }
         return original.call(this, program, pname);
       };
-      (window as unknown as { __armShader?: boolean }).__armShader = false;
     });
-    await page.evaluate(() => { (window as unknown as { __armShader: boolean }).__armShader = true; });
-    // A new program is compiled when the light changes (night materials) or a tier changes the shadow state.
-    await hq(page).getByRole('group', { name: /light/i }).getByRole('button').nth(1).click();
     const chip = page.getByTestId('hq-gpu-chip');
     await expect(chip).toHaveAttribute('data-reduced', 'true', { timeout: 60_000 });
     await expect(chip).toContainText('reduced');

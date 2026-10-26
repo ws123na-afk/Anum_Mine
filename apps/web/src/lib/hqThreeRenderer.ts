@@ -473,7 +473,7 @@ export class HqRenderer {
     const next = this.ladder[Math.min(step, this.ladder.length - 1)];
     const wantLean = next.lean || this.faulted;
     const lean = wantLean !== this.lean;
-    this.applied = next;
+    this.applied = wantLean && !next.lean ? { ...next, lean: true } : next;
     this.dprScale = next.dprScale;
     this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = '';
     if (lean) this.setLean(wantLean);

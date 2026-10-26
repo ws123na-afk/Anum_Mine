@@ -68,7 +68,7 @@ export const hqGpuAr: Record<keyof typeof hqGpuEn, Message> = {
   'hqGpu.measure.cancel': 'إيقاف',
   'hqGpu.measure.hint': 'تدور الكاميرا حول المشهد، وفي المبنى يُرفع طابق ثم يُعاد بينما تُقاس الإطارات. قد تتقطع الصورة لبضع ثوانٍ.',
   'hqGpu.progress': 'جارٍ قياس {tier}، {done} من {total}',
-  'hqGpu.progress.done': 'تم. قيست {count} مستويات.',
+  'hqGpu.progress.done': 'تم. المستويات المقاسة: {count}.',
   'hqGpu.progress.stopped': 'تم الإيقاف.',
   'hqGpu.progress.error': 'تعذّر إكمال القياس. أغلق اللوحة وحاول مرة أخرى.',
   'hqGpu.col.tier': 'المستوى',

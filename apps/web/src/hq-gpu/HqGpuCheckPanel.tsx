@@ -185,19 +185,22 @@ export default function HqGpuCheckPanel({ onClose }: { onClose: () => void }) {
           <section aria-labelledby="hqGpuResults">
             <h3 id="hqGpuResults">{t('hqGpu.section.results')}</h3>
             {results.length === 0 ? <p className="hqGpuHint">{t('hqGpu.results.empty')}</p> : (
-              <div className="hqGpuTableWrap" role="region" aria-labelledby="hqGpuResults" tabIndex={0}>
-                <table className="hqGpuTable" data-testid="hq-gpu-results">
-                  <thead><tr>{(['tier', 'median', 'p95', 'worst', 'fps', 'dropped', 'calls', 'triangles', 'memory'] as const).map((c) => <th key={c} scope="col">{t(`hqGpu.col.${c}` as 'hqGpu.col.tier')}</th>)}</tr></thead>
-                  <tbody>{results.map((r) => (
-                    <tr key={r.tier} data-tier={r.key}>
-                      <th scope="row">{tierName(r.tier)}</th>
-                      <td dir="ltr">{ms1(r.frames.medianMs)}</td><td dir="ltr">{ms1(r.frames.p95Ms)}</td><td dir="ltr">{ms1(r.frames.worstMs)}</td>
-                      <td dir="ltr">{r.frames.fps > 0 ? r.frames.fps.toFixed(0) : '-'}</td><td dir="ltr">{r.frames.droppedFrames}</td>
-                      <td dir="ltr">{r.drawCalls}</td><td dir="ltr">{r.triangles.toLocaleString('en')}</td><td dir="ltr">{r.memoryEstimateMb.toFixed(0)} MB</td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </div>
+              <ul className="hqGpuCards" data-testid="hq-gpu-results">
+                {results.map((r) => (
+                  <li key={r.tier} data-tier={r.key} className="hqGpuCard">
+                    <h4>{tierName(r.tier)}<span dir="ltr">{r.frames.fps > 0 ? `${r.frames.fps.toFixed(0)} ${t('hqGpu.col.fps')}` : '-'}</span></h4>
+                    <dl>
+                      <dt>{t('hqGpu.col.median')}</dt><dd dir="ltr">{ms1(r.frames.medianMs)} ms</dd>
+                      <dt>{t('hqGpu.col.p95')}</dt><dd dir="ltr">{ms1(r.frames.p95Ms)} ms</dd>
+                      <dt>{t('hqGpu.col.worst')}</dt><dd dir="ltr">{ms1(r.frames.worstMs)} ms</dd>
+                      <dt>{t('hqGpu.col.dropped')}</dt><dd dir="ltr">{r.frames.droppedFrames}</dd>
+                      <dt>{t('hqGpu.col.calls')}</dt><dd dir="ltr">{r.drawCalls}</dd>
+                      <dt>{t('hqGpu.col.triangles')}</dt><dd dir="ltr">{r.triangles.toLocaleString('en')}</dd>
+                      <dt>{t('hqGpu.col.memory')}</dt><dd dir="ltr">{r.memoryEstimateMb.toFixed(0)} MB</dd>
+                    </dl>
+                  </li>
+                ))}
+              </ul>
             )}
             {results.length > 0 && <p className="hqGpuHint">{results.some((r) => r.floorChange) ? t('hqGpu.results.floor') : t('hqGpu.results.nofloor')}</p>}
             <div className="hqGpuVerdict" data-kind={verdict.kind} data-testid="hq-gpu-verdict">
