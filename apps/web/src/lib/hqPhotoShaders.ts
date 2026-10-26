@@ -81,6 +81,7 @@ uniform sampler2D tDiffuse;
 uniform float uVig;
 uniform float uGrain;
 uniform float uSat;
+uniform float uContrast;
 uniform float uTime;
 uniform vec2 uRes;
 varying vec2 vUv;
@@ -89,6 +90,7 @@ void main() {
   vec4 c = texture2D(tDiffuse, vUv);
   float lum = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
   c.rgb = mix(vec3(lum), c.rgb, uSat);
+  c.rgb = mix(c.rgb, c.rgb * c.rgb * (3.0 - 2.0 * c.rgb), uContrast);
   vec2 q = (vUv - 0.5) * vec2(uRes.x / uRes.y, 1.0);
   c.rgb *= 1.0 - uVig * smoothstep(0.38, 1.1, length(q));
   float g = h21(vUv * uRes + fract(uTime) * 91.7) - 0.5;

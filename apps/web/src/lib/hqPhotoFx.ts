@@ -10,7 +10,7 @@
  */
 import {
   AgXToneMapping, ACESFilmicToneMapping, DataTexture, HalfFloatType, LinearMipmapLinearFilter, LinearFilter, NoColorSpace, PointLight, RepeatWrapping, RGBAFormat, SRGBColorSpace, UnsignedByteType, Vector2, Vector3, Vector4, WebGLRenderTarget,
-  type PerspectiveCamera, type Scene, type WebGLRenderer, type IUniform,
+  type Object3D, type PerspectiveCamera, type Scene, type WebGLRenderer, type IUniform,
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -19,6 +19,7 @@ import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import type { FxName } from './hqQualityTier.ts';
 import { PBR_KINDS, PBR_OF_CLASS, PBR_SIZE, generatePbr, type PbrKind } from './hqPbrTextures.ts';
 import { FULLSCREEN_VERT, GRADE_FRAG, PBR_COMMON, PBR_LEAF, PBR_NORMAL, PBR_ROUGH, SHAFT_FRAG } from './hqPhotoShaders.ts';
 import { fitShadow, focusRange, gradeFor, pickLights, pointLightGain, sunOnScreen, type Fit, type Grade } from './hqLightRig.ts';
@@ -56,7 +57,7 @@ export class PhotoFx {
   private readonly sunUv = new Vector2();
   private readonly tint = new Vector3();
 
-  constructor(private readonly renderer: WebGLRenderer, private readonly scene: Scene, private readonly camera: PerspectiveCamera) {
+  constructor(private readonly renderer: WebGLRenderer, private readonly scene: Scene, private readonly camera: PerspectiveCamera, private off: ReadonlySet<FxName> = new Set()) {
     for (let i = 0; i < POINT_LIGHTS; i++) {
       const l = new PointLight(0xffd9a0, 0, 12, 2);
       l.castShadow = false;
@@ -97,12 +98,30 @@ export class PhotoFx {
     return hook;
   }
 
+  private hidden: Object3D | null = null;
+  /** An object that stays in the picture but is left out of the depth and normal prepasses of the occlusion and focus passes (the flat contact discs). */
+  setPrepassHidden(object: Object3D | null): void { this.hidden = object; }
+
+  private withoutHidden<T extends object>(pass: T): T {
+    const target = pass as unknown as { render: (...a: unknown[]) => void };
+    const original = target.render.bind(pass);
+    target.render = (...a: unknown[]) => {
+      const was = this.hidden?.visible ?? false;
+      if (this.hidden) this.hidden.visible = false;
+      try { original(...a); } finally { if (this.hidden) this.hidden.visible = was; }
+    };
+    return pass;
+  }
+
+  /** Switches effects off or on while running (the cost measurements do this; a person does it with `anum.hq.fxoff` before loading). */
+  setOff(off: ReadonlySet<FxName>): void { this.off = off; }
+
   /** The shadow sphere fitted to the camera (see `fitShadow`). */
   fit(camera: CameraState, region: Fit, mapSize: number): Fit { return fitShadow(camera, region, mapSize); }
 
   /** Warm lights for the lamps and entrances nearest the camera; none by day. */
   private setLights(camera: CameraState, halos: Float32Array | undefined, night: number): void {
-    const picked = pickLights(halos, camera.target, POINT_LIGHTS);
+    const picked = this.off.has('lights') ? [] : pickLights(halos, camera.target, POINT_LIGHTS);
     const gain = pointLightGain(night);
     this.lights.forEach((l, i) => {
       const p = picked[i];
@@ -124,9 +143,9 @@ export class PhotoFx {
     this.gtao.output = GTAOPass.OUTPUT.Default;
     this.gtao.updateGtaoMaterial({ radius: 2.6, distanceExponent: 1.4, thickness: 1.6, scale: 1.1, samples: 12, distanceFallOff: 1, screenSpaceRadius: false });
     this.gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, radiusExponent: 1, rings: 2, samples: 12 });
-    composer.addPass(this.gtao);
+    composer.addPass(this.withoutHidden(this.gtao));
     this.bokeh = new BokehPass(this.scene, this.camera, { focus: 60, aperture: 0.00005, maxblur: 0.004 });
-    composer.addPass(this.bokeh);
+    composer.addPass(this.withoutHidden(this.bokeh));
     this.bloom = new UnrealBloomPass(new Vector2(Math.round(width), Math.round(height)), 0.5, 0.4, 1.0);
     composer.addPass(this.bloom);
     this.shafts = new ShaderPass({
@@ -136,7 +155,7 @@ export class PhotoFx {
     composer.addPass(this.shafts);
     composer.addPass(new OutputPass());
     this.grade = new ShaderPass({
-      uniforms: { tDiffuse: { value: null }, uVig: { value: 0.25 }, uGrain: { value: 0.03 }, uSat: { value: 1.05 }, uTime: { value: 0 }, uRes: { value: new Vector2(width, height) } },
+      uniforms: { tDiffuse: { value: null }, uVig: { value: 0.25 }, uGrain: { value: 0.03 }, uSat: { value: 1.05 }, uContrast: { value: 0.3 }, uTime: { value: 0 }, uRes: { value: new Vector2(width, height) } },
       vertexShader: FULLSCREEN_VERT, fragmentShader: GRADE_FRAG,
     });
     composer.addPass(this.grade);
@@ -148,6 +167,11 @@ export class PhotoFx {
   frame(f: PhotoFrame): void {
     const composer = this.composer ?? this.build(f.width, f.height, f.dpr);
     const g = gradeFor(f.night);
+    if (this.gtao) this.gtao.enabled = !this.off.has('gtao');
+    if (this.bokeh) this.bokeh.enabled = !this.off.has('dof');
+    if (this.bloom) this.bloom.enabled = !this.off.has('bloom');
+    if (this.shafts) this.shafts.enabled = !this.off.has('shafts');
+    if (this.grade) this.grade.enabled = !this.off.has('grain');
     const light = lightingFor(f.night);
     const sun = sunOnScreen(f.viewProjection, f.camera, light.sunDir);
     this.setLights(f.camera, f.halos, f.night);
@@ -168,7 +192,7 @@ export class PhotoFx {
     }
     if (this.grade) {
       const u = this.grade.uniforms as Record<string, IUniform>;
-      u.uVig.value = g.vignette; u.uGrain.value = g.grain; u.uSat.value = g.saturation; u.uTime.value = f.reducedMotion ? 0 : f.time;
+      u.uVig.value = g.vignette; u.uGrain.value = g.grain; u.uSat.value = g.saturation; u.uContrast.value = g.contrast; u.uTime.value = f.reducedMotion ? 0 : f.time;
       (u.uRes.value as Vector2).set(f.width * f.dpr, f.height * f.dpr);
     }
     try { composer.render(); } finally { this.renderer.toneMapping = ACESFilmicToneMapping; }

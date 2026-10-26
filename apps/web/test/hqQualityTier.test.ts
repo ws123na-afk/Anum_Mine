@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  PHOTO, PROMOTE_FRAMES, PROMOTE_MS, SHADOW_SIZE, TIER_NAMES, canPromote, classifyRenderer, initialTier, parsePin, shouldPromote, slowFrameMs, type PromoteInput,
+  FX_NAMES, PHOTO, PROMOTE_FRAMES, PROMOTE_MS, SHADOW_SIZE, TIER_NAMES, canPromote, classifyRenderer, initialTier, parseFxOff, parsePin, shouldPromote, slowFrameMs, type PromoteInput,
 } from '../src/lib/hqQualityTier.ts';
 
 test('renderer strings map to a GPU class, and software is never mistaken for hardware', () => {
@@ -57,4 +57,11 @@ test('promotion needs a discrete or Apple GPU, tier 3, no pin, no earlier step d
 test('the photographic tier asks for more and steps down sooner', () => {
   assert.ok(slowFrameMs(4) < slowFrameMs(3));
   assert.ok(SHADOW_SIZE[4] > SHADOW_SIZE[3] && SHADOW_SIZE[3] > SHADOW_SIZE[2] && SHADOW_SIZE[0] === 0);
+});
+
+test('effects can be switched off by name, unknown names and case are handled', () => {
+  assert.deepEqual([...parseFxOff(null)], []);
+  assert.deepEqual([...parseFxOff('')], []);
+  assert.deepEqual([...parseFxOff('gtao, DOF ,nonsense,,pbr')].sort(), ['dof', 'gtao', 'pbr']);
+  assert.equal(parseFxOff(FX_NAMES.join(',')).size, FX_NAMES.length);
 });

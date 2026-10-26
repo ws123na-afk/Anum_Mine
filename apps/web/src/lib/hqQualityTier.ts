@@ -68,3 +68,20 @@ export const slowFrameMs = (tier: Quality): number => (tier === 4 ? 22 : 30);
 
 /** Shadow map size per tier; tier 4 fits one 4096 map to the camera instead of the whole campus. */
 export const SHADOW_SIZE: Readonly<Record<Quality, number>> = { 0: 0, 1: 1024, 2: 1024, 3: 2048, 4: 4096 };
+
+/**
+ * Effects a person (or a test, or the cost measurements in the performance doc) can switch off one by one with
+ * `localStorage["anum.hq.fxoff"]`, a comma list: baked ambient occlusion, roof and wall detail, contact discs, PBR detail maps,
+ * screen space occlusion, depth of field, light shafts, grain and vignette, bloom, warm point lights and the camera fitted shadow.
+ */
+export const FX_NAMES = ['ao', 'detail', 'contact', 'pbr', 'gtao', 'dof', 'shafts', 'grain', 'bloom', 'lights', 'cascade'] as const;
+export type FxName = (typeof FX_NAMES)[number];
+
+export function parseFxOff(raw: string | null): ReadonlySet<FxName> {
+  const out = new Set<FxName>();
+  for (const part of (raw ?? '').split(',')) {
+    const name = part.trim().toLowerCase();
+    if ((FX_NAMES as readonly string[]).includes(name)) out.add(name as FxName);
+  }
+  return out;
+}

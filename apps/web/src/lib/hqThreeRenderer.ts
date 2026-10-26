@@ -36,7 +36,7 @@ import { clipPlanes, viewProjection } from './hqMath.ts';
 import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
 import { ModelLayer } from './hqModelLayer.ts';
-import { PHOTO, SHADOW_SIZE, SLOW_FRAMES_TO_STEP_DOWN, PROMOTE_FRAMES, TIER_NAMES, classifyRenderer, initialTier, parsePin, shouldPromote, slowFrameMs, type GpuClass, type Quality } from './hqQualityTier.ts';
+import { PHOTO, SHADOW_SIZE, SLOW_FRAMES_TO_STEP_DOWN, PROMOTE_FRAMES, TIER_NAMES, classifyRenderer, initialTier, parseFxOff, parsePin, shouldPromote, slowFrameMs, type FxName, type GpuClass, type Quality } from './hqQualityTier.ts';
 import type { PhotoFx, PbrHook } from './hqPhotoFx.ts';
 import type { ModelGroup } from './hqModels.ts';
 
@@ -341,6 +341,8 @@ export class HqRenderer {
   private photoOn = false;
   private gpu: GpuClass = 'unknown';
   private pinned = false;
+  /** Effects switched off by `anum.hq.fxoff` (see `FX_NAMES`). */
+  private fxOff: ReadonlySet<FxName> = new Set();
   private demoted = false;
   private probed = false;
   private lastScene: RenderScene | null = null;
@@ -420,6 +422,8 @@ export class HqRenderer {
       made.software = software;
       made.gpu = gpu;
       made.pinned = forced !== null;
+      try { made.fxOff = parseFxOff(window.localStorage.getItem('anum.hq.fxoff')); } catch { /* storage blocked */ }
+      if (window.localStorage.getItem('anum.hq.bench') === '1') (window as unknown as { __anumHqBench: unknown }).__anumHqBench = (n: number, off?: string[]) => made.bench(n, off);
       try { made.forcedScenery = readSceneryOverride(window.localStorage); } catch { made.forcedScenery = null; }
       const pin = readAmbientOverride();
       made.ambientAllowed = pin ?? !cheap;
@@ -451,7 +455,8 @@ export class HqRenderer {
     try {
       const mod = await import('./hqPhotoFx.ts');
       if (this.disposed) return;
-      this.photo = new mod.PhotoFx(this.renderer, this.scene, this.camera);
+      this.photo = new mod.PhotoFx(this.renderer, this.scene, this.camera, this.fxOff);
+      this.photo.setPrepassHidden(this.contactMesh);
       this.setPhotoOn(true);
     } catch (error) { this.quality = 3; this.demoted = true; this.fail(error); }
   }
@@ -515,7 +520,7 @@ export class HqRenderer {
         ? new MeshLambertMaterial({ vertexColors: true, side: DoubleSide })
         : new MeshStandardMaterial({ vertexColors: true, roughness: params.roughness, metalness: params.metalness, envMapIntensity: params.env ?? 1, side: DoubleSide });
       const texture = kind ? this.texture(kind) : undefined;
-      patched(m, this.shared, { texture, scale: TEX_SCALE[cls], variant, rich: this.rich, pbr: () => (this.photoOn ? this.photo?.pbr(cls) ?? null : null) });
+      patched(m, this.shared, { texture, scale: TEX_SCALE[cls], variant, rich: this.rich, pbr: () => (this.photoOn && !this.fxOff.has('pbr') ? this.photo?.pbr(cls) ?? null : null) });
       this.materials.set(cls, m);
     };
     std('flat', { roughness: 0.82, metalness: 0 });
@@ -667,7 +672,7 @@ export class HqRenderer {
 
   private addItem(item: RenderItem, transparent: boolean, scene: RenderScene): void {
     // Baked ambient occlusion (and tall walls cut so it has a gradient to carry): a vertex colour multiplier, free per frame.
-    const baked = !transparent && this.sceneFx ? this.sceneFx.prepare(item.vertices, this.cheap) : null;
+    const baked = !transparent && this.sceneFx && !this.fxOff.has('ao') ? this.sceneFx.prepare(item.vertices, this.cheap) : null;
     const v = baked ? baked.vertices : item.vertices;
     const aoOf = baked ? baked.ao : null;
     const total = v.length / VERTEX_FLOATS;
@@ -733,16 +738,16 @@ export class HqRenderer {
     const contacts: Float32Array[] = [];
     for (const item of scene.opaque) {
       const tall = item.bounds.max.y - item.bounds.min.y > 6;
-      if (tall) {
+      if (tall && !this.fxOff.has('detail')) {
         const extra = fx.detailOf(item.vertices, item.id);
         if (extra) this.addItem({ id: item.id, vertices: extra, bounds: item.bounds, cull: item.cull }, false, scene);
       }
-      contacts.push(fx.contactsOf(item.vertices));
+      if (!this.fxOff.has('contact')) contacts.push(fx.contactsOf(item.vertices));
     }
     const all = new Float32Array(contacts.reduce((n, c) => n + c.length, 0));
     let at = 0;
     for (const c of contacts) { all.set(c, at); at += c.length; }
-    if (all.length) { this.contactMesh = fx.contactMesh(all); this.scene.add(this.contactMesh); }
+    if (all.length) { this.contactMesh = fx.contactMesh(all); this.scene.add(this.contactMesh); this.photo?.setPrepassHidden(this.contactMesh); }
   }
 
   setScene(scene: RenderScene): void {
@@ -938,7 +943,7 @@ export class HqRenderer {
     sign.color.setRGB(gain, gain, gain);
     // Shadow light: from the sun (or moon) towards the middle of the region.
     // The photographic tier fits one big shadow map to what the camera looks at instead of the whole campus.
-    const fitted = this.photoOn && this.photo && this.quality >= PHOTO && this.shadowRegion && this.cameraState;
+    const fitted = this.photoOn && this.photo && this.quality >= PHOTO && !this.fxOff.has('cascade') && this.shadowRegion && this.cameraState;
     const region = fitted ? this.photo!.fit(this.cameraState!, this.shadowRegion!, SHADOW_SIZE[this.quality]) : this.shadowRegion;
     const on = region !== null && this.quality > 0;
     if (on && region) {
@@ -1110,9 +1115,34 @@ export class HqRenderer {
     const on: string[] = [];
     if (this.sceneFx) on.push('ao');
     if (this.contactMesh) on.push('contact');
-    if (this.photoOn) on.push('pbr');
-    if (photo) on.push('gtao', 'dof', 'shafts', 'agx', 'grain', 'cascade', 'lights');
+    if (this.photoOn && !this.fxOff.has('pbr')) on.push('pbr');
+    if (photo) on.push(...(['gtao', 'dof', 'shafts', 'grain', 'lights', 'cascade'] as const).filter((n) => !this.fxOff.has(n)), 'agx');
     return on.join(',');
+  }
+
+  /** `window.__anumHqBench(n)` (only with `anum.hq.bench` = 1): n frames, each followed by a GPU finish, as the median milliseconds and the triangles drawn. */
+  bench(n: number, off?: string[]): { ms: number; triangles: number; calls: number } {
+    if (off) {
+      const next = parseFxOff(off.join(','));
+      const rebuild = ['ao', 'detail', 'contact'].some((k) => next.has(k as FxName) !== this.fxOff.has(k as FxName));
+      const pbr = next.has('pbr') !== this.fxOff.has('pbr');
+      this.fxOff = next;
+      this.photo?.setOff(next);
+      if (pbr) for (const material of this.materials.values()) material.needsUpdate = true;
+      if (rebuild && this.lastScene) this.setScene(this.lastScene);
+      this.shadowDirty = true; this.lastSunKey = '';
+    }
+    const gl = this.renderer.getContext();
+    const times: number[] = [];
+    for (let i = 0; i < Math.max(1, n); i++) {
+      this.lastDrawAt = -1e9;
+      const t0 = performance.now();
+      this.draw();
+      gl.finish();
+      times.push(performance.now() - t0);
+    }
+    times.sort((a, b) => a - b);
+    return { ms: times[times.length >> 1], triangles: this.stats.triangles, calls: this.stats.drawn };
   }
 
   private scheduleSceneryIfRunning(): void { if (this.level > 0) this.scheduleScenery(); }

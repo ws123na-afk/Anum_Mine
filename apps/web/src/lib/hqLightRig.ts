@@ -68,7 +68,7 @@ export function sunOnScreen(vp: Mat4, camera: CameraState, travel: Triple): Read
 }
 
 /** The look of one light preset: every number is a strength the renderer feeds to its passes. */
-export type Grade = Readonly<{ exposure: number; vignette: number; grain: number; shafts: number; dof: number; ao: number; saturation: number; contact: number }>;
+export type Grade = Readonly<{ exposure: number; vignette: number; grain: number; shafts: number; dof: number; ao: number; saturation: number; contrast: number; contact: number }>;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -78,13 +78,13 @@ export function gradeFor(night: number): Grade {
   const [a, b, t] = n <= DUSK ? [DAY, HOUR, n / DUSK] as const : [HOUR, NIGHT, (n - DUSK) / (1 - DUSK)] as const;
   const out = {} as Record<keyof Grade, number>;
   for (const k of Object.keys(a) as Array<keyof Grade>) out[k] = lerp(a[k], b[k], t);
-  // AgX is flatter than ACES: the photographic tier lifts exposure of the preset a little.
+  // AgX has no built-in 1/0.6 exposure gain like ACES and is flatter: the grade lifts exposure, saturation and contrast to compensate.
   out.exposure *= lightingFor(n).exposure;
   return out;
 }
-const DAY: Grade = { exposure: 0.96, vignette: 0.22, grain: 0.025, shafts: 0.35, dof: 0.6, ao: 1.0, saturation: 1.05, contact: 0.5 };
-const HOUR: Grade = { exposure: 1.02, vignette: 0.3, grain: 0.035, shafts: 0.6, dof: 0.7, ao: 1.0, saturation: 1.12, contact: 0.7 };
-const NIGHT: Grade = { exposure: 1.0, vignette: 0.38, grain: 0.05, shafts: 0.25, dof: 0.8, ao: 1.1, saturation: 1.08, contact: 0.9 };
+const DAY: Grade = { exposure: 1.42, vignette: 0.22, grain: 0.025, shafts: 0.35, dof: 0.6, ao: 1.0, saturation: 1.2, contrast: 0.32, contact: 0.5 };
+const HOUR: Grade = { exposure: 1.4, vignette: 0.3, grain: 0.035, shafts: 0.6, dof: 0.7, ao: 1.0, saturation: 1.22, contrast: 0.3, contact: 0.7 };
+const NIGHT: Grade = { exposure: 1.32, vignette: 0.38, grain: 0.05, shafts: 0.25, dof: 0.8, ao: 1.1, saturation: 1.15, contrast: 0.26, contact: 0.9 };
 
 /** The part of the picture kept sharp: the depth range around the focus distance, as a fraction of it (a camera at a building gets a blurred skyline). */
 export function focusRange(distance: number): Readonly<{ focus: number; aperture: number; maxBlur: number }> {

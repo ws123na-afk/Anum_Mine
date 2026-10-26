@@ -39,5 +39,6 @@ test('the detail fades with distance, the shafts can be switched off and the gra
   assert.match(PBR_ROUGH, /smoothstep\(uDetail\.x, uDetail\.y/);
   assert.match(SHAFT_FRAG, /uShaft <= 0\.001/);
   assert.match(GRADE_FRAG, /clamp\(c\.rgb, 0\.0, 1\.0\)/);
+  assert.match(GRADE_FRAG, /uContrast/);
   assert.ok(!/[–—]/.test(PBR_COMMON + PBR_ROUGH + PBR_NORMAL + PBR_LEAF + SHAFT_FRAG + GRADE_FRAG), 'no long dashes');
 });
