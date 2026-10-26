@@ -2,9 +2,11 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+
 import '../../data/api_client.dart';
+import '../../src/infrastructure/picked_file_size.dart';
 import '../../src/theme/anum_theme.dart';
-import '../../src/widgets/anum_components.dart';
+import '../../src/widgets/depth.dart';
 
 /// Read-only statement validation and reconciliation. It never stores a
 /// brokerage password, sends an order or initiates a deposit/withdrawal.
@@ -49,15 +51,21 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
 
   Future<void> _upload(bool baseline) async {
     try {
-      final file = await FilePicker.platform.pickFiles(
+      final file = await FilePicker.pickFile(
         type: FileType.custom,
         allowedExtensions: const ['csv'],
-        withData: true,
       );
-      if (!mounted || file == null || file.files.isEmpty) return;
-      final bytes = file.files.single.bytes;
-      if (bytes == null || bytes.length > 512000) {
-        setState(() => _error = 'Choose a UTF-8 CSV statement smaller than 500 KB.');
+      if (!mounted || file == null) return;
+      final size = await pickedFileSize(file);
+      if (size != null && size > 512000) {
+        setState(
+            () => _error = 'Choose a UTF-8 CSV statement smaller than 500 KB.');
+        return;
+      }
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 512000) {
+        setState(
+            () => _error = 'Choose a UTF-8 CSV statement smaller than 500 KB.');
         return;
       }
       final data = utf8.decode(bytes);
@@ -66,7 +74,9 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
     } on FormatException {
       if (mounted) setState(() => _error = 'The CSV file must use UTF-8.');
     } catch (_) {
-      if (mounted) setState(() => _error = 'Could not open the statement file.');
+      if (mounted) {
+        setState(() => _error = 'Could not open the statement file.');
+      }
     }
   }
 
@@ -74,10 +84,15 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
     final content = (baseline ? _earlier : _latest).text;
     if (content.trim().isEmpty) return;
     final version = ++_version;
-    setState(() { _busy = true; _error = null; _comparison = null; });
+    setState(() {
+      _busy = true;
+      _error = null;
+      _comparison = null;
+    });
     try {
       final result = await widget.api.request(
-        'POST', '/api/v1/finance/broker/statement-preview',
+        'POST',
+        '/api/v1/finance/broker/statement-preview',
         body: {'statement': content},
       );
       if (!mounted || version != _version) return;
@@ -104,23 +119,31 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
   Future<void> _compare() async {
     if (_baseline == null || _observed == null) return;
     final version = ++_version;
-    setState(() { _busy = true; _error = null; _comparison = null; });
+    setState(() {
+      _busy = true;
+      _error = null;
+      _comparison = null;
+    });
     try {
       final result = await widget.api.request(
-        'POST', '/api/v1/finance/broker/reconcile',
+        'POST',
+        '/api/v1/finance/broker/reconcile',
         body: {'baseline': _baseline, 'observed': _observed},
       );
       if (mounted && version == _version) {
         final values = await Future.wait([
-          widget.api.request('POST', '/api/v1/finance/broker/analyze', body: _observed),
+          widget.api.request('POST', '/api/v1/finance/broker/analyze',
+              body: _observed),
           widget.api.request('POST', '/api/v1/finance/broker/history',
               body: {'baseline': _baseline, 'observed': _observed}),
         ]);
-        if (mounted && version == _version) setState(() {
-          _comparison = Map<String, dynamic>.from(result);
-          _analytics = Map<String, dynamic>.from(values[0]);
-          _history = Map<String, dynamic>.from(values[1]);
-        });
+        if (mounted && version == _version) {
+          setState(() {
+            _comparison = Map<String, dynamic>.from(result);
+            _analytics = Map<String, dynamic>.from(values[0]);
+            _history = Map<String, dynamic>.from(values[1]);
+          });
+        }
       }
     } on ApiException catch (error) {
       if (mounted && version == _version) {
@@ -165,7 +188,8 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
         ),
         OutlinedButton(
           onPressed: _busy || controller.text.trim().isEmpty
-              ? null : () => _validate(baseline),
+              ? null
+              : () => _validate(baseline),
           child: Text('Validate $label'),
         ),
         if (result != null) ...[
@@ -188,11 +212,14 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
     final exposure = result['currency_exposure'] as Map? ?? const {};
     final missing = result['unpriced_positions'] as List<dynamic>? ?? const [];
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text(result['matches'] == true
-          ? 'Balances and quantities match' : '${differences.length} differences found',
+      Text(
+          result['matches'] == true
+              ? 'Balances and quantities match'
+              : '${differences.length} differences found',
           style: Theme.of(context).textTheme.titleMedium),
       if (result['stale'] == true)
-        const Text('Statement is stale. Do not use this as current market data.'),
+        const Text(
+            'Statement is stale. Do not use this as current market data.'),
       if (missing.isNotEmpty) Text('Missing prices: ${missing.join(', ')}'),
       for (final row in differences)
         if (row is Map)
@@ -203,47 +230,70 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
                 'latest ${row['actual'] ?? 'missing'} '
                 '(${row['currency'] ?? ''})'),
           ),
-      if (differences.isEmpty) const Text('No quantity or cash differences detected.'),
+      if (differences.isEmpty)
+        const Text('No quantity or cash differences detected.'),
       const Text('Recorded position values by currency:'),
-      for (final entry in exposure.entries) Text('${entry.key}: ${entry.value}'),
+      for (final entry in exposure.entries)
+        Text('${entry.key}: ${entry.value}'),
       if (_analytics != null) ...[
-        Text('Exposure and concentration', style: Theme.of(context).textTheme.titleMedium),
-        for (final raw in (_analytics!['exposure'] as List<dynamic>? ?? const []))
-          if (raw is Map) ListTile(
-            dense: true,
-            title: Text('${raw['currency']} gross ${raw['gross_market_value']} / net ${raw['net_market_value']}'),
-            subtitle: Text('Top position: ${raw['top_position_symbol'] ?? 'unpriced'}; '
-                'share ${raw['top_position_share_percent'] ?? 'unknown'}%'),
-          ),
-        for (final warning in (_analytics!['warnings'] as List<dynamic>? ?? const []))
+        Text('Exposure and concentration',
+            style: Theme.of(context).textTheme.titleMedium),
+        for (final raw
+            in (_analytics!['exposure'] as List<dynamic>? ?? const []))
+          if (raw is Map)
+            ListTile(
+              dense: true,
+              title: Text(
+                  '${raw['currency']} gross ${raw['gross_market_value']} / net ${raw['net_market_value']}'),
+              subtitle: Text(
+                  'Top position: ${raw['top_position_symbol'] ?? 'unpriced'}; '
+                  'share ${raw['top_position_share_percent'] ?? 'unknown'}%'),
+            ),
+        for (final warning
+            in (_analytics!['warnings'] as List<dynamic>? ?? const []))
           Text('$warning'),
       ],
       if (_history != null) ...[
-        Text('Historical statement changes', style: Theme.of(context).textTheme.titleMedium),
-        const Text('Cash changes and price movements are not verified investment returns.'),
-        for (final raw in (_history!['cash_changes'] as List<dynamic>? ?? const []))
-          if (raw is Map) ListTile(dense: true,
-            title: Text('Cash: ${raw['currency']}'),
-            subtitle: Text('Settled: ${raw['settled_change'] ?? 'unknown'}, '
-                'available: ${raw['available_change'] ?? 'unknown'}')),
-        for (final raw in (_history!['position_changes'] as List<dynamic>? ?? const []))
-          if (raw is Map) ListTile(dense: true,
-            title: Text('${raw['symbol']} (${raw['currency']})'),
-            subtitle: Text('Quantity change: ${raw['quantity_change'] ?? 'unknown'}. '
-                '${raw['remark'] ?? ''}')),
-        for (final warning in (_history!['warnings'] as List<dynamic>? ?? const [])) Text('$warning'),
+        Text('Historical statement changes',
+            style: Theme.of(context).textTheme.titleMedium),
+        const Text(
+            'Cash changes and price movements are not verified investment returns.'),
+        for (final raw
+            in (_history!['cash_changes'] as List<dynamic>? ?? const []))
+          if (raw is Map)
+            ListTile(
+                dense: true,
+                title: Text('Cash: ${raw['currency']}'),
+                subtitle:
+                    Text('Settled: ${raw['settled_change'] ?? 'unknown'}, '
+                        'available: ${raw['available_change'] ?? 'unknown'}')),
+        for (final raw
+            in (_history!['position_changes'] as List<dynamic>? ?? const []))
+          if (raw is Map)
+            ListTile(
+                dense: true,
+                title: Text('${raw['symbol']} (${raw['currency']})'),
+                subtitle: Text(
+                    'Quantity change: ${raw['quantity_change'] ?? 'unknown'}. '
+                    '${raw['remark'] ?? ''}')),
+        for (final warning
+            in (_history!['warnings'] as List<dynamic>? ?? const []))
+          Text('$warning'),
       ],
-      const Text('These values come from uploaded statements, not a live broker. '
+      const Text(
+          'These values come from uploaded statements, not a live broker. '
           'This module cannot execute trades or transfer money.'),
     ]);
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnumSurface(child: Column(
+    return AnumSurface(
+        child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text('Broker statement review', style: TextStyle(fontWeight: FontWeight.w700)),
+        const Text('Broker statement review',
+            style: TextStyle(fontWeight: FontWeight.w700)),
         const Text('Read-only. Money stays with your broker. No live trades.'),
         TextButton(
           onPressed: () => setState(() => _expanded = !_expanded),
@@ -259,15 +309,22 @@ class _FinanceBrokerStatementState extends State<FinanceBrokerStatement> {
           const SizedBox(height: AnumSpacing.md),
           FilledButton(
             onPressed: _busy || _baseline == null || _observed == null
-                ? null : _compare,
+                ? null
+                : _compare,
             child: Text(_busy ? 'Working...' : 'Compare statements'),
           ),
-          TextButton(onPressed: _busy ? null : () {
-            _earlier.clear();
-            _latest.clear();
-            _clearResult();
-          }, child: const Text('Clear statements')),
-          if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          TextButton(
+              onPressed: _busy
+                  ? null
+                  : () {
+                      _earlier.clear();
+                      _latest.clear();
+                      _clearResult();
+                    },
+              child: const Text('Clear statements')),
+          if (_error != null)
+            Text(_error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error)),
           if (_comparison != null) _results(),
         ],
       ],

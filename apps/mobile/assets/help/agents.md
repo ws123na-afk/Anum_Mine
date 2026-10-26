@@ -34,6 +34,15 @@ Agents are AI helpers you build: who they are, how they work and what they may u
 4. To remove it, open **More**, press **Delete agent** and confirm. Its tasks and chats stay in the history.
 5. The **Org chart** tab shows your agents and team together.
 
+## Choose how an agent looks in the headquarters
+
+1. Open the agent, then the **Settings** tab, and find **Avatar style**.
+2. Pick a **Build**, **Skin tone**, **Hair style**, **Hair colour**, **Outfit** and **Accent colour**. Anything left on **Automatic** is chosen from the agent's id and stays the same every time.
+3. Watch the preview, then press **Save avatar style**. Press **Use automatic style** to go back.
+4. In the headquarters you can also open **Office tools**, then **Team**, and press **Avatar style** on a card.
+
+The style is a drawing choice for the office scene. It says nothing about a person, and nothing is guessed from a name. Figures only appear for agents that have a desk.
+
 ## Who can do this
 
 - Everyone can see their own agents and the workspace's shared ones, and use them.

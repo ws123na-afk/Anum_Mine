@@ -87,10 +87,19 @@ class _WhatsAppScreenState extends State<WhatsAppScreen> {
     final l = context.anum;
     return Scaffold(
       appBar: AppBar(title: Text(l.t('whatsapp')), actions: [
-        IconButton(icon: const Icon(Icons.trending_up), tooltip: 'Sales CRM', onPressed: () {
-          final repo = c.repository;
-          if (repo is ApiWhatsAppRepository) Navigator.push<void>(context, MaterialPageRoute(builder: (_) => MobileSalesScreen(repository: MobileSalesRepository(repo.api))));
-        }),
+        IconButton(
+            icon: const Icon(Icons.trending_up),
+            tooltip: 'Sales CRM',
+            onPressed: () {
+              final repo = c.repository;
+              if (repo is ApiWhatsAppRepository) {
+                Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => MobileSalesScreen(
+                            repository: MobileSalesRepository(repo.api))));
+              }
+            }),
         IconButton(
             key: const Key('wa-open-templates'),
             onPressed: _openTemplates,
