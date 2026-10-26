@@ -552,10 +552,13 @@ export class HqRenderer {
   /** True while the photographic effects draw: wanted, loaded, on the full rung and not in the simple materials. */
   private photoActive(): boolean { return (this.photoPin || this.photoAuto) && this.photoOn && this.photo !== null && this.step === 0 && !this.lean; }
 
+  /** Roof detail and contact discs cost real frame time: never on a software rasteriser (a pin to 3 there still gets only baked occlusion), unless the photographic pin asks. */
+  private campusFxAllowed(): boolean { return !this.cheap && (!this.software || this.photoPin); }
+
   /** Loads baked occlusion for every tier (no three.js in that chunk), then roof detail and contact discs off the cheap path; a scene that arrived first is built again. */
   private async loadSceneFx(): Promise<void> {
     try {
-      const [baked, campus] = await Promise.all([import('./hqSceneFx.ts'), this.cheap ? Promise.resolve(null) : import('./hqCampusFx.ts')]);
+      const [baked, campus] = await Promise.all([import('./hqSceneFx.ts'), this.campusFxAllowed() ? import('./hqCampusFx.ts') : Promise.resolve(null)]);
       this.sceneFx = baked; this.campusFx = campus;
       if (!this.disposed && this.lastScene) this.setScene(this.lastScene);
     } catch { this.sceneFx = null; }
@@ -790,7 +793,7 @@ export class HqRenderer {
 
   private addItem(item: RenderItem, transparent: boolean, scene: RenderScene): void {
     // Baked ambient occlusion (and tall walls cut so it has a gradient to carry): a vertex colour multiplier, free per frame.
-    const baked = !transparent && this.sceneFx && !this.fxOff.has('ao') ? this.sceneFx.prepare(item.vertices, this.cheap) : null;
+    const baked = !transparent && this.sceneFx && !this.fxOff.has('ao') ? this.sceneFx.prepare(item.vertices, this.cheap || this.software) : null;
     const v = baked ? baked.vertices : item.vertices;
     const aoOf = baked ? baked.ao : null;
     const total = v.length / VERTEX_FLOATS;
@@ -852,7 +855,7 @@ export class HqRenderer {
   /** Campus only (not a building's floors): roof coping and plant, window sills, planters and the soft contact discs under cars, trees and wall feet. */
   private addCampusDetail(scene: RenderScene): void {
     const fx = this.campusFx;
-    if (!fx || !scene.scenery || this.cheap) return;
+    if (!fx || !scene.scenery || !this.campusFxAllowed()) return;
     const contacts: Float32Array[] = [];
     for (const item of scene.opaque) {
       const tall = item.bounds.max.y - item.bounds.min.y > 6;

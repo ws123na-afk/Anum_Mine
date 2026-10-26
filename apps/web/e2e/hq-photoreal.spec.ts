@@ -59,22 +59,23 @@ for (const [w, h] of SIZES) {
   });
 }
 
-test('the quality pin sets the tier, contact discs and roof detail arrive from tier 1 up, and a bad pin is ignored', async ({ page }) => {
+test('the quality pin sets the tier; a pinned software rasteriser gets baked occlusion but no campus detail; a bad pin is ignored', async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 600 });
   await open(page, '3');
   await expect.poll(() => tier(page), { timeout: 180_000 }).toBe('3');
-  await expect.poll(() => fx(page), { timeout: 180_000 }).toContain('contact');
+  await expect.poll(() => fx(page), { timeout: 180_000 }).toContain('ao');
   expect(await canvas(page).getAttribute('data-shadow')).toBe('2048');
-  expect(await fx(page)).not.toMatch(/gtao|pbr|agx/);
-  const withDetail = Number(await canvas(page).getAttribute('data-triangles'));
+  // Roof detail and contact discs are for hardware: a software rasteriser never draws them, pinned or not.
+  expect(await fx(page)).not.toMatch(/contact|gtao|pbr|agx/);
+  const withAo = Number(await canvas(page).getAttribute('data-triangles'));
 
   const second = await page.context().newPage();
   await second.setViewportSize({ width: 800, height: 600 });
-  await open(second, '3', 'ao,detail,contact');
+  await open(second, '3', 'ao');
   await expect.poll(() => tier(second), { timeout: 180_000 }).toBe('3');
-  expect(await fx(second)).not.toMatch(/ao|contact/);
-  const without = Number(await canvas(second).getAttribute('data-triangles'));
-  expect(without).toBeLessThan(withDetail);
+  expect(await fx(second)).not.toMatch(/ao/);
+  // Baked occlusion cuts the wide walls, so the same scene has more triangles with it.
+  expect(Number(await canvas(second).getAttribute('data-triangles'))).toBeLessThan(withAo);
   await second.close();
 
   const bad = await page.context().newPage();
