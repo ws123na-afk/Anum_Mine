@@ -1,5 +1,5 @@
 /** Left rail of a building: its floors, top floor first, each with a thumbnail and a line from the saved rooms. */
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutGrid } from 'lucide-react';
 import { type ReactElement } from 'react';
 import { t, type MessageKey } from '../lib/i18n.ts';
 import type { SceneBuilding, SceneFloor } from '../lib/headquartersProjection.ts';
@@ -15,6 +15,9 @@ export type FloorRailProps = Readonly<{
   onToggle?: () => void;
   /** Inside a drawer there is no collapse control. */
   drawer?: boolean;
+  /** The floor overview (the whole open floor from above, every room labelled): on or off, and the switch. */
+  overview?: boolean;
+  onOverview?: () => void;
 }>;
 
 export function floorSubtitle(entry: FloorEntry): string {
@@ -64,6 +67,11 @@ export function FloorRail(props: FloorRailProps) {
           </button>
         )}
       </header>
+      {props.onOverview && entries.length > 0 && (
+        <button type="button" className="hqRailOverview" data-nav-item="" data-testid="hq-rail-overview" aria-pressed={props.overview === true} aria-label={t('hqFloor.railHint')} title={t('hqFloor.railHint')} onClick={props.onOverview}>
+          <LayoutGrid aria-hidden="true" />{!props.slim && <span>{t('hqFloor.rail')}</span>}
+        </button>
+      )}
       {entries.length === 0
         ? <p className="hqMuted" role="status">{t('hqNav.rail.empty')}</p>
         : <ul>{entries.map((e) => <Item key={e.id} entry={e} floor={byId.get(e.id)!} active={e.id === props.activeFloorId} slim={props.slim} thumbKey={props.thumbKeyOf(e.id)} onPick={() => props.onPick(e.id)} />)}</ul>}

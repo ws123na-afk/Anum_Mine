@@ -226,7 +226,9 @@ test('a workspace with no saved layout says what to do next', async ({ page }) =
   await openOffice(page, { campus: 'api', layout: 'none' });
   await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
   await hq(page).getByRole('button', { name: 'Open Al Noor Fleet HQ' }).click();
-  await expect(hq(page).getByRole('heading', { level: 2, name: 'This workspace has no office layout yet' })).toBeVisible();
+  // The empty building is no longer a bare notice: the scene offers to create the campus (docs/ANUM_MINE_STARTER_CAMPUS.md#first-run),
+  // and the by-hand way (Manage spaces) stays one click away.
+  await expect(hq(page).getByRole('heading', { level: 2, name: 'Create your campus' })).toBeVisible();
   await expect(hq(page).getByRole('button', { name: 'Manage spaces' })).toBeVisible();
 });
 
