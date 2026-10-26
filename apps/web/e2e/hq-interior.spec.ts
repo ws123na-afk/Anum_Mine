@@ -69,6 +69,7 @@ test('the server area, pantry and every other kit of the starter campus build wi
 });
 
 test('the stacked view draws every floor of the 3 floor building above the one below it', async ({ page }) => {
+  test.setTimeout(120_000); // builds the building twice (one floor, then the stack) on a software rasteriser
   await page.setViewportSize({ width: 1366, height: 768 });
   await openBuilding(page, 'ANUM 360 Commerce');
   await expect.poll(async () => Number(await canvas(page).getAttribute('data-triangles')), { timeout: 60_000 }).toBeGreaterThan(15_000);
