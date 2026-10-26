@@ -6,7 +6,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExtern
 import {
   Activity, Bell, BellOff, BookOpen, GraduationCap, Phone, ShoppingCart, Wallet, Bot, Building2, ChevronDown, CircleAlert, FileText, Gauge, Hammer, House, ListTodo, LogOut, Mail, MessageCircle,
   MessageSquare, Mic, Plug, Plus, RefreshCw, Scale, ScrollText, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Store, Users, Workflow, Disc3, PhoneCall, FileBarChart, Library, Star,
-  ClipboardCheck, ClipboardList, Building, BriefcaseBusiness, Megaphone, SunMoon, CalendarDays, AtSign, Handshake, PhoneOutgoing, ShieldAlert, Landmark } from 'lucide-react';
+  ClipboardCheck, ClipboardList, Building, BriefcaseBusiness, Megaphone, SunMoon, CalendarDays, AtSign, Handshake, PhoneOutgoing, ShieldAlert, Landmark, Compass } from 'lucide-react';
 import type { Approval, Task } from '@anum/contracts';
 import type { WorkspacePermissions } from '@anum/contracts';
 import * as api from './lib/api';
@@ -34,7 +34,7 @@ const ICONS: Record<View, ReactNode> = {
   integrations: <Plug />, files: <FileText />, memory: <BookOpen />, knowledge: <Library />, reports: <FileBarChart />, favorites: <Star />, skills: <Store />, inbox: <Mail />, email: <AtSign />, whatsapp: <MessageCircle />,
   approvals: <ShieldCheck />, activity: <Activity />, autonomy: <SlidersHorizontal />, settings: <Settings />, governance: <Building2 />, setup: <ClipboardList />, suppressions: <BellOff />,
   enterprise: <Store />, members: <Users />, audit: <ScrollText />, budgets: <Gauge />, agentControls: <ShieldAlert />, policy: <Scale />, developer: <Hammer />,
-  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />, platformBilling: <Landmark />,
+  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />, platformBilling: <Landmark />, office: <Building2 />, executive: <Compass />,
 };
 export const viewIcon = (view: View) => ICONS[view];
 
@@ -106,7 +106,9 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
   return <aside className="sidebar">
     <div className="brand">{branding?.logo ? <img className="brandLogo" src={branding.logo} alt="" /> : <AnumMark className="brandMark" size={36} />}<div><span className="brandName">{t('brand.name')}</span><small>{branding?.name ?? t('brand.tagline')}</small></div></div>
     <nav ref={navRef} aria-label={t('nav.primary')}>
-      <ul className="navList">{NAV[0].views.filter((id) => allowed.has(id)).map(item)}</ul>
+      <ul className="navList">
+        {NAV[0].views.filter((id) => allowed.has(id)).map(item)}
+      </ul>
       {group('workspaces', 'sidebar.workspaces', <SidebarWorkspaces workspaceId={workspaceId} onSwitchWorkspace={onSwitchWorkspace} />)}
       {NAV.slice(1).map((g) => {
         const ids = g.views.filter((id) => allowed.has(id));

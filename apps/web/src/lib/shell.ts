@@ -7,7 +7,7 @@ export type View =
   | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'calls' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'finance' | 'marketing' | 'business' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'email' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
   | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'agentControls' | 'policy' | 'suppressions' | 'developer' | 'organisations'
-  | 'platformBilling';
+  | 'platformBilling' | 'office' | 'executive';
 
 export type NavGroup = 'main' | 'more' | 'admin';
 
@@ -25,7 +25,7 @@ export type NavGroup = 'main' | 'more' | 'admin';
  * and its render line in main.tsx.
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
-  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'finance', 'marketing', 'business', 'files', 'memory', 'reports', 'skills'] },
+  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'finance', 'marketing', 'business', 'files', 'memory', 'reports', 'skills', 'office', 'executive'] },
   { group: 'more', views: ['favorites', 'inbox', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
   { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'agentControls', 'policy', 'suppressions', 'developer', 'organisations', 'platformBilling'] },
 ];
@@ -46,7 +46,7 @@ export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations', 'platf
  */
 export const OWN_HEADER: ReadonlySet<View> = new Set([
   'home', 'command', 'voice', 'assistant', 'files', 'email', 'inbox', 'whatsapp', 'meetings', 'marketing', 'business',
-  'tasks', 'commerce', 'finance', 'team', 'assistants', 'call', 'calls', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning',
+  'tasks', 'commerce', 'finance', 'team', 'assistants', 'call', 'calls', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning', 'office', 'executive',
 ]);
 
 export function isView(value: string): value is View {
@@ -65,6 +65,8 @@ export function viewFromHash(hash: string): View {
   if (id === 'billing' || id.startsWith('billing-')) return 'settings';
   // Connection setup lives at the top of Integrations (docs/integrations-setup.md).
   if (id === 'connections') return 'integrations';
+  // The ANUM MINE headquarters: #office-preview is the original link and stays valid (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md).
+  if (id === 'office-preview' || id.startsWith('office-preview?')) return 'office';
   // A report or collection opened by link (docs/reports.md, docs/knowledge-base.md).
   if (id.startsWith('reports/')) return 'reports';
   if (id.startsWith('knowledge/')) return 'knowledge';

@@ -6,7 +6,7 @@
 // A request is always planned first (the plan can be reordered and trimmed) and nothing runs until
 // Start. The overview of the day is Home (HomeView.tsx). Every API call goes through lib/commandApi.ts;
 // the pure rules are in lib/commands.ts and lib/commandCenter.ts.
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import {
   ArrowDown, ArrowRight, ArrowUp, BarChart3, Bot, ChevronLeft, ChevronRight, Circle, CircleAlert, CircleCheck, Download, FileText, Files, Globe, Keyboard,
   LayoutGrid, Lightbulb, ListTodo, LoaderCircle, Mail, MessageCircle, MessageSquare, Mic, Paperclip, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Search,
@@ -33,6 +33,11 @@ import * as commandApi from './lib/commandApi';
 import { EmptyPanel, PanelDenied, PanelError, PanelLoading } from './Panels';
 import { AnumMark } from './Shell';
 import './commandCenter.css';
+import { BuildingCommandPanel } from './hq-command/BuildingCommandPanel';
+import { parseCampusRequest } from './lib/hqCampusCommand';
+// The campus proposal card loads only when someone asks for the campus (docs/ANUM_MINE_STARTER_CAMPUS.md#first-run).
+const CampusProposalCard = lazy(() => import('./hq-first-run/CampusProposalCard'));
+import { parseBuildingRequest, type BuildingAsk } from './lib/hqBuildingCommand';
 
 const ICON: Record<string, ReactNode> = {
   mail: <Mail />, chart: <BarChart3 />, search: <Search />, check: <SquareCheck />, file: <FileText />, message: <MessageCircle />, workflow: <Workflow />,
@@ -69,6 +74,10 @@ export function CommandCenter({ userName, role, initialText, live, onGo, onOpenT
   const viewer = role === 'viewer';
   const [mode, setMode] = useState<CommandMode>('voice');
   const [draft, setDraft] = useState(initialText ?? '');
+  // "Add a building ..." is answered with a proposal card, not a task plan (docs/ANUM_MINE_EXECUTIVE_PA.md#add-a-building).
+  const [building, setBuilding] = useState<{ ask: BuildingAsk; mode: 'typed' | 'voice'; n: number } | null>(null);
+  // "Set up my campus" is answered with the same kind of card; its button is the only way to create.
+  const [campus, setCampus] = useState<{ mode: 'typed' | 'voice'; n: number } | null>(null);
   const [source, setSource] = useState<{ kind: CommandSource; quickId: string | null }>({ kind: initialText ? 'suggestion' : 'typed', quickId: null });
   const [language, setLanguage] = useState<SpeechLanguage>(() => initialSpeechLanguage(storage?.getItem(SPEECH_LANGUAGE_KEY), getLocale()));
   const [listening, setListening] = useState(false);
@@ -189,6 +198,10 @@ export function CommandCenter({ userName, role, initialText, live, onGo, onOpenT
     if (!text || upload) { composer.current?.focus(); return; }
     if (listening) { talk.current?.stop(); setListening(false); }
     setStartError(null);
+    if (parseCampusRequest(text)) { setPlan({ state: 'idle' }); setBuilding(null); setCampus((c) => ({ mode: source.kind === 'voice' ? 'voice' : 'typed', n: (c?.n ?? 0) + 1 })); setDraft(''); return; }
+    const ask = parseBuildingRequest(text);
+    if (ask) { setPlan({ state: 'idle' }); setCampus(null); setBuilding((b) => ({ ask, mode: source.kind === 'voice' ? 'voice' : 'typed', n: (b?.n ?? 0) + 1 })); setDraft(''); return; }
+    setBuilding(null); setCampus(null);
     setPlan({ state: 'loading', text });
     try {
       const result = await commandApi.previewCommand(text, commandLocale(text, getLocale()));
@@ -358,6 +371,8 @@ export function CommandCenter({ userName, role, initialText, live, onGo, onOpenT
         </div>
       </form>}
 
+    {campus && <Suspense fallback={<p className="muted" role="status">{t('hqFr.loading')}</p>}><CampusProposalCard key={campus.n} inputMode={campus.mode} onShow={() => { window.location.hash = '#office'; }} onCancel={() => undefined} /></Suspense>}
+    {building && <BuildingCommandPanel key={building.n} initial={building.ask} mode={building.mode} onClose={() => setBuilding(null)} onShow={() => { window.location.hash = '#office'; }} />}
     {plan.state !== 'idle' && <PlanPanel plan={plan} starting={starting} error={startError} attachments={attachments.length}
       onChange={(steps) => setPlan((p) => p.state === 'ready' ? { ...p, steps, approvals: steps.filter((s) => s.approval === 'required').length } : p)}
       onEdit={editPlan} onStart={() => void start()} onRetry={() => void preview(undefined, plan.text)} onCancel={() => { setPlan({ state: 'idle' }); setStartError(null); }} />}

@@ -40,3 +40,7 @@ Calls & Meetings turns the calls you import into a summary, decisions, action it
 ## Learn more
 
 [Calls & Meetings](../meetings.md)
+
+## Who can read a live agent meeting
+
+Only workspace owners read the transcript, decisions and downloads of a live agent meeting. Members and viewers still see that it happened, its title, status and who is in it. A monthly budget shared by all live agent meetings pauses them when it is used up (see Budgets).

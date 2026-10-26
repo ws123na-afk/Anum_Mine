@@ -1,0 +1,622 @@
+[
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": -1,
+  "room": "facilities",
+  "name": "Facilities Office",
+  "name_ar": "مكتب المرافق",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": -1,
+  "room": "security-operations",
+  "name": "Security Operations",
+  "name_ar": "عمليات الأمن",
+  "kind": "office",
+  "department": "security"
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": -1,
+  "room": "parking-logistics",
+  "name": "Parking and Logistics",
+  "name_ar": "المواقف والخدمات اللوجستية",
+  "kind": "warehouse",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 1,
+  "room": "reception",
+  "name": "Reception",
+  "name_ar": "الاستقبال",
+  "kind": "reception",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 1,
+  "room": "meeting-a",
+  "name": "Meeting Room A",
+  "name_ar": "غرفة الاجتماعات أ",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 1,
+  "room": "meeting-b",
+  "name": "Meeting Room B",
+  "name_ar": "غرفة الاجتماعات ب",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 1,
+  "room": "meeting-c",
+  "name": "Meeting Room C",
+  "name_ar": "غرفة الاجتماعات ج",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 2,
+  "room": "command-center",
+  "name": "Command Center",
+  "name_ar": "مركز القيادة",
+  "kind": "command",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 2,
+  "room": "ai-organization",
+  "name": "AI Organization",
+  "name_ar": "المؤسسة الذكية",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 2,
+  "room": "operations-office",
+  "name": "Operations Office",
+  "name_ar": "مكتب العمليات",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 2,
+  "room": "assets",
+  "name": "Assets",
+  "name_ar": "الأصول",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 2,
+  "room": "suppliers",
+  "name": "Suppliers",
+  "name_ar": "الموردون",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 3,
+  "room": "executive-office",
+  "name": "Executive Office",
+  "name_ar": "المكتب التنفيذي",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 3,
+  "room": "boardroom",
+  "name": "Boardroom",
+  "name_ar": "قاعة مجلس الإدارة",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 3,
+  "room": "strategy-room",
+  "name": "Strategy Room",
+  "name_ar": "غرفة الاستراتيجية",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 4,
+  "room": "terrace",
+  "name": "Terrace",
+  "name_ar": "التراس",
+  "kind": "lounge",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 4,
+  "room": "events-hall",
+  "name": "Events Hall",
+  "name_ar": "قاعة الفعاليات",
+  "kind": "lounge",
+  "department": null
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 0,
+  "room": "ecommerce",
+  "name": "E-commerce",
+  "name_ar": "التجارة الإلكترونية",
+  "kind": "office",
+  "department": "sales"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 0,
+  "room": "retail",
+  "name": "Retail",
+  "name_ar": "التجزئة",
+  "kind": "office",
+  "department": "sales"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 0,
+  "room": "marketplace",
+  "name": "Marketplace",
+  "name_ar": "السوق",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 0,
+  "room": "orders",
+  "name": "Orders",
+  "name_ar": "الطلبات",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 0,
+  "room": "warehouse",
+  "name": "Warehouse",
+  "name_ar": "المستودع",
+  "kind": "warehouse",
+  "department": "operations"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 1,
+  "room": "sales-office",
+  "name": "Sales Office",
+  "name_ar": "مكتب المبيعات",
+  "kind": "office",
+  "department": "sales"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 1,
+  "room": "marketing-studio",
+  "name": "Marketing Studio",
+  "name_ar": "استوديو التسويق",
+  "kind": "office",
+  "department": "marketing"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 1,
+  "room": "meeting-room",
+  "name": "Meeting Room",
+  "name_ar": "غرفة الاجتماعات",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 2,
+  "room": "customer-service",
+  "name": "Customer Service",
+  "name_ar": "خدمة العملاء",
+  "kind": "office",
+  "department": "support"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 2,
+  "room": "support",
+  "name": "Support",
+  "name_ar": "الدعم",
+  "kind": "office",
+  "department": "support"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 2,
+  "room": "messages",
+  "name": "Messages",
+  "name_ar": "الرسائل",
+  "kind": "office",
+  "department": "support"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 2,
+  "room": "tickets",
+  "name": "Tickets",
+  "name_ar": "التذاكر",
+  "kind": "office",
+  "department": "support"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 0,
+  "room": "workshop",
+  "name": "Workshop",
+  "name_ar": "الورشة",
+  "kind": "workshop",
+  "department": "tyre_engineering"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 0,
+  "room": "maintenance",
+  "name": "Maintenance",
+  "name_ar": "الصيانة",
+  "kind": "workshop",
+  "department": "tyre_engineering"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 0,
+  "room": "warehouse",
+  "name": "Warehouse",
+  "name_ar": "المستودع",
+  "kind": "warehouse",
+  "department": "operations"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 0,
+  "room": "logistics",
+  "name": "Logistics",
+  "name_ar": "الخدمات اللوجستية",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 1,
+  "room": "fleet",
+  "name": "Fleet",
+  "name_ar": "الأسطول",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 1,
+  "room": "tyre-engineering",
+  "name": "Tyre Engineering",
+  "name_ar": "هندسة الإطارات",
+  "kind": "office",
+  "department": "tyre_engineering"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 1,
+  "room": "inspections",
+  "name": "Inspections",
+  "name_ar": "الفحص",
+  "kind": "office",
+  "department": "tyre_engineering"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 0,
+  "room": "hr",
+  "name": "HR",
+  "name_ar": "الموارد البشرية",
+  "kind": "office",
+  "department": "hr"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 0,
+  "room": "finance-office",
+  "name": "Finance Office",
+  "name_ar": "المكتب المالي",
+  "kind": "office",
+  "department": "finance"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 0,
+  "room": "wealth-office",
+  "name": "Wealth Office",
+  "name_ar": "مكتب الثروة",
+  "kind": "office",
+  "department": "finance"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 0,
+  "room": "procurement",
+  "name": "Procurement",
+  "name_ar": "المشتريات",
+  "kind": "office",
+  "department": "procurement"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 1,
+  "room": "legal-office",
+  "name": "Legal Office",
+  "name_ar": "المكتب القانوني",
+  "kind": "office",
+  "department": "legal"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 1,
+  "room": "compliance-office",
+  "name": "Compliance Office",
+  "name_ar": "مكتب الامتثال",
+  "kind": "office",
+  "department": "compliance"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 1,
+  "room": "governance-office",
+  "name": "Governance Office",
+  "name_ar": "مكتب الحوكمة",
+  "kind": "office",
+  "department": "compliance"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 1,
+  "room": "audit-room",
+  "name": "Audit Room",
+  "name_ar": "غرفة التدقيق",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 0,
+  "room": "ai-labs",
+  "name": "AI Labs",
+  "name_ar": "مختبرات الذكاء الاصطناعي",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 0,
+  "room": "data",
+  "name": "Data",
+  "name_ar": "البيانات",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 0,
+  "room": "automation",
+  "name": "Automation",
+  "name_ar": "الأتمتة",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 1,
+  "room": "development",
+  "name": "Development",
+  "name_ar": "التطوير",
+  "kind": "office",
+  "department": "technology"
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 1,
+  "room": "deployments",
+  "name": "Deployments",
+  "name_ar": "النشر",
+  "kind": "office",
+  "department": "technology"
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 1,
+  "room": "incidents",
+  "name": "Incidents",
+  "name_ar": "الحوادث",
+  "kind": "office",
+  "department": "technology"
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 2,
+  "room": "research-room",
+  "name": "Research Room",
+  "name_ar": "غرفة البحث",
+  "kind": "office",
+  "department": "research"
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 2,
+  "room": "intelligence-desk",
+  "name": "Intelligence Desk",
+  "name_ar": "مكتب الاستخبارات",
+  "kind": "office",
+  "department": "research"
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 2,
+  "room": "briefing-room",
+  "name": "Briefing Room",
+  "name_ar": "غرفة الإحاطة",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "new-ventures",
+  "building_id": "campus-06-new-ventures",
+  "floor": 0,
+  "room": "investments",
+  "name": "Investments",
+  "name_ar": "الاستثمارات",
+  "kind": "office",
+  "department": "finance"
+ },
+ {
+  "building": "new-ventures",
+  "building_id": "campus-06-new-ventures",
+  "floor": 0,
+  "room": "research-development",
+  "name": "R&D",
+  "name_ar": "البحث والتطوير",
+  "kind": "office",
+  "department": "research"
+ },
+ {
+  "building": "new-ventures",
+  "building_id": "campus-06-new-ventures",
+  "floor": 0,
+  "room": "future-businesses",
+  "name": "Future Businesses",
+  "name_ar": "الأعمال المستقبلية",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "new-ventures",
+  "building_id": "campus-06-new-ventures",
+  "floor": 0,
+  "room": "meeting-room",
+  "name": "Meeting Room",
+  "name_ar": "غرفة الاجتماعات",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "personal",
+  "building_id": "campus-07-personal",
+  "floor": 0,
+  "room": "personal-office",
+  "name": "Personal Office",
+  "name_ar": "المكتب الشخصي",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "personal",
+  "building_id": "campus-07-personal",
+  "floor": 0,
+  "room": "lounge",
+  "name": "Lounge",
+  "name_ar": "الاستراحة",
+  "kind": "lounge",
+  "department": null
+ },
+ {
+  "building": "career",
+  "building_id": "campus-08-career",
+  "floor": 0,
+  "room": "career-office",
+  "name": "Career Office",
+  "name_ar": "مكتب المسار المهني",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "career",
+  "building_id": "campus-08-career",
+  "floor": 0,
+  "room": "employment-desk",
+  "name": "Employment Desk",
+  "name_ar": "مكتب التوظيف",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "career",
+  "building_id": "campus-08-career",
+  "floor": 0,
+  "room": "interview-room",
+  "name": "Interview Room",
+  "name_ar": "غرفة المقابلات",
+  "kind": "meeting",
+  "department": null
+ }
+]

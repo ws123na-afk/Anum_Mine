@@ -99,7 +99,11 @@ export interface OrgInputs {
 }
 
 /** Departments in the order the chart shows them; free-text ones follow alphabetically, then "no department". */
-export const DEPARTMENT_ORDER: readonly Department[] = ['sales', 'support', 'operations', 'tyre_engineering', 'finance', 'custom'];
+export const DEPARTMENT_ORDER: readonly Department[] = [
+  'sales', 'support', 'operations', 'tyre_engineering', 'finance',
+  'marketing', 'technology', 'research', 'legal', 'compliance', 'security', 'hr', 'procurement',
+  'custom',
+];
 /** How many members a department shows before "Show all". */
 export const COLLAPSED_MEMBERS = 4;
 export const OPEN_STATUSES = ['created', 'queued', 'running', 'waiting_approval'] as const;

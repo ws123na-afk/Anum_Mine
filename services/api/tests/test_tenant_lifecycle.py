@@ -194,6 +194,23 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         "business_portal_decisions": "0089_business_invoices_portal",
         "business_credit_notes": "0096_invoice_credit_notes",
         "business_payment_notices": "0096_invoice_credit_notes",
+        **{name: "0097_office_spaces" for name in ("office_buildings", "office_floors", "office_rooms", "office_desks")},
+            "office_create_keys": "0099_office_create_keys",
+            "office_agent_provisions": "0106_agent_provisioning",
+            "office_desk_staffing": "0109_staff_desks",
+            **{name: "0112_layout_history" for name in ("office_floor_revisions", "office_layout_templates")},
+            "agent_meeting_output_links": "0111_meeting_summary_links",
+            **{name: "0107_agent_meeting_budget" for name in ("agent_meeting_budgets", "agent_meeting_usage_monthly")},
+            **{name: "0104_meeting_room" for name in (
+                "agent_meeting_events", "agent_meeting_agenda", "agent_meeting_outputs",
+                "agent_meeting_attendance", "agent_meeting_files")},
+            "executive_grants": "0101_executive_grants",
+            **{name: "0102_sales_crm" for name in ("sales_leads", "sales_lead_events", "sales_quotes", "sales_followups")},
+        **{name: "0103_sales_execution" for name in ("sales_automation_settings", "sales_consent_events")},
+            "campus_workspace_profiles": "0101_executive_grants",
+            **{name: "0098_agent_live_meetings" for name in (
+                "agent_meeting_sessions", "agent_meeting_participants",
+                "agent_meeting_turns", "agent_meeting_turn_leases")},
         **{name: "0094_customer_billing" for name in (
             "billing_plans", "billing_settings", "billing_accounts", "billing_subscriptions", "billing_seats",
             "billing_usage", "billing_invoices", "billing_invoice_lines", "billing_credit_notes", "billing_payments",
@@ -201,7 +218,10 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
     }
     for table, revision in later.items():
         text = (API_ROOT / "migrations" / "versions" / f"{revision}.py").read_text(encoding="utf-8")
-        assert table in text and "create policy lifecycle_purge_{table}" in text
+        assert table in text and (
+            "create policy lifecycle_purge_{table}" in text
+            or f"create policy lifecycle_purge_{table}" in text
+        )
     assert in_migration | set(later) == {t.name for t in PURGED_TABLES}
     assert LIFECYCLE_JOBS_TABLE not in in_migration
     assert len(module.revision) <= 32 and module.down_revision == "0078_demo_records"

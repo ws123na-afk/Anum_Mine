@@ -6,7 +6,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 // authorization code + PKCE, state and nonce checks, bearer + x-workspace-id on API calls,
 // token storage, and RP-initiated sign-out.
 const OIDC_E2E_ISSUER = 'http://oidc.anum.test/realms/anum';
-const appOrigin = 'http://127.0.0.1:4174';
+const appOrigin = `http://127.0.0.1:${process.env.OIDC_E2E_PORT ?? '4174'}`;
 const cors = { 'access-control-allow-origin': appOrigin, 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' };
 
 test.use({ baseURL: appOrigin });
@@ -143,6 +143,33 @@ test('signs in with authorization code + PKCE, calls the API with the bearer tok
   expect(provider.logout?.get('post_logout_redirect_uri')).toBe(`${appOrigin}/`);
   expect(provider.logout?.get('id_token_hint')).toBeTruthy();
   expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
+});
+
+test('office preview stays behind sign-in and exposes no workspace data', async ({ page }) => {
+  const provider = await mockProviderAndApi(page);
+
+  await page.goto('/#office-preview');
+  await expect(page.getByRole('heading', { name: 'Sign in to ANUM' })).toBeVisible();
+  await expect(page.locator('.hqLive, .anumOfficeTour')).toHaveCount(0);
+  expect(provider.apiHeaders).toHaveLength(0);
+
+  // After sign-in #office-preview opens the authenticated headquarters (HeadquartersEntrypoint);
+  // its API calls carry the bearer token and workspace. The registry is not mocked here, so it
+  // must say so honestly instead of inventing rooms.
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.locator('.hqLive')).toBeVisible();
+  await expect(page.getByText('CONCEPT VIEW', { exact: true })).toHaveCount(0);
+  await expect.poll(() => provider.apiHeaders.length).toBeGreaterThan(0);
+  for (const headers of provider.apiHeaders) {
+    expect(headers.authorization).toBe(`Bearer ${provider.accessToken}`);
+    expect(headers['x-workspace-id']).toBe('workspace_foundation');
+  }
+
+  // The illustrative concept stays a separate, labelled mode.
+  await page.getByRole('button', { name: 'Concept preview' }).click();
+  await expect(page.locator('.anumOfficeTour')).toBeVisible();
+  await expect(page.getByText('CONCEPT VIEW', { exact: true })).toHaveCount(1);
+  await expect(page.getByText(/No real task execution/)).toHaveCount(1);
 });
 
 test('a callback with a forged state is rejected without a token request', async ({ page }) => {

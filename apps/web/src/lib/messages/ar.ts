@@ -11,7 +11,21 @@ import { financeEquityAr } from './financeEquity.ar.ts';
 import { financeReportsAr } from './financeReports.ar.ts';
 import { financeIntelActionsAr } from './financeIntelActions.ar.ts';
 import { tyreAr } from './tyre.ar.ts';
+import { hqAr } from './hq.ar.ts';
 import { homeAr } from './home.ar.ts';
+import { meetingRoomAr } from './meetingRoom.ar.ts';
+import { builderAr } from './builder.ar.ts';
+import { hqFlowAr } from './hqFlow.ar.ts';
+import { hqHistoryAr } from './hqHistory.ar.ts';
+import { hqGpuAr } from './hqGpu.ar.ts';
+import { hqLiveAr } from './hqLive.ar.ts';
+import { hqProvisioningAr } from './hqProvisioning.ar.ts';
+import { hqNavAr } from './hqNav.ar.ts';
+import { hqAssignAr } from './hqAssign.ar.ts';
+import { hqStarterCampusAr } from './hqStarterCampus.ar.ts';
+import { hqFirstRunAr } from './hqFirstRun.ar.ts';
+import { hqFloorAr } from './hqFloor.ar.ts';
+import { hqStaffDesksAr } from './hqStaffDesks.ar.ts';
 import { teamAr } from './team.ar.ts';
 import { appCallsAr } from './appCalls.ar.ts';
 import { marketingAr } from './marketing.ar.ts';
@@ -35,6 +49,7 @@ import { routingAr } from './routing.ar.ts';
 import { voiceAr } from './ar.voice.ts';
 import { voiceActionsAr } from './ar.voiceActions.ts';
 import { agentSkillsAr } from './agentSkills.ar.ts';
+import { avatarAr } from './avatar.ar.ts';
 import { skillSigningAr } from './skillSigning.ar.ts';
 import { approvalPagingAr } from './approvalPaging.ar.ts';
 import { orgChartAr } from './orgChart.ar.ts';
@@ -49,6 +64,8 @@ import { mailOpsAr } from './mailOps.ar.ts';
 import { mailDomainsAr } from './mailDomains.ar.ts';
 import { mailAr } from './mail.ar.ts';
 import { callsAr } from './calls.ar.ts';
+import { executiveAr } from './executive.ar.ts';
+import { paBriefingAr } from './paBriefing.ar.ts';
 import { chatAr } from './chat.ar.ts';
 import { setupAr } from './setup.ar.ts';
 import { pagesAr } from './pages.ar.ts';
@@ -82,6 +99,7 @@ export const ar: Record<MessageKey, Message> = {
   ...helpAr,
   ...publicSiteAr,
   ...agentSkillsAr,
+  ...avatarAr,
   ...skillSigningAr,
   ...approvalPagingAr,
   ...orgChartAr,
@@ -96,6 +114,8 @@ export const ar: Record<MessageKey, Message> = {
   ...mailDomainsAr,
   ...mailAr,
   ...callsAr,
+  ...executiveAr,
+  ...paBriefingAr,
   ...chatAr,
   ...setupAr,
   ...pagesAr,
@@ -3225,7 +3245,21 @@ export const ar: Record<MessageKey, Message> = {
   'call.end.open': 'افتح المحادثة',
   'call.end.again': 'مكالمة جديدة',
   ...tyreAr,
+  ...hqAr,
   ...homeAr,
+  ...meetingRoomAr,
+  ...builderAr,
+  ...hqFlowAr,
+  ...hqHistoryAr,
+  ...hqGpuAr,
+  ...hqLiveAr,
+  ...hqProvisioningAr,
+  ...hqNavAr,
+  ...hqAssignAr,
+  ...hqStarterCampusAr,
+  ...hqFirstRunAr,
+  ...hqFloorAr,
+  ...hqStaffDesksAr,
   // ---- واجهة ANUM 360 ومركز الأوامر ----
   'brand.name': 'ANUM 360',
   'nav.home': 'الرئيسية',

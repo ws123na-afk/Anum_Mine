@@ -7,6 +7,7 @@ import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'finance_controller.dart' show FinanceLoad;
 import 'finance_intel_actions.dart';
+import 'finance_broker_statement.dart';
 import 'finance_intel_controller.dart';
 import 'finance_intel_models.dart';
 import 'finance_intel_strings.dart';
@@ -64,6 +65,8 @@ class FinanceIntelView extends StatelessWidget {
             _Strategies(controller: c, overview: o, strings: s),
             IntelSupervisor(controller: c, overview: o, strings: s),
             IntelReports(controller: c, strings: s),
+            if (c.repository is ApiFinanceIntelRepository)
+              FinanceBrokerStatement(api: (c.repository as ApiFinanceIntelRepository).api),
             _Positions(controller: c, overview: o, strings: s),
             _Decisions(controller: c, strings: s),
             _Risk(overview: o, strings: s),

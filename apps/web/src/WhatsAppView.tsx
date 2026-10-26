@@ -22,8 +22,9 @@ import { viewLabel } from './lib/shell';
 import { PageHeader, RAIL_QUERY, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import { CreateTicketDialog, TicketCreatedNotice } from './TicketFromMessage';
 import './whatsapp.css';
+import { SalesDashboard } from './SalesDashboard';
 
-type Tab = 'inbox' | 'templates' | 'setup';
+type Tab = 'inbox' | 'sales' | 'templates' | 'setup';
 type Load = { kind: 'loading' } | { kind: 'denied' } | { kind: 'error'; message: string } | { kind: 'ready'; account: WaAccount };
 
 const time = (value: string) => formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short' });
@@ -52,15 +53,16 @@ export function WhatsAppView({ onOpenApprovals, onOpenBudgets, focusConversation
   if (load.kind === 'error') return <>{header}<div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('wa.loadFailed', { message: load.message })}</span><span className="actions waInline"><button type="button" className="secondary" onClick={() => { setLoad({ kind: 'loading' }); void refresh(); }}>{t('common.tryAgain')}</button></span></div></>;
 
   const { account } = load;
-  const tabs: Tab[] = ['inbox', 'templates', 'setup'];
+  const tabs: Tab[] = ['inbox', 'sales', 'templates', 'setup'];
   return <div className="waLayout">
     {header}
     <nav className="settingsTabs waTabs" aria-label={t('wa.sections')}>
-      {tabs.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{t(`wa.tab.${id}`)}</button>)}
+      {tabs.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{id === 'sales' ? (document.documentElement.lang.startsWith('ar') ? 'المبيعات' : 'Sales CRM') : t(`wa.tab.${id}`)}</button>)}
     </nav>
     {tab === 'inbox' && (account.configured
       ? <InboxView account={account} owner={owner === true} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} onOpenTemplates={() => setTab('templates')} focusConversationId={focusConversationId} />
       : <NotConnected account={account} onSetup={() => setTab('setup')} />)}
+    {tab === 'sales' && <SalesDashboard />}
     {tab === 'templates' && (account.configured
       ? <TemplatesView account={account} onSaved={(next) => setLoad({ kind: 'ready', account: next })} />
       : <NotConnected account={account} onSetup={() => setTab('setup')} />)}

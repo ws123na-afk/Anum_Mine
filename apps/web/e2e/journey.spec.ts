@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { auditButtons } from './support/deadButtons';
 import { GATE_PAGES } from './support/gatePages';
 import { mockWorkspaceApi } from './support/workspaceApi';
-import { createCalendarMock } from './support/calendarApi';
+import { createCalendarMock, pinCalendarClock } from './support/calendarApi';
 import { mockDeveloper } from './support/developerApi';
 
 // Journeys (CLAUDE.md, definition of done): no dead buttons on any page, and the main path of each
@@ -33,6 +33,7 @@ test.describe('no dead buttons @gate', () => {
 
 async function openCalendar(page: Page) {
   await mockWorkspaceApi(page);
+  await pinCalendarClock(page);
   const calendar = createCalendarMock();
   await page.route('http://localhost:8000/api/v1/calendar/**', async (route) => { if (!(await calendar.handle(route))) await route.fallback(); });
   await page.goto('/#calendar');

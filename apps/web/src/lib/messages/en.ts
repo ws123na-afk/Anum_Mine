@@ -10,7 +10,21 @@ import { financeEquityEn } from './financeEquity.en.ts';
 import { financeReportsEn } from './financeReports.en.ts';
 import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
+import { hqEn } from './hq.en.ts';
 import { homeEn } from './home.en.ts';
+import { meetingRoomEn } from './meetingRoom.en.ts';
+import { builderEn } from './builder.en.ts';
+import { hqFlowEn } from './hqFlow.en.ts';
+import { hqHistoryEn } from './hqHistory.en.ts';
+import { hqGpuEn } from './hqGpu.en.ts';
+import { hqLiveEn } from './hqLive.en.ts';
+import { hqProvisioningEn } from './hqProvisioning.en.ts';
+import { hqNavEn } from './hqNav.en.ts';
+import { hqAssignEn } from './hqAssign.en.ts';
+import { hqStarterCampusEn } from './hqStarterCampus.en.ts';
+import { hqFirstRunEn } from './hqFirstRun.en.ts';
+import { hqFloorEn } from './hqFloor.en.ts';
+import { hqStaffDesksEn } from './hqStaffDesks.en.ts';
 import { teamEn } from './team.en.ts';
 import { appCallsEn } from './appCalls.en.ts';
 import { marketingEn } from './marketing.en.ts';
@@ -34,6 +48,7 @@ import { routingEn } from './routing.en.ts';
 import { voiceEn } from './en.voice.ts';
 import { voiceActionsEn } from './en.voiceActions.ts';
 import { agentSkillsEn } from './agentSkills.en.ts';
+import { avatarEn } from './avatar.en.ts';
 import { skillSigningEn } from './skillSigning.en.ts';
 import { approvalPagingEn } from './approvalPaging.en.ts';
 import { orgChartEn } from './orgChart.en.ts';
@@ -48,6 +63,8 @@ import { mailOpsEn } from './mailOps.en.ts';
 import { mailDomainsEn } from './mailDomains.en.ts';
 import { mailEn } from './mail.en.ts';
 import { callsEn } from './calls.en.ts';
+import { executiveEn } from './executive.en.ts';
+import { paBriefingEn } from './paBriefing.en.ts';
 import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
 import { pagesEn } from './pages.en.ts';
@@ -81,6 +98,7 @@ export const en = {
   ...helpEn,
   ...publicSiteEn,
   ...agentSkillsEn,
+  ...avatarEn,
   ...skillSigningEn,
   ...approvalPagingEn,
   ...orgChartEn,
@@ -95,6 +113,8 @@ export const en = {
   ...mailDomainsEn,
   ...mailEn,
   ...callsEn,
+  ...executiveEn,
+  ...paBriefingEn,
   ...chatEn,
   ...setupEn,
   ...pagesEn,
@@ -3210,7 +3230,21 @@ export const en = {
   'call.end.open': 'Open conversation',
   'call.end.again': 'New call',
   ...tyreEn,
+  ...hqEn,
   ...homeEn,
+  ...meetingRoomEn,
+  ...builderEn,
+  ...hqFlowEn,
+  ...hqHistoryEn,
+  ...hqGpuEn,
+  ...hqLiveEn,
+  ...hqProvisioningEn,
+  ...hqNavEn,
+  ...hqAssignEn,
+  ...hqStarterCampusEn,
+  ...hqFirstRunEn,
+  ...hqFloorEn,
+  ...hqStaffDesksEn,
   // ---- ANUM 360 shell and Command Center (docs/design/anum360.md#web-command-center) ----
   'brand.name': 'ANUM 360',
   'nav.home': 'Home',

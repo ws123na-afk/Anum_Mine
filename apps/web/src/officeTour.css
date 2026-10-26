@@ -1,0 +1,250 @@
+.anumOfficeTour{--oc-bg:#091524;--oc-panel:rgba(8,22,37,.89);--oc-text:#f2f6fa;position:fixed;inset:0;z-index:9999;background:var(--oc-bg);color:var(--oc-text);font:14px/1.45 Inter,system-ui,sans-serif;overflow:hidden}.anumOfficeTour *{box-sizing:border-box}.anumOfficeTour button,.anumOfficeTour select,.anumOfficeTour input{font:inherit}.anumOfficeTour button{cursor:pointer}.officeTop{height:70px;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:10px 25px;background:rgba(6,18,32,.92);border-bottom:1px solid #39516a}.officeBrand{display:flex;flex-direction:column}.officeBrand strong{font-size:var(--text-4xl);letter-spacing:1px}.officeBrand strong span{font-weight:300}.officeBrand small{color:#9fc6d0}.officeTopCenter,.officeRight{display:flex;gap:12px;align-items:center}.officeRight label{font-size:var(--text-2xs);display:flex;flex-direction:column;color:#b9cbd5}.anumOfficeTour select,.anumOfficeTour input{color:#eff8fc;background:#162a3a;border:1px solid #496175;border-radius:8px;padding:8px}.anumOfficeTour option{color:#111;background:#fff}.anumOfficeTour button{background:#152a3c;color:#e9f5f8;border:1px solid #536b7f;border-radius:9px;padding:9px 12px;display:inline-flex;align-items:center;justify-content:center;gap:6px}.anumOfficeTour button:hover,.anumOfficeTour button:focus-visible{border-color:#39c8b7;background:#1b414c}.officeDemo{font-size:var(--text-2xs);color:#fbd081;border:1px solid #b58a3d;border-radius:8px;padding:4px}.officeWorld{position:relative;height:calc(100% - 98px);overflow:hidden;background:linear-gradient(165deg,#7297a4 0%,#c5c8b3 38%,#576b63 100%)}.anumOfficeTour.night .officeWorld{background:linear-gradient(155deg,#0b1b30,#253948 60%,#17292b)}.officeScene{position:absolute;inset:5% 14% 18%;perspective:1250px;display:grid;place-items:center}.officePlatform{position:relative;width:min(930px,88%);height:630px;max-height:75%;background:linear-gradient(130deg,#d3cbb5,#e8e1cf 45%,#c9c1ad);border:24px solid #e4dbca;border-radius:18px;box-shadow:0 70px 80px #0007,0 3px 0 10px #52606a;transform:rotateX(calc(44deg + var(--office-tilt))) rotateZ(var(--office-angle)) scale(var(--office-zoom));transition:transform .3s ease;transform-style:preserve-3d}.night .officePlatform{background:linear-gradient(125deg,#6a7070,#85928d);border-color:#98a59e}.officeAtrium{position:absolute;left:37%;top:70%;width:26%;padding:15px;border:2px solid #9da99d;background:#f7f0dc;color:#36505a;text-align:center;font-size:var(--text-xl);font-weight:800;letter-spacing:2px;display:flex;flex-direction:column}.officeAtrium small{font-size:var(--text-2xs);font-weight:500;letter-spacing:0}.officeRoom{position:absolute!important;display:flex!important;flex-direction:column!important;align-items:flex-start!important;justify-content:flex-start!important;text-align:left;background:linear-gradient(135deg,#ecede5bb,#c3d8d1bb)!important;border:7px solid #f8fcf5!important;border-left-color:var(--room-accent)!important;border-radius:6px!important;box-shadow:8px 10px 0 #5b767655,0 7px 25px #36464b44!important;padding:8px!important;transform:translateZ(10px);overflow:hidden;color:#102938!important}.night .officeRoom{background:linear-gradient(145deg,#334f5eee,#57717edd)!important;color:#f7fbfb!important}.officeRoom.picked{outline:4px solid #18c8b5;outline-offset:3px}.officeRoomTitle{background:#0c3041;color:white;font-weight:700;border-radius:5px;padding:4px 8px;font-size:var(--text-base)}.officeRoomRole{font-size:var(--text-2xs);margin-top:7px;background:#ffffffc7;padding:4px;border-radius:5px;color:#163b48}.officeRoomFurniture{position:absolute;bottom:15%;right:10%;color:#4e786c;font-size:var(--text-5xl);letter-spacing:8px}.officePerson{position:absolute;color:#176d77;background:#edf9ee;border-radius:50%;width:26px;height:26px;text-align:center;box-shadow:0 3px 4px #0004;font-size:var(--text-xl)}.officePaPresence{position:absolute;left:45%;bottom:3%;background:#092a3e;color:white;padding:10px;border-radius:20px;font-size:var(--text-xs)}.officeFloorPanel,.officeInfo,.officePa,.officeControls{position:absolute;background:var(--oc-panel);border:1px solid #476272;border-radius:15px;backdrop-filter:blur(15px)}.officeFloorPanel{left:20px;top:24px;width:220px;padding:16px}.officeFloorPanel h2,.officeInfo h2{font-size:var(--text-xl);margin:0 0 14px}.officeFloorPanel>button{display:flex;width:100%;margin:8px 0;justify-content:flex-start}.officeFloorPanel button.active{background:#087c79;border-color:#49d4cb}.officeFloorPanel button span{font-size:var(--text-xs)}.officeMode{border-top:1px solid #547084;margin-top:15px;padding-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}.officeMode select{width:100%}.officeInfo{right:20px;top:24px;width:260px;padding:16px;display:flex;flex-direction:column;gap:9px}.officeInfo p{margin:0;color:#9ccbd2}.officeInfo strong{font-size:var(--text-xs)}.officeInfo small{color:#b6cbd0;font-size:var(--text-2xs);margin-top:8px}.officePersonLabel{padding:7px;background:#264154;border-radius:7px}.officePersonLabel span{color:#66c6a3}.officePa{left:20px;bottom:92px;width:min(420px,calc(100vw - 40px));padding:13px;display:flex;gap:12px}.officePaAvatar{background:linear-gradient(145deg,#41afc3,#24658c);border-radius:50%;min-width:43px;height:43px;display:grid;place-items:center;font-size:var(--text-4xl)}.officePaMessage{flex:1;min-width:0}.officePaMessage p{margin:7px 0;font-size:var(--text-xs);color:#d5e3eb;max-height:94px;overflow:auto}.officePaActions{display:flex;flex-wrap:wrap;gap:5px}.officePaActions button{padding:6px 8px;font-size:var(--text-2xs)}.officePaMessage form{display:flex;gap:6px;margin-top:9px}.officePaMessage input{min-width:0;flex:1;font-size:var(--text-xs)}.officeControls{bottom:15px;left:50%;transform:translateX(-50%);display:flex;gap:7px;padding:8px;white-space:nowrap}.officeControls button{padding:8px}.officeControls svg{width:16px;height:16px}.officeFooter{height:28px;background:#081726;display:flex;justify-content:space-between;padding:5px 18px;color:#abc7d1;font-size:var(--text-2xs)}.anumOfficeTour:fullscreen{height:100%;width:100%}@media(max-width:1000px){.officeScene{inset:8% 8% 23%}.officeInfo{top:auto;bottom:78px;width:210px}.officeTopCenter{display:none}.officePlatform{max-height:70%;width:95%}.officeControls{left:auto;right:8px;transform:none;max-width:calc(100vw - 16px);overflow-x:auto}.officePa{bottom:145px}.officeFooter span:last-child{display:none}}@media(max-width:620px){.officeTop{height:80px;padding:8px}.officeBrand small{display:none}.officeBrand strong{font-size:var(--text-lg)}.officeRight label{display:none}.officeFloorPanel{left:7px;top:7px;width:150px;padding:8px}.officeFloorPanel h2{font-size:var(--text-xs)}.officeFloorPanel button{padding:5px}.officeInfo{display:none}.officeScene{inset:6% 0 33%}.officePa{bottom:80px;left:7px;padding:7px;width:calc(100vw - 14px)}.officeControls{bottom:8px}.officeFooter{display:none}.officeWorld{height:calc(100% - 80px)}}@media(prefers-reduced-motion:reduce){.officePlatform{transition:none}}
+/* The PA escort marker follows selected room coordinates, separate from the voice/card UI. */
+.officePaPresence{bottom:auto;transform:translate(-50%,-50%);z-index:8;border:1px solid #75dcd0;box-shadow:0 8px 22px #07152388;transition:left .7s ease,top .7s ease;pointer-events:none}
+@media(prefers-reduced-motion:reduce){.officePaPresence{transition:none}}
+
+/* User camera interaction: drag rotates, Shift+drag pans, wheel zooms. */
+.officeScene{cursor:grab;touch-action:none}.officeScene.isDragging{cursor:grabbing}.officePlatform{translate:var(--office-pan-x,0px) var(--office-pan-y,0px)}
+.officeScene button{touch-action:manipulation}.officeScene.isDragging .officePlatform{transition:none}
+
+
+/* 2026 immersive office v2: architectural plan, layered furniture and polished chrome. */
+.anumOfficeTour{
+  --oc-panel:rgba(12,24,38,.95);
+  --oc-text:#f0f7fb;
+  --oc-line:rgba(192,222,230,.16);
+  background:#07121e;
+  font-family:Inter,ui-sans-serif,system-ui,sans-serif;
+}
+.anumOfficeTour .officeTop{
+  height:78px;
+  background:linear-gradient(110deg,#091725 0%,#102538 65%,#0a1c2c 100%);
+  border-bottom:1px solid rgba(110,193,190,.25);
+  box-shadow:0 12px 36px rgba(0,0,0,.22);
+  position:relative;
+  z-index:3;
+}
+.anumOfficeTour .officeBrand strong{
+  color:#f6fcff!important;
+  font-size: var(--text-4xl);
+  line-height:1.05;
+  font-weight:760;
+  letter-spacing:.11em;
+}
+.anumOfficeTour .officeBrand strong span{color:#63d9ce;font-weight:520}
+.anumOfficeTour .officeBrand small{color:#a5bbc9!important;letter-spacing:.025em}
+.officeLiveDivider{color:#5ee4d2;padding:0 5px}
+.anumOfficeTour .officeTopCenter{padding:7px 9px;background:rgba(122,178,191,.09);border:1px solid var(--oc-line);border-radius:12px}
+.anumOfficeTour .officeDemo{font-size: var(--text-2xs);color:#b9dfdf;border-color:#51877e;letter-spacing:.09em}
+.anumOfficeTour .officeWorld{
+  height:calc(100% - 106px);
+  background:
+    radial-gradient(ellipse at 52% 44%,rgba(113,169,176,.23),transparent 48%),
+    linear-gradient(140deg,#0b2130 0%,#173445 47%,#112736 100%);
+}
+.anumOfficeTour.day .officeWorld{
+  background:
+    radial-gradient(ellipse at 52% 36%,rgba(225,242,239,.23),transparent 52%),
+    linear-gradient(150deg,#13394b 0%,#456673 52%,#203c4b 100%);
+}
+.anumOfficeTour .officeWorld:before{
+  content:"";position:absolute;inset:0;pointer-events:none;opacity:.28;
+  background-image:linear-gradient(rgba(211,242,245,.06) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(211,242,245,.06) 1px,transparent 1px);
+  background-size:48px 48px;
+  mask-image:radial-gradient(ellipse at center,#000,transparent 74%);
+}
+.anumOfficeTour .officeScene{
+  inset:3% 15% 15%;
+  perspective:1300px;
+  overflow:visible;
+}
+.anumOfficeTour .officePlatform{
+  width:min(1030px,96%);height:650px;max-height:80%;
+  border:18px solid #e8e7dc;
+  border-top-color:#f2f4ed;
+  border-right-color:#ced7d5;
+  border-radius:14px;
+  background:
+    repeating-linear-gradient(90deg,rgba(151,161,159,.095) 0 1px,transparent 1px 94px),
+    linear-gradient(128deg,#eef0e7,#d4ddd5 55%,#e9e9df);
+  box-shadow:
+    0 7px 0 8px #829ca0,
+    0 21px 0 13px #3f5966,
+    0 40px 1px 14px #192b39,
+    0 90px 95px 12px #0008,
+    inset 0 0 0 2px #c3d1ce;
+  transform:rotateX(calc(38deg + var(--office-tilt))) rotateZ(var(--office-angle)) scale(var(--office-zoom));
+}
+.anumOfficeTour.night .officePlatform{
+  background:linear-gradient(125deg,#b2c1bc,#879b9b);
+  border-color:#bfcfc9;
+}
+.anumOfficeTour .officeCentralWalkway{
+  position:absolute;left:34%;top:12%;width:32%;height:76%;
+  border-left:1px solid #abb8af;border-right:1px solid #abb8af;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.31) 0 2px,transparent 2px 42px);
+  opacity:.62;pointer-events:none;
+}
+.anumOfficeTour .officePlanter{
+  position:absolute;left:35%;top:78%;width:32px;height:32px;
+  transform:translateZ(12px);
+  background:radial-gradient(circle at 40% 42%,#75b78f 0 35%,#28715c 36% 68%,#536f5f 69% 100%);
+  border:5px solid #eee9df;border-radius:50%;
+  box-shadow:2px 6px 0 #719083,5px 13px 15px #354d4a77;
+}
+.anumOfficeTour .officePlanterTwo{left:62%;top:13%}
+.anumOfficeTour .officeAtrium{
+  left:36%;top:75%;width:28%;min-height:58px;
+  border-radius:6px;border:1px solid #d4d9cc;
+  background:linear-gradient(130deg,#fcfcf5,#e8f1e9);
+  box-shadow:0 5px 0 #c2cec4,0 15px 24px #52716a42;
+  color:#113b45;z-index:2;letter-spacing:.07em;
+}
+.anumOfficeTour .officeAtrium em{color:#008c85;font-style:normal}
+.anumOfficeTour .officeRoom{
+  border:6px solid #e6efe9!important;
+  border-left:6px solid var(--room-accent)!important;
+  border-bottom-color:#bbd1c9!important;
+  background:linear-gradient(145deg,#f8faf4,#deebe5)!important;
+  box-shadow:0 9px 0 #a9c4bd,6px 19px 0 #5c827c,12px 28px 23px #203c3988!important;
+  border-radius:4px!important;
+  padding:10px!important;
+  isolation:isolate;
+  overflow:visible!important;
+  transform:translateZ(12px);
+}
+.anumOfficeTour .officeRoom:before,.anumOfficeTour .officeRoom:after{
+  content:"";position:absolute;pointer-events:none;
+  background:rgba(111,158,156,.55);z-index:-1;
+}
+.anumOfficeTour .officeRoom:before{left:-9px;top:2px;width:6px;height:calc(100% - 3px);box-shadow:-4px 2px 0 #accac1}
+.anumOfficeTour .officeRoom:after{right:0;bottom:-10px;height:7px;width:100%;background:#789e99}
+.anumOfficeTour .officeRoom:hover{
+  border-color:#fff!important;border-left-color:#69dfcc!important;
+  box-shadow:0 9px 0 #a9c4bd,6px 19px 0 #5c827c,0 0 0 4px #63dcba66,0 24px 30px #122a3188!important;
+}
+.anumOfficeTour .officeRoom.picked{
+  outline:3px solid #10c7aa;outline-offset:2px;
+}
+.anumOfficeTour .officeRoomTitle{
+  position:relative;z-index:5;display:inline-flex;align-items:center;gap:8px;
+  background:#0b2b39;color:#f9fffd;border-radius:4px;
+  box-shadow:0 5px 9px #1c444638;
+  font-weight:730;letter-spacing:.02em;font-size: var(--text-xs);
+  max-width:100%;
+}
+.officeRoomStatusDot{width:6px;height:6px;border-radius:50%;background:#4ddeba;box-shadow:0 0 0 3px #4ddeba33}
+.anumOfficeTour .officeRoomRole{
+  position:relative;z-index:5;
+  display:inline-block;
+  background:rgba(255,255,255,.93);border:1px solid #e2e9e1;
+  color:#41636c;font-size: var(--text-2xs);max-width:100%;line-height:1.25;
+}
+.anumOfficeTour .officeRoomInterior{position:absolute;inset:18% 4% 4%;overflow:hidden;pointer-events:none}
+.officeGlassWall{position:absolute;left:0;top:0;width:100%;height:3px;background:linear-gradient(90deg,#92bbb6,transparent,#92bbb6);box-shadow:0 2px 0 #f8fffa}
+.officeFurnitureFurniture{position:absolute;inset:24% 8% 8%;display:block}
+.officeDeskFurniture{
+  position:absolute;left:10%;top:18%;width:30%;height:27%;
+  border:3px solid #967b60;border-radius:3px;
+  background:linear-gradient(125deg,#d2aa80,#b58a65);
+  box-shadow:4px 6px 0 #806a56,7px 11px 9px #2c504a55;
+}
+.officeDeskFurniture.secondary{left:61%;top:53%;width:28%;height:27%}
+.officeMonitor{
+  position:absolute;width:28%;height:55%;left:25%;top:8%;
+  background:#102d3c;border:2px solid #607a81;border-radius:2px;
+  box-shadow:2px 3px 0 #243e46;
+}
+.officeMonitor:after{content:"";position:absolute;inset:25% 17%;background:#76ccc7;opacity:.75}
+.officeKeyboard{position:absolute;left:21%;bottom:8%;width:43%;height:8%;border-radius:2px;background:#edf0e9}
+.officeChairFurniture{
+  position:absolute;left:21%;top:53%;height:22%;width:16%;
+  border:4px solid #607b80;border-radius:40% 40% 20% 20%;
+  background:#284b59;box-shadow:3px 7px 0 #29404b;
+}
+.officeChairFurniture.secondary{left:73%;top:28%}
+.officeRoomLighting{position:absolute;inset:0;background:radial-gradient(circle at 55% 55%,#edfff066,transparent 65%);pointer-events:none}
+.anumOfficeTour .officePerson{
+  z-index:4;width:17px;height:17px;
+  border:2px solid #ecfaf2;
+  box-shadow:0 2px 0 #395c66,0 8px 10px #203d4255;
+  background:#44847d;font-size: var(--text-sm);
+}
+.anumOfficeTour .officePerson span{display:none}
+.anumOfficeTour .officePerson:after{content:"";display:block;width:6px;height:6px;background:#edf9f2;border-radius:50%;margin:3px auto 0}
+.anumOfficeTour .officePaPresence{
+  background:#103647;border:1px solid #54cdb9;border-radius:12px;
+  box-shadow:0 4px 0 #1d5360,0 12px 20px #20353677;
+  font-weight:650;font-size: var(--text-2xs);letter-spacing:.02em;
+}
+.anumOfficeTour .officeFloorPanel,.anumOfficeTour .officeInfo,.anumOfficeTour .officePa,.anumOfficeTour .officeControls{
+  border:1px solid rgba(159,199,214,.2);
+  background:linear-gradient(145deg,rgba(11,27,43,.96),rgba(15,34,51,.94));
+  color:#f3faff;
+  box-shadow:0 18px 55px #06111d66,inset 0 1px 0 #ffffff14;
+  backdrop-filter:blur(22px);
+}
+.anumOfficeTour .officeFloorPanel{width:242px;left:20px;top:20px;padding:18px}
+.officePanelEyebrow{color:#6fd2c4;letter-spacing:.16em;font-size: var(--text-2xs);font-weight:750;margin-bottom:7px}
+.anumOfficeTour .officeFloorPanel h2,.anumOfficeTour .officeInfo h2{color:#f6fcff;font-size: var(--text-md);font-weight:720}
+.anumOfficeTour .officeInfo{width:270px;right:20px;top:20px}
+.anumOfficeTour .officeModuleButtons{display:grid;gap:6px;margin:8px 0 14px}
+.anumOfficeTour .officeModuleButtons button{
+  display:flex;justify-content:flex-start;text-align:left;width:100%;
+  background:#193349;border-color:#365467;border-radius:9px;
+  font-size: var(--text-xs);padding:10px 11px;color:#e6f9fc;
+}
+.anumOfficeTour .officeModuleButtons button:hover{background:#22515c;border-color:#6de2d3}
+.anumOfficeTour .officeFloorPanel>button{
+  color:#f0f7ff;background:#142f41;border-color:#33556a;
+}
+.anumOfficeTour .officeFloorPanel button.active{background:#11675f;border-color:#67daca}
+.anumOfficeTour .officePa{bottom:76px;left:20px}
+.anumOfficeTour .officeControls{bottom:15px;border-radius:13px}
+.anumOfficeTour .officeFooter{
+  background:#071927;color:#b9d6d6;border-top:1px solid #25485c;
+}
+@media(max-width:1100px){
+  .anumOfficeTour .officeScene{inset:7% 9% 21%}
+  .anumOfficeTour .officePlatform{width:98%;max-height:70%}
+  .anumOfficeTour .officeInfo{right:10px;top:auto;bottom:95px;width:215px}
+  .anumOfficeTour .officeFloorPanel{left:10px;top:10px;width:210px}
+}
+@media(max-width:650px){
+  .anumOfficeTour .officeTop{height:76px}
+  .anumOfficeTour .officeWorld{height:calc(100% - 76px)}
+  .anumOfficeTour .officeScene{inset:10% 0 36%}
+  .anumOfficeTour .officeFloorPanel{width:165px;padding:10px;max-height:45%;overflow:auto}
+  .anumOfficeTour .officeModuleButtons button{font-size: var(--text-2xs);padding:8px}
+  .anumOfficeTour .officePa{bottom:70px}
+  .anumOfficeTour .officeControls{bottom:5px}
+}
+
+/* Real module action: exits the illustrative tour and enters the authenticated workspace. */
+.anumOfficeTour .officeOpenModule{
+  margin-top:6px;width:100%;min-height:42px;justify-content:space-between;
+  background:linear-gradient(120deg,#087e78,#0d555e);
+  color:#effffb;border:1px solid #52c5b7;
+  font-weight:700;letter-spacing:.01em;
+}
+.anumOfficeTour .officeOpenModule:hover,.anumOfficeTour .officeOpenModule:focus-visible{
+  background:#117c74;border-color:#b6f3db;
+}
+
+/* A room directory provides a keyboard-friendly alternative to the 3D scene. */
+.officeViewToggle{width:100%;margin-bottom:10px}
+.listMode .officeWorld{display:grid;grid-template-columns:220px minmax(0,1fr) 260px;align-items:start;gap:16px;padding:16px;overflow:auto}
+.listMode .officeFloorPanel,.listMode .officeInfo,.listMode .officePa{position:static;width:auto}
+.listMode .officePa{grid-column:1/-1}
+.listMode .officeControls{display:none}
+.officeRoomList{min-width:0;padding:20px;background:var(--oc-panel);border:1px solid #476272;border-radius:15px}
+.officeRoomList h2{margin:0 0 5px;font-size:var(--text-xl)}
+.officeRoomList p{margin:0 0 16px;color:#b6cbd0}
+.officeRoomList>div{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.officeRoomList button{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-height:85px;text-align:left;white-space:normal}
+.officeRoomList button[aria-pressed="true"]{background:#087c79;border-color:#49d4cb}
+.officeRoomList button span{font-size:var(--text-xs);color:#c5dce2}
+.officeRoomList button:focus-visible,.officeViewToggle:focus-visible{outline:3px solid #fbd081;outline-offset:2px}
+@media(max-width:1000px){.listMode .officeWorld{grid-template-columns:200px minmax(0,1fr)}.listMode .officeInfo{grid-column:2}}
+@media(max-width:620px){.listMode .officeWorld{grid-template-columns:minmax(0,1fr);gap:10px;padding:10px}.listMode .officeFloorPanel,.listMode .officeRoomList,.listMode .officeInfo,.listMode .officePa{grid-column:1}.listMode .officeInfo{display:flex}.listMode .officePa{display:flex}}

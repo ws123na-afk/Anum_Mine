@@ -1,4 +1,4 @@
-import type { Route } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 
 // A stateful calendar API (docs/calendar.md) for the Calendar page and Home: events this week with
 // attendees and replies, add / edit / cancel / delete, recorded replies and the suggested next steps.
@@ -9,7 +9,16 @@ export interface CalendarMockOptions {
   sync?: 'none' | 'connected' | 'reauth' | 'unconfigured'; failSync?: boolean;
 }
 
-const at = (dayOffset: number, hour: number, minute = 0) => { const d = new Date(); d.setDate(d.getDate() + dayOffset); d.setHours(hour, minute, 0, 0); return d.toISOString(); };
+// The fixture's "today" is the run day, taken once at midday. A spec that shows the calendar pins the page's clock to the same
+// instant (`pinCalendarClock`), so an event at 23:00 is still "today, later" when a CI run crosses midnight (UTC or local) and the
+// agenda's week cannot roll over under it. Nothing sleeps or waits for the clock.
+const RUN_MIDDAY = (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d; })();
+const at = (dayOffset: number, hour: number, minute = 0) => { const d = new Date(RUN_MIDDAY); d.setDate(d.getDate() + dayOffset); d.setHours(hour, minute, 0, 0); return d.toISOString(); };
+
+/** Makes `Date` in the page read the fixture's midday (timers keep running), so the fixture's days match the page's "today". */
+export async function pinCalendarClock(page: Page): Promise<void> {
+  await page.clock.setFixedTime(RUN_MIDDAY);
+}
 
 export function createCalendarMock(options: CalendarMockOptions = {}) {
   const owner = options.role !== 'viewer';
@@ -22,7 +31,7 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
   ];
   const connection = (over: Record<string, unknown> = {}) => ({
     id: 'cal_1', provider: 'google', provider_name: 'Google Calendar', email: 'owner@example.com', display_name: 'Owner', connected_by: 'user_local', status: 'connected', fix: '',
-    last_sync_at: new Date(Date.now() - 5 * 60_000).toISOString(), last_sync_status: 'ok', last_error: null,
+    last_sync_at: new Date(RUN_MIDDAY.getTime() - 5 * 60_000).toISOString(), last_sync_status: 'ok', last_error: null,
     last_summary: { created: 2, updated: 1, deleted: 0, pushed: 1, conflicts_remote_won: 1, conflicts_local_won: 0 }, events_synced: 3, created_at: at(-1, 9), ...over,
   });
   const initial = options.sync === 'connected' ? [connection()]
@@ -60,7 +69,7 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
       const act = /^\/api\/v1\/calendar\/sync\/connections\/([^/]+)(\/sync)?$/.exec(path);
       if (act && act[2] && method === 'POST') {
         state.syncs.push(act[1]);
-        state.connections = state.connections.map((c) => (c.id === act[1] ? { ...c, status: 'connected', fix: '', last_sync_at: new Date().toISOString(), last_sync_status: 'ok', last_error: null } : c));
+        state.connections = state.connections.map((c) => (c.id === act[1] ? { ...c, status: 'connected', fix: '', last_sync_at: RUN_MIDDAY.toISOString(), last_sync_status: 'ok', last_error: null } : c));
         return json({ connection: state.connections[0], summary: { created: 0 } });
       }
       if (act && !act[2] && method === 'DELETE') {

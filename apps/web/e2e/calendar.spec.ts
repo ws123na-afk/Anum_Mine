@@ -1,12 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
-import { createCalendarMock, type CalendarMockOptions } from './support/calendarApi';
+import { createCalendarMock, pinCalendarClock, type CalendarMockOptions } from './support/calendarApi';
 
 // The web Calendar page (docs/calendar.md#web-page) against a stateful calendar API: the week
 // agenda and an event's detail, New event, edit, cancel, delete, recorded replies, the next steps,
 // and the refused, failed and empty states.
 async function openCalendar(page: Page, options: CalendarMockOptions = {}) {
   await mockWorkspaceApi(page);
+  await pinCalendarClock(page);
   const calendar = createCalendarMock(options);
   // Registered after the workspace mock, so this calendar answers first.
   await page.route('http://localhost:8000/api/v1/calendar/**', async (route) => { if (!(await calendar.handle(route))) await route.fallback(); });

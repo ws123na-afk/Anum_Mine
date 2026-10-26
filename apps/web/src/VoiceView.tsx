@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { ArrowUp, Check, Cpu, Globe2, Keyboard, Maximize2, MessageSquareText, Mic, Radio, Settings2, ShieldAlert, Square, Volume2, VolumeX, X } from 'lucide-react';
+import { ArrowUp, Check, RotateCcw, Cpu, Globe2, Keyboard, Maximize2, MessageSquareText, Mic, Radio, Settings2, ShieldAlert, Square, Volume2, VolumeX, X } from 'lucide-react';
 import {
   appendTranscript,
   baseRecognitionMode,
@@ -42,6 +42,7 @@ import { CopyAction } from './MessageActions';
 import { useDeveloperAssist } from './DeveloperAssist';
 import { getLocale, t, translate, type MessageKey } from './lib/i18n';
 import { automatedBrowser } from './lib/recognitionMode';
+import { HARD_TIMEOUT_MS, thinkingView, type ProgressMarker } from './lib/voiceProgress';
 import { clientTiming, formatServerTiming, formatTurnTiming, switchSpeechLanguage, type ClientTurnTiming, type TurnMarks } from './lib/voiceTiming';
 
 type ConsoleState = 'idle' | 'listening' | 'thinking' | 'speaking';
@@ -97,6 +98,13 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
   const [voice, setVoice] = useState<ReplyVoice>(() => stored('anum.voice.reply', 'auto'));
   const [muted, setMuted] = useState(false);
   const [notice, setNotice] = useState('');
+  // While a reply has not started (docs/voice.md#progress): what the server is checking, how long
+  // the wait has lasted, and the question to ask again after a cancel, a timeout or an error.
+  const [progress, setProgress] = useState<ProgressMarker | null>(null);
+  const [waitedMs, setWaitedMs] = useState(0);
+  const [retryText, setRetryText] = useState('');
+  const waitStart = useRef(0);
+  const gotText = useRef(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   // The page is the space scene (docs/voice.md#the-space-orb): the orb is drawn under the talk
   // button and the sprites stay above the text panel.
@@ -304,14 +312,54 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
     wake.current?.resume();
   }, []);
 
+  // The wait before the first word: a clock for the progress line, and a hard stop (30 s) so the
+  // page never looks stuck. Once text arrives (or the state moves on) the clock is off.
+  useEffect(() => {
+    if (state !== 'thinking') { setProgress(null); setWaitedMs(0); return; }
+    const timer = window.setInterval(() => {
+      const waited = performance.now() - waitStart.current;
+      setWaitedMs(waited);
+      if (waited >= HARD_TIMEOUT_MS && !gotText.current) {
+        window.clearInterval(timer);
+        abandonWait(t('voice.progress.timedOut'));
+      }
+    }, 500);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  const lastQuestion = useRef('');
+  /** Stop waiting for the reply (Cancel, or the hard limit): the request is aborted, the question kept for Try again. */
+  function abandonWait(message: string) {
+    replyAbort.current?.abort();
+    stopSpeaking();
+    setTurns((current) => current.filter((turn) => turn.speaker !== 'assistant' || turn.text));
+    setState('idle');
+    setNotice(message);
+    setRetryText(lastQuestion.current);
+    wake.current?.resume();
+  }
+  function retryAsk() {
+    const again = retryText;
+    setRetryText('');
+    setNotice('');
+    if (again) void ask(again);
+  }
+
   async function ask(spoken?: string) {
     const text = (spoken ?? draft).trim();
     if (!text) { setState('idle'); return; }
+    lastQuestion.current = text;
     const marks: TurnMarks = { sent: performance.now(), lastWords: spoken !== undefined ? lastWordsAt.current : undefined };
     lastWordsAt.current = undefined;
     wake.current?.pause();
     setState('thinking');
     setNotice('');
+    setRetryText('');
+    setProgress(null);
+    setWaitedMs(0);
+    waitStart.current = performance.now();
+    gotText.current = false;
     setTurns((current) => [...current, { id: `you-${Date.now()}`, speaker: 'you', text }]);
     setDraft('');
     const local = await developer.intercept(text);
@@ -368,8 +416,10 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
       setTurns((current) => [...current, { id: pendingId, speaker: 'assistant', text: '' }]);
       const result = await streamVoiceAssistant(active.id, segment.id, abort.signal, {
         onMeta: (meta) => setPendingApprovals(meta.workspace.pending_approvals),
+        onProgress: setProgress,
         onText: (piece) => {
           if (marks.firstText === undefined) marks.firstText = performance.now();
+          gotText.current = true;
           buffered += piece;
           setTurns((current) => current.map((turn) => turn.id === pendingId ? { ...turn, text: turn.text + piece } : turn));
           hear(false);
@@ -390,6 +440,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
       if (abort.signal.aborted) return;
       setState('idle');
       wake.current?.resume();
+      setRetryText(text);
       setNotice(isBudgetExceeded(error) ? t('common.budgetReached', { message: budgetMessage(error) }) : error instanceof Error ? error.message : t('voice.noAnswer'));
     } finally {
       if (replyAbort.current === abort) replyAbort.current = null;
@@ -585,7 +636,9 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
   const focusCaption = state === 'listening' ? draft : state === 'speaking' || state === 'thinking' ? lastAnswer : '';
 
   const stageActions = <div className="voiceStageActions">
-    {needsTap && !micBlocked && <button type="button" className="voiceAllowMic" onClick={() => { setArmed(true); setAway(false); setNotice(''); }}><Radio size={16} aria-hidden="true" />{t('voice.startListening', { name })}</button>}
+    {retryText && state === 'idle' && <button type="button" className="voiceAllowMic" onClick={retryAsk}><RotateCcw size={16} aria-hidden="true" />{t('voice.progress.retry')}</button>}
+    {away && !micBlocked && state === 'idle' && <button type="button" className="voiceAllowMic voiceResume" onClick={resumeListening}><Radio size={16} aria-hidden="true" />{t('voice.resume')}</button>}
+    {needsTap && !away && !micBlocked && <button type="button" className="voiceAllowMic" onClick={() => { setArmed(true); setAway(false); setNotice(''); }}><Radio size={16} aria-hidden="true" />{t('voice.startListening', { name })}</button>}
     {micBlocked && <button type="button" className="voiceAllowMic" onClick={() => { setMicBlocked(false); setNotice(''); setArmed(true); setWakeOn(false); window.setTimeout(() => setWakeOn(true), 0); }}>{t('voice.allowMic')}</button>}
     {pendingApprovals > 0 && <button type="button" className="voiceScope" onClick={onOpenApprovals}>
       {t('voice.approvalsWaiting', { count: pendingApprovals })}
@@ -602,6 +655,29 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
     setChatOn(next);
     store('anum.voice.chat', next ? 'on' : 'off');
   }
+
+  // One tap after coming back: it never starts the microphone by itself (docs/voice.md#leaving-the-tab).
+  function resumeListening() {
+    setAway(false);
+    setNotice('');
+    if (wakeOn) setArmed(true);
+    else void startListening();
+  }
+  const waiting = state === 'thinking' && !gotText.current ? thinkingView(waitedMs, progress) : null;
+  const waitLabel = waiting ? t(waiting.key) : '';
+  const thinkingPanel = waiting && <div className="voiceThinking" data-slow={waiting.slow || undefined}>
+    <p className="voiceThinkingLine" dir="auto">
+      <span className="voiceThinkingDot" aria-hidden="true" />
+      <span aria-hidden="true">{waiting.seconds === null ? waitLabel : t('voice.progress.elapsed', { label: waitLabel, seconds: String(waiting.seconds) })}</span>
+    </p>
+    {/* Announced when the step changes or the wait turns slow, not every second. */}
+    <p className="visuallyHidden" role="status" aria-live="polite">{waitLabel}{waiting.slow ? ` ${t('voice.progress.slow')}` : ''}</p>
+    {waiting.slow && <p className="voiceThinkingSlow" dir="auto">{t('voice.progress.slow')}</p>}
+    <div className="voiceThinkingActions">
+      <button type="button" className="secondary" onClick={() => abandonWait(t('voice.progress.cancelled'))}><X size={16} aria-hidden="true" />{t('voice.progress.cancel')}</button>
+      {waiting.slow && <button type="button" onClick={() => { const again = lastQuestion.current; abandonWait(''); void ask(again); }}><RotateCcw size={16} aria-hidden="true" />{t('voice.progress.retry')}</button>}
+    </div>
+  </div>;
 
   const blobs = <><span className="voiceOrbBlob b1" /><span className="voiceOrbBlob b2" /><span className="voiceOrbBlob b3" /></>;
 
@@ -684,6 +760,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
     </div>}
 
     <div className="voiceSpaceBottom" ref={panelRef}>
+    {thinkingPanel}
     {!chatOn && <div className="voiceSpaceBrief">
       <p className="voiceBriefLine" role="status" aria-live="polite" dir="auto">
         <span className="voiceBriefState">{stateText[state]}</span>{briefText && <span className="voiceBriefText">{briefText}</span>}

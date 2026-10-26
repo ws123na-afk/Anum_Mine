@@ -17,6 +17,10 @@ ANUM authorization should combine application-level policy with PostgreSQL row-l
 
 Within one tenant, `anum_membership_reader` lists one user's own active memberships across the tenant's workspaces for `GET /api/v1/me/workspace-memberships`: a few columns, only rows of `anum.tenant_id` and `anum.user_id`, no writes, granted to the API login `WITH INHERIT FALSE` so its policies never widen the application role's own queries ([Multi-tenancy](multi-tenancy.md#membership-directory-role)).
 
+### Virtual headquarters boundary
+
+The current `#office-preview` is an illustrative browser view. `apps/web/src/main.tsx` renders it only inside `SignedInApp`, after `AuthGate` accepts a signed-in or local session. `apps/web/src/OfficeTourView.tsx` uses static room and example role data and labels the view as a demo with no real task execution. `apps/web/e2e/oidc-sign-in.spec.ts` checks that a signed-out visitor cannot reach the view and that entering it does not fetch workspace data. This browser gate is defense in depth; future office layout, presence and meeting APIs must independently resolve membership and enforce workspace RLS on every read and write. The browser's selected building, floor, room, or workspace header is never authorization evidence.
+
 ## Secrets
 
 Secrets must be stored outside source control. Provider keys, integration tokens, signing keys, and storage credentials should be delivered through environment-specific secret stores. Local development may use `.env` files, but sample files must contain placeholders only.

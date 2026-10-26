@@ -228,7 +228,10 @@ def test_a_paper_order_runs_only_after_the_person_approves_the_code_shown() -> N
     # Audits carry no amount, price, quantity or symbol.
     records = _audits("finance.exec.") + _audits("finance.paper.") + _audits("finance.price.")
     assert records and all(not ({"amount", "price", "quantity", "symbol", "notional"} & set(r.metadata)) for r in records)
-    assert all("EXMPL" not in str(r.metadata) and "1000" not in str(r.metadata) for r in records)
+    # The opaque portfolio ID may randomly contain the digits "1000". Check
+    # the remaining audit fields, where a cash amount would be a disclosure.
+    assert all("EXMPL" not in str(r.metadata) for r in records)
+    assert all("1000" not in str({k: v for k, v in r.metadata.items() if k != "portfolio_id"}) for r in records)
 
 
 def test_rules_block_simulated_orders_and_the_person_sees_why() -> None:

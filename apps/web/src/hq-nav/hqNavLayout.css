@@ -1,0 +1,45 @@
+/* Headquarters navigation layer: floor rail, quick-view strip, side panel, drawers. Tokens from styles.css only. */
+.hqNav { display: flex; flex-direction: column; gap: var(--d-s2); min-width: 0; }
+.hqNavGrid { align-items: start; display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.hqNav[data-rail="full"] .hqNavGrid { grid-template-columns: 200px minmax(0, 1fr); }
+.hqNav[data-rail="slim"] .hqNavGrid { grid-template-columns: 64px minmax(0, 1fr); }
+.hqNav[data-side="open"] .hqNavGrid { grid-template-columns: minmax(0, 1fr) 320px; }
+.hqNav[data-rail="full"][data-side="open"] .hqNavGrid { grid-template-columns: 200px minmax(0, 1fr) 320px; }
+.hqNav[data-rail="slim"][data-side="open"] .hqNavGrid { grid-template-columns: 64px minmax(0, 1fr) 320px; }
+.hqNav[data-nav="off"] .hqNavGrid:has(.hqNavSide) { grid-template-columns: minmax(0, 1fr) minmax(0, 380px); }
+@media (max-width: 1100px) { .hqNav[data-nav="off"] .hqNavGrid:has(.hqNavSide) { grid-template-columns: minmax(0, 1fr); } }
+.hqNav[data-toolbar="on"] { --hqnav-tools: 44px; }
+.hqNavToolbar { justify-content: flex-end; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+
+/* The stage gives some height to the strip. */
+.hqNav[data-nav="on"] .hqStage { block-size: clamp(380px, calc(100dvh - 210px - var(--hqnav-strip, 0px) - var(--hqnav-tools, 0px)), 820px); }
+.hqNav[data-nav="on"] .hqBuilding .hqStage { block-size: clamp(360px, calc(100dvh - 360px - var(--hqnav-strip, 0px) - var(--hqnav-tools, 0px)), 780px); }
+.hqNav[data-nav="on"] .hqBuilding[data-overview="true"] .hqStage { block-size: clamp(440px, calc(100dvh - 280px - var(--hqnav-tools, 0px)), 900px); }
+.hqNav[data-strip="open"] { --hqnav-strip: 112px; }
+.hqNav[data-strip="closed"] { --hqnav-strip: 40px; }
+
+/* Campus label cards: tags and densities. */
+.hqCardTags { color: var(--hq-glass-muted); display: flex; flex-wrap: nowrap; font-size: var(--text-2xs); gap: 4px; overflow: hidden; }
+.hqCardTags span { background: rgba(255, 255, 255, .1); border-radius: 999px; max-width: 16ch; overflow: hidden; padding: 0 6px; text-overflow: ellipsis; white-space: nowrap; }
+.hqStripSlot:empty { display: none; }
+.hqPlanDesk { opacity: .7; pointer-events: none; }
+.hqBuildingCard[data-density="compact"] { min-height: 36px; }
+.hqBuildingCard[data-density="compact"] .hqLabelIcon { height: 24px; width: 24px; }
+.hqBuildingCard[data-density="compact"] .hqLabelText small { display: none; }
+.hqBuildingCard[data-density="dot"] { min-height: 0; padding: 4px; }
+.hqBuildingCard[data-density="dot"] .hqLabelIcon { height: 24px; width: 24px; }
+.hqBuildingCard[data-density="dot"] .hqStatusDot { display: none; }
+.hqBuildingCard[data-density="dot"]:is(:hover, :focus-visible, [data-selected="true"]) { z-index: 2; }
+
+@media (prefers-reduced-motion: reduce) { .hqNav * { transition: none !important; } }
+
+/* With the rail beside the scene the floor arrows and menu are a second way to the same floors: they stay for the keyboard
+   and screen readers (and show whole while focused) but give the row back to the scene. "All floors" stays visible. */
+.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl > button,
+.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl .compactSelect { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; width: 1px; }
+.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl:has(> button:focus-visible, .compactSelect :focus-visible) > button,
+.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl:has(> button:focus-visible, .compactSelect :focus-visible) .compactSelect { clip-path: none; height: auto; overflow: visible; position: static; width: auto; }
+/* Short screens: the campus map duplicates the quick views, so it gives the scene its corner back. */
+@media (max-height: 820px) { .hqNav[data-nav="on"] .hqOverlayBottomRight { display: none; } }
+
+.hqNavDockBelow .hqPaDock { max-width: none; min-width: 0; }
