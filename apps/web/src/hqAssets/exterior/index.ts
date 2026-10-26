@@ -9,12 +9,13 @@
 import { buildAdminBlock } from './adminBlock.ts';
 import { buildExecutiveHq } from './executiveHq.ts';
 import { buildOfficeTower } from './officeTower.ts';
+import { buildPersonalVilla } from './personalVilla.ts';
 import { buildRetailBlock } from './retailBlock.ts';
 import { buildTyreWorkshop } from './tyreWorkshop.ts';
 import { buildWarehouse } from './warehouse.ts';
 import type { ExteriorAsset, ExteriorBuilder, ExteriorKind, ExteriorParams } from './types.ts';
 
-export { buildAdminBlock, buildExecutiveHq, buildOfficeTower, buildRetailBlock, buildTyreWorkshop, buildWarehouse };
+export { buildAdminBlock, buildExecutiveHq, buildOfficeTower, buildPersonalVilla, buildRetailBlock, buildTyreWorkshop, buildWarehouse };
 export { EXTERIOR_KINDS } from './types.ts';
 export type { ExteriorAsset, ExteriorBuilder, ExteriorKind, ExteriorParams, ExteriorSchemeName, SceneMeshData, SignAnchor } from './types.ts';
 
@@ -25,11 +26,12 @@ export const EXTERIOR_BUILDERS: Readonly<Record<ExteriorKind, ExteriorBuilder>> 
   adminBlock: buildAdminBlock,
   retailBlock: buildRetailBlock,
   executiveHq: buildExecutiveHq,
+  personalVilla: buildPersonalVilla,
 };
 
 /** Triangle caps per kind at default size and full detail (measured, with headroom; tests enforce them). */
 export const TRIANGLE_CAPS: Readonly<Record<ExteriorKind, number>> = {
-  warehouse: 1700, tyreWorkshop: 1500, officeTower: 3000, adminBlock: 1700, retailBlock: 1300, executiveHq: 3900,
+  warehouse: 1700, tyreWorkshop: 1500, officeTower: 3800, adminBlock: 2600, retailBlock: 1300, executiveHq: 5600, personalVilla: 2400,
 };
 
 /**
@@ -41,7 +43,7 @@ export const TRIANGLE_CAPS: Readonly<Record<ExteriorKind, number>> = {
  * - signs, canopy undersides, door glass and lamps use plain emissive weights below 2 (they glow at all times, more at night).
  */
 export const WINDOW_RULES: Readonly<Record<ExteriorKind, number>> = {
-  warehouse: 0.3, tyreWorkshop: 0.6, officeTower: 0.55, adminBlock: 0.5, retailBlock: 0.62, executiveHq: 0.58,
+  warehouse: 0.3, tyreWorkshop: 0.6, officeTower: 0.55, adminBlock: 0.5, retailBlock: 0.62, executiveHq: 0.58, personalVilla: 0.5,
 };
 
 export function buildExterior(kind: ExteriorKind, params: ExteriorParams = {}): ExteriorAsset {

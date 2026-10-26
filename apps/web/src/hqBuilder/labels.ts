@@ -4,8 +4,8 @@ import type {
   OfficeDoorSide, OfficeEquipmentKind, OfficeRoomColor, OfficeRoomKind, OfficeTeamDepartment,
 } from '@anum/contracts';
 
-export const ROOM_KINDS: readonly OfficeRoomKind[] = ['office', 'meeting', 'reception', 'workshop', 'warehouse', 'lounge'];
-export const DESK_KINDS: readonly OfficeRoomKind[] = ['office', 'workshop', 'warehouse'];
+export const ROOM_KINDS: readonly OfficeRoomKind[] = ['office', 'meeting', 'reception', 'workshop', 'warehouse', 'lounge', 'command'];
+export const DESK_KINDS: readonly OfficeRoomKind[] = ['office', 'workshop', 'warehouse', 'command'];
 export const ROOM_COLORS: readonly OfficeRoomColor[] = ['slate', 'forest', 'brass', 'sapphire', 'amethyst', 'crimson', 'teal', 'sand'];
 export const DOOR_SIDES: readonly OfficeDoorSide[] = ['north', 'south', 'east', 'west'];
 export const DEPARTMENTS: readonly OfficeTeamDepartment[] = [

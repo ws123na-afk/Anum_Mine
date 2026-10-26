@@ -5,7 +5,7 @@
  * revisions. Transport/persistence belongs to a permissioned, workspace-scoped API:
  * the web preview never pretends an in-memory change is persisted.
  */
-export type SpaceKind='office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge';
+export type SpaceKind='office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge'|'command';
 export interface Building {id:string;name:string;timezone:string;latitude:number;longitude:number}
 export interface Floor {id:string;buildingId:string;level:number;name:string}
 export interface Room {id:string;floorId:string;name:string;kind:SpaceKind;capacity:number}
@@ -65,7 +65,7 @@ export function applySpaceCommand(state:SpaceRegistry,command:SpaceCommand):Spac
   const d={...command.desk,id:ident(command.desk.id),label:name(command.desk.label,'Desk label')};
   const r=state.rooms.find(x=>x.id===d.roomId);
   if(!r)throw new SpaceError('not_found','Room not found');
-  if(!['office','workshop','warehouse'].includes(r.kind))throw new SpaceError('restricted','This room type cannot contain permanent workstations');
+  if(!['office','workshop','warehouse','command'].includes(r.kind))throw new SpaceError('restricted','This room type cannot contain permanent workstations');
   if(d.agentId!==null)throw new SpaceError('invalid','New desks must begin vacant; assign separately');
   const count=state.desks.filter(x=>x.roomId===d.roomId).length;
   if(count>=r.capacity)throw new SpaceError('restricted','Room capacity reached');

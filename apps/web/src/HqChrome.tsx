@@ -3,8 +3,9 @@
  * bottom toolbar, totals panel with donut, and the minimap. The app's own sidebar and top bar stay
  * the only navigation; this file adds only what is specific to the scene.
  */
-import { Box, DoorOpen, ChevronLeft, ChevronRight, Crosshair, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Maximize } from 'lucide-react';
-import { useId, useRef, useState, type ReactElement } from 'react';
+import { Box, DoorOpen, ChevronLeft, ChevronRight, Crosshair, LayoutGrid, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Sunset, Maximize } from 'lucide-react';
+import { useId, useRef, useState, useSyncExternalStore, type ReactElement } from 'react';
+import { readNightPreset, subscribeNightPreset, writeNightPreset } from './lib/hqLightPreset.ts';
 import { arcPath, donutArcs, STATUS_ORDER, STATUS_TONE, type CampusTotals, type Placement, type StatusKey } from './lib/campusModel.ts';
 import { mapToWorld, worldToMap } from './lib/hqCamera.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
@@ -46,6 +47,7 @@ export function CameraTools(props: {
   yaw: number; night: boolean; onNight: (night: boolean) => void;
   onZoomIn: () => void; onZoomOut: () => void; onReset: () => void; onNorth: () => void;
 }) {
+  const preset = useSyncExternalStore(subscribeNightPreset, readNightPreset, () => 'night' as const);
   return (
     <div className="hqTools" role="group" aria-label={t('hq.cam.label')}>
       <button type="button" className="hqCompass" onClick={props.onNorth} aria-label={t('hq.cam.north')} title={t('hq.cam.north')}>
@@ -61,29 +63,38 @@ export function CameraTools(props: {
       <button type="button" onClick={props.onReset} data-draws="" aria-label={t('hq.cam.reset')} title={t('hq.cam.reset')}><Crosshair aria-hidden="true" /></button>
       <div className="hqToolsSplit" role="group" aria-label={t('hq.cam.light')}>
         <button type="button" aria-pressed={!props.night} onClick={() => props.onNight(false)} aria-label={t('hq.cam.day')} title={t('hq.cam.day')}><Sun aria-hidden="true" /></button>
-        <button type="button" aria-pressed={props.night} onClick={() => props.onNight(true)} aria-label={t('hq.cam.night')} title={t('hq.cam.night')}><Moon aria-hidden="true" /></button>
+        <button type="button" aria-pressed={props.night && preset === 'dusk'} onClick={() => { writeNightPreset('dusk'); props.onNight(true); }} aria-label={t('hq.cam.dusk')} title={t('hq.cam.dusk')}><Sunset aria-hidden="true" /></button>
+        <button type="button" aria-pressed={props.night && preset === 'night'} onClick={() => { writeNightPreset('night'); props.onNight(true); }} aria-label={t('hq.cam.night')} title={t('hq.cam.night')}><Moon aria-hidden="true" /></button>
       </div>
     </div>
   );
 }
 
 export function BottomToolbar(props: {
-  onRotateLeft: () => void; onRotateRight: () => void; onPrev?: () => void; onNext?: () => void;
+  onRotateLeft: () => void; onRotateRight: () => void; onPrev?: () => void; onNext?: () => void; prevDisabled?: boolean; nextDisabled?: boolean;
   prevLabel?: string; nextLabel?: string; fullscreen: boolean; onFullscreen: () => void;
   onZoomIn: () => void; onZoomOut: () => void;
   /** The Inside view of the selected room: absent on screens that have no rooms. */
   inside?: { active: boolean; disabled: boolean; onToggle: () => void };
+  /** The whole active floor from above, every room labelled (spec: docs/ANUM_MINE_FLOOR_OVERVIEW.md). */
+  overview?: { active: boolean; onToggle: () => void };
 }) {
   return (
     <div className="hqToolbar" role="toolbar" aria-label={t('hq.tool.label')}>
       <button type="button" onClick={props.onRotateLeft} data-draws="" aria-label={t('hq.tool.rotateLeft')} title={t('hq.tool.rotateLeft')}><RotateCcw aria-hidden="true" /><span>{t('hq.tool.rotateLeft')}</span></button>
-      {props.onPrev && <button type="button" onClick={props.onPrev} aria-label={props.prevLabel ?? t('hq.tool.prev')} title={props.prevLabel ?? t('hq.tool.prev')}><ChevronLeft aria-hidden="true" className="flip" /></button>}
-      {props.onNext && <button type="button" onClick={props.onNext} aria-label={props.nextLabel ?? t('hq.tool.next')} title={props.nextLabel ?? t('hq.tool.next')}><ChevronRight aria-hidden="true" className="flip" /></button>}
+      {props.onPrev && <button type="button" disabled={props.prevDisabled} onClick={props.onPrev} aria-label={props.prevLabel ?? t('hq.tool.prev')} title={props.prevLabel ?? t('hq.tool.prev')}><ChevronLeft aria-hidden="true" className="flip" /></button>}
+      {props.onNext && <button type="button" disabled={props.nextDisabled} onClick={props.onNext} aria-label={props.nextLabel ?? t('hq.tool.next')} title={props.nextLabel ?? t('hq.tool.next')}><ChevronRight aria-hidden="true" className="flip" /></button>}
       <button type="button" onClick={props.onRotateRight} data-draws="" aria-label={t('hq.tool.rotateRight')} title={t('hq.tool.rotateRight')}><RotateCw aria-hidden="true" /><span>{t('hq.tool.rotateRight')}</span></button>
       {props.inside && (
         <button type="button" onClick={props.inside.onToggle} disabled={props.inside.disabled && !props.inside.active} aria-pressed={props.inside.active} data-testid="hq-inside" data-draws=""
           aria-label={props.inside.active ? t('hq.inside.leave') : t('hq.inside.enter')} title={props.inside.disabled && !props.inside.active ? t('hq.inside.pickRoom') : props.inside.active ? t('hq.inside.leave') : t('hq.inside.enter')}>
           <DoorOpen aria-hidden="true" /><span>{props.inside.active ? t('hq.inside.leaveShort') : t('hq.inside.enterShort')}</span>
+        </button>
+      )}
+      {props.overview && (
+        <button type="button" onClick={props.overview.onToggle} aria-pressed={props.overview.active} data-testid="hq-overview" data-draws=""
+          aria-label={props.overview.active ? t('hqFloor.leave') : t('hqFloor.enter')} title={props.overview.active ? t('hqFloor.leave') : t('hqFloor.enter')}>
+          <LayoutGrid aria-hidden="true" /><span>{t('hqFloor.short')}</span>
         </button>
       )}
       <span className="hqToolbarSep" aria-hidden="true" />

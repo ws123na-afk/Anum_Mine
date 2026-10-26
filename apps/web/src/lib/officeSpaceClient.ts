@@ -8,7 +8,7 @@ export interface OfficeRecord {id:string;revision:number;tenant_id:string;worksp
 export interface OfficeBuilding extends OfficeRecord {name:string;timezone:string;latitude:number|null;longitude:number|null}
 /** `width_m` and `depth_m` are the floor bounds in metres; null on floors made before the builder (unbounded). */
 export interface OfficeFloor extends OfficeRecord {building_id:string;level:number;name:string;width_m?:number|null;depth_m?:number|null}
-export interface OfficeRoom extends OfficeRecord {floor_id:string;name:string;kind:'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge';capacity:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;
+export interface OfficeRoom extends OfficeRecord {floor_id:string;name:string;kind:'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge'|'command';capacity:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;
  rotation?:OfficeRotation;door_side?:OfficeDoorSide;description?:string;notes?:string;color?:OfficeRoomColor|null;name_ar?:string|null;
  equipment?:OfficeEquipmentItem[];team_department?:OfficeTeamDepartment|null}
 /** `pos_x` and `pos_z` are metres from the room's north west corner; null while the desk is not placed. */

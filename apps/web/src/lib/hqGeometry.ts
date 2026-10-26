@@ -20,6 +20,12 @@ export const VERTEX_FLOATS = 13;
  */
 export const MAT = {
   flat: 0, concrete: 1, tile: 2, asphalt: 3, grass: 4, wood: 5, metal: 6, water: 7, glass: 8, roller: 9, sign: 10, court: 11, paint: 12,
+  /** Leaves and fronds: they sway in the wind (scenery only). */
+  foliage: 13,
+  /** Flags and pennants: they ripple in the wind (scenery only). The u texture coordinate is the distance from the pole, 0..1. */
+  cloth: 14,
+  /** Aviation lights on rooftops: they blink (scenery only). */
+  beacon: 15,
 } as const;
 export type MatId = (typeof MAT)[keyof typeof MAT];
 
@@ -219,6 +225,24 @@ export class MeshBuilder {
   ): void {
     this.triV(a, b, c, ca, cb, cc, emissive);
     this.triV(a, c, d, ca, cc, cd, emissive);
+  }
+
+  /**
+   * A window pane with a colour per corner and local texture coordinates (0..1 across the pane), which the glass shader reads to draw a
+   * lit room behind the glass (ceiling light, floor, desks). Panes without them keep the plain glass look.
+   */
+  quadPane(
+    a: readonly number[], b: readonly number[], c: readonly number[], d: readonly number[],
+    ca: Rgb, cb: Rgb, cc: Rgb, cd: Rgb, emissive = 0,
+  ): void {
+    const n0 = this.data.length;
+    this.triV(a, b, c, ca, cb, cc, emissive);
+    this.triV(a, c, d, ca, cc, cd, emissive);
+    const uv: Array<[number, number]> = [[0, 0], [1, 0], [1, 1], [0, 0], [1, 1], [0, 1]];
+    for (let k = 0; k < uv.length && n0 + (k + 1) * VERTEX_FLOATS <= this.data.length; k++) {
+      this.data[n0 + k * VERTEX_FLOATS + 11] = uv[k][0] + 0.001;
+      this.data[n0 + k * VERTEX_FLOATS + 12] = uv[k][1] + 0.001;
+    }
   }
 
   /** Counter-clockwise quad seen from the side the normal points to. */

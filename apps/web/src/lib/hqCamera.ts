@@ -2,7 +2,7 @@
  * Camera presets and controls for the campus and building views, on top of the pure camera maths in
  * `headquartersSpatial.ts`. Everything returns a new CameraState; nothing touches the DOM.
  */
-import { assertCamera, dolly, orbit, pan, type CameraState } from './headquartersSpatial.ts';
+import { assertCamera, cameraBasis, dolly, dot, orbit, pan, vsub, type CameraState } from './headquartersSpatial.ts';
 import type { Vec3 } from './headquartersProjection.ts';
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -25,6 +25,42 @@ export function campusCamera(radius: number, centerZ = 0, aspect = 1.7): CameraS
 export function buildingCamera(target: Vec3, distance: number, aspect = 1.7): CameraState {
   const d = clamp(distance * aspectFit(aspect), 14, 300);
   return { target, distance: d, yaw: HOME_YAW, pitch: 44, fov: 40, minDistance: 6, maxDistance: 320 };
+}
+
+export type Footprint = Readonly<{ x0: number; x1: number; z0: number; z1: number; y0: number; y1: number }>;
+
+/**
+ * The camera distance at which every corner of a box stays inside the picture for this angle and stage shape: a pinhole fit
+ * (vertical field of view, `aspect` = width / height), so the turn of the isometric view, the height of the cutaway walls and a
+ * narrow stage are all counted. A flat factor on the longest side cannot do that (it cropped the 38 m floors of the starter campus).
+ */
+export function fitDistance(target: Vec3, box: Footprint, angle: { yaw: number; pitch: number; fov: number }, aspect: number, margin = 1.12): number {
+  const probe: CameraState = { target, distance: 10, yaw: angle.yaw, pitch: angle.pitch, fov: angle.fov, minDistance: 1, maxDistance: 1000 };
+  const { right, up, forward } = cameraBasis(probe);
+  const tv = Math.tan((angle.fov * Math.PI) / 360);
+  const th = tv * (Number.isFinite(aspect) && aspect > 0.2 ? aspect : 1.5);
+  let need = 0;
+  for (const x of [box.x0, box.x1]) for (const z of [box.z0, box.z1]) for (const y of [box.y0, box.y1]) {
+    const rel = vsub({ x, y, z }, target);
+    const sx = Math.abs(dot(rel, right)), sy = Math.abs(dot(rel, up)), depth = dot(rel, forward);
+    need = Math.max(need, sx / th - depth, sy / tv - depth);
+  }
+  return need * margin;
+}
+
+/** The home camera of a building: the whole footprint at the active floor, walls included, inside the stage at any size. */
+export function buildingFitCamera(box: Footprint, aspect: number, pitch = 44): CameraState {
+  const target = { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2, z: (box.z0 + box.z1) / 2 };
+  const distance = clamp(fitDistance(target, box, { yaw: HOME_YAW, pitch, fov: 40 }, aspect), 14, 300);
+  return { target, distance, yaw: HOME_YAW, pitch, fov: 40, minDistance: 6, maxDistance: 320 };
+}
+
+/** Floor overview: the whole active floor seen from high above at a slight turn, so every room is on screen and readable. */
+export function floorOverviewCamera(box: Footprint, aspect: number): CameraState {
+  const target = { x: (box.x0 + box.x1) / 2, y: box.y0, z: (box.z0 + box.z1) / 2 };
+  const angle = { yaw: 0, pitch: 62, fov: 40 };
+  const distance = clamp(fitDistance(target, { ...box, y1: box.y0 + 0.4 }, angle, aspect, 1.1), 14, 300);
+  return { target, distance, ...angle, minDistance: 6, maxDistance: 320 };
 }
 
 /** The same framing from straight above (the "Top" switch), north up like the minimap. */

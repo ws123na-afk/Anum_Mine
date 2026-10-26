@@ -1,0 +1,560 @@
+[
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": -1,
+  "room": "facilities",
+  "name": "Facilities Office",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": -1,
+  "room": "security-operations",
+  "name": "Security Operations",
+  "kind": "office",
+  "department": "security"
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": -1,
+  "room": "parking-logistics",
+  "name": "Parking and Logistics",
+  "kind": "warehouse",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 1,
+  "room": "reception",
+  "name": "Reception",
+  "kind": "reception",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 1,
+  "room": "meeting-a",
+  "name": "Meeting Room A",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 1,
+  "room": "meeting-b",
+  "name": "Meeting Room B",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 1,
+  "room": "meeting-c",
+  "name": "Meeting Room C",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 2,
+  "room": "command-center",
+  "name": "Command Center",
+  "kind": "command",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 2,
+  "room": "ai-organization",
+  "name": "AI Organization",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 2,
+  "room": "operations-office",
+  "name": "Operations Office",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 2,
+  "room": "assets",
+  "name": "Assets",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 2,
+  "room": "suppliers",
+  "name": "Suppliers",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 3,
+  "room": "executive-office",
+  "name": "Executive Office",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 3,
+  "room": "boardroom",
+  "name": "Boardroom",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 3,
+  "room": "strategy-room",
+  "name": "Strategy Room",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 4,
+  "room": "terrace",
+  "name": "Terrace",
+  "kind": "lounge",
+  "department": null
+ },
+ {
+  "building": "hq",
+  "building_id": "campus-01-hq",
+  "floor": 4,
+  "room": "events-hall",
+  "name": "Events Hall",
+  "kind": "lounge",
+  "department": null
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 0,
+  "room": "ecommerce",
+  "name": "E-commerce",
+  "kind": "office",
+  "department": "sales"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 0,
+  "room": "retail",
+  "name": "Retail",
+  "kind": "office",
+  "department": "sales"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 0,
+  "room": "marketplace",
+  "name": "Marketplace",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 0,
+  "room": "orders",
+  "name": "Orders",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 0,
+  "room": "warehouse",
+  "name": "Warehouse",
+  "kind": "warehouse",
+  "department": "operations"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 1,
+  "room": "sales-office",
+  "name": "Sales Office",
+  "kind": "office",
+  "department": "sales"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 1,
+  "room": "marketing-studio",
+  "name": "Marketing Studio",
+  "kind": "office",
+  "department": "marketing"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 1,
+  "room": "meeting-room",
+  "name": "Meeting Room",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 2,
+  "room": "customer-service",
+  "name": "Customer Service",
+  "kind": "office",
+  "department": "support"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 2,
+  "room": "support",
+  "name": "Support",
+  "kind": "office",
+  "department": "support"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 2,
+  "room": "messages",
+  "name": "Messages",
+  "kind": "office",
+  "department": "support"
+ },
+ {
+  "building": "commerce",
+  "building_id": "campus-02-commerce",
+  "floor": 2,
+  "room": "tickets",
+  "name": "Tickets",
+  "kind": "office",
+  "department": "support"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 0,
+  "room": "workshop",
+  "name": "Workshop",
+  "kind": "workshop",
+  "department": "tyre_engineering"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 0,
+  "room": "maintenance",
+  "name": "Maintenance",
+  "kind": "workshop",
+  "department": "tyre_engineering"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 0,
+  "room": "warehouse",
+  "name": "Warehouse",
+  "kind": "warehouse",
+  "department": "operations"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 0,
+  "room": "logistics",
+  "name": "Logistics",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 1,
+  "room": "fleet",
+  "name": "Fleet",
+  "kind": "office",
+  "department": "operations"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 1,
+  "room": "tyre-engineering",
+  "name": "Tyre Engineering",
+  "kind": "office",
+  "department": "tyre_engineering"
+ },
+ {
+  "building": "tyre-pulse",
+  "building_id": "campus-03-tyre-pulse",
+  "floor": 1,
+  "room": "inspections",
+  "name": "Inspections",
+  "kind": "office",
+  "department": "tyre_engineering"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 0,
+  "room": "hr",
+  "name": "HR",
+  "kind": "office",
+  "department": "hr"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 0,
+  "room": "finance-office",
+  "name": "Finance Office",
+  "kind": "office",
+  "department": "finance"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 0,
+  "room": "wealth-office",
+  "name": "Wealth Office",
+  "kind": "office",
+  "department": "finance"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 0,
+  "room": "procurement",
+  "name": "Procurement",
+  "kind": "office",
+  "department": "procurement"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 1,
+  "room": "legal-office",
+  "name": "Legal Office",
+  "kind": "office",
+  "department": "legal"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 1,
+  "room": "compliance-office",
+  "name": "Compliance Office",
+  "kind": "office",
+  "department": "compliance"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 1,
+  "room": "governance-office",
+  "name": "Governance Office",
+  "kind": "office",
+  "department": "compliance"
+ },
+ {
+  "building": "corporate-services",
+  "building_id": "campus-04-corporate-services",
+  "floor": 1,
+  "room": "audit-room",
+  "name": "Audit Room",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 0,
+  "room": "ai-labs",
+  "name": "AI Labs",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 0,
+  "room": "data",
+  "name": "Data",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 0,
+  "room": "automation",
+  "name": "Automation",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 1,
+  "room": "development",
+  "name": "Development",
+  "kind": "office",
+  "department": "technology"
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 1,
+  "room": "deployments",
+  "name": "Deployments",
+  "kind": "office",
+  "department": "technology"
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 1,
+  "room": "incidents",
+  "name": "Incidents",
+  "kind": "office",
+  "department": "technology"
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 2,
+  "room": "research-room",
+  "name": "Research Room",
+  "kind": "office",
+  "department": "research"
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 2,
+  "room": "intelligence-desk",
+  "name": "Intelligence Desk",
+  "kind": "office",
+  "department": "research"
+ },
+ {
+  "building": "knowledge-ai",
+  "building_id": "campus-05-knowledge-ai",
+  "floor": 2,
+  "room": "briefing-room",
+  "name": "Briefing Room",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "new-ventures",
+  "building_id": "campus-06-new-ventures",
+  "floor": 0,
+  "room": "investments",
+  "name": "Investments",
+  "kind": "office",
+  "department": "finance"
+ },
+ {
+  "building": "new-ventures",
+  "building_id": "campus-06-new-ventures",
+  "floor": 0,
+  "room": "research-development",
+  "name": "R&D",
+  "kind": "office",
+  "department": "research"
+ },
+ {
+  "building": "new-ventures",
+  "building_id": "campus-06-new-ventures",
+  "floor": 0,
+  "room": "future-businesses",
+  "name": "Future Businesses",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "new-ventures",
+  "building_id": "campus-06-new-ventures",
+  "floor": 0,
+  "room": "meeting-room",
+  "name": "Meeting Room",
+  "kind": "meeting",
+  "department": null
+ },
+ {
+  "building": "personal",
+  "building_id": "campus-07-personal",
+  "floor": 0,
+  "room": "personal-office",
+  "name": "Personal Office",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "personal",
+  "building_id": "campus-07-personal",
+  "floor": 0,
+  "room": "lounge",
+  "name": "Lounge",
+  "kind": "lounge",
+  "department": null
+ },
+ {
+  "building": "career",
+  "building_id": "campus-08-career",
+  "floor": 0,
+  "room": "career-office",
+  "name": "Career Office",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "career",
+  "building_id": "campus-08-career",
+  "floor": 0,
+  "room": "employment-desk",
+  "name": "Employment Desk",
+  "kind": "office",
+  "department": null
+ },
+ {
+  "building": "career",
+  "building_id": "campus-08-career",
+  "floor": 0,
+  "room": "interview-room",
+  "name": "Interview Room",
+  "kind": "meeting",
+  "department": null
+ }
+]
