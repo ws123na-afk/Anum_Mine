@@ -50,7 +50,7 @@ export const MAX_ROOM_STOPS = 12;
 /** When the open building has more rooms than this, the strip lists one room per room kind instead of every room. */
 export const ALL_ROOMS_UP_TO = 8;
 
-const KIND_RANK: Record<string, number> = { reception: 0, office: 1, meeting: 2, workshop: 3, warehouse: 4, lounge: 5 };
+const KIND_RANK: Record<string, number> = { reception: 0, office: 1, meeting: 2, workshop: 3, warehouse: 4, lounge: 5, command: 2 };
 const rank = (kind: string) => KIND_RANK[kind] ?? 9;
 
 /**

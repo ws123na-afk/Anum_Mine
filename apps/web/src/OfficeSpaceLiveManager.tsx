@@ -98,7 +98,7 @@ export function OfficeSpaceLiveManager({onClose}:{onClose:()=>void}){
      </form>}
      {chosenFloor&&<form className="spaceRegistryCreate" onSubmit={e=>{e.preventDefault();void act(()=>client.post('rooms',{id:makeId('room'),floor_id:chosenFloor.id,name:roomName,kind,capacity}),'Room')}}>
       <h4>Create a room</h4><label>Room name<input required maxLength={100} value={roomName} onChange={e=>setRoomName(e.target.value)}/></label>
-      <div className="spaceRegistryFormRow"><label>Type<select value={kind} onChange={e=>setKind(e.target.value as OfficeRoom['kind'])}>{(['office','meeting','reception','workshop','warehouse','lounge'] as const).map(k=><option key={k}>{k}</option>)}</select></label><label>Capacity<input type="number" min={1} max={5000} value={capacity} onChange={e=>setCapacity(Number(e.target.value))}/></label></div>
+      <div className="spaceRegistryFormRow"><label>Type<select value={kind} onChange={e=>setKind(e.target.value as OfficeRoom['kind'])}>{(['office','meeting','reception','workshop','warehouse','lounge','command'] as const).map(k=><option key={k}>{k}</option>)}</select></label><label>Capacity<input type="number" min={1} max={5000} value={capacity} onChange={e=>setCapacity(Number(e.target.value))}/></label></div>
       <button type="submit" disabled={busy||!roomName.trim()}>Create room</button>
      </form>}
     </section>
@@ -126,7 +126,7 @@ export function OfficeSpaceLiveManager({onClose}:{onClose:()=>void}){
        </div>
        <button disabled={busy}>Save room geometry</button>
       </form>
-      {['office','warehouse','workshop'].includes(chosenRoom.kind)&&<form onSubmit={e=>{e.preventDefault();void act(()=>client.post('desks',{id:makeId('desk'),room_id:chosenRoom.id,label:deskLabel}),'Desk')}}>
+      {['office','warehouse','workshop','command'].includes(chosenRoom.kind)&&<form onSubmit={e=>{e.preventDefault();void act(()=>client.post('desks',{id:makeId('desk'),room_id:chosenRoom.id,label:deskLabel}),'Desk')}}>
        <label>Workstation label<input required maxLength={100} value={deskLabel} onChange={e=>setDeskLabel(e.target.value)} placeholder="Desk A1"/></label><button disabled={busy||!deskLabel.trim()||desks.length>=chosenRoom.capacity}>Add desk</button>
       </form>}
       <div className="spaceRegistryDeskList">{desks.map(d=><article key={d.id}>

@@ -23,6 +23,8 @@ Total for an empty workspace: **8 buildings, 18 floors, 62 rooms, 220 desks**. T
 
 **Not staffed.** No agent is created, no desk is seated, and no presence or person is invented. A new room is empty and shows "Not staffed". Rooms with a matching department carry that `team_department` (sales, support, operations, finance, tyre engineering, marketing, technology, research, legal, compliance, security, hr, procurement), so each opens its module and the Organisation gaps panel proposes agents for the ones that have a role. The list per room is in [departments, modules and meeting rooms](ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md). The owner confirms each proposal there, as before. To seat an agent at every empty desk, use [Staff my campus](ANUM_MINE_STAFF_DESKS.md): a separate, reviewed, click-confirmed step.
 
+The Command Center of ANUM HQ is created with the room kind `command` (opens the live flow and carries the operations wall); the campus draws HQ as the executive tower, Personal Office as the villa, Tyre Pulse as the workshop and Commerce as the shop pavilion. See [building modules](ANUM_MINE_HQ_BUILDING_MODULES.md).
+
 ## Endpoints
 
 Under `/api/v1/office/starter-campus`. PostgreSQL only (the memory backend answers 503, never fake data). Contract: `packages/contracts/src/officeStarterCampus.ts`.

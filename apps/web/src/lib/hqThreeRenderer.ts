@@ -26,7 +26,7 @@ import { VERTEX_FLOATS, MAT } from './hqGeometry.ts';
 import { cameraEye, type CameraState } from './headquartersSpatial.ts';
 import { lightingFor } from './hqLighting.ts';
 import { clipPlanes, viewProjection } from './hqMath.ts';
-import type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
+import { LIFT_MS, easeLift, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
 import { ModelLayer } from './hqModelLayer.ts';
 import type { ModelGroup } from './hqModels.ts';
@@ -182,6 +182,9 @@ export class HqRenderer {
   private lastSunKey = '';
   private quality: Quality = 3;
   private reducedMotion = false;
+  /** Cut-away floors: the value each lift group stands at, and the motions running now. */
+  private liftValue = new Map<string, number>();
+  private liftRun = new Map<string, { from: number; to: number; t0: number }>();
   private cheap = false;
   private lost = false;
   private disposed = false;
@@ -401,6 +404,7 @@ export class HqRenderer {
       mesh.userData.id = item.id;
       mesh.userData.hl = 0;
       mesh.userData.fallbackOf = item.fallbackOf ?? null;
+      mesh.userData.lift = item.lift ?? null;
       mesh.visible = !item.fallbackOf || !this.readyGroups.has(item.fallbackOf);
       const sunOk = cls !== 'sign' && cls !== 'pane' && cls !== 'glass';
       mesh.castShadow = sunOk && cls !== 'water';
@@ -445,8 +449,53 @@ export class HqRenderer {
       sign.needsUpdate = true;
     }
     this.applyHighlight();
+    this.startLifts(scene.lifts);
     this.shadowDirty = true;
     this.requestFrame();
+  }
+
+  /** Decide where each lift group goes: a new target eases from `from` (or from where the group stands), unseen groups jump. */
+  private startLifts(lifts: RenderScene['lifts']): void {
+    const now = performance.now();
+    for (const [group, spec] of Object.entries(lifts ?? {})) {
+      const run = this.liftRun.get(group);
+      const stand = run ? this.currentLift(run, now) : this.liftValue.get(group);
+      if (run && run.to === spec.to && spec.from === undefined) continue;
+      const start = spec.from ?? stand ?? spec.to;
+      if (start === spec.to || this.reducedMotion) { this.liftRun.delete(group); this.liftValue.set(group, spec.to); }
+      else { this.liftRun.set(group, { from: start, to: spec.to, t0: now }); this.liftValue.set(group, start); }
+    }
+    this.applyLifts();
+  }
+
+  private currentLift(run: { from: number; to: number; t0: number }, now: number): number {
+    return run.from + (run.to - run.from) * easeLift((now - run.t0) / LIFT_MS);
+  }
+
+  /** Move the clock on and put every lift group's meshes where its value says. Returns true while a motion is still running. */
+  private stepLifts(): boolean {
+    if (this.liftRun.size === 0) return false;
+    const now = performance.now();
+    for (const [group, run] of [...this.liftRun]) {
+      if (now - run.t0 >= LIFT_MS || this.reducedMotion) { this.liftValue.set(group, run.to); this.liftRun.delete(group); }
+      else this.liftValue.set(group, this.currentLift(run, now));
+    }
+    this.applyLifts();
+    return this.liftRun.size > 0;
+  }
+
+  /** A group at 1 is untouched, at 0 it is hidden, in between it is flattened towards its own level (cheap: one scale and one offset per mesh). */
+  private applyLifts(): void {
+    for (const mesh of this.meshes) {
+      const lift = mesh.userData.lift as { group: string; y: number } | null;
+      if (!lift) continue;
+      const v = Math.max(0, Math.min(1, this.liftValue.get(lift.group) ?? 1));
+      mesh.visible = v > 0.02;
+      mesh.scale.y = Math.max(v, 0.001);
+      mesh.position.y = (1 - v) * lift.y;
+      mesh.updateMatrix();
+    }
+    this.shadowDirty = true;
   }
 
   /** A model group finished loading (or was found unavailable): hide the stand-ins of the ready groups, show the rest. */
@@ -603,6 +652,7 @@ export class HqRenderer {
       this.sky?.scale.setScalar(far * 0.9);
       this.fog.near = cs.distance * 1.8 + 60; this.fog.far = cs.distance * 4 + 260;
       this.shared.uDetail.value.set(cs.distance * 0.7 + 25, cs.distance * 1.6 + 70);
+      const lifting = this.stepLifts();
       this.applyLighting();
       if (this.shadowDirty && this.renderer.shadowMap.enabled) { this.renderer.shadowMap.needsUpdate = true; this.shadowDirty = false; }
       this.renderer.info.reset();
@@ -620,6 +670,7 @@ export class HqRenderer {
       this.stats.drawn = this.renderer.info.render.calls;
       this.stats.culled = Math.max(0, this.meshes.length - this.meshes.filter((m) => m.visible).length);
       this.cb.onFrame?.(viewProjection(cs, aspect), aspect);
+      if (lifting) this.requestFrame();
     } catch (error) {
       this.fail(error);
       return;

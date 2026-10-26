@@ -197,6 +197,7 @@
 .hqSelect select { appearance: none; background: transparent; border: 0; color: var(--d-text); min-height: 34px; padding-inline-end: var(--d-s4); }
 .hqSelect select option { background: var(--d-surface-2); color: var(--d-text); }
 .hqFloorControl { align-items: center; display: inline-flex; flex-wrap: wrap; gap: var(--d-s2); }
+.hqFloorCount { color: var(--d-muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hqCheck { align-items: center; display: inline-flex; font-size: var(--text-xs); gap: 6px; white-space: nowrap; }
 .hqCheck input { accent-color: var(--d-accent); height: 16px; margin: 0; min-height: 0; padding: 0; width: 16px; }
 .hqBuilding .hqStage { block-size: clamp(400px, calc(100dvh - 300px), 820px); }

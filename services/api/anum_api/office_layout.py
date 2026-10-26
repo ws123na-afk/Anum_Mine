@@ -22,8 +22,10 @@ UNBOUNDED_SEARCH_M: Final = 200.0
 
 ROTATIONS: Final = (0, 90, 180, 270)
 DOOR_SIDES: Final = ("north", "south", "east", "west")
-ROOM_KINDS: Final = ("office", "meeting", "reception", "workshop", "warehouse", "lounge")
-DESK_ROOM_KINDS: Final = ("office", "workshop", "warehouse")
+# "command" is the operations command centre: a work room with operator desks whose module is the live flow and
+# whose 3D interior carries the wall of live dashboards. It is a kind of its own, not an office named by words.
+ROOM_KINDS: Final = ("office", "meeting", "reception", "workshop", "warehouse", "lounge", "command")
+DESK_ROOM_KINDS: Final = ("office", "workshop", "warehouse", "command")
 # Fixed palette names; the web maps each name to a design token.
 ROOM_COLORS: Final = ("slate", "forest", "brass", "sapphire", "amethyst", "crimson", "teal", "sand")
 # Fixed equipment catalogue (owner decision): kinds are not free text, notes are.
@@ -172,6 +174,8 @@ TEMPLATES: Final[tuple[RoomTemplate, ...]] = (
                  (("shelving", 10), ("locker", 4), ("first_aid_kit", 1)), 4),
     RoomTemplate("workshop", "Workshop", "ورشة عمل", "workshop", 6, 10.0, 8.0, "east", "sand",
                  (("workbench", 4), ("shelving", 2), ("first_aid_kit", 1)), 4),
+    RoomTemplate("command_center", "Command centre", "مركز القيادة", "command", 10, 14.0, 10.0, "south", "crimson",
+                 (("monitor", 6), ("display", 4), ("network_switch", 1)), 6),
 )
 TEMPLATE_IDS: Final = tuple(template.id for template in TEMPLATES)
 

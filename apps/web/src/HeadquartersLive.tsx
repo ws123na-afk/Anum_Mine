@@ -37,6 +37,7 @@ import { loadWorkspaceWorkstations, type WorkstationSnapshot } from './lib/offic
 import { HqFlowDock } from './HqFlowDock';
 import { commandWall } from './lib/hqCommandWall.ts';
 import { resolveRoomModule } from './lib/hqRoomModule.ts';
+import { moduleBuildingKind } from './lib/hqBuildingModules.ts';
 import { HqTeamPanel } from './HqTeamPanel';
 import { HistoryLauncher } from './HqHistoryLauncher';
 import type { HistoryLaunch } from './HqHistoryPanel';
@@ -357,14 +358,17 @@ export function HeadquartersLive(props: HeadquartersProps) {
 
   const goFloor = useCallback((id: string) => { controller.selectFloor(id); setRoomId(null); setAgentId(null); }, [controller]);
   const openRoomById = useCallback((fid: string, rid: string) => {
-    const fl = registryBuilding?.floors.find((f) => f.id === fid);
+    // A room of any building of the workspace: the list shows every registry building's rooms, so its building is opened first.
+    const owner = projection?.buildings.find((b) => b.floors.some((f) => f.id === fid && f.rooms.some((r) => r.id === rid))) ?? null;
+    const fl = owner?.floors.find((f) => f.id === fid);
     const room = fl?.rooms.find((r) => r.id === rid);
-    if (!fl || !room) return;
-    if (floor?.id !== fid) controller.selectFloor(fid);
+    if (!owner || !fl || !room) return;
+    if (registryBuilding?.id !== owner.id) controller.selectBuilding(owner.id);
+    if (floor?.id !== fid || registryBuilding?.id !== owner.id) controller.selectFloor(fid);
     setLevel('building'); setView((v) => (v === 'list' ? '3d' : v));
     setRoomId(rid); setAgentId(null);
     latestProps.current.onSelectRoom?.(roomRef(room));
-  }, [registryBuilding, floor?.id, controller, roomRef]);
+  }, [projection, registryBuilding, floor?.id, controller, roomRef]);
 
   const roomLabels = useMemo(() => {
     const map = new Map<string, { label: string }>();
@@ -457,7 +461,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
     : roomPanelRoom
       ? <>{(props.renderRoomPanel
         ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
-        : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} buildingKind={currentBuilding?.kind ?? null} canManage={canManage} onOpenFlow={openFlowFor} onOpenGaps={() => setOverlay('gaps')} wall={isOperationsRoom(roomPanelRoom) ? wallModel : null} onReloadWall={() => void flow.reload()}
+        : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} buildingKind={moduleBuildingKind(currentBuilding)} canManage={canManage} onOpenFlow={openFlowFor} onOpenGaps={() => setOverlay('gaps')} wall={isOperationsRoom(roomPanelRoom) ? wallModel : null} onReloadWall={() => void flow.reload()}
           meeting={liveMeetingByRoom.get(roomPanelRoom.id) ?? null} meetingsKnown={meetings !== null} onStartMeeting={() => { setMeetingRoomId(roomPanelRoom.id); setOverlay('agentMeetings'); }} /><HqTeamPanel onAvatarChanged={() => void controller.refresh()} onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)}
         <HistoryLauncher label={t('hqHist.launch.room')} onClick={() => openHistory({ kind: 'room', roomId: roomPanelRoom.id, label: roomPanelRoom.label, deskIds: roomPanelRoom.deskIds }, 'timeline')} /></>
       : null;
@@ -467,7 +471,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const loading = !campus && !campusError;
 
   const buildingKind: CampusBuildingKind = currentBuilding?.kind ?? 'business';
-  currentBuildingKind.current = currentBuilding?.kind ?? null;
+  currentBuildingKind.current = moduleBuildingKind(currentBuilding);
 
   return (
     <section className={`hqLive ${night ? 'hqNight' : 'hqDay'}`} ref={host} aria-label={t('hq.region')}>

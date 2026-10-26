@@ -189,7 +189,7 @@ class SqlOfficeSpaceStore(LayoutHistoryMixin, TemplateMixin):
             """), self._params(context, room=fields["room_id"])).mappings().first()
             if room is None:
                 raise SpaceStoreError("not_found", "Office room not found")
-            if room["kind"] not in ("office", "workshop", "warehouse"):
+            if room["kind"] not in layout.DESK_ROOM_KINDS:
                 raise SpaceStoreError("restricted", "Only work areas may have permanent desks")
             count = self.session.execute(text("""
                 select count(*) from office_desks

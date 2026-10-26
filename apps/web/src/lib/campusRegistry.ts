@@ -9,9 +9,27 @@
  * "Presence unavailable" and shows no count.
  */
 import { departmentsOf, initialsOf } from '../hq-nav/navModel.ts';
-import { EMPTY_TOTALS, campusTotals, type Campus, type CampusBuilding, type CampusTotals, type StatusKey } from './campusModel.ts';
+import { EMPTY_TOTALS, campusTotals, type Campus, type CampusBuilding, type CampusBuildingKind, type CampusTotals, type StatusKey } from './campusModel.ts';
+import { starterKey } from './hqBuildingModules.ts';
 import type { SceneBuilding } from './headquartersProjection.ts';
 import { presenceForDesk, type HqPresenceIndex } from './hqPresence.ts';
+
+/**
+ * How a starter campus building is drawn. The starter campus gives every building a stable id (`campus-07-personal`), so the
+ * look follows that id and never the words of a name: ANUM HQ stands as the executive tower, the personal office as the
+ * villa, Tyre Pulse as the saw-tooth workshop, ANUM 360 Commerce as the glazed shop pavilion. Any other registry building
+ * keeps the plain business look. `icon` is a local drawing hint (see `campusBuildings.ts`), never stored.
+ */
+const STARTER_LOOK: Readonly<Record<string, Readonly<{ kind: CampusBuildingKind; icon: string | null }>>> = {
+  hq: { kind: 'executive', icon: null },
+  personal: { kind: 'personal', icon: null },
+  'tyre-pulse': { kind: 'department', icon: 'workshop' },
+  commerce: { kind: 'business', icon: 'store' },
+};
+export function registryLook(buildingId: string): Readonly<{ kind: CampusBuildingKind; icon: string | null }> {
+  const key = starterKey(buildingId);
+  return (key ? STARTER_LOOK[key] : undefined) ?? { kind: 'business', icon: null };
+}
 
 export const registryKey = (workspaceId: string, buildingId: string): string => `${workspaceId}~${buildingId}`;
 
@@ -53,8 +71,8 @@ export function expandCampus(campus: Campus, workspaceId: string, registry: read
     const desks = b.floors.reduce((n, f) => n + f.desks.length, 0);
     return {
       ...home, workspace_id: registryKey(workspaceId, b.id), realWorkspaceId: workspaceId, registryBuildingId: b.id, workspaceName: home.name, name: b.name,
-      // The registry holds no building type: it is drawn as a plain business building, never labelled with one.
-      kind: 'business', kindKnown: false, icon: null, role: home.role, profileRevision: null,
+      // The registry holds no building type, so none is ever labelled; the look follows the starter campus id (`registryLook`).
+      ...registryLook(b.id), kindKnown: false, role: home.role, profileRevision: null,
       floors: b.floors.length || null, rooms, desks, totals: facts.totals, people: facts.people, departments: facts.departments,
     };
   });

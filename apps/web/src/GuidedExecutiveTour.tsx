@@ -16,7 +16,7 @@ import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { useLocale } from './useLocale';
 import './guidedExecutiveTour.css';
 
-const KINDS = new Set(['office', 'meeting', 'reception', 'workshop', 'warehouse', 'lounge']);
+const KINDS = new Set(['office', 'meeting', 'reception', 'workshop', 'warehouse', 'lounge', 'command']);
 const kindLabel = (kind: string) => (KINDS.has(kind) ? t(`hqSc.kind.${kind}` as MessageKey) : kind);
 
 /** What the PA says and shows for one stop: the registry's own facts, nothing else. */
