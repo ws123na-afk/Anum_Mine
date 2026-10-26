@@ -40,6 +40,8 @@ import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './
 import { ModelLayer } from './hqModelLayer.ts';
 import { QUALITY_PIN_KEY, ladderFor, parsePin, tierById, type QualityState, type StepSettings, type TierReason } from './hqQualityTiers.ts';
 import type { FrameGovernor } from './hqGovernor.ts';
+import { PROMOTE_FRAMES, classifyRenderer, parseFxOff, shouldPromote, type FxName, type GpuClass } from './hqQualityTier.ts';
+import type { PhotoFx, PbrHook } from './hqPhotoFx.ts';
 import type { ModelGroup } from './hqModels.ts';
 
 export type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
@@ -213,11 +215,13 @@ type Shared = {
 type Variant = 'std' | 'glass' | 'water' | 'foliage' | 'cloth' | 'beacon';
 
 /** `rich` adds the lit rooms behind glass, the water rings and the sky's clouds; a software rasteriser compiles and runs the plain programs. */
-function patched(material: Material, shared: Shared, opts: { texture?: Texture; scale?: number; variant?: Variant; rich?: boolean }): void {
+function patched(material: Material, shared: Shared, opts: { texture?: Texture; scale?: number; variant?: Variant; rich?: boolean; pbr?: () => PbrHook | null }): void {
   const hl: IUniform<number> = { value: 0 };
   const variant = opts.variant ?? 'std';
   material.userData.hl = hl;
   material.onBeforeCompile = (shader) => {
+    const pb = opts.pbr?.() ?? null;
+    if (pb) for (const key of Object.keys(pb.uniforms)) shader.uniforms[key] = pb.uniforms[key];
     for (const key of Object.keys(shared) as Array<keyof Shared>) shader.uniforms[key] = shared[key];
     shader.uniforms.uHighlight = hl;
     shader.uniforms.uTexMap = { value: opts.texture ?? null };
@@ -226,16 +230,17 @@ function patched(material: Material, shared: Shared, opts: { texture?: Texture; 
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${VERT_COMMON}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_BODY}${sway}`);
-    let frag = shader.fragmentShader.replace('#include <common>', `#include <common>\n${FRAG_COMMON}`);
+    let frag = shader.fragmentShader.replace('#include <common>', `#include <common>\n${FRAG_COMMON}${pb?.common ?? ''}`);
+    if (pb) frag = frag.replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n${pb.rough}`).replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${pb.normal}`);
     if (opts.texture) frag = frag.replace('#include <map_fragment>', `#include <map_fragment>\n${TRIPLANAR}`);
     if (variant === 'glass') frag = frag.replace('#include <color_fragment>', `#include <color_fragment>\n${GLASS_COLOR}`);
     if (variant === 'water') frag = frag.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${WATER_NORMAL}`);
     const emissive = variant === 'glass' ? GLASS_EMISSIVE : variant === 'beacon' ? BEACON_EMISSIVE : GENERIC_EMISSIVE;
-    frag = frag.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${emissive}${variant === 'water' ? WATER_GLINT : ''}\n${HIGHLIGHT}`);
+    frag = frag.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${emissive}${variant === 'water' ? WATER_GLINT : ''}\n${HIGHLIGHT}${pb?.emissive ?? ''}`);
     shader.fragmentShader = (opts.rich ? '#define HQ_RICH\n' : '') + frag;
   };
   // A distinct cache key per variant so the programs are not shared between patched and plain materials.
-  material.customProgramCacheKey = () => `hq-${variant}-${opts.texture ? 'tex' : 'plain'}-${opts.rich ? 'rich' : 'lean'}`;
+  material.customProgramCacheKey = () => `hq-${variant}-${opts.texture ? 'tex' : 'plain'}-${opts.rich ? 'rich' : 'lean'}${opts.pbr?.()?.key ?? ''}`;
 }
 
 // ---------------------------------------------------------------- sky
@@ -277,6 +282,14 @@ function readQualityOverride(): number | null {
   try { return parsePin(window.localStorage.getItem(QUALITY_PIN_KEY)); } catch { return null; }
 }
 
+/** Waits for the GPU: a one pixel read cannot return before every command before it has run (`finish` does not wait in Chrome). */
+function syncGpu(gl: WebGL2RenderingContext | WebGLRenderingContext): void { gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); }
+
+/** `anum.hq.quality` = 4 pins the top registered tier with the photographic effects of `hqPhotoFx.ts` on top (not a registry tier: the Graphics check measures registered tiers only). */
+function readPhotoPin(): boolean {
+  try { return window.localStorage.getItem(QUALITY_PIN_KEY)?.trim() === '4'; } catch { return false; }
+}
+
 /** True on a software rasteriser (SwiftShader, llvmpipe): it gets the light settings. Probed on a scratch canvas before the real context exists. */
 /**
  * Ambient scenery moves on a GPU by default and stays still on a software rasteriser (it would cost frames the quality ladder
@@ -289,21 +302,21 @@ function readAmbientOverride(): boolean | null {
   } catch { return null; }
 }
 
-function probeSoftwareRenderer(): boolean {
+function probeGpu(): GpuClass {
   try {
     const scratch = document.createElement('canvas');
     const gl = scratch.getContext('webgl2');
-    if (!gl) return false;
+    if (!gl) return 'unknown';
     const info = gl.getExtension('WEBGL_debug_renderer_info');
     const name = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
     gl.getExtension('WEBGL_lose_context')?.loseContext();
-    return /swiftshader|llvmpipe|software|basic render/i.test(name);
-  } catch { return false; }
+    return classifyRenderer(name);
+  } catch { return 'unknown'; }
 }
 
 
 export class HqRenderer {
-  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
+  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, tier: 0, fx: '', scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(40, 1, 0.2, 1000);
@@ -351,6 +364,20 @@ export class HqRenderer {
   /** A shader failed to compile here: the simple materials stay on for every tier. */
   private faulted = false;
   private lastScene: RenderScene | null = null;
+  /** Lazy effect chunks: baked occlusion (every tier), roof detail and contact discs (off the cheap path), and the photographic extension. */
+  private sceneFx: typeof import('./hqSceneFx.ts') | null = null;
+  private campusFx: typeof import('./hqCampusFx.ts') | null = null;
+  private photo: PhotoFx | null = null;
+  private photoOn = false;
+  /** The photographic effects are wanted: pinned with `anum.hq.quality` = 4, or promoted after a measured probe. They run only on the full rung of the ladder. */
+  private photoPin = false;
+  private photoAuto = false;
+  private gpu: GpuClass = 'unknown';
+  private demoted = false;
+  private probed = false;
+  /** Effects switched off by `anum.hq.fxoff` (see `FX_NAMES`). */
+  private fxOff: ReadonlySet<FxName> = new Set();
+  private contactMesh: Mesh | null = null;
   /** True when this draw came from the camera or another input (frame to frame time is then the real frame time). */
   private inputDriven = true;
   private prevDrawAt = 0;
@@ -423,8 +450,10 @@ export class HqRenderer {
   static create(canvas: HTMLCanvasElement, cb: RendererCallbacks = {}, maxDpr = 2): HqRenderer | null {
     // A software rasteriser (SwiftShader, llvmpipe) cannot afford PBR shading, a shadow map or antialiasing:
     // it gets simple lit materials, no reflection map, no antialiasing and a lower pixel ratio, unless quality is pinned.
-    const forced = readQualityOverride();
-    const software = probeSoftwareRenderer();
+    const photoPin = readPhotoPin();
+    const forced = photoPin ? 3 : readQualityOverride();
+    const gpu = probeGpu();
+    const software = gpu === 'software';
     const cheap = forced === null && software;
     let renderer: WebGLRenderer;
     try {
@@ -434,6 +463,14 @@ export class HqRenderer {
     try {
       made.cheap = cheap;
       made.software = software;
+      made.gpu = gpu;
+      made.photoPin = photoPin;
+      try { made.fxOff = parseFxOff(window.localStorage.getItem('anum.hq.fxoff')); } catch { /* storage blocked */ }
+      if (window.localStorage.getItem('anum.hq.bench') === '1') {
+        const hooks = window as unknown as { __anumHqBench: unknown; __anumHqTune: unknown };
+        hooks.__anumHqBench = (n: number, off?: string[]) => made.bench(n, off);
+        hooks.__anumHqTune = (t: Parameters<PhotoFx['setTune']>[0]) => { made.photo?.setTune(t); made.requestFrame(); };
+      }
       try { made.forcedScenery = readSceneryOverride(window.localStorage); } catch { made.forcedScenery = null; }
       const pin = readAmbientOverride();
       made.ambientAllowed = pin ?? !cheap;
@@ -451,6 +488,8 @@ export class HqRenderer {
     else if (cheap) { made.quality = 0; made.reason = 'software'; }
     else if (pixels > 4_000_000) { made.quality = 2; made.reason = 'large-canvas'; }
     made.configureTier();
+    void made.loadSceneFx();
+    if (photoPin) void made.enablePhoto();
     return made;
   }
 
@@ -473,6 +512,7 @@ export class HqRenderer {
     this.dprScale = next.dprScale;
     this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = '';
     if (lean) this.setLean(wantLean);
+    if (step > 0 && this.photoAuto) { this.photoAuto = false; this.demoted = true; this.leavePhoto(); }
     this.emitQuality();
     this.requestFrame();
   }
@@ -511,6 +551,74 @@ export class HqRenderer {
   // `liftValue`, `startLifts` and `requestFrame` through a cast, so none of that costs this chunk anything. Keep the names in step.
 
 
+  /** True while the photographic effects draw: wanted, loaded, on the full rung and not in the simple materials. */
+  private photoActive(): boolean { return (this.photoPin || this.photoAuto) && this.photoOn && this.photo !== null && this.step === 0 && !this.lean; }
+
+  /** Roof detail and contact discs cost real frame time: never on a software rasteriser (a pin to 3 there still gets only baked occlusion), unless the photographic pin asks. */
+  private campusFxAllowed(): boolean { return !this.cheap && (!this.software || this.photoPin); }
+
+  /** Loads baked occlusion for every tier (no three.js in that chunk), then roof detail and contact discs off the cheap path; a scene that arrived first is built again. */
+  private async loadSceneFx(): Promise<void> {
+    try {
+      const [baked, campus] = await Promise.all([import('./hqSceneFx.ts'), this.campusFxAllowed() ? import('./hqCampusFx.ts') : Promise.resolve(null)]);
+      this.sceneFx = baked; this.campusFx = campus;
+      // Build the scene again only when the new chunks change it: a floor view on a software rasteriser takes none of them, and a second build would restart its lifts.
+      if (!this.disposed && this.lastScene && (!this.software || this.lastScene.scenery !== undefined || this.photoPin)) this.setScene(this.lastScene);
+    } catch { this.sceneFx = null; }
+  }
+
+  /** Loads the photographic extension (PBR detail maps, post stack, point lights) and recompiles the materials with it. */
+  private async enablePhoto(): Promise<void> {
+    try {
+      const mod = await import('./hqPhotoFx.ts');
+      if (this.disposed) return;
+      this.photo = new mod.PhotoFx(this.renderer, this.scene, this.camera, this.fxOff);
+      this.photo.setPrepassHidden(this.contactMesh);
+      this.setPhotoOn(true);
+    } catch (error) { this.photoPin = false; this.photoAuto = false; this.demoted = true; this.fail(error); }
+  }
+
+  private setPhotoOn(on: boolean): void {
+    if (this.photoOn === on) return;
+    this.photoOn = on;
+    for (const material of this.materials.values()) material.needsUpdate = true;
+    if (!on) this.photo?.lightsOff();
+    this.shadowDirty = true; this.lastSunKey = '';
+    this.requestFrame();
+  }
+
+  /** Leaves the photographic effects for good (a slow GPU, a pass that failed): the picture keeps the ultra tier. */
+  private leavePhoto(): void {
+    this.photoPin = false; this.photoAuto = false; this.demoted = true;
+    this.setPhotoOn(false);
+    this.renderer.toneMapping = ACESFilmicToneMapping;
+  }
+
+  /**
+   * Once, a second after the frames are warm: on a discrete or Apple GPU at the ultra tier (never after a pin or a step down) draw a short
+   * burst of frames with a one pixel read after each, so the time is GPU time, and switch the photographic effects on when they were fast.
+   */
+  private probePromotion(): void {
+    if (this.probed || this.pinned !== null || this.override !== null || this.demoted || this.software || this.disposed || this.quality !== 3 || this.step !== 0) return;
+    this.probed = true;
+    window.setTimeout(() => {
+      if (this.disposed || this.lost || document.hidden) { this.probed = false; return; }
+      const gl = this.renderer.getContext();
+      const times: number[] = [];
+      for (let i = 0; i < PROMOTE_FRAMES; i++) {
+        const t0 = performance.now();
+        this.renderer.render(this.scene, this.camera);
+        syncGpu(gl);
+        times.push(performance.now() - t0);
+      }
+      const pixels = this.canvas.clientWidth * this.canvas.clientHeight * (window.devicePixelRatio || 1) ** 2;
+      if (shouldPromote({ tier: 3, gpu: this.gpu, pixels, pinned: false, demoted: this.demoted, reducedMotion: this.reducedMotion, probeMs: times })) {
+        this.photoAuto = true; this.lastSunKey = ''; this.shadowDirty = true;
+        void this.enablePhoto();
+      }
+    }, 1200);
+  }
+
   private fail(error: unknown): void {
     this.cb.onError?.(error instanceof Error ? error : new Error('WebGL failed'));
   }
@@ -536,7 +644,7 @@ export class HqRenderer {
         ? new MeshLambertMaterial({ vertexColors: true, side: DoubleSide })
         : new MeshStandardMaterial({ vertexColors: true, roughness: params.roughness, metalness: params.metalness, envMapIntensity: params.env ?? 1, side: DoubleSide });
       const texture = kind ? this.texture(kind) : undefined;
-      patched(m, this.shared, { texture, scale: TEX_SCALE[cls], variant, rich: this.rich });
+      patched(m, this.shared, { texture, scale: TEX_SCALE[cls], variant, rich: this.rich, pbr: () => (this.photoOn && !this.fxOff.has('pbr') ? this.photo?.pbr(cls) ?? null : null) });
       this.materials.set(cls, m);
     };
     std('flat', { roughness: 0.82, metalness: 0 });
@@ -625,6 +733,7 @@ export class HqRenderer {
   // -------------------------------------------------------------- scene
 
   private disposeMeshes(): void {
+    if (this.contactMesh) { this.scene.remove(this.contactMesh); this.contactMesh.geometry.dispose(); (this.contactMesh.material as Material).dispose(); this.contactMesh = null; }
     for (const mesh of this.meshes) { this.scene.remove(mesh); mesh.geometry.dispose(); }
     this.meshes = [];
     this.ambientParts = [];
@@ -686,7 +795,11 @@ export class HqRenderer {
   }
 
   private addItem(item: RenderItem, transparent: boolean, scene: RenderScene): void {
-    const v = item.vertices;
+    // Baked ambient occlusion (and tall walls cut so it has a gradient to carry): a vertex colour multiplier, free per frame.
+    // A software rasteriser bakes the campus only: a floor view rebuilds on every click and a bake is CPU time its slow frames cannot spare.
+    const baked = !transparent && this.sceneFx && !this.fxOff.has('ao') && (!this.software || this.lastScene?.scenery !== undefined) ? this.sceneFx.prepare(item.vertices, this.cheap || this.software) : null;
+    const v = baked ? baked.vertices : item.vertices;
+    const aoOf = baked ? baked.ao : null;
     const total = v.length / VERTEX_FLOATS;
     const buckets = new Map<Cls, number[]>();
     for (let t = 0; t + 2 < total; t += 3) {
@@ -706,7 +819,8 @@ export class HqRenderer {
           const s = (t + k) * VERTEX_FLOATS;
           position.set([v[s], v[s + 1], v[s + 2]], o * 3);
           normal.set([v[s + 3], v[s + 4], v[s + 5]], o * 3);
-          color.set([srgbToLinear(v[s + 6]), srgbToLinear(v[s + 7]), srgbToLinear(v[s + 8])], o * 3);
+          const a = aoOf ? aoOf[t + k] : 1;
+          color.set([srgbToLinear(v[s + 6]) * a, srgbToLinear(v[s + 7]) * a, srgbToLinear(v[s + 8]) * a], o * 3);
           em[o] = v[s + 9];
           uv.set([v[s + 11], v[s + 12]], o * 2);
           o += 1;
@@ -742,6 +856,25 @@ export class HqRenderer {
     }
   }
 
+  /** Campus only (not a building's floors): roof coping and plant, window sills, planters and the soft contact discs under cars, trees and wall feet. */
+  private addCampusDetail(scene: RenderScene): void {
+    const fx = this.campusFx;
+    if (!fx || !scene.scenery || !this.campusFxAllowed()) return;
+    const contacts: Float32Array[] = [];
+    for (const item of scene.opaque) {
+      const tall = item.bounds.max.y - item.bounds.min.y > 6;
+      if (tall && !this.fxOff.has('detail')) {
+        const extra = fx.detailOf(item.vertices, item.id);
+        if (extra) this.addItem({ id: item.id, vertices: extra, bounds: item.bounds, cull: item.cull }, false, scene);
+      }
+      if (!this.fxOff.has('contact')) contacts.push(fx.contactsOf(item.vertices));
+    }
+    const all = new Float32Array(contacts.reduce((n, c) => n + c.length, 0));
+    let at = 0;
+    for (const c of contacts) { all.set(c, at); at += c.length; }
+    if (all.length) { this.contactMesh = fx.contactMesh(all); this.scene.add(this.contactMesh); this.photo?.setPrepassHidden(this.contactMesh); }
+  }
+
   setScene(scene: RenderScene): void {
     this.lastScene = scene;
     this.disposeMeshes();
@@ -750,6 +883,7 @@ export class HqRenderer {
     if (this.layer) { this.readyGroups = scene.models?.length ? this.layer.readyNow(scene.models) : new Set(); this.layer.setNight(this.night); }
     for (const item of scene.opaque) this.addItem(item, false, scene);
     for (const item of scene.glass) this.addItem(item, true, scene);
+    this.addCampusDetail(scene);
     for (const item of scene.ambient ?? []) this.addAmbient(item, scene);
     if (this.layer) {
       this.layer.setHalos(scene.halos);
@@ -939,13 +1073,16 @@ export class HqRenderer {
     const gain = 0.9 + 1.3 * light.lit;
     sign.color.setRGB(gain, gain, gain);
     // Shadow light: from the sun (or moon) towards the middle of the region.
-    const region = this.shadowRegion;
-    const on = region !== null && this.applied.shadowSize > 0;
+    // The photographic effects fit one big shadow map to what the camera looks at instead of the whole campus.
+    const photo = this.photoActive();
+    const shadowSize = photo ? 4096 : this.applied.shadowSize;
+    const region = photo && !this.fxOff.has('cascade') && this.shadowRegion && this.cameraState ? this.photo!.fit(this.cameraState, this.shadowRegion, shadowSize) : this.shadowRegion;
+    const on = region !== null && shadowSize > 0;
     if (on && region) {
       const dir = { x: light.sunDir[0], y: light.sunDir[1], z: light.sunDir[2] };
       const len = Math.hypot(dir.x, dir.y, dir.z);
       const R = region.radius;
-      const key = `${region.center.x.toFixed(1)},${region.center.z.toFixed(1)},${R.toFixed(1)},${(dir.x / len).toFixed(2)},${(dir.z / len).toFixed(2)},${this.applied.shadowSize}`;
+      const key = `${region.center.x.toFixed(1)},${region.center.z.toFixed(1)},${R.toFixed(1)},${(dir.x / len).toFixed(2)},${(dir.z / len).toFixed(2)},${shadowSize}`;
       if (key !== this.lastSunKey) {
         this.lastSunKey = key;
         this.sun.position.set(region.center.x - (dir.x / len) * R * 2, region.center.y - (dir.y / len) * R * 2, region.center.z - (dir.z / len) * R * 2);
@@ -954,7 +1091,8 @@ export class HqRenderer {
         cam.left = -R; cam.right = R; cam.top = R; cam.bottom = -R; cam.near = 0.5; cam.far = R * 4.5;
         cam.updateProjectionMatrix();
         this.sun.target.updateMatrixWorld();
-        const size = this.applied.shadowSize;
+        const size = shadowSize;
+        this.sun.shadow.radius = photo ? 4 : 2.5;
         this.sun.shadow.normalBias = (1.6 * 2 * R) / Math.max(1, size);
         if (this.sun.shadow.mapSize.x !== size) { this.sun.shadow.mapSize.set(size, size); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
         this.shadowDirty = true;
@@ -971,7 +1109,8 @@ export class HqRenderer {
       for (const material of this.materials.values()) material.needsUpdate = true;
     }
     this.sun.castShadow = shadowsOn;
-    this.stats.shadowSize = shadowsOn ? this.applied.shadowSize : 0;
+    this.stats.shadowSize = shadowsOn ? shadowSize : 0;
+    if (this.contactMesh) (this.contactMesh.material as MeshBasicMaterial).opacity = 0.6 + 0.25 * this.night;
   }
 
   private resize(): { width: number; height: number; dpr: number } {
@@ -1041,15 +1180,28 @@ export class HqRenderer {
       this.stepAmbient();
       if (this.shadowDirty && this.renderer.shadowMap.enabled) { this.renderer.shadowMap.needsUpdate = true; this.shadowDirty = false; }
       this.renderer.info.reset();
-      const useBloom = this.applied.bloom && !this.reducedMotion && this.night > 0.04;
-      if (useBloom) {
+      let usePhoto = this.photoActive();
+      const useBloom = !usePhoto && this.applied.bloom && !this.reducedMotion && this.night > 0.04;
+      if (usePhoto) {
+        try {
+          this.photo!.frame({ camera: cs, viewProjection: viewProjection(cs, aspect), width, height, dpr, night: this.night, time: this.clock, halos: this.lastScene?.halos, reducedMotion: this.reducedMotion });
+        } catch (error) {
+          // A pass that cannot run on this GPU: leave the photographic effects for good and draw this frame the plain way.
+          this.leavePhoto();
+          usePhoto = false;
+          this.cb.onError?.(error instanceof Error ? error : new Error('photographic effects failed'));
+          this.renderer.render(this.scene, this.camera);
+        }
+      } else if (useBloom) {
         const composer = this.ensureComposer(width, height, dpr);
         if (this.bloom) { this.bloom.strength = 0.5 * Math.min(1, this.night * 1.4); this.bloom.threshold = 1.05; this.bloom.radius = 0.4; }
         composer.render();
       } else {
         this.renderer.render(this.scene, this.camera);
       }
-      this.stats.bloom = useBloom;
+      this.stats.bloom = useBloom || usePhoto;
+      this.stats.tier = usePhoto ? 4 : this.override ?? this.pinned ?? this.quality;
+      this.stats.fx = this.fxList(usePhoto);
       this.stats.scenery.level = this.level; this.stats.scenery.clock = this.clock; this.stats.scenery.vehicles = this.scenery?.count ?? 0;
       if (this.level > 0) this.stats.scenery.frames += 1;
       if (this.layer) Object.assign(this.stats.models, this.layer.stats);
@@ -1064,6 +1216,7 @@ export class HqRenderer {
     }
     this.scheduleAmbient();
     const ms = performance.now() - started;
+    if (this.stats.frames === 40) this.probePromotion();
     const s = this.stats;
     this.scheduleSceneryIfRunning();
     s.frames += 1; s.lastDrawMs = ms;
@@ -1082,6 +1235,41 @@ export class HqRenderer {
     else if (decision) { gov.apply(decision, started); this.applyStep(gov.step); }
   }
 
+  /** What is on right now, for the canvas attributes and the docs: a comma list. */
+  private fxList(photo: boolean): string {
+    const on: string[] = [];
+    if (this.sceneFx && !this.fxOff.has('ao')) on.push('ao');
+    if (this.contactMesh) on.push('contact');
+    if (this.photoOn && !this.fxOff.has('pbr')) on.push('pbr');
+    if (photo) on.push(...(['gtao', 'dof', 'shafts', 'grain', 'lights', 'cascade'] as const).filter((n) => !this.fxOff.has(n)), 'agx');
+    return on.join(',');
+  }
+
+  /** `window.__anumHqBench(n, off)` (only with `anum.hq.bench` = 1): n frames, each ended by a one pixel read that waits for the GPU, as the median milliseconds, with the named effects off. */
+  bench(n: number, off?: string[]): { ms: number; triangles: number; calls: number } {
+    if (off) {
+      const next = parseFxOff(off.join(','));
+      const rebuild = ['ao', 'detail', 'contact'].some((k) => next.has(k as FxName) !== this.fxOff.has(k as FxName));
+      const pbr = next.has('pbr') !== this.fxOff.has('pbr');
+      this.fxOff = next;
+      this.photo?.setOff(next);
+      if (pbr) for (const material of this.materials.values()) material.needsUpdate = true;
+      if (rebuild && this.lastScene) this.setScene(this.lastScene);
+      this.shadowDirty = true; this.lastSunKey = '';
+    }
+    const gl = this.renderer.getContext();
+    const times: number[] = [];
+    for (let i = 0; i < Math.max(1, n); i++) {
+      this.lastDrawAt = -1e9;
+      const t0 = performance.now();
+      this.draw();
+      syncGpu(gl);
+      times.push(performance.now() - t0);
+    }
+    times.sort((a, b) => a - b);
+    return { ms: times[times.length >> 1], triangles: this.stats.triangles, calls: this.stats.drawn };
+  }
+
   private scheduleSceneryIfRunning(): void { if (this.level > 0) this.scheduleScenery(); }
 
   dispose(): void {
@@ -1093,6 +1281,7 @@ export class HqRenderer {
     this.canvas.removeEventListener('webglcontextlost', this.onLostEvent);
     this.canvas.removeEventListener('webglcontextrestored', this.onRestoredEvent);
     this.disposeMeshes();
+    this.photo?.dispose();
     this.layer?.dispose();
     for (const material of this.materials.values()) material.dispose();
     for (const texture of this.textures) texture.dispose();

@@ -56,6 +56,8 @@ export type RenderStats = {
   shadowSize: number; bloom: boolean;
   /** Ambient parts in the scene, and whether they are moving right now (false under reduced motion, in a hidden tab, or at the lowest quality). */
   ambient: number; ambientMoving: boolean;
+  /** The quality tier in use (0 basic to 4 photo, see `hqQualityTier.ts`) and the effects on right now, a comma list. */
+  tier: number; fx: string;
   /** Revision of the plan atlas on the GPU ('' when none). */
   glassPlan?: string;
   /** Model layer: placements drawn, models loaded of those asked for, bytes fetched, load time in ms, groups that fell back. */

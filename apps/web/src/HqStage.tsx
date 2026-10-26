@@ -161,6 +161,8 @@ export function HqStage(props: Props) {
             canvas.current.dataset.dpr = s.dpr.toFixed(2);
             canvas.current.dataset.shadow = String(s.shadowSize);
             canvas.current.dataset.bloom = s.bloom ? 'true' : 'false';
+            canvas.current.dataset.tier = String(s.tier);
+            canvas.current.dataset.fx = s.fx;
             canvas.current.dataset.glassPlan = s.glassPlan;
             canvas.current.dataset.sceneryLevel = String(s.scenery.level);
             canvas.current.dataset.sceneryFrames = String(s.scenery.frames);

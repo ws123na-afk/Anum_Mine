@@ -13,6 +13,10 @@ export const BUDGET = {
   chunkGzipBytes: 140_000,       // HeadquartersEntrypoint JS (campus, buildings, asset builders), gzip
   rendererGzipBytes: 160_000,    // hqThreeRenderer JS (three.js plus the animation and skinning code the glTF loader shares, loaded on demand), gzip
   chunkCssGzipBytes: 17_000,     // HeadquartersEntrypoint CSS, gzip
+  // The photographic look (docs/ANUM_MINE_HQ_PHOTOREAL.md) added a second lazy importer of three.js, so the bundler moved three.core into its own
+  // chunk: the renderer chunk alone shrank, so the whole path a lower tier downloads is budgeted too (the main branch measured 159,130 for it).
+  rendererPathGzipBytes: 170_000, // hqThreeRenderer + three.core + baked occlusion (hqSceneFx, hqBakedAo), gzip
+  photoGzipBytes: 20_000,        // hqPhotoFx + hqCampusFx: only the photographic tier and the campus detail download them, gzip
   frameP95Ms: { 21: 2_500, 200: 3_500 } as Record<number, number>,
   jsHeapMb: { 21: 200, 200: 260 } as Record<number, number>,
   readyMs: { 21: 15_000, 200: 25_000 } as Record<number, number>,
@@ -31,6 +35,12 @@ test('budget: the lazy headquarters chunk stays small', () => {
   const rendererGz = gzipSync(readFileSync(new URL(renderer!, dir))).length;
   console.log(`HQ_CHUNK renderer_gzip=${rendererGz}`);
   expect(rendererGz).toBeLessThanOrEqual(BUDGET.rendererGzipBytes);
+  const gz = (re: RegExp) => readdirSync(dir).filter((f) => re.test(f)).reduce((n, f) => n + gzipSync(readFileSync(new URL(f, dir))).length, 0);
+  const rendererPath = rendererGz + gz(/^three\.core-.*\.js$/) + gz(/^hqSceneFx-.*\.js$/) + gz(/^hqBakedAo-.*\.js$/);
+  const photo = gz(/^hqPhotoFx-.*\.js$/) + gz(/^hqCampusFx-.*\.js$/);
+  console.log(`HQ_CHUNK renderer_path_gzip=${rendererPath} photo_gzip=${photo}`);
+  expect(rendererPath).toBeLessThanOrEqual(BUDGET.rendererPathGzipBytes);
+  expect(photo).toBeLessThanOrEqual(BUDGET.photoGzipBytes);
   expect(jsGz).toBeLessThanOrEqual(BUDGET.chunkGzipBytes);
   expect(cssGz).toBeLessThanOrEqual(BUDGET.chunkCssGzipBytes);
 });
