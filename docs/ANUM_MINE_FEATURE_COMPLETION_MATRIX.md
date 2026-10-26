@@ -102,6 +102,7 @@ Counts per status are in the last section ("Totals"), computed from the tables i
 | 4.8 | Cross-workspace executive view only by explicit grant | Complete | Ran, CI | `executive_api.py` grants (owner approves with payload hash, narrow only, revocable); `executive_pa.py`; `ExecutiveCommandCenter.tsx`; `test_executive_pa.py` pass | Postgres side of grants is CI only |
 | 4.9 | First run: an empty workspace offers the campus inside the scene | Complete | Ran, CI | `hq-first-run/FirstRunPanel.tsx` shows the real plan numbers, the list, the plan fingerprint and one button; confirm sends the shown hash with `input_mode: "click"`; the campus, floors and rooms appear without a reload (own click or another browser's `office.layout_changed`); loading, error, denied, stale 409, refused confirm, partial retry; the assistant card (`CampusProposalCard`) needs the same click; `test/hqFirstRun.test.ts`, `e2e/hq-first-run.spec.ts`; `docs/ANUM_MINE_STARTER_CAMPUS.md#first-run` | The master list is still code, not editable in the app. Building names are stored in one language |
 | 4.10 | Whole floor on one screen, every room labelled and clickable | Complete | Ran, CI | Floor overview mode and the fitted building camera (`lib/hqCamera.ts` `fitDistance`, `BuildingView.tsx`, floor rail "Whole floor"); cause of "only one room": a flat camera factor that cropped 38 m floors; `test/hqFirstRun.test.ts`, `e2e/hq-first-run.spec.ts`; `docs/ANUM_MINE_FLOOR_OVERVIEW.md` | Cards hide in the overview only desk and agent figures; people are listed in the room panel |
+| 4.11 | Room and agent label cards like the concept renders: dark glass room cards, white agent cards with the real state, Back to campus card, floor selector, live strips | Complete | Ran, CI | `lib/hqLabels.ts` (density full, compact, dot; slab depth test; no overlap), `lib/hqLabelModel.ts` (anchors at room centres at the floor height, subtitles from the registry), `HqLabelCards.tsx`, `HqSceneStrips.tsx`, `hqLabels.css`; `test/hqLabelModel.test.ts`, `e2e/hq-labels.spec.ts`; spec `docs/ANUM_MINE_HQ_LABELS.md` | Subtitles are generated from kind, desks and department, so they read plainer than the hand-written concept lines. No Offline state in a team card (presence has none). Pan toggle added to the camera bar
 
 ## Section 5. Digital characters and AI employees
 
@@ -297,16 +298,16 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 
 ## Totals
 
-Rows counted: 141 (sections 1 to 14).
+Rows counted: 142 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
-| Complete | 107 |
+| Complete | 108 |
 | Partial | 30 |
 | Missing | 3 |
 | Not applicable | 1 |
-| Total | 141 |
+| Total | 142 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 100, Partial 23, Missing 3, Not applicable 1 (total 127). Recounted from the tables on 26 October 2026; earlier changes had left these totals behind.
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 101, Partial 23, Missing 3, Not applicable 1 (total 128). Recounted from the tables on 26 October 2026; earlier changes had left these totals behind.
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.
