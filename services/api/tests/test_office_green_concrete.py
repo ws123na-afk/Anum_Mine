@@ -75,3 +75,16 @@ def test_hash_binds_the_person_the_workspace_and_the_plan() -> None:
     a = gc.proposal_hash("t", "w", "u1", "Asia/Dubai", p)
     assert a != gc.proposal_hash("t", "w", "u2", "Asia/Dubai", p) and a != gc.proposal_hash("t", "w2", "u1", "Asia/Dubai", p)
     assert a != gc.proposal_hash("t", "w", "u1", "Asia/Dubai", gc.plan(gc.Facts(building={"id": gc.BUILDING_ID}), "Asia/Dubai"))
+
+
+def test_the_web_fixture_is_the_planners_own_output() -> None:
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3] / "apps/web/test/fixtures/greenConcrete.json"
+    p = gc.plan(gc.Facts(), "Asia/Dubai")
+    stored = json.loads(root.read_text(encoding="utf-8"))
+    assert stored["room"]["id"] == gc.ROOM_ID and stored["room"]["kind"] == "command"
+    assert [(d["id"], d["pos_x"], d["pos_z"], d["shift"], d["seat_order"], d["facing"], d["seat_kind"], d["table_group"], d["label"]) for d in stored["desks"]] == [
+        (s["desk_id"], s["pos_x"], s["pos_z"], s["shift"], s["seat_order"], s["facing"], s["seat_kind"], s["table_group"], s["label"]) for s in p["seats"]]
+    assert [(x["name"], x["role"], x["role_ar"], x["shift"]) for x in stored["people"]] == [(q.name, q.role_en, q.role_ar, q.shift) for q in gc.PEOPLE]
