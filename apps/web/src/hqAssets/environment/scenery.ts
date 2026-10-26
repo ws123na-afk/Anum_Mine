@@ -18,8 +18,8 @@ import { lengths, roundedRectPath, type P2 } from './paths.ts';
 /** A closed loop a vehicle drives round: x,z pairs and the cumulative length at each point. */
 export type Lane = Readonly<{ pts: Float32Array; cum: Float32Array; total: number }>;
 
-/** 0 sedan, 1 SUV, 2 van: only the proportions differ. */
-export type VehicleKind = 0 | 1 | 2;
+/** 0 sedan, 1 SUV, 2 van, 3 bus (long and high), 4 tyre hauler (its own model: a flatbed with a stack of tyres). Plain scenery: none says an order, a job or a person. */
+export type VehicleKind = 0 | 1 | 2 | 3 | 4;
 
 export type SceneryVehicle = Readonly<{ lane: number; start: number; speed: number; color: Rgb; kind: VehicleKind }>;
 
@@ -50,7 +50,23 @@ export function laneOf(path: readonly P2[]): Lane {
 
 export type RingGeometry = Readonly<{ cx: number; cz: number; halfW: number; halfD: number; cornerRadius?: number }>;
 
-export type TrafficOptions = Readonly<{ seed?: string; count?: number }>;
+export type TrafficOptions = Readonly<{
+  seed?: string; count?: number;
+  /** More vehicles (up to 26) with buses and tyre haulers among them; the default keeps the earlier, lighter plan. */
+  rich?: boolean;
+  /** A third loop round a central roundabout (centre and radius of its road), counter-clockwise like the outer lane. */
+  roundabout?: Readonly<{ cx: number; cz: number; radius: number }>;
+}>;
+
+/** Speed on the roundabout loop (m/s): slower than the ring. */
+export const ROUNDABOUT_SPEED = 6.4;
+/** A closed circle as a loop path with the same winding as `reference` (signed area in x, z). */
+function circlePath(cx: number, cz: number, r: number, reference: readonly P2[]): P2[] {
+  const area = (pts: readonly P2[]) => pts.reduce((a, p, i) => { const q = pts[(i + 1) % pts.length]; return a + (p[0] * q[1] - q[0] * p[1]); }, 0);
+  const n = 40, out: P2[] = [];
+  for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; out.push([cx + Math.cos(a) * r, cz + Math.sin(a) * r]); }
+  return Math.sign(area(out)) === Math.sign(area(reference)) ? out : out.reverse();
+}
 
 /**
  * Two loops on the ring road, keeping to the right as the country does: the outer lane runs
@@ -62,22 +78,29 @@ export function trafficPlan(ring: RingGeometry, o: TrafficOptions = {}): Pick<Sc
   const outer = roundedRectPath(ring.cx, ring.cz, ring.halfW + LANE_OFFSET, ring.halfD + LANE_OFFSET, r + LANE_OFFSET, 6).slice().reverse();
   const inner = roundedRectPath(ring.cx, ring.cz, ring.halfW - LANE_OFFSET, ring.halfD - LANE_OFFSET, Math.max(2, r - LANE_OFFSET), 6);
   const lanes = [laneOf(outer), laneOf(inner)];
+  if (o.roundabout) lanes.push(laneOf(circlePath(o.roundabout.cx, o.roundabout.cz, o.roundabout.radius + LANE_OFFSET, outer)));
   const rnd = seeded(`ambient-traffic:${o.seed ?? 'campus'}`);
   const palette = [...CAR_PALETTE, hex('#e8ebee'), hex('#2f4b66')];
   const wanted = o.count ?? Math.round((lanes[0].total + lanes[1].total) / 70);
-  const count = Math.max(2, Math.min(18, wanted));
+  const rich = o.rich === true;
+  const count = Math.max(2, Math.min(rich ? 26 : 18, rich ? Math.max(wanted, 20) : wanted));
   const vehicles: SceneryVehicle[] = [];
   lanes.forEach((lane, li) => {
-    const n = Math.max(1, Math.min(Math.floor(lane.total / MIN_GAP), li === 0 ? Math.ceil(count / 2) : Math.floor(count / 2)));
+    const ring = li < 2;
+    const share = ring ? (li === 0 ? Math.ceil(count / 2) : Math.floor(count / 2)) : 4;
+    const n = Math.max(1, Math.min(Math.floor(lane.total / MIN_GAP), share));
     const gap = lane.total / n;
-    const speed = LANE_SPEEDS[li] + rnd() * 0.4;
+    const speed = (ring ? LANE_SPEEDS[li] : ROUNDABOUT_SPEED) + rnd() * 0.4;
     const phase = rnd() * gap;
     for (let i = 0; i < n; i++) {
       const jitter = n > 1 ? (rnd() - 0.5) * Math.min(4, gap - MIN_GAP) : 0;
       const roll = rnd();
+      // Rich plans put a bus and a tyre hauler on each ring lane (at fixed places in the order so the mix is stable) and a van or two on the roundabout.
+      const special: VehicleKind | null = rich && ring ? (i === 1 ? 3 : i === 3 ? 4 : null) : null;
       vehicles.push({
         lane: li, start: (phase + i * gap + Math.max(-2, jitter) + lane.total) % lane.total, speed,
-        color: palette[Math.floor(rnd() * palette.length)], kind: roll < 0.55 ? 0 : roll < 0.88 ? 1 : 2,
+        color: special === 3 ? hex('#e8ebee') : special === 4 ? hex('#2f4b66') : palette[Math.floor(rnd() * palette.length)],
+        kind: special ?? (roll < 0.55 ? 0 : roll < 0.88 ? 1 : 2),
       });
     }
   });

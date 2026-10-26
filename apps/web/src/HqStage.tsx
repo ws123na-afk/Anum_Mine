@@ -11,6 +11,7 @@ import { readNightPreset, subscribeNightPreset, targetBlend } from './lib/hqLigh
 import type { HqRenderer } from './lib/hqThreeRenderer.ts';
 import type { RenderScene } from './lib/hqRenderTypes.ts';
 import type { GlassPlanData } from './lib/hqPlanAtlas.ts';
+import type { WorkLayerPlan } from './lib/hqWorkLayer.ts';
 import { setGpuState } from './lib/hqGpuState.ts';
 import { setLiveRenderer } from './lib/hqGpuBridge.ts';
 import { emitGpuTelemetry } from './lib/hqGpuTelemetry.ts';
@@ -49,6 +50,8 @@ type Props = Readonly<{
   scene: RenderScene | null;
   /** The plan atlas the glass looks through (campus only). Changing it never rebuilds the scene meshes. */
   glassPlan?: GlassPlanData | null;
+  /** Record-backed work motion (docs/ANUM_MINE_HQ_CAMPUS_MOTION.md): vehicles and tyres on a timeline, each started by one stored record. Changing it never rebuilds the scene meshes. */
+  work?: WorkLayerPlan | null;
   pickTargets: readonly PickTarget[];
   camera: CameraState;
   homeCamera: CameraState;
@@ -77,6 +80,15 @@ type Props = Readonly<{
 function giveGlassPlan(r: HqRenderer | null, plan: GlassPlanData | null | undefined, stillWanted: () => boolean): void {
   if (!r || !plan) { if (r) r.stats.glassPlan = ''; return; }
   void import('./lib/hqGlassShader.ts').then((m) => { if (stillWanted()) m.applyPlan(r.glassHooks(), plan); }).catch(() => undefined);
+}
+
+let workLib: typeof import('./lib/hqWorkLayer.ts') | null = null;
+/** Hands the work plan to the renderer; the layer (its own lazy chunk) is fetched only when the plan has something to draw. */
+function giveWork(r: HqRenderer | null, plan: WorkLayerPlan | null | undefined, stillWanted: () => boolean): void {
+  if (!r) return;
+  const empty = !plan || (!plan.motions.length && !plan.racks.length);
+  if (empty) { workLib?.detachWork(r); return; }
+  void import('./lib/hqWorkLayer.ts').then((m) => { workLib = m; if (stillWanted()) m.setWork(r, r.workHooks(), plan); }).catch(() => undefined);
 }
 
 type Pointer = { x: number; y: number };
@@ -186,6 +198,7 @@ export function HqStage(props: Props) {
       renderer.current = r;
       setLiveRenderer(r);
       r.setReducedMotion(propsRef.current.reducedMotion);
+      giveWork(r, propsRef.current.work, () => true);
       r.setCamera(live.current);
       r.setNight(nightNow.current);
       if (propsRef.current.scene) r.setScene(propsRef.current.scene);
@@ -205,6 +218,7 @@ export function HqStage(props: Props) {
       resizeObserver?.disconnect();
       stopKeepOut?.();
       if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
+      if (created) workLib?.detachWork(created);
       created?.dispose();
       renderer.current = null;
       setLiveRenderer(null);
@@ -216,6 +230,8 @@ export function HqStage(props: Props) {
 
   useEffect(() => { renderer.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
   useEffect(() => { if (scene) renderer.current?.setScene(scene); }, [scene]);
+  const work = props.work;
+  useEffect(() => { giveWork(renderer.current, work, () => propsRef.current.work === work); }, [work]);
   // The revision of the plan atlas the scene asks for (the drawn one is `data-glass-plan`): a layout or presence change moves it.
   useEffect(() => {
     const plan = props.glassPlan;

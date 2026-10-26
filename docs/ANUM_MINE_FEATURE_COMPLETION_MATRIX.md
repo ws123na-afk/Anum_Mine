@@ -70,6 +70,8 @@ Counts per status are in the last section ("Totals"), computed from the tables i
 | 2.9 | Ambient scenery motion (traffic loops, water ripples, tree and flag sway, drifting clouds, window light drift, rooftop beacon) that never implies people or work | Complete | Read, Ran, CI | `hqAssets/environment/scenery.ts`, `lib/hqSceneryLayer.ts`, `lib/hqThreeRenderer.ts`; `docs/ANUM_MINE_HQ_SCENERY_MOTION.md`; `test/hqSceneryMotion.test.ts`, `e2e/hq-exterior-look.spec.ts` | Off by default on a software renderer; a real GPU run for frame cost is missing (3.10). Person and agent movement is a separate, record backed system and is not part of this row |
 | 2.10 | Photographic look and quality tiers: procedural PBR materials, baked and screen space occlusion, contact shadows, camera fitted shadow, point lights, light shafts, depth of field, AgX grade, roof and window detail, a tier ladder with a pin for the top tier | Partial | Read, Ran, CI | `lib/hqQualityTier.ts`, `lib/hqPbrTextures.ts`, `lib/hqBakedAo.ts`, `lib/hqDetailPass.ts`, `lib/hqLightRig.ts`, `lib/hqPhotoShaders.ts`, `lib/hqSceneFx.ts`, `lib/hqCampusFx.ts`, `lib/hqPhotoFx.ts`; `docs/ANUM_MINE_HQ_PHOTOREAL.md`; unit tests `test/hqQualityTier.test.ts` and five more, `e2e/hq-photoreal.spec.ts` | Top tier checked on a software rasteriser for single frames only; real GPU frame cost and look are not verified (owner: pin `anum.hq.quality` = 4 and read `__anumHqBench`). No bevels, window reveals or instanced vegetation variety; contact discs not on interior floors |
 | 2.10 | What is seen through the glass is that building's real floors and rooms, and the shell follows the floor plans | Partial | Read, Ran | Plan atlas `lib/hqPlanAtlas.ts`, shell from the plans `hqAssets/exterior/planShell.ts`, frame and keys `lib/hqPlanFrame.ts`, interior-mapped shader `lib/hqGlassShader.ts`, wiring `CampusView.tsx`, `campusRegistry.registryPlans`; `test/hqGlassPlan.test.ts`, `e2e/hq-glass-plan.spec.ts`; [glass plan](ANUM_MINE_HQ_GLASS_PLAN.md) | Parallax is on the hardware path (switched on by hand in the sandbox); a software rasteriser reads one texel. Not verified on a real GPU. Room rotation is not in the scene projection yet. No cross-dissolve to the opened building: that is a separate scene |
+| 2.11 | Ambient traffic with a bus and a tyre flatbed on the ring road and the roundabout, wheels that turn, headlight pools at dusk; nothing in it implies work or people | Complete | Read, Ran | `hqAssets/environment/scenery.ts`, `sceneryVehicle.ts`, `lib/hqSceneryLayer.ts`; `docs/ANUM_MINE_HQ_CAMPUS_MOTION.md`; `test/hqCampusMotion.test.ts`, `e2e/hq-campus-motion.spec.ts` | Off by default on a software renderer, as in 2.9; frame cost on a real GPU is not measured (3.10). The roundabout loop appears once the centre plaza with its roundabout has landed |
+| 2.12 | Work motion on the campus (a vehicle drives into a building's yard, a tyre rolls onto a rack) started only by a stored record, each with a "Because" line, bounded in time, one animation per event type, "Not connected" with the feed off | Partial | Read, Ran | `lib/hqWorkMotion.ts`, `HqCampusWork.tsx`, `lib/hqWorkLayer.ts`, `lib/hqTyreFeed.ts`; `docs/ANUM_MINE_HQ_CAMPUS_MOTION.md`; `test/hqCampusMotion.test.ts`, `e2e/hq-campus-motion.spec.ts` | Sources are presence totals, the live flow and the Tyre Pulse alert and last inspection date of the open workspace. Tyre Pulse inspections have a date, not a time, and only the open workspace's feed is readable; per-event Tyre Pulse timestamps would need a read-only API field. Not run on a real GPU |
 
 ## Section 3. 3D engine
 
@@ -305,16 +307,16 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 
 ## Totals
 
-Rows counted: 148 (sections 1 to 14).
+Rows counted: 151 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
-| Complete | 110 |
-| Partial | 34 |
+| Complete | 111 |
+| Partial | 36 |
 | Missing | 3 |
 | Not applicable | 1 |
-| Total | 148 |
+| Total | 151 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 103, Partial 27, Missing 3, Not applicable 1 (total 134). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 4.11 by the label work).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 104, Partial 29, Missing 3, Not applicable 1 (total 137). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 4.11 by the label work, rows 2.11 and 2.12 by the campus motion work).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.

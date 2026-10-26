@@ -1,0 +1,12 @@
+/* Why something moves at a building, and why a feed is off (docs/ANUM_MINE_HQ_CAMPUS_MOTION.md). Colour is never the only signal: the words carry it. */
+.hqBuildingCard .hqWorkLine { display: block; margin-block-start: 2px; font-size: 0.72rem; line-height: 1.25; max-inline-size: 22ch; white-space: normal; }
+.hqBuildingCard .hqWorkLine[data-work] { color: var(--hq-ok, #7fd6c2); font-weight: 600; }
+.hqBuildingCard .hqWorkLine[data-work]::before { content: ""; display: inline-block; inline-size: 0.5em; block-size: 0.5em; margin-inline-end: 0.4em; border-radius: 50%; background: currentColor; }
+.hqBuildingCard .hqWorkLine[data-feed] { opacity: 0.8; font-style: italic; }
+@media (prefers-reduced-motion: no-preference) {
+  .hqBuildingCard .hqWorkLine[data-work]::before { animation: hqWorkPulse 1.4s ease-in-out infinite; }
+}
+@keyframes hqWorkPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+/* The label placer may shrink a card to its compact density, which hides the small lines; the reason a building moves, and why a feed is off, stay readable. */
+.hqLabelAnchor[data-density="compact"] .hqLabelText small.hqWorkLine { display: block; }
