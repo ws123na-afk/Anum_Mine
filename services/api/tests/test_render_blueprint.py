@@ -428,6 +428,17 @@ def test_shared_realm_has_no_seeded_users_or_dev_redirects() -> None:
     assert "anum-dev-only-password" not in json.dumps(realm)
 
 
+def test_shared_realm_uses_the_login_theme_and_the_plain_brand_name() -> None:
+    source = json.loads(REALM.read_text(encoding="utf-8"))
+    realm = _realm_module().shared_realm(source)
+    # The development realm says so on its sign-in page; a shared one must not.
+    assert source["displayName"] == "ANUM (local development)"
+    assert realm["displayName"] == "ANUM"
+    for key in ("loginTheme", "internationalizationEnabled", "supportedLocales", "defaultLocale"):
+        assert realm[key] == source[key]
+    assert realm["loginTheme"] == "anum" and realm["supportedLocales"] == ["en", "ar"]
+
+
 def test_realm_script_writes_the_import_file(tmp_path: Path) -> None:
     target = tmp_path / "anum-realm.json"
     assert _realm_module().main([str(REALM), str(target)]) == 0
