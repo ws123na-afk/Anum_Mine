@@ -11,6 +11,7 @@ import { buildCampusScene } from './lib/campusScene.ts';
 import { layoutKey, planSize, type PlanInput } from './lib/hqPlanFrame.ts';
 import type { GlassPlanData } from './lib/hqPlanAtlas.ts';
 import type { PlannedSize } from './lib/campusModel.ts';
+import type { BillboardFlow } from './hq-billboards/billboardModel.ts';
 import {
   buildingStatus, campusTotals, layoutCampus, readingOrder, stepBuilding,
   type Campus, type CampusBuilding, type CampusBuildingKind, type StatusKey,
@@ -45,6 +46,8 @@ export type CampusViewProps = Readonly<{
    * drawn from its plans (footprint, storeys, the rooms behind its glass); any other building keeps the generic look.
    */
   plans?: ReadonlyMap<string, PlanInput>;
+  /** The live flow read of the open workspace (open work on the billboards); without it the billboards say "Not connected". */
+  flow?: BillboardFlow | null;
   unreported: readonly StatusKey[];
   view: Exclude<HqView, 'list'>;
   night: boolean;
@@ -100,6 +103,15 @@ export function CampusView(props: CampusViewProps) {
     return buildCampusScene(placements);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placements, kit, layoutSig]);
+  // The billboards (docs/ANUM_MINE_HQ_BILLBOARDS.md) are a lazy chunk of their own, fetched once a campus has buildings.
+  const [bb, setBb] = useState<typeof import('./hq-billboards/index.ts') | null>(null);
+  useEffect(() => {
+    if (bb || !campus.buildings.length) return;
+    let live = true;
+    void import('./hq-billboards/index.ts').then((m) => { if (live) setBb(m); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [bb, campus.buildings.length]);
+  const boards = useMemo(() => (bb ? bb.billboardLayer(scene, placements) : null), [bb, scene, placements]);
   const atlasCache = useRef<GlassPlanData | null>(null);
   const glassPlan = useMemo(() => {
     if (!kit || !plans || !sizes.size) { atlasCache.current = null; return null; }
@@ -155,10 +167,11 @@ export function CampusView(props: CampusViewProps) {
     else select(id);
   }, [select]);
 
-  const targets: PickTarget[] = useMemo(() => scene.buildings.map((b) => ({ id: b.workspaceId, box: b.box })), [scene]);
+  const buildingTargets: PickTarget[] = useMemo(() => scene.buildings.map((b) => ({ id: b.workspaceId, box: b.box })), [scene]);
+  const targets: PickTarget[] = useMemo(() => (boards ? [...buildingTargets, ...boards.picks] : buildingTargets), [buildingTargets, boards]);
   const homeNow = useRef(home);
   homeNow.current = view === 'top' ? topView(home) : home;
-  const boxes = useMemo(() => targets.map((x) => x.box), [targets]);
+  const boxes = useMemo(() => buildingTargets.map((x) => x.box), [buildingTargets]);
   // The controller reads the latest values through a ref, so it attaches once and a refresh of the campus never stops a flight.
   const controller = useRef({ boxes, frameOf, ground: scene.groundRadius });
   controller.current = { boxes, frameOf, ground: scene.groundRadius };
@@ -168,13 +181,14 @@ export function CampusView(props: CampusViewProps) {
   }), [props.nav]);
   // The lettering on the entrance signs is the real building name over the wordmark; the last cell is the gate.
   const renderScene = useMemo(() => ({
-    opaque: [{ id: 'scenery', vertices: scene.scenery.vertices, bounds: scene.scenery.bounds, cull: false }, ...scene.buildings.map((b) => ({ id: b.workspaceId, vertices: b.mesh.vertices, bounds: b.mesh.bounds }))],
+    opaque: [{ id: 'scenery', vertices: scene.scenery.vertices, bounds: scene.scenery.bounds, cull: false }, ...scene.buildings.map((b) => ({ id: b.workspaceId, vertices: b.mesh.vertices, bounds: b.mesh.bounds })),
+      ...(boards ? [{ id: 'billboards', vertices: boards.mesh.vertices, bounds: boards.mesh.bounds }] : [])],
     glass: [],
     signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: sceneName(byId.get(b.workspaceId) ?? { name: '' }, locale), fontsReady }))],
     shadow: scene.shadow,
-    halos: scene.halos,
+    halos: boards ? new Float32Array([...scene.halos, ...boards.mesh.halos]) : scene.halos,
     scenery: scene.motion,
-  }), [scene, byId, locale, fontsReady]);
+  }), [scene, boards, byId, locale, fontsReady]);
 
   // A phone-sized stage has room for two full cards and a handful of compact ones.
   const compact = useNavLayout().layout.compact;
@@ -201,7 +215,13 @@ export function CampusView(props: CampusViewProps) {
       node: <div className="hqMonumentLabel" aria-hidden="true"><strong>ANUM MINE</strong><small>{t('hq.monument.sub')}</small></div>,
     });
     return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, byId, selectedId, props.currentWorkspaceId, props.avatars, props.departments, density, activate]);
+  // The billboards are a separate pass (HqStage `extraLabels`): they can never move, hide or park a building card.
+  const extraLabels: StageLabel[] = useMemo(() => (boards && bb ? bb.billboardLabels({
+    layer: boards, buildings: byId, plans, flow: props.flow, selectedId, hoverId: hover, near: camera.distance <= Math.min(110, home.distance * 0.75), now: Date.now(),
+    onActivate: activate, onOpen: (id) => latest.current.onEnter(id), onHover: setHover,
+  }) : []), [boards, bb, byId, plans, props.flow, selectedId, hover, camera.distance <= Math.min(110, home.distance * 0.75), locale, activate]);
 
   const onView = useCallback((cam: CameraState, aspect: number) => {
     const now = performance.now();
@@ -217,14 +237,14 @@ export function CampusView(props: CampusViewProps) {
 
   return (
     <>
-    <div className="hqSceneWrap" ref={wrap}>
+    <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0}>
       <HqStage
         label={t('hq.campus.stageLabel')} description={t('hq.campus.stageHelp')}
         scene={renderScene} glassPlan={glassPlan} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
         onCamera={(c) => setCamera(clampTarget(c, scene.groundRadius * 0.8))} night={night} reducedMotion={props.reducedMotion}
         hoverId={hover} selectedId={selectedId} onHover={setHover}
         onPick={(id) => { if (id) activate(id); else props.onSelect(null); }}
-        labels={labels} labelKeepOut="[data-keepout]" onView={onView} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
+        labels={labels} labelKeepOut="[data-keepout]" extraLabels={extraLabels} extraKeepOut=".hqDetail, .hqOverlayRight, .hqOverlayBottomLeft, .hqOverlayBottomRight, .hqOverlayBottom > *" onView={onView} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
       />
       <div className="hqOverlay hqOverlayRight" data-keepout="">
         <CameraTools
