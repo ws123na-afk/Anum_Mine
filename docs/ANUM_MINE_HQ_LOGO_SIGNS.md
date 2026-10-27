@@ -70,7 +70,7 @@ Every change writes one audit record (`office.building.logo_set`, `office.buildi
 
 ### Dependency
 
-The API gained one direct dependency, **Pillow 12.3.0** (HPND licence, ships wheels), pinned exactly in `services/api/pyproject.toml` like every direct dependency. It is the only decoder used on an upload, with the formats limited to the sniffed one (`formats=[...]`) and the pixel limits applied before decoding. `docs/files.md` still holds for file text extraction (pypdf and defusedxml, no Pillow).
+The API gained one direct dependency, **Pillow 13.0.0** (HPND licence, ships wheels), pinned exactly in `services/api/pyproject.toml` like every direct dependency. It is the only decoder used on an upload, with the formats limited to the sniffed one (`formats=[...]`) and the pixel limits applied before decoding. `docs/files.md` still holds for file text extraction (pypdf and defusedxml, no Pillow).
 
 ## Security review
 
