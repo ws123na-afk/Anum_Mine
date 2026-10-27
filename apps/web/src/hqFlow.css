@@ -24,9 +24,10 @@
 @media(prefers-reduced-motion:reduce){.hqFlowMarker{transition:none!important}.hqFlowMarker[data-travel=no] i{animation:none}}
 
 /* ---- dock ---- */
-.hqFlowDock{position:absolute;z-index:3;left:12px;right:12px;bottom:34px;max-height:min(40%,380px);display:flex;flex-direction:column;
- background:var(--hqf-panel);border:1px solid var(--hqf-line);border-radius:12px;box-shadow:0 10px 30px #0008;overflow:hidden;color:var(--hq-text)}
-.hqFlowBar{display:flex;align-items:center;gap:10px;padding:4px 10px 4px 4px;min-width:0}
+/* A thin status bar in the page flow, under the quick views. Opened, its list is a sheet that rises from the bar over the page (the person asked for it); it never lives over the scene while closed. */
+.hqFlowDock{display:flex;flex-direction:column;min-width:0;
+ background:var(--hqf-panel);border:1px solid var(--hqf-line);border-radius:12px;color:var(--hq-text)}
+.hqFlowBar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--d-s1) var(--d-s2);padding:2px var(--d-s2) 2px 2px;min-width:0}
 .hqLive .hqFlowToggle{flex:1;min-width:0;display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:8px 10px;
  text-align:start;min-height:40px;font-size:var(--text-xs)}
 .hqFlowToggle strong{white-space:nowrap}
@@ -35,7 +36,8 @@
 .hqFlowLink[data-link=live]::before{content:"";width:7px;height:7px;border-radius:50%;background:#4bd6bc}
 .hqFlowLink[data-link=polling]::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--hqf-warn)}
 .hqFlowLive{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.hqFlowBody{overflow-y:auto;padding:4px 12px 12px;min-height:0;border-top:1px solid #28485a}
+.hqFlowBody{overflow-y:auto;padding:4px 12px 12px;min-height:0}
+.hqFlowDock[data-open="true"] .hqFlowBody{position:absolute;z-index:10;inset-inline:0;bottom:100%;max-height:min(60dvh,420px);background:var(--hqf-panel);border:1px solid var(--hqf-line);border-bottom:0;border-radius:12px 12px 0 0;box-shadow:0 -10px 30px #0006}
 .hqFlowH{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0 6px;font-size:var(--text-sm);font-weight:700}
 .hqFlowH span{font-weight:500;font-size:var(--text-2xs);color:#b4cbd4}
 .hqFlowGroup h4{margin:8px 0 4px;font-size:var(--text-xs);color:#c9dde3}
@@ -95,10 +97,9 @@
 .hqTeamSkills li small{color:#aac4cd;font-size:var(--text-2xs);margin-inline-start:3px}
 .hqTeamActions{display:flex;gap:10px;flex-wrap:wrap}
 
-@media(max-width:950px){.hqFlowDock{left:8px;right:8px;max-height:min(58%,420px)}}
-@media(max-width:700px){.hqFlowDock{bottom:78px}}
 @media(max-width:580px){
- .hqFlowSummary{display:none}
+ .hqFlowSummary{white-space:normal;flex:1 1 8rem}
+ .hqLive .hqFlowToggle{flex:1 1 100%}
  .hqFlowList{grid-template-columns:1fr}
 }
 

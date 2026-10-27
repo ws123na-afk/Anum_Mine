@@ -35,7 +35,7 @@ Cards also keep clear of the controls drawn over the scene (the Back to campus c
 - **Back to campus card** (top left of the scene): the back button, the building name, the status dot and a facts row. It replaces the crumb and counters row above the scene; the building and floor controls stay there.
 - **Floor selector** (bottom right in a wide scene, above the camera bar in a medium one, left to the control bar above the scene in a narrow one): one button per floor, named with the stored floor name up to the first colon, and a switch for the stacked view. It does not replace the floor stepper, the floors rail or the All floors checkbox.
 - **Camera bar**: rotate left and right, floor below and above, Inside, Floor overview, **Pan** (new: dragging moves the scene sideways while it is on), zoom, full screen. Words show only where the scene is wide enough; the icons keep their names and tooltips.
-- **Live operations strip** (bottom left) and **Current flow strip** (top, beside the camera tools) show from 1340 px of scene width. Under that the same numbers are in the panels under the scene.
+- The **Live operations** and **Current flow** strips are docked widgets in the panels under the scene at every width (they are no longer drawn over the stage); same numbers and words as before ([page layout](ANUM_MINE_HQ_PAGE_LAYOUT.md)).
 - Full screen gives the scene the window height.
 
 These steps follow the width of the scene, not the window: `bindKeepOut` writes `data-s641`, `data-s700`, `data-s1340` and `data-s1600` on the scene. (A CSS size container was tried and dropped: it let the scene width stop depending on its content and moved the page columns.)

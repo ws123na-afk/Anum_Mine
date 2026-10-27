@@ -1,0 +1,32 @@
+// The panels beside the headquarters scene: what each says about its own live link and its data (docs/ANUM_MINE_HQ_PAGE_LAYOUT.md). hqPanels.ar.ts must have exactly these keys and placeholders (test/i18n.test.ts).
+import type { Message } from './types.ts';
+
+export const hqPanelsEn = {
+  'hqPanels.stale': 'Stale',
+  'hqPanels.staleHint': 'This was last confirmed a while ago. Treat it as out of date until it updates.',
+  'hqPanels.updated': 'Updated {time}',
+  'hqPanels.verified': 'Verified {time}',
+  'hqPanels.fold': 'Fold {name}',
+  'hqPanels.open': 'Open {name}',
+  'hqPanels.moves.purpose': 'Jump to a place or open a tool.',
+  'hqPanels.plan.purpose': 'The rooms of this floor. Pick one to open it.',
+  'hqPanels.people.purpose': 'Who sits where, as the office reports it.',
+  'hqPanels.status.purpose': 'Agents working, in meetings or idle, across the campus.',
+  'hqPanels.status.loading': 'Reading the campus.',
+  'hqPanels.status.failed': 'The campus could not be read: {reason}. Press Try again.',
+  'hqPanels.status.empty': 'No agent reports to this campus yet.',
+  'hqPanels.status.emptyAction': 'Add an agent',
+  'hqPanels.status.stale': 'Last verified at {time}. Treat these numbers as out of date.',
+  'hqPanels.denied': 'You cannot read the campus. Ask a workspace owner for the Member or Viewer role.',
+  'hqPanels.map.show': 'Show the campus map',
+  'hqPanels.map.hide': 'Hide the campus map',
+  'hqPanels.flow.polling': 'Checking every 8 s',
+  'hqPanels.name.office': 'The office',
+  'hqPanels.name.flow': 'Live flow',
+  'hqPanels.say.live': '{name} is live.',
+  'hqPanels.say.reconnecting': '{name} lost the live link and is trying again.',
+  'hqPanels.say.polling': '{name} now checks on a timer.',
+  'hqPanels.say.connecting': '{name} is connecting.',
+  'hqPanels.say.offline': '{name} is not connected.',
+  'hqPanels.say.denied': '{name} is not available for your role.',
+} as const satisfies Record<string, Message>;
