@@ -1,0 +1,12 @@
+/* Agent walkers (docs/ANUM_MINE_HQ_AGENT_WALKERS.md): the hover/tap targets over the figures and the status chip. The layer makes no stacking context of its own, so the building cards (z-index 1) always stay above a target and clickable, and a tooltip (z-index 4) is above them. The layer and the chip never take pointer events. */
+.hqWalkerLayer { inset: 0; overflow: hidden; pointer-events: none; position: absolute; }
+.hqWalkerPin { background: transparent; border: 0; border-radius: 50%; display: none; height: 28px; left: -14px; margin: 0; padding: 0; pointer-events: auto; position: absolute; top: -14px; width: 28px; }
+.hqWalkerPin:focus-visible { outline: 2px solid #fff; outline-offset: 1px; box-shadow: 0 0 0 4px rgba(18, 22, 28, .8); }
+.hqWalkerTip { background: var(--hq-glass, rgba(18, 22, 28, .9)); border: 1px solid var(--hq-glass-line, rgba(255, 255, 255, .2)); border-radius: 8px; bottom: 100%; color: var(--hq-glass-text, #fff); display: none; font-size: var(--text-xs); gap: 2px; inset-inline-start: 50%; line-height: 1.3; margin-bottom: 4px; max-width: min(260px, 70vw); padding: 6px 8px; position: absolute; text-align: start; transform: translateX(-50%); width: max-content; z-index: 4; }
+[dir="rtl"] .hqWalkerTip { transform: translateX(50%); }
+.hqWalkerPin:hover .hqWalkerTip, .hqWalkerPin:focus-visible .hqWalkerTip, .hqWalkerPin[data-open="true"] .hqWalkerTip { display: grid; }
+.hqWalkerChip { background: var(--hq-glass, rgba(18, 22, 28, .86)); border: 1px solid var(--hq-glass-line, rgba(255, 255, 255, .2)); border-radius: 999px; color: var(--hq-glass-text, #fff); font-size: var(--text-xs); inset-block-start: 8px; inset-inline-start: 8px; margin: 0; max-width: calc(100% - 16px); padding: 4px 10px; pointer-events: none; position: absolute; }
+.hqWalkerChip[data-off="true"] { color: var(--hq-glass-muted, #c8ced6); }
+@media (prefers-reduced-motion: reduce) { .hqWalkerPin { transition: none; } }
+.hqBuildingCard .hqWalkLine { display: block; font-weight: 600; line-height: 1.25; margin-block-start: 2px; max-inline-size: 22ch; white-space: normal; font-size: var(--text-xs); }
+.hqWalkerPin[data-flip="below"] .hqWalkerTip { bottom: auto; margin-bottom: 0; margin-top: 4px; top: 100%; }
