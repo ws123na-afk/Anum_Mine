@@ -20,7 +20,7 @@ export type BillboardLayer = Readonly<{ sites: readonly BoardSite[]; mesh: Billb
 /** The boards of a campus scene, in placement order. */
 export function billboardLayer(scene: CampusScene, placements: readonly Placement[]): BillboardLayer {
   const buildings = scene.buildings.map((b) => ({ workspaceId: b.workspaceId, box: b.box, door: b.door, signIndex: b.signIndex }));
-  const sites = boardSites({ placements, buildings, monument: scene.monument, extentRadius: scene.extent.radius, canalRadius: scene.canalRadius, signCount: scene.signCount });
+  const sites = boardSites({ placements, buildings, monument: scene.monument, extentRadius: scene.extent.radius, canalRadius: scene.canalRadius, signCount: scene.signCount, plaza: scene.plaza });
   return { sites, mesh: boardMesh(sites, buildings, scene.signCount), picks: sites.map((s) => ({ id: s.workspaceId, box: s.box })) };
 }
 

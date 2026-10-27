@@ -211,7 +211,7 @@ const fixture = () => ['a', 'b', 'c', 'd', 'e'].map((id, i) => mk(id, `Fake ${id
 test('a board stands in front of each building, clear of the buildings, walkways and plaza, and is the same every time', () => {
   const placements = layoutCampus(fixture());
   const scene = buildCampusScene(placements);
-  const ctx = { placements, buildings: scene.buildings.map((b) => ({ workspaceId: b.workspaceId, box: b.box, door: b.door, signIndex: b.signIndex })), monument: scene.monument, extentRadius: scene.extent.radius, canalRadius: scene.canalRadius, signCount: scene.signCount };
+  const ctx = { placements, buildings: scene.buildings.map((b) => ({ workspaceId: b.workspaceId, box: b.box, door: b.door, signIndex: b.signIndex })), monument: scene.monument, extentRadius: scene.extent.radius, canalRadius: scene.canalRadius, signCount: scene.signCount, plaza: scene.plaza };
   const sites = boardSites(ctx);
   assert.equal(sites.length, 5);
   assert.deepEqual(sites, boardSites(ctx));
@@ -225,7 +225,8 @@ test('a board stands in front of each building, clear of the buildings, walkways
       const inside = s.x > other.box.min.x && s.x < other.box.max.x && s.z > other.box.min.z && s.z < other.box.max.z;
       assert.ok(!inside, `board ${i} stands inside a building`);
     }
-    assert.ok(Math.hypot(s.x - scene.monument.x, s.z - scene.monument.z) > 16, `board ${i} stands on the plaza`);
+    assert.ok(Math.hypot(s.x - scene.plaza.center.x, s.z - scene.plaza.center.z) > scene.plaza.outer, `board ${i} stands on the plaza`);
+    for (const a of scene.plaza.avenues) { const dx = a.to[0] - a.from[0], dz = a.to[1] - a.from[1], l2 = dx * dx + dz * dz; const k = Math.max(0, Math.min(1, ((s.x - a.from[0]) * dx + (s.z - a.from[1]) * dz) / l2)); assert.ok(Math.hypot(s.x - a.from[0] - k * dx, s.z - a.from[1] - k * dz) > 3, `board ${i} stands on an avenue`); }
     assert.ok(Math.hypot(s.nx, s.nz) > 0.99);
     assert.equal(s.width, width);
   });
@@ -245,5 +246,5 @@ test('the billboards are a separate pass: only the focused building has a card u
   const src = readFileSync(new URL('../src/CampusView.tsx', import.meta.url), 'utf8');
   const labelsMemo = src.slice(src.indexOf('const labels: StageLabel[]'), src.indexOf('// The billboards are a separate pass'));
   assert.ok(labelsMemo.length > 200 && !/billboard|boards/i.test(labelsMemo), 'the main label list must not contain billboards');
-  assert.ok(/extraLabels=\{extraLabels\}/.test(src) && !/labelKeepOut/.test(src), 'billboards go to the extra pass; the campus keeps its own placement inputs');
+  assert.ok(/extraLabels=\{extraLabels\}/.test(src) && (src.match(/labelKeepOut="([^"]*)"/g) ?? []).join() === 'labelKeepOut="[data-keepout]"', 'billboards go to the extra pass; the campus keeps its own keep-out selector');
 });

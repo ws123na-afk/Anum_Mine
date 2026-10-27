@@ -13,7 +13,7 @@ different system, backed by presence records (see [presence and campus](ANUM_MIN
 
 | Motion | How it is drawn | Cost |
 |---|---|---|
-| Traffic: up to 18 cars, SUVs and vans on two lanes of the ring road, keeping right | One instanced mesh in three parts (paint, dark trim, head and tail lights), matrices written per frame into preallocated objects (`lib/hqSceneryLayer.ts`). Pose is a pure function of the scene clock (`hqAssets/environment/scenery.ts`). One speed per lane, so no vehicle catches another | about 120 triangles per vehicle, one draw call per part |
+| Traffic: up to 18 cars, SUVs and vans on two lanes of the ring road, keeping right, and up to 3 more on one lane round the [centre plaza](ANUM_MINE_HQ_CENTER_PLAZA.md) roundabout | One instanced mesh in three parts (paint, dark trim, head and tail lights), matrices written per frame into preallocated objects (`lib/hqSceneryLayer.ts`). Pose is a pure function of the scene clock (`hqAssets/environment/scenery.ts`). One speed per lane, so no vehicle catches another | about 120 triangles per vehicle, one draw call per part |
 | Water: swell, rings from the fountain and ponds, a few glints on the sun side | Fragment shader on the water class; up to four ripple sources come from the campus plan | none beyond the water pixels |
 | Trees and fronds sway, flags and pennants ripple | Surface classes `foliage` and `cloth` (`MAT.foliage`, `MAT.cloth`); a vertex shader offsets by height and phase. A flag's `u` texture coordinate is its distance from the pole | vertex work only |
 | Clouds drift across the sky | Noise in the sky dome shader; cover and tint follow day, blue hour and night | sky pixels only |

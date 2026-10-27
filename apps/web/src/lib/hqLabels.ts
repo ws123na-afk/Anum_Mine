@@ -26,6 +26,8 @@ export type LabelInput = Readonly<{
   id: string; anchor: Vec3; maxDistance?: number; priority?: number;
   /** The densities this label may take, richest first. Without it the label is always a full card that may be pushed aside. */
   tiers?: readonly Density[];
+  /** A way into the scene (a building card): never hidden for lack of room; with no free spot it takes its smallest density on the least covered spot. */
+  keep?: boolean;
   /** Solid boxes (floor slabs above the label) that hide the label while they stand between the eye and its anchor. */
   occluders?: readonly Aabb[];
   /** Other anchors for the same label (a floor tag sits on the edge of the floor nearest the eye). */
@@ -167,10 +169,10 @@ export function layoutLabels(
       // No free spot. Building and room cards are the way into the scene, so they stay (on the least covered spot);
       // only the secondary agent cards give way, and so does a crowded label that has a dot to fall back on.
       if (options.squeeze && adaptive) { set(item, home.x, home.y, { w, h }, density, 0); done = true; break; }
-      if ((item.input.priority ?? 1) >= 2 || (adaptive && (item.input.priority ?? 1) >= 1)) { out.set(item.input.id, { id: item.input.id, x: home.x, y: home.y, depth: item.depth, shown: false, shifted: 0, density, occluded: false, crowded: true }); done = true; break; }
+      if ((item.input.priority ?? 1) >= 2 || (adaptive && !item.input.keep && (item.input.priority ?? 1) >= 1)) { out.set(item.input.id, { id: item.input.id, x: home.x, y: home.y, depth: item.depth, shown: false, shifted: 0, density, occluded: false, crowded: true }); done = true; break; }
       const area = (x: number, y: number) => placed.reduce((sum, q) => sum + Math.max(0, Math.min(x + w / 2, q.x1) - Math.max(x - w / 2, q.x0)) * Math.max(0, Math.min(y, q.y1) - Math.max(y - h, q.y0)), 0);
       const best = spots.filter((c) => inside(c.x, c.y)).sort((p, q) => area(p.x, p.y) - area(q.x, q.y) || p.cost - q.cost)[0] ?? home;
-      set(item, best.x, best.y, { w, h }, adaptive ? tiers[0] : density, 0);
+      set(item, best.x, best.y, { w, h }, adaptive ? tiers[item.input.keep ? lastIndex : 0] : density, 0);
       done = true;
     }
   }

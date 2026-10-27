@@ -34,6 +34,8 @@ export type SiteContext = Readonly<{
   /** Radius of the canal ring (the edge of the usable campus), or 0. */
   canalRadius: number;
   signCount: number;
+  /** The centre (`CampusScene.plaza`): the plaza and roundabout radius, the walkways to the doors and the avenues. Boards keep clear of all of it. */
+  plaza?: Readonly<{ outer: number; spokes: ReadonlyArray<Readonly<{ points: ReadonlyArray<readonly [number, number]> }>>; avenues: ReadonlyArray<Readonly<{ from: readonly [number, number]; to: readonly [number, number] }>> }>;
   /** Extra round areas the boards keep out of (plaza, fountain), as x, z, radius. */
   avoid?: ReadonlyArray<readonly [number, number, number]>;
 }>;
@@ -78,7 +80,13 @@ export function boardSites(ctx: SiteContext): BoardSite[] {
   const height = width / 4;
   const clearance = 3;
   const monument = ctx.monument;
-  const walkTarget: [number, number] = [monument.x, monument.z + 10];
+  const plazaR = ctx.plaza ? ctx.plaza.outer + 2 : PLAZA_CLEAR;
+  // Every path on the ground as a segment with the clearance a post needs: the walkways, the avenues, and the old straight walk when no plaza is given.
+  const paths: Array<[number, number, number, number, number]> = [];
+  if (ctx.plaza) {
+    for (const sp of ctx.plaza.spokes) for (let i = 0; i + 1 < sp.points.length; i++) paths.push([sp.points[i][0], sp.points[i][1], sp.points[i + 1][0], sp.points[i + 1][1], 3]);
+    for (const a of ctx.plaza.avenues) paths.push([a.from[0], a.from[1], a.to[0], a.to[1], 6]);
+  } else for (const b of ctx.buildings) paths.push([b.door.x, b.door.z, monument.x, monument.z + 10, 3.4]);
   const ring = ctx.extentRadius > 30 ? Math.max(26, ctx.extentRadius * 0.62) : 0;
   const limit = ctx.canalRadius > 0 ? ctx.canalRadius - 10 : Infinity;
   const sites: BoardSite[] = [];
@@ -107,12 +115,12 @@ export function boardSites(ctx: SiteContext): BoardSite[] {
       for (let u = -width / 2; u <= width / 2 + 1e-6; u += width / 4) {
         const sx = cx + rx * u, sz = cz + rz * u;
         if (ctx.buildings.some((other) => sx > other.box.min.x - 2 && sx < other.box.max.x + 2 && sz > other.box.min.z - 2 && sz < other.box.max.z + 2)) bad += 100;
-        if (Math.hypot(sx - monument.x, sz - monument.z) < PLAZA_CLEAR) bad += 100;
+        if (Math.hypot(sx - monument.x, sz - monument.z) < plazaR) bad += 100;
         if ((ctx.avoid ?? []).some(([ax, az, ar]) => Math.hypot(sx - ax, sz - az) < ar + 1.5)) bad += 100;
         if (Math.hypot(sx, sz) > limit) bad += 100;
         // The board stands on posts three metres up, so only its two posts and its middle have to clear the paths on the ground.
         if (Math.abs(u) < width / 2 - 1.5 && Math.abs(u) > 1e-6) continue;
-        if (ctx.buildings.some((b) => distToSegment(sx, sz, b.door.x, b.door.z, walkTarget[0], walkTarget[1]) < 3)) bad += 1;
+        if (paths.some(([x0, z0, x1, z1, clear]) => distToSegment(sx, sz, x0, z0, x1, z1) < clear)) bad += 1;
         if (ring > 0 && Math.abs(Math.hypot(sx, sz) - ring) < 2.5) bad += 1;
       }
       if (sites.some((s) => Math.hypot(s.x - cx, s.z - cz) < width + 1)) bad += 100;

@@ -63,7 +63,8 @@ describe('floor plans of a registry building', () => {
     const b = (id: string, kind: CampusBuilding['kind']): CampusBuilding => ({ workspace_id: id, tenant_id: 't', name: id, kind, icon: null, floors: 3, accessible: true, totals: null, presence_verified_at: null });
     const list = [b('a', 'executive'), b('b', 'business'), b('c', 'department')];
     assert.deepEqual(layoutCampus(list), layoutCampus(list, new Map()));
-    assert.equal(layoutCampus(list)[0].width, 15);
+    // The executive building is laid out at the footprint its asset really has (30 by 26), not the old 15 by 15 stand-in.
+    assert.equal(layoutCampus(list)[0].width, 30);
   });
   test('real footprints widen the rings so planned buildings never overlap', () => {
     const b = (id: string, kind: CampusBuilding['kind']): CampusBuilding => ({ workspace_id: id, tenant_id: 't', name: id, kind, icon: null, floors: 3, accessible: true, totals: null, presence_verified_at: null });
