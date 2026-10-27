@@ -215,7 +215,7 @@ export function buildCampusScene(placements: readonly Placement[], options: Camp
     shadow: { center: { x: 0, y: 0, z: 0 }, radius: ringHalf * 1.2 + 6 },
     halos: new Float32Array([...s.halos, ...buildingHalos]),
     motion: {
-      ...trafficPlan({ cx: 0, cz: 0, halfW: ringHalf, halfD: ringHalf, cornerRadius: 16 }, { seed: 'anum-mine', roundabout: { cx: 0, cz: 0, radius: PLAZA.roadCentre } }),
+      ...trafficPlan({ cx: 0, cz: 0, halfW: ringHalf, halfD: ringHalf, cornerRadius: 16 }, { seed: 'anum-mine', rich: true, roundabout: { cx: 0, cz: 0, radius: PLAZA.roadCentre } }),
       ripples: ripplesOf([{ x: 0, z: 0, r: PLAZA.basin }, ...ponds.map(([x, z, r]) => ({ x, z, r }))]),
     },
   };
