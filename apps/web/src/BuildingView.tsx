@@ -10,10 +10,10 @@ import { useFlowLabels } from './HqFlowStage';
 import { ArrowLeft, ChevronDown, DoorOpen, Layers } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-const SceneBackCard = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.SceneBackCard })));
-const FloorSelector = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.FloorSelector })));
 const LiveOpsStrip = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.LiveOpsStrip })));
 const FlowStrip = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.FlowStrip })));
+const SceneBackCard = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.SceneBackCard })));
+const FloorSelector = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.FloorSelector })));
 const CommercePanels = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.CommercePanels })));
 const FloorRooms = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.FloorRooms })));
 const TyrePanel = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.TyrePanel })));
@@ -369,15 +369,7 @@ export function BuildingView(props: BuildingViewProps) {
         node: <AgentLabelCard offShift={deskShiftLine(desk.shiftInfo, p ? WORK_STATUSES.has(p.status) : false)} chip={hidden ? null : { id: key, avatar: props.agentStyles?.get(key)?.avatar ?? null, department: props.agentStyles?.get(key)?.department ?? p?.role ?? null }} name={hidden ? t('hq.agent.private') : (p?.name || desk.agent?.name || t('hq.agent.assigned'))} role={p?.role ? roleText(p.role) : null} status={p?.status ?? null} stale={p?.stale === true} selected={key === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(key, desk)} />,
       });
     }
-    const wallRoomId = props.selectedRoomId ?? insideRoomId;
-    if (props.wall && wallRoomId) {
-      const room = roomById.get(wallRoomId);
-      const handle = roomHandle.get(wallRoomId);
-      if (room && handle && props.wall.isOperations(room)) {
-        // The board hangs where the room's video wall is: on the back wall, so the Inside view looks straight at it.
-        list.push({ id: 'wall:' + room.id, anchor: { x: (handle.box.min.x + handle.box.max.x) / 2, y: handle.box.min.y + 1.7, z: handle.box.min.z + 0.5 }, priority: 0, maxDistance: 220, node: <Suspense fallback={null}><HqCommandWall model={props.wall.model} variant="scene" onReload={props.wall.onReload} /></Suspense> });
-      }
-    }
+    // The operations wall is not drawn over the scene: its numbers are in the docked room panel and the building panels below (and on the room's own 3D wall screen).
     return [...list, ...flowLabels];
   }, [roomById, insideRoomId, props.wall, scene, floor, floors, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels, overview, stacked, stackLib]);
 
@@ -459,9 +451,6 @@ export function BuildingView(props: BuildingViewProps) {
             />
           </Suspense>
         </div>
-        <div className="hqOverlay hqOverlayFlow" data-keepout="">
-          <Suspense fallback={null}><FlowStrip snapshot={props.flow?.snapshot} /></Suspense>
-        </div>
         <div className="hqOverlay hqOverlayRight" data-keepout="">
           <CameraTools
             yaw={camera.yaw} night={night} onNight={props.onNight}
@@ -470,9 +459,6 @@ export function BuildingView(props: BuildingViewProps) {
           />
         </div>
         <div className="hqOverlay hqOverlayBottom hqDock" data-keepout="">
-          <div className="hqDockOps">
-            <Suspense fallback={null}><LiveOpsStrip totals={agents} unreported={props.unreported} snapshot={props.flow?.snapshot} /></Suspense>
-          </div>
           <div className="hqDockTools">
           <BottomToolbar
             inside={{ active: inside, disabled: !selectedRoom || view === 'top', onToggle: toggleInside }}
@@ -495,6 +481,10 @@ export function BuildingView(props: BuildingViewProps) {
       {overview && floor.rooms.length > 0 && <Suspense fallback={null}><FloorRooms floor={floor} has={(d) => !!presenceForDesk(presence, d)} selectedRoomId={props.selectedRoomId} onPick={pickRoom} onLeave={() => props.onOverview(false)} /></Suspense>}
 
       <div className="hqBottomPanels">
+        <div className="hqLiveRow">
+          <Suspense fallback={null}><LiveOpsStrip totals={agents} unreported={props.unreported} snapshot={props.flow?.snapshot} /></Suspense>
+          <Suspense fallback={null}><FlowStrip snapshot={props.flow?.snapshot} /></Suspense>
+        </div>
         <TotalsPanel
           title={t('hq.team.title')} totals={agents} unreported={props.unreported} compact verifiedAt={props.verifiedAt}
           note={presence && agents && agents.agents === 0 ? t('hq.team.none') : null}

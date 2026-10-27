@@ -98,7 +98,8 @@
 .hqTeamActions{display:flex;gap:10px;flex-wrap:wrap}
 
 @media(max-width:580px){
- .hqFlowSummary{white-space:normal}
+ .hqFlowSummary{white-space:normal;flex:1 1 8rem}
+ .hqLive .hqFlowToggle{flex:1 1 100%}
  .hqFlowList{grid-template-columns:1fr}
 }
 

@@ -27,7 +27,7 @@
 .hqRailText small { color: var(--d-muted); font-size: var(--text-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Side panel. */
-.hqNavSide, .hqNavSideBody { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: flex; flex-direction: column; gap: var(--d-s3); max-block-size: var(--hq-stage-h, 640px); min-width: 0; overflow: hidden auto; padding: var(--d-s3); position: relative; }
+.hqNavSide, .hqNavSideBody { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: flex; flex-direction: column; gap: var(--d-s3); max-block-size: calc(var(--hq-stage-h, 640px) + var(--hq-below, 0px)); min-width: 0; overflow: hidden auto; padding: var(--d-s3); position: relative; }
 .hqNavSideBody { background: transparent; border: 0; max-block-size: none; overflow: visible; padding: 0; }
 .hqSideToggle { align-self: flex-end; flex: none; }
 .hqNavSide > .hqSideToggle { margin-block-end: calc(var(--d-s2) * -1); }

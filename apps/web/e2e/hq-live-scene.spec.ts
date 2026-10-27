@@ -185,7 +185,9 @@ test('Inside: a low camera in the selected room, by button or keyboard, and Esca
   await expect(hq(page).getByRole('complementary', { name: /Room Alpha Command Room/ })).toHaveCount(0);
   await expect(inside).toHaveAttribute('aria-pressed', 'true');
   await expect(scene).toHaveAttribute('data-camera-distance', '0.05');
-  await expect(hq(page).locator('[data-testid="hq-wall-scene"]')).toBeVisible();
+  // Intentional change (page layout, docs/ANUM_MINE_HQ_PAGE_LAYOUT.md): the operations wall numbers are no longer an HTML board over the
+  // scene (they are in the docked room panel, the building panels and the room's own 3D wall screen), so nothing hangs over the stage.
+  await expect(hq(page).locator('[data-testid="hq-wall-scene"]')).toHaveCount(0);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/inside-panel-closed-1440x900.png` });
   // Rotating turns the view on the spot: the camera stays inside.
   await hq(page).getByRole('button', { name: 'Rotate right' }).click();

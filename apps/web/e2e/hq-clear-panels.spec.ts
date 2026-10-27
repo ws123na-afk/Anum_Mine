@@ -108,6 +108,9 @@ test('inside a building the room panel docks in the side column and the scene st
   const dock = (await box(page, '.hqLive .hqDetailDock'))!;
   const side = (await box(page, '.hqLive .hqNavSide'))!;
   expect(dock.x).toBeGreaterThanOrEqual(side.x - 1);
+  // Nothing but the scene's own controls hangs over the stage: no wall board, no operations or flow strips (they are docked under the scene), no floating room panel.
+  await expect(hq(page).locator('.hqSceneWrap [data-testid="hq-wall-scene"], .hqSceneWrap .hqOpsStrip, .hqSceneWrap .hqFlowStrip, .hqSceneWrap .hqSideOverlay')).toHaveCount(0);
+  await expect(hq(page).getByRole('region', { name: 'Live numbers for this building' })).toBeVisible();
 });
 
 test('narrow screens: the room panel sits under the scene, stage first', async ({ page }) => {

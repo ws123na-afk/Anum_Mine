@@ -39,6 +39,7 @@
 .hqCrumbs button:not(.hqBack) { appearance: none; background: none; border: 0; border-radius: 4px; box-shadow: none; color: var(--d-accent-text); cursor: pointer; min-height: 0; padding: 2px 4px; text-decoration: underline; }
 .hqHeadTools { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-inline-start: auto; }
 .hqHeadSlot { display: contents; }
+.hqHeadTools :is(.hqGhost, .hqSegment button) { padding-inline: var(--d-s2); }
 .hqConn { align-items: center; display: inline-flex; font-size: var(--text-xs); gap: 6px; }
 .hqConn::before { background: var(--tone, var(--hq-faint)); border-radius: 50%; content: ""; height: 8px; width: 8px; }
 .hqLive button { font-family: inherit; }

@@ -21,8 +21,8 @@ for (const locale of ['en', 'ar'] as const) {
         await expect(hq(page).locator('.hqBuildingCard').first()).toBeAttached({ timeout: 60_000 });
         if (level === 'building') {
           await hq(page).locator('.hqLabels').getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
-          await hq(page).getByRole('button', { name: 'Open Al Noor Fleet HQ' }).click();
-          await expect(hq(page).getByRole('button', { name: 'Back to campus' })).toBeVisible({ timeout: 30_000 });
+          await hq(page).locator('.hqDetail button.hqPrimary').click();
+          await expect(hq(page).locator('.hqNav[data-level="building"]')).toBeVisible({ timeout: 30_000 });
           await page.waitForTimeout(2500);
         }
         await page.waitForTimeout(3000);
@@ -32,4 +32,19 @@ for (const locale of ['en', 'ar'] as const) {
       });
     }
   }
+}
+
+for (const [w, h] of [[1440, 900], [390, 844]] as const) {
+  test(`${PREFIX} en room ${w}x${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await openHq(page, { stream: 'live', beforeGoto: async (p) => { await mockFlow(p); } });
+    await expect(hq(page).locator('.hqBuildingCard').first()).toBeAttached({ timeout: 60_000 });
+    await hq(page).locator('.hqLabels').getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
+    await hq(page).locator('.hqDetail button.hqPrimary').click();
+    await expect(hq(page).locator('.hqNav[data-level="building"]')).toBeVisible({ timeout: 30_000 });
+    await hq(page).locator('.hqLabels').getByRole('button', { name: /Customer Care|Alpha Room/ }).first().click();
+    await expect(hq(page).locator('.hqDetailDock')).toBeVisible({ timeout: 30_000 });
+    await page.waitForTimeout(2500);
+    await page.screenshot({ path: `${OUT}/${PREFIX}-en-room-${w}x${h}.png`, fullPage: true });
+  });
 }

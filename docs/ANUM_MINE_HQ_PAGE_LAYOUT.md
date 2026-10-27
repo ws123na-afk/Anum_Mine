@@ -24,6 +24,10 @@ status row: Total agents chips (when the side column is not open) and the Live f
 
 Heights come from three shared variables on `.hqNav` (`--hq-above`, `--hq-below`, `--hq-stage-h`), never a fixed height. The header buttons for the panels (`Hide side panels`, `Floors`, `Quick moves`) are portalled into the page header's tool row, so they cost the scene no row of their own.
 
+## Inside a building
+
+The stage holds only the 3D room, its room and floor labels, the Back card, the camera tools, the camera bar and the floor selector. The operations wall is not drawn over it: the selected room's panel (name, purpose, desks, live state, the wall) is docked at the top of the side column (under the scene on narrow screens), and the wall is also in the building panels below. The Live operations and Current flow strips are one docked row under the quick views, next to Team status; the in-progress and stuck counts are also in the Live flow bar.
+
 ## Panel by panel
 
 Every panel has one header (`PanelSection.tsx`): title, one line on what it is for, a live chip, and a fold button (`aria-expanded`, kept per browser under `anum.hq.nav.fold.<panel>`). A folded panel keeps its header and its status.
@@ -69,5 +73,5 @@ Short English; the Arabic strings (`hqPanels.ar.ts`) have the same keys and plac
 ## Not done
 
 - Panels that other workstreams own keep their own headers: the Executive assistant dock, the History panel, the Team dialog. They sit in the same places but do not yet carry the shared header or a live chip.
-- The Live operations strip and the Back card inside a building are still glass controls on the scene (they are scene controls, not panels); folding them into the status row is a later step.
+- The Back card, the floor selector and the camera bar inside a building stay glass controls on the scene (they are scene controls, not panels).
 - The campus totals refresh with the campus read (30 s); they are not driven by the presence stream.

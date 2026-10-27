@@ -52,9 +52,9 @@ export function OfficeStatus(props: OfficeStatusProps) {
 
   let body;
   if (!props.campus && props.issue?.denied) {
-    body = <p className="hqNote hqState" role="alert"><Lock aria-hidden="true" />{t('hqPanels.denied')}</p>;
+    body = <p className="hqNote hqState" role="status"><Lock aria-hidden="true" />{t('hqPanels.denied')}</p>;
   } else if (!props.campus && props.issue) {
-    body = <div className="hqState" role="alert"><p className="hqNote"><AlertTriangle aria-hidden="true" />{t('hqPanels.status.failed', { reason: props.issue.message })}</p><button type="button" className="hqGhost" onClick={props.onRetry}>{t('hq.retry')}</button></div>;
+    body = <div className="hqState" role="status"><p className="hqNote"><AlertTriangle aria-hidden="true" />{t('hqPanels.status.failed', { reason: props.issue.message })}</p><button type="button" className="hqGhost" onClick={props.onRetry}>{t('hq.retry')}</button></div>;
   } else if (!props.campus) {
     body = <p className="hqNote hqState hqSkeleton" role="status" aria-busy="true">{t('hqPanels.status.loading')}</p>;
   } else if (!totals) {
@@ -64,7 +64,7 @@ export function OfficeStatus(props: OfficeStatusProps) {
   } else if (props.variant === 'strip') {
     body = (
       <ul className="hqStatusChips">
-        <li className="hqStatusTotal"><strong>{totals.agents}</strong> <span>{t('hq.totals.agentsCap')}</span></li>
+        <li className="hqStatusTotal"><Donut totals={totals} size={32} /> <strong>{totals.agents}</strong> <span>{t('hq.totals.agentsCap')}</span></li>
         {shown.map((k) => <li key={k} className={`tone-${STATUS_TONE[k]}`}><span className="hqDot" aria-hidden="true" /><span>{statusLabel(k)}</span> <strong>{unreported.has(k) ? '-' : totals[k]}</strong></li>)}
       </ul>
     );

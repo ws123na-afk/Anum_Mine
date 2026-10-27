@@ -109,16 +109,12 @@
 .hqBuilding .hqDock { align-items: flex-end; bottom: var(--d-s3); display: grid; gap: 8px; grid-template-columns: 1fr; inset-inline: var(--d-s3); justify-content: stretch; pointer-events: none; }
 .hqDock > * { pointer-events: none; }
 .hqDock > * > * { pointer-events: auto; }
-.hqDockOps { display: none; gap: 8px; justify-self: start; }
 .hqDockTools { display: flex; justify-content: center; }
 .hqDockFloors { display: none; justify-content: flex-end; }
 .hqSceneWrap[data-s700="1"] .hqDockFloors { display: flex; order: -1; }
-.hqOverlayFlow { display: none; }
 /* The side panel stops above the Live operations strip. */
 .hqSceneWrap[data-s1340="1"] .hqSideOverlay { max-height: calc(100% - 96px - 112px); }
-.hqSceneWrap[data-s1340="1"] .hqOverlayFlow { display: block; inset-inline-end: 84px; top: var(--d-s3); }
 .hqSceneWrap[data-s1340="1"] .hqDock { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
-.hqSceneWrap[data-s1340="1"] .hqDockOps { display: flex; }
 .hqSceneWrap[data-s1340="1"] .hqDockFloors { order: 0; }
 .hqSceneWrap[data-s641="0"] .hqBackCard .hqFacts li:nth-child(n+4) { display: none; }
 .hqSceneWrap[data-s641="0"] .hqBackCard { padding: 6px 10px; }
@@ -159,3 +155,11 @@
 .hqLabelIcon[data-kind="warehouse"] { --hq-kind-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27black%27%20stroke-width=%271.8%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27M3%2010l9-6%209%206v9H3zM8%2019v-6h8v6%27/%3E%3C/svg%3E"); }
 .hqLabelIcon[data-kind="lounge"] { --hq-kind-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27black%27%20stroke-width=%271.8%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27M5%209h11v5a4%204%200%200%201-4%204H9a4%204%200%200%201-4-4zM16%2010h2a2%202%200%200%201%200%204h-2%27/%3E%3C/svg%3E"); }
 .hqLabelIcon[data-kind="command"] { --hq-kind-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27black%27%20stroke-width=%271.8%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27M3%205h18v11H3zM8%2020h8M12%2016v4%27/%3E%3C/svg%3E"); }
+
+/* Live operations and Current flow are docked widgets under the scene (page layout), in the surface palette, never over the stage. */
+.hqLiveRow { --hq-glass: var(--d-surface-2); --hq-glass-line: var(--d-line); --hq-glass-text: var(--d-text); --hq-glass-muted: var(--d-muted); align-items: stretch; display: flex; flex-wrap: wrap; gap: var(--d-s3); grid-column: 1 / -1; min-width: 0; }
+.hqLiveRow > * { backdrop-filter: none; flex: 1 1 260px; min-width: 0; }
+.hqLiveRow .hqOpsStrip, .hqLiveRow .hqFlowStrip { backdrop-filter: none; border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); padding: var(--d-s3) var(--d-s4); }
+.hqLiveRow .hqFlowStrip ol { flex-wrap: wrap; }
+.hqLiveRow .hqFlowStrip li { background: var(--d-chip); }
+.hqLiveRow :is(.hqOpsStrip, .hqFlowStrip) p { max-width: none; }
