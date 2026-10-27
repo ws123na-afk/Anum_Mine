@@ -73,6 +73,8 @@ type Props = Readonly<{
    */
   extraLabels?: readonly StageLabel[];
   extraKeepOut?: string;
+  /** The live screen atlas (a canvas drawn in place by the lazy screens chunk; `version` moves when it changed and must be uploaded again). */
+  screenAtlas?: Readonly<{ canvas: HTMLCanvasElement | null; version: number }> | null;
   /** The live board atlas of the billboards (a canvas drawn in place; `version` moves when it changed and must be uploaded again). */
   boardAtlas?: Readonly<{ canvas: HTMLCanvasElement | null; version: number }> | null;
   /** Dragging with the primary button moves the scene sideways instead of turning it (the toolbar's Pan). */
@@ -234,6 +236,7 @@ export function HqStage(props: Props) {
       r.setCamera(live.current);
       r.setNight(nightNow.current);
       if (propsRef.current.scene) r.setScene(propsRef.current.scene);
+      r.setScreens(propsRef.current.screenAtlas?.canvas ?? null);
       { const plan = propsRef.current.glassPlan; giveGlassPlan(r, plan, () => propsRef.current.glassPlan === plan); }
       r.setBoards(propsRef.current.boardAtlas?.canvas ?? null);
       r.setHighlight(propsRef.current.hoverId, propsRef.current.selectedId);
@@ -271,6 +274,7 @@ export function HqStage(props: Props) {
     if (canvas.current) canvas.current.dataset.glassPlanWanted = plan?.revision ?? '';
     giveGlassPlan(renderer.current, plan, () => propsRef.current.glassPlan === plan);
   }, [props.glassPlan]);
+  useEffect(() => { renderer.current?.setScreens(props.screenAtlas?.canvas ?? null); }, [props.screenAtlas?.canvas, props.screenAtlas?.version]);
   useEffect(() => { renderer.current?.setBoards(props.boardAtlas?.canvas ?? null); }, [props.boardAtlas?.canvas, props.boardAtlas?.version]);
   useEffect(() => { renderer.current?.setHighlight(props.hoverId, props.selectedId); }, [props.hoverId, props.selectedId]);
   useLayoutEffect(() => { labelSizes.current.clear(); renderer.current?.requestFrame(); }, [labels]);

@@ -164,6 +164,11 @@ function appendTurned(dst: MeshBuilder, src: MeshBuilder, cx: number, cz: number
     const [x, z] = turnOffset(side, src.halos[h] - cx, src.halos[h + 2] - cz);
     dst.halos.push(cx + x, src.halos[h + 1], cz + z, ...src.halos.slice(h + 3, h + 8));
   }
+  for (const sc of src.screens) {
+    const p: number[] = [];
+    for (let i = 0; i < 12; i += 3) { const [x, z] = turnOffset(side, sc.p[i] - cx, sc.p[i + 2] - cz); p.push(cx + x, sc.p[i + 1], cz + z); }
+    dst.screens.push({ ...sc, p });
+  }
 }
 
 function dress(b: MeshBuilder, kind: InteriorKind, frame: RoomFrame, options: InteriorOptions): void {
@@ -213,6 +218,7 @@ function appendScaled(dst: MeshBuilder, src: MeshBuilder, frame: RoomFrame, s: n
   for (let h = 0; h < src.halos.length; h += 8) {
     dst.halos.push(frame.x + (src.halos[h] - frame.x) * s, frame.y + (src.halos[h + 1] - frame.y) * s, frame.z + (src.halos[h + 2] - frame.z) * s, src.halos[h + 3] * s, ...src.halos.slice(h + 4, h + 8));
   }
+  for (const sc of src.screens) dst.screens.push({ ...sc, p: sc.p.map((v, i) => [frame.x, frame.y, frame.z][i % 3] + (v - [frame.x, frame.y, frame.z][i % 3]) * s) });
 }
 
 /** A standalone mesh in the same shape as `SceneMesh`, for tests, previews and caching. */

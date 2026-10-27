@@ -45,6 +45,7 @@ import { useLocale } from './useLocale';
 import { useArabicSignFont } from './lib/arabicFont.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
 import type { WallModel } from './lib/hqCommandWall.ts';
+import { useScreens } from './lib/hqScreens.ts';
 
 export type BuildingViewProps = Readonly<{
   workspaceName: string;
@@ -86,10 +87,16 @@ export type BuildingViewProps = Readonly<{
   agentStyles?: ReadonlyMap<string, AgentStyleInfo>;
   /** The operations wall: real numbers (or "Not connected") drawn over an operations room while it is selected. */
   wall?: Readonly<{ model: WallModel; isOperations: (room: RoomGeometry) => boolean; onReload: () => void }>;
+  /** The presence stream is connected right now: the Live mark on the 3D wall shows only then. */
+  screenLive?: boolean;
 }>;
 
 export type AgentStyleInfo = Readonly<{ avatar: AvatarAppearance | null; department: string | null }>;
 
+
+/** The wall shows the tyre figures in a building that is for tyres, or any building whose tyre feed answers; a default building with no feed says nothing about tyres. */
+const wallTyre = (modules: ReturnType<typeof buildingModules>, tyre: ModuleState<TyreLive>): ModuleState<TyreLive> | null =>
+  modules.panels.includes('tyre') && (modules.source !== 'default' || tyre.state === 'ready') ? tyre : null;
 
 export function BuildingView(props: BuildingViewProps) {
   const { building, floor, view, night, presence } = props;
@@ -279,8 +286,15 @@ export function BuildingView(props: BuildingViewProps) {
     () => ({ ...floorLifts(scene.ghosts.map((g) => g.floorIndex), activeIndex, stackOn, lastActive.current !== activeIndex ? lastActive.current : null), ...cutLifts(cut) }),
     [scene, activeIndex, stackOn, cut],
   );
+  // The live faces of the monitors and the operations wall (the lazy screens chunk); a Tyre Pulse building's wall also shows the tyre figures.
+  const screens = useScreens({
+    screens: scene.screens, floor, floorIndex: activeIndex, floorY: activeIndex * FLOOR_PITCH + 0.06, presence, deskState, flow: props.flow?.snapshot ?? null,
+    wall: props.wall ?? null, tyre: wallTyre(buildingModules(building), props.tyre), buildingName: props.workspaceName,
+    live: props.screenLive === true, reducedMotion: props.reducedMotion, camera: cameraRef,
+  });
   const renderScene = useMemo(() => ({
     opaque: [
+      ...screens.items,
       { id: 'building', vertices: scene.opaque.vertices, bounds: scene.opaque.bounds, cull: false },
       ...scene.walls.map((w) => ({ id: `cut-o:${w.side}:${w.floorIndex}`, vertices: w.opaque.vertices, bounds: w.opaque.bounds, cull: false, lift: { group: `cut:${w.side}`, y: w.y } })),
       ...scene.ghosts.map((g) => ({ id: `floor-o:${g.floorIndex}`, vertices: g.opaque.vertices, bounds: g.opaque.bounds, cull: false, lift: { group: `floor:${g.floorIndex}`, y: g.y } })),
@@ -301,7 +315,7 @@ export function BuildingView(props: BuildingViewProps) {
     models: scene.models,
     halos: scene.halos,
     lifts,
-  }), [scene, props.workspaceName, lifts, fontsReady]);
+  }), [scene, props.workspaceName, lifts, fontsReady, screens.items]);
 
   const flowAnchor = useCallback((id: string) => scene.rooms.find((r) => r.id === id)?.anchor, [scene]);
   const flowLabels = useFlowLabels({
@@ -427,13 +441,13 @@ export function BuildingView(props: BuildingViewProps) {
 
       <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-facade-live">{facadeSaid ? t(`hq.facade.${facade}Now` as MessageKey) : ''}</p>
       <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-floor-live">{t('hq.floor.now', { name: floorTitle, index: activeIndex + 1, count: floors.length })}</p>
-      <div className="hqSceneWrap" ref={wrap} data-facade={cut.facade} data-cut-sides={cut.cutSides.join(' ')} data-roof-open={cut.roofOpen} data-stack={stackOn} data-camera-yaw={camera.yaw.toFixed(1)} data-camera-distance={camera.distance.toFixed(2)} data-camera-eye-y={(camera.target.y + Math.sin((camera.pitch * Math.PI) / 180) * camera.distance).toFixed(2)}>
+      <div className="hqSceneWrap" ref={wrap} data-facade={cut.facade} data-cut-sides={cut.cutSides.join(' ')} data-roof-open={cut.roofOpen} data-stack={stackOn} data-screen-texts={screens.texts || undefined} data-camera-yaw={camera.yaw.toFixed(1)} data-camera-distance={camera.distance.toFixed(2)} data-camera-eye-y={(camera.target.y + Math.sin((camera.pitch * Math.PI) / 180) * camera.distance).toFixed(2)}>
         <HqStage
           label={t('hq.building.stageLabel', { name: props.workspaceName, floor: floorTitle })} description={t('hq.building.stageHelp')}
           scene={renderScene} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
           onCamera={(c) => { stopGlide(); setCamera(keep(c)); }} night={night} reducedMotion={props.reducedMotion}
           hoverId={null} selectedId={null} onHover={() => undefined}
-          onPick={pickRoom} labels={labels} panMode={panMode} labelKeepOut="[data-keepout]" onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
+          screenAtlas={screens.atlas} onPick={pickRoom} labels={labels} panMode={panMode} labelKeepOut="[data-keepout]" onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
         />
         {floor.rooms.length === 0 && (
           <div className="hqEmptyFloor" role="status">
