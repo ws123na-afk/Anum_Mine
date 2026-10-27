@@ -11,6 +11,8 @@ export type RenderItem = Readonly<{
   id: string; vertices: Float32Array; bounds: Aabb; cull?: boolean; fallbackOf?: ModelGroup;
   /** Part of a group the stage can ease in and out (a floor of the cut-away). `y` is the level the group collapses towards. */
   lift?: Readonly<{ group: string; y: number }>;
+  /** Its lettered faces (the sign class) take the live board atlas (`HqRenderer.setBoards`) instead of the sign atlas: the building billboards. */
+  board?: boolean;
 }>;
 
 /**
@@ -25,7 +27,11 @@ export const easeLift = (t: number): number => { const x = Math.max(0, Math.min(
 
 /** The text of one sign (the real building name over the ANUM MINE wordmark). Index matches the sign cell the scene was built with. */
 /** `fontsReady` only changes the sign key: the atlas is drawn again once the Arabic face has loaded (a canvas does not wait for a web font). */
-export type SignText = Readonly<{ title: string; subtitle: string; fontsReady?: boolean }>;
+export type SignText = Readonly<{
+  title: string; subtitle: string; fontsReady?: boolean;
+  /** The owner's brand sign (docs/ANUM_MINE_HQ_LOGO_SIGNS.md): `brand` is part of the sign key, `paint` draws the whole 512 x 128 cell at (x, y), so the lazy sign painter never loads into the renderer. */
+  brand?: string; paint?: (ctx: CanvasRenderingContext2D, x: number, y: number, k: number) => void;
+}>;
 
 /** A scenery piece the renderer moves on its own (a fan, a light glint, a lift indicator); see `hqAssets/interior/ambient.ts`. */
 export type AmbientItem = RenderItem & Readonly<{ motion: AmbientMotion }>;

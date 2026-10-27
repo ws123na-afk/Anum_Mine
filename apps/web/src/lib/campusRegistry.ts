@@ -65,7 +65,12 @@ export function registryBuildingFacts(building: SceneBuilding, presence: HqPrese
  */
 export function expandCampus(campus: Campus, workspaceId: string, registry: readonly SceneBuilding[], presence: HqPresenceIndex | null): Campus {
   const home = campus.buildings.find((b) => b.workspace_id === workspaceId);
-  if (!home || !home.accessible || home.archived || registry.length < 2) return campus;
+  if (!home || !home.accessible || home.archived) return campus;
+  if (registry.length < 2) {
+    // One registry building: the campus building stays the workspace's own; it only takes the building's sign.
+    const sign = registry[0]?.sign;
+    return sign ? { ...campus, buildings: campus.buildings.map((b) => (b === home ? { ...home, sign } : b)) } : campus;
+  }
   const expanded: CampusBuilding[] = registry.map((b) => {
     const facts = registryBuildingFacts(b, presence);
     const rooms = b.floors.reduce((n, f) => n + f.rooms.length, 0);
@@ -75,6 +80,7 @@ export function expandCampus(campus: Campus, workspaceId: string, registry: read
       // The registry holds no building type, so none is ever labelled; the look follows the starter campus id (`registryLook`).
       ...registryLook(b.id), kindKnown: false, role: home.role, profileRevision: null,
       floors: b.floors.length || null, rooms, desks, totals: facts.totals, people: facts.people, departments: facts.departments,
+      ...(b.sign ? { sign: b.sign } : {}),
     };
   });
   const buildings = [...campus.buildings.filter((b) => b.workspace_id !== workspaceId), ...expanded];

@@ -5,7 +5,9 @@
 import type {OfficeRotation,OfficeDoorSide,OfficeRoomColor,OfficeEquipmentItem,OfficeTeamDepartment} from '@anum/contracts';
 export type OfficeKind = 'buildings'|'floors'|'rooms'|'desks';
 export interface OfficeRecord {id:string;revision:number;tenant_id:string;workspace_id:string;created_at:string;updated_at:string}
-export interface OfficeBuilding extends OfficeRecord {name:string;name_ar?:string|null;timezone:string;latitude:number|null;longitude:number|null;shift_day_start?:string|null;shift_night_start?:string|null}
+export interface OfficeBuilding extends OfficeRecord {name:string;name_ar?:string|null;timezone:string;latitude:number|null;longitude:number|null;shift_day_start?:string|null;shift_night_start?:string|null;
+ /** The sign (docs/ANUM_MINE_HQ_LOGO_SIGNS.md): style and brand colour the owner chose, and the SHA-256 of the uploaded logo (null: no logo, the sign is lettered). */
+ sign_style?:'plain'|'plaque'|'illuminated'|'banner'|null;brand_color?:string|null;logo_sha256?:string|null}
 /** `width_m` and `depth_m` are the floor bounds in metres; null on floors made before the builder (unbounded). */
 export interface OfficeFloor extends OfficeRecord {building_id:string;level:number;name:string;name_ar?:string|null;width_m?:number|null;depth_m?:number|null}
 export interface OfficeRoom extends OfficeRecord {floor_id:string;name:string;kind:'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge'|'command';capacity:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;
