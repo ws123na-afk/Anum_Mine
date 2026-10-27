@@ -240,3 +240,10 @@ test('a board stands in front of each building, clear of the buildings, walkways
 test('the sign cell copy equals the sign atlas layout', () => {
   for (const count of [1, 2, 5, 9, 24, 60]) for (let i = 0; i < count; i++) assert.deepEqual(signCell(count, i), signAtlasLayout(count).cell(i));
 });
+
+test('the billboards are a separate pass: only the focused building has a card unless the camera is near, and the main labels never see them', () => {
+  const src = readFileSync(new URL('../src/CampusView.tsx', import.meta.url), 'utf8');
+  const labelsMemo = src.slice(src.indexOf('const labels: StageLabel[]'), src.indexOf('// The billboards are a separate pass'));
+  assert.ok(labelsMemo.length > 200 && !/billboard|boards/i.test(labelsMemo), 'the main label list must not contain billboards');
+  assert.ok(/extraLabels=\{extraLabels\}/.test(src) && !/labelKeepOut/.test(src), 'billboards go to the extra pass; the campus keeps its own placement inputs');
+});

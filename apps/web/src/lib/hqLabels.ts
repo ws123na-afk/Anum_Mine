@@ -231,30 +231,20 @@ export function placeLabels(
 export function bindKeepOut(stage: HTMLElement, selector: string, onChange: (rects: readonly Rect[]) => void): () => void {
   const scope = stage.parentElement;
   if (!scope) return () => undefined;
-  const observed = new Set<Element>();
-  let last = '';
   const read = () => {
     const box = stage.getBoundingClientRect();
     // The scene's width steps for the chrome's CSS (a CSS size container would change how the page's columns are sized).
     for (const w of [641, 700, 1340, 1600]) { const v = box.width >= w ? '1' : '0'; if (scope.dataset['s' + w] !== v) scope.dataset['s' + w] = v; }
-    const rects = [...scope.querySelectorAll<HTMLElement>(selector)].map((el) => {
+    onChange([...scope.querySelectorAll<HTMLElement>(selector)].map((el) => {
       const r = el.getBoundingClientRect();
       return { x0: r.left - box.left - 6, y0: r.top - box.top - 6, x1: r.right - box.left + 6, y1: r.bottom - box.top + 6 };
-    }).filter((r) => r.x1 - r.x0 > 14 && r.y1 - r.y0 > 14);
-    const key = rects.map((r) => `${Math.round(r.x0)},${Math.round(r.y0)},${Math.round(r.x1)},${Math.round(r.y1)}`).join(';');
-    if (key === last) return;
-    last = key;
-    onChange(rects);
+    }).filter((r) => r.x1 - r.x0 > 14 && r.y1 - r.y0 > 14));
   };
-  const watch = () => scope.querySelectorAll<HTMLElement>(selector).forEach((el) => { if (!observed.has(el)) { observed.add(el); observer.observe(el); } });
+  read();
   const observer = new ResizeObserver(read);
   observer.observe(stage);
-  watch();
-  read();
-  // A panel that opens later (the building detail) is watched from then on.
-  const mutations = new MutationObserver(() => { watch(); read(); });
-  mutations.observe(scope, { childList: true });
-  return () => { observer.disconnect(); mutations.disconnect(); };
+  scope.querySelectorAll<HTMLElement>(selector).forEach((el) => observer.observe(el));
+  return () => observer.disconnect();
 }
 
 /* The stacked view's extras: the slab of each floor as a solid box, the slabs over a floor, and one tag per floor on its edge nearest the eye. */

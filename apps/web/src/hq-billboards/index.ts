@@ -31,6 +31,8 @@ export type BillboardLabelArgs = Readonly<{
   flow?: BillboardFlow | null;
   selectedId: string | null;
   hoverId: string | null;
+  /** The camera is close enough for unfocused cards to show; otherwise only the focused building has a card in the page. */
+  near: boolean;
   now: number;
   onActivate: (id: string) => void;
   onOpen: (id: string) => void;
@@ -47,6 +49,7 @@ export function billboardLabels(args: BillboardLabelArgs): StageLabel[] {
     const building = args.buildings.get(site.workspaceId);
     if (!building) continue;
     const focused = site.workspaceId === args.selectedId || site.workspaceId === args.hoverId;
+    if (!focused && !args.near) continue;
     const model = billboardModel({ building, plan: args.plans?.get(site.workspaceId) ?? null, flow: args.flow ?? null, currentWorkspaceId: args.flow?.snapshot?.workspace_id ?? '', now: args.now });
     // A focused card is always full and is placed first (priority -1), so the other cards move round it and it keeps clear of the panels and controls.
     // An unfocused card has priority 1.9: the building cards (priority 1) are placed first and stay above it, so it never takes a click meant for one.

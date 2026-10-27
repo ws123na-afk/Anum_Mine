@@ -11,8 +11,8 @@
 .hqBbBody { border-top: 1px solid var(--hq-glass-line); display: flex; flex-direction: column; gap: 6px; padding: 7px 10px 9px; }
 .hqBbCols { display: grid; gap: 8px; }
 .hqBbRows { align-content: start; display: grid; gap: 5px; margin: 0; }
-.hqSceneWrap[data-s700="1"] .hqBillboard { max-width: 460px; }
-.hqSceneWrap[data-s700="1"] .hqBbCols { gap: 14px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.hqLabelsExtra[data-wide="1"] .hqBillboard { max-width: 460px; }
+.hqLabelsExtra[data-wide="1"] .hqBbCols { gap: 14px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .hqBbRows[data-col="about"] [data-field="roomNames"] dd, .hqBbRows[data-col="about"] [data-field="departments"] dd { -webkit-box-orient: vertical; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
 .hqBbRow dd[title] { cursor: default; }
 .hqBbRow { align-items: baseline; display: grid; gap: 1px; }
@@ -33,7 +33,7 @@
 .hqLabelAnchor[data-density="dot"] .hqBbTitle { display: none; }
 .hqLabelAnchor[data-density="dot"] .hqBillboard { width: auto; }
 .hqLabelAnchor[data-density="dot"] .hqBbHead { min-height: 0; padding: 4px; }
-.hqSceneWrap[data-s700="0"] .hqLabelAnchor .hqBillboard .hqBbBody { display: none; }
+.hqLabelsExtra[data-wide="0"] .hqLabelAnchor .hqBillboard .hqBbBody { display: none; }
 .hqLabelAnchor:focus-within .hqBillboard .hqBbBody { display: flex !important; }
 .hqLabelAnchor:focus-within .hqBillboard .hqBbTitle { display: flex; }
 @media (max-width: 640px) {
@@ -44,3 +44,6 @@
 /* An unfocused card (the compact and dot ones) never takes a pointer: a click meant for a building card or the scene goes through it. A focus from the keyboard still unfolds it. */
 .hqLabelAnchor > .hqBillboard[data-focused="false"] { pointer-events: none; }
 .hqLabelAnchor:focus-within > .hqBillboard[data-focused="false"] { pointer-events: auto; }
+
+/* The billboard layer sits under the main label layer, so a building card is always above it. */
+.hqStage .hqLabels.hqLabelsExtra { z-index: 0; }
