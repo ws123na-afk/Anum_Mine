@@ -3,18 +3,12 @@
  * label cards, camera, minimap and totals all read from the campus model; nothing is drawn for a
  * building the person cannot open, and no count appears without a presence record behind it.
  */
-<<<<<<< HEAD
 import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, House, Landmark, LockKeyhole, Map as MapIcon, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { BottomToolbar, CameraTools, Minimap, statusLabel, type HqView } from './HqChrome';
-=======
-import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, House, Landmark, LockKeyhole, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { WorkSiteInput, WorkUi } from './HqCampusWork';
 import type { CardWork, FeedNote } from './lib/hqWorkMotion.ts';
 import './hqCampusMotion.css';
-import { BottomToolbar, CameraTools, Minimap, TotalsPanel, statusLabel, type HqView } from './HqChrome';
->>>>>>> origin/main
+import { BottomToolbar, CameraTools, Minimap, statusLabel, type HqView } from './HqChrome';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { buildCampusScene } from './lib/campusScene.ts';
 import { layoutKey, planSize, type PlanInput } from './lib/hqPlanFrame.ts';
@@ -22,11 +16,7 @@ import type { GlassPlanData } from './lib/hqPlanAtlas.ts';
 import type { PlannedSize } from './lib/campusModel.ts';
 import type { BillboardFlow } from './hq-billboards/billboardModel.ts';
 import {
-<<<<<<< HEAD
-  buildingStatus, layoutCampus, readingOrder, stepBuilding,
-=======
-  buildingStatus, campusTotals, layoutCampus, readingOrder, stepBuilding, workspaceOf,
->>>>>>> origin/main
+  buildingStatus, layoutCampus, readingOrder, stepBuilding, workspaceOf,
   type Campus, type CampusBuilding, type CampusBuildingKind, type StatusKey,
 } from './lib/campusModel.ts';
 import { campusCamera, campusFraming, clampTarget, faceNorth, rotateBy, threeDView, topView, viewFootprint, zoomBy } from './lib/hqCamera.ts';
