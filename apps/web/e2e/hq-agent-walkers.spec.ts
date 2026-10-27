@@ -116,10 +116,12 @@ test.describe('record-backed walkers', () => {
     // Frames: it moves.
     await page.waitForTimeout(1500);
     await shot(page, 'start-a');
-    const a = (await canvas(page).screenshot()).toString('base64');
+    // It moves: the target over the figure follows it from frame to frame (the stage reports the camera every frame).
+    const at = () => pin.evaluate((el) => (el as HTMLElement).style.transform);
+    const before = await at();
     await page.waitForTimeout(3000);
     await shot(page, 'start-b');
-    expect((await canvas(page).screenshot()).toString('base64')).not.toBe(a);
+    expect(await at()).not.toBe(before);
     // Bounded: the figure is gone within 25 seconds of its start (plus the answer delay), its line a few seconds later.
     await expect.poll(() => figures(page), { timeout: 45_000 }).toBe(0);
     await expect(line).toHaveCount(0, { timeout: 20_000 });
@@ -169,9 +171,9 @@ test.describe('record-backed walkers', () => {
     test.setTimeout(120_000);
     await page.setViewportSize({ width: 1440, height: 900 });
     const world = newWorld();
+    world.states.agent_care = 'paused';      // paused from the first answer: the meeting names it, the presence says paused
     await open(page, world);
     await page.waitForTimeout(1500);
-    world.states.agent_care = 'paused';
     startMeeting(world);
     world.states.agent_care = 'paused';
     await page.waitForTimeout(14_000);

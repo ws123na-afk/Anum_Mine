@@ -126,6 +126,9 @@ export default function HqCampusWalkers(props: Props) {
   const prevEntries = useRef<ReadonlyMap<string, MeetingEntry>>(new Map());
   // Every meeting id seen live in this page load: one that comes back after a pause is not a new start.
   const seenMeetings = useRef(new Set<string>());
+  // A meeting record read must outlive the answer that asked for it (the next presence answer re-runs this effect), so only unmounting cancels it.
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
     if (!feed || topo.known.size === 0) { prev.current = null; publish.current(); return; }
     const seats = feed.presence ? new Map<string, SeatEntry>(feed.presence.filter((p) => !p.agentId.startsWith('desk:')).map((p) => [p.agentId, { deskId: p.deskId ?? null, verifiedAt: p.observedAt, eligible: eligibleState(p) }] as const)) : null;
@@ -142,19 +145,17 @@ export default function HqCampusWalkers(props: Props) {
     // A meeting that is gone: ask its record why. Only a finished, cancelled or failed meeting (with its end time) sends people back.
     const gone = meetings ? vanishedMeetings(before, next) : [];
     const entries = prevEntries.current;
-    let alive = true;
     for (const id of gone.slice(0, 6)) {
       const entry = entries.get(id);
       if (!entry) continue;
       void api.apiRequest<{ status?: unknown; ended_at?: unknown }>(`/api/v1/agent-meetings/${encodeURIComponent(id)}`, { method: 'GET' }).then((detail) => {
-        if (!alive) return;
+        if (!mounted.current) return;
         const back = endedRecords(id, entry, detail, next.seats, topo, Date.now());
         if (planner.accept(back, performance.now(), opts)) publish.current();
       }).catch(() => undefined);
     }
     if (meetings) { prevEntries.current = meetings; for (const id of meetings.keys()) seenMeetings.current.add(id); }
     prev.current = next;
-    return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feed?.meetings, feed?.presence, feed?.meetingsRead, topo]);
 
