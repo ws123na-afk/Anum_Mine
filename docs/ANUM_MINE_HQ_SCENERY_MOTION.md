@@ -54,3 +54,7 @@ The choice is kept in `localStorage["anum.hq.preset"]` (`lib/hqLightPreset.ts`),
 ## Software rasterisers
 
 On SwiftShader or llvmpipe (CI) the scene also leaves out what would never move there and what costs shader compile time before the first frame: vehicles are not placed, leaves, flags and rooftop lights are drawn as plain surfaces, and the glass, water and sky programs are the lean ones (no lit rooms, no rings, no clouds). Pinning `anum.hq.ambient` brings all of it back, which is how `e2e/hq-exterior-look.spec.ts` checks the motion and the screenshots were taken.
+
+## Screens are not scenery
+
+The live screens in the rooms are not scenery motion: they change only when a record changes (at most once a second per screen) and the scan line shows only while a fresh record says work is running. Under reduced motion the content still updates and the scan line stands still. See [live screens](ANUM_MINE_HQ_LIVE_SCREENS.md).

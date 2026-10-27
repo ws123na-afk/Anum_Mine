@@ -95,6 +95,7 @@ Counts per status are in the last section ("Totals"), computed from the tables i
 | 3.18 | Cutaway section of the building (front facade and roof removed, all floors, Cutaway and Closed) | Partial | Read, Ran | `lib/hqCutaway.ts`, `lib/buildingScene.ts` (`walls`, `dimmed`), `BuildingView.tsx`; `test/hqCutaway.test.ts`, `e2e/hq-cutaway.spec.ts`; [cutaway](ANUM_MINE_HQ_CUTAWAY.md) | Lower floors show only their front 6 to 7 m under the slab above; side by side with renders 22 and 24 on a real GPU: Not verified; dimmed floors are rebuilt on every floor change; clicking a room on another floor does not switch floors |
 | 3.19 | Campus centre: big fountain, roundabout and buildings standing round it | Complete | Ran | `hqAssets/environment/plaza.ts` (`centerPlaza`, `roundabout`, `avenue`), `lib/campusModel.ts` (`PLAZA`, `layoutCampus`: lots, slots, executive due north), `lib/campusSpokes.ts` (walkway from the roundabout to every door); `test/hqCenterPlaza.test.ts`, `e2e/hq-center-plaza.spec.ts`; `docs/ANUM_MINE_HQ_CENTER_PLAZA.md` | Buildings are not rotated, so only those north of the plaza face it; the campus is about twice the radius of the old one for the starter campus |
 | 3.20 | Building billboards: a board in front of each building with its name, and a card with what the building does and its real work details | Partial | Read, Ran | `hq-billboards/` (lazy chunk: `billboardModel.ts`, `billboardSites.ts`, `BillboardCard.tsx`), `CampusView.tsx`; `test/hqBillboard.test.ts` (property and whitelist tests, Not connected), `e2e/hq-billboards.spec.ts` (five buildings, five sizes, English and Arabic, axe); [billboards](ANUM_MINE_HQ_BILLBOARDS.md) | Looked at on software GL only, not a real GPU; the 3D board carries the name only (details are the card); open work and room details exist for the open workspace's registry buildings only, every other building says Not connected |
+| 3.21 | Live screens in the rooms: the Operations wall and the desk monitors show what is running, drawn on the 3D screens | Partial | Read, Ran | `hq-screens/` (lazy chunk: `screenModel.ts`, `screenSites.ts`, `screenDraw.ts`), `lib/hqScreens.ts`, `MeshBuilder.screens`, `MAT.screen`, `HqRenderer.setScreens`; `test/hqScreens.test.ts` (whitelist proxy, poisoned inputs, throttle, caps, Not connected, Stale, Live), `e2e/hq-live-screens.spec.ts`; `docs/ANUM_MINE_HQ_LIVE_SCREENS.md`. Real fields only (no progress bar: no record has step counts). Not verified on a real GPU or in CI yet; the wall shows module figures for Tyre Pulse only |
 
 ## Section 4. Building and campus structure
 
@@ -309,16 +310,16 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 
 ## Totals
 
-Rows counted: 152 (sections 1 to 14).
+Rows counted: 153 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
 | Complete | 114 |
-| Partial | 34 |
+| Partial | 35 |
 | Missing | 3 |
 | Not applicable | 1 |
-| Total | 152 |
+| Total | 153 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 107, Partial 27, Missing 3, Not applicable 1 (total 138). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 3.20 by the billboards, row 4.11 by the label work, rows 4.12 and 4.13 by Green Concrete).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 107, Partial 28, Missing 3, Not applicable 1 (total 139). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 3.20 by the billboards, row 3.21 by the live screens, row 4.11 by the label work, rows 4.12 and 4.13 by Green Concrete).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.
