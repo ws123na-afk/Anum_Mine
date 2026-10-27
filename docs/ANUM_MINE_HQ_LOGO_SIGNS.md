@@ -10,8 +10,8 @@ The owner asked for "something more exciting and not that team like real world s
 |---|---|
 | Logo | One picture per building (PNG, JPEG or WebP, up to 1 MB). It is checked, cleaned and resized on the server, then drawn on the building's sign in the 3D campus exactly as given, on a white plate so a dark logo never disappears |
 | Brand colour | One colour per building (`#rrggbb`). It is the sign's accent: the bar, the frame, the glow or the whole board, depending on the style. A contrast check tells the owner if the colour is hard to read; the lettering then falls back to a readable colour and the owner's colour stays on the accent |
-| Sign style | `plain` (light board, colour on the lettering and the bar), `plaque` (dark board, frame in the colour), `illuminated` (glowing lettering on a dark board), `banner` (the colour is the whole board) |
-| Without an upload | The lettered sign with the building's real name (the Arabic name, right to left, in Arabic mode). Nothing else is drawn |
+| Sign style | `standard` (no style chosen: the campus sign, a dark board; your colour becomes its bar), `plain` (light board, colour on the lettering and the bar), `plaque` (dark board, frame in the colour), `illuminated` (glowing lettering on a dark board), `banner` (the colour is the whole board). Only the last four are stored values; clearing the style gives the standard sign |
+| Without an upload | The standard campus sign with the building's real name (the Arabic name, right to left, in Arabic mode): a dark board, the small ANUM MINE wordmark and the name. Nothing else is drawn. A colour alone recolours the standard sign's bar and mark; a chosen style without a logo gives that style's lettered sign (the name only, no mark) |
 
 ## Owner steps: upload a logo for each building
 
@@ -19,13 +19,13 @@ The owner asked for "something more exciting and not that team like real world s
 2. Choose the building in the builder's building list (top bar), then open the **Floor** tab. Scroll to **Building sign** (below the building's names and shift hours).
 3. Press **Choose a logo file** (or drop the file on the box). The preview at the top of the section shows the sign with your logo before anything is sent. A file that cannot be used is refused with the reason (SVG, GIF, animated, larger than 1 MB, not a picture, damaged).
 4. Press **Upload this logo**. The sign on the campus updates for everyone who has the headquarters open.
-5. Type or pick your **brand colour**. The line under it says whether it is readable on the chosen style (contrast number). Pick a **sign style**.
+5. Type or pick your **brand colour**. The line under it says whether it is readable on the chosen style (contrast number). Pick a **sign style** (Standard keeps the campus sign).
 6. Press **Save colour and style**.
 7. To undo: **Remove logo** (keeps the colour and style), or **Reset to lettered sign** (removes the logo, the colour and the style after one confirmation).
 
 Repeat for each building. A logo is stored per building, so ANUM HQ, ANUM 360 Commerce, Tyre Pulse and any company you add each get their own.
 
-A building in another workspace is drawn with the lettered sign until you open that workspace and set its sign there. Signs belong to the office registry buildings of a workspace; the campus reads no other workspace's registry.
+A building in another workspace is drawn with the standard sign until you open that workspace and set its sign there. Signs belong to the office registry buildings of a workspace; the campus reads no other workspace's registry.
 
 ### Buildings whose names are generic
 
@@ -83,7 +83,7 @@ Rows are in [the security review](ANUM_MINE_HQ_SECURITY_REVIEW.md), "Logo upload
 ## What is not done
 
 * Another workspace's building has no registry building in this workspace, so it keeps the lettered sign.
-* The billboards in front of the buildings carry the building's live details, not the logo (see [billboards](ANUM_MINE_HQ_BILLBOARDS.md)); the logo is on the building's own sign.
+* The logo is drawn into the building's sign cell of the sign atlas. The facade sign and, today, the board in front of the building (see [billboards](ANUM_MINE_HQ_BILLBOARDS.md)) are textured with that cell, so both show it. When the quiet campus change gives the boards their own live atlas, the logo stays on the facade sign and the board's header can take the brand colour; that is a follow-up in that change's board painter, not done here.
 * Looked at on software GL, not on a real GPU.
 * A logo is shown at most 256 pixels on its long edge in the sign (a cell is 512 by 128), whatever the stored size.
 * There is no crop or background removal; the owner uploads the picture as it should appear.

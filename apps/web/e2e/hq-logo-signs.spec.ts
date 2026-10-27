@@ -15,7 +15,7 @@ const expect = baseExpect.configure({ timeout: 20_000 });
 // to the lettered sign; a bad file is refused with a plain reason; a person who is not the owner sees how the sign looks and who can change it.
 // The API is mocked at http://localhost:8000/** (e2e/support/hqBuilderApi.ts mirrors services/api office_logo_api.py). Set HQ_SHOTS_DIR to keep screenshots.
 test.use({ deviceScaleFactor: 1, isMobile: false, hasTouch: false, actionTimeout: 30_000 });
-test.describe.configure({ timeout: 120_000 });
+test.describe.configure({ timeout: 240_000 });
 
 const SIZES = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const;
 const LOGO = logoPng();
@@ -306,6 +306,8 @@ async function openCampus(page: Page, size: readonly [number, number], options: 
   await expect(page.locator('.hqLive').getByRole('heading', { level: 1 })).toBeVisible();
   await expect(stage(page)).toBeAttached({ timeout: 60_000 });
   await expect(page.locator('.hqLive .hqBuildingCard').first()).toBeAttached({ timeout: 60_000 });
+  // The registry buildings of the open workspace replace its single campus building once the registry has loaded.
+  await expect(page.locator('.hqLive').getByRole('button', { name: /^(Alpha Plant|مصنع ألفا)\./ }).first()).toBeAttached({ timeout: 120_000 });
   return fetched;
 }
 
