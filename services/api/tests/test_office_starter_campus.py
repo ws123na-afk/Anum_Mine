@@ -173,6 +173,20 @@ def test_master_list_departments_use_the_new_department_set() -> None:
     assert {by_room[k] for k in ("research-room", "intelligence-desk", "research-development")} == {"research"}
     # Rooms with no matching department stay unset: no guessing.
     assert by_room["facilities"] is None and by_room["command-center"] is None and by_room["ai-labs"] is None
+    # The Executive Office is the one obvious room that had none: it now carries the executive department.
+    assert by_room["executive-office"] == "executive"
+    # The twelve rooms whose department would be a judgment call (docs/ANUM_MINE_HQ_BUILDING_MODULES.md) stay unset.
+    undecided = ("facilities", "ai-organization", "ai-labs", "data", "automation", "future-businesses", "career-office",
+                 "employment-desk", "personal-office", "terrace", "events-hall", "lounge")
+    assert all(by_room[k] is None for k in undecided)
+
+
+def test_executive_office_fills_an_existing_room_only_while_empty() -> None:
+    spec = next(r for b in sc.CAMPUS for f in b.floors for r in f.rooms if r.key == "executive-office")
+    assert sc.department_fill({"team_department": None}, spec) == {"from": None, "to": "executive"}
+    assert sc.department_fill({"team_department": "custom"}, spec) == {"from": "custom", "to": "executive"}
+    assert sc.department_fill({"team_department": "finance"}, spec) is None  # an owner's choice is never replaced
+    assert sc.department_fill({"team_department": "executive"}, spec) is None
 
 
 def test_a_rerun_fills_only_an_empty_or_custom_department_of_a_campus_room() -> None:

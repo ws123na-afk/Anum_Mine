@@ -151,6 +151,7 @@ export const builderAr: Record<keyof typeof builderEn, Message> = {
   'hqb.dept.security': 'الأمن',
   'hqb.dept.hr': 'الموارد البشرية',
   'hqb.dept.procurement': 'المشتريات',
+  'hqb.dept.executive': 'التنفيذي',
   'hqb.dept.custom': 'مخصص',
   'hqb.equipment.monitor': 'شاشة',
   'hqb.equipment.display': 'شاشة عرض كبيرة',
