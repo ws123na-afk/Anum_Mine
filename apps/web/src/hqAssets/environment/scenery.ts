@@ -87,7 +87,7 @@ export function trafficPlan(ring: RingGeometry, o: TrafficOptions = {}): Pick<Sc
   const vehicles: SceneryVehicle[] = [];
   lanes.forEach((lane, li) => {
     const ring = li < 2;
-    const share = ring ? (li === 0 ? Math.ceil(count / 2) : Math.floor(count / 2)) : 4;
+    const share = ring ? (li === 0 ? Math.ceil(count / 2) : Math.floor(count / 2)) : 3;
     const n = Math.max(1, Math.min(Math.floor(lane.total / MIN_GAP), share));
     const gap = lane.total / n;
     const speed = (ring ? LANE_SPEEDS[li] : ROUNDABOUT_SPEED) + rnd() * 0.4;
