@@ -158,7 +158,7 @@ function PlanView({ preview, nothing, choices, onPick, refreshing }: { preview: 
       <h3>{t('hqGc.layout.title')}</h3>
       <PlanMap seats={preview.seats} width={preview.room.width} depth={preview.room.depth} />
     </section>
-    <section className="hqGcSection" aria-label={t('hqGc.people.title', { count: preview.people.length })}>
+    <section className="hqGcSection">
       <h3>{t('hqGc.people.title', { count: preview.people.length })}</h3>
       <p className="hqGcNote">{t('hqGc.look.help')}</p>
       {refreshing && <p className="hqGcNote" role="status">{t('hqGc.look.refreshing')}</p>}
