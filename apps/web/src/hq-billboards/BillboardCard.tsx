@@ -10,7 +10,7 @@ import type { BillboardModel, BillboardRow } from './billboardModel.ts';
 import './hqBillboards.css';
 
 export function BillboardCard(props: {
-  model: BillboardModel; selected: boolean; onActivate: () => void; onOpen: () => void; onHover: (on: boolean) => void;
+  model: BillboardModel; selected: boolean; focused: boolean; onActivate: () => void; onOpen: () => void; onHover: (on: boolean) => void;
 }) {
   const m = props.model;
   // A row without a heading (the verified time) belongs to the row before it.
@@ -22,7 +22,7 @@ export function BillboardCard(props: {
   return (
     <section
       className="hqBillboard" role="group" aria-label={t('hqBillboard.group', { name: m.name })} data-testid="hq-billboard" data-building={m.id}
-      data-selected={props.selected} data-status={m.status} onMouseEnter={() => props.onHover(true)} onMouseLeave={() => props.onHover(false)}
+      data-selected={props.selected} data-focused={props.focused} data-status={m.status} onMouseEnter={() => props.onHover(true)} onMouseLeave={() => props.onHover(false)}
     >
       <button
         type="button" className="hqBbHead" aria-pressed={props.selected} title={m.name}

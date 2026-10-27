@@ -49,12 +49,13 @@ export function billboardLabels(args: BillboardLabelArgs): StageLabel[] {
     const focused = site.workspaceId === args.selectedId || site.workspaceId === args.hoverId;
     const model = billboardModel({ building, plan: args.plans?.get(site.workspaceId) ?? null, flow: args.flow ?? null, currentWorkspaceId: args.flow?.snapshot?.workspace_id ?? '', now: args.now });
     // A focused card is always full and is placed first (priority -1), so the other cards move round it and it keeps clear of the panels and controls.
+    // An unfocused card has priority 1.9: the building cards (priority 1) are placed first and stay above it, so it never takes a click meant for one.
     // On a stage under 700 px wide its body is folded by the style sheet (the detail panel already covers the building) and a focus unfolds it.
     const tiers: readonly Density[] = focused ? ['full'] : ['compact', 'dot'];
     out.push({
-      id: `billboard:${site.workspaceId}`, anchor: site.anchor, priority: focused ? -1 : 1, tiers, ...(focused ? { fine: true } : {}), ...(focused ? {} : { maxDistance: NEAR }),
+      id: `billboard:${site.workspaceId}`, anchor: site.anchor, priority: focused ? -1 : 1.9, tiers, ...(focused ? { fine: true } : {}), ...(focused ? {} : { maxDistance: NEAR }),
       node: createElement(BillboardCard, {
-        model, selected: site.workspaceId === args.selectedId, onActivate: () => args.onActivate(site.workspaceId), onOpen: () => args.onOpen(site.workspaceId),
+        model, selected: site.workspaceId === args.selectedId, focused, onActivate: () => args.onActivate(site.workspaceId), onOpen: () => args.onOpen(site.workspaceId),
         onHover: (on: boolean) => args.onHover(on ? site.workspaceId : null),
       }),
     });

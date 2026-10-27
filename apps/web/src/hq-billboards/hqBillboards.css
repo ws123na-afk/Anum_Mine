@@ -40,3 +40,7 @@
   .hqBillboard { max-width: min(250px, 78vw); }
   .hqBbRow[data-field="departments"], .hqBbRow[data-field="roomNames"] { display: none; }
 }
+
+/* An unfocused card (the compact and dot ones) never takes a pointer: a click meant for a building card or the scene goes through it. A focus from the keyboard still unfolds it. */
+.hqLabelAnchor > .hqBillboard[data-focused="false"] { pointer-events: none; }
+.hqLabelAnchor:focus-within > .hqBillboard[data-focused="false"] { pointer-events: auto; }
