@@ -89,7 +89,7 @@ Counts per status are in the last section ("Totals"), computed from the tables i
 | 3.10 | Performance budgets | Partial | Read, CI | `docs/ANUM_MINE_HQ_PERFORMANCE_BUDGET.md`, `e2e/hq-performance.spec.ts`, the frame governor (3.16) | Numbers come from software rendering in the sandbox, a regression guard only. Never measured on a real laptop GPU or a phone. The owner can now produce that run in one click (3.17); a documented device run (two real devices) is still to be added to the budget doc |
 | 3.11 | Keyboard control | Complete | Read, CI | `keyToCameraAction` in `hqCamera.ts`; `e2e/hq-scene.spec.ts` "keyboard only", `hq-campus.spec.ts` "reachable from the keyboard" | none |
 | 3.12 | Reduced motion | Complete | Read, CI | `setReducedMotion` (no bloom, no tween), `hqFlow.css`, `meetingRoom.css`; `hq-scene.spec.ts` "reduced motion" | none |
-| 3.13 | Minimap, compass, zoom, reset | Complete | Read | `CampusView.tsx` minimap, `HqChrome.tsx` compass and zoom, `viewFootprint` in `hqCamera.ts` | none |
+| 3.13 | Minimap, compass, zoom, reset | Complete | Read | `CampusView.tsx` minimap (a toggle in the camera rail, closed by default), `HqChrome.tsx` compass and zoom, `viewFootprint` in `hqCamera.ts` | none |
 | 3.14 | 2D and list fallback | Complete | Read, CI | `HqPlanFallback.tsx`, `CampusListView.tsx`; `hq-scene.spec.ts` "no WebGL", `hq-campus.spec.ts` "without WebGL" | none |
 | 3.15 | LOD, instancing, culling | Partial | Read | Frustum culling per mesh (`cull`), a "lite" interior detail level for big buildings (`buildingScene.ts`), adaptive pixel ratio | No GPU instancing (meshes are merged per surface class) and no distance LOD for figures. PR: measure first with the performance spec at 200 desks, then add instancing only if it fails the budget |
 | 3.16 | Runtime frame governor and quality tiers | Partial | Read, Ran, CI | `lib/hqQualityTiers.ts` (one tier registry), `lib/hqGovernor.ts` (rolling median, hysteresis, no flip-flop), `lib/hqThreeRenderer.ts` (pixel ratio, then shadows, then glow, then simple materials; never when pinned, on software or hidden), the header chip in `HqChrome.tsx`; `test/hqGpu.test.ts` with simulated frame times | Thresholds are reasoned defaults, never tuned on a real GPU. GPU time is not measured directly, frame time stands in for it |
@@ -97,6 +97,8 @@ Counts per status are in the last section ("Totals"), computed from the tables i
 | 3.18 | Cutaway section of the building (front facade and roof removed, all floors, Cutaway and Closed) | Partial | Read, Ran | `lib/hqCutaway.ts`, `lib/buildingScene.ts` (`walls`, `dimmed`), `BuildingView.tsx`; `test/hqCutaway.test.ts`, `e2e/hq-cutaway.spec.ts`; [cutaway](ANUM_MINE_HQ_CUTAWAY.md) | Lower floors show only their front 6 to 7 m under the slab above; side by side with renders 22 and 24 on a real GPU: Not verified; dimmed floors are rebuilt on every floor change; clicking a room on another floor does not switch floors |
 | 3.19 | Campus centre: big fountain, roundabout and buildings standing round it | Complete | Ran | `hqAssets/environment/plaza.ts` (`centerPlaza`, `roundabout`, `avenue`), `lib/campusModel.ts` (`PLAZA`, `layoutCampus`: lots, slots, executive due north), `lib/campusSpokes.ts` (walkway from the roundabout to every door); `test/hqCenterPlaza.test.ts`, `e2e/hq-center-plaza.spec.ts`; `docs/ANUM_MINE_HQ_CENTER_PLAZA.md` | Buildings are not rotated, so only those north of the plaza face it; the campus is about twice the radius of the old one for the starter campus |
 | 3.20 | Building billboards: a board in front of each building with its name, and a card with what the building does and its real work details | Partial | Read, Ran | `hq-billboards/` (lazy chunk: `billboardModel.ts`, `billboardSites.ts`, `BillboardCard.tsx`), `CampusView.tsx`; `test/hqBillboard.test.ts` (property and whitelist tests, Not connected), `e2e/hq-billboards.spec.ts` (five buildings, five sizes, English and Arabic, axe); [billboards](ANUM_MINE_HQ_BILLBOARDS.md) | Looked at on software GL only, not a real GPU; the 3D board carries the name only (details are the card); open work and room details exist for the open workspace's registry buildings only, every other building says Not connected |
+| 3.21 | Clear page layout: the side panels dock beside or under the scene and never over it; Total agents and the campus map are compact docked widgets; the Live flow is a thin strip that leaves the quick views alone | Partial | Ran | `hq-nav/HqNavigation.tsx`, `hq-nav/PanelSection.tsx`, `hq-nav/OfficeStatus.tsx`, `hqNavLayout.css`, `hqFlow.css`; `e2e/hq-clear-panels.spec.ts` (five viewports, English and Arabic, axe); [page layout](ANUM_MINE_HQ_PAGE_LAYOUT.md) | The Executive assistant dock, History and Team dialog keep their own headers; the Back card, floor selector and camera bar inside a building stay glass controls on the scene (they are controls, not panels) |
+| 3.22 | Honest live status on every side panel (Live, Reconnecting, Checking every N s, Not connected; the real time of the last confirmation; Stale after the existing windows) | Partial | Ran | `lib/hqPanelStatus.ts` (`test/hqPanelStatus.test.ts`), `hq-nav/LiveChip.tsx`; `e2e/hq-clear-panels.spec.ts` (a dropped feed shows and recovers); [page layout](ANUM_MINE_HQ_PAGE_LAYOUT.md) | Total agents follows the 30 s campus read, not the presence stream; panels owned by other workstreams carry no chip yet |
 
 ## Section 4. Building and campus structure
 
@@ -312,16 +314,16 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 
 ## Totals
 
-Rows counted: 155 (sections 1 to 14).
+Rows counted: 157 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
 | Complete | 115 |
-| Partial | 36 |
+| Partial | 38 |
 | Missing | 3 |
 | Not applicable | 1 |
-| Total | 155 |
+| Total | 157 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 108, Partial 29, Missing 3, Not applicable 1 (total 141). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 4.11 by the label work, rows 2.11 and 2.12 by the campus motion work).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 108, Partial 31, Missing 3, Not applicable 1 (total 143). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 4.11 by the label work, rows 2.11 and 2.12 by the campus motion work, rows 3.21 and 3.22 by the page layout and panels work).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.
