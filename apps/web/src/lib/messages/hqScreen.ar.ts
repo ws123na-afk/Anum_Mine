@@ -20,6 +20,7 @@ export const hqScreenAr = {
   'hqScreen.flowTitle': 'آخر حركة العمل',
   'hqScreen.flowNone': 'لا شيء يتحرك الآن.',
   'hqScreen.flowRow': '{kind} · {stage} · {time}',
+  'hqScreen.flowRowNoAge': '{kind} · {stage}',
   'hqScreen.tyreOff': '{name}: غير متصل',
   'hqScreen.tyreNoAccess': '{name}: لا صلاحية',
   'hqScreen.dur.s': '{n}ث',

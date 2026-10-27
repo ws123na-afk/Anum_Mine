@@ -200,9 +200,12 @@ export function wallFace(input: WallInput, now: number, locale: Locale = getLoca
   if (!snap || snap.sources.tasks !== 'connected') flowNote = tr('hq.wall.notConnected');
   else {
     const items = snap.items.filter((i) => isTime(i.since)).sort((x, y) => Date.parse(y.since) - Date.parse(x.since)).slice(0, FLOW_ROWS);
-    flowRows = items.map((i) => tr('hqScreen.flowRow', {
-      kind: tr(`hqFlow.kind.${i.kind}` as MessageKey), stage: tr(`hqFlow.stage.${i.stage}` as MessageKey), time: duration(now - Date.parse(i.since), tr, locale) ?? '',
-    }));
+    flowRows = items.map((i) => {
+      const time = duration(now - Date.parse(i.since), tr, locale);
+      const vars = { kind: tr(`hqFlow.kind.${i.kind}` as MessageKey), stage: tr(`hqFlow.stage.${i.stage}` as MessageKey), time: time ?? '' };
+      // A start that is not usable (a clock set back) says no age, never an empty one.
+      return time === null ? tr('hqScreen.flowRowNoAge', vars) : tr('hqScreen.flowRow', vars);
+    });
     if (!flowRows.length) flowNote = tr('hqScreen.flowNone');
   }
 

@@ -12,7 +12,7 @@ export { deskRecords, SCREEN_FIELDS, type MonitorSource, type WallInput, type De
 export { ScreenAtlas } from './screenDraw.ts';
 
 /** How near (metres from the eye) a monitor shows its text, and a wall its full face. Hysteresis of 15 percent keeps a face from flickering at the edge. */
-export const NEAR_MONITOR = 7;
+export const NEAR_MONITOR = 11;
 export const NEAR_WALL = 45;
 
 export type ScreenInputs = Readonly<{
@@ -52,9 +52,11 @@ export type ScreenFeed = Readonly<{ atlas: ScreenAtlas; touch: () => void; stop:
  * and a one second tick reads again so a record that stops being confirmed turns "Stale" and an elapsed time counts, without any new data.
  * The tick stops while the tab is hidden.
  */
-export function startScreenFeed(args: Readonly<{ layer: ScreenLayer; read: () => ScreenInputs; onDraw: (atlas: ScreenAtlas) => void; tickMs?: number; make?: CanvasMaker; now?: () => number }>): ScreenFeed {
+export function startScreenFeed(args: Readonly<{ layer: ScreenLayer; read: () => ScreenInputs; onDraw: (atlas: ScreenAtlas) => void; tickMs?: number; make?: CanvasMaker; now?: () => number; tickClock?: () => number }>): ScreenFeed {
   const atlas = new ScreenAtlas(args.layer.layout, args.make);
   const clock = args.now ?? Date.now;
+  // The one second rule runs on the monotonic clock, so a page clock that is pinned or set back never freezes the screens.
+  const mono = args.tickClock ?? (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
   const wasNear = new Map<string, boolean>();
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
@@ -62,7 +64,7 @@ export function startScreenFeed(args: Readonly<{ layer: ScreenLayer; read: () =>
     if (stopped) return;
     if (timer !== null) { clearTimeout(timer); timer = null; }
     const input = args.read();
-    const result = atlas.update(screenFaces(args.layer, { ...input, now: clock() }, wasNear), clock());
+    const result = atlas.update(screenFaces(args.layer, { ...input, now: clock() }, wasNear), mono());
     if (result.drawn > 0) args.onDraw(atlas);
     if (result.nextDueMs !== null) timer = setTimeout(touch, result.nextDueMs + 5);
   };

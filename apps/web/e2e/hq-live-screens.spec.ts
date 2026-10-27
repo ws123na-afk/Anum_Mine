@@ -4,6 +4,8 @@ import { mkdirSync } from 'node:fs';
 import { mockHq, type HqMockOptions } from './support/hqCampusApi';
 import { flowItems, mockFlow, type FlowMock } from './support/hqFlowApi';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
+import { mockProvisioning } from './support/hqProvisioningApi';
+import { FX, greenRegistry, mockGreenWork, newState } from './support/hqGreenConcreteApi';
 import { useSavedLocale } from './support/workspaceApi';
 import { sceneReady } from './support/hqScene';
 
@@ -145,6 +147,39 @@ test.describe('desk monitors', () => {
     await openAlNoor(page, { stream: 'unsupported' });
     await expect.poll(() => wallLine(page).then((l) => l.includes('Updated ')), { timeout: 90_000 }).toBe(true);
     expect(await wallLine(page)).not.toMatch(/ Live$/);
+  });
+});
+
+test.describe('Green Concrete command center', () => {
+  async function openGreen(page: Page, work: Record<string, { state: 'working' | 'idle'; title?: string }>) {
+    const at = new Date(Date.UTC(2026, 9, 26, 8, 0, 0));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.clock.setFixedTime(at);
+    const state = newState(() => at.getTime());
+    state.work = work;
+    await openHq(page, { registry: greenRegistry(), beforeGoto: async (p) => { await mockFlow(p); await mockProvisioning(p); await mockGreenWork(p, state); } });
+    await hq(page).getByRole('button', { name: 'List', exact: true }).click();
+    await hq(page).locator('.hqListBuilding', { has: page.getByRole('heading', { level: 3, name: String(FX.building.name), exact: true }) }).locator('.hqListRow > button').click();
+    await sceneReady(page);
+  }
+
+  test('the day shift monitor of a working person runs, an idle one is still, and no title or name is drawn', async ({ page }) => {
+    await openGreen(page, { raed: { state: 'working', title: 'ZZSECRET plan' } });
+    await expect.poll(async () => (await monitorLines(page)).join('\n'), { timeout: 90_000 }).toMatch(/Working \/ Task run/);
+    const lines = (await monitorLines(page)).join('\n');
+    expect(lines).toMatch(/Idle/);
+    expect(lines).not.toMatch(/ZZSECRET|Raed|Hazrat|Shahzeb/);
+    // The command center's video wall carries the same real numbers (a room of kind command always has one).
+    await expect.poll(() => wallLine(page), { timeout: 60_000 }).toContain('Open tasks');
+    if (SHOTS) await shot(page, 'green-room');
+  });
+
+  test('the night shift people, off shift now, show a dark Off shift monitor', async ({ page }) => {
+    await openGreen(page, {});
+    await hq(page).getByRole('button', { name: new RegExp(`^${String(FX.room.name)}`) }).first().click({ force: true });
+    await hq(page).getByTestId('shift-toggle').click();
+    await expect.poll(async () => (await monitorLines(page)).join('\n'), { timeout: 90_000 }).toMatch(/Off shift/);
+    expect((await monitorLines(page)).join('\n')).not.toMatch(/scan/);
   });
 });
 

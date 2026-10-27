@@ -20,6 +20,7 @@ export const hqScreenEn = {
   'hqScreen.flowTitle': 'Latest flow',
   'hqScreen.flowNone': 'Nothing is moving right now.',
   'hqScreen.flowRow': '{kind} · {stage} · {time}',
+  'hqScreen.flowRowNoAge': '{kind} · {stage}',
   'hqScreen.tyreOff': '{name}: Not connected',
   'hqScreen.tyreNoAccess': '{name}: No access',
   'hqScreen.dur.s': '{n}s',

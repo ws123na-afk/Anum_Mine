@@ -95,6 +95,10 @@ export type BuildingViewProps = Readonly<{
 export type AgentStyleInfo = Readonly<{ avatar: AvatarAppearance | null; department: string | null }>;
 
 
+/** The wall shows the tyre figures in a building that is for tyres, or any building whose tyre feed answers; a default building with no feed says nothing about tyres. */
+const wallTyre = (modules: ReturnType<typeof buildingModules>, tyre: ModuleState<TyreLive>): ModuleState<TyreLive> | null =>
+  modules.panels.includes('tyre') && (modules.source !== 'default' || tyre.state === 'ready') ? tyre : null;
+
 export function BuildingView(props: BuildingViewProps) {
   const { building, floor, view, night, presence } = props;
   const locale = useLocale();
@@ -286,7 +290,7 @@ export function BuildingView(props: BuildingViewProps) {
   // The live faces of the monitors and the operations wall (the lazy screens chunk); a Tyre Pulse building's wall also shows the tyre figures.
   const screens = useScreens({
     screens: scene.screens, floor, floorIndex: activeIndex, floorY: activeIndex * FLOOR_PITCH + 0.06, presence, deskState, flow: props.flow?.snapshot ?? null,
-    wall: props.wall ?? null, tyre: buildingModules(building).panels.includes('tyre') ? props.tyre : null, buildingName: props.workspaceName,
+    wall: props.wall ?? null, tyre: wallTyre(buildingModules(building), props.tyre), buildingName: props.workspaceName,
     live: props.screenLive === true, reducedMotion: props.reducedMotion, camera: cameraRef,
   });
   const renderScene = useMemo(() => ({

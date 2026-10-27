@@ -9,6 +9,7 @@ import {
 } from '../src/hq-screens/screenModel.ts';
 import { MON_CAP, WALL_CAP, screenLayer, screenLayout } from '../src/hq-screens/screenSites.ts';
 import { ScreenAtlas, SCREEN_MIN_MS, type ScreenFace } from '../src/hq-screens/screenDraw.ts';
+import { startScreenFeed } from '../src/hq-screens/index.ts';
 import { MeshBuilder, VERTEX_FLOATS } from '../src/lib/hqGeometry.ts';
 import { buildInteriorRoom } from '../src/hqAssets/interior/index.ts';
 import type { SceneScreen } from '../src/lib/buildingScene.ts';
@@ -296,4 +297,33 @@ test('every field of the table is documented, and the docs list no other', () =>
   for (const f of SCREEN_FIELDS) assert.ok(doc.includes(`\`${f.id}\``), `docs miss ${f.id}`);
   const rows = [...doc.matchAll(/^\| `((?:wall|monitor)\.[a-z.]+)` \|/gm)].map((m) => m[1]);
   assert.deepEqual(rows.sort(), SCREEN_FIELDS.map((f) => f.id).sort());
+});
+
+test('a flow row with no usable age prints no empty age', () => {
+  const face = wallFace(wallInput(), Date.parse(FRESH) - 600_000, 'en', tr('en'));
+  assert.ok(face.flowRows.length > 0);
+  for (const row of face.flowRows) assert.ok(!row.endsWith('·') && !row.endsWith(' '), row);
+  assert.equal(face.flowRows[0], 'Task · In an office');
+});
+
+test('the feed keeps drawing when the page clock is pinned: the one second rule uses its own clock', () => {
+  const { ctx } = fakeCtx();
+  const layer = screenLayer([{ kind: 'monitor', id: 'd1', roomId: 'r', floorIndex: 0, p: [0, 1, 0, 1, 1, 0, 1, 2, 0, 0, 2, 0] }], 0, [], 0);
+  let mono = 0;
+  let text = 'Working';
+  const feed = startScreenFeed({
+    layer, tickMs: 1_000_000, now: () => NOW, tickClock: () => mono, make: () => ({ canvas: {} as HTMLCanvasElement, ctx: ctx as never }),
+    read: () => ({ monitors: new Map([['d1', { ...source('working', 'working'), visual: text === 'Working' ? 'working' : 'blocked', presence: { status: text === 'Working' ? 'working' : 'blocked', stale: false, observedAt: FRESH } } as MonitorSource]]), wall: null, eye: [0, 1, 0], reducedMotion: true, now: NOW }),
+    onDraw: () => undefined,
+  });
+  const first = feed.atlas.version;
+  assert.equal(first, 1);
+  text = 'Blocked';
+  mono = 400;
+  feed.touch();
+  assert.equal(feed.atlas.version, first, 'held back inside the second');
+  mono = 1500;
+  feed.touch();
+  assert.equal(feed.atlas.version, first + 1, 'drawn once the monotonic second passed, although Date.now never moved');
+  feed.stop();
 });
