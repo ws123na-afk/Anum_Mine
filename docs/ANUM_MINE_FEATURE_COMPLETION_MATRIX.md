@@ -323,6 +323,6 @@ Rows counted: 157 (sections 1 to 14).
 | Not applicable | 1 |
 | Total | 157 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 108, Partial 31, Missing 3, Not applicable 1 (total 143). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 4.11 by the label work, rows 2.11 and 2.12 by the campus motion work).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 108, Partial 31, Missing 3, Not applicable 1 (total 143). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 4.11 by the label work, rows 2.11 and 2.12 by the campus motion work, rows 3.21 and 3.22 by the page layout and panels work).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.
