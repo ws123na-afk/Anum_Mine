@@ -135,3 +135,20 @@ def test_brand_colour_is_normalised(value, expected) -> None:
 def test_brand_colour_rejects_anything_but_six_hex_digits(value) -> None:
     with pytest.raises(ValueError):
         imaging.normalise_brand_color(value)
+
+
+@pytest.mark.parametrize("mode,fmt", [("P", "PNG"), ("LA", "PNG"), ("L", "PNG"), ("I;16", "PNG"), ("CMYK", "JPEG"), ("L", "JPEG"), ("RGBA", "WEBP")])
+def test_every_common_colour_mode_comes_out_as_an_rgba_png(mode: str, fmt: str) -> None:
+    fill = {"CMYK": (10, 20, 30, 0), "LA": (100, 255), "RGBA": (1, 2, 3, 255)}.get(mode, 100)
+    source = Image.new(mode, (96, 48), fill)
+    buffer = io.BytesIO()
+    source.save(buffer, fmt)
+    logo = imaging.prepare(buffer.getvalue())
+    out = Image.open(io.BytesIO(logo.png))
+    assert out.format == "PNG" and out.mode == "RGBA" and out.size == (96, 48)
+
+
+def test_the_same_picture_gives_the_same_hash_and_a_different_picture_a_different_one() -> None:
+    a, b = png((64, 64), (10, 20, 30, 255)), png((64, 64), (11, 20, 30, 255))
+    assert imaging.prepare(a).sha256 == imaging.prepare(a).sha256
+    assert imaging.prepare(a).sha256 != imaging.prepare(b).sha256

@@ -63,9 +63,15 @@ test('plaque: the frame needs 3 to 1 against the dark board', () => {
   assert.equal(signLook('plaque', '#51d9cc').part, 'frame');
 });
 
-test('an unknown or missing style is the plain lettered sign', () => {
-  assert.equal(signLook(null, null).style, 'plain');
-  assert.equal(signLook('neon' as never, '#1f6f4a').style, 'plain');
+test('an unknown or missing style is the standard campus sign: a dark board with the name, the owner\'s colour as its bar', () => {
+  for (const look of [signLook(null, null), signLook(undefined, '#1f6f4a'), signLook('neon' as never, '#1f6f4a')]) {
+    assert.equal(look.style, 'standard');
+    assert.ok(contrast(look.text, look.face) >= 7, 'light lettering on a dark board');
+  }
+  assert.equal(signLook(null, null).accent, null);
+  assert.equal(signLook(null, '#ffee99').readable, true, 'a pale bar is easy to see on the dark board');
+  assert.equal(signLook(null, '#142c3d').readable, false, 'a bar the colour of the board is not');
+  assert.equal(signLook(null, '#1f6f4a').part, 'bar');
 });
 
 test('layout: no logo gives the name the whole cell; a logo sits at the start edge on a plate and keeps its proportions', () => {
@@ -113,4 +119,97 @@ test('sizes read plainly', () => {
   assert.equal(formatBytes(2048), '2.0 KB');
   assert.equal(formatBytes(200 * 1024), '200 KB');
   assert.equal(formatBytes(1048576), '1.0 MB');
+});
+
+// ---- the campus side: which logos load, what the sign text carries
+import { loadLogos, logoKey, pickLogoTargets, signFor, signStats, MAX_LOGOS, type Logo } from '../src/hq-logo-signs/campusSigns.ts';
+
+const target = (id: string, x: number, z: number, sha = 'a'.repeat(64)) => ({ id, buildingId: id, sha, x, z });
+
+test('the nearest buildings load their logos first and no more than the cap', () => {
+  const many = Array.from({ length: 40 }, (_, i) => target(`b${String(i).padStart(2, '0')}`, i * 10, 0));
+  const picked = pickLogoTargets(many, { x: 0, z: 0 });
+  assert.equal(picked.length, MAX_LOGOS);
+  assert.deepEqual(picked.slice(0, 3).map((t) => t.id), ['b00', 'b01', 'b02']);
+  assert.deepEqual(pickLogoTargets(many, { x: 390, z: 0 }, 2).map((t) => t.id), ['b39', 'b38']);
+  assert.deepEqual(pickLogoTargets([target('x', 0, 0, '')], { x: 0, z: 0 }), [], 'a building without a logo is not a target');
+  assert.deepEqual(pickLogoTargets(many, { x: 0, z: 0 }, 0), []);
+});
+
+test('a logo that cannot be fetched or decoded leaves the building on the lettered sign and is never an error', async () => {
+  const controller = new AbortController();
+  const targets = [target('a', 0, 0), target('b', 5, 0), target('c', 9, 0)];
+  const seen: string[] = [];
+  const result = await loadLogos(targets, new Map(), controller.signal, async (id) => {
+    seen.push(id);
+    if (id === 'a') return null;
+    if (id === 'b') throw new Error('offline');
+    return new Blob([new Uint8Array([1, 2, 3])]);
+  });
+  assert.deepEqual(seen.sort(), ['a', 'b', 'c']);
+  assert.equal(result.size, 0, 'no bitmap support in the test runner and the other two failed: nothing is kept');
+});
+
+test('logos already decoded are reused and unwanted ones are closed', async () => {
+  const closed: string[] = [];
+  const keep: Logo = { image: { close: () => closed.push('keep'), width: 10, height: 10 } as never, width: 10, height: 10 };
+  const drop: Logo = { image: { close: () => closed.push('drop'), width: 10, height: 10 } as never, width: 10, height: 10 };
+  const a = target('a', 0, 0), gone = target('gone', 1, 0);
+  const previous = new Map([[logoKey(a), keep], [logoKey(gone), drop]]);
+  let fetched = 0;
+  const result = await loadLogos([a], previous, new AbortController().signal, async () => { fetched += 1; return null; });
+  assert.equal(fetched, 0, 'same building and hash: no new request');
+  assert.equal(result.get(logoKey(a)), keep);
+  assert.deepEqual(closed, ['drop']);
+  const aborted = new AbortController();
+  aborted.abort();
+  const again = await loadLogos([a, target('z', 3, 0)], new Map(), aborted.signal, async () => new Blob([new Uint8Array([1])]));
+  assert.equal(again.size, 0);
+});
+
+test('the sign text key moves with style, colour and logo, and not with anything else', () => {
+  const sign = { buildingId: 'b1', style: 'plaque', color: '#1f6f4a', logoSha256: 'f'.repeat(64) };
+  const loaded = new Map([[logoKey({ buildingId: 'b1', sha: 'f'.repeat(64) }), { image: {} as never, width: 20, height: 10 }]]);
+  const withLogo = signFor(sign, 'Tyre Pulse', false, loaded);
+  const noLogoYet = signFor(sign, 'Tyre Pulse', false, new Map());
+  assert.notEqual(withLogo.brand, noLogoYet.brand, 'the sign is drawn again when the logo arrives');
+  assert.equal(signFor({ ...sign, color: '#fff' }, 'x', false, new Map()).brand, 'plaque||', 'a colour that is not six digits is no colour, and there is no logo yet');
+  assert.equal(signFor({ ...sign, style: 'neon' }, 'x', false, new Map()).brand.startsWith('|'), true, 'an unknown style is no style');
+  assert.equal(typeof withLogo.paint, 'function');
+  assert.deepEqual(signStats([{ sign }, { sign: undefined }], loaded), { branded: 1, logos: 1 });
+  assert.deepEqual(signStats([{ sign }], new Map()), { branded: 1, logos: 0 });
+});
+
+// ---- the sign travels from the registry record to the campus building
+
+test('the registry building record carries its sign into the scene and the campus building', async () => {
+  const { projectHeadquarters } = await import('../src/lib/headquartersProjection.ts');
+  const { expandCampus } = await import('../src/lib/campusRegistry.ts');
+  const scope = { tenantId: 'tenant-a', workspaceId: 'w1' };
+  const stamp = { timezone: 'Asia/Dubai', revision: 1 };
+  const registry = {
+    buildings: [
+      { id: 'b1', name: 'Alpha', ...stamp, sign_style: 'banner', brand_color: '#1f6f4a', logo_sha256: 'c'.repeat(64) },
+      { id: 'b2', name: 'Beta', ...stamp },
+      { id: 'b3', name: 'Gamma', ...stamp, brand_color: '#51d9cc' },
+    ],
+    floors: ['b1', 'b2', 'b3'].map((id) => ({ id: `f-${id}`, name: 'Ground', building_id: id, level: 0, revision: 1 })),
+    rooms: [], desks: [],
+  };
+  const scene = projectHeadquarters(scope, registry as never, [], new Date('2026-10-27T08:00:00Z')).buildings;
+  assert.deepEqual(scene[0].sign, { buildingId: 'b1', style: 'banner', color: '#1f6f4a', logoSha256: 'c'.repeat(64) });
+  assert.equal(scene[1].sign, undefined, 'no sign set: the record stays as it was');
+  assert.deepEqual(scene[2].sign, { buildingId: 'b3', style: null, color: '#51d9cc', logoSha256: null });
+
+  const home = { workspace_id: 'w1', tenant_id: 'tenant-a', name: 'Home', kind: 'business', icon: null, floors: null, accessible: true, totals: null, presence_verified_at: null } as never;
+  const campus = { buildings: [home], totals: null, generated_at: '' } as never;
+  const many = expandCampus(campus, 'w1', scene, null);
+  assert.deepEqual(many.buildings.map((b) => b.sign?.buildingId ?? null), ['b1', null, 'b3']);
+  // One registry building: the workspace's own building takes its sign and stays one building.
+  const one = expandCampus(campus, 'w1', scene.slice(0, 1), null);
+  assert.equal(one.buildings.length, 1);
+  assert.equal(one.buildings[0].sign?.buildingId, 'b1');
+  assert.equal(one.buildings[0].registryBuildingId, undefined);
+  // No sign: the campus object itself comes back.
+  assert.equal(expandCampus(campus, 'w1', scene.slice(1, 2), null), campus);
 });

@@ -41,13 +41,14 @@ async function decode(blob: Blob): Promise<Decoded> {
 }
 const release = (d: Decoded | null): void => { if (d && 'close' in d.image) d.image.close(); };
 
-function messageOf(error: unknown): { text: string; stale: boolean } {
+type Problem = { text: string; stale: boolean; area: 'logo' | 'look' };
+function messageOf(error: unknown, area: Problem['area']): Problem {
   if (error instanceof ApiError) {
-    if (error.status === 409) return { text: t('hqLogo.err.stale'), stale: true };
-    if (error.status === 403) return { text: error.detail ?? t('hqLogo.err.denied'), stale: false };
-    return { text: error.detail ?? t('hqLogo.err.failed', { reason: String(error.status) }), stale: false };
+    if (error.status === 409) return { text: t('hqLogo.err.stale'), stale: true, area };
+    if (error.status === 403) return { text: error.detail ?? t('hqLogo.err.denied'), stale: false, area };
+    return { text: error.detail ?? t('hqLogo.err.failed', { reason: String(error.status) }), stale: false, area };
   }
-  return { text: t('hqLogo.err.failed', { reason: error instanceof Error ? error.message : '' }), stale: false };
+  return { text: t('hqLogo.err.failed', { reason: error instanceof Error ? error.message : '' }), stale: false, area };
 }
 
 export default function BuildingSignSection({ building, editable, busy, onChanged, onReload }: Props) {
@@ -62,7 +63,7 @@ export default function BuildingSignSection({ building, editable, busy, onChange
   const [pending, setPending] = useState<{ file: File; decoded: Decoded } | null>(null);
   const [colorText, setColorText] = useState(building.brand_color ?? '');
   const [style, setStyle] = useState<SignStyle | ''>((building.sign_style as SignStyle | null) ?? '');
-  const [problem, setProblem] = useState<{ text: string; stale: boolean } | null>(null);
+  const [problem, setProblem] = useState<{ text: string; stale: boolean; area: 'logo' | 'look' } | null>(null);
   const [working, setWorking] = useState<'' | 'upload' | 'remove' | 'look' | 'reset'>('');
   const [confirmReset, setConfirmReset] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -106,45 +107,46 @@ export default function BuildingSignSection({ building, editable, busy, onChange
     if (!file) return;
     setProblem(null);
     const check = await checkLogoFile(file);
-    if (!check.ok) { setProblem({ text: t(`hqLogo.err.${check.problem}` as `hqLogo.err.${LogoProblem}`), stale: false }); return; }
+    if (!check.ok) { setProblem({ text: t(`hqLogo.err.${check.problem}` as `hqLogo.err.${LogoProblem}`), stale: false, area: 'logo' }); return; }
     try {
       const decoded = await decode(file);
       setPending({ file, decoded });
-    } catch { setProblem({ text: t('hqLogo.err.unreadable'), stale: false }); }
+    } catch { setProblem({ text: t('hqLogo.err.unreadable'), stale: false, area: 'logo' }); }
   }, []);
 
-  const run = useCallback(async (kind: typeof working, action: () => Promise<{ building: OfficeBuilding; message: string }>) => {
+  const run = useCallback(async (kind: typeof working, action: () => Promise<{ building: OfficeBuilding; message: string }>, area: Problem['area']) => {
     setWorking(kind); setProblem(null);
     try {
       const done = await action();
       onChanged(done.building, done.message);
       return true;
     } catch (error) {
-      setProblem(messageOf(error));
+      setProblem(messageOf(error, area));
       return false;
     } finally { setWorking(''); }
   }, [onChanged]);
 
   const upload = () => {
     if (!pending) return;
-    void run('upload', async () => ({ building: await uploadLogo(building.id, building.revision, pending.file), message: t('hqLogo.done.logo') })).then((ok) => { if (ok) setPending(null); });
+    void run('upload', async () => ({ building: await uploadLogo(building.id, building.revision, pending.file), message: t('hqLogo.done.logo') }), 'logo').then((ok) => { if (ok) setPending(null); });
   };
-  const remove = () => void run('remove', async () => ({ building: await removeLogo(building.id, building.revision), message: t('hqLogo.done.removed') }));
+  const remove = () => void run('remove', async () => ({ building: await removeLogo(building.id, building.revision), message: t('hqLogo.done.removed') }), 'logo');
   const save = () => void run('look', async () => ({
     building: await saveLook(building.id, { expected_revision: building.revision, sign_style: style || null, brand_color: color }), message: t('hqLogo.done.look'),
-  }));
+  }), 'look');
   const reset = () => void run('reset', async () => {
     let current = building;
     if (building.logo_sha256) current = await removeLogo(building.id, current.revision);
     if (current.sign_style || current.brand_color) current = await saveLook(building.id, { expected_revision: current.revision, sign_style: null, brand_color: null });
     return { building: current, message: t('hqLogo.done.reset') };
-  }).then((ok) => { if (ok) setConfirmReset(false); });
+  }, 'look').then((ok) => { if (ok) setConfirmReset(false); });
 
   const onDrop = (event: DragEvent) => { event.preventDefault(); setDragging(false); if (!off) void choose(event.dataTransfer.files[0]); };
   const hasAnything = Boolean(building.logo_sha256 || building.sign_style || building.brand_color);
   const contrastText = !color ? t('hqLogo.contrast.none')
     : look.readable ? t('hqLogo.contrast.ok', { ratio: (look.ratio ?? 0).toFixed(1), needs: String(look.needs) })
       : look.part === 'frame' ? t('hqLogo.contrast.lowFrame', { ratio: (look.ratio ?? 0).toFixed(1), needs: String(look.needs) })
+        : look.style === 'standard' ? t('hqLogo.contrast.lowBar', { ratio: (look.ratio ?? 0).toFixed(1), needs: String(look.needs) })
         : t('hqLogo.contrast.low', { ratio: (look.ratio ?? 0).toFixed(1), needs: String(look.needs), part: t(`hqLogo.part.${look.part === 'glow' ? 'glow' : 'bar'}`) });
 
   return (
@@ -168,7 +170,7 @@ export default function BuildingSignSection({ building, editable, busy, onChange
           </div>
         )}
         {load.state === 'none' && !pending && <p className="hqbHint" data-testid="hql-empty">{t('hqLogo.empty')}</p>}
-        {load.state === 'ready' && !pending && <p className="hqbHint" data-testid="hql-has-logo">{t('hqLogo.current')}: {t('hqLogo.currentAlt', { name })}</p>}
+        {load.state === 'ready' && !pending && <p className="hqbHint" data-testid="hql-has-logo">{t('hqLogo.currentAlt', { name })}</p>}
 
         {editable && (
           <div
@@ -184,6 +186,12 @@ export default function BuildingSignSection({ building, editable, busy, onChange
           </div>
         )}
         <p className="hqbHint" id={ids.help}>{t('hqLogo.help')}</p>
+        {problem && problem.area === 'logo' && (
+          <div className="hqbBanner hqlProblem" data-tone="error" role="alert" data-testid="hql-problem">
+            <p>{problem.text}</p>
+            {problem.stale && <button type="button" onClick={onReload}>{t('hqLogo.reload')}</button>}
+          </div>
+        )}
         {pending && (
           <div className="hqlPending" data-testid="hql-pending">
             <span className="hqbHint" dir="auto">{t('hqLogo.file', { name: pending.file.name, size: formatBytes(pending.file.size) })}</span>
@@ -216,16 +224,16 @@ export default function BuildingSignSection({ building, editable, busy, onChange
       <fieldset className="hqbFieldset hqlStyles" disabled={off}>
         <legend>{t('hqLogo.style')}</legend>
         <div className="hqlStyleList" role="radiogroup" aria-label={t('hqLogo.style')}>
-          {SIGN_STYLES.map((s) => (
-            <label key={s} className="hqlStyle" data-selected={(style || 'plain') === s}>
-              <input type="radio" name={`${ids.file}-style`} value={s} checked={(style || 'plain') === s} onChange={() => setStyle(s)} data-testid={`hql-style-${s}`} />
-              <span><strong>{t(`hqLogo.style.${s}` as 'hqLogo.style.plain')}</strong><small>{t(`hqLogo.style.${s}.hint` as 'hqLogo.style.plain.hint')}</small></span>
+          {(['', ...SIGN_STYLES] as const).map((s) => (
+            <label key={s || 'standard'} className="hqlStyle" data-selected={style === s}>
+              <input type="radio" name={`${ids.file}-style`} value={s} checked={style === s} onChange={() => setStyle(s)} data-testid={`hql-style-${s || 'standard'}`} />
+              <span><strong>{t(`hqLogo.style.${s || 'standard'}` as 'hqLogo.style.plain')}</strong><small>{t(`hqLogo.style.${s || 'standard'}.hint` as 'hqLogo.style.plain.hint')}</small></span>
             </label>
           ))}
         </div>
       </fieldset>
 
-      {problem && (
+      {problem && problem.area === 'look' && (
         <div className="hqbBanner hqlProblem" data-tone="error" role="alert" data-testid="hql-problem">
           <p>{problem.text}</p>
           {problem.stale && <button type="button" onClick={onReload}>{t('hqLogo.reload')}</button>}

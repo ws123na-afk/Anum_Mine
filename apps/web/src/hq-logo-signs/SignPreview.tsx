@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { t } from '../lib/i18n.ts';
-import { CELL_H, CELL_W } from './signModel.ts';
+import { CELL_H, CELL_W, WORDMARK } from './signModel.ts';
 import { paintSign, type SignInput } from './signPainter.ts';
 
 /** The sign as it will be drawn on the campus: the same painter, on a canvas twice the cell size. */
@@ -15,7 +15,7 @@ export function SignPreview({ input }: { input: SignInput }) {
     const draw = () => {
       if (!live) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      paintSign(ctx as never, 0, 0, 2, { name, rtl, style, color, logo, logoWidth, logoHeight });
+      paintSign(ctx as never, 0, 0, 2, { name, rtl, style, color, logo, logoWidth, logoHeight, wordmark: WORDMARK });
     };
     draw();
     // The Arabic face loads on demand: draw again once fonts are ready so the preview matches the campus.

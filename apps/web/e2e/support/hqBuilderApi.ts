@@ -34,6 +34,8 @@ export interface BuilderMock {
   touchRoom(id: string, patch?: Json): void;
   /** The stored logo bytes by building id (what the logo route serves). */
   logos: Map<string, Buffer>;
+  /** Simulates another editor: bumps a building's revision behind the page's back. */
+  touchBuilding(id: string): void;
 }
 
 const TEMPLATES = [
@@ -89,7 +91,8 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
   const fakeSha = (bytes: Buffer) => { let h = 0; for (const b of bytes) h = (h * 31 + b) >>> 0; return h.toString(16).padStart(8, '0').repeat(8); };
   if (options.withLogo) { logos.set('building-1', options.withLogo); buildings.set('building-1', { ...buildings.get('building-1'), logo_sha256: fakeSha(options.withLogo) }); }
   const mock: BuilderMock = {
-    logos, requests: [], rooms, desks, floors, history: undefined as unknown as HistoryMock,
+    logos, touchBuilding(id) { const b = buildings.get(id); if (b) buildings.set(id, { ...b, revision: Number(b.revision) + 1 }); },
+    requests: [], rooms, desks, floors, history: undefined as unknown as HistoryMock,
     touchRoom(id, patch = {}) {
       const current = rooms.get(id);
       if (current) rooms.set(id, { ...current, ...patch, revision: Number(current.revision) + 1 });
@@ -104,7 +107,8 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
     const url = new URL(request.url());
     const path = url.pathname.replace('/api/v1/office-spaces', '');
     const method = request.method();
-    const body = request.postData() ? (JSON.parse(request.postData() as string) as Json) : null;
+    const isLogo = /\/buildings\/[^/]+\/logo$/.test(path);
+    const body = !isLogo && request.postData() ? (JSON.parse(request.postData() as string) as Json) : null;
     mock.requests.push({ method, path, body });
     const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
 

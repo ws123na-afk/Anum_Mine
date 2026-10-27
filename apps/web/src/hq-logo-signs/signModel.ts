@@ -9,8 +9,11 @@
 export const SIGN_STYLES = ['plain', 'plaque', 'illuminated', 'banner'] as const;
 export type SignStyle = (typeof SIGN_STYLES)[number];
 
-/** A sign without a chosen style is the plain lettered sign. */
-export const DEFAULT_STYLE: SignStyle = 'plain';
+/** A sign without a chosen style is the standard campus sign: a dark board with the building's name (the look every building has until the owner sets a style). */
+export type SignLookStyle = SignStyle | 'standard';
+const STANDARD_FACE = '#142c3d';
+/** The accent of the standard sign (the campus teal) when the owner chose no colour. */
+export const STANDARD_ACCENT = '#45d0b5';
 /** Used for a banner board when the owner has not chosen a colour (a neutral slate, not a brand). */
 export const NEUTRAL_BOARD = '#34454f';
 const PAPER = '#f6f3ea';
@@ -18,6 +21,9 @@ const INK = '#1b2420';
 const WHITE = '#ffffff';
 const DARK_PLAQUE = '#1f262b';
 const DARK_NIGHT = '#0d1216';
+
+/** The platform wordmark of the standard sign (the campus is ANUM MINE). */
+export const WORDMARK = 'ANUM MINE';
 
 export const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -48,7 +54,7 @@ export function contrast(a: string, b: string): number {
 export type SignPart = 'bar' | 'frame' | 'glow' | 'board';
 
 export type SignLook = Readonly<{
-  style: SignStyle;
+  style: SignLookStyle;
   face: string;
   /** The lettering colour actually used. */
   text: string;
@@ -67,8 +73,12 @@ export type SignLook = Readonly<{
 }>;
 
 export function signLook(style: SignStyle | null | undefined, color: string | null | undefined): SignLook {
-  const s: SignStyle = style && (SIGN_STYLES as readonly string[]).includes(style) ? style : DEFAULT_STYLE;
   const brand = normalizeColor(color);
+  if (!style || !(SIGN_STYLES as readonly string[]).includes(style)) {
+    const ratio = brand ? contrast(brand, STANDARD_FACE) : null;
+    return { style: 'standard', face: STANDARD_FACE, text: '#f2f6fa', accent: brand, part: 'bar', ratio, needs: 3, readable: ratio === null || ratio >= 3, letteringFallback: false };
+  }
+  const s: SignStyle = style;
   if (s === 'banner') {
     const face = brand ?? NEUTRAL_BOARD;
     const text = contrast(face, WHITE) >= contrast(face, INK) ? WHITE : INK;

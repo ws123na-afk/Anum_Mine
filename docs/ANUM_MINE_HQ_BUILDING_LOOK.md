@@ -111,3 +111,7 @@ The building view opens as a dollhouse section like concept renders 22 and 24: f
 ## Billboards, 26 October 2026
 
 The concept renders show a sign or billboard at each building with its name and what it does. Each building now has a board on posts in front of it (lit at night, lettered with the real building name in the sign atlas, Arabic right to left) and a card above it with what the building is for and its real work details, from registry and live records only. How it is built, every field and its source, and what is not done: [billboards](ANUM_MINE_HQ_BILLBOARDS.md). Still different from the renders: the board carries the name only (the details are the card, a real overlay), and the boards are plain panels, not the animated screens of the concepts.
+
+## Brand signs (27 October 2026)
+
+A building's sign can now carry the owner's own logo, brand colour and one of four sign styles (plain, plaque, illuminated, banner), set in the builder's Floor tab. Without an upload the sign stays the lettered sign with the building's real name. The painter draws into the existing sign atlas cell, so no texture and no renderer code was added beyond a one line hook. See [logo and brand signs](ANUM_MINE_HQ_LOGO_SIGNS.md).
