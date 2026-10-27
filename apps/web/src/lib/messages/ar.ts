@@ -19,6 +19,7 @@ import { hqFlowAr } from './hqFlow.ar.ts';
 import { hqHistoryAr } from './hqHistory.ar.ts';
 import { hqGpuAr } from './hqGpu.ar.ts';
 import { hqLiveAr } from './hqLive.ar.ts';
+import { hqPanelsAr } from './hqPanels.ar.ts';
 import { hqProvisioningAr } from './hqProvisioning.ar.ts';
 import { hqNavAr } from './hqNav.ar.ts';
 import { hqAssignAr } from './hqAssign.ar.ts';
@@ -3258,6 +3259,7 @@ export const ar: Record<MessageKey, Message> = {
   ...hqHistoryAr,
   ...hqGpuAr,
   ...hqLiveAr,
+  ...hqPanelsAr,
   ...hqProvisioningAr,
   ...hqNavAr,
   ...hqAssignAr,
