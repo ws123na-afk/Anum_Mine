@@ -1,0 +1,32 @@
+// لوحات إعلانات مباني المقر (docs/ANUM_MINE_HQ_BILLBOARDS.md). يجب أن تطابق مفاتيح hqBillboard.en.ts وعناصرها النائبة.
+// كل جملة هنا نص ثابت: لا تعرض اللوحة إلا هذه الجمل أو حقولاً حقيقية من السجلات.
+import type { Message } from './types.ts';
+
+export const hqBillboardAr = {
+  'hqBillboard.group': 'لوحة إعلانات {name}',
+  'hqBillboard.headAria': 'لوحة إعلانات: {name}. {summary}.',
+  'hqBillboard.openAria': 'لوحة إعلانات: افتح المبنى {name}',
+  'hqBillboard.purpose.executive': 'مبنى تنفيذي: مركز القيادة في الحرم.',
+  'hqBillboard.purpose.business': 'مبنى أعمال: يُدار فيه أحد أعمال الحرم.',
+  'hqBillboard.purpose.department': 'مبنى قسم: مقر قسم واحد.',
+  'hqBillboard.purpose.personal': 'مبنى شخصي: المكتب الخاص بالمالك.',
+  'hqBillboard.purpose.unset': 'لم يُحدد نوع المبنى بعد. غرفه الفعلية مدرجة أدناه.',
+  'hqBillboard.label.about': 'ما يفعله المبنى',
+  'hqBillboard.label.size': 'الحجم',
+  'hqBillboard.label.departments': 'الأقسام',
+  'hqBillboard.label.rooms': 'الغرف',
+  'hqBillboard.label.presence': 'الوكلاء الآن',
+  'hqBillboard.label.work': 'العمل المفتوح',
+  'hqBillboard.notConnected': 'غير متصل',
+  'hqBillboard.noAccess': 'لا صلاحية',
+  'hqBillboard.more': '+{count} أخرى',
+  'hqBillboard.noRooms': 'لا توجد غرف في السجل بعد',
+  'hqBillboard.work.open': 'مهام مفتوحة',
+  'hqBillboard.work.waiting': 'بانتظار الموافقة',
+  'hqBillboard.work.blocked': 'متوقفة',
+  'hqBillboard.verified': 'تم التحقق {time}',
+  'hqBillboard.stale': 'قديم: آخر تحقق {time}',
+  'hqBillboard.noTime': 'وقت التحقق غير مُبلَّغ',
+  'hqBillboard.open': 'افتح المبنى',
+  'hqBillboard.unavailable': 'هذا المبنى غير متاح لك الآن.',
+} satisfies Record<string, Message>;

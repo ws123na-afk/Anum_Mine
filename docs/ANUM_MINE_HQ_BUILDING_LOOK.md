@@ -107,3 +107,7 @@ was checked on software GL for single frames only). Still different: no bevels o
 ## Cutaway section, 26 October 2026
 
 The building view opens as a dollhouse section like concept renders 22 and 24: front walls and roof removed by camera azimuth, all floors stacked, the open floor highlighted and the others dimmed, a Cutaway / Closed toggle and 90 degree rotate snaps. What it is, how it is built and what still differs from the renders: [cutaway](ANUM_MINE_HQ_CUTAWAY.md).
+
+## Billboards, 26 October 2026
+
+The concept renders show a sign or billboard at each building with its name and what it does. Each building now has a board on posts in front of it (lit at night, lettered with the real building name in the sign atlas, Arabic right to left) and a card above it with what the building is for and its real work details, from registry and live records only. How it is built, every field and its source, and what is not done: [billboards](ANUM_MINE_HQ_BILLBOARDS.md). Still different from the renders: the board carries the name only (the details are the card, a real overlay), and the boards are plain panels, not the animated screens of the concepts.

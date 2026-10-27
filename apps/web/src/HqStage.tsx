@@ -42,6 +42,8 @@ export type StageLabel = Readonly<{
   occluders?: readonly Aabb[];
   /** Other anchors for the same label; the one nearest the eye is used. */
   alternatives?: readonly Vec3[];
+  /** A large card (a billboard): the placement searches in small steps for a free spot. */
+  fine?: boolean;
 }>;
 
 export type StageStatus = 'ok' | 'recovering';
@@ -65,6 +67,12 @@ type Props = Readonly<{
   onHover: (id: string | null) => void;
   onPick: (id: string | null) => void;
   labels: readonly StageLabel[];
+  /**
+   * A second, separate pass of cards (the billboards): placed after the main cards by their own call, round the main cards and the
+   * panels named by `extraKeepOut`, and never able to move, hide or park a main card.
+   */
+  extraLabels?: readonly StageLabel[];
+  extraKeepOut?: string;
   /** Dragging with the primary button moves the scene sideways instead of turning it (the toolbar's Pan). */
   panMode?: boolean;
   /** Elements next to the stage (CSS selector, searched in the stage's parent) that cards keep clear of: the controls drawn over the scene. */
@@ -110,6 +118,10 @@ export function HqStage(props: Props) {
   const labelEls = useRef(new Map<string, HTMLDivElement>());
   const labelSizes = useRef(new Map<string, { w: number; h: number }>());
   const labelsRef = useRef(labels);
+  const extraRef = useRef<readonly StageLabel[]>([]);
+  const extraEls = useRef(new Map<string, HTMLDivElement>());
+  const extraSizes = useRef(new Map<string, { w: number; h: number }>());
+  const extraHost = useRef<HTMLDivElement>(null);
   const keepOut = useRef<readonly Rect[]>([]);
   const lastModelSig = useRef('');
   const size = useRef({ width: 1, height: 1 });
@@ -120,6 +132,7 @@ export function HqStage(props: Props) {
   const [status, setStatus] = useState<StageStatus>('ok');
   const lostTimer = useRef<number | null>(null);
   labelsRef.current = labels;
+  extraRef.current = props.extraLabels ?? [];
 
   const emit = useCallback((next: CameraState) => {
     live.current = next;
@@ -161,6 +174,20 @@ export function HqStage(props: Props) {
         onFrame: (vp, aspect) => {
           const { width, height } = size.current;
           placeLabels?.(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, 64, cameraEye(live.current), keepOut.current);
+          if (extraRef.current.length && placeLabels && host.current) {
+            // The billboard pass: it reads where the main cards and the panels are and keeps round them; the main pass above never sees it.
+            const box = host.current.getBoundingClientRect();
+            const around: Rect[] = [];
+            const add = (el: Element) => {
+              const r = el.getBoundingClientRect();
+              if (r.width > 14 && r.height > 14) around.push({ x0: r.left - box.left - 4, y0: r.top - box.top - 4, x1: r.right - box.left + 4, y1: r.bottom - box.top + 4 });
+            };
+            labelEls.current.forEach((el) => { if (el.style.display !== 'none' && el.dataset.hidden !== 'crowded') add(el); });
+            const sel = propsRef.current.extraKeepOut;
+            if (sel) host.current.parentElement?.querySelectorAll(sel).forEach(add);
+            if (extraHost.current) { const w = width >= 700 ? '1' : '0'; if (extraHost.current.dataset.wide !== w) extraHost.current.dataset.wide = w; }
+            placeLabels(extraRef.current, extraEls.current, extraSizes.current, vp, width, height, 64, cameraEye(live.current), around);
+          }
           propsRef.current.onView?.(live.current, aspect);
           if (canvas.current) propsRef.current.onCanvasFrame?.(canvas.current);
           const s = created?.stats;
@@ -242,6 +269,7 @@ export function HqStage(props: Props) {
   }, [props.glassPlan]);
   useEffect(() => { renderer.current?.setHighlight(props.hoverId, props.selectedId); }, [props.hoverId, props.selectedId]);
   useLayoutEffect(() => { labelSizes.current.clear(); renderer.current?.requestFrame(); }, [labels]);
+  useLayoutEffect(() => { extraSizes.current.clear(); renderer.current?.requestFrame(); }, [props.extraLabels]);
 
   // Camera changes from the controls tween; changes the stage itself emitted are already in place.
   useEffect(() => {
@@ -363,6 +391,17 @@ export function HqStage(props: Props) {
     </div>
   )), [labels]);
 
+  const extraNodes = useMemo(() => (props.extraLabels ?? []).map((spec) => (
+    <div
+      key={spec.id}
+      className="hqLabelAnchor"
+      style={{ display: 'none' }}
+      ref={(node) => { if (node) extraEls.current.set(spec.id, node); else extraEls.current.delete(spec.id); }}
+    >
+      {spec.node}
+    </div>
+  )), [props.extraLabels]);
+
   return (
     <div
       ref={host}
@@ -387,6 +426,7 @@ export function HqStage(props: Props) {
         onContextMenu={(event) => event.preventDefault()}
       />
       <p id="hq-stage-help" className="hqSrOnly">{props.description}</p>
+      {extraNodes.length > 0 && <div className="hqLabels hqLabelsExtra" ref={extraHost}>{extraNodes}</div>}
       <div className="hqLabels">{labelNodes}</div>
       {status === 'recovering' && (
         <div className="hqRecovering" role="status">{t('hq.stage.recovering')}</div>
