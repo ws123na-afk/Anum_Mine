@@ -39,20 +39,46 @@ Exit code is 1 when a threshold is passed and broken: `--max-p95-ms`, `--max-los
 
 ## Results
 
-Local run, 22 October 2026, API memory backend (events are polled once a second), one machine for API,
+Local run, 22 and 23 October 2026 (rows below use the fixed tool), API memory backend (events are polled once a second), one machine for API,
 tool and 200 SSE connections, so these are floor numbers for latency and an upper bound for contention.
 
 | Scenario | Result |
 | --- | --- |
 | 21 SSE clients, 20 events | 21 of 21 connected, 420 of 420 deliveries, loss 0 percent, latency p50 518 ms, p95 963 ms, p99 970 ms |
 | 21 agents snapshot, 5 workers, 6 s | 111 snapshots per second, 0 errors, p50 43 ms, p95 65 ms, p99 87 ms |
-| 200 SSE clients, 50 events, no other load | 200 of 200 connected, loss 0.28 to 0.70 percent over two runs (28 to 70 of 10,000 deliveries), p50 about 550 ms, p95 about 1,000 ms, p99 1.6 to 1.8 s |
-| 200 clients plus 20 snapshot workers, 200 seeded tasks | loss 0.78 percent, p95 983 ms, p99 2.0 s; snapshot 88 per second, p50 192 ms, p95 413 ms, p99 1,052 ms, 0 errors |
+| 200 SSE clients, 50 events, no other load | 200 of 200 connected, 10,000 of 10,000 deliveries, loss 0 percent (3 runs), p50 about 540 ms, p95 about 1,000 ms, p99 2.7 to 3.0 s |
+| 200 clients plus 20 snapshot workers, 200 seeded tasks | loss 0 percent, p95 1,004 ms, p99 2.7 s; snapshot 58 per second, p50 324 ms, p95 496 ms, p99 732 ms, 0 errors |
 
-The median of about 0.5 s is the memory backend's one second poll. A loss of a fraction of a percent at 200
-clients is real (more waiting time did not remove it) and its cause is not isolated: see issue H-09 in
-`docs/ANUM_MINE_HQ_BASELINE_AUDIT.md`. A reconnecting client recovers through the normal refresh, so
-the office is not left wrong, but a missed event delays an update by up to the 10 s poll.
+The median of about 0.5 s is the memory backend's one second poll.
+
+### H-09 closed: the loss was a counting bug in the tool, not the server
+
+Earlier versions of this document reported 0.28 to 0.82 percent loss at 200 clients. Root cause: the
+tool counted a `task.created` frame only if the producer already knew that task id. The producer learns
+the id from the `POST /api/v1/tasks` response, and under 200 open connections on one machine a client can
+read the frame before the producer's task has processed that response. Those early frames were ignored and
+reported as lost. The server delivered them.
+
+How it was isolated (23 October 2026, memory backend, same machine, 200 clients, 50 events):
+
+| Run | Result |
+| --- | --- |
+| Old tool, 3 runs | 10,000 expected; 9,961, 9,918 and 9,942 counted (loss 0.39, 0.82, 0.58 percent) |
+| Independent diagnostic: record every frame with its client and id, reconcile after the run | 10,000 of 10,000 delivered, 0 missing for any task, 0 unknown ids |
+| Fixed tool, 3 runs (`Deliveries` in `hq_load.py` matches arrivals with produced ids after the fact) | 10,000 of 10,000 each time, loss 0.00 percent; p50 about 540 ms, p95 about 1,000 ms, p99 2.7 to 3.0 s |
+| Fixed tool, 200 clients plus 20 snapshot workers, 200 seeded tasks | 10,000 of 10,000, loss 0.00 percent, p95 1,004 ms; snapshot 58 per second, p95 496 ms, p99 732 ms, 0 errors |
+
+The p99 is higher than in the old table because the previously discarded early frames, which are the
+slowest ones, are now counted. The server code (`/api/v1/events/stream` polling path, the presence stream,
+event ids, keep-alives) needed no change: nothing is dropped, there is no bounded per-client queue, and the
+sequence gap rule and `Last-Event-ID` replay are unchanged. Regression test:
+`services/api/tests/test_hq_load_deliveries.py` (fails against the old counting, passes now).
+
+Not run: PostgreSQL mode and the Oracle VM. The local PostgreSQL cluster was not running and this
+sandbox has no database credentials for it, so only the memory backend was measured. In PostgreSQL mode the
+stream cursor is `(created_at, id)`; if the Oracle run shows a few missing deliveries, suspect that a
+transaction committing after a later one (a lower `created_at` becoming visible after the cursor moved), not
+the tool. That is a hypothesis, not a finding: run the steps below and report the numbers.
 
 ## Acceptable numbers on the Oracle VM
 
@@ -61,7 +87,7 @@ Proposed targets. The owner or the next agent should confirm them after the firs
 | Measure | 21 agents, 21 tabs | 200 agents, 200 tabs |
 | --- | --- | --- |
 | SSE clients connected | all | all |
-| Event loss | 0 percent | at most 0.1 percent |
+| Event loss | 0 percent | 0 percent (any loss is a finding: keep the JSON and the API log) |
 | SSE delivery p95 | at most 2 s with the memory event bus, at most 1 s with NATS | at most 3 s memory, at most 1.5 s with NATS |
 | Snapshot p95 (5 workers / 20 workers) | at most 250 ms | at most 600 ms |
 | Snapshot errors (5xx) | 0 | 0 |
@@ -82,7 +108,7 @@ while people depend on the system.
    `docker run --rm -e HQ_LOAD_TOKEN --network <the compose backend network> -v "$PWD/scripts/hq-load":/w python:3.13-slim sh -c "pip install -q httpx && python /w/hq_load.py --base-url http://api:8000 --tenant <test tenant id> --workspace <test workspace id> --seed-tasks 21 --sse-clients 21 --events 20 --snapshot-workers 5 --duration 10 --max-p95-ms 2000 --max-loss-pct 0 --max-snapshot-p95-ms 250"`.
    Find the network name with `docker network ls`; the API service is `api` in `infra/oracle/compose.yaml`.
 3. Repeat with `--seed-tasks 200 --sse-clients 200 --events 50 --settle 8 --snapshot-workers 20
-   --max-loss-pct 0.1 --max-snapshot-p95-ms 600`.
+   --max-loss-pct 0 --max-snapshot-p95-ms 600`. Pass: exit code 0, `loss_pct` 0.0, `clients_connected` equal to `clients_requested`. Fail: `loss_pct` above 0 (re-run once; if it repeats, send `out.json` and the API log lines of the run, and compare with the memory-mode result above: that points at the PostgreSQL event cursor), or any 5xx.
 4. While it runs, watch Beszel (CPU, memory) and `docker stats`; afterwards check
    `select count(*), state from pg_stat_activity group by state;` shows no growth of `idle in transaction`.
 5. Paste the JSON output (`--json out.json`) into the Results table above with the date and the machine
