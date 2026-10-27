@@ -32,7 +32,7 @@ import { VERTEX_FLOATS, MAT } from './hqGeometry.ts';
 import { poseAt, type AmbientMotion } from '../hqAssets/interior/ambient.ts';
 import { cameraEye, type CameraState } from './headquartersSpatial.ts';
 import { DUSK, lightingFor } from './hqLighting.ts';
-import { SceneryLayer } from './hqSceneryLayer.ts';
+import { SceneryLayer, vehicleKit } from './hqSceneryLayer.ts';
 import { SCENERY_FPS, MAX_RIPPLES, sceneryLevelFor, readSceneryOverride, type SceneryLevel } from '../hqAssets/environment/scenery.ts';
 import { clipPlanes, viewProjection } from './hqMath.ts';
 import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
@@ -942,6 +942,11 @@ export class HqRenderer {
       m.needsUpdate = true;
     } else if (this.screenTexture) this.screenTexture.needsUpdate = true;
     this.requestFrame();
+  }
+
+  /** What the work layer chunk needs (see `hqWorkLayer.setWork`): the scene, a frame request, the lights level and whether drawing is slow. */
+  workHooks() {
+    return { kit: vehicleKit, scene: this.scene, cheap: this.cheap, request: () => this.requestFrame(), lit: () => this.shared.uLit.value as number, slow: () => this.stats.avgDrawMs > 35, report: (n: number) => { this.canvas.dataset.workRigs = String(n); } };
   }
 
   /** What the plan shader chunk needs to put a plan atlas behind the glass (see `hqGlassShader.applyPlan`): the renderer itself, whose shared uniforms, glass material, stats and frame request it uses, and the three.js classes. */

@@ -133,6 +133,7 @@ x-user-roles: owner,member
 - [ANUM MINE headquarters interiors: room kits, floor shell, door sides, service core, ambient scenery, starter campus completeness](docs/ANUM_MINE_HQ_INTERIORS.md)
 - [ANUM MINE headquarters cutaway section: front walls and roof removed by camera azimuth, all floors, Cutaway and Closed, 90 degree rotate snaps, label hook](docs/ANUM_MINE_HQ_CUTAWAY.md)
 - [ANUM MINE headquarters ambient scenery motion: what moves, what never moves, quality levels and reduced motion](docs/ANUM_MINE_HQ_SCENERY_MOTION.md)
+- [ANUM MINE headquarters campus motion: ambient traffic with turning wheels, and record-backed work motion (trucks, tyres) with a Because line per event, the table of every motion, and what Tyre Pulse data is readable](docs/ANUM_MINE_HQ_CAMPUS_MOTION.md)
 - [ANUM MINE headquarters building billboards: a board in front of each building and a card with what it does and its real work details, every field and its source, Not connected rule](docs/ANUM_MINE_HQ_BILLBOARDS.md)
 - [ANUM MINE headquarters live screens: the Operations wall and desk monitors drawn on the 3D screens with real figures, every field and its source, caps, distance gate](docs/ANUM_MINE_HQ_LIVE_SCREENS.md)
 - [ANUM MINE headquarters centre plaza: the big fountain, roundabout and avenues, how buildings stand round the centre, walkways to every door, budgets](docs/ANUM_MINE_HQ_CENTER_PLAZA.md)

@@ -1,0 +1,22 @@
+// Campus work motion (docs/ANUM_MINE_HQ_CAMPUS_MOTION.md). hqMotion.ar.ts must have exactly these keys and placeholders (test/i18n.test.ts).
+export const hqMotionEn = {
+  'hqMotion.because.agent_working': 'Because: presence record shows an agent working, {time}',
+  'hqMotion.because.task_started': 'Because: a task run started, {time}',
+  'hqMotion.because.task_done': 'Because: a task finished, {time}',
+  'hqMotion.because.tyre_inspection': 'Because: Tyre Pulse inspection recorded, {time}',
+  'hqMotion.because.tyre_alert': 'Because: Tyre Pulse alert raised ({what}), {time}',
+  'hqMotion.because.tyre_alert_plain': 'Because: Tyre Pulse alert raised, {time}',
+  'hqMotion.alert.low_tread': 'low tread',
+  'hqMotion.alert.under_inflation': 'under-inflated',
+  'hqMotion.alert.over_inflation': 'over-inflated',
+  'hqMotion.alert.overdue_inspection': 'inspection overdue',
+  'hqMotion.alert.abnormal_wear': 'abnormal wear',
+  'hqMotion.alert.cost_anomaly': 'cost anomaly',
+  'hqMotion.legend': 'One animation per event type, not a count.',
+  'hqMotion.feed.off': 'Tyre Pulse: Not connected',
+  'hqMotion.feed.offHint.not_connected': 'No Tyre Pulse source is connected for this workspace, so no tyre motion is shown.',
+  'hqMotion.feed.offHint.forbidden': 'You do not have access to Tyre Pulse here, so no tyre motion is shown.',
+  'hqMotion.feed.offHint.error': 'Tyre Pulse could not be read, so no tyre motion is shown.',
+  'hqMotion.feed.offHint.elsewhere': 'Open this workspace to read its Tyre Pulse feed. Until then no tyre motion is shown.',
+  'hqMotion.marker': 'Work event',
+} as const;
