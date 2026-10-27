@@ -21,14 +21,18 @@ const noOverflow = async (page: Page) => expect(await page.evaluate(() => docume
 const zeroState = { working: 0, queued: 0, meeting: 0, waiting_approval: 0, blocked: 0, idle: 0, paused: 0, unknown: 0 };
 /** Green Concrete: four agents, mostly paused (the owner's own campus), next to the starter campus: thirteen buildings and this one. */
 const green = { ...campusFixture.buildings[3], workspace_id: 'workspace_green', name: 'Green Concrete', kind: null, profile_revision: null, agents: { total: 4, by_state: { ...zeroState, idle: 1, paused: 3 } } };
-const campus14 = { ...campusFixture, buildings: [...campusFixture.buildings, green] };
+/** The campus read as of now: a slow runner must not make the fixture's own verified time older than the 90 seconds after which a board says Stale. */
+const freshCampus = () => {
+  const at = new Date().toISOString();
+  return { ...campusFixture, generated_at: at, buildings: [...campusFixture.buildings, green].map((b) => ({ ...b, presence_as_of: at, presence_verified_at: b.agents ? at : null })) };
+};
 
 type OpenOptions = { locale?: 'en' | 'ar'; night?: boolean; stream?: 'live' | 'unsupported' | 'down'; presence?: 'api' | 'missing'; flow?: boolean; size?: readonly [number, number] };
 async function open(page: Page, { locale = 'en', night = false, stream = 'live', presence = 'api', flow = true, size = [1440, 900] }: OpenOptions = {}) {
   await page.addInitScript((n) => { try { localStorage.setItem('anum.hq.light', n ? 'night' : 'day'); } catch { /* storage blocked */ } }, night);
   await useSavedLocale(page, locale);
   const mock = await mockHq(page, { campus: 'api', layout: 'starter', commerce: 'connected', meetings: 'live', presence, stream });
-  await page.route('http://localhost:8000/api/v1/office/campus', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(campus14) }));
+  await page.route('http://localhost:8000/api/v1/office/campus', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(freshCampus()) }));
   const flowMock = await mockFlow(page);
   if (!flow) flowMock.failWith(500);
   await page.setViewportSize({ width: size[0], height: size[1] });
@@ -63,7 +67,7 @@ for (const [w, h] of SIZES) {
     expect(chips).toBeGreaterThan(0);
     expect(chips).toBeLessThanOrEqual(w < 700 ? 2 : 4);
     expect(await hq(page).locator('.hqBuildingCard[data-density="full"]').count()).toBe(0);
-    expect(await hq(page).locator('.hqBuildingCard .hqCardTags, .hqBuildingCard .hqAvatarStack, .hqBuildingCard small').count()).toBe(0);
+    expect(await hq(page).locator('.hqBuildingCard .hqCardTags, .hqBuildingCard .hqAvatarStack, .hqBuildingCard small:not(.hqWorkLine)').count()).toBe(0);
     // No unfocused billboard card is in the page: the boards carry the details.
     await expect(hq(page).locator('[data-testid="hq-billboard"]')).toHaveCount(0);
     // The accessible names are unchanged: name, then the presence summary.
@@ -162,7 +166,7 @@ test('Arabic: the boards and the chips read right to left with the Arabic texts'
   expect(lines.some((l) => /يعملون/.test(l))).toBe(true);
   expect(lines.join('\n')).not.toMatch(/\bworking\b/);
   await expect(hq(page).locator('.hqBuildingCard').first()).toBeAttached();
-  expect(await hq(page).locator('.hqBuildingCard .hqCardTags, .hqBuildingCard .hqAvatarStack, .hqBuildingCard small').count()).toBe(0);
+  expect(await hq(page).locator('.hqBuildingCard .hqCardTags, .hqBuildingCard .hqAvatarStack, .hqBuildingCard small:not(.hqWorkLine)').count()).toBe(0);
   await noOverflow(page);
   await shot(page, 'calm-ar-1440x900');
 });

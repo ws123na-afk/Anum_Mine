@@ -75,7 +75,7 @@ is the same; the buildings, the light and the motion changed.
   neighbouring faces read differently. It is computed in the shader, so it also works on the software path.
 - **Blue hour.** A third light preset: deep blue zenith, warm orange horizon band, lavender haze, low warm sun, lit windows against bluish glass.
 - **Reflection maps** for day, blue hour and night on hardware GL.
-- **Scenery in motion**, see [ambient motion](ANUM_MINE_HQ_SCENERY_MOTION.md).
+- **Scenery in motion**, see [ambient motion](ANUM_MINE_HQ_SCENERY_MOTION.md), and **work motion from records** (trucks and tyres at a building, each with its reason), see [campus motion](ANUM_MINE_HQ_CAMPUS_MOTION.md).
 - **Heights.** Measured on the campus sizes: the glass office tower is 37 m to its roof plant (was 49 m), the executive HQ stays the landmark at about 58 m to the tip of the crown (was 58 m, but with a thin spire instead of the blades). The tower no longer repeats the executive silhouette.
 
 ### What still differs (honest list)

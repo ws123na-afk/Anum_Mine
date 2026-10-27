@@ -225,14 +225,17 @@ test('chips are name and status only; the real tags and counts are on the detail
   // the 3D board; the accessible name of the button keeps the summary.
   const exec = cards(page).locator('.hqBuildingCard[aria-label^="Executive HQ."]');
   await expect(exec).toHaveAttribute('aria-label', /5 agents, 2 working/);
-  await expect(exec.locator('.hqCardTags, .hqAvatarStack, small')).toHaveCount(0);
-  await exec.click();
+  await expect(exec.locator('.hqCardTags, .hqAvatarStack, small:not(.hqWorkLine)')).toHaveCount(0);
+  // Open each building by keyboard (a building outside the first view is parked at the stage edge, reachable by focus, never by a pointer under the minimap).
+  await exec.focus();
+  await exec.press('Enter');
   await expect(hq(page).locator('.hqDetail')).toContainText('Executive');
   await expect(hq(page).locator('.hqDetail')).toContainText('3 floors');
   await expect(hq(page).locator('.hqDetail')).toContainText('5 agents, 2 working');
   // An unclassified building shows no type tag, and a building without presence says so, with no invented count.
   const personal = cards(page).locator('.hqBuildingCard[aria-label^="Personal Office."]');
-  await personal.click();
+  await personal.focus();
+  await personal.press('Enter');
   await expect(hq(page).locator('.hqDetail')).toContainText('Personal Office');
   await expect(hq(page).locator('.hqDetail')).not.toContainText('Business');
   await expect(cards(page).locator('.hqBuildingCard[aria-label^="Tyre Pulse HQ."]')).toHaveAttribute('aria-label', /Presence unavailable/);
@@ -346,7 +349,8 @@ test('a registry with eight buildings is eight buildings on the campus, next to 
   await expect(card('ANUM HQ')).toHaveAttribute('aria-label', /^ANUM HQ\. 6 agents, 1 working, 1 in meetings/);
   await expect(card('Corporate Services')).toHaveAttribute('aria-label', /^Corporate Services\. No agents/);
   // The workspace name is on the detail card of the selected registry building (it moved off the chip: quiet campus).
-  await card('ANUM HQ').click();
+  await card('ANUM HQ').focus();
+  await card('ANUM HQ').press('Enter');
   await expect(hq(page).locator('.hqDetail')).toContainText('Al Noor Fleet HQ');
   await expect(hq(page).locator('.hqDetail')).not.toContainText('Business');
   // More than ten buildings: the chip rule applies (no full card, at most four chips) and no card disappears.
