@@ -30,7 +30,7 @@ Tests keep this true (`apps/web/test/hqBillboard.test.ts`): the model is read th
 | `presenceTime` | "Verified 14:03:22", or "Stale: last verified ..." when older than 90 seconds, or "Verification time not reported" | `CampusBuilding.presence_verified_at` (the "Verified" time the campus panel shows) |
 | `work` | "Open work": Open tasks, Waiting for approval, Blocked | The live flow read (`OfficeFlowSnapshot.items`): task items a record placed in one of the building's rooms (`location.building_id`), not done; "waiting" is `waiting` set, "blocked" is stage `blocked`. A truncated read shows "N+". Only the open workspace has a flow: any other building says Not connected; a denied read says No access; a flow whose tasks source is not connected says Not connected |
 | `workTime` | "Verified ..." or "Stale: last verified ..." | `OfficeFlowSnapshot.as_of`; a failed read that kept the last answer is called stale, as the flow dock does |
-| `open` | The "Open ANUM HQ" button | Fixed text with the building name; hidden (and "This building is not available to you right now" shown) when the building is not accessible |
+| `open` | The "Open building" button (its accessible name adds the building name, so it never clashes with the detail panel's "Open {name}" button) | Fixed text; hidden (and "This building is not available to you right now" shown) when the building is not accessible |
 
 `BILLBOARD_FIELDS` in `apps/web/src/hq-billboards/billboardModel.ts` is this table in code, and a unit test fails when this file stops listing a field.
 

@@ -80,7 +80,7 @@ test('a billboard is drawn for every building, the scene is not blank, and the c
   await expect(hqCard.locator('[data-field="work"] [data-part="waiting"] b')).toHaveText('1');
   await expect(hqCard.locator('[data-field="work"] [data-part="blocked"] b')).toHaveText('1');
   await expect(hqCard.locator('[data-field="presenceTime"]')).toContainText(/Verified|Stale|not reported/);
-  await expect(hqCard.getByRole('button', { name: 'Open ANUM HQ' })).toBeVisible();
+  await expect(hqCard.getByRole('button', { name: 'Billboard: open building ANUM HQ' })).toBeVisible();
   // Nothing from a task, an agent or a customer appears.
   const text = await hqCard.innerText();
   for (const secret of ['Reorder wiper', 'Send fleet quote', 'Plan October', 'Acme', 'Fleet Planner', 'Invoice Checker']) expect(text).not.toContain(secret);
@@ -127,13 +127,13 @@ async function bare(page: Page, name: string) {
   await hq(page).locator('canvas.hqCanvas').screenshot({ path: `${SHOTS}/${name}.png` });
 }
 
-test('day and night: the boards stay in the drawn scene (campus and framed on a building)', async ({ page }) => {
-  test.setTimeout(480_000);
-  // Two scenes always (the campus by day, a framed building by night); with BB_SHOTS set, more views for the screenshot review.
-  const all: Array<[string, boolean, boolean, RegExp]> = [['bare-day-overview', false, false, /ANUM HQ/], ['bare-night-commerce', true, true, /ANUM 360/], ['bare-day-hq', false, true, /ANUM HQ/], ['bare-night-overview', true, false, /ANUM HQ/], ['bare-day-commerce', false, true, /ANUM 360/], ['bare-night-tyre', true, true, /^Tyre Pulse\./]];
-  const scenes = SHOTS ? all : all.slice(0, 2);
+test('the campus with its boards is drawn (more views with BB_SHOTS)', async ({ page }) => {
+  test.setTimeout(SHOTS ? 900_000 : 240_000);
+  // One scene always (the campus by day, drawn with its boards); with BB_SHOTS set, more views (framed buildings, night) for the screenshot review.
+  const all: Array<[string, boolean, boolean, RegExp]> = [['bare-day-overview', false, false, /ANUM HQ/], ['bare-night-commerce', true, true, /ANUM 360/], ['bare-day-hq', false, true, /ANUM HQ/], ['bare-night-overview', true, false, /ANUM HQ/], ['bare-day-commerce', false, true, /ANUM 360/], ['bare-night-tyre', true, true, /^Tyre Pulse(?! HQ)/]];
+  const scenes = SHOTS ? all : all.slice(0, 1);
   for (const [name, night, framed, which] of scenes) {
-    const p = await page.context().newPage();
+    const p = SHOTS ? await page.context().newPage() : page;
     await p.setViewportSize({ width: 1440, height: 900 });
     await open(p, { night });
     if (framed) {
@@ -146,7 +146,7 @@ test('day and night: the boards stay in the drawn scene (campus and framed on a 
     }
     expect(Number(await hq(p).locator('canvas.hqCanvas').getAttribute('data-triangles'))).toBeGreaterThan(40_000);
     await bare(p, name);
-    await p.close();
+    if (SHOTS) await p.close();
   }
 });
 

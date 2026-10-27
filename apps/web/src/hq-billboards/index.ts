@@ -48,8 +48,9 @@ export function billboardLabels(args: BillboardLabelArgs): StageLabel[] {
     if (!building) continue;
     const focused = site.workspaceId === args.selectedId || site.workspaceId === args.hoverId;
     const model = billboardModel({ building, plan: args.plans?.get(site.workspaceId) ?? null, flow: args.flow ?? null, currentWorkspaceId: args.flow?.snapshot?.workspace_id ?? '', now: args.now });
-    // A focused card is full when a free spot clear of other cards, panels and controls exists, else compact (a focus still expands it). The others give up detail first.
-    const tiers: readonly Density[] = focused ? ['full', 'compact'] : ['compact', 'dot'];
+    // A focused card is always full and is placed first (priority -1), so the other cards move round it and it keeps clear of the panels and controls.
+    // On a stage under 700 px wide its body is folded by the style sheet (the detail panel already covers the building) and a focus unfolds it.
+    const tiers: readonly Density[] = focused ? ['full'] : ['compact', 'dot'];
     out.push({
       id: `billboard:${site.workspaceId}`, anchor: site.anchor, priority: focused ? -1 : 1, tiers, ...(focused ? { fine: true } : {}), ...(focused ? {} : { maxDistance: NEAR }),
       node: createElement(BillboardCard, {

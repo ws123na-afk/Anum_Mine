@@ -4,7 +4,8 @@ import type { Message } from './types.ts';
 
 export const hqBillboardEn = {
   'hqBillboard.group': 'Billboard for {name}',
-  'hqBillboard.headAria': '{name}. {summary}. Billboard.',
+  'hqBillboard.headAria': 'Billboard: {name}. {summary}.',
+  'hqBillboard.openAria': 'Billboard: open building {name}',
   'hqBillboard.purpose.executive': 'An executive building: the leadership centre of the campus.',
   'hqBillboard.purpose.business': 'A business building: where one business of the campus is run.',
   'hqBillboard.purpose.department': 'A department building: the home of one department.',
@@ -26,6 +27,6 @@ export const hqBillboardEn = {
   'hqBillboard.verified': 'Verified {time}',
   'hqBillboard.stale': 'Stale: last verified {time}',
   'hqBillboard.noTime': 'Verification time not reported',
-  'hqBillboard.open': 'Open {name}',
+  'hqBillboard.open': 'Open building',
   'hqBillboard.unavailable': 'This building is not available to you right now.',
 } satisfies Record<string, Message>;

@@ -36,7 +36,7 @@ export const BILLBOARD_FIELDS = [
   { id: 'presenceTime', source: 'CampusBuilding.presence_verified_at' },
   { id: 'work', source: 'OfficeFlowSnapshot task items located in the building (location.building_id, stage, waiting), tasks source connected' },
   { id: 'workTime', source: 'OfficeFlowSnapshot.as_of, and the flow read status' },
-  { id: 'open', source: 'fixed button text with CampusBuilding.name' },
+  { id: 'open', source: 'fixed button text (the accessible name adds CampusBuilding.name)' },
 ] as const;
 export type BillboardFieldId = (typeof BILLBOARD_FIELDS)[number]['id'];
 
@@ -228,7 +228,7 @@ export function billboardModel(input: BillboardInput): BillboardModel {
 
   return {
     id: b.workspace_id, name, kindText, kind: b.kind, summary, status: buildingStatus(b), accessible: b.accessible, rows,
-    openLabel: tr('hqBillboard.open', { name }), unavailableText: tr('hqBillboard.unavailable'),
+    openLabel: tr('hqBillboard.open'), unavailableText: tr('hqBillboard.unavailable'),
   };
 }
 

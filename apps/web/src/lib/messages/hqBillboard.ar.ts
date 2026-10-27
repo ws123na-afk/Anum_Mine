@@ -4,7 +4,8 @@ import type { Message } from './types.ts';
 
 export const hqBillboardAr = {
   'hqBillboard.group': 'لوحة إعلانات {name}',
-  'hqBillboard.headAria': '{name}. {summary}. لوحة إعلانات.',
+  'hqBillboard.headAria': 'لوحة إعلانات: {name}. {summary}.',
+  'hqBillboard.openAria': 'لوحة إعلانات: افتح المبنى {name}',
   'hqBillboard.purpose.executive': 'مبنى تنفيذي: مركز القيادة في الحرم.',
   'hqBillboard.purpose.business': 'مبنى أعمال: يُدار فيه أحد أعمال الحرم.',
   'hqBillboard.purpose.department': 'مبنى قسم: مقر قسم واحد.',
@@ -26,6 +27,6 @@ export const hqBillboardAr = {
   'hqBillboard.verified': 'تم التحقق {time}',
   'hqBillboard.stale': 'قديم: آخر تحقق {time}',
   'hqBillboard.noTime': 'وقت التحقق غير مُبلَّغ',
-  'hqBillboard.open': 'افتح {name}',
+  'hqBillboard.open': 'افتح المبنى',
   'hqBillboard.unavailable': 'هذا المبنى غير متاح لك الآن.',
 } satisfies Record<string, Message>;

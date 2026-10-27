@@ -51,7 +51,7 @@ export function BillboardCard(props: {
           ))}
         </div>
         {m.accessible
-          ? <button type="button" className="hqBbOpen" onClick={props.onOpen}><span dir="auto">{m.openLabel}</span><ArrowRight aria-hidden="true" className="flip" /></button>
+          ? <button type="button" className="hqBbOpen" aria-label={t('hqBillboard.openAria', { name: m.name })} onClick={props.onOpen}><span dir="auto">{m.openLabel}</span><ArrowRight aria-hidden="true" className="flip" /></button>
           : <p className="hqBbNote">{m.unavailableText}</p>}
       </div>
     </section>

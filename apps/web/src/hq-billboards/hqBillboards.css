@@ -33,7 +33,8 @@
 .hqLabelAnchor[data-density="dot"] .hqBbTitle { display: none; }
 .hqLabelAnchor[data-density="dot"] .hqBillboard { width: auto; }
 .hqLabelAnchor[data-density="dot"] .hqBbHead { min-height: 0; padding: 4px; }
-.hqLabelAnchor:focus-within .hqBillboard .hqBbBody { display: flex; }
+.hqSceneWrap[data-s700="0"] .hqLabelAnchor .hqBillboard .hqBbBody { display: none; }
+.hqLabelAnchor:focus-within .hqBillboard .hqBbBody { display: flex !important; }
 .hqLabelAnchor:focus-within .hqBillboard .hqBbTitle { display: flex; }
 @media (max-width: 640px) {
   .hqBillboard { max-width: min(250px, 78vw); }
