@@ -50,6 +50,8 @@ The agent panel shows the text label and one sentence of what it means (`hq.stat
 
 ## The operations wall (2.6)
 
+The wall is shown in the docked room panel and in the building panels under the scene, never as an HTML board over the 3D stage ([page layout](ANUM_MINE_HQ_PAGE_LAYOUT.md)); the room's own 3D wall screen draws the same numbers.
+
 `HqCommandWall` shows, for an operations room (a room whose module is the flow dock), five tiles:
 
 | Tile | Source | Rule |
