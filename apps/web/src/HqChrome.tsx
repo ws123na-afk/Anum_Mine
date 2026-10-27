@@ -4,7 +4,7 @@
  * the only navigation; this file adds only what is specific to the scene.
  */
 import { Box, DoorOpen, ChevronLeft, ChevronRight, Crosshair, LayoutGrid, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Sunset, Maximize } from 'lucide-react';
-import { useId, useRef, useState, useSyncExternalStore, type ReactElement } from 'react';
+import { useId, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode } from 'react';
 import { readNightPreset, subscribeNightPreset, writeNightPreset } from './lib/hqLightPreset.ts';
 import { arcPath, donutArcs, STATUS_ORDER, STATUS_TONE, type CampusTotals, type Placement, type StatusKey } from './lib/campusModel.ts';
 import { mapToWorld, worldToMap } from './lib/hqCamera.ts';
@@ -62,6 +62,8 @@ export function ViewSwitch({ view, onChange }: { view: HqView; onChange: (view: 
 export function CameraTools(props: {
   yaw: number; night: boolean; onNight: (night: boolean) => void;
   onZoomIn: () => void; onZoomOut: () => void; onReset: () => void; onNorth: () => void;
+  /** One more button at the end of the corner rail (the campus map toggle). */
+  extra?: ReactNode;
 }) {
   const preset = useSyncExternalStore(subscribeNightPreset, readNightPreset, () => 'night' as const);
   return (
@@ -82,6 +84,7 @@ export function CameraTools(props: {
         <button type="button" aria-pressed={props.night && preset === 'dusk'} onClick={() => { writeNightPreset('dusk'); props.onNight(true); }} aria-label={t('hq.cam.dusk')} title={t('hq.cam.dusk')}><Sunset aria-hidden="true" /></button>
         <button type="button" aria-pressed={props.night && preset === 'night'} onClick={() => { writeNightPreset('night'); props.onNight(true); }} aria-label={t('hq.cam.night')} title={t('hq.cam.night')}><Moon aria-hidden="true" /></button>
       </div>
+      {props.extra && <div className="hqToolsSplit">{props.extra}</div>}
     </div>
   );
 }

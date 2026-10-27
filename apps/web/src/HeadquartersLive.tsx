@@ -12,7 +12,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import { AgentMeetingSessions } from './AgentMeetingSessions';
 import { BuildingView, type AgentStyleInfo } from './BuildingView';
 import { CampusListView } from './CampusListView';
-import { CampusView } from './CampusView';
+import { BuildingDetail, CampusView } from './CampusView';
 import { GuidedExecutiveTour } from './GuidedExecutiveTour';
 import { HqPlanFallback } from './HqPlanFallback';
 import { GraphicsChip, PresenceLinkChip, ViewSwitch, type HqView } from './HqChrome';
@@ -20,6 +20,7 @@ import { AgentPanel, RoomPanel } from './HqPanels';
 import { activeShiftKey, applyShiftView, type ShiftView } from './lib/hqShifts.ts';
 import { OfficeWorkstations } from './OfficeWorkstations';
 import * as api from './lib/api.ts';
+import { flowLive } from './lib/hqPanelStatus.ts';
 import { campusTotals, workspaceOf, type Campus, type CampusBuildingKind } from './lib/campusModel.ts';
 import { expandCampus, registryPlans } from './lib/campusRegistry.ts';
 import { HeadquartersController, adaptOfficeRegistry, type OfficeState } from './lib/headquartersController.ts';
@@ -524,6 +525,14 @@ export function HeadquartersLive(props: HeadquartersProps) {
         <HistoryLauncher label={t('hqHist.launch.room')} onClick={() => openHistory({ kind: 'room', roomId: roomPanelRoom.id, label: roomName(roomPanelRoom, locale), deskIds: roomPanelRoom.deskIds }, 'timeline')} /></>
       : null;
 
+  // The selected building's panel on the campus: docked beside or under the scene, with the same words as before.
+  const detailBuilding = level === 'campus' && campusPick ? campus?.buildings.find((b) => b.workspace_id === campusPick) ?? null : null;
+  const campusDetail = webglOk && effectiveView !== 'list' && detailBuilding ? (
+    <aside className="hqPanel hqDetail" aria-label={t('hq.detail.label', { name: sceneName(detailBuilding, locale) })}>
+      <BuildingDetail building={detailBuilding} current={detailBuilding.workspace_id === openKey || detailBuilding.registryBuildingId !== undefined} onEnter={() => enterBuilding(detailBuilding.workspace_id)} onClose={() => setCampusPick(null)} onSaveProfile={saveProfile} />
+    </aside>
+  ) : null;
+
   const status = state?.status;
   const connection = status === 'ready' ? t('hq.conn.ready') : status === 'refreshing' ? t('hq.conn.updating') : status === 'stale' ? t('hq.conn.stale') : status === 'error' ? t('hq.conn.error') : t('hq.conn.connecting');
   const loading = !campus && !campusError;
@@ -549,6 +558,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           {webglOk && <GraphicsChip onOpen={() => setGpuOpen(true)} />}
           <button type="button" className="hqIconButton" onClick={retry} disabled={state?.busy} aria-label={t('hq.refresh')} title={t('hq.refresh')}><RefreshCcw aria-hidden="true" /></button>
           <ViewSwitch view={effectiveView} onChange={(v) => { if (v === "3d" && !webglOk) return; setView(v); }} />
+          <span className="hqHeadSlot" />
           <div className="hqMenuWrap">
             <button type="button" className="hqGhost" aria-expanded={toolsOpen} onClick={() => setToolsOpen((v) => !v)}><Wrench aria-hidden="true" />{t('hq.tools')}</button>
             {toolsOpen && (
@@ -608,6 +618,9 @@ export function HeadquartersLive(props: HeadquartersProps) {
           onRoom={(fid, rid) => openRoomById(fid, rid)} onAgent={(id, desk) => selectAgent(id, desk)}
           onOverlay={(o) => setOverlay(o)} onGo={goTo}
           dock={props.renderPaDock ? props.renderPaDock({ close: () => undefined }) : null}
+          detail={webglOk && effectiveView !== 'list' && level === 'building' && registryBuilding && floor ? sidePanel : campusDetail}
+          campusIssue={campusError} onRetry={retry} unreported={unreported}
+          presenceLink={livePresence.link} presenceAsOf={livePresence.asOf} flowState={flowLive(flow.link, flow.status)}
           scene={<div className="hqSceneHost">
           {showFirstRun && <Suspense fallback={null}><FirstRunPanel onCreated={onCampusCreated} onKeep={setFirstRunKeep} onClose={() => setFirstRunKeep(false)} onManageSpaces={() => setOverlay('spaces')} /></Suspense>}
           {loading && <div className="hqLoading" role="status" aria-busy="true"><span className="hqSpinner" aria-hidden="true" />{t('hq.loading')}</div>}
@@ -644,7 +657,6 @@ export function HeadquartersLive(props: HeadquartersProps) {
               onSelectRoom={selectRoom} onSelectAgent={(id, desk) => selectAgent(id, desk)}
               nav={navHandles} onManageSpaces={() => setOverlay('spaces')} onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight}
               overview={overview} onOverview={setOverview}
-              side={sidePanel}
             />
           ) : showFirstRun ? (
             <div className="hqEmptyScene hqEmptyCompact"><button type="button" className="hqGhost" onClick={() => setLevel('campus')}>{t('hq.back')}</button></div>

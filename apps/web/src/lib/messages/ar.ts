@@ -19,6 +19,7 @@ import { hqFlowAr } from './hqFlow.ar.ts';
 import { hqHistoryAr } from './hqHistory.ar.ts';
 import { hqGpuAr } from './hqGpu.ar.ts';
 import { hqLiveAr } from './hqLive.ar.ts';
+import { hqPanelsAr } from './hqPanels.ar.ts';
 import { hqProvisioningAr } from './hqProvisioning.ar.ts';
 import { hqNavAr } from './hqNav.ar.ts';
 import { hqAssignAr } from './hqAssign.ar.ts';
@@ -27,6 +28,7 @@ import { hqGreenConcreteAr } from './hqGreenConcrete.ar.ts';
 import { hqFirstRunAr } from './hqFirstRun.ar.ts';
 import { hqFloorAr } from './hqFloor.ar.ts';
 import { hqLabelsAr } from './hqLabels.ar.ts';
+import { hqMotionAr } from './hqMotion.ar.ts';
 import { hqBillboardAr } from './hqBillboard.ar.ts';
 import { hqStaffDesksAr } from './hqStaffDesks.ar.ts';
 import { teamAr } from './team.ar.ts';
@@ -3256,6 +3258,7 @@ export const ar: Record<MessageKey, Message> = {
   ...hqHistoryAr,
   ...hqGpuAr,
   ...hqLiveAr,
+  ...hqPanelsAr,
   ...hqProvisioningAr,
   ...hqNavAr,
   ...hqAssignAr,
@@ -3264,6 +3267,7 @@ export const ar: Record<MessageKey, Message> = {
   ...hqFirstRunAr,
   ...hqFloorAr,
   ...hqLabelsAr,
+  ...hqMotionAr,
   ...hqBillboardAr,
   ...hqStaffDesksAr,
   // ---- واجهة ANUM 360 ومركز الأوامر ----

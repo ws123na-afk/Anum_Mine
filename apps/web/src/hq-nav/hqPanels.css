@@ -1,0 +1,67 @@
+/* The panels beside the headquarters scene: one header (title, one line of purpose, live status, fold), one chip, one set of states.
+   Loaded with NavChrome. Tokens from styles.css only; the live chip itself is in headquartersLive.css (the flow bar uses it too). */
+.hqSec { display: flex; flex-direction: column; gap: var(--d-s2); min-width: 0; }
+.hqSec + .hqSec, .hqSec + .hqPaDock, .hqSec + [role="tabpanel"] { border-block-start: 1px solid var(--d-line); padding-block-start: var(--d-s3); }
+.hqPh { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hqPhTitle { align-items: center; display: flex; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
+.hqNavSide .hqPhTitle h2, .hqNavSideBody .hqPhTitle h2, .hqPhTitle h2 { font-size: var(--text-md); font-weight: 650; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.hqPhSide { align-items: center; display: inline-flex; flex: none; gap: var(--d-s1); }
+.hqPhFold { height: 28px; min-height: 28px; min-width: 28px; width: 28px; }
+.hqPhFold svg { height: 14px; width: 14px; }
+.hqPhPurpose { color: var(--d-muted); font-size: var(--text-xs); margin: 0; }
+.hqPhLive { margin-block-start: var(--d-s1); min-width: 0; }
+.hqPhLive .hqLiveChip { flex-wrap: wrap; row-gap: 0; }
+.hqSec[data-folded="true"] .hqPhPurpose { display: none; }
+.hqSecBody { min-width: 0; }
+.hqSecBody[hidden] { display: none; }
+
+/* States: reading, refused, failed, empty. Each says what happened and what to do. */
+.hqState { align-items: flex-start; display: flex; flex-direction: column; gap: var(--d-s2); }
+.hqState .hqNote { align-items: flex-start; display: flex; gap: var(--d-s2); }
+.hqState svg { margin-block-start: 2px; }
+.hqSkeleton { min-height: 76px; }
+
+/* Total agents. */
+.hqStatusPanel .hqTotalsBody { align-items: center; display: flex; gap: var(--d-s3); }
+.hqStatusPanel .hqLegend li { font-size: var(--text-xs); }
+.hqStatusPanel .hqDonut .num { fill: var(--d-text); }
+.hqStatusPanel .hqDonut .cap { fill: var(--d-muted); opacity: 1; }
+.hqStatusPanel .hqNote + .hqNote { margin-block-start: var(--d-s1); }
+.hqStatusStrip { align-items: center; background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: flex; flex: 0 1 auto; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); min-height: 40px; min-width: 0; padding: var(--d-s1) var(--d-s3); }
+.hqStatusStripTitle { font-size: var(--text-xs); font-weight: 650; margin: 0; white-space: nowrap; }
+.hqStatusChips { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.hqStatusChips li { align-items: center; display: inline-flex; font-size: var(--text-xs); gap: 6px; white-space: nowrap; }
+.hqStatusChips strong { font-variant-numeric: tabular-nums; }
+.hqStatusChips .hqDot { background: var(--tone, var(--hq-faint)); border-radius: 50%; height: 8px; width: 8px; }
+.hqStatusStrip .hqNote { flex-basis: 100%; }
+.hqStatusStrip .hqUnavailable, .hqStatusStrip .hqState { flex-direction: row; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); }
+
+/* Side column: the selected room or person first (when there is one), then the panels in the order the owner needs them. */
+.hqDetailDock { min-width: 0; }
+.hqDetailDock .hqPanel { box-shadow: none; }
+.hqNavSide .hqDetailDock { border-block-end: 1px solid var(--d-line); padding-block-end: var(--d-s3); }
+.hqNavMainStage > .hqDetailDock, .hqMainStage > .hqDetailDock { margin-block-start: var(--d-s2); }
+.hqDetailDock .hqChips li { color: var(--d-text); }
+.hqDetailDock .hqNote, .hqDetailDock .hqMuted { color: var(--d-muted); }
+.hqNavSide { gap: var(--d-s3); }
+.hqNavSide > .hqSideToggle { height: 28px; inset-block-start: var(--d-s2); inset-inline-end: var(--d-s2); min-height: 28px; min-width: 28px; position: absolute; width: 28px; z-index: 2; margin: 0; }
+.hqNavSide > .hqSideToggle svg { height: 14px; width: 14px; }
+.hqNavSide > :nth-child(2) .hqPhTitle, .hqNavSide > .hqDetailDock .hqPanelHead { padding-inline-end: 36px; }
+.hqNavSide .hqPhFold { margin-inline-end: 0; }
+.hqMoveList { gap: var(--d-s1); }
+.hqNavSide .hqMove { min-height: 34px; }
+.hqNavSide .hqPhrases { flex-direction: row; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); }
+
+/* Phones: stage first, then the status row, then the quick views; the panels are a bottom sheet with a close button that takes focus. */
+@media (max-width: 760px) {
+  .hqStatusStrip { flex: 1 1 100%; }
+  .hqPhPurpose { font-size: var(--text-2xs); }
+}
+
+.hqNavSide .hqSubHead, .hqNavSideBody .hqSubHead { color: var(--d-muted); font-size: var(--text-xs); font-weight: 600; margin: var(--d-s2) 0 var(--d-s1); }
+.hqStatusStrip .hqDonut text { display: none; }
+.hqStatusStrip .hqDonut { flex: none; }
+.hqNavSide > .hqTabs { margin-inline-end: 36px; }
+.hqDetailDock .hqDeskList button { max-width: 100%; min-width: 0; }
+.hqDetailDock .hqDeskList .hqLabelText { min-width: 0; }
+.hqDetailDock .hqDeskList .hqPill { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
