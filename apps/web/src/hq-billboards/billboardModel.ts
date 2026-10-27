@@ -36,6 +36,8 @@ export const BILLBOARD_FIELDS = [
   { id: 'presenceTime', source: 'CampusBuilding.presence_verified_at' },
   { id: 'work', source: 'OfficeFlowSnapshot task items located in the building (location.building_id, stage, waiting), tasks source connected' },
   { id: 'workTime', source: 'OfficeFlowSnapshot.as_of, and the flow read status' },
+  { id: 'brand', source: 'CampusBuilding.sign.color (the owner\'s brand colour of the building\'s sign), drawn only as the accent rule of the 3D board' },
+  { id: 'streamLink', source: 'the presence stream link (usePresenceLive link "live"), drawn only as the Live tick on the 3D board' },
   { id: 'open', source: 'fixed button text (the accessible name adds CampusBuilding.name)' },
 ] as const;
 export type BillboardFieldId = (typeof BILLBOARD_FIELDS)[number]['id'];
@@ -43,7 +45,7 @@ export type BillboardFieldId = (typeof BILLBOARD_FIELDS)[number]['id'];
 /** The properties the model may read, by path (`[]` is an array element). Anything else read from an input is a data truth failure. */
 export const BILLBOARD_READS: readonly string[] = [
   'building.name', 'building.nameAr', 'building.kind', 'building.kindKnown', 'building.floors', 'building.rooms', 'building.accessible',
-  'building.totals', 'building.presence_verified_at', 'building.registryBuildingId', 'building.workspace_id', 'building.realWorkspaceId',
+  'building.totals', 'building.presence_verified_at', 'building.sign', 'building.sign.color', 'building.registryBuildingId', 'building.workspace_id', 'building.realWorkspaceId',
   'building.totals.agents', 'building.totals.working', 'building.totals.queued', 'building.totals.meeting', 'building.totals.waiting_approval',
   'building.totals.blocked', 'building.totals.idle', 'building.totals.paused', 'building.totals.unknown',
   'plan.floors', 'plan.floors[]', 'plan.floors[].rooms', 'plan.floors[].rooms[]', 'plan.floors[].rooms[].label', 'plan.floors[].rooms[].labelAr',
@@ -92,6 +94,8 @@ export type BillboardModel = Readonly<{
   summary: string;
   status: ReturnType<typeof buildingStatus>;
   accessible: boolean;
+  /** The owner's brand colour (#rrggbb) of the building's sign, or null. */
+  brand: string | null;
   rows: readonly BillboardRow[];
   openLabel: string;
   unavailableText: string;
@@ -227,7 +231,7 @@ export function billboardModel(input: BillboardInput): BillboardModel {
   }
 
   return {
-    id: b.workspace_id, name, kindText, kind: b.kind, summary, status: buildingStatus(b), accessible: b.accessible, rows,
+    id: b.workspace_id, name, kindText, kind: b.kind, summary, status: buildingStatus(b), accessible: b.accessible, brand: /^#[0-9a-f]{6}$/i.test((b.sign?.color ?? '').trim()) ? b.sign!.color!.trim().toLowerCase() : null, rows,
     openLabel: tr('hqBillboard.open'), unavailableText: tr('hqBillboard.unavailable'),
   };
 }

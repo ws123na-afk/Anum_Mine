@@ -13,6 +13,9 @@ export type CampusTotals = Readonly<{
   blocked: number; idle: number; paused: number; unknown: number;
 }>;
 
+/** The owner's sign for a registry building (docs/ANUM_MINE_HQ_LOGO_SIGNS.md): the style and brand colour, and the hash of the uploaded logo (null: no logo). */
+export type BuildingSign = Readonly<{ buildingId: string; style: string | null; color: string | null; logoSha256: string | null }>;
+
 export type CampusBuilding = Readonly<{
   workspace_id: string;
   tenant_id: string;
@@ -44,6 +47,8 @@ export type CampusBuilding = Readonly<{
   realWorkspaceId?: string;
   /** The office registry building this card stands for (a registry building is a real record; nothing else is drawn as one). */
   registryBuildingId?: string;
+  /** The sign the owner set up for this building's registry record; absent when none of style, colour or logo is set. */
+  sign?: BuildingSign;
   /** The workspace's own name, shown on a registry building's card so it is never mistaken for another workspace. */
   workspaceName?: string;
   /** Initials of the agents assigned to desks in this building and their departments (real assignments and presence only). */

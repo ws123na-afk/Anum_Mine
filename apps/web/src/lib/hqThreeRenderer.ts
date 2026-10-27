@@ -46,7 +46,7 @@ import type { ModelGroup } from './hqModels.ts';
 
 export type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
 
-type Cls = 'paint' | 'flat' | 'concrete' | 'tile' | 'asphalt' | 'grass' | 'wood' | 'metal' | 'water' | 'glass' | 'roller' | 'sign' | 'court' | 'pane' | 'foliage' | 'cloth' | 'beacon' | 'screen';
+type Cls = 'paint' | 'flat' | 'concrete' | 'tile' | 'asphalt' | 'grass' | 'wood' | 'metal' | 'water' | 'glass' | 'roller' | 'sign' | 'court' | 'pane' | 'foliage' | 'cloth' | 'beacon' | 'board' | 'screen';
 
 const CLASS_OF_MAT: Readonly<Record<number, Cls>> = {
   [MAT.flat]: 'flat', [MAT.concrete]: 'concrete', [MAT.tile]: 'tile', [MAT.asphalt]: 'asphalt', [MAT.grass]: 'grass', [MAT.wood]: 'wood',
@@ -332,6 +332,8 @@ export class HqRenderer {
   private readonly materials = new Map<Cls, Material>();
   private readonly textures: Texture[] = [];
   private signTexture: Texture | null = null;
+  private boardSource: HTMLCanvasElement | null = null;
+  private boardTexture: Texture | null = null;
   private screenSource: HTMLCanvasElement | null = null;
   private screenTexture: Texture | null = null;
   private signKey = '';
@@ -667,6 +669,7 @@ export class HqRenderer {
     const sign = new MeshBasicMaterial({ color: new Color(1, 1, 1), toneMapped: true });
     this.materials.set('sign', sign);
     this.materials.set('screen', new MeshBasicMaterial({ color: new Color(1, 1, 1), map: this.screenTexture, toneMapped: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    this.materials.set('board', new MeshBasicMaterial({ color: new Color(1, 1, 1), map: this.boardTexture, toneMapped: true }));
     const pane = this.cheap
       ? new MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, side: DoubleSide })
       : new MeshPhysicalMaterial({ vertexColors: true, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, envMapIntensity: 1.2, depthWrite: false, side: DoubleSide });
@@ -836,7 +839,7 @@ export class HqRenderer {
       geometry.setAttribute('aEm', new Float32BufferAttribute(em, 1));
       geometry.setAttribute('uv', new Float32BufferAttribute(uv, 2));
       geometry.computeBoundingSphere();
-      const material = this.materials.get(cls)!;
+      const material = this.materials.get(item.board && cls === 'sign' ? 'board' : cls)!;
       if (cls === 'pane') (material as MeshPhysicalMaterial).opacity = scene.glassAlpha ?? 0.22;
       const mesh = new Mesh(geometry, material);
       mesh.frustumCulled = item.cull !== false;
@@ -941,6 +944,26 @@ export class HqRenderer {
       m.map = this.screenTexture;
       m.needsUpdate = true;
     } else if (this.screenTexture) this.screenTexture.needsUpdate = true;
+    this.requestFrame();
+  }
+
+  /** The live board atlas (the billboards): a canvas the lazy billboard chunk draws into. A new canvas makes a new texture, the same canvas is uploaded again. */
+  setBoards(source: HTMLCanvasElement | null): void {
+    const m = this.materials.get('board') as MeshBasicMaterial;
+    if (source !== this.boardSource) {
+      this.boardTexture?.dispose();
+    this.screenTexture?.dispose();
+      this.boardSource = source;
+      this.boardTexture = null;
+      if (source) {
+        const tex = new CanvasTexture(source);
+        tex.colorSpace = SRGBColorSpace;
+        tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+        this.boardTexture = tex;
+      }
+      m.map = this.boardTexture;
+      m.needsUpdate = true;
+    } else if (this.boardTexture) this.boardTexture.needsUpdate = true;
     this.requestFrame();
   }
 
@@ -1099,6 +1122,7 @@ export class HqRenderer {
     const sign = this.materials.get('sign') as MeshBasicMaterial;
     const gain = 0.9 + 1.3 * light.lit;
     sign.color.setRGB(gain, gain, gain);
+    (this.materials.get('board') as MeshBasicMaterial).color.setRGB(gain, gain, gain);
     // Shadow light: from the sun (or moon) towards the middle of the region.
     // The photographic effects fit one big shadow map to what the camera looks at instead of the whole campus.
     const photo = this.photoActive();
@@ -1313,7 +1337,7 @@ export class HqRenderer {
     for (const material of this.materials.values()) material.dispose();
     for (const texture of this.textures) texture.dispose();
     this.signTexture?.dispose();
-    this.screenTexture?.dispose();
+    this.boardTexture?.dispose();
     if (this.sky) { this.sky.geometry.dispose(); (this.sky.material as Material).dispose(); }
     for (const env of this.envs) env?.dispose();
     this.scenery?.dispose();

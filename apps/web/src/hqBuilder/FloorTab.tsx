@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { t } from '../lib/i18n.ts';
 import { pickName } from '../lib/registryNames.ts';
 import type { BuilderController } from './useBuilderState.ts';
 import { DEFAULT_DAY_START, DEFAULT_NIGHT_START, HOUR_PATTERN } from '../lib/hqShifts.ts';
+
+// The building sign (logo, colour, style) is a chunk of its own, fetched when the Floor tab opens (docs/ANUM_MINE_HQ_LOGO_SIGNS.md).
+const BuildingSignSection = lazy(() => import('../hq-logo-signs/BuildingSignSection.tsx'));
 
 interface Props { b: BuilderController; editable: boolean }
 
@@ -73,6 +76,10 @@ export function FloorTab({ b, editable }: Props) {
         </fieldset>
         {editable && <button type="submit" disabled={b.busy || !buildingName.trim() || !buildingChanged || !hoursValid}>{t('hqb.building.save')}</button>}
       </form>
+
+      <Suspense fallback={<p className="hqbHint" role="status">{t('hqLogo.loading')}</p>}>
+        <BuildingSignSection building={building} editable={editable} busy={b.busy} onChanged={b.applyBuilding} onReload={() => { void b.reload(); }} />
+      </Suspense>
 
       {editable && (
         <section className="hqbSection">

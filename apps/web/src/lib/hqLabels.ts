@@ -149,7 +149,8 @@ export function layoutLabels(
       const spots: Array<{ x: number; y: number; cost: number }> = [];
       // A secondary card (a seated agent) never moves off its anchor: it shows where it sits or gives way.
       const secondary = adaptive && (item.input.priority ?? 1) >= 2;
-      const reach = secondary ? 0 : adaptive ? 4 : MAX_SHIFTS, sideways = secondary ? 0 : 2;
+      // A building's dot (one tier, never left out) may look further sideways before it falls back to the least covered spot: on a phone it then keeps clear of the controls.
+      const reach = secondary ? 0 : adaptive ? 4 : MAX_SHIFTS, sideways = secondary ? 0 : !adaptive && item.input.keep ? 5 : 2;
       if (item.input.fine) {
         for (let dy = -h * 1.5; dy <= h * 1.5; dy += 20) {
           for (let dx = -w * 1.6; dx <= w * 1.6; dx += 20) spots.push({ x: item.x + dx, y: item.y + dy, cost: (Math.abs(dy) + Math.abs(dx) * 0.7) / 20 });

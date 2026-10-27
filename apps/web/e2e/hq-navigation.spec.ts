@@ -200,7 +200,7 @@ test('the fold control is absent where the panels are already drawers, and reads
   await noOverflow(ar);
 });
 
-test('many buildings: cards shrink by rule and none disappears', async ({ page }) => {
+test('many buildings: a few chips by rule, the rest status dots, and none disappears', async ({ page }) => {
   await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
   await mockHq(page, { campus: 'api', commerce: 'none', meetings: 'none' });
   const many = { ...campusFixture, buildings: [...campusFixture.buildings, ...Array.from({ length: 10 }, (_, i) => ({ ...campusFixture.buildings[3], workspace_id: `workspace_extra_${i}`, name: `Extra Building ${i}`, accessible: true }))] };
@@ -210,23 +210,35 @@ test('many buildings: cards shrink by rule and none disappears', async ({ page }
   await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible();
   const count = (d: string) => cards(page).locator(`.hqBuildingCard[data-density="${d}"]`).count();
   await expect.poll(async () => (await count('full')) + (await count('compact')) + (await count('dot')), { timeout: 60_000 }).toBe(16);
-  expect(await count('full')).toBe(6);
-  expect(await count('compact')).toBe(8);
-  expect(await count('dot')).toBe(2);
+  // Intentional change (quiet campus, docs/ANUM_MINE_HQ_LABELS.md): the 3D boards carry the details, so the page label is a chip (name and
+  // status dot) for at most four buildings and a status dot for the rest; the old full card (6 of them) is gone. Every building keeps its button.
+  expect(await count('full')).toBe(0);
+  expect(await count('compact')).toBe(4);
+  expect(await count('dot')).toBe(12);
   // A dot card still has its full name for assistive technology.
   await expect(cards(page).locator('.hqBuildingCard[data-density="dot"]').first()).toHaveAttribute('aria-label', /agents|Presence unavailable/);
 });
 
-test('cards carry real tags and counts only', async ({ page }) => {
+test('chips are name and status only; the real tags and counts are on the detail card and in the accessible name', async ({ page }) => {
   await openOffice(page);
+  // Intentional change (quiet campus): the kind, floors and agent counts moved off the chip, to the detail card of the selected building and
+  // the 3D board; the accessible name of the button keeps the summary.
   const exec = cards(page).locator('.hqBuildingCard[aria-label^="Executive HQ."]');
-  await expect(exec).toContainText('Executive');
-  await expect(exec).toContainText('3 floors');
-  await expect(exec).toContainText('5 agents, 2 working');
+  await expect(exec).toHaveAttribute('aria-label', /5 agents, 2 working/);
+  await expect(exec.locator('.hqCardTags, .hqAvatarStack, small:not(.hqWorkLine)')).toHaveCount(0);
+  // Open each building by keyboard (a building outside the first view is parked at the stage edge, reachable by focus, never by a pointer under the minimap).
+  await exec.focus();
+  await exec.press('Enter');
+  await expect(hq(page).locator('.hqDetail')).toContainText('Executive');
+  await expect(hq(page).locator('.hqDetail')).toContainText('3 floors');
+  await expect(hq(page).locator('.hqDetail')).toContainText('5 agents, 2 working');
   // An unclassified building shows no type tag, and a building without presence says so, with no invented count.
   const personal = cards(page).locator('.hqBuildingCard[aria-label^="Personal Office."]');
-  await expect(personal).not.toContainText('Business');
-  await expect(cards(page).locator('.hqBuildingCard[aria-label^="Tyre Pulse HQ."]')).toContainText('Presence unavailable');
+  await personal.focus();
+  await personal.press('Enter');
+  await expect(hq(page).locator('.hqDetail')).toContainText('Personal Office');
+  await expect(hq(page).locator('.hqDetail')).not.toContainText('Business');
+  await expect(cards(page).locator('.hqBuildingCard[aria-label^="Tyre Pulse HQ."]')).toHaveAttribute('aria-label', /Presence unavailable/);
 });
 
 test('quick moves run existing navigation and suggest only real places', async ({ page }) => {
@@ -336,11 +348,14 @@ test('a registry with eight buildings is eight buildings on the campus, next to 
   // People come from desk assignments and presence; a building without assignments says so, a registry building names its workspace.
   await expect(card('ANUM HQ')).toHaveAttribute('aria-label', /^ANUM HQ\. 6 agents, 1 working, 1 in meetings/);
   await expect(card('Corporate Services')).toHaveAttribute('aria-label', /^Corporate Services\. No agents/);
-  await expect(card('ANUM HQ')).toContainText('Al Noor Fleet HQ');
-  await expect(card('ANUM HQ')).not.toContainText('Business');
-  // More than ten buildings: the density rule applies and no card disappears.
-  const full = await cards(page).locator('.hqBuildingCard[data-density="full"]').count();
-  expect(full).toBeLessThanOrEqual(6);
+  // The workspace name is on the detail card of the selected registry building (it moved off the chip: quiet campus).
+  await card('ANUM HQ').focus();
+  await card('ANUM HQ').press('Enter');
+  await expect(hq(page).locator('.hqDetail')).toContainText('Al Noor Fleet HQ');
+  await expect(hq(page).locator('.hqDetail')).not.toContainText('Business');
+  // More than ten buildings: the chip rule applies (no full card, at most four chips) and no card disappears.
+  expect(await cards(page).locator('.hqBuildingCard[data-density="full"]').count()).toBe(0);
+  expect(await cards(page).locator('.hqBuildingCard[data-density="compact"]').count()).toBeLessThanOrEqual(5);
   // The strip lists the same buildings; opening one reads its own floors and rooms.
   for (const name of ['ANUM HQ', 'Tyre Pulse Workshop', 'Career and Employment', 'Executive HQ']) await expect(strip(page).getByRole('button', { name: `Quick view: ${name}.` })).toBeVisible();
   await strip(page).getByRole('button', { name: /^Quick view: Tyre Pulse Workshop\./ }).click();

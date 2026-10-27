@@ -200,6 +200,21 @@ ARABIC_MESSAGES: dict[str, str] = {
     "The room would overlap another room. Nothing was created.": "ستتداخل الغرفة مع غرفة أخرى. لم يُنشأ شيء.",
     "The room would fall outside its floor. Nothing was created.": "ستقع الغرفة خارج طابقها. لم يُنشأ شيء.",
     "A record conflicts with one that already exists. Nothing was created.": "يتعارض سجل مع سجل موجود بالفعل. لم يُنشأ شيء.",
+    # Building logo signs (anum_api/office_logo_api.py, office_logo_image.py)
+    "Confirm this on screen with a click. A spoken or typed answer cannot change a building's logo.": "أكّد هذا على الشاشة بنقرة. لا يمكن تغيير شعار المبنى بإجابة منطوقة أو مكتوبة.",
+    "This building has no logo.": "لا يوجد شعار لهذا المبنى.",
+    "SVG logos are not accepted because they can carry script. Export the logo as PNG, JPEG or WebP.": "لا تُقبل شعارات SVG لأنها قد تحمل شيفرة. صدّر الشعار بصيغة PNG أو JPEG أو WebP.",
+    "GIF logos are not accepted. Use a PNG, JPEG or WebP picture.": "لا تُقبل شعارات GIF. استخدم صورة بصيغة PNG أو JPEG أو WebP.",
+    "This file is not a PNG, JPEG or WebP picture. Choose a logo in one of those formats.": "هذا الملف ليس صورة PNG أو JPEG أو WebP. اختر شعارًا بإحدى هذه الصيغ.",
+    "The file is empty. Choose a logo picture.": "الملف فارغ. اختر صورة للشعار.",
+    "The logo is larger than 1 MB. Export a smaller picture (512 by 512 pixels is plenty).": "حجم الشعار أكبر من 1 ميغابايت. صدّر صورة أصغر (512 في 512 بكسل تكفي).",
+    "The content of this file does not match a PNG, JPEG or WebP picture.": "محتوى هذا الملف لا يطابق صورة PNG أو JPEG أو WebP.",
+    "The picture is too large (over 4096 pixels on a side). Export it at 512 by 512 pixels.": "الصورة كبيرة جدًا (أكثر من 4096 بكسل في أحد الأضلاع). صدّرها بحجم 512 في 512 بكسل.",
+    "Animated pictures are not accepted. Use a still PNG, JPEG or WebP picture.": "الصور المتحركة غير مقبولة. استخدم صورة ثابتة بصيغة PNG أو JPEG أو WebP.",
+    "The picture is too small. Use at least 16 by 16 pixels, 256 by 256 or more looks best.": "الصورة صغيرة جدًا. استخدم 16 في 16 بكسل على الأقل، والأفضل 256 في 256 أو أكثر.",
+    "This picture could not be read. It may be damaged. Export it again as PNG, JPEG or WebP.": "تعذّرت قراءة هذه الصورة، وقد تكون تالفة. صدّرها مرة أخرى بصيغة PNG أو JPEG أو WebP.",
+    "The picture is too detailed to store. Export a simpler version of the logo.": "الصورة معقدة جدًا للتخزين. صدّر نسخة أبسط من الشعار.",
+    "The picture is fully transparent. Choose a logo that shows something.": "الصورة شفافة بالكامل. اختر شعارًا يظهر فيه شيء.",
 }
 
 # Messages with values in them: (pattern, Arabic template using the named groups).
