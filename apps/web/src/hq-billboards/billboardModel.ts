@@ -36,6 +36,7 @@ export const BILLBOARD_FIELDS = [
   { id: 'presenceTime', source: 'CampusBuilding.presence_verified_at' },
   { id: 'work', source: 'OfficeFlowSnapshot task items located in the building (location.building_id, stage, waiting), tasks source connected' },
   { id: 'workTime', source: 'OfficeFlowSnapshot.as_of, and the flow read status' },
+  { id: 'streamLink', source: 'the presence stream link (usePresenceLive link "live"), drawn only as the Live tick on the 3D board' },
   { id: 'open', source: 'fixed button text (the accessible name adds CampusBuilding.name)' },
 ] as const;
 export type BillboardFieldId = (typeof BILLBOARD_FIELDS)[number]['id'];

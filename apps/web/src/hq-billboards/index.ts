@@ -14,14 +14,46 @@ import type { StageLabel } from '../HqStage';
 import { BillboardCard } from './BillboardCard.tsx';
 import { billboardModel, type BillboardFlow } from './billboardModel.ts';
 import { boardMesh, boardSites, type BillboardMesh, type BoardSite } from './billboardSites.ts';
+import { boardFace, type BoardFace } from './boardFace.ts';
+import { getLocale, t } from '../lib/i18n.ts';
+
+export { startBoardFeed, type BoardFeed } from './billboardTexture.ts';
+import { faceTexts } from './boardFace.ts';
+
+/** What is on the boards right now, one line per board (the stage's `data-board-texts`, for QA and screen readers' curiosity: never an input). */
+export const boardLines = (faces: readonly BoardFace[]): string => faces.map((f) => faceTexts(f).join(' | ')).join('\n');
+export type { BoardFace } from './boardFace.ts';
 
 export type BillboardLayer = Readonly<{ sites: readonly BoardSite[]; mesh: BillboardMesh; picks: readonly PickTarget[] }>;
 
 /** The boards of a campus scene, in placement order. */
 export function billboardLayer(scene: CampusScene, placements: readonly Placement[]): BillboardLayer {
-  const buildings = scene.buildings.map((b) => ({ workspaceId: b.workspaceId, box: b.box, door: b.door, signIndex: b.signIndex }));
-  const sites = boardSites({ placements, buildings, monument: scene.monument, extentRadius: scene.extent.radius, canalRadius: scene.canalRadius, signCount: scene.signCount, plaza: scene.plaza });
-  return { sites, mesh: boardMesh(sites, buildings, scene.signCount), picks: sites.map((s) => ({ id: s.workspaceId, box: s.box })) };
+  const buildings = scene.buildings.map((b) => ({ workspaceId: b.workspaceId, box: b.box, door: b.door }));
+  const sites = boardSites({ placements, buildings, monument: scene.monument, extentRadius: scene.extent.radius, canalRadius: scene.canalRadius, plaza: scene.plaza });
+  return { sites, mesh: boardMesh(sites), picks: sites.map((s) => ({ id: s.workspaceId, box: s.box })) };
+}
+
+export type BoardFaceArgs = Readonly<{
+  layer: BillboardLayer;
+  buildings: ReadonlyMap<string, CampusBuilding>;
+  plans?: ReadonlyMap<string, PlanInput>;
+  flow?: BillboardFlow | null;
+  currentWorkspaceId: string;
+  /** The presence stream is connected right now (`usePresenceLive` link "live"); the Live tick shows only then. */
+  live: boolean;
+  fontsReady?: boolean;
+  now: number;
+}>;
+
+/** One face per board, in site order, from the same model the card uses (so the same whitelisted fields). A site whose building is gone says Not connected. */
+export function boardFaces(args: BoardFaceArgs): BoardFace[] {
+  const locale = getLocale();
+  return args.layer.sites.map((site) => {
+    const building = args.buildings.get(site.workspaceId);
+    if (!building) return boardFace({ id: site.workspaceId, name: '', kindText: null, kind: 'business', summary: '', status: 'unavailable', accessible: false, rows: [], openLabel: '', unavailableText: '' }, { live: false, rtl: locale === 'ar', fontsReady: args.fontsReady, tr: (k, v) => t(k, v) });
+    const model = billboardModel({ building, plan: args.plans?.get(site.workspaceId) ?? null, flow: args.flow ?? null, currentWorkspaceId: args.currentWorkspaceId, now: args.now });
+    return boardFace(model, { live: args.live, rtl: locale === 'ar', fontsReady: args.fontsReady, tr: (k, v) => t(k, v) });
+  });
 }
 
 export type BillboardLabelArgs = Readonly<{
@@ -54,7 +86,7 @@ export function billboardLabels(args: BillboardLabelArgs): StageLabel[] {
     // A focused card is always full and is placed first (priority -1), so the other cards move round it and it keeps clear of the panels and controls.
     // An unfocused card has priority 1.9: the building cards (priority 1) are placed first and stay above it, so it never takes a click meant for one.
     // On a stage under 700 px wide its body is folded by the style sheet (the detail panel already covers the building) and a focus unfolds it.
-    const tiers: readonly Density[] = focused ? ['full'] : ['compact', 'dot'];
+    const tiers: readonly Density[] = focused ? ['full', 'compact'] : ['compact', 'dot'];
     out.push({
       id: `billboard:${site.workspaceId}`, anchor: site.anchor, priority: focused ? -1 : 1.9, tiers, ...(focused ? { fine: true } : {}), ...(focused ? {} : { maxDistance: NEAR }),
       node: createElement(BillboardCard, {

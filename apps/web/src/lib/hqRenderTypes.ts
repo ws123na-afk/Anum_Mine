@@ -11,6 +11,8 @@ export type RenderItem = Readonly<{
   id: string; vertices: Float32Array; bounds: Aabb; cull?: boolean; fallbackOf?: ModelGroup;
   /** Part of a group the stage can ease in and out (a floor of the cut-away). `y` is the level the group collapses towards. */
   lift?: Readonly<{ group: string; y: number }>;
+  /** Its lettered faces (the sign class) take the live board atlas (`HqRenderer.setBoards`) instead of the sign atlas: the building billboards. */
+  board?: boolean;
 }>;
 
 /**

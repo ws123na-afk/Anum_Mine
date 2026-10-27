@@ -61,3 +61,14 @@ No React render per frame. The cards are DOM nodes written by `placeLabels` only
 - Per department icons (the icon follows the room kind).
 - A Team status card with Offline: presence has no offline state.
 - The concept's room name subtitles are written by hand; ours are generated from the record, so they read plainer.
+
+## Quiet campus
+
+Owner feedback (27 October 2026): the campus looked busy, with a card (name, kind chips, avatar initials, counts) on every building, overlapping each other and the panels. The details now live on the 3D boards ([billboards](ANUM_MINE_HQ_BILLBOARDS.md)), so the page labels of the buildings are minimal.
+
+- **A building label is a chip or a dot.** A chip is the type icon, the building name and a status dot. A dot is only the status dot (name on hover and focus, in the tooltip and in the accessible name). The kind chips, the avatar initials, the counts and the second line are gone from the label; they are on the board, on the detail panel of the selected building and in the accessible name, which is unchanged ("Name. 4 agents, 0 working.").
+- **Few chips, by rule** (`quietDensities` in `hq-nav/navModel.ts`): at most four chips at a time (two on a phone-sized stage), chosen by priority (selected, the open workspace's building, the executive tower, then the buildings nearest the point the camera looks at); every other building is a dot. The set follows the camera target, so zooming to a corner gives that corner its chips. The layout still gives a chip up to a dot before two labels would overlap.
+- **Full detail only for the focused building**: hover, keyboard focus or selection shows its billboard card (full, compact when full does not fit) and, when selected, the detail panel. No unfocused billboard card is in the page.
+- **Never lost**: every building keeps its button in the page (the same accessible name and the same click), in the tab order, in the quick view strip, the minimap and the list view. On a scene narrower than 641 px two dots may touch when no free spot exists; a chip never overlaps anything, and on wider scenes nothing overlaps.
+- `cardDensities` and `cardTags` (the old full card rules) stay in `navModel.ts` with their unit tests but the campus no longer uses them.
+- Tests: `test/hqBoardFace.test.ts` (chip rules), `e2e/hq-quiet-campus.spec.ts` (five viewports, English and Arabic, no overlap, axe). Specs changed on purpose: `hq-navigation.spec.ts` (the density counts and the tags now checked on chips, the detail card and the accessible name) and `hq-billboards.spec.ts` (no unfocused billboard cards).
