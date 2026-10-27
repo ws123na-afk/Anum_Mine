@@ -11,8 +11,8 @@
 import { hex, type Rgb } from '../../lib/hqGeometry.ts';
 import type { SeatedPose } from './figures.ts';
 
-export type VisualState = 'working' | 'queued' | 'meeting' | 'waiting' | 'blocked' | 'idle' | 'paused' | 'unknown' | 'assigned' | 'vacant';
-export type DeskMarker = 'none' | 'queue' | 'bubble' | 'flag' | 'alert' | 'pause' | 'outline';
+export type VisualState = 'working' | 'queued' | 'meeting' | 'waiting' | 'blocked' | 'idle' | 'paused' | 'unknown' | 'assigned' | 'vacant' | 'offshift';
+export type DeskMarker = 'none' | 'queue' | 'bubble' | 'flag' | 'alert' | 'pause' | 'outline' | 'moon';
 
 export type StateLook = Readonly<{
   screen: Rgb;
@@ -37,6 +37,8 @@ export const STATE_LOOK: Readonly<Record<VisualState, StateLook>> = {
   paused: { screen: hex('#2a3038'), emissive: 0.08, light: hex('#aab4be'), lightEmissive: 0.45, pose: 'leaning', marker: 'pause', content: false },
   unknown: { screen: hex('#8b95a5'), emissive: 0.3, light: hex('#5b6572'), lightEmissive: 0.3, pose: 'leaning', marker: 'outline', content: false },
   assigned: { screen: hex('#8b95a5'), emissive: 0.25, light: hex('#5b6572'), lightEmissive: 0.25, pose: 'typing', marker: 'none', content: true },
+  // Off shift: the person is assigned but their shift is not now. A dark screen, a dim amber light and a crescent: never lit, whatever work is waiting.
+  offshift: { screen: hex('#1b222b'), emissive: 0.04, light: hex('#8c7b4a'), lightEmissive: 0.2, pose: 'leaning', marker: 'moon', content: false },
   vacant: { screen: hex('#232c36'), emissive: 0, light: null, lightEmissive: 0, pose: 'typing', marker: 'none', content: false },
 };
 
@@ -77,6 +79,12 @@ const PARTS: Readonly<Record<DeskMarker, readonly MarkerPart[]>> = {
   pause: [
     { u: -0.05, v: 0.11, w: 0.045, h: 0.16, color: GREY, emissive: 0.6 },
     { u: 0.05, v: 0.11, w: 0.045, h: 0.16, color: GREY, emissive: 0.6 },
+  ],
+  // A crescent: a bar with a notch, told apart from the pause bars and the outline by shape.
+  moon: [
+    { u: -0.04, v: 0.12, w: 0.05, h: 0.17, color: AMBER, emissive: 0.45 },
+    { u: 0.0, v: 0.19, w: 0.09, h: 0.04, color: AMBER, emissive: 0.45 },
+    { u: 0.0, v: 0.05, w: 0.09, h: 0.04, color: AMBER, emissive: 0.45 },
   ],
   // An empty frame: the state is not known, so nothing is drawn inside it.
   outline: [

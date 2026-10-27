@@ -1,0 +1,252 @@
+{
+ "building": {
+  "id": "gc-green-concrete",
+  "name": "Green Concrete",
+  "timezone": "Asia/Dubai"
+ },
+ "floor": {
+  "id": "gc-green-concrete-l0",
+  "building_id": "gc-green-concrete",
+  "level": 0,
+  "name": "Ground floor",
+  "width_m": 22.0,
+  "depth_m": 16.0
+ },
+ "room": {
+  "id": "gc-green-concrete-command",
+  "floor_id": "gc-green-concrete-l0",
+  "name": "Command Center",
+  "kind": "command",
+  "capacity": 12,
+  "scene_x": 2.0,
+  "scene_z": 2.0,
+  "scene_width": 16.0,
+  "scene_depth": 12.0,
+  "door_side": "south",
+  "rotation": 0
+ },
+ "desks": [
+  {
+   "id": "gc-green-concrete-command-d1",
+   "room_id": "gc-green-concrete-command",
+   "label": "Day seat 1",
+   "agent_id": "agent_gc_raed",
+   "pos_x": 4.8,
+   "pos_z": 4.2,
+   "shift": "day",
+   "seat_order": 1,
+   "facing": "north",
+   "seat_kind": "team",
+   "table_group": "l-table"
+  },
+  {
+   "id": "gc-green-concrete-command-d2",
+   "room_id": "gc-green-concrete-command",
+   "label": "Day seat 2",
+   "agent_id": "agent_gc_hazrat",
+   "pos_x": 6.3,
+   "pos_z": 4.2,
+   "shift": "day",
+   "seat_order": 2,
+   "facing": "north",
+   "seat_kind": "team",
+   "table_group": "l-table"
+  },
+  {
+   "id": "gc-green-concrete-command-d3",
+   "room_id": "gc-green-concrete-command",
+   "label": "Day seat 3",
+   "agent_id": "agent_gc_mai",
+   "pos_x": 7.8,
+   "pos_z": 4.2,
+   "shift": "day",
+   "seat_order": 3,
+   "facing": "north",
+   "seat_kind": "team",
+   "table_group": "l-table"
+  },
+  {
+   "id": "gc-green-concrete-command-d4",
+   "room_id": "gc-green-concrete-command",
+   "label": "Day seat 4",
+   "agent_id": "agent_gc_shahzeb",
+   "pos_x": 9.3,
+   "pos_z": 4.2,
+   "shift": "day",
+   "seat_order": 4,
+   "facing": "north",
+   "seat_kind": "team",
+   "table_group": "l-table"
+  },
+  {
+   "id": "gc-green-concrete-command-d5",
+   "room_id": "gc-green-concrete-command",
+   "label": "Day seat 5",
+   "agent_id": "agent_gc_ijaz",
+   "pos_x": 10.44,
+   "pos_z": 6.4,
+   "shift": "day",
+   "seat_order": 5,
+   "facing": "east",
+   "seat_kind": "team",
+   "table_group": "l-table"
+  },
+  {
+   "id": "gc-green-concrete-command-d6",
+   "room_id": "gc-green-concrete-command",
+   "label": "Day seat 6",
+   "agent_id": "agent_gc_badea",
+   "pos_x": 10.44,
+   "pos_z": 7.9,
+   "shift": "day",
+   "seat_order": 6,
+   "facing": "east",
+   "seat_kind": "team",
+   "table_group": "l-table"
+  },
+  {
+   "id": "gc-green-concrete-command-d7",
+   "room_id": "gc-green-concrete-command",
+   "label": "Night seat 1",
+   "agent_id": "agent_gc_ali_zeehan",
+   "pos_x": 4.8,
+   "pos_z": 4.2,
+   "shift": "night",
+   "seat_order": 1,
+   "facing": "north",
+   "seat_kind": "team",
+   "table_group": "l-table"
+  },
+  {
+   "id": "gc-green-concrete-command-d8",
+   "room_id": "gc-green-concrete-command",
+   "label": "Night seat 2",
+   "agent_id": "agent_gc_amjad",
+   "pos_x": 6.3,
+   "pos_z": 4.2,
+   "shift": "night",
+   "seat_order": 2,
+   "facing": "north",
+   "seat_kind": "team",
+   "table_group": "l-table"
+  },
+  {
+   "id": "gc-green-concrete-command-d9",
+   "room_id": "gc-green-concrete-command",
+   "label": "Night seat 3",
+   "agent_id": "agent_gc_rana",
+   "pos_x": 7.8,
+   "pos_z": 4.2,
+   "shift": "night",
+   "seat_order": 3,
+   "facing": "north",
+   "seat_kind": "team",
+   "table_group": "l-table"
+  },
+  {
+   "id": "gc-green-concrete-command-d10",
+   "room_id": "gc-green-concrete-command",
+   "label": "Manager desk",
+   "agent_id": "agent_gc_ahmed_elbendari",
+   "pos_x": 6.6,
+   "pos_z": 9.9,
+   "shift": null,
+   "seat_order": 1,
+   "facing": "north",
+   "seat_kind": "manager",
+   "table_group": "back-desk"
+  }
+ ],
+ "people": [
+  {
+   "key": "raed",
+   "name": "Raed",
+   "role": "Business analyst",
+   "role_ar": "محلل أعمال",
+   "shift": "day",
+   "desk_id": "gc-green-concrete-command-d1",
+   "agent_id": "agent_gc_raed"
+  },
+  {
+   "key": "hazrat",
+   "name": "Hazrat",
+   "role": "Data monitoring",
+   "role_ar": "مراقبة البيانات",
+   "shift": "day",
+   "desk_id": "gc-green-concrete-command-d2",
+   "agent_id": "agent_gc_hazrat"
+  },
+  {
+   "key": "mai",
+   "name": "Mai",
+   "role": "Data monitoring",
+   "role_ar": "مراقبة البيانات",
+   "shift": "day",
+   "desk_id": "gc-green-concrete-command-d3",
+   "agent_id": "agent_gc_mai"
+  },
+  {
+   "key": "shahzeb",
+   "name": "Shahzeb",
+   "role": "Tyre planning engineer",
+   "role_ar": "مهندس تخطيط الإطارات",
+   "shift": "day",
+   "desk_id": "gc-green-concrete-command-d4",
+   "agent_id": "agent_gc_shahzeb"
+  },
+  {
+   "key": "ijaz",
+   "name": "Ijaz",
+   "role": "Data collector",
+   "role_ar": "جامع بيانات",
+   "shift": "day",
+   "desk_id": "gc-green-concrete-command-d5",
+   "agent_id": "agent_gc_ijaz"
+  },
+  {
+   "key": "badea",
+   "name": "Badea",
+   "role": "Data monitoring",
+   "role_ar": "مراقبة البيانات",
+   "shift": "day",
+   "desk_id": "gc-green-concrete-command-d6",
+   "agent_id": "agent_gc_badea"
+  },
+  {
+   "key": "ali-zeehan",
+   "name": "Ali Zeehan",
+   "role": "Data monitoring",
+   "role_ar": "مراقبة البيانات",
+   "shift": "night",
+   "desk_id": "gc-green-concrete-command-d7",
+   "agent_id": "agent_gc_ali_zeehan"
+  },
+  {
+   "key": "amjad",
+   "name": "Amjad",
+   "role": "Data collector",
+   "role_ar": "جامع بيانات",
+   "shift": "night",
+   "desk_id": "gc-green-concrete-command-d8",
+   "agent_id": "agent_gc_amjad"
+  },
+  {
+   "key": "rana",
+   "name": "Rana",
+   "role": "Data collector",
+   "role_ar": "جامع بيانات",
+   "shift": "night",
+   "desk_id": "gc-green-concrete-command-d9",
+   "agent_id": "agent_gc_rana"
+  },
+  {
+   "key": "ahmed-elbendari",
+   "name": "Ahmed Elbendari",
+   "role": "PMV manager",
+   "role_ar": "مدير PMV",
+   "shift": null,
+   "desk_id": "gc-green-concrete-command-d10",
+   "agent_id": "agent_gc_ahmed_elbendari"
+  }
+ ]
+}

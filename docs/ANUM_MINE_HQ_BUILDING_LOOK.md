@@ -20,7 +20,7 @@ landscaped. Their names, numbers, people and activity are never reproduced; vehi
   behind the scene. Day sun is lower and warmer (longer shadows); night is brighter and bluer so ground, paths and trees read.
 - Foliage: smooth shaded, lumpy canopies (`MeshBuilder.smoothBlob`, a normal and a tone per vertex) replace the faceted stones; palms have four
   segment arched fronds; darker, richer greens. Stamped trees keep their normals (`stamp` now copies normals).
-- Campus: a globe monument in a pool on a banded plaza with jets and lit rings (`environment/plaza.ts`); a garden for every building (paving
+- Campus: a globe monument in a pool on a banded plaza with jets and lit rings (`environment/plaza.ts`; since the [centre plaza](ANUM_MINE_HQ_CENTER_PLAZA.md) change the middle of the campus is a big three tier fountain with the globe on top, a roundabout and two avenues, and the buildings stand round it instead of the executive tower standing on the centre); a garden for every building (paving
   bands, hedged lawn beds with palms, trees and topiary, flank tree rows); paths 4.6 m wide with a lit centre; more trees; a darker lawn and a
   teal canal.
 - Facades: near floor-to-ceiling glass with slim mullions and a pale slab edge between storeys; the tower is six storeys, not eight.

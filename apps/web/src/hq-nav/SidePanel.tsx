@@ -5,6 +5,7 @@ import type { HqView } from '../HqChrome';
 import { statusLabel } from '../HqChrome';
 import { hqCommands } from '../lib/hqExtensions.ts';
 import type { SceneFloor } from '../lib/headquartersProjection.ts';
+import { roleText } from '../lib/hqRoles.ts';
 import { t, type MessageKey } from '../lib/i18n.ts';
 import { roomName, sceneName } from '../lib/registryNames.ts';
 import { initialsOf, planModel, type PersonRow } from './navModel.ts';
@@ -83,15 +84,15 @@ export function PeopleList(props: { rows: readonly PersonRow[]; presenceKnown: b
         <ul>
           {rows.map((r) => {
             const name = r.state === 'private' ? t('hq.agent.private') : r.name ?? t('hq.agent.assigned');
-            const chip = r.state === 'not_connected' ? (props.presenceKnown ? t('hqNav.people.notConnected') : t('hqNav.people.unavailable')) : r.status ? statusLabel(r.status) : t('hq.status.unknown');
-            const tone = r.state === 'known' && r.status ? STATUS_TONE[r.status] : 'faint';
+            const chip = r.offShift ? t(r.offShift === 'off_waiting' ? 'hqGc.offWaiting' : 'hqGc.off') : r.state === 'not_connected' ? (props.presenceKnown ? t('hqNav.people.notConnected') : t('hqNav.people.unavailable')) : r.status ? statusLabel(r.status) : t('hq.status.unknown');
+            const tone = r.state === 'known' && r.status && !r.offShift ? STATUS_TONE[r.status] : 'faint';
             return (
               <li key={r.key}>
                 <button type="button" className="hqPerson" disabled={!r.agentId} aria-label={`${t('hqNav.people.open', { name })}. ${chip}.`} onClick={() => r.agentId && props.onOpen(r)}>
                   <span className="hqAvatar" aria-hidden="true">{r.name && r.state !== 'private' ? initialsOf(r.name) : '?'}</span>
                   <span className="hqPersonText">
                     <strong>{name}</strong>
-                    <small>{[r.role, r.roomLabel ? t('hqNav.people.in', { room: r.roomLabel }) : null].filter(Boolean).join(', ')}</small>
+                    <small>{[r.role ? roleText(r.role) : null, r.roomLabel ? t('hqNav.people.in', { room: r.roomLabel }) : null].filter(Boolean).join(', ')}</small>
                   </span>
                   <span className={`hqPill tone-${tone}`} data-stale={r.stale}>{chip}{r.stale ? ` (${t('hq.agent.stale')})` : ''}</span>
                 </button>

@@ -43,3 +43,6 @@
 @media (max-height: 820px) { .hqNav[data-nav="on"] .hqOverlayBottomRight { display: none; } }
 
 .hqNavDockBelow .hqPaDock { max-width: none; min-width: 0; }
+
+/* A building card that gave up detail to fit also drops its row of people, so its real size is what the label layout measured. */
+.hqBuildingCard[data-density="compact"] .hqAvatarStack, .hqBuildingCard[data-density="dot"] .hqAvatarStack { display: none; }

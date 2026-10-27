@@ -19,7 +19,7 @@ import {
   buildingStatus, campusTotals, layoutCampus, readingOrder, stepBuilding, workspaceOf,
   type Campus, type CampusBuilding, type CampusBuildingKind, type StatusKey,
 } from './lib/campusModel.ts';
-import { campusCamera, clampTarget, faceNorth, rotateBy, threeDView, topView, viewFootprint, zoomBy } from './lib/hqCamera.ts';
+import { campusCamera, campusFraming, clampTarget, faceNorth, rotateBy, threeDView, topView, viewFootprint, zoomBy } from './lib/hqCamera.ts';
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
@@ -123,7 +123,8 @@ export function CampusView(props: CampusViewProps) {
   const byIdRef = useRef(byId);
   byIdRef.current = byId;
   const [wrap, aspect] = useAspect();
-  const home = useMemo(() => campusCamera(scene.extent.radius, 0, aspect), [scene.extent.radius, aspect]);
+  const framing = campusFraming(scene.extent);
+  const home = useMemo(() => campusCamera(framing.radius, framing.centerZ, aspect), [framing.radius, framing.centerZ, aspect]);
   const [camera, setCamera] = useState<CameraState>(home);
   const [hover, setHover] = useState<string | null>(null);
   const [work, setWork] = useState<WorkUi>(NO_WORK);
@@ -200,8 +201,9 @@ export function CampusView(props: CampusViewProps) {
       const building = byId.get(b.workspaceId)!;
       return {
         id: b.workspaceId, anchor: b.anchor, priority: b.workspaceId === selectedId ? 0 : 1,
+        // A crowded stage gives a building card less detail (name and icon, then a dot) before two cards would cover each other.
         // A card that carries a work reason or a feed note is never reduced to a bare dot: the reason must stay readable.
-        ...(work.cards[b.workspaceId] || work.feeds[b.workspaceId] ? { tiers: ['full', 'compact'] as const } : {}),
+        tiers: work.cards[b.workspaceId] || work.feeds[b.workspaceId] ? ['full', 'compact'] : ['full', 'compact', 'dot'], keep: true,
         node: (
           <BuildingCard
             building={building} selected={b.workspaceId === selectedId} current={b.workspaceId === props.currentWorkspaceId || building.registryBuildingId !== undefined}
@@ -241,7 +243,7 @@ export function CampusView(props: CampusViewProps) {
         onCamera={(c) => setCamera(clampTarget(c, scene.groundRadius * 0.8))} night={night} reducedMotion={props.reducedMotion}
         hoverId={hover} selectedId={selectedId} onHover={setHover}
         onPick={(id) => { if (id) activate(id); else props.onSelect(null); }}
-        labels={labels} onView={onView} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
+        labels={labels} labelKeepOut="[data-keepout]" onView={onView} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
       />
       <div className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-work-live">
         {Object.entries(work.cards).map(([id, c]) => <p key={id}>{sceneName(byId.get(id) ?? { name: id }, locale)}: {c.because}</p>)}
@@ -252,21 +254,21 @@ export function CampusView(props: CampusViewProps) {
           <CampusWork campus={campus} sites={workSites} lanes={scene.motion.lanes} flow={props.flow ?? null} openKey={props.currentWorkspaceId} reducedMotion={props.reducedMotion} onChange={setWork} />
         </Suspense>
       )}
-      <div className="hqOverlay hqOverlayRight">
+      <div className="hqOverlay hqOverlayRight" data-keepout="">
         <CameraTools
           yaw={camera.yaw} night={night} onNight={props.onNight}
           onZoomIn={() => change((c) => zoomBy(c, 0.8))} onZoomOut={() => change((c) => zoomBy(c, 1.25))}
           onReset={() => setCamera(view === 'top' ? topView(home) : home)} onNorth={() => change(faceNorth)}
         />
       </div>
-      <div className="hqOverlay hqOverlayBottomLeft">
+      <div className="hqOverlay hqOverlayBottomLeft" data-keepout="">
         <TotalsPanel
           title={t('hq.totals.title')} totals={totals.totals} unreported={props.unreported}
           note={totals.totals && totals.missing > 0 ? t('hq.totals.partial', { reporting: totals.reporting, total: campus.buildings.length }) : null}
           verifiedAt={campus.buildings.find((b) => b.presence_verified_at)?.presence_verified_at ?? null}
         />
       </div>
-      <div className="hqOverlay hqOverlayBottomRight">
+      <div className="hqOverlay hqOverlayBottomRight" data-keepout="">
         <Minimap
           placements={placements} extent={scene.extent.radius} selectedId={selectedId} footprint={footprint}
           onJump={(x, z) => change((c) => ({ ...c, target: { x, y: 0, z } }))} onSelect={(id) => select(id)}

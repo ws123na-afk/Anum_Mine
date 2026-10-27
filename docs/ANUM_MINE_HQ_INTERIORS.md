@@ -19,6 +19,10 @@ A cut-away floor is built by `lib/buildingScene.ts` from the persisted room geom
 | Service core | `hqAssets/interior/core.ts` | A lift bank with call panels and position indicators and a stair flight with a glass balustrade, on the east side of every floor that has two or more rooms. Architecture only: no lift car, no person. Restrooms are the `restroom` kit (below), used for a registry room of that name; the core does not add rooms the registry does not have. |
 | Desks | kits | A desk is a registry record. Warehouse and workshop rooms did not draw the desks they were given; they do now (`drawRoom` draws stations for kits that do not place desks themselves). |
 
+## Seats, tables and shifts
+
+A station is drawn at the position saved on a desk that has a seat field (a shift, a manager kind or a table group) and turned by its `facing` (north 0, east 1, south 2, west 3 quarter turns: north is the person sitting on the south side looking north). Seats of one table group form one table; where a long leg meets a short leg at its east end, a corner piece (`lib/hqSeatTables.ts`) joins them into an L. A table of the shift that is not shown whose place nobody uses in the shown shift is drawn as an empty station (`RoomGeometry.emptySeats`, furniture only, no desk, no person). A person off shift gets the `offshift` desk look: a dark screen, a dim amber light and a crescent marker above the monitor, never lit whatever work is waiting (`hqAssets/interior/stateVisual.ts`, `lib/hqDeskState.ts`). See [Green Concrete](ANUM_MINE_GREEN_CONCRETE.md).
+
 ## Room kits
 
 `hqAssets/interior/index.ts` (`INTERIOR_KINDS`, `interiorKindFor`). The kind comes from the registry kind plus words in the room name; the name never produces data.

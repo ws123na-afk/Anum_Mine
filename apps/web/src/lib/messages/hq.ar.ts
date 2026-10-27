@@ -156,7 +156,7 @@ export const hqAr = {
   'hq.agent.tasks': 'المهام المفتوحة',
   'hq.agent.noTasks': 'لا توجد مهام مفتوحة.',
   'hq.agent.noEvidence': 'لا يتوفر سجل نشاط لهذا الوكيل حالياً.',
-  'hq.agent.observed': 'تمت الملاحظة {time}',
+  'hq.agent.observed': 'تم التحقق في {time}',
   'hq.agent.profile': 'فتح ملف الوكيل',
   'hq.module.loading': 'جارٍ التحميل...',
   'hq.module.notConnected': 'غير متصل',

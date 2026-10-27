@@ -61,6 +61,9 @@ export interface OfficeBuildingCreate {
   timezone: string;
   latitude?: number | null;
   longitude?: number | null;
+  /** Shift hours "HH:MM" in the building's time zone; `null` clears them (the unconfirmed defaults 07:00 and 19:00 apply). */
+  shift_day_start?: string | null;
+  shift_night_start?: string | null;
 }
 export interface OfficeFloorCreate {
   id: string;
@@ -120,6 +123,12 @@ export interface OfficeDeskUpdate {
   /** Both or neither; both null clears the position. */
   pos_x?: number | null;
   pos_z?: number | null;
+  /** Seat fields (docs/ANUM_MINE_GREEN_CONCRETE.md); `null` clears one. */
+  shift?: 'day' | 'night' | null;
+  seat_order?: number | null;
+  facing?: 'north' | 'south' | 'east' | 'west' | null;
+  seat_kind?: 'team' | 'manager' | null;
+  table_group?: string | null;
 }
 
 /** PUT /floors/{id}/layout: all or nothing. */

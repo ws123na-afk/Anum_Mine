@@ -3,6 +3,8 @@ import { t } from '../lib/i18n.ts';
 import type { BuilderController } from './useBuilderState.ts';
 import { DESK_KINDS } from './labels.ts';
 import { round3 } from './geometry.ts';
+import type { OfficeDesk } from '../lib/officeSpaceClient.ts';
+import type { OfficeDeskUpdate } from '@anum/contracts';
 
 export interface Person { id: string; name: string }
 interface Props { b: BuilderController; roomId: string; people: readonly Person[]; peopleReady: boolean; editable: boolean }
@@ -84,6 +86,8 @@ export function DeskPanel({ b, roomId, people, peopleReady, editable }: Props) {
               : <p className="hqbHint">{t('hqb.desk.placeRoomFirst')}</p>
           )}
 
+          <SeatFields desk={selected} editable={editable} busy={b.busy} onSave={(patch) => { void b.saveDeskSeat(selected.id, patch); }} />
+
           {editable && (
             confirmDelete ? (
               <div className="hqbConfirm" role="alertdialog" aria-label={t('hqb.desk.deleteTitle')}>
@@ -108,5 +112,61 @@ export function DeskPanel({ b, roomId, people, peopleReady, editable }: Props) {
         </form>
       )}
     </section>
+  );
+}
+
+const FACINGS = ['north', 'south', 'east', 'west'] as const;
+
+/** Seat fields (docs/ANUM_MINE_GREEN_CONCRETE.md): which shift the seat belongs to, its place at the table, the wall it looks at, the manager seat and the table group. */
+function SeatFields({ desk, editable, busy, onSave }: { desk: OfficeDesk; editable: boolean; busy: boolean; onSave: (patch: Omit<OfficeDeskUpdate, 'expected_revision'>) => void }) {
+  const [shift, setShift] = useState(desk.shift ?? '');
+  const [order, setOrder] = useState(desk.seat_order == null ? '' : String(desk.seat_order));
+  const [facing, setFacing] = useState(desk.facing ?? '');
+  const [kind, setKind] = useState(desk.seat_kind ?? '');
+  const [group, setGroup] = useState(desk.table_group ?? '');
+  useEffect(() => {
+    setShift(desk.shift ?? ''); setOrder(desk.seat_order == null ? '' : String(desk.seat_order)); setFacing(desk.facing ?? ''); setKind(desk.seat_kind ?? ''); setGroup(desk.table_group ?? '');
+  }, [desk.id, desk.revision, desk.shift, desk.seat_order, desk.facing, desk.seat_kind, desk.table_group]);
+  const patch: Omit<OfficeDeskUpdate, 'expected_revision'> = {};
+  if ((shift || null) !== (desk.shift ?? null)) patch.shift = (shift || null) as OfficeDesk['shift'];
+  if ((order === '' ? null : Number(order)) !== (desk.seat_order ?? null)) patch.seat_order = order === '' ? null : Number(order);
+  if ((facing || null) !== (desk.facing ?? null)) patch.facing = (facing || null) as OfficeDesk['facing'];
+  if ((kind || null) !== (desk.seat_kind ?? null)) patch.seat_kind = (kind || null) as OfficeDesk['seat_kind'];
+  if ((group.trim() || null) !== (desk.table_group ?? null)) patch.table_group = group.trim() || null;
+  const orderOk = order === '' || (Number.isInteger(Number(order)) && Number(order) >= 1 && Number(order) <= 999);
+  const groupOk = group.trim() === '' || /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(group.trim());
+  const changed = Object.keys(patch).length > 0;
+  const off = !editable || busy;
+  return (
+    <fieldset className="hqbSeat" data-testid="hqb-seat">
+      <legend>{t('hqGc.builder.seat')}</legend>
+      <div className="hqbRow">
+        <label className="hqbGrow"><span>{t('hqGc.builder.shift')}</span>
+          <select value={shift} disabled={off} onChange={(e) => setShift(e.target.value as typeof shift)} data-testid="hqb-seat-shift">
+            <option value="">{t('hqGc.builder.shiftNone')}</option>
+            <option value="day">{t('hqGc.shift.day')}</option>
+            <option value="night">{t('hqGc.shift.night')}</option>
+          </select></label>
+        <label className="hqbGrow"><span>{t('hqGc.builder.kind')}</span>
+          <select value={kind} disabled={off} onChange={(e) => setKind(e.target.value as typeof kind)}>
+            <option value="">{t('hqGc.builder.kindNone')}</option>
+            <option value="team">{t('hqGc.builder.kindTeam')}</option>
+            <option value="manager">{t('hqGc.builder.kindManager')}</option>
+          </select></label>
+      </div>
+      <div className="hqbRow">
+        <label className="hqbGrow"><span>{t('hqGc.builder.order')}</span>
+          <input type="number" min={1} max={999} step={1} value={order} disabled={off} aria-invalid={!orderOk} data-testid="hqb-seat-order" onChange={(e) => setOrder(e.target.value)} /></label>
+        <label className="hqbGrow"><span>{t('hqGc.builder.facing')}</span>
+          <select value={facing} disabled={off} onChange={(e) => setFacing(e.target.value as typeof facing)}>
+            <option value="">-</option>
+            {FACINGS.map((f) => <option key={f} value={f}>{t(`hqGc.facing.${f}`)}</option>)}
+          </select></label>
+      </div>
+      <label className="hqbField"><span>{t('hqGc.builder.group')}</span>
+        <input value={group} maxLength={40} dir="ltr" disabled={off} aria-invalid={!groupOk} onChange={(e) => setGroup(e.target.value)} /></label>
+      <p className="hqbHint">{t('hqGc.builder.groupHelp')}</p>
+      {editable && <button type="button" disabled={busy || !changed || !orderOk || !groupOk} onClick={() => onSave(patch)} data-testid="hqb-seat-save">{t('hqb.floor.save')}</button>}
+    </fieldset>
   );
 }

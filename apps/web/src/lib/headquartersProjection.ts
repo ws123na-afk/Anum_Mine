@@ -10,11 +10,12 @@
 export type Scope = Readonly<{ tenantId:string; workspaceId:string }>;
 export type Vec2 = Readonly<{x:number;y:number}>;
 export type Vec3 = Readonly<{x:number;y:number;z:number}>;
-export type Building = Readonly<{id:string;name:string;name_ar?:string|null;timezone:string;revision:number}>;
+export type Building = Readonly<{id:string;name:string;name_ar?:string|null;timezone:string;revision:number;shift_day_start?:string|null;shift_night_start?:string|null}>;
 export type Floor = Readonly<{id:string;building_id:string;level:number;name:string;name_ar?:string|null;revision:number}>;
 export type RoomKind = 'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge'|'command';
 export type Room = Readonly<{id:string;floor_id:string;name:string;name_ar?:string|null;kind:RoomKind;capacity:number;revision:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;team_department?:string|null;door_side?:string|null;rotation?:number|null}>;
-export type Desk = Readonly<{id:string;room_id:string;label:string;agent_id:string|null;revision:number}>;
+export type DeskFacing='north'|'south'|'east'|'west';
+export type Desk = Readonly<{id:string;room_id:string;label:string;agent_id:string|null;revision:number;pos_x?:number|null;pos_z?:number|null;shift?:'day'|'night'|null;seat_order?:number|null;facing?:DeskFacing|null;seat_kind?:'team'|'manager'|null;table_group?:string|null}>;
 export type Registry = Readonly<{buildings:readonly Building[];floors:readonly Floor[];rooms:readonly Room[];desks:readonly Desk[]}>;
 export type AgentEvidence = Readonly<{
  id:string; name:string; status:'running'|'waiting'|'idle'|'unknown';
@@ -30,10 +31,16 @@ export type RoomGeometry = Readonly<{
  evidence:'registry'|'layout-draft';
  /** The wall the door is in (the builder's `door_side`); absent means the south wall. The interior is dressed to face it. */
  doorSide?:DoorSide;
+ /** Tables of the shift that is not shown whose place nobody uses in the shown shift: drawn as empty seats (furniture, never a desk or a person). */
+ emptySeats?:readonly Readonly<{x:number;z:number;facing:DeskFacing|null;group:string|null}>[];
 }>;
 export type SceneDesk = Readonly<{
  id:string; roomId:string; label:string; position:Vec3; agentId:string|null;
  agent:AgentEvidence|null; assignmentVisible:boolean;
+ /** Seat fields from the registry (docs/ANUM_MINE_GREEN_CONCRETE.md): the shift, the place along the table, the wall the person looks at, the manager seat and the table group. */
+ shift?:'day'|'night'|null; seatOrder?:number|null; facing?:DeskFacing|null; seatKind?:'team'|'manager'|null; tableGroup?:string|null;
+ /** Set by the shift view (lib/hqShifts.ts): what this desk says about its shift now. */
+ shiftInfo?:import('./hqShifts.ts').DeskShiftInfo;
 }>;
 export type SceneFloor = Readonly<{
  id:string; name:string; /** The Arabic name, when the floor has one. */ nameAr?:string|null; level:number; rooms:readonly RoomGeometry[];
@@ -41,6 +48,10 @@ export type SceneFloor = Readonly<{
 }>;
 export type SceneBuilding = Readonly<{
  id:string; name:string; /** The Arabic name, when the building has one. */ nameAr?:string|null; timezone:string; floors:readonly SceneFloor[];
+ /** Shift hours stored on the building ("HH:MM"); null means the unconfirmed defaults. */
+ shiftDayStart?:string|null; shiftNightStart?:string|null;
+ /** Set by the shift view for a building with shift desks. */
+ shifts?:import('./hqShifts.ts').ShiftSnapshot;
 }>;
 export type ProjectionIssue = Readonly<{
  code:'DUPLICATE_ID'|'ORPHAN_FLOOR'|'ORPHAN_ROOM'|'ORPHAN_DESK'|'INVALID_DIMENSIONS'|'CAPACITY_OVERFLOW'|'ASSIGNMENT_CONFLICT'|'STALE_EVIDENCE';
@@ -95,8 +106,10 @@ function placeDesks(room:RoomGeometry,assigned:readonly Desk[],visibleAgents:Rea
  const rows=Math.max(1,Math.ceil(count/cols));
  return assigned.map((desk,index)=>{
   const column=index%cols,row=Math.floor(index/cols);
-  const x=room.x+room.width*(column+1)/(cols+1);
-  const z=room.z+room.depth*(row+1)/(rows+1);
+  // A seat (a desk with a shift, a manager kind or a table group) keeps the place the owner saved; any other desk is on the grid.
+  const seat=desk.pos_x!=null&&desk.pos_z!=null&&(desk.shift!=null||desk.seat_kind!=null||desk.table_group!=null);
+  const x=seat?room.x+(desk.pos_x as number):room.x+room.width*(column+1)/(cols+1);
+  const z=seat?room.z+(desk.pos_z as number):room.z+room.depth*(row+1)/(rows+1);
   const evidence=desk.agent_id?visibleAgents.get(desk.agent_id)??null:null;
   const observedAt=evidence?Date.parse(evidence.observedAt):NaN;
   const fresh=evidence&&Number.isFinite(observedAt)&&Math.abs(nowMs-observedAt)<=EVIDENCE_MAX_AGE_MS;
@@ -104,7 +117,8 @@ function placeDesks(room:RoomGeometry,assigned:readonly Desk[],visibleAgents:Rea
    issues.push({code:'STALE_EVIDENCE',recordId:desk.id,message:'Agent evidence is stale and should not be displayed as live'});
   }
   return {id:desk.id,roomId:room.id,label:desk.label,position:{x,y:.78,z},
-   agentId:desk.agent_id,agent:fresh?evidence:null,assignmentVisible:desk.agent_id!==null};
+   agentId:desk.agent_id,agent:fresh?evidence:null,assignmentVisible:desk.agent_id!==null,
+   ...(seat||desk.shift!=null||desk.seat_kind!=null?{shift:desk.shift??null,seatOrder:desk.seat_order??null,facing:desk.facing??null,seatKind:desk.seat_kind??null,tableGroup:desk.table_group??null}:{})};
  });
 }
 /** Throws on corrupted scope input rather than accidentally mixing tenants. */
@@ -138,7 +152,7 @@ export function projectHeadquarters(scope:Scope,registry:Registry,evidence:reado
    const depth=Math.max(16,...augmented.map(r=>r.z+r.depth+8));
    return {id:floor.id,name:floor.name,nameAr:floor.name_ar??null,level:floor.level,rooms:augmented,desks,bounds:{width,depth}};
   });
-  return {id:building.id,name:building.name,nameAr:building.name_ar??null,timezone:building.timezone,floors};
+  return {id:building.id,name:building.name,nameAr:building.name_ar??null,timezone:building.timezone,floors,...(building.shift_day_start||building.shift_night_start?{shiftDayStart:building.shift_day_start??null,shiftNightStart:building.shift_night_start??null}:{})};
  });
  return {scope:{...scope},buildings,issues,generatedAt:observedAt.toISOString(),source:'authenticated-office-registry'};
 }
