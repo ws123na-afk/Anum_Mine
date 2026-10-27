@@ -36,7 +36,25 @@ Data truth: the numbers come from the existing endpoints of the **open workspace
 The room to module table (`lib/hqRoomModule.ts`) already covered Marketing (`#marketing`), Technology (`#developer`), Research (`#knowledge`) and Legal (`#files`) on `main`; the matrix was stale there. This change verifies the whole starter campus with a unit test over all 62 rooms (`test/hqBuildingModules.test.ts`, fixture `test/fixtures/starterCampusRooms.json` that an API test keeps equal to the master list):
 
 * Every room resolves to a view that exists in the shell, the live flow, a meeting, or an honest "no module" with a reason. Exactly two have none: the **Reception** (there is no visitor register, owner decision O4) and **Procurement** (no procurement module exists).
-* Thirteen rooms have no stored department and open a generic module (Tasks, Calendar) or one chosen from the room name (Executive Office opens the executive desk, marked "from the name"): Facilities Office, AI Organization, AI Labs, Data, Automation, Future Businesses, Career Office, Employment Desk, Personal Office, Terrace, Events Hall, Lounge. The owner sees "set a department" and can store one in the builder. The list is pinned by the test so a new room cannot slip in unnoticed.
+* Thirteen rooms had no stored department (the decisions are in the table below). Only the **Executive Office** now has one: `executive`, a new storable department (migration `0116_room_dept_executive`, expand only, no backfill), so it opens the executive desk by its stored department and no longer by the room name. The other twelve stay empty and open a generic module (Tasks, Calendar); the owner sees "set a department" and can store one in the builder. The list of twelve is pinned by the test so a new room cannot slip in unnoticed.
+
+| # | Starter room (building) | Decision | Reason |
+|---|---|---|---|
+| 1 | Executive Office (ANUM HQ) | **Set to `executive`** | The name leaves no doubt and the department exists since 0116. Opens the executive desk by department, in any building kind |
+| 2 | Facilities Office (ANUM HQ) | Left empty | Operations, security or procurement are all arguable; a judgment call for the owner |
+| 3 | AI Organization (ANUM HQ) | Left empty | Technology, research or operations; the agent organisation is not one department |
+| 4 | AI Labs (Knowledge & AI) | Left empty | Research or technology |
+| 5 | Data (Knowledge & AI) | Left empty | Research, technology or operations |
+| 6 | Automation (Knowledge & AI) | Left empty | Technology or operations |
+| 7 | Future Businesses (New Ventures) | Left empty | No department matches new ventures |
+| 8 | Career Office (Career & Employment) | Left empty | A personal career room, not the company HR department |
+| 9 | Employment Desk (Career & Employment) | Left empty | HR would be a guess: it may be the owner's own employment |
+| 10 | Personal Office (Personal Office) | Left empty | No department matches a personal office |
+| 11 | Terrace (ANUM HQ) | Left empty | A lounge; no department applies |
+| 12 | Events Hall (ANUM HQ) | Left empty | A lounge; no department applies (marketing events would be a guess) |
+| 13 | Lounge (Personal Office) | Left empty | A lounge; no department applies |
+
+Existing campuses are not rewritten. The starter planner's one existing exception still applies: when the owner re-runs **Set up my campus**, reviews the plan and clicks confirm, a master list room whose department is empty or `custom` gets the master list department, shown in the plan as `department_set` and audited, so an existing Executive Office adopts `executive` through that click and never silently. A department the owner chose is never replaced. Procurement is already wired to its department (`procurement`); there is still no procurement or supplier module, so it keeps its honest "No module connected" message.
 * A defect found by the audit is fixed: the name pattern for support matched the word "care" inside "Career", so the Career Office opened Inbox and support. It now matches the whole word.
 * Rooms of a **registry building** (the starter campus HQ is drawn as the executive tower) are decided by department, kind and name only. The executive tower rule ("every room opens the executive desk") applies to a workspace's own building kind, never to a building of the office registry, so Facilities and the Terrace do not open the executive desk (`moduleBuildingKind`).
 
@@ -61,7 +79,7 @@ The starter campus already creates **Personal Office** (building 7, `campus-07-p
 
 API: `test_office_layout.py` (kind, desk kinds, template), `test_office_starter_campus.py` (the command kind, the fixture), PostgreSQL as the app role in `test_postgres_office_builder.py` (the kind is stored after the migration, a command room keeps its desks, an unknown kind is refused, the template creates a command room with six desks).
 
-Web unit: `test/hqBuildingModules.test.ts` (panels per building, the 62 room audit, looks, command kind), `test/hqFloorCutaway.test.ts` (cut-away scene, ghost cache, lifts, easing), `test/hqRoomModule.test.ts` (existing table, still green).
+Web unit: `test/hqBuildingModules.test.ts` (panels per building, the 62 room audit (the Executive Office opens `#executive` by its stored department; the twelve undecided rooms are pinned), looks, command kind), `test/hqFloorCutaway.test.ts` (cut-away scene, ghost cache, lifts, easing), `test/hqRoomModule.test.ts` (existing table, still green).
 
 Browser: `e2e/hq-building-modules.spec.ts` (each building's panels with real numbers, Not connected and No access, the command centre room with the wall and the flow dock, floor buttons, keyboard, reduced motion, frame time, Arabic, accessibility scan, five viewports 1440x900, 1366x768, 1024x768, 768x1024 and 390x844).
 
@@ -69,7 +87,7 @@ Browser: `e2e/hq-building-modules.spec.ts` (each building's panels with real num
 
 * The panel numbers are per workspace, not per building: two buildings in one workspace read the same commerce or tyre figures.
 * A starter-campus "Command Center" created before this change stays an office until the owner changes its type; there is no bulk migration of room kinds.
-* The Reception still has no module (no visitor register) and Procurement none (no module exists); thirteen starter rooms have no department and use a generic module until the owner sets one.
+* The Reception still has no module (no visitor register) and Procurement none (no module exists); twelve starter rooms have no department and use a generic module until the owner sets one (each is a judgment call listed above).
 * The camera glide uses the existing fly-to; the floors themselves collapse flat rather than sliding away. No isolate-one-floor toggle beyond the cut-away and "All floors".
 * Frame times were measured with software GL only; a run on a real GPU or device is still missing (matrix 3.10).
 * Tyre Pulse's saw-tooth look needs the local drawing hint `workshop`; it is not stored and not a building type the owner can pick.

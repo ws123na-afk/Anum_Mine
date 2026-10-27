@@ -50,7 +50,8 @@ const view = (id: string, v: View): Entry => ({ id, target: { type: 'view', view
 /**
  * Department to module. Every department the contract can store (`OFFICE_TEAM_DEPARTMENTS`) has an entry; a
  * test keeps the two in step. Each opens a view that exists in the shell, or says plainly that no module is
- * connected (`custom`, `procurement`): never a dead button. `executive`, `commerce` and `meeting` are not
+ * connected (`custom`, `procurement`): never a dead button. `executive` is storable (migration 0116), so a room whose
+ * stored department is executive opens the executive desk whatever its building kind. `commerce` and `meeting` are not
  * storable departments; they stay so a later contract value or a building kind resolves to the right module.
  *
  *   marketing   -> Marketing (#marketing)
@@ -61,6 +62,7 @@ const view = (id: string, v: View): Entry => ({ id, target: { type: 'view', view
  *   security    -> Audit log (#audit)
  *   hr          -> Members and roles (#members)
  *   procurement -> no module connected
+ *   executive   -> Executive desk (#executive)
  */
 export const DEPARTMENT_MODULES: Readonly<Record<string, Entry>> = {
   finance: view('finance', 'finance'),
