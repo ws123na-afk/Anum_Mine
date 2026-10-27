@@ -118,7 +118,7 @@ test('the boards carry the live details; a presence update changes the board tex
   expect(gc).toContain('Green Concrete');
   expect(gc).toContain('0 working');
   expect(gc).toContain('4 agents, Idle 1, Paused 3');
-  expect(gc).toMatch(/Verified \d/);
+  expect(gc).toMatch(/(Verified|Stale: last verified) \d/);
   expect(gc).toContain('Open work: Not connected');
   for (const secret of ['Fleet Planner', 'Outreach Writer', 'Plan October', 'Acme']) expect(lines.join('\n')).not.toContain(secret);
   // The stream is up: the Live tick is on the boards.

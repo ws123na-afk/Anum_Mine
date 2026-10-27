@@ -86,7 +86,7 @@ export function billboardLabels(args: BillboardLabelArgs): StageLabel[] {
     // A focused card is always full and is placed first (priority -1), so the other cards move round it and it keeps clear of the panels and controls.
     // An unfocused card has priority 1.9: the building cards (priority 1) are placed first and stay above it, so it never takes a click meant for one.
     // On a stage under 700 px wide its body is folded by the style sheet (the detail panel already covers the building) and a focus unfolds it.
-    const tiers: readonly Density[] = focused ? ['full', 'compact'] : ['compact', 'dot'];
+    const tiers: readonly Density[] = focused ? ['full'] : ['compact', 'dot'];
     out.push({
       id: `billboard:${site.workspaceId}`, anchor: site.anchor, priority: focused ? -1 : 1.9, tiers, ...(focused ? { fine: true } : {}), ...(focused ? {} : { maxDistance: NEAR }),
       node: createElement(BillboardCard, {
