@@ -4,7 +4,10 @@
  * building the person cannot open, and no count appears without a presence record behind it.
  */
 import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, House, Landmark, LockKeyhole, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import type { WorkSiteInput, WorkUi } from './HqCampusWork';
+import type { CardWork, FeedNote } from './lib/hqWorkMotion.ts';
+import './hqCampusMotion.css';
 import { BottomToolbar, CameraTools, Minimap, TotalsPanel, statusLabel, type HqView } from './HqChrome';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { buildCampusScene } from './lib/campusScene.ts';
@@ -13,7 +16,7 @@ import type { GlassPlanData } from './lib/hqPlanAtlas.ts';
 import type { PlannedSize } from './lib/campusModel.ts';
 import type { BillboardFlow } from './hq-billboards/billboardModel.ts';
 import {
-  buildingStatus, campusTotals, layoutCampus, readingOrder, stepBuilding,
+  buildingStatus, campusTotals, layoutCampus, readingOrder, stepBuilding, workspaceOf,
   type Campus, type CampusBuilding, type CampusBuildingKind, type StatusKey,
 } from './lib/campusModel.ts';
 import { campusCamera, campusFraming, clampTarget, faceNorth, rotateBy, threeDView, topView, viewFootprint, zoomBy } from './lib/hqCamera.ts';
@@ -26,6 +29,10 @@ import { useArabicSignFont } from './lib/arabicFont.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
 import { useNavLayout } from './hq-nav/useNavLayout.ts';
 import { cardDensities, cardTags, type CardDensity } from './hq-nav/navModel.ts';
+
+// Record-backed work motion is its own chunk, fetched only for a campus that has buildings.
+const NO_WORK: WorkUi = { plan: { motions: [], racks: [] }, cards: {}, feeds: {} };
+const CampusWork = lazy(() => import('./HqCampusWork'));
 
 const KIND_ICON: Record<CampusBuildingKind, ReactElement> = {
   executive: <Landmark aria-hidden="true" />, business: <Building2 aria-hidden="true" />,
@@ -122,11 +129,18 @@ export function CampusView(props: CampusViewProps) {
   }, [kit, plans, placements, sizes]);
   const byId = useMemo(() => new Map(campus.buildings.map((b) => [b.workspace_id, b])), [campus.buildings]);
   const order = useMemo(() => readingOrder(campus.buildings).map((b) => b.workspace_id), [campus.buildings]);
+  const byIdRef = useRef(byId);
+  byIdRef.current = byId;
   const [wrap, aspect] = useAspect();
   const framing = campusFraming(scene.extent);
   const home = useMemo(() => campusCamera(framing.radius, framing.centerZ, aspect), [framing.radius, framing.centerZ, aspect]);
   const [camera, setCamera] = useState<CameraState>(home);
   const [hover, setHover] = useState<string | null>(null);
+  const [work, setWork] = useState<WorkUi>(NO_WORK);
+  const workSites: readonly WorkSiteInput[] = useMemo(() => scene.buildings.map((b) => ({
+    key: b.workspaceId, workspaceId: workspaceOf(byIdRef.current.get(b.workspaceId) ?? { workspace_id: b.workspaceId }), workshop: b.archetype === 'workshop', door: { x: b.door.x, z: b.door.z },
+    box: { minX: b.box.min.x, minZ: b.box.min.z, maxX: b.box.max.x, maxZ: b.box.max.z },
+  })), [scene]);
   const [footprint, setFootprint] = useState<ReadonlyArray<{ x: number; z: number }> | null>(null);
   const lastFootprint = useRef(0);
   const homeRef = useRef(home);
@@ -199,12 +213,14 @@ export function CampusView(props: CampusViewProps) {
       return {
         id: b.workspaceId, anchor: b.anchor, priority: b.workspaceId === selectedId ? 0 : 1,
         // A crowded stage gives a building card less detail (name and icon, then a dot) before two cards would cover each other.
-        tiers: ['full', 'compact', 'dot'], keep: true,
+        // A card that carries a work reason or a feed note is never reduced to a bare dot: the reason must stay readable.
+        tiers: work.cards[b.workspaceId] || work.feeds[b.workspaceId] ? ['full', 'compact'] : ['full', 'compact', 'dot'], keep: true,
         node: (
           <BuildingCard
             building={building} selected={b.workspaceId === selectedId} current={b.workspaceId === props.currentWorkspaceId || building.registryBuildingId !== undefined}
             avatars={building.people ?? (b.workspaceId === props.currentWorkspaceId ? props.avatars : [])}
             density={density.get(b.workspaceId) ?? 'full'} departments={building.departments ?? (b.workspaceId === props.currentWorkspaceId ? props.departments ?? [] : [])}
+            work={work.cards[b.workspaceId]} feed={work.feeds[b.workspaceId]}
             onActivate={() => activate(b.workspaceId)} onHover={(on) => setHover(on ? b.workspaceId : null)}
           />
         ),
@@ -216,7 +232,7 @@ export function CampusView(props: CampusViewProps) {
     });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, byId, selectedId, props.currentWorkspaceId, props.avatars, props.departments, density, activate]);
+  }, [scene, byId, selectedId, props.currentWorkspaceId, props.avatars, props.departments, density, activate, work.cards, work.feeds]);
   // The billboards are a separate pass (HqStage `extraLabels`): they can never move, hide or park a building card.
   const extraLabels: StageLabel[] = useMemo(() => (boards && bb ? bb.billboardLabels({
     layer: boards, buildings: byId, plans, flow: props.flow, selectedId, hoverId: hover, near: camera.distance <= Math.min(110, home.distance * 0.75), now: Date.now(),
@@ -240,12 +256,21 @@ export function CampusView(props: CampusViewProps) {
     <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0}>
       <HqStage
         label={t('hq.campus.stageLabel')} description={t('hq.campus.stageHelp')}
-        scene={renderScene} glassPlan={glassPlan} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
+        scene={renderScene} glassPlan={glassPlan} work={work.plan} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
         onCamera={(c) => setCamera(clampTarget(c, scene.groundRadius * 0.8))} night={night} reducedMotion={props.reducedMotion}
         hoverId={hover} selectedId={selectedId} onHover={setHover}
         onPick={(id) => { if (id) activate(id); else props.onSelect(null); }}
         labels={labels} labelKeepOut="[data-keepout]" extraLabels={extraLabels} extraKeepOut=".hqDetail, .hqOverlayRight, .hqOverlayBottomLeft, .hqOverlayBottomRight, .hqOverlayBottom > *" onView={onView} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
       />
+      <div className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-work-live">
+        {Object.entries(work.cards).map(([id, c]) => <p key={id}>{sceneName(byId.get(id) ?? { name: id }, locale)}: {c.because}</p>)}
+        {Object.entries(work.feeds).filter(([, f]) => f.reason !== 'elsewhere').map(([id]) => <p key={id}>{sceneName(byId.get(id) ?? { name: id }, locale)}: {t('hqMotion.feed.off')}</p>)}
+      </div>
+      {scene.buildings.length > 0 && (
+        <Suspense fallback={null}>
+          <CampusWork campus={campus} sites={workSites} lanes={scene.motion.lanes} flow={props.flow?.snapshot ?? null} openKey={props.currentWorkspaceId} reducedMotion={props.reducedMotion} onChange={setWork} />
+        </Suspense>
+      )}
       <div className="hqOverlay hqOverlayRight" data-keepout="">
         <CameraTools
           yaw={camera.yaw} night={night} onNight={props.onNight}
@@ -302,27 +327,35 @@ export function buildingSummary(b: CampusBuilding): string {
 
 function BuildingCard(props: {
   building: CampusBuilding; selected: boolean; current: boolean; avatars: readonly string[]; density: CardDensity; departments: readonly string[];
+  work?: CardWork; feed?: FeedNote;
   onActivate: () => void; onHover: (on: boolean) => void;
 }) {
   const b = props.building;
   const status = buildingStatus(b);
-  const full = props.density === 'full';
+  // A card with a work reason or a feed note is never reduced to a bare dot: the reason must stay readable.
+  const density: CardDensity = props.density === 'dot' && (props.work || props.feed) ? 'compact' : props.density;
+  const full = density === 'full';
   const tags = full ? cardTags(b, props.departments) : [];
   const tagText = (tag: (typeof tags)[number]): string => (tag.kind === 'type' ? t(`hq.kind.${tag.value}` as MessageKey) : tag.kind === 'workspace' ? String(tag.value) : tag.kind === 'floors' ? t('hq.building.floors', { count: Number(tag.value) }) : tag.kind === 'rooms' ? t('hqNav.card.rooms', { count: Number(tag.value) }) : String(tag.value));
   const summary = buildingSummary(b);
+  // Why something moves at this building (the record behind it), or why a feed is off. Both are fixed templates; see hqWorkMotion.becauseLine.
+  const feedHint = props.feed ? t(`hqMotion.feed.offHint.${props.feed.reason}` as MessageKey) : '';
+  const workHint = props.work ? `${props.work.because}. ${t('hqMotion.legend')}` : '';
   return (
     <button
-      type="button" className="hqLabelCard hqBuildingCard" data-selected={props.selected} data-status={status} data-kind={b.kind} data-density={props.density}
-      aria-label={`${sceneName(b)}. ${summary}.${props.selected ? ' ' + t('hq.building.pressToOpen') : ''}`}
-      aria-pressed={props.selected} title={props.density === 'dot' ? sceneName(b) : undefined}
+      type="button" className="hqLabelCard hqBuildingCard" data-selected={props.selected} data-status={status} data-kind={b.kind} data-density={density}
+      aria-label={`${sceneName(b)}. ${summary}.${props.work ? ' ' + props.work.because + '.' : ''}${props.feed ? ' ' + t('hqMotion.feed.off') + '.' : ''}${props.selected ? ' ' + t('hq.building.pressToOpen') : ''}`}
+      aria-pressed={props.selected} title={density === 'dot' ? [sceneName(b), props.work?.because, props.feed ? t('hqMotion.feed.off') : ''].filter(Boolean).join('. ') : (workHint || feedHint || undefined)} data-work={props.work?.kind} data-feed={props.feed?.reason}
       onClick={props.onActivate} onMouseEnter={() => props.onHover(true)} onMouseLeave={() => props.onHover(false)}
     >
       <span className="hqLabelIcon">{iconOf(b)}</span>
-      {props.density !== 'dot' && (
+      {density !== 'dot' && (
         <span className="hqLabelText">
           <strong>{sceneName(b)}</strong>
           {tags.length > 0 && <span className="hqCardTags" aria-hidden="true">{tags.map((tag, i) => <span key={i}>{tagText(tag)}</span>)}</span>}
           <small>{summary}</small>
+          {props.work && <small className="hqWorkLine" data-work={props.work.kind}>{props.work.because}</small>}
+          {props.feed && <small className="hqWorkLine" data-feed={props.feed.reason}>{t('hqMotion.feed.off')}</small>}
         </span>
       )}
       <span className="hqStatusDot" aria-hidden="true" />

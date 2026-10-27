@@ -26,6 +26,7 @@ import { hqGreenConcreteEn } from './hqGreenConcrete.en.ts';
 import { hqFirstRunEn } from './hqFirstRun.en.ts';
 import { hqFloorEn } from './hqFloor.en.ts';
 import { hqLabelsEn } from './hqLabels.en.ts';
+import { hqMotionEn } from './hqMotion.en.ts';
 import { hqBillboardEn } from './hqBillboard.en.ts';
 import { hqLogoEn } from './hqLogo.en.ts';
 import { hqStaffDesksEn } from './hqStaffDesks.en.ts';
@@ -3250,6 +3251,7 @@ export const en = {
   ...hqFirstRunEn,
   ...hqFloorEn,
   ...hqLabelsEn,
+  ...hqMotionEn,
   ...hqBillboardEn,
   ...hqLogoEn,
   ...hqStaffDesksEn,
