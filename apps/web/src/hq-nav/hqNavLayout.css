@@ -23,13 +23,17 @@
 .hqCardTags span { background: rgba(255, 255, 255, .1); border-radius: 999px; max-width: 16ch; overflow: hidden; padding: 0 6px; text-overflow: ellipsis; white-space: nowrap; }
 .hqStripSlot:empty { display: none; }
 .hqPlanDesk { opacity: .7; pointer-events: none; }
-.hqBuildingCard[data-density="compact"] { min-height: 36px; }
-.hqBuildingCard[data-density="compact"] .hqLabelIcon { height: 24px; width: 24px; }
-.hqBuildingCard[data-density="compact"] .hqLabelText small { display: none; }
-.hqBuildingCard[data-density="dot"] { min-height: 0; padding: 4px; }
-.hqBuildingCard[data-density="dot"] .hqLabelIcon { height: 24px; width: 24px; }
-.hqBuildingCard[data-density="dot"] .hqStatusDot { display: none; }
+/* The quiet campus: a chip (icon, name, status dot) for a few buildings, a status dot for the rest. The details are on the 3D boards. */
+.hqBuildingCard { gap: 6px; min-height: 32px; padding: 3px 9px 3px 4px; }
+.hqBuildingCard .hqLabelIcon { height: 24px; width: 24px; }
+.hqBuildingCard .hqLabelText strong { font-size: var(--text-xs); font-weight: 650; max-width: 18ch; }
+.hqBuildingCard[data-density="dot"] { border-radius: 999px; min-height: 0; padding: 4px; }
+.hqBuildingCard[data-density="dot"] .hqLabelIcon { display: none; }
+.hqBuildingCard[data-density="dot"] .hqStatusDot { height: 14px; width: 14px; }
 .hqBuildingCard[data-density="dot"]:is(:hover, :focus-visible, [data-selected="true"]) { z-index: 2; }
+.hqLabelAnchor:is(:hover, :focus-within) .hqBuildingCard[data-density="dot"] { border-radius: 999px; padding: 3px 9px 3px 4px; }
+.hqLabelAnchor:is(:hover, :focus-within) .hqBuildingCard[data-density="dot"] .hqLabelIcon { display: inline-flex; }
+.hqLabelAnchor:is(:hover, :focus-within) .hqBuildingCard[data-density="dot"] .hqStatusDot { height: 9px; width: 9px; }
 
 @media (prefers-reduced-motion: reduce) { .hqNav * { transition: none !important; } }
 
@@ -41,6 +45,3 @@
 .hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl:has(> button:focus-visible, .compactSelect :focus-visible) .compactSelect { clip-path: none; height: auto; overflow: visible; position: static; width: auto; }
 
 .hqNavDockBelow .hqPaDock { max-width: none; min-width: 0; }
-
-/* A building card that gave up detail to fit also drops its row of people, so its real size is what the label layout measured. */
-.hqBuildingCard[data-density="compact"] .hqAvatarStack, .hqBuildingCard[data-density="dot"] .hqAvatarStack { display: none; }

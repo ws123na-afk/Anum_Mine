@@ -10,3 +10,4 @@
 @media (prefers-reduced-motion: reduce) { .hqWalkerPin { transition: none; } }
 .hqBuildingCard .hqWalkLine { display: block; font-weight: 600; line-height: 1.25; margin-block-start: 2px; max-inline-size: 22ch; white-space: normal; font-size: var(--text-xs); }
 .hqWalkerPin[data-flip="below"] .hqWalkerTip { bottom: auto; margin-bottom: 0; margin-top: 4px; top: 100%; }
+.hqLabelAnchor[data-density="compact"] .hqLabelText small.hqWalkLine { display: block; }

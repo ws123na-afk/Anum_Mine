@@ -27,9 +27,10 @@ import { t, type MessageKey } from './lib/i18n.ts';
 import { sceneName } from './lib/registryNames.ts';
 import { useLocale } from './useLocale';
 import { useArabicSignFont } from './lib/arabicFont.ts';
+import type { Logo as SignLogo } from './hq-logo-signs/campusSigns.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
 import { useNavLayout } from './hq-nav/useNavLayout.ts';
-import { cardDensities, cardTags, type CardDensity } from './hq-nav/navModel.ts';
+import { MAX_CHIPS, MAX_CHIPS_COMPACT, quietDensities, type CardDensity } from './hq-nav/navModel.ts';
 
 // Record-backed work motion is its own chunk, fetched only for a campus that has buildings.
 const NO_WORK: WorkUi = { plan: { motions: [], racks: [] }, cards: {}, feeds: {} };
@@ -37,6 +38,8 @@ const CampusWork = lazy(() => import('./HqCampusWork'));
 // Agent walkers (docs/ANUM_MINE_HQ_AGENT_WALKERS.md) are their own chunk, fetched only for a workspace whose registry holds two or more buildings.
 const NO_WALK: WalkerUi = { plan: { walkers: [] }, cards: {}, off: false, count: 0, waiting: 0 };
 const CampusWalkers = lazy(() => import('./HqCampusWalkers'));
+
+const NO_LOGOS: ReadonlyMap<string, SignLogo> = new Map();
 
 const KIND_ICON: Record<CampusBuildingKind, ReactElement> = {
   executive: <Landmark aria-hidden="true" />, business: <Building2 aria-hidden="true" />,
@@ -59,16 +62,14 @@ export type CampusViewProps = Readonly<{
   plans?: ReadonlyMap<string, PlanInput>;
   /** The live flow read of the open workspace (open work on the billboards); without it the billboards say "Not connected". */
   flow?: BillboardFlow | null;
+  /** The presence stream is connected right now: only then do the 3D boards show their Live tick. */
+  presenceLive?: boolean;
   unreported: readonly StatusKey[];
   view: Exclude<HqView, 'list'>;
   night: boolean;
   reducedMotion: boolean;
   fullscreen: boolean;
   currentWorkspaceId: string;
-  /** Initials of agents seen in the open workspace, for the avatar stack on its label. */
-  avatars: ReadonlyArray<string>;
-  /** Departments of the open workspace's agents, for the tags of its card. */
-  departments?: ReadonlyArray<string>;
   /** The navigation layer's camera bridge and thumbnail capture (flights, snapshots). */
   nav?: HqNavHandles;
   /** What the walkers read: the registry, presence and meetings the headquarters already holds. Null when there is nothing to read. */
@@ -125,6 +126,32 @@ export function CampusView(props: CampusViewProps) {
     return () => { live = false; };
   }, [bb, campus.buildings.length]);
   const boards = useMemo(() => (bb ? bb.billboardLayer(scene, placements) : null), [bb, scene, placements]);
+  // The brand signs (docs/ANUM_MINE_HQ_LOGO_SIGNS.md): a lazy chunk, fetched only when a building has a sign set up. Its logos are small decoded
+  // bitmaps drawn into the existing sign atlas, loaded for the nearest buildings first; a logo that fails leaves the lettered sign.
+  const [signKit, setSignKit] = useState<typeof import('./hq-logo-signs/campusSigns.ts') | null>(null);
+  const anySign = campus.buildings.some((b) => b.sign);
+  useEffect(() => {
+    if (signKit || !anySign) return undefined;
+    let live = true;
+    void import('./hq-logo-signs/campusSigns.ts').then((m) => { if (live) setSignKit(m); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [signKit, anySign]);
+  const [logos, setLogos] = useState<ReadonlyMap<string, SignLogo>>(NO_LOGOS);
+  const logosRef = useRef(logos);
+  logosRef.current = logos;
+  const logoSig = campus.buildings.map((b) => (b.sign?.logoSha256 ? `${b.sign.buildingId}:${b.sign.logoSha256}` : '')).join('|');
+  useEffect(() => {
+    if (!signKit) return undefined;
+    const controller = new AbortController();
+    const where = new Map(placements.map((p) => [p.workspaceId, p]));
+    const focus = cameraRef.current.target;
+    const targets = signKit.pickLogoTargets(campus.buildings.flatMap((b) => (b.sign?.logoSha256 ? [{ id: b.workspace_id, buildingId: b.sign.buildingId, sha: b.sign.logoSha256, x: where.get(b.workspace_id)?.x ?? 0, z: where.get(b.workspace_id)?.z ?? 0 }] : [])), { x: focus.x, z: focus.z });
+    void signKit.loadLogos(targets, logosRef.current, controller.signal).then((next) => { if (!controller.signal.aborted) setLogos(next); }).catch(() => undefined);
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signKit, logoSig, selectedId]);
+  useEffect(() => () => { for (const logo of logosRef.current.values()) logo.image.close(); }, []);
+  const signStats = useMemo(() => (signKit ? signKit.signStats(campus.buildings, logos) : { branded: campus.buildings.filter((b) => b.sign).length, logos: 0 }), [signKit, campus.buildings, logos]);
   const atlasCache = useRef<GlassPlanData | null>(null);
   const glassPlan = useMemo(() => {
     if (!kit || !plans || !sizes.size) { atlasCache.current = null; return null; }
@@ -166,6 +193,18 @@ export function CampusView(props: CampusViewProps) {
   latest.current = props;
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
+  // The 3D boards carry the live details (docs/ANUM_MINE_HQ_BILLBOARDS.md): a canvas atlas drawn in place, only for boards whose text changed.
+  const [atlas, setAtlas] = useState<{ canvas: HTMLCanvasElement | null; version: number; boards: unknown; lines: string } | null>(null);
+  const feed = useRef<{ touch: () => void } | null>(null);
+  const readFaces = useRef<() => ReturnType<typeof import('./hq-billboards/index.ts').boardFaces>>(() => []);
+  readFaces.current = () => (boards && bb ? bb.boardFaces({ layer: boards, buildings: byId, plans: plansRef.current, flow: latest.current.flow, currentWorkspaceId: latest.current.currentWorkspaceId, live: latest.current.presenceLive === true, fontsReady, now: Date.now() }) : []);
+  useEffect(() => {
+    if (!bb || !boards) return undefined;
+    const started = bb.startBoardFeed({ count: boards.sites.length, read: () => readFaces.current(), onDraw: (a) => setAtlas({ canvas: a.canvas, version: a.version, boards, lines: bb.boardLines(a.drawn) }) });
+    feed.current = started;
+    return () => { started.stop(); feed.current = null; };
+  }, [bb, boards]);
+  useEffect(() => { feed.current?.touch(); }, [campus.buildings, props.flow, plans, props.presenceLive, locale, fontsReady, props.currentWorkspaceId]);
   // The camera that frames one building: its centre, at a distance that fits its size.
   const frameOf = useCallback((id: string): CameraState | null => {
     const p = placements.find((x) => x.workspaceId === id);
@@ -205,30 +244,37 @@ export function CampusView(props: CampusViewProps) {
   // The lettering on the entrance signs is the real building name over the wordmark; the last cell is the gate.
   const renderScene = useMemo(() => ({
     opaque: [{ id: 'scenery', vertices: scene.scenery.vertices, bounds: scene.scenery.bounds, cull: false }, ...scene.buildings.map((b) => ({ id: b.workspaceId, vertices: b.mesh.vertices, bounds: b.mesh.bounds })),
-      ...(boards ? [{ id: 'billboards', vertices: boards.mesh.vertices, bounds: boards.mesh.bounds }] : [])],
+      ...(boards && atlas?.boards === boards ? [{ id: 'billboards', vertices: boards.mesh.vertices, bounds: boards.mesh.bounds, board: true }] : [])],
     glass: [],
-    signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: sceneName(byId.get(b.workspaceId) ?? { name: '' }, locale), fontsReady }))],
+    signs: [...scene.buildings.map((b) => {
+      const building = byId.get(b.workspaceId);
+      const subtitle = sceneName(building ?? { name: '' }, locale);
+      return { title: 'ANUM MINE', subtitle, fontsReady, ...(signKit && building?.sign ? signKit.signFor(building.sign, subtitle, locale === 'ar', logos) : {}) };
+    })],
     shadow: scene.shadow,
     halos: boards ? new Float32Array([...scene.halos, ...boards.mesh.halos]) : scene.halos,
     scenery: scene.motion,
-  }), [scene, boards, byId, locale, fontsReady]);
+  }), [scene, boards, atlas?.boards, byId, locale, fontsReady, signKit, logos]);
 
   // A phone-sized stage has room for two full cards and a handful of compact ones.
   const compact = useNavLayout().layout.compact;
-  const density = useMemo(() => (compact ? cardDensities(campus.buildings, { selectedId, currentId: props.currentWorkspaceId }, 2, 6) : cardDensities(campus.buildings, { selectedId, currentId: props.currentWorkspaceId })), [campus.buildings, selectedId, props.currentWorkspaceId, compact]);
+  // The quiet campus: a name chip for a few buildings (the selected, the open one, the nearest to where the camera looks), a status dot for the rest.
+  const at = useMemo(() => new Map(placements.map((p) => [p.workspaceId, { x: p.x, z: p.z }])), [placements]);
+  const chipSet = quietDensities(campus.buildings, { selectedId, currentId: props.currentWorkspaceId, target: camera.target, at, max: compact ? MAX_CHIPS_COMPACT : MAX_CHIPS });
+  const chipKey = [...chipSet].map(([id, d]) => `${id}:${d}`).join('|');
+  const density = useMemo(() => chipSet, [chipKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const labels: StageLabel[] = useMemo(() => {
     const list: StageLabel[] = scene.buildings.map((b) => {
       const building = byId.get(b.workspaceId)!;
       return {
         id: b.workspaceId, anchor: b.anchor, priority: b.workspaceId === selectedId ? 0 : 1,
-        // A crowded stage gives a building card less detail (name and icon, then a dot) before two cards would cover each other.
-        // A card that carries a work reason or a feed note is never reduced to a bare dot: the reason must stay readable.
-        tiers: work.cards[b.workspaceId] || work.feeds[b.workspaceId] || walk.cards[b.workspaceId] || (walk.off && b.workspaceId === props.currentWorkspaceId) ? ['full', 'compact'] : ['full', 'compact', 'dot'], keep: true,
+        // A crowded stage gives a building chip less (the chip, then a dot) before two would cover each other; it is never left out.
+        // A building that carries a work reason or a feed note is never reduced to a bare dot: the reason must stay readable.
+        tiers: work.cards[b.workspaceId] || work.feeds[b.workspaceId] || walk.cards[b.workspaceId] || (walk.off && b.workspaceId === props.currentWorkspaceId) ? ['compact'] : density.get(b.workspaceId) === 'dot' ? ['dot'] : ['compact', 'dot'], keep: true,
         node: (
           <BuildingCard
-            building={building} selected={b.workspaceId === selectedId} current={b.workspaceId === props.currentWorkspaceId || building.registryBuildingId !== undefined}
-            avatars={building.people ?? (b.workspaceId === props.currentWorkspaceId ? props.avatars : [])}
-            density={density.get(b.workspaceId) ?? 'full'} departments={building.departments ?? (b.workspaceId === props.currentWorkspaceId ? props.departments ?? [] : [])}
+            building={building} selected={b.workspaceId === selectedId}
+            density={density.get(b.workspaceId) ?? 'dot'}
             work={work.cards[b.workspaceId]} feed={work.feeds[b.workspaceId]}
             walk={walk.cards[b.workspaceId]} walkOff={walk.off && b.workspaceId === props.currentWorkspaceId}
             onActivate={() => activate(b.workspaceId)} onHover={(on) => setHover(on ? b.workspaceId : null)}
@@ -242,12 +288,12 @@ export function CampusView(props: CampusViewProps) {
     });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, byId, selectedId, props.currentWorkspaceId, props.avatars, props.departments, density, activate, work.cards, work.feeds, walk.cards, walk.off]);
+  }, [scene, byId, selectedId, props.currentWorkspaceId, density, activate, work.cards, work.feeds, walk.cards, walk.off]);
   // The billboards are a separate pass (HqStage `extraLabels`): they can never move, hide or park a building card.
   const extraLabels: StageLabel[] = useMemo(() => (boards && bb ? bb.billboardLabels({
-    layer: boards, buildings: byId, plans, flow: props.flow, selectedId, hoverId: hover, near: camera.distance <= Math.min(110, home.distance * 0.75), now: Date.now(),
+    layer: boards, buildings: byId, plans, flow: props.flow, selectedId, hoverId: hover, near: false, now: Date.now(),
     onActivate: activate, onOpen: (id) => latest.current.onEnter(id), onHover: setHover,
-  }) : []), [boards, bb, byId, plans, props.flow, selectedId, hover, camera.distance <= Math.min(110, home.distance * 0.75), locale, activate]);
+  }) : []), [boards, bb, byId, plans, props.flow, selectedId, hover, locale, activate]);
 
   const onView = useCallback((cam: CameraState, aspect: number) => {
     viewSink.current?.(cam, aspect);
@@ -265,14 +311,14 @@ export function CampusView(props: CampusViewProps) {
 
   return (
     <>
-    <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0}>
+    <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0} data-sign-brands={signStats.branded} data-sign-logos={signStats.logos} data-board-version={atlas?.version ?? 0} data-board-texts={atlas?.lines ?? ''}>
       <HqStage
         label={t('hq.campus.stageLabel')} description={t('hq.campus.stageHelp')}
         scene={renderScene} glassPlan={glassPlan} work={work.plan} walkers={walk.plan} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
         onCamera={(c) => setCamera(clampTarget(c, scene.groundRadius * 0.8))} night={night} reducedMotion={props.reducedMotion}
         hoverId={hover} selectedId={selectedId} onHover={setHover}
         onPick={(id) => { if (id) activate(id); else props.onSelect(null); }}
-        labels={labels} labelKeepOut="[data-keepout]" extraLabels={extraLabels} extraKeepOut=".hqDetail, .hqOverlayRight, .hqOverlayMap, .hqOverlayBottom > *" onView={onView} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
+        boardAtlas={atlas && atlas.boards === boards ? atlas : null} labels={labels} labelKeepOut="[data-keepout]" extraLabels={extraLabels} extraKeepOut=".hqDetail, .hqOverlayRight, .hqOverlayMap, .hqOverlayBottom > *" onView={onView} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
       />
       <div className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-work-live">
         {Object.entries(work.cards).map(([id, c]) => <p key={id}>{sceneName(byId.get(id) ?? { name: id }, locale)}: {c.because}</p>)}
@@ -326,46 +372,35 @@ export function buildingSummary(b: CampusBuilding): string {
   return parts.join(', ');
 }
 
-function BuildingCard(props: {
-  building: CampusBuilding; selected: boolean; current: boolean; avatars: readonly string[]; density: CardDensity; departments: readonly string[];
-  work?: CardWork; feed?: FeedNote;
-  walk?: WalkerCard; walkOff?: boolean;
-  onActivate: () => void; onHover: (on: boolean) => void;
-}) {
+/**
+ * The page label of a building on the quiet campus: a small button with the name and a status dot (a chip), or only the status dot. The details
+ * (what it does, counts, verified time) are on the building's 3D board and, for the focused building, its billboard card and the detail panel.
+ * The accessible name is unchanged: the name and the presence summary, whatever the density.
+ */
+function BuildingCard(props: { building: CampusBuilding; selected: boolean; density: CardDensity; work?: CardWork; feed?: FeedNote; walk?: WalkerCard; walkOff?: boolean; onActivate: () => void; onHover: (on: boolean) => void }) {
   const b = props.building;
   const status = buildingStatus(b);
-  // A card with a work reason or a feed note is never reduced to a bare dot: the reason must stay readable.
-  const density: CardDensity = props.density === 'dot' && (props.work || props.feed || props.walk || props.walkOff) ? 'compact' : props.density;
-  const full = density === 'full';
-  const tags = full ? cardTags(b, props.departments) : [];
-  const tagText = (tag: (typeof tags)[number]): string => (tag.kind === 'type' ? t(`hq.kind.${tag.value}` as MessageKey) : tag.kind === 'workspace' ? String(tag.value) : tag.kind === 'floors' ? t('hq.building.floors', { count: Number(tag.value) }) : tag.kind === 'rooms' ? t('hqNav.card.rooms', { count: Number(tag.value) }) : String(tag.value));
   const summary = buildingSummary(b);
-  // Why something moves at this building (the record behind it), or why a feed is off. Both are fixed templates; see hqWorkMotion.becauseLine.
+  // A card with a work reason or a feed note is never reduced to a bare dot: the reason (a real record, a fixed template) must stay readable.
+  const density: CardDensity = props.density === 'dot' && (props.work || props.feed || props.walk || props.walkOff) ? 'compact' : props.density;
   const feedHint = props.feed ? t(`hqMotion.feed.offHint.${props.feed.reason}` as MessageKey) : '';
   const workHint = props.work ? `${props.work.because}. ${t('hqMotion.legend')}` : '';
   return (
     <button
       type="button" className="hqLabelCard hqBuildingCard" data-selected={props.selected} data-status={status} data-kind={b.kind} data-density={density} data-walk={props.walk?.kind}
       aria-label={`${sceneName(b)}. ${summary}.${props.walk ? ' ' + props.walk.because + '.' : ''}${props.walkOff ? ' ' + t('hqWalkers.status.off') + '.' : ''}${props.work ? ' ' + props.work.because + '.' : ''}${props.feed ? ' ' + t('hqMotion.feed.off') + '.' : ''}${props.selected ? ' ' + t('hq.building.pressToOpen') : ''}`}
-      aria-pressed={props.selected} title={density === 'dot' ? [sceneName(b), props.work?.because, props.feed ? t('hqMotion.feed.off') : ''].filter(Boolean).join('. ') : (workHint || feedHint || undefined)} data-work={props.work?.kind} data-feed={props.feed?.reason}
+      aria-pressed={props.selected} title={density === 'dot' ? [sceneName(b), props.work?.because, props.feed ? t('hqMotion.feed.off') : ''].filter(Boolean).join('. ') : (workHint || feedHint || sceneName(b))} data-work={props.work?.kind} data-feed={props.feed?.reason}
       onClick={props.onActivate} onMouseEnter={() => props.onHover(true)} onMouseLeave={() => props.onHover(false)}
     >
       <span className="hqLabelIcon">{iconOf(b)}</span>
-      {density !== 'dot' && (
-        <span className="hqLabelText">
-          <strong>{sceneName(b)}</strong>
-          {tags.length > 0 && <span className="hqCardTags" aria-hidden="true">{tags.map((tag, i) => <span key={i}>{tagText(tag)}</span>)}</span>}
-          <small>{summary}</small>
-          {props.work && <small className="hqWorkLine" data-work={props.work.kind}>{props.work.because}</small>}
-          {props.feed && <small className="hqWorkLine" data-feed={props.feed.reason}>{t('hqMotion.feed.off')}</small>}
-          {props.walk && <small className="hqWalkLine" data-walk={props.walk.kind}>{props.walk.because}</small>}
-          {props.walkOff && <small className="hqWalkLine" data-walkers-off="">{t('hqWalkers.status.off')}</small>}
-        </span>
-      )}
+      <span className="hqLabelText">
+        <strong>{sceneName(b)}</strong>
+        {props.work && <small className="hqWorkLine" data-work={props.work.kind}>{props.work.because}</small>}
+        {props.feed && <small className="hqWorkLine" data-feed={props.feed.reason}>{t('hqMotion.feed.off')}</small>}
+        {props.walk && <small className="hqWalkLine" data-walk={props.walk.kind}>{props.walk.because}</small>}
+        {props.walkOff && <small className="hqWalkLine" data-walkers-off="">{t('hqWalkers.status.off')}</small>}
+      </span>
       <span className="hqStatusDot" aria-hidden="true" />
-      {full && props.avatars.length > 0 && (
-        <span className="hqAvatarStack" aria-hidden="true">{props.avatars.slice(0, 4).map((a, i) => <span key={i}>{a}</span>)}</span>
-      )}
       {!b.accessible && <LockKeyhole aria-hidden="true" className="hqLock" />}
     </button>
   );

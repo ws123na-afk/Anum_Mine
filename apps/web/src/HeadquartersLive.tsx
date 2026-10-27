@@ -48,7 +48,6 @@ import type { HistoryLaunch } from './HqHistoryPanel';
 import { useOfficeFlow } from './useOfficeFlow';
 import { HqCameraBridge } from './hq-nav/cameraBridge.ts';
 import { HqNavigation, type HqNavHandles } from './hq-nav/HqNavigation';
-import { departmentsOf, initialsOf } from './hq-nav/navModel.ts';
 import { ThumbCapture } from './hq-nav/thumbs.ts';
 import { OrgGapsPanel } from './hq-provisioning/OrgGapsPanel';
 import { AssignHost } from './hq-assign/AssignHost';
@@ -325,8 +324,6 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const openKey = currentBuilding?.workspace_id ?? scope.workspaceId;
   // What the campus walkers read (docs/ANUM_MINE_HQ_AGENT_WALKERS.md): only records the headquarters already holds.
   const walkerFeed = useMemo(() => (projection && projection.buildings.length > 1 ? { workspaceId: scope.workspaceId, registry: projection.buildings, presence: presenceList, meetings, meetingsRead, styles: agentStyles } : null), [projection, scope.workspaceId, presenceList, meetings, meetingsRead, agentStyles]);
-  const avatars = useMemo(() => (presenceList ?? []).filter((p) => p.name && !p.agentId.startsWith('desk:')).slice(0, 4).map((p) => initialsOf(p.name)), [presenceList]);
-  const departments = useMemo(() => departmentsOf((presenceList ?? []).filter((p) => !p.agentId.startsWith('desk:')).map((p) => p.role)), [presenceList]);
 
   // Module panels follow the open workspace; they load when a building opens and refresh with the scene.
   useEffect(() => {
@@ -636,8 +633,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
           )}
           {campus && webglOk && effectiveView !== 'list' && level === 'campus' && (
             <CampusView
-              campus={campus} plans={plans} flow={billboardFlow} unreported={unreported} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
-              walkerFeed={walkerFeed} currentWorkspaceId={openKey} avatars={avatars} departments={departments} nav={navHandles} selectedId={campusPick} onSelect={setCampusPick} onEnter={enterBuilding}
+              campus={campus} plans={plans} flow={billboardFlow} presenceLive={livePresence.link === 'live'} unreported={unreported} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
+              walkerFeed={walkerFeed} currentWorkspaceId={openKey} nav={navHandles} selectedId={campusPick} onSelect={setCampusPick} onEnter={enterBuilding}
               onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight} onSaveProfile={saveProfile}
             />
           )}

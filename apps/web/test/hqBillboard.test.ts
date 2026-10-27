@@ -7,8 +7,7 @@ import { translate, CATALOGS, type Locale, type MessageKey } from '../src/lib/i1
 import {
   BILLBOARD_FIELDS, BILLBOARD_READS, BILLBOARD_STALE_MS, billboardModel, billboardTexts, workOf, type BillboardFlow, type BillboardInput,
 } from '../src/hq-billboards/billboardModel.ts';
-import { signAtlasLayout } from '../src/lib/hqTextures.ts';
-import { boardMesh, boardSites, boardWidth, signCell } from '../src/hq-billboards/billboardSites.ts';
+import { BOARD_ASPECT, boardAtlasLayout, boardMesh, boardSites, boardWidth } from '../src/hq-billboards/billboardSites.ts';
 import { layoutCampus } from '../src/lib/campusModel.ts';
 import { buildCampusScene } from '../src/lib/campusScene.ts';
 
@@ -211,7 +210,7 @@ const fixture = () => ['a', 'b', 'c', 'd', 'e'].map((id, i) => mk(id, `Fake ${id
 test('a board stands in front of each building, clear of the buildings, walkways and plaza, and is the same every time', () => {
   const placements = layoutCampus(fixture());
   const scene = buildCampusScene(placements);
-  const ctx = { placements, buildings: scene.buildings.map((b) => ({ workspaceId: b.workspaceId, box: b.box, door: b.door, signIndex: b.signIndex })), monument: scene.monument, extentRadius: scene.extent.radius, canalRadius: scene.canalRadius, signCount: scene.signCount, plaza: scene.plaza };
+  const ctx = { placements, buildings: scene.buildings.map((b) => ({ workspaceId: b.workspaceId, box: b.box, door: b.door })), monument: scene.monument, extentRadius: scene.extent.radius, canalRadius: scene.canalRadius, plaza: scene.plaza };
   const sites = boardSites(ctx);
   assert.equal(sites.length, 5);
   assert.deepEqual(sites, boardSites(ctx));
@@ -229,8 +228,9 @@ test('a board stands in front of each building, clear of the buildings, walkways
     for (const a of scene.plaza.avenues) { const dx = a.to[0] - a.from[0], dz = a.to[1] - a.from[1], l2 = dx * dx + dz * dz; const k = Math.max(0, Math.min(1, ((s.x - a.from[0]) * dx + (s.z - a.from[1]) * dz) / l2)); assert.ok(Math.hypot(s.x - a.from[0] - k * dx, s.z - a.from[1] - k * dz) > 3, `board ${i} stands on an avenue`); }
     assert.ok(Math.hypot(s.nx, s.nz) > 0.99);
     assert.equal(s.width, width);
+    assert.equal(s.height, width * BOARD_ASPECT);
   });
-  const mesh = boardMesh(sites, ctx.buildings, scene.signCount);
+  const mesh = boardMesh(sites);
   assert.ok(mesh.triangles > 0 && mesh.triangles < 1000, `cheap: ${mesh.triangles} triangles`);
   assert.equal(mesh.vertices.length / 13, mesh.triangles * 3);
   assert.ok(mesh.halos.length === sites.length * 8);
@@ -238,8 +238,23 @@ test('a board stands in front of each building, clear of the buildings, walkways
   assert.ok(boardWidth(200) > boardWidth(30) && boardWidth(200) <= 13 && boardWidth(1) >= 9);
 });
 
-test('the sign cell copy equals the sign atlas layout', () => {
-  for (const count of [1, 2, 5, 9, 24, 60]) for (let i = 0; i < count; i++) assert.deepEqual(signCell(count, i), signAtlasLayout(count).cell(i));
+test('the board atlas gives every board its own cell inside a canvas of at most 2048 x 1024', () => {
+  for (const count of [0, 1, 4, 5, 13, 16, 17, 64, 65, 300]) {
+    const layout = boardAtlasLayout(count);
+    assert.ok(layout.width === 2048 && layout.height <= 1024 && (layout.height & (layout.height - 1)) === 0, `canvas ${layout.width}x${layout.height} for ${count}`);
+    const seen = new Set<string>();
+    for (let i = 0; i < Math.min(count, layout.capacity); i++) {
+      const cell = layout.cell(i), o = layout.origin(i);
+      assert.ok(cell.u0 >= 0 && cell.u1 <= 1 && cell.v0 >= 0 && cell.v1 <= 1 && cell.u1 > cell.u0 && cell.v1 > cell.v0);
+      assert.ok(o.x + layout.cellW <= layout.width && o.y + layout.cellH <= layout.height);
+      // The texture cell is the canvas cell: u from the left, v measured up from the bottom.
+      assert.ok(Math.abs(cell.u0 * layout.width - o.x) < 1e-6 && Math.abs((1 - cell.v1) * layout.height - o.y) < 1e-6);
+      assert.ok(!seen.has(`${o.x},${o.y}`), 'two boards share a cell');
+      seen.add(`${o.x},${o.y}`);
+    }
+    if (count > 0 && count <= 16) assert.equal(layout.cellH, 256, 'up to sixteen boards keep the full 512 x 256 cell');
+    assert.equal(layout.cellW, 2 * layout.cellH);
+  }
 });
 
 test('the billboards are a separate pass: only the focused building has a card unless the camera is near, and the main labels never see them', () => {
