@@ -63,6 +63,7 @@ export const hqStarterCampusAr: Record<keyof typeof hqStarterCampusEn, Message> 
   'hqSc.row.fillOnly': 'يملأ قسم {count} غرفة قائمة',
   'hqSc.fillRoom': 'ستُربط بقسم {department}',
   'hqSc.done.filled': 'أقسام تم تعيينها في غرف قائمة: {count}.',
+  'hqSc.dept.executive': 'التنفيذي',
   'hqSc.dept.custom': 'مخصص',
   'hqSc.totalsCreate': 'سيُنشأ. المباني: {buildings}، الطوابق: {floors}، الغرف: {rooms}، المكاتب: {desks}',
   'hqSc.totalsSkip': 'موجود مسبقًا ويبقى. المباني: {buildings}، الطوابق: {floors}، الغرف: {rooms}',

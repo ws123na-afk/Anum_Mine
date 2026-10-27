@@ -19,8 +19,8 @@ test('office hash opens the interactive tour and retains real operations panels'
   // The guided visit is driven by the registry's real rooms (GET /executive-pa/tour): live office only.
   assert.ok(live.includes('<GuidedExecutiveTour'), 'GuidedExecutiveTour not reachable from the live office');
   assert.ok(!tour.includes('<GuidedExecutiveTour'), 'the concept preview has invented rooms and must not mount the guided visit');
-  // The reception simulation invents hosts and rooms: it belongs to the concept preview only.
-  assert.ok(tour.includes('<ReceptionOperations'), 'ReceptionOperations missing from the concept preview');
+  // The reception simulation invented hosts and rooms (security review S-11): it is removed from both views.
+  assert.ok(!tour.includes('ReceptionOperations'), 'the reception simulation must not return to the concept preview');
   assert.ok(!live.includes('ReceptionOperations'), 'ReceptionOperations must not be mounted by the live office');
 });
 test('office scene labels its example activity rather than claiming live agents', () => {

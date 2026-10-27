@@ -110,7 +110,7 @@ def _work(kind: str, key: str, en: str, ar: str, w: float, d: float, desks: int,
 # Office, Career & Employment). The departments of the master list are floors and rooms inside the right building.
 # A room carries a team department only where the office team concept has a matching one (sales, support,
 # operations, finance, tyre_engineering, marketing, technology, research, legal, compliance, security, hr,
-# procurement); that link opens the room's module and lets the Organisation gaps panel propose an agent for an
+# procurement, executive); that link opens the room's module and lets the Organisation gaps panel propose an agent for an
 # empty department. Rooms with no matching department (Facilities, AI Labs, Data...) stay unset; the Command Center is the "command" room kind, which opens the live flow by its kind.
 def _floor(level: int, en: str, ar: str, rooms: tuple[RoomSpec, ...], width: float = DEFAULT_WIDTH_M) -> FloorSpec:
     return FloorSpec(level, en, ar, rooms, width)
@@ -139,7 +139,7 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
             _office("suppliers", "Suppliers", "الموردون", 10, 8, 4, "operations", "teal"),
         ), 38.0),
         _floor(3, "Floor 3: Executive and Strategy", "الطابق الثالث: التنفيذي والاستراتيجية", (
-            _office("executive-office", "Executive Office", "المكتب التنفيذي", 14, 9, 3, None, "brass", "south",
+            _office("executive-office", "Executive Office", "المكتب التنفيذي", 14, 9, 3, "executive", "brass", "south",
                     (("monitor", 3), ("display", 1), ("whiteboard", 1))),
             _meeting("boardroom", "Boardroom", "قاعة مجلس الإدارة", 16, 9, 16, "brass"),
             _meeting("strategy-room", "Strategy Room", "غرفة الاستراتيجية", 10, 7, 8, "sapphire"),

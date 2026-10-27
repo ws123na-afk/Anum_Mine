@@ -79,7 +79,7 @@ test('the builder offers every new department and saves the one chosen', async (
   await page.locator('.hqbSvg [data-room-id="r-sales"] .hqbRoomBody').click();
   const team = page.locator('label.hqbField', { hasText: 'Linked team' }).locator('select');
   await expect(team.locator('option')).toHaveText(['No team linked', 'Sales', 'Support', 'Operations', 'Finance', 'Tyre engineering', 'Marketing', 'Technology', 'Research',
-    'Legal', 'Compliance and governance', 'Security', 'People (HR)', 'Procurement', 'Custom']);
+    'Legal', 'Compliance and governance', 'Security', 'People (HR)', 'Procurement', 'Executive', 'Custom']);
   await team.selectOption('legal');
   await page.getByRole('button', { name: 'Save details' }).click();
   await expect.poll(() => mock.requests.find((r) => r.method === 'PATCH' && r.path === '/rooms/r-sales')?.body).toMatchObject({ team_department: 'legal' });

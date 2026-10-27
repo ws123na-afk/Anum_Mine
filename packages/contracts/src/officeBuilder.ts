@@ -28,7 +28,7 @@ export type OfficeEquipmentKind = (typeof OFFICE_EQUIPMENT_KINDS)[number];
 /** The existing team concept (team_models.Department), plus the departments added with room modules. */
 export const OFFICE_TEAM_DEPARTMENTS = [
   'sales', 'support', 'operations', 'finance', 'tyre_engineering',
-  'marketing', 'technology', 'research', 'legal', 'compliance', 'security', 'hr', 'procurement',
+  'marketing', 'technology', 'research', 'legal', 'compliance', 'security', 'hr', 'procurement', 'executive',
   'custom',
 ] as const;
 export type OfficeTeamDepartment = (typeof OFFICE_TEAM_DEPARTMENTS)[number];
