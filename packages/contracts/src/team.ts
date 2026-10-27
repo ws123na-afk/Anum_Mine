@@ -14,7 +14,7 @@ export type ActorType = AssigneeType;
 export type WorkSource = 'manual' | 'command' | 'inbound' | 'follow_up';
 export type Department =
   | 'sales' | 'support' | 'operations' | 'finance' | 'tyre_engineering'
-  | 'marketing' | 'technology' | 'research' | 'legal' | 'compliance' | 'security' | 'hr' | 'procurement'
+  | 'marketing' | 'technology' | 'research' | 'legal' | 'compliance' | 'security' | 'hr' | 'procurement' | 'executive'
   | 'custom';
 export type Autonomy = 'observe' | 'suggest' | 'act_low_risk';
 

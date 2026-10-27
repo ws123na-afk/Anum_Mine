@@ -87,6 +87,8 @@ class Department(StrEnum):
     SECURITY = "security"
     HR = "hr"
     PROCUREMENT = "procurement"
+    # The executive office (owner and chief of staff). Stored on rooms; opens the executive desk.
+    EXECUTIVE = "executive"
     CUSTOM = "custom"
 
 

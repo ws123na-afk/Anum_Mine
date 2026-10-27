@@ -127,7 +127,7 @@
   "name": "Executive Office",
   "name_ar": "المكتب التنفيذي",
   "kind": "office",
-  "department": null
+  "department": "executive"
  },
  {
   "building": "hq",

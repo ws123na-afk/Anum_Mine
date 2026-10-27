@@ -62,6 +62,7 @@ export const hqStarterCampusEn = {
   'hqSc.row.fillOnly': 'Fills the department of {count} existing room(s)',
   'hqSc.fillRoom': 'will be linked to {department}',
   'hqSc.done.filled': 'Departments set on existing rooms: {count}.',
+  'hqSc.dept.executive': 'executive',
   'hqSc.dept.custom': 'custom',
   'hqSc.totalsCreate': 'Will create. Buildings: {buildings}, floors: {floors}, rooms: {rooms}, desks: {desks}',
   'hqSc.totalsSkip': 'Already there and kept. Buildings: {buildings}, floors: {floors}, rooms: {rooms}',

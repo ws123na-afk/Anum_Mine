@@ -150,6 +150,7 @@ export const builderEn = {
   'hqb.dept.security': 'Security',
   'hqb.dept.hr': 'People (HR)',
   'hqb.dept.procurement': 'Procurement',
+  'hqb.dept.executive': 'Executive',
   'hqb.dept.custom': 'Custom',
   'hqb.equipment.monitor': 'Monitor',
   'hqb.equipment.display': 'Large display',

@@ -29,6 +29,18 @@ describe('department to module table', () => {
       else assert.equal(moduleHash(m.target), expected);
     });
   }
+  test('a stored executive department opens the executive desk in any kind of room and any building', () => {
+    for (const buildingKind of [null, undefined, 'office', 'personal', 'executive']) {
+      for (const kind of ['office', 'lounge', 'warehouse']) {
+        const m = resolveRoomModule(room({ department: 'executive', kind, name: 'Facilities', buildingKind }));
+        assert.equal(moduleHash(m.target), '#executive');
+        assert.equal(m.source, 'department');
+      }
+    }
+    // Case and spaces in the stored value do not matter; the building kind alone is still only the fallback.
+    assert.equal(hashOf({ department: ' Executive ', kind: 'office', name: 'Room' }), '#executive');
+    assert.equal(resolveRoomModule(room({ buildingKind: 'executive' })).source, 'building');
+  });
   test('the department wins over the name and the kind', () => {
     assert.equal(hashOf({ department: 'finance', kind: 'meeting', name: 'Tyre Engineering' }), '#finance');
   });
