@@ -8,7 +8,7 @@ import type { OfficeFlowSnapshot } from '@anum/contracts';
 import type { ChangeBatch } from './useOfficeFlow';
 import { useFlowLabels } from './HqFlowStage';
 import { ArrowLeft, ChevronDown, DoorOpen, Layers } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const SceneBackCard = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.SceneBackCard })));
 const FloorSelector = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.FloorSelector })));
@@ -80,7 +80,6 @@ export type BuildingViewProps = Readonly<{
   /** The navigation layer's camera bridge and thumbnail capture (flights, snapshots). */
   nav?: HqNavHandles;
   /** The open room or workstation panel, drawn over the scene (stacked under it on narrow screens). */
-  side: ReactNode;
   /** Stored work per room and the last move the server reported, for the live-flow badges and markers. */
   flow?: Readonly<{ snapshot: OfficeFlowSnapshot | null; batch: ChangeBatch; onPickRoom: (roomId: string) => void }>;
   /** Avatar style and department per agent id, from the agent profiles; an agent with no entry is drawn with the default style. */
@@ -470,7 +469,6 @@ export function BuildingView(props: BuildingViewProps) {
             onReset={() => { setInside(false); setHomeYaw(HOME_YAW); setCamera(view === 'top' ? topView(home) : buildingFitCamera(fitBox, aspect, CUT_PITCH, HOME_YAW)); }} onNorth={() => change(faceNorth)}
           />
         </div>
-        {props.side && <div className="hqOverlay hqSideOverlay" data-keepout="">{props.side}</div>}
         <div className="hqOverlay hqOverlayBottom hqDock" data-keepout="">
           <div className="hqDockOps">
             <Suspense fallback={null}><LiveOpsStrip totals={agents} unreported={props.unreported} snapshot={props.flow?.snapshot} /></Suspense>

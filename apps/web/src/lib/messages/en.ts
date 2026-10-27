@@ -18,6 +18,7 @@ import { hqFlowEn } from './hqFlow.en.ts';
 import { hqHistoryEn } from './hqHistory.en.ts';
 import { hqGpuEn } from './hqGpu.en.ts';
 import { hqLiveEn } from './hqLive.en.ts';
+import { hqPanelsEn } from './hqPanels.en.ts';
 import { hqProvisioningEn } from './hqProvisioning.en.ts';
 import { hqNavEn } from './hqNav.en.ts';
 import { hqAssignEn } from './hqAssign.en.ts';
@@ -3241,6 +3242,7 @@ export const en = {
   ...hqHistoryEn,
   ...hqGpuEn,
   ...hqLiveEn,
+  ...hqPanelsEn,
   ...hqProvisioningEn,
   ...hqNavEn,
   ...hqAssignEn,

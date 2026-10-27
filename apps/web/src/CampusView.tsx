@@ -3,9 +3,9 @@
  * label cards, camera, minimap and totals all read from the campus model; nothing is drawn for a
  * building the person cannot open, and no count appears without a presence record behind it.
  */
-import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, House, Landmark, LockKeyhole, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
+import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, House, Landmark, LockKeyhole, Map as MapIcon, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { BottomToolbar, CameraTools, Minimap, TotalsPanel, statusLabel, type HqView } from './HqChrome';
+import { BottomToolbar, CameraTools, Minimap, statusLabel, type HqView } from './HqChrome';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { buildCampusScene } from './lib/campusScene.ts';
 import { layoutKey, planSize, type PlanInput } from './lib/hqPlanFrame.ts';
@@ -13,7 +13,7 @@ import type { GlassPlanData } from './lib/hqPlanAtlas.ts';
 import type { PlannedSize } from './lib/campusModel.ts';
 import type { BillboardFlow } from './hq-billboards/billboardModel.ts';
 import {
-  buildingStatus, campusTotals, layoutCampus, readingOrder, stepBuilding,
+  buildingStatus, layoutCampus, readingOrder, stepBuilding,
   type Campus, type CampusBuilding, type CampusBuildingKind, type StatusKey,
 } from './lib/campusModel.ts';
 import { campusCamera, campusFraming, clampTarget, faceNorth, rotateBy, threeDView, topView, viewFootprint, zoomBy } from './lib/hqCamera.ts';
@@ -230,8 +230,9 @@ export function CampusView(props: CampusViewProps) {
     setFootprint(viewFootprint(cam, aspect));
   }, []);
 
-  const totals = useMemo(() => campusTotals(campus.buildings), [campus.buildings]);
-  const selected = selectedId ? byId.get(selectedId) ?? null : null;
+  // The campus map is a button in the corner rail: closed by default (it never sits over the buildings), and the choice is kept per browser.
+  const [mapOpen, setMapOpen] = useState(() => { try { return window.localStorage.getItem('anum.hq.nav.map') === 'open'; } catch { return false; } });
+  const toggleMap = () => setMapOpen((v) => { try { window.localStorage.setItem('anum.hq.nav.map', v ? 'closed' : 'open'); } catch { /* remembered for this page only */ } return !v; });
   const change = (fn: (c: CameraState) => CameraState) => setCamera((c) => clampTarget(fn(c), scene.groundRadius * 0.8));
   const step = (direction: 1 | -1) => { const next = stepBuilding(order, selectedId, direction); if (next) select(next); };
 
@@ -244,29 +245,25 @@ export function CampusView(props: CampusViewProps) {
         onCamera={(c) => setCamera(clampTarget(c, scene.groundRadius * 0.8))} night={night} reducedMotion={props.reducedMotion}
         hoverId={hover} selectedId={selectedId} onHover={setHover}
         onPick={(id) => { if (id) activate(id); else props.onSelect(null); }}
-        labels={labels} labelKeepOut="[data-keepout]" extraLabels={extraLabels} extraKeepOut=".hqDetail, .hqOverlayRight, .hqOverlayBottomLeft, .hqOverlayBottomRight, .hqOverlayBottom > *" onView={onView} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
+        labels={labels} labelKeepOut="[data-keepout]" extraLabels={extraLabels} extraKeepOut=".hqDetail, .hqOverlayRight, .hqOverlayMap, .hqOverlayBottom > *" onView={onView} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
       />
       <div className="hqOverlay hqOverlayRight" data-keepout="">
         <CameraTools
           yaw={camera.yaw} night={night} onNight={props.onNight}
           onZoomIn={() => change((c) => zoomBy(c, 0.8))} onZoomOut={() => change((c) => zoomBy(c, 1.25))}
           onReset={() => setCamera(view === 'top' ? topView(home) : home)} onNorth={() => change(faceNorth)}
+          extra={<button type="button" onClick={toggleMap} aria-pressed={mapOpen} aria-controls={mapOpen ? 'hq-campus-map' : undefined} data-testid="hq-map-toggle" aria-label={mapOpen ? t('hqPanels.map.hide') : t('hqPanels.map.show')} title={mapOpen ? t('hqPanels.map.hide') : t('hqPanels.map.show')}><MapIcon aria-hidden="true" /></button>}
         />
       </div>
-      <div className="hqOverlay hqOverlayBottomLeft" data-keepout="">
-        <TotalsPanel
-          title={t('hq.totals.title')} totals={totals.totals} unreported={props.unreported}
-          note={totals.totals && totals.missing > 0 ? t('hq.totals.partial', { reporting: totals.reporting, total: campus.buildings.length }) : null}
-          verifiedAt={campus.buildings.find((b) => b.presence_verified_at)?.presence_verified_at ?? null}
-        />
-      </div>
-      <div className="hqOverlay hqOverlayBottomRight" data-keepout="">
-        <Minimap
-          placements={placements} extent={scene.extent.radius} selectedId={selectedId} footprint={footprint}
-          onJump={(x, z) => change((c) => ({ ...c, target: { x, y: 0, z } }))} onSelect={(id) => select(id)}
-          nameOf={(id) => { const found = byId.get(id); return found ? sceneName(found, locale) : id; }}
-        />
-      </div>
+      {mapOpen && (
+        <div className="hqOverlay hqOverlayMap" id="hq-campus-map" data-keepout="">
+          <Minimap
+            placements={placements} extent={scene.extent.radius} selectedId={selectedId} footprint={footprint}
+            onJump={(x, z) => change((c) => ({ ...c, target: { x, y: 0, z } }))} onSelect={(id) => select(id)}
+            nameOf={(id) => { const found = byId.get(id); return found ? sceneName(found, locale) : id; }}
+          />
+        </div>
+      )}
       <div className="hqOverlay hqOverlayBottom">
         <BottomToolbar
           onRotateLeft={() => change((c) => rotateBy(c, -20))} onRotateRight={() => change((c) => rotateBy(c, 20))}
@@ -275,19 +272,7 @@ export function CampusView(props: CampusViewProps) {
           fullscreen={props.fullscreen} onFullscreen={props.onToggleFullscreen}
         />
       </div>
-      {selected && (
-        <aside className="hqOverlay hqOverlayTopLeft hqPanel hqDetail" aria-label={t('hq.detail.label', { name: sceneName(selected, locale) })}>
-          <BuildingDetail building={selected} current={selected.workspace_id === props.currentWorkspaceId || selected.registryBuildingId !== undefined} onEnter={() => props.onEnter(selected.workspace_id)} onClose={() => props.onSelect(null)} onSaveProfile={props.onSaveProfile} />
-        </aside>
-      )}
     </div>
-      <div className="hqTotalsInline">
-        <TotalsPanel
-          title={t('hq.totals.title')} totals={totals.totals} unreported={props.unreported}
-          note={totals.totals && totals.missing > 0 ? t('hq.totals.partial', { reporting: totals.reporting, total: campus.buildings.length }) : null}
-          verifiedAt={campus.buildings.find((b) => b.presence_verified_at)?.presence_verified_at ?? null}
-        />
-      </div>
     </>
   );
 }
@@ -334,7 +319,8 @@ function BuildingCard(props: {
   );
 }
 
-function BuildingDetail(props: { building: CampusBuilding; current: boolean; onEnter: () => void; onClose: () => void; onSaveProfile: CampusViewProps['onSaveProfile'] }) {
+/** The selected building's panel. The page docks it in the side column (or under the scene); it never sits over the buildings. */
+export function BuildingDetail(props: { building: CampusBuilding; current: boolean; onEnter: () => void; onClose: () => void; onSaveProfile: CampusViewProps['onSaveProfile'] }) {
   const b = props.building;
   const status = buildingStatus(b);
   return (
