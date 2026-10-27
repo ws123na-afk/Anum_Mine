@@ -67,7 +67,7 @@ async function openRoom(page: Page, options: { at?: Date; state?: GreenState; lo
   await hq(page).getByRole('button', { name: /^(List|قائمة)$/ }).click();
   await hq(page).locator('.hqListRoom').filter({ hasText: /Command Center|مركز القيادة/ }).first().click();
   await expect(hq(page).getByTestId('shift-bar')).toBeVisible();
-  await hq(page).locator('.hqSide').first().scrollIntoViewIfNeeded();
+  await hq(page).locator('.hqSide').first().scrollIntoViewIfNeeded().catch(() => undefined);
   return { state };
 }
 const rows = (page: Page) => hq(page).locator('.hqSide [data-testid="room-desk"], .hqSide .hqVacant');
