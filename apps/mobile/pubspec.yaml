@@ -31,7 +31,7 @@ dependencies:
   # url_launcher_android is held at 6.3.29, the last Java release: 6.3.30+
   # keep Kotlin sources and rely on AGP 9 built-in Kotlin (docs/mobile.md, Dependencies).
   url_launcher: ^6.3.2
-  url_launcher_android: 6.3.29
+  url_launcher_android: 6.3.33
   # Phone push (docs/notifications.md, docs/mobile.md#phone-push). Checked for
   # AGP 9 built-in Kotlin: firebase_messaging 17.0 is Java only and
   # firebase_core 5.0 applies kotlin-android itself when
