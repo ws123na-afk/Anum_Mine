@@ -35,6 +35,8 @@ export type StageLabel = Readonly<{
   priority?: number;
   /** The densities the label may take, richest first (docs/ANUM_MINE_HQ_LABELS.md). */
   tiers?: readonly Density[];
+  /** Never hidden for lack of room (see `LabelInput.keep`). */
+  keep?: boolean;
   /** Solid boxes that hide the label while they stand between the eye and the anchor. */
   occluders?: readonly Aabb[];
   /** Other anchors for the same label; the one nearest the eye is used. */

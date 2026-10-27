@@ -4,6 +4,7 @@ import { MeshBuilder } from '../src/lib/hqGeometry.ts';
 import { LOT, PLAZA, layoutCampus, lotBlocksCentre, lotOf, marginsOf, type CampusBuilding, type PlannedSize } from '../src/lib/campusModel.ts';
 import { campusExtent } from '../src/lib/campusModel.ts';
 import { campusCamera, campusFraming } from '../src/lib/hqCamera.ts';
+import { layoutLabels } from '../src/lib/hqLabels.ts';
 import { buildCampusScene } from '../src/lib/campusScene.ts';
 import { SPOKE_START } from '../src/lib/campusSpokes.ts';
 import { AVENUE_TRIANGLES_CAP, CENTER_PLAZA_TRIANGLES_CAP, ROUNDABOUT_TRIANGLES_CAP, avenue, centerPlaza, roundabout } from '../src/hqAssets/environment/plaza.ts';
@@ -162,4 +163,13 @@ test('the home camera frames every building and the plaza, centred on the lopsid
   }
   // With the executive building due north the framing centre moves north of the plaza.
   assert.ok(campusFraming(campusExtent(layoutCampus(campus(4)))).centerZ < 0);
+});
+
+test('building cards are never hidden on a crowded stage: they give up detail and one is never lost', () => {
+  const vp = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  const labels = Array.from({ length: 8 }, (_, i) => ({ id: `b${i}`, anchor: { x: ((i % 4) - 1.5) * 0.12, y: 0.1 * ((i % 2) - 0.5), z: 0.5 }, priority: 1, tiers: ['full', 'compact', 'dot'] as const, keep: true }));
+  const sizeOf = (_: string, d: string) => (d === 'full' ? { w: 250, h: 58 } : d === 'compact' ? { w: 140, h: 46 } : { w: 44, h: 40 });
+  const placed = layoutLabels(labels, vp, 600, 360, sizeOf, 64, { keepOut: [{ x0: 0, y0: 200, x1: 240, y1: 360 }] });
+  assert.ok(placed.every((p) => p.shown), 'every building card is shown');
+  assert.ok(placed.some((p) => p.density !== 'full'), 'some gave up detail');
 });

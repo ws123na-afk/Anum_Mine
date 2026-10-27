@@ -31,7 +31,7 @@ export function campusCamera(radius: number, centerZ = 0, aspect = 1.7): CameraS
 export function campusFraming(extent: Readonly<{ minX: number; maxX: number; minZ: number; maxZ: number; radius: number }>): { radius: number; centerZ: number } {
   // The plaza and its roundabout are always in the picture, whatever the buildings are.
   const plaza = PLAZA.outer + 2;
-  const minZ = Math.min(extent.minZ - 4, -plaza), maxZ = Math.max(extent.maxZ + 14, plaza);
+  const minZ = Math.min(extent.minZ - 4, -plaza), maxZ = Math.max(extent.maxZ + 40, plaza);
   const half = Math.max(Math.abs(extent.minX) + 6, Math.abs(extent.maxX) + 6, plaza);
   return { radius: Math.max(30, half, (maxZ - minZ) / 2), centerZ: (minZ + maxZ) / 2 };
 }
