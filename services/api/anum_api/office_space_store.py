@@ -38,19 +38,19 @@ _COLUMNS = {
 }
 # Columns that exist on a read but are not part of a create request.
 _EXTRA_COLUMNS = {
-    "buildings": ("name_ar",),
+    "buildings": ("name_ar", "shift_day_start", "shift_night_start"),
     "floors": ("name_ar",),
     "rooms": ("scene_x", "scene_z", "scene_width", "scene_depth", "rotation", "door_side", "description",
               "notes", "color", "name_ar", "equipment", "team_department"),
-    "desks": ("pos_x", "pos_z"),
+    "desks": ("pos_x", "pos_z", "shift", "seat_order", "facing", "seat_kind", "table_group"),
 }
 # Columns a PATCH may change, per resource (the API models are the first filter).
 _PATCHABLE = {
-    "buildings": ("name", "name_ar", "timezone", "latitude", "longitude"),
+    "buildings": ("name", "name_ar", "timezone", "latitude", "longitude", "shift_day_start", "shift_night_start"),
     "floors": ("name", "name_ar", "level", "width_m", "depth_m"),
     "rooms": ("name", "kind", "capacity", "rotation", "door_side", "description", "notes", "color",
               "name_ar", "equipment", "team_department"),
-    "desks": ("label", "pos_x", "pos_z"),
+    "desks": ("label", "pos_x", "pos_z", "shift", "seat_order", "facing", "seat_kind", "table_group"),
 }
 _ROOM_COPY_COLUMNS = ("kind", "capacity", "rotation", "door_side", "description", "notes", "color",
                       "name_ar", "equipment", "team_department")
@@ -632,15 +632,17 @@ class SqlOfficeSpaceStore(LayoutHistoryMixin, TemplateMixin):
             raise _conflict_from(exc, "A room with that id already exists, or the floor is unavailable") from exc
 
     def _insert_desks(self, context: TenantContext, room_id: str,
-                      desks: list[tuple[str, str, tuple[float, float] | None]]) -> list[dict[str, Any]]:
+                      desks: list[tuple[Any, ...]]) -> list[dict[str, Any]]:
+        """Insert empty desks: (id, label, position) and, for a seat, a fourth item with its shift columns."""
         t = _SQL_TABLES["desks"]
         out = []
-        for desk_id, label, pos in desks:
+        for desk_id, label, pos, *rest in desks:
+            seat = dict(rest[0]) if rest else {}
             try:
                 out.append(dict(self.session.execute(insert(t).values(
                     id=desk_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                     created_by=context.user_id, room_id=room_id, label=label, agent_id=None,
-                    pos_x=pos[0] if pos else None, pos_z=pos[1] if pos else None,
+                    pos_x=pos[0] if pos else None, pos_z=pos[1] if pos else None, **seat,
                 ).returning(t)).mappings().one()))
             except IntegrityError as exc:
                 raise _conflict_from(exc, "A desk with that id already exists") from exc
@@ -697,7 +699,7 @@ class SqlOfficeSpaceStore(LayoutHistoryMixin, TemplateMixin):
 
     def create_planned_room(self, context: TenantContext, floor_id: str, room_id: str, values: Mapping[str, Any],
                             x: float, z: float, width: float, depth: float,
-                            desks: list[tuple[str, str, tuple[float, float] | None]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+                            desks: list[tuple[Any, ...]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         """A room at an explicit spot (and its empty desks) through the builder's own checks.
 
         Same floor lock, bounds and overlap rules as a template room; used by the starter campus, which has

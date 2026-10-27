@@ -5,14 +5,14 @@
 import type {OfficeRotation,OfficeDoorSide,OfficeRoomColor,OfficeEquipmentItem,OfficeTeamDepartment} from '@anum/contracts';
 export type OfficeKind = 'buildings'|'floors'|'rooms'|'desks';
 export interface OfficeRecord {id:string;revision:number;tenant_id:string;workspace_id:string;created_at:string;updated_at:string}
-export interface OfficeBuilding extends OfficeRecord {name:string;name_ar?:string|null;timezone:string;latitude:number|null;longitude:number|null}
+export interface OfficeBuilding extends OfficeRecord {name:string;name_ar?:string|null;timezone:string;latitude:number|null;longitude:number|null;shift_day_start?:string|null;shift_night_start?:string|null}
 /** `width_m` and `depth_m` are the floor bounds in metres; null on floors made before the builder (unbounded). */
 export interface OfficeFloor extends OfficeRecord {building_id:string;level:number;name:string;name_ar?:string|null;width_m?:number|null;depth_m?:number|null}
 export interface OfficeRoom extends OfficeRecord {floor_id:string;name:string;kind:'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge'|'command';capacity:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;
  rotation?:OfficeRotation;door_side?:OfficeDoorSide;description?:string;notes?:string;color?:OfficeRoomColor|null;name_ar?:string|null;
  equipment?:OfficeEquipmentItem[];team_department?:OfficeTeamDepartment|null}
 /** `pos_x` and `pos_z` are metres from the room's north west corner; null while the desk is not placed. */
-export interface OfficeDesk extends OfficeRecord {room_id:string;label:string;agent_id:string|null;pos_x?:number|null;pos_z?:number|null}
+export interface OfficeDesk extends OfficeRecord {room_id:string;label:string;agent_id:string|null;pos_x?:number|null;pos_z?:number|null;shift?:'day'|'night'|null;seat_order?:number|null;facing?:'north'|'south'|'east'|'west'|null;seat_kind?:'team'|'manager'|null;table_group?:string|null}
 export interface OfficeRegistryData {buildings:OfficeBuilding[];floors:OfficeFloor[];rooms:OfficeRoom[];desks:OfficeDesk[]}
 export interface OfficePage<T> {items:T[];next_cursor:string|null}
 export type OfficeRequester = <T>(path:string,init:RequestInit)=>Promise<T>;

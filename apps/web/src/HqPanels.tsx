@@ -13,6 +13,9 @@ import { profileHash } from './lib/orgChart.ts';
 import { STATUS_TONE } from './lib/campusModel.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import { deskLabel, roomName } from './lib/registryNames.ts';
+import { HqShiftBar } from './HqShiftBar';
+import { roleText } from './lib/hqRoles.ts';
+import { deskShiftLine, roomHasShiftDesks, WORK_STATUSES, type DeskShiftInfo, type ShiftSnapshot, type ShiftView } from './lib/hqShifts.ts';
 
 // The wall's code loads only when an operations room is opened.
 const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
@@ -26,6 +29,24 @@ export function StatusPill({ presence }: { presence: HqAgentPresence | undefined
   );
 }
 
+/** The status pill of a desk: the work state, or "Off shift" / "Off shift, work waiting" for a person whose shift is not now. */
+export function DeskPill({ info, p }: { info: DeskShiftInfo | undefined; p: HqAgentPresence | undefined }) {
+  const line = deskShiftLine(info, p ? WORK_STATUSES.has(p.status) : false);
+  if (line === 'off' || line === 'off_waiting') {
+    return <span className="hqPill tone-faint" data-testid="desk-offshift" data-waiting={line === 'off_waiting'}>{t(line === 'off_waiting' ? 'hqGc.offWaiting' : 'hqGc.off')}</span>;
+  }
+  return <StatusPill presence={p} />;
+}
+
+/** The shift line under a desk: the shift and its hours, and for a person off shift the real record that is waiting. */
+export function DeskShiftText({ info, p }: { info: DeskShiftInfo | undefined; p: HqAgentPresence | undefined }) {
+  const line = deskShiftLine(info, p ? WORK_STATUSES.has(p.status) : false);
+  if (!info || !line) return null;
+  if (line === 'manager') return <small data-testid="desk-shift">{t('hqGc.shift.manager')}</small>;
+  const win = info.shift && info.start && info.end ? t('hqGc.shift.line', { shift: t(info.shift === 'day' ? 'hqGc.shift.day' : 'hqGc.shift.night'), start: info.start, end: info.end }) : '';
+  return <small data-testid="desk-shift">{win}{line === 'off_waiting' && p?.taskTitles[0] ? ` · ${p.taskTitles[0]}` : ''}</small>;
+}
+
 export function RoomPanel(props: Readonly<{
   room: RoomGeometry; desks: readonly SceneDesk[]; presence: HqPresenceIndex | null;
   onClose: () => void; onOpenAgent: (agentId: string, desk: SceneDesk) => void;
@@ -37,6 +58,8 @@ export function RoomPanel(props: Readonly<{
   /** True once the meetings could be read; false shows an honest "could not be read" note on meeting rooms. */
   meetingsKnown?: boolean;
   onStartMeeting?: () => void;
+  /** The shift of the building (only for a building with shift seats) and the toggle that shows the other shift. */
+  shifts?: ShiftSnapshot | null; shiftView?: ShiftView; onShiftView?: (view: ShiftView) => void;
 }>) {
   const { room } = props;
   const assigned = props.desks.filter((d) => d.agentId || presenceForDesk(props.presence, d)).length;
@@ -54,6 +77,7 @@ export function RoomPanel(props: Readonly<{
           ? <button type="button" className="hqGhost" data-testid="room-start-meeting" onClick={props.onStartMeeting}>{t('hq.room.meeting.start')}</button>
           : <p className="hqNote">{t('hq.room.meeting.startOwner')}</p>
       )}
+      {props.shifts && props.onShiftView && roomHasShiftDesks(props.desks) && <HqShiftBar snapshot={props.shifts} view={props.shiftView ?? 'active'} onView={props.onShiftView} />}
       {props.wall && <Suspense fallback={null}><HqCommandWall model={props.wall} variant="panel" onReload={props.onReloadWall} /></Suspense>}
       <ul className="hqStats">
         <li><strong>{props.desks.length}</strong><span>{t('hq.room.desks')}</span></li>
@@ -70,9 +94,10 @@ export function RoomPanel(props: Readonly<{
               return (
                 <li key={d.id}>
                   {key
-                    ? <button type="button" onClick={() => props.onOpenAgent(key, d)}>
-                      <span className="hqLabelText"><strong>{hidden ? t('hq.agent.private') : (p?.name || t('hq.agent.assigned'))}</strong><small>{deskLabel(d.label)}</small></span>
-                      <StatusPill presence={p} />
+                    ? <button type="button" onClick={() => props.onOpenAgent(key, d)} data-testid="room-desk" data-desk={d.id}>
+                      <span className="hqLabelText"><strong>{hidden ? t('hq.agent.private') : (p?.name || t('hq.agent.assigned'))}</strong><small>{deskLabel(d.label)}{p?.role ? ` · ${roleText(p.role)}` : ''}</small>
+                        <DeskShiftText info={d.shiftInfo} p={p} /></span>
+                      <DeskPill info={d.shiftInfo} p={p} />
                     </button>
                     : <div className="hqVacant"><span className="hqLabelText"><strong>{deskLabel(d.label)}</strong><small>{t('hq.room.vacant')}</small></span></div>}
                 </li>
@@ -108,8 +133,11 @@ export function RoomMeetingSection({ meeting, presence }: Readonly<{ meeting: Ro
 export function AgentPanel(props: Readonly<{
   agentId: string; deskId: string | null; presence: HqAgentPresence | undefined; roomLabel: string | null; deskLabel: string | null;
   refreshKey: string | null; onClose: () => void;
+  /** What the desk says about its shift (a person off shift is never lit, whatever work is waiting). */
+  shiftInfo?: DeskShiftInfo;
 }>) {
   const p = props.presence;
+  const shiftLine = deskShiftLine(props.shiftInfo, p ? WORK_STATUSES.has(p.status) : false);
   const hidden = p?.reason === 'agent_not_visible' || props.agentId.startsWith('desk:');
   const name = hidden ? t('hq.agent.private') : (p?.name || t('hq.agent.assigned'));
   return (
@@ -118,8 +146,15 @@ export function AgentPanel(props: Readonly<{
         <h2>{name}</h2>
         <button type="button" className="hqIconButton" onClick={props.onClose} aria-label={t('hq.panel.close')}><X aria-hidden="true" /></button>
       </div>
-      <p className="hqMuted">{p?.role ?? t('hq.agent.noRole')}{props.roomLabel ? ` · ${props.roomLabel}` : ''}{props.deskLabel ? ` · ${props.deskLabel}` : ''}</p>
-      <p><StatusPill presence={p} /></p>
+      <p className="hqMuted">{p?.role ? roleText(p.role) : t('hq.agent.noRole')}{props.roomLabel ? ` · ${props.roomLabel}` : ''}{props.deskLabel ? ` · ${deskLabel(props.deskLabel)}` : ''}</p>
+      <p><DeskPill info={props.shiftInfo} p={p} /></p>
+      {props.shiftInfo && shiftLine && <section className="hqShiftCard" aria-label={t('hqGc.shift.bar')} data-testid="agent-shift">
+        <DeskShiftText info={props.shiftInfo} p={p} />
+        {props.shiftInfo.shift && props.shiftInfo.hoursAreDefault && <small>{t('hqGc.shift.hoursDefault')}</small>}
+        {shiftLine === 'on' && <small>{t('hqGc.shift.onLine')}</small>}
+        {shiftLine === 'off' && <small>{t('hqGc.shift.offLine')}</small>}
+        {shiftLine === 'off_waiting' && <small>{t('hqGc.shift.offWaitingLine')}</small>}
+      </section>}
       {p && <p className="hqNote" data-testid="agent-state-help">{t(`hq.stateHelp.${p.status}` as MessageKey)}</p>}
       {p && <p className="hqNote">{t('hq.agent.observed', { time: new Date(p.observedAt).toLocaleTimeString() })}</p>}
       <WorkstationWork deskId={props.deskId} fallbackTasks={p?.taskTitles ?? []} hasPresence={Boolean(p)} refreshKey={props.refreshKey} />

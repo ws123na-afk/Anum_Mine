@@ -20,6 +20,8 @@ import { drawRoomShell, WALL_HEIGHT as SHELL_WALL } from '../hqAssets/interior/s
 import { CORE_DEPTH, CORE_WIDTH, drawCore } from '../hqAssets/interior/core.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
 import { markerParts, STATE_LOOK, type VisualState } from '../hqAssets/interior/stateVisual.ts';
+import { drawJoins, rotOfFacing, tableJoins, type SeatPoint } from './hqSeatTables.ts';
+import { SCHEMES } from '../hqAssets/interior/scheme.ts';
 import { placementsFromSlots, type ModelGroup, type ModelPlacement } from './hqModels.ts';
 import { translate, type Locale, type MessageKey } from './i18n.ts';
 import { pickName } from './registryNames.ts';
@@ -542,13 +544,20 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
           // The furnished room comes from the interior assets. Desks are the registry's: one station each, and a
           // seated figure only where the registry (or presence) says someone is assigned to the desk.
           const stations: StationSpec[] = placed.map((dk) => ({
-            id: dk.id, x: dk.position.x, z: dk.position.z, rot: 0,
+            id: dk.id, x: dk.position.x, z: dk.position.z, rot: rotOfFacing(dk.facing),
             state: STATION_OF[options.deskState?.get(dk.id) ?? (dk.agentId ? 'assigned' : 'vacant')],
             occupantSeed: options.people?.get(dk.id) ?? null,
             look: styleOf(dk.id, interior),
           }));
+          // Tables of the shift that is not shown stay as empty seats (furniture only), so a shared table keeps its shape.
+          for (const e of room.emptySeats ?? []) stations.push({ x: e.x, z: e.z, rot: rotOfFacing(e.facing), state: 'vacant', occupantSeed: null });
+          const seatPoints: SeatPoint[] = [
+            ...placed.filter((dk) => dk.tableGroup).map((dk) => ({ x: dk.position.x, z: dk.position.z, facing: dk.facing ?? null, group: dk.tableGroup ?? null })),
+            ...(room.emptySeats ?? []).filter((e) => e.group),
+          ];
           const scratch = new MeshBuilder();
           buildInteriorRoom(scratch, interior, { x: room.x, y: y + 0.06, z: room.z, width: room.width, depth: room.depth }, { seed: room.id, accent, floor: color, live, detail: lite ? 'lite' : 'full', stations, doorSide: room.doorSide ?? 'south' });
+          drawJoins(scratch, y + 0.06, tableJoins(seatPoints), SCHEMES.walnut.wood, SCHEMES.walnut.dark);
           const tags = ambientTagsOf(scratch);
           const split = scratch.toFloat32Split(['figure', 'sofa', ...tags]);
           fo.append(classifySurfaces(split.rest));

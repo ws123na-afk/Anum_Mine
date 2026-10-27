@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { t } from '../lib/i18n.ts';
 import { pickName } from '../lib/registryNames.ts';
 import type { BuilderController } from './useBuilderState.ts';
+import { DEFAULT_DAY_START, DEFAULT_NIGHT_START, HOUR_PATTERN } from '../lib/hqShifts.ts';
 
 interface Props { b: BuilderController; editable: boolean }
 
@@ -16,8 +17,10 @@ export function FloorTab({ b, editable }: Props) {
   const [level, setLevel] = useState(floor?.level ?? 0);
   const [width, setWidth] = useState(floor?.width_m ?? 60);
   const [depth, setDepth] = useState(floor?.depth_m ?? 40);
+  const [dayStart, setDayStart] = useState(building?.shift_day_start ?? '');
+  const [nightStart, setNightStart] = useState(building?.shift_night_start ?? '');
   const [confirm, setConfirm] = useState<'' | 'floor' | 'building'>('');
-  useEffect(() => { setBuildingName(building?.name ?? ''); setBuildingNameAr(building?.name_ar ?? ''); }, [building?.id, building?.revision]);
+  useEffect(() => { setBuildingName(building?.name ?? ''); setBuildingNameAr(building?.name_ar ?? ''); setDayStart(building?.shift_day_start ?? ''); setNightStart(building?.shift_night_start ?? ''); }, [building?.id, building?.revision]);
   useEffect(() => {
     setName(floor?.name ?? ''); setNameAr(floor?.name_ar ?? ''); setLevel(floor?.level ?? 0); setWidth(floor?.width_m ?? 60); setDepth(floor?.depth_m ?? 40); setConfirm('');
   }, [floor?.id, floor?.revision]);
@@ -28,10 +31,13 @@ export function FloorTab({ b, editable }: Props) {
   if (level !== floor.level) patch.level = level;
   if (width !== floor.width_m || depth !== floor.depth_m) { patch.width_m = width; patch.depth_m = depth; }
   const changed = Object.keys(patch).length > 0;
-  const buildingPatch: { name?: string; name_ar?: string | null } = {};
+  const buildingPatch: { name?: string; name_ar?: string | null; shift_day_start?: string | null; shift_night_start?: string | null } = {};
   if (buildingName.trim() && buildingName.trim() !== building.name) buildingPatch.name = buildingName.trim();
   if ((buildingNameAr.trim() || null) !== (building.name_ar ?? null)) buildingPatch.name_ar = buildingNameAr.trim() || null;
+  if ((dayStart || null) !== (building.shift_day_start ?? null)) buildingPatch.shift_day_start = dayStart || null;
+  if ((nightStart || null) !== (building.shift_night_start ?? null)) buildingPatch.shift_night_start = nightStart || null;
   const buildingChanged = Object.keys(buildingPatch).length > 0;
+  const hoursValid = (!dayStart || HOUR_PATTERN.test(dayStart)) && (!nightStart || HOUR_PATTERN.test(nightStart)) && !(dayStart && dayStart === nightStart);
   const sizeValid = width >= 1 && width <= 1000 && depth >= 1 && depth <= 1000;
   const off = !editable || b.busy;
   return (
@@ -51,12 +57,21 @@ export function FloorTab({ b, editable }: Props) {
         {b.dirty && editable && <p className="hqbHint">{t('hqb.floor.draftNote')}</p>}
       </form>
 
-      <form className="hqbSection" onSubmit={(e) => { e.preventDefault(); if (buildingChanged) void b.saveBuilding(buildingPatch); }}>
+      <form className="hqbSection" onSubmit={(e) => { e.preventDefault(); if (buildingChanged && hoursValid) void b.saveBuilding(buildingPatch); }}>
         <h3>{t('hqb.building.title')}</h3>
         <label className="hqbField"><span>{t('hqb.building.name')}</span><input value={buildingName} maxLength={100} dir="auto" disabled={off} onChange={(e) => setBuildingName(e.target.value)} /></label>
         <label className="hqbField"><span>{t('hqb.building.nameAr')}</span><input value={buildingNameAr} maxLength={100} dir="rtl" lang="ar" disabled={off} data-testid="hqb-building-name-ar" onChange={(e) => setBuildingNameAr(e.target.value)} /></label>
         {!buildingNameAr.trim() && <p className="hqbHint" role="note">{t('hqb.nameAr.hint')}</p>}
-        {editable && <button type="submit" disabled={b.busy || !buildingName.trim() || !buildingChanged}>{t('hqb.building.save')}</button>}
+        <fieldset className="hqbShiftHours" data-testid="hqb-shift-hours">
+          <legend>{t('hqGc.builder.shiftHours')}</legend>
+          <div className="hqbRow">
+            <label className="hqbGrow"><span>{t('hqGc.builder.dayStart')}</span><input type="text" inputMode="numeric" placeholder={DEFAULT_DAY_START} maxLength={5} dir="ltr" value={dayStart} disabled={off} aria-invalid={!hoursValid} data-testid="hqb-day-start" onChange={(e) => setDayStart(e.target.value.trim())} /></label>
+            <label className="hqbGrow"><span>{t('hqGc.builder.nightStart')}</span><input type="text" inputMode="numeric" placeholder={DEFAULT_NIGHT_START} maxLength={5} dir="ltr" value={nightStart} disabled={off} aria-invalid={!hoursValid} data-testid="hqb-night-start" onChange={(e) => setNightStart(e.target.value.trim())} /></label>
+          </div>
+          <p className="hqbHint" role="note">{t('hqGc.builder.hoursHelp')}</p>
+          {!hoursValid && <p className="hqbHint" role="alert">{t('hqGc.builder.hoursInvalid')}</p>}
+        </fieldset>
+        {editable && <button type="submit" disabled={b.busy || !buildingName.trim() || !buildingChanged || !hoursValid}>{t('hqb.building.save')}</button>}
       </form>
 
       {editable && (
