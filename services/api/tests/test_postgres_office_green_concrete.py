@@ -183,3 +183,30 @@ def test_another_workspace_neither_counts_nor_sees_it(hq: TestClient, database_e
     assert view.status_code == 200, view.text
     assert view.json()["counts"]["create"]["buildings"] == 1, "the other workspace sees nothing of it"
     assert counts(database_engine, TENANT_B, WORKSPACE_B) == (0, 0, 0, 0)
+
+
+def test_the_owners_look_choices_are_part_of_the_hash_and_stored_for_new_agents_only(hq: TestClient, database_engine: Engine) -> None:
+    looks = {"raed": "masculine", "mai": "feminine"}
+    view = preview(hq, default_look="neutral", look=[f"{k}:{v}" for k, v in looks.items()])
+    assert {p["key"]: p["appearance"] for p in view["people"]}["raed"] == "masculine"
+    assert {p["key"]: p["appearance"] for p in view["people"]}["hazrat"] == "neutral"
+    body = {"payload_hash": view["payload_hash"], "input_mode": "click", "timezone": view["timezone"]}
+    # Looks that were not the ones shown: the hash no longer matches and nothing is created.
+    assert hq.post(f"{BASE}/confirm", headers=OWNER(), json={**body, "default_look": "neutral", "appearance": {"raed": "feminine", "mai": "feminine"}}).status_code == 409
+    assert hq.post(f"{BASE}/confirm", headers=OWNER(), json=body).status_code == 409
+    assert counts(database_engine) == (0, 0, 0, 0)
+    # Unknown people and styles are refused, never guessed.
+    assert hq.post(f"{BASE}/confirm", headers=OWNER(), json={**body, "appearance": {"nobody": "neutral"}}).status_code == 422
+    assert hq.post(f"{BASE}/confirm", headers=OWNER(), json={**body, "appearance": {"raed": "tall"}}).status_code == 422
+    assert hq.get(f"{BASE}/preview", params={"look": ["raed:tall"]}, headers=OWNER()).status_code == 422
+    r = hq.post(f"{BASE}/confirm", headers=OWNER(), json={**body, "default_look": "neutral", "appearance": looks})
+    assert r.status_code == 200, r.text
+    stored = dict(rows(database_engine, "select name, avatar::text from agent_profiles where tenant_id = :t and template_id like 'gc:%'", t=TENANT_A))
+    assert stored["Raed"] == '{"avatar_style": "masculine"}' and stored["Mai"] == '{"avatar_style": "feminine"}'
+    assert all(v == '{"avatar_style": "neutral"}' for k, v in stored.items() if k not in ("Raed", "Mai")), "everyone else is neutral until the owner chooses"
+    audit = rows(database_engine, "select metadata from audit_records where action = 'office.green_concrete.add' and tenant_id = :t", t=TENANT_A)
+    assert audit[0][0]["after"]["looks_chosen"] == 10
+    assert not any(n in str(audit[0][0]) for n in ("Raed", "Mai", "masculine", "feminine")), "ids and counts only"
+    # A second run never changes the looks of agents that exist, whatever is sent.
+    again = preview(hq, default_look="feminine")
+    assert all(p["appearance"] is None for p in again["people"])

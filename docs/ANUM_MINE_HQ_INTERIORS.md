@@ -71,3 +71,7 @@ Warm floors and walls (the night sky is blue; neutral grey read as cold), diffus
 ## Tests
 
 `test/hqFloorCompleteness.test.ts` (starter campus, all rooms and desks), `test/hqInteriorShell.test.ts` (orientation, door openings, finishes, core, ambient poses, framing, signs, stacked heights and slabs for an 8 floor tower), `test/hqInteriorAssets.test.ts` (caps, bounds, determinism, no invented people, new kits), `e2e/hq-interior.spec.ts` (five viewports, non blank, ambient parts, reduced motion, the stacked view of a 3 floor building). `e2e/hq-interior.local.spec.ts` is a screenshot runner for local review, not run in CI.
+
+## People in the rooms
+
+The people at the stations are drawn by the character kit (`hqAssets/characters/`, see [the people doc](ANUM_MINE_HQ_PEOPLE_CHARACTERS.md)): a seated figure is noted as a slot by `seatedFigure` (and a standing one by `standingFigure`) only for a station that carries an occupant seed, and the model layer builds it from its shape code. The tagged triangles of `figures.ts` (about 380 triangles each, box like) stay as the stand-in until the kit has loaded, and for good if it cannot load. The poses (typing, reading, phone, talking, leaning) are still chosen per station state by the room kits.

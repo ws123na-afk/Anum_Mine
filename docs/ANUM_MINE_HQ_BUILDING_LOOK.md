@@ -111,3 +111,7 @@ The building view opens as a dollhouse section like concept renders 22 and 24: f
 ## Billboards, 26 October 2026
 
 The concept renders show a sign or billboard at each building with its name and what it does. Each building now has a board on posts in front of it (lit at night, lettered with the real building name in the sign atlas, Arabic right to left) and a card above it with what the building is for and its real work details, from registry and live records only. How it is built, every field and its source, and what is not done: [billboards](ANUM_MINE_HQ_BILLBOARDS.md). Still different from the renders: the board carries the name only (the details are the card, a real overlay), and the boards are plain panels, not the animated screens of the concepts.
+
+## People inside the rooms
+
+Inside a building the people at their desks are no longer boxes or chibi models: they are low poly humanoids with a face, hair, hands, clothing and a pose, in the masculine, feminine or neutral look the owner chose for that person. They appear only at desks with an assigned agent. See [the people doc](ANUM_MINE_HQ_PEOPLE_CHARACTERS.md) for the kit, the budgets, the screenshots and what is still simplified (the campus and building distances show a person only a few pixels tall; the poses are static; there are still no people on paths and plazas).
