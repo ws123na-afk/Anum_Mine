@@ -4,7 +4,7 @@
 // actions, merged into the draft without losing it. No browser storage is used for any of it.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { OfficeDeskUpdate, OfficeRoomUpdate, OfficeTemplateCatalogue, OfficeRoomTemplate } from '@anum/contracts';
-import type { OfficeDesk, OfficeFloor, OfficeRegistryData, OfficeRoom } from '../lib/officeSpaceClient.ts';
+import type { OfficeBuilding, OfficeDesk, OfficeFloor, OfficeRegistryData, OfficeRoom } from '../lib/officeSpaceClient.ts';
 import { t } from '../lib/i18n.ts';
 import { makeOfficeId, type BuilderApi } from './builderApi.ts';
 import {
@@ -494,6 +494,12 @@ export function useBuilder({ api, load, scopeKey }: UseBuilderOptions) {
     return true;
   }, [api, run]);
 
+  /** A building the sign section just changed (logo, colour or style): the server's answer replaces the record. */
+  const applyBuilding = useCallback((updated: OfficeBuilding, message: string) => {
+    setData((d) => ({ ...d, buildings: d.buildings.map((b) => (b.id === updated.id ? updated : b)) }));
+    setNotice(message);
+  }, []);
+
   const deleteFloor = useCallback(async (): Promise<boolean> => {
     const current = live.current.data.floors.find((f) => f.id === live.current.floorId);
     if (!current) return false;
@@ -536,7 +542,7 @@ export function useBuilder({ api, load, scopeKey }: UseBuilderOptions) {
     reload, reloadAndReapply, reloadDiscarding, discard, save,
     moveRoom, rotate, setDoor, moveDesk, placeDesk, placeRoom, undo: doUndo, redo: doRedo,
     addFromTemplate, addBlank, copyRoom, saveRoomDetails, deleteRoom, addDesk, renameDesk, saveDeskSeat, deleteDesk, seatAgent,
-    saveFloor, saveBuilding, deleteFloor, deleteBuilding,
+    saveFloor, saveBuilding, applyBuilding, deleteFloor, deleteBuilding,
     nameOf,
   };
 }

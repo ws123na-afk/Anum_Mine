@@ -74,3 +74,7 @@ The billboard code is a lazy chunk of its own (`hq-billboards`, JS and CSS), not
 - Only the open workspace has a flow, so another workspace's building shows Not connected for open work; the registry rooms and departments are likewise known only for registry buildings of the open workspace.
 - A building whose registry has no rooms shows "No rooms in the registry yet" and no departments.
 - The board is not drawn as an unlit shape under reduced quality tiers; it is one cheap mesh at every tier.
+
+## Logo signs
+
+The owner's own logo, brand colour and sign style are drawn on the building's sign (the facade sign atlas cell), not on the billboard board; the board keeps the building's live details. See [logo and brand signs](ANUM_MINE_HQ_LOGO_SIGNS.md).

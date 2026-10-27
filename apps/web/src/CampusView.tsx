@@ -26,6 +26,7 @@ import { t, type MessageKey } from './lib/i18n.ts';
 import { sceneName } from './lib/registryNames.ts';
 import { useLocale } from './useLocale';
 import { useArabicSignFont } from './lib/arabicFont.ts';
+import type { Logo as SignLogo } from './hq-logo-signs/campusSigns.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
 import { useNavLayout } from './hq-nav/useNavLayout.ts';
 import { cardDensities, cardTags, type CardDensity } from './hq-nav/navModel.ts';
@@ -33,6 +34,8 @@ import { cardDensities, cardTags, type CardDensity } from './hq-nav/navModel.ts'
 // Record-backed work motion is its own chunk, fetched only for a campus that has buildings.
 const NO_WORK: WorkUi = { plan: { motions: [], racks: [] }, cards: {}, feeds: {} };
 const CampusWork = lazy(() => import('./HqCampusWork'));
+
+const NO_LOGOS: ReadonlyMap<string, SignLogo> = new Map();
 
 const KIND_ICON: Record<CampusBuildingKind, ReactElement> = {
   executive: <Landmark aria-hidden="true" />, business: <Building2 aria-hidden="true" />,
@@ -119,6 +122,32 @@ export function CampusView(props: CampusViewProps) {
     return () => { live = false; };
   }, [bb, campus.buildings.length]);
   const boards = useMemo(() => (bb ? bb.billboardLayer(scene, placements) : null), [bb, scene, placements]);
+  // The brand signs (docs/ANUM_MINE_HQ_LOGO_SIGNS.md): a lazy chunk, fetched only when a building has a sign set up. Its logos are small decoded
+  // bitmaps drawn into the existing sign atlas, loaded for the nearest buildings first; a logo that fails leaves the lettered sign.
+  const [signKit, setSignKit] = useState<typeof import('./hq-logo-signs/campusSigns.ts') | null>(null);
+  const anySign = campus.buildings.some((b) => b.sign);
+  useEffect(() => {
+    if (signKit || !anySign) return undefined;
+    let live = true;
+    void import('./hq-logo-signs/campusSigns.ts').then((m) => { if (live) setSignKit(m); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [signKit, anySign]);
+  const [logos, setLogos] = useState<ReadonlyMap<string, SignLogo>>(NO_LOGOS);
+  const logosRef = useRef(logos);
+  logosRef.current = logos;
+  const logoSig = campus.buildings.map((b) => (b.sign?.logoSha256 ? `${b.sign.buildingId}:${b.sign.logoSha256}` : '')).join('|');
+  useEffect(() => {
+    if (!signKit) return undefined;
+    const controller = new AbortController();
+    const where = new Map(placements.map((p) => [p.workspaceId, p]));
+    const focus = cameraRef.current.target;
+    const targets = signKit.pickLogoTargets(campus.buildings.flatMap((b) => (b.sign?.logoSha256 ? [{ id: b.workspace_id, buildingId: b.sign.buildingId, sha: b.sign.logoSha256, x: where.get(b.workspace_id)?.x ?? 0, z: where.get(b.workspace_id)?.z ?? 0 }] : [])), { x: focus.x, z: focus.z });
+    void signKit.loadLogos(targets, logosRef.current, controller.signal).then((next) => { if (!controller.signal.aborted) setLogos(next); }).catch(() => undefined);
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signKit, logoSig, selectedId]);
+  useEffect(() => () => { for (const logo of logosRef.current.values()) logo.image.close(); }, []);
+  const signStats = useMemo(() => (signKit ? signKit.signStats(campus.buildings, logos) : { branded: campus.buildings.filter((b) => b.sign).length, logos: 0 }), [signKit, campus.buildings, logos]);
   const atlasCache = useRef<GlassPlanData | null>(null);
   const glassPlan = useMemo(() => {
     if (!kit || !plans || !sizes.size) { atlasCache.current = null; return null; }
@@ -198,11 +227,15 @@ export function CampusView(props: CampusViewProps) {
     opaque: [{ id: 'scenery', vertices: scene.scenery.vertices, bounds: scene.scenery.bounds, cull: false }, ...scene.buildings.map((b) => ({ id: b.workspaceId, vertices: b.mesh.vertices, bounds: b.mesh.bounds })),
       ...(boards ? [{ id: 'billboards', vertices: boards.mesh.vertices, bounds: boards.mesh.bounds }] : [])],
     glass: [],
-    signs: [...scene.buildings.map((b) => ({ title: 'ANUM MINE', subtitle: sceneName(byId.get(b.workspaceId) ?? { name: '' }, locale), fontsReady }))],
+    signs: [...scene.buildings.map((b) => {
+      const building = byId.get(b.workspaceId);
+      const subtitle = sceneName(building ?? { name: '' }, locale);
+      return { title: 'ANUM MINE', subtitle, fontsReady, ...(signKit && building?.sign ? signKit.signFor(building.sign, subtitle, locale === 'ar', logos) : {}) };
+    })],
     shadow: scene.shadow,
     halos: boards ? new Float32Array([...scene.halos, ...boards.mesh.halos]) : scene.halos,
     scenery: scene.motion,
-  }), [scene, boards, byId, locale, fontsReady]);
+  }), [scene, boards, byId, locale, fontsReady, signKit, logos]);
 
   // A phone-sized stage has room for two full cards and a handful of compact ones.
   const compact = useNavLayout().layout.compact;
@@ -254,7 +287,7 @@ export function CampusView(props: CampusViewProps) {
 
   return (
     <>
-    <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0}>
+    <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0} data-sign-brands={signStats.branded} data-sign-logos={signStats.logos}>
       <HqStage
         label={t('hq.campus.stageLabel')} description={t('hq.campus.stageHelp')}
         scene={renderScene} glassPlan={glassPlan} work={work.plan} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}

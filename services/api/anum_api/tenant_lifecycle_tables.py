@@ -344,6 +344,7 @@ _ORDER = (
     "office_create_keys",
     "office_floor_revisions",
     "office_layout_templates",
+    "office_building_logos",
     "office_desks",
     "office_rooms",
     "office_floors",
