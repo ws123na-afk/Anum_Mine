@@ -5,7 +5,7 @@
  * as saved. Seated figures are generic (no likeness) and appear only at desks with an assignment;
  * the HTML agent card carries the name, role and status pill.
  */
-import { MAT, MeshBuilder, VERTEX_FLOATS, hex, mix, scale, seeded, type ModelSlot, type Rgb } from './hqGeometry.ts';
+import { MAT, MeshBuilder, VERTEX_FLOATS, hex, mix, scale, seeded, type ModelSlot, type Rgb, type ScreenRec } from './hqGeometry.ts';
 import type { RoomGeometry, SceneDesk, SceneFloor, Vec3 } from './headquartersProjection.ts';
 import type { SceneMesh } from './campusScene.ts';
 import type { Aabb } from './hqMath.ts';
@@ -102,7 +102,11 @@ export type BuildingScene = Readonly<{
   fallbacks: Readonly<Record<ModelGroup, SceneMesh>>;
   /** Soft light halos (x, y, z, radius, r, g, b, strength per halo) for the night glow. */
   halos: Float32Array;
+  /** The monitors of registry desks and the video walls of the furnished rooms (world corners): the lazy screens chunk lays a live face over each. */
+  screens: readonly SceneScreen[];
 }>;
+
+export type SceneScreen = ScreenRec & Readonly<{ roomId: string; floorIndex: number }>;
 
 const FLOOR_BY_KIND: Record<string, Rgb> = {
   office: hex('#e4dccb'), meeting: hex('#dccfb2'), reception: hex('#e8dcc6'),
@@ -446,6 +450,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
   const ambientChunks = new Map<string, Float32Array[]>();
   const rooms: BuildingRoomHandle[] = [];
   const desks: BuildingDeskHandle[] = [];
+  const screens: SceneScreen[] = [];
   const locale: Locale = options.locale ?? 'en';
   const active = Math.max(0, Math.min(floors.length - 1, options.activeIndex));
   const last = options.showAll ? floors.length - 1 : active;
@@ -566,6 +571,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
           for (const tag of tags) addAmbient(split.byTag.get(tag)!, tag);
           slots.push(...scratch.slots);
           fo.halos.push(...scratch.halos);
+          for (const sc of scratch.screens) screens.push({ ...sc, roomId: room.id, floorIndex: fi });
         } else {
           furnish(fo, room, y + 0.06, accent, live, color, rnd);
           const spacing = placed.length > 1 ? Math.min(room.width / (Math.min(5, Math.ceil(Math.sqrt(placed.length))) + 1), 1.6) : 1.3;
@@ -708,6 +714,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
     models: placementsFromSlots(slots),
     fallbacks: { figure: freeze(fallback.figure), sofa: freeze(fallback.sofa) },
     halos: new Float32Array(opaque.halos),
+    screens,
   };
 }
 

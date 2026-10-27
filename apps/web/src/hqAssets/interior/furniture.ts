@@ -265,6 +265,11 @@ export function workstation(b: MeshBuilder, y: number, spec: StationSpec, S: Int
     L.box(cx - 0.02, H, 0.16, 0.04, 0.2, 0.03, BLACK);
     L.box(cx - mw / 2, H + 0.2, 0.15, mw, 0.34, 0.035, BLACK);
     L.box(cx - mw / 2 + 0.02, H + 0.22, 0.128, mw - 0.04, 0.3, 0.008, screen.color, { emissive: screen.emissive, shade: false });
+    // One monitor of a registry desk takes a live face (the lazy screens chunk draws it over this glass, in front of the lines below).
+    if (spec.id && state !== 'vacant' && i === Math.floor((n - 1) / 2)) {
+      const gx0 = cx - mw / 2 + 0.02, gx1 = cx + mw / 2 - 0.02, gy0 = H + 0.22, gy1 = H + 0.52;
+      b.screens.push({ kind: 'monitor', id: spec.id, p: [...L.w([gx1, gy0, 0.116]), ...L.w([gx0, gy0, 0.116]), ...L.w([gx0, gy1, 0.116]), ...L.w([gx1, gy1, 0.116])] });
+    }
     if (STATE_LOOK[state].content) {
       for (let k = 0; k < 3; k++) L.box(cx - mw / 2 + 0.05, H + 0.27 + k * 0.08, 0.12, (mw - 0.1) * (0.5 + 0.15 * ((k + i) % 3)), 0.02, 0.004, hex('#f4fffb'), { emissive: Math.min(1, screen.emissive + 0.1), shade: false });
     }

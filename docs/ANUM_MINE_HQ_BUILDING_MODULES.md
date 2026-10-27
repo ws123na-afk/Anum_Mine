@@ -91,3 +91,7 @@ Browser: `e2e/hq-building-modules.spec.ts` (each building's panels with real num
 * The camera glide uses the existing fly-to; the floors themselves collapse flat rather than sliding away. No isolate-one-floor toggle beyond the cut-away and "All floors".
 * Frame times were measured with software GL only; a run on a real GPU or device is still missing (matrix 3.10).
 * Tyre Pulse's saw-tooth look needs the local drawing hint `workshop`; it is not stored and not a building type the owner can pick.
+
+## Tyre Pulse on the 3D wall
+
+In a building whose panels include the tyre panel (Tyre Pulse), the 3D Operations wall also draws the figures of the Tyre fleet cards (Vehicles, Tyres fitted, Tyres in stock, Below minimum, Overdue inspections, Due in 30 days) from the same dashboard read, with the same labels; with the feed off it says "<building name>: Not connected". See [live screens](ANUM_MINE_HQ_LIVE_SCREENS.md).

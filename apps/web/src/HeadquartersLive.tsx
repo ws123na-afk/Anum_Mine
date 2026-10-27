@@ -649,7 +649,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
               liveMeetings={meetings ? meetings.liveMeetings : null} liveMeetingRoomIds={liveMeetingRoomIds}
               commerce={commerce} tyre={tyre} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
               selectedRoomId={roomId} selectedAgentId={agentId}
-              wall={wallProp}
+              wall={wallProp} screenLive={livePresence.link === 'live'}
               onBack={() => setLevel('campus')} onSelectBuilding={(id) => controller.selectBuilding(id)} onSelectFloor={goFloor}
               onSelectRoom={selectRoom} onSelectAgent={(id, desk) => selectAgent(id, desk)}
               nav={navHandles} onManageSpaces={() => setOverlay('spaces')} onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight}
