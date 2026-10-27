@@ -49,7 +49,7 @@ const boardOf = async (page: Page, name: string): Promise<string> => (await boar
 const rects = (page: Page) => page.evaluate(() => {
   const box = (el: Element) => { const r = el.getBoundingClientRect(); return { x0: r.left, y0: r.top, x1: r.right, y1: r.bottom, name: (el.getAttribute('aria-label') ?? el.className).toString().slice(0, 40), dot: (el as HTMLElement).dataset?.density === 'dot' }; };
   const shown = (el: HTMLElement) => el.style.display !== 'none' && el.dataset.hidden !== 'crowded' && el.getBoundingClientRect().width > 0;
-  const cards = [...document.querySelectorAll<HTMLElement>('.hqLive .hqLabels:not(.hqLabelsExtra) .hqLabelAnchor')].filter(shown).map((el) => box(el.querySelector('.hqBuildingCard') ?? el));
+  const cards = [...document.querySelectorAll<HTMLElement>('.hqLive .hqLabels:not(.hqLabelsExtra) .hqLabelAnchor')].filter((el) => el.querySelector('.hqBuildingCard') && shown(el)).map((el) => box(el.querySelector('.hqBuildingCard')!));
   const panels = [...document.querySelectorAll('.hqLive .hqDetail, .hqLive .hqOverlayRight, .hqLive .hqOverlayMap, .hqLive .hqOverlayBottom > *')].map(box).filter((r) => r.x1 - r.x0 > 14 && r.y1 - r.y0 > 14);
   return { cards, panels };
 });
