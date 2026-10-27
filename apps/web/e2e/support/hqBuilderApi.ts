@@ -19,6 +19,8 @@ export interface BuilderMockOptions extends HistoryMockOptions {
   /** Extra rooms placed in a grid (for the large-floor spec). */
   extraRooms?: number;
   empty?: boolean;
+  /** The building starts with this logo (a PNG), as if the owner had uploaded it. */
+  withLogo?: Buffer;
 }
 
 export interface BuilderMock {
@@ -30,6 +32,8 @@ export interface BuilderMock {
   floors: Map<string, Json>;
   /** Simulates another editor: bumps a room's revision (and optionally moves it) behind the page's back. */
   touchRoom(id: string, patch?: Json): void;
+  /** The stored logo bytes by building id (what the logo route serves). */
+  logos: Map<string, Buffer>;
 }
 
 const TEMPLATES = [
@@ -81,8 +85,11 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
   }
   if (options.extraRooms) floors.set('floor-1', { ...floors.get('floor-1'), width_m: 200, depth_m: 200 });
 
+  const logos = new Map<string, Buffer>();
+  const fakeSha = (bytes: Buffer) => { let h = 0; for (const b of bytes) h = (h * 31 + b) >>> 0; return h.toString(16).padStart(8, '0').repeat(8); };
+  if (options.withLogo) { logos.set('building-1', options.withLogo); buildings.set('building-1', { ...buildings.get('building-1'), logo_sha256: fakeSha(options.withLogo) }); }
   const mock: BuilderMock = {
-    requests: [], rooms, desks, floors, history: undefined as unknown as HistoryMock,
+    logos, requests: [], rooms, desks, floors, history: undefined as unknown as HistoryMock,
     touchRoom(id, patch = {}) {
       const current = rooms.get(id);
       if (current) rooms.set(id, { ...current, ...patch, revision: Number(current.revision) + 1 });
@@ -102,6 +109,12 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
     const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
 
     if (options.down) return error(route, 503, 'Office persistence needs the PostgreSQL backend');
+    const logoPath = path.match(/^\/buildings\/([^/]+)\/logo$/);
+    if (logoPath && method === 'GET') {
+      const bytes = logos.get(logoPath[1]);
+      if (!bytes) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'This building has no logo.' }) });
+      return route.fulfill({ status: 200, contentType: 'image/png', headers: { 'cache-control': 'private, no-cache', etag: `"${fakeSha(bytes)}"` }, body: bytes });
+    }
     if (method === 'GET') {
       const list = path.match(/^\/(buildings|floors|rooms|desks)$/);
       if (list) {
@@ -204,6 +217,32 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
       const created = desk(String(body?.id), String(body?.room_id), String(body?.label), null, null);
       desks.set(String(body?.id), created);
       return json(created, 201);
+    }
+
+    // ---- the building sign: logo upload and removal (mirrors services/api office_logo_api.py)
+    if (logoPath && (method === 'PUT' || method === 'DELETE')) {
+      const current = buildings.get(logoPath[1]);
+      if (!current) return error(route, 404, 'Office record not found in this workspace');
+      if (url.searchParams.get('input_mode') !== 'click') return error(route, 403, "Confirm this on screen with a click. A spoken or typed answer cannot change a building's logo.");
+      if (String(current.revision) !== url.searchParams.get('expected_revision')) return error(route, 409, 'Office layout changed. Reload before retrying', [issue(`buildings.${logoPath[1]}`, 'STALE_REVISION', 'changed')]);
+      if (method === 'DELETE') {
+        if (!logos.has(logoPath[1])) return error(route, 404, 'This building has no logo.');
+        logos.delete(logoPath[1]);
+        const next = { ...current, logo_sha256: null, revision: Number(current.revision) + 1 };
+        buildings.set(logoPath[1], next);
+        return json(next);
+      }
+      const raw = request.postDataBuffer() ?? Buffer.alloc(0);
+      const refuse = (status: number, message: string) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ error: { code: status === 413 ? 'payload_too_large' : 'bad_request', message, details: [], correlation_id: 'corr_example' } }) });
+      if (raw.length === 0) return refuse(422, 'The file is empty. Choose a logo picture.');
+      if (raw.length > 1_048_576) return refuse(413, 'Request body exceeds the 1048576 byte limit');
+      const head = raw.subarray(0, 512).toString('latin1').toLowerCase();
+      if (head.includes('<svg')) return refuse(415, 'SVG logos are not accepted because they can carry script. Export the logo as PNG, JPEG or WebP.');
+      if (!raw.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return refuse(415, 'This file is not a PNG, JPEG or WebP picture. Choose a logo in one of those formats.');
+      logos.set(logoPath[1], raw);
+      const next = { ...current, logo_sha256: fakeSha(raw), revision: Number(current.revision) + 1 };
+      buildings.set(logoPath[1], next);
+      return json(next);
     }
 
     // ---- patches

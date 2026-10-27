@@ -1,0 +1,20 @@
+/* Building sign section of the office builder (docs/ANUM_MINE_HQ_LOGO_SIGNS.md). Colours are the builder's own tokens. */
+.hqlSection { gap: 10px; }
+.hqlPreviewWrap { display: flex; flex-direction: column; gap: 4px; }
+.hqlPreview { display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: 4 / 1; border-radius: 8px; border: 1px solid var(--b-line); background: #07151f; }
+.hqlLogoBlock { display: flex; flex-direction: column; gap: 6px; }
+.hqlDrop { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border: 1px dashed var(--b-line); border-radius: 8px; background: #0e2436; }
+.hqlDrop[data-dragging=true] { border-color: var(--b-accent); background: #12384a; }
+.hqlPending { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--b-line); border-radius: 8px; background: #0e2436; }
+.hqlColor { display: flex; flex-direction: column; gap: 4px; }
+.hqb input.hqlSwatch[type=color] { width: 44px; min-width: 44px; padding: 2px; cursor: pointer; }
+.hqlColor input[type=text] { flex: 1 1 120px; min-width: 0; width: auto; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
+.hqlColor [data-readable=false] { color: var(--b-warn); }
+.hqlStyleList { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.hqlStyle { display: flex; align-items: flex-start; gap: 8px; padding: 8px; border: 1px solid var(--b-line); border-radius: 8px; cursor: pointer; background: #0e2436; }
+.hqlStyle[data-selected=true] { border-color: var(--b-accent); background: #12384a; }
+.hqlStyle input { margin-top: 3px; }
+.hqlStyle span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hqlStyle small { color: var(--b-muted); font-size: var(--text-xs); }
+.hqlProblem p { margin: 0; }
+@media (max-width: 480px) { .hqlStyleList { grid-template-columns: 1fr; } }
