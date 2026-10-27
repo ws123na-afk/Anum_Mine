@@ -359,7 +359,7 @@ function BuildingCard(props: {
           {props.work && <small className="hqWorkLine" data-work={props.work.kind}>{props.work.because}</small>}
           {props.feed && <small className="hqWorkLine" data-feed={props.feed.reason}>{t('hqMotion.feed.off')}</small>}
           {props.walk && <small className="hqWalkLine" data-walk={props.walk.kind}>{props.walk.because}</small>}
-          {props.walkOff && <small className="hqWalkLine" data-feed="off">{t('hqWalkers.status.off')}</small>}
+          {props.walkOff && <small className="hqWalkLine" data-walkers-off="">{t('hqWalkers.status.off')}</small>}
         </span>
       )}
       <span className="hqStatusDot" aria-hidden="true" />

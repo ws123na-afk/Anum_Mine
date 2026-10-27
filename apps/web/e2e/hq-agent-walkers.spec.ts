@@ -187,9 +187,9 @@ test.describe('record-backed walkers', () => {
     const world = newWorld();
     world.failing = true;
     await open(page, world);
-    await expect(layer(page)).toHaveAttribute('data-feed', 'off', { timeout: 30_000 });
+    await expect(layer(page)).toHaveAttribute('data-walkers-feed', 'off', { timeout: 30_000 });
     await expect(layer(page).locator('.hqWalkerChip')).toHaveText('Agents on the move: Not connected');
-    await expect(hq(page).locator('.hqWalkLine[data-feed="off"]')).toHaveCount(1);
+    await expect(hq(page).locator('.hqWalkLine[data-walkers-off]')).toHaveCount(1);
     await expect(live(page)).toContainText('Agents on the move: Not connected');
     expect(await figures(page)).toBe(0);
     expect(await walkers(page)).toBe(0);

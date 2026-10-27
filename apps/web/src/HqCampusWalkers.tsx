@@ -191,7 +191,7 @@ export default function HqCampusWalkers(props: Props) {
 
   const walkingNow = shown.filter((s) => s.animate).length;
   return (
-    <div className="hqWalkerLayer" ref={layer} data-testid="hq-walkers" data-walkers={chip.count} data-waiting={chip.waiting} data-feed={chip.off ? 'off' : 'on'}>
+    <div className="hqWalkerLayer" ref={layer} data-testid="hq-walkers" data-walkers={chip.count} data-waiting={chip.waiting} data-walkers-feed={chip.off ? 'off' : 'on'}>
       <div className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-walkers-live">
         {shown.map((s) => <p key={s.id}>{t(s.animate ? 'hqWalkers.walking' : 'hqWalkers.arrived', { who: s.who, building: names.building(s.to) || t('hqWalkers.place.building'), because: s.because })}</p>)}
         {chip.waiting > 0 && <p>{t('hqWalkers.status.more', { count: String(chip.waiting) })}</p>}
