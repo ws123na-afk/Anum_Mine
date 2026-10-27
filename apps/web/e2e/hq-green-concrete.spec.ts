@@ -328,6 +328,8 @@ for (const locale of ['en', 'ar'] as const) {
 test('builder: the shift hours of a building and the seat fields of a desk are saved, and a bad hour is refused', async ({ page }) => {
   const mock = await openBuilder(page);
   await expect(page.getByRole('dialog', { name: 'Office builder' })).toBeVisible();
+  // On a phone the tabs live in the details sheet, which opens when a room is selected (the builder's own design), so select a room first.
+  await page.locator('.hqbSvg [data-room-id="r-sales"] .hqbRoomBody').click();
   await page.getByRole('tab', { name: 'Floor' }).click();
   const hours = page.getByTestId('hqb-shift-hours');
   await expect(hours).toContainText('Leave both empty to use the defaults');
@@ -340,6 +342,7 @@ test('builder: the shift hours of a building and the seat fields of a desk are s
   await expect.poll(() => mock.requests.find((r) => r.method === 'PATCH' && r.path.startsWith('/buildings/'))?.body).toMatchObject({ shift_day_start: '06:30', shift_night_start: '18:30' });
   // The seat fields of a desk.
   await page.locator('.hqbSvg [data-room-id="r-sales"] .hqbRoomBody').click();
+  await page.getByRole('tab', { name: 'Room', exact: true }).click();
   await page.getByRole('button', { name: /Desk 2/ }).click();
   await page.getByTestId('hqb-seat-shift').selectOption('night');
   await page.getByTestId('hqb-seat-order').fill('2');
