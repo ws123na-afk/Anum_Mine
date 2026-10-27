@@ -38,7 +38,7 @@ Tests keep this true (`apps/web/test/hqBillboard.test.ts`): the model is read th
 
 - One board per building, merged into one mesh (`billboardMesh`, 134 triangles per board), two posts on plinths, a dark panel, lit teal edge rules, two lamp heads and a night halo. It is drawn with `MAT.sign`, so it is lit at night like the facade signs.
 - Lettering: the board is textured with the building's own cell of the sign atlas, so it reads "ANUM MINE" over the building name, shaped right to left in Arabic mode (the same code as the facade sign, `drawSignAtlas`). Static lettering is the building name and nothing else.
-- Placement (`boardSites`, deterministic): in front of the building, on the side of its door (from `buildings[].door` and the placement), beside the walkway end and outside the garden beds. Each candidate is checked against every building box, the plaza disc, the walkways, the ring path and the other boards; the first candidate with no fault wins, else the least faulty (a building, the plaza or another board are hard faults, a path under a post is a soft one). Boards sit three metres up on posts, so a path can run under one.
+- Placement (`boardSites`, deterministic): in front of the building, on the side of its door (from `buildings[].door` and the placement), beside the walkway end and outside the garden beds. Each candidate is checked against every building box, the plaza and roundabout disc (`scene.plaza.outer`), the walkways (`scene.plaza.spokes`), the avenues and the other boards; the first candidate with no fault wins, else the least faulty (a building, the plaza or another board are hard faults, a path under a post is a soft one). Boards sit three metres up on posts, so a path can run under one.
 - Size scales with the campus (`boardWidth`, 9 to 13 m) so a board stays readable from the framing camera of a larger campus.
 - Clicking a board picks its building (it is a pick target of the building's id).
 
@@ -47,7 +47,7 @@ Tests keep this true (`apps/web/test/hqBillboard.test.ts`): the model is read th
 - A label like the other cards (`hq-billboards/BillboardCard.tsx`), anchored above the board and placed by `lib/hqLabels.ts`. A selected or hovered building gets the full card (what it does, floors and rooms, departments, room names, presence with state counts and verified time, open work, an Open button); if the full card does not fit it gives up detail (compact: name and one line) before it covers another card or a control. An unfocused card shows compact when the camera is within about 85 metres of the board, and is a dot when crowded. A crowded or off stage card parks inside the stage, invisible, and a focus brings it forward and expands it.
 - Keyboard: the header is a button (select; press again to open); the Open button enters the building; both are in the tab order. Screen readers get a labelled group per building (`Billboard for {name}`) with the rows as a description list; the decorative glyph and dot are hidden.
 - Arabic reads right to left; Latin values (an English name) are isolated by the message layer. Under 641 px the departments and room names rows are left out and the card is narrower.
-- The campus stage now passes `labelKeepOut` (the detail panel and the camera controls), so no label card, building or billboard, is placed under them.
+- The billboards are a separate label pass (`HqStage` `extraLabels`): the building cards are placed exactly as without billboards, and the billboard pass keeps round the placed building cards, the detail panel and the camera controls. An unfocused card has no pointer (a click goes to the building card under it), and is in the page only while the camera is within about 110 m.
 
 ## Code
 
@@ -61,7 +61,7 @@ Tests keep this true (`apps/web/test/hqBillboard.test.ts`): the model is read th
 | Messages | `apps/web/src/lib/messages/hqBillboard.en.ts`, `hqBillboard.ar.ts` |
 | Tests | `apps/web/test/hqBillboard.test.ts`, `apps/web/e2e/hq-billboards.spec.ts` |
 
-`lib/campusScene.ts` is not changed: the boards are built from the finished scene (`scene.buildings[].door`, `box`, `signIndex`, `scene.monument`), so a new central plaza only needs to pass its extra round areas as `avoid` in `boardSites` (and move `PLAZA_CLEAR`).
+`lib/campusScene.ts` is not changed: the boards are built from the finished scene (`scene.buildings[].door`, `box`, `signIndex`, `scene.plaza`).
 
 ## Budgets
 
