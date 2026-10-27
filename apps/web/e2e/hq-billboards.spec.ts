@@ -43,6 +43,13 @@ async function open(page: Page, { flow = true, night = false, locale = 'en' }: {
   return mock;
 }
 
+/** Zooms in with the keyboard until the billboard cards of every building are in the page. */
+async function zoomNear(page: Page) {
+  await hq(page).locator('.hqStage').focus();
+  for (let i = 0; i < 6; i++) await page.keyboard.press('+');
+  await page.waitForTimeout(800);
+}
+
 async function select(page: Page, name: RegExp) {
   const button = hq(page).locator('.hqBuildingCard', { hasText: name }).first();
   await button.focus();
@@ -53,6 +60,9 @@ async function select(page: Page, name: RegExp) {
 
 test('a billboard is drawn for every building, the scene is not blank, and the card shows the real record values', async ({ page }) => {
   await open(page);
+  // Far out, no billboard card is in the page (the building cards are the way in); closer than three quarters of the framing they all are.
+  await expect(hq(page).locator('[data-testid="hq-billboard"]')).toHaveCount(0);
+  await zoomNear(page);
   const cards = hq(page).locator('[data-testid="hq-billboard"]');
   await expect(cards).toHaveCount(5);
   expect(new Set(await cards.evaluateAll((els) => els.map((e) => e.getAttribute('data-building')))).size).toBe(5);
@@ -90,6 +100,7 @@ test('a billboard is drawn for every building, the scene is not blank, and the c
 test('a feed that is off shows Not connected, never a zero', async ({ page }) => {
   await open(page, { flow: false });
   // Tyre Pulse HQ is another workspace without presence: every live value is Not connected.
+  await zoomNear(page);
   const other = card(page, 'workspace_tyre');
   await other.locator('.hqBbHead').focus();
   await expect(other.locator('[data-field="presence"] dd')).toHaveText('Not connected');

@@ -219,9 +219,9 @@ export function CampusView(props: CampusViewProps) {
   }, [scene, byId, selectedId, props.currentWorkspaceId, props.avatars, props.departments, density, activate]);
   // The billboards are a separate pass (HqStage `extraLabels`): they can never move, hide or park a building card.
   const extraLabels: StageLabel[] = useMemo(() => (boards && bb ? bb.billboardLabels({
-    layer: boards, buildings: byId, plans, flow: props.flow, selectedId, hoverId: hover, near: camera.distance <= 110, now: Date.now(),
+    layer: boards, buildings: byId, plans, flow: props.flow, selectedId, hoverId: hover, near: camera.distance <= Math.min(110, home.distance * 0.75), now: Date.now(),
     onActivate: activate, onOpen: (id) => latest.current.onEnter(id), onHover: setHover,
-  }) : []), [boards, bb, byId, plans, props.flow, selectedId, hover, camera.distance <= 110, locale, activate]);
+  }) : []), [boards, bb, byId, plans, props.flow, selectedId, hover, camera.distance <= Math.min(110, home.distance * 0.75), locale, activate]);
 
   const onView = useCallback((cam: CameraState, aspect: number) => {
     const now = performance.now();
