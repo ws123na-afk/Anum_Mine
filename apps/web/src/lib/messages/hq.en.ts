@@ -157,7 +157,7 @@ export const hqEn = {
   'hq.agent.tasks': 'Open tasks',
   'hq.agent.noTasks': 'No open tasks.',
   'hq.agent.noEvidence': 'No activity record is available for this agent right now.',
-  'hq.agent.observed': 'Observed {time}',
+  'hq.agent.observed': 'Verified at {time}',
   'hq.agent.profile': 'Open agent profile',
   'hq.module.loading': 'Loading...',
   'hq.module.notConnected': 'Not connected',

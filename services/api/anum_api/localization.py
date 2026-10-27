@@ -191,6 +191,15 @@ ARABIC_MESSAGES: dict[str, str] = {
     "The undo window has closed; reverse it in the connected service if you still need to.": (
         "انتهت مهلة التراجع؛ اعكس الإجراء في الخدمة المتصلة إن كنت لا تزال تحتاج إلى ذلك."
     ),
+    # Owner-triggered office actions (anum_api/office_green_concrete_api.py, office_starter_campus_api.py)
+    "Confirm this on screen with a click. A spoken or typed answer cannot confirm it.": "أكّد هذا على الشاشة بنقرة. لا يمكن تأكيده بإجابة منطوقة أو مكتوبة.",
+    "What would be created has changed since you opened it. Review the preview again.": "تغيّر ما سيُنشأ منذ فتحت المعاينة. راجع المعاينة مرة أخرى.",
+    "Invalid IANA time zone": "منطقة زمنية غير صالحة.",
+    "A room with the same name already exists on the floor. Nothing was created.": "توجد غرفة بالاسم نفسه على هذا الطابق. لم يُنشأ شيء.",
+    "Another floor already uses this level. Nothing was created.": "طابق آخر يستخدم هذا المستوى بالفعل. لم يُنشأ شيء.",
+    "The room would overlap another room. Nothing was created.": "ستتداخل الغرفة مع غرفة أخرى. لم يُنشأ شيء.",
+    "The room would fall outside its floor. Nothing was created.": "ستقع الغرفة خارج طابقها. لم يُنشأ شيء.",
+    "A record conflicts with one that already exists. Nothing was created.": "يتعارض سجل مع سجل موجود بالفعل. لم يُنشأ شيء.",
 }
 
 # Messages with values in them: (pattern, Arabic template using the named groups).

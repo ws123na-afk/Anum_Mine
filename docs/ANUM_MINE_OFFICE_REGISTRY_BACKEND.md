@@ -99,6 +99,9 @@ Expand only. `office_floors`: `width_m`, `depth_m`. `office_rooms`: `rotation` (
 ### Arabic names (migration `0114_building_floor_name_ar`)
 Expand only: a nullable `name_ar varchar(100)` on `office_buildings` and `office_floors` (rooms have had it since 0105). No backfill, no new table: the forced RLS and purge policies of `0097` already cover the columns, and the previous release keeps working against the new schema. Details, the Add Arabic names action and the web behaviour are in [ANUM_MINE_ARABIC_NAMES.md](ANUM_MINE_ARABIC_NAMES.md).
 
+### Desk seats and shift hours (migration `0115_desk_seats_shifts`)
+Expand only, nullable columns: `office_desks.shift` (`day` or `night`), `seat_order` (1 to 999), `facing` (`north`, `south`, `east`, `west`), `seat_kind` (`team` or `manager`) and `table_group`; `office_buildings.shift_day_start` and `shift_night_start` ("HH:MM" in the building's time zone). Check constraints hold the values; no backfill, no new table (forced RLS and purge policies of `0097` cover them), rollback safe. Desk reads return the five seat fields; `PATCH /desks/{id}` accepts them (null clears one) and `PATCH /buildings/{id}` accepts the two hours (null on both means the unconfirmed defaults 07:00 and 19:00; two equal starts are refused). Used by [Green Concrete](ANUM_MINE_GREEN_CONCRETE.md). The layout history does not capture them yet.
+
 ### Tests
 `tests/test_office_layout.py` (geometry rules, catalogue drift, request models), `tests/test_postgres_office_builder.py` (database role, atomic save, delete guards, copy, templates, audit values, event, team counts, member and cross tenant refusals). Contract types: `packages/contracts/src/officeBuilder.ts`.
 

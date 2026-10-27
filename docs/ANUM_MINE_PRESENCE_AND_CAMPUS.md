@@ -76,6 +76,10 @@ Scopes: `counts` (buildings, floors, rooms, desks, agents by state; shared agent
 
 How the grants are found without a cross-tenant query: a short transaction runs `SET LOCAL ROLE anum_executive_reader` (NOLOGIN, migration 0101): column grants `id, tenant_id, workspace_id, grantee_user_id, scopes, status, expires_at, revoked_at` and one policy that admits only the caller's own **active, unexpired, unrevoked** grants in the token's tenant. Then each granted workspace is opened in its own RLS context, the grant is re-checked there, and an `executive.overview.read` audit record (actor = the executive, `grant_id`, scopes) is written into **that workspace** before any data is returned. If the audit write fails the workspace item is `unavailable`. The owner of the granted workspace sees every read in the audit log.
 
+## Presence and shifts
+
+Presence knows nothing about shifts: it is derived from records, per agent. The web adds the shift on top (`lib/hqShifts.ts`): a person whose desk belongs to the shift that is not in force is drawn **Off shift** with a dark screen even when a record says work is waiting, and the card says **Off shift, work waiting** with the real record's title and its `last_verified_at`. Room and building label cards count only people on shift as working; the campus card counts every agent from the presence list. See [Green Concrete](ANUM_MINE_GREEN_CONCRETE.md).
+
 ## Data and migration `0101_executive_grants`
 
 Expand only (new tables and one new role; nothing existing changes). Chained on `0100_office_room_geometry` (file `0099_office_room_geometry.py`); numbers are renumbered at merge (data agent 0101, meetings 0102, executive 0103).

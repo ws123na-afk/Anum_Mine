@@ -3,7 +3,7 @@
 // one atomic PUT; creating, copying, deleting and the details of a room are immediate server
 // actions, merged into the draft without losing it. No browser storage is used for any of it.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { OfficeRoomUpdate, OfficeTemplateCatalogue, OfficeRoomTemplate } from '@anum/contracts';
+import type { OfficeDeskUpdate, OfficeRoomUpdate, OfficeTemplateCatalogue, OfficeRoomTemplate } from '@anum/contracts';
 import type { OfficeDesk, OfficeFloor, OfficeRegistryData, OfficeRoom } from '../lib/officeSpaceClient.ts';
 import { t } from '../lib/i18n.ts';
 import { makeOfficeId, type BuilderApi } from './builderApi.ts';
@@ -430,6 +430,16 @@ export function useBuilder({ api, load, scopeKey }: UseBuilderOptions) {
     return true;
   }, [api, merge, run]);
 
+  /** The seat fields of a desk (shift, place at the table, facing, seat type, table group), saved at once with the desk's revision. */
+  const saveDeskSeat = useCallback(async (deskId: string, patch: Omit<OfficeDeskUpdate, 'expected_revision'>): Promise<boolean> => {
+    const revision = live.current.revisions[deskId];
+    const updated = await run(() => api.patchDesk(deskId, { ...patch, expected_revision: revision }));
+    if (!updated) return false;
+    merge([], [updated]);
+    setNotice(t('hqb.status.floorSaved'));
+    return true;
+  }, [api, merge, run]);
+
   const deleteDesk = useCallback(async (deskId: string): Promise<boolean> => {
     const revision = live.current.revisions[deskId];
     const ok = await run(async () => { await api.deleteDesk(deskId, revision); return true; });
@@ -474,7 +484,7 @@ export function useBuilder({ api, load, scopeKey }: UseBuilderOptions) {
     return true;
   }, [api, run]);
 
-  const saveBuilding = useCallback(async (patch: { name?: string; name_ar?: string | null }): Promise<boolean> => {
+  const saveBuilding = useCallback(async (patch: { name?: string; name_ar?: string | null; shift_day_start?: string | null; shift_night_start?: string | null }): Promise<boolean> => {
     const current = live.current.data.buildings.find((b) => b.id === buildingIdRef.current);
     if (!current) return false;
     const updated = await run(() => api.patchBuilding(current.id, { ...patch, expected_revision: current.revision }));
@@ -525,7 +535,7 @@ export function useBuilder({ api, load, scopeKey }: UseBuilderOptions) {
     setBuildingId, setFloorId, setSelectedRoomId, setSelectedDeskId, setNotice, setProblem, clearReapplied: () => setReapplied(null),
     reload, reloadAndReapply, reloadDiscarding, discard, save,
     moveRoom, rotate, setDoor, moveDesk, placeDesk, placeRoom, undo: doUndo, redo: doRedo,
-    addFromTemplate, addBlank, copyRoom, saveRoomDetails, deleteRoom, addDesk, renameDesk, deleteDesk, seatAgent,
+    addFromTemplate, addBlank, copyRoom, saveRoomDetails, deleteRoom, addDesk, renameDesk, saveDeskSeat, deleteDesk, seatAgent,
     saveFloor, saveBuilding, deleteFloor, deleteBuilding,
     nameOf,
   };

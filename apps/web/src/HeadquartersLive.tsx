@@ -17,6 +17,7 @@ import { GuidedExecutiveTour } from './GuidedExecutiveTour';
 import { HqPlanFallback } from './HqPlanFallback';
 import { GraphicsChip, PresenceLinkChip, ViewSwitch, type HqView } from './HqChrome';
 import { AgentPanel, RoomPanel } from './HqPanels';
+import { activeShiftKey, applyShiftView, type ShiftView } from './lib/hqShifts.ts';
 import { OfficeWorkstations } from './OfficeWorkstations';
 import * as api from './lib/api.ts';
 import { campusTotals, workspaceOf, type Campus, type CampusBuildingKind } from './lib/campusModel.ts';
@@ -59,6 +60,7 @@ const HqGpuCheckPanel = lazy(() => import('./hq-gpu/HqGpuCheckPanel'));
 // First run: the panel that offers to create the campus inside the scene of a workspace with no buildings (docs/ANUM_MINE_STARTER_CAMPUS.md#first-run).
 const FirstRunPanel = lazy(() => import('./hq-first-run/FirstRunPanel'));
 import { useProvisioningGaps } from './hq-provisioning/useProvisioning';
+const GreenConcreteDialog = lazy(() => import('./hq-green-concrete/GreenConcreteDialog').then((m) => ({ default: m.GreenConcreteDialog })));
 const StaffDesksDialog = lazy(() => import('./hq-staff-desks/StaffDesksDialog').then((m) => ({ default: m.StaffDesksDialog })));
 import './hqFlow.css';
 import './headquartersLive.css';
@@ -107,6 +109,12 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [firstRunKeep, setFirstRunKeep] = useState(false);
   const [campusNote, setCampusNote] = useState<string | null>(null);
   const [staffOpen, setStaffOpen] = useState(false);
+  const [greenOpen, setGreenOpen] = useState(false);
+  // Shifts: the clock the shift in force is read from (it follows the page clock, so a pinned clock in a test works) and which shift the room shows.
+  const [shiftView, setShiftView] = useState<ShiftView>('active');
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const nowRef = useRef(nowMs);
+  nowRef.current = nowMs;
   const flow = useOfficeFlow(true, { tick: props.live ?? 0, type: props.liveEvent ?? null, streaming: props.streamLive === true });
   const gaps = useProvisioningGaps(flow.snapshot?.as_of ?? 0);
   const [flowOpen, setFlowOpen] = useState(false);
@@ -225,7 +233,20 @@ export function HeadquartersLive(props: HeadquartersProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, [overlay]);
 
-  const projection = state?.projection ?? null;
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    const timer = window.setInterval(tick, 15_000);
+    window.addEventListener('focus', tick);
+    document.addEventListener('visibilitychange', tick);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', tick); document.removeEventListener('visibilitychange', tick); };
+  }, []);
+  const rawProjection = state?.projection ?? null;
+  // The registry as the chosen shift sees it. It is rebuilt only when the shift in force changes (not on every clock tick).
+  const shiftKey = rawProjection ? activeShiftKey(rawProjection.buildings, nowMs) : '';
+  const projection = useMemo(
+    () => (rawProjection ? { ...rawProjection, buildings: applyShiftView(rawProjection.buildings, shiftView, nowRef.current) } : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawProjection, shiftView, shiftKey]);
   const registryBuilding = projection?.buildings.find((b) => b.id === state?.selected.buildingId) ?? projection?.buildings[0] ?? null;
   const floor = registryBuilding?.floors.find((f) => f.id === state?.selected.floorId) ?? registryBuilding?.floors[0] ?? null;
 
@@ -491,13 +512,14 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const sidePanel = agentId && agentRef
     ? <>{(props.renderWorkstationPanel
       ? props.renderWorkstationPanel(agentRef, ctx)
-      : <AgentPanel agentId={agentId} deskId={agentDesk?.id ?? null} refreshKey={state?.updatedAt ?? null} presence={presenceOf(agentId, agentDesk)} roomLabel={agentRoom ? roomName(agentRoom, locale) : null} deskLabel={agentDesk?.label ?? null} onClose={closePanels} />)}
+      : <AgentPanel agentId={agentId} deskId={agentDesk?.id ?? null} refreshKey={state?.updatedAt ?? null} presence={presenceOf(agentId, agentDesk)} roomLabel={agentRoom ? roomName(agentRoom, locale) : null} deskLabel={agentDesk?.label ?? null} onClose={closePanels} shiftInfo={floor?.desks.find((d) => d.id === agentDesk?.id)?.shiftInfo ?? agentDesk?.shiftInfo} />)}
       {!agentId.startsWith('desk:') && <HistoryLauncher label={t('hqHist.launch.agent')} onClick={() => openHistory({ kind: 'agent', agentId, name: agentRef.name || agentId })} />}</>
     : roomPanelRoom
       ? <>{(props.renderRoomPanel
         ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
         : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} buildingKind={moduleBuildingKind(currentBuilding)} canManage={canManage} onOpenFlow={openFlowFor} onOpenGaps={() => setOverlay('gaps')} wall={isOperationsRoom(roomPanelRoom) ? wallModel : null} onReloadWall={() => void flow.reload()}
-          meeting={liveMeetingByRoom.get(roomPanelRoom.id) ?? null} meetingsKnown={meetings !== null} onStartMeeting={() => { setMeetingRoomId(roomPanelRoom.id); setOverlay('agentMeetings'); }} /><HqTeamPanel onAvatarChanged={() => void controller.refresh()} onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)}
+          meeting={liveMeetingByRoom.get(roomPanelRoom.id) ?? null} meetingsKnown={meetings !== null} onStartMeeting={() => { setMeetingRoomId(roomPanelRoom.id); setOverlay('agentMeetings'); }}
+          shifts={registryBuilding?.shifts ?? null} shiftView={shiftView} onShiftView={setShiftView} /><HqTeamPanel onAvatarChanged={() => void controller.refresh()} onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)}
         <HistoryLauncher label={t('hqHist.launch.room')} onClick={() => openHistory({ kind: 'room', roomId: roomPanelRoom.id, label: roomName(roomPanelRoom, locale), deskIds: roomPanelRoom.deskIds }, 'timeline')} /></>
       : null;
 
@@ -532,6 +554,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
               <ul className="hqMenu">
                 <li><button type="button" aria-pressed={flowOpen} onClick={() => { setFlowOpen((v) => !v); setToolsOpen(false); }}><Layers aria-hidden="true" />{t('hqFlow.open')}</button></li>
                 <li><button type="button" onClick={() => { setStarterOpen(true); setToolsOpen(false); }}><Building2 aria-hidden="true" />{t('hqSc.open')}</button></li>
+                <li><button type="button" onClick={() => { setGreenOpen(true); setToolsOpen(false); }}><Building2 aria-hidden="true" />{t('hqGc.open')}</button></li>
                 <li><button type="button" onClick={() => { setStaffOpen(true); setToolsOpen(false); }}><Users aria-hidden="true" />{t('hqSd.open')}</button></li>
                 <li><button type="button" onClick={() => { setOverlay('gaps'); setToolsOpen(false); }}><Users aria-hidden="true" />{gaps.gaps && gaps.gaps.gaps.length > 0 ? t('hqProv.openCount', { count: gaps.gaps.gaps.length }) : t('hqProv.open')}</button></li>
                 <li><button type="button" onClick={() => { setOverlay('teams'); setToolsOpen(false); }}><Users aria-hidden="true" />{t('hqTeam.title')}</button></li>
@@ -654,7 +677,11 @@ export function HeadquartersLive(props: HeadquartersProps) {
       <AssignHost onAssigned={() => void flow.reload()} onNavigate={goTo}
         seatedAgentIds={(rid) => new Set((registryBuilding?.floors ?? []).flatMap((f) => f.desks).filter((d) => d.roomId === rid && d.agentId).map((d) => d.agentId as string))} />
       {starterOpen && <Suspense fallback={null}><StarterCampusDialog onClose={() => setStarterOpen(false)}
-        onCreated={() => { void controller.refresh(); void flow.reload(); void gaps.reload(); }} onOpenGaps={() => setOverlay('gaps')} /></Suspense>}
+        onCreated={() => { void controller.refresh(); void flow.reload(); void gaps.reload(); }} onOpenGaps={() => setOverlay('gaps')}
+        onOpenGreen={() => { setStarterOpen(false); setGreenOpen(true); }} /></Suspense>}
+
+      {greenOpen && <Suspense fallback={null}><GreenConcreteDialog onClose={() => setGreenOpen(false)}
+        onCreated={() => { void controller.refresh(); void flow.reload(); void gaps.reload(); }} /></Suspense>}
 
       {staffOpen && <Suspense fallback={null}><StaffDesksDialog onClose={() => setStaffOpen(false)}
         onChanged={() => { void controller.refresh(); void flow.reload(); void gaps.reload(); }} /></Suspense>}

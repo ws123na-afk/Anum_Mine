@@ -26,9 +26,12 @@ export function RoomLabelCard(props: { name: string; kind: string; sub: string; 
 export function AgentLabelCard(props: {
   chip: { id: string; avatar: AvatarAppearance | null; department: string | null } | null; name: string; role: string | null;
   status: StatusKey | null; stale: boolean; selected: boolean; onPick: () => void;
+  /** Set when the person is off shift: the card says so instead of a work state (their screen is dark). */
+  offShift?: 'on' | 'manager' | 'off' | 'off_waiting' | null;
 }) {
-  const tone = props.status ? STATUS_TONE[props.status] : 'faint';
-  const statusText = props.status ? statusLabel(props.status) : t('hq.status.unavailable');
+  const off = props.offShift === 'off' || props.offShift === 'off_waiting';
+  const tone = off ? 'faint' : props.status ? STATUS_TONE[props.status] : 'faint';
+  const statusText = off ? t(props.offShift === 'off_waiting' ? 'hqGc.offWaiting' : 'hqGc.off') : props.status ? statusLabel(props.status) : t('hq.status.unavailable');
   return (
     <button type="button" className={`hqAgentCard tone-${tone}`} data-selected={props.selected} data-stale={props.stale} aria-pressed={props.selected}
       aria-label={t('hqLabels.agentAria', { name: props.name, role: props.role ?? t('hqLabels.agentNoRole'), status: props.stale ? `${statusText} (${t('hq.agent.stale')})` : statusText })} onClick={props.onPick}>

@@ -102,6 +102,7 @@ x-user-roles: owner,member
 - [ANUM MINE headquarters: assign work in place and add a building by asking](docs/ANUM_MINE_ASSIGN_WORK.md)
 - [ANUM MINE starter campus: one click Set up my campus](docs/ANUM_MINE_STARTER_CAMPUS.md)
 - [ANUM MINE Arabic names of buildings, floors and rooms](docs/ANUM_MINE_ARABIC_NAMES.md)
+- [ANUM MINE Green Concrete: command center, L tables, shifts and people](docs/ANUM_MINE_GREEN_CONCRETE.md)
 - [ANUM MINE floor overview: the whole floor on one screen, and the fitted building camera](docs/ANUM_MINE_FLOOR_OVERVIEW.md)
 - [ANUM MINE headquarters label cards and scene chrome: room and agent cards, density rule, floor selector, live strips](docs/ANUM_MINE_HQ_LABELS.md)
 - [ANUM MINE Staff my campus: a reviewed paused agent for every empty desk](docs/ANUM_MINE_STAFF_DESKS.md)
