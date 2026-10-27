@@ -83,6 +83,10 @@ export interface OfficeRoomCreate {
   capacity: number;
 }
 
+/** The look of a building's sign (docs/ANUM_MINE_HQ_LOGO_SIGNS.md). `null` means the default lettered sign. */
+export type OfficeSignStyle = 'plain' | 'plaque' | 'illuminated' | 'banner';
+export const OFFICE_SIGN_STYLES: readonly OfficeSignStyle[] = ['plain', 'plaque', 'illuminated', 'banner'];
+
 /** PATCH bodies: send only what changes. `null` clears color, name_ar, team_department and coordinates. */
 export interface OfficeBuildingUpdate {
   expected_revision: number;
@@ -92,6 +96,12 @@ export interface OfficeBuildingUpdate {
   timezone?: string;
   latitude?: number | null;
   longitude?: number | null;
+  shift_day_start?: string | null;
+  shift_night_start?: string | null;
+  /** The sign style; `null` clears it (the lettered sign). */
+  sign_style?: OfficeSignStyle | null;
+  /** The brand colour of the sign, `#rrggbb` (the server lower-cases it); `null` clears it. */
+  brand_color?: string | null;
 }
 export interface OfficeFloorUpdate {
   expected_revision: number;

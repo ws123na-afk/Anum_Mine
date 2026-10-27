@@ -28,6 +28,7 @@ dependencies = [
   "psycopg[binary]==3.3.6",
   "pydantic-settings==2.16.0",
   "pypdf==6.21.2",
+  "Pillow==12.3.0",
   "PyJWT[crypto]==2.15.1",
   "redis==8.1.0",
   "sentry-sdk==2.72.0",

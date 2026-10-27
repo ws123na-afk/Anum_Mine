@@ -38,7 +38,7 @@ _COLUMNS = {
 }
 # Columns that exist on a read but are not part of a create request.
 _EXTRA_COLUMNS = {
-    "buildings": ("name_ar", "shift_day_start", "shift_night_start"),
+    "buildings": ("name_ar", "shift_day_start", "shift_night_start", "sign_style", "brand_color", "logo_sha256"),
     "floors": ("name_ar",),
     "rooms": ("scene_x", "scene_z", "scene_width", "scene_depth", "rotation", "door_side", "description",
               "notes", "color", "name_ar", "equipment", "team_department"),
@@ -46,7 +46,8 @@ _EXTRA_COLUMNS = {
 }
 # Columns a PATCH may change, per resource (the API models are the first filter).
 _PATCHABLE = {
-    "buildings": ("name", "name_ar", "timezone", "latitude", "longitude", "shift_day_start", "shift_night_start"),
+    "buildings": ("name", "name_ar", "timezone", "latitude", "longitude", "shift_day_start", "shift_night_start",
+                  "sign_style", "brand_color", "logo_sha256"),
     "floors": ("name", "name_ar", "level", "width_m", "depth_m"),
     "rooms": ("name", "kind", "capacity", "rotation", "door_side", "description", "notes", "color",
               "name_ar", "equipment", "team_department"),
