@@ -184,6 +184,8 @@ export function CampusView(props: CampusViewProps) {
       const building = byId.get(b.workspaceId)!;
       return {
         id: b.workspaceId, anchor: b.anchor, priority: b.workspaceId === selectedId ? 0 : 1,
+        // A crowded stage gives a building card less detail (name and icon, then a dot) before two cards would cover each other.
+        tiers: ['full', 'compact', 'dot'],
         node: (
           <BuildingCard
             building={building} selected={b.workspaceId === selectedId} current={b.workspaceId === props.currentWorkspaceId || building.registryBuildingId !== undefined}
