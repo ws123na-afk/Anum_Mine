@@ -45,15 +45,17 @@ def one(engine: Engine, sql: str, **params):
 
 
 def test_every_new_department_is_storable_and_an_unknown_one_is_refused(hq: TestClient, database_engine: Engine) -> None:
-    for i, department in enumerate(("sales", "marketing", "technology", "research", "legal", "compliance", "security", "hr", "procurement", "custom")):
+    for i, department in enumerate(("sales", "marketing", "technology", "research", "legal", "compliance", "security", "hr", "procurement", "executive", "custom")):
         seed_room(database_engine, TENANT_A, WORKSPACE_A, f"dept-{i}", "office", department)
-    assert one(database_engine, "select count(*) from office_rooms where id like 'dept-%'") == [(10,)]
+    assert one(database_engine, "select count(*) from office_rooms where id like 'dept-%'") == [(11,)]
     with pytest.raises(DBAPIError):
         seed_room(database_engine, TENANT_A, WORKSPACE_A, "bad", "office", "astrology")
     # Through the API as well: the builder accepts the new values and refuses others.
     patched = hq.patch(f"/api/v1/office-spaces/rooms/dept-0", headers=OWNER(), json={"expected_revision": 1, "team_department": "legal"})
     assert patched.status_code == 200 and patched.json()["team_department"] == "legal", patched.text
-    refused = hq.patch(f"/api/v1/office-spaces/rooms/dept-0", headers=OWNER(), json={"expected_revision": 2, "team_department": "astrology"})
+    executive = hq.patch(f"/api/v1/office-spaces/rooms/dept-0", headers=OWNER(), json={"expected_revision": 2, "team_department": "executive"})
+    assert executive.status_code == 200 and executive.json()["team_department"] == "executive", executive.text
+    refused = hq.patch(f"/api/v1/office-spaces/rooms/dept-0", headers=OWNER(), json={"expected_revision": 3, "team_department": "astrology"})
     assert refused.status_code == 422
 
 

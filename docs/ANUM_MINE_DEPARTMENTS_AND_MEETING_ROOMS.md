@@ -6,7 +6,7 @@ Status: built in this change (API, one migration, contracts, web, tests). Web an
 
 A room stores one department (`office_rooms.team_department`). The storable set is now:
 
-`sales, support, operations, finance, tyre_engineering, marketing, technology, research, legal, compliance, security, hr, procurement, custom`
+`sales, support, operations, finance, tyre_engineering, marketing, technology, research, legal, compliance, security, hr, procurement, executive, custom`
 
 Old values stay valid. The set lives in four places that a test keeps equal: the Python enum `team_models.Department`, `office_layout.TEAM_DEPARTMENTS` with the API literal `TeamDepartment`, the database check constraint `ck_office_room_department` (widened by migration `0108_departments_meeting_room`), and the contract `OFFICE_TEAM_DEPARTMENTS` (`packages/contracts/src/officeBuilder.ts`, also `team.ts` `Department`). The web builder list (`hqBuilder/labels.ts`) is checked against the contract list in `test/hqRoomModule.test.ts`.
 
@@ -25,6 +25,7 @@ Every module is a view that exists in the shell (`lib/shell.ts`). Where nothing 
 | `compliance` | Governance (`#governance`) | Policy packs, roles, approval rules |
 | `security` | Audit log (`#audit`) | Who did what, when |
 | `hr` | Members and roles (`#members`) | People, invitations, roles. This is access management, not a payroll or recruiting module |
+| `executive` | Executive desk (`#executive`) | Added with migration `0116_room_dept_executive` (expand only, no backfill). The starter campus Executive Office carries it; a room's building kind no longer decides this |
 | `procurement` | No module connected | There is no procurement or supplier module. The room says so and offers Organisation gaps |
 | `custom`, unknown | No module connected | By design |
 | `sales`, `support`, `operations`, `finance`, `tyre_engineering` | unchanged: `#whatsapp`, `#inbox`, live flow dock, `#finance`, `#tyre` | |

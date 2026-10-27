@@ -101,7 +101,7 @@ export interface OrgInputs {
 /** Departments in the order the chart shows them; free-text ones follow alphabetically, then "no department". */
 export const DEPARTMENT_ORDER: readonly Department[] = [
   'sales', 'support', 'operations', 'tyre_engineering', 'finance',
-  'marketing', 'technology', 'research', 'legal', 'compliance', 'security', 'hr', 'procurement',
+  'marketing', 'technology', 'research', 'legal', 'compliance', 'security', 'hr', 'procurement', 'executive',
   'custom',
 ];
 /** How many members a department shows before "Show all". */

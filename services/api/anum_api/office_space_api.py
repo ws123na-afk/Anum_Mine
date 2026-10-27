@@ -63,7 +63,7 @@ EquipmentKind = Literal[
     "charging_station", "first_aid_kit",
 ]
 RoomColor = Literal["slate", "forest", "brass", "sapphire", "amethyst", "crimson", "teal", "sand"]
-TeamDepartment = Literal["sales", "support", "operations", "finance", "tyre_engineering", "marketing", "technology", "research", "legal", "compliance", "security", "hr", "procurement", "custom"]
+TeamDepartment = Literal["sales", "support", "operations", "finance", "tyre_engineering", "marketing", "technology", "research", "legal", "compliance", "security", "hr", "procurement", "executive", "custom"]
 RoomKind = Literal["office", "meeting", "reception", "workshop", "warehouse", "lounge", "command"]
 DoorSide = Literal["north", "south", "east", "west"]
 Rotation = Literal[0, 90, 180, 270]

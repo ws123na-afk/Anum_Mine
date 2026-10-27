@@ -10,7 +10,7 @@ export const ROOM_COLORS: readonly OfficeRoomColor[] = ['slate', 'forest', 'bras
 export const DOOR_SIDES: readonly OfficeDoorSide[] = ['north', 'south', 'east', 'west'];
 export const DEPARTMENTS: readonly OfficeTeamDepartment[] = [
   'sales', 'support', 'operations', 'finance', 'tyre_engineering',
-  'marketing', 'technology', 'research', 'legal', 'compliance', 'security', 'hr', 'procurement',
+  'marketing', 'technology', 'research', 'legal', 'compliance', 'security', 'hr', 'procurement', 'executive',
   'custom',
 ];
 export const EQUIPMENT_KINDS: readonly OfficeEquipmentKind[] = [
