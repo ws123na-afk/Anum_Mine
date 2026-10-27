@@ -50,7 +50,7 @@ export function laneOf(path: readonly P2[]): Lane {
 
 export type RingGeometry = Readonly<{ cx: number; cz: number; halfW: number; halfD: number; cornerRadius?: number }>;
 
-export type TrafficOptions = Readonly<{ seed?: string; count?: number }>;
+export type TrafficOptions = Readonly<{ seed?: string; count?: number; /** A roundabout at the centre: one more lane, counter-clockwise like the outer lane, with a few vehicles. */ roundabout?: Readonly<{ cx: number; cz: number; radius: number }> }>;
 
 /**
  * Two loops on the ring road, keeping to the right as the country does: the outer lane runs
@@ -62,15 +62,21 @@ export function trafficPlan(ring: RingGeometry, o: TrafficOptions = {}): Pick<Sc
   const outer = roundedRectPath(ring.cx, ring.cz, ring.halfW + LANE_OFFSET, ring.halfD + LANE_OFFSET, r + LANE_OFFSET, 6).slice().reverse();
   const inner = roundedRectPath(ring.cx, ring.cz, ring.halfW - LANE_OFFSET, ring.halfD - LANE_OFFSET, Math.max(2, r - LANE_OFFSET), 6);
   const lanes = [laneOf(outer), laneOf(inner)];
+  if (o.roundabout) {
+    const rb = o.roundabout, segs = 48;
+    const loop: P2[] = [];
+    for (let i = 0; i < segs; i++) { const a = (i / segs) * Math.PI * 2; loop.push([rb.cx + Math.cos(a) * (rb.radius + LANE_OFFSET), rb.cz + Math.sin(a) * (rb.radius + LANE_OFFSET)]); }
+    lanes.push(laneOf(loop.reverse()));
+  }
   const rnd = seeded(`ambient-traffic:${o.seed ?? 'campus'}`);
   const palette = [...CAR_PALETTE, hex('#e8ebee'), hex('#2f4b66')];
   const wanted = o.count ?? Math.round((lanes[0].total + lanes[1].total) / 70);
   const count = Math.max(2, Math.min(18, wanted));
   const vehicles: SceneryVehicle[] = [];
   lanes.forEach((lane, li) => {
-    const n = Math.max(1, Math.min(Math.floor(lane.total / MIN_GAP), li === 0 ? Math.ceil(count / 2) : Math.floor(count / 2)));
+    const n = li === 2 ? Math.max(1, Math.min(Math.floor(lane.total / MIN_GAP), 3)) : Math.max(1, Math.min(Math.floor(lane.total / MIN_GAP), li === 0 ? Math.ceil(count / 2) : Math.floor(count / 2)));
     const gap = lane.total / n;
-    const speed = LANE_SPEEDS[li] + rnd() * 0.4;
+    const speed = LANE_SPEEDS[li === 2 ? 1 : li] + rnd() * 0.4;
     const phase = rnd() * gap;
     for (let i = 0; i < n; i++) {
       const jitter = n > 1 ? (rnd() - 0.5) * Math.min(4, gap - MIN_GAP) : 0;

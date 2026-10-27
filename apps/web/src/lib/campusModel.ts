@@ -149,22 +149,63 @@ export type Placement = Readonly<{
 
 export const FLOOR_HEIGHT = 3.4;
 const SIZE: Record<CampusBuildingKind, { w: number; d: number }> = {
-  executive: { w: 15, d: 15 }, business: { w: 17, d: 14 }, department: { w: 14, d: 12 }, personal: { w: 11, d: 10 },
+  executive: { w: 30, d: 26 }, business: { w: 17, d: 14 }, department: { w: 14, d: 12 }, personal: { w: 11, d: 10 },
 };
-const RING_CAPACITY = [7, 12, 18, 24];
-const RING_RADIUS = [38, 66, 94, 122];
+
+/**
+ * The centre of the campus (ground plan, metres from the middle): the fountain basin, the paved plaza round it, the
+ * roundabout (centre line and width of the road), the outer edge of its pavement, and the radius inside which no building
+ * lot may stand. `corridor` is the half width kept free for the two avenues (south and east) that join the roundabout to the ring road.
+ */
+export const PLAZA = { basin: 12.5, paved: 18.8, roadCentre: 25.8, roadWidth: 8, outer: 32.6, clear: 35, corridor: 13 } as const;
+
+/**
+ * What a building takes from the ground: its footprint plus a margin at the sides and back, and its front garden on the +z side where
+ * the door is. The executive building drawn from its own asset has a long forecourt (drive, pool, flags) and a wider podium.
+ */
+export const LOT = { side: 6, back: 6, front: 16 } as const;
+export const EXECUTIVE_LOT = { side: 10.5, back: 6, front: 31 } as const;
+
+export type Lot = Readonly<{ x0: number; x1: number; z0: number; z1: number }>;
+
+export function lotOf(p: Readonly<{ x: number; z: number; width: number; depth: number }>, margins: Readonly<{ side: number; back: number; front: number }> = LOT): Lot {
+  return { x0: p.x - p.width / 2 - margins.side, x1: p.x + p.width / 2 + margins.side, z0: p.z - p.depth / 2 - margins.back, z1: p.z + p.depth / 2 + margins.front };
+}
+
+/** The margins of a placement: the executive building has its long forecourt unless it is drawn from floor plans. */
+export const marginsOf = (kind: CampusBuildingKind, planned: boolean): Readonly<{ side: number; back: number; front: number }> => (kind === 'executive' && !planned ? EXECUTIVE_LOT : LOT);
 
 /** Size of a building drawn from its real floor plans: footprint, storeys and roof height (see `hqPlanFrame.ts`). */
 export type PlannedSize = Readonly<{ w: number; d: number; levels: number; height: number }>;
 
+/** A stable number in [0, 1) from a workspace id (FNV-1a with a final mix): where a building prefers to stand does not depend on the others. */
+export function unitOf(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); }
+  h ^= h >>> 15; h = Math.imul(h, 2246822519); h ^= h >>> 13; h = Math.imul(h, 3266489917); h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+/** How many slots of a ring a building tries before it goes to the next ring out: a chain of displaced buildings stays short. */
+const TRIES = 4;
+
+const distanceToLot = (l: Lot): number => Math.hypot(l.x0 > 0 ? l.x0 : l.x1 < 0 ? -l.x1 : 0, l.z0 > 0 ? l.z0 : l.z1 < 0 ? -l.z1 : 0);
+const lotsOverlap = (a: Lot, b: Lot, pad: number): boolean => a.x0 < b.x1 + pad && a.x1 > b.x0 - pad && a.z0 < b.z1 + pad && a.z1 > b.z0 - pad;
+/** True when a lot stands on the plaza or on either avenue (south from the roundabout, east from the roundabout). */
+export const lotBlocksCentre = (l: Lot): boolean => distanceToLot(l) < PLAZA.clear
+  || (l.z1 > 0 && l.x0 < PLAZA.corridor && l.x1 > -PLAZA.corridor) || (l.x1 > 0 && l.z0 < PLAZA.corridor && l.z1 > -PLAZA.corridor);
+
 /**
- * Deterministic placement: the executive tower in the middle, the rest on rings ordered by name. A building drawn from its floor
- * plans (`sizes`, keyed by workspace id) keeps its real footprint, and the rings widen so that real footprints never overlap.
+ * Deterministic placement round the plaza at the centre. The executive building takes the north slot (its door looks
+ * down on the fountain); every other building is tried first at the slot its id hashes to, then at the next slots, then on the next ring out, and
+ * stands at the smallest radius where its whole lot clears the plaza, both avenues and every lot already placed. Buildings are placed in
+ * order of their hash, never of the list, and a slot does not move when another building comes or goes: adding or removing one building
+ * moves at most the few that were next to its slot. A building drawn from its floor plans (`sizes`, keyed by workspace id) keeps its real
+ * footprint, and the rings widen with the largest one. The returned order is the executive first, then by name (the order of the signs).
  */
 export function layoutCampus(buildings: readonly CampusBuilding[], sizes?: ReadonlyMap<string, PlannedSize>): Placement[] {
   const executive = buildings.find((b) => b.kind === 'executive');
   const others = buildings.filter((b) => b !== executive).slice().sort((a, b) => a.name.localeCompare(b.name) || a.workspace_id.localeCompare(b.workspace_id));
-  const out: Placement[] = [];
   const make = (b: CampusBuilding, x: number, z: number): Placement => {
     const size = SIZE[b.kind];
     const planned = sizes?.get(b.workspace_id);
@@ -177,29 +218,47 @@ export function layoutCampus(buildings: readonly CampusBuilding[], sizes?: Reado
       height: levels * FLOOR_HEIGHT * (b.kind === 'executive' ? 1.25 : 1) + 1.2,
     };
   };
-  const reach = (b: CampusBuilding): number => { const s = sizes?.get(b.workspace_id); return s ? Math.hypot(s.w, s.d) / 2 + 6 : 0; };
-  const execReach = executive ? reach(executive) : 0;
-  if (executive) out.push(make(executive, 0, 0));
-  let index = 0;
-  let inner = execReach;
-  for (let ring = 0; index < others.length; ring++) {
-    const capacity = RING_CAPACITY[Math.min(ring, RING_CAPACITY.length - 1)];
-    let radius = RING_RADIUS[Math.min(ring, RING_RADIUS.length - 1)] + Math.max(0, ring - 3) * 28;
-    const count = Math.min(capacity, others.length - index);
-    const slots = ring === 0 && count < capacity ? Math.max(count, 3) : count;
-    if (sizes?.size) {
-      // Real footprints: clear the inner ring or the middle building, and leave the chord between neighbours wide enough.
-      const widest = Math.max(...others.slice(index, index + count).map(reach));
-      radius = Math.max(radius, inner + widest + 8, (slots * (widest * 2 + 6)) / (Math.PI * 2));
-      inner = radius + widest;
+  const all = executive ? [executive, ...others] : others;
+  const dims = all.map((b) => make(b, 0, 0));
+  // The executive forecourt is the one oversized lot: the ring spacing follows the other buildings.
+  const regular = dims.filter((p) => p.kind !== 'executive' || sizes?.has(p.workspaceId));
+  const maxW = Math.max(0, ...regular.map((p) => p.width)), maxD = Math.max(0, ...regular.map((p) => p.depth));
+  const lotW = maxW + 2 * LOT.side, lotD = maxD + LOT.back + LOT.front;
+  // Ring r accepts a building whose smallest clear radius is at most `limit(r)`; `slots(r)` angles share the ring.
+  const step = Math.max(lotW, lotD) * 0.85;
+  const limit0 = PLAZA.clear + LOT.front + maxD / 2 + 4;
+  const limit = (r: number) => limit0 + r * step;
+  const slots = (r: number) => Math.max(4, Math.floor((Math.PI * 2 * (limit(r) - 8)) / (lotW + 3)));
+  const priority = all.slice().sort((a, b) => (a === executive ? -1 : 0) - (b === executive ? -1 : 0) || unitOf(a.workspace_id) - unitOf(b.workspace_id) || a.workspace_id.localeCompare(b.workspace_id));
+  const taken: Lot[] = [];
+  const at = new Map<string, Placement>();
+  for (const b of priority) {
+    const size = make(b, 0, 0);
+    const margins = marginsOf(b.kind, !!sizes?.has(b.workspace_id));
+    let placed: Placement | null = null;
+    for (let ring = 0; !placed && ring < 40; ring++) {
+      const m = slots(ring);
+      // This building's own order of the slots of the ring: a fixed shuffle of its id, so a slot taken by another building moves only the buildings that wanted that slot.
+      const order = b === executive
+        ? [0]
+        : Array.from({ length: m }, (_, k) => k).sort((p, q) => unitOf(`${b.workspace_id}|${ring}|${p}`) - unitOf(`${b.workspace_id}|${ring}|${q}`) || p - q);
+      for (const k of ring === 0 ? order.slice(0, TRIES) : order) {
+        if (placed) break;
+        const angle = -Math.PI / 2 + ((k + (ring % 2) * 0.5) / m) * Math.PI * 2;
+        // The radius depends on this building and the slot alone (the plaza, the avenues and the ring), never on its neighbours.
+        const floor = ring === 0 ? PLAZA.clear : limit(ring - 1) + step * 0.15;
+        for (let r = floor; r <= floor + 60; r += 1) {
+          const x = Math.cos(angle) * r, z = Math.sin(angle) * r;
+          const lot = lotOf({ x, z, width: size.width, depth: size.depth }, margins);
+          if (lotBlocksCentre(lot)) continue;
+          if (!taken.some((t) => lotsOverlap(lot, t, 1))) { taken.push(lot); placed = make(b, x, z); }
+          break;
+        }
+      }
     }
-    for (let i = 0; i < count; i++) {
-      const angle = Math.PI * 0.75 + ((i + (slots > count ? 0.5 : 0)) / slots) * Math.PI * 2;
-      out.push(make(others[index + i], Math.cos(angle) * radius, Math.sin(angle) * radius));
-    }
-    index += count;
+    at.set(b.workspace_id, placed ?? make(b, 0, 0));
   }
-  return out;
+  return all.map((b) => at.get(b.workspace_id)!);
 }
 
 export function campusExtent(placements: readonly Placement[]): { minX: number; maxX: number; minZ: number; maxZ: number; radius: number } {
