@@ -23,6 +23,7 @@ import { hqProvisioningAr } from './hqProvisioning.ar.ts';
 import { hqNavAr } from './hqNav.ar.ts';
 import { hqAssignAr } from './hqAssign.ar.ts';
 import { hqStarterCampusAr } from './hqStarterCampus.ar.ts';
+import { hqGreenConcreteAr } from './hqGreenConcrete.ar.ts';
 import { hqFirstRunAr } from './hqFirstRun.ar.ts';
 import { hqFloorAr } from './hqFloor.ar.ts';
 import { hqLabelsAr } from './hqLabels.ar.ts';
@@ -3259,6 +3260,7 @@ export const ar: Record<MessageKey, Message> = {
   ...hqNavAr,
   ...hqAssignAr,
   ...hqStarterCampusAr,
+  ...hqGreenConcreteAr,
   ...hqFirstRunAr,
   ...hqFloorAr,
   ...hqLabelsAr,

@@ -67,6 +67,9 @@ TeamDepartment = Literal["sales", "support", "operations", "finance", "tyre_engi
 RoomKind = Literal["office", "meeting", "reception", "workshop", "warehouse", "lounge", "command"]
 DoorSide = Literal["north", "south", "east", "west"]
 Rotation = Literal[0, 90, 180, 270]
+Shift = Literal["day", "night"]
+SeatKind = Literal["team", "manager"]
+HourText = Annotated[str, Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")]
 TemplateId = Literal["open_office", "meeting_room", "reception", "warehouse", "workshop", "command_center"]
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
@@ -161,6 +164,15 @@ class BuildingUpdate(_Patch):
     timezone: str | None = Field(default=None, min_length=3, max_length=80)
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+    # Shift hours in the building's own time zone ("HH:MM"). Null means the defaults (07:00 and 19:00), which the owner confirms.
+    shift_day_start: HourText | None = None
+    shift_night_start: HourText | None = None
+
+    @model_validator(mode="after")
+    def _distinct_hours(self) -> "BuildingUpdate":
+        if self.shift_day_start is not None and self.shift_day_start == self.shift_night_start:
+            raise ValueError("The day and night shifts cannot start at the same time")
+        return self
 
     @field_validator("name_ar")
     @classmethod
@@ -248,6 +260,13 @@ class DeskUpdate(_Patch):
     label: str | None = Field(default=None, min_length=1, max_length=100)
     pos_x: float | None = Field(default=None, ge=0, le=1000)
     pos_z: float | None = Field(default=None, ge=0, le=1000)
+    # Seat fields: which shift the seat belongs to (null = always on), its place along the table group (1 is the left end),
+    # the wall the seated person looks at, whether it is the manager seat, and the table group drawn as one table.
+    shift: Shift | None = None
+    seat_order: int | None = Field(default=None, ge=1, le=999)
+    facing: DoorSide | None = None
+    seat_kind: SeatKind | None = None
+    table_group: str | None = Field(default=None, min_length=1, max_length=40, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
     @model_validator(mode="after")
     def _position_pair(self) -> "DeskUpdate":
@@ -384,11 +403,11 @@ def _plain(value: Any) -> Any:
 
 
 _AUDIT_FIELDS = {
-    "buildings": ("name", "name_ar", "timezone", "latitude", "longitude"),
+    "buildings": ("name", "name_ar", "timezone", "latitude", "longitude", "shift_day_start", "shift_night_start"),
     "floors": ("building_id", "level", "name", "name_ar", "width_m", "depth_m"),
     "rooms": ("floor_id", "name", "kind", "capacity", "scene_x", "scene_z", "scene_width", "scene_depth",
               "rotation", "door_side", "description", "notes", "color", "name_ar", "equipment", "team_department"),
-    "desks": ("room_id", "label", "agent_id", "pos_x", "pos_z"),
+    "desks": ("room_id", "label", "agent_id", "pos_x", "pos_z", "shift", "seat_order", "facing", "seat_kind", "table_group"),
 }
 
 

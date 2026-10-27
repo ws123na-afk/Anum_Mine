@@ -110,3 +110,4 @@ English and Arabic (right to left), keyboard and screen reader labels, five view
 * History does not cover building level or workspace level changes (building rename, new building); only floors.
 * A restore does not touch the "Staff my campus" ledger (`office_desk_staffing`), the same as deleting a desk today.
 * Revisions made before this migration do not exist; each floor starts with a `baseline` at its first tracked change.
+* The seat fields of a desk (shift, place at the table, facing, seat type, table group, migration 0115) and the shift hours of a building are not part of a revision: a restore keeps a desk's current seat fields, and a desk a restore recreates has none ([Green Concrete](ANUM_MINE_GREEN_CONCRETE.md)).

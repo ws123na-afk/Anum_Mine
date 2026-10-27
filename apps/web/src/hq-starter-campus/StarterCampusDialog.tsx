@@ -19,13 +19,15 @@ export interface StarterCampusDialogProps {
   /** Called after the server wrote something, so the registry and the live flow re-read. */
   onCreated: () => void;
   onOpenGaps: () => void;
+  /** Opens the separate, previewed "Add Green Concrete" action. */
+  onOpenGreen?: () => void;
 }
 
 const hasCreate = (p: StarterCampusPreview) => Object.values(p.totals.create).some((n) => n > 0);
 const nameOf = (n: { en: string; ar: string }, locale: 'en' | 'ar') => (locale === 'ar' ? n.ar : n.en);
 const skipText = (reason: StarterSkipReason | null) => t(`hqSc.skip.${reason ?? 'exists'}` as MessageKey);
 
-export function StarterCampusDialog({ onClose, onCreated, onOpenGaps }: StarterCampusDialogProps) {
+export function StarterCampusDialog({ onClose, onCreated, onOpenGaps, onOpenGreen }: StarterCampusDialogProps) {
   const locale = useLocale();
   const panel = useModal(onClose);
   const titleId = useId();
@@ -96,6 +98,11 @@ export function StarterCampusDialog({ onClose, onCreated, onOpenGaps }: StarterC
         {done ? <ResultView result={done} locale={locale} />
           : ready && <PlanView preview={preview} ticked={ticked} locale={locale} fetching={fetching} onChange={toggle} />}
         {!done && ready && <ArabicNamesSection client={starterCampusClient} onChanged={onCreated} />}
+        {!done && ready && onOpenGreen && <section className="hqScSection" aria-label={t('hqGc.title')} data-testid="sc-green-concrete">
+          <div className="hqScPickHead"><h3>{t('hqGc.title')}</h3></div>
+          <p className="hqScNote">{t('hqGc.sc.intro')}</p>
+          <div className="hqScActions"><button type="button" onClick={onOpenGreen} data-testid="sc-green-open">{t('hqGc.open')}</button></div>
+        </section>}
         {!done && failure && <div className="hqScNote hqScFail" role="alert">
           <p>{t('hqSc.confirmFailed', { detail: failure.detail })}</p>
           {failure.stale && <p>{t('hqSc.stale')} <button type="button" onClick={reviewAgain}>{t('hqSc.review')}</button></p>}
