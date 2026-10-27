@@ -121,6 +121,29 @@ export function cardDensities(
   return out;
 }
 
+/** How many buildings show a name chip at once on a campus (the rest are status dots); a phone-sized stage shows fewer. */
+export const MAX_CHIPS = 4;
+export const MAX_CHIPS_COMPACT = 2;
+
+/**
+ * The quiet campus (docs/ANUM_MINE_HQ_LABELS.md): the 3D boards carry the details, so a building's page label is a small chip (name and status
+ * dot) for only a few buildings and a status dot for the rest. Priority: the selected building, the open workspace's building, the executive
+ * tower, then the buildings nearest the point the camera looks at. Every building keeps its button (a dot has the same accessible name), so none
+ * is ever left out. `at` gives each building's ground position (the placements); a building without one ranks last.
+ */
+export function quietDensities(
+  buildings: readonly CampusBuilding[],
+  args: Readonly<{ selectedId: string | null; currentId: string; target: Readonly<{ x: number; z: number }>; at: ReadonlyMap<string, Readonly<{ x: number; z: number }>>; max?: number }>,
+): Map<string, CardDensity> {
+  const max = args.max ?? MAX_CHIPS;
+  const pinned = (b: CampusBuilding): number => (b.workspace_id === args.selectedId ? 3 : b.workspace_id === args.currentId ? 2 : b.kind === 'executive' ? 1 : 0);
+  const far = (b: CampusBuilding): number => { const p = args.at.get(b.workspace_id); return p ? Math.hypot(p.x - args.target.x, p.z - args.target.z) : Infinity; };
+  const ranked = buildings.slice().sort((a, b) => pinned(b) - pinned(a) || far(a) - far(b) || a.name.localeCompare(b.name) || a.workspace_id.localeCompare(b.workspace_id));
+  const out = new Map<string, CardDensity>();
+  ranked.forEach((b, i) => out.set(b.workspace_id, i < max || b.workspace_id === args.selectedId ? 'compact' : 'dot'));
+  return out;
+}
+
 /** Tags for a campus card from real data only: the building type (when an owner set it), floors and rooms, and (open building) departments. */
 export function cardTags(b: CampusBuilding, departments: readonly string[], limit = 3): Array<{ kind: 'type' | 'workspace' | 'floors' | 'rooms' | 'department'; value: string | number }> {
   const tags: Array<{ kind: 'type' | 'workspace' | 'floors' | 'rooms' | 'department'; value: string | number }> = [];

@@ -1,9 +1,9 @@
 /**
  * Where each building's billboard stands and what it is made of (docs/ANUM_MINE_HQ_BILLBOARDS.md). Pure geometry, no DOM, no data:
- * the only lettering is the building name, which the stage draws into the building's own sign cell of the sign atlas (the board is
- * textured with that cell, so it reads "ANUM MINE" over the name, right to left in Arabic, like the sign on the facade).
+ * the faces are mapped onto the board's cell of the live board atlas, which `billboardTexture.ts` draws (name, what the building does, the
+ * live counts and the verified time, right to left in Arabic mode).
  *
- * One merged mesh for the whole campus (134 triangles per board), deterministic: the same placements give the same boards.
+ * One merged mesh for the whole campus, deterministic: the same placements give the same boards.
  */
 import { MAT, MeshBuilder, hex, type Rgb } from '../lib/hqGeometry.ts';
 import type { Placement } from '../lib/campusModel.ts';
@@ -25,7 +25,7 @@ export type BoardSite = Readonly<{
   box: Aabb;
 }>;
 
-export type SiteBuilding = Readonly<{ workspaceId: string; box: Aabb; door: Vec3; signIndex: number }>;
+export type SiteBuilding = Readonly<{ workspaceId: string; box: Aabb; door: Vec3 }>;
 export type SiteContext = Readonly<{
   placements: readonly Placement[];
   buildings: readonly SiteBuilding[];
@@ -33,21 +33,38 @@ export type SiteContext = Readonly<{
   extentRadius: number;
   /** Radius of the canal ring (the edge of the usable campus), or 0. */
   canalRadius: number;
-  signCount: number;
   /** The centre (`CampusScene.plaza`): the plaza and roundabout radius, the walkways to the doors and the avenues. Boards keep clear of all of it. */
   plaza?: Readonly<{ outer: number; spokes: ReadonlyArray<Readonly<{ points: ReadonlyArray<readonly [number, number]> }>>; avenues: ReadonlyArray<Readonly<{ from: readonly [number, number]; to: readonly [number, number] }>> }>;
   /** Extra round areas the boards keep out of (plaza, fountain), as x, z, radius. */
   avoid?: ReadonlyArray<readonly [number, number, number]>;
 }>;
 
-// A copy of `signAtlasLayout` (hqTextures.ts): importing that module would give it a chunk of its own and change how the shared
-// chunks split; test/hqBillboard.test.ts keeps the copy equal to the original.
-const CELL_W = 512, CELL_H = 128, COLS = 2;
+/**
+ * The board atlas: one canvas for every board of the campus, a cell of 512 x 256 per board (256 x 128 or smaller on a very large campus, so the
+ * canvas never grows past 2048 x 1024). The live details are drawn into the cell of the board (`billboardTexture.ts`); the mesh maps each
+ * face onto its cell. Pure, so the mesh and the painter agree without importing each other.
+ */
+export type BoardCell = Readonly<{ u0: number; u1: number; v0: number; v1: number }>;
+export type BoardAtlasLayout = Readonly<{ width: number; height: number; cellW: number; cellH: number; cols: number; rows: number; capacity: number; cell: (index: number) => BoardCell; origin: (index: number) => Readonly<{ x: number; y: number }> }>;
+const ATLAS_W = 2048;
 const pow2 = (n: number) => { let p = 1; while (p < n) p *= 2; return p; };
-export function signCell(count: number, index: number): { u0: number; u1: number; v0: number; v1: number } {
-  const width = CELL_W * COLS, height = pow2(Math.max(1, Math.ceil(Math.max(1, count) / COLS)) * CELL_H);
-  const col = index % COLS, row = Math.floor(index / COLS);
-  return { u0: (col * CELL_W) / width, u1: ((col + 1) * CELL_W) / width, v1: 1 - (row * CELL_H) / height, v0: 1 - ((row + 1) * CELL_H) / height };
+export function boardAtlasLayout(count: number): BoardAtlasLayout {
+  // The richest cell whose atlas stays within 2048 x 1024.
+  let cellW = 512, cellH = 256;
+  while (cellW > 64 && (ATLAS_W / cellW) * (1024 / cellH) < count) { cellW /= 2; cellH /= 2; }
+  const cols = ATLAS_W / cellW;
+  const rows = Math.max(1, Math.ceil(Math.max(1, count) / cols));
+  const height = Math.min(1024, pow2(rows * cellH));
+  const capacity = cols * Math.floor(height / cellH);
+  const slot = (index: number) => ((index % capacity) + capacity) % capacity;
+  return {
+    width: ATLAS_W, height, cellW, cellH, cols, rows, capacity,
+    origin: (index) => ({ x: (slot(index) % cols) * cellW, y: Math.floor(slot(index) / cols) * cellH }),
+    cell: (index) => {
+      const col = slot(index) % cols, row = Math.floor(slot(index) / cols);
+      return { u0: (col * cellW) / ATLAS_W, u1: ((col + 1) * cellW) / ATLAS_W, v1: 1 - (row * cellH) / height, v0: 1 - ((row + 1) * cellH) / height };
+    },
+  };
 }
 
 const PLAZA_CLEAR = 17;
@@ -65,6 +82,8 @@ function distToSegment(px: number, pz: number, x0: number, z0: number, x1: numbe
   return Math.hypot(px - (x0 + t * dx), pz - (z0 + t * dz));
 }
 
+/** The face is twice as wide as it is high: the name above, what the building does, the live counts and the verified time (`billboardTexture.ts`). */
+export const BOARD_ASPECT = 0.5;
 /** Board width grows with the campus so it stays readable from the framing camera of a larger campus. */
 export const boardWidth = (extentRadius: number): number => Math.max(9, Math.min(13, 7.5 + extentRadius * 0.15));
 
@@ -77,7 +96,7 @@ function facing(p: Placement, door: Vec3): [number, number] {
 /** One site per building, clear of every building, walkway, the plaza and the other boards. */
 export function boardSites(ctx: SiteContext): BoardSite[] {
   const width = boardWidth(ctx.extentRadius);
-  const height = width / 4;
+  const height = width * BOARD_ASPECT;
   const clearance = 3;
   const monument = ctx.monument;
   const plazaR = ctx.plaza ? ctx.plaza.outer + 2 : PLAZA_CLEAR;
@@ -173,8 +192,9 @@ function frameBox(b: MeshBuilder, f: Frame, u0: number, u1: number, v0: number, 
 export type BillboardMesh = Readonly<{ vertices: Float32Array; bounds: Aabb; triangles: number; halos: Float32Array }>;
 
 /** The merged mesh of every board: posts, plinths, the dark panel, lit edge rules, two lamp heads, and the lettered face on both sides. */
-export function boardMesh(sites: readonly BoardSite[], buildings: readonly SiteBuilding[], signCount: number): BillboardMesh {
+export function boardMesh(sites: readonly BoardSite[]): BillboardMesh {
   const b = new MeshBuilder();
+  const layout = boardAtlasLayout(sites.length);
   sites.forEach((s, i) => {
     const f: Frame = { x: s.x, z: s.z, nx: s.nx, nz: s.nz, rx: s.nz, rz: -s.nx };
     const hw = s.width / 2, y0 = s.clearance, y1 = s.clearance + s.height;
@@ -193,14 +213,17 @@ export function boardMesh(sites: readonly BoardSite[], buildings: readonly SiteB
       frameBox(b, f, -hw, hw, Math.min(v, v1), Math.max(v, v1), y0, y0 + 0.12, TEAL, 0.9);
       frameBox(b, f, -hw, hw, Math.min(v, v1), Math.max(v, v1), y1 - 0.12, y1, TEAL, 0.9);
     }
+    // A metal frame down both sides, so the lit face reads as a mounted board and not a floating picture.
+    b.mat = MAT.metal;
+    for (const u of [-hw - 0.08, hw + 0.08]) frameBox(b, f, u - 0.1, u + 0.1, -0.3, 0.3, y0 - 0.06, y1 + 0.06, POST_COLOR);
+    b.mat = MAT.flat;
     // Two lamp heads on short arms above the panel, pointing at it.
     for (const u of [-hw * 0.5, hw * 0.5]) {
       frameBox(b, f, u - 0.05, u + 0.05, 0.1, 0.6, y1 + 0.02, y1 + 0.12, POST_COLOR);
       frameBox(b, f, u - 0.14, u + 0.14, 0.5, 0.74, y1 + 0.0, y1 + 0.18, LAMP, 0.85);
     }
-    // The lettered faces: the building's own sign cell, front reads left to right facing the board, the back mirrors the direction.
-    const sign = buildings.find((x) => x.workspaceId === s.workspaceId)?.signIndex ?? i;
-    const cell = signCell(signCount, sign);
+    // The lettered faces: the board's own cell of the live board atlas (`billboardTexture.ts` draws the name and the details into it); the back face mirrors the direction.
+    const cell = layout.cell(i);
     b.mat = MAT.sign;
     const face = (side: 1 | -1) => {
       const v = side * 0.26;

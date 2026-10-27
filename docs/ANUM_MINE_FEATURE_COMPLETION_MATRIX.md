@@ -99,6 +99,7 @@ Counts per status are in the last section ("Totals"), computed from the tables i
 | 3.20 | Building billboards: a board in front of each building with its name, and a card with what the building does and its real work details | Partial | Read, Ran | `hq-billboards/` (lazy chunk: `billboardModel.ts`, `billboardSites.ts`, `BillboardCard.tsx`), `CampusView.tsx`; `test/hqBillboard.test.ts` (property and whitelist tests, Not connected), `e2e/hq-billboards.spec.ts` (five buildings, five sizes, English and Arabic, axe); [billboards](ANUM_MINE_HQ_BILLBOARDS.md) | Looked at on software GL only, not a real GPU; the 3D board carries the name only (details are the card); open work and room details exist for the open workspace's registry buildings only, every other building says Not connected |
 | 3.21 | Clear page layout: the side panels dock beside or under the scene and never over it; Total agents and the campus map are compact docked widgets; the Live flow is a thin strip that leaves the quick views alone | Partial | Ran | `hq-nav/HqNavigation.tsx`, `hq-nav/PanelSection.tsx`, `hq-nav/OfficeStatus.tsx`, `hqNavLayout.css`, `hqFlow.css`; `e2e/hq-clear-panels.spec.ts` (five viewports, English and Arabic, axe); [page layout](ANUM_MINE_HQ_PAGE_LAYOUT.md) | The Executive assistant dock, History and Team dialog keep their own headers; the Back card, floor selector and camera bar inside a building stay glass controls on the scene (they are controls, not panels) |
 | 3.22 | Honest live status on every side panel (Live, Reconnecting, Checking every N s, Not connected; the real time of the last confirmation; Stale after the existing windows) | Partial | Ran | `lib/hqPanelStatus.ts` (`test/hqPanelStatus.test.ts`), `hq-nav/LiveChip.tsx`; `e2e/hq-clear-panels.spec.ts` (a dropped feed shows and recovers); [page layout](ANUM_MINE_HQ_PAGE_LAYOUT.md) | Total agents follows the 30 s campus read, not the presence stream; panels owned by other workstreams carry no chip yet |
+| 3.23 | Quiet campus: the details live on the 3D boards (name, what the building does, live counts with Verified or Stale or Not connected, a Live tick only while the stream is connected, drawn in place at most once a second per board); the page labels are a few small chips and status dots, the full card only for the focused building | Partial | Read, Ran | `hq-billboards/boardFace.ts`, `billboardTexture.ts`, `hq-nav/navModel.ts` (`quietDensities`), `HqRenderer.setBoards`; `test/hqBoardFace.test.ts`, `e2e/hq-quiet-campus.spec.ts` (thirteen buildings and Green Concrete, five sizes, English and Arabic, axe, a presence update redraws a board); [billboards](ANUM_MINE_HQ_BILLBOARDS.md), [labels](ANUM_MINE_HQ_LABELS.md#quiet-campus) | Looked at on software GL only, not the owner's Ultra GPU; on a phone-sized stage two status dots may touch; board text is small from the framing camera of a large campus |
 
 ## Section 4. Building and campus structure
 
@@ -314,16 +315,16 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 
 ## Totals
 
-Rows counted: 157 (sections 1 to 14).
+Rows counted: 158 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
 | Complete | 115 |
-| Partial | 38 |
+| Partial | 39 |
 | Missing | 3 |
 | Not applicable | 1 |
-| Total | 157 |
+| Total | 158 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 108, Partial 31, Missing 3, Not applicable 1 (total 143). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 4.11 by the label work, rows 2.11 and 2.12 by the campus motion work, rows 3.21 and 3.22 by the page layout and panels work).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 108, Partial 32, Missing 3, Not applicable 1 (total 144). Recounted from the tables on 26 October 2026 (rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 3.23 by the quiet campus, row 4.11 by the label work, rows 2.11 and 2.12 by the campus motion work, rows 3.21 and 3.22 by the page layout and panels work).
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.
