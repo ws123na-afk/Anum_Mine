@@ -50,7 +50,7 @@ export function boardFaces(args: BoardFaceArgs): BoardFace[] {
   const locale = getLocale();
   return args.layer.sites.map((site) => {
     const building = args.buildings.get(site.workspaceId);
-    if (!building) return boardFace({ id: site.workspaceId, name: '', kindText: null, kind: 'business', summary: '', status: 'unavailable', accessible: false, rows: [], openLabel: '', unavailableText: '' }, { live: false, rtl: locale === 'ar', fontsReady: args.fontsReady, tr: (k, v) => t(k, v) });
+    if (!building) return boardFace({ id: site.workspaceId, name: '', kindText: null, kind: 'business', summary: '', status: 'unavailable', accessible: false, brand: null, rows: [], openLabel: '', unavailableText: '' }, { live: false, rtl: locale === 'ar', fontsReady: args.fontsReady, tr: (k, v) => t(k, v) });
     const model = billboardModel({ building, plan: args.plans?.get(site.workspaceId) ?? null, flow: args.flow ?? null, currentWorkspaceId: args.currentWorkspaceId, now: args.now });
     return boardFace(model, { live: args.live, rtl: locale === 'ar', fontsReady: args.fontsReady, tr: (k, v) => t(k, v) });
   });

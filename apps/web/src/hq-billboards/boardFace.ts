@@ -29,6 +29,8 @@ export type BoardFace = Readonly<{
   liveLabel: string;
   /** The building's status word for the dot colour (the same `data-status` the cards use). */
   status: string;
+  /** The owner's brand colour, drawn as the accent rule only (never behind text); null: the standard teal. */
+  accent: string | null;
   /** The Arabic face finished loading: a canvas does not wait for a web font, so it changes the key and the board is drawn again. */
   fonts: boolean;
 }>;
@@ -61,7 +63,7 @@ export function boardFace(model: BillboardModel, opts: Readonly<{ live: boolean;
   const purpose = kindSet ? (row(model, 'purpose')?.value ?? null) : null;
   return {
     id: model.id, name: model.name, rtl: opts.rtl, purpose, headline, tone, states, work: workText, workConnected: work?.connected === true,
-    foot: tone === 'off' ? '' : (time?.value ?? ''), live: opts.live && tone === 'ok', liveLabel: tr('hq.live.live'), status: model.status, fonts: opts.fontsReady === true,
+    foot: tone === 'off' ? '' : (time?.value ?? ''), live: opts.live && tone === 'ok', liveLabel: tr('hq.live.live'), status: model.status, accent: model.brand, fonts: opts.fontsReady === true,
   };
 }
 

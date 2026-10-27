@@ -10,7 +10,7 @@
 export type Scope = Readonly<{ tenantId:string; workspaceId:string }>;
 export type Vec2 = Readonly<{x:number;y:number}>;
 export type Vec3 = Readonly<{x:number;y:number;z:number}>;
-export type Building = Readonly<{id:string;name:string;name_ar?:string|null;timezone:string;revision:number;shift_day_start?:string|null;shift_night_start?:string|null}>;
+export type Building = Readonly<{id:string;name:string;name_ar?:string|null;timezone:string;revision:number;shift_day_start?:string|null;shift_night_start?:string|null;sign_style?:string|null;brand_color?:string|null;logo_sha256?:string|null}>;
 export type Floor = Readonly<{id:string;building_id:string;level:number;name:string;name_ar?:string|null;revision:number}>;
 export type RoomKind = 'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge'|'command';
 export type Room = Readonly<{id:string;floor_id:string;name:string;name_ar?:string|null;kind:RoomKind;capacity:number;revision:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;team_department?:string|null;door_side?:string|null;rotation?:number|null}>;
@@ -50,6 +50,8 @@ export type SceneBuilding = Readonly<{
  id:string; name:string; /** The Arabic name, when the building has one. */ nameAr?:string|null; timezone:string; floors:readonly SceneFloor[];
  /** Shift hours stored on the building ("HH:MM"); null means the unconfirmed defaults. */
  shiftDayStart?:string|null; shiftNightStart?:string|null;
+ /** The owner's sign (style, brand colour, logo hash); only set when the owner set one of them. */
+ sign?:import('./campusModel.ts').BuildingSign;
  /** Set by the shift view for a building with shift desks. */
  shifts?:import('./hqShifts.ts').ShiftSnapshot;
 }>;
@@ -152,7 +154,7 @@ export function projectHeadquarters(scope:Scope,registry:Registry,evidence:reado
    const depth=Math.max(16,...augmented.map(r=>r.z+r.depth+8));
    return {id:floor.id,name:floor.name,nameAr:floor.name_ar??null,level:floor.level,rooms:augmented,desks,bounds:{width,depth}};
   });
-  return {id:building.id,name:building.name,nameAr:building.name_ar??null,timezone:building.timezone,floors,...(building.shift_day_start||building.shift_night_start?{shiftDayStart:building.shift_day_start??null,shiftNightStart:building.shift_night_start??null}:{})};
+  return {id:building.id,name:building.name,nameAr:building.name_ar??null,timezone:building.timezone,floors,...(building.shift_day_start||building.shift_night_start?{shiftDayStart:building.shift_day_start??null,shiftNightStart:building.shift_night_start??null}:{}),...(building.sign_style||building.brand_color||building.logo_sha256?{sign:{buildingId:building.id,style:building.sign_style??null,color:building.brand_color??null,logoSha256:building.logo_sha256??null}}:{})};
  });
  return {scope:{...scope},buildings,issues,generatedAt:observedAt.toISOString(),source:'authenticated-office-registry'};
 }

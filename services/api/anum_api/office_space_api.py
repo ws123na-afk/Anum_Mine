@@ -26,6 +26,7 @@ from .dependencies import event_runtime, require_permission, tenant_context
 from .errors import ApplicationError, ErrorCode, ErrorDetail
 from .events import CanonicalEventName, create_event
 from .office_layout_history import LAYOUT_ACTIONS
+from .office_logo_image import SignStyle, normalise_brand_color
 from .office_space_store import SpaceStoreError, SqlOfficeSpaceStore
 from .scoped_store import open_scoped_store
 from .schemas import TenantContext, new_id, utc_now
@@ -167,6 +168,14 @@ class BuildingUpdate(_Patch):
     # Shift hours in the building's own time zone ("HH:MM"). Null means the defaults (07:00 and 19:00), which the owner confirms.
     shift_day_start: HourText | None = None
     shift_night_start: HourText | None = None
+    # The building's sign (docs/ANUM_MINE_HQ_LOGO_SIGNS.md). Null clears: back to the default lettered sign.
+    sign_style: SignStyle | None = None
+    brand_color: str | None = Field(default=None, max_length=7)
+
+    @field_validator("brand_color")
+    @classmethod
+    def _brand(cls, value: str | None) -> str | None:
+        return normalise_brand_color(value)
 
     @model_validator(mode="after")
     def _distinct_hours(self) -> "BuildingUpdate":
@@ -403,7 +412,8 @@ def _plain(value: Any) -> Any:
 
 
 _AUDIT_FIELDS = {
-    "buildings": ("name", "name_ar", "timezone", "latitude", "longitude", "shift_day_start", "shift_night_start"),
+    "buildings": ("name", "name_ar", "timezone", "latitude", "longitude", "shift_day_start", "shift_night_start",
+                  "sign_style", "brand_color", "logo_sha256"),
     "floors": ("building_id", "level", "name", "name_ar", "width_m", "depth_m"),
     "rooms": ("floor_id", "name", "kind", "capacity", "scene_x", "scene_z", "scene_width", "scene_depth",
               "rotation", "door_side", "description", "notes", "color", "name_ar", "equipment", "team_department"),

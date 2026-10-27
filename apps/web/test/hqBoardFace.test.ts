@@ -91,6 +91,12 @@ test('every text on a board is a fixed message or a model value, and nothing fro
   assert.ok(BILLBOARD_FIELDS.some((x) => x.id === 'streamLink'), 'the Live tick source is listed in the field table');
 });
 
+test('the board accent is the owner\'s brand colour only when it is a valid colour', () => {
+  assert.equal(face({ sign: { buildingId: 'b', style: null, color: '#C0392B', logoSha256: null } }).accent, '#c0392b');
+  assert.equal(face({ sign: { buildingId: 'b', style: null, color: 'red; x', logoSha256: null } }).accent, null);
+  assert.equal(face().accent, null);
+});
+
 test('a board whose building type is not set says nothing about what it does', () => {
   assert.equal(face({ kindKnown: false }).purpose, null);
 });

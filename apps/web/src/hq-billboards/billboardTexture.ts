@@ -50,7 +50,7 @@ export function drawBoardCell(ctx: Ctx, x: number, y: number, k: number, face: B
   bg.addColorStop(0, '#142c3d'); bg.addColorStop(1, '#0b1722');
   ctx.fillStyle = bg;
   ctx.fillRect(x, y, W * k, H * k);
-  ctx.fillStyle = '#45d0b5';
+  ctx.fillStyle = face.accent ?? '#45d0b5';
   ctx.fillRect(x, y + (H - 8) * k, W * k, 8 * k);
   const rtl = face.rtl;
   const edge = 22, maxW = W - 2 * edge;

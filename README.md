@@ -136,6 +136,7 @@ x-user-roles: owner,member
 - [ANUM MINE headquarters ambient scenery motion: what moves, what never moves, quality levels and reduced motion](docs/ANUM_MINE_HQ_SCENERY_MOTION.md)
 - [ANUM MINE headquarters campus motion: ambient traffic with turning wheels, and record-backed work motion (trucks, tyres) with a Because line per event, the table of every motion, and what Tyre Pulse data is readable](docs/ANUM_MINE_HQ_CAMPUS_MOTION.md)
 - [ANUM MINE headquarters building billboards: a board in front of each building and a card with what it does and its real work details, every field and its source, Not connected rule](docs/ANUM_MINE_HQ_BILLBOARDS.md)
+- [ANUM MINE headquarters logo and brand signs: the owner's own logo, brand colour and sign style per building, upload steps, API, security, what is not done](docs/ANUM_MINE_HQ_LOGO_SIGNS.md)
 - [ANUM MINE headquarters centre plaza: the big fountain, roundabout and avenues, how buildings stand round the centre, walkways to every door, budgets](docs/ANUM_MINE_HQ_CENTER_PLAZA.md)
 - [ANUM MINE campus, live presence, workstation work and executive overview](docs/ANUM_MINE_PRESENCE_AND_CAMPUS.md)
 - [Business gap register (Order 001)](docs/business/ANUM_BUSINESS_GAP_REGISTER.md)

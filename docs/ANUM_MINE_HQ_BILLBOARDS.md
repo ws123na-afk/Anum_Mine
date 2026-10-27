@@ -30,6 +30,7 @@ Tests keep this true (`apps/web/test/hqBillboard.test.ts`): the model is read th
 | `presenceTime` | "Verified 14:03:22", or "Stale: last verified ..." when older than 90 seconds, or "Verification time not reported" | `CampusBuilding.presence_verified_at` (the "Verified" time the campus panel shows) |
 | `work` | "Open work": Open tasks, Waiting for approval, Blocked | The live flow read (`OfficeFlowSnapshot.items`): task items a record placed in one of the building's rooms (`location.building_id`), not done; "waiting" is `waiting` set, "blocked" is stage `blocked`. A truncated read shows "N+". Only the open workspace has a flow: any other building says Not connected; a denied read says No access; a flow whose tasks source is not connected says Not connected |
 | `workTime` | "Verified ..." or "Stale: last verified ..." | `OfficeFlowSnapshot.as_of`; a failed read that kept the last answer is called stale, as the flow dock does |
+| `brand` | The accent rule along the bottom of the 3D board, in the owner's brand colour (never behind text, so readability does not change; no logo is drawn on the board, the facade sign carries it, see [logo signs](ANUM_MINE_HQ_LOGO_SIGNS.md)) | `CampusBuilding.sign.color` (the owner's brand colour of the building's sign); a missing or invalid colour keeps the standard teal |
 | `streamLink` | The "Live" tick on the 3D board, only while the presence stream is really connected and the numbers are fresh | The presence stream link of the page (`usePresenceLive`, link `live`); any other link (polling, reconnecting, down) shows no tick |
 | `open` | The "Open building" button (its accessible name adds the building name, so it never clashes with the detail panel's "Open {name}" button) | Fixed text; hidden (and "This building is not available to you right now" shown) when the building is not accessible |
 
@@ -80,3 +81,7 @@ The billboard code is a lazy chunk of its own (`hq-billboards`, JS and CSS), not
 - Only the open workspace has a flow, so another workspace's building shows Not connected for open work; the registry rooms and departments are likewise known only for registry buildings of the open workspace.
 - A building whose registry has no rooms shows "No rooms in the registry yet" and no departments.
 - The board is not drawn as an unlit shape under reduced quality tiers; it is one cheap mesh at every tier.
+
+## Logo signs
+
+The owner's own logo, brand colour and sign style are drawn on the building's sign (the facade sign atlas cell), not on the billboard board; the board keeps the building's live details. See [logo and brand signs](ANUM_MINE_HQ_LOGO_SIGNS.md).
