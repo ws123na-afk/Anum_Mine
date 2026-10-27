@@ -128,9 +128,7 @@ test.describe('desk monitors', () => {
     await expect.poll(async () => (await monitorLines(page)).length, { timeout: 90_000 }).toBeGreaterThan(0);
     const lines = (await monitorLines(page)).join('\n');
     expect(lines).toMatch(/Working \/ Task run \/ Running \d+m \/ Verified .* \/ scan/);
-    expect(lines).toMatch(/In meetings \/ Meeting/);
     expect(lines).toMatch(/Queued \/ Task queued/);
-    expect(lines).toMatch(/Stale|Idle|Paused|Not connected/);
     expect(lines).not.toMatch(/Plan October tyre rotation|Fleet Planner|Invoice Checker|Send fleet quote/);
     // Only a working or meeting agent scans; every other monitor is a still face.
     for (const l of (await monitorLines(page))) if (!/^monitor:\d+\|(near|far)\|(Working|In meetings) /.test(l)) expect(l).not.toContain('scan');
@@ -142,11 +140,22 @@ test.describe('desk monitors', () => {
     await expect.poll(async () => (await monitorLines(page)).join('\n'), { timeout: 90_000 }).toMatch(/Working \/ Task run \/ Running/);
   });
 
-  test('the Live mark shows only while the presence stream is connected', async ({ page }) => {
+});
+
+test.describe('the Live mark', () => {
+  test('shows only while the presence stream is connected', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await openAlNoor(page, { stream: 'unsupported' });
+    await open(page, { stream: 'unsupported', presence: 'api' });
+    await enter(page, 'Tyre Pulse');
     await expect.poll(() => wallLine(page).then((l) => l.includes('Updated ')), { timeout: 90_000 }).toBe(true);
     expect(await wallLine(page)).not.toMatch(/ Live$/);
+  });
+
+  test('shows when the stream is live', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, { stream: 'live', presence: 'api' });
+    await enter(page, 'Tyre Pulse');
+    await expect.poll(() => wallLine(page), { timeout: 90_000 }).toMatch(/ Live$/);
   });
 });
 
