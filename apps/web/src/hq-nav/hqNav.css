@@ -1,6 +1,6 @@
 /* Floor rail, side panel and quick-view strip: loaded with NavChrome (the layout, drawers and campus cards are in hqNavLayout.css). */
 /* Rail. */
-.hqNavRail { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: flex; flex-direction: column; gap: var(--d-s2); max-block-size: clamp(380px, calc(100dvh - 210px), 860px); min-width: 0; overflow: hidden auto; padding: var(--d-s2); }
+.hqNavRail { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: flex; flex-direction: column; gap: var(--d-s2); max-block-size: var(--hq-stage-h, 640px); min-width: 0; overflow: hidden auto; padding: var(--d-s2); }
 .hqNavRail header { align-items: center; display: flex; gap: var(--d-s2); justify-content: space-between; }
 .hqNavRail[data-slim="true"] header { justify-content: center; }
 .hqNavRail h2 { font-size: var(--text-sm); font-weight: 650; margin: 0; }
@@ -27,7 +27,7 @@
 .hqRailText small { color: var(--d-muted); font-size: var(--text-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Side panel. */
-.hqNavSide, .hqNavSideBody { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: flex; flex-direction: column; gap: var(--d-s3); max-block-size: clamp(380px, calc(100dvh - 210px), 860px); min-width: 0; overflow: hidden auto; padding: var(--d-s3); position: relative; }
+.hqNavSide, .hqNavSideBody { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: flex; flex-direction: column; gap: var(--d-s3); max-block-size: calc(var(--hq-stage-h, 640px) + var(--hq-below, 0px)); min-width: 0; overflow: hidden auto; padding: var(--d-s3); position: relative; }
 .hqNavSideBody { background: transparent; border: 0; max-block-size: none; overflow: visible; padding: 0; }
 .hqSideToggle { align-self: flex-end; flex: none; }
 .hqNavSide > .hqSideToggle { margin-block-end: calc(var(--d-s2) * -1); }
@@ -66,8 +66,8 @@
 .hqStrip nav { flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 .hqStrip ul { display: flex; gap: var(--d-s2); list-style: none; margin: 0; padding: 0 0 var(--d-s1); width: max-content; }
 .hqStripToggle { align-items: center; appearance: none; background: var(--d-chip); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); cursor: pointer; display: inline-flex; flex: none; font-size: var(--text-xs); gap: 4px; min-height: 40px; padding: 0 var(--d-s2); }
-.hqStrip[data-open="true"] .hqStripToggle { align-self: flex-start; flex-direction: column; justify-content: center; min-height: 76px; width: 72px; }
-.hqStop { appearance: none; background: var(--d-chip); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); cursor: pointer; display: flex; flex-direction: column; gap: 2px; padding: 3px; text-align: center; width: 112px; }
+.hqStrip[data-open="true"] .hqStripToggle { align-self: flex-start; flex-direction: column; justify-content: center; min-height: 68px; width: 72px; }
+.hqStop { appearance: none; background: var(--d-chip); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); cursor: pointer; display: flex; flex-direction: column; gap: 2px; padding: 3px; text-align: center; width: 100px; }
 .hqStop:hover:not(:disabled) { border-color: var(--d-line-hover); }
 .hqStop:disabled { cursor: not-allowed; opacity: .6; }
 .hqStop[data-current="true"] { border-color: var(--d-accent); box-shadow: 0 0 0 2px var(--d-accent); }

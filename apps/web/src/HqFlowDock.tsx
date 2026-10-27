@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronUp, Hourglass, MapPin, RefreshCcw, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, Hourglass, MapPin, RefreshCcw, X } from 'lucide-react';
 import type { OfficeFlowItem, OfficeFlowSnapshot, OfficeFlowSourceState, OfficeFlowTrail } from '@anum/contracts';
 import { t, formatDateTime, type MessageKey } from './lib/i18n';
 import { roomNameFor } from './lib/registryNames.ts';
 import { actionHash, actionText, ageText, changeAnnouncement, reasonText } from './lib/officeFlow';
 import { flowClient, type ChangeBatch, type FlowLink, type FlowStatus } from './useOfficeFlow';
 import { useLocale } from './useLocale';
+import { FLOW_STALE_MS, flowLive } from './lib/hqPanelStatus.ts';
+import { LiveChip } from './hq-nav/LiveChip';
+import { useNow } from './hq-nav/useNow';
 import { openAssign, openTaskPanel } from './lib/hqAssign';
 import './hqFlow.css';
 
@@ -24,6 +27,7 @@ export function HqFlowDock(props: HqFlowDockProps) {
   useLocale();
   const { snapshot, status, error, link, batch, rooms, open, onToggle, onReload, roomFilter, onRoomFilter, onFocusRoom, onNavigate } = props;
   const [announce, setAnnounce] = useState('');
+  const now = useNow(10_000);
   const roomName = (id: string | null) => (id ? rooms.get(id)?.label ?? id : t('hqFlow.unlocated'));
   useEffect(() => {
     if (!batch.changes.length) return;
@@ -35,7 +39,6 @@ export function HqFlowDock(props: HqFlowDockProps) {
   const shown = (snapshot?.items ?? []).filter((i) => !roomFilter || i.location?.room_id === roomFilter);
   const stuck = shown.filter((i) => i.stuck);
   const calm = shown.filter((i) => !i.stuck);
-  const linkLabel = link === 'live' ? t('hqFlow.linkLive') : link === 'polling' ? t('hqFlow.linkPolling') : t('hqFlow.linkOffline');
   const summary = totals
     ? t('hqFlow.statusLine', { items: totals.items - totals.by_stage.done, waiting: totals.waiting_human, stuck: totals.stuck })
     : status === 'denied' ? t('hqFlow.denied') : status === 'error' ? t('hqFlow.error', { detail: error }) : t('hqFlow.loading');
@@ -49,9 +52,7 @@ export function HqFlowDock(props: HqFlowDockProps) {
         <span className="hqFlowSummary">{summary}</span>
         {open ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronUp size={16} aria-hidden="true" />}
       </button>
-      <span className="hqFlowLink" data-link={link} role="status">
-        {link === 'offline' && <WifiOff size={13} aria-hidden="true" />}{linkLabel}
-      </span>
+      <LiveChip state={flowLive(link, status)} at={snapshot?.as_of ?? null} staleAfterMs={FLOW_STALE_MS} nowMs={now} pollingText={t('hqPanels.flow.polling')} testId="hq-flow-live" />
     </div>
     <div className="hqFlowLive" role="status" aria-live="polite" aria-atomic="true">{announce}</div>
     {open && <div id="hqFlowBody" className="hqFlowBody">
