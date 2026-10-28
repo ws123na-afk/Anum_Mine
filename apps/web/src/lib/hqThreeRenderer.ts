@@ -314,7 +314,7 @@ function probeGpu(): GpuClass {
 
 
 export class HqRenderer {
-  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, tier: 0, fx: '', scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
+  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, tier: 0, fx: '', sceneFx: 'loading', scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(40, 1, 0.2, 1000);
@@ -576,6 +576,9 @@ export class HqRenderer {
       // Build the scene again only when the new chunks change it: a floor view on a software rasteriser takes none of them, and a second build would restart its lifts.
       if (!this.disposed && this.lastScene && (!this.software || this.lastScene.scenery !== undefined || this.photoPin)) this.setScene(this.lastScene);
     } catch { this.sceneFx = null; }
+    // The next frame draws the scene built with the chunks (the stage reports it as part of `data-scene-settled`).
+    this.stats.sceneFx = 'ready';
+    if (!this.disposed) this.requestFrame();
   }
 
   /** Loads the photographic extension (PBR detail maps, post stack, point lights) and recompiles the materials with it. */

@@ -53,6 +53,11 @@ type Props = Readonly<{
   label: string;
   description: string;
   scene: RenderScene | null;
+  /**
+   * False while the view still waits for a lazy part that changes the meshes (the campus plan kit, the billboards): the scene handed over
+   * is a first, temporary build. Omitted means the scene is final once handed over. Read only for QA, as the canvas's `data-scene-settled`.
+   */
+  sceneSettled?: boolean;
   /** The plan atlas the glass looks through (campus only). Changing it never rebuilds the scene meshes. */
   glassPlan?: GlassPlanData | null;
   /** Record-backed work motion (docs/ANUM_MINE_HQ_CAMPUS_MOTION.md): vehicles and tyres on a timeline, each started by one stored record. Changing it never rebuilds the scene meshes. */
@@ -143,6 +148,8 @@ export function HqStage(props: Props) {
   const pointers = useRef(new Map<number, Pointer>());
   const gesture = useRef<{ moved: boolean; button: number; startX: number; startY: number; pinch: number } | null>(null);
   const propsRef = useRef(props);
+  /** The scene last handed to the renderer (`data-scene-settled` is true only while it is the one the view holds). */
+  const shownScene = useRef<RenderScene | null>(null);
   propsRef.current = props;
   const [status, setStatus] = useState<StageStatus>('ok');
   const lostTimer = useRef<number | null>(null);
@@ -236,6 +243,15 @@ export function HqStage(props: Props) {
             canvas.current.dataset.modelLoadMs = String(s.models.loadMs);
             canvas.current.dataset.modelFallbacks = s.models.fallbacks.join(',');
           }
+          // What this frame drew, on every frame where it changed: `data-triangles` is never an earlier frame's count, and `data-scene-settled`
+          // is true from the first frame that draws the final scene (no lazy part pending in the view, the scene effect chunks loaded, and the
+          // scene the view holds now is the one handed to the renderer).
+          if (s && canvas.current) {
+            const tri = String(Math.round(s.triangles));
+            if (canvas.current.dataset.triangles !== tri) canvas.current.dataset.triangles = tri;
+            const settled = String(propsRef.current.sceneSettled !== false && s.sceneFx === 'ready' && propsRef.current.scene !== null && shownScene.current === propsRef.current.scene);
+            if (canvas.current.dataset.sceneSettled !== settled) canvas.current.dataset.sceneSettled = settled;
+          }
         },
       });
       if (!r) { propsRef.current.onUnavailable('webgl-unavailable'); return; }
@@ -247,7 +263,7 @@ export function HqStage(props: Props) {
       giveWalkers(r, propsRef.current.walkers, () => true);
       r.setCamera(live.current);
       r.setNight(nightNow.current);
-      if (propsRef.current.scene) r.setScene(propsRef.current.scene);
+      if (propsRef.current.scene) { r.setScene(propsRef.current.scene); shownScene.current = propsRef.current.scene; }
       r.setScreens(propsRef.current.screenAtlas?.canvas ?? null);
       { const plan = propsRef.current.glassPlan; giveGlassPlan(r, plan, () => propsRef.current.glassPlan === plan); }
       r.setBoards(propsRef.current.boardAtlas?.canvas ?? null);
@@ -278,7 +294,8 @@ export function HqStage(props: Props) {
   }, []);
 
   useEffect(() => { renderer.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
-  useEffect(() => { if (scene) renderer.current?.setScene(scene); }, [scene]);
+  useEffect(() => { if (scene && renderer.current) { renderer.current.setScene(scene); shownScene.current = scene; } }, [scene]);
+  useEffect(() => { renderer.current?.requestFrame(); }, [props.sceneSettled]);
   const work = props.work;
   useEffect(() => { giveWork(renderer.current, work, () => propsRef.current.work === work); }, [work]);
   const walkers = props.walkers;
