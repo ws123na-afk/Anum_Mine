@@ -107,22 +107,31 @@ export default function HqCampusWork(props: Props): null {
     if (changed) publish.current();
   };
 
-  // Tyre Pulse: read for the open workspace now and every minute while the tab is visible.
+  // Tyre Pulse: read for the open workspace now, every minute while the tab is visible, and on coming back to the tab. An event is what
+  // changed since the previous answer; the first answer only sets the baseline.
   useEffect(() => {
     let live = true;
+    let previous: TyreFeed | null = null;
+    let reading = false;
     const read = async () => {
-      if (document.visibilityState === 'hidden') return;
-      const next = await loadTyreFeed();
-      if (!live) return;
-      feed.current = next;
-      accept(tyreRecords(next, latest.current.tyreKeyFor(next.state), latest.current.known, Date.now()));
-      publish.current();
+      if (document.visibilityState === 'hidden' || reading) return;
+      reading = true;
+      try {
+        const next = await loadTyreFeed();
+        if (!live) return;
+        feed.current = next;
+        accept(tyreRecords(previous, next, latest.current.tyreKeyFor(next.state), latest.current.known, Date.now()));
+        previous = next;
+        publish.current();
+      } finally { reading = false; }
     };
     feed.current = { state: 'loading' };
     if (!feedWanted) { publish.current(); return () => { live = false; }; }
     void read();
     const id = window.setInterval(() => { void read(); }, TYRE_POLL_MS);
-    return () => { live = false; window.clearInterval(id); };
+    const onVisible = () => { if (document.visibilityState === 'visible') void read(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { live = false; window.clearInterval(id); document.removeEventListener('visibilitychange', onVisible); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feedWanted, openWorkspace]);
 

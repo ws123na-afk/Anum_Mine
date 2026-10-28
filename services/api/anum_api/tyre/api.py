@@ -433,6 +433,9 @@ class DashboardView(BaseModel):
     top_alerts: list[TyreAlert]
     due_soon: list[TyreForecast]
     due_by_month: dict[str, int]
+    # When ANUM first saw the newest alert that is not resolved (its stored first_seen_at,
+    # UTC); None without one. Read by the HQ campus motion (docs/ANUM_MINE_HQ_CAMPUS_MOTION.md).
+    latest_alert_at: datetime | None = None
 
 
 @router.get("/dashboard", response_model=DashboardView)
@@ -443,6 +446,7 @@ async def dashboard(context: TenantContext = Depends(tenant_context)) -> Dashboa
     with open_tyre_store(context) as store:
         counts = store.alert_counts(context)
         top, _ = store.list_alerts(context, status="open", kind=None, query=None, limit=5, offset=0)
+        latest_alert_at = max((alert.first_seen_at for alert in store.active_alerts(context)), default=None)
     by_month: dict[str, int] = {}
     horizon = today + timedelta(days=366)
     for item in forecasts:
@@ -456,6 +460,7 @@ async def dashboard(context: TenantContext = Depends(tenant_context)) -> Dashboa
     return DashboardView(
         summary=summary, operations=operations, synced_at=loaded.snapshot.stats.synced_at, alert_counts=counts, top_alerts=top,
         due_soon=[item for item in forecasts if item.projected_removal][:10], due_by_month=dict(sorted(by_month.items())),
+        latest_alert_at=latest_alert_at,
     )
 
 

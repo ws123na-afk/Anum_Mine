@@ -17,6 +17,7 @@ import pytest
 from pydantic import ValidationError
 from test_tyre_api import (  # noqa: F401
     API,
+    MEMBER,
     NOW,
     OWNER,
     TENANT,
@@ -240,3 +241,68 @@ def test_question_parsing_stays_linear_on_long_whitespace() -> None:
     choose_fleet_call("work order" + " " * 50_000 + "x", date(2026, 10, 13))
     assert time.perf_counter() - started < 0.5
     assert choose_fleet_call("work order   :   99A", date(2026, 10, 13)).arguments == {"work_order": "99A"}
+
+
+# --- per-event times for the HQ campus motion (docs/ANUM_MINE_HQ_CAMPUS_MOTION.md) -----------
+
+
+def test_parse_instant_keeps_only_real_times_with_a_zone() -> None:
+    from datetime import datetime, timezone
+
+    from anum_api.tyre.mapping import parse_instant
+
+    utc = timezone.utc
+    assert parse_instant("2026-10-26T14:05:00+04:00") == datetime(2026, 10, 26, 10, 5, tzinfo=utc)
+    assert parse_instant("2026-10-26T14:05:00Z") == datetime(2026, 10, 26, 14, 5, tzinfo=utc)
+    assert parse_instant(datetime(2026, 10, 26, 14, 5, tzinfo=utc)) == datetime(2026, 10, 26, 14, 5, tzinfo=utc)
+    assert parse_instant(1_793_023_500) == datetime.fromtimestamp(1_793_023_500, tz=utc)
+    # Dates, texts without a zone, midnight (a date stored as a timestamp) and junk are not instants.
+    for value in (None, True, "", "2026-10-26", date(2026, 10, 26), "2026-10-26T14:05:00", datetime(2026, 10, 26, 14, 5),
+                  "2026-10-26T00:00:00+00:00", datetime(2026, 10, 26, tzinfo=utc), "26/10/2026", "not a time", 0, -5,
+                  float("nan")):
+        assert parse_instant(value) is None, value
+
+
+def test_operations_last_inspection_time_only_when_every_visit_of_that_day_has_one() -> None:
+    from datetime import datetime, timezone
+
+    from anum_api.tyre.model import InspectionVisit, TyreDataset
+
+    utc = timezone.utc
+    day = date(2026, 10, 26)
+    visits = [
+        InspectionVisit(id="1", vehicle_id="v1", inspected_at=day, inspected_time=datetime(2026, 10, 26, 6, 0, tzinfo=utc)),
+        InspectionVisit(id="2", vehicle_id="v2", inspected_at=day, inspected_time=datetime(2026, 10, 26, 9, 30, tzinfo=utc)),
+        InspectionVisit(id="3", vehicle_id="v3", inspected_at=day - timedelta(days=1)),
+    ]
+    summary = fleet.operations_summary(TyreDataset(inspection_visits=visits), day)
+    assert summary.last_inspection == day and summary.last_inspection_at == datetime(2026, 10, 26, 9, 30, tzinfo=utc)
+    # One inspection of the last day without a time: the time of the last inspection is unknown, not guessed.
+    visits.append(InspectionVisit(id="4", vehicle_id="v4", inspected_at=day))
+    summary = fleet.operations_summary(TyreDataset(inspection_visits=visits), day)
+    assert summary.last_inspection == day and summary.last_inspection_at is None
+    assert fleet.operations_summary(TyreDataset(), day).last_inspection_at is None
+
+
+def test_dashboard_reports_the_stored_times_of_the_last_inspection_and_newest_alert(fake_source) -> None:  # type: ignore[no-untyped-def]
+    connect_and_sync()
+    dashboard = client.get(f"{API}/dashboard", headers=VIEWER).json()
+    # The fixture's inspections store dates only: the day is known, the time is not.
+    assert dashboard["operations"]["last_inspection"] is not None and dashboard["operations"]["last_inspection_at"] is None
+    # Alerts are stored with the time ANUM first saw them (the sync ran at NOW).
+    assert dashboard["latest_alert_at"] == NOW.isoformat().replace("+00:00", "Z")
+
+    # The source starts storing a time with each inspection: the next sync keeps it.
+    from datetime import datetime, timezone
+
+    last_day = max(row["inspection_date"] for row in fake_source.rows["inspections"])
+    stamped = []
+    for minute, row in enumerate(r for r in fake_source.rows["inspections"] if r["inspection_date"] == last_day):
+        row["inspection_date"] = f"{last_day}T09:{10 + minute:02d}:00+04:00"
+        stamped.append(datetime.fromisoformat(row["inspection_date"]).astimezone(timezone.utc))
+    assert stamped
+    assert client.post(f"{API}/sync", headers=MEMBER).status_code == 200
+    operations = client.get(f"{API}/dashboard", headers=VIEWER).json()["operations"]
+    assert operations["last_inspection"] == last_day
+    assert operations["last_inspection_at"] == max(stamped).isoformat().replace("+00:00", "Z")
+    assert operations["last_inspection_at"].endswith(f"T05:{9 + len(stamped):02d}:00Z")

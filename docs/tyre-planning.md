@@ -288,6 +288,14 @@ covered it (a visit covers a tyre when it read the tyre's position, recorded not
 position, or read positions no tyre record names). Odometer logs and inspection
 odometers feed each vehicle's km per day.
 
+Event times (read only, for the HQ campus motion, `docs/ANUM_MINE_HQ_CAMPUS_MOTION.md`):
+the dashboard returns `operations.last_inspection_at`, the time of the last inspection,
+and `latest_alert_at`, when ANUM first saw the newest alert that is not resolved. Both
+are UTC instants from stored values or `null`. The sync keeps an inspection's time only
+when the mapped inspection date column stores a time of day with a time zone; a date, a
+timestamp without a zone or one at exactly midnight stays date-only, and
+`last_inspection_at` is set only when every inspection of the last day has a time.
+
 The large tables are never copied: `work_order_line_items` and `parts_consumption` are
 read on demand for one work order, one vehicle or one period (at most 10,000 rows, only
 the operational columns in `tyre/live_tables.py`, filtered at the source), and nothing
@@ -425,7 +433,7 @@ All under `/api/v1/tyre`; errors use the standard envelope.
 | `PUT /mapping`, `POST /mapping/preview` | manage | save; dry-run on a sample |
 | `PUT /assumptions` | manage | save and re-evaluate alerts |
 | `POST /sync` | operate | read the source now |
-| `GET /dashboard` | read | summary, operations counts, alert counts, top alerts, soonest removals, removals per month |
+| `GET /dashboard` | read | summary, operations counts (with `last_inspection_at`), alert counts, top alerts, `latest_alert_at`, soonest removals, removals per month |
 | `GET /forecasts`, `GET /forecasts.csv` | read | per tyre; `month`, `due_by`, `state`, `confidence`, `q`, `limit`, `offset` |
 | `GET /purchase-plan`, `GET /purchase-plan.csv` | read | `months` 1-36 |
 | `GET /alerts`, `POST /alerts/{id}/acknowledge`, `POST /alerts/{id}/reopen` | read / operate | `status`, `kind`, `q`, paging |
