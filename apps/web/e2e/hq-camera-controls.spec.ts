@@ -11,7 +11,8 @@ test('Reset view during the flight to a picked building holds, and the cards the
   await mockHq(page, { campus: 'api', commerce: 'none', profile: 'ok' });
   await page.goto('/#office-preview');
   await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
-  // The flight to the building takes over a second; press Reset view while it is still under way.
+  // The flight to the building takes over a second; press Reset view while it is still under way (its details are open by then).
+  await expect(hq(page).getByRole('complementary', { name: 'About Al Noor Fleet HQ' })).toBeVisible();
   await hq(page).getByRole('button', { name: 'Reset view' }).click();
   const card = hq(page).getByRole('button', { name: /^Personal Office\./ });
   await expect(card.locator('xpath=ancestor-or-self::*[@data-hidden][1]')).toHaveAttribute('data-hidden', 'no');
