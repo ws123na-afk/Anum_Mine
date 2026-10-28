@@ -126,3 +126,17 @@ export const WORK_STATUSES: ReadonlySet<string> = new Set(['working', 'queued', 
 export function activeShiftKey(buildings: readonly SceneBuilding[], nowMs: number): string {
   return buildings.filter(hasShiftDesks).map((b) => `${b.id}:${snapshotOf(b, 'active', nowMs).active}`).join('|');
 }
+
+/**
+ * Who is off shift now, for the counts (campus, building, Total agents, Operations wall): the agent of every day or night seat
+ * whose shift is not in force in its building, as agent ids and `desk:<id>`. Read from the stored seats and hours, never from the view.
+ */
+export function offShiftKeys(buildings: readonly SceneBuilding[], nowMs: number): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const b of buildings) {
+    if (!hasShiftDesks(b)) continue;
+    const active = snapshotOf(b, 'active', nowMs).active;
+    for (const f of b.floors) for (const d of f.desks) if (d.shift != null && d.shift !== active) { out.add(`desk:${d.id}`); if (d.agentId) out.add(d.agentId); }
+  }
+  return out;
+}

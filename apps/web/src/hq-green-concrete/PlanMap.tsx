@@ -16,7 +16,7 @@ export function PlanMap({ seats, width = W, depth = D }: { seats: readonly Green
         <text x={width / 2} y="-0.25" className="cap" textAnchor="middle">{t('hqGc.layout.wall')}</text>
         <rect x={width / 2 - 0.6} y={depth - 0.12} width="1.2" height="0.24" className="door" />
         <text x={width / 2} y={depth + 0.9} className="cap" textAnchor="middle">{t('hqGc.layout.door')}</text>
-        {tableJoins(seats.filter((x) => x.shift !== null || x.table_group).map((x) => ({ x: x.pos_x, z: x.pos_z, facing: x.facing, group: x.table_group }))).map((j) => <rect key={`j${j.x}`} x={j.x} y={j.z} width={j.width} height={j.depth} rx="0.08" className="join" />)}
+        {tableJoins(seats.filter((x) => x.shift !== null || x.table_group).map((x) => ({ x: x.pos_x, z: x.pos_z, facing: x.facing, group: x.table_group }))).map((j, i) => <rect key={`j${i}`} x={j.x} y={j.z} width={j.width} height={j.depth} rx="0.08" className="join" />)}
         {[...spots.values()].map((list) => {
           const s = list[0];
           const across = rotOfFacing(s.facing) % 2 === 0;

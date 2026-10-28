@@ -20,6 +20,7 @@ from sqlalchemy import text
 from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import has_permission, require_permission, tenant_context
+from .office_green_concrete import off_shift_desks
 from .office_presence import derive_presence, load_evidence, totals
 from .office_scope import require_postgres, workspace_session
 from .schemas import TenantContext, new_id, utc_now
@@ -64,8 +65,17 @@ def _building(context: TenantContext, name: str | None, role: str, archived: boo
             "(select count(*) from office_rooms where tenant_id = :t and workspace_id = :w) as rooms, "
             "(select count(*) from office_desks where tenant_id = :t and workspace_id = :w) as desks"), p).one()
         items = derive_presence(load_evidence(session, ctx, now))
-    state_totals = totals(items)
-    verified = [i["last_verified_at"] for i in items if i["state"] != "idle"]
+        # Seated people of a day or night shift that is not in force now count as off shift, not by their work state.
+        seats = session.execute(text(
+            "select d.id as desk_id, d.shift, b.timezone, b.shift_day_start, b.shift_night_start from office_desks d "
+            "join office_rooms r on r.tenant_id = d.tenant_id and r.workspace_id = d.workspace_id and r.id = d.room_id "
+            "join office_floors f on f.tenant_id = r.tenant_id and f.workspace_id = r.workspace_id and f.id = r.floor_id "
+            "join office_buildings b on b.tenant_id = f.tenant_id and b.workspace_id = f.workspace_id and b.id = f.building_id "
+            "where d.tenant_id = :t and d.workspace_id = :w and d.shift is not null and d.agent_id is not null"), p).mappings().all()
+    off = off_shift_desks(seats, now)
+    on_shift = [i for i in items if i.get("desk_id") not in off]
+    state_totals = totals(on_shift)
+    verified = [i["last_verified_at"] for i in on_shift if i["state"] != "idle"]
     return {
         "workspace_id": ctx.workspace_id,
         "name": name or ctx.workspace_id,
@@ -79,7 +89,8 @@ def _building(context: TenantContext, name: str | None, role: str, archived: boo
         "office_buildings": counts.buildings,
         "rooms": counts.rooms,
         "desks": counts.desks,
-        "agents": {"total": len(items), "by_state": state_totals},
+        # ``by_state`` counts the people on shift; ``off_shift`` the people of a shift that is not in force now.
+        "agents": {"total": len(items), "by_state": state_totals, "off_shift": len(items) - len(on_shift)},
         # The newest evidence time behind a non-idle state; null when every agent is idle or none exist.
         "presence_verified_at": max(verified) if verified else None,
         "presence_as_of": now.isoformat(),

@@ -11,6 +11,8 @@ export type CampusBuildingKind = 'executive' | 'business' | 'department' | 'pers
 export type CampusTotals = Readonly<{
   agents: number; working: number; queued: number; meeting: number; waiting_approval: number;
   blocked: number; idle: number; paused: number; unknown: number;
+  /** People seated at a day or night seat whose shift is not in force now (stored hours, building time zone): not counted by a work state. */
+  off_shift?: number;
 }>;
 
 /** The owner's sign for a registry building (docs/ANUM_MINE_HQ_LOGO_SIGNS.md): the style and brand colour, and the hash of the uploaded logo (null: no logo). */
@@ -73,7 +75,7 @@ export function addTotals(a: CampusTotals, b: CampusTotals): CampusTotals {
   return {
     agents: a.agents + b.agents, working: a.working + b.working, queued: a.queued + b.queued, meeting: a.meeting + b.meeting,
     waiting_approval: a.waiting_approval + b.waiting_approval, blocked: a.blocked + b.blocked,
-    idle: a.idle + b.idle, paused: a.paused + b.paused, unknown: a.unknown + b.unknown,
+    idle: a.idle + b.idle, paused: a.paused + b.paused, unknown: a.unknown + b.unknown, off_shift: (a.off_shift ?? 0) + (b.off_shift ?? 0),
   };
 }
 
@@ -89,12 +91,14 @@ export function campusTotals(buildings: readonly CampusBuilding[]): { totals: Ca
   return { totals, reporting, missing: buildings.length - reporting };
 }
 
-export type StatusKey = 'working' | 'queued' | 'meeting' | 'waiting_approval' | 'blocked' | 'idle' | 'paused' | 'unknown';
-export const STATUS_ORDER: readonly StatusKey[] = ['working', 'meeting', 'queued', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'];
+export type StatusKey = 'working' | 'queued' | 'meeting' | 'waiting_approval' | 'blocked' | 'idle' | 'paused' | 'unknown' | 'off_shift';
+export const STATUS_ORDER: readonly StatusKey[] = ['working', 'meeting', 'queued', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown', 'off_shift'];
+/** A count of a status (an older reading has no off shift count: zero). */
+export const countOf = (totals: CampusTotals, key: StatusKey): number => totals[key] ?? 0;
 
 /** Tone per status, shared by the dot, the donut and the agent pill. */
 export const STATUS_TONE: Readonly<Record<StatusKey, 'ok' | 'meeting' | 'queue' | 'warn' | 'stop' | 'info' | 'muted' | 'faint'>> = {
-  working: 'ok', queued: 'queue', meeting: 'meeting', waiting_approval: 'warn', blocked: 'stop', idle: 'info', paused: 'muted', unknown: 'faint',
+  working: 'ok', queued: 'queue', meeting: 'meeting', waiting_approval: 'warn', blocked: 'stop', idle: 'info', paused: 'muted', unknown: 'faint', off_shift: 'faint',
 };
 
 /** The dominant status of a building: what the status dot on its label shows. */
@@ -108,19 +112,19 @@ export function buildingStatus(b: CampusBuilding): StatusKey | 'unavailable' | '
   if (b.totals.queued > 0) return 'queued';
   if (b.totals.idle > 0) return 'idle';
   if (b.totals.paused > 0) return 'paused';
-  return 'unknown';
+  return countOf(b.totals, 'off_shift') > 0 && b.totals.unknown === 0 ? 'off_shift' : 'unknown';
 }
 
 export type DonutArc = Readonly<{ key: StatusKey; value: number; start: number; end: number }>;
 
 /** Donut slices in radians, clockwise from twelve o'clock. Zero-valued statuses are left out. */
 export function donutArcs(totals: CampusTotals): DonutArc[] {
-  const sum = STATUS_ORDER.reduce((s, k) => s + totals[k], 0);
+  const sum = STATUS_ORDER.reduce((s, k) => s + countOf(totals, k), 0);
   if (sum <= 0) return [];
   const arcs: DonutArc[] = [];
   let angle = 0;
   for (const key of STATUS_ORDER) {
-    const value = totals[key];
+    const value = countOf(totals, key);
     if (value <= 0) continue;
     const span = (value / sum) * Math.PI * 2;
     arcs.push({ key, value, start: angle, end: angle + span });
@@ -352,6 +356,8 @@ function readAgents(value: unknown): CampusTotals | null {
     if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return null;
     out[key] = Math.floor(n);
   }
+  const off = row.off_shift;
+  if (typeof off === 'number' && Number.isFinite(off) && off > 0) out.off_shift = Math.floor(off);
   return out as unknown as CampusTotals;
 }
 

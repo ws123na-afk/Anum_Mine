@@ -259,13 +259,14 @@ from .integration_setup import router as integration_setup_router
 from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
 from .error_reporting import setup_error_reporting, shutdown_error_reporting
+from .serving import prepare_for_serving
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(application: FastAPI):
     await event_runtime.start()
     # Phone push from committed events when ANUM_FCM_SERVICE_ACCOUNT_JSON is set
     # (docs/notifications.md); the developer watcher refreshes in-progress developer
@@ -318,6 +319,10 @@ async def lifespan(_: FastAPI):
     lifecycle = build_lifecycle_runner(settings)
     if lifecycle is not None:
         lifecycle.start()
+    # Last: build every route's state now instead of on the first request, then keep the
+    # startup heap out of later garbage collections, whose full passes paused the event
+    # loop for half a second or more (anum_api/serving.py, docs/realtime.md#garbage-collection).
+    await prepare_for_serving(application.router)
     try:
         yield
     finally:

@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Final
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .avatar_appearance import AVATAR_STYLES
 
@@ -149,6 +151,26 @@ def shift_at(minutes: int, day_start: str, night_start: str) -> str:
     if d <= n:
         return "day" if d <= minutes < n else "night"
     return "night" if n <= minutes < d else "day"
+
+
+def active_shift(now: datetime, timezone: str | None, day_start: str | None, night_start: str | None) -> str:
+    """The shift in force now in the building's own time zone (an unknown zone reads UTC, as the web does)."""
+    try:
+        local = now.astimezone(ZoneInfo(timezone or "UTC"))
+    except (ZoneInfoNotFoundError, ValueError):
+        local = now.astimezone(UTC)
+    day, night, _ = valid_hours(day_start, night_start)
+    return shift_at(local.hour * 60 + local.minute, day, night)
+
+
+def off_shift_desks(seats: Iterable[Mapping[str, Any]], now: datetime) -> set[str]:
+    """Desks whose seated person is off shift now: a day or night seat outside its shift (stored hours, else the defaults).
+
+    Each seat carries ``desk_id``, ``shift`` and its building's ``timezone``, ``shift_day_start`` and ``shift_night_start``.
+    A desk without a shift (the manager seat, any ordinary desk) is always on.
+    """
+    return {s["desk_id"] for s in seats if s.get("shift") in ("day", "night")
+            and s["shift"] != active_shift(now, s.get("timezone"), s.get("shift_day_start"), s.get("shift_night_start"))}
 
 
 def _minutes(text: str) -> int:

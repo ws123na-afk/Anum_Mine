@@ -16,6 +16,8 @@ export function summaryText(summary: OfficeLayoutDiffSummary): string {
   add(summary.desks_added, 'hqh.sum.desksAdded');
   add(summary.desks_removed, 'hqh.sum.desksRemoved');
   add(summary.desks_moved, 'hqh.sum.desksMoved');
+  add(summary.seats_changed ?? 0, 'hqh.sum.seatsChanged');
+  if (summary.shift_hours_changed) parts.push(t('hqh.sum.shiftHours'));
   if (summary.floor_resized) parts.push(t('hqh.sum.resized'));
   return parts.length ? joinList(parts) : t('hqh.sum.none');
 }
@@ -31,7 +33,8 @@ export function revisionTitle(revision: OfficeLayoutRevision): string {
 /** The number of changes a restore would make; zero means the floor already looks like that revision. */
 export function changeCount(summary: OfficeLayoutDiffSummary): number {
   return summary.rooms_added + summary.rooms_removed + summary.rooms_moved + summary.rooms_changed
-    + summary.desks_added + summary.desks_removed + summary.desks_moved + (summary.floor_resized ? 1 : 0);
+    + summary.desks_added + summary.desks_removed + summary.desks_moved + (summary.seats_changed ?? 0)
+    + (summary.shift_hours_changed ? 1 : 0) + (summary.floor_resized ? 1 : 0);
 }
 
 export interface MiniView { minX: number; minZ: number; width: number; depth: number }

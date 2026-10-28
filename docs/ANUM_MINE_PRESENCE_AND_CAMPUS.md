@@ -25,9 +25,11 @@ One building per workspace where the caller has an **active membership** and `ta
     "role": "owner", "archived": false, "accessible": true,
     "floors": [{ "id": "...", "building_id": "...", "level": 0, "name": "..." }],
     "office_buildings": 1, "rooms": 3, "desks": 8,
-    "agents": { "total": 5, "by_state": { "working": 1, "queued": 0, "meeting": 0, "waiting_approval": 0, "blocked": 0, "idle": 4, "paused": 0, "unknown": 0 } },
+    "agents": { "total": 5, "by_state": { "working": 1, "queued": 0, "meeting": 0, "waiting_approval": 0, "blocked": 0, "idle": 4, "paused": 0, "unknown": 0 }, "off_shift": 0 },
     "presence_verified_at": "ISO|null", "presence_as_of": "ISO" }] }
 ```
+Shifts ([Green Concrete](ANUM_MINE_GREEN_CONCRETE.md#shifts)): an agent seated at a `day` or `night` desk whose shift is not in force now (the building's stored `shift_day_start` and `shift_night_start`, else 07:00 and 19:00, in the building's time zone) is counted in `off_shift` and not in `by_state`; `total` still counts every agent. `presence_verified_at` reads only the people on shift. The web treats a missing `off_shift` (an older server) as zero, and shows the count as **Off shift** in every total.
+
 `kind` and `icon` are null until an owner sets them; nothing is guessed. A workspace that fails to read is listed with `accessible: false`, `agents: null` and zero counts.
 
 ### `PUT /api/v1/office/campus/profile` (owner, `workspace:manage`)

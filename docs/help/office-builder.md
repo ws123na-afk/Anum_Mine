@@ -33,7 +33,7 @@ On a phone or tablet, tap a room to select it, then drag it with your finger. Wh
 
 1. Open the **Rooms** tab. Click a template (Open office, Meeting room, Reception, Warehouse or Workshop) to create a room in a free spot. Tick **Also create the template desks** first if you want its desks.
 2. Or fill in **Blank room** and click **Add blank room**. It appears on the plan as an unsaved change: move it, then **Save layout**.
-3. Select a room, then click **Copy room** to make a copy next to it. Tick **Also copy the desks (never the agents)** to copy its desks without the agents.
+3. Select a room, then click **Copy room** to make a copy next to it. Tick **Also copy the desks (never the agents)** to copy its desks without the agents. Copied desks keep their seat fields: shift, place at the table, looks at, seat type and table group.
 4. **Delete room** works only on an empty room. If desks are still in it, delete them first. Rooms that have no place yet wait under **Rooms waiting for a place**: click **Place on plan**.
 
 Creating, copying and deleting happen on the server at once. Moves and resizes wait for **Save layout**.

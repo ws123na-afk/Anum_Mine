@@ -326,6 +326,8 @@ export const builderEn = {
   'hqh.sum.desksMoved': { one: '1 desk moved', other: '{count} desks moved' },
   'hqh.sum.totals': 'Rooms: {rooms}, desks: {desks}',
   'hqh.sum.resized': 'floor size changed',
+  'hqh.sum.seatsChanged': { one: '1 seat changed (shift, place or table)', other: '{count} seats changed (shift, place or table)' },
+  'hqh.sum.shiftHours': 'shift hours changed',
   'hqh.sum.none': 'no change to rooms or desks',
   'hqh.dialog.title': 'Restore version {no} of {floor}?',
   'hqh.dialog.intro': 'The floor will be changed to match this version: {summary}.',

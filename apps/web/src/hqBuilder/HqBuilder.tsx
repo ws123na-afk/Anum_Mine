@@ -106,7 +106,7 @@ export function HqBuilder({ onClose }: { onClose: () => void }) {
   }), [b.floorRecords, b.present.rooms, locale]);
   const canvasDesks = useMemo<CanvasDesk[]>(() => {
     const ids = new Set(b.floorRecords.map((r) => r.id));
-    return b.data.desks.filter((d) => ids.has(d.room_id) && b.present.desks[d.id]).map((d) => ({ id: d.id, label: d.label, draft: b.present.desks[d.id], seated: d.agent_id != null }));
+    return b.data.desks.filter((d) => ids.has(d.room_id) && b.present.desks[d.id]).map((d) => ({ id: d.id, label: d.label, draft: b.present.desks[d.id], seated: d.agent_id != null, facing: d.facing ?? null, group: d.table_group ?? null }));
   }, [b.data.desks, b.floorRecords, b.present.desks]);
   const severity = useMemo(() => roomSeverity(b.issues), [b.issues]);
   const placedRooms = canvasRooms.filter((r) => r.draft.placed);
