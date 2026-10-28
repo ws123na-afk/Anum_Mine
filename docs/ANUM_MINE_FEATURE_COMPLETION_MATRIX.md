@@ -316,7 +316,7 @@ Not in the top ten but next: the realism review after PR 245 (2.2, 2.7), a scree
 | O12 | Keep or remove the "Concept preview" toggle once the live look is approved. **Default kept (owner unsure, 28 Oct 2026), can change later:** the Concept preview toggle stays, clearly separate from the live view | 13.4 |
 | O13 | Authorise a load test and a rollback rehearsal on the Oracle VM. **Default kept (owner unsure, 28 Oct 2026), can change later:** no load test and no rollback rehearsal on the live VM until the owner is present for it | 12.9, 12.10 |
 | O14 | Licence and source of glTF models (PR 245) | 2.2 |
-| O15 | Who at Green Concrete works 09:00 to 18:00 (the owner said "some" on 28 October 2026). Until answered everyone not named works 08:00 to 17:00; naming them is the one list `NINE_TO_SIX` | 4.12 |
+| O15 | Who at Green Concrete works 09:00 to 18:00. **Answered by the owner (28 October 2026): nobody.** Raed, Hazrat, Mai, Badea, Shahzeb and Ahmed work 08:00 to 17:00; `NINE_TO_SIX` stays empty | 4.12 |
 
 ## Totals
 

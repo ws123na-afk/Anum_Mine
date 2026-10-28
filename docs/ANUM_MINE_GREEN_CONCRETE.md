@@ -11,11 +11,11 @@ These are facts from the owner, stored on each person's seat and shown as the ow
 | Hours (building time zone) | People |
 |---|---|
 | 06:00 to 14:00, the morning shift | Ijaz, Ali Zeehan ("Zeeshan" in the owner's answer), Rana |
-| 08:00 to 17:00 | Raed, Hazrat, Mai, Shahzeb, Badea, Ahmed Elbendari (everyone not named elsewhere) |
+| 08:00 to 17:00 | Raed, Hazrat, Mai, Shahzeb, Badea, Ahmed Elbendari (confirmed by the owner on 28 October 2026) |
 | 13:00 to 22:00 | Amjad |
-| 09:00 to 18:00 | "Some" people: the owner has not said who yet (owner decision O15). Until then nobody is on these hours |
+| 09:00 to 18:00 | Nobody. The owner first said "some", then answered on 28 October 2026 that nobody works these hours (owner decision O15, answered) |
 
-Naming the 09:00 to 18:00 people is one data change: the person keys go into `NINE_TO_SIX` in `services/api/anum_api/office_green_concrete.py`, and the web fixture `apps/web/test/fixtures/greenConcrete.json` is regenerated from the planner (a test checks that both agree). For a workspace that is already built, the owner changes those people's hours on their seats in the builder.
+If someone moves to 09:00 to 18:00 later, it is one data change: the person keys go into `NINE_TO_SIX` in `services/api/anum_api/office_green_concrete.py`, and the web fixture `apps/web/test/fixtures/greenConcrete.json` is regenerated from the planner (a test checks that both agree). For a workspace that is already built, the owner changes those people's hours on their seats in the builder.
 
 ## The reading of the request
 
@@ -114,7 +114,7 @@ API unit `tests/test_office_green_concrete.py` (the people and roles as the owne
 
 ## Not done, said plainly
 
-- Who works 09:00 to 18:00 is not known yet (owner decision O15). The constant `NINE_TO_SIX` is empty, so those people are on 08:00 to 17:00 until the owner names them.
+- Who works 09:00 to 18:00: nobody (owner decision O15, answered 28 October 2026). The constant `NINE_TO_SIX` stays empty and Raed, Hazrat, Mai, Badea, Shahzeb and Ahmed work 08:00 to 17:00.
 - An earlier Green Concrete build is not moved to the new seats or hours by the action (by design: it never overwrites). The owner moves each person in the builder as described above.
 - Layout history captures the working hours from snapshot version 3, the seat fields and the building's day and night hours from version 2 (see [layout history](ANUM_MINE_LAYOUT_HISTORY.md)). An older revision never recorded what came later: restoring it leaves those fields as they are now, and a desk it re-creates comes back without them.
 - The building's day and night hours are one pair per building and are read only by older Day or Night seats. Restoring a revision of one floor restores them for every floor of that building. Saving hours writes no revision by itself; the next layout change records them.

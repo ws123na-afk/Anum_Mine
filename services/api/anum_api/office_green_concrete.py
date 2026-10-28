@@ -9,7 +9,7 @@ Data and rules only, no database and no web framework (docs/ANUM_MINE_GREEN_CONC
   retry, a double click or a partial failure add only what is missing, and nothing that exists is ever changed.
 * Every person has their own working hours, the owner's answer of 28 October 2026 (read in the building's time
   zone): most work 08:00 to 17:00, Amjad 13:00 to 22:00, Ijaz, Ali Zeehan and Rana the morning shift 06:00 to 14:00, and
-  the people in ``NINE_TO_SIX`` 09:00 to 18:00. There is no night shift. The hours are stored on each person's desk and
+  nobody 09:00 to 18:00 (``NINE_TO_SIX`` is empty). There is no night shift. The hours are stored on each person's desk and
   stay editable in the builder.
 * Nobody is working because of this action: every agent is created paused and no presence is invented.
 """
@@ -38,8 +38,8 @@ AFTERNOON_HOURS: Final = ("13:00", "22:00")
 NINE_TO_SIX_HOURS: Final = ("09:00", "18:00")
 MORNING: Final[tuple[str, ...]] = ("ijaz", "ali-zeehan", "rana")
 AFTERNOON: Final[tuple[str, ...]] = ("amjad",)
-# The people who work 09:00 to 18:00, by person key. The owner has not named them yet: until then everyone not named above
-# works 08:00 to 17:00. Naming them is this one list (and the web fixture test/fixtures/greenConcrete.json, which a test
+# The people who work 09:00 to 18:00, by person key. The owner answered on 28 October 2026 that nobody does: everyone not
+# named above works 08:00 to 17:00. Naming them is this one list (and the web fixture test/fixtures/greenConcrete.json, which a test
 # checks against the planner).
 NINE_TO_SIX: Final[tuple[str, ...]] = ()
 MONTHLY_CAP_USD: Final = 3.0
