@@ -2,6 +2,7 @@ import type { MeshBuilder, Rgb } from '../../lib/hqGeometry.ts';
 import type { Local } from './local.ts';
 import type { InteriorScheme, InteriorSchemeName } from './scheme.ts';
 import type { StationSpec } from './furniture.ts';
+import type { FigureLook } from '../../lib/hqAvatar.ts';
 
 /** The room kinds this folder dresses. The first six match the registry's `RoomGeometry.kind`. */
 export type InteriorKind =
@@ -39,7 +40,15 @@ export type InteriorOptions = Readonly<{
   stations?: readonly StationSpec[];
   /** The wall the door is in (the registry's `door_side`). The room is dressed to face it. Default `south`. */
   doorSide?: DoorSide;
+  /**
+   * The stored participants of the live meeting held in this room (meeting rooms only), in seating order. The asset seats
+   * exactly these on the chairs of the table and invents nobody; none (or no meeting) leaves every chair empty.
+   */
+  attendees?: readonly Attendee[];
 }>;
+
+/** One stored meeting participant: a seed (the record id) and the look to draw. */
+export type Attendee = Readonly<{ seed: string; look?: FigureLook }>;
 
 export type InteriorResult = Readonly<{ kind: InteriorKind; triangles: number }>;
 
@@ -58,5 +67,6 @@ export type RoomCtx = Readonly<{
   /** Fewer small props (no side racking, single carton rows); roughly half the triangles. */
   lite: boolean;
   stations: readonly StationSpec[];
+  attendees: readonly Attendee[];
   frame: RoomFrame;
 }>;

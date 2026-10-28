@@ -193,8 +193,8 @@ export function HqNavigation(props: HqNavigationProps) {
       props.onSelectBuilding(stop.workspaceId);
       handles.bridge.flyToFrame(stop.workspaceId);
     } else {
+      // The room may be on another floor: the scene opens its floor first and then frames it (HeadquartersLive focusRequest).
       props.onRoom(stop.floorId, stop.roomId);
-      handles.bridge.flyToFrame(stop.roomId);
     }
   }, [handles, level, currentId, props]);
 
@@ -211,8 +211,17 @@ export function HqNavigation(props: HqNavigationProps) {
     if (!f || !floor) return;
     target.current = { stopId: `room:${roomId}`, name: roomName(f) };
     props.onRoom(floor.id, roomId);
-    handles.bridge.flyToFrame(roomId);
-  }, [floor, handles, props]);
+  }, [floor, props]);
+
+  // A room selected from anywhere (a list, the search, the team panel, the history, another floor) is the place the camera goes next:
+  // the flight it starts is told in the live region like a quick view ("Moving to", "Now showing").
+  // A layout effect: it runs before the scene's own effect that starts the flight, so the first event is already named.
+  useLayoutEffect(() => {
+    const id = props.selectedRoomId;
+    if (!id) return;
+    const room = building?.floors.flatMap((f) => f.rooms).find((r) => r.id === id);
+    if (room) target.current = { stopId: `room:${id}`, name: roomName(room) };
+  }, [props.selectedRoomId, building]);
 
   // ---- side panel -------------------------------------------------------------------------------------------
   const people = useMemo(() => peopleAtPosts(floor, props.presence), [floor, props.presence]);
