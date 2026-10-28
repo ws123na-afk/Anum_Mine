@@ -49,5 +49,5 @@
 .hqNavSide > .hqTabs { margin-inline-end: 36px; }
 .hqDetailDock .hqDeskList button { max-width: 100%; min-width: 0; }
 .hqDetailDock .hqDeskList .hqLabelText { min-width: 0; }
-.hqDetailDock .hqDeskList .hqPill { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.hqDetailDock .hqDeskList .hqPill { flex: none; white-space: nowrap; }
 .hqStatusLive { display: contents; }
