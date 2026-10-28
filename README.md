@@ -112,6 +112,7 @@ x-user-roles: owner,member
 - [ANUM MINE Live Employee Workstations](docs/ANUM_MINE_WORKSTATIONS_MODULE.md)
 - [ANUM MINE Reception & Visitor Operations (retired simulation)](docs/ANUM_MINE_RECEPTION_MODULE.md)
 - [ANUM MINE headquarters reception visitor register and the career building kind (owner decisions O2 and O4)](docs/ANUM_MINE_HQ_RECEPTION.md)
+- [Record retention: meeting transcripts and visitor records (owner decision O5)](docs/record-retention.md)
 - [ANUM MINE Office Space & Desk Registry](docs/ANUM_MINE_SPACE_REGISTRY.md)
 - [ANUM MINE live agent meeting PostgreSQL 0098](docs/ANUM_MINE_LIVE_MEETING_POSTGRES_0098.md)
 - [ANUM MINE headquarters integration and release gates](docs/INTEGRATION_AND_RELEASE.md)

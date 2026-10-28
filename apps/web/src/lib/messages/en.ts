@@ -49,6 +49,7 @@ import { brevoEn } from './brevo.en.ts';
 import { agentControlsEn } from './agentControls.en.ts';
 import { billingEn } from './billing.en.ts';
 import { lifecycleEn } from './lifecycle.en.ts';
+import { recordRetentionEn } from './recordRetention.en.ts';
 import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
@@ -105,6 +106,7 @@ export const en = {
   ...agentControlsEn,
   ...billingEn,
   ...lifecycleEn,
+  ...recordRetentionEn,
   ...helpEn,
   ...publicSiteEn,
   ...agentSkillsEn,

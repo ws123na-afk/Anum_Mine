@@ -234,6 +234,8 @@ export const hqHistoryAr: Record<keyof typeof hqHistoryEn, Message> = {
   'hqHist.action.office.visitor.check_out': 'سُجّل خروج زائر',
   'hqHist.action.office.visitor.cancel': 'أُلغيت زيارة',
   'hqHist.action.office.visitor.delete': 'حُذف سجل زائر',
+  'hqHist.action.record_retention.update': 'تغيّرت مدد الاحتفاظ',
+  'hqHist.action.record_retention.purge': 'حذف التنظيف اليومي سجلات قديمة',
   'hqHist.action.task.create': 'أنشئت مهمة',
   'hqHist.action.task.updated': 'حدثت مهمة',
   'hqHist.action.task.archived': 'أرشفت مهمة',

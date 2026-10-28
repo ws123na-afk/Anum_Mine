@@ -291,6 +291,7 @@ _ORDER = (
     "learning_preferences",
     "learning_signals",
     "learning_profiles",
+    "workspace_record_retention",
     "agent_meeting_usage_monthly",
     "agent_meeting_budgets",
     "agent_meeting_files",

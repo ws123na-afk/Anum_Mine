@@ -60,7 +60,8 @@ def move(hq: TestClient, v: dict, action: str, *, mode: str = "click", user=None
 def test_table_forces_rls_with_tenant_and_purge_policies_and_career_is_a_kind(database_engine: Engine) -> None:
     assert rows(database_engine, "select relrowsecurity, relforcerowsecurity from pg_class where relname = 'office_visitors'") == [(True, True)]
     names = {r[0] for r in rows(database_engine, "select policyname from pg_policies where tablename = 'office_visitors'")}
-    assert names == {"tenant_isolation_office_visitors", "lifecycle_purge_office_visitors"}
+    # 0120 adds the retention discovery policy for anum_maintenance (owner decision O5).
+    assert names == {"tenant_isolation_office_visitors", "lifecycle_purge_office_visitors", "maintenance_visitor_retention"}
     check = rows(database_engine, "select pg_get_constraintdef(oid) from pg_constraint where conname = 'ck_campus_profile_kind'")[0][0]
     assert "career" in check and "personal" in check
 

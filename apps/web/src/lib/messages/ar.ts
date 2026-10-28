@@ -50,6 +50,7 @@ import { brevoAr } from './brevo.ar.ts';
 import { agentControlsAr } from './agentControls.ar.ts';
 import { billingAr } from './billing.ar.ts';
 import { lifecycleAr } from './lifecycle.ar.ts';
+import { recordRetentionAr } from './recordRetention.ar.ts';
 import { helpAr } from './help.ar.ts';
 import { publicSiteAr } from './publicSite.ar.ts';
 import { ownerAr } from './ar.owner.ts';
@@ -106,6 +107,7 @@ export const ar: Record<MessageKey, Message> = {
   ...agentControlsAr,
   ...billingAr,
   ...lifecycleAr,
+  ...recordRetentionAr,
   ...helpAr,
   ...publicSiteAr,
   ...agentSkillsAr,

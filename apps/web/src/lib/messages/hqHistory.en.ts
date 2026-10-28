@@ -233,6 +233,8 @@ export const hqHistoryEn = {
   'hqHist.action.office.visitor.check_out': 'Visitor checked out',
   'hqHist.action.office.visitor.cancel': 'Visit cancelled',
   'hqHist.action.office.visitor.delete': 'Visitor record deleted',
+  'hqHist.action.record_retention.update': 'Retention periods changed',
+  'hqHist.action.record_retention.purge': 'Old records deleted by the daily clean-up',
   'hqHist.action.task.create': 'Task created',
   'hqHist.action.task.updated': 'Task updated',
   'hqHist.action.task.archived': 'Task archived',

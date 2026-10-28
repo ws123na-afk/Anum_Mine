@@ -21,6 +21,7 @@ import {
 import * as api from './lib/lifecycleApi';
 import { rich } from './rich';
 import { ConfirmDialog } from './Dialog';
+import { RecordRetentionCard } from './RecordRetentionCard';
 import './admin.css';
 import './audit.css';
 import './lifecycle.css';
@@ -47,7 +48,12 @@ function failure(error: unknown): string {
   return describeError(error);
 }
 
+/** The data lifecycle card and, next to it, how long records are kept (docs/record-retention.md). */
 export function DataLifecycle() {
+  return <><LifecycleCard /><RecordRetentionCard /></>;
+}
+
+function LifecycleCard() {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [flash, setFlash] = useState<Flash>(null);
   const [busy, setBusy] = useState<string | null>(null);

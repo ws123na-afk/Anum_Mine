@@ -55,6 +55,8 @@ Governance follows the other owner-only office writes (the builder and the [logo
 
 Migration `0118_career_visitor_register` (expand only) adds `office_visitors`: tenant, workspace, id, optional building and room (composite foreign keys, so another workspace's building or room can never be linked; deleting the building or room clears only that column with `ON DELETE SET NULL (column)`), visitor name, optional company, optional host (`user` or `agent` and its id), purpose, expected, checked in, checked out and cancelled times, status, revision, created and updated by and at. Check constraints tie the times to the status. Forced row level security by tenant and workspace, the tenant purge policy (organisation and workspace deletion), and an entry in `tenant_lifecycle_tables.py` (the organisation export carries the register, the purge deletes it).
 
+Retention (owner decision O5, 28 October 2026): the daily retention job deletes a visit 365 days after its latest time (check-out, cancellation, check-in, or the planned time of a visitor who never came). An owner changes the period in Settings > Workspace, "How long records are kept" (30 to 1825 days). See [record retention](record-retention.md).
+
 Audit (`office.visitor.create`, `update`, `check_in`, `check_out`, `cancel`, `delete`) and the event `office.visitors_changed` (after the commit) carry ids, statuses, revisions, the host kind and id, whether a company was given and, for an update, the names of the changed fields. Never the visitor's name, company or purpose, in audit, events or logs. The history panel names these actions in English and Arabic.
 
 ## The career building kind
@@ -71,7 +73,6 @@ Audit (`office.visitor.create`, `update`, `check_in`, `check_out`, `cancel`, `de
 
 ## Not done
 
-- **No automatic retention.** Records stay until an owner deletes them. A purge after a set number of days needs the owner's choice of period (decision O5 covers retention windows) and a maintenance job through `anum_maintenance`.
 - **No host notification** when a visitor is checked in, and no visitor badge printing. Neither was part of decision O4.
 - **Registry buildings carry no stored kind.** Only a workspace has a campus kind; the eight starter buildings take their look from their stable starter id, so a hand-made registry building cannot yet be marked as a career building.
 - **The 3D count refreshes once a minute** (and after the panel's own changes); the `office.visitors_changed` event is not yet pushed into the presence stream.
