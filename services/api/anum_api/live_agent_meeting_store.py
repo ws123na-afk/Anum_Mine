@@ -93,6 +93,14 @@ class SqlLiveMeetingStore:
         """), self.args(context, id=meeting_id)).mappings().all()
         return [dict(row) for row in rows]
 
+    def left_at_by_actor(self, context: TenantContext, meeting_id: str) -> dict[str, Any]:
+        """When each person who joined the room and has since left did so (the stored attendance); present people are absent."""
+        rows = self.session.execute(text("""
+            select actor_id, left_at from agent_meeting_attendance
+            where tenant_id=:tenant and workspace_id=:workspace and session_id=:id and left_at is not null
+        """), self.args(context, id=meeting_id)).mappings().all()
+        return {row["actor_id"]: row["left_at"] for row in rows}
+
     def turns(self, context: TenantContext, meeting_id: str, *, after: int = 0, limit: int = 100) -> list[dict[str, Any]]:
         rows = self.session.execute(text("""
             select id, session_id, sequence, speaker_id, role, body, request_key,

@@ -221,7 +221,11 @@ def get_meeting(meeting_id: MeetingId, context: TenantContext = Depends(tenant_c
         result = store.get(context, meeting_id)
         if result is None:
             raise HTTPException(404, "Meeting not found")
-        return {**dict(result), "participants": store.participants(context, meeting_id)}
+        # Each participant carries `left_at` from the room's attendance: null while present (or never joined the room),
+        # the stored time once they left. The HQ seats only participants with no `left_at`.
+        left = store.left_at_by_actor(context, meeting_id)
+        participants = [{**p, "left_at": left.get(p["actor_id"])} for p in store.participants(context, meeting_id)]
+        return {**dict(result), "participants": participants}
 
 
 @router.get("/{meeting_id}/turns")

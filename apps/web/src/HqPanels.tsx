@@ -122,15 +122,20 @@ export function RoomMeetingSection({ meeting, presence }: Readonly<{ meeting: Ro
     <section className="hqRoomMeeting" aria-label={t('hq.room.inMeeting')} data-testid="room-meeting">
       <p><span className="hqPill tone-ok">{t('hq.room.inMeeting')}</span> {meeting.title && <strong dir="auto">{meeting.title}</strong>}</p>
       <h3 className="hqSub">{t('hq.room.meeting.who')}</h3>
-      {meeting.agentIds.length === 0
+      {meeting.agentIds.length === 0 && !meeting.leftAgentIds?.length
         ? <p className="hqNote">{t('hq.room.meeting.noAgents')}</p>
         : <ul className="hqDeskList" aria-label={t('hq.room.meeting.who')}>
           {meeting.agentIds.map((id) => {
             const p = presence?.byAgent.get(id);
             return <li key={id}><div className="hqVacant" data-testid="room-meeting-agent"><span className="hqLabelText"><strong dir="auto">{p?.name || t('hq.agent.private')}</strong><small>{p?.role ?? t('hq.agent.noRole')}</small></span></div></li>;
           })}
+          {(meeting.leftAgentIds ?? []).map((id) => {
+            const p = presence?.byAgent.get(id);
+            return <li key={`left:${id}`}><div className="hqVacant" data-testid="room-meeting-left"><span className="hqLabelText"><strong dir="auto">{p?.name || t('hq.agent.private')}</strong><small>{t('hq.room.meeting.leftTag')}</small></span></div></li>;
+          })}
         </ul>}
       {meeting.people > 0 && <p className="hqNote">{t('hq.room.meeting.people', { count: meeting.people })}</p>}
+      {(meeting.leftPeople ?? 0) > 0 && <p className="hqNote" data-testid="room-meeting-people-left">{t('hq.room.meeting.peopleLeft', { count: meeting.leftPeople ?? 0 })}</p>}
     </section>
   );
 }
