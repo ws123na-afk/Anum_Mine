@@ -146,6 +146,20 @@ export function mergeItems(existing: readonly OfficeHistoryEvidence[], incoming:
 export type PageFetcher = (cursor: string | null) => Promise<OfficeHistoryPage>;
 
 /**
+ * How many records the first page has that the timeline on screen does not, newest first, counted until the first record already
+ * shown. When none of the page is on screen the count is only a lower bound (`atLeast`). Records outside the scope never count.
+ */
+export function newerRecords(page: readonly OfficeHistoryEvidence[], shown: readonly Pick<OfficeHistoryEvidence, 'id'>[], scope: HistoryScope): { count: number; atLeast: boolean } {
+  const known = new Set(shown.map((item) => item.id));
+  let count = 0;
+  for (const item of page) {
+    if (known.has(item.id)) return { count, atLeast: false };
+    if (relatesTo(item, scope)) count += 1;
+  }
+  return { count, atLeast: known.size > 0 && count > 0 };
+}
+
+/**
  * Reads pages until `want` more matching records were added, the history ends, or `maxPages` pages were
  * read. The server pages underlying records before it applies the category, so a page can be empty
  * while `next_cursor` is set; this loop keeps following the cursor instead of showing a false end.

@@ -6,6 +6,7 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useCallback, useId, useState, type ReactNode } from 'react';
 import { t } from '../lib/i18n.ts';
+import './panelHeader.css';
 
 const KEY = 'anum.hq.nav.fold.';
 const readFold = (id: string): boolean => { try { return window.localStorage.getItem(KEY + id) === '1'; } catch { return false; } };
@@ -33,10 +34,16 @@ export function PanelHeader(props: { id: string; title: string; purpose?: string
   );
 }
 
+/** The fold state of one panel, kept per browser under `anum.hq.nav.fold.<id>`. */
+export function useFold(id: string, enabled = true): [boolean, () => void] {
+  const [folded, setFolded] = useState(() => (enabled ? readFold(id) : false));
+  const toggle = useCallback(() => setFolded((v) => { writeFold(id, !v); return !v; }), [id]);
+  return [folded, toggle];
+}
+
 export function PanelSection(props: { id: string; title: string; purpose?: string; live?: ReactNode; actions?: ReactNode; foldable?: boolean; className?: string; children: ReactNode; ariaLabel?: string }) {
   const uid = useId();
-  const [folded, setFolded] = useState(() => (props.foldable === false ? false : readFold(props.id)));
-  const toggle = useCallback(() => setFolded((v) => { writeFold(props.id, !v); return !v; }), [props.id]);
+  const [folded, toggle] = useFold(props.id, props.foldable !== false);
   const heading = `${uid}-h`;
   const body = `${uid}-b`;
   return (

@@ -18,12 +18,14 @@ import { presenceForDesk, type HqPresenceIndex } from './hqPresence.ts';
 /**
  * How a starter campus building is drawn. The starter campus gives every building a stable id (`campus-07-personal`), so the
  * look follows that id and never the words of a name: ANUM HQ stands as the executive tower, the personal office as the
- * villa, Tyre Pulse as the saw-tooth workshop, ANUM 360 Commerce as the glazed shop pavilion. Any other registry building
+ * villa, Tyre Pulse as the saw-tooth workshop, ANUM 360 Commerce as the glazed shop pavilion, Career & Employment as the
+ * career centre (its own kind, owner decision O2). Any other registry building
  * keeps the plain business look. `icon` is a local drawing hint (see `campusBuildings.ts`), never stored.
  */
 const STARTER_LOOK: Readonly<Record<string, Readonly<{ kind: CampusBuildingKind; icon: string | null }>>> = {
   hq: { kind: 'executive', icon: null },
   personal: { kind: 'personal', icon: null },
+  career: { kind: 'career', icon: null },
   'tyre-pulse': { kind: 'department', icon: 'workshop' },
   commerce: { kind: 'business', icon: 'store' },
 };

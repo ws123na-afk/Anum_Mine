@@ -14,13 +14,14 @@ const LiveOpsStrip = lazy(() => import('./HqSceneStrips').then((m) => ({ default
 const FlowStrip = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.FlowStrip })));
 const SceneBackCard = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.SceneBackCard })));
 const FloorSelector = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.FloorSelector })));
+const BuildingFacts = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.BuildingFacts })));
 const CommercePanels = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.CommercePanels })));
 const FloorRooms = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.FloorRooms })));
 const TyrePanel = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.TyrePanel })));
 const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
 import { BottomToolbar, CameraTools, TotalsPanel } from './HqChrome';
-import { AgentLabelCard, FloorTagCard, RoomLabelCard } from './HqLabelCards';
-import { roomLabelSpecs, roomSubtitle } from './lib/hqLabelModel.ts';
+import { AgentLabelCard, FloorTagCard, RoomIcon, RoomLabelCard } from './HqLabelCards';
+import { roomLabelSpecs, roomSubtitle, visitorLine } from './lib/hqLabelModel.ts';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { visualOfStatus } from './hqAssets/interior/stateVisual.ts';
 import { buildBuildingScene, FLOOR_PITCH, WALL_HEIGHT, type DeskVisual } from './lib/buildingScene.ts';
@@ -57,6 +58,8 @@ export type BuildingViewProps = Readonly<{
   unreported: readonly StatusKey[];
   verifiedAt: string | null;
   liveMeetings: number | null;
+  /** Stored count of checked-in visitors per reception room (`receptionCounts`); null when the register was not read (no line drawn). */
+  visitorCounts?: ReadonlyMap<string, number> | null;
   liveMeetingRoomIds: ReadonlySet<string>;
   commerce: ModuleState<CommerceLive>;
   tyre: ModuleState<TyreLive>;
@@ -357,7 +360,7 @@ export function BuildingView(props: BuildingViewProps) {
       const onFloor = spec.floor === activeIndex;
       list.push({
         id: spec.id, anchor: spec.anchor, priority: spec.priority, maxDistance: spec.maxDistance, tiers: spec.tiers, occluders: spec.occluders,
-        node: <RoomLabelCard name={roomName(room)} kind={room.kind} sub={roomSubtitle(room, c.desks)} working={c.working} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId}
+        node: <RoomLabelCard name={roomName(room)} kind={room.kind} department={room.teamDepartment} sub={visitorLine(room.kind, props.visitorCounts?.get(room.id), roomSubtitle(room, c.desks))} working={c.working} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId}
           onPick={() => (onFloor ? pickRoom(room.id) : latest.current.onSelectFloor(floors[spec.floor].id))} />,
       });
     }
@@ -459,10 +462,7 @@ export function BuildingView(props: BuildingViewProps) {
         )}
         <div className="hqOverlay hqOverlayTopLeft" data-keepout="">
           <Suspense fallback={<h2 className="hqSrOnly">{props.workspaceName}</h2>}>
-            <SceneBackCard
-              name={props.workspaceName} kindLabel={props.kindLabel} totals={agents} floors={floors.length} rooms={roomsTotal} meetings={props.liveMeetings} onBack={props.onBack}
-              orders={modules.panels.includes('commerce') && props.commerce.state === 'ready' ? props.commerce.data.orders : null}
-            />
+            <SceneBackCard name={props.workspaceName} totals={agents} onBack={props.onBack} />
           </Suspense>
         </div>
         <div className="hqOverlay hqOverlayRight" data-keepout="">
@@ -495,6 +495,10 @@ export function BuildingView(props: BuildingViewProps) {
       {overview && floor.rooms.length > 0 && <Suspense fallback={null}><FloorRooms floor={floor} has={(d) => !!presenceForDesk(presence, d)} selectedRoomId={props.selectedRoomId} onPick={pickRoom} onLeave={() => props.onOverview(false)} /></Suspense>}
 
       <div className="hqBottomPanels">
+        <Suspense fallback={null}>
+          <BuildingFacts kindLabel={props.kindLabel} totals={agents} floors={floors.length} rooms={roomsTotal} meetings={props.liveMeetings}
+            orders={modules.panels.includes('commerce') && props.commerce.state === 'ready' ? props.commerce.data.orders : null} />
+        </Suspense>
         <div className="hqLiveRow">
           <Suspense fallback={null}><LiveOpsStrip totals={agents} unreported={props.unreported} snapshot={props.flow?.snapshot} /></Suspense>
           <Suspense fallback={null}><FlowStrip snapshot={props.flow?.snapshot} /></Suspense>
@@ -515,7 +519,7 @@ export function BuildingView(props: BuildingViewProps) {
 function OverviewCard(props: { room: RoomGeometry; desks: number; assigned: number; selected: boolean; onPick: () => void }) {
   return (
     <button type="button" className="hqLabelCard hqOverviewCard" data-selected={props.selected} data-kind={props.room.kind} aria-pressed={props.selected} onClick={props.onPick}>
-      <span className="hqLabelIcon" data-kind={props.room.kind} aria-hidden="true" />
+      <RoomIcon kind={props.room.kind} department={props.room.teamDepartment} />
       <span className="hqLabelText"><strong>{roomName(props.room)}</strong><small>{t(`hq.roomKind.${props.room.kind}` as MessageKey)}</small><small>{t('hqFloor.stats', { desks: props.desks, agents: props.assigned })}</small></span>
     </button>
   );

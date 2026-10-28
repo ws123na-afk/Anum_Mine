@@ -3,8 +3,8 @@
  * label cards, camera, minimap and totals all read from the campus model; nothing is drawn for a
  * building the person cannot open, and no count appears without a presence record behind it.
  */
-import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, House, Landmark, LockKeyhole, Map as MapIcon, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, GraduationCap, House, Landmark, LockKeyhole, Map as MapIcon, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from 'react';
 import type { WorkSiteInput, WorkUi } from './HqCampusWork';
 import type { ViewSink, WalkerCard, WalkerFeed, WalkerUi } from './HqCampusWalkers';
 import type { CardWork, FeedNote } from './lib/hqWorkMotion.ts';
@@ -21,7 +21,9 @@ import {
   type Campus, type CampusBuilding, type CampusBuildingKind, type StatusKey,
 } from './lib/campusModel.ts';
 import { campusCamera, campusFraming, clampTarget, faceNorth, rotateBy, threeDView, topView, viewFootprint, zoomBy } from './lib/hqCamera.ts';
-import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
+import { cameraEye, dolly, type CameraState } from './lib/headquartersSpatial.ts';
+import { getGpuState, subscribeGpuState } from './lib/hqGpuState.ts';
+import { boardSpec } from './lib/hqQualityTiers.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import { sceneName } from './lib/registryNames.ts';
@@ -44,6 +46,7 @@ const NO_LOGOS: ReadonlyMap<string, SignLogo> = new Map();
 const KIND_ICON: Record<CampusBuildingKind, ReactElement> = {
   executive: <Landmark aria-hidden="true" />, business: <Building2 aria-hidden="true" />,
   department: <Briefcase aria-hidden="true" />, personal: <UserRound aria-hidden="true" />,
+  career: <GraduationCap aria-hidden="true" />,
 };
 /** The icon names of the campus contract (an owner picks one per building). */
 export const BUILDING_ICONS: Record<string, ReactElement> = {
@@ -99,22 +102,26 @@ export function CampusView(props: CampusViewProps) {
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutSig]);
-  const [kit, setKit] = useState<typeof import('./lib/hqPlanKit.ts') | null>(null);
-  useEffect(() => {
-    if (!sizes.size || kit) return;
-    let live = true;
-    void import('./lib/hqPlanKit.ts').then((m) => { if (live) setKit(m); }).catch(() => undefined);
-    return () => { live = false; };
-  }, [sizes, kit]);
   // Presence refreshes the buildings every few seconds; the placements (and so the meshes) only move when the layout does.
   const rawPlacements = useMemo(() => layoutCampus(campus.buildings, sizes), [campus.buildings, sizes]);
   const stablePlacements = useRef(rawPlacements);
   if (JSON.stringify(stablePlacements.current) !== JSON.stringify(rawPlacements)) stablePlacements.current = rawPlacements;
   const placements = stablePlacements.current;
+  // The plan kit (lazy) draws planned buildings from their floor plans and the career centre (owner decision O2).
+  const hasCareer = placements.some((p) => p.kind === 'career');
+  const [kit, setKit] = useState<typeof import('./lib/hqPlanKit.ts') | null>(null);
+  useEffect(() => {
+    if ((!sizes.size && !hasCareer) || kit) return;
+    let live = true;
+    void import('./lib/hqPlanKit.ts').then((m) => { if (live) setKit(m); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [sizes, hasCareer, kit]);
   const scene = useMemo(() => {
     const p = plansRef.current;
-    if (kit && p && sizes.size) return buildCampusScene(placements, { draw: kit.plannedDrawer(kit.plannedRows(placements, p), p) });
-    return buildCampusScene(placements);
+    if (!kit) return buildCampusScene(placements);
+    const planned = p && sizes.size ? kit.plannedDrawer(kit.plannedRows(placements, p), p) : null;
+    const career = kit.careerDrawer();
+    return buildCampusScene(placements, { draw: (pl, a, i, n) => planned?.(pl, a, i, n) ?? career(pl, a, i, n) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placements, kit, layoutSig]);
   // The billboards (docs/ANUM_MINE_HQ_BILLBOARDS.md) are a lazy chunk of their own, fetched once a campus has buildings.
@@ -194,17 +201,27 @@ export function CampusView(props: CampusViewProps) {
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
   // The 3D boards carry the live details (docs/ANUM_MINE_HQ_BILLBOARDS.md): a canvas atlas drawn in place, only for boards whose text changed.
-  const [atlas, setAtlas] = useState<{ canvas: HTMLCanvasElement | null; version: number; boards: unknown; lines: string } | null>(null);
+  const [atlas, setAtlas] = useState<{ canvas: HTMLCanvasElement | null; version: number; boards: unknown; lines: string; stats: string } | null>(null);
   const feed = useRef<{ touch: () => void } | null>(null);
   const readFaces = useRef<() => ReturnType<typeof import('./hq-billboards/index.ts').boardFaces>>(() => []);
-  readFaces.current = () => (boards && bb ? bb.boardFaces({ layer: boards, buildings: byId, plans: plansRef.current, flow: latest.current.flow, currentWorkspaceId: latest.current.currentWorkspaceId, live: latest.current.presenceLive === true, fontsReady, now: Date.now() }) : []);
+  // The lowest quality tiers draw smaller board cells (key line only); the close view (detail lines) is for the focused building and boards near the eye.
+  const boardCell = boardSpec(useSyncExternalStore(subscribeGpuState, getGpuState, getGpuState)).cell;
+  const closeKey = useMemo(() => (bb && boards ? bb.closeBoards(boards, cameraEye(camera)).join('|') : ''), [bb, boards, camera]);
+  const detailIds = useMemo(() => new Set([selectedId, hover, ...closeKey.split('|')].filter((id): id is string => !!id)), [selectedId, hover, closeKey]);
+  readFaces.current = () => (boards && bb ? bb.boardFaces({
+    layer: boards, buildings: byId, plans: plansRef.current, flow: latest.current.flow, currentWorkspaceId: latest.current.currentWorkspaceId, live: latest.current.presenceLive === true, fontsReady, now: Date.now(),
+    detailIds, cell: boardCell, logoReady: (id, sha) => logosRef.current.has(`${id}:${sha}`),
+  }) : []);
   useEffect(() => {
     if (!bb || !boards) return undefined;
-    const started = bb.startBoardFeed({ count: boards.sites.length, read: () => readFaces.current(), onDraw: (a) => setAtlas({ canvas: a.canvas, version: a.version, boards, lines: bb.boardLines(a.drawn) }) });
+    const started = bb.startBoardFeed({
+      count: boards.sites.length, cell: boardCell, read: () => readFaces.current(), logoOf: (key) => logosRef.current.get(key) ?? null,
+      onDraw: (a) => setAtlas({ canvas: a.canvas, version: a.version, boards, lines: bb.boardLines(a.drawn), stats: bb.boardStats(a.drawn) }),
+    });
     feed.current = started;
     return () => { started.stop(); feed.current = null; };
-  }, [bb, boards]);
-  useEffect(() => { feed.current?.touch(); }, [campus.buildings, props.flow, plans, props.presenceLive, locale, fontsReady, props.currentWorkspaceId]);
+  }, [bb, boards, boardCell]);
+  useEffect(() => { feed.current?.touch(); }, [campus.buildings, props.flow, plans, props.presenceLive, locale, fontsReady, props.currentWorkspaceId, detailIds, logos]);
   // The camera that frames one building: its centre, at a distance that fits its size.
   const frameOf = useCallback((id: string): CameraState | null => {
     const p = placements.find((x) => x.workspaceId === id);
@@ -311,7 +328,7 @@ export function CampusView(props: CampusViewProps) {
 
   return (
     <>
-    <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0} data-sign-brands={signStats.branded} data-sign-logos={signStats.logos} data-board-version={atlas?.version ?? 0} data-board-texts={atlas?.lines ?? ''}>
+    <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0} data-sign-brands={signStats.branded} data-sign-logos={signStats.logos} data-board-version={atlas?.version ?? 0} data-board-texts={atlas?.lines ?? ''} data-board-brands={atlas?.stats.split('|')[0] ?? 0} data-board-logos={atlas?.stats.split('|')[1] ?? 0}>
       <HqStage
         label={t('hq.campus.stageLabel')} description={t('hq.campus.stageHelp')}
         scene={renderScene} glassPlan={glassPlan} work={work.plan} walkers={walk.plan} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
@@ -433,7 +450,7 @@ export function BuildingDetail(props: { building: CampusBuilding; current: boole
   );
 }
 
-const KINDS: readonly CampusBuildingKind[] = ['executive', 'business', 'department', 'personal'];
+const KINDS: readonly CampusBuildingKind[] = ['executive', 'business', 'department', 'personal', 'career'];
 
 /** The owner's building type and icon (PUT /api/v1/office/campus/profile). It changes how the building is drawn and nothing else. */
 function BuildingProfileForm(props: { building: CampusBuilding; onSave: CampusViewProps['onSaveProfile'] }) {

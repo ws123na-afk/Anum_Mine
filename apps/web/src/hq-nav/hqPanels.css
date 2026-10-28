@@ -1,20 +1,5 @@
 /* The panels beside the headquarters scene: one header (title, one line of purpose, live status, fold), one chip, one set of states.
    Loaded with NavChrome. Tokens from styles.css only; the live chip itself is in headquartersLive.css (the flow bar uses it too). */
-.hqSec { display: flex; flex-direction: column; gap: var(--d-s2); min-width: 0; }
-.hqSec + .hqSec, .hqSec + .hqPaDock, .hqSec + [role="tabpanel"] { border-block-start: 1px solid var(--d-line); padding-block-start: var(--d-s3); }
-.hqPh { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.hqPhTitle { align-items: center; display: flex; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
-.hqNavSide .hqPhTitle h2, .hqNavSideBody .hqPhTitle h2, .hqPhTitle h2 { font-size: var(--text-md); font-weight: 650; margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.hqPhSide { align-items: center; display: inline-flex; flex: none; gap: var(--d-s1); }
-.hqPhFold { height: 28px; min-height: 28px; min-width: 28px; width: 28px; }
-.hqPhFold svg { height: 14px; width: 14px; }
-.hqPhPurpose { color: var(--d-muted); font-size: var(--text-xs); margin: 0; }
-.hqPhLive { margin-block-start: var(--d-s1); min-width: 0; }
-.hqPhLive .hqLiveChip { flex-wrap: wrap; row-gap: 0; }
-.hqSec[data-folded="true"] .hqPhPurpose { display: none; }
-.hqSecBody { min-width: 0; }
-.hqSecBody[hidden] { display: none; }
-
 /* States: reading, refused, failed, empty. Each says what happened and what to do. */
 .hqState { align-items: flex-start; display: flex; flex-direction: column; gap: var(--d-s2); }
 .hqState .hqNote { align-items: flex-start; display: flex; gap: var(--d-s2); }
@@ -65,3 +50,4 @@
 .hqDetailDock .hqDeskList button { max-width: 100%; min-width: 0; }
 .hqDetailDock .hqDeskList .hqLabelText { min-width: 0; }
 .hqDetailDock .hqDeskList .hqPill { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.hqStatusLive { display: contents; }

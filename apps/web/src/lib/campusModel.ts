@@ -6,7 +6,7 @@
  * `totals` is null and the screen says "Presence unavailable". Nothing here invents a number.
  * Pure functions, no DOM: the unit runner covers layout, totals and keyboard order.
  */
-export type CampusBuildingKind = 'executive' | 'business' | 'department' | 'personal';
+export type CampusBuildingKind = 'executive' | 'business' | 'department' | 'personal' | 'career';
 
 export type CampusTotals = Readonly<{
   agents: number; working: number; queued: number; meeting: number; waiting_approval: number;
@@ -154,7 +154,7 @@ export type Placement = Readonly<{
 
 export const FLOOR_HEIGHT = 3.4;
 const SIZE: Record<CampusBuildingKind, { w: number; d: number }> = {
-  executive: { w: 30, d: 26 }, business: { w: 17, d: 14 }, department: { w: 14, d: 12 }, personal: { w: 11, d: 10 },
+  executive: { w: 30, d: 26 }, business: { w: 17, d: 14 }, department: { w: 14, d: 12 }, personal: { w: 11, d: 10 }, career: { w: 15, d: 12 },
 };
 
 /**
@@ -337,7 +337,7 @@ export function campusFromMemberships(
   return { buildings, totals: campusTotals(buildings).totals, generated_at: now.toISOString() };
 }
 
-const KINDS: readonly string[] = ['executive', 'business', 'department', 'personal'];
+const KINDS: readonly string[] = ['executive', 'business', 'department', 'personal', 'career'];
 const STATE_KEYS: readonly StatusKey[] = ['working', 'queued', 'meeting', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'];
 
 /** Reads `{ total, by_state }` of the campus contract; anything missing or malformed means no presence. */

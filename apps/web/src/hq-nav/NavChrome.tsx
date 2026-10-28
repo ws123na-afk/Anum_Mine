@@ -5,3 +5,4 @@ export { FloorRail } from './FloorRail.tsx';
 export { ViewStrip } from './ViewStrip.tsx';
 export { FloorPlan, PeopleList, QuickMoves } from './SidePanel.tsx';
 export { OfficeStatus } from './OfficeStatus.tsx';
+export { AssistantPanel } from './AssistantPanel.tsx';

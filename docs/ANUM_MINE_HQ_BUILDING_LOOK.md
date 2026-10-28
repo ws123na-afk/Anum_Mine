@@ -121,3 +121,7 @@ The concept renders show a sign or billboard at each building with its name and 
 ## Brand signs (27 October 2026)
 
 A building's sign can now carry the owner's own logo, brand colour and one of four sign styles (plain, plaque, illuminated, banner), set in the builder's Floor tab. Without an upload the sign stays the lettered sign with the building's real name. The painter draws into the existing sign atlas cell, so no texture and no renderer code was added beyond a one line hook. See [logo and brand signs](ANUM_MINE_HQ_LOGO_SIGNS.md).
+
+## Career centre (27 October 2026)
+
+Owner decision O2 makes career its own building kind. It is always drawn as the career centre: two learning wings with ribbon windows and amber sunshade reveals, a glass barrel-vault entrance hall between them, and a free-standing sign pylon on the forecourt that carries the lettered sign or the owner's logo sign (`hqAssets/exterior/careerCentre.ts`, triangle cap 2,600, accent amber `#e8a24a`), loaded with the lazy plan kit. The starter Career & Employment building takes the career kind by its stable id; because it has floor plans it is drawn by the plan shell like every planned building, with the career sign. See [reception and career](ANUM_MINE_HQ_RECEPTION.md).

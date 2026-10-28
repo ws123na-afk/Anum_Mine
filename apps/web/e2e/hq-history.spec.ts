@@ -274,3 +274,30 @@ test('a record from another workspace is never shown: the answer is refused', as
   // The request carries the open workspace in its headers; the mock would 403 any other tenant in a real server.
   expect(record('task.updated', 'x', 1).verified).toBe(true);
 });
+
+test('the panel header says it checks every 30 s, and newer records are offered, never pushed into the list', async ({ page }) => {
+  await page.clock.install();
+  const fixture = historyFixture();
+  await open(page, {}, { records: fixture });
+  const panel = await openPanel(page);
+  const chip = panel.getByTestId('hq-history-live');
+  await expect(chip).toHaveAttribute('data-live', 'polling');
+  await expect(chip).toContainText(/Checking every 30 s/);
+  await expect(chip).toContainText(/Updated \d{2}:\d{2}:\d{2}/);
+  await expect(panel.locator('.hqHistRow').first()).toBeVisible();
+  const before = await panel.locator('.hqHistRow').count();
+  const fresh = [record('task.created', 'task_new_2', -2), record('task.created', 'task_new_1', -1)];
+  history.setRecords([...fresh, ...fixture]);
+  await page.clock.fastForward(31_000);
+  const newer = panel.getByTestId('hq-history-newer');
+  await expect(newer).toContainText('2 newer records');
+  expect(await panel.locator('.hqHistRow').count()).toBe(before);
+  await newer.getByRole('button', { name: 'Show them' }).click();
+  await expect(newer).toHaveCount(0);
+  await expect(panel.locator(`[data-record-id="${fresh[0].id}"]`)).toBeVisible();
+  // A failed check keeps the list and says the panel is trying again.
+  history.failNext();
+  await page.clock.fastForward(31_000);
+  await expect(chip).toHaveAttribute('data-live', 'reconnecting');
+  await expect(panel.locator('.hqHistRow').first()).toBeVisible();
+});

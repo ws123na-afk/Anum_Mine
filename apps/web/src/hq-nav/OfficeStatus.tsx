@@ -7,9 +7,8 @@ import { AlertTriangle, Lock } from 'lucide-react';
 import { useMemo } from 'react';
 import { Donut, statusLabel } from '../HqChrome';
 import { campusTotals, STATUS_ORDER, STATUS_TONE, type Campus, type StatusKey } from '../lib/campusModel.ts';
-import { freshness, PRESENCE_STALE_MS, presenceLive } from '../lib/hqPanelStatus.ts';
+import { freshness, PRESENCE_STALE_MS, type PanelLive, type TotalsSource } from '../lib/hqPanelStatus.ts';
 import { t } from '../lib/i18n.ts';
-import type { PresenceLink } from '../lib/presenceStream.ts';
 import { clockText } from '../lib/hqPanelStatus.ts';
 import { useLocale } from '../useLocale';
 import { LiveChip } from './LiveChip.tsx';
@@ -21,7 +20,9 @@ export type OfficeStatusProps = Readonly<{
   /** The campus read failed (or was refused) and nothing was loaded yet. */
   issue: Readonly<{ denied: boolean; message: string }> | null;
   unreported: readonly StatusKey[];
-  link: PresenceLink;
+  /** Where the open workspace's numbers come from (the presence stream while it is live, else the campus read) and the words for it. */
+  source: TotalsSource;
+  state: PanelLive;
   variant: 'panel' | 'strip';
   onRetry: () => void;
   onGo: (hash: string) => void;
@@ -48,7 +49,12 @@ export function OfficeStatus(props: OfficeStatusProps) {
   const unreported = new Set(props.unreported);
   const shown = STATUS_ORDER.filter((k) => k === 'working' || k === 'meeting' || k === 'idle' || (totals?.[k] ?? 0) > 0);
   const partial = totals && sums.missing > 0 ? t('hq.totals.partial', { reporting: sums.reporting, total: props.campus?.buildings.length ?? 0 }) : null;
-  const live = <LiveChip state={presenceLive(props.link)} at={verified} staleAfterMs={PRESENCE_STALE_MS} nowMs={now} timeKey="hqPanels.verified" testId="hq-status-live" />;
+  const hint = props.state === 'live' ? t('hqPanels.status.liveHint') : props.state === 'polling' ? t('hqPanels.status.pollingHint') : props.state === 'reconnecting' ? t('hqPanels.status.failedHint') : undefined;
+  const live = (
+    <span className="hqStatusLive" data-source={props.source} data-testid="hq-status-source">
+      <LiveChip state={props.state} at={verified} staleAfterMs={PRESENCE_STALE_MS} nowMs={now} timeKey="hqPanels.verified" pollingText={t('hqPanels.status.polling')} hint={hint} testId="hq-status-live" />
+    </span>
+  );
 
   let body;
   if (!props.campus && props.issue?.denied) {

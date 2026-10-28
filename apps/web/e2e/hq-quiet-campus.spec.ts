@@ -27,9 +27,11 @@ const freshCampus = () => {
   return { ...campusFixture, generated_at: at, buildings: [...campusFixture.buildings, green].map((b) => ({ ...b, presence_as_of: at, presence_verified_at: b.agents ? at : null })) };
 };
 
-type OpenOptions = { locale?: 'en' | 'ar'; night?: boolean; stream?: 'live' | 'unsupported' | 'down'; presence?: 'api' | 'missing'; flow?: boolean; size?: readonly [number, number] };
-async function open(page: Page, { locale = 'en', night = false, stream = 'live', presence = 'api', flow = true, size = [1440, 900] }: OpenOptions = {}) {
+type OpenOptions = { locale?: 'en' | 'ar'; night?: boolean; stream?: 'live' | 'unsupported' | 'down'; presence?: 'api' | 'missing'; flow?: boolean; size?: readonly [number, number]; tier?: number };
+async function open(page: Page, { locale = 'en', night = false, stream = 'live', presence = 'api', flow = true, size = [1440, 900], tier }: OpenOptions = {}) {
   await page.addInitScript((n) => { try { localStorage.setItem('anum.hq.light', n ? 'night' : 'day'); } catch { /* storage blocked */ } }, night);
+  // Software GL runs the lowest tier, whose boards keep the far face; pinning a tier ("anum.hq.quality") draws the close view as a GPU would.
+  if (tier !== undefined) await page.addInitScript((t) => { try { localStorage.setItem('anum.hq.quality', String(t)); } catch { /* storage blocked */ } }, tier);
   await useSavedLocale(page, locale);
   const mock = await mockHq(page, { campus: 'api', layout: 'starter', commerce: 'connected', meetings: 'live', presence, stream });
   await page.route('http://localhost:8000/api/v1/office/campus', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(freshCampus()) }));
@@ -77,9 +79,8 @@ for (const [w, h] of SIZES) {
     const { cards, panels } = await rects(page);
     expect(cards.length).toBeGreaterThan(0);
     for (let i = 0; i < cards.length; i++) {
-      // On a scene narrower than 641 px no card is left out (docs/ANUM_MINE_HQ_LABELS.md): two status dots with no free spot may touch there.
-      // A chip never overlaps anything, and on wider scenes nothing does.
-      for (let j = i + 1; j < cards.length; j++) if (w >= 641 || !(cards[i].dot && cards[j].dot)) expect(hit(cards[i], cards[j]), `${cards[i].name} covers ${cards[j].name}`).toBe(false);
+      // Nothing overlaps at any width (docs/ANUM_MINE_HQ_LABELS.md, "Dots never touch"): on a phone a dot with no free spot is crowded, never drawn on another.
+      for (let j = i + 1; j < cards.length; j++) expect(hit(cards[i], cards[j]), `${cards[i].name} covers ${cards[j].name}`).toBe(false);
       for (const p of panels) expect(hit(cards[i], p), `${cards[i].name} is under ${p.name}`).toBe(false);
     }
     const results = await new AxeBuilder({ page }).include('.hqLive').withTags(['wcag2a', 'wcag2aa']).analyze();
@@ -118,12 +119,8 @@ test('the boards carry the live details; a presence update changes the board tex
   const lines = await boardLines(page);
   expect(lines.length).toBe(14);
   const gc = await boardOf(page, 'Green Concrete');
-  // What the building does, the live counts with the verified time, and open work: all from records, nothing else.
-  expect(gc).toContain('Green Concrete');
-  expect(gc).toContain('0 working');
-  expect(gc).toContain('4 agents, Idle 1, Paused 3');
-  expect(gc).toMatch(/(Verified|Stale: last verified) \d/);
-  expect(gc).toContain('Open work: Not connected');
+  // Far away (and on software GL's lowest tier) a board prints the name and the key line, large; the details are for the close view (next test).
+  expect(gc).toMatch(/^Green Concrete \| 0 working( \| Live)?$/);
   for (const secret of ['Fleet Planner', 'Outreach Writer', 'Plan October', 'Acme']) expect(lines.join('\n')).not.toContain(secret);
   // The stream is up: the Live tick is on the boards.
   await expect(hq(page).getByTestId('hq-live-link')).toHaveAttribute('data-link', 'live', { timeout: 30_000 });
@@ -140,8 +137,26 @@ test('the boards carry the live details; a presence update changes the board tex
   expect(await stage.getAttribute('data-triangles')).toBe(triangles);
 });
 
+test('the close view: a focused building\'s board adds what it does, the other states, open work and the verified time (tier pinned as on a GPU)', async ({ page }) => {
+  await open(page, { tier: 1 });
+  const far = await boardOf(page, 'Green Concrete');
+  expect(far).not.toContain('Idle 1');
+  await hq(page).getByRole('button', { name: /^Green Concrete\./ }).hover();
+  // What the building does, the live counts with the verified time, and open work: all from records, nothing else.
+  await expect.poll(() => boardOf(page, 'Green Concrete'), { timeout: 30_000 }).toContain('4 agents, Idle 1, Paused 3');
+  const gc = await boardOf(page, 'Green Concrete');
+  expect(gc).toContain('0 working');
+  expect(gc).toMatch(/(Verified|Stale: last verified) \d/);
+  expect(gc).toContain('Open work: Not connected');
+  for (const secret of ['Fleet Planner', 'Outreach Writer', 'Plan October', 'Acme']) expect((await boardLines(page)).join('\n')).not.toContain(secret);
+  // Only the focused board shows the close view; the camera did not move near the others.
+  expect((await boardLines(page)).filter((l) => / agents, /.test(l)).length).toBe(1);
+  await page.mouse.move(5, 5);
+  await expect.poll(() => boardOf(page, 'Green Concrete'), { timeout: 30_000 }).not.toContain('Idle 1');
+});
+
 test('a building without presence says Not connected, never a zero, and no board shows Live without a stream', async ({ page }) => {
-  await open(page, { presence: 'missing', stream: 'unsupported', flow: false });
+  await open(page, { presence: 'missing', stream: 'unsupported', flow: false, tier: 1 });
   const lines = await boardLines(page);
   // Tyre Pulse HQ and Legal and Compliance report no presence in the campus read: Not connected, no verified time, no Live tick.
   for (const name of ['Tyre Pulse HQ', 'Legal and Compliance']) {
@@ -149,8 +164,11 @@ test('a building without presence says Not connected, never a zero, and no board
     expect(line).toContain('Not connected');
     expect(line).not.toMatch(/Verified|Live|\b0 working|No agents/);
   }
-  expect((await boardOf(page, 'Tyre Pulse HQ'))).toContain('Open work: Not connected');
   expect(lines.filter((l) => /\| Live$/.test(l)).length).toBe(0);
+  // Its close view says its open work is Not connected too.
+  await hq(page).getByRole('button', { name: /^Tyre Pulse HQ\./ }).hover();
+  await expect.poll(() => boardOf(page, 'Tyre Pulse HQ'), { timeout: 30_000 }).toContain('Open work: Not connected');
+  expect(await boardOf(page, 'Tyre Pulse HQ')).not.toMatch(/Verified|Live|\b0 working|No agents/);
 });
 
 test('a stream that is down: the numbers stay with their verified time and no Live tick is shown', async ({ page }) => {

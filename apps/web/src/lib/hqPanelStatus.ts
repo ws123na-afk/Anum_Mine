@@ -30,6 +30,54 @@ export function flowLive(link: FlowLinkLike, status: FlowStatusLike): PanelLive 
   return link;
 }
 
+/** The history checks for newer records this often while it is open (HqHistoryPanel); three missed checks make it stale. */
+export const HISTORY_CHECK_MS = 30_000;
+export const HISTORY_STALE_MS = 90_000;
+
+export type TotalsSource = 'stream' | 'campus';
+
+/**
+ * Where Total agents reads the open workspace's numbers: the presence stream while it is live and has answered, otherwise the
+ * campus read (every 30 s at most). Other workspaces' buildings always come from the campus read (no stream reaches them).
+ */
+export function totalsSource(link: PresenceLinkLike, hasPresence: boolean): TotalsSource {
+  return link === 'live' && hasPresence ? 'stream' : 'campus';
+}
+
+/** The words for Total agents: Live on the stream; on the campus read, Checking every 30 s, or why it cannot be read. */
+export function officeLive(source: TotalsSource, campus: Readonly<{ loaded: boolean; failed: boolean; denied: boolean }>): PanelLive {
+  if (campus.denied && !campus.loaded) return 'denied';
+  if (!campus.loaded) return campus.failed ? 'offline' : 'connecting';
+  if (source === 'stream') return 'live';
+  return campus.failed ? 'reconnecting' : 'polling';
+}
+
+/**
+ * The words for the Team panel: it reads again whenever the live flow changes, so once it has answered it is as live as the flow.
+ * A failed read with a roster on screen keeps the roster and says the link is being tried again.
+ */
+export function teamLive(status: 'loading' | 'ready' | 'error' | 'denied', hasTeam: boolean, failed: boolean, flow: PanelLive): PanelLive {
+  if (status === 'denied') return 'denied';
+  if (!hasTeam) return status === 'error' ? 'offline' : 'connecting';
+  if (failed) return 'reconnecting';
+  return flow;
+}
+
+/** The words for the History panel: it reads once when opened, then checks for newer records on a timer. */
+export function historyLive(status: 'loading' | 'ready' | 'error' | 'denied' | 'invalid', checkFailed: boolean): PanelLive {
+  if (status === 'denied') return 'denied';
+  if (status === 'loading') return 'connecting';
+  if (status === 'error' || status === 'invalid') return 'offline';
+  return checkFailed ? 'reconnecting' : 'polling';
+}
+
+/** The words for the Executive assistant: its own tools read first, then the workspace event link the shell keeps open. */
+export function assistantLive(tools: 'loading' | 'ready' | 'unavailable' | null, stream: 'connecting' | 'live' | 'offline' | null): PanelLive {
+  if (tools === 'unavailable') return 'offline';
+  if (tools === 'loading' || tools === null) return 'connecting';
+  return stream ?? 'connecting';
+}
+
 export function liveTone(state: PanelLive): PanelTone {
   return state === 'live' ? 'ok' : state === 'offline' || state === 'denied' ? 'stop' : 'warn';
 }
