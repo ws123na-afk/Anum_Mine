@@ -233,7 +233,7 @@
 .hqSpinner { animation: hqSpin 1s linear infinite; border: 2px solid var(--d-line-strong); border-top-color: var(--d-accent); border-radius: 50%; height: 18px; width: 18px; }
 @keyframes hqSpin { to { transform: rotate(360deg); } }
 
-.hqDeskList, .hqTaskList { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
+.hqDeskList, .hqTaskList { display: grid; gap: var(--d-s1); grid-template-columns: minmax(0, 1fr); list-style: none; margin: 0; padding: 0; }
 .hqDeskList button, .hqVacant { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); display: flex; gap: var(--d-s2); justify-content: space-between; min-height: 44px; padding: 4px var(--d-s3); text-align: start; width: 100%; }
 .hqDeskList .hqLabelText small { color: var(--d-muted); }
 .hqTaskList li { background: var(--d-glass-1); border-radius: var(--d-r-control); font-size: var(--text-xs); padding: var(--d-s2); }
