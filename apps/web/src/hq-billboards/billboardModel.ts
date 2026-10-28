@@ -7,7 +7,7 @@
  * reads the model through a recording proxy and fails when it touches a property outside `BILLBOARD_READS`.
  */
 import type { OfficeFlowSnapshot } from '@anum/contracts';
-import type { CampusBuilding, CampusTotals, StatusKey } from '../lib/campusModel.ts';
+import type { CampusBuilding, CampusBuildingKind, CampusTotals, StatusKey } from '../lib/campusModel.ts';
 import { STATUS_ORDER, buildingStatus, workspaceOf } from '../lib/campusModel.ts';
 import type { PlanInput } from '../lib/hqPlanFrame.ts';
 import { departmentText } from '../lib/hqLabelModel.ts';
@@ -16,6 +16,18 @@ import { sceneName, roomName } from '../lib/registryNames.ts';
 import { getLocale, t, type MessageKey, type Locale, type Vars } from '../lib/i18n.ts';
 
 export type Translate = (key: MessageKey, vars?: Vars) => string;
+
+/**
+ * The fixed sentence and the kind name of every building kind. A typed map, not a key built from the kind, so a new kind without its
+ * messages is a build error instead of a raw key on the card (a Career building once printed "hqBillboard.purpose.career").
+ */
+export const PURPOSE_KEYS: Readonly<Record<CampusBuildingKind, MessageKey>> = {
+  executive: 'hqBillboard.purpose.executive', business: 'hqBillboard.purpose.business', department: 'hqBillboard.purpose.department',
+  personal: 'hqBillboard.purpose.personal', career: 'hqBillboard.purpose.career',
+};
+export const KIND_KEYS: Readonly<Record<CampusBuildingKind, MessageKey>> = {
+  executive: 'hq.kind.executive', business: 'hq.kind.business', department: 'hq.kind.department', personal: 'hq.kind.personal', career: 'hq.kind.career',
+};
 
 /** A value older than this is called stale (the same 90 seconds the registry projection gives presence evidence). */
 export const BILLBOARD_STALE_MS = 90_000;
@@ -168,14 +180,14 @@ export function billboardModel(input: BillboardInput): BillboardModel {
   const tr: Translate = input.tr ?? ((key, vars) => t(key, vars));
   const b = input.building;
   const name = sceneName(b, locale);
-  const kindText = b.kindKnown === false ? null : tr(`hq.kind.${b.kind}` as MessageKey);
+  const kindText = b.kindKnown === false ? null : tr(KIND_KEYS[b.kind] ?? 'hq.kind.unset');
   const rows: BillboardRow[] = [];
   const notConnected = (field: BillboardFieldId, label: string | null, noAccess = false): BillboardRow => (
     { field, label, value: tr(noAccess ? 'hqBillboard.noAccess' : 'hqBillboard.notConnected'), connected: false }
   );
 
   // What it does: a fixed sentence for the building's kind (never a claim about activity).
-  rows.push({ field: 'purpose', label: tr('hqBillboard.label.about'), value: tr(b.kindKnown === false ? 'hqBillboard.purpose.unset' : (`hqBillboard.purpose.${b.kind}` as MessageKey)), connected: true });
+  rows.push({ field: 'purpose', label: tr('hqBillboard.label.about'), value: tr(b.kindKnown === false ? 'hqBillboard.purpose.unset' : (PURPOSE_KEYS[b.kind] ?? 'hqBillboard.purpose.unset')), connected: true });
 
   // Size: floors and rooms of the registry.
   const rooms = roomsOf(input.plan);

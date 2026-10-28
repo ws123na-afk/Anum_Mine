@@ -217,6 +217,8 @@ export function CampusView(props: CampusViewProps) {
     if (!bb || !boards) return undefined;
     const started = bb.startBoardFeed({
       count: boards.sites.length, cell: boardCell, read: () => readFaces.current(), logoOf: (key) => logosRef.current.get(key) ?? null,
+      // A changed board fades in over BOARD_FADE_MS; under reduced motion it changes at once.
+      fadeMs: () => (latest.current.reducedMotion ? 0 : bb.BOARD_FADE_MS),
       onDraw: (a) => setAtlas({ canvas: a.canvas, version: a.version, boards, lines: bb.boardLines(a.drawn), stats: bb.boardStats(a.drawn) }),
     });
     feed.current = started;
@@ -229,7 +231,7 @@ export function CampusView(props: CampusViewProps) {
     if (!p) return null;
     const c = cameraRef.current;
     // The camera comes round to the building's front (it faces the plaza), turning the short way from where it is.
-    const yaw = nearestYaw(c.yaw, (turnAngle(p.turn) * 180) / Math.PI + FRONT_YAW_OFFSET);
+    const yaw = nearestYaw(c.yaw, ((turnAngle(p.turn) + (p.yaw ?? 0)) * 180) / Math.PI + FRONT_YAW_OFFSET);
     return { ...c, yaw, target: { x: p.x, y: 0, z: p.z }, distance: Math.max(c.minDistance, Math.min(c.maxDistance, Math.max(p.width, p.depth) * 3.6 + p.height * 0.8)) };
   }, [placements]);
   const focus = useCallback((id: string) => {
@@ -243,6 +245,29 @@ export function CampusView(props: CampusViewProps) {
     latest.current.onSelect(id);
     if (id) focus(id);
   }, [focus]);
+
+  // Let go of the picked building: its billboard card and its details close, and focus goes back to the scene (the card's button is gone).
+  const release = useCallback(() => {
+    setHover(null);
+    latest.current.onSelect(null);
+    wrap.current?.querySelector<HTMLElement>('.hqStage')?.focus({ preventScroll: true });
+  }, [wrap]);
+  // Escape lets go of it wherever focus is, unless another panel used this Escape (a dialog, a drawer, an open panel: they call
+  // preventDefault) or the key went to a field. The check runs after every listener had the event.
+  const picked = selectedId !== null || hover !== null;
+  useEffect(() => {
+    if (!picked) return undefined;
+    let timer = 0;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      const target = event.target as Element | null;
+      if (target?.closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"], [aria-modal="true"]')) return;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => { if (!event.defaultPrevented) release(); }, 0);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); window.clearTimeout(timer); };
+  }, [picked, release]);
 
   const activate = useCallback((id: string) => {
     if (id === latest.current.selectedId) latest.current.onEnter(id);
@@ -316,8 +341,8 @@ export function CampusView(props: CampusViewProps) {
   // The billboards are a separate pass (HqStage `extraLabels`): they can never move, hide or park a building card.
   const extraLabels: StageLabel[] = useMemo(() => (boards && bb ? bb.billboardLabels({
     layer: boards, buildings: byId, plans, flow: props.flow, selectedId, hoverId: hover, near: false, now: Date.now(),
-    onActivate: activate, onOpen: (id) => latest.current.onEnter(id), onHover: setHover,
-  }) : []), [boards, bb, byId, plans, props.flow, selectedId, hover, locale, activate]);
+    onActivate: activate, onOpen: (id) => latest.current.onEnter(id), onHover: setHover, onClose: release,
+  }) : []), [boards, bb, byId, plans, props.flow, selectedId, hover, locale, activate, release]);
 
   const onView = useCallback((cam: CameraState, aspect: number) => {
     viewSink.current?.(cam, aspect);
@@ -416,7 +441,9 @@ function BuildingCard(props: { building: CampusBuilding; selected: boolean; dens
       type="button" className="hqLabelCard hqBuildingCard" data-selected={props.selected} data-status={status} data-kind={b.kind} data-density={density} data-walk={props.walk?.kind}
       aria-label={`${sceneName(b)}. ${summary}.${props.walk ? ' ' + props.walk.because + '.' : ''}${props.walkOff ? ' ' + t('hqWalkers.status.off') + '.' : ''}${props.work ? ' ' + props.work.because + '.' : ''}${props.feed ? ' ' + t('hqMotion.feed.off') + '.' : ''}${props.selected ? ' ' + t('hq.building.pressToOpen') : ''}`}
       aria-pressed={props.selected} title={density === 'dot' ? [sceneName(b), props.work?.because, props.feed ? t('hqMotion.feed.off') : ''].filter(Boolean).join('. ') : (workHint || feedHint || sceneName(b))} data-work={props.work?.kind} data-feed={props.feed?.reason}
-      onClick={props.onActivate} onMouseEnter={() => props.onHover(true)} onMouseLeave={() => props.onHover(false)}
+      onClick={props.onActivate}
+      // A mouse hover only: a tap on a phone also sends mouse events, and a hover it set would never end (the card stayed open).
+      onPointerEnter={(e) => { if (e.pointerType === 'mouse') props.onHover(true); }} onPointerLeave={(e) => { if (e.pointerType === 'mouse') props.onHover(false); }}
     >
       <span className="hqLabelIcon">{iconOf(b)}</span>
       <span className="hqLabelText">

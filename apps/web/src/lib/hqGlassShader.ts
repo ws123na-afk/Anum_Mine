@@ -8,8 +8,9 @@
  * desk, screen, a seated figure, a wall) and how lit it is. The software path, and panes far from the camera, read one texel
  * 2.8 m inside the facade instead (no parallax, one texture fetch).
  *
- * A building on the campus is turned by quarter turns so its front faces the plaza: the lookup turns the world position back into the
- * building's own frame (`uPlanRect.xy` is the tile's middle, `uPlanInfo.w` the quarter turns), so the rooms turn with the facade.
+ * A building on the campus is turned by quarter turns and a small lean so its front faces the plaza: the lookup turns the world position
+ * back into the building's own frame (`uPlanRect.xy` is the tile's middle, `uPlanInfo.w` the whole change of heading in radians,
+ * `campusFacing.headingDelta`), so the rooms turn with the facade.
  * A new occupancy (same layout) cross-dissolves from the previous atlas (`uPlanPrev`, `uPlanMix` from 0 to 1 over `PLAN_FADE_MS`);
  * under reduced motion, or when the layout changed, the new atlas shows at once.
  */
@@ -29,9 +30,10 @@ uniform float uPlanCount;
 vec4 hq_planAt(int bi, int fl, vec2 xz) {
   vec4 R = uPlanRect[bi];
   vec2 d = xz - R.xy;
-  float tn = floor(uPlanInfo[bi].w + 0.5);
-  /* back into the building's own frame: undo its quarter turns */
-  vec2 l = tn < 0.5 ? d : tn < 1.5 ? vec2(d.y, -d.x) : tn < 2.5 ? -d : vec2(-d.y, d.x);
+  float ha = uPlanInfo[bi].w;
+  /* back into the building's own frame: undo its quarter turns and its lean (the heading change ha, in radians) */
+  float hc = cos(ha), hs = sin(ha);
+  vec2 l = vec2(d.x * hc - d.y * hs, d.x * hs + d.y * hc);
   vec2 q = l * R.zw + 0.5;
   float inside = step(0.0, q.x) * step(q.x, 1.0) * step(0.0, q.y) * step(q.y, 1.0);
   q = clamp(q, vec2(0.003), vec2(0.997));
@@ -134,10 +136,10 @@ export function installPlan(shared: Record<string, { value: unknown }>, V4: new 
 type Vec4Like = { set(x: number, y: number, z: number, w: number): unknown };
 export type PlanSource = Readonly<{
   cols: number; rows: number;
-  buildings: ReadonlyArray<Readonly<{ origin: readonly number[]; turn: number; size: readonly number[]; storeys: number; baseY: number; pitch: number }>>;
+  buildings: ReadonlyArray<Readonly<{ origin: readonly number[]; turn: number; yaw?: number; size: readonly number[]; storeys: number; baseY: number; pitch: number }>>;
 }>;
 
-/** Points the glass uniforms at an atlas texture and its per-building frames (middle x, z, 1/width, 1/depth; storeys, base, pitch, quarter turns). */
+/** Points the glass uniforms at an atlas texture and its per-building frames (middle x, z, 1/width, 1/depth; storeys, base, pitch, heading change). */
 export function fillUniforms(u: Record<string, { value: unknown }>, plan: PlanSource, texture: unknown): void {
   const rect = u.uPlanRect.value as Vec4Like[], info = u.uPlanInfo.value as Vec4Like[];
   u.uPlanTex.value = texture;
@@ -145,7 +147,8 @@ export function fillUniforms(u: Record<string, { value: unknown }>, plan: PlanSo
   u.uPlanCount.value = plan.buildings.length;
   plan.buildings.forEach((b, i) => {
     rect[i].set(b.origin[0], b.origin[1], 1 / b.size[0], 1 / b.size[1]);
-    info[i].set(b.storeys, b.baseY, b.pitch, b.turn);
+    // The whole change of heading (campusFacing.headingDelta, written out so this module imports nothing): quarter turns of -pi/2, plus the lean.
+    info[i].set(b.storeys, b.baseY, b.pitch, -((((b.turn % 4) + 4) % 4) * Math.PI) / 2 + (b.yaw ?? 0));
   });
 }
 
@@ -166,7 +169,7 @@ export function canDissolve(prev: PlanKey | null, next: PlanKey): boolean {
 export type PlanKey = Readonly<{ layoutRevision: string; width: number; height: number; frames: string }>;
 export const planKeyOf = (plan: PlanSource & { layoutRevision?: string; width: number; height: number }): PlanKey => ({
   layoutRevision: plan.layoutRevision ?? '', width: plan.width, height: plan.height,
-  frames: plan.buildings.map((b) => `${b.origin.join(',')},${b.turn},${b.size.join(',')}`).join('/'),
+  frames: plan.buildings.map((b) => `${b.origin.join(',')},${b.turn},${(b.yaw ?? 0).toFixed(4)},${b.size.join(',')}`).join('/'),
 });
 
 /** three.js constants (stable across versions): RGBAFormat, UnsignedByteType, NearestFilter. */

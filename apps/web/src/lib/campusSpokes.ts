@@ -8,7 +8,11 @@
  */
 import { PLAZA } from './campusModel.ts';
 
-export type SpokeFootprint = Readonly<{ id: string; x0: number; x1: number; z0: number; z1: number }>;
+/**
+ * A footprint: its axis aligned box, and for a leaned building (`Placement.yaw`) also its own rectangle (middle, half sizes in world axes
+ * before the lean, the lean), which is what a walkway keeps clear of.
+ */
+export type SpokeFootprint = Readonly<{ id: string; x0: number; x1: number; z0: number; z1: number; cx?: number; cz?: number; hw?: number; hd?: number; yaw?: number }>;
 export type SpokeDoor = Readonly<{ id: string; x: number; z: number }>;
 export type Spoke = Readonly<{ id: string; points: ReadonlyArray<readonly [number, number]> }>;
 
@@ -47,7 +51,14 @@ class Heap {
   }
 }
 
-const hits = (f: SpokeFootprint, x: number, z: number, pad: number): boolean => x > f.x0 - pad && x < f.x1 + pad && z > f.z0 - pad && z < f.z1 + pad;
+const hits = (f: SpokeFootprint, x: number, z: number, pad: number): boolean => {
+  if (!(x > f.x0 - pad && x < f.x1 + pad && z > f.z0 - pad && z < f.z1 + pad)) return false;
+  if (f.yaw === undefined || f.hw === undefined || f.hd === undefined) return true;
+  // Back into the building's quarter turned frame (undo the lean), then the plain rectangle test.
+  const c = Math.cos(f.yaw), s = Math.sin(f.yaw), dx = x - (f.cx ?? 0), dz = z - (f.cz ?? 0);
+  const lx = dx * c - dz * s, lz = dx * s + dz * c;
+  return Math.abs(lx) < f.hw + pad && Math.abs(lz) < f.hd + pad;
+};
 
 export function routeSpokes(doors: readonly SpokeDoor[], footprints: readonly SpokeFootprint[], extent: number): Spoke[] {
   const half = Math.ceil((extent + 4) / CELL) * CELL;

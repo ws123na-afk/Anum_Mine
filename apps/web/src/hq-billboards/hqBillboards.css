@@ -2,7 +2,12 @@
 .hqBillboard { background: var(--hq-glass); backdrop-filter: blur(6px); border: 1px solid var(--hq-glass-line); border-radius: 12px; box-shadow: 0 6px 18px rgba(0, 0, 0, .35); color: var(--hq-glass-text);
   display: flex; flex-direction: column; max-width: min(300px, 86vw); min-width: 0; overflow: hidden; width: max-content; }
 .hqBillboard[data-selected="true"] { border-color: var(--d-accent); box-shadow: 0 0 0 1px var(--d-accent), 0 8px 22px rgba(0, 0, 0, .4); }
-.hqBbHead { align-items: center; background: transparent; border: 0; color: inherit; cursor: pointer; display: flex; gap: 8px; min-height: 44px; padding: 6px 10px 6px 6px; text-align: start; width: 100%; }
+.hqBbTop { align-items: center; display: flex; min-width: 0; }
+.hqBbClose { align-items: center; background: transparent; border: 0; border-radius: 8px; color: inherit; cursor: pointer; display: inline-flex; flex: none; height: 44px; justify-content: center; margin-inline-end: 2px; width: 44px; }
+.hqBbClose svg { height: 18px; width: 18px; }
+.hqBbClose:hover { background: rgb(255 255 255 / .1); }
+.hqBbClose:focus-visible { outline: 2px solid #fff; outline-offset: -2px; box-shadow: 0 0 0 4px var(--d-accent); }
+.hqBbHead { align-items: center; flex: 1 1 auto; min-width: 0; background: transparent; border: 0; color: inherit; cursor: pointer; display: flex; gap: 8px; min-height: 44px; padding: 6px 10px 6px 6px; text-align: start; }
 .hqBbHead:focus-visible, .hqBbOpen:focus-visible { outline: 2px solid #fff; outline-offset: -2px; box-shadow: 0 0 0 4px var(--d-accent); }
 .hqBbGlyph { background: linear-gradient(#142c3d, #0b1722); border: 2px solid #45d0b5; border-radius: 4px; flex: none; height: 22px; width: 32px; box-shadow: 0 5px 0 -3px #45d0b5; }
 .hqBbTitle { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }

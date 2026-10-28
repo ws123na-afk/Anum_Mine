@@ -5,7 +5,7 @@ import type { CampusBuilding, CampusTotals } from '../src/lib/campusModel.ts';
 import { translate, type Locale } from '../src/lib/i18n.ts';
 import { billboardModel, billboardTexts, BILLBOARD_FIELDS, type BillboardModel } from '../src/hq-billboards/billboardModel.ts';
 import { boardFace, faceKey, faceTexts, type BoardFace } from '../src/hq-billboards/boardFace.ts';
-import { BOARD_MIN_MS, BoardAtlas, startBoardFeed, wrapText, type CanvasMaker } from '../src/hq-billboards/billboardTexture.ts';
+import { BOARD_FADE_MAX, BOARD_FADE_MS, BOARD_FADE_STEP_MS, BOARD_MIN_MS, BoardAtlas, startBoardFeed, wrapText, type CanvasMaker } from '../src/hq-billboards/billboardTexture.ts';
 import { MAX_CHIPS, MAX_CHIPS_COMPACT, quietDensities } from '../src/hq-nav/navModel.ts';
 
 // The 3D board of a building prints only what the billboard model already allows (docs/ANUM_MINE_HQ_BILLBOARDS.md, "The board"). Every name is plainly fake.
@@ -168,6 +168,89 @@ test('the feed draws what is due on a timer, ages Stale without new data, and st
     mock.timers.tick(20_000);
     feed.touch();
     assert.deepEqual(drawn, [1, 2], 'stopped');
+  } finally { mock.timers.reset(); }
+});
+
+/** A stub canvas that can copy pixels (drawImage): it records each copy with the alpha it was drawn at, and every canvas it made. */
+function fadeCanvas() {
+  const copies: Array<{ alpha: number; args: number }> = [];
+  let made = 0;
+  const make: CanvasMaker = (width, height) => {
+    made += 1;
+    const ctx = {
+      fillStyle: '', font: '', textAlign: 'left', textBaseline: 'alphabetic', direction: 'ltr', globalAlpha: 1,
+      fillRect() {}, fillText() {}, measureText(text: string) { return { width: text.length * 8 }; },
+      beginPath() {}, arc() {}, fill() {}, createLinearGradient() { return { addColorStop() {} }; }, save() {}, restore() {}, clearRect() {},
+      drawImage(_img: unknown, ...rest: number[]) { copies.push({ alpha: this.globalAlpha, args: rest.length }); },
+    };
+    return { canvas: { width, height } as unknown as HTMLCanvasElement, ctx: ctx as never };
+  };
+  return { copies, make, made: () => made };
+}
+
+test('a changed board fades from its old face to the new one in BOARD_FADE_MS, with a reused snapshot, and a first draw does not fade', () => {
+  const { copies, make, made } = fadeCanvas();
+  const atlas = new BoardAtlas(3, make);
+  atlas.fadeMs = BOARD_FADE_MS;
+  atlas.update(faces(3), 1000);
+  assert.equal(atlas.fading, false, 'the first draw of a board is at once');
+  assert.equal(copies.length, 0);
+  atlas.update(faces(3, 4), 2100);
+  assert.equal(atlas.fading, true, 'a changed board fades');
+  assert.equal(made(), 2, 'one cell-sized snapshot for the fading board');
+  assert.equal(copies.at(-1)?.args, 8, 'the old cell is copied out of the atlas');
+  const alphas: number[] = [];
+  for (let at = 2100; atlas.fading; at += BOARD_FADE_STEP_MS) {
+    const before = copies.length;
+    assert.equal(atlas.fadeStep(at), true);
+    if (copies.length > before) alphas.push(copies.at(-1)!.alpha);
+  }
+  assert.ok(alphas.length >= BOARD_FADE_MS / BOARD_FADE_STEP_MS - 1, `fades in steps: ${alphas.join(', ')}`);
+  for (let i = 1; i < alphas.length; i++) assert.ok(alphas[i] < alphas[i - 1], 'the old face fades out step by step');
+  assert.equal(atlas.fadeStep(9999), false, 'nothing left to draw');
+  // The next change reuses the snapshot: no new canvas.
+  atlas.update(faces(3, 5), 4000);
+  assert.equal(atlas.fading, true);
+  assert.equal(made(), 2);
+});
+
+test('without a fade time (reduced motion) a changed board changes at once, and at most BOARD_FADE_MAX boards fade together', () => {
+  const { make, made } = fadeCanvas();
+  const atlas = new BoardAtlas(BOARD_FADE_MAX + 3, make);
+  atlas.update(faces(BOARD_FADE_MAX + 3), 1000);
+  atlas.update(faces(BOARD_FADE_MAX + 3, 4), 2100);
+  assert.equal(atlas.fading, false, 'no fade at fadeMs 0');
+  const all = (w: number) => Array.from({ length: BOARD_FADE_MAX + 3 }, (_, i) => face({ workspace_id: `ws~b${i}`, name: `Fake ${i}`, totals: totals({ agents: 9, working: w }) }));
+  atlas.fadeMs = BOARD_FADE_MS;
+  const r = atlas.update(all(6), 3200);
+  assert.equal(r.drawn, BOARD_FADE_MAX + 3, 'every changed board is drawn');
+  assert.equal(made() - 1, BOARD_FADE_MAX, 'only BOARD_FADE_MAX snapshots');
+});
+
+test('the feed steps a fade on a timer until it is done, and reads the fade time at every change', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  try {
+    const { make } = fadeCanvas();
+    let working = 1;
+    let fade = BOARD_FADE_MS;
+    const drawn: number[] = [];
+    const feed = startBoardFeed({ count: 2, read: () => faces(2, working), onDraw: (a) => drawn.push(a.version), make, now: () => Date.now(), fadeMs: () => fade });
+    mock.timers.tick(BOARD_MIN_MS + 10);
+    working = 2;
+    feed.touch();
+    assert.equal(feed.atlas.fading, true);
+    for (let i = 0; i < BOARD_FADE_MS / BOARD_FADE_STEP_MS + 2; i++) mock.timers.tick(BOARD_FADE_STEP_MS);
+    assert.equal(feed.atlas.fading, false, 'the fade ended');
+    assert.ok(drawn.length >= BOARD_FADE_MS / BOARD_FADE_STEP_MS, `a draw per step: ${drawn.length}`);
+    const count = drawn.length;
+    mock.timers.tick(5000);
+    assert.ok(drawn.length <= count + 1, 'no steps once the fade is over');
+    fade = 0;
+    mock.timers.tick(BOARD_MIN_MS);
+    working = 3;
+    feed.touch();
+    assert.equal(feed.atlas.fading, false, 'reduced motion: at once');
+    feed.stop();
   } finally { mock.timers.reset(); }
 });
 

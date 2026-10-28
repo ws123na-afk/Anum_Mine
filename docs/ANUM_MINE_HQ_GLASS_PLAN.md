@@ -35,12 +35,13 @@ generated from its floor plans instead of a generic box. Nothing may be invented
 
 ## Turned buildings
 
-Since 28 October 2026 every campus building is turned by quarter turns to face the plaza ([centre plaza](ANUM_MINE_HQ_CENTER_PLAZA.md#buildings-face-the-plaza)).
+Since 28 October 2026 every campus building is turned by quarter turns and a small lean to face the plaza ([centre plaza](ANUM_MINE_HQ_CENTER_PLAZA.md#buildings-face-the-plaza)).
 The atlas tile stays in the building's own frame and turns with the facade: each atlas building carries its middle (`origin`), its quarter turns
-(`turn`) and its own size, `uPlanRect` is the middle and one over the size, and `uPlanInfo.w` is the turn. `hq_planAt` moves the world position back
-into the building's own frame before it reads the tile, and `samplePlan` does the same arithmetic, so a pane always looks into the room that sits
-behind it on that floor (`test/hqCampusLook.test.ts` checks every pane of the planned headquarters at all four turns). The revision includes where
-each tile stands and how it is turned.
+(`turn`), its lean (`yaw`) and its own size, `uPlanRect` is the middle and one over the size, and `uPlanInfo.w` is the whole change of heading in
+radians (quarter turns of minus a right angle, plus the lean). `hq_planAt` turns the world position back into the building's own frame by that one
+angle before it reads the tile, and `samplePlan` does the same arithmetic, so a pane always looks into the room that sits behind it on that floor
+(`test/hqCampusLook.test.ts` checks every pane of the planned headquarters at all four turns and two leaned ones, and that the shader's formula and
+the sampler agree). The revision includes where each tile stands and how it is turned and leaned.
 
 ## Changes dissolve
 

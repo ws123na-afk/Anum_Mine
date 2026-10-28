@@ -10,6 +10,7 @@ export const hqBillboardAr = {
   'hqBillboard.purpose.business': 'مبنى أعمال: يُدار فيه أحد أعمال الحرم.',
   'hqBillboard.purpose.department': 'مبنى قسم: مقر قسم واحد.',
   'hqBillboard.purpose.personal': 'مبنى شخصي: المكتب الخاص بالمالك.',
+  'hqBillboard.purpose.career': 'مبنى المسار المهني: مقر التوظيف والمسارات المهنية.',
   'hqBillboard.purpose.unset': 'لم يُحدد نوع المبنى بعد. غرفه الفعلية مدرجة أدناه.',
   'hqBillboard.label.about': 'ما يفعله المبنى',
   'hqBillboard.label.size': 'الحجم',
@@ -29,4 +30,5 @@ export const hqBillboardAr = {
   'hqBillboard.noTime': 'وقت التحقق غير مُبلَّغ',
   'hqBillboard.open': 'افتح المبنى',
   'hqBillboard.unavailable': 'هذا المبنى غير متاح لك الآن.',
+  'hqBillboard.close': 'إغلاق لوحة الإعلانات',
 } satisfies Record<string, Message>;

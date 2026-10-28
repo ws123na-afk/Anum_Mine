@@ -10,6 +10,7 @@ export const hqBillboardEn = {
   'hqBillboard.purpose.business': 'A business building: where one business of the campus is run.',
   'hqBillboard.purpose.department': 'A department building: the home of one department.',
   'hqBillboard.purpose.personal': 'A personal building: the owner\'s own office.',
+  'hqBillboard.purpose.career': 'A career building: the home of hiring and careers.',
   'hqBillboard.purpose.unset': 'Its building type is not set yet. Its real rooms are listed below.',
   'hqBillboard.label.about': 'What it does',
   'hqBillboard.label.size': 'Size',
@@ -29,4 +30,5 @@ export const hqBillboardEn = {
   'hqBillboard.noTime': 'Verification time not reported',
   'hqBillboard.open': 'Open building',
   'hqBillboard.unavailable': 'This building is not available to you right now.',
+  'hqBillboard.close': 'Close billboard',
 } satisfies Record<string, Message>;

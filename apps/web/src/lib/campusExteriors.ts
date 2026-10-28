@@ -10,6 +10,7 @@ import type { Vec3 } from './headquartersProjection.ts';
 import { MAT, MeshBuilder, VERTEX_FLOATS } from './hqGeometry.ts';
 import type { Aabb } from './hqMath.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
+import { leanPoint, leanVertices } from './campusFacing.ts';
 import { signAtlasLayout } from './hqTextures.ts';
 
 export const EXTERIOR_OF: Readonly<Record<Archetype, ExteriorKind>> = {
@@ -29,7 +30,28 @@ export function drawExterior(p: Placement, archetype: Archetype, signIndex: numb
   // ask for the smallest storey count that keeps the executive building the tallest on the campus.
   const levels = archetype === 'executive' ? Math.min(10, Math.max(8, p.levels + 3)) : archetype === 'tower' ? 6 : p.levels;
   const asset: ExteriorAsset = buildExterior(kind, { seed: 'bld:' + p.workspaceId, width: p.width, depth: p.depth, levels, origin: { x: p.x, z: p.z }, rotation: p.turn });
-  return shapeOf(asset, signIndex, signCount);
+  return leanShape(shapeOf(asset, signIndex, signCount), p);
+}
+
+/**
+ * Leans a placed shape by its building's lean (`Placement.yaw`) round the building's middle, so its front points straight at the plaza:
+ * the vertices (in place), the door, the label anchor and the halos; the bounds and the box become the boxes round the leaned shape.
+ */
+export function leanShape(shape: ExteriorShape, p: Placement): ExteriorShape {
+  const yaw = p.yaw ?? 0;
+  if (!yaw) return shape;
+  leanVertices(shape.vertices, yaw, p.x, p.z);
+  const halos = new Float32Array(shape.halos);
+  for (let i = 0; i < halos.length; i += 8) { const q = leanPoint({ x: halos[i], z: halos[i + 2] }, yaw, p.x, p.z); halos[i] = q.x; halos[i + 2] = q.z; }
+  const around = (box: Aabb): Aabb => {
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+    for (const [x, z] of [[box.min.x, box.min.z], [box.max.x, box.min.z], [box.max.x, box.max.z], [box.min.x, box.max.z]] as const) {
+      const q = leanPoint({ x, z }, yaw, p.x, p.z);
+      x0 = Math.min(x0, q.x); z0 = Math.min(z0, q.z); x1 = Math.max(x1, q.x); z1 = Math.max(z1, q.z);
+    }
+    return { min: { x: x0, y: box.min.y, z: z0 }, max: { x: x1, y: box.max.y, z: z1 } };
+  };
+  return { ...shape, halos, bounds: around(shape.bounds), box: around(shape.box), door: leanPoint(shape.door, yaw, p.x, p.z), anchor: leanPoint(shape.anchor, yaw, p.x, p.z) };
 }
 
 /** Letters the sign board and classifies the surfaces of any exterior asset (generic or generated from floor plans). */

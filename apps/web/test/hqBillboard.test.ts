@@ -278,3 +278,39 @@ test('the sign, logo and icon reads stay inside the whitelist: the brand colour,
   assert.ok(BILLBOARD_FIELDS.some((f) => f.id === 'logo') && BILLBOARD_FIELDS.some((f) => f.id === 'icons'));
   assert.ok(!JSON.stringify(model).includes(LEAK));
 });
+
+// ---- every building kind has words on its card (a Career building once printed the raw key "hqBillboard.purpose.career")
+
+test('every building kind gets a purpose sentence and a kind name in both languages, never a raw message key', () => {
+  const KINDS = ['executive', 'business', 'department', 'personal', 'career'] as const satisfies readonly CampusBuilding['kind'][];
+  const rawKey = /\b[a-z]+[A-Z]?[a-zA-Z]*\.[a-z][a-zA-Z.]+\b/;
+  for (const locale of ['en', 'ar'] as const) {
+    for (const kind of KINDS) {
+      const model = billboardModel(input({ building: poisoned({ kind }) }, locale));
+      const purpose = model.rows.find((r) => r.field === 'purpose');
+      assert.ok(purpose && purpose.value.length > 0, `${locale} ${kind}: no purpose row`);
+      assert.doesNotMatch(purpose.value, rawKey, `${locale} ${kind}: purpose is a raw key`);
+      assert.ok(model.kindText, `${locale} ${kind}: no kind name`);
+      assert.doesNotMatch(model.kindText, rawKey, `${locale} ${kind}: kind name is a raw key`);
+      for (const { text } of billboardTexts(model)) assert.doesNotMatch(text, rawKey, `${locale} ${kind}: "${text}"`);
+    }
+  }
+  for (const key of ['hqBillboard.purpose.career', 'hqBillboard.close'] as MessageKey[]) {
+    assert.equal(typeof CATALOGS.en[key], 'string', key);
+    assert.equal(typeof CATALOGS.ar[key], 'string', key);
+  }
+});
+
+test('the focused billboard card (top priority) is pulled into the stage when its anchor is off the side, so its Close button stays reachable', async () => {
+  const { layoutLabels } = await import('../src/lib/hqLabels.ts');
+  const vp = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  const sizeOf = () => ({ w: 250, h: 48 });
+  // Far off the left edge of a 378 x 539 phone stage, but in front of the camera.
+  const off = { x: -1.6, y: 0.1, z: 0.5 };
+  const [focused] = layoutLabels([{ id: 'billboard:a', anchor: off, priority: -1, tiers: ['full'], fine: true }], vp, 378, 539, sizeOf, 0);
+  assert.equal(focused.shown, true);
+  assert.ok(focused.x - 125 >= 0 && focused.x + 125 <= 378, `inside the stage at ${focused.x}`);
+  // An ordinary card in the same place keeps the old rule: parked out of sight until a focus brings it forward.
+  const [plain] = layoutLabels([{ id: 'billboard:b', anchor: off, priority: 1.9, tiers: ['compact', 'dot'] }], vp, 378, 539, sizeOf, 0);
+  assert.equal(plain.shown, false);
+});

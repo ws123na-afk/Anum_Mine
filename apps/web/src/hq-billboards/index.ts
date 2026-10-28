@@ -18,7 +18,7 @@ export { CLOSE_M, closeBoards } from './billboardSites.ts';
 import { boardFace, type BoardFace } from './boardFace.ts';
 import { getLocale, t } from '../lib/i18n.ts';
 
-export { startBoardFeed, type BoardFeed, type BoardLogo } from './billboardTexture.ts';
+export { BOARD_FADE_MS, startBoardFeed, type BoardFeed, type BoardLogo } from './billboardTexture.ts';
 import { faceTexts } from './boardFace.ts';
 
 /** What is on the boards right now, one line per board (the stage's `data-board-texts`, for QA and screen readers' curiosity: never an input). */
@@ -79,6 +79,8 @@ export type BillboardLabelArgs = Readonly<{
   onActivate: (id: string) => void;
   onOpen: (id: string) => void;
   onHover: (id: string | null) => void;
+  /** Let go of the building: the focused card's Close button. */
+  onClose: () => void;
 }>;
 
 /** How far (in scene metres along the view) an unfocused card still shows. */
@@ -101,7 +103,7 @@ export function billboardLabels(args: BillboardLabelArgs): StageLabel[] {
       id: `billboard:${site.workspaceId}`, anchor: site.anchor, priority: focused ? -1 : 1.9, tiers, ...(focused ? { fine: true } : {}), ...(focused ? {} : { maxDistance: NEAR }),
       node: createElement(BillboardCard, {
         model, selected: site.workspaceId === args.selectedId, focused, onActivate: () => args.onActivate(site.workspaceId), onOpen: () => args.onOpen(site.workspaceId),
-        onHover: (on: boolean) => args.onHover(on ? site.workspaceId : null),
+        onHover: (on: boolean) => args.onHover(on ? site.workspaceId : null), onClose: args.onClose,
       }),
     });
   }

@@ -47,7 +47,7 @@ export const decodeAlpha = (a: number): Readonly<{ outside: boolean; wall: boole
   a === 0 ? { outside: true, wall: false, light: 0 } : { outside: false, wall: a >= 128, light: ((a & 127) - 1) / 126 };
 
 /** `turn` is the building's quarter turns on the campus (`campusFacing.ts`); the tile stays in the building's own frame and turns with it. */
-export type PlanEntry = Readonly<{ origin: Readonly<{ x: number; z: number }>; turn?: number; frame: PlanFrame; input: PlanInput }>;
+export type PlanEntry = Readonly<{ origin: Readonly<{ x: number; z: number }>; turn?: number; yaw?: number; frame: PlanFrame; input: PlanInput }>;
 
 export type GlassPlanBuilding = Readonly<{
   /** World rectangle the tile covers: x0, z0, x1, z1 (the plan union footprint on the ground, after the turn). */
@@ -55,6 +55,8 @@ export type GlassPlanBuilding = Readonly<{
   /** Where the tile's middle stands, its quarter turns and its own size (width along the front, depth across it): the lookup's frame. */
   origin: readonly [number, number];
   turn: number;
+  /** The lean on top of the quarter turns (radians, `Placement.yaw`); the lookup undoes both. */
+  yaw?: number;
   size: readonly [number, number];
   storeys: number;
   /** Height of floor 0 and the storey pitch. */
@@ -174,15 +176,16 @@ export function buildGlassPlan(entries: readonly PlanEntry[]): GlassPlanData {
     layoutParts.push(key);
     occupancyParts.push(occupancyKey(input));
     const turn = (((e.turn ?? 0) % 4) + 4) % 4;
-    const world = turnRect({ x0: -frame.w / 2, z0: -frame.d / 2, x1: frame.w / 2, z1: frame.d / 2 }, turn, e.origin.x, e.origin.z);
+    const yaw = e.yaw ?? 0;
+    const world = turnRect({ x0: -frame.w / 2, z0: -frame.d / 2, x1: frame.w / 2, z1: frame.d / 2 }, turn, e.origin.x, e.origin.z, yaw);
     buildings.push({
-      rect: [world.x0, world.z0, world.x1, world.z1], origin: [e.origin.x, e.origin.z], turn, size: [frame.w, frame.d],
+      rect: [world.x0, world.z0, world.x1, world.z1], origin: [e.origin.x, e.origin.z], turn, yaw, size: [frame.w, frame.d],
       storeys: frame.storeys.length, baseY: PLINTH, pitch: STOREY_PITCH, layoutKey: key,
     });
   });
   const layoutRevision = hash32(layoutParts.join('/'));
   // Where each tile stands and how it is turned is part of the revision: the uniforms change with it even when the bytes do not.
-  const placed = buildings.map((b) => `${b.origin[0].toFixed(2)},${b.origin[1].toFixed(2)},${b.turn}`).join('/');
+  const placed = buildings.map((b) => `${b.origin[0].toFixed(2)},${b.origin[1].toFixed(2)},${b.turn},${(b.yaw ?? 0).toFixed(4)}`).join('/');
   return { revision: hash32(`${layoutRevision}#${occupancyParts.join('/')}#${tile}#${placed}`), layoutRevision, tile, cols, rows, width, height, data, buildings };
 }
 
@@ -192,7 +195,7 @@ export type PixelSample = Readonly<{ rgb: Px; outside: boolean; wall: boolean; l
 export function samplePlan(plan: GlassPlanData, bi: number, storey: number, x: number, z: number): PixelSample {
   const b = plan.buildings[bi];
   // Back into the building's own frame (the shader's `hq_planAt` does the same), then across its tile.
-  const [lx, lz] = unturnXZ(x - b.origin[0], z - b.origin[1], b.turn);
+  const [lx, lz] = unturnXZ(x - b.origin[0], z - b.origin[1], b.turn, b.yaw ?? 0);
   const qx = lx / b.size[0] + 0.5, qz = lz / b.size[1] + 0.5;
   const T = plan.tile;
   const inside = qx >= 0 && qx <= 1 && qz >= 0 && qz <= 1;

@@ -14,7 +14,7 @@ import { classifySurfaces } from './hqSurfaces.ts';
 import { archetypeOf, type Archetype } from './campusBuildings.ts';
 import { drawExterior, type ExteriorShape } from './campusExteriors.ts';
 import { campusExtent, PLAZA, type Placement } from './campusModel.ts';
-import { footprintRect, turnHalos, turnRect, turnVertices, turnXZ, unturnXZ } from './campusFacing.ts';
+import { footprintRect, turnHalos, turnRect, turnVertices, turnXZ, unturnXZ, worldSize } from './campusFacing.ts';
 import type { Aabb } from './hqMath.ts';
 import type { Vec3 } from './headquartersProjection.ts';
 
@@ -64,14 +64,14 @@ function inFrame(s: MeshBuilder, p: Placement, fn: (m: MeshBuilder) => void): vo
   m.mat = s.mat;
   fn(m);
   const v = m.toFloat32();
-  turnVertices(v, p.turn, p.x, p.z);
+  turnVertices(v, p.turn, p.x, p.z, p.yaw ?? 0);
   s.append(v);
-  s.halos.push(...turnHalos(m.halos, p.turn, p.x, p.z));
+  s.halos.push(...turnHalos(m.halos, p.turn, p.x, p.z, p.yaw ?? 0));
 }
 
 /** A rectangle in a building's own frame as a world exclusion (x, z, w, d). */
 function worldBox(p: Placement, x0: number, z0: number, x1: number, z1: number): Exclusion {
-  const r = turnRect({ x0, z0, x1, z1 }, p.turn, p.x, p.z);
+  const r = turnRect({ x0, z0, x1, z1 }, p.turn, p.x, p.z, p.yaw ?? 0);
   return { x: r.x0, z: r.z0, w: r.x1 - r.x0, d: r.z1 - r.z0 };
 }
 
@@ -137,7 +137,8 @@ export function buildCampusScene(placements: readonly Placement[], options: Camp
   // Walkways from the roundabout to every door, routed round the buildings.
   const spokes = routeSpokes(
     buildings.map((bd) => ({ id: bd.workspaceId, x: bd.door.x, z: bd.door.z })),
-    placements.map((p) => ({ id: p.workspaceId, ...footprintRect(p) })),
+    // A leaned building is tested by its own turned rectangle, not the box round it (its door would sit inside that box).
+    placements.map((p) => ({ id: p.workspaceId, ...footprintRect(p), ...(p.yaw ? { cx: p.x, cz: p.z, hw: worldSize({ ...p, yaw: 0 }).w / 2, hd: worldSize({ ...p, yaw: 0 }).d / 2, yaw: p.yaw } : {}) })),
     ringHalf - 6,
   );
   const segments: Array<[number, number, number, number]> = [];
@@ -149,7 +150,7 @@ export function buildCampusScene(placements: readonly Placement[], options: Camp
   s.mat = MAT.flat;
   placements.forEach((p, i) => {
     const bd = buildings[i];
-    const [dx, dz] = unturnXZ(bd.door.x - p.x, bd.door.z - p.z, p.turn);
+    const [dx, dz] = unturnXZ(bd.door.x - p.x, bd.door.z - p.z, p.turn, p.yaw ?? 0);
     inFrame(s, p, (m) => buildingGarden(m, { x: -p.width / 2, z: -p.depth / 2, w: p.width, d: p.depth + 2 }, { x: dx, z: dz }, { seed: 'garden:' + p.workspaceId, lawn: scale(GROUND, 1.0) }));
   });
   s.mat = MAT.tile;
@@ -189,7 +190,7 @@ export function buildCampusScene(placements: readonly Placement[], options: Camp
     if (p.kind === 'executive' || rnd() < 0.35) continue;
     const size = carParkSize(3);
     const lx = -p.width / 2 - 6 - size.w / 2, lz = -p.depth / 2 + size.d / 2;
-    const [ox, oz] = turnXZ(lx, lz, p.turn);
+    const [ox, oz] = turnXZ(lx, lz, p.turn, p.yaw ?? 0);
     const cx = p.x + ox, cz = p.z + oz;
     if (inExclusion(cx, cz, 2) || nearWalk(cx, cz, 6) || Math.hypot(cx, cz) > ringHalf - 8) continue;
     const box = worldBox(p, lx - size.w / 2, lz - size.d / 2, lx + size.w / 2, lz + size.d / 2);

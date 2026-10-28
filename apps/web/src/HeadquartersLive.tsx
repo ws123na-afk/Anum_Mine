@@ -239,6 +239,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
       // A dialog inside the panel (for example a review dialog) closes first and returns focus to its opener.
       const inner = (event.target as Element | null)?.closest?.('[role="dialog"]');
       if (inner && !inner.classList.contains('hqTeamModal') && !inner.classList.contains('hqModalHost')) return;
+      // This Escape is used: the campus does not also let go of the picked building (CampusView reads defaultPrevented).
+      event.preventDefault();
       setOverlay('none');
     };
     window.addEventListener('keydown', onKey);

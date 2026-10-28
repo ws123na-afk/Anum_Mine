@@ -39,19 +39,25 @@ Updated 28 October 2026 (owner request: every building's entrance looks at the p
 
 - Every exterior asset is built with its front (entrance, sign board, forecourt) on +z and is turned by quarter turns. `facingTurn(x, z)` picks the
   quarter turn whose front points most directly at the plaza centre: north of the plaza faces south, east faces west, and so on; on an exact diagonal
-  the z axis wins. The chosen front is never more than 45 degrees off the exact direction to the fountain.
-- `Placement.turn` carries it. `width` and `depth` stay the building's own (along and across its front); `footprintRect(p)` is the world rectangle
-  (width and depth swap on an odd turn). The lot is built in the building's own frame and turned (`lotOf`), so the front garden always lies toward the
-  plaza and the ring search clears the plaza, the avenues and the other lots exactly as before.
-- Everything that hangs off a building turns with it: the exterior asset and the plan shell (`rotation`), the lawn, the front garden and the car
+  the z axis wins. The quarter turn alone can be up to 45 degrees off the exact direction to the fountain, so each building also takes a lean
+  (`leanOf(x, z, turn)`, `Placement.yaw`, at most 45 degrees either way): quarter turn plus lean is the exact heading from the building's middle to the
+  fountain, so every front points straight at it (checked for 2, 4, 8 and 16 buildings within 10 degrees; a centred door looks at the fountain within
+  10 degrees from its doorway, the warehouse's side entrance within 12).
+- `Placement.turn` and `Placement.yaw` carry it. `width` and `depth` stay the building's own (along and across its front); `footprintRect(p)` is the
+  world rectangle (width and depth swap on an odd turn; with a lean, the axis aligned box round the leaned rectangle). The lot is built in the
+  building's own frame, turned and leaned (`lotOf`, the box round it), so the front garden always lies toward the plaza and the ring search clears
+  the plaza, the avenues and the other lots with the leaned lot.
+- Everything that hangs off a building turns with it: the exterior asset and the plan shell (`rotation`, then `leanShape` leans the placed shape, its
+  door, label anchor, halos and boxes round the building's middle), the lawn, the front garden and the car
   park (drawn in the building's own frame and turned, `inFrame` in `campusScene.ts`), the sign board and its lettering (the asset's sign anchor), the
   billboard (placed from the door direction), the label card anchor, the walkway (it ends on the door, which now faces the plaza, so most walkways
   run straight in), the walker routes and work motion (door and pick box), the pick box and the minimap (the turned footprint), and the plan behind the
   glass ([glass plan](ANUM_MINE_HQ_GLASS_PLAN.md#turned-buildings)).
 - Camera: selecting a building flies to a three quarter view of its front (`FRONT_YAW_OFFSET`, 20 degrees off the front's axis), turning the short
   way round (`nearestYaw`). The home and top views are unchanged.
-- Quarter turns keep every footprint, lot, pick box and walkway obstacle an axis aligned rectangle, which the layout, the walkway router, the pick
-  boxes and the plan atlas rely on. A building on a diagonal slot therefore faces the plaza side of its lot, not the fountain exactly.
+- A leaned building's lot, pick box and minimap footprint are the axis aligned boxes round it (a little larger than the building on a diagonal); the
+  walkway router tests the leaned rectangle itself (`SpokeFootprint` carries its middle, half sizes and lean), since the door of a leaned building sits
+  inside the box round it; the glass lookup undoes the whole change of heading in one angle (`uPlanInfo.w`, `headingDelta`).
 
 ## Walkways to every door
 
@@ -83,13 +89,13 @@ person, a task or a count; software GL and reduced motion keep it still.
 
 ## Checks
 
-- `test/hqCampusLook.test.ts`: the facing turn for every direction (best of four, within 45 degrees), turn and inverse, turned rectangles and lots, every door of a laid out campus between its building and the plaza, no lot overlap, pick boxes on the turned footprint, a walkway per building, a deterministic scene, the focus camera's short turn, and the seeded planting (deterministic, every kind, species and tint, tint on leaves only).
+- `test/hqCampusLook.test.ts`: the facing turn for every direction (best of four, within 45 degrees), the lean (quarter turn plus lean is the exact heading, at most 45 degrees), every front within 10 degrees of the fountain for 2, 4, 8 and 16 buildings with no lot overlap, nothing on the plaza or avenues, the label over its building and a walkway that crosses no building, the leaned glass lookup (sampler and shader agree), turn and inverse, turned rectangles and lots, every door of a laid out campus between its building and the plaza, no lot overlap, pick boxes on the turned footprint, a walkway per building, a deterministic scene, the focus camera's short turn, and the seeded planting (deterministic, every kind, species and tint, tint on leaves only).
 - `test/hqCenterPlaza.test.ts`: 0 to 20 buildings with and without the executive building, with real plan footprints, no overlap with the plaza, avenues or each other, determinism and independence of list order, stability when one building comes or goes, a walkway ending on every door and crossing no building, buildings inside the ring road, triangle caps.
 - `e2e/hq-center-plaza.spec.ts`: day, blue hour and night, five viewports (1440x900, 1366x768, 1024x768, 768x1024, 390x844), English and Arabic, not blank, no sideways scroll. Set `PLAZA_DIR` to keep the screenshots.
 
 ## Honest gaps
 
-- Buildings turn by quarter turns only: a building on a diagonal slot faces the plaza side of its lot, up to 45 degrees off the fountain.
+- The grounds of some exterior assets (the villa pool and drive, the warehouse yard) reach past the lot the layout reserves, so on a full campus two buildings' grounds can touch (about two pairs on 8 or 16 buildings, as before the lean; the buildings themselves and their lots do not overlap).
 - Facing the plaza puts the southern buildings' front gardens on their north side, so those buildings stand a little further out and the home camera can be centred slightly south of the plaza on a full campus.
 - The campus is larger than before (the executive forecourt alone is 31 m): the extent radius is 92 m for four or eight buildings (it was 45) and 128 m for thirteen (it was 74), so buildings are smaller on screen at the home camera.
 - The fountain, plaza furniture and roundabout are scenery with no name or number; the water is not simulated, only the existing ripple shader.
