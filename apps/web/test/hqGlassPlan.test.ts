@@ -181,7 +181,7 @@ describe('occupancy truth', () => {
 
 describe('a facade pane maps to the room behind it', () => {
   const rows = new Map([['hq', 0]]);
-  const placement = { workspaceId: 'hq', x: 200, z: -120, width: 0, depth: 0, height: 0, levels: 1, kind: 'executive' as const, icon: null };
+  const placement = { workspaceId: 'hq', x: 200, z: -120, width: 0, depth: 0, height: 0, levels: 1, kind: 'executive' as const, icon: null, turn: 0 as const };
   const plans = new Map([['hq', input()]]);
   const frame = planFrame(hq.floors)!;
   const shape = plannedDrawer(rows, plans)({ ...placement, width: frame.w, depth: frame.d }, 'executive', 0, 1)!;

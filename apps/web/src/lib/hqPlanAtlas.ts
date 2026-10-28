@@ -12,6 +12,7 @@
  * Pure and deterministic: the same plans give the same bytes, so the unit runner pins it and a revision label says when to redraw.
  */
 import type { SceneFloor } from './headquartersProjection.ts';
+import { turnRect, unturnXZ } from './campusFacing.ts';
 import { PLAN_CORE, PLINTH, STOREY_PITCH, hash32, layoutKey, occupancyKey, type PlanFrame, type PlanInput } from './hqPlanFrame.ts';
 
 export const MAX_PLAN_BUILDINGS = 16;
@@ -45,11 +46,16 @@ export const encodeAlpha = (light: number, wall: boolean): number => (wall ? 128
 export const decodeAlpha = (a: number): Readonly<{ outside: boolean; wall: boolean; light: number }> =>
   a === 0 ? { outside: true, wall: false, light: 0 } : { outside: false, wall: a >= 128, light: ((a & 127) - 1) / 126 };
 
-export type PlanEntry = Readonly<{ origin: Readonly<{ x: number; z: number }>; frame: PlanFrame; input: PlanInput }>;
+/** `turn` is the building's quarter turns on the campus (`campusFacing.ts`); the tile stays in the building's own frame and turns with it. */
+export type PlanEntry = Readonly<{ origin: Readonly<{ x: number; z: number }>; turn?: number; frame: PlanFrame; input: PlanInput }>;
 
 export type GlassPlanBuilding = Readonly<{
-  /** World rectangle the tile maps to: x0, z0, x1, z1 (the plan union footprint on the ground). */
+  /** World rectangle the tile covers: x0, z0, x1, z1 (the plan union footprint on the ground, after the turn). */
   rect: readonly [number, number, number, number];
+  /** Where the tile's middle stands, its quarter turns and its own size (width along the front, depth across it): the lookup's frame. */
+  origin: readonly [number, number];
+  turn: number;
+  size: readonly [number, number];
   storeys: number;
   /** Height of floor 0 and the storey pitch. */
   baseY: number;
@@ -167,13 +173,17 @@ export function buildGlassPlan(entries: readonly PlanEntry[]): GlassPlanData {
     const key = layoutKey(input.floors);
     layoutParts.push(key);
     occupancyParts.push(occupancyKey(input));
+    const turn = (((e.turn ?? 0) % 4) + 4) % 4;
+    const world = turnRect({ x0: -frame.w / 2, z0: -frame.d / 2, x1: frame.w / 2, z1: frame.d / 2 }, turn, e.origin.x, e.origin.z);
     buildings.push({
-      rect: [e.origin.x - frame.w / 2, e.origin.z - frame.d / 2, e.origin.x + frame.w / 2, e.origin.z + frame.d / 2],
+      rect: [world.x0, world.z0, world.x1, world.z1], origin: [e.origin.x, e.origin.z], turn, size: [frame.w, frame.d],
       storeys: frame.storeys.length, baseY: PLINTH, pitch: STOREY_PITCH, layoutKey: key,
     });
   });
   const layoutRevision = hash32(layoutParts.join('/'));
-  return { revision: hash32(`${layoutRevision}#${occupancyParts.join('/')}#${tile}`), layoutRevision, tile, cols, rows, width, height, data, buildings };
+  // Where each tile stands and how it is turned is part of the revision: the uniforms change with it even when the bytes do not.
+  const placed = buildings.map((b) => `${b.origin[0].toFixed(2)},${b.origin[1].toFixed(2)},${b.turn}`).join('/');
+  return { revision: hash32(`${layoutRevision}#${occupancyParts.join('/')}#${tile}#${placed}`), layoutRevision, tile, cols, rows, width, height, data, buildings };
 }
 
 export type PixelSample = Readonly<{ rgb: Px; outside: boolean; wall: boolean; light: number; storey: number }>;
@@ -181,7 +191,9 @@ export type PixelSample = Readonly<{ rgb: Px; outside: boolean; wall: boolean; l
 /** One texel of a building's storey at a world position (what the shader's `hq_planAt` reads). */
 export function samplePlan(plan: GlassPlanData, bi: number, storey: number, x: number, z: number): PixelSample {
   const b = plan.buildings[bi];
-  const qx = (x - b.rect[0]) / (b.rect[2] - b.rect[0]), qz = (z - b.rect[1]) / (b.rect[3] - b.rect[1]);
+  // Back into the building's own frame (the shader's `hq_planAt` does the same), then across its tile.
+  const [lx, lz] = unturnXZ(x - b.origin[0], z - b.origin[1], b.turn);
+  const qx = lx / b.size[0] + 0.5, qz = lz / b.size[1] + 0.5;
   const T = plan.tile;
   const inside = qx >= 0 && qx <= 1 && qz >= 0 && qz <= 1;
   const i = Math.min(T - 1, Math.max(0, Math.floor(Math.min(0.997, Math.max(0.003, qx)) * T)));

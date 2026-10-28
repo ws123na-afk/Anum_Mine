@@ -8,6 +8,7 @@ import { beaconLight } from './facadeKit.ts';
 import { WARM, acUnit, castShadow, truck } from '../../lib/hqProps.ts';
 import { clamp, entrance, faceBox, faceQuad, finish, makeCtx, paneRow, rectFaces, signBoard, type Ctx, type Face } from './parts.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
+import { cornerBevels } from './bevel.ts';
 
 const CLAD = hex('#c3c9ce');
 const YELLOW = hex('#e8c34a');
@@ -36,6 +37,7 @@ export function buildWarehouse(params: ExteriorParams = {}): ExteriorAsset {
   castShadow(b, x0, z0, W, D, wallH + 2.2, 0.022);
   b.box(x0 - 0.2, 0, z0 - 0.2, W + 0.4, 1.0, D + 0.4, scheme.trim, { skip: ['top', 'bottom'] });
   b.box(x0, 0, z0, W, wallH, D, clad, { skip: ['top', 'bottom'], grad: 0.18 });
+  cornerBevels(b, x0, z0, W, D, 0, wallH, scheme.trim);
   // Wall bands (colour block along the base and a trim line under the eaves).
   for (const f of [F.south, F.north]) {
     faceQuad(b, f, 0, f.len, 1.0, 1.9, scheme.accent, 0.06, 0.05);

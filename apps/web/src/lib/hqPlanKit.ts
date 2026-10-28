@@ -28,7 +28,7 @@ export function plannedDrawer(rows: ReadonlyMap<string, number>, plans: Readonly
     const input = plans.get(p.workspaceId);
     const frame = input ? planFrame(input.floors) : null;
     if (row === undefined || !frame) return undefined;
-    const asset = buildPlanShell(EXTERIOR_OF[archetype], frame, { seed: 'bld:' + p.workspaceId, origin: { x: p.x, z: p.z }, row });
+    const asset = buildPlanShell(EXTERIOR_OF[archetype], frame, { seed: 'bld:' + p.workspaceId, origin: { x: p.x, z: p.z }, rotation: p.turn, row });
     tagPaneUv(asset.mesh.vertices, row, frame.roof);
     return shapeOf(asset, signIndex, signCount);
   };
@@ -42,7 +42,7 @@ export function plannedDrawer(rows: ReadonlyMap<string, number>, plans: Readonly
 export function careerDrawer() {
   return (p: Placement, archetype: Archetype, signIndex: number, signCount: number): ExteriorShape | undefined => {
     if (archetype !== 'career') return undefined;
-    const asset = buildCareerCentre({ seed: 'bld:' + p.workspaceId, width: p.width, depth: p.depth, levels: p.levels, origin: { x: p.x, z: p.z } });
+    const asset = buildCareerCentre({ seed: 'bld:' + p.workspaceId, width: p.width, depth: p.depth, levels: p.levels, origin: { x: p.x, z: p.z }, rotation: p.turn });
     return shapeOf(asset, signIndex, signCount);
   };
 }
@@ -55,7 +55,7 @@ export function planAtlas(placements: readonly Placement[], plans: ReadonlyMap<s
     const input = plans.get(p.workspaceId);
     const frame = input ? planFrame(input.floors) : null;
     if (row === undefined || !input || !frame) continue;
-    entries[row] = { origin: { x: p.x, z: p.z }, frame, input };
+    entries[row] = { origin: { x: p.x, z: p.z }, turn: p.turn, frame, input };
   }
   return entries.length ? buildGlassPlan(entries) : null;
 }

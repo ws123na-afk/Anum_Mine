@@ -28,7 +28,7 @@ export function drawExterior(p: Placement, archetype: Archetype, signIndex: numb
   // The assets have their own size ranges (a tower is at least 8 storeys, the executive building at least 30 m wide):
   // ask for the smallest storey count that keeps the executive building the tallest on the campus.
   const levels = archetype === 'executive' ? Math.min(10, Math.max(8, p.levels + 3)) : archetype === 'tower' ? 6 : p.levels;
-  const asset: ExteriorAsset = buildExterior(kind, { seed: 'bld:' + p.workspaceId, width: p.width, depth: p.depth, levels, origin: { x: p.x, z: p.z } });
+  const asset: ExteriorAsset = buildExterior(kind, { seed: 'bld:' + p.workspaceId, width: p.width, depth: p.depth, levels, origin: { x: p.x, z: p.z }, rotation: p.turn });
   return shapeOf(asset, signIndex, signCount);
 }
 

@@ -15,6 +15,7 @@ import { buildCampusScene } from './lib/campusScene.ts';
 import { layoutKey, planSize, type PlanInput } from './lib/hqPlanFrame.ts';
 import type { GlassPlanData } from './lib/hqPlanAtlas.ts';
 import type { PlannedSize } from './lib/campusModel.ts';
+import { FRONT_YAW_OFFSET, nearestYaw, turnAngle } from './lib/campusFacing.ts';
 import type { BillboardFlow } from './hq-billboards/billboardModel.ts';
 import {
   buildingStatus, layoutCampus, readingOrder, stepBuilding, workspaceOf,
@@ -227,7 +228,9 @@ export function CampusView(props: CampusViewProps) {
     const p = placements.find((x) => x.workspaceId === id);
     if (!p) return null;
     const c = cameraRef.current;
-    return { ...c, target: { x: p.x, y: 0, z: p.z }, distance: Math.max(c.minDistance, Math.min(c.maxDistance, Math.max(p.width, p.depth) * 3.6 + p.height * 0.8)) };
+    // The camera comes round to the building's front (it faces the plaza), turning the short way from where it is.
+    const yaw = nearestYaw(c.yaw, (turnAngle(p.turn) * 180) / Math.PI + FRONT_YAW_OFFSET);
+    return { ...c, yaw, target: { x: p.x, y: 0, z: p.z }, distance: Math.max(c.minDistance, Math.min(c.maxDistance, Math.max(p.width, p.depth) * 3.6 + p.height * 0.8)) };
   }, [placements]);
   const focus = useCallback((id: string) => {
     const next = frameOf(id);

@@ -6,6 +6,8 @@
  * `totals` is null and the screen says "Presence unavailable". Nothing here invents a number.
  * Pure functions, no DOM: the unit runner covers layout, totals and keyboard order.
  */
+import { facingTurn, footprintRect, turnRect, type QuarterTurn } from './campusFacing.ts';
+
 export type CampusBuildingKind = 'executive' | 'business' | 'department' | 'personal' | 'career';
 
 export type CampusTotals = Readonly<{
@@ -154,6 +156,11 @@ export type Placement = Readonly<{
   kind: CampusBuildingKind;
   /** The icon an owner picked for the building (its name in the campus contract), or null. It decides the drawn building type. */
   icon: string | null;
+  /**
+   * Quarter turns of the building (`campusFacing.ts`): its front (door, sign, forecourt) faces the plaza centre. `width` and `depth`
+   * stay the building's own (along and across its front); `footprintRect` gives the world rectangle.
+   */
+  turn: QuarterTurn;
 }>;
 
 export const FLOOR_HEIGHT = 3.4;
@@ -169,16 +176,17 @@ const SIZE: Record<CampusBuildingKind, { w: number; d: number }> = {
 export const PLAZA = { basin: 12.5, paved: 18.8, roadCentre: 25.8, roadWidth: 8, outer: 32.6, clear: 35, corridor: 13 } as const;
 
 /**
- * What a building takes from the ground: its footprint plus a margin at the sides and back, and its front garden on the +z side where
- * the door is. The executive building drawn from its own asset has a long forecourt (drive, pool, flags) and a wider podium.
+ * What a building takes from the ground: its footprint plus a margin at the sides and back, and its front garden on the side where
+ * the door is (the side that faces the plaza). The executive building drawn from its own asset has a long forecourt (drive, pool, flags) and a wider podium.
  */
 export const LOT = { side: 6, back: 6, front: 16 } as const;
 export const EXECUTIVE_LOT = { side: 10.5, back: 6, front: 31 } as const;
 
 export type Lot = Readonly<{ x0: number; x1: number; z0: number; z1: number }>;
 
-export function lotOf(p: Readonly<{ x: number; z: number; width: number; depth: number }>, margins: Readonly<{ side: number; back: number; front: number }> = LOT): Lot {
-  return { x0: p.x - p.width / 2 - margins.side, x1: p.x + p.width / 2 + margins.side, z0: p.z - p.depth / 2 - margins.back, z1: p.z + p.depth / 2 + margins.front };
+/** The lot in world axes: built in the building's own frame (front garden on +z) and turned with the building. */
+export function lotOf(p: Readonly<{ x: number; z: number; width: number; depth: number; turn?: number }>, margins: Readonly<{ side: number; back: number; front: number }> = LOT): Lot {
+  return turnRect({ x0: -p.width / 2 - margins.side, x1: p.width / 2 + margins.side, z0: -p.depth / 2 - margins.back, z1: p.depth / 2 + margins.front }, p.turn ?? 0, p.x, p.z);
 }
 
 /** The margins of a placement: the executive building has its long forecourt unless it is drawn from floor plans. */
@@ -205,8 +213,8 @@ export const lotBlocksCentre = (l: Lot): boolean => distanceToLot(l) < PLAZA.cle
   || (l.z1 > 0 && l.x0 < PLAZA.corridor && l.x1 > -PLAZA.corridor) || (l.x1 > 0 && l.z0 < PLAZA.corridor && l.z1 > -PLAZA.corridor);
 
 /**
- * Deterministic placement round the plaza at the centre. The executive building takes the north slot (its door looks
- * down on the fountain); every other building is tried first at the slot its id hashes to, then at the next slots, then on the next ring out, and
+ * Deterministic placement round the plaza at the centre. Every building is turned so its front faces the plaza (`facingTurn`), and its
+ * front garden lies on that side. The executive building takes the north slot (its door looks down on the fountain); every other building is tried first at the slot its id hashes to, then at the next slots, then on the next ring out, and
  * stands at the smallest radius where its whole lot clears the plaza, both avenues and every lot already placed. Buildings are placed in
  * order of their hash, never of the list, and a slot does not move when another building comes or goes: adding or removing one building
  * moves at most the few that were next to its slot. A building drawn from its floor plans (`sizes`, keyed by workspace id) keeps its real
@@ -218,12 +226,13 @@ export function layoutCampus(buildings: readonly CampusBuilding[], sizes?: Reado
   const make = (b: CampusBuilding, x: number, z: number): Placement => {
     const size = SIZE[b.kind];
     const planned = sizes?.get(b.workspace_id);
+    const turn = facingTurn(x, z);
     if (planned) {
-      return { workspaceId: b.workspace_id, x, z, width: planned.w, depth: planned.d, levels: Math.max(1, planned.levels), kind: b.kind, icon: b.icon ?? null, height: planned.height + 6 };
+      return { workspaceId: b.workspace_id, x, z, width: planned.w, depth: planned.d, levels: Math.max(1, planned.levels), kind: b.kind, icon: b.icon ?? null, height: planned.height + 6, turn };
     }
     const levels = Math.max(b.kind === 'executive' ? 4 : 1, Math.min(14, b.floors ?? (b.kind === 'personal' ? 1 : 2)));
     return {
-      workspaceId: b.workspace_id, x, z, width: size.w, depth: size.d, levels, kind: b.kind, icon: b.icon ?? null,
+      workspaceId: b.workspace_id, x, z, width: size.w, depth: size.d, levels, kind: b.kind, icon: b.icon ?? null, turn,
       height: levels * FLOOR_HEIGHT * (b.kind === 'executive' ? 1.25 : 1) + 1.2,
     };
   };
@@ -258,7 +267,7 @@ export function layoutCampus(buildings: readonly CampusBuilding[], sizes?: Reado
         const floor = ring === 0 ? PLAZA.clear : limit(ring - 1) + step * 0.15;
         for (let r = floor; r <= floor + 60; r += 1) {
           const x = Math.cos(angle) * r, z = Math.sin(angle) * r;
-          const lot = lotOf({ x, z, width: size.width, depth: size.depth }, margins);
+          const lot = lotOf({ x, z, width: size.width, depth: size.depth, turn: facingTurn(x, z) }, margins);
           if (lotBlocksCentre(lot)) continue;
           if (!taken.some((t) => lotsOverlap(lot, t, 1))) { taken.push(lot); placed = make(b, x, z); }
           break;
@@ -272,10 +281,11 @@ export function layoutCampus(buildings: readonly CampusBuilding[], sizes?: Reado
 
 export function campusExtent(placements: readonly Placement[]): { minX: number; maxX: number; minZ: number; maxZ: number; radius: number } {
   if (!placements.length) return { minX: -30, maxX: 30, minZ: -30, maxZ: 30, radius: 30 };
-  const minX = Math.min(...placements.map((p) => p.x - p.width / 2));
-  const maxX = Math.max(...placements.map((p) => p.x + p.width / 2));
-  const minZ = Math.min(...placements.map((p) => p.z - p.depth / 2));
-  const maxZ = Math.max(...placements.map((p) => p.z + p.depth / 2));
+  const rects = placements.map((p) => footprintRect(p));
+  const minX = Math.min(...rects.map((r) => r.x0));
+  const maxX = Math.max(...rects.map((r) => r.x1));
+  const minZ = Math.min(...rects.map((r) => r.z0));
+  const maxZ = Math.max(...rects.map((r) => r.z1));
   const radius = Math.max(Math.abs(minX), Math.abs(maxX), Math.abs(minZ), Math.abs(maxZ));
   return { minX, maxX, minZ, maxZ, radius };
 }

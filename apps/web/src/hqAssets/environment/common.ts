@@ -215,8 +215,8 @@ export function castShadowPoly(b: MeshBuilder, corners: ReadonlyArray<readonly [
 /** A mesh built once and stamped many times. `vertices` uses the shared vertex layout. */
 export type Template = Readonly<{ id: string; vertices: Float32Array; triangles: number }>;
 
-/** One placement of a template: position, heading (radians) and uniform scale. */
-export type Placement = Readonly<{ x: number; y?: number; z: number; rot?: number; scale?: number }>;
+/** One placement of a template: position, heading (radians), uniform scale and an optional tint (multiplies the leaves' colour only). */
+export type Placement = Readonly<{ x: number; y?: number; z: number; rot?: number; scale?: number; tint?: Rgb }>;
 
 export function makeTemplate(id: string, build: (b: MeshBuilder) => void): Template {
   const b = new MeshBuilder();
@@ -239,7 +239,11 @@ export function stamp(b: MeshBuilder, t: Template, p: Placement): void {
   };
   // Normals turn with the heading (a uniform scale leaves them unit length), so smooth shaded templates stay smooth.
   const N = (i: number): number[] => [v[i + 3] * cs + v[i + 5] * sn, v[i + 4], -v[i + 3] * sn + v[i + 5] * cs];
-  const C = (i: number): Rgb => [v[i + 6], v[i + 7], v[i + 8]];
+  // A tint changes the leaves (the foliage class, 13) and nothing else: bark, fruit and flowers keep their colour.
+  const tint = p.tint;
+  const C = (i: number): Rgb => (tint && v[i + 10] === 13
+    ? [Math.min(1, v[i + 6] * tint[0]), Math.min(1, v[i + 7] * tint[1]), Math.min(1, v[i + 8] * tint[2])]
+    : [v[i + 6], v[i + 7], v[i + 8]]);
   // A template triangle with its own surface class (foliage, say) keeps it; a plain one takes the class the caller set on the builder.
   const callerMat = b.mat;
   for (let i = 0; i + 3 * VERTEX_FLOATS <= v.length; i += 3 * VERTEX_FLOATS) {

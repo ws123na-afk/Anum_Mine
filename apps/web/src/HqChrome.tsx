@@ -6,6 +6,7 @@
 import { Box, DoorOpen, ChevronLeft, ChevronRight, Crosshair, LayoutGrid, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Sunset, Maximize } from 'lucide-react';
 import { useId, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode } from 'react';
 import { readNightPreset, subscribeNightPreset, writeNightPreset } from './lib/hqLightPreset.ts';
+import { footprintRect } from './lib/campusFacing.ts';
 import { arcPath, donutArcs, STATUS_ORDER, STATUS_TONE, type CampusTotals, type Placement, type StatusKey } from './lib/campusModel.ts';
 import { mapToWorld, worldToMap } from './lib/hqCamera.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
@@ -214,8 +215,9 @@ export function Minimap(props: {
       >
         <rect x="0" y="0" width={size} height={size} className="ground" />
         {props.placements.map((p) => {
-          const a = worldToMap(p.x - p.width / 2, p.z - p.depth / 2, e, size);
-          const b = worldToMap(p.x + p.width / 2, p.z + p.depth / 2, e, size);
+          const f = footprintRect(p);
+          const a = worldToMap(f.x0, f.z0, e, size);
+          const b = worldToMap(f.x1, f.z1, e, size);
           return (
             <rect
               key={p.workspaceId} x={a.x} y={a.y} width={b.x - a.x} height={b.y - a.y} rx="1.5"
