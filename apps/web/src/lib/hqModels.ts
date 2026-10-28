@@ -14,12 +14,15 @@ import { figureLook, type FigureLook } from './hqAvatar.ts';
 
 export type ModelGroup = 'sofa' | 'figure';
 
-export type ModelKey = 'sofa' | 'armchair' | 'person_0' | 'person_1' | 'person_2' | 'person_3' | 'person_4';
+export type LegacyKey = 'sofa' | 'armchair' | 'person_0' | 'person_1' | 'person_2' | 'person_3' | 'person_4';
+/** A person drawn by the character kit (`hqAssets/characters/`): `fig:` plus the shape code (see `figureShape`). Nothing to download. */
+export type FigureKey = `fig:${string}`;
+export type ModelKey = LegacyKey | FigureKey;
 
 export type ModelLicense = 'CC0-1.0' | 'CC-BY-4.0';
 
 export type ModelSpec = Readonly<{
-  key: ModelKey;
+  key: LegacyKey;
   group: ModelGroup;
   /** File name under `public/hq/models/`. */
   file: string;
@@ -37,7 +40,7 @@ export type ModelSpec = Readonly<{
   seatedClip?: string;
 }>;
 
-export const MODEL_SPECS: Readonly<Record<ModelKey, ModelSpec>> = {
+export const MODEL_SPECS: Readonly<Record<LegacyKey, ModelSpec>> = {
   sofa: {
     key: 'sofa', group: 'sofa', file: 'sofa.glb', bytes: 100376, license: 'CC-BY-4.0', author: 'Wayfair, LLC (Eric Chadwick)',
     source: 'KhronosGroup/glTF-Sample-Assets, Models/GlamVelvetSofa', footprint: [1, 0.42], yawOffset: 0,
@@ -55,9 +58,35 @@ export const MODEL_SPECS: Readonly<Record<ModelKey, ModelSpec>> = {
 
 export const PERSON_KEYS: readonly ModelKey[] = ['person_0', 'person_1', 'person_2', 'person_3', 'person_4'];
 
+export const isFigureKey = (key: string): key is FigureKey => key.startsWith('fig:');
+
+/** What the renderer needs to know about any key: legacy files and kit figures alike. A kit figure is built in the browser, so it is 0 bytes. */
+export function specOf(key: ModelKey): Readonly<{ group: ModelGroup; bytes: number; footprint: readonly [number, number]; yawOffset: number; kit: boolean }> {
+  if (isFigureKey(key)) return { group: 'figure', bytes: 0, footprint: [0.6, 0.6], yawOffset: 0, kit: true };
+  const spec = MODEL_SPECS[key];
+  return { group: spec.group, bytes: spec.bytes, footprint: spec.footprint, yawOffset: spec.yawOffset, kit: false };
+}
+
+const SEATED_POSES = ['typing', 'reading', 'phone', 'talking', 'leaning'];
+const STANDING_POSES = ['neutral', 'presenting', 'arms-crossed', 'phone', 'walking'];
+
+/**
+ * The shape code of a person for the character kit: the build is the owner's chosen avatar style (or the neutral default
+ * drawn from the id), the hair shape and outfit are the person's avatar fields, and the variant is a hash of the record id
+ * (cosmetic variety only). No name, no description, nothing else is read. The kit parses this string
+ * (`hqAssets/characters/spec.ts`, a unit test keeps the two in step).
+ */
+export function figureShape(look: FigureLook, seed: string, pose: string | undefined, standing: boolean): FigureKey {
+  const a = look.avatar;
+  const posture = (standing ? STANDING_POSES : SEATED_POSES).includes(pose ?? '') ? pose : standing ? 'neutral' : 'typing';
+  const outfit = a.outfit === 'formal' ? 'f' : a.outfit === 'uniform' ? 'u' : 's';
+  const flags = `${outfit}${look.role === 'field' ? 'v' : ''}${look.headset ? 'h' : ''}${look.badge ? 'b' : ''}`;
+  return `fig:${a.avatar_style[0]}:${a.hair_style}:${standing ? 't' : 's'}.${posture}:${flags}:${(seedHash(seed) % 1296000).toString(36)}`;
+}
+
 /** The model a slot's `model` string names, or null for anything this catalogue does not know. */
-export function modelFor(model: string): ModelKey | null {
-  return model in MODEL_SPECS ? (model as ModelKey) : null;
+export function modelFor(model: string): LegacyKey | null {
+  return model in MODEL_SPECS ? (model as LegacyKey) : null;
 }
 
 /** FNV-1a, so the same seed (an agent id) always picks the same look. */
@@ -80,6 +109,8 @@ export type ModelPlacement = Readonly<{
   footprint: readonly [number, number];
   /** For a person: the avatar style the renderer tints the model with (a choice, or the default drawn from the record id). */
   look?: FigureLook;
+  /** For a person: the character kit shape code (see `figureShape`); the renderer builds this figure instead of loading a file. */
+  shape?: FigureKey;
 }>;
 
 /** Quarter turns to a yaw in radians, matching `Local.pt` (rot 0 faces +z, rot 1 faces -x). */
@@ -103,6 +134,7 @@ export function placementsFromSlots(slots: readonly ModelSlot[]): ModelPlacement
       out.push({
         id: `figure:${index}:${slot.x.toFixed(2)},${slot.z.toFixed(2)}`, group: 'figure', key,
         x: slot.x, y: slot.y, z: slot.z, yaw: yawOfQuarterTurns(slot.rot), scale: 1, footprint: spec.footprint, look,
+        shape: figureShape(slot.headset === true && !look.headset ? { ...look, headset: true } : look, seed, slot.pose, slot.standing === true),
       });
       return;
     }

@@ -75,7 +75,7 @@ is the same; the buildings, the light and the motion changed.
   neighbouring faces read differently. It is computed in the shader, so it also works on the software path.
 - **Blue hour.** A third light preset: deep blue zenith, warm orange horizon band, lavender haze, low warm sun, lit windows against bluish glass.
 - **Reflection maps** for day, blue hour and night on hardware GL.
-- **Scenery in motion**, see [ambient motion](ANUM_MINE_HQ_SCENERY_MOTION.md), and **work motion from records** (trucks and tyres at a building, each with its reason), see [campus motion](ANUM_MINE_HQ_CAMPUS_MOTION.md).
+- **Scenery in motion**, see [ambient motion](ANUM_MINE_HQ_SCENERY_MOTION.md), and **work motion from records** (trucks and tyres at a building, each with its reason), see [campus motion](ANUM_MINE_HQ_CAMPUS_MOTION.md). **People outdoors** are only the figures of real agents walking between buildings for one stored record (a meeting in another building's room, a desk moved), each with its reason: see [agent walkers](ANUM_MINE_HQ_AGENT_WALKERS.md). No crowds, no pedestrians in the scenery.
 - **Heights.** Measured on the campus sizes: the glass office tower is 37 m to its roof plant (was 49 m), the executive HQ stays the landmark at about 58 m to the tip of the crown (was 58 m, but with a thin spire instead of the blades). The tower no longer repeats the executive silhouette.
 
 ### What still differs (honest list)
@@ -109,6 +109,12 @@ was checked on software GL for single frames only). Still different: no bevels o
 The building view opens as a dollhouse section like concept renders 22 and 24: front walls and roof removed by camera azimuth, all floors stacked, the open floor highlighted and the others dimmed, a Cutaway / Closed toggle and 90 degree rotate snaps. What it is, how it is built and what still differs from the renders: [cutaway](ANUM_MINE_HQ_CUTAWAY.md).
 
 ## Billboards, 26 October 2026
+
+The concept renders show a sign or billboard at each building with its name and what it does. Each building now has a board on posts in front of it (lit at night, lettered with the real building name in the sign atlas, Arabic right to left) and a card above it with what the building is for and its real work details, from registry and live records only. How it is built, every field and its source, and what is not done: [billboards](ANUM_MINE_HQ_BILLBOARDS.md). Still different from the renders: the board carries the name only (the details are the card, a real overlay), and the boards are plain panels, not the animated screens of the concepts.
+
+## People inside the rooms
+
+Inside a building the people at their desks are no longer boxes or chibi models: they are low poly humanoids with a face, hair, hands, clothing and a pose, in the masculine, feminine or neutral look the owner chose for that person. They appear only at desks with an assigned agent. See [the people doc](ANUM_MINE_HQ_PEOPLE_CHARACTERS.md) for the kit, the budgets, the screenshots and what is still simplified (the campus and building distances show a person only a few pixels tall; the poses are static; there are still no people on paths and plazas).
 
 The concept renders show a sign or billboard at each building with its name and what it does. Each building now has a board on posts in front of it (lit at night, lettered with the real building name in the sign atlas, Arabic right to left) and a card above it with what the building is for and its real work details, from registry and live records only. How it is built, every field and its source, and what is not done: [billboards](ANUM_MINE_HQ_BILLBOARDS.md). Update 27 October 2026: the board now carries the live details itself (name, what the building does, live counts with the verified time or Stale or Not connected, a Live tick while the stream is connected) as a small canvas texture drawn in place, in a metal frame with a night glow, and the page labels on the campus are minimal chips and dots (see [labels](ANUM_MINE_HQ_LABELS.md#quiet-campus)). Still different from the renders: the boards are flat lit panels, not the animated screens of the concepts, and no real GPU look was checked.
 

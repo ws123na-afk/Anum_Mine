@@ -978,6 +978,11 @@ export class HqRenderer {
     return { kit: vehicleKit, scene: this.scene, cheap: this.cheap, request: () => this.requestFrame(), lit: () => this.shared.uLit.value as number, slow: () => this.stats.avgDrawMs > 35, report: (n: number) => { this.canvas.dataset.workRigs = String(n); } };
   }
 
+  /** What the walker layer chunk needs (see `hqWalkerLayer.setWalkers`): the scene, a frame request, whether drawing is slow and a place to report the figure count. */
+  walkerHooks() {
+    return { scene: this.scene, cheap: this.cheap, request: () => this.requestFrame(), slow: () => this.stats.avgDrawMs > 35, report: (n: number) => { this.canvas.dataset.walkers = String(n); } };
+  }
+
   /** What the plan shader chunk needs to put a plan atlas behind the glass (see `hqGlassShader.applyPlan`): the renderer itself, whose shared uniforms, glass material, stats and frame request it uses, and the three.js classes. */
   glassHooks() {
     return { r: this, T: DataTexture };

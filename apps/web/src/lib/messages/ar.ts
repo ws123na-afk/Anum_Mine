@@ -29,6 +29,7 @@ import { hqFirstRunAr } from './hqFirstRun.ar.ts';
 import { hqFloorAr } from './hqFloor.ar.ts';
 import { hqLabelsAr } from './hqLabels.ar.ts';
 import { hqMotionAr } from './hqMotion.ar.ts';
+import { hqWalkersAr } from './hqWalkers.ar.ts';
 import { hqBillboardAr } from './hqBillboard.ar.ts';
 import { hqScreenAr } from './hqScreen.ar.ts';
 import { hqLogoAr } from './hqLogo.ar.ts';
@@ -3270,6 +3271,7 @@ export const ar: Record<MessageKey, Message> = {
   ...hqFloorAr,
   ...hqLabelsAr,
   ...hqMotionAr,
+  ...hqWalkersAr,
   ...hqBillboardAr,
   ...hqScreenAr,
   ...hqLogoAr,

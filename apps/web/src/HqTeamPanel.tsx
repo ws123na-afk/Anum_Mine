@@ -1,7 +1,11 @@
 import { Palette, Users } from 'lucide-react';
 import { useState } from 'react';
 import type { AvatarAppearance } from '@anum/contracts';
-import { AvatarChip, AvatarStyleDialog, roleFamilyOf } from './AvatarStyleEditor';
+import { AvatarChip, AvatarPreview, AvatarStyleDialog, roleFamilyOf } from './AvatarStyleEditor';
+import { HAIR_BY_STYLE, type AvatarStyle } from './lib/hqAvatar';
+import { describeError } from './lib/errors';
+
+const LOOK_ORDER: readonly AvatarStyle[] = ['masculine', 'feminine', 'neutral'];
 import * as api from './lib/api';
 import { agentsApi } from './lib/agents';
 import type { OfficeTeam, OfficeTeamMember } from '@anum/contracts';
@@ -49,7 +53,19 @@ function TeamBody({ team, saved, setSaved, onNavigate, onOpenSpaces, onFocusRoom
   team: OfficeTeam; onNavigate: (hash: string) => void; onOpenSpaces: () => void; onFocusRoom?: (roomId: string) => void; onHistory?: (member: { agentId: string; name: string }) => void; showRoom: boolean; onAvatarChanged?: () => void;
 }) {
   const [editing, setEditing] = useState<OfficeTeamMember | null>(null);
+  const [lookError, setLookError] = useState<Readonly<{ id: string; reason: string }> | null>(null);
   const avatarOf = (m: OfficeTeamMember): AvatarAppearance | null => (saved.has(m.agent_id) ? saved.get(m.agent_id)! : m.avatar ?? null);
+  // The quick look choice (masculine, feminine, neutral) saves like the dialog does; a hair shape the new look does not offer is dropped.
+  const pickLook = async (m: OfficeTeamMember, style: AvatarStyle) => {
+    const { hair_style: hair, ...rest } = avatarOf(m) ?? {};
+    const keep = hair && (HAIR_BY_STYLE[style] as readonly string[]).includes(hair) ? { hair_style: hair } : {};
+    setLookError(null);
+    try {
+      const next = await agentsClient.update(m.agent_id, { avatar: { ...rest, ...keep, avatar_style: style } as AvatarAppearance });
+      setSaved((s) => new Map(s).set(m.agent_id, next.avatar ?? null));
+      onAvatarChanged?.();
+    } catch (e) { setLookError({ id: m.agent_id, reason: describeError(e) }); }
+  };
   return <>
     {editing && <AvatarStyleDialog name={editing.name} seed={editing.agent_id} role={roleFamilyOf(editing.department)} value={avatarOf(editing)} canEdit onClose={() => setEditing(null)}
       onSave={async (value) => { const next = await agentsClient.update(editing.agent_id, { avatar: value }); setSaved((s) => new Map(s).set(editing.agent_id, next.avatar ?? null)); }}
@@ -58,7 +74,7 @@ function TeamBody({ team, saved, setSaved, onNavigate, onOpenSpaces, onFocusRoom
       <p>{t('hqTeam.empty')}</p>
       <button type="button" onClick={onOpenSpaces}>{t('hqTeam.emptyAction')}</button>
     </div> : <ul className="hqTeamList" aria-label={t('hqTeam.region')}>
-      {team.members.map((m) => <MemberCard key={m.agent_id} member={m} avatar={avatarOf(m)} onEditAvatar={() => setEditing(m)} onNavigate={onNavigate} onFocusRoom={onFocusRoom} onHistory={onHistory} showRoom={showRoom} />)}
+      {team.members.map((m) => <MemberCard key={m.agent_id} member={m} avatar={avatarOf(m)} onEditAvatar={() => setEditing(m)} onPickLook={(style) => void pickLook(m, style)} lookError={lookError?.id === m.agent_id ? lookError.reason : null} onNavigate={onNavigate} onFocusRoom={onFocusRoom} onHistory={onHistory} showRoom={showRoom} />)}
     </ul>}
     {team.counts.vacant_desks > 0 && <p className="hqFlowNote">{t('hqTeam.vacant', { count: team.counts.vacant_desks })}</p>}
     {team.hidden_assignments > 0 && <p className="hqFlowNote">{t('hqTeam.hidden', { count: team.hidden_assignments })}</p>}
@@ -71,8 +87,8 @@ function TeamBody({ team, saved, setSaved, onNavigate, onOpenSpaces, onFocusRoom
   </>;
 }
 
-function MemberCard({ member: m, avatar, onEditAvatar, onNavigate, onFocusRoom, onHistory, showRoom }: {
-  member: OfficeTeamMember; avatar: AvatarAppearance | null; onEditAvatar: () => void; onNavigate: (hash: string) => void; onFocusRoom?: (roomId: string) => void; onHistory?: (member: { agentId: string; name: string }) => void; showRoom: boolean;
+function MemberCard({ member: m, avatar, onEditAvatar, onPickLook, lookError, onNavigate, onFocusRoom, onHistory, showRoom }: {
+  member: OfficeTeamMember; avatar: AvatarAppearance | null; onEditAvatar: () => void; onPickLook: (style: AvatarStyle) => void; lookError: string | null; onNavigate: (hash: string) => void; onFocusRoom?: (roomId: string) => void; onHistory?: (member: { agentId: string; name: string }) => void; showRoom: boolean;
 }) {
   const state = (['working', 'queued', 'meeting', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'].includes(m.state) ? m.state : 'unknown');
   const role = m.department ?? t('hqTeam.noRole');
@@ -95,6 +111,16 @@ function MemberCard({ member: m, avatar, onEditAvatar, onNavigate, onFocusRoom, 
         : m.skills.length === 0 ? <span>{t('hqTeam.noSkills')}</span>
         : <ul>{m.skills.map((s) => <li key={s.id} data-state={s.state} title={s.reason ?? undefined}>
           {s.name} <small>{t(`hqTeam.skillState.${s.state}` as MessageKey)}</small></li>)}</ul>}
+    </div>
+    <div className="hqTeamLook" role="radiogroup" aria-label={t('avatar.look.for', { name: m.name })} data-look-for={m.agent_id}>
+      <span className="hqTeamLookPreview" aria-hidden="true"><AvatarPreview seed={m.agent_id} value={avatar} role={roleFamilyOf(m.department)} decorative /></span>
+      <span className="hqTeamLookTitle">{t('avatar.look.title')}</span>
+      {LOOK_ORDER.map((style) => <label key={style} className="hqTeamLookOption">
+        <input type="radio" name={`look-${m.agent_id}`} checked={avatar?.avatar_style === style} onChange={() => onPickLook(style)} aria-label={`${t(`avatar.look.${style}` as MessageKey)}: ${m.name}`} />
+        <span>{t(`avatar.look.${style}` as MessageKey)}</span>
+      </label>)}
+      {!avatar?.avatar_style && <small className="hqTeamLookAuto">{t('avatar.look.auto')}</small>}
+      {lookError && <small className="hqTeamLookError" role="alert">{t('avatar.look.failed', { reason: lookError })}</small>}
     </div>
     <div className="hqTeamActions">
       {showRoom && onFocusRoom && <button type="button" className="hqLinkButton" onClick={() => onFocusRoom(m.desk.room_id)}>{roomNameFor(m.desk.room_id, m.desk.room_name)}</button>}

@@ -212,7 +212,7 @@ test('the building chip carries no kind chips, avatar stack, counts or second li
   const src = readFileSync(new URL('../src/CampusView.tsx', import.meta.url), 'utf8');
   const card = src.slice(src.indexOf('function BuildingCard('), src.indexOf('function BuildingDetail('));
   assert.ok(card.includes('hqLabelText') && card.includes('hqStatusDot'));
-  assert.ok(!/hqCardTags|hqAvatarStack/.test(card) && (card.match(/<small/g) ?? []).length === 2 && (card.match(/<small className="hqWorkLine"/g) ?? []).length === 2, 'a chip is the name and a status dot; the only second line is a record-backed work reason or feed note');
+  assert.ok(!/hqCardTags|hqAvatarStack/.test(card) && (card.match(/<small/g) ?? []).length === 4 && (card.match(/<small className="hq(Work|Walk)Line"/g) ?? []).length === 4, 'a chip is the name and a status dot; the only second line is a record-backed work or walker reason, or a feed note (two work lines and two walker lines)');
   assert.ok(/aria-label=\{`\$\{sceneName\(b\)\}\. \$\{summary\}\./.test(card), 'the accessible name keeps the name and the summary');
 });
 

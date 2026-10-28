@@ -69,7 +69,7 @@ export type RenderStats = {
   /** Model layer: placements drawn, models loaded of those asked for, bytes fetched, load time in ms, groups that fell back. */
   /** Exterior scenery motion: level 0 to 2 (0 = still), frames drawn by its loop, the scene clock in seconds and the vehicles placed. */
   scenery: { level: number; frames: number; clock: number; vehicles: number };
-  models: { placed: number; figures: number; loaded: number; asked: number; bytes: number; loadMs: number; fallbacks: string[]; looks: string[] };
+  models: { placed: number; figures: number; /** People built by the character kit (not loaded from a file). */ kit?: number; loaded: number; asked: number; bytes: number; loadMs: number; fallbacks: string[]; looks: string[] };
 };
 
 export type RendererCallbacks = Readonly<{
