@@ -66,6 +66,11 @@ export type RenderStats = {
   tier: number; fx: string;
   /** Revision of the plan atlas on the GPU ('' when none). */
   glassPlan?: string;
+  /**
+   * 'loading' until the scene effect chunks (baked occlusion, campus detail) have loaded or failed and the scene that was waiting for them
+   * is built again; then 'ready'. Until then the drawn scene is a first, temporary build (its triangle count is not the settled one).
+   */
+  sceneFx?: 'loading' | 'ready';
   /** Model layer: placements drawn, models loaded of those asked for, bytes fetched, load time in ms, groups that fell back. */
   /** Exterior scenery motion: level 0 to 2 (0 = still), frames drawn by its loop, the scene clock in seconds and the vehicles placed. */
   scenery: { level: number; frames: number; clock: number; vehicles: number };

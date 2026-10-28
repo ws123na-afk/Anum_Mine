@@ -89,8 +89,10 @@ test('the Tyre Pulse wall shows the real numbers, the flow and the tyre figures,
   const before = await wallLine(page);
   flow.set(flowItems().filter((i) => i.key !== 'task:t_plan'));
   flow.emit('task.updated');
-  await expect.poll(() => wallLine(page), { timeout: 60_000 }).not.toBe(before);
-  expect(await wallLine(page)).toContain('Open tasks 2');
+  // Wait for the update itself: the line also changes on its own (the elapsed minutes count up, a flow read moves the Updated time),
+  // so "not the line before" alone can be met by a clock tick before the new read is drawn.
+  await expect.poll(() => wallLine(page), { timeout: 60_000 }).toContain('Open tasks 2');
+  expect(await wallLine(page)).not.toBe(before);
 });
 
 test('a Tyre Pulse building without the tyre feed says so on its wall and shows no tyre number', async ({ page }) => {

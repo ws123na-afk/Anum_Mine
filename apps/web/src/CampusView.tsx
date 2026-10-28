@@ -273,6 +273,10 @@ export function CampusView(props: CampusViewProps) {
     scenery: scene.motion,
   }), [scene, boards, atlas?.boards, byId, locale, fontsReady, signKit, logos]);
 
+  // The meshes are final once every lazy part that changes them is in: the plan kit (when a building is drawn from its plans or the career
+  // centre is on the campus) and the billboards with their atlas. Until then the scene is a first, temporary build (`data-scene-settled`, QA only).
+  const sceneSettled = (kit !== null || (!sizes.size && !hasCareer)) && (!campus.buildings.length || (boards !== null && atlas?.boards === boards));
+
   // A phone-sized stage has room for two full cards and a handful of compact ones.
   const compact = useNavLayout().layout.compact;
   // The quiet campus: a name chip for a few buildings (the selected, the open one, the nearest to where the camera looks), a status dot for the rest.
@@ -331,7 +335,7 @@ export function CampusView(props: CampusViewProps) {
     <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0} data-sign-brands={signStats.branded} data-sign-logos={signStats.logos} data-board-version={atlas?.version ?? 0} data-board-texts={atlas?.lines ?? ''} data-board-brands={atlas?.stats.split('|')[0] ?? 0} data-board-logos={atlas?.stats.split('|')[1] ?? 0}>
       <HqStage
         label={t('hq.campus.stageLabel')} description={t('hq.campus.stageHelp')}
-        scene={renderScene} glassPlan={glassPlan} work={work.plan} walkers={walk.plan} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
+        scene={renderScene} sceneSettled={sceneSettled} glassPlan={glassPlan} work={work.plan} walkers={walk.plan} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
         onCamera={(c) => setCamera(clampTarget(c, scene.groundRadius * 0.8))} night={night} reducedMotion={props.reducedMotion}
         hoverId={hover} selectedId={selectedId} onHover={setHover}
         onPick={(id) => { if (id) activate(id); else props.onSelect(null); }}
