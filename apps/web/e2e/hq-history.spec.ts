@@ -51,6 +51,9 @@ test('search, event type, who and date range become server filters', async ({ pa
   await panel.getByLabel('Done by (id)').fill('owner_example');
   await panel.getByLabel('From day').fill('2026-10-19');
   await panel.getByLabel('To day').fill('2026-10-20');
+  // In English the field says so and the browser's own picker is enough: nothing is written beside it.
+  await expect(panel.getByLabel('From day')).toHaveAttribute('lang', 'en');
+  await expect(panel.getByTestId('hq-date-shown')).toHaveCount(0);
   await panel.getByRole('button', { name: 'Apply filters' }).click();
   await expect(panel.locator('.hqHistRow')).toHaveCount(2); // the two renames inside the two days
   const last = history.requests[history.requests.length - 1];
@@ -257,6 +260,27 @@ test('Arabic: the panel is right to left with Arabic wording', async ({ page }) 
   await panel.getByLabel('اختر غرفة').first().selectOption('Alpha-room-0');
   await expect(panel.getByRole('slider')).toBeVisible();
   await expect(panel.getByText('لا يمكن إعادة بناء هذا الوقت').first().or(panel.getByText('الخطوة 7 من 7'))).toBeVisible();
+});
+
+test('Arabic: the day fields follow the app language and write the chosen day in Arabic', async ({ page }) => {
+  await open(page, { locale: 'ar' });
+  const hq = page.locator('.hqLive');
+  await hq.getByRole('button', { name: /أدوات المكتب|Office tools/ }).click();
+  await hq.getByRole('button', { name: 'السجل', exact: true }).click();
+  const panel = page.getByTestId('hq-history');
+  await panel.getByRole('button', { name: /^عوامل التصفية/ }).click();
+  const from = panel.locator('.hqHistFilterBody input[type="date"]').first();
+  await expect(from).toHaveAccessibleName('من يوم');
+  await expect(from).toHaveAttribute('lang', 'ar');
+  await expect(from).toHaveAttribute('dir', 'rtl');
+  await from.fill('2026-10-19');
+  const shown = panel.getByTestId('hq-date-shown');
+  await expect(shown).toHaveCount(1);
+  await expect(shown).toHaveAttribute('lang', 'ar');
+  await expect(shown).toContainText('19 أكتوبر 2026');
+  // The written day describes the field for screen readers; the field's name stays the label.
+  await expect(from).toHaveAccessibleDescription(/19 أكتوبر 2026/);
+  await expect(from).toHaveAccessibleName('من يوم');
 });
 
 test('works without WebGL', async ({ page }) => {

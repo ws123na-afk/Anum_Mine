@@ -16,6 +16,7 @@ import {
 } from '../lib/hqAssign';
 import { agentClient, useAssignAgents } from './useAssignAgents';
 import './hqAssign.css';
+import { LocalDateInput } from '../hq-date/LocalDateInput.tsx';
 
 const client = createAssignClient(api.apiRequest);
 const mk = (key: string, vars?: Record<string, string | number>) => t(key as MessageKey, vars);
@@ -157,7 +158,7 @@ export function AssignDialog({ prefill, seatedIds, onClose, onAssigned, onOpenTa
               </div>
               <div className="hqAsField">
                 <label htmlFor={ids.due} className="hqAsLabel">{t('hqAssign.field.due')}</label>
-                <input id={ids.due} type="datetime-local" value={draft.due} onChange={(e) => set('due', e.target.value)} aria-invalid={Boolean(err('due'))} aria-describedby={err('due') ? `${ids.due}-e` : undefined} />
+                <LocalDateInput id={ids.due} type="datetime-local" value={draft.due} onChange={(e) => set('due', e.target.value)} aria-invalid={Boolean(err('due'))} aria-describedby={err('due') ? `${ids.due}-e` : undefined} />
                 {err('due') && <p id={`${ids.due}-e`} className="hqAsErr" role="alert">{err('due')}</p>}
               </div>
             </div>

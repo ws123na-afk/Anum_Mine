@@ -7,7 +7,7 @@ present in `main`, and intentionally keeps imported Zoom/Teams recordings separa
 ## Available authenticated endpoints
 - `POST /api/v1/agent-meetings`: workspace manager creates a durable scheduled meeting with validated cost/turn/time/token limits
 - `GET /api/v1/agent-meetings`: authorized workspace reader lists actual PostgreSQL records, cursor-paginated
-- `GET /api/v1/agent-meetings/{meeting_id}`: record and scoped participant list
+- `GET /api/v1/agent-meetings/{meeting_id}`: record and scoped participant list; each participant carries `left_at` from the room attendance (`agent_meeting_attendance`, migration 0104): null while present or never joined the room, the stored time once they left. The HQ seats and counts only participants without `left_at` and lists the others as "Left" (`services/api/tests/test_live_agent_meeting_api.py`)
 - `POST /api/v1/agent-meetings/{meeting_id}/join-self`: meeting owner adds themselves as a human participant, revision protected
 - `POST /api/v1/agent-meetings/{meeting_id}/state`: owner transitions scheduled/active/paused/terminal state, revision protected
 - `GET /api/v1/agent-meetings/{meeting_id}/turns`: read actual stored turns in sequence, no synthetic transcripts

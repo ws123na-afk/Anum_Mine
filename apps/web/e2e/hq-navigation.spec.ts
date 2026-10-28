@@ -145,6 +145,31 @@ test('reduced motion jumps the camera and says so', async ({ page }) => {
   await expect(live(page)).toHaveText('Showing Executive HQ.');
 });
 
+test('a flight the person stops says so once and never claims it arrived', async ({ page }) => {
+  await openOffice(page);
+  await expect(strip(page)).toBeVisible({ timeout: 60_000 });
+  // As soon as the region says "Moving to", a wheel on the stage stops the flight where it is (before its next frame).
+  await page.evaluate(() => {
+    const region = document.querySelector('[data-testid="hq-nav-live"]')!;
+    (window as unknown as { __stopped: Promise<string> }).__stopped = new Promise<string>((resolve) => {
+      const watch = new MutationObserver(() => {
+        if (!region.textContent?.startsWith('Moving to')) return;
+        watch.disconnect();
+        const said = region.textContent;
+        document.querySelector('.hqStage')!.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 1 }));
+        resolve(said);
+      });
+      watch.observe(region, { childList: true, characterData: true, subtree: true });
+    });
+  });
+  await strip(page).getByRole('button', { name: /^Quick view: Executive HQ\./ }).click();
+  expect(await page.evaluate(() => (window as unknown as { __stopped: Promise<string> }).__stopped)).toBe('Moving to Executive HQ.');
+  await expect(live(page)).toHaveText('Stopped before reaching Executive HQ.');
+  // Longer than the longest flight: nothing stale follows (no "Now showing").
+  await page.waitForTimeout(2500);
+  await expect(live(page)).toHaveText('Stopped before reaching Executive HQ.');
+});
+
 test('the rail and the strip collapse, and the choice is remembered', async ({ page }) => {
   await openOffice(page);
   await enterFleetBuilding(page);

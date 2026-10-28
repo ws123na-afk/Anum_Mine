@@ -240,6 +240,8 @@ export const hqAr = {
   'hqRoomModule.openMeeting': 'فتح الاجتماع المباشر',
   'hq.room.meeting.who': 'في الاجتماع',
   'hq.room.meeting.people': 'عدد الأشخاص المنضمين: {count}',
+  'hq.room.meeting.leftTag': 'غادر',
+  'hq.room.meeting.peopleLeft': 'عدد الأشخاص الذين غادروا: {count}',
   'hq.room.meeting.noAgents': 'لم ينضم أي وكيل إلى هذا الاجتماع بعد.',
   'hq.room.meeting.start': 'ابدأ اجتماعاً هنا',
   'hq.room.meeting.startOwner': 'يستطيع مالك مساحة العمل فقط بدء اجتماع في هذه الغرفة.',

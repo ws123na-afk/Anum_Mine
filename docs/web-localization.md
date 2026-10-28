@@ -25,6 +25,8 @@ No i18n dependency; the code is in `apps/web/src/lib/i18n.ts` (pure, unit tested
 
 Dates use `Intl.DateTimeFormat` with the current locale (`formatDateTime`). Arabic uses Western digits and separators (`ar-u-nu-latn`), so counts, times and the ids, hashes and codes shown next to them read the same in both languages.
 
+Date fields: the browser's own date picker follows the browser's language, not the page's. The headquarters date and date-and-time fields (office history day window and jump to a time, the Reception expected time, Assign work due time) use `hq-date/LocalDateInput.tsx`: the field gets `lang` and `dir` from the app locale, and in Arabic the chosen value is also written out in Arabic under the field (`lib/localDate.ts`, Western digits). That line describes the field for screen readers and stays out of its name. Tests: `test/hqLocalDate.test.ts`, the Arabic checks in `e2e/hq-history.spec.ts` and `e2e/hq-reception.spec.ts`.
+
 ### Adding or changing a string
 
 Add the key to `en.ts` and `ar.ts` in the same change, use it through `t(...)`, and run `pnpm --filter @anum/web test:unit`. Never build a sentence by concatenating translated fragments; give the translator the whole sentence with placeholders.

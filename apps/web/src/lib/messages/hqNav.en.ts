@@ -29,6 +29,7 @@ export const hqNavEn = {
   'hqNav.live.floor': 'Floor {name} is open.',
   'hqNav.live.instant': 'Showing {place}.',
   'hqNav.live.notShown': 'That place is not in the open building.',
+  'hqNav.live.cancelled': 'Stopped before reaching {place}.',
   'hqNav.side.label': 'Floor plan, people and quick moves',
   'hqNav.side.collapse': 'Hide the side panel',
   'hqNav.side.expand': 'Show the side panel',

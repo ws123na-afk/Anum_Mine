@@ -7,6 +7,7 @@ import { actionLabel, fieldLabel, valueLabel, whenLabel, whoLabel, type NameMap 
 import { ROOM_FIELDS, buildRoomTimeline, desksAt, stateAt, type RoomTimeline, type Snap, type Step, type StateAtResult } from './lib/hqRoomHistory';
 import { t } from './lib/i18n';
 import type { PickOption } from './HqHistoryParts';
+import { LocalDateInput } from './hq-date/LocalDateInput.tsx';
 
 const OFFICE_ONLY: HistoryFilters = { ...EMPTY_FILTERS, category: 'office' };
 
@@ -163,7 +164,7 @@ export function RoomSlider(props: {
                 <p className="hqHistHint">{t('hqHist.slider.unloaded')} <button type="button" className="hqLinkButton" onClick={history.loadOlder} disabled={history.busy}>{history.busy ? t('hqHist.loadingMore') : t('hqHist.slider.load')}</button></p>
               )}
               <form className="hqHistJump" onSubmit={(e) => { e.preventDefault(); submitJump(); }}>
-                <label>{t('hqHist.slider.jump')}<input type="datetime-local" value={jump} onChange={(e) => setJump(e.target.value)} /></label>
+                <label>{t('hqHist.slider.jump')}<LocalDateInput type="datetime-local" value={jump} onChange={(e) => setJump(e.target.value)} /></label>
                 <button type="submit" className="hqGhost" disabled={!jump}>{t('hqHist.slider.jumpGo')}</button>
               </form>
               {verdict && verdict.status !== 'known' && (

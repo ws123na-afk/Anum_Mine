@@ -241,6 +241,8 @@ export const hqEn = {
   'hqRoomModule.openMeeting': 'Open the live meeting',
   'hq.room.meeting.who': 'In the meeting',
   'hq.room.meeting.people': 'People who joined: {count}',
+  'hq.room.meeting.leftTag': 'Left',
+  'hq.room.meeting.peopleLeft': 'People who left: {count}',
   'hq.room.meeting.noAgents': 'No agent has joined this meeting yet.',
   'hq.room.meeting.start': 'Start a meeting here',
   'hq.room.meeting.startOwner': 'Only the workspace owner can start a meeting in this room.',

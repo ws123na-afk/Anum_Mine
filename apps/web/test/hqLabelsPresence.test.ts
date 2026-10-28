@@ -4,6 +4,7 @@ import { layoutLabels } from '../src/lib/hqLabels.ts';
 import { viewProjection } from '../src/lib/hqMath.ts';
 import { campusCamera } from '../src/lib/hqCamera.ts';
 import { agentPresence, indexPresence, liveMeetingRoomIdsOf, loadMeetingEvidence, presenceForDesk, presenceFromItems, totalsOf, unreportedStatuses } from '../src/lib/hqPresence.ts';
+import { meetingAttendees, seatedInMeetings } from '../src/lib/hqPosts.ts';
 import { commerceFlow, commerceLive, moduleErrorState, tyreLive } from '../src/lib/hqModules.ts';
 
 const vp = viewProjection(campusCamera(60), 1.6);
@@ -116,4 +117,31 @@ test('live meetings are tied to their room by the stored room id, only active on
   assert.equal(evidence?.rooms.has('room_b'), false, 'a finished meeting stops showing in its room');
   assert.ok(reads[0].includes('status=active'));
   assert.equal(liveMeetingRoomIdsOf(null).size, 0, 'unknown evidence lights up no room');
+});
+
+test('a participant who left the meeting is not seated or counted as present; the room lists them as left', async () => {
+  const read = async <T>(path: string): Promise<T> => {
+    if (path.startsWith('/api/v1/agent-meetings?')) return { items: [{ id: 'm1', title: 'Budget review', status: 'active', room_id: 'room_a' }], next_cursor: null } as T;
+    if (path.endsWith('/m1')) {
+      return { participants: [
+        { actor_id: 'agent_a', kind: 'agent', left_at: null },
+        { actor_id: 'agent_gone', kind: 'agent', left_at: '2026-10-28T09:30:00Z' },
+        { actor_id: 'user_here', kind: 'human', left_at: null },
+        { actor_id: 'user_gone', kind: 'human', left_at: '2026-10-28T09:31:00Z' },
+      ] } as T;
+    }
+    throw new Error('unexpected ' + path);
+  };
+  const evidence = await loadMeetingEvidence(read);
+  const room = evidence?.rooms.get('room_a');
+  assert.deepEqual(room?.agentIds, ['agent_a']);
+  assert.deepEqual(room?.humanIds, ['user_here']);
+  assert.equal(room?.people, 1);
+  assert.deepEqual(room?.leftAgentIds, ['agent_gone']);
+  assert.equal(room?.leftPeople, 1);
+  // An agent who left is not "in a meeting" any more.
+  assert.deepEqual([...evidence!.agentIds], ['agent_a']);
+  // The room seats only who is still there; nobody is invented to fill the chairs.
+  assert.deepEqual(meetingAttendees(room, undefined, 14).map((a) => a.seed), ['agent_a', 'user_here']);
+  assert.deepEqual([...seatedInMeetings(['room_a'], evidence!.rooms)].sort(), ['agent_a', 'user_here']);
 });

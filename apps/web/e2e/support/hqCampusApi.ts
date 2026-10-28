@@ -245,8 +245,9 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
     task('task_mail', 'waiting_approval', 'agent_outreach', 'Email Al Noor Transport about the pilot'),
   ];
   const calls: string[] = [];
-  /** Specs flip `active` to finish the live meeting; `created` records meetings started from the UI (with their room_id). */
-  const meeting = { active: options.meetings === 'live', roomId: options.meetingRoomId ?? null, created: [] as Array<Record<string, unknown>> };
+  /** Specs flip `active` to finish the live meeting; `created` records meetings started from the UI (with their room_id);
+   *  `left` adds participants whose record says they left (`left_at`). */
+  const meeting = { active: options.meetings === 'live', roomId: options.meetingRoomId ?? null, created: [] as Array<Record<string, unknown>>, left: [] as Array<Record<string, unknown>> };
   const streamState = { requests: [] as Array<{ lastEventId: string | null }>, held: [] as Array<{ route: Route; timer: ReturnType<typeof setTimeout> }>, queued: [] as string[], items: presenceFixture().items as Array<Record<string, unknown>>, event: 1 };
   const sse = (route: Route, body: string) => route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: stamp(body) });
   const snapshotFrame = () => sseFrame('snapshot', { ...presenceFixture(), as_of: new Date().toISOString(), items: streamState.items, cursor: `evt_${streamState.event}`, sequence: 0 }, `evt_${streamState.event}`);
@@ -332,7 +333,7 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
         ...(wantsActive ? [] : meeting.created)];
       return json({ items: all, next_cursor: null });
     }
-    if (path === '/api/v1/agent-meetings/meeting_live') return json({ id: 'meeting_live', title: 'Weekly sync', status: 'active', revision: 1, participants: [{ id: 'p1', session_id: 'meeting_live', actor_id: 'agent_care', kind: 'agent' }] });
+    if (path === '/api/v1/agent-meetings/meeting_live') return json({ id: 'meeting_live', title: 'Weekly sync', status: 'active', revision: 1, participants: [{ id: 'p1', session_id: 'meeting_live', actor_id: 'agent_care', kind: 'agent', left_at: null }, ...meeting.left] });
     if (path === '/api/v1/commerce/setup') {
       if (options.commerce === 'denied') return error(403, 'forbidden', 'You need commerce access.');
       return json({ permissions: {}, connectors: options.commerce === 'connected' ? 1 : 0, channels: [], own_store_modes: [], sync_scheduler: false });
