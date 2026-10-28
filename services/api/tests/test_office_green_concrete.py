@@ -1,6 +1,8 @@
 """The Green Concrete planner: people, seats, L table geometry, shift windows and the hash (no database)."""
 from __future__ import annotations
 
+import pytest
+
 from anum_api import office_green_concrete as gc
 
 
@@ -88,3 +90,31 @@ def test_the_web_fixture_is_the_planners_own_output() -> None:
     assert [(d["id"], d["pos_x"], d["pos_z"], d["shift"], d["seat_order"], d["facing"], d["seat_kind"], d["table_group"], d["label"]) for d in stored["desks"]] == [
         (s["desk_id"], s["pos_x"], s["pos_z"], s["shift"], s["seat_order"], s["facing"], s["seat_kind"], s["table_group"], s["label"]) for s in p["seats"]]
     assert [(x["name"], x["role"], x["role_ar"], x["shift"]) for x in stored["people"]] == [(q.name, q.role_en, q.role_ar, q.shift) for q in gc.PEOPLE]
+
+
+# ---------------------------------------------------------------- the look the owner picks (never read from a name)
+
+def test_the_look_is_only_what_the_owner_chose() -> None:
+    assert gc.clean_appearance(None, None) == {}, "nothing chosen, nothing stored"
+    everyone = gc.clean_appearance("neutral", None)
+    assert set(everyone) == {p.key for p in gc.PEOPLE} and set(everyone.values()) == {"neutral"}, "the default covers every person alike, whatever the name"
+    mixed = gc.clean_appearance("neutral", {"raed": "masculine", "mai": "feminine"})
+    assert mixed["raed"] == "masculine" and mixed["mai"] == "feminine" and mixed["hazrat"] == "neutral"
+    for bad in (("neutral", {"nobody": "neutral"}), ("neutral", {"raed": "tall"}), ("robot", None)):
+        with pytest.raises(ValueError):
+            gc.clean_appearance(*bad)
+
+
+def test_the_look_applies_to_new_agents_only_and_is_part_of_the_hash() -> None:
+    looks = gc.clean_appearance("neutral", {"raed": "masculine"})
+    facts = gc.Facts(agents={gc.marker(gc.PEOPLE_BY_KEY["hazrat"]): "a2"})
+    p = gc.plan(facts, "Asia/Dubai", looks)
+    by = {x["key"]: x for x in p["people"]}
+    assert by["raed"]["appearance"] == "masculine" and by["mai"]["appearance"] == "neutral"
+    assert by["hazrat"]["agent_action"] == "exists" and by["hazrat"]["appearance"] is None, "an existing agent is never changed"
+    a = gc.proposal_hash("t", "w", "u", "Asia/Dubai", p)
+    b = gc.proposal_hash("t", "w", "u", "Asia/Dubai", gc.plan(facts, "Asia/Dubai", gc.clean_appearance("neutral", {"raed": "feminine"})))
+    c = gc.proposal_hash("t", "w", "u", "Asia/Dubai", gc.plan(facts, "Asia/Dubai"))
+    assert len({a, b, c}) == 3, "another look, or none, is another plan"
+    # Without any look the plan still stores none (the previous behaviour).
+    assert all(x["appearance"] is None for x in gc.plan(gc.Facts(), "Asia/Dubai")["people"])

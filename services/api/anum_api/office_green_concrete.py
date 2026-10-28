@@ -20,6 +20,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final
 
+from .avatar_appearance import AVATAR_STYLES
+
 CATALOG_VERSION: Final = 1
 DEFAULT_TIMEZONE: Final = "Asia/Dubai"
 DEFAULT_DAY_START: Final = "07:00"
@@ -170,8 +172,29 @@ class Facts:
     agent_count: int = 0
 
 
-def plan(facts: Facts, timezone: str) -> dict[str, Any]:
+def clean_appearance(default: str | None, chosen: Mapping[str, str] | None) -> dict[str, str]:
+    """The look the owner picked for each person, checked. ``default`` (usually neutral) covers everyone not listed.
+
+    The look is ONLY what the owner chose (masculine, feminine or neutral): nothing here reads a name, and a person who is not
+    listed and has no default gets no stored look at all. An unknown person key or style is refused, never guessed.
+    """
+    out: dict[str, str] = {}
+    if default is not None:
+        if default not in AVATAR_STYLES:
+            raise ValueError("Unknown look")
+        out = {p.key: default for p in PEOPLE}
+    for key, style in (chosen or {}).items():
+        if key not in PEOPLE_BY_KEY:
+            raise ValueError("Unknown person")
+        if style not in AVATAR_STYLES:
+            raise ValueError("Unknown look")
+        out[key] = style
+    return out
+
+
+def plan(facts: Facts, timezone: str, appearance: Mapping[str, str] | None = None) -> dict[str, Any]:
     """What a confirm would do. Pure: the same facts always give the same plan."""
+    appearance = appearance or {}
     desks = facts.desks or {}
     agents = facts.agents or {}
     agent_desk = facts.agent_desk or {}
@@ -217,6 +240,8 @@ def plan(facts: Facts, timezone: str) -> dict[str, Any]:
             "key": person.key, "name": person.name, "role": {"en": person.role_en, "ar": person.role_ar},
             "shift": person.shift, "seat_order": seat.slot, "desk_id": did, "agent_id": agent_id,
             "agent_action": a_action, "seat_action": s_action, "seat_reason": s_reason,
+            # The look a NEW agent is created with (the owner's choice). An agent that already exists is never changed.
+            "appearance": appearance.get(person.key) if a_action == "create" else None,
         })
     counts = _counts(building, floor, room, seats, people)
     pending = any(counts["create"].values()) or counts["seat"] > 0

@@ -71,3 +71,11 @@ Warm floors and walls (the night sky is blue; neutral grey read as cold), diffus
 ## Tests
 
 `test/hqFloorCompleteness.test.ts` (starter campus, all rooms and desks), `test/hqInteriorShell.test.ts` (orientation, door openings, finishes, core, ambient poses, framing, signs, stacked heights and slabs for an 8 floor tower), `test/hqInteriorAssets.test.ts` (caps, bounds, determinism, no invented people, new kits), `e2e/hq-interior.spec.ts` (five viewports, non blank, ambient parts, reduced motion, the stacked view of a 3 floor building). `e2e/hq-interior.local.spec.ts` is a screenshot runner for local review, not run in CI.
+
+## People in the rooms
+
+The people at the stations are drawn by the character kit (`hqAssets/characters/`, see [the people doc](ANUM_MINE_HQ_PEOPLE_CHARACTERS.md)): a seated figure is noted as a slot by `seatedFigure` (and a standing one by `standingFigure`) only for a station that carries an occupant seed, and the model layer builds it from its shape code. The tagged triangles of `figures.ts` (about 380 triangles each, box like) stay as the stand-in until the kit has loaded, and for good if it cannot load. The poses (typing, reading, phone, talking, leaning) are still chosen per station state by the room kits.
+
+## Screens
+
+The furnishing notes each monitor of a registry desk (the middle one of up to three) and the video wall of the operations room as a screen record (`MeshBuilder.screens`: four world corners, kept through the turn to the door side and the shrink to a small frame). The lazy screens chunk lays a live face over each; the room geometry never changes with a face. A room whose module is the live flow but whose kit has no video wall (an office called Logistics) gets a framed panel on the wall opposite its door. See [live screens](ANUM_MINE_HQ_LIVE_SCREENS.md).

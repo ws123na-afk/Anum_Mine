@@ -26,6 +26,8 @@ export const MAT = {
   cloth: 14,
   /** Aviation lights on rooftops: they blink (scenery only). */
   beacon: 15,
+  /** A live screen: its u, v pick a cell of the screen atlas (docs/ANUM_MINE_HQ_LIVE_SCREENS.md). Drawn only by the lazy screens chunk. */
+  screen: 16,
 } as const;
 export type MatId = (typeof MAT)[keyof typeof MAT];
 
@@ -44,6 +46,9 @@ export function scale(c: Rgb, f: number): Rgb {
   return [Math.min(1, c[0] * f), Math.min(1, c[1] * f), Math.min(1, c[2] * f)];
 }
 
+/** A screen face: `p` holds four world corners (x, y, z each) as the viewer sees them: bottom left, bottom right, top right, top left. `id` is the desk id for a monitor and '' for a wall. */
+export type ScreenRec = Readonly<{ kind: 'monitor' | 'wall'; id: string; p: readonly number[] }>;
+
 export class MeshBuilder {
   /** The surface class given to every triangle added until it is changed. */
   mat: MatId = MAT.flat;
@@ -56,6 +61,8 @@ export class MeshBuilder {
   readonly slots: ModelSlot[] = [];
   /** Soft light halos noted while building (street lamps, entrance lights): x, y, z, radius, r, g, b, strength per halo. */
   readonly halos: number[] = [];
+  /** Screens noted while building (desk monitors, the video wall): world corners, so the lazy screens chunk can lay a live face over them. */
+  readonly screens: ScreenRec[] = [];
   private lo = [Infinity, Infinity, Infinity];
   private hi = [-Infinity, -Infinity, -Infinity];
 
@@ -379,6 +386,8 @@ export type ModelSlot = Readonly<{
   model: string; x: number; y: number; z: number; rot: number; width: number;
   /** A seed for variants (a person's look); never a name. */
   seed?: string; pose?: string; headset?: boolean;
+  /** A standing post (a reception point) rather than a seat. */
+  standing?: boolean;
   /** For a person: the resolved avatar style (never from a name); absent means the default drawn from `seed`. */
   look?: FigureLook;
 }>;

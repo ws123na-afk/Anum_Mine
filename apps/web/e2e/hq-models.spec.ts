@@ -43,11 +43,21 @@ test('a new assignment adds one person and nothing else changes the head count',
   await expect.poll(() => canvas(page).getAttribute('data-model-figures'), { timeout: 60_000 }).toBe('4');
 });
 
-test('when the model files cannot be downloaded the procedural furniture and people stay', async ({ page }) => {
+test('when the model files cannot be downloaded the procedural furniture stays and the people are still drawn by the character kit', async ({ page }) => {
+  // The people are built in the browser (hqAssets/characters), not downloaded: only the furniture needs the glTF files.
   await page.route('**/hq/models/*.glb', (route) => route.abort());
   await enterFleetBuilding(page);
   await expect.poll(() => canvas(page).getAttribute('data-model-fallbacks'), { timeout: 60_000 }).toContain('sofa');
-  expect(await canvas(page).getAttribute('data-model-fallbacks')).toContain('figure');
+  expect(await canvas(page).getAttribute('data-model-fallbacks')).not.toContain('figure');
+  await expect.poll(() => canvas(page).getAttribute('data-model-figures'), { timeout: 60_000 }).toBe('3');
+  expect(Number(await canvas(page).getAttribute('data-triangles'))).toBeGreaterThan(20_000);
+  await expect(hq(page).getByRole('button', { name: /^Customer Care/ })).toBeVisible();
+});
+
+test('when the character kit cannot load the procedural people stay and the page is still usable', async ({ page }) => {
+  await page.route('**/assets/bake-*.js', (route) => route.abort());
+  await enterFleetBuilding(page);
+  await expect.poll(() => canvas(page).getAttribute('data-model-fallbacks'), { timeout: 60_000 }).toContain('figure');
   expect(await canvas(page).getAttribute('data-model-figures')).toBe('0');
   // The scene still draws (the stand-ins are in it) and the page is still usable.
   expect(Number(await canvas(page).getAttribute('data-triangles'))).toBeGreaterThan(20_000);

@@ -46,11 +46,11 @@ import type { ModelGroup } from './hqModels.ts';
 
 export type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
 
-type Cls = 'paint' | 'flat' | 'concrete' | 'tile' | 'asphalt' | 'grass' | 'wood' | 'metal' | 'water' | 'glass' | 'roller' | 'sign' | 'court' | 'pane' | 'foliage' | 'cloth' | 'beacon' | 'board';
+type Cls = 'paint' | 'flat' | 'concrete' | 'tile' | 'asphalt' | 'grass' | 'wood' | 'metal' | 'water' | 'glass' | 'roller' | 'sign' | 'court' | 'pane' | 'foliage' | 'cloth' | 'beacon' | 'board' | 'screen';
 
 const CLASS_OF_MAT: Readonly<Record<number, Cls>> = {
   [MAT.flat]: 'flat', [MAT.concrete]: 'concrete', [MAT.tile]: 'tile', [MAT.asphalt]: 'asphalt', [MAT.grass]: 'grass', [MAT.wood]: 'wood',
-  [MAT.metal]: 'metal', [MAT.water]: 'water', [MAT.glass]: 'glass', [MAT.roller]: 'roller', [MAT.sign]: 'sign', [MAT.court]: 'court', [MAT.paint]: 'paint',
+  [MAT.metal]: 'metal', [MAT.water]: 'water', [MAT.glass]: 'glass', [MAT.roller]: 'roller', [MAT.sign]: 'sign', [MAT.court]: 'court', [MAT.paint]: 'paint', [MAT.screen]: 'screen',
   [MAT.foliage]: 'foliage', [MAT.cloth]: 'cloth', [MAT.beacon]: 'beacon',
 };
 
@@ -334,6 +334,8 @@ export class HqRenderer {
   private signTexture: Texture | null = null;
   private boardSource: HTMLCanvasElement | null = null;
   private boardTexture: Texture | null = null;
+  private screenSource: HTMLCanvasElement | null = null;
+  private screenTexture: Texture | null = null;
   private signKey = '';
   private envs: Array<Texture | undefined> = [];
   private sky: Mesh | null = null;
@@ -666,6 +668,7 @@ export class HqRenderer {
     std('beacon', { roughness: 0.5, metalness: 0 }, undefined, 'beacon');
     const sign = new MeshBasicMaterial({ color: new Color(1, 1, 1), toneMapped: true });
     this.materials.set('sign', sign);
+    this.materials.set('screen', new MeshBasicMaterial({ color: new Color(1, 1, 1), map: this.screenTexture, toneMapped: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     this.materials.set('board', new MeshBasicMaterial({ color: new Color(1, 1, 1), map: this.boardTexture, toneMapped: true }));
     const pane = this.cheap
       ? new MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, side: DoubleSide })
@@ -925,11 +928,31 @@ export class HqRenderer {
   }
 
 
+  /** The live screen atlas (desk monitors and video walls): a canvas the lazy screens chunk draws into. A new canvas makes a new texture, the same canvas is uploaded again. */
+  setScreens(source: HTMLCanvasElement | null): void {
+    const m = this.materials.get('screen') as MeshBasicMaterial;
+    if (source !== this.screenSource) {
+      this.screenTexture?.dispose();
+      this.screenSource = source;
+      this.screenTexture = null;
+      if (source) {
+        const tex = new CanvasTexture(source);
+        tex.colorSpace = SRGBColorSpace;
+        tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+        this.screenTexture = tex;
+      }
+      m.map = this.screenTexture;
+      m.needsUpdate = true;
+    } else if (this.screenTexture) this.screenTexture.needsUpdate = true;
+    this.requestFrame();
+  }
+
   /** The live board atlas (the billboards): a canvas the lazy billboard chunk draws into. A new canvas makes a new texture, the same canvas is uploaded again. */
   setBoards(source: HTMLCanvasElement | null): void {
     const m = this.materials.get('board') as MeshBasicMaterial;
     if (source !== this.boardSource) {
       this.boardTexture?.dispose();
+    this.screenTexture?.dispose();
       this.boardSource = source;
       this.boardTexture = null;
       if (source) {

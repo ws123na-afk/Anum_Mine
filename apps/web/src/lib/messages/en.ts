@@ -30,6 +30,7 @@ import { hqLabelsEn } from './hqLabels.en.ts';
 import { hqMotionEn } from './hqMotion.en.ts';
 import { hqWalkersEn } from './hqWalkers.en.ts';
 import { hqBillboardEn } from './hqBillboard.en.ts';
+import { hqScreenEn } from './hqScreen.en.ts';
 import { hqLogoEn } from './hqLogo.en.ts';
 import { hqStaffDesksEn } from './hqStaffDesks.en.ts';
 import { teamEn } from './team.en.ts';
@@ -3257,6 +3258,7 @@ export const en = {
   ...hqMotionEn,
   ...hqWalkersEn,
   ...hqBillboardEn,
+  ...hqScreenEn,
   ...hqLogoEn,
   ...hqStaffDesksEn,
   // ---- ANUM 360 shell and Command Center (docs/design/anum360.md#web-command-center) ----

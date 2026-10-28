@@ -198,6 +198,12 @@ function drawSeated(b: MeshBuilder, x: number, y: number, z: number, o: SeatedOp
 
 /** A standing professional at an assigned post (a reception point, a bench, a presenter spot). */
 export function standingFigure(b: MeshBuilder, x: number, y: number, z: number, o: StandingOptions): void {
+  // The character kit draws this person when it loads; the tagged triangles below are the stand-in until then.
+  b.slots.push({ model: 'person', x, y, z, rot: o.rot ?? 0, width: 0.5, seed: o.seed, pose: o.pose ?? 'neutral', headset: o.headset === true || o.look?.headset === true, look: o.look, standing: true });
+  b.tagged('figure', () => drawStanding(b, x, y, z, o));
+}
+
+function drawStanding(b: MeshBuilder, x: number, y: number, z: number, o: StandingOptions): void {
   const look = lookFor(o.seed, o.look);
   const k = o.size ?? 1;
   const pose = o.pose ?? 'neutral';

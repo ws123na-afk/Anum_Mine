@@ -117,3 +117,7 @@ Expand only (new tables and one new role; nothing existing changes). Chained on 
 - No UI, no Flutter, no e2e browser test: those belong to the visual and executive workstreams.
 - Presence for agents is per workspace; a person-level "everything I am doing" view is not built.
 - Load test at 200+ agents / 1000+ desks is still open (queries are bounded to 2000 rows per kind).
+
+## On the 3D monitors
+
+A desk monitor reads the presence record behind its desk (`status`, `stale`, `last_verified_at`) and the live flow item the flow places at the desk (`since`, `waiting.since`). Working and meeting show a scan line only while the record is fresh; a shift desk off shift is dark. Elapsed time counts from the real start of the record; a record without a start shows none. See [live screens](ANUM_MINE_HQ_LIVE_SCREENS.md).

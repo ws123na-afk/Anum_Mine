@@ -85,6 +85,6 @@ Measured on this change (software GL, one worker): lazy headquarters JS 129,259 
 ## Not finished
 
 - H-09 (rare lost deliveries under load) is closed in memory mode: the cause was the load tool counting frames that arrived before the producer knew the task id, not the server (10,000 of 10,000 delivered at 200 clients). The web still recovers from a lost delta by the sequence gap rule. A load run on the Oracle VM with PostgreSQL has not been done; owner steps are in `docs/ANUM_MINE_HQ_LOAD_TESTING.md`.
-- The screens of the 3D video wall stay abstract; numbers are drawn as a panel.
+- The screens of the 3D video wall and the desk monitors show live faces drawn from real records ([live screens](ANUM_MINE_HQ_LIVE_SCREENS.md)): the wall carries the same numbers as the Operations wall block, a monitor the state, record type and real elapsed time of its agent. The tiles under the face stay abstract.
 - The commerce counts are not on the wall.
 - Pose is a cue, not a measurement. The marker and the text carry the meaning.

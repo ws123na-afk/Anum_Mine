@@ -30,12 +30,12 @@ export function AvatarChip({ id, name, avatar, department, size = 32, decorative
 export const roleFamilyOf = (department?: string | null): RoleFamily => roleFamily({ department });
 
 /** A flat bust of the resolved style: face, hair, shoulders in the outfit colours, a tie or lanyard in the accent, a headset when the role has one. */
-export function AvatarPreview({ seed, value, role }: { seed: string; value: AvatarAppearance | null | undefined; role: RoleFamily }) {
+export function AvatarPreview({ seed, value, role, decorative = false }: { seed: string; value: AvatarAppearance | null | undefined; role: RoleFamily; decorative?: boolean }) {
   const look = useMemo(() => figureLook(seed, value, role), [seed, value, role]);
   const hairStyle = look.avatar.hair_style;
   const formal = look.avatar.outfit === 'formal';
   const shadow = '#00000022';
-  return <svg className="avatarPreview" viewBox="0 0 120 140" role="img" aria-label={t('avatar.preview')} data-look={look.code}>
+  return <svg className="avatarPreview" viewBox="0 0 120 140" {...(decorative ? { 'aria-hidden': true } : { role: 'img', 'aria-label': t('avatar.preview') })} data-look={look.code}>
     <rect width="120" height="140" rx="14" fill="var(--avatar-stage, #e7ecef)" />
     {hairStyle === 'long' || hairStyle === 'swept' ? <path d="M28 62c0-30 14-44 32-44s32 14 32 44v50H28z" fill={look.hair} /> : null}
     <path d="M14 140c0-26 18-42 46-42s46 16 46 42z" fill={look.top} />
