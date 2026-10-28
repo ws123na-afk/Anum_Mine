@@ -9,7 +9,7 @@ The campus has two motion systems that never mix. The first claims nothing. The 
 | 1. Ambient scenery | "Does this place look alive?" | Never. No vehicle, wheel or light means an order, a delivery, a job or a person. |
 | 2. Record-backed work motion | "Did something just happen in this building, and what says so?" | Only through one record, and the card names it ("Because: ...") |
 
-Layer 1 is described in [scenery motion](ANUM_MINE_HQ_SCENERY_MOTION.md); this page adds what changed there and defines layer 2.
+Layer 1 is described in [scenery motion](ANUM_MINE_HQ_SCENERY_MOTION.md); this page adds what changed there and defines layer 2. People are a third system with the same rule (one stored record, a "Because" line, bounded, reduced motion, "Not connected"): see [agent walkers](ANUM_MINE_HQ_AGENT_WALKERS.md). Scenery never draws a person, and a walker never drives a vehicle.
 
 ## Layer 1: what is new
 

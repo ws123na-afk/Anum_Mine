@@ -138,6 +138,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [snapshot, setSnapshot] = useState<WorkstationSnapshot | null>(null);
   const [agentStyles, setAgentStyles] = useState<ReadonlyMap<string, AgentStyleInfo>>(new Map());
   const [meetings, setMeetings] = useState<MeetingEvidence | null>(null);
+  const [meetingsRead, setMeetingsRead] = useState(false);
   const livePresence = usePresenceLive(true);
   const presenceApi: LoadedPresence | null = useMemo(() => (livePresence.items && livePresence.asOf ? { items: livePresence.items, asOf: livePresence.asOf } : null), [livePresence.items, livePresence.asOf]);
   const [loaded, setLoaded] = useState<{ campus: Campus; source: CampusSource } | null>(null);
@@ -180,6 +181,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
       setSnapshot(result.snapshot);
       setAgentStyles(new Map(result.sources.agents.map((a) => [a.id, { avatar: a.avatar ?? null, department: a.department ?? null }])));
       setMeetings(meet);
+      setMeetingsRead(true);
       return result.snapshot.records.map((agent): AgentEvidence => ({
         id: agent.agentId, name: agent.name,
         status: agent.status === 'working' ? 'running'
@@ -320,6 +322,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
   // The campus building that is open: the registry building when the workspace has several, else the workspace's own building.
   const currentBuilding = campus?.buildings.find((b) => workspaceOf(b) === scope.workspaceId && (!b.registryBuildingId || b.registryBuildingId === registryBuilding?.id)) ?? null;
   const openKey = currentBuilding?.workspace_id ?? scope.workspaceId;
+  // What the campus walkers read (docs/ANUM_MINE_HQ_AGENT_WALKERS.md): only records the headquarters already holds.
+  const walkerFeed = useMemo(() => (projection && projection.buildings.length > 1 ? { workspaceId: scope.workspaceId, registry: projection.buildings, presence: presenceList, meetings, meetingsRead, styles: agentStyles } : null), [projection, scope.workspaceId, presenceList, meetings, meetingsRead, agentStyles]);
 
   // Module panels follow the open workspace; they load when a building opens and refresh with the scene.
   useEffect(() => {
@@ -630,7 +634,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           {campus && webglOk && effectiveView !== 'list' && level === 'campus' && (
             <CampusView
               campus={campus} plans={plans} flow={billboardFlow} presenceLive={livePresence.link === 'live'} unreported={unreported} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
-              currentWorkspaceId={openKey} nav={navHandles} selectedId={campusPick} onSelect={setCampusPick} onEnter={enterBuilding}
+              walkerFeed={walkerFeed} currentWorkspaceId={openKey} nav={navHandles} selectedId={campusPick} onSelect={setCampusPick} onEnter={enterBuilding}
               onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight} onSaveProfile={saveProfile}
             />
           )}
