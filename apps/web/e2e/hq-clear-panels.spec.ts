@@ -108,8 +108,8 @@ test('inside a building the room panel docks in the side column and the scene st
   const dock = (await box(page, '.hqLive .hqDetailDock'))!;
   const side = (await box(page, '.hqLive .hqNavSide'))!;
   expect(dock.x).toBeGreaterThanOrEqual(side.x - 1);
-  // Nothing but the scene's own controls hangs over the stage: no wall board, no operations or flow strips (they are docked under the scene), no floating room panel.
-  await expect(hq(page).locator('.hqSceneWrap [data-testid="hq-wall-scene"], .hqSceneWrap .hqOpsStrip, .hqSceneWrap .hqFlowStrip, .hqSceneWrap .hqSideOverlay')).toHaveCount(0);
+  // Nothing but the scene's own controls hangs over the stage: no wall board, no operations or flow strips, no building facts (they are docked under the scene), no floating room panel.
+  await expect(hq(page).locator('.hqSceneWrap [data-testid="hq-wall-scene"], .hqSceneWrap .hqOpsStrip, .hqSceneWrap .hqFlowStrip, .hqSceneWrap .hqSideOverlay, .hqSceneWrap .hqFacts, .hqSceneWrap .hqWall')).toHaveCount(0);
   await expect(hq(page).getByRole('region', { name: 'Live numbers for this building' })).toBeVisible();
 });
 
@@ -242,3 +242,90 @@ for (const [width, height] of [[1440, 900], [390, 844]] as const) {
     expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([]);
   });
 }
+
+test('the header keeps one tool row at 1440x900, also with a classic scrollbar, and wraps in whole groups when narrower', async ({ page }) => {
+  await open(page, { width: 1440, height: 900 });
+  await expect(hq(page).getByTestId('hq-gpu-chip')).toBeVisible({ timeout: 60_000 });
+  const row = () => page.evaluate(() => {
+    const mid = (sel: string) => { const r = document.querySelector(sel)!.getBoundingClientRect(); return r.top + r.height / 2; };
+    return { status: mid('.hqHeadStatus'), actions: mid('.hqHeadActions'), tools: mid('.hqMenuWrap'), view: mid('.hqHeadActions .hqSegment'), side: mid('.hqHeadActions .hqFocusToggle') };
+  });
+  // 1423 px is 1440 less a 17 px classic scrollbar (Windows): the row must still fit.
+  for (const width of [1440, 1423]) {
+    await page.setViewportSize({ width, height: 900 });
+    const r = await row();
+    for (const y of [r.actions, r.tools, r.view, r.side]) expect(Math.abs(y - r.status), `one tool row at ${width}`).toBeLessThan(8);
+  }
+  // Narrower, the actions move down together: Office tools never sits alone under the view switch at desktop widths.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const r = await row();
+  expect(Math.abs(r.tools - r.view)).toBeLessThan(8);
+  await noOverflow(page);
+});
+
+test('Total agents follows the presence stream while it is live and falls back to the campus read when it drops', async ({ page }) => {
+  let down = false;
+  const mock = await open(page, { width: 1440, height: 900 });
+  await page.route('http://localhost:8000/api/v1/office/presence**', (route) => (down ? route.abort('connectionrefused') : route.fallback()));
+  const panel = hq(page).getByRole('region', { name: 'Total agents' });
+  const source = hq(page).getByTestId('hq-status-source');
+  const chip = hq(page).getByTestId('hq-status-live');
+  // Live: the open workspace's numbers are the presence stream's (6 agents here, not the campus read's 9), so 6 + 5 + 7 + 1.
+  await expect(source).toHaveAttribute('data-source', 'stream', { timeout: 60_000 });
+  await expect(chip).toHaveAttribute('data-live', 'live');
+  await expect(chip).toContainText(/Verified \d{2}:\d{2}:\d{2}/);
+  await expect(panel.getByRole('img')).toHaveAccessibleName('19 agents by status');
+  // The stream drops: the campus read takes over, says it checks on a timer, and shows the campus numbers again.
+  down = true;
+  await mock.stream.deliver().catch(() => undefined);
+  await expect(source).toHaveAttribute('data-source', 'campus', { timeout: 60_000 });
+  await expect(chip).not.toHaveAttribute('data-live', 'live');
+  await expect(panel.getByRole('img')).toHaveAccessibleName('22 agents by status');
+  down = false;
+  await expect(source).toHaveAttribute('data-source', 'stream', { timeout: 90_000 });
+  await expect(panel.getByRole('img')).toHaveAccessibleName('19 agents by status');
+});
+
+test('the Executive assistant, Team and History carry the same panel header with an honest live status', async ({ page }) => {
+  await open(page, { width: 1440, height: 900 });
+  // Executive assistant: docked in the side column with title, purpose, live chip and fold. The shell's event stream is not mocked
+  // here (the sidebar says "Event stream offline"), so the chip must say Not connected, never Live.
+  const assistant = hq(page).getByRole('region', { name: 'Executive assistant' });
+  await expect(assistant).toBeVisible({ timeout: 60_000 });
+  await expect(assistant.getByText('It asks before it changes anything.', { exact: false })).toBeVisible();
+  const aChip = hq(page).getByTestId('hq-assistant-live');
+  await expect(aChip).toHaveAttribute('data-live', 'offline', { timeout: 30_000 });
+  await expect(aChip).toHaveText(/Not connected/);
+  await assistant.getByRole('button', { name: 'Fold Executive assistant' }).click();
+  await expect(assistant.locator('.paDock')).toBeHidden();
+  await expect(aChip).toBeVisible();
+  await assistant.getByRole('button', { name: 'Open Executive assistant' }).click();
+  await expect(assistant.locator('.paDock')).toBeVisible();
+
+  // Team: the dialog's panel reads with the live flow, shows when it was read, folds and closes.
+  await hq(page).getByRole('button', { name: 'Office tools' }).click();
+  await hq(page).getByRole('button', { name: 'Team', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Team' });
+  await expect(dialog.getByRole('heading', { name: 'Team', level: 2 })).toBeVisible();
+  const tChip = dialog.getByTestId('hq-team-live');
+  await expect(tChip).toHaveAttribute('data-live', /live|polling/, { timeout: 30_000 });
+  await expect(tChip).toContainText(/Updated \d{2}:\d{2}:\d{2}/);
+  await dialog.getByRole('button', { name: 'Fold Team' }).click();
+  await expect(dialog.locator('.hqTeamList')).toBeHidden();
+  await dialog.getByRole('button', { name: 'Open Team' }).click();
+  await dialog.getByRole('button', { name: 'Close Team' }).click();
+  await expect(dialog).toHaveCount(0);
+
+  // History: read when opened, then checked every 30 s, so it says Checking, never Live.
+  await hq(page).getByRole('button', { name: 'Office tools' }).click();
+  await hq(page).getByRole('button', { name: 'History', exact: true }).click();
+  const history = page.getByTestId('hq-history');
+  const hChip = history.getByTestId('hq-history-live');
+  await expect(hChip).toHaveAttribute('data-live', /polling|offline|denied/, { timeout: 30_000 });
+  await expect(hChip).not.toHaveAttribute('data-live', 'live');
+  await history.getByRole('button', { name: 'Fold Office history' }).click();
+  await expect(history.locator('#hqHistMain')).toBeHidden();
+  await expect(history.getByRole('heading', { name: 'Office history' })).toBeVisible();
+  await history.getByRole('button', { name: 'Close history' }).click();
+  await expect(history).toHaveCount(0);
+});

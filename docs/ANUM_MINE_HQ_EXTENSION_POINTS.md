@@ -54,7 +54,7 @@ onSelectRoom(room: HqRoomRef)            // a room was selected (scene, list, to
 renderRoomPanel(room, { close })         // replaces the built-in room panel (the meetings workstream)
 onSelectAgent(agent: HqAgentRef)         // an agent card or desk was opened
 renderWorkstationPanel(agent, { close }) // replaces the built-in workstation panel
-renderPaDock({ close })                  // a dock beside the scene (up to 380 px); the executive PA panel goes here
+renderPaDock({ close, onStatus })        // a dock beside the scene (up to 380 px); the executive PA panel goes here
 liveMeetingRoomIds: ReadonlySet<string>  // rooms to light up as "In a meeting"
 onSwitchWorkspace / onSwitchOrganisation // supplied by the shell; used to open another building
 ```
@@ -79,8 +79,10 @@ await hqCommands.navigateTo({ building: 'Tyre Pulse', floor: 1, room: 'Meeting R
 
 ```tsx
 import { ExecutivePaDock } from './ExecutivePanel';
-<HeadquartersEntrypoint renderPaDock={() => <ExecutivePaDock onOpenView={openView} />} />
+<HeadquartersEntrypoint renderPaDock={(c) => <ExecutivePaDock docked onStatus={c.onStatus} onOpenView={openView} />} streamState={stream} />
 ```
+
+The dock sits inside the shared panel header (`hq-nav/AssistantPanel.tsx`: title, purpose, live chip, fold). `docked` drops the panel's own title and status line (the header shows them), `onStatus` reports whether its tools loaded, and `streamState` is the shell's workspace event stream (`connecting`, `live`, `offline`); together they give the chip its words ([page layout](ANUM_MINE_HQ_PAGE_LAYOUT.md#what-live-means)).
 
 The PA moves the view only through `hqCommands.navigateTo`, so the dock needs no other access to the scene. The tour list comes from `GET /api/v1/executive-pa/tour`; the Guided visit (Office tools) reads the same endpoint and moves the view with `hqCommands.navigateTo`, so it shows only rooms the person can access. The daily briefing is `GET /api/v1/executive-pa/briefing` and the `daily_briefing` tool ([Executive PA](ANUM_MINE_EXECUTIVE_PA.md#daily-briefing)); a new briefing source is one more loader in `anum_api/pa_briefing.py` (`_LOADERS`, `SECTION_KEYS`) plus its `TEXT` templates in both languages.
 

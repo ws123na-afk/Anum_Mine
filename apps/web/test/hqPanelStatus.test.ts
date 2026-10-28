@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CAMPUS_STALE_MS, FLOW_STALE_MS, PRESENCE_STALE_MS, changeNote, clockText, effectiveLive, flowLive, freshness, liveTone, presenceLive, toMs } from '../src/lib/hqPanelStatus.ts';
+import { CAMPUS_STALE_MS, FLOW_STALE_MS, HISTORY_CHECK_MS, HISTORY_STALE_MS, PRESENCE_STALE_MS, assistantLive, changeNote, historyLive, officeLive, teamLive, totalsSource, clockText, effectiveLive, flowLive, freshness, liveTone, presenceLive, toMs } from '../src/lib/hqPanelStatus.ts';
 import { PRESENCE_TIMING } from '../src/lib/presenceStream.ts';
 
 test('the presence window is the stream hub window, not a second number', () => {
@@ -67,4 +67,47 @@ test('the live region speaks only when the state changes', () => {
   assert.equal(changeNote(null, 'live', 'Flow', say), null);
   assert.equal(changeNote('live', 'live', 'Flow', say), null);
   assert.equal(changeNote('live', 'reconnecting', 'Flow', say), 'Flow: reconnecting');
+});
+
+test('Total agents follows the presence stream while it is live, else the campus read', () => {
+  assert.equal(totalsSource('live', true), 'stream');
+  assert.equal(totalsSource('live', false), 'campus');
+  for (const link of ['connecting', 'reconnecting', 'polling', 'offline', 'denied', 'missing'] as const) assert.equal(totalsSource(link, true), 'campus');
+  const campus = (loaded: boolean, failed = false, denied = false) => ({ loaded, failed, denied });
+  assert.equal(officeLive('stream', campus(true)), 'live');
+  assert.equal(officeLive('stream', campus(true, true)), 'live');
+  assert.equal(officeLive('stream', campus(false)), 'connecting');
+  assert.equal(officeLive('campus', campus(true)), 'polling');
+  assert.equal(officeLive('campus', campus(false)), 'connecting');
+  assert.equal(officeLive('campus', campus(true, true)), 'reconnecting');
+  assert.equal(officeLive('campus', campus(false, true)), 'offline');
+  assert.equal(officeLive('campus', campus(false, true, true)), 'denied');
+});
+
+test('the Team panel is as live as the flow it re-reads with, and never Live before it answered', () => {
+  assert.equal(teamLive('loading', false, false, 'live'), 'connecting');
+  assert.equal(teamLive('error', false, true, 'live'), 'offline');
+  assert.equal(teamLive('denied', false, false, 'live'), 'denied');
+  assert.equal(teamLive('ready', true, false, 'live'), 'live');
+  assert.equal(teamLive('ready', true, false, 'polling'), 'polling');
+  assert.equal(teamLive('ready', true, true, 'live'), 'reconnecting');
+});
+
+test('the History panel checks on a timer, so it says Checking, never Live', () => {
+  assert.equal(historyLive('loading', false), 'connecting');
+  assert.equal(historyLive('ready', false), 'polling');
+  assert.equal(historyLive('ready', true), 'reconnecting');
+  assert.equal(historyLive('error', false), 'offline');
+  assert.equal(historyLive('invalid', false), 'offline');
+  assert.equal(historyLive('denied', false), 'denied');
+  assert.ok(HISTORY_STALE_MS >= 3 * HISTORY_CHECK_MS);
+});
+
+test('the Executive assistant needs its tools first, then follows the workspace event link', () => {
+  assert.equal(assistantLive(null, 'live'), 'connecting');
+  assert.equal(assistantLive('loading', 'live'), 'connecting');
+  assert.equal(assistantLive('unavailable', 'live'), 'offline');
+  assert.equal(assistantLive('ready', 'live'), 'live');
+  assert.equal(assistantLive('ready', 'offline'), 'offline');
+  assert.equal(assistantLive('ready', null), 'connecting');
 });

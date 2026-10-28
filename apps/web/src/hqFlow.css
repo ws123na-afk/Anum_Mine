@@ -73,7 +73,9 @@
 .hqFlowLegend{margin:10px 0 0;font-size:var(--text-2xs);color:#9db8c3}
 
 /* ---- team ---- */
-.hqTeam{margin-top:14px;border-top:1px solid #355563;padding-top:4px}
+.hqTeam{margin-top:var(--d-s3);border-top:1px solid #355563;padding-top:var(--d-s3)}
+.hqTeamModal>.hqTeam{margin-top:var(--d-s2);border-top:0;padding-top:0}
+.hqTeamScope{color:var(--d-muted);font-size:var(--text-xs);margin:0}
 .hqTeamList{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .hqTeamCard{padding:9px 10px;border:1px solid #2f4d5f;border-radius:10px;background:#0f2a3d;display:grid;gap:5px;font-size:var(--text-xs);min-width:0}
 .hqTeamCard[data-stuck=critical]{border-color:var(--hqf-critical)}
