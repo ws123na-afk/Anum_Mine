@@ -40,7 +40,7 @@ const HAIRS = ['#1d1a18', '#3a2a1f', '#6a4a2a', '#222a33', '#7a5a3a', '#a89c8c']
 const TROUSERS = ['#26313b', '#3a3f4a', '#4a4036', '#1f2a44', '#5a5a5a'].map(hex);
 const SHOES = hex('#14181d');
 
-type Look = Readonly<{
+export type Look = Readonly<{
   shirt: Rgb; jacket: Rgb | null; tie: Rgb | null; skin: Rgb; hair: Rgb; trousers: Rgb;
   hairStyle: 'short' | 'long' | 'bun' | 'cap'; glasses: boolean; skirt: boolean;
 }>;
@@ -58,7 +58,7 @@ function styledLook(seed: string, v: FigureLook): Look {
   };
 }
 
-function lookFor(seed: string, styled?: FigureLook): Look {
+export function lookFor(seed: string, styled?: FigureLook): Look {
   if (styled) return styledLook(seed, styled);
   const r = seeded(`figure:${seed}`);
   const pick = <T,>(a: readonly T[]): T => a[Math.floor(r() * a.length)];
@@ -74,7 +74,7 @@ function lookFor(seed: string, styled?: FigureLook): Look {
   };
 }
 
-function head(L: Local, look: Look, cy: number, cz: number, headset: boolean, tilt = 0): void {
+export function head(L: Local, look: Look, cy: number, cz: number, headset: boolean, tilt = 0): void {
   const { skin, hair } = look;
   L.limb([0, cy - 0.2, cz - 0.02 - tilt * 0.4], [0, cy - 0.08, cz], 0.09, 0.09, 0.085, 0.085, skin);
   L.blob(0, cy + 0.02, cz + 0.01, 0.092, 0.115, 0.1, skin, 8);
@@ -126,7 +126,7 @@ function arm(L: Local, look: Look, side: -1 | 1, shoulder: P3, elbow: P3, wrist:
   void side;
 }
 
-function torso(L: Local, look: Look, hip: P3, chest: P3, shoulderY: number, shoulderZ: number): void {
+export function torso(L: Local, look: Look, hip: P3, chest: P3, shoulderY: number, shoulderZ: number): void {
   const body = look.jacket ?? look.shirt;
   L.limb(hip, chest, 0.34, 0.22, 0.4, 0.24, body, { helper: [0, 0, 1] });
   // Shoulders, collar, shirt front and tie.

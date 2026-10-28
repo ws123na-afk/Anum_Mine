@@ -136,6 +136,7 @@ x-user-roles: owner,member
 - [ANUM MINE headquarters cutaway section: front walls and roof removed by camera azimuth, all floors, Cutaway and Closed, 90 degree rotate snaps, label hook](docs/ANUM_MINE_HQ_CUTAWAY.md)
 - [ANUM MINE headquarters ambient scenery motion: what moves, what never moves, quality levels and reduced motion](docs/ANUM_MINE_HQ_SCENERY_MOTION.md)
 - [ANUM MINE headquarters campus motion: ambient traffic with turning wheels, and record-backed work motion (trucks, tyres) with a Because line per event, the table of every motion, and what Tyre Pulse data is readable](docs/ANUM_MINE_HQ_CAMPUS_MOTION.md)
+- [ANUM MINE headquarters agent walkers: figures of real agents walking between buildings only because a stored record says they moved, the table of every trigger, what location data really exists, and what stays disconnected](docs/ANUM_MINE_HQ_AGENT_WALKERS.md)
 - [ANUM MINE headquarters building billboards: a board in front of each building and a card with what it does and its real work details, every field and its source, Not connected rule](docs/ANUM_MINE_HQ_BILLBOARDS.md)
 - [ANUM MINE headquarters live screens: the Operations wall and desk monitors drawn on the 3D screens with real figures, every field and its source, caps, distance gate](docs/ANUM_MINE_HQ_LIVE_SCREENS.md)
 - [ANUM MINE headquarters logo and brand signs: the owner's own logo, brand colour and sign style per building, upload steps, API, security, what is not done](docs/ANUM_MINE_HQ_LOGO_SIGNS.md)
