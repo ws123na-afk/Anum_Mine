@@ -339,8 +339,10 @@ test('the executive PA dock sits beside the scene and its navigation moves the c
     return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
   });
   await reloadReleasingGl(page);
-  const dock = hq(page).getByRole('complementary', { name: /assistant|PA/i });
-  await expect(dock).toBeVisible();
+  // The dock is the shared side panel "Executive assistant" (a named region with the panel header since the shared header, no longer an
+  // aside); the panel and the assistant itself are lazy chunks, loaded again after the reload.
+  const dock = hq(page).getByRole('region', { name: 'Executive assistant', exact: true });
+  await expect(dock).toBeVisible({ timeout: 60_000 });
   await dock.locator('#pa-input').fill('go to Finance');
   await dock.getByRole('button', { name: 'Send' }).click();
   await expect(hq(page).getByRole('complementary', { name: 'Room Finance' })).toBeVisible();

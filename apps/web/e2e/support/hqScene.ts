@@ -19,3 +19,13 @@ export async function reloadReleasingGl(page: Page): Promise<void> {
   await page.goto('about:blank');
   await page.goto(url);
 }
+
+/**
+ * Waits for the settled scene (`data-scene-settled="true"` on the canvas): no lazy part that changes the meshes is pending in the view (the
+ * campus plan kit, the billboards), the scene effect chunks have loaded and the scene was built again with them, and a frame of that final
+ * scene was drawn. The first builds are temporary, so a triangle count read before this is not the scene's own.
+ */
+export async function sceneSettled(page: Page, timeout = 90_000): Promise<void> {
+  await sceneReady(page, timeout);
+  await expect(page.locator('.hqLive canvas.hqCanvas')).toHaveAttribute('data-scene-settled', 'true', { timeout });
+}

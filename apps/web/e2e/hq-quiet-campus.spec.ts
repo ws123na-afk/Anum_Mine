@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { campusFixture, mockHq, presenceItem } from './support/hqCampusApi';
 import { mockFlow } from './support/hqFlowApi';
-import { sceneReady } from './support/hqScene';
+import { sceneReady, sceneSettled } from './support/hqScene';
 import { useSavedLocale } from './support/workspaceApi';
 
 // The quiet campus (docs/ANUM_MINE_HQ_BILLBOARDS.md "The board", docs/ANUM_MINE_HQ_LABELS.md "Quiet campus"): the 3D boards carry the live details,
@@ -129,6 +129,9 @@ test('the boards carry the live details; a presence update changes the board tex
   const before = Number(await wrap(page).getAttribute('data-board-version'));
   const beforeText = (await boardLines(page)).join('\n');
   const stage = hq(page).locator('canvas.hqCanvas');
+  // The count of the settled scene: the first builds (before the plan kit, the billboard atlas and the scene effect chunks are in) draw
+  // different, temporary numbers, so a count read then would differ from the one after the update with no rebuild for it.
+  await sceneSettled(page);
   const triangles = await stage.getAttribute('data-triangles');
   await mock.stream.deliver({ changed: [presenceItem('agent_fleet', 'Fleet Planner', 'idle', { desk_id: 'desk_3' })] });
   await expect.poll(async () => Number(await wrap(page).getAttribute('data-board-version')), { timeout: 30_000 }).toBeGreaterThan(before);
