@@ -19,15 +19,13 @@
  * `create` and the page falls back to the list and the 2D plan.
  */
 import {
-  ACESFilmicToneMapping, AmbientLight, BackSide, BufferGeometry, CanvasTexture, Color, DirectionalLight, DoubleSide, Float32BufferAttribute, Fog, HalfFloatType,
+  ACESFilmicToneMapping, AmbientLight, BackSide, BufferGeometry, CanvasTexture, Color, DirectionalLight, DoubleSide, Float32BufferAttribute, Fog,
   HemisphereLight, LinearMipmapLinearFilter, Material, Mesh, MeshLambertMaterial, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, PCFShadowMap,
-  PerspectiveCamera, PMREMGenerator, RepeatWrapping, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, Vector2, Vector3, Vector4, WebGLRenderer, WebGLRenderTarget,
+  PerspectiveCamera, PMREMGenerator, RepeatWrapping, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, Vector2, Vector3, Vector4, WebGLRenderer,
   LinearFilter, Matrix4, DataTexture, type IUniform,
 } from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import type { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { VERTEX_FLOATS, MAT } from './hqGeometry.ts';
 import { poseAt, type AmbientMotion } from '../hqAssets/interior/ambient.ts';
 import { cameraEye, type CameraState } from './headquartersSpatial.ts';
@@ -348,6 +346,9 @@ export class HqRenderer {
   private readyGroups: ReadonlySet<ModelGroup> = new Set();
   private composer: EffectComposer | null = null;
   private bloom: UnrealBloomPass | null = null;
+  /** The glow pass is its own chunk (`hqBloom.ts`): loaded when the tier's top rung has bloom or a frame first wants it; until then frames draw the plain way. */
+  private bloomKit: typeof import('./hqBloom.ts') | null = null;
+  private bloomLoad: Promise<void> | null = null;
   private cameraState: CameraState | null = null;
   private night = 0;
   private hover: string | null = null;
@@ -506,6 +507,7 @@ export class HqRenderer {
     const unlit = tierById(id).boardUnlit;
     if (unlit !== this.boardTierUnlit) { this.boardTierUnlit = unlit; if (this.lastScene) this.setScene(this.lastScene); }
     this.ladder = ladderFor(tierById(id));
+    if (this.ladder[0].bloom) this.loadBloom();
     this.governor = null;
     this.governed = this.pinned === null && this.override === null && !this.software;
     if (this.governed) void (this.governorLoad ??= import('./hqGovernor.ts')).then((m) => { if (!this.disposed && this.governed && !this.governor) this.governor = new m.FrameGovernor(this.ladder.length); });
@@ -574,6 +576,8 @@ export class HqRenderer {
       // Build the scene again only when the new chunks change it: a floor view on a software rasteriser takes none of them, and a second build would restart its lifts.
       if (!this.disposed && this.lastScene && (!this.software || this.lastScene.scenery !== undefined || this.photoPin)) this.setScene(this.lastScene);
     } catch { this.sceneFx = null; }
+    // The glow pass is a lazy chunk too (`hqBloom.ts`, started by `configureTier` when the top rung has bloom): the scene counts as settled only once it is here.
+    if (this.bloomLoad) await this.bloomLoad;
     // The next frame draws the scene built with the chunks (the stage reports it as part of `data-scene-settled`).
     this.stats.sceneFx = 'ready';
     if (!this.disposed) this.requestFrame();
@@ -1194,17 +1198,16 @@ export class HqRenderer {
     return { width: Math.max(1, box.width), height: Math.max(1, box.height), dpr };
   }
 
-  private ensureComposer(width: number, height: number, dpr: number): EffectComposer {
+  /** Starts loading the glow pass once; a frame is drawn again when it arrives. */
+  private loadBloom(): void {
+    this.bloomLoad ??= import('./hqBloom.ts').then((m) => { this.bloomKit = m; if (!this.disposed) this.requestFrame(); }, () => { this.bloomLoad = null; });
+  }
+
+  private ensureComposer(width: number, height: number, dpr: number, kit: typeof import('./hqBloom.ts')): EffectComposer {
     if (!this.composer) {
-      const target = new WebGLRenderTarget(Math.round(width * dpr), Math.round(height * dpr), { type: HalfFloatType, samples: 4 });
-      const composer = new EffectComposer(this.renderer, target);
-      composer.setPixelRatio(dpr);
-      composer.setSize(Math.round(width), Math.round(height));
-      composer.addPass(new RenderPass(this.scene, this.camera));
-      this.bloom = new UnrealBloomPass(new Vector2(Math.round(width), Math.round(height)), 0.85, 0.5, 1.0);
-      composer.addPass(this.bloom);
-      composer.addPass(new OutputPass());
-      this.composer = composer;
+      const made = kit.makeBloomComposer(this.renderer, this.scene, this.camera, width, height, dpr);
+      this.bloom = made.bloom;
+      this.composer = made.composer;
     }
     return this.composer;
   }
@@ -1247,7 +1250,9 @@ export class HqRenderer {
       if (this.shadowDirty && this.renderer.shadowMap.enabled) { this.renderer.shadowMap.needsUpdate = true; this.shadowDirty = false; }
       this.renderer.info.reset();
       let usePhoto = this.photoActive();
-      const useBloom = !usePhoto && this.applied.bloom && !this.reducedMotion && this.night > 0.04;
+      const wantBloom = !usePhoto && this.applied.bloom && !this.reducedMotion && this.night > 0.04;
+      if (wantBloom && !this.bloomKit) this.loadBloom();
+      const useBloom = wantBloom && this.bloomKit !== null;
       if (usePhoto) {
         try {
           this.photo!.frame({ camera: cs, viewProjection: viewProjection(cs, aspect), width, height, dpr, night: this.night, time: this.clock, halos: this.lastScene?.halos, reducedMotion: this.reducedMotion });
@@ -1259,7 +1264,7 @@ export class HqRenderer {
           this.renderer.render(this.scene, this.camera);
         }
       } else if (useBloom) {
-        const composer = this.ensureComposer(width, height, dpr);
+        const composer = this.ensureComposer(width, height, dpr, this.bloomKit!);
         if (this.bloom) { this.bloom.strength = 0.5 * Math.min(1, this.night * 1.4); this.bloom.threshold = 1.05; this.bloom.radius = 0.4; }
         composer.render();
       } else {

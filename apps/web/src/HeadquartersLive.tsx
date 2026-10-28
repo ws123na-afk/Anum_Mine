@@ -9,16 +9,13 @@
  */
 import { AlertTriangle, Building2, CheckCircle2, Compass, DoorOpen, Gauge, History, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AgentMeetingSessions } from './AgentMeetingSessions';
 import { BuildingView, type AgentStyleInfo } from './BuildingView';
 import { CampusListView } from './CampusListView';
 import { BuildingDetail, CampusView } from './CampusView';
-import { GuidedExecutiveTour } from './GuidedExecutiveTour';
 import { HqPlanFallback } from './HqPlanFallback';
 import { GraphicsChip, PresenceLinkChip, ViewSwitch, type HqView } from './HqChrome';
 import { AgentPanel, RoomPanel } from './HqPanels';
 import { activeShiftKey, applyShiftView, offShiftKeys, type ShiftView } from './lib/hqShifts.ts';
-import { OfficeWorkstations } from './OfficeWorkstations';
 import * as api from './lib/api.ts';
 import { assistantLive, flowLive, officeLive, totalsSource } from './lib/hqPanelStatus.ts';
 import { campusTotals, workspaceOf, type Campus, type CampusBuildingKind } from './lib/campusModel.ts';
@@ -49,7 +46,6 @@ import { useVisitorSummary } from './useVisitorSummary';
 import { HqCameraBridge } from './hq-nav/cameraBridge.ts';
 import { HqNavigation, type HqNavHandles } from './hq-nav/HqNavigation';
 import { ThumbCapture } from './hq-nav/thumbs.ts';
-import { OrgGapsPanel } from './hq-provisioning/OrgGapsPanel';
 import { AssignHost } from './hq-assign/AssignHost';
 // Loaded only when the owner opens it, so its code and styles stay out of the headquarters chunk (e2e/hq-performance.spec.ts budget).
 // Rarely opened, so kept out of the headquarters chunk (its size budget is tight).
@@ -65,6 +61,12 @@ const FirstRunPanel = lazy(() => import('./hq-first-run/FirstRunPanel'));
 import { useProvisioningGaps } from './hq-provisioning/useProvisioning';
 const GreenConcreteDialog = lazy(() => import('./hq-green-concrete/GreenConcreteDialog').then((m) => ({ default: m.GreenConcreteDialog })));
 const StaffDesksDialog = lazy(() => import('./hq-staff-desks/StaffDesksDialog').then((m) => ({ default: m.StaffDesksDialog })));
+// Office tools overlays (missing roles with the proposal dialog, workstations, agent meetings, the guided visit): each opens on a click, never
+// for the first campus frame, so each is its own chunk (docs/ANUM_MINE_HQ_PERFORMANCE_BUDGET.md, budget headroom pass).
+const OrgGapsPanel = lazy(() => import('./hq-provisioning/OrgGapsPanel').then((m) => ({ default: m.OrgGapsPanel })));
+const OfficeWorkstations = lazy(() => import('./OfficeWorkstations').then((m) => ({ default: m.OfficeWorkstations })));
+const AgentMeetingSessions = lazy(() => import('./AgentMeetingSessions').then((m) => ({ default: m.AgentMeetingSessions })));
+const GuidedExecutiveTour = lazy(() => import('./GuidedExecutiveTour').then((m) => ({ default: m.GuidedExecutiveTour })));
 import './hqFlow.css';
 import './headquartersLive.css';
 
@@ -740,19 +742,19 @@ export function HeadquartersLive(props: HeadquartersProps) {
         <div className="hqModalHost" role="dialog" aria-modal="false" aria-label={t('hq.tools')}>
           {overlay === 'teams' ? <div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqTeam.title')}>
             <Suspense fallback={null}><HqTeamPanel flowState={flowState} onClose={() => setOverlay('none')} onAvatarChanged={() => void controller.refresh()} buildingId={registryBuilding?.id ?? null} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} onHistory={openMemberHistory} onFocusRoom={(id) => { focusRoomById(id); setOverlay('none'); }} /></Suspense>
-            <OrgGapsPanel state={gaps} onNavigate={goTo} onStaffCampus={() => setStaffOpen(true)} onProvisioned={() => { void flow.reload(); void controller.refresh(); }} />
+            <Suspense fallback={null}><OrgGapsPanel state={gaps} onNavigate={goTo} onStaffCampus={() => setStaffOpen(true)} onProvisioned={() => { void flow.reload(); void controller.refresh(); }} /></Suspense>
           </div>
           : overlay === 'gaps' ? <div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqProv.title')}>
-            <OrgGapsPanel state={gaps} onNavigate={goTo} onStaffCampus={() => setStaffOpen(true)} onProvisioned={() => { void flow.reload(); void controller.refresh(); }} />
+            <Suspense fallback={null}><OrgGapsPanel state={gaps} onNavigate={goTo} onStaffCampus={() => setStaffOpen(true)} onProvisioned={() => { void flow.reload(); void controller.refresh(); }} /></Suspense>
           </div>
           : overlay === 'spaces' ? <Suspense fallback={null}><OfficeSpaceLiveManager onClose={() => { setOverlay('none'); void controller.refresh(); }} /></Suspense>
-            : overlay === 'workstations' ? <OfficeWorkstations onClose={() => setOverlay('none')} />
-              : overlay === 'agentMeetings' ? <AgentMeetingSessions rooms={meetingRooms} initialRoomId={meetingRoomId} onClose={() => { setOverlay('none'); setMeetingRoomId(null); void controller.refresh(); }} />
-                  : <GuidedExecutiveTour onClose={() => setOverlay('none')} onArrive={async (stop) => {
+            : overlay === 'workstations' ? <Suspense fallback={null}><OfficeWorkstations onClose={() => setOverlay('none')} /></Suspense>
+              : overlay === 'agentMeetings' ? <Suspense fallback={null}><AgentMeetingSessions rooms={meetingRooms} initialRoomId={meetingRoomId} onClose={() => { setOverlay('none'); setMeetingRoomId(null); void controller.refresh(); }} /></Suspense>
+                  : <Suspense fallback={null}><GuidedExecutiveTour onClose={() => setOverlay('none')} onArrive={async (stop) => {
                     // The same move the assistant makes: the building name and the registry ids, resolved by the scene.
                     const result = await hqCommands.navigateTo({ building: stop.buildingName, floor: stop.floorId, room: stop.id });
                     return result.ok ? null : result.message;
-                  }} />}
+                  }} /></Suspense>}
         </div>
       )}
     </section>
