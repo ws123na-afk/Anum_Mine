@@ -6,6 +6,8 @@
  * Flow: preview (exactly what would be created and skipped, with a payload hash) -> confirm (click only,
  * `workspace:manage`). The preview stores nothing. Every person becomes a reviewed PAUSED agent with no tool attached.
  */
+import type { AvatarStyle } from './avatar.js';
+
 export const OFFICE_GREEN_CONCRETE_VERSION = 1 as const;
 
 export type OfficeShift = 'day' | 'night';
@@ -26,6 +28,8 @@ export interface GreenSeat {
 export interface GreenPerson {
   key: string; name: string; role: { en: string; ar: string }; shift: OfficeShift | null; seat_order: number; desk_id: string;
   agent_id: string | null; agent_action: 'create' | 'exists'; seat_action: GreenSeatAction; seat_reason: GreenSeatReason | null;
+  /** The look (masculine, feminine, neutral) a NEW agent is created with: only what the owner chose, never read from a name. Null when none is sent or the agent already exists (an existing agent is never changed). */
+  appearance?: AvatarStyle | null;
 }
 export interface GreenCounts {
   create: { buildings: number; floors: number; rooms: number; desks: number; agents: number };
@@ -46,7 +50,15 @@ export interface GreenConcretePreview {
   agent_slots_left: number; shifts: GreenShifts; monthly_cap_usd: number;
   rules: { creates_agents: true; agents_start_paused: true; attaches_tools: false; changes_existing: false; infers_gender_or_ethnicity: false };
 }
-export interface GreenConcreteConfirm { payload_hash: string; input_mode: 'click'; timezone: string }
+export interface GreenConcreteConfirm {
+  payload_hash: string; input_mode: 'click'; timezone: string;
+  /** The look for every person not listed in `appearance` (the dialog sends neutral). Part of the hash. */
+  default_look?: AvatarStyle;
+  /** The owner's choice per person key. Part of the hash. */
+  appearance?: Record<string, AvatarStyle>;
+}
+/** The looks the preview and the confirm are made for. */
+export interface GreenLooks { default_look: AvatarStyle; appearance: Record<string, AvatarStyle> }
 export type GreenConcreteOutcome = 'created' | 'partial' | 'already_set_up';
 export interface GreenConcreteResult {
   version: 1; outcome: GreenConcreteOutcome; payload_hash: string; timezone: string;

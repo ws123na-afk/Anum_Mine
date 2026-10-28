@@ -216,6 +216,7 @@ export function HqStage(props: Props) {
             canvas.current.dataset.ambient = s.ambientMoving ? String(s.ambient) + ' moving' : String(s.ambient);
             canvas.current.dataset.modelsPlaced = String(s.models.placed);
             canvas.current.dataset.modelFigures = String(s.models.figures);
+            canvas.current.dataset.modelKit = String(s.models.kit ?? 0);
             // Avatar styles drawn: build/hair/outfit/skin per figure (codes only, never a name), and a count per build.
             canvas.current.dataset.figureLooks = [...s.models.looks].sort().join(' ');
             canvas.current.dataset.figureStyles = ['feminine', 'masculine', 'neutral'].map((b) => `${b}:${s.models.looks.filter((l) => l.startsWith(`${b}/`)).length}`).join(',');
