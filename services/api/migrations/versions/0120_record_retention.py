@@ -17,13 +17,13 @@ Owner decision O5 of 28 October 2026 ("keep what is standard", docs/ANUM_MINE_FE
   purged as the application role inside its own tenant and workspace context, where its periods are read.
 
 Expand only: a new table, two column grants and two policies. The previous release ignores all of them.
-Chained on 0118; the number is renumbered at merge when a parallel branch takes 0119 (CLAUDE.md).
+Chained on 0119_desk_work_hours (Green Concrete working hours), which landed first.
 """
 import sqlalchemy as sa
 from alembic import op
 
 revision = "0120_record_retention"
-down_revision = "0118_career_visitor_register"
+down_revision = "0119_desk_work_hours"
 branch_labels = None
 depends_on = None
 

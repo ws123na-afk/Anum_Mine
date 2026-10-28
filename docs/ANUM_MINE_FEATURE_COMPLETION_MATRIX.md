@@ -324,12 +324,12 @@ Rows counted: 163 (sections 1 to 14).
 
 | Status | Rows |
 |---|---|
-| Complete | 121 |
-| Partial | 39 |
+| Complete | 122 |
+| Partial | 38 |
 | Missing | 2 |
 | Not applicable | 1 |
 | Total | 163 |
 
-Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 114, Partial 32, Missing 2, Not applicable 1 (total 149). Rows 3.21 and 3.22 were completed by the panels and live status work (28 October 2026). Recounted from the tables on 28 October 2026 (the boards, signs and labels change updated rows 3.20 and 3.23 without changing their status; row 3.24 by the live screens, rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 3.23 by the quiet campus, row 4.11 by the label work, rows 2.11 and 2.12 by the campus motion work, rows 3.21 and 3.22 by the page layout and panels work). Row 5.10 was added by the character look work (rows 2.8 and 5.3 stay Partial). Rows 5.11 and 5.12 were added by the agent walkers. Recounted from the tables again on 27 October 2026: the totals above had one Partial row too few before this change (row ids 2.10 and 13.7 each appear twice and both are counted). Recounted again on 28 October 2026 after the career building kind (row 4.3, Missing to Complete) and the visitor register (row 7.9, still Partial). Recounted on 28 October 2026 after record retention (owner decision O5): row 9.11 Partial to Complete; row 7.9 stays Partial (host notification).
+Section 14 rows are derived acceptance criteria and repeat findings from sections 2 to 13, so they double count. Without section 14: Complete 115, Partial 31, Missing 2, Not applicable 1 (total 149). Rows 3.21 and 3.22 were completed by the panels and live status work (28 October 2026). Recounted from the tables on 28 October 2026 (the boards, signs and labels change updated rows 3.20 and 3.23 without changing their status; row 3.24 by the live screens, rows 3.16 and 3.17 added by the graphics check work, row 3.18 by the cutaway section, row 3.23 by the quiet campus, row 4.11 by the label work, rows 2.11 and 2.12 by the campus motion work, rows 3.21 and 3.22 by the page layout and panels work). Row 5.10 was added by the character look work (rows 2.8 and 5.3 stay Partial). Rows 5.11 and 5.12 were added by the agent walkers. Recounted from the tables again on 27 October 2026: the totals above had one Partial row too few before this change (row ids 2.10 and 13.7 each appear twice and both are counted). Recounted again on 28 October 2026 after the career building kind (row 4.3, Missing to Complete) and the visitor register (row 7.9, still Partial). Recounted on 28 October 2026 after record retention (owner decision O5): row 9.11 Partial to Complete; row 7.9 stays Partial (host notification). Recounted again after merging the Green Concrete working hours change.
 
 Not verified items are called out in the cells: PostgreSQL tests (CI only), browser end-to-end (CI only), visual look against the concept renders, real GPU or microphone behaviour, the unattended meeting worker running anywhere.
