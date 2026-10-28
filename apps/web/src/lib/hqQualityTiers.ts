@@ -12,13 +12,17 @@ export type TierSpec = Readonly<{
   key: string;
   shadowSize: number;
   bloom: boolean;
+  /** Width in pixels of a billboard's cell in the live board atlas (height is half): 512 draws the close view's detail lines, 256 the key line only. */
+  boardCell: 512 | 256;
+  /** The billboards' posts, frame and lamps take one flat unlit material (no lighting, no shadows) instead of the lit kit materials. */
+  boardUnlit: boolean;
 }>;
 
 export const HQ_TIERS: readonly TierSpec[] = [
-  { id: 0, key: 'low', shadowSize: 0, bloom: false },
-  { id: 1, key: 'medium', shadowSize: 1024, bloom: false },
-  { id: 2, key: 'high', shadowSize: 1024, bloom: true },
-  { id: 3, key: 'ultra', shadowSize: 2048, bloom: true },
+  { id: 0, key: 'low', shadowSize: 0, bloom: false, boardCell: 256, boardUnlit: true },
+  { id: 1, key: 'medium', shadowSize: 1024, bloom: false, boardCell: 512, boardUnlit: false },
+  { id: 2, key: 'high', shadowSize: 1024, bloom: true, boardCell: 512, boardUnlit: false },
+  { id: 3, key: 'ultra', shadowSize: 2048, bloom: true, boardCell: 512, boardUnlit: false },
 ];
 
 /** The browser storage key a person (or the Graphics check) pins a tier with. */
@@ -51,6 +55,16 @@ export function ladderFor(tier: TierSpec): readonly StepSettings[] {
   if (cur.bloom) { cur = { ...cur, bloom: false }; steps.push(cur); }
   steps.push({ ...cur, lean: true });
   return steps;
+}
+
+/**
+ * How the billboards are drawn for a quality state (docs/ANUM_MINE_HQ_BILLBOARDS.md, "Quality tiers"): the tier's board cell and material,
+ * and the same cheap board as the lowest tier once the governor reached the simple materials. No state yet (the renderer has not reported) is the full board.
+ */
+export function boardSpec(state: Pick<QualityState, 'tier' | 'settings'> | null): Readonly<{ cell: 512 | 256; unlit: boolean }> {
+  if (!state) return { cell: 512, unlit: false };
+  const tier = tierById(state.tier);
+  return state.settings.lean ? { cell: 256, unlit: true } : { cell: tier.boardCell, unlit: tier.boardUnlit };
 }
 
 /** Why the renderer runs the tier it runs. */

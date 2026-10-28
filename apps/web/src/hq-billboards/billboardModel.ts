@@ -11,6 +11,7 @@ import type { CampusBuilding, CampusTotals, StatusKey } from '../lib/campusModel
 import { STATUS_ORDER, buildingStatus, workspaceOf } from '../lib/campusModel.ts';
 import type { PlanInput } from '../lib/hqPlanFrame.ts';
 import { departmentText } from '../lib/hqLabelModel.ts';
+import { roomIconKey, type IconKey } from '../lib/hqIcons.ts';
 import { sceneName, roomName } from '../lib/registryNames.ts';
 import { getLocale, t, type MessageKey, type Locale, type Vars } from '../lib/i18n.ts';
 
@@ -22,6 +23,8 @@ export const BILLBOARD_STALE_MS = 90_000;
 export const ROOM_NAME_LIMIT = 5;
 /** Departments listed on a billboard before "+N more". */
 export const DEPARTMENT_LIMIT = 4;
+/** Icons drawn on a 3D board at most. */
+export const ICON_LIMIT = 6;
 
 /** Every field a billboard can show, with the record it comes from. The docs table is this list (a test keeps them equal). */
 export const BILLBOARD_FIELDS = [
@@ -36,7 +39,9 @@ export const BILLBOARD_FIELDS = [
   { id: 'presenceTime', source: 'CampusBuilding.presence_verified_at' },
   { id: 'work', source: 'OfficeFlowSnapshot task items located in the building (location.building_id, stage, waiting), tasks source connected' },
   { id: 'workTime', source: 'OfficeFlowSnapshot.as_of, and the flow read status' },
-  { id: 'brand', source: 'CampusBuilding.sign.color (the owner\'s brand colour of the building\'s sign), drawn only as the accent rule of the 3D board' },
+  { id: 'brand', source: 'CampusBuilding.sign.color (the owner\'s brand colour of the building\'s sign), the header band and accent rule of the 3D board when it passes the contrast check' },
+  { id: 'logo', source: 'CampusBuilding.sign.logoSha256 and sign.buildingId: the owner\'s uploaded logo, fetched from the authenticated logo route and drawn in the header of the 3D board' },
+  { id: 'icons', source: 'room.teamDepartment of the building\'s registry rooms, else room.kind: drawn as icons of the one HQ icon set (lib/hqIcons.ts)' },
   { id: 'streamLink', source: 'the presence stream link (usePresenceLive link "live"), drawn only as the Live tick on the 3D board' },
   { id: 'open', source: 'fixed button text (the accessible name adds CampusBuilding.name)' },
 ] as const;
@@ -45,11 +50,11 @@ export type BillboardFieldId = (typeof BILLBOARD_FIELDS)[number]['id'];
 /** The properties the model may read, by path (`[]` is an array element). Anything else read from an input is a data truth failure. */
 export const BILLBOARD_READS: readonly string[] = [
   'building.name', 'building.nameAr', 'building.kind', 'building.kindKnown', 'building.floors', 'building.rooms', 'building.accessible',
-  'building.totals', 'building.presence_verified_at', 'building.sign', 'building.sign.color', 'building.registryBuildingId', 'building.workspace_id', 'building.realWorkspaceId',
+  'building.totals', 'building.presence_verified_at', 'building.sign', 'building.sign.color', 'building.sign.logoSha256', 'building.sign.buildingId', 'building.registryBuildingId', 'building.workspace_id', 'building.realWorkspaceId',
   'building.totals.agents', 'building.totals.working', 'building.totals.queued', 'building.totals.meeting', 'building.totals.waiting_approval',
   'building.totals.blocked', 'building.totals.idle', 'building.totals.paused', 'building.totals.unknown',
   'plan.floors', 'plan.floors[]', 'plan.floors[].rooms', 'plan.floors[].rooms[]', 'plan.floors[].rooms[].label', 'plan.floors[].rooms[].labelAr',
-  'plan.floors[].rooms[].teamDepartment',
+  'plan.floors[].rooms[].teamDepartment', 'plan.floors[].rooms[].kind',
   'flow.status', 'flow.snapshot', 'flow.snapshot.sources', 'flow.snapshot.sources.tasks', 'flow.snapshot.items', 'flow.snapshot.items[]',
   'flow.snapshot.items[].kind', 'flow.snapshot.items[].stage', 'flow.snapshot.items[].waiting', 'flow.snapshot.items[].location',
   'flow.snapshot.items[].location.building_id', 'flow.snapshot.truncated', 'flow.snapshot.as_of',
@@ -96,6 +101,10 @@ export type BillboardModel = Readonly<{
   accessible: boolean;
   /** The owner's brand colour (#rrggbb) of the building's sign, or null. */
   brand: string | null;
+  /** The owner's uploaded logo of the building's sign (its building id and SHA-256), or null. Only the board draws it, once decoded. */
+  logo: Readonly<{ buildingId: string; sha: string }> | null;
+  /** One icon per department of the building's registry rooms (a room without a known department gives its kind), at most `ICON_LIMIT`. */
+  icons: readonly IconKey[];
   rows: readonly BillboardRow[];
   openLabel: string;
   unavailableText: string;
@@ -139,10 +148,14 @@ export function workOf(building: CampusBuilding, flow: BillboardFlow | null | un
   return { state: 'ok', open, waiting, blocked, atLeast: snap.truncated === true, asOf: isTime(snap.as_of) ? snap.as_of : null, stale: flow.status === 'error' };
 }
 
-function roomsOf(plan: BillboardInput['plan']): Array<{ label: string; labelAr: string | null; department: string | null }> {
-  const out: Array<{ label: string; labelAr: string | null; department: string | null }> = [];
+type RoomFacts = { label: string; labelAr: string | null; department: string | null; icon: IconKey };
+function roomsOf(plan: BillboardInput['plan']): RoomFacts[] {
+  const out: RoomFacts[] = [];
   for (const floor of plan?.floors ?? []) {
-    for (const room of floor.rooms) out.push({ label: room.label, labelAr: room.labelAr ?? null, department: room.teamDepartment ?? null });
+    for (const room of floor.rooms) {
+      const department = room.teamDepartment ?? null;
+      out.push({ label: room.label, labelAr: room.labelAr ?? null, department, icon: roomIconKey({ kind: room.kind, teamDepartment: department }) });
+    }
   }
   return out;
 }
@@ -230,8 +243,15 @@ export function billboardModel(input: BillboardInput): BillboardModel {
     if (work.asOf) rows.push({ field: 'workTime', label: null, value: tr(work.stale ? 'hqBillboard.stale' : 'hqBillboard.verified', { time: timeText(work.asOf, locale) }), connected: true, stale: work.stale });
   }
 
+  const sign = b.sign;
+  const brand = /^#[0-9a-f]{6}$/i.test((sign?.color ?? '').trim()) ? sign!.color!.trim().toLowerCase() : null;
+  const sha = sign?.logoSha256 ?? null;
+  const logo = sign && typeof sha === 'string' && /^[0-9a-f]{64}$/.test(sha) && typeof sign.buildingId === 'string' && sign.buildingId ? { buildingId: sign.buildingId, sha } : null;
+  // Department icons first (in the order the rooms come), then the kinds of rooms that have no known department.
+  const keys = unique(rooms.map((r) => r.icon));
+  const icons = [...keys.filter((k) => k.startsWith('dept:')), ...keys.filter((k) => k.startsWith('kind:'))].slice(0, ICON_LIMIT) as IconKey[];
   return {
-    id: b.workspace_id, name, kindText, kind: b.kind, summary, status: buildingStatus(b), accessible: b.accessible, brand: /^#[0-9a-f]{6}$/i.test((b.sign?.color ?? '').trim()) ? b.sign!.color!.trim().toLowerCase() : null, rows,
+    id: b.workspace_id, name, kindText, kind: b.kind, summary, status: buildingStatus(b), accessible: b.accessible, brand, logo, icons, rows,
     openLabel: tr('hqBillboard.open'), unavailableText: tr('hqBillboard.unavailable'),
   };
 }

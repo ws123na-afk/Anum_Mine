@@ -65,7 +65,7 @@ Every change writes one audit record (`office.building.logo_set`, `office.buildi
 ### Web
 
 * **Builder**: `hq-logo-signs/BuildingSignSection.tsx`, a lazy chunk of the Floor tab, with the preview (`SignPreview.tsx`, the same painter as the campus), the file check (`logoFile.ts`: first bytes, size), the colour contrast (`signModel.ts`: WCAG contrast, 4.5 to 1 for lettering and 3 to 1 for a frame), the style radios, remove and reset. States: loading, empty (with the next step), error (with retry), denied (who can do it), refused file (the reason), stale (reload). Keyboard and screen reader: real buttons and radios, one live region for the contrast, `role="alert"` for problems, the drop box is a named group.
-* **Campus**: `hq-logo-signs/campusSigns.ts` is a lazy chunk fetched only when a building has a sign set up. It loads the logos of the nearest buildings first (at most 16, three at a time), fetching each with the person's own credentials, decodes each to a bitmap of at most 256 pixels on its long edge (about 4 MB at the very most) and draws the sign into the **existing** sign atlas cell with `signPainter.ts`. No new texture is made. Any failure (404, bad picture, offline) leaves that building on the lettered sign. The page reports `data-sign-brands` and `data-sign-logos` on the campus stage for QA.
+* **Campus**: `hq-logo-signs/campusSigns.ts` is a lazy chunk fetched only when a building has a sign set up. The same decoded bitmaps also go to the billboard painter (the board header), so a logo is fetched and decoded once for both. It loads the logos of the nearest buildings first (at most 16, three at a time), fetching each with the person's own credentials, decodes each to a bitmap of at most 256 pixels on its long edge (about 4 MB at the very most) and draws the sign into the **existing** sign atlas cell with `signPainter.ts`. No new texture is made. Any failure (404, bad picture, offline) leaves that building on the lettered sign. The page reports `data-sign-brands` and `data-sign-logos` on the campus stage for QA.
 * Colour and style change only the sign's own accents. The logo is never recoloured.
 
 ### Dependency
@@ -83,7 +83,7 @@ Rows are in [the security review](ANUM_MINE_HQ_SECURITY_REVIEW.md), "Logo upload
 ## What is not done
 
 * Another workspace's building has no registry building in this workspace, so it keeps the lettered sign.
-* The logo is drawn into the building's sign cell of the sign atlas. The facade sign and, today, the board in front of the building (see [billboards](ANUM_MINE_HQ_BILLBOARDS.md)) are textured with that cell, so both show it. When the quiet campus change gives the boards their own live atlas, the logo stays on the facade sign and the board's header can take the brand colour; that is a follow-up in that change's board painter, not done here.
+* The logo is drawn into the building's sign cell of the sign atlas. The boards in front of the buildings have their own live atlas (see [billboards](ANUM_MINE_HQ_BILLBOARDS.md)): their painter draws the same decoded bitmap into the board's header and uses the brand colour for the header band when it passes the contrast check (done 27 October 2026). The sign style is not used on the board.
 * Looked at on software GL, not on a real GPU.
 * A logo is shown at most 256 pixels on its long edge in the sign (a cell is 512 by 128), whatever the stored size.
 * There is no crop or background removal; the owner uploads the picture as it should appear.

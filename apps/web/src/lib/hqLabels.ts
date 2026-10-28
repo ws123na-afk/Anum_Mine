@@ -43,6 +43,8 @@ export type Rect = Readonly<{ x0: number; y0: number; x1: number; y1: number }>;
 export type LayoutOptions = Readonly<{ eye?: Vec3 | null; keepOut?: readonly Rect[]; /** A phone-sized scene: no card is left out; one with no free spot sits on its anchor in its smallest density, even over another. */ squeeze?: boolean }>;
 
 const MAX_SHIFTS = 7;
+/** On a phone-sized scene two status dots keep at least this many pixels apart (they never touch). */
+export const DOT_GAP = 4;
 
 /** True when the straight line from the eye to the anchor passes through the box (slab test). */
 export function segmentHitsBox(a: Vec3, b: Vec3, box: Aabb): boolean {
@@ -130,7 +132,10 @@ export function layoutLabels(
     for (let ti = 0; ti < tiers.length && !done; ti++) {
       const density = tiers[ti];
       const { w, h } = sizeOf(item.input.id, density);
-      const hits = (q: { x0: number; y0: number; x1: number; y1: number }, x: number, y: number) => x - w / 2 < q.x1 - 2 && x + w / 2 > q.x0 + 2 && y - h < q.y1 - 2 && y > q.y0 + 2;
+      // A dot on a phone-sized scene needs a clear gap round it; every other card may meet its neighbour by two pixels.
+      const dotGap = options.squeeze && density === 'dot';
+      const slack = dotGap ? -DOT_GAP : 2;
+      const hits = (q: { x0: number; y0: number; x1: number; y1: number }, x: number, y: number) => x - w / 2 < q.x1 - slack && x + w / 2 > q.x0 + slack && y - h < q.y1 - slack && y > q.y0 + slack;
       const keepReserved = (item.input.priority ?? 1) > 0;
       const overlaps = (x: number, y: number) => placed.some((q) => hits(q, x, y)) || (keepReserved && [...reserved].some(([id, q]) => id !== item.input.id && hits(q, x, y)));
       const inside = (x: number, y: number) => x - w / 2 >= 4 && x + w / 2 <= width - 4 && y - h >= 4 && y <= limit;
@@ -163,12 +168,23 @@ export function layoutLabels(
           }
         }
       }
+      if (dotGap && !secondary) {
+        // A dot also tries a finer ring round its anchor (half a dot per step, up to four dots away), so it can sit beside a neighbour instead of on it.
+        for (let r = 1; r <= 8; r++) {
+          for (let a = 0; a < 12; a++) {
+            const angle = (a / 12) * Math.PI * 2;
+            spots.push({ x: item.x + Math.cos(angle) * r * w * 0.5, y: item.y + Math.sin(angle) * r * h * 0.5, cost: r * 1.2 + 0.5 });
+          }
+        }
+      }
       spots.sort((p, q) => p.cost - q.cost);
       const pick = spots.find((c) => inside(c.x, c.y) && !overlaps(c.x, c.y));
       if (pick) { set(item, pick.x, pick.y, { w, h }, density, Math.round(Math.abs(pick.y - item.y) / (h * 1.05))); done = true; break; }
       if (adaptive && ti < lastIndex) continue;
       // No free spot. Building and room cards are the way into the scene, so they stay (on the least covered spot);
       // only the secondary agent cards give way, and so does a crowded label that has a dot to fall back on.
+      // On a phone a dot with no free spot is never drawn on another dot: it is crowded (kept in the page and the tab order, a focus brings it forward).
+      if (dotGap) { out.set(item.input.id, { id: item.input.id, x: home.x, y: home.y, depth: item.depth, shown: false, shifted: 0, density, occluded: false, crowded: true }); done = true; break; }
       if (options.squeeze && adaptive) { set(item, home.x, home.y, { w, h }, density, 0); done = true; break; }
       if ((item.input.priority ?? 1) >= 2 || (adaptive && !item.input.keep && (item.input.priority ?? 1) >= 1)) { out.set(item.input.id, { id: item.input.id, x: home.x, y: home.y, depth: item.depth, shown: false, shifted: 0, density, occluded: false, crowded: true }); done = true; break; }
       const area = (x: number, y: number) => placed.reduce((sum, q) => sum + Math.max(0, Math.min(x + w / 2, q.x1) - Math.max(x - w / 2, q.x0)) * Math.max(0, Math.min(y, q.y1) - Math.max(y - h, q.y0)), 0);
