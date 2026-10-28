@@ -177,4 +177,13 @@ test('Arabic: the register reads right to left with Arabic words', async ({ page
   await expect(page.locator('.hqRecRow').getByRole('button', { name: 'تسجيل الدخول' })).toBeVisible();
   const box = await panel(page).boundingBox();
   expect(box && box.x).toBeLessThan(10); // the drawer opens from the left in Arabic
+  // The expected time follows the app language, and the chosen time is written in Arabic next to the field.
+  await panel(page).getByTestId('reception-add').click();
+  const expected = page.getByTestId('reception-form').locator('input[type="datetime-local"]');
+  await expect(expected).toHaveAttribute('lang', 'ar');
+  await expect(expected).toHaveAttribute('dir', 'rtl');
+  await expected.fill('2026-10-28T09:30');
+  const shown = page.getByTestId('reception-form').getByTestId('hq-date-shown');
+  await expect(shown).toContainText('28 أكتوبر 2026');
+  await expect(shown).toContainText('9:30');
 });

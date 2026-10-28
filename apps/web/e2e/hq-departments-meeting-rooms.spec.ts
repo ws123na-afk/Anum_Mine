@@ -117,6 +117,26 @@ test('a room with another department still reaches its live meeting', async ({ p
   await expect(page.locator('.hqSide [data-testid="room-live-meeting"]')).toHaveAttribute('href', '#office/meeting/meeting_live');
 });
 
+test('a participant who left is listed as left, never as in the meeting', async ({ page }) => {
+  const mock = await openRoom(page, 'Alpha Boardroom');
+  const section = page.locator('.hqSide [data-testid="room-meeting"]');
+  await expect(section.locator('[data-testid="room-meeting-agent"]')).toHaveCount(1);
+  mock.meeting.left.push(
+    { id: 'p2', session_id: 'meeting_live', actor_id: 'agent_invoice', kind: 'agent', left_at: '2026-10-28T09:30:00Z' },
+    { id: 'p3', session_id: 'meeting_live', actor_id: 'user_left', kind: 'human', left_at: '2026-10-28T09:31:00Z' },
+  );
+  await page.locator('.hqLive').getByRole('button', { name: 'Refresh the headquarters' }).click();
+  await expect(section.locator('[data-testid="room-meeting-left"]')).toHaveCount(1);
+  await expect(section.locator('[data-testid="room-meeting-left"]')).toContainText('Invoice Checker');
+  await expect(section.locator('[data-testid="room-meeting-left"]')).toContainText('Left');
+  // Still only the agent who is there; the person who left is a count, never a name, and never "joined".
+  await expect(section.locator('[data-testid="room-meeting-agent"]')).toHaveCount(1);
+  await expect(section.locator('[data-testid="room-meeting-agent"]')).toContainText('WhatsApp Concierge');
+  await expect(section.locator('[data-testid="room-meeting-people-left"]')).toHaveText('People who left: 1');
+  await expect(section).not.toContainText('People who joined');
+  await expect(section).not.toContainText('user_left');
+});
+
 test('the badge disappears when the meeting finishes', async ({ page }) => {
   const mock = await openRoom(page, 'Alpha Boardroom');
   await expect(page.locator('.hqSide [data-testid="room-meeting"]')).toBeVisible();

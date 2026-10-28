@@ -29,6 +29,7 @@ export const hqNavAr: Record<keyof typeof hqNavEn, Message> = {
   'hqNav.live.floor': 'الطابق {name} مفتوح.',
   'hqNav.live.instant': 'عرض {place}.',
   'hqNav.live.notShown': 'هذا المكان ليس في المبنى المفتوح.',
+  'hqNav.live.cancelled': 'توقف الانتقال قبل الوصول إلى {place}.',
   'hqNav.side.label': 'مخطط الطابق والأشخاص والتنقلات السريعة',
   'hqNav.side.collapse': 'إخفاء اللوحة الجانبية',
   'hqNav.side.expand': 'إظهار اللوحة الجانبية',

@@ -19,6 +19,7 @@ import { createReceptionClient } from './lib/hqReceptionApi';
 import { getLocale, t, type MessageKey } from './lib/i18n';
 import { useLocale } from './useLocale';
 import './hqReception.css';
+import { LocalDateInput } from './hq-date/LocalDateInput.tsx';
 
 const client = createReceptionClient(api.apiRequest, api.apiRequestVoid);
 
@@ -233,7 +234,7 @@ export function HqReceptionPanel(props: HqReceptionPanelProps) {
                 <input id={`${formId}-purpose`} dir="auto" required maxLength={LIMITS.purpose} value={form.draft.purpose} aria-invalid={problems.purpose ? true : undefined} onChange={(e) => setDraft({ purpose: e.target.value })} />
               </Field>
               <Field id={`${formId}-expected`} label={t('hqRec.form.expected')} problem={problemText('expected')}>
-                <input id={`${formId}-expected`} type="datetime-local" required value={form.draft.expected} aria-invalid={problems.expected ? true : undefined} onChange={(e) => setDraft({ expected: e.target.value })} />
+                <LocalDateInput id={`${formId}-expected`} type="datetime-local" required value={form.draft.expected} aria-invalid={problems.expected ? true : undefined} onChange={(e) => setDraft({ expected: e.target.value })} />
               </Field>
               <Field id={`${formId}-host`} label={t('hqRec.form.host')} problem={null}>
                 <select id={`${formId}-host`} value={form.draft.host} onChange={(e) => setDraft({ host: e.target.value })}>

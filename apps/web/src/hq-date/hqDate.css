@@ -1,0 +1,2 @@
+/* The chosen day written in the app's language under a date field (LocalDateInput). Tokens come from styles.css. */
+.hqDateShown { color: var(--d-muted); display: block; font-size: var(--text-xs); line-height: 1.5; overflow-wrap: anywhere; }

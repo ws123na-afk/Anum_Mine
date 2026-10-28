@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom';
 import { changeNote, presenceLive, PRESENCE_STALE_MS, type PanelLive, type TotalsSource } from '../lib/hqPanelStatus.ts';
 import type { PresenceLink } from '../lib/presenceStream.ts';
 import { LiveChip } from './LiveChip.tsx';
+import { flightNote } from './flightLive.ts';
 import { useNow } from './useNow.ts';
 import type { HqView } from '../HqChrome';
 import { hqCommands } from '../lib/hqExtensions.ts';
@@ -148,11 +149,10 @@ export function HqNavigation(props: HqNavigationProps) {
   keyRef.current = keyFor;
   useEffect(() => handles.bridge.subscribe((event) => {
     const where = target.current;
-    if (event.phase === 'missing') { setLive(t('hqNav.live.notShown')); return; }
-    if (!where) return;
-    if (event.phase === 'start') setLive(t('hqNav.live.flying', { place: where.name }));
-    else {
-      setLive(event.phase === 'instant' ? t('hqNav.live.instant', { place: where.name }) : t('hqNav.live.arrived', { place: where.name }));
+    const note = flightNote(event, where, (key, vars) => t(key, vars));
+    target.current = note.place;
+    if (note.text !== null) setLive(note.text);
+    if (note.arrived && where) {
       const key = keyRef.current(where.stopId);
       window.setTimeout(() => { if (!handles.bridge.isFlying && handles.capture.waiting === false) { handles.capture.request(key); handles.bridge.nudge(); } }, 500);
     }
