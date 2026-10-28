@@ -47,6 +47,6 @@ Loading (spinner and status text), empty (plain, filtered, scoped, each with a n
 
 - Department and project filters: audit records carry neither, and the scene projection does not expose a room's department. Room and agent views stand in.
 - A server-side room or agent filter: room and agent views filter loaded pages on the device, so an old record needs more loading. A small read-only `subject` filter on the server would remove that (needs a JSON index to stay cheap).
-- A true replay of past presence and layout needs time-indexed snapshots (owner decision O8, with retention O5). Not stored by this change.
+- A true replay of past presence and layout needs time-indexed snapshots (owner decision O8). None is stored, so the retention job (O5) has no snapshot to purge.
 - A narrowed export (room, agent, Other) reads the whole matching audit export before narrowing; a server-side `subject` filter would make it cheaper. The export's own audit record lists the broad filters, not the room or agent.
-- Task, meeting and approval screens do not link back to their correlation view; full transcript text (O5) and time-indexed snapshots (O8) need owner decisions and are not stored or exported.
+- Task, meeting and approval screens do not link back to their correlation view; full transcript text is not exported (transcripts are kept 90 days by default, O5) and no time-indexed snapshot is stored (O8).

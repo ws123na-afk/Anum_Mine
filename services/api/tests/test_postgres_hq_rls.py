@@ -14,6 +14,10 @@ pytestmark = pytest.mark.database
 HQ_PREFIXES = ("office_", "agent_meeting", "executive_", "campus_", "hq_")
 # Cross-tenant jobs reach these tables only through the narrow NOLOGIN purge role (docs/multi-tenancy.md).
 ALLOWED_EXTRA_ROLES = {"anum_tenant_purger"}
+# The retention job finds work across tenants through anum_maintenance (migration 0120, owner decision O5): its
+# policies may span tenants, but they must be read only and the role may read only the scope columns.
+DISCOVERY_ROLE = "anum_maintenance"
+DISCOVERY_COLUMNS = {"tenant_id", "workspace_id"}
 
 
 def _hq_tables(engine: Engine) -> list[str]:
@@ -58,12 +62,17 @@ def test_every_headquarters_table_policy_pins_tenant_and_workspace(database_engi
     for policy in policies:
         by_table.setdefault(policy.tablename, []).append(policy)
     assert set(by_table) == set(_hq_tables(database_engine)), "a headquarters table has no policy at all"
+    discovery_tables: set[str] = set()
     for table, rows in by_table.items():
         assert any("public" in _roles(p) for p in rows), f"{table} has no policy for the application role"
         for policy in rows:
             roles = _roles(policy)
             if roles and roles <= ALLOWED_EXTRA_ROLES:
                 continue  # the purge role: tenant lifecycle job only, write check is false
+            if roles == {DISCOVERY_ROLE}:
+                assert policy.cmd == "SELECT", f"{table}.{policy.policyname} lets {DISCOVERY_ROLE} write"
+                discovery_tables.add(table)
+                continue
             if "public" in roles:
                 # The application role: tenant and workspace, for reads and for writes.
                 for part in (policy.qual, policy.with_check):
@@ -73,6 +82,22 @@ def test_every_headquarters_table_policy_pins_tenant_and_workspace(database_engi
                 # A narrow NOLOGIN reader (for example the executive grant reader): read only, still pinned to one tenant.
                 assert policy.cmd == "SELECT", f"{table}.{policy.policyname} lets a narrow role write"
                 assert "anum.tenant_id" in (policy.qual or ""), f"{table}.{policy.policyname} is not pinned to a tenant"
+    with database_engine.connect() as connection:
+        granted = connection.execute(
+            text(
+                """
+                select table_name, column_name from information_schema.column_privileges
+                where grantee = :role and table_name = any(:names)
+                """
+            ),
+            {"role": DISCOVERY_ROLE, "names": sorted(discovery_tables)},
+        ).all()
+        whole = connection.execute(
+            text("select table_name from information_schema.role_table_grants where grantee = :role and table_name = any(:names)"),
+            {"role": DISCOVERY_ROLE, "names": sorted(discovery_tables)},
+        ).scalars().all()
+    assert whole == [], f"{DISCOVERY_ROLE} holds a table-wide grant on {whole}"
+    assert {column for _, column in granted} <= DISCOVERY_COLUMNS, granted
 
 
 def _roles(policy) -> set[str]:  # type: ignore[no-untyped-def]

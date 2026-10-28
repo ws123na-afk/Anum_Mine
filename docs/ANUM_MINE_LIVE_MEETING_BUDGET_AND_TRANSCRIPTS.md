@@ -68,7 +68,7 @@ The owner-triggered meeting summary is a model call and is metered like a turn: 
 
 ## Not done, and owner decisions still open
 
-* O5, retention windows for meeting transcripts, is still open: only the manual `DELETE /transcript` exists.
+* O5, retention windows for meeting transcripts, was answered on 28 October 2026: the daily retention job deletes a transcript 90 days after the meeting ended (owner editable, 7 to 1825 days), with the same helper as the manual `DELETE /transcript`. See [record retention](record-retention.md).
 * The cap counts the gateway's cost estimate, not an invoice. A model without a price estimate reports no cost and the meeting
   refuses the turn already ("Model must report a cost estimate"), so no unpriced spend enters.
 * The rate of turns per minute (S-05) is not part of this change; see [turn rate](ANUM_MINE_AUTONOMOUS_MEETINGS.md#turn-rate-s-05).

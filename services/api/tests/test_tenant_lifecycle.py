@@ -199,6 +199,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             "office_agent_provisions": "0106_agent_provisioning",
             "office_desk_staffing": "0109_staff_desks",
             "office_building_logos": "0117_building_logo_signs",
+            "workspace_record_retention": "0120_record_retention",
             "office_visitors": "0118_career_visitor_register",
             **{name: "0112_layout_history" for name in ("office_floor_revisions", "office_layout_templates")},
             "agent_meeting_output_links": "0111_meeting_summary_links",

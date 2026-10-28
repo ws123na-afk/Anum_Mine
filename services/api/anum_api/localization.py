@@ -141,6 +141,13 @@ ARABIC_MESSAGES: dict[str, str] = {
     "The expected time must have a time zone and be within 400 days of today": "يجب أن يحمل الوقت المتوقَّع منطقة زمنية وأن يقع خلال 400 يوم من اليوم.",
     "Give both since and until, with since before until": "حدّد بداية الفترة ونهايتها معًا، على أن تسبق البداية النهاية.",
     "The visitor's name, the purpose and the expected time cannot be empty": "لا يمكن ترك اسم الزائر والغرض والوقت المتوقَّع فارغة.",
+    # Record retention (anum_api/record_retention_api.py, owner decision O5)
+    "Confirm this on screen with a click. A spoken or typed answer cannot change how long records are kept.": (
+        "أكّد ذلك على الشاشة بنقرة. لا تغيّر إجابة منطوقة أو مكتوبة مدة الاحتفاظ بالسجلات."
+    ),
+    "The retention setting changed; reload and try again": "تغيّر إعداد مدة الاحتفاظ؛ أعد التحميل وحاول مرة أخرى.",
+    "Meeting transcripts can be kept for 7 to 1825 days": "يمكن الاحتفاظ بنصوص الاجتماعات من 7 إلى 1825 يومًا.",
+    "Visitor records can be kept for 30 to 1825 days": "يمكن الاحتفاظ بسجلات الزوار من 30 إلى 1825 يومًا.",
     # Generic envelopes
     "Request validation failed": "تعذّر التحقق من الطلب.",
     "An unexpected error occurred": "حدث خطأ غير متوقع.",
