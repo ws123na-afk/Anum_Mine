@@ -350,7 +350,46 @@ test('builder: the shift hours of a building and the seat fields of a desk are s
   await expect.poll(() => mock.requests.find((r) => r.method === 'PATCH' && r.path === '/desks/d-2')?.body).toMatchObject({ shift: 'night', seat_order: 2 });
 });
 
+test('builder: seats of one table group are drawn as tables on the plan, and a copied room keeps its seats', async ({ page }) => {
+  const mock = await openBuilder(page);
+  await page.locator('.hqbSvg [data-room-id="r-sales"] .hqbRoomBody').click();
+  await page.getByRole('tab', { name: 'Room', exact: true }).click();
+  await expect(page.locator('.hqbTables rect')).toHaveCount(0);
+  await page.getByRole('button', { name: /Desk 2/ }).click();
+  await page.getByLabel('Table group').fill('l-table');
+  await page.getByLabel('Looks at').selectOption('west');
+  await page.getByTestId('hqb-seat-save').click();
+  await expect.poll(() => mock.requests.find((r) => r.method === 'PATCH' && r.path === '/desks/d-2')?.body).toMatchObject({ table_group: 'l-table', facing: 'west' });
+  await expect(page.locator('.hqbTables rect')).toHaveCount(1);
+  await page.getByRole('checkbox', { name: /Also copy the desks/ }).check();
+  await page.getByRole('button', { name: 'Copy room' }).click();
+  await expect.poll(() => [...mock.desks.values()].filter((d) => d.table_group === 'l-table').length).toBe(2);
+});
+
 test('the facts the spec relies on are the planner fixture', () => {
   expect(FX.people.map((p) => p.name)).toEqual(['Raed', 'Hazrat', 'Mai', 'Shahzeb', 'Ijaz', 'Badea', 'Ali Zeehan', 'Amjad', 'Rana', 'Ahmed Elbendari']);
   expect(person('raed').shift).toBe('day');
+});
+
+test('the Operations wall counts the people of the other shift as Off shift, from the stored hours and the clock', async ({ page }) => {
+  await openRoom(page);
+  const wall = hq(page).getByRole('region', { name: 'Operations wall' });
+  await expect(wall.getByRole('list', { name: 'Agents by state' })).toContainText('Off shift 3');
+  await expect(wall.locator('[data-tile="agents"] .hqWallValue')).toHaveText('10');
+  // The view toggle never changes a count: counts follow the clock.
+  await hq(page).getByTestId('shift-toggle').click();
+  await expect(wall.getByRole('list', { name: 'Agents by state' })).toContainText('Off shift 3');
+  await shot(page, 'green-day-wall-off-shift');
+});
+
+test('at night the six day people count as Off shift on the wall, never idle or missing', async ({ page }) => {
+  await openRoom(page, { at: NIGHT });
+  const states = hq(page).getByRole('region', { name: 'Operations wall' }).getByRole('list', { name: 'Agents by state' });
+  await expect(states).toContainText('Off shift 6');
+  await expect(states).toContainText('Idle 4');
+});
+
+test('saved hours move who is off shift: with the day from 13:00, noon still counts the day people as Off shift', async ({ page }) => {
+  await openRoom(page, { building: { shift_day_start: '13:00', shift_night_start: '23:00' } });
+  await expect(hq(page).getByRole('region', { name: 'Operations wall' }).getByRole('list', { name: 'Agents by state' })).toContainText('Off shift 6');
 });

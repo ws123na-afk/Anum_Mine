@@ -214,7 +214,7 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
       const created = { ...source, ...base(String(body?.id)), name: body?.name ?? `${source.name} copy`, scene_x: body?.x ?? source.scene_x, scene_z: body?.z ?? source.scene_z };
       rooms.set(String(body?.id), created);
       const made: Json[] = [];
-      if (body?.copy_desks) for (const d of [...desks.values()].filter((x) => x.room_id === copy[1])) { const c = desk(`${body?.id}-d${made.length + 1}`, String(body?.id), String(d.label), d.pos_x as number | null, d.pos_z as number | null); desks.set(String(c.id), c); made.push(c); }
+      if (body?.copy_desks) for (const d of [...desks.values()].filter((x) => x.room_id === copy[1])) { const c = { ...desk(`${body?.id}-d${made.length + 1}`, String(body?.id), String(d.label), d.pos_x as number | null, d.pos_z as number | null), shift: d.shift ?? null, seat_order: d.seat_order ?? null, facing: d.facing ?? null, seat_kind: d.seat_kind ?? null, table_group: d.table_group ?? null }; desks.set(String(c.id), c); made.push(c); }
       return json({ room: created, desks: made }, 201);
     }
     if (path === '/desks' && method === 'POST') {

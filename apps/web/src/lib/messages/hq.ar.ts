@@ -73,6 +73,7 @@ export const hqAr = {
   'hq.status.idle': 'خامل',
   'hq.status.paused': 'موقوف مؤقتاً',
   'hq.status.unknown': 'غير معروف',
+  'hq.status.off_shift': 'خارج الوردية',
   'hq.status.unavailable': 'الحضور غير متاح',
   'hq.status.empty': 'لا يوجد وكلاء',
   'hq.totals.title': 'إجمالي الوكلاء',

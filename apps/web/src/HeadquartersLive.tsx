@@ -17,7 +17,7 @@ import { GuidedExecutiveTour } from './GuidedExecutiveTour';
 import { HqPlanFallback } from './HqPlanFallback';
 import { GraphicsChip, PresenceLinkChip, ViewSwitch, type HqView } from './HqChrome';
 import { AgentPanel, RoomPanel } from './HqPanels';
-import { activeShiftKey, applyShiftView, type ShiftView } from './lib/hqShifts.ts';
+import { activeShiftKey, applyShiftView, offShiftKeys, type ShiftView } from './lib/hqShifts.ts';
 import { OfficeWorkstations } from './OfficeWorkstations';
 import * as api from './lib/api.ts';
 import { assistantLive, flowLive, officeLive, totalsSource } from './lib/hqPanelStatus.ts';
@@ -32,7 +32,7 @@ import { loadCommerceState, loadTyreState } from './lib/hqModulesApi.ts';
 import { saveCampusProfile, type LoadedPresence } from './lib/hqPresenceApi.ts';
 import { usePresenceLive } from './usePresenceLive';
 import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
-import { agentPresence, indexPresence, loadMeetingEvidence, presenceFromItems, totalsOf, unreportedStatuses, type HqAgentPresence, type MeetingEvidence, type RoomMeeting } from './lib/hqPresence.ts';
+import { agentPresence, indexPresence, isOffShift, loadMeetingEvidence, presenceFromItems, totalsOf, unreportedStatuses, type HqAgentPresence, type MeetingEvidence, type RoomMeeting } from './lib/hqPresence.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import { indexRoomNames, roomName, sceneName } from './lib/registryNames.ts';
 import { useLocale } from './useLocale';
@@ -257,6 +257,9 @@ export function HeadquartersLive(props: HeadquartersProps) {
     () => (rawProjection ? { ...rawProjection, buildings: applyShiftView(rawProjection.buildings, shiftView, nowRef.current) } : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rawProjection, shiftView, shiftKey]);
+  // People of a shift not in force now, from the stored seats and hours: every count says "Off shift" for them, never idle or missing.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const offShift = useMemo(() => offShiftKeys(rawProjection?.buildings ?? [], nowRef.current), [rawProjection, shiftKey]);
   const registryBuilding = projection?.buildings.find((b) => b.id === state?.selected.buildingId) ?? projection?.buildings[0] ?? null;
   const floor = registryBuilding?.floors.find((f) => f.id === state?.selected.floorId) ?? registryBuilding?.floors[0] ?? null;
 
@@ -280,15 +283,15 @@ export function HeadquartersLive(props: HeadquartersProps) {
     [projection, locale]);
   // The command centre wall: real numbers from the flow and the presence list, or "Not connected".
   const wallModel = useMemo(
-    () => commandWall({ status: flow.status, snapshot: flow.snapshot }, presenceList ? presenceList.map((p) => ({ agent_id: p.agentId.startsWith('desk:') ? null : p.agentId, state: p.status })) : null, livePresence.link === 'connecting'),
-    [flow.status, flow.snapshot, presenceList, livePresence.link]);
+    () => commandWall({ status: flow.status, snapshot: flow.snapshot }, presenceList ? presenceList.map((p) => ({ agent_id: p.agentId.startsWith('desk:') ? null : p.agentId, state: isOffShift(offShift, p) ? 'off_shift' : p.status })) : null, livePresence.link === 'connecting'),
+    [flow.status, flow.snapshot, presenceList, livePresence.link, offShift]);
   const isOperationsRoom = useCallback((room: RoomGeometry) => resolveRoomModule({ department: room.teamDepartment, kind: room.kind, name: room.label, buildingKind: currentBuildingKind.current }).target.type === 'flow', []);
   const flowReload = flow.reload;
   const billboardFlow = useMemo(() => ({ status: flow.status, snapshot: flow.snapshot }), [flow.status, flow.snapshot]);
   const wallProp = useMemo(() => ({ model: wallModel, isOperations: isOperationsRoom, onReload: () => void flowReload() }), [wallModel, isOperationsRoom, flowReload]);
   const presenceIndex = useMemo(() => (presenceList ? indexPresence(presenceList) : null), [presenceList]);
   const presenceOf = useCallback((id: string, desk: SceneDesk | null) => presenceIndex?.byAgent.get(id) ?? (desk ? presenceIndex?.byDesk.get(desk.id) : undefined), [presenceIndex]);
-  const localTotals = useMemo(() => (presenceList ? totalsOf(presenceList.filter((p) => !p.agentId.startsWith('desk:'))) : null), [presenceList]);
+  const localTotals = useMemo(() => (presenceList ? totalsOf(presenceList.filter((p) => !p.agentId.startsWith('desk:')), offShift) : null), [presenceList, offShift]);
   const unreported = useMemo(() => (presenceApi ? [] : unreportedStatuses(meetings)), [presenceApi, meetings]);
   const verifiedAt = presenceApi?.asOf ?? snapshot?.observedAt ?? null;
   // Total agents: while the presence stream is live the open workspace's numbers follow it; otherwise the campus read (30 s) stands.
@@ -324,8 +327,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
           : b));
     const merged: Campus = { ...loaded.campus, buildings, totals: campusTotals(buildings).totals };
     // A workspace whose office registry holds several buildings shows each of them on the campus (never another workspace's registry).
-    return expandCampus(merged, scope.workspaceId, projection?.buildings ?? [], presenceIndex);
-  }, [loaded, localTotals, floorCount, verifiedAt, scope.workspaceId, projection, presenceIndex, source]);
+    return expandCampus(merged, scope.workspaceId, rawProjection?.buildings ?? [], presenceIndex, offShift);
+  }, [loaded, localTotals, floorCount, verifiedAt, scope.workspaceId, rawProjection, presenceIndex, source, offShift]);
   const flowState = flowLive(flow.link, flow.status);
   const officeState = officeLive(source, { loaded: loaded !== null, failed: campusError !== null, denied: campusError?.denied === true });
   const [paTools, setPaTools] = useState<'loading' | 'ready' | 'unavailable' | null>(null);
@@ -677,7 +680,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
               flow={{ snapshot: flow.snapshot, batch: flow.batch, onPickRoom: (id) => { setRoomFilter(id); setFlowOpen(true); } }}
               workspaceName={currentBuilding ? sceneName(currentBuilding, locale) : scope.workspaceId} kindLabel={currentBuilding?.registryBuildingId ? (currentBuilding.workspaceName ?? '') : t(`hq.kind.${buildingKind}` as MessageKey)}
               buildings={projection?.buildings ?? []} building={registryBuilding} floor={floor}
-              presence={presenceIndex} unreported={unreported} verifiedAt={verifiedAt} agentStyles={agentStyles}
+              presence={presenceIndex} offShift={offShift} unreported={unreported} verifiedAt={verifiedAt} agentStyles={agentStyles}
               liveMeetings={meetings ? meetings.liveMeetings : null} liveMeetingRoomIds={liveMeetingRoomIds} visitorCounts={visitorCounts}
               commerce={commerce} tyre={tyre} view={effectiveView} night={night} reducedMotion={reducedMotion} fullscreen={fullscreen}
               selectedRoomId={roomId} selectedAgentId={agentId}

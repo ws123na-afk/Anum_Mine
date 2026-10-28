@@ -327,6 +327,8 @@ export const builderAr: Record<keyof typeof builderEn, Message> = {
   'hqh.sum.desksMoved': { one: 'مكتب واحد نُقل', two: 'مكتبان نُقلا', few: '{count} مكاتب نُقلت', many: '{count} مكتباً نُقلت', other: '{count} مكتب نُقلت' },
   'hqh.sum.totals': 'الغرف: {rooms}، المكاتب: {desks}',
   'hqh.sum.resized': 'تغيّر حجم الطابق',
+  'hqh.sum.seatsChanged': { one: 'تغيّر مقعد واحد (الوردية أو المكان أو الطاولة)', two: 'تغيّر مقعدان (الوردية أو المكان أو الطاولة)', few: 'تغيّرت {count} مقاعد (الوردية أو المكان أو الطاولة)', many: 'تغيّر {count} مقعداً (الوردية أو المكان أو الطاولة)', other: 'تغيّر {count} مقعد (الوردية أو المكان أو الطاولة)' },
+  'hqh.sum.shiftHours': 'تغيّرت ساعات الوردية',
   'hqh.sum.none': 'لا تغيير في الغرف أو المكاتب',
   'hqh.dialog.title': 'استعادة النسخة {no} من {floor}؟',
   'hqh.dialog.intro': 'سيُغيَّر الطابق ليطابق هذه النسخة: {summary}.',

@@ -74,6 +74,7 @@ export const hqEn = {
   'hq.status.idle': 'Idle',
   'hq.status.paused': 'Paused',
   'hq.status.unknown': 'Unknown',
+  'hq.status.off_shift': 'Off shift',
   'hq.status.unavailable': 'Presence unavailable',
   'hq.status.empty': 'No agents',
   'hq.totals.title': 'Total agents',

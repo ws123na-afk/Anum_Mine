@@ -16,7 +16,7 @@ Agents are never part of a snapshot or a template. A restore changes the layout,
 
 | Table | Purpose |
 |---|---|
-| `office_floor_revisions` | Primary key `(tenant_id, workspace_id, floor_id, revision_no)`. `snapshot` (rooms, desks, floor size, sorted by id, no agents), `snapshot_hash` (SHA-256 of the canonical content), `summary` (counts of added, removed, moved and changed rooms and desks), `action`, `actor`, `restored_from` and `restored_over`. A trigger refuses `UPDATE`; only the cap prune deletes. Foreign key to the floor with `ON DELETE CASCADE`, so deleting an empty floor removes its history. |
+| `office_floor_revisions` | Primary key `(tenant_id, workspace_id, floor_id, revision_no)`. `snapshot` (rooms, desks with their seat fields, floor size, the building's shift hours, sorted by id, no agents; see "Seats and shift hours" below), `snapshot_hash` (SHA-256 of the canonical content), `summary` (counts of added, removed, moved and changed rooms and desks), `action`, `actor`, `restored_from` and `restored_over`. A trigger refuses `UPDATE`; only the cap prune deletes. Foreign key to the floor with `ON DELETE CASCADE`, so deleting an empty floor removes its history. |
 | `office_layout_templates` | `(id, tenant_id, workspace_id)`, `kind` (`floor` or `building`), unique name per kind and workspace, `definition` JSON (rooms with position, size, rotation, door, equipment, department, and desk labels with positions), `revision` for optimistic edits. At most 100 per workspace. |
 
 Both tables have forced workspace RLS (`tenant_isolation_*`) and the purge policy and grants of migration 0097, and both are in
@@ -35,6 +35,16 @@ to a floor that has no history writes a `baseline` revision of the state **befor
 can be undone. Each request records its floors once, when its unit of work ends and before it commits
 (`_store` in `office_space_api.py`). A change that leaves the layout identical to the head (for example an assignment, which is not a layout
 action) writes nothing.
+
+### Seats and shift hours (snapshot version 2)
+
+Version 2 snapshots (`"v": 2`) add each desk's seat fields (`shift`, `seat_order`, `facing`, `seat_kind`, `table_group`, migration
+`0115_desk_seats_shifts`) and `shifts` (`shift_day_start`, `shift_night_start` of the floor's building), all in the content hash. A restore
+puts them back exactly, re-creating a removed desk with its seat (and no agent) and setting the building's hours (the building row is
+locked after the floor, as every restore locks). The diff counts `seats_changed` (desks whose seat fields changed and nothing else) and
+`shift_hours_changed`; both are in the restore audit summary as counts. A version 1 revision never recorded seats or hours: it is compared
+with the floor through its own fields only (`as_version_of`), so it still restores exactly what it holds and leaves seats and hours as they
+are. Hours are one pair per building: restoring a revision of one floor restores them for the whole building. No migration was needed.
 
 ## API (`/api/v1/office-layout`, `office_layout_history_api.py`)
 

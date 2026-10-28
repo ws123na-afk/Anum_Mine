@@ -37,7 +37,7 @@ export function registryLook(buildingId: string): Readonly<{ kind: CampusBuildin
 export const registryKey = (workspaceId: string, buildingId: string): string => `${workspaceId}~${buildingId}`;
 
 /** Totals and people of one registry building from its desks and the presence index. Null totals when presence is unavailable. */
-export function registryBuildingFacts(building: SceneBuilding, presence: HqPresenceIndex | null): { totals: CampusTotals | null; people: string[]; departments: string[] } {
+export function registryBuildingFacts(building: SceneBuilding, presence: HqPresenceIndex | null, offShift?: ReadonlySet<string>): { totals: CampusTotals | null; people: string[]; departments: string[] } {
   const seen = new Set<string>();
   const statuses: StatusKey[] = [];
   const names: string[] = [];
@@ -49,14 +49,14 @@ export function registryBuildingFacts(building: SceneBuilding, presence: HqPrese
       const id = desk.agentId ?? record?.agentId ?? desk.id;
       if (seen.has(id)) continue;
       seen.add(id);
-      statuses.push(record ? record.status : 'unknown');
+      statuses.push(offShift && (offShift.has(id) || offShift.has(`desk:${desk.id}`)) ? 'off_shift' : record ? record.status : 'unknown');
       const hidden = record?.reason === 'agent_not_visible' || (record?.agentId.startsWith('desk:') ?? false);
       const name = hidden ? '' : record?.name || desk.agent?.name || '';
       if (name) { names.push(name); roles.push(record?.role ?? null); }
     }
   }
   const totals: CampusTotals | null = presence
-    ? statuses.reduce<CampusTotals>((t, s) => ({ ...t, agents: t.agents + 1, [s]: t[s] + 1 }), EMPTY_TOTALS)
+    ? statuses.reduce<CampusTotals>((t, s) => ({ ...t, agents: t.agents + 1, [s]: (t[s] ?? 0) + 1 }), EMPTY_TOTALS)
     : null;
   return { totals, people: names.slice(0, 4).map(initialsOf), departments: departmentsOf(roles) };
 }
@@ -65,7 +65,7 @@ export function registryBuildingFacts(building: SceneBuilding, presence: HqPrese
  * Replaces the open workspace's single building by one building per registry building when there are two or more.
  * `workspaceName` labels each card with its workspace. Everything else is returned untouched.
  */
-export function expandCampus(campus: Campus, workspaceId: string, registry: readonly SceneBuilding[], presence: HqPresenceIndex | null): Campus {
+export function expandCampus(campus: Campus, workspaceId: string, registry: readonly SceneBuilding[], presence: HqPresenceIndex | null, offShift?: ReadonlySet<string>): Campus {
   const home = campus.buildings.find((b) => b.workspace_id === workspaceId);
   if (!home || !home.accessible || home.archived) return campus;
   if (registry.length < 2) {
@@ -74,7 +74,7 @@ export function expandCampus(campus: Campus, workspaceId: string, registry: read
     return sign ? { ...campus, buildings: campus.buildings.map((b) => (b === home ? { ...home, sign } : b)) } : campus;
   }
   const expanded: CampusBuilding[] = registry.map((b) => {
-    const facts = registryBuildingFacts(b, presence);
+    const facts = registryBuildingFacts(b, presence, offShift);
     const rooms = b.floors.reduce((n, f) => n + f.rooms.length, 0);
     const desks = b.floors.reduce((n, f) => n + f.desks.length, 0);
     return {

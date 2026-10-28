@@ -118,3 +118,22 @@ def test_the_look_applies_to_new_agents_only_and_is_part_of_the_hash() -> None:
     assert len({a, b, c}) == 3, "another look, or none, is another plan"
     # Without any look the plan still stores none (the previous behaviour).
     assert all(x["appearance"] is None for x in gc.plan(gc.Facts(), "Asia/Dubai")["people"])
+
+
+def test_off_shift_desks_follow_stored_hours_and_the_building_time_zone() -> None:
+    from datetime import datetime, timezone
+
+    def seat(desk: str, shift: str | None, tz: str = "Asia/Dubai", day: str | None = None, night: str | None = None) -> dict:
+        return {"desk_id": desk, "shift": shift, "timezone": tz, "shift_day_start": day, "shift_night_start": night}
+
+    seats = [seat("d1", "day"), seat("d7", "night"), seat("m", None)]
+    noon_dubai = datetime(2026, 10, 28, 8, 0, tzinfo=timezone.utc)  # 12:00 in Dubai
+    assert gc.off_shift_desks(seats, noon_dubai) == {"d7"}
+    late_dubai = datetime(2026, 10, 28, 16, 30, tzinfo=timezone.utc)  # 20:30 in Dubai: night, the manager stays on
+    assert gc.off_shift_desks(seats, late_dubai) == {"d1"}
+    # Edited hours move the edge: day from 09:00, so 08:30 in Dubai is still night.
+    edited = [seat("d1", "day", day="09:00", night="21:00"), seat("d7", "night", day="09:00", night="21:00")]
+    assert gc.off_shift_desks(edited, datetime(2026, 10, 28, 4, 30, tzinfo=timezone.utc)) == {"d1"}
+    # An unknown zone reads UTC, never raises.
+    assert gc.off_shift_desks([seat("d1", "day", tz="Not/AZone")], datetime(2026, 10, 28, 20, 0, tzinfo=timezone.utc)) == {"d1"}
+    assert gc.active_shift(noon_dubai, None, None, None) == "day"
