@@ -62,6 +62,8 @@ Also translated: Voice (`voice.*`), Governance and Enterprise operations (`gov.*
 
 Voice has two languages: the interface follows the page language, and the speech language (Voice settings > Speech language) picks what the browser listens for and how replies are spoken. Without a saved speech language, an Arabic page listens in Arabic (`ar-SA`). The "Try saying" examples are in the speech language, because they are meant to be said; the greeting is the assistant speaking, so it follows the speech language too.
 
+Headquarters office tools: the guided visit (`gt.*`), Reception (`hqRec.*`) and Manage spaces (`OfficeSpaceLiveManager.tsx`, `osm.*` in `messages/officeSpace.*.ts`, room types from `hqSc.kind.*`) are fully Arabic, right to left. Stored names (buildings, floors, rooms, desks, visitors) keep their own direction with `<bdi>` or `dir="auto"`; the arrows of Next stop, Check in, Check out and Return to office carry `flipRtl`. Time zone ids (`Asia/Riyadh`) and the X and Z axis letters stay as they are. The date and time picker of the visitor form is the browser's own control and follows the browser's language. `test/hqArabicScreens.test.ts` checks the keys, the Arabic, the icons and the logical CSS; `e2e/hq-arabic-screens.spec.ts` renders Manage spaces and Reception in Arabic at the five gate sizes, and `e2e/hq-guided-visit.spec.ts` does the same for the visit.
+
 What still renders in English: text people or the model wrote (names, pack descriptions, routing ids, the assistant's replies), the developer timeline's stage labels and summaries, which the API writes, and API sentences that have no Arabic catalog entry yet (see below).
 
 ## Messages written by the API
