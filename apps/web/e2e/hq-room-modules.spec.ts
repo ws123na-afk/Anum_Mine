@@ -86,10 +86,11 @@ test('a room with no department falls back to its kind and shows the hint', asyn
   await expect(page.locator('.hqSide [data-testid="room-module-hint"]')).toBeVisible();
 });
 
-test('the live office has no reception simulation and no invented names', async ({ page }) => {
+test('the reception room opens the real visitor register; no simulation and no invented names', async ({ page }) => {
   await openRoom(page, 'Alpha Zeta Seven');
-  await expect(page.locator('.hqSide')).toContainText('no visitor register');
-  await expect(page.locator('.hqSide [data-testid="room-module"]')).toHaveCount(0);
+  // Owner decision O4: a reception room opens the stored visitor register (docs/ANUM_MINE_HQ_RECEPTION.md), never a simulation.
+  await expect(page.locator('.hqSide [data-testid="room-module"]')).toHaveText('Open the visitor register');
+  await expect(page.locator('.hqSide [data-testid="room-module-hint"]')).toHaveCount(0);
   await page.locator('.hqLive').getByRole('button', { name: /Office tools/ }).click();
   await expect(page.getByRole('button', { name: 'Reception desk' })).toHaveCount(0);
   const text = await page.locator('.hqLive').innerText();

@@ -173,7 +173,7 @@ function BuildingRow({ b, locale, checked, onFlip }: { b: StarterBuilding; local
     <div className="hqScRow">
       <input id={boxId} type="checkbox" checked={checked} onChange={onFlip} disabled={b.status === 'complete'} />
       <label htmlFor={boxId}>
-        <strong>{name}</strong>
+        <strong>{name}{b.campus_kind && <>{' '}<span className="hqScTag" data-kind={b.campus_kind} data-testid="sc-campus-kind">{t(`hq.kind.${b.campus_kind}` as MessageKey)}</span></>}</strong>
         <small>{b.status === 'complete' ? t('hqSc.row.nothing') : Object.values(c).some((n) => n > 0)
           ? t('hqSc.row.counts', { floors: c.floors, rooms: c.rooms, desks: c.desks }) : t('hqSc.row.fillOnly', { count: departmentFills(b.counts) })}</small>
       </label>

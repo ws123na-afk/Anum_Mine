@@ -3,7 +3,7 @@
  * label cards, camera, minimap and totals all read from the campus model; nothing is drawn for a
  * building the person cannot open, and no count appears without a presence record behind it.
  */
-import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, House, Landmark, LockKeyhole, Map as MapIcon, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
+import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, GraduationCap, House, Landmark, LockKeyhole, Map as MapIcon, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { WorkSiteInput, WorkUi } from './HqCampusWork';
 import type { CardWork, FeedNote } from './lib/hqWorkMotion.ts';
@@ -40,6 +40,7 @@ const NO_LOGOS: ReadonlyMap<string, SignLogo> = new Map();
 const KIND_ICON: Record<CampusBuildingKind, ReactElement> = {
   executive: <Landmark aria-hidden="true" />, business: <Building2 aria-hidden="true" />,
   department: <Briefcase aria-hidden="true" />, personal: <UserRound aria-hidden="true" />,
+  career: <GraduationCap aria-hidden="true" />,
 };
 /** The icon names of the campus contract (an owner picks one per building). */
 export const BUILDING_ICONS: Record<string, ReactElement> = {
@@ -415,7 +416,7 @@ export function BuildingDetail(props: { building: CampusBuilding; current: boole
   );
 }
 
-const KINDS: readonly CampusBuildingKind[] = ['executive', 'business', 'department', 'personal'];
+const KINDS: readonly CampusBuildingKind[] = ['executive', 'business', 'department', 'personal', 'career'];
 
 /** The owner's building type and icon (PUT /api/v1/office/campus/profile). It changes how the building is drawn and nothing else. */
 function BuildingProfileForm(props: { building: CampusBuilding; onSave: CampusViewProps['onSaveProfile'] }) {

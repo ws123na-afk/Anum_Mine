@@ -7,7 +7,8 @@ import type { OfficePresenceStateTotals } from './officePresence.js';
 
 export const OFFICE_CAMPUS_VERSION = 1 as const;
 
-export type CampusBuildingKind = 'executive' | 'business' | 'department' | 'personal';
+/** `career` is its own kind (owner decision O2, 27 October 2026). */
+export type CampusBuildingKind = 'executive' | 'business' | 'department' | 'personal' | 'career';
 export type CampusBuildingIcon =
   | 'building' | 'briefcase' | 'store' | 'truck' | 'home' | 'user' | 'landmark' | 'factory' | 'shield' | 'chart';
 

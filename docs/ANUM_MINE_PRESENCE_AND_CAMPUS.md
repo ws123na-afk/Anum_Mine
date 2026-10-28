@@ -20,7 +20,7 @@ One building per workspace where the caller has an **active membership** and `ta
 
 ```json
 { "version": 1, "tenant_id": "...", "current_workspace_id": "...", "generated_at": "ISO", "truncated": false,
-  "buildings": [{ "workspace_id": "...", "name": "...", "kind": "executive|business|department|personal|null",
+  "buildings": [{ "workspace_id": "...", "name": "...", "kind": "executive|business|department|personal|career|null",
     "icon": "building|briefcase|store|truck|home|user|landmark|factory|shield|chart|null", "profile_revision": 1,
     "role": "owner", "archived": false, "accessible": true,
     "floors": [{ "id": "...", "building_id": "...", "level": 0, "name": "..." }],
@@ -121,3 +121,7 @@ Expand only (new tables and one new role; nothing existing changes). Chained on 
 ## On the 3D monitors
 
 A desk monitor reads the presence record behind its desk (`status`, `stale`, `last_verified_at`) and the live flow item the flow places at the desk (`since`, `waiting.since`). Working and meeting show a scan line only while the record is fresh; a shift desk off shift is dark. Elapsed time counts from the real start of the record; a record without a start shows none. See [live screens](ANUM_MINE_HQ_LIVE_SCREENS.md).
+
+## Career building kind (27 October 2026)
+
+Owner decision O2: `career` is its own campus kind. `PUT /office/campus/profile` accepts it (migration `0118_career_visitor_register` widens `ck_campus_profile_kind`; the previous release shows an unknown kind as the business look), and the campus draws it as the career centre. See [reception and career](ANUM_MINE_HQ_RECEPTION.md).

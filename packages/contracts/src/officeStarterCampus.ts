@@ -36,6 +36,8 @@ export interface StarterFloor {
 
 export interface StarterBuilding {
   key: string; number: number; id: string; name: StarterName; timezone: string; selected: boolean;
+  /** The campus building kind it is drawn as (Career & Employment is `career`). Optional: an older server leaves it out. */
+  campus_kind?: 'executive' | 'business' | 'department' | 'personal' | 'career';
   action: StarterAction; reason: StarterSkipReason | null; status: StarterBuildingStatus;
   floors: StarterFloor[]; counts: { create: StarterCounts; skip: StarterCounts; update: StarterUpdateCounts };
 }

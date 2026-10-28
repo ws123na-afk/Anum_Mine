@@ -266,3 +266,4 @@ export * from './officeHistory.js';
 export * from './officeStarterCampus.js';
 export * from './officeGreenConcrete.js';
 export * from './officeStaffDesks.js';
+export * from './officeVisitors.js';

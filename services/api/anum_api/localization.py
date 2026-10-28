@@ -123,6 +123,24 @@ ARABIC_MESSAGES: dict[str, str] = {
     "That plan is not offered; choose one of the plans on the pricing page.": (
         "هذه الخطة غير معروضة؛ اختر إحدى الخطط في صفحة الأسعار."
     ),
+    # Reception visitor register (anum_api/office_visitors_api.py)
+    "Confirm this on screen with a click. A spoken or typed answer cannot change the visitor register.": (
+        "أكّد ذلك على الشاشة بنقرة. لا تغيّر إجابة منطوقة أو مكتوبة سجل الزوار."
+    ),
+    "Visit not found": "الزيارة غير موجودة.",
+    "The visit changed; reload and try again": "تغيّرت الزيارة؛ أعد التحميل وحاول مرة أخرى.",
+    "A visit with this id already exists": "توجد زيارة بهذا المعرّف بالفعل.",
+    "A finished visit cannot be changed; delete it or add a new visit": "لا يمكن تغيير زيارة انتهت؛ احذفها أو أضف زيارة جديدة.",
+    "Only an expected visitor can be checked in": "لا يُسجَّل دخول إلا زائر متوقَّع.",
+    "Only a checked-in visitor can be checked out": "لا يُسجَّل خروج إلا زائر سُجّل دخوله.",
+    "Only an expected visit can be cancelled": "لا تُلغى إلا زيارة متوقَّعة.",
+    "That building or room does not exist in this workspace": "هذا المبنى أو هذه الغرفة غير موجودة في مساحة العمل هذه.",
+    "The room is not in that building": "الغرفة ليست في هذا المبنى.",
+    "The host is not an active member or a visible agent of this workspace": "المضيف ليس عضوًا نشطًا ولا وكيلًا ظاهرًا في مساحة العمل هذه.",
+    "Give both the host kind and the host, or neither": "حدّد نوع المضيف والمضيف معًا، أو اتركهما معًا.",
+    "The expected time must have a time zone and be within 400 days of today": "يجب أن يحمل الوقت المتوقَّع منطقة زمنية وأن يقع خلال 400 يوم من اليوم.",
+    "Give both since and until, with since before until": "حدّد بداية الفترة ونهايتها معًا، على أن تسبق البداية النهاية.",
+    "The visitor's name, the purpose and the expected time cannot be empty": "لا يمكن ترك اسم الزائر والغرض والوقت المتوقَّع فارغة.",
     # Generic envelopes
     "Request validation failed": "تعذّر التحقق من الطلب.",
     "An unexpected error occurred": "حدث خطأ غير متوقع.",

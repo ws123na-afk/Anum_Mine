@@ -13,7 +13,7 @@ import { classifySurfaces } from './hqSurfaces.ts';
 import { signAtlasLayout } from './hqTextures.ts';
 
 export const EXTERIOR_OF: Readonly<Record<Archetype, ExteriorKind>> = {
-  executive: 'executiveHq', tower: 'officeTower', admin: 'adminBlock', retail: 'retailBlock', warehouse: 'warehouse', workshop: 'tyreWorkshop', villa: 'personalVilla',
+  executive: 'executiveHq', tower: 'officeTower', admin: 'adminBlock', retail: 'retailBlock', warehouse: 'warehouse', workshop: 'tyreWorkshop', villa: 'personalVilla', career: 'careerCentre',
 };
 
 export type ExteriorShape = Readonly<{

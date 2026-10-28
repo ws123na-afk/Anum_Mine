@@ -345,6 +345,7 @@ _ORDER = (
     "office_floor_revisions",
     "office_layout_templates",
     "office_building_logos",
+    "office_visitors",
     "office_desks",
     "office_rooms",
     "office_floors",

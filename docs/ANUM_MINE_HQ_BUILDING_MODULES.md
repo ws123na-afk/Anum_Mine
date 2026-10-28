@@ -35,7 +35,7 @@ Data truth: the numbers come from the existing endpoints of the **open workspace
 
 The room to module table (`lib/hqRoomModule.ts`) already covered Marketing (`#marketing`), Technology (`#developer`), Research (`#knowledge`) and Legal (`#files`) on `main`; the matrix was stale there. This change verifies the whole starter campus with a unit test over all 62 rooms (`test/hqBuildingModules.test.ts`, fixture `test/fixtures/starterCampusRooms.json` that an API test keeps equal to the master list):
 
-* Every room resolves to a view that exists in the shell, the live flow, a meeting, or an honest "no module" with a reason. Exactly two have none: the **Reception** (there is no visitor register, owner decision O4) and **Procurement** (no procurement module exists).
+* Every room resolves to a view that exists in the shell, the live flow, a meeting, or an honest "no module" with a reason. Exactly one has none: **Procurement** (no procurement module exists). The **Reception** opens the real visitor register (owner decision O4, [reception](ANUM_MINE_HQ_RECEPTION.md)).
 * Thirteen rooms had no stored department (the decisions are in the table below). Only the **Executive Office** now has one: `executive`, a new storable department (migration `0116_room_dept_executive`, expand only, no backfill), so it opens the executive desk by its stored department and no longer by the room name. The other twelve stay empty and open a generic module (Tasks, Calendar); the owner sees "set a department" and can store one in the builder. The list of twelve is pinned by the test so a new room cannot slip in unnoticed.
 
 | # | Starter room (building) | Decision | Reason |
@@ -87,7 +87,7 @@ Browser: `e2e/hq-building-modules.spec.ts` (each building's panels with real num
 
 * The panel numbers are per workspace, not per building: two buildings in one workspace read the same commerce or tyre figures.
 * A starter-campus "Command Center" created before this change stays an office until the owner changes its type; there is no bulk migration of room kinds.
-* The Reception still has no module (no visitor register) and Procurement none (no module exists); twelve starter rooms have no department and use a generic module until the owner sets one (each is a judgment call listed above).
+* Procurement has no module (none exists); the Reception opens the visitor register; twelve starter rooms have no department and use a generic module until the owner sets one (each is a judgment call listed above).
 * The camera glide uses the existing fly-to; the floors themselves collapse flat rather than sliding away. No isolate-one-floor toggle beyond the cut-away and "All floors".
 * Frame times were measured with software GL only; a run on a real GPU or device is still missing (matrix 3.10).
 * Tyre Pulse's saw-tooth look needs the local drawing hint `workshop`; it is not stored and not a building type the owner can pick.
