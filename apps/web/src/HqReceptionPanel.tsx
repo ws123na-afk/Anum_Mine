@@ -299,9 +299,9 @@ export function HqReceptionPanel(props: HqReceptionPanelProps) {
                       return (
                         <li key={v.id} className="hqRecRow" data-status={v.status} data-visit-id={v.id}>
                           <div className="hqRecMain">
-                            <strong dir="auto">{v.visitor_name}</strong>
-                            {v.company && <small dir="auto">{v.company}</small>}
-                            <small dir="auto">{v.purpose}</small>
+                            <strong><bdi>{v.visitor_name}</bdi></strong>
+                            {v.company && <small><bdi>{v.company}</bdi></small>}
+                            <small><bdi>{v.purpose}</bdi></small>
                             <small>{when}{host && <>{' · '}<span dir="auto">{t('hqRec.row.host', { name: host })}</span></>}{place && <>{' · '}<span dir="auto">{t('hqRec.row.room', { name: place })}</span></>}</small>
                           </div>
                           <span className="hqRecChip" data-status={STATUS_ICON[v.status]}>{t(`hqRec.status.${v.status}` as MessageKey)}</span>
@@ -315,8 +315,8 @@ export function HqReceptionPanel(props: HqReceptionPanelProps) {
                                 </div>
                               ) : (
                                 <>
-                                  {can.checkIn && <button type="button" className="hqPrimary" disabled={acting === v.id} onClick={() => void run(v, 'check-in')}><LogIn aria-hidden="true" />{t('hqRec.checkIn')}</button>}
-                                  {can.checkOut && <button type="button" className="hqPrimary" disabled={acting === v.id} onClick={() => void run(v, 'check-out')}><LogOut aria-hidden="true" />{t('hqRec.checkOut')}</button>}
+                                  {can.checkIn && <button type="button" className="hqPrimary" disabled={acting === v.id} onClick={() => void run(v, 'check-in')}><LogIn className="flipRtl" aria-hidden="true" />{t('hqRec.checkIn')}</button>}
+                                  {can.checkOut && <button type="button" className="hqPrimary" disabled={acting === v.id} onClick={() => void run(v, 'check-out')}><LogOut className="flipRtl" aria-hidden="true" />{t('hqRec.checkOut')}</button>}
                                   {can.edit && <button type="button" className="hqGhost" disabled={acting === v.id} onClick={() => openEdit(v)}><Pencil aria-hidden="true" />{t('hqRec.edit')}</button>}
                                   {can.cancel && <button type="button" className="hqGhost" disabled={acting === v.id} onClick={() => void run(v, 'cancel')}><XCircle aria-hidden="true" />{t('hqRec.cancel')}</button>}
                                   {can.remove && <button type="button" className="hqGhost" disabled={acting === v.id} onClick={() => setConfirm(v.id)}><Trash2 aria-hidden="true" />{t('hqRec.delete')}</button>}
