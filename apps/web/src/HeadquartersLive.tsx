@@ -16,6 +16,7 @@ import { HqPlanFallback } from './HqPlanFallback';
 import { GraphicsChip, PresenceLinkChip, ViewSwitch, type HqView } from './HqChrome';
 import { AgentPanel, RoomPanel } from './HqPanels';
 import { activeShiftKey, applyShiftView, offShiftKeys, type ShiftView } from './lib/hqShifts.ts';
+import { roomMove } from './hq-nav/navModel.ts';
 import * as api from './lib/api.ts';
 import { assistantLive, flowLive, officeLive, totalsSource } from './lib/hqPanelStatus.ts';
 import { campusTotals, workspaceOf, type Campus, type CampusBuildingKind } from './lib/campusModel.ts';
@@ -423,16 +424,18 @@ export function HeadquartersLive(props: HeadquartersProps) {
   }, [presenceOf, scope.workspaceId]);
 
   const goFloor = useCallback((id: string) => { controller.selectFloor(id); setRoomId(null); setAgentId(null); }, [controller]);
+  // A room to frame once its floor is open (BuildingView consumes it): every way of opening a room asks for it.
+  const [focusRequest, setFocusRequest] = useState<{ roomId: string; n: number } | null>(null);
   const openRoomById = useCallback((fid: string, rid: string) => {
-    // A room of any building of the workspace: the list shows every registry building's rooms, so its building is opened first.
-    const owner = projection?.buildings.find((b) => b.floors.some((f) => f.id === fid && f.rooms.some((r) => r.id === rid))) ?? null;
-    const fl = owner?.floors.find((f) => f.id === fid);
-    const room = fl?.rooms.find((r) => r.id === rid);
-    if (!owner || !fl || !room) return;
-    if (registryBuilding?.id !== owner.id) controller.selectBuilding(owner.id);
-    if (floor?.id !== fid || registryBuilding?.id !== owner.id) controller.selectFloor(fid);
+    // A room of any building and any floor of the workspace: its building opens first, then its floor, then the room is selected and framed.
+    const move = roomMove(projection?.buildings ?? [], { buildingId: registryBuilding?.id ?? null, floorId: floor?.id ?? null }, rid, fid);
+    const room = move ? projection?.buildings.find((b) => b.id === move.buildingId)?.floors.find((f) => f.id === move.floorId)?.rooms.find((r) => r.id === rid) : undefined;
+    if (!move || !room) return;
+    if (move.switchBuilding) controller.selectBuilding(move.buildingId);
+    if (move.switchFloor) controller.selectFloor(move.floorId);
     setLevel('building'); setView((v) => (v === 'list' ? '3d' : v));
-    setRoomId(rid); setAgentId(null);
+    setRoomId(rid); setAgentId(null); setAgentDesk(null);
+    setFocusRequest((r) => ({ roomId: rid, n: (r?.n ?? 0) + 1 }));
     latestProps.current.onSelectRoom?.(roomRef(room));
   }, [projection, registryBuilding, floor?.id, controller, roomRef]);
 
@@ -477,6 +480,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
     if (res.buildingId && res.buildingId !== registryBuilding?.id) controller.selectBuilding(res.buildingId);
     if (res.floorId && res.floorId !== floor?.id) controller.selectFloor(res.floorId);
     setRoomId(res.roomId); setAgentId(res.agentId);
+    if (res.roomId && !res.agentId) { const rid = res.roomId; setFocusRequest((r) => ({ roomId: rid, n: (r?.n ?? 0) + 1 })); }
     if (res.roomId) {
       const room = registryBuilding?.floors.flatMap((f) => f.rooms).find((r) => r.id === res.roomId);
       if (room) latestProps.current.onSelectRoom?.(roomRef(room));
@@ -689,6 +693,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
               wall={wallProp} screenLive={livePresence.link === 'live'}
               onBack={() => setLevel('campus')} onSelectBuilding={(id) => controller.selectBuilding(id)} onSelectFloor={goFloor}
               onSelectRoom={selectRoom} onSelectAgent={(id, desk) => selectAgent(id, desk)}
+              onOpenRoom={openRoomById} focusRequest={focusRequest} meetingRooms={meetings ? liveMeetingByRoom : null}
               nav={navHandles} onManageSpaces={() => setOverlay('spaces')} onToggleFullscreen={() => void toggleFullscreen()} onUnavailable={onUnavailable} onNight={setNight}
               overview={overview} onOverview={setOverview}
             />

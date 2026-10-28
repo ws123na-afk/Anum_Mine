@@ -32,7 +32,8 @@ import type { RoomGeometry, SceneBuilding, SceneDesk, SceneFloor } from './lib/h
 import { deskShiftLine, WORK_STATUSES } from './lib/hqShifts.ts';
 import { deskVisual } from './lib/hqDeskState.ts';
 import { roleText } from './lib/hqRoles.ts';
-import { presenceForDesk, totalsOf, type HqPresenceIndex } from './lib/hqPresence.ts';
+import { presenceForDesk, totalsOf, type HqPresenceIndex, type RoomMeeting } from './lib/hqPresence.ts';
+import { MAX_MEETING_CHAIRS, meetingAttendees, postOccupants, seatedInMeetings } from './lib/hqPosts.ts';
 import type { StatusKey } from './lib/campusModel.ts';
 import type { HqView } from './HqChrome';
 import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
@@ -60,6 +61,12 @@ export type BuildingViewProps = Readonly<{
   unreported: readonly StatusKey[];
   verifiedAt: string | null;
   liveMeetings: number | null;
+  /** The live meetings by room id (stored participants): their people are seated at the room's table, nobody else. */
+  meetingRooms?: ReadonlyMap<string, RoomMeeting> | null;
+  /** Opens a room of any floor of this building: the floor is switched first, then the room is selected and framed. */
+  onOpenRoom?: (floorId: string, roomId: string) => void;
+  /** A room to frame once it is on the open floor (a pick from a list, the search or another floor), with a counter so the same room can be asked for again. */
+  focusRequest?: Readonly<{ roomId: string; n: number }> | null;
   /** Stored count of checked-in visitors per reception room (`receptionCounts`); null when the register was not read (no line drawn). */
   visitorCounts?: ReadonlyMap<string, number> | null;
   liveMeetingRoomIds: ReadonlySet<string>;
@@ -127,14 +134,17 @@ export function BuildingView(props: BuildingViewProps) {
     return map;
   }, [floors, presence]);
 
-  const people = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const f of floors) for (const d of f.desks) {
-      const p = presenceForDesk(presence, d);
-      if (d.agentId || p) map.set(d.id, d.agentId ?? p?.agentId ?? d.id);
-    }
+  // Who stands where (lib/hqPosts.ts): a person at a desk only with an assignment or presence record and on shift; the
+  // people of a live meeting in this building are seated in its room instead of at their desks.
+  const meetingRooms = props.meetingRooms ?? null;
+  const inMeeting = useMemo(() => seatedInMeetings(floors.flatMap((f) => f.rooms.map((r) => r.id)), meetingRooms), [floors, meetingRooms]);
+  const people = useMemo(() => postOccupants(floors, { presence, offShift: props.offShift, inMeeting }), [floors, presence, props.offShift, inMeeting]);
+  const attendees = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof meetingAttendees>>();
+    if (!meetingRooms) return map;
+    for (const f of floors) for (const r of f.rooms) { const list = meetingAttendees(meetingRooms.get(r.id), props.agentStyles, MAX_MEETING_CHAIRS); if (list.length) map.set(r.id, list); }
     return map;
-  }, [floors, presence]);
+  }, [floors, meetingRooms, props.agentStyles]);
   const looks = useMemo(() => {
     const map = new Map<string, AgentStyleInfo>();
     for (const [deskId, agentId] of people) { const info = props.agentStyles?.get(agentId); if (info) map.set(deskId, info); }
@@ -143,8 +153,8 @@ export function BuildingView(props: BuildingViewProps) {
   // The overview and the top view look straight down at the open floor: the floors above would hide it, so they stay out of those views.
   const stackOn = showAll && !props.overview && view !== 'top';
   const scene = useMemo(
-    () => buildBuildingScene(floors, { activeIndex, showAll: stackOn, cutaway: true, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks, locale }),
-    [floors, activeIndex, stackOn, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks, locale],
+    () => buildBuildingScene(floors, { activeIndex, showAll: stackOn, cutaway: true, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks, attendees, locale }),
+    [floors, activeIndex, stackOn, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks, attendees, locale],
   );
   const [wrap, aspect] = useAspect();
   const { overview } = props;
@@ -283,6 +293,22 @@ export function BuildingView(props: BuildingViewProps) {
     if (room && !latest.current.overview) focusRoom(room);
   }, [roomById, focusRoom]);
 
+  // A room asked for from outside the scene (another floor's label, the floor plan, the quick views, a list, the search, the
+  // assistant): once the room is on the open floor, the camera frames it. It runs after the floor's own glide was started, stops it
+  // and flies to the room instead, so the floor change and the room focus are one move. In the floor overview it only selects.
+  const doneFocus = useRef(0);
+  useEffect(() => {
+    const req = props.focusRequest;
+    if (!req || req.n === doneFocus.current) return;
+    const room = roomById.get(req.roomId);
+    if (!room) return; // its floor is not open yet: the next render (the new floor) frames it
+    doneFocus.current = req.n;
+    if (latest.current.overview || insideRef.current) return;
+    stopGlide();
+    shownFloor.current = activeIndex;
+    focusRoom(room);
+  }, [props.focusRequest, roomById, activeIndex, focusRoom]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const targets: PickTarget[] = useMemo(() => scene.rooms.filter((r) => r.floorIndex === activeIndex).map((r) => ({ id: r.id, box: r.box })), [scene, activeIndex]);
   // The floor the person was on before this one, so the floor they just left can ease away instead of vanishing.
   const lastActive = useRef(activeIndex);
@@ -363,7 +389,7 @@ export function BuildingView(props: BuildingViewProps) {
       list.push({
         id: spec.id, anchor: spec.anchor, priority: spec.priority, maxDistance: spec.maxDistance, tiers: spec.tiers, occluders: spec.occluders,
         node: <RoomLabelCard name={roomName(room)} kind={room.kind} department={room.teamDepartment} sub={visitorLine(room.kind, props.visitorCounts?.get(room.id), roomSubtitle(room, c.desks))} working={c.working} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId}
-          onPick={() => (onFloor ? pickRoom(room.id) : latest.current.onSelectFloor(floors[spec.floor].id))} />,
+          onPick={() => (onFloor ? pickRoom(room.id) : latest.current.onOpenRoom ? latest.current.onOpenRoom(floors[spec.floor].id, room.id) : latest.current.onSelectFloor(floors[spec.floor].id))} />,
       });
     }
     if (stacked && stackLib) {

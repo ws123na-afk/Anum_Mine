@@ -12,7 +12,7 @@ is matched, never their panels or data.
 - **The build (masculine, feminine, neutral) comes only from the look the owner chose** for that person (the avatar style, migration 0110). Nothing reads a name, a description, a role title or anything else
   to decide it. A person without a chosen look is drawn from a hash of the record id, as before (see "Still simplified").
 - Everything else (hair length, a head covering or cap, the garment set, glasses, a beard on the masculine build, body width, shoe colour) is a **deterministic draw from the record id**, purely cosmetic. It implies nothing about the person.
-- **No invented people.** A figure is drawn only at a desk with an assigned agent (or a standing post a record backs). No crowds, no walkers, no figures at empty desks.
+- **No invented people.** A figure is drawn only at a desk with an assigned agent (or a standing post a record backs), and only while that person is on shift. No crowds, no walkers, no figures at empty desks. See "People at their posts" below.
 - A hi-vis vest appears only in a workshop or a warehouse room (the `field` role family: `roleFamily` reads the room kind) and only with the uniform outfit.
 - Tests: a property test (`test/hqCharacters.test.ts`) shows that changing only the name never changes the look, a source scan fails if any file of the kit has a parameter or field called name, gender, sex, pronoun, ethnicity or race, and the variation rules are checked over thousands of ids.
 
@@ -68,6 +68,23 @@ No migration: the look is stored in the agent's existing `avatar` column (migrat
 - Without any look sent, nothing is stored (the previous behaviour). The web dialog always sends `default_look: neutral`.
 - Audit: the `office.green_concrete.add` record gains `looks_chosen` (a count); it still holds ids and counts only, never a name or a look.
 
+## People at their posts and in meetings
+
+Who stands where is one pure model, `apps/web/src/lib/hqPosts.ts`, read by `BuildingView` and drawn by the interior kits.
+
+| Place | A figure is drawn when | Drawn as |
+|---|---|---|
+| A workstation (office, customer care, operations, finance, sales, server, warehouse, workshop, executive) | the desk has an assigned agent or a presence record for the desk, **and** the person is on shift now (the desk's day or night shift against the building's shift hours, `deskShiftInfo.onShift`, and the off-shift index `offShiftKeys`) | seated at the desk, as before |
+| The reception desk | a desk of the reception room has such a record and the person is on shift | standing behind the counter, facing the door; several receptionists spread along the counter, the chair moves aside |
+| A post in a room with no workstations (meeting room, lounge, pantry, restroom; a second desk of an executive office) | the same record and on shift | standing at the stored desk position, facing the way the desk faces |
+| The meeting room | a live (active) meeting record holds the room (`room_id`) and lists the person as a participant (`GET /api/v1/agent-meetings/{id}` `participants`: agents and people) | seated on the chairs of the table in the stored order (the long sides from the screen end, then the two heads); a smaller table seats fewer, never more |
+
+- No record, no figure: an empty desk, a desk whose person is off shift (also when the other shift is shown), a meeting room with no live meeting and a meeting with nobody listed all stay empty. Nobody is invented for a meeting.
+- A person seated in a live meeting held in this building is not drawn a second time at the desk while the meeting runs.
+- The look of a standing person and of a meeting attendee is the look the owner set on the profile; a person with no chosen look, and every human participant (people have no stored look), is drawn with the **neutral** build. Nothing reads a name. Seated desk figures keep the existing default (see "Still simplified").
+- The read already existed: `loadMeetingEvidence` keeps the stored human participant ids (`RoomMeeting.humanIds`) next to the agent ids; no API change was needed. The ids never reach the screen as names.
+- Tests: `test/hqPosts.test.ts` (who stands where, off shift, meeting seating, the neutral default, the floor switch decision), `test/hqInteriorAssets.test.ts` (rooms without workstations stand exactly one person per occupied post and draw no desk), `e2e/hq-people-floors.spec.ts`.
+
 ## Tests
 
 Unit: `test/hqCharacters.test.ts` (shape code round trip, the build is exactly the chosen style, the property test that a name never changes the look, determinism, triangle caps over every build/hair/pose/outfit/flag, three different bodies, the face has eyes and tinted roles, variation rules, hi-vis only for field rooms, slots only with a seed, all or nothing readiness). API: `tests/test_office_green_concrete.py` and, on PostgreSQL as the app role, `tests/test_postgres_office_green_concrete.py` (the looks are part of the hash, stored for new agents only, audited without names). Browser: `e2e/hq-characters.spec.ts` (three looks render as three figures by the kit, the Team panel choice changes the figure and the canvas, automatic state, save failure, Arabic, five viewports with axe, the Green Concrete defaults, a per person choice, the hash binding, existing people, a viewer, Arabic, five viewports with axe) next to the existing `hq-people`, `hq-interior`, `hq-green-concrete` and `hq-performance` specs. Review screenshots come from `e2e/tools/hqCharacters.shots.ts` (not part of CI).
@@ -79,7 +96,8 @@ Unit: `test/hqCharacters.test.ts` (shape code round trip, the build is exactly t
 - The faces are simple: no eyelids, lashes, teeth, wrinkles or skin texture. Hands have a palm, fingers as one block and a thumb, not separate fingers. Cloth does not fold or move; the abaya style dress and the scarf are shaped surfaces.
 - The cosmetic variety is a bounded set (five hair shapes, three head coverings, seven garment sets, six shoe colours, five eye colours); two people can look alike in a large office.
 - **An agent with no chosen look is still drawn with a build drawn from its id** (a mix of masculine, feminine and neutral). The existing test of six assigned agents drawn with different styles depends on that. The owner's rule that the default is neutral is applied where a record is created (Green Concrete stores an explicit neutral look); making every unchosen agent neutral is a decision for the owner, because it changes that test and the look of every existing office.
-- Standing figures: the kit draws them and `standingFigure` now notes a slot, but no room kit places one (people appear only seated at desks), so no standing person is on screen yet.
-- A seated person in a meeting room appears only when the person has a desk there; participants of a live meeting are not drawn as figures (see feature matrix row 5.9).
+- Standing figures appear at reception desks and at posts in rooms without workstations ("People at their posts"). Nobody walks: the poses are static.
+- Participants of a live meeting are seated in its room. A meeting with more participants than the table has chairs seats as many as fit; the room panel still lists everyone. Attendance (who has left the room page) is not read, so a participant who left stays seated until the meeting ends.
+- **Seated desk figures without a chosen look still take a build drawn from the record id** (the existing `e2e/hq-people.spec.ts` expects a mix), while standing posts and meeting attendees use the neutral build. Making every unchosen figure neutral is an owner decision because it changes that test.
 - The five Kenney person files (`public/hq/models/person_*.glb`) are no longer drawn. They stay in the catalogue and in the repository (their unit test and licence record are unchanged) until the owner decides to remove them.
 - Level of detail is by the number of people on screen, not by the distance of each one from the camera.
