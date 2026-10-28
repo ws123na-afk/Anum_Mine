@@ -29,6 +29,7 @@ import { hqFirstRunEn } from './hqFirstRun.en.ts';
 import { hqFloorEn } from './hqFloor.en.ts';
 import { hqLabelsEn } from './hqLabels.en.ts';
 import { hqMotionEn } from './hqMotion.en.ts';
+import { hqWalkersEn } from './hqWalkers.en.ts';
 import { hqBillboardEn } from './hqBillboard.en.ts';
 import { hqScreenEn } from './hqScreen.en.ts';
 import { hqLogoEn } from './hqLogo.en.ts';
@@ -3257,6 +3258,7 @@ export const en = {
   ...hqFloorEn,
   ...hqLabelsEn,
   ...hqMotionEn,
+  ...hqWalkersEn,
   ...hqBillboardEn,
   ...hqScreenEn,
   ...hqLogoEn,

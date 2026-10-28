@@ -2,13 +2,16 @@
  * Career centre (owner decision O2: career is its own building kind). A two-storey learning block in two wings with
  * ribbon windows and deep sunshades, joined by a glazed barrel-vault atrium that is the entrance hall; a free-standing
  * sign pylon on the forecourt (the only building type whose sign stands on its own, so the career building reads from
- * the plaza); and a shaded courtyard with benches and trees in front. Everything is decoration: a bench is furniture,
+ * the plaza); and a courtyard with benches and planting in front. Everything is decoration: a bench is furniture,
  * not someone waiting for an interview.
+ *
+ * Loaded with the lazy plan kit (`lib/hqPlanKit.ts` `careerDrawer`, fetched when a career building is on the campus), so it is not
+ * one of the always-loaded `EXTERIOR_BUILDERS`: it belongs to the admin block family (same window rules and kind) and the
+ * campus draws the admin block for a career building until this arrives. A building drawn from its floor plans keeps the
+ * plan shell, like every other planned building.
  */
 import { hex, scale } from '../../lib/hqGeometry.ts';
-import { WARM, bench, castShadow, hedge, planter, solarRow } from '../../lib/hqProps.ts';
-import { stamp } from '../environment/common.ts';
-import { treeTemplate } from '../environment/planting.ts';
+import { WARM, bench, bush, castShadow, hedge, planter, solarRow } from '../../lib/hqProps.ts';
 import { atriumVault, beaconLight, louvres } from './facadeKit.ts';
 import { STOREY, clamp, entrance, faceBox, faceQuad, fins, finish, ledge, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
 import { accentBand, slabBand } from './towerParts.ts';
@@ -16,9 +19,11 @@ import type { ExteriorAsset, ExteriorParams } from './types.ts';
 
 /** The career colour: a warm amber accent band, kept in step with `campusBuildings.ts` ACCENT.career. */
 const AMBER = hex('#e8a24a');
+/** Triangle cap at default size and full detail (measured, with headroom; `test/hqReception.test.ts` enforces it). */
+export const CAREER_TRIANGLE_CAP = 2600;
 
 export function buildCareerCentre(params: ExteriorParams = {}): ExteriorAsset {
-  const ctx = makeCtx('careerCentre', params, 0.55);
+  const ctx = makeCtx('adminBlock', params, 0.55);
   const { b, rnd, scheme } = ctx;
   const W = clamp(params.width, 22, 48, 30), D = clamp(params.depth, 12, 24, 15);
   const levels = Math.round(clamp(params.levels, 1, 3, 2));
@@ -86,11 +91,11 @@ export function buildCareerCentre(params: ExteriorParams = {}): ExteriorAsset {
     for (const sx of [ax0 - 1.6, ax1 + 1.6]) planter(b, sx, z1 + 3.0, 1.2, rnd);
     bench(b, ax1 + 4.5, z1 + 6.2, 'x');
     bench(b, ax1 + 8.5, z1 + 6.2, 'x');
-    stamp(b, treeTemplate('olive', 1), { x: ax1 + 6.5, z: z1 + 8.6, y: 0.06, rot: 2, scale: 0.9 });
-    stamp(b, treeTemplate('olive', 0), { x: x0 + 3, z: z1 + 8.2, y: 0.06, rot: 1, scale: 0.85 });
+    for (let i = 0; i < 3; i++) bush(b, ax1 + 5 + i * 1.6, z1 + 8.6, 0.7, rnd);
+    for (let i = 0; i < 3; i++) bush(b, x0 + 2 + i * 1.6, z1 + 8.2, 0.7, rnd);
   }
   return finish(ctx, {
-    kind: 'careerCentre', footprint: { width: W, depth: D }, height: y0 + H + 0.7,
+    kind: 'adminBlock', footprint: { width: W, depth: D }, height: y0 + H + 0.7,
     anchor: { x: 0, y: y0 + H + 5.2, z: 0 },
     door: { x: 0, y: 0, z: z1 + 12 },
     sign, ground: [x0 - 3, z0 - 3, x1 + 3, z1 + 14],

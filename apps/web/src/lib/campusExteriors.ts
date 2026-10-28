@@ -13,7 +13,9 @@ import { classifySurfaces } from './hqSurfaces.ts';
 import { signAtlasLayout } from './hqTextures.ts';
 
 export const EXTERIOR_OF: Readonly<Record<Archetype, ExteriorKind>> = {
-  executive: 'executiveHq', tower: 'officeTower', admin: 'adminBlock', retail: 'retailBlock', warehouse: 'warehouse', workshop: 'tyreWorkshop', villa: 'personalVilla', career: 'careerCentre',
+  executive: 'executiveHq', tower: 'officeTower', admin: 'adminBlock', retail: 'retailBlock', warehouse: 'warehouse', workshop: 'tyreWorkshop', villa: 'personalVilla',
+  // The career centre is a lazy drawer in the plan kit (`hqPlanKit.ts` `careerDrawer`); until it is loaded, and inside the plan shell, a career building is the admin block family.
+  career: 'adminBlock',
 };
 
 export type ExteriorShape = Readonly<{

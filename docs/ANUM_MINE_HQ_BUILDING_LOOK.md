@@ -75,7 +75,7 @@ is the same; the buildings, the light and the motion changed.
   neighbouring faces read differently. It is computed in the shader, so it also works on the software path.
 - **Blue hour.** A third light preset: deep blue zenith, warm orange horizon band, lavender haze, low warm sun, lit windows against bluish glass.
 - **Reflection maps** for day, blue hour and night on hardware GL.
-- **Scenery in motion**, see [ambient motion](ANUM_MINE_HQ_SCENERY_MOTION.md), and **work motion from records** (trucks and tyres at a building, each with its reason), see [campus motion](ANUM_MINE_HQ_CAMPUS_MOTION.md).
+- **Scenery in motion**, see [ambient motion](ANUM_MINE_HQ_SCENERY_MOTION.md), and **work motion from records** (trucks and tyres at a building, each with its reason), see [campus motion](ANUM_MINE_HQ_CAMPUS_MOTION.md). **People outdoors** are only the figures of real agents walking between buildings for one stored record (a meeting in another building's room, a desk moved), each with its reason: see [agent walkers](ANUM_MINE_HQ_AGENT_WALKERS.md). No crowds, no pedestrians in the scenery.
 - **Heights.** Measured on the campus sizes: the glass office tower is 37 m to its roof plant (was 49 m), the executive HQ stays the landmark at about 58 m to the tip of the crown (was 58 m, but with a thin spire instead of the blades). The tower no longer repeats the executive silhouette.
 
 ### What still differs (honest list)
@@ -124,4 +124,4 @@ A building's sign can now carry the owner's own logo, brand colour and one of fo
 
 ## Career centre (27 October 2026)
 
-Owner decision O2 makes career its own building kind. It is always drawn as the career centre: two learning wings with ribbon windows and amber sunshade reveals, a glass barrel-vault entrance hall between them, and a free-standing sign pylon on the forecourt that carries the lettered sign or the owner's logo sign (`hqAssets/exterior/careerCentre.ts`, triangle cap 2,600, accent amber `#e8a24a`). The starter Career & Employment building takes this look by its stable id. See [reception and career](ANUM_MINE_HQ_RECEPTION.md).
+Owner decision O2 makes career its own building kind. It is always drawn as the career centre: two learning wings with ribbon windows and amber sunshade reveals, a glass barrel-vault entrance hall between them, and a free-standing sign pylon on the forecourt that carries the lettered sign or the owner's logo sign (`hqAssets/exterior/careerCentre.ts`, triangle cap 2,600, accent amber `#e8a24a`), loaded with the lazy plan kit. The starter Career & Employment building takes the career kind by its stable id; because it has floor plans it is drawn by the plan shell like every planned building, with the career sign. See [reception and career](ANUM_MINE_HQ_RECEPTION.md).

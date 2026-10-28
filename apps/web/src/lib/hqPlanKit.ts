@@ -7,6 +7,7 @@ import type { Archetype } from './campusBuildings.ts';
 import { EXTERIOR_OF, shapeOf, type ExteriorShape } from './campusExteriors.ts';
 import type { Placement } from './campusModel.ts';
 import { buildPlanShell, tagPaneUv } from '../hqAssets/exterior/planShell.ts';
+import { buildCareerCentre } from '../hqAssets/exterior/careerCentre.ts';
 import { buildGlassPlan, MAX_PLAN_BUILDINGS, type GlassPlanData, type PlanEntry } from './hqPlanAtlas.ts';
 import { planFrame, type PlanInput } from './hqPlanFrame.ts';
 
@@ -29,6 +30,19 @@ export function plannedDrawer(rows: ReadonlyMap<string, number>, plans: Readonly
     if (row === undefined || !frame) return undefined;
     const asset = buildPlanShell(EXTERIOR_OF[archetype], frame, { seed: 'bld:' + p.workspaceId, origin: { x: p.x, z: p.z }, row });
     tagPaneUv(asset.mesh.vertices, row, frame.roof);
+    return shapeOf(asset, signIndex, signCount);
+  };
+}
+
+/**
+ * The career centre drawer (owner decision O2, docs/ANUM_MINE_HQ_RECEPTION.md): it rides in this lazy kit so the entry chunk does
+ * not carry the asset and no new lazy importer splits the shared chunks differently. A career building without a floor plan
+ * gets the career centre; every other building returns undefined and keeps its own look.
+ */
+export function careerDrawer() {
+  return (p: Placement, archetype: Archetype, signIndex: number, signCount: number): ExteriorShape | undefined => {
+    if (archetype !== 'career') return undefined;
+    const asset = buildCareerCentre({ seed: 'bld:' + p.workspaceId, width: p.width, depth: p.depth, levels: p.levels, origin: { x: p.x, z: p.z } });
     return shapeOf(asset, signIndex, signCount);
   };
 }

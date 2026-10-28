@@ -4,8 +4,9 @@
  * building the person cannot open, and no count appears without a presence record behind it.
  */
 import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, GraduationCap, House, Landmark, LockKeyhole, Map as MapIcon, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from 'react';
 import type { WorkSiteInput, WorkUi } from './HqCampusWork';
+import type { ViewSink, WalkerCard, WalkerFeed, WalkerUi } from './HqCampusWalkers';
 import type { CardWork, FeedNote } from './lib/hqWorkMotion.ts';
 import './hqCampusMotion.css';
 import { BottomToolbar, CameraTools, Minimap, statusLabel, type HqView } from './HqChrome';
@@ -20,7 +21,9 @@ import {
   type Campus, type CampusBuilding, type CampusBuildingKind, type StatusKey,
 } from './lib/campusModel.ts';
 import { campusCamera, campusFraming, clampTarget, faceNorth, rotateBy, threeDView, topView, viewFootprint, zoomBy } from './lib/hqCamera.ts';
-import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
+import { cameraEye, dolly, type CameraState } from './lib/headquartersSpatial.ts';
+import { getGpuState, subscribeGpuState } from './lib/hqGpuState.ts';
+import { boardSpec } from './lib/hqQualityTiers.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import { sceneName } from './lib/registryNames.ts';
@@ -34,6 +37,9 @@ import { MAX_CHIPS, MAX_CHIPS_COMPACT, quietDensities, type CardDensity } from '
 // Record-backed work motion is its own chunk, fetched only for a campus that has buildings.
 const NO_WORK: WorkUi = { plan: { motions: [], racks: [] }, cards: {}, feeds: {} };
 const CampusWork = lazy(() => import('./HqCampusWork'));
+// Agent walkers (docs/ANUM_MINE_HQ_AGENT_WALKERS.md) are their own chunk, fetched only for a workspace whose registry holds two or more buildings.
+const NO_WALK: WalkerUi = { plan: { walkers: [] }, cards: {}, off: false, count: 0, waiting: 0 };
+const CampusWalkers = lazy(() => import('./HqCampusWalkers'));
 
 const NO_LOGOS: ReadonlyMap<string, SignLogo> = new Map();
 
@@ -69,6 +75,8 @@ export type CampusViewProps = Readonly<{
   currentWorkspaceId: string;
   /** The navigation layer's camera bridge and thumbnail capture (flights, snapshots). */
   nav?: HqNavHandles;
+  /** What the walkers read: the registry, presence and meetings the headquarters already holds. Null when there is nothing to read. */
+  walkerFeed?: WalkerFeed | null;
   selectedId: string | null;
   onSelect: (workspaceId: string | null) => void;
   onEnter: (workspaceId: string) => void;
@@ -94,22 +102,26 @@ export function CampusView(props: CampusViewProps) {
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutSig]);
-  const [kit, setKit] = useState<typeof import('./lib/hqPlanKit.ts') | null>(null);
-  useEffect(() => {
-    if (!sizes.size || kit) return;
-    let live = true;
-    void import('./lib/hqPlanKit.ts').then((m) => { if (live) setKit(m); }).catch(() => undefined);
-    return () => { live = false; };
-  }, [sizes, kit]);
   // Presence refreshes the buildings every few seconds; the placements (and so the meshes) only move when the layout does.
   const rawPlacements = useMemo(() => layoutCampus(campus.buildings, sizes), [campus.buildings, sizes]);
   const stablePlacements = useRef(rawPlacements);
   if (JSON.stringify(stablePlacements.current) !== JSON.stringify(rawPlacements)) stablePlacements.current = rawPlacements;
   const placements = stablePlacements.current;
+  // The plan kit (lazy) draws planned buildings from their floor plans and the career centre (owner decision O2).
+  const hasCareer = placements.some((p) => p.kind === 'career');
+  const [kit, setKit] = useState<typeof import('./lib/hqPlanKit.ts') | null>(null);
+  useEffect(() => {
+    if ((!sizes.size && !hasCareer) || kit) return;
+    let live = true;
+    void import('./lib/hqPlanKit.ts').then((m) => { if (live) setKit(m); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [sizes, hasCareer, kit]);
   const scene = useMemo(() => {
     const p = plansRef.current;
-    if (kit && p && sizes.size) return buildCampusScene(placements, { draw: kit.plannedDrawer(kit.plannedRows(placements, p), p) });
-    return buildCampusScene(placements);
+    if (!kit) return buildCampusScene(placements);
+    const planned = p && sizes.size ? kit.plannedDrawer(kit.plannedRows(placements, p), p) : null;
+    const career = kit.careerDrawer();
+    return buildCampusScene(placements, { draw: (pl, a, i, n) => planned?.(pl, a, i, n) ?? career(pl, a, i, n) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placements, kit, layoutSig]);
   // The billboards (docs/ANUM_MINE_HQ_BILLBOARDS.md) are a lazy chunk of their own, fetched once a campus has buildings.
@@ -169,6 +181,9 @@ export function CampusView(props: CampusViewProps) {
     key: b.workspaceId, workspaceId: workspaceOf(byIdRef.current.get(b.workspaceId) ?? { workspace_id: b.workspaceId }), workshop: b.archetype === 'workshop', door: { x: b.door.x, z: b.door.z },
     box: { minX: b.box.min.x, minZ: b.box.min.z, maxX: b.box.max.x, maxZ: b.box.max.z },
   })), [scene]);
+  const [walk, setWalk] = useState<WalkerUi>(NO_WALK);
+  const viewSink: ViewSink = useRef(null);
+  const walkSites = useMemo(() => scene.buildings.map((b) => ({ key: b.workspaceId, door: { x: b.door.x, z: b.door.z }, box: { minX: b.box.min.x, minZ: b.box.min.z, maxX: b.box.max.x, maxZ: b.box.max.z } })), [scene]);
   const [footprint, setFootprint] = useState<ReadonlyArray<{ x: number; z: number }> | null>(null);
   const lastFootprint = useRef(0);
   const homeRef = useRef(home);
@@ -186,17 +201,27 @@ export function CampusView(props: CampusViewProps) {
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
   // The 3D boards carry the live details (docs/ANUM_MINE_HQ_BILLBOARDS.md): a canvas atlas drawn in place, only for boards whose text changed.
-  const [atlas, setAtlas] = useState<{ canvas: HTMLCanvasElement | null; version: number; boards: unknown; lines: string } | null>(null);
+  const [atlas, setAtlas] = useState<{ canvas: HTMLCanvasElement | null; version: number; boards: unknown; lines: string; stats: string } | null>(null);
   const feed = useRef<{ touch: () => void } | null>(null);
   const readFaces = useRef<() => ReturnType<typeof import('./hq-billboards/index.ts').boardFaces>>(() => []);
-  readFaces.current = () => (boards && bb ? bb.boardFaces({ layer: boards, buildings: byId, plans: plansRef.current, flow: latest.current.flow, currentWorkspaceId: latest.current.currentWorkspaceId, live: latest.current.presenceLive === true, fontsReady, now: Date.now() }) : []);
+  // The lowest quality tiers draw smaller board cells (key line only); the close view (detail lines) is for the focused building and boards near the eye.
+  const boardCell = boardSpec(useSyncExternalStore(subscribeGpuState, getGpuState, getGpuState)).cell;
+  const closeKey = useMemo(() => (bb && boards ? bb.closeBoards(boards, cameraEye(camera)).join('|') : ''), [bb, boards, camera]);
+  const detailIds = useMemo(() => new Set([selectedId, hover, ...closeKey.split('|')].filter((id): id is string => !!id)), [selectedId, hover, closeKey]);
+  readFaces.current = () => (boards && bb ? bb.boardFaces({
+    layer: boards, buildings: byId, plans: plansRef.current, flow: latest.current.flow, currentWorkspaceId: latest.current.currentWorkspaceId, live: latest.current.presenceLive === true, fontsReady, now: Date.now(),
+    detailIds, cell: boardCell, logoReady: (id, sha) => logosRef.current.has(`${id}:${sha}`),
+  }) : []);
   useEffect(() => {
     if (!bb || !boards) return undefined;
-    const started = bb.startBoardFeed({ count: boards.sites.length, read: () => readFaces.current(), onDraw: (a) => setAtlas({ canvas: a.canvas, version: a.version, boards, lines: bb.boardLines(a.drawn) }) });
+    const started = bb.startBoardFeed({
+      count: boards.sites.length, cell: boardCell, read: () => readFaces.current(), logoOf: (key) => logosRef.current.get(key) ?? null,
+      onDraw: (a) => setAtlas({ canvas: a.canvas, version: a.version, boards, lines: bb.boardLines(a.drawn), stats: bb.boardStats(a.drawn) }),
+    });
     feed.current = started;
     return () => { started.stop(); feed.current = null; };
-  }, [bb, boards]);
-  useEffect(() => { feed.current?.touch(); }, [campus.buildings, props.flow, plans, props.presenceLive, locale, fontsReady, props.currentWorkspaceId]);
+  }, [bb, boards, boardCell]);
+  useEffect(() => { feed.current?.touch(); }, [campus.buildings, props.flow, plans, props.presenceLive, locale, fontsReady, props.currentWorkspaceId, detailIds, logos]);
   // The camera that frames one building: its centre, at a distance that fits its size.
   const frameOf = useCallback((id: string): CameraState | null => {
     const p = placements.find((x) => x.workspaceId === id);
@@ -262,12 +287,13 @@ export function CampusView(props: CampusViewProps) {
         id: b.workspaceId, anchor: b.anchor, priority: b.workspaceId === selectedId ? 0 : 1,
         // A crowded stage gives a building chip less (the chip, then a dot) before two would cover each other; it is never left out.
         // A building that carries a work reason or a feed note is never reduced to a bare dot: the reason must stay readable.
-        tiers: work.cards[b.workspaceId] || work.feeds[b.workspaceId] ? ['compact'] : density.get(b.workspaceId) === 'dot' ? ['dot'] : ['compact', 'dot'], keep: true,
+        tiers: work.cards[b.workspaceId] || work.feeds[b.workspaceId] || walk.cards[b.workspaceId] || (walk.off && b.workspaceId === props.currentWorkspaceId) ? ['compact'] : density.get(b.workspaceId) === 'dot' ? ['dot'] : ['compact', 'dot'], keep: true,
         node: (
           <BuildingCard
             building={building} selected={b.workspaceId === selectedId}
             density={density.get(b.workspaceId) ?? 'dot'}
             work={work.cards[b.workspaceId]} feed={work.feeds[b.workspaceId]}
+            walk={walk.cards[b.workspaceId]} walkOff={walk.off && b.workspaceId === props.currentWorkspaceId}
             onActivate={() => activate(b.workspaceId)} onHover={(on) => setHover(on ? b.workspaceId : null)}
           />
         ),
@@ -279,7 +305,7 @@ export function CampusView(props: CampusViewProps) {
     });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, byId, selectedId, props.currentWorkspaceId, density, activate, work.cards, work.feeds]);
+  }, [scene, byId, selectedId, props.currentWorkspaceId, density, activate, work.cards, work.feeds, walk.cards, walk.off]);
   // The billboards are a separate pass (HqStage `extraLabels`): they can never move, hide or park a building card.
   const extraLabels: StageLabel[] = useMemo(() => (boards && bb ? bb.billboardLabels({
     layer: boards, buildings: byId, plans, flow: props.flow, selectedId, hoverId: hover, near: false, now: Date.now(),
@@ -287,6 +313,7 @@ export function CampusView(props: CampusViewProps) {
   }) : []), [boards, bb, byId, plans, props.flow, selectedId, hover, locale, activate]);
 
   const onView = useCallback((cam: CameraState, aspect: number) => {
+    viewSink.current?.(cam, aspect);
     const now = performance.now();
     if (now - lastFootprint.current < 120) return;
     lastFootprint.current = now;
@@ -301,10 +328,10 @@ export function CampusView(props: CampusViewProps) {
 
   return (
     <>
-    <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0} data-sign-brands={signStats.branded} data-sign-logos={signStats.logos} data-board-version={atlas?.version ?? 0} data-board-texts={atlas?.lines ?? ''}>
+    <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0} data-sign-brands={signStats.branded} data-sign-logos={signStats.logos} data-board-version={atlas?.version ?? 0} data-board-texts={atlas?.lines ?? ''} data-board-brands={atlas?.stats.split('|')[0] ?? 0} data-board-logos={atlas?.stats.split('|')[1] ?? 0}>
       <HqStage
         label={t('hq.campus.stageLabel')} description={t('hq.campus.stageHelp')}
-        scene={renderScene} glassPlan={glassPlan} work={work.plan} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
+        scene={renderScene} glassPlan={glassPlan} work={work.plan} walkers={walk.plan} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
         onCamera={(c) => setCamera(clampTarget(c, scene.groundRadius * 0.8))} night={night} reducedMotion={props.reducedMotion}
         hoverId={hover} selectedId={selectedId} onHover={setHover}
         onPick={(id) => { if (id) activate(id); else props.onSelect(null); }}
@@ -317,6 +344,11 @@ export function CampusView(props: CampusViewProps) {
       {scene.buildings.length > 0 && (
         <Suspense fallback={null}>
           <CampusWork campus={campus} sites={workSites} lanes={scene.motion.lanes} flow={props.flow?.snapshot ?? null} openKey={props.currentWorkspaceId} reducedMotion={props.reducedMotion} onChange={setWork} />
+        </Suspense>
+      )}
+      {props.walkerFeed && scene.buildings.length > 1 && (
+        <Suspense fallback={null}>
+          <CampusWalkers feed={props.walkerFeed} sites={walkSites} spokes={scene.plaza.spokes} reducedMotion={props.reducedMotion} viewSink={viewSink} onChange={setWalk} />
         </Suspense>
       )}
       <div className="hqOverlay hqOverlayRight" data-keepout="">
@@ -362,18 +394,18 @@ export function buildingSummary(b: CampusBuilding): string {
  * (what it does, counts, verified time) are on the building's 3D board and, for the focused building, its billboard card and the detail panel.
  * The accessible name is unchanged: the name and the presence summary, whatever the density.
  */
-function BuildingCard(props: { building: CampusBuilding; selected: boolean; density: CardDensity; work?: CardWork; feed?: FeedNote; onActivate: () => void; onHover: (on: boolean) => void }) {
+function BuildingCard(props: { building: CampusBuilding; selected: boolean; density: CardDensity; work?: CardWork; feed?: FeedNote; walk?: WalkerCard; walkOff?: boolean; onActivate: () => void; onHover: (on: boolean) => void }) {
   const b = props.building;
   const status = buildingStatus(b);
   const summary = buildingSummary(b);
   // A card with a work reason or a feed note is never reduced to a bare dot: the reason (a real record, a fixed template) must stay readable.
-  const density: CardDensity = props.density === 'dot' && (props.work || props.feed) ? 'compact' : props.density;
+  const density: CardDensity = props.density === 'dot' && (props.work || props.feed || props.walk || props.walkOff) ? 'compact' : props.density;
   const feedHint = props.feed ? t(`hqMotion.feed.offHint.${props.feed.reason}` as MessageKey) : '';
   const workHint = props.work ? `${props.work.because}. ${t('hqMotion.legend')}` : '';
   return (
     <button
-      type="button" className="hqLabelCard hqBuildingCard" data-selected={props.selected} data-status={status} data-kind={b.kind} data-density={density}
-      aria-label={`${sceneName(b)}. ${summary}.${props.work ? ' ' + props.work.because + '.' : ''}${props.feed ? ' ' + t('hqMotion.feed.off') + '.' : ''}${props.selected ? ' ' + t('hq.building.pressToOpen') : ''}`}
+      type="button" className="hqLabelCard hqBuildingCard" data-selected={props.selected} data-status={status} data-kind={b.kind} data-density={density} data-walk={props.walk?.kind}
+      aria-label={`${sceneName(b)}. ${summary}.${props.walk ? ' ' + props.walk.because + '.' : ''}${props.walkOff ? ' ' + t('hqWalkers.status.off') + '.' : ''}${props.work ? ' ' + props.work.because + '.' : ''}${props.feed ? ' ' + t('hqMotion.feed.off') + '.' : ''}${props.selected ? ' ' + t('hq.building.pressToOpen') : ''}`}
       aria-pressed={props.selected} title={density === 'dot' ? [sceneName(b), props.work?.because, props.feed ? t('hqMotion.feed.off') : ''].filter(Boolean).join('. ') : (workHint || feedHint || sceneName(b))} data-work={props.work?.kind} data-feed={props.feed?.reason}
       onClick={props.onActivate} onMouseEnter={() => props.onHover(true)} onMouseLeave={() => props.onHover(false)}
     >
@@ -382,6 +414,8 @@ function BuildingCard(props: { building: CampusBuilding; selected: boolean; dens
         <strong>{sceneName(b)}</strong>
         {props.work && <small className="hqWorkLine" data-work={props.work.kind}>{props.work.because}</small>}
         {props.feed && <small className="hqWorkLine" data-feed={props.feed.reason}>{t('hqMotion.feed.off')}</small>}
+        {props.walk && <small className="hqWalkLine" data-walk={props.walk.kind}>{props.walk.because}</small>}
+        {props.walkOff && <small className="hqWalkLine" data-walkers-off="">{t('hqWalkers.status.off')}</small>}
       </span>
       <span className="hqStatusDot" aria-hidden="true" />
       {!b.accessible && <LockKeyhole aria-hidden="true" className="hqLock" />}

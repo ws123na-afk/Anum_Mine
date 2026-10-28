@@ -317,6 +317,10 @@ test('the 3D sign of a building without an upload stays lettered: no logo is req
   await expect(stage(page)).toHaveAttribute('data-sign-logos', '0');
   await page.waitForTimeout(1500);
   expect(fetched).toEqual([]);
+  // The boards in front of the buildings keep the standard header: no brand band, no logo.
+  await expect(stage(page)).not.toHaveAttribute('data-board-version', '0', { timeout: 60_000 });
+  await expect(stage(page)).toHaveAttribute('data-board-brands', '0');
+  await expect(stage(page)).toHaveAttribute('data-board-logos', '0');
   await shot(page, 'campus-lettered-1440x900');
 });
 
@@ -329,6 +333,10 @@ for (const size of SIZES) {
     await expect(stage(page)).toHaveAttribute('data-sign-logos', '1', { timeout: 60_000 });
     expect(fetched.filter((u) => u.includes('/b-alpha/logo'))).toHaveLength(1);
     expect(fetched.filter((u) => !u.includes('/b-alpha/logo'))).toEqual([]);
+    // The boards take the same decoded logo (no second download) and the brand colours as header bands: both colours pass the contrast check.
+    await expect(stage(page)).toHaveAttribute('data-board-logos', '1', { timeout: 60_000 });
+    await expect(stage(page)).toHaveAttribute('data-board-brands', '2');
+    expect(fetched.filter((u) => u.includes('/b-alpha/logo'))).toHaveLength(1);
     // Every building card is still on the page and clickable.
     await expect(page.locator('.hqLive .hqBuildingCard')).toHaveCount(await page.locator('.hqLive .hqBuildingCard').count());
     expect(await page.locator('.hqLive .hqBuildingCard').count()).toBeGreaterThanOrEqual(3);
@@ -345,6 +353,9 @@ test('a logo that cannot be loaded leaves the lettered sign and the campus works
   await expect(stage(page)).toHaveAttribute('data-sign-brands', '2');
   await page.waitForTimeout(2500);
   await expect(stage(page)).toHaveAttribute('data-sign-logos', '0');
+  // The board falls back to the plain header with the brand colour band, and no logo.
+  await expect(stage(page)).toHaveAttribute('data-board-logos', '0');
+  await expect(stage(page)).toHaveAttribute('data-board-brands', '2', { timeout: 60_000 });
   expect(await page.locator('.hqLive .hqBuildingCard').count()).toBeGreaterThanOrEqual(3);
   await expect(page.locator('.hqLive canvas.hqCanvas')).toBeVisible();
 });

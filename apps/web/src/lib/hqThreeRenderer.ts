@@ -46,7 +46,7 @@ import type { ModelGroup } from './hqModels.ts';
 
 export type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
 
-type Cls = 'paint' | 'flat' | 'concrete' | 'tile' | 'asphalt' | 'grass' | 'wood' | 'metal' | 'water' | 'glass' | 'roller' | 'sign' | 'court' | 'pane' | 'foliage' | 'cloth' | 'beacon' | 'board' | 'screen';
+type Cls = 'paint' | 'flat' | 'concrete' | 'tile' | 'asphalt' | 'grass' | 'wood' | 'metal' | 'water' | 'glass' | 'roller' | 'sign' | 'court' | 'pane' | 'foliage' | 'cloth' | 'beacon' | 'board' | 'boardFlat' | 'screen';
 
 const CLASS_OF_MAT: Readonly<Record<number, Cls>> = {
   [MAT.flat]: 'flat', [MAT.concrete]: 'concrete', [MAT.tile]: 'tile', [MAT.asphalt]: 'asphalt', [MAT.grass]: 'grass', [MAT.wood]: 'wood',
@@ -334,6 +334,9 @@ export class HqRenderer {
   private signTexture: Texture | null = null;
   private boardSource: HTMLCanvasElement | null = null;
   private boardTexture: Texture | null = null;
+  private boardTierUnlit = false;
+  /** The billboards take the flat unlit material: the tier says so, or the simple materials are on (the governor's last rung). */
+  private get boardUnlit(): boolean { return this.boardTierUnlit || this.lean; }
   private screenSource: HTMLCanvasElement | null = null;
   private screenTexture: Texture | null = null;
   private signKey = '';
@@ -500,6 +503,8 @@ export class HqRenderer {
   /** Rebuild the ladder and governor for the tier in force and apply the top rung. */
   private configureTier(): void {
     const id = this.override ?? this.pinned ?? this.quality;
+    const unlit = tierById(id).boardUnlit;
+    if (unlit !== this.boardTierUnlit) { this.boardTierUnlit = unlit; if (this.lastScene) this.setScene(this.lastScene); }
     this.ladder = ladderFor(tierById(id));
     this.governor = null;
     this.governed = this.pinned === null && this.override === null && !this.software;
@@ -670,6 +675,8 @@ export class HqRenderer {
     this.materials.set('sign', sign);
     this.materials.set('screen', new MeshBasicMaterial({ color: new Color(1, 1, 1), map: this.screenTexture, toneMapped: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     this.materials.set('board', new MeshBasicMaterial({ color: new Color(1, 1, 1), map: this.boardTexture, toneMapped: true }));
+    // The lowest tiers draw the billboards' posts, frame and lamps unlit (hqQualityTiers `boardUnlit`): one cheap program, no light or shadow.
+    this.materials.set('boardFlat', new MeshBasicMaterial({ vertexColors: true, side: DoubleSide }));
     const pane = this.cheap
       ? new MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, side: DoubleSide })
       : new MeshPhysicalMaterial({ vertexColors: true, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, envMapIntensity: 1.2, depthWrite: false, side: DoubleSide });
@@ -839,7 +846,7 @@ export class HqRenderer {
       geometry.setAttribute('aEm', new Float32BufferAttribute(em, 1));
       geometry.setAttribute('uv', new Float32BufferAttribute(uv, 2));
       geometry.computeBoundingSphere();
-      const material = this.materials.get(item.board && cls === 'sign' ? 'board' : cls)!;
+      const material = this.materials.get(item.board ? (cls === 'sign' ? 'board' : this.boardUnlit ? 'boardFlat' : cls) : cls)!;
       if (cls === 'pane') (material as MeshPhysicalMaterial).opacity = scene.glassAlpha ?? 0.22;
       const mesh = new Mesh(geometry, material);
       mesh.frustumCulled = item.cull !== false;
@@ -848,7 +855,7 @@ export class HqRenderer {
       mesh.userData.fallbackOf = item.fallbackOf ?? null;
       mesh.userData.lift = item.lift ?? null;
       mesh.visible = !item.fallbackOf || !this.readyGroups.has(item.fallbackOf);
-      const sunOk = cls !== 'sign' && cls !== 'pane' && cls !== 'glass';
+      const sunOk = cls !== 'sign' && cls !== 'pane' && cls !== 'glass' && !(item.board && this.boardUnlit);
       mesh.castShadow = sunOk && cls !== 'water';
       mesh.receiveShadow = cls !== 'sign' && cls !== 'pane';
       mesh.onBeforeRender = (_r, _s, _c, _g, mat) => {
@@ -952,7 +959,6 @@ export class HqRenderer {
     const m = this.materials.get('board') as MeshBasicMaterial;
     if (source !== this.boardSource) {
       this.boardTexture?.dispose();
-    this.screenTexture?.dispose();
       this.boardSource = source;
       this.boardTexture = null;
       if (source) {
@@ -970,6 +976,11 @@ export class HqRenderer {
   /** What the work layer chunk needs (see `hqWorkLayer.setWork`): the scene, a frame request, the lights level and whether drawing is slow. */
   workHooks() {
     return { kit: vehicleKit, scene: this.scene, cheap: this.cheap, request: () => this.requestFrame(), lit: () => this.shared.uLit.value as number, slow: () => this.stats.avgDrawMs > 35, report: (n: number) => { this.canvas.dataset.workRigs = String(n); } };
+  }
+
+  /** What the walker layer chunk needs (see `hqWalkerLayer.setWalkers`): the scene, a frame request, whether drawing is slow and a place to report the figure count. */
+  walkerHooks() {
+    return { scene: this.scene, cheap: this.cheap, request: () => this.requestFrame(), slow: () => this.stats.avgDrawMs > 35, report: (n: number) => { this.canvas.dataset.walkers = String(n); } };
   }
 
   /** What the plan shader chunk needs to put a plan atlas behind the glass (see `hqGlassShader.applyPlan`): the renderer itself, whose shared uniforms, glass material, stats and frame request it uses, and the three.js classes. */
@@ -1123,6 +1134,7 @@ export class HqRenderer {
     const gain = 0.9 + 1.3 * light.lit;
     sign.color.setRGB(gain, gain, gain);
     (this.materials.get('board') as MeshBasicMaterial).color.setRGB(gain, gain, gain);
+    (this.materials.get('boardFlat') as MeshBasicMaterial).color.setScalar(1 - 0.6 * light.lit);
     // Shadow light: from the sun (or moon) towards the middle of the region.
     // The photographic effects fit one big shadow map to what the camera looks at instead of the whole campus.
     const photo = this.photoActive();
@@ -1338,6 +1350,7 @@ export class HqRenderer {
     for (const texture of this.textures) texture.dispose();
     this.signTexture?.dispose();
     this.boardTexture?.dispose();
+    this.screenTexture?.dispose();
     if (this.sky) { this.sky.geometry.dispose(); (this.sky.material as Material).dispose(); }
     for (const env of this.envs) env?.dispose();
     this.scenery?.dispose();

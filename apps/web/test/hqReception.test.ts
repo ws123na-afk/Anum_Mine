@@ -11,7 +11,8 @@ import { visitorLine } from '../src/lib/hqLabelModel.ts';
 import { archetypeOf } from '../src/lib/campusBuildings.ts';
 import { EXTERIOR_OF } from '../src/lib/campusExteriors.ts';
 import { registryLook } from '../src/lib/campusRegistry.ts';
-import { buildExterior, TRIANGLE_CAPS } from '../src/hqAssets/exterior/index.ts';
+import { buildCareerCentre, CAREER_TRIANGLE_CAP } from '../src/hqAssets/exterior/careerCentre.ts';
+import { careerDrawer } from '../src/lib/hqPlanKit.ts';
 import { CATALOGS, t } from '../src/lib/i18n.ts';
 
 const NOW = new Date(2026, 9, 27, 10, 30);
@@ -138,10 +139,17 @@ describe('career is its own building kind (O2)', () => {
   test('the career kind always draws the career centre, with its own exterior asset', () => {
     assert.equal(archetypeOf({ kind: 'career', icon: 'truck', workspaceId: 'w' }), 'career');
     assert.equal(archetypeOf({ kind: 'career', icon: null, workspaceId: 'w' }), 'career');
-    assert.equal(EXTERIOR_OF.career, 'careerCentre');
-    const asset = buildExterior('careerCentre', { seed: 'w', width: 30, depth: 15, levels: 2 });
-    assert.ok(asset.triangles > 200 && asset.triangles <= TRIANGLE_CAPS.careerCentre, String(asset.triangles));
+    // Until the lazy career centre arrives (and inside a floor plan shell) a career building is the admin block family.
+    assert.equal(EXTERIOR_OF.career, 'adminBlock');
+    const asset = buildCareerCentre({ seed: 'w', width: 30, depth: 15, levels: 2 });
+    assert.ok(asset.triangles > 200 && asset.triangles <= CAREER_TRIANGLE_CAP, String(asset.triangles));
     assert.ok(asset.sign.width > 4 && asset.sign.z > 0, 'a front sign board on the pylon');
+    const lean = buildCareerCentre({ seed: 'w', detail: 'lean' });
+    assert.ok(lean.triangles < asset.triangles);
+    const draw = careerDrawer();
+    const place = { workspaceId: 'w', x: 0, z: 0, width: 30, depth: 15, levels: 2 } as unknown as Parameters<typeof draw>[0];
+    assert.ok(draw(place, 'career', 0, 1));
+    assert.equal(draw(place, 'admin', 0, 1), undefined);
   });
   test('the Career & Employment starter building maps to the career kind', () => {
     assert.deepEqual(registryLook('campus-08-career'), { kind: 'career', icon: null });

@@ -40,7 +40,8 @@ async function open(page: Page, options: { mode?: ReceptionMode; visits?: MockVi
 async function openFromTools(page: Page, label = 'Reception: visitors') {
   await hq(page).getByRole('button', { name: /Office tools|أدوات المكتب/ }).click();
   await page.getByRole('button', { name: label }).click();
-  await expect(panel(page)).toBeVisible();
+  // The panel is a lazy chunk fetched on its first open: allow for a slow network or a busy machine.
+  await expect(panel(page)).toBeVisible({ timeout: 15_000 });
 }
 
 test('owner: empty register, add a walk-in, check out, and the reception room shows the real count', async ({ page }) => {
@@ -109,6 +110,7 @@ test('owner: check in, cancel, edit and delete with a confirmation', async ({ pa
 test('a stale revision is explained and the list reloads', async ({ page }) => {
   const reception = await open(page, { visits: [fakeVisit(1)] });
   await openFromTools(page);
+  await expect(page.locator('.hqRecRow')).toHaveAttribute('data-status', 'expected'); // the page holds revision 1
   reception.visits[0].revision = 5; // someone else changed it
   await page.locator('.hqRecRow').getByRole('button', { name: 'Check in' }).click();
   await expect(page.getByTestId('reception-note')).toContainText('Someone changed this visit a moment ago');

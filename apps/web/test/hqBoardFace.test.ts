@@ -212,6 +212,134 @@ test('the building chip carries no kind chips, avatar stack, counts or second li
   const src = readFileSync(new URL('../src/CampusView.tsx', import.meta.url), 'utf8');
   const card = src.slice(src.indexOf('function BuildingCard('), src.indexOf('function BuildingDetail('));
   assert.ok(card.includes('hqLabelText') && card.includes('hqStatusDot'));
-  assert.ok(!/hqCardTags|hqAvatarStack/.test(card) && (card.match(/<small/g) ?? []).length === 2 && (card.match(/<small className="hqWorkLine"/g) ?? []).length === 2, 'a chip is the name and a status dot; the only second line is a record-backed work reason or feed note');
+  assert.ok(!/hqCardTags|hqAvatarStack/.test(card) && (card.match(/<small/g) ?? []).length === 4 && (card.match(/<small className="hq(Work|Walk)Line"/g) ?? []).length === 4, 'a chip is the name and a status dot; the only second line is a record-backed work or walker reason, or a feed note (two work lines and two walker lines)');
   assert.ok(/aria-label=\{`\$\{sceneName\(b\)\}\. \$\{summary\}\./.test(card), 'the accessible name keeps the name and the summary');
+});
+
+// ---- brand header, logo, icons, near and far (docs/ANUM_MINE_HQ_BILLBOARDS.md, "The board")
+
+import { brandHeader, HEADER_DARK, HEADER_LIGHT, HEADER_MIN_CONTRAST } from '../src/hq-billboards/boardFace.ts';
+import { closeBoards, boardAtlasLayout } from '../src/hq-billboards/billboardSites.ts';
+import { drawBoardCell } from '../src/hq-billboards/billboardTexture.ts';
+import { contrast } from '../src/hq-logo-signs/signModel.ts';
+
+const SHA = 'a'.repeat(64);
+const signed = (color: string | null, sha: string | null = SHA) => ({ sign: { buildingId: 'bld_hq', style: `${LEAK}STYLE`, color, logoSha256: sha } });
+
+test('the header band takes the owner\'s brand colour only when it is valid and readable, with the more readable lettering', () => {
+  const dark = brandHeader('#1b3a6b');
+  assert.deepEqual([dark?.fill, dark?.text], ['#1b3a6b', HEADER_LIGHT]);
+  const light = brandHeader('#f5c518');
+  assert.deepEqual([light?.fill, light?.text], ['#f5c518', HEADER_DARK]);
+  for (const h of [dark!, light!]) assert.ok(contrast(h.fill, h.text) >= HEADER_MIN_CONTRAST);
+  // A mid tone that reaches 4.5 to 1 with neither lettering colour keeps the standard header (the colour stays on the accent rule).
+  const mid = ['#777777', '#d24c4c', '#2f8f5b', '#3a7bd5'].filter((c) => brandHeader(c) === null);
+  assert.ok(mid.length > 0, 'some mid tones fail the check');
+  for (const c of mid) assert.ok(Math.max(contrast(c, HEADER_LIGHT), contrast(c, HEADER_DARK)) < HEADER_MIN_CONTRAST);
+  assert.equal(brandHeader(null), null);
+  assert.equal(brandHeader('red'), null);
+  assert.equal(face(signed('#1B3A6B')).header?.fill, '#1b3a6b');
+  assert.equal(face(signed('#777777')).header, null);
+  assert.equal(face(signed('#777777')).accent, '#777777', 'the colour still draws the accent rule');
+  assert.equal(face().header, null);
+});
+
+test('the logo is drawn only once the sign loader has decoded it; the sign style and anything else of the sign never reach the face', () => {
+  const m = model(signed('#1b3a6b'));
+  assert.deepEqual(m.logo, { buildingId: 'bld_hq', sha: SHA });
+  const tr = (k: Parameters<typeof translate>[1], v?: Parameters<typeof translate>[2]) => translate('en', k, v);
+  assert.equal(boardFace(m, { live: false, rtl: false, tr }).logo, null, 'not decoded: the plain header');
+  assert.equal(boardFace(m, { live: false, rtl: false, tr, logoReady: () => false }).logo, null);
+  assert.equal(boardFace(m, { live: false, rtl: false, tr, logoReady: (id, sha) => id === 'bld_hq' && sha === SHA }).logo, `bld_hq:${SHA}`);
+  assert.equal(model(signed('#1b3a6b', 'not-a-hash')).logo, null, 'a malformed hash is no logo');
+  assert.equal(model().logo, null);
+  assert.ok(!faceKey(boardFace(m, { live: false, rtl: false, tr, detail: true, logoReady: () => true })).includes(LEAK));
+});
+
+test('far away a board prints the name and the key line only; the close view adds the detail lines', () => {
+  const tr = (k: Parameters<typeof translate>[1], v?: Parameters<typeof translate>[2]) => translate('en', k, v);
+  const far = boardFace(model(), { live: true, rtl: false, tr });
+  assert.deepEqual(faceTexts(far), ['OKNAME Tower', '5 working, 2 in meetings', 'Live']);
+  const near = boardFace(model(), { live: true, rtl: false, tr, detail: true });
+  assert.ok(faceTexts(near).includes('9 agents, Idle 1, Paused 1'));
+  assert.ok(faceTexts(near).some((x) => /^Verified /.test(x)));
+  assert.ok(faceTexts(near).includes('Open work: Not connected'));
+  assert.deepEqual(faceTexts(boardFace(model({ totals: null }), { live: true, rtl: false, tr })), ['OKNAME Tower', 'Not connected']);
+  // A detail line that is not printed far away does not make a far board draw again.
+  assert.equal(faceKey(boardFace(model({ presence_verified_at: '2026-10-26T09:59:40Z' }), { live: false, rtl: false, tr })), faceKey(boardFace(model(), { live: false, rtl: false, tr })));
+  assert.notEqual(faceKey(boardFace(model({ presence_verified_at: '2026-10-26T09:59:40Z' }), { live: false, rtl: false, tr, detail: true })), faceKey(boardFace(model(), { live: false, rtl: false, tr, detail: true })));
+});
+
+test('the boards near the camera eye show the close view', () => {
+  const site = (id: string, x: number) => ({ workspaceId: id, anchor: { x, y: 6, z: 0 } }) as never;
+  const layer = { sites: [site('b', 30), site('a', 10), site('c', 200)] };
+  assert.deepEqual(closeBoards(layer, { x: 0, y: 6, z: 0 }), ['a', 'b']);
+  assert.deepEqual(closeBoards(layer, { x: 0, y: 300, z: 0 }), []);
+});
+
+test('icons: the departments of the building\'s registry rooms, then the kinds of rooms without a known one', () => {
+  const plan = { floors: [{ rooms: [
+    { label: 'A', labelAr: null, kind: 'office', teamDepartment: 'sales' },
+    { label: 'B', labelAr: null, kind: 'meeting', teamDepartment: null },
+    { label: 'C', labelAr: null, kind: 'office', teamDepartment: `${LEAK}DEPT` },
+    { label: 'D', labelAr: null, kind: 'office', teamDepartment: 'finance' },
+    { label: 'E', labelAr: null, kind: 'office', teamDepartment: 'sales' },
+  ] }] } as never;
+  const m = billboardModel({ building: building(), plan, flow: null, currentWorkspaceId: 'ws', now: NOW, locale: 'en', tr: (k, v) => translate('en', k, v) });
+  assert.deepEqual(m.icons, ['dept:sales', 'dept:finance', 'kind:meeting', 'kind:office']);
+  assert.ok(!JSON.stringify(m.icons).includes(LEAK));
+  assert.deepEqual(model().icons, [], 'no registry plan: no icons');
+});
+
+/** A canvas stub that records what was drawn. */
+function recordingCanvas() {
+  const log: string[] = [];
+  const ctx = {
+    fillStyle: '' as unknown, strokeStyle: '' as unknown, font: '', textAlign: 'left', textBaseline: 'alphabetic', direction: 'ltr', globalAlpha: 1, lineWidth: 1, lineCap: 'butt', lineJoin: 'miter',
+    fillRect(x: number, y: number, w: number, h: number) { log.push(`rect ${String(this.fillStyle)} ${y} ${h}`); void x; void w; },
+    fillText(text: string) { log.push(`text ${text} ${String(this.fillStyle)}`); }, measureText(text: string) { return { width: text.length * 8 }; },
+    beginPath() {}, arc() {}, fill() {}, createLinearGradient() { return { addColorStop() {} }; }, save() {}, restore() {}, clearRect() {},
+    roundRect() { log.push('plate'); }, rect() { log.push('plate'); }, translate() {}, scale() {}, stroke() { log.push('icon'); },
+    drawImage() { log.push('logo'); },
+  };
+  return { ctx, log };
+}
+
+test('the painter draws the brand header with readable lettering, the logo on a plate, and falls back to the plain header', () => {
+  const tr = (k: Parameters<typeof translate>[1], v?: Parameters<typeof translate>[2]) => translate('en', k, v);
+  const branded = boardFace(model(signed('#f5c518')), { live: false, rtl: false, tr, logoReady: () => true });
+  const { ctx, log } = recordingCanvas();
+  drawBoardCell(ctx as never, 0, 0, 1, branded, () => ({ image: {} as CanvasImageSource, width: 200, height: 100 }));
+  assert.ok(log.includes('rect #f5c518 0 104'), 'the header band is the brand colour');
+  assert.ok(log.includes(`text OKNAME Tower ${HEADER_DARK}`), 'dark lettering on a light brand colour');
+  assert.ok(log.includes('plate') && log.includes('logo'));
+  // The decoded logo is gone (closed, or not loaded): the plain header, nothing else changes.
+  const plain = recordingCanvas();
+  drawBoardCell(plain.ctx as never, 0, 0, 1, branded, () => null);
+  assert.ok(!plain.log.includes('logo') && !plain.log.includes('plate'));
+  assert.ok(plain.log.includes(`text OKNAME Tower ${HEADER_DARK}`));
+  // A logo that fails to draw leaves the board drawn.
+  const broken = recordingCanvas();
+  broken.ctx.drawImage = () => { throw new Error('closed bitmap'); };
+  assert.doesNotThrow(() => drawBoardCell(broken.ctx as never, 0, 0, 1, branded, () => ({ image: {} as CanvasImageSource, width: 2, height: 1 })));
+  assert.ok(broken.log.some((l) => l.startsWith('text 5 working')));
+});
+
+test('the far board draws the key line large and the room icons; the lowest tier has smaller cells', () => {
+  const tr = (k: Parameters<typeof translate>[1], v?: Parameters<typeof translate>[2]) => translate('en', k, v);
+  const f = { ...boardFace(model(), { live: false, rtl: false, tr }), icons: ['dept:sales', 'kind:meeting'] as const };
+  const { ctx, log } = recordingCanvas();
+  const fonts: string[] = [];
+  const orig = ctx.fillText.bind(ctx);
+  ctx.fillText = (text: string) => { fonts.push(`${text}@${ctx.font}`); orig(text); };
+  const hasPath = typeof (globalThis as { Path2D?: unknown }).Path2D !== 'undefined';
+  drawBoardCell(ctx as never, 0, 0, 1, f as never);
+  const head = fonts.find((x) => x.startsWith('5 working'))!;
+  assert.ok(Number(/ (\d+)px/.exec(head)![1]) >= 42, `the key line is large: ${head}`);
+  const name = fonts.find((x) => x.startsWith('OKNAME'))!;
+  assert.ok(Number(/ (\d+)px/.exec(name)![1]) >= 42, `the name is large: ${name}`);
+  if (hasPath) assert.equal(log.filter((l) => l === 'icon').length, 2);
+  assert.equal(boardAtlasLayout(14, 256).cellW, 256);
+  assert.equal(boardAtlasLayout(14).cellW, 512);
+  assert.equal(new BoardAtlas(14, stubCanvas().make, { cell: 256 }).layout.cellW, 256);
 });

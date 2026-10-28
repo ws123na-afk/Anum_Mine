@@ -61,7 +61,7 @@ export type WorkstationLike = Readonly<{
 }>;
 
 /** A live meeting held in an office room (the stored `room_id` of the meeting). Only stored participants are listed. */
-export type RoomMeeting = Readonly<{ meetingId: string; title: string; agentIds: readonly string[]; people: number }>;
+export type RoomMeeting = Readonly<{ meetingId: string; title: string; agentIds: readonly string[]; people: number; /** The stored start of the meeting (ISO), or null when the record has none. */ startedAt?: string | null }>;
 
 export type MeetingEvidence = Readonly<{
   liveMeetings: number; agentIds: ReadonlySet<string>;
@@ -98,7 +98,7 @@ export function unreportedStatuses(meetings: MeetingEvidence | null): StatusKey[
   return meetings ? [] : ['meeting'];
 }
 
-type MeetingRow = Readonly<{ id: string; status: string; title?: string; room_id?: string | null }>;
+type MeetingRow = Readonly<{ id: string; status: string; title?: string; room_id?: string | null; started_at?: string | null }>;
 type ParticipantRow = Readonly<{ actor_id: string; kind: string }>;
 
 /**
@@ -121,7 +121,7 @@ export async function loadMeetingEvidence(read: <T>(path: string) => Promise<T>)
       }
       // One live meeting per room is shown; a second one in the same room keeps the first (oldest id) and is still counted above.
       if (typeof meeting.room_id === 'string' && meeting.room_id !== '' && !rooms.has(meeting.room_id)) {
-        rooms.set(meeting.room_id, { meetingId: meeting.id, title: meeting.title ?? '', agentIds: agents, people });
+        rooms.set(meeting.room_id, { meetingId: meeting.id, title: meeting.title ?? '', agentIds: agents, people, ...(typeof meeting.started_at === 'string' ? { startedAt: meeting.started_at } : {}) });
       }
     }
     // More than one page of meetings might hide a live one: treat that as not fully known.

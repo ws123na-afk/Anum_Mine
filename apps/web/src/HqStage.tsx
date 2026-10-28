@@ -12,6 +12,7 @@ import type { HqRenderer } from './lib/hqThreeRenderer.ts';
 import type { RenderScene } from './lib/hqRenderTypes.ts';
 import type { GlassPlanData } from './lib/hqPlanAtlas.ts';
 import type { WorkLayerPlan } from './lib/hqWorkLayer.ts';
+import type { WalkerLayerPlan } from './lib/hqWalkerLayer.ts';
 import { setGpuState } from './lib/hqGpuState.ts';
 import { setLiveRenderer } from './lib/hqGpuBridge.ts';
 import { emitGpuTelemetry } from './lib/hqGpuTelemetry.ts';
@@ -56,6 +57,8 @@ type Props = Readonly<{
   glassPlan?: GlassPlanData | null;
   /** Record-backed work motion (docs/ANUM_MINE_HQ_CAMPUS_MOTION.md): vehicles and tyres on a timeline, each started by one stored record. Changing it never rebuilds the scene meshes. */
   work?: WorkLayerPlan | null;
+  /** Record-backed agent walkers (docs/ANUM_MINE_HQ_AGENT_WALKERS.md): each figure is started by one stored record. Changing it never rebuilds the scene meshes. */
+  walkers?: WalkerLayerPlan | null;
   pickTargets: readonly PickTarget[];
   camera: CameraState;
   homeCamera: CameraState;
@@ -103,6 +106,14 @@ function giveWork(r: HqRenderer | null, plan: WorkLayerPlan | null | undefined, 
   const empty = !plan || (!plan.motions.length && !plan.racks.length);
   if (empty) { workLib?.detachWork(r); return; }
   void import('./lib/hqWorkLayer.ts').then((m) => { workLib = m; if (stillWanted()) m.setWork(r, r.workHooks(), plan); }).catch(() => undefined);
+}
+
+let walkerLib: typeof import('./lib/hqWalkerLayer.ts') | null = null;
+/** Hands the walkers to the renderer; the layer (its own lazy chunk) is fetched only when a record has produced a walker. */
+function giveWalkers(r: HqRenderer | null, plan: WalkerLayerPlan | null | undefined, stillWanted: () => boolean): void {
+  if (!r) return;
+  if (!plan || !plan.walkers.length) { walkerLib?.detachWalkers(r); return; }
+  void import('./lib/hqWalkerLayer.ts').then((m) => { walkerLib = m; if (stillWanted()) m.setWalkers(r, r.walkerHooks(), plan); }).catch(() => undefined);
 }
 
 type Pointer = { x: number; y: number };
@@ -233,6 +244,7 @@ export function HqStage(props: Props) {
       setLiveRenderer(r);
       r.setReducedMotion(propsRef.current.reducedMotion);
       giveWork(r, propsRef.current.work, () => true);
+      giveWalkers(r, propsRef.current.walkers, () => true);
       r.setCamera(live.current);
       r.setNight(nightNow.current);
       if (propsRef.current.scene) r.setScene(propsRef.current.scene);
@@ -255,6 +267,7 @@ export function HqStage(props: Props) {
       stopKeepOut?.();
       if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
       if (created) workLib?.detachWork(created);
+      if (created) walkerLib?.detachWalkers(created);
       created?.dispose();
       renderer.current = null;
       setLiveRenderer(null);
@@ -268,6 +281,8 @@ export function HqStage(props: Props) {
   useEffect(() => { if (scene) renderer.current?.setScene(scene); }, [scene]);
   const work = props.work;
   useEffect(() => { giveWork(renderer.current, work, () => propsRef.current.work === work); }, [work]);
+  const walkers = props.walkers;
+  useEffect(() => { giveWalkers(renderer.current, walkers, () => propsRef.current.walkers === walkers); }, [walkers]);
   // The revision of the plan atlas the scene asks for (the drawn one is `data-glass-plan`): a layout or presence change moves it.
   useEffect(() => {
     const plan = props.glassPlan;

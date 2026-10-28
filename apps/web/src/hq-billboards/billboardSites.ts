@@ -40,7 +40,7 @@ export type SiteContext = Readonly<{
 }>;
 
 /**
- * The board atlas: one canvas for every board of the campus, a cell of 512 x 256 per board (256 x 128 or smaller on a very large campus, so the
+ * The board atlas: one canvas for every board of the campus, a cell of 512 x 256 per board (256 x 128 on the lowest quality tier, or smaller on a very large campus, so the
  * canvas never grows past 2048 x 1024). The live details are drawn into the cell of the board (`billboardTexture.ts`); the mesh maps each
  * face onto its cell. Pure, so the mesh and the painter agree without importing each other.
  */
@@ -48,9 +48,9 @@ export type BoardCell = Readonly<{ u0: number; u1: number; v0: number; v1: numbe
 export type BoardAtlasLayout = Readonly<{ width: number; height: number; cellW: number; cellH: number; cols: number; rows: number; capacity: number; cell: (index: number) => BoardCell; origin: (index: number) => Readonly<{ x: number; y: number }> }>;
 const ATLAS_W = 2048;
 const pow2 = (n: number) => { let p = 1; while (p < n) p *= 2; return p; };
-export function boardAtlasLayout(count: number): BoardAtlasLayout {
-  // The richest cell whose atlas stays within 2048 x 1024.
-  let cellW = 512, cellH = 256;
+export function boardAtlasLayout(count: number, maxCell: 512 | 256 = 512): BoardAtlasLayout {
+  // The richest cell whose atlas stays within 2048 x 1024, and no richer than the quality tier allows (hqQualityTiers `boardCell`).
+  let cellW: number = maxCell, cellH = maxCell / 2;
   while (cellW > 64 && (ATLAS_W / cellW) * (1024 / cellH) < count) { cellW /= 2; cellH /= 2; }
   const cols = ATLAS_W / cellW;
   const rows = Math.max(1, Math.ceil(Math.max(1, count) / cols));
@@ -237,4 +237,12 @@ export function boardMesh(sites: readonly BoardSite[]): BillboardMesh {
   });
   const vertices = b.toFloat32();
   return { vertices, bounds: b.bounds(), triangles: b.triangleCount, halos: new Float32Array(b.halos) };
+}
+
+/** A board this near the camera's eye (metres) shows its close view (docs/ANUM_MINE_HQ_BILLBOARDS.md, "Near and far"). */
+export const CLOSE_M = 60;
+
+/** The buildings whose board is within `near` metres of the camera's eye, sorted (a stable key for the page to compare). */
+export function closeBoards(layer: Readonly<{ sites: readonly BoardSite[] }>, eye: Readonly<{ x: number; y: number; z: number }>, near = CLOSE_M): string[] {
+  return layer.sites.filter((s) => Math.hypot(s.anchor.x - eye.x, s.anchor.y - eye.y, s.anchor.z - eye.z) <= near).map((s) => s.workspaceId).sort();
 }
