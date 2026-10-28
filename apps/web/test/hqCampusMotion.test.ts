@@ -4,7 +4,7 @@ import { seeded } from '../src/lib/hqGeometry.ts';
 import {
   ALERT_KINDS, KIND_SECONDS, LINGER_MS, MAX_ANIMATED, STATIC_MS, TYRE_TIMELINE, VEHICLE_TIMELINE, WORK_KINDS, WorkPlanner,
   becauseLine, extraHoldOf, flowRecords, makeRecord, newPose, presenceRecords, routeTo, sampleRoad, segmentHitsBox, siteOf, stagesOf,
-  tyrePoseAt, tyreRecords, vehiclePoseAt, vehicleSeconds, whenText, type TyreFeed, type WorkKind, type WorkRecord,
+  tyreDay, tyreInstant, tyrePoseAt, tyreRecords, vehiclePoseAt, vehicleSeconds, whenText, type TyreFeed, type WorkKind, type WorkRecord,
 } from '../src/lib/hqWorkMotion.ts';
 import { CATALOGS } from '../src/lib/i18n.ts';
 
@@ -18,9 +18,17 @@ const tr = (locale: 'en' | 'ar') => (key: string, vars: Record<string, string> =
 };
 
 test('no record, no motion: feeds that are off, first answers and unchanged answers produce nothing', () => {
-  for (const state of ['loading', 'not_connected', 'forbidden', 'error'] as const) assert.deepEqual(tyreRecords({ state }, 'b1', known, NOW), []);
-  assert.deepEqual(tyreRecords({ state: 'connected', alerts: [], lastInspection: null }, 'b1', known, NOW), []);
-  assert.deepEqual(tyreRecords({ state: 'connected', alerts: [{ id: 'a', kind: 'low_tread', firstSeenAt: iso(5) }], lastInspection: null }, null, known, NOW), []);
+  const quiet: TyreFeed = { state: 'connected', alerts: [], latestAlertAt: null, lastInspection: null, lastInspectionAt: null };
+  const busy: TyreFeed = { state: 'connected', alerts: [{ id: 'a', kind: 'low_tread', firstSeenAt: iso(5) }], latestAlertAt: iso(5), lastInspection: '2026-10-26', lastInspectionAt: iso(3) };
+  for (const state of ['loading', 'not_connected', 'forbidden', 'error'] as const) {
+    assert.deepEqual(tyreRecords(quiet, { state }, 'b1', known, NOW), []);
+    // Coming back from an off or unreadable feed is a first answer again: the past is not replayed.
+    assert.deepEqual(tyreRecords({ state }, busy, 'b1', known, NOW), []);
+  }
+  assert.deepEqual(tyreRecords(null, busy, 'b1', known, NOW), []); // the first answer replays nothing
+  assert.deepEqual(tyreRecords(busy, busy, 'b1', known, NOW), []); // nothing changed
+  assert.deepEqual(tyreRecords(quiet, busy, null, known, NOW), []); // no Tyre Pulse building
+  assert.deepEqual(tyreRecords(quiet, quiet, 'b1', known, NOW), []);
   const view = [{ key: 'b1', working: 2, verifiedAt: iso(1) }];
   assert.deepEqual(presenceRecords(null, view, known, NOW), []);
   assert.deepEqual(presenceRecords(view, view, known, NOW), []);
@@ -49,10 +57,41 @@ test('records come only from a rise in working agents, a task that started or fi
   ];
   const f = flowRecords(prev, items, (id) => (id === 'x' ? 'b2' : null), known, NOW);
   assert.deepEqual(f.map((r) => [r.kind, r.buildingKey]), [['task_started', 'b2'], ['task_done', 'b2']]);
-  const feed: TyreFeed = { state: 'connected', alerts: [{ id: 'old', kind: 'low_tread', firstSeenAt: iso(60 * 30) }, { id: 'n1', kind: 'abnormal_wear', firstSeenAt: iso(20) }, { id: 'n2', kind: 'low_tread', firstSeenAt: iso(5) }], lastInspection: '2026-10-26' };
-  const t = tyreRecords(feed, 'b3', known, NOW);
-  assert.deepEqual(t.map((r) => [r.kind, r.alertKind]), [['tyre_alert', 'low_tread'], ['tyre_inspection', null]]);
-  assert.equal(tyreRecords({ ...feed, alerts: [{ id: 'old', kind: 'low_tread', firstSeenAt: iso(60 * 30) }], lastInspection: '2026-09-01' } as TyreFeed, 'b3', known, NOW).length, 0);
+  const tyreBefore: TyreFeed = { state: 'connected', alerts: [{ id: 'old', kind: 'low_tread', firstSeenAt: iso(60 * 30) }], latestAlertAt: iso(60 * 30), lastInspection: '2026-10-25', lastInspectionAt: '2026-10-25T09:00:00Z' };
+  const tyreAfter: TyreFeed = { state: 'connected', alerts: [{ id: 'old', kind: 'low_tread', firstSeenAt: iso(60 * 30) }, { id: 'n1', kind: 'abnormal_wear', firstSeenAt: iso(20) }, { id: 'n2', kind: 'low_tread', firstSeenAt: iso(5) }], latestAlertAt: iso(5), lastInspection: '2026-10-26', lastInspectionAt: iso(3) };
+  const t = tyreRecords(tyreBefore, tyreAfter, 'b3', known, NOW);
+  // One record per event type: the newest alert, and the new inspection at its stored time (an instant, so the line says 14:07).
+  assert.deepEqual(t.map((r) => [r.kind, r.alertKind, r.at, r.day]), [['tyre_alert', 'low_tread', iso(5), false], ['tyre_inspection', null, iso(3), false]]);
+  // The newest alert is not in the list the browser read (it holds 50): the event still happens, with the plain line.
+  const unseen = tyreRecords(tyreBefore, { ...tyreAfter, latestAlertAt: iso(1) } as TyreFeed, 'b3', known, NOW);
+  assert.deepEqual(unseen.map((r) => [r.kind, r.alertKind, r.at]), [['tyre_alert', null, iso(1)], ['tyre_inspection', null, iso(3)]]);
+  // Times that did not move forward are not events: an alert resolved (the newest is older now), the same or an older inspection.
+  assert.deepEqual(tyreRecords(tyreAfter, tyreBefore, 'b3', known, NOW), []);
+  // A change older than the 24 hour window is history: no record.
+  const stale: TyreFeed = { ...tyreAfter, latestAlertAt: iso(60 * 25), lastInspection: '2026-10-25', lastInspectionAt: iso(60 * 25) } as TyreFeed;
+  assert.deepEqual(tyreRecords({ ...tyreBefore, latestAlertAt: iso(60 * 30), lastInspection: '2026-10-24', lastInspectionAt: null } as TyreFeed, stale, 'b3', known, NOW), []);
+  // A source that keeps dates only: a later day is an inspection, shown as a day ("Oct 26"), never given a time.
+  const dayOnly = tyreRecords({ ...tyreBefore, lastInspectionAt: null } as TyreFeed, { ...tyreBefore, lastInspection: '2026-10-26', lastInspectionAt: null } as TyreFeed, 'b3', known, NOW);
+  assert.deepEqual(dayOnly.map((r) => [r.kind, r.at, r.day]), [['tyre_inspection', '2026-10-26', true]]);
+  assert.equal(whenText(dayOnly[0].at, dayOnly[0].day, 'en'), 'Oct 26');
+  // Only a day was known tyreBefore and now the same day has a time: it may be the same inspection, so it is not an event.
+  assert.deepEqual(tyreRecords({ ...tyreBefore, lastInspection: '2026-10-26', lastInspectionAt: null } as TyreFeed, { ...tyreBefore, lastInspection: '2026-10-26', lastInspectionAt: iso(3) } as TyreFeed, 'b3', known, NOW), []);
+  // A later inspection time on the same day is a new inspection.
+  const sameDay = tyreRecords({ ...tyreAfter, lastInspectionAt: iso(90) } as TyreFeed, tyreAfter, 'b3', known, NOW);
+  assert.deepEqual(sameDay.map((r) => [r.kind, r.at]), [['tyre_inspection', iso(3)]]);
+});
+
+test('the Tyre Pulse reader keeps only well formed times: an instant with a zone, or a calendar day', () => {
+  assert.equal(tyreInstant('2026-10-26T14:05:00Z'), '2026-10-26T14:05:00Z');
+  assert.equal(tyreInstant('2026-10-26T14:05:00.123456+04:00'), '2026-10-26T14:05:00.123456+04:00');
+  for (const bad of [null, undefined, 7, '', '2026-10-26', '2026-10-26T14:05:00', 'Oct 26 14:05', '2026-13-45T10:00:00Z', 'fake-sn-0103']) assert.equal(tyreInstant(bad), null, String(bad));
+  assert.equal(tyreDay('2026-10-26'), '2026-10-26');
+  assert.equal(tyreDay('2026-10-26T14:05:00Z'), '2026-10-26');
+  for (const bad of [null, undefined, 7, '', 'Oct 26', '2026-13-45', 'fake-plate-01']) assert.equal(tyreDay(bad), null, String(bad));
+  // A record built from an instant is never a day, and a day-only inspection is never an instant.
+  assert.equal(makeRecord({ kind: 'tyre_inspection', buildingKey: 'b1', at: iso(3), recordId: 'i' }, known, NOW)?.day, false);
+  assert.equal(makeRecord({ kind: 'tyre_inspection', buildingKey: 'b1', at: '2026-10-26', recordId: 'd' }, known, NOW)?.day, true);
+  assert.equal(makeRecord({ kind: 'tyre_alert', buildingKey: 'b1', at: '2026-10-26', recordId: 'a' }, known, NOW)?.day, false);
 });
 
 test('property: a record is refused unless every field is from the allowed set', () => {

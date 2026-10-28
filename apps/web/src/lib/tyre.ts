@@ -1,5 +1,6 @@
 // Tyre planning (docs/tyre-planning.md): API shapes and pure helpers for TyreView.
 // No browser or Vite APIs, so `pnpm test:unit` exercises them directly.
+import type { TyreDashboardEventTimes, TyreOperationsEventTimes } from '@anum/contracts';
 import { formatDateTime, formatNumber, t, type MessageKey } from './i18n.ts';
 
 export type SourceKind = 'supabase_auth' | 'supabase_postgres' | 'supabase_rest' | 'firestore';
@@ -66,7 +67,7 @@ export interface TyreAlert {
   message: string; value: Record<string, unknown>; status: AlertStatus; first_seen_at: string; last_seen_at: string;
   resolved_at: string | null; acknowledged_by: string | null; acknowledged_at: string | null;
 }
-export interface OperationsSummary {
+export interface OperationsSummary extends TyreOperationsEventTimes {
   as_of: string; vehicles: number; vehicles_inspected_last_30_days: number; vehicles_inspected_last_90_days: number;
   inspections_last_30_days: number; inspections_total: number; last_inspection: string | null; tyre_readings: number;
   readings_on_tyre_records: number; schedules_upcoming_14_days: number; schedules_overdue: number; checklists_last_30_days: number;
@@ -74,7 +75,7 @@ export interface OperationsSummary {
   work_orders_synced: number; work_order_cost_last_30_days: number | null; work_order_window_days: number | null;
   odometer_readings: number; hour_readings: number; sites: number; currency: string;
 }
-export interface Dashboard {
+export interface Dashboard extends TyreDashboardEventTimes {
   summary: FleetSummary; operations?: OperationsSummary; synced_at: string; alert_counts: Partial<Record<Severity, number>>; top_alerts: TyreAlert[];
   due_soon: TyreForecast[]; due_by_month: Record<string, number>;
 }
