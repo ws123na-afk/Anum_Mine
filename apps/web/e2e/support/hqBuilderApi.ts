@@ -18,6 +18,8 @@ export interface BuilderMockOptions extends HistoryMockOptions {
   down?: boolean;
   /** Extra rooms placed in a grid (for the large-floor spec). */
   extraRooms?: number;
+  /** Desk 2 is an older night seat (a shift, no working hours of its own), as a build made before the working hours has. */
+  olderSeat?: boolean;
   empty?: boolean;
   /** The building starts with this logo (a PNG), as if the owner had uploaded it. */
   withLogo?: Buffer;
@@ -79,7 +81,7 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
     rooms.set('r-recep', room('r-recep', 'Front desk', 'reception', 30, 2, 6, 4));
     rooms.set('r-spare', room('r-spare', 'Spare room', 'office', null, null, 6, 5));
     desks.set('d-1', desk('d-1', 'r-sales', 'Desk 1', 1.5, 1.5, 'agent_fleet'));
-    desks.set('d-2', desk('d-2', 'r-sales', 'Desk 2', 4.5, 1.5));
+    desks.set('d-2', { ...desk('d-2', 'r-sales', 'Desk 2', 4.5, 1.5), ...(options.olderSeat ? { shift: 'night' } : {}) });
     desks.set('d-3', desk('d-3', 'r-sales', 'Desk 3', null, null));
     for (let i = 0; i < (options.extraRooms ?? 0); i += 1) {
       rooms.set(`r-x${i}`, room(`r-x${i}`, `Bulk room ${i + 1}`, 'office', 40 + (i % 20) * 7, 2 + Math.floor(i / 20) * 6, 6, 5));

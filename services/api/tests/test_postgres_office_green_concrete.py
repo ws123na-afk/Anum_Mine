@@ -51,7 +51,12 @@ def test_preview_lists_everything_and_stores_nothing(hq: TestClient, database_en
     view = preview(hq)
     assert view["counts"]["create"] == {"buildings": 1, "floors": 1, "rooms": 1, "desks": 10, "agents": 10}
     assert view["building"]["name"]["en"] == "Green Concrete" and view["room"]["kind"] == "command"
-    assert view["shifts"]["defaults"] is True and view["shifts"]["day"] == {"start": "07:00", "end": "19:00"}
+    assert view["hours"] == {"timezone": view["timezone"], "night_shift": False, "windows": [
+        {"start": "06:00", "end": "14:00", "people": ["ijaz", "ali-zeehan", "rana"]},
+        {"start": "08:00", "end": "17:00", "people": ["raed", "hazrat", "mai", "shahzeb", "badea", "ahmed-elbendari"]},
+        {"start": "13:00", "end": "22:00", "people": ["amjad"]}]}
+    assert "shifts" not in view and view["older_seats"] == []
+    assert {p["key"]: (p["work_start"], p["work_end"]) for p in view["people"]}["amjad"] == ("13:00", "22:00")
     assert view["rules"]["agents_start_paused"] is True and view["rules"]["attaches_tools"] is False
     assert [p["name"] for p in view["people"]] == ["Raed", "Hazrat", "Mai", "Shahzeb", "Ijaz", "Badea", "Ali Zeehan", "Amjad", "Rana", "Ahmed Elbendari"]
     assert counts(database_engine) == (0, 0, 0, 0)
@@ -77,15 +82,20 @@ def test_confirm_builds_the_company_seats_paused_agents_and_audits_ids_only(hq: 
     assert body["outcome"] == "created" and body["agents_started"] == 0
     assert body["created"] == {"buildings": 1, "floors": 1, "rooms": 1, "desks": 10, "agents": 10, "seated": 10}
     assert counts(database_engine) == (1, 1, 10, 10)
-    seats = rows(database_engine, """select d.label, d.shift, d.seat_order, d.facing, d.seat_kind, d.table_group, a.name, a.status, a.department, a.avatar
+    seats = rows(database_engine, """select d.label, d.shift, d.seat_order, d.facing, d.seat_kind, d.table_group, a.name, a.status, a.department, a.avatar,
+        d.work_start, d.work_end
         from office_desks d join agent_profiles a on a.id = d.agent_id and a.tenant_id = d.tenant_id and a.workspace_id = d.workspace_id
         where d.tenant_id = :t and d.workspace_id = :w and d.id like 'gc-%' order by d.id""", t=TENANT_A, w=WORKSPACE_A)
     assert len(seats) == 10
-    day = [s for s in seats if s[1] == "day"]
-    assert [s[6] for s in day] == ["Raed", "Hazrat", "Mai", "Shahzeb", "Ijaz", "Badea"] and [s[2] for s in day] == [1, 2, 3, 4, 5, 6]
-    assert [s[6] for s in seats if s[1] == "night"] == ["Ali Zeehan", "Amjad", "Rana"]
-    manager = [s for s in seats if s[1] is None]
-    assert manager == [("Manager desk", None, 1, "north", "manager", "back-desk", "Ahmed Elbendari", "paused", "PMV manager", None)]
+    assert all(s[1] is None for s in seats), "no day or night shift any more"
+    team = [s for s in seats if s[4] == "team"]
+    assert [s[6] for s in team] == ["Raed", "Hazrat", "Mai", "Shahzeb", "Ijaz", "Badea", "Ali Zeehan", "Amjad", "Rana"]
+    assert [s[2] for s in team] == list(range(1, 10)) and [s[0] for s in team] == [f"Seat {i}" for i in range(1, 10)]
+    assert [(s[10], s[11]) for s in team] == [("08:00", "17:00")] * 4 + [("06:00", "14:00"), ("08:00", "17:00"), ("06:00", "14:00"), ("13:00", "22:00"), ("06:00", "14:00")]
+    places = rows(database_engine, "select pos_x, pos_z from office_desks where tenant_id = :t and room_id = :r", t=TENANT_A, r=gc.ROOM_ID)
+    assert len(set(places)) == 10, "everyone has a place of their own"
+    manager = [s for s in seats if s[4] == "manager"]
+    assert manager == [("Manager desk", None, 1, "north", "manager", "back-desk", "Ahmed Elbendari", "paused", "PMV manager", None, "08:00", "17:00")]
     assert all(s[7] == "paused" and s[9] is None for s in seats), "paused, neutral avatar (never inferred)"
     tools = rows(database_engine, "select allowed_tools, sharing from agent_profiles where tenant_id = :t and template_id like 'gc:%'", t=TENANT_A)
     assert all(t[0] == [] and t[1] == "workspace" for t in tools)
@@ -100,9 +110,9 @@ def test_confirm_builds_the_company_seats_paused_agents_and_audits_ids_only(hq: 
     # The registry read shows the new fields.
     desks = hq.get(f"{SP}/desks", headers=OWNER()).json()["items"]
     mine = [d for d in desks if d["id"].startswith("gc-")]
-    assert len(mine) == 10 and {"shift", "seat_order", "facing", "seat_kind", "table_group"} <= set(mine[0])
+    assert len(mine) == 10 and {"shift", "seat_order", "facing", "seat_kind", "table_group", "work_start", "work_end"} <= set(mine[0])
     shift = hq.get(f"{SP}/buildings/{gc.BUILDING_ID}", headers=OWNER()).json()
-    assert shift["shift_day_start"] is None and shift["shift_night_start"] is None, "defaults are not stored as facts"
+    assert shift["shift_day_start"] is None and shift["shift_night_start"] is None, "no building wide day and night hours are written"
 
 
 def test_second_click_and_a_stale_click_write_nothing(hq: TestClient, database_engine: Engine) -> None:
@@ -171,9 +181,25 @@ def test_shift_hours_and_seat_fields_are_validated_and_editable(hq: TestClient, 
         assert hq.patch(f"{SP}/desks/{gc.desk_id(1)}", headers=h, json={"expected_revision": moved.json()["revision"], **bad}).status_code == 422
     viewer = headers(TENANT_A, WORKSPACE_A, EXEC, "viewer")
     assert hq.patch(f"{SP}/desks/{gc.desk_id(1)}", headers=viewer, json={"expected_revision": moved.json()["revision"], "shift": "day"}).status_code == 403
+    # Working hours: both together, real times, a start and an end that differ; over midnight is allowed; null clears both.
+    late = hq.patch(f"{SP}/desks/{gc.desk_id(8)}", headers=h, json={"expected_revision": item(hq, "desks", gc.desk_id(8))["revision"], "work_start": "22:00", "work_end": "06:00"})
+    assert late.status_code == 200 and (late.json()["work_start"], late.json()["work_end"]) == ("22:00", "06:00")
+    for bad in ({"work_start": "09:00"}, {"work_start": "9am", "work_end": "17:00"}, {"work_start": "24:00", "work_end": "06:00"},
+                {"work_start": "08:00", "work_end": "08:00"}, {"work_start": None, "work_end": "17:00"}):
+        assert hq.patch(f"{SP}/desks/{gc.desk_id(8)}", headers=h, json={"expected_revision": late.json()["revision"], **bad}).status_code == 422, bad
+    assert hq.patch(f"{SP}/desks/{gc.desk_id(8)}", headers=viewer, json={"expected_revision": late.json()["revision"], "work_start": "09:00", "work_end": "18:00"}).status_code == 403
+    cleared = hq.patch(f"{SP}/desks/{gc.desk_id(8)}", headers=h, json={"expected_revision": late.json()["revision"], "work_start": None, "work_end": None})
+    assert cleared.status_code == 200 and cleared.json()["work_start"] is None
+    audit = rows(database_engine, "select metadata from audit_records where tenant_id = :t and action = 'office.desk.update' order by created_at", t=TENANT_A)
+    assert audit and audit[-1][0]["before"]["work_start"] == "22:00" and "Amjad" not in str(audit[-1][0]), "the hours are audited, never a name"
     # Database constraints hold even for a direct write.
     with pytest.raises(Exception):  # noqa: B017, PT011
         run_sql(database_engine, "update office_desks set shift = 'dusk' where id = :d and tenant_id = :t", d=gc.desk_id(1), t=TENANT_A)
+    for sql in ("update office_desks set work_start = '09:00', work_end = null where id = :d and tenant_id = :t",
+                "update office_desks set work_start = '09:00', work_end = '09:00' where id = :d and tenant_id = :t",
+                "update office_desks set work_start = '9:00', work_end = '17:00' where id = :d and tenant_id = :t"):
+        with pytest.raises(Exception):  # noqa: B017, PT011
+            run_sql(database_engine, sql, d=gc.desk_id(1), t=TENANT_A)
 
 
 def test_another_workspace_neither_counts_nor_sees_it(hq: TestClient, database_engine: Engine) -> None:
@@ -214,7 +240,7 @@ def test_the_owners_look_choices_are_part_of_the_hash_and_stored_for_new_agents_
 
 LH = "/api/v1/office-layout"
 FLOOR = gc.FLOOR_ID
-SEAT_COLS = "id, label, pos_x, pos_z, shift, seat_order, facing, seat_kind, table_group"
+SEAT_COLS = "id, label, pos_x, pos_z, shift, seat_order, facing, seat_kind, table_group, work_start, work_end"
 
 
 def seat_rows(engine: Engine, room: str = gc.ROOM_ID) -> list[tuple]:
@@ -255,6 +281,7 @@ def test_restore_brings_green_concrete_seats_shifts_and_hours_back_exactly(hq: T
     # Change seats, the L side, a shift, the hours, and remove a seat.
     patch(hq, "desks", gc.desk_id(1), shift="night", seat_order=9, facing="south", table_group="elsewhere")
     patch(hq, "desks", gc.desk_id(5), facing="west", seat_kind="manager")
+    patch(hq, "desks", gc.desk_id(8), work_start="22:00", work_end="06:00")
     patch(hq, "buildings", gc.BUILDING_ID, shift_day_start="08:00", shift_night_start="20:00")
     six = item(hq, "desks", gc.desk_id(6))
     assert hq.patch(f"{SP}/desks/{gc.desk_id(6)}/assignment", headers=OWNER(), json={"agent_id": None, "expected_revision": six["revision"]}).status_code == 200
@@ -265,12 +292,13 @@ def test_restore_brings_green_concrete_seats_shifts_and_hours_back_exactly(hq: T
     detail = hq.get(f"{LH}/floors/{FLOOR}/revisions/{saved_no}?against=current", headers=OWNER()).json()
     assert detail["matches_current"] is False
     summary = detail["diff"]["summary"]
-    assert summary["seats_changed"] == 2 and summary["shift_hours_changed"] is True and summary["desks_added"] == 1
+    assert summary["seats_changed"] == 3 and summary["shift_hours_changed"] is True and summary["desks_added"] == 1
     r = hq.post(f"{LH}/floors/{FLOOR}/revisions/{saved_no}/restore", headers=OWNER(), json={
         "payload_hash": detail["payload_hash"], "expected_head": current, "confirm_unassign": [], "input_mode": "click"})
     assert r.status_code == 200, r.text
     assert r.json()["restored"] is True
-    assert seat_rows(database_engine) == saved_seats, "every seat field and position is back"
+    assert seat_rows(database_engine) == saved_seats, "every seat field, working hours and position is back"
+    assert {s[0]: (s[9], s[10]) for s in seat_rows(database_engine)}[gc.desk_id(8)] == ("13:00", "22:00")
     assert hours(database_engine) == ("06:30", "18:30")
     # The restored desk comes back empty: a restore never seats an agent.
     assert rows(database_engine, "select agent_id from office_desks where tenant_id = :t and workspace_id = :w and id = :d",
@@ -308,6 +336,55 @@ def test_a_version_1_revision_restores_its_fields_and_leaves_seats_alone(hq: Tes
     assert by_id[gc.desk_id(2)][6] == "east", "seat fields it never recorded are left as they are"
 
 
+def test_a_version_2_revision_keeps_the_working_hours(hq: TestClient, database_engine: Engine) -> None:
+    assert confirm(hq, preview(hq)).status_code == 200
+    patch(hq, "desks", gc.desk_id(10), label="Back desk")
+    v2_no = head(hq)
+    # Turn the newest revision into the shape the previous release wrote (seat fields and building hours, no working hours).
+    run_sql(database_engine, "alter table office_floor_revisions disable trigger user")
+    try:
+        from anum_api import office_layout_history as lh
+        snap = rows(database_engine, "select snapshot from office_floor_revisions where tenant_id = :t and floor_id = :f and revision_no = :n",
+                    t=TENANT_A, f=FLOOR, n=v2_no)[0][0]
+        old = {"v": 2, "floor": snap["floor"], "shifts": snap["shifts"], "rooms": snap["rooms"],
+               "desks": [{k: d[k] for k in lh.DESK_FIELDS_V2} for d in snap["desks"]]}
+        import json
+        run_sql(database_engine, "update office_floor_revisions set snapshot = cast(:s as jsonb), snapshot_hash = :h where tenant_id = :t and floor_id = :f and revision_no = :n",
+                s=json.dumps(old), h=lh.snapshot_hash(old), t=TENANT_A, f=FLOOR, n=v2_no)
+    finally:
+        run_sql(database_engine, "alter table office_floor_revisions enable trigger user")
+    detail = hq.get(f"{LH}/floors/{FLOOR}/revisions/{v2_no}?against=current", headers=OWNER()).json()
+    assert detail["matches_current"] is True, "the same floor matches its version 2 revision"
+    patch(hq, "desks", gc.desk_id(10), label="Manager desk")
+    patch(hq, "desks", gc.desk_id(2), facing="east", work_start="09:00", work_end="18:00")
+    detail = hq.get(f"{LH}/floors/{FLOOR}/revisions/{v2_no}?against=current", headers=OWNER()).json()
+    r = hq.post(f"{LH}/floors/{FLOOR}/revisions/{v2_no}/restore", headers=OWNER(), json={
+        "payload_hash": detail["payload_hash"], "expected_head": head(hq), "confirm_unassign": [], "input_mode": "click"})
+    assert r.status_code == 200, r.text
+    by_id = {s[0]: s for s in seat_rows(database_engine)}
+    assert by_id[gc.desk_id(10)][1] == "Back desk" and by_id[gc.desk_id(2)][6] == "north", "the version 2 fields are restored"
+    assert (by_id[gc.desk_id(2)][9], by_id[gc.desk_id(2)][10]) == ("09:00", "18:00"), "hours it never recorded are left as they are"
+
+
+def test_an_earlier_build_is_never_moved_or_overwritten(hq: TestClient, database_engine: Engine) -> None:
+    assert confirm(hq, preview(hq)).status_code == 200
+    # The shape a workspace built before the working hours has: day and night seats, the night people at the day tables.
+    run_sql(database_engine, "update office_desks set work_start = null, work_end = null, shift = case when id in (:a, :b, :c) then 'night' "
+            "when id = :m then null else 'day' end where tenant_id = :t and room_id = :r",
+            a=gc.desk_id(7), b=gc.desk_id(8), c=gc.desk_id(9), m=gc.desk_id(10), t=TENANT_A, r=gc.ROOM_ID)
+    run_sql(database_engine, "update office_desks set pos_x = 4.8, pos_z = 4.2, label = 'Night seat 1' where id = :d and tenant_id = :t", d=gc.desk_id(7), t=TENANT_A)
+    before = seat_rows(database_engine)
+    view = preview(hq)
+    assert view["status"] == "complete" and view["older_seats"] == sorted(gc.desk_id(i) for i in range(1, 11))
+    assert all(s["action"] == "skip" for s in view["seats"])
+    again = confirm(hq, view)
+    assert again.status_code == 200 and again.json()["outcome"] == "already_set_up"
+    assert seat_rows(database_engine) == before, "nobody is moved and no hours are written over"
+    # The owner moves Ali Zeehan to his own place and gives him his hours in the builder: the desk PATCH, as for any seat.
+    patch(hq, "desks", gc.desk_id(7), pos_x=3.66, pos_z=6.4, facing="west", label="Seat 7", shift=None, work_start="06:00", work_end="14:00")
+    assert gc.desk_id(7) not in preview(hq)["older_seats"]
+
+
 def test_copying_the_command_center_keeps_every_seat_and_no_agent(hq: TestClient, database_engine: Engine) -> None:
     assert confirm(hq, preview(hq)).status_code == 200
     r = hq.post(f"{SP}/floors", headers=OWNER(), json={"id": "gc-upper", "building_id": gc.BUILDING_ID, "level": 1, "name": "Upper", "width_m": 30, "depth_m": 20})
@@ -320,11 +397,40 @@ def test_copying_the_command_center_keeps_every_seat_and_no_agent(hq: TestClient
     assert rows(database_engine, "select count(*) from office_desks where tenant_id = :t and room_id = 'gc-copy' and agent_id is not null", t=TENANT_A) == [(0,)]
 
 
-def test_campus_counts_people_of_the_other_shift_as_off_shift(hq: TestClient, database_engine: Engine) -> None:
+def test_campus_counts_people_outside_their_hours_as_off_shift(hq: TestClient, database_engine: Engine) -> None:
     from datetime import datetime, timedelta, timezone
     from zoneinfo import ZoneInfo
 
     assert confirm(hq, preview(hq)).status_code == 200
+    patch(hq, "buildings", gc.BUILDING_ID, timezone="Asia/Dubai")
+    now = datetime.now(timezone.utc)
+    minutes = gc.local_minutes(now, "Asia/Dubai")
+    expected = sum(1 for p in gc.PEOPLE if not gc.in_window(minutes, *p.hours))
+    a = next(b for b in hq.get("/api/v1/office/campus", headers=OWNER()).json()["buildings"] if b["workspace_id"] == WORKSPACE_A)
+    if gc.local_minutes(datetime.now(timezone.utc), "Asia/Dubai") == minutes:  # the minute did not turn during the read
+        assert a["agents"]["total"] == 10 and a["agents"]["off_shift"] == expected
+        assert sum(a["agents"]["by_state"].values()) == 10 - expected, "people outside their hours are not counted by a work state"
+    # Each person's own hours decide: put everyone in hours around now, then take Raed out of them.
+    local = now.astimezone(ZoneInfo("Asia/Dubai"))
+    start, end = (local - timedelta(hours=1)).strftime("%H:%M"), (local + timedelta(hours=1)).strftime("%H:%M")
+    run_sql(database_engine, "update office_desks set work_start = :s, work_end = :e where tenant_id = :t and room_id = :r",
+            s=start, e=end, t=TENANT_A, r=gc.ROOM_ID)
+    a = next(b for b in hq.get("/api/v1/office/campus", headers=OWNER()).json()["buildings"] if b["workspace_id"] == WORKSPACE_A)
+    assert a["agents"]["off_shift"] == 0 and sum(a["agents"]["by_state"].values()) == 10
+    patch(hq, "desks", gc.desk_id(1), work_start=end, work_end=start)  # a window over midnight that excludes now
+    a = next(b for b in hq.get("/api/v1/office/campus", headers=OWNER()).json()["buildings"] if b["workspace_id"] == WORKSPACE_A)
+    assert a["agents"]["off_shift"] == 1 and sum(a["agents"]["by_state"].values()) == 9
+
+
+def test_campus_counts_older_day_and_night_seats_by_the_building_hours(hq: TestClient, database_engine: Engine) -> None:
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    assert confirm(hq, preview(hq)).status_code == 200
+    # An earlier build: day and night seats without working hours of their own.
+    run_sql(database_engine, "update office_desks set work_start = null, work_end = null, shift = case when id in (:a, :b, :c) then 'night' "
+            "when id = :m then null else 'day' end where tenant_id = :t and room_id = :r",
+            a=gc.desk_id(7), b=gc.desk_id(8), c=gc.desk_id(9), m=gc.desk_id(10), t=TENANT_A, r=gc.ROOM_ID)
     local = datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Dubai"))
     start, end = (local - timedelta(hours=1)).strftime("%H:%M"), (local + timedelta(hours=1)).strftime("%H:%M")
     patch(hq, "buildings", gc.BUILDING_ID, timezone="Asia/Dubai", shift_day_start=start, shift_night_start=end)  # the day shift is on now

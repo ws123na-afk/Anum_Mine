@@ -276,6 +276,10 @@ class DeskUpdate(_Patch):
     facing: DoorSide | None = None
     seat_kind: SeatKind | None = None
     table_group: str | None = Field(default=None, min_length=1, max_length=40, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    # The working hours of the person at this seat ("HH:MM" in the building's time zone; an end before the start runs over
+    # midnight). Both or neither; null clears them (an older Day or Night seat then reads the building's hours again).
+    work_start: HourText | None = None
+    work_end: HourText | None = None
 
     @model_validator(mode="after")
     def _position_pair(self) -> "DeskUpdate":
@@ -284,6 +288,12 @@ class DeskUpdate(_Patch):
             raise ValueError("Send pos_x and pos_z together")
         if "pos_x" in given and (self.pos_x is None) != (self.pos_z is None):
             raise ValueError("Clear both pos_x and pos_z, or set both")
+        if ("work_start" in given) != ("work_end" in given):
+            raise ValueError("Send work_start and work_end together")
+        if (self.work_start is None) != (self.work_end is None):
+            raise ValueError("Clear both working hours, or set both")
+        if self.work_start is not None and self.work_start == self.work_end:
+            raise ValueError("Working hours cannot start and end at the same time")
         return self
 
 
@@ -417,7 +427,8 @@ _AUDIT_FIELDS = {
     "floors": ("building_id", "level", "name", "name_ar", "width_m", "depth_m"),
     "rooms": ("floor_id", "name", "kind", "capacity", "scene_x", "scene_z", "scene_width", "scene_depth",
               "rotation", "door_side", "description", "notes", "color", "name_ar", "equipment", "team_department"),
-    "desks": ("room_id", "label", "agent_id", "pos_x", "pos_z", "shift", "seat_order", "facing", "seat_kind", "table_group"),
+    "desks": ("room_id", "label", "agent_id", "pos_x", "pos_z", "shift", "seat_order", "facing", "seat_kind", "table_group",
+              "work_start", "work_end"),
 }
 
 

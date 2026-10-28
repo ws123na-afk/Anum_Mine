@@ -35,7 +35,8 @@ from .schemas import TenantContext
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/office/green-concrete", tags=["office green concrete"])
-VERSION = 1
+VERSION = 2
+SEAT_KEYS = ("shift", "seat_order", "facing", "seat_kind", "table_group", "work_start", "work_end")
 MAX_LOOKS = len(gc.PEOPLE) + 1
 
 
@@ -104,7 +105,8 @@ def load_facts(session: Any, context: TenantContext) -> gc.Facts:
         {**p, "f": gc.FLOOR_ID, "n": gc.ROOM_NAME, "id": gc.ROOM_ID}).first() is not None
     ids = [gc.desk_id(i + 1) for i in range(len(gc.PEOPLE))]
     facts.desks = {row["id"]: dict(row) for row in session.execute(text(
-        "select id, agent_id, revision from office_desks where tenant_id = :t and workspace_id = :w and id = any(cast(:d as text[]))"),
+        "select id, agent_id, revision, shift, work_start from office_desks "
+        "where tenant_id = :t and workspace_id = :w and id = any(cast(:d as text[]))"),
         {**p, "d": ids}).mappings()}
     facts.agents = {row["template_id"]: row["id"] for row in session.execute(text(
         "select id, template_id from agent_profiles where tenant_id = :t and workspace_id = :w and template_id like 'gc:%' order by id desc"),
@@ -132,10 +134,13 @@ def _read(context: TenantContext, zone: str | None) -> tuple[str, gc.Facts]:
         return (zone or _default_zone(session, context, facts)), facts
 
 
-def _shifts(facts: gc.Facts) -> dict[str, Any]:
-    day, night, default = gc.valid_hours(*(facts.building and (facts.building["shift_day_start"], facts.building["shift_night_start"]) or (None, None)))
-    return {"day": {"start": day, "end": night}, "night": {"start": night, "end": day}, "defaults": default,
-            "note": "These hours are defaults the owner must confirm. Change them in the builder (building shift hours)."}
+def _hours(zone: str) -> dict[str, Any]:
+    """The working hours of the plan, grouped: the owner's answer of 28 October 2026, not defaults."""
+    windows: dict[tuple[str, str], list[str]] = {}
+    for person in gc.PEOPLE:
+        windows.setdefault(person.hours, []).append(person.key)
+    return {"timezone": zone, "night_shift": False,
+            "windows": [{"start": s, "end": e, "people": keys} for (s, e), keys in sorted(windows.items())]}
 
 
 @router.get("/preview")
@@ -150,7 +155,7 @@ def preview(timezone: str | None = Query(default=None, max_length=80),
         "version": VERSION, "catalog_version": gc.CATALOG_VERSION, "workspace_id": context.workspace_id, "timezone": zone,
         "payload_hash": gc.proposal_hash(context.tenant_id, context.workspace_id, context.user_id, zone, p),
         "can_confirm": has_permission(context, Permission.WORKSPACE_MANAGE),
-        **p, "shifts": _shifts(facts), "monthly_cap_usd": gc.MONTHLY_CAP_USD,
+        **p, "hours": _hours(zone), "monthly_cap_usd": gc.MONTHLY_CAP_USD,
         "rules": {"creates_agents": True, "agents_start_paused": True, "attaches_tools": False, "changes_existing": False,
                   "infers_gender_or_ethnicity": False},
     }
@@ -231,7 +236,7 @@ def _apply(context: TenantContext, zone: str, expected: str, looks: dict[str, st
             snaps["floor"] = _snap("floors", row)
         if plan["room"]["action"] == "create":
             desks = [(s["desk_id"], s["label"], (s["pos_x"], s["pos_z"]),
-                      {k: s[k] for k in ("shift", "seat_order", "facing", "seat_kind", "table_group")}) for s in plan["seats"]]
+                      {k: s[k] for k in SEAT_KEYS}) for s in plan["seats"]]
             values = {"name": gc.ROOM_NAME, "kind": "command", "capacity": gc.ROOM_CAPACITY, "door_side": "south", "color": "forest",
                       "rotation": 0, "equipment": [{"kind": "monitor", "quantity": 10}, {"kind": "display", "quantity": 4},
                                                    {"kind": "network_switch", "quantity": 1}], "team_department": None}
@@ -245,7 +250,7 @@ def _apply(context: TenantContext, zone: str, expected: str, looks: dict[str, st
             for s in plan["seats"]:
                 if s["action"] == "create":
                     made = store._insert_desks(context, gc.ROOM_ID, [(s["desk_id"], s["label"], (s["pos_x"], s["pos_z"]),
-                                                {k: s[k] for k in ("shift", "seat_order", "facing", "seat_kind", "table_group")})])
+                                                {k: s[k] for k in SEAT_KEYS})])
                     created["desks"] += 1
                     ids.append(s["desk_id"])
                     snaps["desks"].extend(d["id"] for d in made)

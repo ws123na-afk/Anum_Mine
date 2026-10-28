@@ -14,7 +14,7 @@ export interface OfficeRoom extends OfficeRecord {floor_id:string;name:string;ki
  rotation?:OfficeRotation;door_side?:OfficeDoorSide;description?:string;notes?:string;color?:OfficeRoomColor|null;name_ar?:string|null;
  equipment?:OfficeEquipmentItem[];team_department?:OfficeTeamDepartment|null}
 /** `pos_x` and `pos_z` are metres from the room's north west corner; null while the desk is not placed. */
-export interface OfficeDesk extends OfficeRecord {room_id:string;label:string;agent_id:string|null;pos_x?:number|null;pos_z?:number|null;shift?:'day'|'night'|null;seat_order?:number|null;facing?:'north'|'south'|'east'|'west'|null;seat_kind?:'team'|'manager'|null;table_group?:string|null}
+export interface OfficeDesk extends OfficeRecord {room_id:string;label:string;agent_id:string|null;pos_x?:number|null;pos_z?:number|null;shift?:'day'|'night'|null;seat_order?:number|null;facing?:'north'|'south'|'east'|'west'|null;seat_kind?:'team'|'manager'|null;table_group?:string|null;work_start?:string|null;work_end?:string|null}
 export interface OfficeRegistryData {buildings:OfficeBuilding[];floors:OfficeFloor[];rooms:OfficeRoom[];desks:OfficeDesk[]}
 export interface OfficePage<T> {items:T[];next_cursor:string|null}
 export type OfficeRequester = <T>(path:string,init:RequestInit)=>Promise<T>;

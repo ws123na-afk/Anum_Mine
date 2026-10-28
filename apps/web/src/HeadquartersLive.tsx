@@ -15,7 +15,7 @@ import { BuildingDetail, CampusView } from './CampusView';
 import { HqPlanFallback } from './HqPlanFallback';
 import { GraphicsChip, PresenceLinkChip, ViewSwitch, type HqView } from './HqChrome';
 import { AgentPanel, RoomPanel } from './HqPanels';
-import { activeShiftKey, applyShiftView, offShiftKeys, type ShiftView } from './lib/hqShifts.ts';
+import { activeShiftKey, applyShifts, offShiftKeys } from './lib/hqShifts.ts';
 import { roomMove } from './hq-nav/navModel.ts';
 import * as api from './lib/api.ts';
 import { assistantLive, flowLive, officeLive, totalsSource } from './lib/hqPanelStatus.ts';
@@ -118,8 +118,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [campusNote, setCampusNote] = useState<string | null>(null);
   const [staffOpen, setStaffOpen] = useState(false);
   const [greenOpen, setGreenOpen] = useState(false);
-  // Shifts: the clock the shift in force is read from (it follows the page clock, so a pinned clock in a test works) and which shift the room shows.
-  const [shiftView, setShiftView] = useState<ShiftView>('active');
+  // Working hours: the clock who is on shift is read from (it follows the page clock, so a pinned clock in a test works).
   const [nowMs, setNowMs] = useState(() => Date.now());
   const nowRef = useRef(nowMs);
   nowRef.current = nowMs;
@@ -254,13 +253,13 @@ export function HeadquartersLive(props: HeadquartersProps) {
     return () => { window.clearInterval(timer); window.removeEventListener('focus', tick); document.removeEventListener('visibilitychange', tick); };
   }, []);
   const rawProjection = state?.projection ?? null;
-  // The registry as the chosen shift sees it. It is rebuilt only when the shift in force changes (not on every clock tick).
+  // The registry with who is inside their hours now. It is rebuilt only when somebody's on shift state changes (not on every clock tick).
   const shiftKey = rawProjection ? activeShiftKey(rawProjection.buildings, nowMs) : '';
   const projection = useMemo(
-    () => (rawProjection ? { ...rawProjection, buildings: applyShiftView(rawProjection.buildings, shiftView, nowRef.current) } : null),
+    () => (rawProjection ? { ...rawProjection, buildings: applyShifts(rawProjection.buildings, nowRef.current) } : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rawProjection, shiftView, shiftKey]);
-  // People of a shift not in force now, from the stored seats and hours: every count says "Off shift" for them, never idle or missing.
+    [rawProjection, shiftKey]);
+  // People outside their hours now, from the stored seats and hours: every count says "Off shift" for them, never idle or missing.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const offShift = useMemo(() => offShiftKeys(rawProjection?.buildings ?? [], nowRef.current), [rawProjection, shiftKey]);
   const registryBuilding = projection?.buildings.find((b) => b.id === state?.selected.buildingId) ?? projection?.buildings[0] ?? null;
@@ -552,7 +551,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
         ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
         : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} buildingKind={moduleBuildingKind(currentBuilding)} canManage={canManage} onOpenFlow={openFlowFor} onOpenGaps={() => setOverlay('gaps')} onOpenReception={openReception} visitors={visitorCounts?.get(roomPanelRoom.id)} wall={isOperationsRoom(roomPanelRoom) ? wallModel : null} onReloadWall={() => void flow.reload()}
           meeting={liveMeetingByRoom.get(roomPanelRoom.id) ?? null} meetingsKnown={meetings !== null} onStartMeeting={() => { setMeetingRoomId(roomPanelRoom.id); setOverlay('agentMeetings'); }}
-          shifts={registryBuilding?.shifts ?? null} shiftView={shiftView} onShiftView={setShiftView} /><Suspense fallback={null}><HqTeamPanel flowState={flowState} onAvatarChanged={() => void controller.refresh()} onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></Suspense></>)}
+          shifts={registryBuilding?.shifts ?? null} /><Suspense fallback={null}><HqTeamPanel flowState={flowState} onAvatarChanged={() => void controller.refresh()} onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></Suspense></>)}
         <HistoryLauncher label={t('hqHist.launch.room')} onClick={() => openHistory({ kind: 'room', roomId: roomPanelRoom.id, label: roomName(roomPanelRoom, locale), deskIds: roomPanelRoom.deskIds }, 'timeline')} /></>
       : null;
 

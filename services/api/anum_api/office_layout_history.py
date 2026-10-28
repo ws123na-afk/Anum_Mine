@@ -13,8 +13,9 @@ remove while an agent sits at it is listed, and the restore is refused until the
 
 Version 2 snapshots also hold each desk's seat fields (shift, place at the table, facing, seat kind, table group) and the
 shift hours of the floor's building, so a restore brings shift seating back exactly (docs/ANUM_MINE_GREEN_CONCRETE.md).
-A version 1 snapshot never recorded them: restoring one compares and changes only the version 1 fields and leaves the
-seat fields and hours as they are now.
+Version 3 adds each desk's own working hours (``work_start``, ``work_end``). An older snapshot never recorded what came
+later: restoring a version 1 revision compares and changes only the version 1 fields, and a version 2 revision leaves the
+working hours as they are now.
 """
 from __future__ import annotations
 
@@ -32,13 +33,16 @@ from .office_space_errors import SpaceStoreError
 from .schemas import TenantContext
 from .settings import settings
 
-SNAPSHOT_VERSION: Final = 2
+SNAPSHOT_VERSION: Final = 3
 ROOM_FIELDS: Final = (
     "id", "name", "kind", "capacity", "scene_x", "scene_z", "scene_width", "scene_depth", "rotation",
     "door_side", "description", "notes", "color", "name_ar", "equipment", "team_department",
 )
 DESK_FIELDS_V1: Final = ("id", "room_id", "label", "pos_x", "pos_z")
-SEAT_FIELDS: Final = ("shift", "seat_order", "facing", "seat_kind", "table_group")
+SEAT_FIELDS_V2: Final = ("shift", "seat_order", "facing", "seat_kind", "table_group")
+HOUR_FIELDS: Final = ("work_start", "work_end")
+SEAT_FIELDS: Final = (*SEAT_FIELDS_V2, *HOUR_FIELDS)
+DESK_FIELDS_V2: Final = (*DESK_FIELDS_V1, *SEAT_FIELDS_V2)
 DESK_FIELDS: Final = (*DESK_FIELDS_V1, *SEAT_FIELDS)
 SHIFT_FIELDS: Final = ("shift_day_start", "shift_night_start")
 _GEOMETRY: Final = ("scene_x", "scene_z", "scene_width", "scene_depth", "rotation", "door_side")
@@ -83,14 +87,25 @@ def build_snapshot(floor: Mapping[str, Any], rooms: list[Mapping[str, Any]], des
 
 
 def desk_fields_of(snapshot: Mapping[str, Any]) -> tuple[str, ...]:
-    """The desk fields a snapshot recorded: version 1 never held the seat fields."""
-    return DESK_FIELDS if snapshot.get("v", 1) >= 2 else DESK_FIELDS_V1
+    """The desk fields a snapshot recorded: version 1 never held the seat fields, version 2 never held the working hours."""
+    v = snapshot.get("v", 1)
+    return DESK_FIELDS if v >= 3 else DESK_FIELDS_V2 if v == 2 else DESK_FIELDS_V1
+
+
+def seat_fields_of(snapshot: Mapping[str, Any]) -> tuple[str, ...]:
+    """The seat fields a snapshot recorded (none in version 1)."""
+    v = snapshot.get("v", 1)
+    return SEAT_FIELDS if v >= 3 else SEAT_FIELDS_V2 if v == 2 else ()
 
 
 def as_version_of(snapshot: Mapping[str, Any], target: Mapping[str, Any]) -> Mapping[str, Any]:
-    """``snapshot`` reduced to what ``target`` recorded, so a version 2 floor compares with a version 1 revision."""
-    if target.get("v", 1) >= 2:
+    """``snapshot`` reduced to what ``target`` recorded, so a newer floor compares with an older revision."""
+    v = target.get("v", 1)
+    if v >= SNAPSHOT_VERSION:
         return snapshot
+    if v == 2:
+        return {"v": 2, "floor": snapshot["floor"], "shifts": snapshot.get("shifts"), "rooms": snapshot["rooms"],
+                "desks": [{f: d.get(f) for f in DESK_FIELDS_V2} for d in snapshot["desks"]]}
     return {"v": 1, "floor": snapshot["floor"], "rooms": snapshot["rooms"],
             "desks": [{f: d.get(f) for f in DESK_FIELDS_V1} for d in snapshot["desks"]]}
 
@@ -156,7 +171,7 @@ def diff_snapshots(old: Mapping[str, Any] | None, new: Mapping[str, Any]) -> dic
     old_desks = _by_id(old["desks"]) if old else {}
     new_desks = _by_id(new["desks"])
     d_added = d_removed = d_moved = d_seats = 0
-    seat_fields = SEAT_FIELDS if old is not None and old.get("v", 1) >= 2 and new.get("v", 1) >= 2 else ()
+    seat_fields = tuple(f for f in seat_fields_of(old) if f in seat_fields_of(new)) if old is not None else ()
     if old is not None:
         for did in set(old_desks) | set(new_desks):
             before, after = old_desks.get(did), new_desks.get(did)
@@ -184,7 +199,8 @@ def restore_plan(current: Mapping[str, Any], target: Mapping[str, Any]) -> dict[
     """The row changes that turn ``current`` into ``target``, as ids and values (pure).
 
     Only the fields ``target`` recorded are compared and changed: a version 1 revision leaves seat fields and shift hours alone,
-    and a desk it re-creates comes back without seat fields (they were never recorded).
+    and a desk it re-creates comes back without seat fields (they were never recorded); a version 2 revision leaves the working
+    hours alone in the same way.
     """
     cur_rooms, tgt_rooms = _by_id(current["rooms"]), _by_id(target["rooms"])
     cur_desks, tgt_desks = _by_id(current["desks"]), _by_id(target["desks"])

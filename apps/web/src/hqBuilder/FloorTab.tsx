@@ -42,6 +42,12 @@ export function FloorTab({ b, editable }: Props) {
   const buildingChanged = Object.keys(buildingPatch).length > 0;
   const hoursValid = (!dayStart || HOUR_PATTERN.test(dayStart)) && (!nightStart || HOUR_PATTERN.test(nightStart)) && !(dayStart && dayStart === nightStart);
   const sizeValid = width >= 1 && width <= 1000 && depth >= 1 && depth <= 1000;
+  // The building's day and night starts are read only by older Day or Night seats without hours of their own: the section is
+  // shown while such a seat exists in the building, or while hours are stored (so the owner can clear them).
+  const floorIds = new Set(b.data.floors.filter((f) => f.building_id === building.id).map((f) => f.id));
+  const roomIds = new Set(b.data.rooms.filter((r) => floorIds.has(r.floor_id)).map((r) => r.id));
+  const olderSeats = b.data.desks.filter((d) => roomIds.has(d.room_id) && d.shift && !d.work_start).length;
+  const showShiftHours = olderSeats > 0 || Boolean(building.shift_day_start || building.shift_night_start);
   const off = !editable || b.busy;
   return (
     <div className="hqbFloorTab">
@@ -65,15 +71,16 @@ export function FloorTab({ b, editable }: Props) {
         <label className="hqbField"><span>{t('hqb.building.name')}</span><input value={buildingName} maxLength={100} dir="auto" disabled={off} onChange={(e) => setBuildingName(e.target.value)} /></label>
         <label className="hqbField"><span>{t('hqb.building.nameAr')}</span><input value={buildingNameAr} maxLength={100} dir="rtl" lang="ar" disabled={off} data-testid="hqb-building-name-ar" onChange={(e) => setBuildingNameAr(e.target.value)} /></label>
         {!buildingNameAr.trim() && <p className="hqbHint" role="note">{t('hqb.nameAr.hint')}</p>}
-        <fieldset className="hqbShiftHours" data-testid="hqb-shift-hours">
+        {showShiftHours && <fieldset className="hqbShiftHours" data-testid="hqb-shift-hours">
           <legend>{t('hqGc.builder.shiftHours')}</legend>
           <div className="hqbRow">
             <label className="hqbGrow"><span>{t('hqGc.builder.dayStart')}</span><input type="text" inputMode="numeric" placeholder={DEFAULT_DAY_START} maxLength={5} dir="ltr" value={dayStart} disabled={off} aria-invalid={!hoursValid} data-testid="hqb-day-start" onChange={(e) => setDayStart(e.target.value.trim())} /></label>
             <label className="hqbGrow"><span>{t('hqGc.builder.nightStart')}</span><input type="text" inputMode="numeric" placeholder={DEFAULT_NIGHT_START} maxLength={5} dir="ltr" value={nightStart} disabled={off} aria-invalid={!hoursValid} data-testid="hqb-night-start" onChange={(e) => setNightStart(e.target.value.trim())} /></label>
           </div>
-          <p className="hqbHint" role="note">{t('hqGc.builder.hoursHelp')}</p>
+          <p className="hqbHint" role="note">{t('hqGc.builder.hoursHelp', { count: olderSeats })}</p>
           {!hoursValid && <p className="hqbHint" role="alert">{t('hqGc.builder.hoursInvalid')}</p>}
-        </fieldset>
+        </fieldset>}
+        {!showShiftHours && <p className="hqbHint" role="note" data-testid="hqb-hours-per-seat">{t('hqGc.builder.hoursPerSeat')}</p>}
         {editable && <button type="submit" disabled={b.busy || !buildingName.trim() || !buildingChanged || !hoursValid}>{t('hqb.building.save')}</button>}
       </form>
 
