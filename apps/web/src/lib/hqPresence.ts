@@ -86,12 +86,16 @@ export function agentPresence(records: readonly WorkstationLike[], meetings: Mee
   });
 }
 
-export function totalsOf(presence: readonly HqAgentPresence[]): CampusTotals {
+/** Counts per status. A person in `offShift` (agent id, or `desk:<id>` of a private agent's desk) counts as off shift, whatever the record says. */
+export function totalsOf(presence: readonly HqAgentPresence[], offShift?: ReadonlySet<string>): CampusTotals {
   const totals: Record<string, number> = { agents: presence.length };
   for (const key of STATUS_ORDER) totals[key] = 0;
-  for (const p of presence) totals[p.status] += 1;
+  for (const p of presence) totals[offShift && isOffShift(offShift, p) ? 'off_shift' : p.status] += 1;
   return totals as unknown as CampusTotals;
 }
+
+export const isOffShift = (offShift: ReadonlySet<string>, p: Readonly<{ agentId: string; deskId?: string | null }>): boolean =>
+  offShift.has(p.agentId) || (p.deskId != null && offShift.has(`desk:${p.deskId}`));
 
 /** Statuses the sources cannot report (meeting evidence missing), shown as "-" and never as zero. */
 export function unreportedStatuses(meetings: MeetingEvidence | null): StatusKey[] {

@@ -52,7 +52,7 @@ export const BILLBOARD_READS: readonly string[] = [
   'building.name', 'building.nameAr', 'building.kind', 'building.kindKnown', 'building.floors', 'building.rooms', 'building.accessible',
   'building.totals', 'building.presence_verified_at', 'building.sign', 'building.sign.color', 'building.sign.logoSha256', 'building.sign.buildingId', 'building.registryBuildingId', 'building.workspace_id', 'building.realWorkspaceId',
   'building.totals.agents', 'building.totals.working', 'building.totals.queued', 'building.totals.meeting', 'building.totals.waiting_approval',
-  'building.totals.blocked', 'building.totals.idle', 'building.totals.paused', 'building.totals.unknown',
+  'building.totals.blocked', 'building.totals.idle', 'building.totals.paused', 'building.totals.unknown', 'building.totals.off_shift',
   'plan.floors', 'plan.floors[]', 'plan.floors[].rooms', 'plan.floors[].rooms[]', 'plan.floors[].rooms[].label', 'plan.floors[].rooms[].labelAr',
   'plan.floors[].rooms[].teamDepartment', 'plan.floors[].rooms[].kind',
   'flow.status', 'flow.snapshot', 'flow.snapshot.sources', 'flow.snapshot.sources.tasks', 'flow.snapshot.items', 'flow.snapshot.items[]',
@@ -118,7 +118,7 @@ const timeText = (iso: string, locale: Locale): string => new Date(iso).toLocale
 /** Presence counts as `parts` (working always, any other state only when it has agents). */
 export function presenceParts(totals: CampusTotals, tr: Translate): BillboardPart[] {
   const label = (key: StatusKey): string => tr(`hq.status.${key}` as MessageKey);
-  return STATUS_ORDER.filter((key) => key === 'working' || totals[key] > 0).map((key) => ({ key, label: label(key), value: String(totals[key]) }));
+  return STATUS_ORDER.filter((key) => key === 'working' || (totals[key] ?? 0) > 0).map((key) => ({ key, label: label(key), value: String(totals[key] ?? 0) }));
 }
 
 type Work = Readonly<{ state: 'ok'; open: number; waiting: number; blocked: number; atLeast: boolean; asOf: string | null; stale: boolean }> | Readonly<{ state: 'not_connected' | 'no_access' }>;

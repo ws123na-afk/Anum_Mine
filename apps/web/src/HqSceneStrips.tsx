@@ -92,6 +92,7 @@ export function LiveOpsStrip(props: { totals: CampusTotals | null; unreported: r
         <ul>
           <li><strong>{props.totals.agents}</strong><span>{t('hqLabels.ops.people')}</span></li>
           {OPS.map((o) => <li key={o.key} className={`tone-${OPS_TONE[o.key]}`}><strong>{un.has(o.key) ? '-' : props.totals![o.key]}</strong><span>{t(o.label)}</span></li>)}
+          {(props.totals.off_shift ?? 0) > 0 && <li className="tone-faint" data-testid="ops-off-shift"><strong>{props.totals.off_shift}</strong><span>{t('hq.status.off_shift')}</span></li>}
           <li className="tone-stop"><strong>{flowOk && props.snapshot ? props.snapshot.totals.stuck : '-'}</strong><span>{t('hqLabels.ops.stuck')}</span></li>
         </ul>
       ) : <p className="hqMuted" role="status"><strong>{t('hqLabels.ops.notConnected')}</strong> {t('hqLabels.ops.noPresence')}</p>}

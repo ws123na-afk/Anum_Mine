@@ -10,6 +10,11 @@ from audit text. This module holds
 
 A snapshot never contains agents: a restore changes the layout, not who sits where. A desk that a restore would
 remove while an agent sits at it is listed, and the restore is refused until the person confirms that exact list.
+
+Version 2 snapshots also hold each desk's seat fields (shift, place at the table, facing, seat kind, table group) and the
+shift hours of the floor's building, so a restore brings shift seating back exactly (docs/ANUM_MINE_GREEN_CONCRETE.md).
+A version 1 snapshot never recorded them: restoring one compares and changes only the version 1 fields and leaves the
+seat fields and hours as they are now.
 """
 from __future__ import annotations
 
@@ -27,12 +32,15 @@ from .office_space_errors import SpaceStoreError
 from .schemas import TenantContext
 from .settings import settings
 
-SNAPSHOT_VERSION: Final = 1
+SNAPSHOT_VERSION: Final = 2
 ROOM_FIELDS: Final = (
     "id", "name", "kind", "capacity", "scene_x", "scene_z", "scene_width", "scene_depth", "rotation",
     "door_side", "description", "notes", "color", "name_ar", "equipment", "team_department",
 )
-DESK_FIELDS: Final = ("id", "room_id", "label", "pos_x", "pos_z")
+DESK_FIELDS_V1: Final = ("id", "room_id", "label", "pos_x", "pos_z")
+SEAT_FIELDS: Final = ("shift", "seat_order", "facing", "seat_kind", "table_group")
+DESK_FIELDS: Final = (*DESK_FIELDS_V1, *SEAT_FIELDS)
+SHIFT_FIELDS: Final = ("shift_day_start", "shift_night_start")
 _GEOMETRY: Final = ("scene_x", "scene_z", "scene_width", "scene_depth", "rotation", "door_side")
 STALE_LAYOUT: Final = "STALE_LAYOUT"
 UNASSIGN_NOT_CONFIRMED: Final = "UNASSIGN_NOT_CONFIRMED"
@@ -59,21 +67,39 @@ def _norm(value: Any) -> Any:
     return value
 
 
-def build_snapshot(floor: Mapping[str, Any], rooms: list[Mapping[str, Any]], desks: list[Mapping[str, Any]]) -> dict[str, Any]:
-    """The stored shape: floor size, rooms and desks sorted by id, no agents and no revision counters."""
+def build_snapshot(floor: Mapping[str, Any], rooms: list[Mapping[str, Any]], desks: list[Mapping[str, Any]],
+                   building: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """The stored shape: floor size, the building's shift hours, rooms and desks (with seat fields) sorted by id.
+
+    No agents and no revision counters.
+    """
     return {
         "v": SNAPSHOT_VERSION,
         "floor": {"width_m": _norm(floor.get("width_m")), "depth_m": _norm(floor.get("depth_m"))},
+        "shifts": {f: (building or {}).get(f) for f in SHIFT_FIELDS},
         "rooms": sorted(({f: _norm(r.get(f)) for f in ROOM_FIELDS} for r in rooms), key=lambda r: r["id"]),
         "desks": sorted(({f: _norm(d.get(f)) for f in DESK_FIELDS} for d in desks), key=lambda d: d["id"]),
     }
 
 
+def desk_fields_of(snapshot: Mapping[str, Any]) -> tuple[str, ...]:
+    """The desk fields a snapshot recorded: version 1 never held the seat fields."""
+    return DESK_FIELDS if snapshot.get("v", 1) >= 2 else DESK_FIELDS_V1
+
+
+def as_version_of(snapshot: Mapping[str, Any], target: Mapping[str, Any]) -> Mapping[str, Any]:
+    """``snapshot`` reduced to what ``target`` recorded, so a version 2 floor compares with a version 1 revision."""
+    if target.get("v", 1) >= 2:
+        return snapshot
+    return {"v": 1, "floor": snapshot["floor"], "rooms": snapshot["rooms"],
+            "desks": [{f: d.get(f) for f in DESK_FIELDS_V1} for d in snapshot["desks"]]}
+
+
 def snapshot_hash(snapshot: Mapping[str, Any]) -> str:
-    canonical = json.dumps(
-        {"floor": snapshot["floor"], "rooms": snapshot["rooms"], "desks": snapshot["desks"]},
-        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-    )
+    content: dict[str, Any] = {"floor": snapshot["floor"], "rooms": snapshot["rooms"], "desks": snapshot["desks"]}
+    if "shifts" in snapshot:
+        content["shifts"] = snapshot["shifts"]
+    canonical = json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -129,7 +155,8 @@ def diff_snapshots(old: Mapping[str, Any] | None, new: Mapping[str, Any]) -> dic
         })
     old_desks = _by_id(old["desks"]) if old else {}
     new_desks = _by_id(new["desks"])
-    d_added = d_removed = d_moved = 0
+    d_added = d_removed = d_moved = d_seats = 0
+    seat_fields = SEAT_FIELDS if old is not None and old.get("v", 1) >= 2 and new.get("v", 1) >= 2 else ()
     if old is not None:
         for did in set(old_desks) | set(new_desks):
             before, after = old_desks.get(did), new_desks.get(did)
@@ -137,23 +164,34 @@ def diff_snapshots(old: Mapping[str, Any] | None, new: Mapping[str, Any]) -> dic
                 d_added += 1
             elif after is None:
                 d_removed += 1
-            elif any(before[f] != after[f] for f in DESK_FIELDS):
+            elif any(before[f] != after[f] for f in DESK_FIELDS_V1):
                 d_moved += 1
+            elif any(before.get(f) != after.get(f) for f in seat_fields):
+                d_seats += 1
     resized = bool(old) and old["floor"] != new["floor"]
+    hours = bool(old) and "shifts" in old and "shifts" in new and old["shifts"] != new["shifts"]
     return {
         "rooms": rooms,
         "desks": [{"id": d["id"], "room_id": d["room_id"], "label": d["label"], "x": d["pos_x"], "z": d["pos_z"]}
                   for d in new["desks"]],
         "summary": {**counts, "desks_added": d_added, "desks_removed": d_removed, "desks_moved": d_moved,
+                    "seats_changed": d_seats, "shift_hours_changed": hours,
                     "floor_resized": resized, "rooms": len(new["rooms"]), "desks": len(new["desks"])},
     }
 
 
 def restore_plan(current: Mapping[str, Any], target: Mapping[str, Any]) -> dict[str, Any]:
-    """The row changes that turn ``current`` into ``target``, as ids and values (pure)."""
+    """The row changes that turn ``current`` into ``target``, as ids and values (pure).
+
+    Only the fields ``target`` recorded are compared and changed: a version 1 revision leaves seat fields and shift hours alone,
+    and a desk it re-creates comes back without seat fields (they were never recorded).
+    """
     cur_rooms, tgt_rooms = _by_id(current["rooms"]), _by_id(target["rooms"])
     cur_desks, tgt_desks = _by_id(current["desks"]), _by_id(target["desks"])
+    fields = desk_fields_of(target)
+    hours = target.get("shifts")
     return {
+        **({"shift_hours": hours} if hours is not None and hours != current.get("shifts") else {}),
         "desk_deletes": sorted(set(cur_desks) - set(tgt_desks)),
         "room_deletes": sorted(set(cur_rooms) - set(tgt_rooms)),
         "room_inserts": [tgt_rooms[i] for i in sorted(set(tgt_rooms) - set(cur_rooms))],
@@ -161,9 +199,9 @@ def restore_plan(current: Mapping[str, Any], target: Mapping[str, Any]) -> dict[
         "room_updates": [(i, {f: tgt_rooms[i][f] for f in ROOM_FIELDS if f != "id" and tgt_rooms[i][f] != cur_rooms[i][f]})
                          for i in sorted(set(tgt_rooms) & set(cur_rooms))
                          if any(tgt_rooms[i][f] != cur_rooms[i][f] for f in ROOM_FIELDS)],
-        "desk_updates": [(i, {f: tgt_desks[i][f] for f in DESK_FIELDS if f not in ("id", "room_id") and tgt_desks[i][f] != cur_desks[i][f]})
+        "desk_updates": [(i, {f: tgt_desks[i][f] for f in fields if f not in ("id", "room_id") and tgt_desks[i][f] != cur_desks[i].get(f)})
                          for i in sorted(set(tgt_desks) & set(cur_desks))
-                         if any(tgt_desks[i][f] != cur_desks[i][f] for f in DESK_FIELDS)],
+                         if any(tgt_desks[i][f] != cur_desks[i].get(f) for f in fields)],
     }
 
 
@@ -195,7 +233,8 @@ class LayoutHistoryMixin:
     def _current_snapshot(self, context: TenantContext, floor: Mapping[str, Any]) -> dict[str, Any]:
         rooms = self._floor_rooms(context, floor["id"])  # type: ignore[attr-defined]
         desks = self._room_desks(context, [r["id"] for r in rooms])  # type: ignore[attr-defined]
-        return build_snapshot(floor, rooms, desks)
+        building = self.get(context, "buildings", floor["building_id"])  # type: ignore[attr-defined]
+        return build_snapshot(floor, rooms, desks, building)
 
     def _write_revision(self, context: TenantContext, floor_id: str, snapshot: dict[str, Any], action: str,
                         previous: Mapping[str, Any] | None, *, restored_from: int | None = None,
@@ -326,7 +365,7 @@ class LayoutHistoryMixin:
             "revision": revision_view(row, head_no), "head_revision": head_no, "against": against,
             "current_hash": snapshot_hash(current),
             "payload_hash": restore_payload_hash(context.tenant_id, context.workspace_id, user_id, floor_id, number, row["snapshot_hash"]),
-            "matches_current": row["snapshot_hash"] == snapshot_hash(current),
+            "matches_current": row["snapshot_hash"] == snapshot_hash(as_version_of(current, row["snapshot"])),
             "floor": row["snapshot"]["floor"],
         }
         if against == "previous":
@@ -372,7 +411,7 @@ class LayoutHistoryMixin:
         current = self._current_snapshot(context, floor)
         self._room_desks(context, [r["id"] for r in current["rooms"]], lock=True)  # type: ignore[attr-defined]
         snap = target["snapshot"]
-        if snapshot_hash(current) == target["snapshot_hash"]:
+        if snapshot_hash(as_version_of(current, snap)) == target["snapshot_hash"]:
             return {"restored": False, "replayed": False, "noop": True, "revision_no": head["revision_no"],
                     "restored_from": None, "unassigned": [], "before": current, "after": current,
                     "summary": head["summary"]}
@@ -391,7 +430,7 @@ class LayoutHistoryMixin:
         if after_floor is None:
             raise SpaceStoreError("not_found", "Floor not found in this workspace")
         after = self._current_snapshot(context, after_floor)
-        if snapshot_hash(after) != target["snapshot_hash"]:
+        if snapshot_hash(as_version_of(after, snap)) != target["snapshot_hash"]:
             raise SpaceStoreError("conflict", "The restore did not reproduce that revision, so nothing was changed",
                                   reason=RESTORE_MISMATCH)
         no = self._write_revision(context, floor_id, after, "office.floor.restore", head,
@@ -443,14 +482,19 @@ class LayoutHistoryMixin:
         for room in plan["room_inserts"]:
             self._insert_room(context, {**room, "floor_id": floor_id})  # type: ignore[attr-defined]
         for desk in plan["desk_inserts"]:
+            seat = {f: desk[f] for f in SEAT_FIELDS if desk.get(f) is not None}
             self._insert_desks(context, desk["room_id"], [(desk["id"], desk["label"],  # type: ignore[attr-defined]
-                                                           (desk["pos_x"], desk["pos_z"]) if desk["pos_x"] is not None else None)])
+                                                           (desk["pos_x"], desk["pos_z"]) if desk["pos_x"] is not None else None, seat)])
         for rid, changes in plan["room_updates"]:
             if changes:
                 self._apply(context, "rooms", rid, changes)  # type: ignore[attr-defined]
         for did, changes in plan["desk_updates"]:
             if changes:
                 self._apply(context, "desks", did, changes)  # type: ignore[attr-defined]
+        if plan.get("shift_hours") is not None and floor.get("building_id"):
+            # The hours live on the building (one pair for all its floors). Locked after the floor, as every restore does.
+            self._lock(context, "buildings", floor["building_id"])  # type: ignore[attr-defined]
+            self._apply(context, "buildings", floor["building_id"], dict(plan["shift_hours"]))  # type: ignore[attr-defined]
         width, depth = snap["floor"]["width_m"], snap["floor"]["depth_m"]
         if (floor.get("width_m"), floor.get("depth_m")) != (width, depth) and width is not None:
             self._apply(context, "floors", floor_id, {"width_m": width, "depth_m": depth})  # type: ignore[attr-defined]

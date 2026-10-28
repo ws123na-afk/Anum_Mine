@@ -386,6 +386,7 @@ export function buildingSummary(b: CampusBuilding): string {
   if (b.totals.agents === 0) return t('hq.status.empty');
   const parts = [t('hq.building.agents', { count: b.totals.agents }), t('hq.building.working', { count: b.totals.working })];
   if (b.totals.meeting > 0) parts.push(t('hq.building.inMeeting', { count: b.totals.meeting }));
+  if ((b.totals.off_shift ?? 0) > 0) parts.push(`${t('hq.status.off_shift')} ${b.totals.off_shift}`);
   return parts.join(', ');
 }
 
@@ -436,7 +437,7 @@ export function BuildingDetail(props: { building: CampusBuilding; current: boole
       <p className="hqMuted">{b.registryBuildingId ? (b.workspaceName ?? '') : b.kindKnown === false ? t('hq.kind.unset') : t(`hq.kind.${b.kind}` as MessageKey)}{b.floors ? ` · ${t('hq.building.floors', { count: b.floors })}` : ''}{b.archived ? ` · ${t('hq.detail.archived')}` : ''}</p>
       <p className="hqDetailStatus" data-status={status}><span className="hqStatusDot" aria-hidden="true" />{buildingSummary(b)}</p>
       {b.totals && b.totals.agents > 0 && (
-        <ul className="hqChips">{(['working', 'meeting', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'] as const).filter((k) => b.totals![k] > 0).map((k) => <li key={k}>{statusLabel(k)} {b.totals![k]}</li>)}</ul>
+        <ul className="hqChips">{(['working', 'meeting', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown', 'off_shift'] as const).filter((k) => (b.totals![k] ?? 0) > 0).map((k) => <li key={k}>{statusLabel(k)} {b.totals![k]}</li>)}</ul>
       )}
       {props.current && b.role === 'owner' && !b.archived && !b.registryBuildingId && <BuildingProfileForm key={`${b.workspace_id}:${b.profileRevision ?? 'new'}`} building={b} onSave={props.onSaveProfile} />}
       {b.kindKnown === false && !b.registryBuildingId && !(props.current && b.role === 'owner') && <p className="hqNote">{t('hq.profile.ownerOnly')}</p>}

@@ -55,6 +55,8 @@ export type BuildingViewProps = Readonly<{
   building: SceneBuilding;
   floor: SceneFloor;
   presence: HqPresenceIndex | null;
+  /** Agents (and `desk:<id>`) of a shift not in force now: counted as off shift. */
+  offShift?: ReadonlySet<string>;
   unreported: readonly StatusKey[];
   verifiedAt: string | null;
   liveMeetings: number | null;
@@ -390,7 +392,7 @@ export function BuildingView(props: BuildingViewProps) {
     return [...list, ...flowLabels];
   }, [roomById, insideRoomId, props.wall, scene, floor, floors, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels, overview, stacked, stackLib]);
 
-  const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
+  const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()], props.offShift) : null), [presence, props.offShift]);
   const insideRoom = insideRoomId ? roomById.get(insideRoomId) ?? null : null;
   const keep = (c: CameraState): CameraState => (insideRoom && isInsideView(c) ? clampInside(c, insideRoom) : clampTarget(c, 400));
   const change = (fn: (c: CameraState) => CameraState) => { stopGlide(); setCamera((c) => keep(fn(c))); };

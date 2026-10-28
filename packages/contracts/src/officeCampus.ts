@@ -39,7 +39,8 @@ export interface CampusBuilding {
   office_buildings: number;
   rooms: number;
   desks: number;
-  agents: { total: number; by_state: OfficePresenceStateTotals } | null;
+  /** `by_state` counts the people on shift; `off_shift` the seated people of a day or night shift not in force now (stored hours, building time zone). */
+  agents: { total: number; by_state: OfficePresenceStateTotals; off_shift?: number } | null;
   /** Newest evidence time behind a non-idle agent state; null when every agent is idle or none exist. */
   presence_verified_at: string | null;
   presence_as_of: string | null;

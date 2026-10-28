@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { buildBuildingScene } from '../src/lib/buildingScene.ts';
 import { projectHeadquarters, type Registry, type SceneDesk } from '../src/lib/headquartersProjection.ts';
-import { activeShiftKey, applyShiftView, deskShiftLine, hoursOf, minutesInZone, shiftAt, shiftAtMinutes, windowOf, WORK_STATUSES } from '../src/lib/hqShifts.ts';
+import { activeShiftKey, applyShiftView, deskShiftLine, hoursOf, minutesInZone, offShiftKeys, shiftAt, shiftAtMinutes, windowOf, WORK_STATUSES } from '../src/lib/hqShifts.ts';
+import { totalsOf, type HqAgentPresence } from '../src/lib/hqPresence.ts';
+import { commandWall } from '../src/lib/hqCommandWall.ts';
+import { addTotals, buildingStatus, donutArcs, EMPTY_TOTALS, type CampusBuilding } from '../src/lib/campusModel.ts';
+import { registryBuildingFacts } from '../src/lib/campusRegistry.ts';
 import { rotOfFacing, tableJoins } from '../src/lib/hqSeatTables.ts';
 import { STATE_LOOK, lookSignature } from '../src/hqAssets/interior/stateVisual.ts';
 import { deskLabel } from '../src/lib/registryNames.ts';
@@ -166,4 +170,71 @@ test('role titles are translated only for the roles the action sets', async () =
   assert.equal(roleText('Sales and outreach'), 'Sales and outreach', 'any other role stays as stored');
   setLocale('en');
   assert.equal(roleText('PMV manager'), 'PMV manager');
+});
+
+// The same L mirrored about the room's centre line: the short leg at the left end, its people looking west.
+const mirrored = (width: number) => fx.desks.map((d) => (d.table_group === 'l-table'
+  ? { ...d, pos_x: Math.round((width - (d.pos_x as number)) * 100) / 100, facing: d.facing === 'east' ? 'west' : d.facing } : d));
+
+test('the L corner is built for a right and a left L, towards the door or the wall, and a corner seat needs none', () => {
+  const right = fx.desks.filter((d) => d.shift === 'day').map((d) => ({ x: d.pos_x as number, z: d.pos_z as number, facing: d.facing as 'north' | 'east', group: 'l' }));
+  const [r] = tableJoins(right);
+  assert.equal(r.outer, 1);
+  const left = right.map((s) => ({ ...s, x: 16 - s.x, facing: s.facing === 'east' ? 'west' as const : s.facing }));
+  const joins = tableJoins(left);
+  assert.equal(joins.length, 1, 'a left L gets its corner');
+  const [l] = joins;
+  assert.equal(l.outer, -1);
+  assert.ok(Math.abs(l.x + l.width - (16 - r.x)) < 1e-9 && Math.abs(l.z - r.z) < 1e-9 && Math.abs(l.depth - r.depth) < 1e-9, 'the left corner is the mirror of the right one');
+  const towardsWall = right.map((s) => (s.facing === 'east' ? { ...s, z: 2 * 4.2 - s.z } : s));
+  const [w] = tableJoins(towardsWall);
+  assert.ok(w && w.z + w.depth > 4.2 && w.z < 4.2, 'a leg running towards the wall is joined on the other side of the row');
+  const corner = [...right.slice(0, 4), { x: 10.44, z: 4.5, facing: 'east' as const, group: 'l' }];
+  assert.equal(tableJoins(corner).length, 0, 'a corner seat whose table covers the corner needs no extra piece');
+});
+
+test('a mirrored Green Concrete room draws the left L in the scene, with the corner and every seat', () => {
+  const desks = mirrored(16);
+  const reg = { ...registry(), desks: desks.map((d) => ({ ...d, ...rev })) } as unknown as Registry;
+  const building = applyShiftView(projectHeadquarters(scope, reg, []).buildings, 'active', DAY)[0];
+  const day = building.floors[0].desks.filter((d) => d.shift === 'day');
+  assert.ok(day.filter((d) => d.facing === 'west').length === 2 && day.filter((d) => d.facing === 'north').length === 4);
+  const seats = day.map((d) => ({ x: d.position.x, z: d.position.z, facing: d.facing ?? null, group: d.tableGroup ?? null }));
+  assert.equal(tableJoins(seats)[0]?.outer, -1);
+  const people = new Map(building.floors[0].desks.map((d) => [d.id, d.agentId as string]));
+  const scene = buildBuildingScene(building.floors, { activeIndex: 0, people, deskState: new Map() });
+  assert.equal(scene.desks.length, 7, 'every seat of the shown shift and the manager');
+  const straight = applyShiftView(project().buildings, 'active', DAY)[0];
+  const original = buildBuildingScene(straight.floors, { activeIndex: 0, people: new Map(straight.floors[0].desks.map((d) => [d.id, d.agentId as string])), deskState: new Map() });
+  assert.equal(scene.triangles, original.triangles, 'the left L draws the same furniture as the right one, corner piece included');
+});
+
+test('people of the other shift count as Off shift everywhere a count is made, never idle or missing', () => {
+  const raw = project().buildings;
+  const at = (ms: number) => offShiftKeys(raw, ms);
+  const nightIds = fx.people.filter((p) => p.shift === 'night').map((p) => p.agent_id);
+  const dayIds = fx.people.filter((p) => p.shift === 'day').map((p) => p.agent_id);
+  assert.deepEqual([...at(DAY)].filter((k) => !k.startsWith('desk:')).sort(), [...nightIds].sort());
+  assert.deepEqual([...at(NIGHT)].filter((k) => !k.startsWith('desk:')).sort(), [...dayIds].sort());
+  const manager = fx.people.find((p) => p.shift === null)!.agent_id;
+  assert.ok(!at(DAY).has(manager) && !at(NIGHT).has(manager), 'the manager is always on');
+  // Edited hours move the edge: with the day from 13:00, noon in Dubai is still night.
+  assert.ok(offShiftKeys(project({ shift_day_start: '13:00', shift_night_start: '23:00' }).buildings, DAY).has(dayIds[0]));
+  const presence: HqAgentPresence[] = fx.people.map((p) => ({ agentId: p.agent_id, name: p.name, role: null, status: 'idle', taskTitles: [], observedAt: '2026-10-26T08:00:00Z', deskId: p.desk_id }));
+  const totals = totalsOf(presence, at(DAY));
+  assert.equal(totals.agents, 10);
+  assert.equal(totals.off_shift, 3);
+  assert.equal(totals.idle, 7, 'only the people on shift are idle');
+  assert.equal(donutArcs(totals).reduce((n, a) => n + a.value, 0), 10, 'the donut still adds up to every agent');
+  const wall = commandWall({ status: 'ready', snapshot: null }, presence.map((p) => ({ agent_id: p.agentId, state: at(DAY).has(p.agentId) ? 'off_shift' : p.status })));
+  assert.ok(wall.agents.state === 'ready' && wall.agents.total === 10 && wall.agents.byState.off_shift === 3 && wall.agents.byState.idle === 7);
+  const index = { byAgent: new Map(presence.map((p) => [p.agentId, p])), byDesk: new Map() };
+  const facts = registryBuildingFacts(raw[0], index, at(DAY));
+  assert.equal(facts.totals?.off_shift, 3);
+  assert.equal(addTotals(totals, EMPTY_TOTALS).off_shift, 3);
+  const allOff = { totals: { ...EMPTY_TOTALS, agents: 3, off_shift: 3 } } as unknown as CampusBuilding;
+  assert.equal(buildingStatus(allOff), 'off_shift');
+  // Without the set the old count stands: nothing changes for a building with no shift seats.
+  assert.equal(totalsOf(presence).off_shift, 0);
+  assert.equal(offShiftKeys(project().buildings.map((b) => ({ ...b, floors: b.floors.map((f) => ({ ...f, desks: f.desks.map((d) => ({ ...d, shift: null })) })) })), DAY).size, 0);
 });
