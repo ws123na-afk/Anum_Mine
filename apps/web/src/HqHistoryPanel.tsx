@@ -9,12 +9,16 @@ import type { OfficeHistoryEvidence } from '@anum/contracts';
 import { HistoryFilterForm, RecordList, useSentinel, type PickOption } from './HqHistoryParts';
 import { RecordDetail } from './HqHistoryDetail';
 import { RoomSlider } from './HqRoomSlider';
-import { useHqHistory } from './useHqHistory';
+import { historyClient, useHqHistory } from './useHqHistory';
 import { downloadAuditExport, getWorkspacePermissions } from './lib/adminApi';
 import { downloadNarrowedExport } from './lib/hqHistoryExportApi';
 import { exportNarrowing, narrowedFilename } from './lib/hqHistoryExport';
 import { describeError, isPermissionDenied } from './lib/errors';
-import { EMPTY_FILTERS, OFFICE_SCOPE, countActive, exportFilters, filtersActive, type HistoryFilters, type HistoryScope } from './lib/hqHistory';
+import { EMPTY_FILTERS, OFFICE_SCOPE, countActive, exportFilters, filtersActive, historyQuery, newerRecords, type HistoryFilters, type HistoryScope } from './lib/hqHistory';
+import { HISTORY_CHECK_MS, HISTORY_STALE_MS, historyLive } from './lib/hqPanelStatus.ts';
+import { LiveChip } from './hq-nav/LiveChip';
+import { PanelHeader, useFold } from './hq-nav/PanelSection';
+import { useNow } from './hq-nav/useNow';
 import type { NameMap } from './lib/hqHistoryText';
 import { t } from './lib/i18n';
 import { useLocale } from './useLocale';
@@ -60,6 +64,36 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
   }, [launch]);
 
   const history = useHqHistory(filters, scope, tab === 'timeline');
+  const [folded, toggleFold] = useFold('history');
+  const now = useNow(10_000);
+  // While the timeline is open it checks for newer records every 30 s (one read of the first page). It never replaces the list on
+  // screen by itself: it says how many are newer and the person shows them.
+  const [check, setCheck] = useState<{ at: number | null; failed: boolean; newer: { count: number; atLeast: boolean } | null }>({ at: null, failed: false, newer: null });
+  const shown = useRef(history.state.items);
+  shown.current = history.state.items;
+  // On the Room history tab the timeline is not read, so the check itself is the panel's link (one read at once, then every 30 s).
+  const timeline = tab === 'timeline';
+  useEffect(() => {
+    setCheck({ at: timeline && history.status === 'ready' ? Date.now() : null, failed: false, newer: null });
+    if (timeline && history.status !== 'ready') return undefined;
+    let live = true;
+    const run = () => {
+      if (document.visibilityState !== 'visible') return;
+      const query = historyQuery(filters, scope, null);
+      if (!query.ok) return;
+      historyClient.page(query.path).then((page) => {
+        if (!live) return;
+        const newer = timeline ? newerRecords(page.items, shown.current, scope) : { count: 0, atLeast: false };
+        setCheck({ at: Date.now(), failed: false, newer: newer.count > 0 ? newer : null });
+      }, () => { if (live) setCheck((c) => ({ ...c, failed: true })); });
+    };
+    if (!timeline) run();
+    const id = window.setInterval(run, HISTORY_CHECK_MS);
+    return () => { live = false; window.clearInterval(id); };
+  }, [history.status, timeline, filters, scope]);
+  const linkStatus = timeline ? history.status : check.at !== null ? 'ready' : check.failed ? 'error' : 'loading';
+  const liveState = historyLive(linkStatus, check.failed);
+  const liveHint = liveState === 'polling' ? t('hqPanels.history.pollingHint') : liveState === 'reconnecting' ? t('hqPanels.history.failedHint') : undefined;
   const names = props.names;
   const roomIds = useMemo(() => new Set(rooms.map((r) => r.id)), [rooms]);
 
@@ -148,16 +182,16 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
   return (
     <>
       <div className="hqHistScrim" onClick={close} aria-hidden="true" />
-      <aside ref={root} className="hqHist" role="dialog" aria-modal="true" aria-labelledby="hqHistTitle" aria-label={undefined} onKeyDown={onKeyDown} data-testid="hq-history">
-        <header className="hqHistHead">
-          <div>
-            <h2 id="hqHistTitle">{t('hqHist.title')}</h2>
-            <p className="hqHistScope" data-scope={scope.kind}>{scopeLabel}
-              {scope.kind !== 'office' && <button type="button" className="hqLinkButton" onClick={reset}>{t('hqHist.scope.clear')}</button>}
-            </p>
-          </div>
-          <button type="button" className="hqIconButton" data-autofocus onClick={close} aria-label={t('hqHist.close')}><X aria-hidden="true" /></button>
-        </header>
+      <aside ref={root} className="hqHist" role="dialog" aria-modal="true" aria-labelledby="hqHistTitle" aria-label={undefined} onKeyDown={onKeyDown} data-testid="hq-history" data-folded={folded}>
+        <div className="hqHistHead">
+          <PanelHeader id="hqHistTitle" title={t('hqHist.title')} purpose={t('hqPanels.history.purpose')} folded={folded} onFold={toggleFold} bodyId="hqHistMain"
+            live={<LiveChip state={liveState} at={check.at} staleAfterMs={HISTORY_STALE_MS} nowMs={now} pollingText={t('hqPanels.history.polling')} hint={liveHint} testId="hq-history-live" />}
+            actions={<button type="button" className="hqIconButton hqPhFold" data-autofocus onClick={close} aria-label={t('hqHist.close')} title={t('hqHist.close')}><X aria-hidden="true" /></button>} />
+          <p className="hqHistScope" data-scope={scope.kind} hidden={folded}>{scopeLabel}
+            {scope.kind !== 'office' && <button type="button" className="hqLinkButton" onClick={reset}>{t('hqHist.scope.clear')}</button>}
+          </p>
+        </div>
+        <div id="hqHistMain" className="hqHistMain" hidden={folded}>
         <div className="hqHistTabs" role="tablist" aria-label={t('hqHist.region')}>
           {(['timeline', 'room'] as const).map((id) => (
             <button key={id} type="button" role="tab" id={`hqHistTab-${id}`} aria-selected={tab === id} aria-controls="hqHistBody" tabIndex={tab === id ? 0 : -1}
@@ -202,6 +236,12 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
                 )}
               </div>
 
+              {status === 'ready' && check.newer && (
+                <p className="hqHistNewer" role="status" data-testid="hq-history-newer">
+                  {t(check.newer.atLeast ? 'hqPanels.history.newerAtLeast' : 'hqPanels.history.newer', { count: check.newer.count })}
+                  <button type="button" className="hqGhost" onClick={history.reload}>{t('hqPanels.history.showNewer')}</button>
+                </p>
+              )}
               {status === 'ready' && (
                 <>
                   {state.items.length === 0 && state.cursor === null && (
@@ -231,6 +271,7 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
               <p className="hqHistNotice">{t('hqHist.notice')}</p>
             </>
           )}
+        </div>
         </div>
       </aside>
     </>

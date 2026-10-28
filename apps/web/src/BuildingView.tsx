@@ -14,6 +14,7 @@ const LiveOpsStrip = lazy(() => import('./HqSceneStrips').then((m) => ({ default
 const FlowStrip = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.FlowStrip })));
 const SceneBackCard = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.SceneBackCard })));
 const FloorSelector = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.FloorSelector })));
+const BuildingFacts = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.BuildingFacts })));
 const CommercePanels = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.CommercePanels })));
 const FloorRooms = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.FloorRooms })));
 const TyrePanel = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.TyrePanel })));
@@ -459,10 +460,7 @@ export function BuildingView(props: BuildingViewProps) {
         )}
         <div className="hqOverlay hqOverlayTopLeft" data-keepout="">
           <Suspense fallback={<h2 className="hqSrOnly">{props.workspaceName}</h2>}>
-            <SceneBackCard
-              name={props.workspaceName} kindLabel={props.kindLabel} totals={agents} floors={floors.length} rooms={roomsTotal} meetings={props.liveMeetings} onBack={props.onBack}
-              orders={modules.panels.includes('commerce') && props.commerce.state === 'ready' ? props.commerce.data.orders : null}
-            />
+            <SceneBackCard name={props.workspaceName} totals={agents} onBack={props.onBack} />
           </Suspense>
         </div>
         <div className="hqOverlay hqOverlayRight" data-keepout="">
@@ -495,6 +493,10 @@ export function BuildingView(props: BuildingViewProps) {
       {overview && floor.rooms.length > 0 && <Suspense fallback={null}><FloorRooms floor={floor} has={(d) => !!presenceForDesk(presence, d)} selectedRoomId={props.selectedRoomId} onPick={pickRoom} onLeave={() => props.onOverview(false)} /></Suspense>}
 
       <div className="hqBottomPanels">
+        <Suspense fallback={null}>
+          <BuildingFacts kindLabel={props.kindLabel} totals={agents} floors={floors.length} rooms={roomsTotal} meetings={props.liveMeetings}
+            orders={modules.panels.includes('commerce') && props.commerce.state === 'ready' ? props.commerce.data.orders : null} />
+        </Suspense>
         <div className="hqLiveRow">
           <Suspense fallback={null}><LiveOpsStrip totals={agents} unreported={props.unreported} snapshot={props.flow?.snapshot} /></Suspense>
           <Suspense fallback={null}><FlowStrip snapshot={props.flow?.snapshot} /></Suspense>

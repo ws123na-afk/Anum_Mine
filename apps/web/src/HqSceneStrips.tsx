@@ -18,7 +18,7 @@ export function backTone(totals: CampusTotals | null): BackTone {
 }
 
 export function SceneBackCard(props: {
-  name: string; kindLabel: string; totals: CampusTotals | null; floors: number; rooms: number; meetings: number | null; orders: number | null; onBack: () => void;
+  name: string; totals: CampusTotals | null; onBack: () => void;
 }) {
   const tone = backTone(props.totals);
   const toneText = tone === 'ok' ? t('hqLabels.back.status.live') : tone === 'stop' ? t('hqLabels.back.status.blocked') : t('hqLabels.back.status.none');
@@ -36,15 +36,25 @@ export function SceneBackCard(props: {
           </li>
         </ol>
       </nav>
-      <ul className="hqCounters hqFacts" aria-label={t('hq.counters.label')}>
-        <li className="hqFactKind"><span>{props.kindLabel}</span></li>
-        <li><strong>{props.totals ? props.totals.agents : '-'}</strong><span>{t('hq.counters.people')}</span></li>
-        <li><strong>{props.floors}</strong><span>{t('hq.counters.floors')}</span></li>
-        <li><strong>{props.rooms}</strong><span>{t('hq.counters.rooms')}</span></li>
-        {props.meetings !== null && <li><strong>{props.meetings}</strong><span>{t('hq.counters.meetings')}</span></li>}
-        {props.orders !== null && <li><strong>{props.orders.toLocaleString()}</strong><span>{t('hqLabels.facts.orders')}</span></li>}
-      </ul>
     </div>
+  );
+}
+
+
+/**
+ * The building's facts (type, people, floors, rooms, live meetings, orders today), docked under the scene with the other building
+ * panels: the stage carries only the Back card and the camera controls. People reads "-" without presence; nothing is invented.
+ */
+export function BuildingFacts(props: { kindLabel: string; totals: CampusTotals | null; floors: number; rooms: number; meetings: number | null; orders: number | null }) {
+  return (
+    <ul className="hqCounters hqFacts" aria-label={t('hq.counters.label')}>
+      <li className="hqFactKind"><span>{props.kindLabel}</span></li>
+      <li><strong>{props.totals ? props.totals.agents : '-'}</strong><span>{t('hq.counters.people')}</span></li>
+      <li><strong>{props.floors}</strong><span>{t('hq.counters.floors')}</span></li>
+      <li><strong>{props.rooms}</strong><span>{t('hq.counters.rooms')}</span></li>
+      {props.meetings !== null && <li><strong>{props.meetings}</strong><span>{t('hq.counters.meetings')}</span></li>}
+      {props.orders !== null && <li><strong>{props.orders.toLocaleString()}</strong><span>{t('hqLabels.facts.orders')}</span></li>}
+    </ul>
   );
 }
 

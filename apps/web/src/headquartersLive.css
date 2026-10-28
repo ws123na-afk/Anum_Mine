@@ -37,9 +37,15 @@
 .hqCrumbs ol { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
 .hqCrumbs li { align-items: center; display: inline-flex; gap: var(--d-s2); }
 .hqCrumbs button:not(.hqBack) { appearance: none; background: none; border: 0; border-radius: 4px; box-shadow: none; color: var(--d-accent-text); cursor: pointer; min-height: 0; padding: 2px 4px; text-decoration: underline; }
-.hqHeadTools { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-inline-start: auto; }
+/* The tool row is two groups that wrap as wholes (the status chips, then the actions), so a narrow row never strands one button on
+   a line of its own. Every control here is set in the same small type, so the row fits a 1440 px screen even with a classic scrollbar. */
+.hqHeadTools { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: flex-end; margin-inline-start: auto; min-width: 0; }
+.hqHeadStatus, .hqHeadActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
+.hqHeadActions { justify-content: flex-end; }
 .hqHeadSlot { display: contents; }
-.hqHeadTools :is(.hqGhost, .hqSegment button) { padding-inline: var(--d-s2); }
+.hqHeadTools :is(.hqGhost, .hqSegment button, .hqMenu button) { font-size: var(--text-sm); }
+.hqHeadTools :is(.hqGhost, .hqSegment button) { padding-inline: var(--d-s2); white-space: nowrap; }
+.hqHeadTools .hqNavToolbar { flex-wrap: nowrap; }
 .hqConn { align-items: center; display: inline-flex; font-size: var(--text-xs); gap: 6px; }
 .hqConn::before { background: var(--tone, var(--hq-faint)); border-radius: 50%; content: ""; height: 8px; width: 8px; }
 .hqLive button { font-family: inherit; }
@@ -358,15 +364,7 @@
 .hqWallStates { display: flex; flex-wrap: wrap; gap: 2px var(--d-s3); list-style: none; margin: 0; padding: 0; font-size: var(--text-2xs); }
 .hqWallStates li { align-items: center; display: inline-flex; gap: 4px; }
 .hqWallStates .dot { background: var(--tone, var(--hq-faint)); border-radius: 50%; height: 7px; width: 7px; }
-.hqWall-scene { background: var(--hq-glass); border: 1px solid var(--hq-glass-line); border-radius: var(--d-r-panel); color: var(--hq-glass-text); max-width: 340px; min-width: 260px; padding: var(--d-s3); }
-.hqWall-scene .hqWallTile { background: rgba(255, 255, 255, .06); border-color: var(--hq-glass-line); }
-.hqWall-scene .hqWallLabel, .hqWall-scene .hqNote { color: var(--hq-glass-muted); }
-.hqWall-scene .hqIconButton { background: transparent; color: var(--hq-glass-text); }
-@media (max-width: 900px) { .hqWall-scene { display: none; } }
 .hqBuilding[data-inside="true"] .hqSceneWrap { outline: 2px solid var(--d-accent); outline-offset: -2px; }
-.hqWall-scene .hqNote { display: none; }
-.hqWall-scene .hqWallGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.hqWall-scene { max-width: 420px; }
 
 .hqNotice > span { flex: 1 1 320px; }
 /* The overview is the whole-floor screen: its stage takes the height the page can spare. */

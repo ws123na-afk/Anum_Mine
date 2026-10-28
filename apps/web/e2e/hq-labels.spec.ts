@@ -125,14 +125,16 @@ test('single floor: only that floor is labelled; the stacked view tags every flo
   await expect(selector.getByRole('button', { name: /^Floor 2: Studio$/ })).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('the Back to campus card names the building with a status dot and real facts', async ({ page }) => {
+test('the Back to campus card names the building with a status dot; its real facts are docked under the scene', async ({ page }) => {
   await open(page);
   const card = hq(page).locator('.hqBackCard');
   await expect(card).toBeVisible({ timeout: 30_000 });
   await expect(card.getByRole('button', { name: 'Back to campus' })).toBeVisible();
   await expect(card.getByRole('heading', { level: 2, name: 'Al Noor Fleet HQ' })).toBeVisible();
   await expect(card.getByRole('img', { name: /Presence is reporting/ })).toBeVisible();
-  const facts = card.getByRole('list', { name: 'Building totals' });
+  // The stage carries only scene controls: the facts list is in the building panels under the scene, not on the card.
+  await expect(card.getByRole('list', { name: 'Building totals' })).toHaveCount(0);
+  const facts = hq(page).locator('.hqBottomPanels').getByRole('list', { name: 'Building totals' });
   await expect(facts).toContainText('3Floors');
   await expect(facts).toContainText('5Rooms');
   await card.getByRole('button', { name: 'Back to campus' }).click();
@@ -172,7 +174,7 @@ test('flow not connected: the flow strip says so, with no number', async ({ page
 
 test('presence denied: People is "-" and the facts never invent a count', async ({ page }) => {
   await open(page, { stream: 'denied', presence: 'missing' });
-  const facts = hq(page).locator('.hqBackCard').getByRole('list', { name: 'Building totals' });
+  const facts = hq(page).locator('.hqBottomPanels').getByRole('list', { name: 'Building totals' });
   await expect(facts).toContainText('3Floors');
   await expect(hq(page).locator('.hqBackCard').getByRole('img', { name: /Presence is (reporting|not reporting)/ })).toBeVisible();
 });

@@ -18,6 +18,8 @@ export type LiveChipProps = Readonly<{
   timeKey?: MessageKey;
   /** Replaces the Polling words when the panel is read on its own clock (the flow checks every 8 s, the office every 10 s). */
   pollingText?: string;
+  /** Replaces the tooltip words when this panel's link behaves differently from the presence stream (for example a timer of its own). */
+  hint?: string;
   testId?: string;
 }>;
 
@@ -27,7 +29,7 @@ export function LiveChip(props: LiveChipProps) {
   const state = effectiveLive(props.state, fresh);
   const clock = clockText(props.at, locale);
   const text = state === 'polling' && props.pollingText ? props.pollingText : t(`hq.live.${state}` as MessageKey);
-  const hint = fresh === 'stale' ? t('hqPanels.staleHint') : t(`hq.live.${state}.hint` as MessageKey);
+  const hint = fresh === 'stale' ? t('hqPanels.staleHint') : state === props.state && props.hint ? props.hint : t(`hq.live.${state}.hint` as MessageKey);
   return (
     <span className={`hqLiveChip tone-${liveTone(state)}`} data-testid={props.testId} data-live={state} data-fresh={fresh} title={hint}>
       <span className="hqLiveDot" aria-hidden="true" />

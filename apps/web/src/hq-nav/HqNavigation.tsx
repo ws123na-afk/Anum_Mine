@@ -7,7 +7,7 @@
 import { CalendarDays, Layers, PanelLeftClose, PanelLeftOpen, PanelRight, X } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { changeNote, presenceLive, PRESENCE_STALE_MS, type PanelLive } from '../lib/hqPanelStatus.ts';
+import { changeNote, presenceLive, PRESENCE_STALE_MS, type PanelLive, type TotalsSource } from '../lib/hqPanelStatus.ts';
 import type { PresenceLink } from '../lib/presenceStream.ts';
 import { LiveChip } from './LiveChip.tsx';
 import { useNow } from './useNow.ts';
@@ -34,6 +34,7 @@ const FloorPlan = lazy(() => import('./NavChrome.tsx').then((m) => ({ default: m
 const PeopleList = lazy(() => import('./NavChrome.tsx').then((m) => ({ default: m.PeopleList })));
 const QuickMoves = lazy(() => import('./NavChrome.tsx').then((m) => ({ default: m.QuickMoves })));
 const OfficeStatus = lazy(() => import('./NavChrome.tsx').then((m) => ({ default: m.OfficeStatus })));
+const AssistantPanel = lazy(() => import('./NavChrome.tsx').then((m) => ({ default: m.AssistantPanel })));
 
 export type HqNavHandles = Readonly<{ bridge: HqCameraBridge; capture: ThumbCapture }>;
 export type NavOverlay = 'tour' | 'agentMeetings' | 'teams';
@@ -81,6 +82,12 @@ export type HqNavigationProps = Readonly<{
   presenceLink?: PresenceLink;
   presenceAsOf?: string | null;
   flowState?: PanelLive;
+  /** Total agents: where the open workspace's numbers come from and the words for it (lib/hqPanelStatus.ts `officeLive`). */
+  totalsSource?: TotalsSource;
+  officeState?: PanelLive;
+  /** The Executive assistant's live status (`assistantLive`) and whether its own tools read failed. */
+  assistantState?: PanelLive;
+  assistantToolsFailed?: boolean;
 }>;
 
 function hash(parts: readonly string[]): string {
@@ -111,7 +118,8 @@ export function HqNavigation(props: HqNavigationProps) {
   // Polite announcements: only when a link really changes (never per update).
   const [panelsLive, setPanelsLive] = useState('');
   const lastLive = useRef<{ office: PanelLive | null; flow: PanelLive | null }>({ office: null, flow: null });
-  const officeLive = presenceLive(props.presenceLink ?? 'connecting');
+  const peopleLive = presenceLive(props.presenceLink ?? 'connecting');
+  const officeLive = props.officeState ?? peopleLive;
   useEffect(() => {
     const say = (state: PanelLive, name: string) => t(`hqPanels.say.${state}` as MessageKey, { name });
     const a = changeNote(lastLive.current.office, officeLive, t('hqPanels.name.office'), say);
@@ -246,14 +254,14 @@ export function HqNavigation(props: HqNavigationProps) {
     <Suspense fallback={null}>
       <FloorPlan floor={floor} selectedRoomId={props.selectedRoomId} view={view} canThreeD={props.webglOk} onView={props.onView} onRoom={pickRoom} />
       <PeopleList rows={people} presenceKnown={props.presence !== null} onOpen={(row) => row.agentId && props.onAgent(row.agentId, row.desk)}
-        live={<LiveChip state={officeLive} at={props.presenceAsOf ?? null} staleAfterMs={PRESENCE_STALE_MS} nowMs={now} testId="hq-people-live" />} />
+        live={<LiveChip state={peopleLive} at={props.presenceAsOf ?? null} staleAfterMs={PRESENCE_STALE_MS} nowMs={now} testId="hq-people-live" />} />
     </Suspense>
   );
   const movesBody = <Suspense fallback={null}><QuickMoves moves={moves} suggestions={suggestions} /></Suspense>;
-  const dockBody = props.dock ? <aside className="hqPaDock" aria-label={t('hq.paDock')}>{props.dock}</aside> : null;
+  const dockBody = props.dock ? <Suspense fallback={null}><AssistantPanel state={props.assistantState ?? 'connecting'} toolsFailed={props.assistantToolsFailed === true} nowMs={now}>{props.dock}</AssistantPanel></Suspense> : null;
   const statusNode = (variant: 'panel' | 'strip') => (
     <Suspense fallback={variant === 'strip' ? <div className="hqStatusStrip hqStatusReserve" aria-hidden="true" /> : null}>
-      <OfficeStatus campus={campus} issue={props.campusIssue ?? null} unreported={props.unreported ?? []} link={props.presenceLink ?? 'connecting'} variant={variant} onRetry={props.onRetry ?? (() => undefined)} onGo={props.onGo} />
+      <OfficeStatus campus={campus} issue={props.campusIssue ?? null} unreported={props.unreported ?? []} source={props.totalsSource ?? 'campus'} state={officeLive} variant={variant} onRetry={props.onRetry ?? (() => undefined)} onGo={props.onGo} />
     </Suspense>
   );
   // The assistant dock lives in the side panel while there is one; on narrower screens it stays under the scene, where it always was.

@@ -1,4 +1,4 @@
-import { Palette, Users } from 'lucide-react';
+import { Palette, X } from 'lucide-react';
 import { useState } from 'react';
 import type { AvatarAppearance } from '@anum/contracts';
 import { AvatarChip, AvatarPreview, AvatarStyleDialog, roleFamilyOf } from './AvatarStyleEditor';
@@ -15,6 +15,10 @@ import { ageText, reasonText } from './lib/officeFlow';
 import { useOfficeTeam } from './useOfficeFlow';
 import { useLocale } from './useLocale';
 import { openAssign } from './lib/hqAssign';
+import { FLOW_STALE_MS, teamLive, type PanelLive } from './lib/hqPanelStatus.ts';
+import { LiveChip } from './hq-nav/LiveChip';
+import { PanelSection } from './hq-nav/PanelSection';
+import { useNow } from './hq-nav/useNow';
 import './hqFlow.css';
 
 export interface HqTeamPanelProps {
@@ -29,23 +33,32 @@ export interface HqTeamPanelProps {
   heading?: string;
   /** Called after an avatar style was saved, so the scene can redraw the figure. */
   onAvatarChanged?: () => void;
+  /** The live flow's status: the roster re-reads whenever the flow changes, so once it answered it is as live as the flow. */
+  flowState?: PanelLive;
+  /** Shown as a close button in the panel header (the Team dialog). */
+  onClose?: () => void;
 }
 
 const agentsClient = agentsApi(api.apiRequest, api.apiRequestVoid);
 
-export function HqTeamPanel({ roomId, floorId, buildingId, refreshKey, onNavigate, onOpenSpaces, onFocusRoom, onHistory, heading, onAvatarChanged }: HqTeamPanelProps) {
+export function HqTeamPanel({ roomId, floorId, buildingId, refreshKey, onNavigate, onOpenSpaces, onFocusRoom, onHistory, heading, onAvatarChanged, flowState, onClose }: HqTeamPanelProps) {
   useLocale();
+  const now = useNow(10_000);
   const { team, status, error } = useOfficeTeam({ roomId, floorId, buildingId }, refreshKey);
   // Styles saved from this panel show at once and stay, because the roster is not read again on a save.
   const [saved, setSaved] = useState<ReadonlyMap<string, AvatarAppearance | null>>(new Map());
   const title = heading ?? (roomId ? t('hqTeam.scope.room') : t('hqTeam.scope.building'));
-  return <section className="hqTeam" aria-label={t('hqTeam.region')}>
-    <h3 className="hqFlowH"><Users size={15} aria-hidden="true" /> {t('hqTeam.title')} <span>{title}{team ? ` · ${t('hqTeam.count', { count: team.counts.agents })}` : ''}</span></h3>
+  const state = teamLive(status, team !== null, status === 'ready' && error !== '', flowState ?? 'connecting');
+  const live = <LiveChip state={state} at={team?.as_of ?? null} staleAfterMs={FLOW_STALE_MS} nowMs={now} pollingText={t('hqPanels.flow.polling')} testId="hq-team-live" />;
+  const close = onClose ? <button type="button" className="hqIconButton hqPhFold" onClick={onClose} aria-label={t('hqPanels.team.close')} title={t('hqPanels.team.close')}><X aria-hidden="true" /></button> : null;
+  return <PanelSection id={roomId ? 'teamRoom' : 'team'} title={t('hqTeam.title')} purpose={t('hqPanels.team.purpose')} live={live} actions={close} className="hqTeam" ariaLabel={t('hqTeam.region')}>
+    <p className="hqTeamScope">{title}{team ? ` · ${t('hqTeam.count', { count: team.counts.agents })}` : ''}</p>
     {status === 'loading' && <p className="hqFlowNote" role="status">{t('hqTeam.loading')}</p>}
     {status === 'denied' && <p className="hqFlowNote" role="alert">{t('hqTeam.denied')}</p>}
     {status === 'error' && <p className="hqFlowNote" role="alert">{t('hqTeam.error', { detail: error })}</p>}
+    {status === 'ready' && error && <p className="hqFlowNote" role="status">{t('hqTeam.error', { detail: error })}</p>}
     {team && status !== 'denied' && <TeamBody team={team} saved={saved} setSaved={setSaved} onNavigate={onNavigate} onOpenSpaces={onOpenSpaces} onFocusRoom={onFocusRoom} onHistory={onHistory} showRoom={!roomId} onAvatarChanged={onAvatarChanged} />}
-  </section>;
+  </PanelSection>;
 }
 
 function TeamBody({ team, saved, setSaved, onNavigate, onOpenSpaces, onFocusRoom, onHistory, showRoom, onAvatarChanged }: {

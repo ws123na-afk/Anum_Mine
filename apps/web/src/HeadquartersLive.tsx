@@ -20,7 +20,7 @@ import { AgentPanel, RoomPanel } from './HqPanels';
 import { activeShiftKey, applyShiftView, type ShiftView } from './lib/hqShifts.ts';
 import { OfficeWorkstations } from './OfficeWorkstations';
 import * as api from './lib/api.ts';
-import { flowLive } from './lib/hqPanelStatus.ts';
+import { assistantLive, flowLive, officeLive, totalsSource } from './lib/hqPanelStatus.ts';
 import { campusTotals, workspaceOf, type Campus, type CampusBuildingKind } from './lib/campusModel.ts';
 import { expandCampus, registryPlans } from './lib/campusRegistry.ts';
 import { HeadquartersController, adaptOfficeRegistry, type OfficeState } from './lib/headquartersController.ts';
@@ -81,6 +81,8 @@ export type HeadquartersProps = HqCallbacks & HqSlots & Readonly<{
   /** Type of the shell's latest event and whether its one event stream is up (the flow reads again on a flow event). */
   liveEvent?: string | null;
   streamLive?: boolean;
+  /** The state of the shell's one workspace event stream (the Executive assistant's results arrive on it). */
+  streamState?: 'connecting' | 'live' | 'offline';
   /** Extra controls in the header row (the entrypoint puts its presentation switch here). */
   headerExtra?: ReactNode;
 }>;
@@ -281,6 +283,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const localTotals = useMemo(() => (presenceList ? totalsOf(presenceList.filter((p) => !p.agentId.startsWith('desk:'))) : null), [presenceList]);
   const unreported = useMemo(() => (presenceApi ? [] : unreportedStatuses(meetings)), [presenceApi, meetings]);
   const verifiedAt = presenceApi?.asOf ?? snapshot?.observedAt ?? null;
+  // Total agents: while the presence stream is live the open workspace's numbers follow it; otherwise the campus read (30 s) stands.
+  const source = totalsSource(livePresence.link, presenceApi !== null && localTotals !== null);
   const floorCount = registryBuilding ? registryBuilding.floors.length : null;
 
   // Campus: the endpoint when present, else memberships; the open workspace's counts come from local presence.
@@ -306,13 +310,18 @@ export function HeadquartersLive(props: HeadquartersProps) {
 
   const campus: Campus | null = useMemo(() => {
     if (!loaded) return null;
-    const buildings = loaded.campus.buildings.map((b) => (b.workspace_id === scope.workspaceId && (loaded.source === 'memberships' || !b.totals)
-      ? { ...b, floors: b.floors ?? floorCount, totals: b.totals ?? localTotals, presence_verified_at: b.presence_verified_at ?? verifiedAt }
-      : b));
+    const buildings = loaded.campus.buildings.map((b) => (b.workspace_id !== scope.workspaceId ? b
+      : source === 'stream' ? { ...b, floors: b.floors ?? floorCount, totals: localTotals, presence_verified_at: verifiedAt }
+        : loaded.source === 'memberships' || !b.totals ? { ...b, floors: b.floors ?? floorCount, totals: b.totals ?? localTotals, presence_verified_at: b.presence_verified_at ?? verifiedAt }
+          : b));
     const merged: Campus = { ...loaded.campus, buildings, totals: campusTotals(buildings).totals };
     // A workspace whose office registry holds several buildings shows each of them on the campus (never another workspace's registry).
     return expandCampus(merged, scope.workspaceId, projection?.buildings ?? [], presenceIndex);
-  }, [loaded, localTotals, floorCount, verifiedAt, scope.workspaceId, projection, presenceIndex]);
+  }, [loaded, localTotals, floorCount, verifiedAt, scope.workspaceId, projection, presenceIndex, source]);
+  const flowState = flowLive(flow.link, flow.status);
+  const officeState = officeLive(source, { loaded: loaded !== null, failed: campusError !== null, denied: campusError?.denied === true });
+  const [paTools, setPaTools] = useState<'loading' | 'ready' | 'unavailable' | null>(null);
+  const streamState = props.streamState ?? (props.streamLive ? 'live' : null);
 
   // The real floor plans behind the registry buildings: the glass of the campus shows these rooms.
   const plans = useMemo(() => (campus ? registryPlans(campus, scope.workspaceId, projection?.buildings ?? [], presenceIndex) : undefined), [campus, scope.workspaceId, projection, presenceIndex]);
@@ -518,7 +527,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
         ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
         : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} buildingKind={moduleBuildingKind(currentBuilding)} canManage={canManage} onOpenFlow={openFlowFor} onOpenGaps={() => setOverlay('gaps')} wall={isOperationsRoom(roomPanelRoom) ? wallModel : null} onReloadWall={() => void flow.reload()}
           meeting={liveMeetingByRoom.get(roomPanelRoom.id) ?? null} meetingsKnown={meetings !== null} onStartMeeting={() => { setMeetingRoomId(roomPanelRoom.id); setOverlay('agentMeetings'); }}
-          shifts={registryBuilding?.shifts ?? null} shiftView={shiftView} onShiftView={setShiftView} /><HqTeamPanel onAvatarChanged={() => void controller.refresh()} onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)}
+          shifts={registryBuilding?.shifts ?? null} shiftView={shiftView} onShiftView={setShiftView} /><HqTeamPanel flowState={flowState} onAvatarChanged={() => void controller.refresh()} onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></>)}
         <HistoryLauncher label={t('hqHist.launch.room')} onClick={() => openHistory({ kind: 'room', roomId: roomPanelRoom.id, label: roomName(roomPanelRoom, locale), deskIds: roomPanelRoom.deskIds }, 'timeline')} /></>
       : null;
 
@@ -549,10 +558,13 @@ export function HeadquartersLive(props: HeadquartersProps) {
           <p>{t('hq.tagline')}</p>
         </div>
         <div className="hqHeadTools">
-          {props.headerExtra}
-          <PresenceLinkChip link={livePresence.link} />
-          <span className={`hqConn tone-${status === 'ready' ? 'ok' : status === 'error' ? 'stop' : 'warn'}`} role="status">{connection}</span>
-          {webglOk && <GraphicsChip onOpen={() => setGpuOpen(true)} />}
+          <div className="hqHeadStatus">
+            {props.headerExtra}
+            <PresenceLinkChip link={livePresence.link} />
+            <span className={`hqConn tone-${status === 'ready' ? 'ok' : status === 'error' ? 'stop' : 'warn'}`} role="status">{connection}</span>
+            {webglOk && <GraphicsChip onOpen={() => setGpuOpen(true)} />}
+          </div>
+          <div className="hqHeadActions">
           <button type="button" className="hqIconButton" onClick={retry} disabled={state?.busy} aria-label={t('hq.refresh')} title={t('hq.refresh')}><RefreshCcw aria-hidden="true" /></button>
           <ViewSwitch view={effectiveView} onChange={(v) => { if (v === "3d" && !webglOk) return; setView(v); }} />
           <span className="hqHeadSlot" />
@@ -577,6 +589,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
                 <li className="hqMenuNote"><small>{t('hq.credits')}</small></li>
               </ul>
             )}
+          </div>
           </div>
         </div>
       </header>
@@ -614,10 +627,12 @@ export function HeadquartersLive(props: HeadquartersProps) {
           onShowCampus={() => setLevel('campus')} onSelectBuilding={setCampusPick} onEnter={enterBuilding} onFloor={goFloor} floorOverview={overview} onFloorOverview={setOverview}
           onRoom={(fid, rid) => openRoomById(fid, rid)} onAgent={(id, desk) => selectAgent(id, desk)}
           onOverlay={(o) => setOverlay(o)} onGo={goTo}
-          dock={props.renderPaDock ? props.renderPaDock({ close: () => undefined }) : null}
+          dock={props.renderPaDock ? props.renderPaDock({ close: () => undefined, onStatus: setPaTools }) : null}
+          assistantState={assistantLive(paTools, streamState)} assistantToolsFailed={paTools === 'unavailable'}
+          totalsSource={source} officeState={officeState}
           detail={webglOk && effectiveView !== 'list' && level === 'building' && registryBuilding && floor ? sidePanel : campusDetail}
           campusIssue={campusError} onRetry={retry} unreported={unreported}
-          presenceLink={livePresence.link} presenceAsOf={livePresence.asOf} flowState={flowLive(flow.link, flow.status)}
+          presenceLink={livePresence.link} presenceAsOf={livePresence.asOf} flowState={flowState}
           scene={<div className="hqSceneHost">
           {showFirstRun && <Suspense fallback={null}><FirstRunPanel onCreated={onCampusCreated} onKeep={setFirstRunKeep} onClose={() => setFirstRunKeep(false)} onManageSpaces={() => setOverlay('spaces')} /></Suspense>}
           {loading && <div className="hqLoading" role="status" aria-busy="true"><span className="hqSpinner" aria-hidden="true" />{t('hq.loading')}</div>}
@@ -699,7 +714,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
       {overlay !== 'none' && (
         <div className="hqModalHost" role="dialog" aria-modal="false" aria-label={t('hq.tools')}>
           {overlay === 'teams' ? <div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqTeam.title')}>
-            <HqTeamPanel onAvatarChanged={() => void controller.refresh()} buildingId={registryBuilding?.id ?? null} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} onHistory={openMemberHistory} onFocusRoom={(id) => { focusRoomById(id); setOverlay('none'); }} />
+            <HqTeamPanel flowState={flowState} onClose={() => setOverlay('none')} onAvatarChanged={() => void controller.refresh()} buildingId={registryBuilding?.id ?? null} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} onHistory={openMemberHistory} onFocusRoom={(id) => { focusRoomById(id); setOverlay('none'); }} />
             <OrgGapsPanel state={gaps} onNavigate={goTo} onStaffCampus={() => setStaffOpen(true)} onProvisioned={() => { void flow.reload(); void controller.refresh(); }} />
           </div>
           : overlay === 'gaps' ? <div className="hqTeamModal" role="dialog" aria-modal="true" aria-label={t('hqProv.title')}>
