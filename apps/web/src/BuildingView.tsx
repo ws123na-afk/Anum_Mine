@@ -421,7 +421,7 @@ export function BuildingView(props: BuildingViewProps) {
   const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()], props.offShift) : null), [presence, props.offShift]);
   const insideRoom = insideRoomId ? roomById.get(insideRoomId) ?? null : null;
   const keep = (c: CameraState): CameraState => (insideRoom && isInsideView(c) ? clampInside(c, insideRoom) : clampTarget(c, 400));
-  const change = (fn: (c: CameraState) => CameraState) => { stopGlide(); setCamera((c) => keep(fn(c))); };
+  const change = (fn: (c: CameraState) => CameraState) => { stopGlide(); props.nav?.bridge.cancel(); setCamera((c) => keep(fn(c))); };
   const stepFloor = (d: 1 | -1) => { const f = floors[activeIndex + d]; if (f) props.onSelectFloor(f.id); };
   const roomsTotal = floors.reduce((n, f) => n + f.rooms.length, 0);
   const modules = useMemo(() => buildingModules(building), [building]);
@@ -497,7 +497,7 @@ export function BuildingView(props: BuildingViewProps) {
           <CameraTools
             yaw={camera.yaw} night={night} onNight={props.onNight}
             onZoomIn={() => change((c) => zoomBy(c, 0.8))} onZoomOut={() => change((c) => zoomBy(c, 1.25))}
-            onReset={() => { setInside(false); setHomeYaw(HOME_YAW); setCamera(view === 'top' ? topView(home) : buildingFitCamera(fitBox, aspect, CUT_PITCH, HOME_YAW)); }} onNorth={() => change(faceNorth)}
+            onReset={() => { stopGlide(); props.nav?.bridge.cancel(); setInside(false); setHomeYaw(HOME_YAW); setCamera(view === 'top' ? topView(home) : buildingFitCamera(fitBox, aspect, CUT_PITCH, HOME_YAW)); }} onNorth={() => change(faceNorth)}
           />
         </div>
         <div className="hqOverlay hqOverlayBottom hqDock" data-keepout="">

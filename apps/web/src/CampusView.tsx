@@ -330,7 +330,8 @@ export function CampusView(props: CampusViewProps) {
   // The campus map is a button in the corner rail: closed by default (it never sits over the buildings), and the choice is kept per browser.
   const [mapOpen, setMapOpen] = useState(() => { try { return window.localStorage.getItem('anum.hq.nav.map') === 'open'; } catch { return false; } });
   const toggleMap = () => setMapOpen((v) => { try { window.localStorage.setItem('anum.hq.nav.map', v ? 'closed' : 'open'); } catch { /* remembered for this page only */ } return !v; });
-  const change = (fn: (c: CameraState) => CameraState) => setCamera((c) => clampTarget(fn(c), scene.groundRadius * 0.8));
+  // A camera control ends a flight still under way (a building pick, a quick view): its next frame would otherwise undo the control.
+  const change = (fn: (c: CameraState) => CameraState) => { props.nav?.bridge.cancel(); setCamera((c) => clampTarget(fn(c), scene.groundRadius * 0.8)); };
   const step = (direction: 1 | -1) => { const next = stepBuilding(order, selectedId, direction); if (next) select(next); };
 
   return (
@@ -362,7 +363,7 @@ export function CampusView(props: CampusViewProps) {
         <CameraTools
           yaw={camera.yaw} night={night} onNight={props.onNight}
           onZoomIn={() => change((c) => zoomBy(c, 0.8))} onZoomOut={() => change((c) => zoomBy(c, 1.25))}
-          onReset={() => setCamera(view === 'top' ? topView(home) : home)} onNorth={() => change(faceNorth)}
+          onReset={() => { props.nav?.bridge.cancel(); setCamera(view === 'top' ? topView(home) : home); }} onNorth={() => change(faceNorth)}
           extra={<button type="button" onClick={toggleMap} aria-pressed={mapOpen} aria-controls={mapOpen ? 'hq-campus-map' : undefined} data-testid="hq-map-toggle" aria-label={mapOpen ? t('hqPanels.map.hide') : t('hqPanels.map.show')} title={mapOpen ? t('hqPanels.map.hide') : t('hqPanels.map.show')}><MapIcon aria-hidden="true" /></button>}
         />
       </div>
