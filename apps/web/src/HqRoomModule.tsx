@@ -16,16 +16,18 @@ export type RoomModuleActionProps = Readonly<{
   roomId?: string;
   /** Opens the Organisation gaps view. */
   onOpenGaps: () => void;
+  /** Opens the visitor register (a reception room); without it the reception link is not drawn. */
+  onOpenReception?: (roomId?: string) => void;
   variant?: 'panel' | 'list';
 }>;
 
-export function RoomModuleAction({ room, roomId, canManage = false, liveMeetingId = null, onOpenFlow, onOpenGaps, variant = 'panel' }: RoomModuleActionProps) {
+export function RoomModuleAction({ room, roomId, canManage = false, liveMeetingId = null, onOpenFlow, onOpenGaps, onOpenReception, variant = 'panel' }: RoomModuleActionProps) {
   const m = resolveRoomModule({ ...room, liveMeetingId });
   const cls = variant === 'panel' ? 'hqPrimary' : 'hqGhost';
   const moduleName = t(`hqRoomModule.name.${m.id}` as MessageKey);
   const label = m.target.type === 'meeting' ? t('hqRoomModule.openMeeting') : t('hqRoomModule.open', { module: moduleName });
   const hash = moduleHash(m.target);
-  const showHint = variant === 'panel' && m.needsDepartment && !(m.target.type === 'none' && m.target.why === 'no_visitor_register');
+  const showHint = variant === 'panel' && m.needsDepartment && m.target.type !== 'reception';
   return (
     <div className="hqRoomModule" data-variant={variant} data-source={m.source} data-module={m.id}>
       {hash !== null && <a className={cls} href={hash} data-testid="room-module">{label}<ArrowRight aria-hidden="true" className="flip" /></a>}
@@ -34,9 +36,10 @@ export function RoomModuleAction({ room, roomId, canManage = false, liveMeetingI
         <a className={cls} href={meetingHash(liveMeetingId)} data-testid="room-live-meeting">{t('hqRoomModule.openMeeting')}<ArrowRight aria-hidden="true" className="flip" /></a>
       )}
       {m.target.type === 'flow' && <button type="button" className={cls} data-testid="room-module" onClick={() => onOpenFlow(roomId)}>{label}<ArrowRight aria-hidden="true" className="flip" /></button>}
+      {m.target.type === 'reception' && onOpenReception && <button type="button" className={cls} data-testid="room-module" onClick={() => onOpenReception(roomId)}>{t('hqRec.room.open')}<ArrowRight aria-hidden="true" className="flip" /></button>}
       {m.target.type === 'none' && (
         <>
-          <p className="hqNote" data-testid="room-module-none">{t(m.target.why === 'no_visitor_register' ? 'hqRoomModule.noVisitor' : 'hqRoomModule.noModule')}</p>
+          <p className="hqNote" data-testid="room-module-none">{t('hqRoomModule.noModule')}</p>
           {variant === 'panel' && <button type="button" className="hqGhost" onClick={onOpenGaps}>{t('hqRoomModule.gaps')}</button>}
         </>
       )}

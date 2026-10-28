@@ -3,7 +3,7 @@
  * label cards, camera, minimap and totals all read from the campus model; nothing is drawn for a
  * building the person cannot open, and no count appears without a presence record behind it.
  */
-import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, House, Landmark, LockKeyhole, Map as MapIcon, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
+import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, GraduationCap, House, Landmark, LockKeyhole, Map as MapIcon, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from 'react';
 import type { WorkSiteInput, WorkUi } from './HqCampusWork';
 import type { ViewSink, WalkerCard, WalkerFeed, WalkerUi } from './HqCampusWalkers';
@@ -46,6 +46,7 @@ const NO_LOGOS: ReadonlyMap<string, SignLogo> = new Map();
 const KIND_ICON: Record<CampusBuildingKind, ReactElement> = {
   executive: <Landmark aria-hidden="true" />, business: <Building2 aria-hidden="true" />,
   department: <Briefcase aria-hidden="true" />, personal: <UserRound aria-hidden="true" />,
+  career: <GraduationCap aria-hidden="true" />,
 };
 /** The icon names of the campus contract (an owner picks one per building). */
 export const BUILDING_ICONS: Record<string, ReactElement> = {
@@ -101,22 +102,26 @@ export function CampusView(props: CampusViewProps) {
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutSig]);
-  const [kit, setKit] = useState<typeof import('./lib/hqPlanKit.ts') | null>(null);
-  useEffect(() => {
-    if (!sizes.size || kit) return;
-    let live = true;
-    void import('./lib/hqPlanKit.ts').then((m) => { if (live) setKit(m); }).catch(() => undefined);
-    return () => { live = false; };
-  }, [sizes, kit]);
   // Presence refreshes the buildings every few seconds; the placements (and so the meshes) only move when the layout does.
   const rawPlacements = useMemo(() => layoutCampus(campus.buildings, sizes), [campus.buildings, sizes]);
   const stablePlacements = useRef(rawPlacements);
   if (JSON.stringify(stablePlacements.current) !== JSON.stringify(rawPlacements)) stablePlacements.current = rawPlacements;
   const placements = stablePlacements.current;
+  // The plan kit (lazy) draws planned buildings from their floor plans and the career centre (owner decision O2).
+  const hasCareer = placements.some((p) => p.kind === 'career');
+  const [kit, setKit] = useState<typeof import('./lib/hqPlanKit.ts') | null>(null);
+  useEffect(() => {
+    if ((!sizes.size && !hasCareer) || kit) return;
+    let live = true;
+    void import('./lib/hqPlanKit.ts').then((m) => { if (live) setKit(m); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [sizes, hasCareer, kit]);
   const scene = useMemo(() => {
     const p = plansRef.current;
-    if (kit && p && sizes.size) return buildCampusScene(placements, { draw: kit.plannedDrawer(kit.plannedRows(placements, p), p) });
-    return buildCampusScene(placements);
+    if (!kit) return buildCampusScene(placements);
+    const planned = p && sizes.size ? kit.plannedDrawer(kit.plannedRows(placements, p), p) : null;
+    const career = kit.careerDrawer();
+    return buildCampusScene(placements, { draw: (pl, a, i, n) => planned?.(pl, a, i, n) ?? career(pl, a, i, n) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placements, kit, layoutSig]);
   // The billboards (docs/ANUM_MINE_HQ_BILLBOARDS.md) are a lazy chunk of their own, fetched once a campus has buildings.
@@ -445,7 +450,7 @@ export function BuildingDetail(props: { building: CampusBuilding; current: boole
   );
 }
 
-const KINDS: readonly CampusBuildingKind[] = ['executive', 'business', 'department', 'personal'];
+const KINDS: readonly CampusBuildingKind[] = ['executive', 'business', 'department', 'personal', 'career'];
 
 /** The owner's building type and icon (PUT /api/v1/office/campus/profile). It changes how the building is drawn and nothing else. */
 function BuildingProfileForm(props: { building: CampusBuilding; onSave: CampusViewProps['onSaveProfile'] }) {

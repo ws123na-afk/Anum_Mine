@@ -11,6 +11,7 @@
  *  - warehouse: a corrugated shed with roller doors, a loading apron and a truck
  *  - workshop: a saw-tooth roofed hall with a big door and tyre stacks
  *  - villa: a house with a hip roof (the personal office)
+ *  - career: two learning wings joined by a lit entrance hall, with a free-standing sign (the career building, its own kind)
  */
 import { MAT, MeshBuilder, hex, mix, scale, seeded, type Rgb } from './hqGeometry.ts';
 import { signAtlasLayout, type SignCell } from './hqTextures.ts';
@@ -19,7 +20,7 @@ import {
 } from './hqProps.ts';
 import type { CampusBuildingKind, Placement } from './campusModel.ts';
 
-export type Archetype = 'executive' | 'tower' | 'admin' | 'retail' | 'warehouse' | 'workshop' | 'villa';
+export type Archetype = 'executive' | 'tower' | 'admin' | 'retail' | 'warehouse' | 'workshop' | 'villa' | 'career';
 
 const ICON_TYPE: Readonly<Record<string, Archetype>> = {
   workshop: 'workshop', truck: 'warehouse', factory: 'warehouse', chart: 'tower', briefcase: 'tower', store: 'retail', building: 'admin', shield: 'admin', landmark: 'admin', home: 'villa', user: 'villa',
@@ -29,6 +30,8 @@ const ICON_TYPE: Readonly<Record<string, Archetype>> = {
 export function archetypeOf(p: Pick<Placement, 'kind' | 'icon' | 'workspaceId'>): Archetype {
   if (p.kind === 'executive') return 'executive';
   if (p.kind === 'personal') return 'villa';
+  // Career is its own kind (owner decision O2): always the career centre, whatever icon is saved.
+  if (p.kind === 'career') return 'career';
   const fromIcon = p.icon ? ICON_TYPE[p.icon] : undefined;
   if (fromIcon && fromIcon !== 'villa') return fromIcon;
   const pick = seeded('type:' + p.workspaceId)();
@@ -37,10 +40,10 @@ export function archetypeOf(p: Pick<Placement, 'kind' | 'icon' | 'workspaceId'>)
 }
 
 const ACCENT: Record<CampusBuildingKind, Rgb> = {
-  executive: hex('#d9b25f'), business: hex('#45d0b5'), department: hex('#6aa7ff'), personal: hex('#b48cff'),
+  executive: hex('#d9b25f'), business: hex('#45d0b5'), department: hex('#6aa7ff'), personal: hex('#b48cff'), career: hex('#e8a24a'),
 };
 const WALL: Record<CampusBuildingKind, Rgb> = {
-  executive: hex('#cfd6de'), business: hex('#d3d9d6'), department: hex('#cfd6e0'), personal: hex('#d8d2de'),
+  executive: hex('#cfd6de'), business: hex('#d3d9d6'), department: hex('#cfd6e0'), personal: hex('#d8d2de'), career: hex('#ddd6ca'),
 };
 const PODIUM = 0.5;
 
@@ -342,6 +345,23 @@ function villa(b: MeshBuilder, rnd: () => number, p: Placement, style: Style, ce
   return { anchor: { x: p.x, y: ry + 3.8, z: p.z }, door: { x: p.x, y: 0, z: z0 + D - 0.8 + 8 } };
 }
 
+function career(b: MeshBuilder, rnd: () => number, p: Placement, style: Style, cell: SignCell): BuildingShape {
+  const x0 = p.x - p.width / 2, z0 = p.z - p.depth / 2, W = p.width, D = p.depth, y0 = PODIUM;
+  const levels = Math.max(2, Math.min(3, p.levels));
+  const levelH = 3.6;
+  const hall = Math.min(6, W * 0.3), wing = (W - hall) / 2;
+  let top = block(b, rnd, { x: x0, z: z0, w: wing, d: D * 0.9, levels, y: y0, levelH }, { ...style, ribbon: true, sunshade: true });
+  top = Math.max(top, block(b, rnd, { x: x0 + wing + hall, z: z0, w: wing, d: D * 0.9, levels, y: y0, levelH }, { ...style, ribbon: true, sunshade: true }));
+  // The entrance hall between the wings: a lit glass box one storey proud of the roof line.
+  b.withMat(MAT.glass, () => b.box(x0 + wing, y0, z0 + 0.4, hall, levels * levelH + 1.2, D * 0.9 - 0.4, mix(WARM, hex('#ffe9b8'), 0.4), { emissive: WINDOW_BASE + 0.7 }));
+  b.box(x0 + wing - 0.2, y0 + levels * levelH + 1.2, z0 + 0.2, hall + 0.4, 0.3, D * 0.9, style.accent, { emissive: 0.7 });
+  const doorZ = z0 + D * 0.9;
+  entrance(b, rnd, x0 + W / 2, doorZ, y0, style, cell, 5);
+  // A free-standing pylon on the forecourt, in the career colour.
+  b.box(x0 + wing - 3.4, 0, doorZ + 5.2, 0.8, 5.2, 0.8, style.accent, { emissive: 0.4 });
+  return { anchor: { x: p.x, y: Math.max(top, y0 + levels * levelH + 1.5) + 1.2, z: p.z }, door: { x: x0 + W / 2, y: 0, z: doorZ + 8 } };
+}
+
 /** Draws one building into `b` and says where its label and entrance walkway go. */
 export function drawBuilding(b: MeshBuilder, p: Placement, seed: string, signIndex: number, signCount: number): BuildingShape & { archetype: Archetype } {
   const rnd = seeded(seed);
@@ -358,7 +378,8 @@ export function drawBuilding(b: MeshBuilder, p: Placement, seed: string, signInd
       : archetype === 'admin' || archetype === 'retail' ? admin(b, rnd, p, style, cell)
         : archetype === 'warehouse' ? warehouse(b, rnd, p, style, cell)
           : archetype === 'workshop' ? workshop(b, rnd, p, style, cell)
-            : villa(b, rnd, p, style, cell);
+            : archetype === 'career' ? career(b, rnd, p, style, cell)
+              : villa(b, rnd, p, style, cell);
   // Front hedge lines either side of the walkway.
   const dz = shape.door.z - 8 + 6.2;
   hedge(b, x0 - 0.2, dz, Math.max(2, shape.door.x - 5.6 - (x0 - 0.2)), 0.7, 0.7);

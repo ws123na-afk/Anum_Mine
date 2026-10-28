@@ -99,8 +99,11 @@ describe('fallback order without a department', () => {
     assert.equal(hashOf({ kind: 'workshop' }), '#tyre');
     assert.equal(hashOf({ kind: 'warehouse' }), '#commerce');
   });
-  test('reception has no module and says there is no visitor register', () => {
-    assert.deepEqual(resolveRoomModule(room({ kind: 'reception' })).target, { type: 'none', why: 'no_visitor_register' });
+  test('reception opens the real visitor register (owner decision O4), never a link to another view', () => {
+    const m = resolveRoomModule(room({ kind: 'reception' }));
+    assert.deepEqual(m.target, { type: 'reception' });
+    assert.equal(m.id, 'reception');
+    assert.equal(moduleHash(m.target), null);
   });
   test('rooms of the executive tower open the executive desk', () => {
     const m = resolveRoomModule(room({ buildingKind: 'executive', name: 'Corner room' }));

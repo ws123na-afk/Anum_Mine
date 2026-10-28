@@ -104,6 +104,9 @@ Expand only: a nullable `name_ar varchar(100)` on `office_buildings` and `office
 
 Expand only: three nullable columns on `office_buildings` (`sign_style varchar(12)`, `brand_color varchar(7)`, `logo_sha256 varchar(64)`, each with a check constraint) and one new table, `office_building_logos` (the re-encoded PNG, its hash, size and uploader), with forced workspace RLS, a composite scope foreign key (`ON DELETE CASCADE`) and the tenant purge policy. No backfill; the previous release never reads any of it. Details, the upload pipeline and the web behaviour are in [ANUM_MINE_HQ_LOGO_SIGNS.md](ANUM_MINE_HQ_LOGO_SIGNS.md).
 
+### Visitor register and career kind (migration `0118_career_visitor_register`)
+Expand only: one new table, `office_visitors` (forced workspace RLS, the tenant purge policy, composite links to a building and a room that clear only their own column when the building or room is deleted, `ON DELETE SET NULL (column)`), and `ck_campus_profile_kind` widened with `career`. Routes, governance and privacy: [reception visitor register](ANUM_MINE_HQ_RECEPTION.md).
+
 ### Desk seats and shift hours (migration `0115_desk_seats_shifts`)
 Expand only, nullable columns: `office_desks.shift` (`day` or `night`), `seat_order` (1 to 999), `facing` (`north`, `south`, `east`, `west`), `seat_kind` (`team` or `manager`) and `table_group`; `office_buildings.shift_day_start` and `shift_night_start` ("HH:MM" in the building's time zone). Check constraints hold the values; no backfill, no new table (forced RLS and purge policies of `0097` cover them), rollback safe. Desk reads return the five seat fields; `PATCH /desks/{id}` accepts them (null clears one) and `PATCH /buildings/{id}` accepts the two hours (null on both means the unconfirmed defaults 07:00 and 19:00; two equal starts are refused). Used by [Green Concrete](ANUM_MINE_GREEN_CONCRETE.md). The layout history does not capture them yet.
 

@@ -20,7 +20,7 @@ const TyrePanel = lazy(() => import('./BuildingPanels').then((m) => ({ default: 
 const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
 import { BottomToolbar, CameraTools, TotalsPanel } from './HqChrome';
 import { AgentLabelCard, FloorTagCard, RoomIcon, RoomLabelCard } from './HqLabelCards';
-import { roomLabelSpecs, roomSubtitle } from './lib/hqLabelModel.ts';
+import { roomLabelSpecs, roomSubtitle, visitorLine } from './lib/hqLabelModel.ts';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { visualOfStatus } from './hqAssets/interior/stateVisual.ts';
 import { buildBuildingScene, FLOOR_PITCH, WALL_HEIGHT, type DeskVisual } from './lib/buildingScene.ts';
@@ -57,6 +57,8 @@ export type BuildingViewProps = Readonly<{
   unreported: readonly StatusKey[];
   verifiedAt: string | null;
   liveMeetings: number | null;
+  /** Stored count of checked-in visitors per reception room (`receptionCounts`); null when the register was not read (no line drawn). */
+  visitorCounts?: ReadonlyMap<string, number> | null;
   liveMeetingRoomIds: ReadonlySet<string>;
   commerce: ModuleState<CommerceLive>;
   tyre: ModuleState<TyreLive>;
@@ -357,7 +359,7 @@ export function BuildingView(props: BuildingViewProps) {
       const onFloor = spec.floor === activeIndex;
       list.push({
         id: spec.id, anchor: spec.anchor, priority: spec.priority, maxDistance: spec.maxDistance, tiers: spec.tiers, occluders: spec.occluders,
-        node: <RoomLabelCard name={roomName(room)} kind={room.kind} department={room.teamDepartment} sub={roomSubtitle(room, c.desks)} working={c.working} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId}
+        node: <RoomLabelCard name={roomName(room)} kind={room.kind} department={room.teamDepartment} sub={visitorLine(room.kind, props.visitorCounts?.get(room.id), roomSubtitle(room, c.desks))} working={c.working} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId}
           onPick={() => (onFloor ? pickRoom(room.id) : latest.current.onSelectFloor(floors[spec.floor].id))} />,
       });
     }

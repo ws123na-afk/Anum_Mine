@@ -40,6 +40,7 @@ Every panel has one header (`PanelSection.tsx`): title, one line on what it is f
 | Selected building (campus) and room or person (building) | top of the column, else under the scene | the same panels as before, moved out of the scene | closes with its own button |
 | Executive assistant | side column, else under the scene | the shell's dock | unchanged |
 | Live flow (`HqFlowDock.tsx`) | thin bar under the quick views; the list opens as a sheet that rises from the bar | `/office/flow` | loading, denied, failed, offline with the last answer, empty with a next action |
+| Reception (`HqReceptionPanel.tsx`, lazy) | a drawer from 761 px, a bottom sheet below, opened from Office tools or a reception room | `/office/visitors` | loading, empty with Add a visitor, filtered empty, error with Try again, denied, owner only, stale revision, paged and searched ([reception](ANUM_MINE_HQ_RECEPTION.md)) |
 | Campus map | a button in the camera rail (closed by default, remembered); opens beside the rail | the campus layout and the camera footprint | none |
 
 ## What "live" means

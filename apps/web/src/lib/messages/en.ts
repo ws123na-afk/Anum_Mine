@@ -16,6 +16,7 @@ import { meetingRoomEn } from './meetingRoom.en.ts';
 import { builderEn } from './builder.en.ts';
 import { hqFlowEn } from './hqFlow.en.ts';
 import { hqHistoryEn } from './hqHistory.en.ts';
+import { hqReceptionEn } from './hqReception.en.ts';
 import { hqGpuEn } from './hqGpu.en.ts';
 import { hqLiveEn } from './hqLive.en.ts';
 import { hqPanelsEn } from './hqPanels.en.ts';
@@ -3244,6 +3245,7 @@ export const en = {
   ...builderEn,
   ...hqFlowEn,
   ...hqHistoryEn,
+  ...hqReceptionEn,
   ...hqGpuEn,
   ...hqLiveEn,
   ...hqPanelsEn,
