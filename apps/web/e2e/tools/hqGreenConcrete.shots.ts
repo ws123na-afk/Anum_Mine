@@ -11,12 +11,13 @@ mkdirSync(OUT, { recursive: true });
 const W = Number(process.env.GC_W ?? 1440), H = Number(process.env.GC_H ?? 900);
 const SCENE = process.env.GC_SCENE ?? 'day';
 const DUBAI_NOON = new Date(Date.UTC(2026, 9, 26, 8, 0, 0));
-const DUBAI_NIGHT = new Date(Date.UTC(2026, 9, 26, 19, 30, 0));
+// 21:00 in Dubai: only Amjad (13:00 to 22:00) is inside his hours.
+const DUBAI_NIGHT = new Date(Date.UTC(2026, 9, 26, 17, 0, 0));
 const hq = (page: Page) => page.locator('.hqLive');
-// GC_MIRROR=1 draws the same L as a left L (the short leg at the left end, its people looking west), from the stored desk geometry.
+// GC_MIRROR=1 draws the same table mirrored (the legs swap ends and their people look the other way), from the stored desk geometry.
 const mirrored = <R extends { desks: Record<string, unknown>[] }>(registry: R): R => (process.env.GC_MIRROR !== '1' ? registry : {
   ...registry,
-  desks: registry.desks.map((d) => (d.table_group === 'l-table' ? { ...d, pos_x: Math.round((16 - Number(d.pos_x)) * 100) / 100, facing: d.facing === 'east' ? 'west' : d.facing } : d)),
+  desks: registry.desks.map((d) => (d.table_group === 'l-table' ? { ...d, pos_x: Math.round((16 - Number(d.pos_x)) * 100) / 100, facing: d.facing === 'east' ? 'west' : d.facing === 'west' ? 'east' : d.facing } : d)),
 });
 
 test(`green concrete ${SCENE}`, async ({ page }) => {
@@ -53,7 +54,6 @@ test(`green concrete ${SCENE}`, async ({ page }) => {
   if (process.env.GC_INSIDE === '1' && await inside.count()) await inside.click();
   await page.waitForTimeout(3000);
   await page.screenshot({ path: `${OUT}/${tag}-2-room-${W}.png` });
-  if (process.env.GC_TOGGLE === '1') { await hq(page).getByTestId('shift-toggle').click(); await page.waitForTimeout(2500); await page.screenshot({ path: `${OUT}/${tag}-2b-toggled-${W}.png` }); }
   if (process.env.GC_AGENT) { await hq(page).locator(`[data-testid="room-desk"]`).filter({ hasText: process.env.GC_AGENT }).first().click(); await page.waitForTimeout(1500); await page.screenshot({ path: `${OUT}/${tag}-2c-agent-${W}.png` }); }
   await page.locator('.hqSide .hqPanelHead .hqIconButton').first().click({ timeout: 4000 }).catch(() => undefined);
   const hide = hq(page).getByRole('button', { name: /Hide side panels|إخفاء/ });

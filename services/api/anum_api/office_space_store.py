@@ -42,7 +42,7 @@ _EXTRA_COLUMNS = {
     "floors": ("name_ar",),
     "rooms": ("scene_x", "scene_z", "scene_width", "scene_depth", "rotation", "door_side", "description",
               "notes", "color", "name_ar", "equipment", "team_department"),
-    "desks": ("pos_x", "pos_z", "shift", "seat_order", "facing", "seat_kind", "table_group"),
+    "desks": ("pos_x", "pos_z", "shift", "seat_order", "facing", "seat_kind", "table_group", "work_start", "work_end"),
 }
 # Columns a PATCH may change, per resource (the API models are the first filter).
 _PATCHABLE = {
@@ -51,9 +51,9 @@ _PATCHABLE = {
     "floors": ("name", "name_ar", "level", "width_m", "depth_m"),
     "rooms": ("name", "kind", "capacity", "rotation", "door_side", "description", "notes", "color",
               "name_ar", "equipment", "team_department"),
-    "desks": ("label", "pos_x", "pos_z", "shift", "seat_order", "facing", "seat_kind", "table_group"),
+    "desks": ("label", "pos_x", "pos_z", "shift", "seat_order", "facing", "seat_kind", "table_group", "work_start", "work_end"),
 }
-_DESK_SEAT_COLUMNS = ("shift", "seat_order", "facing", "seat_kind", "table_group")
+_DESK_SEAT_COLUMNS = ("shift", "seat_order", "facing", "seat_kind", "table_group", "work_start", "work_end")
 _ROOM_COPY_COLUMNS = ("kind", "capacity", "rotation", "door_side", "description", "notes", "color",
                       "name_ar", "equipment", "team_department")
 
@@ -670,7 +670,7 @@ class SqlOfficeSpaceStore(LayoutHistoryMixin, TemplateMixin):
         desks: list[dict[str, Any]] = []
         if copy_desks:
             old = self._room_desks(context, [source_id])
-            # A copy keeps each desk's seat: its shift, place at the table, facing, seat kind and table group (never its agent).
+            # A copy keeps each desk's seat: its shift, place at the table, facing, seat kind, table group and working hours (never its agent).
             desks = self._insert_desks(context, new_id, [
                 (f"{new_id[:72]}-d{i + 1}", d["label"], (d["pos_x"], d["pos_z"]) if d["pos_x"] is not None else None,
                  {c: d[c] for c in _DESK_SEAT_COLUMNS if d.get(c) is not None})

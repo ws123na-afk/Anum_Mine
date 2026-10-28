@@ -15,7 +15,7 @@ import { t, type MessageKey } from './lib/i18n.ts';
 import { deskLabel, roomName } from './lib/registryNames.ts';
 import { HqShiftBar } from './HqShiftBar';
 import { roleText } from './lib/hqRoles.ts';
-import { deskShiftLine, roomHasShiftDesks, WORK_STATUSES, type DeskShiftInfo, type ShiftSnapshot, type ShiftView } from './lib/hqShifts.ts';
+import { deskShiftLine, roomHasShiftDesks, WORK_STATUSES, type DeskShiftInfo, type ShiftSnapshot } from './lib/hqShifts.ts';
 
 // The wall's code loads only when an operations room is opened.
 const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
@@ -38,12 +38,14 @@ export function DeskPill({ info, p }: { info: DeskShiftInfo | undefined; p: HqAg
   return <StatusPill presence={p} />;
 }
 
-/** The shift line under a desk: the shift and its hours, and for a person off shift the real record that is waiting. */
+/** The hours line under a desk: the person's working hours (or an older seat's shift and its hours), and for a person off shift the real record that is waiting. */
 export function DeskShiftText({ info, p }: { info: DeskShiftInfo | undefined; p: HqAgentPresence | undefined }) {
   const line = deskShiftLine(info, p ? WORK_STATUSES.has(p.status) : false);
   if (!info || !line) return null;
   if (line === 'manager') return <small data-testid="desk-shift">{t('hqGc.shift.manager')}</small>;
-  const win = info.shift && info.start && info.end ? t('hqGc.shift.line', { shift: t(info.shift === 'day' ? 'hqGc.shift.day' : 'hqGc.shift.night'), start: info.start, end: info.end }) : '';
+  const win = !info.start || !info.end ? ''
+    : info.shift ? t('hqGc.shift.line', { shift: t(info.shift === 'day' ? 'hqGc.shift.day' : 'hqGc.shift.night'), start: info.start, end: info.end })
+      : t('hqGc.hours.line', { start: info.start, end: info.end });
   return <small data-testid="desk-shift">{win}{line === 'off_waiting' && p?.taskTitles[0] ? ` · ${p.taskTitles[0]}` : ''}</small>;
 }
 
@@ -60,8 +62,8 @@ export function RoomPanel(props: Readonly<{
   /** True once the meetings could be read; false shows an honest "could not be read" note on meeting rooms. */
   meetingsKnown?: boolean;
   onStartMeeting?: () => void;
-  /** The shift of the building (only for a building with shift seats) and the toggle that shows the other shift. */
-  shifts?: ShiftSnapshot | null; shiftView?: ShiftView; onShiftView?: (view: ShiftView) => void;
+  /** The clock of the building (only for a building whose seats have working hours). */
+  shifts?: ShiftSnapshot | null;
 }>) {
   const { room } = props;
   const assigned = props.desks.filter((d) => d.agentId || presenceForDesk(props.presence, d)).length;
@@ -79,7 +81,7 @@ export function RoomPanel(props: Readonly<{
           ? <button type="button" className="hqGhost" data-testid="room-start-meeting" onClick={props.onStartMeeting}>{t('hq.room.meeting.start')}</button>
           : <p className="hqNote">{t('hq.room.meeting.startOwner')}</p>
       )}
-      {props.shifts && props.onShiftView && roomHasShiftDesks(props.desks) && <HqShiftBar snapshot={props.shifts} view={props.shiftView ?? 'active'} onView={props.onShiftView} />}
+      {props.shifts && roomHasShiftDesks(props.desks) && <HqShiftBar snapshot={props.shifts} desks={props.desks} />}
       {props.wall && <Suspense fallback={null}><HqCommandWall model={props.wall} variant="panel" onReload={props.onReloadWall} /></Suspense>}
       <ul className="hqStats">
         <li><strong>{props.desks.length}</strong><span>{t('hq.room.desks')}</span></li>
@@ -153,7 +155,7 @@ export function AgentPanel(props: Readonly<{
       <p><DeskPill info={props.shiftInfo} p={p} /></p>
       {props.shiftInfo && shiftLine && <section className="hqShiftCard" aria-label={t('hqGc.shift.bar')} data-testid="agent-shift">
         <DeskShiftText info={props.shiftInfo} p={p} />
-        {props.shiftInfo.shift && props.shiftInfo.hoursAreDefault && <small>{t('hqGc.shift.hoursDefault')}</small>}
+        {props.shiftInfo.hoursAreDefault && <small>{t('hqGc.shift.hoursDefault')}</small>}
         {shiftLine === 'on' && <small>{t('hqGc.shift.onLine')}</small>}
         {shiftLine === 'off' && <small>{t('hqGc.shift.offLine')}</small>}
         {shiftLine === 'off_waiting' && <small>{t('hqGc.shift.offWaitingLine')}</small>}

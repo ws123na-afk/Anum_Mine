@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { LOOK_CHOICES, createGreenConcreteClient, previewQuery } from '../src/hq-green-concrete/client.ts';
 
 const HASH = 'a'.repeat(64);
-const preview = { version: 1, workspace_id: 'w', payload_hash: HASH, timezone: 'Asia/Dubai', people: [], can_confirm: true } as never;
+const preview = { version: 2, workspace_id: 'w', payload_hash: HASH, timezone: 'Asia/Dubai', people: [], can_confirm: true } as never;
 
 test('neutral is the default and the first choice', () => {
   assert.deepEqual([...LOOK_CHOICES], ['neutral', 'masculine', 'feminine']);
@@ -21,7 +21,7 @@ test('the preview query carries the default look and each choice, and nothing wi
 
 test('the preview is asked for with the looks and the confirm sends the same looks by a click', async () => {
   const calls: Array<{ path: string; init: RequestInit }> = [];
-  const request = (async (path: string, init: RequestInit) => { calls.push({ path, init }); return init.method === 'GET' ? preview : { version: 1, outcome: 'created' }; }) as never;
+  const request = (async (path: string, init: RequestInit) => { calls.push({ path, init }); return init.method === 'GET' ? preview : { version: 2, outcome: 'created' }; }) as never;
   const client = createGreenConcreteClient(request, () => ({ tenantId: 't', workspaceId: 'w' }));
   const looks = { default_look: 'neutral' as const, appearance: { raed: 'masculine' as const } };
   await client.preview(looks);

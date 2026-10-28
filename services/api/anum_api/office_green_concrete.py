@@ -1,4 +1,4 @@
-"""Green Concrete: the owner's company with its command center, seats, shifts and people, and the pure planner.
+"""Green Concrete: the owner's company with its command center, seats, working hours and people, and the pure planner.
 
 Data and rules only, no database and no web framework (docs/ANUM_MINE_GREEN_CONCRETE.md).
 
@@ -7,9 +7,10 @@ Data and rules only, no database and no web framework (docs/ANUM_MINE_GREEN_CONC
 * Every record has a stable id (``gc-green-concrete``, ``gc-green-concrete-l0``, ``gc-green-concrete-command``,
   ``gc-green-concrete-command-d1`` ...) and every agent a stable marker (``gc:<key>``). Matching by those makes a
   retry, a double click or a partial failure add only what is missing, and nothing that exists is ever changed.
-* The shift hours are DEFAULTS the owner must confirm (day 07:00 to 19:00, night 19:00 to 07:00, read in the
-  building's time zone). They are not stored by this action: a building with no hours uses them, and the owner edits
-  them in the builder.
+* Every person has their own working hours, the owner's answer of 28 October 2026 (read in the building's time
+  zone): most work 08:00 to 17:00, Amjad 13:00 to 22:00, Ijaz, Ali Zeehan and Rana the morning shift 06:00 to 14:00, and
+  the people in ``NINE_TO_SIX`` 09:00 to 18:00. There is no night shift. The hours are stored on each person's desk and
+  stay editable in the builder.
 * Nobody is working because of this action: every agent is created paused and no presence is invented.
 """
 from __future__ import annotations
@@ -24,10 +25,23 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .avatar_appearance import AVATAR_STYLES
 
-CATALOG_VERSION: Final = 1
+CATALOG_VERSION: Final = 2
 DEFAULT_TIMEZONE: Final = "Asia/Dubai"
+# Hours of the older Day and Night seats (migration 0115) whose building never stored any. New seats carry their own hours.
 DEFAULT_DAY_START: Final = "07:00"
 DEFAULT_NIGHT_START: Final = "19:00"
+
+# The owner's working hours (28 October 2026), "HH:MM" in the building's time zone.
+OFFICE_HOURS: Final = ("08:00", "17:00")
+MORNING_HOURS: Final = ("06:00", "14:00")
+AFTERNOON_HOURS: Final = ("13:00", "22:00")
+NINE_TO_SIX_HOURS: Final = ("09:00", "18:00")
+MORNING: Final[tuple[str, ...]] = ("ijaz", "ali-zeehan", "rana")
+AFTERNOON: Final[tuple[str, ...]] = ("amjad",)
+# The people who work 09:00 to 18:00, by person key. The owner has not named them yet: until then everyone not named above
+# works 08:00 to 17:00. Naming them is this one list (and the web fixture test/fixtures/greenConcrete.json, which a test
+# checks against the planner).
+NINE_TO_SIX: Final[tuple[str, ...]] = ()
 MONTHLY_CAP_USD: Final = 3.0
 AGENT_MARKER: Final = "gc:"
 
@@ -71,8 +85,11 @@ class Seat:
     group: str
 
 
-# The L: a long leg of four seats across the room (people look north at the wall of screens), then a short leg of two seats
-# at its right end running towards the door (those people look east). Seat 1 is the left end of the L.
+# The table: a long leg of four seats across the room (people look north at the wall of screens), then a short leg of two
+# seats at its right end running towards the door (those people look east), then a second short leg of three seats at the
+# left end running towards the door (those people look west), so the L becomes a U. Seat 1 is the left end of the long leg;
+# the numbers follow the order the places are filled: the long leg left to right, the right leg, then the left leg, each
+# leg from the corner towards the door.
 L_SEATS: Final[tuple[Seat, ...]] = (
     Seat(1, 4.8, 4.2, "north", GROUP_L),
     Seat(2, 6.3, 4.2, "north", GROUP_L),
@@ -80,9 +97,23 @@ L_SEATS: Final[tuple[Seat, ...]] = (
     Seat(4, 9.3, 4.2, "north", GROUP_L),
     Seat(5, 10.44, 6.4, "east", GROUP_L),
     Seat(6, 10.44, 7.9, "east", GROUP_L),
+    Seat(7, 3.66, 6.4, "west", GROUP_L),
+    Seat(8, 3.66, 7.9, "west", GROUP_L),
+    Seat(9, 3.66, 9.4, "west", GROUP_L),
 )
 # The manager sits behind the team, on the door side, looking north over the whole L.
 MANAGER_SEAT: Final = Seat(1, 6.6, 9.9, "north", GROUP_BACK)
+
+
+def hours_for(key: str) -> tuple[str, str]:
+    """The working hours of a person (start, end), from the owner's answer."""
+    if key in MORNING:
+        return MORNING_HOURS
+    if key in AFTERNOON:
+        return AFTERNOON_HOURS
+    if key in NINE_TO_SIX:
+        return NINE_TO_SIX_HOURS
+    return OFFICE_HOURS
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,25 +122,35 @@ class Person:
     name: str
     role_en: str
     role_ar: str
-    shift: str | None
-    slot: int  # place along the L (day and night people share the slots 1 to 3); 0 for the manager
+    slot: int  # place at the table (1 to 9, every person their own); 0 for the manager
+
+    @property
+    def manager(self) -> bool:
+        return self.slot == 0
+
+    @property
+    def hours(self) -> tuple[str, str]:
+        return hours_for(self.key)
 
 
-# The owner's words, with only obvious spelling fixed. Order is the day order from the left end of the L, then the night
-# shift, then the manager.
+# The owner's words, with only obvious spelling fixed. Order is the order of the places: the long leg from its left end, the
+# right leg, the people of the former night shift on the left leg, then the manager. The order also fixes the desk ids
+# (d1 to d10), so a workspace built before keeps every person at the desk id they already have.
 PEOPLE: Final[tuple[Person, ...]] = (
-    Person("raed", "Raed", "Business analyst", "محلل أعمال", "day", 1),
-    Person("hazrat", "Hazrat", "Data monitoring", "مراقبة البيانات", "day", 2),
-    Person("mai", "Mai", "Data monitoring", "مراقبة البيانات", "day", 3),
-    Person("shahzeb", "Shahzeb", "Tyre planning engineer", "مهندس تخطيط الإطارات", "day", 4),
-    Person("ijaz", "Ijaz", "Data collector", "جامع بيانات", "day", 5),
-    Person("badea", "Badea", "Data monitoring", "مراقبة البيانات", "day", 6),
-    Person("ali-zeehan", "Ali Zeehan", "Data monitoring", "مراقبة البيانات", "night", 1),
-    Person("amjad", "Amjad", "Data collector", "جامع بيانات", "night", 2),
-    Person("rana", "Rana", "Data collector", "جامع بيانات", "night", 3),
-    Person("ahmed-elbendari", "Ahmed Elbendari", "PMV manager", "مدير PMV", None, 0),
+    Person("raed", "Raed", "Business analyst", "محلل أعمال", 1),
+    Person("hazrat", "Hazrat", "Data monitoring", "مراقبة البيانات", 2),
+    Person("mai", "Mai", "Data monitoring", "مراقبة البيانات", 3),
+    Person("shahzeb", "Shahzeb", "Tyre planning engineer", "مهندس تخطيط الإطارات", 4),
+    Person("ijaz", "Ijaz", "Data collector", "جامع بيانات", 5),
+    Person("badea", "Badea", "Data monitoring", "مراقبة البيانات", 6),
+    Person("ali-zeehan", "Ali Zeehan", "Data monitoring", "مراقبة البيانات", 7),
+    Person("amjad", "Amjad", "Data collector", "جامع بيانات", 8),
+    Person("rana", "Rana", "Data collector", "جامع بيانات", 9),
+    Person("ahmed-elbendari", "Ahmed Elbendari", "PMV manager", "مدير PMV", 0),
 )
 PEOPLE_BY_KEY: Final = {p.key: p for p in PEOPLE}
+if not all(k in PEOPLE_BY_KEY for k in (*MORNING, *AFTERNOON, *NINE_TO_SIX)):
+    raise RuntimeError("A person named in the working hours is not in PEOPLE")
 
 
 def desk_id(index: int) -> str:
@@ -125,24 +166,52 @@ def marker(person: Person) -> str:
 
 
 def seat_of(person: Person) -> Seat:
-    return MANAGER_SEAT if person.shift is None else L_SEATS[person.slot - 1]
+    return MANAGER_SEAT if person.manager else L_SEATS[person.slot - 1]
 
 
 def desk_label(person: Person) -> str:
-    if person.shift is None:
-        return "Manager desk"
-    return f"{person.shift.capitalize()} seat {person.slot}"
+    return "Manager desk" if person.manager else f"Seat {person.slot}"
 
 
 def desk_fields(person: Person) -> dict[str, Any]:
     seat = seat_of(person)
-    return {"shift": person.shift, "seat_order": seat.slot, "facing": seat.facing,
-            "seat_kind": "manager" if person.shift is None else "team", "table_group": seat.group}
+    start, end = person.hours
+    return {"shift": None, "seat_order": seat.slot, "facing": seat.facing,
+            "seat_kind": "manager" if person.manager else "team", "table_group": seat.group,
+            "work_start": start, "work_end": end}
 
 
 def valid_hours(day_start: str | None, night_start: str | None) -> tuple[str, str, bool]:
-    """The hours in force and whether they are the unconfirmed defaults (no stored hours)."""
+    """The day and night hours of an older Day or Night seat, and whether they are the defaults (no stored hours)."""
     return (day_start or DEFAULT_DAY_START, night_start or DEFAULT_NIGHT_START, day_start is None and night_start is None)
+
+
+def in_window(minutes: int, start: str, end: str) -> bool:
+    """True when a local time of day (minutes after midnight) is inside the hours. An end before the start runs over midnight."""
+    s, e = _minutes(start), _minutes(end)
+    return s <= minutes < e if s < e else (minutes >= s or minutes < e)
+
+
+def seat_window(seat: Mapping[str, Any]) -> tuple[str, str] | None:
+    """The hours of a seated person: the desk's own hours, else (an older Day or Night seat) its shift in the building's hours.
+
+    None for a desk with neither (the person is always on).
+    """
+    if seat.get("work_start") and seat.get("work_end"):
+        return seat["work_start"], seat["work_end"]
+    if seat.get("shift") in ("day", "night"):
+        day, night, _ = valid_hours(seat.get("shift_day_start"), seat.get("shift_night_start"))
+        return (day, night) if seat["shift"] == "day" else (night, day)
+    return None
+
+
+def local_minutes(now: datetime, timezone: str | None) -> int:
+    """Minutes after local midnight in the zone (an unknown zone reads UTC, as the web does)."""
+    try:
+        local = now.astimezone(ZoneInfo(timezone or "UTC"))
+    except (ZoneInfoNotFoundError, ValueError):
+        local = now.astimezone(UTC)
+    return local.hour * 60 + local.minute
 
 
 def shift_at(minutes: int, day_start: str, night_start: str) -> str:
@@ -154,23 +223,24 @@ def shift_at(minutes: int, day_start: str, night_start: str) -> str:
 
 
 def active_shift(now: datetime, timezone: str | None, day_start: str | None, night_start: str | None) -> str:
-    """The shift in force now in the building's own time zone (an unknown zone reads UTC, as the web does)."""
-    try:
-        local = now.astimezone(ZoneInfo(timezone or "UTC"))
-    except (ZoneInfoNotFoundError, ValueError):
-        local = now.astimezone(UTC)
+    """The day or night shift in force now for an older Day or Night seat, in the building's own time zone."""
     day, night, _ = valid_hours(day_start, night_start)
-    return shift_at(local.hour * 60 + local.minute, day, night)
+    return shift_at(local_minutes(now, timezone), day, night)
 
 
 def off_shift_desks(seats: Iterable[Mapping[str, Any]], now: datetime) -> set[str]:
-    """Desks whose seated person is off shift now: a day or night seat outside its shift (stored hours, else the defaults).
+    """Desks whose seated person is off shift now: outside their own hours (``work_start``, ``work_end``), or for an older
+    Day or Night seat without own hours, outside its shift in the building's hours (stored, else the defaults).
 
-    Each seat carries ``desk_id``, ``shift`` and its building's ``timezone``, ``shift_day_start`` and ``shift_night_start``.
-    A desk without a shift (the manager seat, any ordinary desk) is always on.
+    Each seat carries ``desk_id``, ``work_start``, ``work_end``, ``shift`` and its building's ``timezone``,
+    ``shift_day_start`` and ``shift_night_start``. A desk with no hours at all (an ordinary desk) is always on.
     """
-    return {s["desk_id"] for s in seats if s.get("shift") in ("day", "night")
-            and s["shift"] != active_shift(now, s.get("timezone"), s.get("shift_day_start"), s.get("shift_night_start"))}
+    out: set[str] = set()
+    for s in seats:
+        window = seat_window(s)
+        if window is not None and not in_window(local_minutes(now, s.get("timezone")), *window):
+            out.add(s["desk_id"])
+    return out
 
 
 def _minutes(text: str) -> int:
@@ -258,9 +328,11 @@ def plan(facts: Facts, timezone: str, appearance: Mapping[str, str] | None = Non
             s_action, s_reason = "skip", AGENT_ELSEWHERE
         else:
             s_action, s_reason = "seat", None
+        start, end = person.hours
         people.append({
             "key": person.key, "name": person.name, "role": {"en": person.role_en, "ar": person.role_ar},
-            "shift": person.shift, "seat_order": seat.slot, "desk_id": did, "agent_id": agent_id,
+            "seat_kind": "manager" if person.manager else "team", "work_start": start, "work_end": end,
+            "seat_order": seat.slot, "desk_id": did, "agent_id": agent_id,
             "agent_action": a_action, "seat_action": s_action, "seat_reason": s_reason,
             # The look a NEW agent is created with (the owner's choice). An agent that already exists is never changed.
             "appearance": appearance.get(person.key) if a_action == "create" else None,
@@ -268,8 +340,11 @@ def plan(facts: Facts, timezone: str, appearance: Mapping[str, str] | None = Non
     counts = _counts(building, floor, room, seats, people)
     pending = any(counts["create"].values()) or counts["seat"] > 0
     status = "complete" if not pending else ("new" if counts["skip"]["desks"] == 0 and building["action"] == "create" else "partial")
+    # Desks of an earlier build that have no working hours of their own (they still read the old day and night shifts). The
+    # action never changes them; the owner sets each person's hours in the builder.
+    older = sorted(d for d, row in desks.items() if not row.get("work_start"))
     return {"building": building, "floor": floor, "room": room, "seats": seats, "people": people, "counts": counts, "status": status,
-            "agent_slots_left": max(0, 200 - facts.agent_count)}
+            "agent_slots_left": max(0, 200 - facts.agent_count), "older_seats": older}
 
 
 def _counts(building: Mapping[str, Any], floor: Mapping[str, Any], room: Mapping[str, Any],
@@ -298,6 +373,6 @@ def canonical(value: Any) -> str:
 def proposal_hash(tenant_id: str, workspace_id: str, user_id: str, timezone: str, p: Mapping[str, Any]) -> str:
     """Bound to who confirms, where, and the exact plan shown: any change to the records changes it."""
     content = {"v": CATALOG_VERSION, "tz": timezone, "building": p["building"], "floor": p["floor"], "room": p["room"],
-               "seats": p["seats"], "people": [{k: v for k, v in x.items() if k != "agent_id"} | {"has_agent": x["agent_id"] is not None}
+               "seats": p["seats"], "older": p.get("older_seats", []), "people": [{k: v for k, v in x.items() if k != "agent_id"} | {"has_agent": x["agent_id"] is not None}
                                               for x in p["people"]]}
     return hashlib.sha256(canonical({"op": "green-concrete", "t": tenant_id, "w": workspace_id, "u": user_id, "p": content}).encode()).hexdigest()

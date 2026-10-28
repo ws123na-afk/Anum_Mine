@@ -185,10 +185,9 @@ test.describe('Green Concrete command center', () => {
     if (SHOTS) await shot(page, 'green-room');
   });
 
-  test('the night shift people, off shift now, show a dark Off shift monitor', async ({ page }) => {
+  test('a person outside their working hours (Amjad, 13:00 to 22:00, at noon) shows a dark Off shift monitor', async ({ page }) => {
     await openGreen(page, {});
     await hq(page).getByRole('button', { name: new RegExp(`^${String(FX.room.name)}`) }).first().click({ force: true });
-    await hq(page).getByTestId('shift-toggle').click();
     await expect.poll(async () => (await monitorLines(page)).join('\n'), { timeout: 90_000 }).toMatch(/Off shift/);
     expect((await monitorLines(page)).join('\n')).not.toMatch(/scan/);
   });

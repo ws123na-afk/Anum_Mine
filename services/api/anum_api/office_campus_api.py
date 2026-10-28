@@ -65,13 +65,16 @@ def _building(context: TenantContext, name: str | None, role: str, archived: boo
             "(select count(*) from office_rooms where tenant_id = :t and workspace_id = :w) as rooms, "
             "(select count(*) from office_desks where tenant_id = :t and workspace_id = :w) as desks"), p).one()
         items = derive_presence(load_evidence(session, ctx, now))
-        # Seated people of a day or night shift that is not in force now count as off shift, not by their work state.
+        # Seated people outside their working hours (or an older day or night shift not in force) count as off shift, not by
+        # their work state.
         seats = session.execute(text(
-            "select d.id as desk_id, d.shift, b.timezone, b.shift_day_start, b.shift_night_start from office_desks d "
+            "select d.id as desk_id, d.shift, d.work_start, d.work_end, b.timezone, b.shift_day_start, b.shift_night_start "
+            "from office_desks d "
             "join office_rooms r on r.tenant_id = d.tenant_id and r.workspace_id = d.workspace_id and r.id = d.room_id "
             "join office_floors f on f.tenant_id = r.tenant_id and f.workspace_id = r.workspace_id and f.id = r.floor_id "
             "join office_buildings b on b.tenant_id = f.tenant_id and b.workspace_id = f.workspace_id and b.id = f.building_id "
-            "where d.tenant_id = :t and d.workspace_id = :w and d.shift is not null and d.agent_id is not null"), p).mappings().all()
+            "where d.tenant_id = :t and d.workspace_id = :w and (d.shift is not null or d.work_start is not null) "
+            "and d.agent_id is not null"), p).mappings().all()
     off = off_shift_desks(seats, now)
     on_shift = [i for i in items if i.get("desk_id") not in off]
     state_totals = totals(on_shift)
