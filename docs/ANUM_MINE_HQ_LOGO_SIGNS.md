@@ -16,7 +16,7 @@ The owner asked for "something more exciting and not that team like real world s
 ## Owner steps: upload a logo for each building
 
 1. Open the headquarters, then **Office tools**, then **Manage spaces**, then **Open visual builder**. Only the workspace owner (permission `workspace:manage`) can change a sign; everyone else sees how it looks and who can change it.
-2. Choose the building in the builder's building list (top bar), then open the **Floor** tab. Scroll to **Building sign** (below the building's names and shift hours).
+2. Choose the building in the builder's building list (top bar), then open the **Floor** tab. Scroll to **Building sign** (below the building's names).
 3. Press **Choose a logo file** (or drop the file on the box). The preview at the top of the section shows the sign with your logo before anything is sent. A file that cannot be used is refused with the reason (SVG, GIF, animated, larger than 1 MB, not a picture, damaged).
 4. Press **Upload this logo**. The sign on the campus updates for everyone who has the headquarters open.
 5. Type or pick your **brand colour**. The line under it says whether it is readable on the chosen style (contrast number). Pick a **sign style** (Standard keeps the campus sign).

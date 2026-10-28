@@ -23,8 +23,13 @@ export interface GreenConcreteDialogProps {
   onCreated: () => void;
 }
 
-const shiftText = (p: GreenPerson) => (p.shift === null ? t('hqGc.shift.manager') : t(p.shift === 'day' ? 'hqGc.shift.day' : 'hqGc.shift.night'));
-const seatText = (p: GreenPerson) => (p.shift === null ? t('hqGc.seat.manager') : t('hqGc.seat.numbered', { shift: t(p.shift === 'day' ? 'hqGc.shift.day' : 'hqGc.shift.night'), number: p.seat_order }));
+const hoursText = (p: GreenPerson) => t('hqGc.shift.hours', { start: p.work_start, end: p.work_end });
+const seatText = (p: GreenPerson) => (p.seat_kind === 'manager' ? t('hqGc.seat.manager') : t('hqGc.seat.numbered', { number: p.seat_order }));
+/** "06:00 to 14:00: Ijaz, Ali Zeehan, Rana; 08:00 to 17:00: ..." from the plan's grouped hours. */
+const hoursList = (p: GreenConcretePreview) => {
+  const names = new Map(p.people.map((x) => [x.key, x.name]));
+  return p.hours.windows.map((w) => `${t('hqGc.shift.hours', { start: w.start, end: w.end })}: ${w.people.map((k) => names.get(k) ?? k).join(', ')}`).join('; ');
+};
 
 /**
  * "Add Green Concrete": the owner's company with its command center, L shaped tables, shifts and people. A reviewed, click
@@ -132,7 +137,6 @@ function canConfirmWork(p: GreenConcretePreview): boolean {
 
 function PlanView({ preview, nothing, choices, onPick, refreshing }: { preview: GreenConcretePreview; nothing: boolean; choices: Record<string, AvatarStyle>; onPick: (key: string, style: AvatarStyle) => void; refreshing: boolean }) {
   const c = preview.counts.create;
-  const s = preview.shifts;
   const blocked = preview.building.reason === 'name_in_use';
   const cap = preview.monthly_cap_usd;
   return <>
@@ -140,7 +144,7 @@ function PlanView({ preview, nothing, choices, onPick, refreshing }: { preview: 
     <ul className="hqGcRules">
       <li>{t('hqGc.rule.paused')}</li>
       <li>{t('hqGc.rule.keep')}</li>
-      <li data-testid="gc-hours">{t('hqGc.rule.hours', { dayStart: s.day.start, dayEnd: s.day.end, nightStart: s.night.start, nightEnd: s.night.end, zone: preview.timezone })}</li>
+      <li data-testid="gc-hours">{t('hqGc.rule.hours', { list: hoursList(preview), zone: preview.timezone })}</li>
       <li>{t('hqGc.rule.avatar')}</li>
       <li>{t('hqGc.rule.cost', { cap, total: Math.round(cap * preview.people.length) })}</li>
     </ul>
@@ -149,6 +153,7 @@ function PlanView({ preview, nothing, choices, onPick, refreshing }: { preview: 
         : nothing ? <p><CheckCircle2 size={14} aria-hidden="true" /> {t('hqGc.totals.nothing')}</p>
           : <p><strong>{t('hqGc.totals.create', { ...c, seat: preview.counts.seat })}</strong></p>}
     </section>
+    {preview.older_seats.length > 0 && <p className="hqGcNote" role="note" data-testid="gc-older">{t('hqGc.older', { count: preview.older_seats.length })}</p>}
     <ul className="hqGcRecords" aria-label={t('hqGc.title')}>
       <li data-action={preview.building.action}>{t('hqGc.records.building', { name: preview.building.name.en })} <Tag action={preview.building.action} reason={preview.building.reason} /></li>
       <li data-action={preview.floor.action}>{t('hqGc.records.floor', { name: preview.floor.name.en, width: preview.floor.width_m, depth: preview.floor.depth_m })} <Tag action={preview.floor.action} reason={preview.floor.reason} /></li>
@@ -164,12 +169,12 @@ function PlanView({ preview, nothing, choices, onPick, refreshing }: { preview: 
       {refreshing && <p className="hqGcNote" role="status">{t('hqGc.look.refreshing')}</p>}
       <div className="hqGcTableWrap" tabIndex={0} role="region" aria-label={t('hqGc.people.title', { count: preview.people.length })}>
         <table className="hqGcPeople" data-testid="gc-people">
-          <thead><tr><th scope="col">{t('hqGc.people.name')}</th><th scope="col">{t('hqGc.people.role')}</th><th scope="col">{t('hqGc.people.shift')}</th><th scope="col">{t('hqGc.people.seat')}</th><th scope="col">{t('hqGc.people.look')}</th><th scope="col">{t('hqGc.people.state')}</th></tr></thead>
+          <thead><tr><th scope="col">{t('hqGc.people.name')}</th><th scope="col">{t('hqGc.people.role')}</th><th scope="col">{t('hqGc.people.hours')}</th><th scope="col">{t('hqGc.people.seat')}</th><th scope="col">{t('hqGc.people.look')}</th><th scope="col">{t('hqGc.people.state')}</th></tr></thead>
           <tbody>
             {preview.people.map((p) => <tr key={p.key} data-person={p.key}>
               <th scope="row"><bdi>{p.name}</bdi></th>
               <td>{roleText(p.role.en)}</td>
-              <td>{shiftText(p)}</td>
+              <td>{hoursText(p)}</td>
               <td>{seatText(p)}</td>
               <td className="hqGcLook">{p.agent_action === 'create' && preview.can_confirm
                 ? <>

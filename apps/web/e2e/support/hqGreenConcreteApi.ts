@@ -2,7 +2,7 @@ import type { Page, Route } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 // A stateful mock of the Green Concrete company (docs/ANUM_MINE_GREEN_CONCRETE.md): the registry the planner makes (building, floor,
-// command room, ten seats), the ten agents, their presence and the work assigned to them, and the preview/confirm of "Add Green Concrete".
+// command room, ten seats with each person's working hours), the ten agents, their presence and the work assigned to them, and the preview/confirm of "Add Green Concrete".
 // The names, roles and seats are the planner's own output (test/fixtures/greenConcrete.json, kept equal to it by a Python test).
 const stamp = '2026-10-20T08:00:00Z';
 const TENANT = 'tenant_local';
@@ -10,19 +10,26 @@ const WORKSPACE = 'workspace_foundation';
 
 interface Fixture {
   building: Record<string, unknown>; floor: Record<string, unknown>; room: Record<string, unknown>; desks: Record<string, unknown>[];
-  people: { key: string; name: string; role: string; role_ar: string; shift: 'day' | 'night' | null; desk_id: string; agent_id: string }[];
+  people: { key: string; name: string; role: string; role_ar: string; seat_kind: 'team' | 'manager'; work_start: string; work_end: string; desk_id: string; agent_id: string }[];
 }
 export const FX = JSON.parse(readFileSync(new URL('../../test/fixtures/greenConcrete.json', import.meta.url), 'utf8')) as Fixture;
 export const person = (key: string) => FX.people.find((p) => p.key === key)!;
 
 const base = (id: string) => ({ id, revision: 1, tenant_id: TENANT, workspace_id: WORKSPACE, created_at: stamp, updated_at: stamp });
 
-export function greenRegistry(building: Record<string, unknown> = {}) {
+/** The desks of a build made before the working hours: day and night seats, the night people at the places of seats 1 to 3. */
+export function olderDesks(): Record<string, unknown>[] {
+  return FX.desks.map((d, i) => ({ ...d, work_start: null, work_end: null, shift: d.seat_kind === 'manager' ? null : i >= 6 ? 'night' : 'day',
+    label: d.seat_kind === 'manager' ? d.label : i >= 6 ? `Night seat ${i - 5}` : `Day seat ${i + 1}`,
+    ...(i >= 6 && i < 9 ? { pos_x: FX.desks[i - 6].pos_x, pos_z: FX.desks[i - 6].pos_z } : {}) }));
+}
+
+export function greenRegistry(building: Record<string, unknown> = {}, desks: Record<string, unknown>[] = FX.desks) {
   return {
     buildings: [{ ...base(String(FX.building.id)), ...FX.building, latitude: null, longitude: null, name_ar: null, shift_day_start: null, shift_night_start: null, ...building }],
     floors: [{ ...base(String(FX.floor.id)), ...FX.floor, name_ar: null }],
     rooms: [{ ...base(String(FX.room.id)), ...FX.room, name_ar: null, team_department: null, description: '', notes: '', color: 'forest', equipment: [] }],
-    desks: FX.desks.map((d) => ({ ...base(String(d.id)), ...d })),
+    desks: desks.map((d) => ({ ...base(String(d.id)), ...d })),
   };
 }
 
@@ -58,8 +65,8 @@ function presenceItems(state: GreenState) {
 }
 
 /** Overrides the agents, tasks, presence and work routes of the standard headquarters mock with the Green Concrete people. */
-export async function mockGreenWork(page: Page, state: GreenState, building: Record<string, unknown> = {}) {
-  const registry = greenRegistry(building);
+export async function mockGreenWork(page: Page, state: GreenState, building: Record<string, unknown> = {}, desks: Record<string, unknown>[] = FX.desks) {
+  const registry = greenRegistry(building, desks);
   await page.route('http://localhost:8000/**', async (route: Route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -114,7 +121,7 @@ export async function mockGreenWork(page: Page, state: GreenState, building: Rec
 }
 
 /** The preview and confirm of "Add Green Concrete". Stateful: a confirm makes `state.created` true. */
-export async function mockGreenAction(page: Page, state: GreenState, options: { created?: boolean; denied?: boolean; viewer?: boolean; failConfirm?: 409 | 500 } = {}) {
+export async function mockGreenAction(page: Page, state: GreenState, options: { created?: boolean; older?: boolean; denied?: boolean; viewer?: boolean; failConfirm?: 409 | 500 } = {}) {
   state.created = options.created ?? false;
   // The hash binds the plan AND the looks the owner picked (the real API does the same): a confirm made for other looks is refused.
   const looksOf = (default_look: string | null, chosen: Record<string, string>) => {
@@ -126,6 +133,15 @@ export async function mockGreenAction(page: Page, state: GreenState, options: { 
     let h = 7;
     for (const ch of `${n}|${JSON.stringify(Object.entries(looks).sort())}`) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     return h.toString(16).padStart(8, '0').repeat(8);
+  };
+  // The planner's hours, grouped by window as the API answers them.
+  const windows = () => {
+    const by = new Map<string, { start: string; end: string; people: string[] }>();
+    for (const p of FX.people) {
+      const key = `${p.work_start}-${p.work_end}`;
+      by.set(key, { start: p.work_start, end: p.work_end, people: [...(by.get(key)?.people ?? []), p.key] });
+    }
+    return [...by.values()].sort((a, b) => a.start.localeCompare(b.start));
   };
   await page.route('http://localhost:8000/api/v1/office/green-concrete/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -139,19 +155,20 @@ export async function mockGreenAction(page: Page, state: GreenState, options: { 
       state.previews?.push({ default_look: query.get('default_look'), looks: chosen });
       const made = state.created;
       const skip = made ? 'exists' : null;
-      const seats = FX.desks.map((d, i) => ({ desk_id: d.id, label: d.label, person: FX.people[i].key, pos_x: d.pos_x, pos_z: d.pos_z, shift: d.shift, seat_order: d.seat_order, facing: d.facing, seat_kind: d.seat_kind, table_group: d.table_group, action: made ? 'skip' : 'create', reason: skip }));
-      const people = FX.people.map((p) => ({ key: p.key, name: p.name, role: { en: p.role, ar: p.role_ar }, shift: p.shift, seat_order: FX.desks.find((d) => d.id === p.desk_id)!.seat_order, desk_id: p.desk_id, agent_id: made ? p.agent_id : null,
+      const seats = FX.desks.map((d, i) => ({ desk_id: d.id, label: d.label, person: FX.people[i].key, pos_x: d.pos_x, pos_z: d.pos_z, shift: d.shift, seat_order: d.seat_order, facing: d.facing, seat_kind: d.seat_kind, table_group: d.table_group, work_start: d.work_start, work_end: d.work_end, action: made ? 'skip' : 'create', reason: skip }));
+      const people = FX.people.map((p) => ({ key: p.key, name: p.name, role: { en: p.role, ar: p.role_ar }, seat_kind: p.seat_kind, work_start: p.work_start, work_end: p.work_end, seat_order: FX.desks.find((d) => d.id === p.desk_id)!.seat_order, desk_id: p.desk_id, agent_id: made ? p.agent_id : null,
         agent_action: made ? 'exists' : 'create', seat_action: made ? 'skip' : 'seat', seat_reason: made ? 'seated' : null, appearance: made ? null : looks[p.key] ?? null }));
       const z = { buildings: 0, floors: 0, rooms: 0, desks: 0, agents: 0 };
       return json({
-        version: 1, catalog_version: 1, workspace_id: WORKSPACE, timezone: 'Asia/Dubai', payload_hash: hash(made ? 2 : 1, looks), can_confirm: !options.viewer,
+        version: 2, catalog_version: 2, workspace_id: WORKSPACE, timezone: 'Asia/Dubai', payload_hash: hash(made ? 2 : 1, looks), can_confirm: !options.viewer,
         building: { id: FX.building.id, name: { en: 'Green Concrete', ar: null }, timezone: 'Asia/Dubai', action: made ? 'skip' : 'create', reason: skip },
         floor: { id: FX.floor.id, name: { en: 'Ground floor', ar: null }, level: 0, width_m: 22, depth_m: 16, action: made ? 'skip' : 'create', reason: skip },
         room: { id: FX.room.id, name: { en: 'Command Center', ar: null }, kind: 'command', capacity: 12, x: 2, z: 2, width: 16, depth: 12, door_side: 'south', action: made ? 'skip' : 'create', reason: skip },
         seats, people, status: made ? 'complete' : 'new', agent_slots_left: 200,
         counts: made ? { create: z, skip: { buildings: 1, floors: 1, rooms: 1, desks: 10, agents: 10 }, seat: 0 }
           : { create: { buildings: 1, floors: 1, rooms: 1, desks: 10, agents: 10 }, skip: z, seat: 10 },
-        shifts: { day: { start: '07:00', end: '19:00' }, night: { start: '19:00', end: '07:00' }, defaults: true, note: 'defaults' }, monthly_cap_usd: 3,
+        hours: { timezone: 'Asia/Dubai', night_shift: false, windows: windows() }, monthly_cap_usd: 3,
+        older_seats: made && options.older ? FX.desks.map((d) => String(d.id)).sort() : [],
         rules: { creates_agents: true, agents_start_paused: true, attaches_tools: false, changes_existing: false, infers_gender_or_ethnicity: false },
       });
     }
@@ -164,7 +181,7 @@ export async function mockGreenAction(page: Page, state: GreenState, options: { 
       if (options.failConfirm === 409) return json({ error: { code: 'conflict', message: 'What would be created has changed since you opened it. Review the preview again.', correlation_id: 'c', details: [] } }, 409);
       if (options.failConfirm === 500) return json({ error: { code: 'internal', message: 'Something failed.', correlation_id: 'c', details: [] } }, 500);
       state.created = true;
-      return json({ version: 1, outcome: 'created', payload_hash: body.payload_hash, timezone: 'Asia/Dubai', created: { buildings: 1, floors: 1, rooms: 1, desks: 10, agents: 10, seated: 10 }, message: 'Created.', failed: [], agents_started: 0 });
+      return json({ version: 2, outcome: 'created', payload_hash: body.payload_hash, timezone: 'Asia/Dubai', created: { buildings: 1, floors: 1, rooms: 1, desks: 10, agents: 10, seated: 10 }, message: 'Created.', failed: [], agents_started: 0 });
     }
     return route.fallback();
   });

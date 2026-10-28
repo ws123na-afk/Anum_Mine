@@ -559,12 +559,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
             occupantSeed: options.people?.get(dk.id) ?? null,
             look: styleOf(dk.id, interior),
           }));
-          // Tables of the shift that is not shown stay as empty seats (furniture only), so a shared table keeps its shape.
-          for (const e of room.emptySeats ?? []) stations.push({ x: e.x, z: e.z, rot: rotOfFacing(e.facing), state: 'vacant', occupantSeed: null });
-          const seatPoints: SeatPoint[] = [
-            ...placed.filter((dk) => dk.tableGroup).map((dk) => ({ x: dk.position.x, z: dk.position.z, facing: dk.facing ?? null, group: dk.tableGroup ?? null })),
-            ...(room.emptySeats ?? []).filter((e) => e.group),
-          ];
+          const seatPoints: SeatPoint[] = placed.filter((dk) => dk.tableGroup).map((dk) => ({ x: dk.position.x, z: dk.position.z, facing: dk.facing ?? null, group: dk.tableGroup ?? null }));
           const scratch = new MeshBuilder();
           buildInteriorRoom(scratch, interior, { x: room.x, y: y + 0.06, z: room.z, width: room.width, depth: room.depth }, { seed: room.id, accent, floor: color, live, detail: lite ? 'lite' : 'full', stations, doorSide: room.doorSide ?? 'south', attendees: live ? options.attendees?.get(room.id) ?? [] : [] });
           drawJoins(scratch, y + 0.06, tableJoins(seatPoints), SCHEMES.walnut.wood, SCHEMES.walnut.dark);

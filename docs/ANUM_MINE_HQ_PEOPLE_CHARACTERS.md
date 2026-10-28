@@ -74,7 +74,7 @@ Who stands where is one pure model, `apps/web/src/lib/hqPosts.ts`, read by `Buil
 
 | Place | A figure is drawn when | Drawn as |
 |---|---|---|
-| A workstation (office, customer care, operations, finance, sales, server, warehouse, workshop, executive) | the desk has an assigned agent or a presence record for the desk, **and** the person is on shift now (the desk's day or night shift against the building's shift hours, `deskShiftInfo.onShift`, and the off-shift index `offShiftKeys`) | seated at the desk, as before |
+| A workstation (office, customer care, operations, finance, sales, server, warehouse, workshop, executive) | the desk has an assigned agent or a presence record for the desk, **and** the person is on shift now (inside the desk's own working hours, or for an older Day or Night seat its shift in the building's hours; `deskShiftInfo.onShift`, and the off-shift index `offShiftKeys`) | seated at the desk, as before |
 | The reception desk | a desk of the reception room has such a record and the person is on shift | standing behind the counter, facing the door; several receptionists spread along the counter, the chair moves aside |
 | A post in a room with no workstations (meeting room, lounge, pantry, restroom; a second desk of an executive office) | the same record and on shift | standing at the stored desk position, facing the way the desk faces |
 | The meeting room | a live (active) meeting record holds the room (`room_id`) and lists the person as a participant (`GET /api/v1/agent-meetings/{id}` `participants`: agents and people) | seated on the chairs of the table in the stored order (the long sides from the screen end, then the two heads); a smaller table seats fewer, never more |

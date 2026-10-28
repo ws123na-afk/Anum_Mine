@@ -1,12 +1,14 @@
 /** Green Concrete client (contract: packages/contracts/src/officeGreenConcrete.ts, spec: docs/ANUM_MINE_GREEN_CONCRETE.md).
  * A preview stores nothing. Only `confirm` writes, and it always sends `input_mode: "click"` with the hash the person was shown. */
-import type { AvatarStyle, GreenConcreteConfirm, GreenConcretePreview, GreenConcreteResult, GreenLooks } from '@anum/contracts';
+import type { AvatarStyle, GreenConcreteConfirm, GreenConcretePreview, GreenConcreteResult, GreenLooks, OFFICE_GREEN_CONCRETE_VERSION } from '@anum/contracts';
 
 export type GreenRequester = <T>(path: string, init: RequestInit) => Promise<T>;
 export class GreenConcreteApiError extends Error { constructor(message: string) { super(message); this.name = 'GreenConcreteApiError'; } }
 
 export const BASE = '/api/v1/office/green-concrete';
 const HASH = /^[0-9a-f]{64}$/;
+/** The contract version this client reads (a type check keeps it equal to the contract's). */
+const VERSION: typeof OFFICE_GREEN_CONCRETE_VERSION = 2;
 type Scope = () => { tenantId: string; workspaceId: string };
 
 export function createGreenConcreteClient(request: GreenRequester, scope: Scope) {
@@ -15,7 +17,7 @@ export function createGreenConcreteClient(request: GreenRequester, scope: Scope)
       const started = scope();
       const body = await request<GreenConcretePreview>(`${BASE}/preview${previewQuery(looks)}`, { method: 'GET' });
       const now = scope();
-      if (!body || body.version !== 1 || !HASH.test(body.payload_hash) || !Array.isArray(body.people)) throw new GreenConcreteApiError('The plan is not version 1');
+      if (!body || body.version !== VERSION || !HASH.test(body.payload_hash) || !Array.isArray(body.people)) throw new GreenConcreteApiError(`The plan is not version ${VERSION}`);
       if (now.workspaceId !== started.workspaceId || now.tenantId !== started.tenantId || body.workspace_id !== started.workspaceId) {
         throw new GreenConcreteApiError('The answer belongs to another workspace');
       }
@@ -27,7 +29,7 @@ export function createGreenConcreteClient(request: GreenRequester, scope: Scope)
       const result = await request<GreenConcreteResult>(`${BASE}/confirm`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
       });
-      if (!result || result.version !== 1 || typeof result.outcome !== 'string') throw new GreenConcreteApiError('The result is not version 1');
+      if (!result || result.version !== VERSION || typeof result.outcome !== 'string') throw new GreenConcreteApiError(`The result is not version ${VERSION}`);
       return result;
     },
   };

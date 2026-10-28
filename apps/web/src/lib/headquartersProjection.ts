@@ -15,7 +15,7 @@ export type Floor = Readonly<{id:string;building_id:string;level:number;name:str
 export type RoomKind = 'office'|'meeting'|'reception'|'workshop'|'warehouse'|'lounge'|'command';
 export type Room = Readonly<{id:string;floor_id:string;name:string;name_ar?:string|null;kind:RoomKind;capacity:number;revision:number;scene_x?:number|null;scene_z?:number|null;scene_width?:number|null;scene_depth?:number|null;team_department?:string|null;door_side?:string|null;rotation?:number|null}>;
 export type DeskFacing='north'|'south'|'east'|'west';
-export type Desk = Readonly<{id:string;room_id:string;label:string;agent_id:string|null;revision:number;pos_x?:number|null;pos_z?:number|null;shift?:'day'|'night'|null;seat_order?:number|null;facing?:DeskFacing|null;seat_kind?:'team'|'manager'|null;table_group?:string|null}>;
+export type Desk = Readonly<{id:string;room_id:string;label:string;agent_id:string|null;revision:number;pos_x?:number|null;pos_z?:number|null;shift?:'day'|'night'|null;seat_order?:number|null;facing?:DeskFacing|null;seat_kind?:'team'|'manager'|null;table_group?:string|null;work_start?:string|null;work_end?:string|null}>;
 export type Registry = Readonly<{buildings:readonly Building[];floors:readonly Floor[];rooms:readonly Room[];desks:readonly Desk[]}>;
 export type AgentEvidence = Readonly<{
  id:string; name:string; status:'running'|'waiting'|'idle'|'unknown';
@@ -31,15 +31,13 @@ export type RoomGeometry = Readonly<{
  evidence:'registry'|'layout-draft';
  /** The wall the door is in (the builder's `door_side`); absent means the south wall. The interior is dressed to face it. */
  doorSide?:DoorSide;
- /** Tables of the shift that is not shown whose place nobody uses in the shown shift: drawn as empty seats (furniture, never a desk or a person). */
- emptySeats?:readonly Readonly<{x:number;z:number;facing:DeskFacing|null;group:string|null}>[];
 }>;
 export type SceneDesk = Readonly<{
  id:string; roomId:string; label:string; position:Vec3; agentId:string|null;
  agent:AgentEvidence|null; assignmentVisible:boolean;
- /** Seat fields from the registry (docs/ANUM_MINE_GREEN_CONCRETE.md): the shift, the place along the table, the wall the person looks at, the manager seat and the table group. */
- shift?:'day'|'night'|null; seatOrder?:number|null; facing?:DeskFacing|null; seatKind?:'team'|'manager'|null; tableGroup?:string|null;
- /** Set by the shift view (lib/hqShifts.ts): what this desk says about its shift now. */
+ /** Seat fields from the registry (docs/ANUM_MINE_GREEN_CONCRETE.md): the older day or night shift, the place along the table, the wall the person looks at, the manager seat, the table group and the working hours of the person ("HH:MM" in the building's time zone). */
+ shift?:'day'|'night'|null; seatOrder?:number|null; facing?:DeskFacing|null; seatKind?:'team'|'manager'|null; tableGroup?:string|null; workStart?:string|null; workEnd?:string|null;
+ /** Set by `applyShifts` (lib/hqShifts.ts): whether the person is inside their hours now. */
  shiftInfo?:import('./hqShifts.ts').DeskShiftInfo;
 }>;
 export type SceneFloor = Readonly<{
@@ -48,11 +46,11 @@ export type SceneFloor = Readonly<{
 }>;
 export type SceneBuilding = Readonly<{
  id:string; name:string; /** The Arabic name, when the building has one. */ nameAr?:string|null; timezone:string; floors:readonly SceneFloor[];
- /** Shift hours stored on the building ("HH:MM"); null means the unconfirmed defaults. */
+ /** Day and night starts stored on the building ("HH:MM"), read by older Day or Night seats only; null means the defaults. */
  shiftDayStart?:string|null; shiftNightStart?:string|null;
  /** The owner's sign (style, brand colour, logo hash); only set when the owner set one of them. */
  sign?:import('./campusModel.ts').BuildingSign;
- /** Set by the shift view for a building with shift desks. */
+ /** Set by `applyShifts` for a building with seats that have hours. */
  shifts?:import('./hqShifts.ts').ShiftSnapshot;
 }>;
 export type ProjectionIssue = Readonly<{
@@ -108,8 +106,9 @@ function placeDesks(room:RoomGeometry,assigned:readonly Desk[],visibleAgents:Rea
  const rows=Math.max(1,Math.ceil(count/cols));
  return assigned.map((desk,index)=>{
   const column=index%cols,row=Math.floor(index/cols);
-  // A seat (a desk with a shift, a manager kind or a table group) keeps the place the owner saved; any other desk is on the grid.
-  const seat=desk.pos_x!=null&&desk.pos_z!=null&&(desk.shift!=null||desk.seat_kind!=null||desk.table_group!=null);
+  // A seat (a desk with a shift, working hours, a manager kind or a table group) keeps the place the owner saved; any other desk is on the grid.
+  const hours=Boolean(desk.work_start&&desk.work_end);
+  const seat=desk.pos_x!=null&&desk.pos_z!=null&&(desk.shift!=null||hours||desk.seat_kind!=null||desk.table_group!=null);
   const x=seat?room.x+(desk.pos_x as number):room.x+room.width*(column+1)/(cols+1);
   const z=seat?room.z+(desk.pos_z as number):room.z+room.depth*(row+1)/(rows+1);
   const evidence=desk.agent_id?visibleAgents.get(desk.agent_id)??null:null;
@@ -120,7 +119,7 @@ function placeDesks(room:RoomGeometry,assigned:readonly Desk[],visibleAgents:Rea
   }
   return {id:desk.id,roomId:room.id,label:desk.label,position:{x,y:.78,z},
    agentId:desk.agent_id,agent:fresh?evidence:null,assignmentVisible:desk.agent_id!==null,
-   ...(seat||desk.shift!=null||desk.seat_kind!=null?{shift:desk.shift??null,seatOrder:desk.seat_order??null,facing:desk.facing??null,seatKind:desk.seat_kind??null,tableGroup:desk.table_group??null}:{})};
+   ...(seat||desk.shift!=null||hours||desk.seat_kind!=null?{shift:desk.shift??null,seatOrder:desk.seat_order??null,facing:desk.facing??null,seatKind:desk.seat_kind??null,tableGroup:desk.table_group??null,workStart:hours?desk.work_start:null,workEnd:hours?desk.work_end:null}:{})};
  });
 }
 /** Throws on corrupted scope input rather than accidentally mixing tenants. */

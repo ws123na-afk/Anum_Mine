@@ -16,7 +16,7 @@ Agents are never part of a snapshot or a template. A restore changes the layout,
 
 | Table | Purpose |
 |---|---|
-| `office_floor_revisions` | Primary key `(tenant_id, workspace_id, floor_id, revision_no)`. `snapshot` (rooms, desks with their seat fields, floor size, the building's shift hours, sorted by id, no agents; see "Seats and shift hours" below), `snapshot_hash` (SHA-256 of the canonical content), `summary` (counts of added, removed, moved and changed rooms and desks), `action`, `actor`, `restored_from` and `restored_over`. A trigger refuses `UPDATE`; only the cap prune deletes. Foreign key to the floor with `ON DELETE CASCADE`, so deleting an empty floor removes its history. |
+| `office_floor_revisions` | Primary key `(tenant_id, workspace_id, floor_id, revision_no)`. `snapshot` (rooms, desks with their seat fields and working hours, floor size, the building's shift hours, sorted by id, no agents; see "Seats and shift hours" below), `snapshot_hash` (SHA-256 of the canonical content), `summary` (counts of added, removed, moved and changed rooms and desks), `action`, `actor`, `restored_from` and `restored_over`. A trigger refuses `UPDATE`; only the cap prune deletes. Foreign key to the floor with `ON DELETE CASCADE`, so deleting an empty floor removes its history. |
 | `office_layout_templates` | `(id, tenant_id, workspace_id)`, `kind` (`floor` or `building`), unique name per kind and workspace, `definition` JSON (rooms with position, size, rotation, door, equipment, department, and desk labels with positions), `revision` for optimistic edits. At most 100 per workspace. |
 
 Both tables have forced workspace RLS (`tenant_isolation_*`) and the purge policy and grants of migration 0097, and both are in
@@ -45,6 +45,16 @@ locked after the floor, as every restore locks). The diff counts `seats_changed`
 `shift_hours_changed`; both are in the restore audit summary as counts. A version 1 revision never recorded seats or hours: it is compared
 with the floor through its own fields only (`as_version_of`), so it still restores exactly what it holds and leaves seats and hours as they
 are. Hours are one pair per building: restoring a revision of one floor restores them for the whole building. No migration was needed.
+
+### Working hours of a seat (snapshot version 3)
+
+Version 3 snapshots (`"v": 3`, written since each person got their own working hours, 28 October 2026) add each desk's `work_start`
+and `work_end` (migration `0119_desk_work_hours`), in the content hash. A restore puts them back exactly, a window over midnight
+included, and a desk it re-creates comes back with its hours (and no agent). A changed pair counts as `seats_changed`. A version 2
+revision never recorded them: it is compared through the version 2 fields only (`as_version_of`), so the floor as it is still matches
+it, and restoring it brings back its seats and the building's day and night hours and leaves every person's working hours as they are
+now; a desk it re-creates has no hours. A version 1 revision works as before. The diff of a version 2 revision against a version 3
+floor compares only the fields both recorded. No migration of stored revisions was needed.
 
 ## API (`/api/v1/office-layout`, `office_layout_history_api.py`)
 
@@ -120,4 +130,4 @@ English and Arabic (right to left), keyboard and screen reader labels, five view
 * History does not cover building level or workspace level changes (building rename, new building); only floors.
 * A restore does not touch the "Staff my campus" ledger (`office_desk_staffing`), the same as deleting a desk today.
 * Revisions made before this migration do not exist; each floor starts with a `baseline` at its first tracked change.
-* The seat fields of a desk (shift, place at the table, facing, seat type, table group, migration 0115) and the shift hours of a building are not part of a revision: a restore keeps a desk's current seat fields, and a desk a restore recreates has none ([Green Concrete](ANUM_MINE_GREEN_CONCRETE.md)).
+* Revisions written before snapshot version 2 hold no seat fields and no building hours, and revisions before version 3 hold no working hours: restoring one keeps those fields as they are now, and a desk it recreates has none ([Green Concrete](ANUM_MINE_GREEN_CONCRETE.md)).
