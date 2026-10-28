@@ -20,7 +20,7 @@ export function HqShiftBar({ snapshot, desks }: Readonly<{ snapshot: ShiftSnapsh
       {windows.length > 0 && <ul className="hqShiftWindows" aria-label={t('hqGc.hours.bar')}>
         {windows.map((w) => (
           <li key={`${w.start}-${w.end}`} data-testid="shift-window" data-on={w.on}>
-            <span dir="ltr"><bdi>{t('hqGc.shift.hours', { start: w.start, end: w.end })}</bdi></span>
+            <span>{t('hqGc.shift.hours', { start: w.start, end: w.end })}</span>
             <small>{t('hqGc.hours.people', { count: w.people })}</small>
             <span className={`hqPill tone-${w.on ? 'ok' : 'faint'}`}>{t(w.on ? 'hqGc.hours.onNow' : 'hqGc.hours.offNow')}</span>
           </li>

@@ -174,7 +174,7 @@ function PlanView({ preview, nothing, choices, onPick, refreshing }: { preview: 
             {preview.people.map((p) => <tr key={p.key} data-person={p.key}>
               <th scope="row"><bdi>{p.name}</bdi></th>
               <td>{roleText(p.role.en)}</td>
-              <td dir="ltr"><bdi>{hoursText(p)}</bdi></td>
+              <td>{hoursText(p)}</td>
               <td>{seatText(p)}</td>
               <td className="hqGcLook">{p.agent_action === 'create' && preview.can_confirm
                 ? <>
