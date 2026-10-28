@@ -15,7 +15,8 @@ import { car as envCar } from '../hqAssets/environment/index.ts';
 import { signAtlasLayout } from './hqTextures.ts';
 import type { AvatarAppearance } from '@anum/contracts';
 import { figureLook, roleFamily, type FigureLook } from './hqAvatar.ts';
-import { ambientParts, ambientTagsOf, buildInteriorRoom, interiorKindFor, type AmbientPart, type StationSpec, type StationState } from '../hqAssets/interior/index.ts';
+import { postLook, postureFor } from './hqPosts.ts';
+import { ambientParts, ambientTagsOf, buildInteriorRoom, type Attendee, interiorKindFor, type AmbientPart, type StationSpec, type StationState } from '../hqAssets/interior/index.ts';
 import { drawRoomShell, WALL_HEIGHT as SHELL_WALL } from '../hqAssets/interior/shell.ts';
 import { CORE_DEPTH, CORE_WIDTH, drawCore } from '../hqAssets/interior/core.ts';
 import { classifySurfaces } from './hqSurfaces.ts';
@@ -57,6 +58,8 @@ export type BuildingSceneOptions = Readonly<{
    * and the department text. Both are profile fields; nothing here is a name. A desk with a person but no entry gets the default style.
    */
   looks?: ReadonlyMap<string, Readonly<{ avatar?: AvatarAppearance | null; department?: string | null }>>;
+  /** The stored participants of each room's live meeting, by room id (`lib/hqPosts.ts` `meetingAttendees`): seated at its table, nobody else. */
+  attendees?: ReadonlyMap<string, readonly Attendee[]>;
 }>;
 
 export type SignLabel = Readonly<{ title: string; subtitle: string }>;
@@ -543,6 +546,8 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
           const seed = options.people?.get(deskId);
           if (!seed) return undefined;
           const info = options.looks?.get(deskId);
+          // A person standing at a post (a new placement) takes the owner's look over the neutral build; seated desks keep their style.
+          if (postureFor(roomKind) === 'standing') return postLook(seed, info?.avatar ?? null, { roomKind, department: info?.department });
           return figureLook(seed, info?.avatar, roleFamily({ roomKind, department: info?.department }));
         };
         if (interior) {
@@ -561,7 +566,7 @@ export function buildBuildingScene(floors: readonly SceneFloor[], options: Build
             ...(room.emptySeats ?? []).filter((e) => e.group),
           ];
           const scratch = new MeshBuilder();
-          buildInteriorRoom(scratch, interior, { x: room.x, y: y + 0.06, z: room.z, width: room.width, depth: room.depth }, { seed: room.id, accent, floor: color, live, detail: lite ? 'lite' : 'full', stations, doorSide: room.doorSide ?? 'south' });
+          buildInteriorRoom(scratch, interior, { x: room.x, y: y + 0.06, z: room.z, width: room.width, depth: room.depth }, { seed: room.id, accent, floor: color, live, detail: lite ? 'lite' : 'full', stations, doorSide: room.doorSide ?? 'south', attendees: live ? options.attendees?.get(room.id) ?? [] : [] });
           drawJoins(scratch, y + 0.06, tableJoins(seatPoints), SCHEMES.walnut.wood, SCHEMES.walnut.dark);
           const tags = ambientTagsOf(scratch);
           const split = scratch.toFloat32Split(['figure', 'sofa', ...tags]);
