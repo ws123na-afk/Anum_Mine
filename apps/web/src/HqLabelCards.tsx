@@ -7,16 +7,25 @@ import type { AvatarAppearance } from '@anum/contracts';
 import { AvatarChip } from './AvatarStyleEditor';
 import { statusLabel } from './HqChrome';
 import { STATUS_TONE, type StatusKey } from './lib/campusModel.ts';
-import { floorNameParts } from './lib/hqLabelModel.ts';
+import { departmentText, floorNameParts } from './lib/hqLabelModel.ts';
 import { t } from './lib/i18n.ts';
 import './hqLabels.css';
 
-export function RoomLabelCard(props: { name: string; kind: string; sub: string; working: number | null; live: boolean; selected: boolean; onPick: () => void }) {
+/**
+ * The icon of a room card: the icon of the room's stored department when the catalogue names it (the `data-dept` masks of
+ * `hqLabels.css`), else its kind. One icon set either way (`lib/hqIcons.ts`, docs/ANUM_MINE_HQ_LABELS.md "Icons").
+ */
+export function RoomIcon(props: { kind: string; department?: string | null }) {
+  const dept = props.department && departmentText(props.department) !== null ? props.department : undefined;
+  return <span className="hqLabelIcon" data-kind={props.kind} data-dept={dept} aria-hidden="true" />;
+}
+
+export function RoomLabelCard(props: { name: string; kind: string; department?: string | null; sub: string; working: number | null; live: boolean; selected: boolean; onPick: () => void }) {
   const sub = props.live ? `${t('hq.room.inMeeting')} \u00B7 ${props.sub}` : props.sub;
   return (
     <button type="button" className="hqLabelCard hqRoomCard" data-selected={props.selected} data-live={props.live} data-kind={props.kind} aria-pressed={props.selected}
       aria-label={t('hqLabels.roomAria', { name: props.name, sub: props.working ? `${sub}. ${t('hqLabels.working', { count: props.working })}` : sub })} onClick={props.onPick}>
-      <span className="hqLabelIcon" data-kind={props.kind} aria-hidden="true" />
+      <RoomIcon kind={props.kind} department={props.department} />
       <span className="hqLabelText" aria-hidden="true"><strong dir="auto">{props.name}</strong><small dir="auto">{sub}</small></span>
       {props.working ? <span className="hqRoomWorking" aria-hidden="true" title={t('hqLabels.working', { count: props.working })}>{props.working}</span> : null}
     </button>

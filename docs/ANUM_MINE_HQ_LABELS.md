@@ -9,6 +9,7 @@ Code: `apps/web/src/lib/hqLabels.ts` (placement), `lib/hqLabelModel.ts` (what th
 | On the screen | Where it comes from |
 |---|---|
 | Room name | The room record |
+| Room icon | The icon of the room's stored department (`team_department`, only a department the catalogue names), else the icon of its kind ([icons](#icons)) |
 | Room subtitle | Kind, desk count and department of the room record: `Office · 6 desks · Sales`. A department the message catalogue does not know is left out, never guessed. A live meeting adds "In a meeting" from the stored meeting `room_id` |
 | Agent card | Only a desk with a registry assignment or a presence record. Name, role (department) and state come from presence; no record, no card. A private agent shows as "Private agent" |
 | State chip | The presence state (Working, In meetings, Idle, Queued, Waiting for approval, Blocked, Paused) with its tone; stale evidence is marked "stale" and drawn dashed |
@@ -28,7 +29,7 @@ Code: `apps/web/src/lib/hqLabels.ts` (placement), `lib/hqLabelModel.ts` (what th
 
 Every label can take three densities, richest first: **full** (icon, name, subtitle), **compact** (icon and name) and **dot** (the icon alone, or the status ring of an agent). The layout runs per frame in priority order (selected, rooms, then seated agents; near before far) and gives each label the richest density that is free at its anchor. A room that fits at no density is hidden unless it is selected; a room that is crowded may move up to two steps; a seated agent never moves off its desk (it is shown there or gives way, because its position is the fact it states). Hover, keyboard focus and selection open the full card. The text stays in the accessibility tree at every density.
 
-Cards also keep clear of the controls drawn over the scene (the Back to campus card, the camera tools, the dock, the open room panel): their rectangles are read when they change size, never per frame (`bindKeepOut`), and a card is never put under one. A card that has no free spot at any density is **crowded**: it stays at its anchor, unseen and not clickable, but in the tab order, and a keyboard focus brings it forward (`data-hidden="crowded"`). In a scene narrower than 641 px (a phone) no card is left out: one with no free spot sits on its anchor in its smallest density, even over another. A card hidden by the depth test (`data-occluded="true"`) or out of view is removed from the page's tab order; the room list, the room panel and the floor tags reach those.
+Cards also keep clear of the controls drawn over the scene (the Back to campus card, the camera tools, the dock, the open room panel): their rectangles are read when they change size, never per frame (`bindKeepOut`), and a card is never put under one. A card that has no free spot at any density is **crowded**: it stays at its anchor, unseen and not clickable, but in the tab order, and a keyboard focus brings it forward (`data-hidden="crowded"`). In a scene narrower than 641 px (a phone) a card with no free spot sits on its anchor in its smallest density, even over another, unless that density is a dot: two dots never touch (a dot with no free spot is crowded, see [quiet campus](#quiet-campus)). A card hidden by the depth test (`data-occluded="true"`) or out of view is removed from the page's tab order; the room list, the room panel and the floor tags reach those.
 
 ## Chrome
 
@@ -56,9 +57,16 @@ No React render per frame. The cards are DOM nodes written by `placeLabels` only
 - Unit: `test/hqLabelModel.test.ts` (subtitle facts, anchors and floor height, slab occlusion (library), density with 60 rooms, agents that do not move), `test/hqLabelsPresence.test.ts` (placement).
 - Browser: `e2e/hq-labels.spec.ts` (cards, density, stacked view, states: no agents, presence not connected, flow not connected, denied, Arabic, axe). Local render check: `e2e/hq-labels-look.local.spec.ts`.
 
+## Icons
+
+One icon set for the headquarters (`lib/hqIcons.ts`): line icons on a 24 unit grid, round caps and joins, a 1.8 unit stroke, paths only. The room kind icons are the masks `hqLabels.css` already drew (a unit test keeps the two equal); each department of the catalogue (`team.dept.*`: Sales, Support, Operations, Finance, Tyre engineering, Marketing, Technology, Research, Legal, Compliance, Security, People, Procurement, Executive, Other) has one icon in the same style. No icon library was added.
+
+- A room card and the floor overview card show the icon of the room's stored department, else the icon of its kind (`roomIconKey`); the department icon is set as the same CSS mask on the card's icon, so it reads like the kind icons. A department the catalogue does not name is never guessed: the kind icon shows.
+- The 3D billboards draw the same icons on the canvas (`Path2D` of the same paths): a row of up to six for the building's rooms (departments first, then the kinds of rooms without one) and the department icons before the departments line of the close view ([billboards](ANUM_MINE_HQ_BILLBOARDS.md)).
+- Icons are decorative (`aria-hidden`); the card's name already says the department in its subtitle.
+
 ## Not in this change
 
-- Per department icons (the icon follows the room kind).
 - A Team status card with Offline: presence has no offline state.
 - The concept's room name subtitles are written by hand; ours are generated from the record, so they read plainer.
 
@@ -69,6 +77,7 @@ Owner feedback (27 October 2026): the campus looked busy, with a card (name, kin
 - **A building label is a chip or a dot.** A chip is the type icon, the building name and a status dot. A dot is only the status dot (name on hover and focus, in the tooltip and in the accessible name). The kind chips, the avatar initials, the counts and the second line are gone from the label; they are on the board, on the detail panel of the selected building and in the accessible name, which is unchanged ("Name. 4 agents, 0 working.").
 - **Few chips, by rule** (`quietDensities` in `hq-nav/navModel.ts`): at most four chips at a time (two on a phone-sized stage), chosen by priority (selected, the open workspace's building, the executive tower, then the buildings nearest the point the camera looks at); every other building is a dot. The set follows the camera target, so zooming to a corner gives that corner its chips. The layout still gives a chip up to a dot before two labels would overlap.
 - **Full detail only for the focused building**: hover, keyboard focus or selection shows its billboard card (full) and, when selected, the detail panel. No unfocused billboard card is in the page.
-- **Never lost**: every building keeps its button in the page (the same accessible name and the same click), in the tab order, in the quick view strip, the minimap and the list view. On a scene narrower than 641 px two dots may touch when no free spot exists; a chip never overlaps anything, and on wider scenes nothing overlaps.
+- **Never lost**: every building keeps its button in the page (the same accessible name and the same click), in the tab order, in the quick view strip, the minimap and the list view.
+- **Dots never touch.** On a scene narrower than 641 px a dot keeps a clear gap of `DOT_GAP` (4 px) round it: it looks for a free spot on a finer ring round its anchor (half a dot per step, up to four dots away), and a dot with no free spot is not drawn over another one: it is crowded (in the page and the tab order, a keyboard focus brings it forward, the building is still in the quick view strip and the list). A chip never overlaps anything, and on wider scenes nothing overlaps.
 - `cardDensities` and `cardTags` (the old full card rules) stay in `navModel.ts` with their unit tests but the campus no longer uses them.
-- Tests: `test/hqBoardFace.test.ts` (chip rules), `e2e/hq-quiet-campus.spec.ts` (five viewports, English and Arabic, no overlap, axe). Specs changed on purpose: `hq-navigation.spec.ts` (the density counts and the tags now checked on chips, the detail card and the accessible name) and `hq-billboards.spec.ts` (no unfocused billboard cards).
+- Tests: `test/hqBoardFace.test.ts` (chip rules), `test/hqIcons.test.ts` (dots never touch on a phone-sized scene), `e2e/hq-quiet-campus.spec.ts` (five viewports, English and Arabic, no overlap and no two dots touching at any width, axe). Specs changed on purpose: `hq-navigation.spec.ts` (the density counts and the tags now checked on chips, the detail card and the accessible name) and `hq-billboards.spec.ts` (no unfocused billboard cards).

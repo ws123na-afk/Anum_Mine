@@ -69,6 +69,9 @@ class BuildingSpec:
     en: str
     ar: str
     floors: tuple[FloorSpec, ...]
+    # The campus building kind it is drawn as (the kinds of ``office_campus_api.KINDS``): owner decision O2 makes
+    # Career & Employment its own "career" kind. The web keeps the same table (`campusRegistry.ts` STARTER_LOOK).
+    campus_kind: str = "business"
 
     @property
     def id(self) -> str:
@@ -148,7 +151,7 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
             RoomSpec("terrace", "Terrace", "التراس", "lounge", 12, 8, 20, 0, None, "sand", "south", _LOUNGE),
             RoomSpec("events-hall", "Events Hall", "قاعة الفعاليات", "lounge", 14, 9, 40, 0, None, "brass", "south", _LOUNGE),
         ), 38.0),
-    )),
+    ), campus_kind="executive"),
     BuildingSpec(2, "commerce", "ANUM 360 Commerce", "أنوم 360 للتجارة", (
         _floor(0, "Ground floor: E-commerce, Retail and Marketplace", "الطابق الأرضي: التجارة الإلكترونية والتجزئة والسوق", (
             _office("ecommerce", "E-commerce", "التجارة الإلكترونية", 12, 8, 6, "sales", "forest"),
@@ -181,7 +184,7 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
             _office("tyre-engineering", "Tyre Engineering", "هندسة الإطارات", 10, 8, 4, "tyre_engineering", "teal"),
             _office("inspections", "Inspections", "الفحص", 8, 7, 3, "tyre_engineering", "teal"),
         ), 34.0),
-    )),
+    ), campus_kind="department"),
     BuildingSpec(4, "corporate-services", "Corporate Services", "الخدمات المؤسسية", (
         _floor(0, "Ground floor: HR, Finance and Procurement", "الطابق الأرضي: الموارد البشرية والمالية والمشتريات", (
             _office("hr", "HR", "الموارد البشرية", 10, 8, 4, "hr", "forest"),
@@ -231,14 +234,14 @@ CAMPUS: Final[tuple[BuildingSpec, ...]] = (
                     (("monitor", 2), ("whiteboard", 1))),
             RoomSpec("lounge", "Lounge", "الاستراحة", "lounge", 8, 6, 6, 0, None, "sand", "south", _LOUNGE),
         ), 26.0),
-    )),
+    ), campus_kind="personal"),
     BuildingSpec(8, "career", "Career & Employment", "المسار المهني والتوظيف", (
         _floor(0, "Ground floor", "الطابق الأرضي", (
             _office("career-office", "Career Office", "مكتب المسار المهني", 10, 8, 3, None, "forest"),
             _office("employment-desk", "Employment Desk", "مكتب التوظيف", 10, 8, 3, None, "forest"),
             _meeting("interview-room", "Interview Room", "غرفة المقابلات", 6, 5, 4, "sapphire"),
         ), 28.0),
-    )),
+    ), campus_kind="career"),
 )
 BUILDING_KEYS: Final = tuple(b.key for b in CAMPUS)
 BUILDING_BY_KEY: Final = {b.key: b for b in CAMPUS}
@@ -380,7 +383,7 @@ def plan_building(spec: BuildingSpec, facts: Facts, timezone: str) -> dict[str, 
     status = "complete" if not pending else ("new" if not b_exists else "partial")
     return {
         "key": spec.key, "number": spec.number, "id": bid, "name": {"en": spec.en, "ar": spec.ar},
-        "timezone": timezone, "action": "skip" if b_exists else "create", "reason": EXISTS if b_exists else None,
+        "campus_kind": spec.campus_kind, "timezone": timezone, "action": "skip" if b_exists else "create", "reason": EXISTS if b_exists else None,
         "status": status, "floors": floors_out, "counts": counts,
     }
 

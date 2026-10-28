@@ -44,6 +44,7 @@ Every panel has one header (`PanelSection.tsx`): title, one line on what it is f
 | Team (`HqTeamPanel.tsx`) | the Team dialog (Office tools), and under a selected room | `/office/team`, read again whenever the live flow changes | loading, refused, failed (with the roster kept when one was read), empty (with Manage spaces) |
 | History (`HqHistoryPanel.tsx`) | a drawer (bottom sheet under 760 px) | `/office-history`, read when opened, then the first page checked every 30 s; newer records are offered ("2 newer records", Show them), never pushed into the list | loading, refused, failed (with Try again), empty, paged, check failed (list kept) |
 | Live flow (`HqFlowDock.tsx`) | thin bar under the quick views; the list opens as a sheet that rises from the bar | `/office/flow` | loading, denied, failed, offline with the last answer, empty with a next action |
+| Reception (`HqReceptionPanel.tsx`, lazy) | a drawer from 761 px, a bottom sheet below, opened from Office tools or a reception room | `/office/visitors` | loading, empty with Add a visitor, filtered empty, error with Try again, denied, owner only, stale revision, paged and searched ([reception](ANUM_MINE_HQ_RECEPTION.md)) |
 | Campus map | a button in the camera rail (closed by default, remembered); opens beside the rail | the campus layout and the camera footprint | none |
 
 ## What "live" means

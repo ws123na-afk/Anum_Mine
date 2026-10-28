@@ -14,15 +14,18 @@ import type { StageLabel } from '../HqStage';
 import { BillboardCard } from './BillboardCard.tsx';
 import { billboardModel, type BillboardFlow } from './billboardModel.ts';
 import { boardMesh, boardSites, type BillboardMesh, type BoardSite } from './billboardSites.ts';
+export { CLOSE_M, closeBoards } from './billboardSites.ts';
 import { boardFace, type BoardFace } from './boardFace.ts';
 import { getLocale, t } from '../lib/i18n.ts';
 
-export { startBoardFeed, type BoardFeed } from './billboardTexture.ts';
+export { startBoardFeed, type BoardFeed, type BoardLogo } from './billboardTexture.ts';
 import { faceTexts } from './boardFace.ts';
 
 /** What is on the boards right now, one line per board (the stage's `data-board-texts`, for QA and screen readers' curiosity: never an input). */
 export const boardLines = (faces: readonly BoardFace[]): string => faces.map((f) => faceTexts(f).join(' | ')).join('\n');
 export type { BoardFace } from './boardFace.ts';
+/** How many boards draw the owner's brand header and logo right now (the stage's `data-board-brands` and `data-board-logos`, for QA only). */
+export const boardStats = (faces: readonly BoardFace[]): string => `${faces.filter((f) => f.header).length}|${faces.filter((f) => f.logo).length}`;
 
 export type BillboardLayer = Readonly<{ sites: readonly BoardSite[]; mesh: BillboardMesh; picks: readonly PickTarget[] }>;
 
@@ -43,6 +46,12 @@ export type BoardFaceArgs = Readonly<{
   live: boolean;
   fontsReady?: boolean;
   now: number;
+  /** The buildings whose board shows the close view (focused, or the camera is near its board); see `closeBoards`. */
+  detailIds?: ReadonlySet<string>;
+  /** The tier's board cell: a 256 px cell keeps the key line only (the focused building's card carries the details). */
+  cell?: 512 | 256;
+  /** True when the owner's logo of a building is decoded (the campus sign loader); without it the board keeps its plain header. */
+  logoReady?: (buildingId: string, sha: string) => boolean;
 }>;
 
 /** One face per board, in site order, from the same model the card uses (so the same whitelisted fields). A site whose building is gone says Not connected. */
@@ -50,9 +59,10 @@ export function boardFaces(args: BoardFaceArgs): BoardFace[] {
   const locale = getLocale();
   return args.layer.sites.map((site) => {
     const building = args.buildings.get(site.workspaceId);
-    if (!building) return boardFace({ id: site.workspaceId, name: '', kindText: null, kind: 'business', summary: '', status: 'unavailable', accessible: false, brand: null, rows: [], openLabel: '', unavailableText: '' }, { live: false, rtl: locale === 'ar', fontsReady: args.fontsReady, tr: (k, v) => t(k, v) });
+    if (!building) return boardFace({ id: site.workspaceId, name: '', kindText: null, kind: 'business', summary: '', status: 'unavailable', accessible: false, brand: null, logo: null, icons: [], rows: [], openLabel: '', unavailableText: '' }, { live: false, rtl: locale === 'ar', fontsReady: args.fontsReady, tr: (k, v) => t(k, v) });
     const model = billboardModel({ building, plan: args.plans?.get(site.workspaceId) ?? null, flow: args.flow ?? null, currentWorkspaceId: args.currentWorkspaceId, now: args.now });
-    return boardFace(model, { live: args.live, rtl: locale === 'ar', fontsReady: args.fontsReady, tr: (k, v) => t(k, v) });
+    const detail = args.cell !== 256 && args.detailIds?.has(site.workspaceId) === true;
+    return boardFace(model, { live: args.live, rtl: locale === 'ar', fontsReady: args.fontsReady, tr: (k, v) => t(k, v), detail, logoReady: args.logoReady });
   });
 }
 

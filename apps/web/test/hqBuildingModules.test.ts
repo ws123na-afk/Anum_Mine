@@ -113,13 +113,15 @@ describe('every room of the eight building starter campus opens a real module or
   });
   test('each room resolves to a view, the live flow, a meeting, or an honest none with a reason', () => {
     for (const { r, m } of resolved) {
-      if (m.target.type === 'none') assert.ok(['no_department_module', 'no_visitor_register'].includes(m.target.why), r.room);
-      else assert.ok(['view', 'flow', 'meeting'].includes(m.target.type), r.room);
+      if (m.target.type === 'none') assert.equal(m.target.why, 'no_department_module', r.room);
+      else assert.ok(['view', 'flow', 'meeting', 'reception'].includes(m.target.type), r.room);
     }
   });
-  test('the rooms with no module are exactly reception, procurement and nothing else', () => {
+  test('the only room with no module is procurement; reception opens the visitor register', () => {
     const none = resolved.filter(({ m }) => m.target.type === 'none').map(({ r }) => `${r.building}/${r.room}`);
-    assert.deepEqual(none.sort(), ['corporate-services/procurement', 'hq/reception']);
+    assert.deepEqual(none.sort(), ['corporate-services/procurement']);
+    const reception = resolved.filter(({ m }) => m.target.type === 'reception').map(({ r }) => `${r.building}/${r.room}`);
+    assert.deepEqual(reception, ['hq/reception']);
   });
   test('Marketing, Technology, Research and Legal rooms open their own module', () => {
     const open = (dept: string) => resolved.filter(({ r }) => r.department === dept).map(({ m }) => moduleHash(m.target));

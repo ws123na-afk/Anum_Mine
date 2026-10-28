@@ -25,7 +25,7 @@ Total for an empty workspace: **8 buildings, 18 floors, 62 rooms, 220 desks**. T
 
 The Executive Office of ANUM HQ carries the `executive` department and opens the executive desk by it. Twelve other rooms have no department on purpose (a judgment call each; the table is in [building modules](ANUM_MINE_HQ_BUILDING_MODULES.md)). An existing campus gets `executive` on its Executive Office only through the owner's reviewed confirm click (`department_set`), never silently.
 
-The Command Center of ANUM HQ is created with the room kind `command` (opens the live flow and carries the operations wall); the campus draws HQ as the executive tower, Personal Office as the villa, Tyre Pulse as the workshop and Commerce as the shop pavilion. See [building modules](ANUM_MINE_HQ_BUILDING_MODULES.md).
+The Command Center of ANUM HQ is created with the room kind `command` (opens the live flow and carries the operations wall); the campus draws HQ as the executive tower, Personal Office as the villa, Tyre Pulse as the workshop, Commerce as the shop pavilion and Career & Employment as the career centre. Each building of the preview carries its `campus_kind` (executive, business, department, personal or career; Career & Employment is `career`, owner decision O2), shown beside it in the dialog; the web keeps the same table in `campusRegistry.ts`. See [reception and career](ANUM_MINE_HQ_RECEPTION.md). See [building modules](ANUM_MINE_HQ_BUILDING_MODULES.md).
 
 ## Green Concrete is a separate action
 

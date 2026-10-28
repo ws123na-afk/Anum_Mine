@@ -51,6 +51,8 @@ export function RoomPanel(props: Readonly<{
   room: RoomGeometry; desks: readonly SceneDesk[]; presence: HqPresenceIndex | null;
   onClose: () => void; onOpenAgent: (agentId: string, desk: SceneDesk) => void;
   buildingKind?: string | null; canManage?: boolean; onOpenFlow?: (roomId?: string) => void; onOpenGaps?: () => void;
+  /** Opens the visitor register; `visitors` is the stored count of visitors checked in at this reception room (undefined: not read, no line). */
+  onOpenReception?: (roomId?: string) => void; visitors?: number;
   /** The command centre wall, for an operations room only (null elsewhere). */
   wall?: WallModel | null; onReloadWall?: () => void;
   /** The live meeting held in this room: from the stored `room_id` of an active meeting. Null when none; undefined when unknown. */
@@ -106,7 +108,8 @@ export function RoomPanel(props: Readonly<{
           </ul>
         )}
       {props.desks.some((d) => d.agentId) && <button type="button" className="hqPrimary" onClick={() => openAssign({ roomId: room.id, roomName: roomName(room), source: 'room' })}><ClipboardPlus aria-hidden="true" />{t('hqAssign.openRoom')}</button>}
-      <RoomModuleAction roomId={room.id} room={{ department: room.teamDepartment, kind: room.kind, name: room.label, buildingKind: props.buildingKind }} liveMeetingId={props.meeting?.meetingId ?? null} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? noop} onOpenGaps={props.onOpenGaps ?? noop} />
+      {room.kind === 'reception' && props.visitors !== undefined && <p className="hqNote" data-testid="room-visitors">{props.visitors > 0 ? t('hqRec.room.count', { count: props.visitors }) : t('hqRec.room.none')}</p>}
+      <RoomModuleAction roomId={room.id} room={{ department: room.teamDepartment, kind: room.kind, name: room.label, buildingKind: props.buildingKind }} liveMeetingId={props.meeting?.meetingId ?? null} canManage={props.canManage} onOpenFlow={props.onOpenFlow ?? noop} onOpenGaps={props.onOpenGaps ?? noop} onOpenReception={props.onOpenReception} />
     </aside>
   );
 }

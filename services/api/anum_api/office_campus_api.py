@@ -30,13 +30,13 @@ router = APIRouter(prefix="/api/v1/office", tags=["office campus"])
 CAMPUS_VERSION = 1
 MAX_BUILDINGS = 50
 MAX_FLOORS = 50
-KINDS = ("executive", "business", "department", "personal")
+KINDS = ("executive", "business", "department", "personal", "career")
 ICONS = ("building", "briefcase", "store", "truck", "home", "user", "landmark", "factory", "shield", "chart")
 
 
 class ProfileBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["executive", "business", "department", "personal"]
+    kind: Literal["executive", "business", "department", "personal", "career"]
     icon: Literal["building", "briefcase", "store", "truck", "home", "user", "landmark", "factory", "shield", "chart"]
     expected_revision: Annotated[int | None, Field(ge=1)] = None
 

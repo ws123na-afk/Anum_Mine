@@ -263,3 +263,18 @@ test('the billboards are a separate pass: only the focused building has a card u
   assert.ok(labelsMemo.length > 200 && !/billboard|boards/i.test(labelsMemo), 'the main label list must not contain billboards');
   assert.ok(/extraLabels=\{extraLabels\}/.test(src) && (src.match(/labelKeepOut="([^"]*)"/g) ?? []).join() === 'labelKeepOut="[data-keepout]"', 'billboards go to the extra pass; the campus keeps its own keep-out selector');
 });
+
+test('the sign, logo and icon reads stay inside the whitelist: the brand colour, the logo id and hash, and each room\'s department or kind', () => {
+  const log = new Set<string>();
+  const base = input();
+  const sign = { buildingId: 'bld_hq', style: `${LEAK}STYLE`, color: '#1b3a6b', logoSha256: 'b'.repeat(64), uploadedBy: `${LEAK}UPLOADER` };
+  const building = track(poisoned({ sign }), 'building', log);
+  const model = billboardModel({ ...base, building, plan: track(base.plan!, 'plan', log), flow: track(base.flow!, 'flow', log) });
+  assert.deepEqual([...log].filter((path) => !BILLBOARD_READS.includes(path)), [], 'a property outside BILLBOARD_READS was read');
+  for (const path of ['building.sign.color', 'building.sign.logoSha256', 'building.sign.buildingId', 'plan.floors[].rooms[].kind']) assert.ok(log.has(path), `reads ${path}`);
+  assert.ok(!log.has('building.sign.style') && !log.has('building.sign.uploadedBy'), 'the board never reads the sign style or who uploaded it');
+  assert.deepEqual(model.logo, { buildingId: 'bld_hq', sha: 'b'.repeat(64) });
+  assert.deepEqual(model.icons, ['dept:marketing', 'dept:sales', 'kind:office']);
+  assert.ok(BILLBOARD_FIELDS.some((f) => f.id === 'logo') && BILLBOARD_FIELDS.some((f) => f.id === 'icons'));
+  assert.ok(!JSON.stringify(model).includes(LEAK));
+});
