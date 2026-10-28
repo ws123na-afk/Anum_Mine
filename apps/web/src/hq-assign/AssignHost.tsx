@@ -1,15 +1,17 @@
 /** Mounted once by the headquarters. Listens for "assign work" and "open task" requests from any card, desk, room,
  * team panel, flow dock item or the assistant, and shows the dialog, the confirmation toast and the task side panel
  * on the same screen. Nothing here navigates unless the person clicks a link to another page. */
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import type { AssignResponse } from '@anum/contracts';
 import { t } from '../lib/i18n';
 import { ASSIGN_EVENT, setAssignHostMounted, TASK_PANEL_EVENT, type AssignPrefill } from '../lib/hqAssign';
 import { useLocale } from '../useLocale';
-import { AssignDialog } from './AssignDialog';
-import { TaskPanel } from './TaskPanel';
+
+// The dialog and the task panel open only on a request, so each is its own chunk; the host itself (the listener and the toast) stays mounted.
+const AssignDialog = lazy(() => import('./AssignDialog').then((m) => ({ default: m.AssignDialog })));
+const TaskPanel = lazy(() => import('./TaskPanel').then((m) => ({ default: m.TaskPanel })));
 
 export interface AssignHostProps {
   /** Agents seated in a room, for the dialog opened from that room. */
@@ -43,9 +45,9 @@ export function AssignHost({ seatedAgentIds, onAssigned, onNavigate }: AssignHos
   const seated = prefill?.roomId && seatedAgentIds ? seatedAgentIds(prefill.roomId) : undefined;
 
   return <>
-    {prefill && <AssignDialog prefill={prefill} seatedIds={seated} onClose={closeDialog} onAssigned={assigned}
-      onOpenTask={(taskId) => setPanel({ taskId, agentName: toast?.name })} onNavigate={onNavigate} />}
-    {panel && <TaskPanel taskId={panel.taskId} agentName={panel.agentName} onClose={closePanel} onNavigate={onNavigate} />}
+    {prefill && <Suspense fallback={null}><AssignDialog prefill={prefill} seatedIds={seated} onClose={closeDialog} onAssigned={assigned}
+      onOpenTask={(taskId) => setPanel({ taskId, agentName: toast?.name })} onNavigate={onNavigate} /></Suspense>}
+    {panel && <Suspense fallback={null}><TaskPanel taskId={panel.taskId} agentName={panel.agentName} onClose={closePanel} onNavigate={onNavigate} /></Suspense>}
     {toast && createPortal(<div className="hqAsToast" dir={locale === 'ar' ? 'rtl' : 'ltr'} role="status">
       <span dir="auto">{t('hqAssign.toast', { title: toast.title, name: toast.name })}</span>
       <button type="button" onClick={() => { setPanel({ taskId: toast.taskId, agentName: toast.name }); setToast(null); }}>{t('hqAssign.done.openTask')}</button>
