@@ -6,6 +6,7 @@
  */
 import { boardAtlasLayout, type BoardAtlasLayout } from './billboardSites.ts';
 import { faceKey, type BoardFace, type BoardTone } from './boardFace.ts';
+import { iconPath } from '../lib/hqIcons.ts';
 
 /** A board is drawn again at most this often (per board). */
 export const BOARD_MIN_MS = 1000;
@@ -14,12 +15,24 @@ const LATIN = 'system-ui, "Segoe UI", sans-serif';
 const ARABIC = '"Noto Sans Arabic", Inter, "Segoe UI", Tahoma, system-ui, sans-serif';
 const hasArabic = (text: string): boolean => /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/.test(text);
 
-const TONE: Record<BoardTone, string> = { ok: '#f2f6fa', stale: '#ffc857', off: '#9fb0bf' };
+const TONE: Record<BoardTone, string> = { ok: '#ffffff', stale: '#ffd27a', off: '#d3dde6' };
 const STATUS_DOT: Record<string, string> = { working: '#45d0b5', meeting: '#ffc857', blocked: '#ff6b6b', waiting_approval: '#ffc857', idle: '#8aa4ff', queued: '#8aa4ff', paused: '#9fb0bf', empty: '#9fb0bf', unavailable: '#9fb0bf' };
+/** The standard header band (no brand colour, or one that fails the contrast check) and the standard accent. */
+const STANDARD_HEADER = '#183a4f';
+const TEAL = '#45d0b5';
 
 type Ctx = Pick<CanvasRenderingContext2D, 'fillRect' | 'fillText' | 'measureText' | 'beginPath' | 'arc' | 'fill' | 'createLinearGradient' | 'save' | 'restore' | 'clearRect'> & {
   fillStyle: unknown; font: string; textAlign: CanvasTextAlign; textBaseline: CanvasTextBaseline; direction: CanvasDirection; globalAlpha: number;
+  /** Used for the logo plate and the icons; a context without them draws neither (the plain header). */
+  strokeStyle?: unknown; lineWidth?: number; lineCap?: CanvasLineCap; lineJoin?: CanvasLineJoin;
+  translate?: (x: number, y: number) => void; scale?: (x: number, y: number) => void; stroke?: (path: Path2D) => void;
+  rect?: (x: number, y: number, w: number, h: number) => void; roundRect?: (x: number, y: number, w: number, h: number, r: number) => void;
+  drawImage?: (image: CanvasImageSource, x: number, y: number, w: number, h: number) => void;
 };
+
+/** A decoded logo the campus sign loader holds (`hq-logo-signs/campusSigns.ts`), looked up by `buildingId:sha`. */
+export type BoardLogo = Readonly<{ image: CanvasImageSource; width: number; height: number }>;
+export type LogoLookup = (key: string) => BoardLogo | null;
 
 /** Words onto at most `lines` lines no wider than `maxW`; a last line that still does not fit ends in an ellipsis. */
 export function wrapText(measure: (text: string) => number, text: string, maxW: number, lines: number): string[] {
@@ -43,68 +56,135 @@ export function wrapText(measure: (text: string) => number, text: string, maxW: 
   return out.slice(0, lines);
 }
 
-/** Draws one board into the cell whose top left corner is (x, y); `k` scales the 512 x 256 design to the cell. */
-export function drawBoardCell(ctx: Ctx, x: number, y: number, k: number, face: BoardFace): void {
+/** One icon of the HQ set (`lib/hqIcons.ts`), `size` design units square, top left at (x, y). */
+function drawIcon(ctx: Ctx, key: string, x: number, y: number, size: number, color: string): void {
+  if (typeof Path2D === 'undefined' || !ctx.stroke || !ctx.translate || !ctx.scale) return;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(size / 24, size / 24);
+  ctx.strokeStyle = color; ctx.lineWidth = 2.1; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.stroke(new Path2D(iconPath(key)));
+  ctx.restore();
+}
+
+/** The owner's logo on a white plate (as given, never recoloured), the logo fitted inside; false when it could not be drawn. */
+function drawLogo(ctx: Ctx, logo: BoardLogo, x: number, y: number, size: number): boolean {
+  if (!ctx.drawImage || !(logo.width > 0) || !(logo.height > 0)) return false;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, size, size, size * 0.14); else ctx.rect?.(x, y, size, size);
+  ctx.fill();
+  const inner = size * 0.84, fit = Math.min(inner / logo.width, inner / logo.height);
+  const w = logo.width * fit, h = logo.height * fit;
+  try { ctx.drawImage(logo.image, x + (size - w) / 2, y + (size - h) / 2, w, h); } catch { return false; }
+  return true;
+}
+
+/**
+ * Draws one board into the cell whose top left corner is (x, y); `k` scales the 512 x 256 design to the cell.
+ * Far away (`detail` false) the board is a header with the name and one key line, both large; the close view adds the detail lines.
+ */
+export function drawBoardCell(ctx: Ctx, x: number, y: number, k: number, face: BoardFace, logoOf?: LogoLookup): void {
   const W = 512, H = 256;
+  const detail = face.detail;
+  const rtl = face.rtl;
+  const edge = 20;
   const bg = ctx.createLinearGradient(x, y, x, y + H * k);
-  bg.addColorStop(0, '#142c3d'); bg.addColorStop(1, '#0b1722');
+  bg.addColorStop(0, '#11283a'); bg.addColorStop(1, '#08131c');
   ctx.fillStyle = bg;
   ctx.fillRect(x, y, W * k, H * k);
-  ctx.fillStyle = face.accent ?? '#45d0b5';
+  // The header band: the owner's brand colour when it passes the contrast check, else the standard slate.
+  const headH = detail ? 78 : 104;
+  ctx.fillStyle = face.header?.fill ?? STANDARD_HEADER;
+  ctx.fillRect(x, y, W * k, headH * k);
+  ctx.fillStyle = face.accent ?? TEAL;
   ctx.fillRect(x, y + (H - 8) * k, W * k, 8 * k);
-  const rtl = face.rtl;
-  const edge = 22, maxW = W - 2 * edge;
-  const left = x + edge * k, right = x + (W - edge) * k;
-  const at = rtl ? right : left;
-  ctx.textAlign = rtl ? 'right' : 'left';
+  if (!face.header) ctx.fillRect(x, y + headH * k, W * k, 4 * k);
+  const px = (offset: number): number => (rtl ? x + (W - offset) * k : x + offset * k);
   ctx.textBaseline = 'alphabetic';
   ctx.direction = rtl ? 'rtl' : 'ltr';
+  const align = (start: boolean): void => { ctx.textAlign = (start !== rtl) ? 'left' : 'right'; };
   const font = (text: string, size: number, weight = 700) => `${weight} ${Math.max(6, Math.round(size * k))}px ${hasArabic(text) || (rtl && face.fonts) ? ARABIC : LATIN}`;
-  const fit = (text: string, size: number, min: number, weight = 700): number => {
+  const fit = (text: string, size: number, min: number, maxW: number, weight = 700): number => {
     let s = size;
     ctx.font = font(text, s, weight);
     while (s > min && ctx.measureText(text).width > maxW * k) { s -= 2; ctx.font = font(text, s, weight); }
     return s;
   };
-  // The status dot and the name.
-  const dot = STATUS_DOT[face.status] ?? '#9fb0bf';
-  const dotX = rtl ? right - 9 * k : left + 9 * k;
-  ctx.fillStyle = dot;
-  ctx.beginPath(); ctx.arc(dotX, y + 40 * k, 9 * k, 0, Math.PI * 2); ctx.fill();
-  const nameEdge = rtl ? right - 28 * k : left + 28 * k;
-  ctx.fillStyle = '#f2f6fa';
-  const nameSize = fit(face.name, 44, 24);
-  ctx.fillText(face.name, nameEdge, y + 54 * k, (maxW - 28) * k);
-  void nameSize;
-  let line = 84;
-  // What the building does: the fixed sentence, at most two lines.
-  if (face.purpose) {
-    ctx.fillStyle = '#9fd8cc';
-    ctx.font = font(face.purpose, 20, 500);
-    for (const text of wrapText((s) => ctx.measureText(s).width, face.purpose, maxW * k, 2)) { ctx.fillText(text, at, y + (line + 18) * k, maxW * k); line += 24; }
+  // The logo, then the name.
+  const plate = detail ? 60 : 80;
+  const logo = face.logo && logoOf ? logoOf(face.logo) : null;
+  const plateAt = (headH - plate) / 2;
+  const drewLogo = logo ? drawLogo(ctx, logo, rtl ? x + (W - plateAt - plate) * k : x + plateAt * k, y + plateAt * k, plate * k) : false;
+  const nameStart = drewLogo ? plateAt + plate + 16 : edge;
+  const nameW = W - nameStart - edge;
+  ctx.fillStyle = face.header?.text ?? '#ffffff';
+  align(true);
+  const nameSize = fit(face.name, detail ? 44 : 60, detail ? 24 : 30, nameW);
+  ctx.fillText(face.name, px(nameStart), y + (headH / 2 + nameSize * 0.36) * k, nameW * k);
+  const dot = (cy: number, r: number): void => {
+    ctx.fillStyle = STATUS_DOT[face.status] ?? '#9fb0bf';
+    ctx.beginPath(); ctx.arc(px(edge + r), y + cy * k, r * k, 0, Math.PI * 2); ctx.fill();
+  };
+  const bodyStart = edge + 40;
+  const bodyW = W - bodyStart - edge;
+  if (!detail) {
+    // The key line, large: one line, or two when it does not fit at the smaller size.
+    ctx.fillStyle = TONE[face.tone];
+    align(true);
+    const size = fit(face.headline, 56, 42, bodyW);
+    if (ctx.measureText(face.headline).width <= bodyW * k) {
+      dot(158, 13);
+      ctx.fillStyle = TONE[face.tone];
+      ctx.fillText(face.headline, px(bodyStart), y + 176 * k, bodyW * k);
+    } else {
+      const lines = wrapText((t) => ctx.measureText(t).width, face.headline, bodyW * k, 2);
+      dot(136, 12);
+      ctx.fillStyle = TONE[face.tone];
+      lines.forEach((line, i) => ctx.fillText(line, px(bodyStart), y + (152 + i * 46) * k, bodyW * k));
+    }
+    void size;
+    face.icons.slice(0, 6).forEach((key, i) => drawIcon(ctx, key, rtl ? x + (W - edge - 30 - i * 40) * k : x + (edge + i * 40) * k, y + 210 * k, 30 * k, '#8fe3d1'));
+  } else {
+    let cursor = headH;
+    const line = (text: string | null, size: number, gap: number, color: string, weight = 500, start = edge): void => {
+      if (!text || cursor + gap > 222) return;
+      cursor += gap;
+      ctx.fillStyle = color; align(true);
+      fit(text, size, Math.max(12, size - 8), W - start - edge, weight);
+      ctx.fillText(text, px(start), y + cursor * k, (W - start - edge) * k);
+    };
+    line(face.purpose, 20, 28, '#a9e4d8');
+    cursor += 44;
+    dot(cursor - 14, 11);
+    ctx.fillStyle = TONE[face.tone]; align(true);
+    fit(face.headline, 40, 26, W - edge - 30 - edge);
+    ctx.fillText(face.headline, px(edge + 30), y + cursor * k, (W - edge - 30 - edge) * k);
+    line(face.states, 22, 28, '#dbe4ec');
+    line(face.work, 22, 27, face.workConnected ? '#dbe4ec' : '#b4c3d0');
+    if (face.departments && cursor + 26 <= 222) {
+      const icons = face.icons.filter((key) => key.startsWith('dept:')).slice(0, 4);
+      icons.forEach((key, i) => drawIcon(ctx, key, rtl ? x + (W - edge - 20 - i * 26) * k : x + (edge + i * 26) * k, y + (cursor + 8) * k, 20 * k, '#8fe3d1'));
+      line(face.departments, 20, 26, '#dbe4ec', 500, edge + icons.length * 26 + (icons.length ? 6 : 0));
+    }
+    if (face.foot) {
+      ctx.fillStyle = face.tone === 'stale' ? '#ffd27a' : '#a9e4d8';
+      align(true);
+      const room = face.live ? W - 2 * edge - 96 : W - 2 * edge;
+      fit(face.foot, 20, 12, room, 600);
+      ctx.fillText(face.foot, px(edge), y + 242 * k, room * k);
+    }
   }
-  // The live headline, large.
-  ctx.fillStyle = TONE[face.tone];
-  fit(face.headline, 38, 22);
-  ctx.fillText(face.headline, at, y + 166 * k, maxW * k);
-  if (face.states) { ctx.fillStyle = '#c7d3de'; fit(face.states, 22, 14, 500); ctx.fillText(face.states, at, y + 192 * k, maxW * k); }
-  if (face.work) { ctx.fillStyle = face.workConnected ? '#c7d3de' : '#8497a8'; fit(face.work, 21, 13, 500); ctx.fillText(face.work, at, y + 214 * k, maxW * k); }
-  // The foot: when it was verified (or that it is stale), and the Live tick only while the stream is connected.
-  if (face.foot) {
-    ctx.fillStyle = face.tone === 'stale' ? '#ffc857' : '#8fe3d1';
-    const room = face.live ? maxW - 96 : maxW;
-    let s = 20; ctx.font = font(face.foot, s, 600);
-    while (s > 12 && ctx.measureText(face.foot).width > room * k) { s -= 2; ctx.font = font(face.foot, s, 600); }
-    ctx.fillText(face.foot, at, y + 240 * k, room * k);
-  }
+  // The Live tick (a still dot and the word), only while the presence stream is connected.
   if (face.live) {
-    const lx = rtl ? left : right;
-    ctx.textAlign = rtl ? 'left' : 'right';
-    ctx.fillStyle = '#45d0b5';
-    ctx.font = font(face.liveLabel, 20, 700);
+    const baseline = detail ? 242 : 238;
+    ctx.fillStyle = TEAL;
+    align(false);
+    ctx.font = font(face.liveLabel, detail ? 20 : 24, 700);
     const w = ctx.measureText(face.liveLabel).width;
-    ctx.fillText(face.liveLabel, lx, y + 240 * k, 80 * k);
-    ctx.beginPath(); ctx.arc(rtl ? lx + w + 10 * k : lx - w - 10 * k, y + 233 * k, 6 * k, 0, Math.PI * 2); ctx.fill();
+    ctx.fillText(face.liveLabel, px(W - edge), y + baseline * k, 90 * k);
+    const end = rtl ? x + edge * k + w + 11 * k : x + (W - edge) * k - w - 11 * k;
+    ctx.beginPath(); ctx.arc(end, y + (baseline - 8) * k, 6 * k, 0, Math.PI * 2); ctx.fill();
   }
 }
 
@@ -132,8 +212,12 @@ export class BoardAtlas {
   /** The faces as drawn on the canvas now, by board (what the stage reports in its data attribute; a held back board still shows its old face here). */
   readonly drawn: BoardFace[] = [];
 
-  constructor(count: number, make: CanvasMaker = makeCanvas) {
-    this.layout = boardAtlasLayout(count);
+  /** Where the decoded logos are found (the campus sign loader's bitmaps); without it no board draws a logo. */
+  logoOf: LogoLookup | undefined;
+
+  constructor(count: number, make: CanvasMaker = makeCanvas, opts: Readonly<{ cell?: 512 | 256; logoOf?: LogoLookup }> = {}) {
+    this.layout = boardAtlasLayout(count, opts.cell ?? 512);
+    this.logoOf = opts.logoOf;
     const made = make(this.layout.width, this.layout.height);
     this.canvas = made?.canvas ?? null;
     this.ctx = made?.ctx ?? null;
@@ -154,7 +238,7 @@ export class BoardAtlas {
         return;
       }
       const { x, y } = this.layout.origin(i);
-      drawBoardCell(this.ctx!, x, y, this.layout.cellW / 512, face);
+      drawBoardCell(this.ctx!, x, y, this.layout.cellW / 512, face, this.logoOf);
       this.keys[i] = key;
       this.drawn[i] = face;
       this.drawnAt[i] = now;
@@ -171,8 +255,8 @@ export type BoardFeed = Readonly<{ atlas: BoardAtlas; touch: () => void; stop: (
  * Keeps an atlas current: `touch` reads the faces now and draws what changed; a board held back by the one second rule is drawn when it is due;
  * and a slow tick reads again so a record that stops being confirmed turns "Stale" without any new data. The tick stops while the tab is hidden.
  */
-export function startBoardFeed(args: Readonly<{ count: number; read: () => readonly BoardFace[]; onDraw: (atlas: BoardAtlas) => void; tickMs?: number; make?: CanvasMaker; now?: () => number }>): BoardFeed {
-  const atlas = new BoardAtlas(args.count, args.make);
+export function startBoardFeed(args: Readonly<{ count: number; read: () => readonly BoardFace[]; onDraw: (atlas: BoardAtlas) => void; tickMs?: number; make?: CanvasMaker; now?: () => number; cell?: 512 | 256; logoOf?: LogoLookup }>): BoardFeed {
+  const atlas = new BoardAtlas(args.count, args.make, { cell: args.cell, logoOf: args.logoOf });
   const clock = args.now ?? Date.now;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;

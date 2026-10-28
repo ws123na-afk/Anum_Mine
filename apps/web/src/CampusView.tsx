@@ -4,7 +4,7 @@
  * building the person cannot open, and no count appears without a presence record behind it.
  */
 import { ArrowRight, Briefcase, Building2, ChartColumn, Factory, House, Landmark, LockKeyhole, Map as MapIcon, ShieldCheck, Store, Truck, UserRound } from 'lucide-react';
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from 'react';
 import type { WorkSiteInput, WorkUi } from './HqCampusWork';
 import type { CardWork, FeedNote } from './lib/hqWorkMotion.ts';
 import './hqCampusMotion.css';
@@ -20,7 +20,9 @@ import {
   type Campus, type CampusBuilding, type CampusBuildingKind, type StatusKey,
 } from './lib/campusModel.ts';
 import { campusCamera, campusFraming, clampTarget, faceNorth, rotateBy, threeDView, topView, viewFootprint, zoomBy } from './lib/hqCamera.ts';
-import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
+import { cameraEye, dolly, type CameraState } from './lib/headquartersSpatial.ts';
+import { getGpuState, subscribeGpuState } from './lib/hqGpuState.ts';
+import { boardSpec } from './lib/hqQualityTiers.ts';
 import type { PickTarget } from './lib/hqMath.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
 import { sceneName } from './lib/registryNames.ts';
@@ -185,17 +187,27 @@ export function CampusView(props: CampusViewProps) {
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
   // The 3D boards carry the live details (docs/ANUM_MINE_HQ_BILLBOARDS.md): a canvas atlas drawn in place, only for boards whose text changed.
-  const [atlas, setAtlas] = useState<{ canvas: HTMLCanvasElement | null; version: number; boards: unknown; lines: string } | null>(null);
+  const [atlas, setAtlas] = useState<{ canvas: HTMLCanvasElement | null; version: number; boards: unknown; lines: string; stats: string } | null>(null);
   const feed = useRef<{ touch: () => void } | null>(null);
   const readFaces = useRef<() => ReturnType<typeof import('./hq-billboards/index.ts').boardFaces>>(() => []);
-  readFaces.current = () => (boards && bb ? bb.boardFaces({ layer: boards, buildings: byId, plans: plansRef.current, flow: latest.current.flow, currentWorkspaceId: latest.current.currentWorkspaceId, live: latest.current.presenceLive === true, fontsReady, now: Date.now() }) : []);
+  // The lowest quality tiers draw smaller board cells (key line only); the close view (detail lines) is for the focused building and boards near the eye.
+  const boardCell = boardSpec(useSyncExternalStore(subscribeGpuState, getGpuState, getGpuState)).cell;
+  const closeKey = useMemo(() => (bb && boards ? bb.closeBoards(boards, cameraEye(camera)).join('|') : ''), [bb, boards, camera]);
+  const detailIds = useMemo(() => new Set([selectedId, hover, ...closeKey.split('|')].filter((id): id is string => !!id)), [selectedId, hover, closeKey]);
+  readFaces.current = () => (boards && bb ? bb.boardFaces({
+    layer: boards, buildings: byId, plans: plansRef.current, flow: latest.current.flow, currentWorkspaceId: latest.current.currentWorkspaceId, live: latest.current.presenceLive === true, fontsReady, now: Date.now(),
+    detailIds, cell: boardCell, logoReady: (id, sha) => logosRef.current.has(`${id}:${sha}`),
+  }) : []);
   useEffect(() => {
     if (!bb || !boards) return undefined;
-    const started = bb.startBoardFeed({ count: boards.sites.length, read: () => readFaces.current(), onDraw: (a) => setAtlas({ canvas: a.canvas, version: a.version, boards, lines: bb.boardLines(a.drawn) }) });
+    const started = bb.startBoardFeed({
+      count: boards.sites.length, cell: boardCell, read: () => readFaces.current(), logoOf: (key) => logosRef.current.get(key) ?? null,
+      onDraw: (a) => setAtlas({ canvas: a.canvas, version: a.version, boards, lines: bb.boardLines(a.drawn), stats: bb.boardStats(a.drawn) }),
+    });
     feed.current = started;
     return () => { started.stop(); feed.current = null; };
-  }, [bb, boards]);
-  useEffect(() => { feed.current?.touch(); }, [campus.buildings, props.flow, plans, props.presenceLive, locale, fontsReady, props.currentWorkspaceId]);
+  }, [bb, boards, boardCell]);
+  useEffect(() => { feed.current?.touch(); }, [campus.buildings, props.flow, plans, props.presenceLive, locale, fontsReady, props.currentWorkspaceId, detailIds, logos]);
   // The camera that frames one building: its centre, at a distance that fits its size.
   const frameOf = useCallback((id: string): CameraState | null => {
     const p = placements.find((x) => x.workspaceId === id);
@@ -300,7 +312,7 @@ export function CampusView(props: CampusViewProps) {
 
   return (
     <>
-    <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0} data-sign-brands={signStats.branded} data-sign-logos={signStats.logos} data-board-version={atlas?.version ?? 0} data-board-texts={atlas?.lines ?? ''}>
+    <div className="hqSceneWrap" ref={wrap} data-billboards={boards ? boards.sites.length : 0} data-sign-brands={signStats.branded} data-sign-logos={signStats.logos} data-board-version={atlas?.version ?? 0} data-board-texts={atlas?.lines ?? ''} data-board-brands={atlas?.stats.split('|')[0] ?? 0} data-board-logos={atlas?.stats.split('|')[1] ?? 0}>
       <HqStage
         label={t('hq.campus.stageLabel')} description={t('hq.campus.stageHelp')}
         scene={renderScene} glassPlan={glassPlan} work={work.plan} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
