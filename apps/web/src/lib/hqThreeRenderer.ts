@@ -576,6 +576,8 @@ export class HqRenderer {
       // Build the scene again only when the new chunks change it: a floor view on a software rasteriser takes none of them, and a second build would restart its lifts.
       if (!this.disposed && this.lastScene && (!this.software || this.lastScene.scenery !== undefined || this.photoPin)) this.setScene(this.lastScene);
     } catch { this.sceneFx = null; }
+    // The glow pass is a lazy chunk too (`hqBloom.ts`, started by `configureTier` when the top rung has bloom): the scene counts as settled only once it is here.
+    if (this.bloomLoad) await this.bloomLoad;
     // The next frame draws the scene built with the chunks (the stage reports it as part of `data-scene-settled`).
     this.stats.sceneFx = 'ready';
     if (!this.disposed) this.requestFrame();
