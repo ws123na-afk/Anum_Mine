@@ -112,7 +112,7 @@ test('live meetings are tied to their room by the stored room id, only active on
   const evidence = await loadMeetingEvidence(read);
   assert.equal(evidence?.liveMeetings, 3, 'three active meetings, one finished is not counted');
   assert.deepEqual([...liveMeetingRoomIdsOf(evidence)], ['room_a'], 'only the room that is linked to an active meeting');
-  assert.deepEqual(evidence?.rooms.get('room_a'), { meetingId: 'm1', title: 'Budget review', agentIds: ['agent_a', 'agent_b'], people: 1 });
+  assert.deepEqual(evidence?.rooms.get('room_a'), { meetingId: 'm1', title: 'Budget review', agentIds: ['agent_a', 'agent_b'], humanIds: ['user_1'], people: 1 });
   assert.equal(evidence?.rooms.has('room_b'), false, 'a finished meeting stops showing in its room');
   assert.ok(reads[0].includes('status=active'));
   assert.equal(liveMeetingRoomIdsOf(null).size, 0, 'unknown evidence lights up no room');

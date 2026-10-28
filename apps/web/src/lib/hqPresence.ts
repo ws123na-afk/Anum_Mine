@@ -61,7 +61,9 @@ export type WorkstationLike = Readonly<{
 }>;
 
 /** A live meeting held in an office room (the stored `room_id` of the meeting). Only stored participants are listed. */
-export type RoomMeeting = Readonly<{ meetingId: string; title: string; agentIds: readonly string[]; people: number; /** The stored start of the meeting (ISO), or null when the record has none. */ startedAt?: string | null }>;
+export type RoomMeeting = Readonly<{ meetingId: string; title: string; agentIds: readonly string[]; people: number;
+  /** The stored human participants (user ids), in the stored order; never shown as names. */
+  humanIds?: readonly string[]; /** The stored start of the meeting (ISO), or null when the record has none. */ startedAt?: string | null }>;
 
 export type MeetingEvidence = Readonly<{
   liveMeetings: number; agentIds: ReadonlySet<string>;
@@ -119,13 +121,14 @@ export async function loadMeetingEvidence(read: <T>(path: string) => Promise<T>)
     for (const meeting of active) {
       const detail = await read<{ participants?: ParticipantRow[] }>(`/api/v1/agent-meetings/${encodeURIComponent(meeting.id)}`);
       const agents: string[] = [];
+      const humans: string[] = [];
       let people = 0;
       for (const p of detail.participants ?? []) {
-        if (p.kind === 'agent') { agentIds.add(p.actor_id); agents.push(p.actor_id); } else people += 1;
+        if (p.kind === 'agent') { agentIds.add(p.actor_id); agents.push(p.actor_id); } else { people += 1; if (typeof p.actor_id === 'string' && p.actor_id) humans.push(p.actor_id); }
       }
       // One live meeting per room is shown; a second one in the same room keeps the first (oldest id) and is still counted above.
       if (typeof meeting.room_id === 'string' && meeting.room_id !== '' && !rooms.has(meeting.room_id)) {
-        rooms.set(meeting.room_id, { meetingId: meeting.id, title: meeting.title ?? '', agentIds: agents, people, ...(typeof meeting.started_at === 'string' ? { startedAt: meeting.started_at } : {}) });
+        rooms.set(meeting.room_id, { meetingId: meeting.id, title: meeting.title ?? '', agentIds: agents, humanIds: humans, people, ...(typeof meeting.started_at === 'string' ? { startedAt: meeting.started_at } : {}) });
       }
     }
     // More than one page of meetings might hide a live one: treat that as not fully known.
