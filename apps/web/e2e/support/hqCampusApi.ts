@@ -7,6 +7,12 @@ import { readFileSync } from 'node:fs';
 // office registry of the open workspace, the caller's workspaces, the campus endpoint, agents and
 // their tasks, live agent meetings and the commerce and tyre setup. Every value is plainly fake.
 const now = new Date().toISOString();
+/**
+ * The fixtures carry `now` from when this module loaded. A worker that runs specs for longer than the presence window (5 minutes)
+ * would otherwise serve "verified" times that the page rightly calls stale, so every answer is stamped with the time it is sent.
+ * A time a test sets on purpose (anything other than the load time) is left as it is.
+ */
+const stamp = (body: string) => body.split(now).join(new Date().toISOString());
 const tenant = 'tenant_local';
 const workspace = 'workspace_foundation';
 
@@ -242,7 +248,7 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
   /** Specs flip `active` to finish the live meeting; `created` records meetings started from the UI (with their room_id). */
   const meeting = { active: options.meetings === 'live', roomId: options.meetingRoomId ?? null, created: [] as Array<Record<string, unknown>> };
   const streamState = { requests: [] as Array<{ lastEventId: string | null }>, held: [] as Array<{ route: Route; timer: ReturnType<typeof setTimeout> }>, queued: [] as string[], items: presenceFixture().items as Array<Record<string, unknown>>, event: 1 };
-  const sse = (route: Route, body: string) => route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body });
+  const sse = (route: Route, body: string) => route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: stamp(body) });
   const snapshotFrame = () => sseFrame('snapshot', { ...presenceFixture(), as_of: new Date().toISOString(), items: streamState.items, cursor: `evt_${streamState.event}`, sequence: 0 }, `evt_${streamState.event}`);
   const stream = {
     requests: streamState.requests,
@@ -271,7 +277,7 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
     const path = url.pathname;
     const method = route.request().method();
     calls.push(`${method} ${path}`);
-    const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
+    const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: stamp(JSON.stringify(value)) });
     const error = (status: number, code: string, message: string) => json({ error: { code, message, correlation_id: 'corr', details: [] } }, status);
     // The executive PA dock beside the scene: quiet by default (no tools, no tour); specs that test it register their own routes.
     if (path === '/api/v1/executive-pa/tools') return json({ tools: [] });

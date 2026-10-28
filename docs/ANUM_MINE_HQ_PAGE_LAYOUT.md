@@ -24,7 +24,7 @@ status row: Total agents chips (when the side column is not open) and the Live f
 
 Heights come from three shared variables on `.hqNav` (`--hq-above`, `--hq-below`, `--hq-stage-h`), never a fixed height. The header buttons for the panels (`Hide side panels`, `Floors`, `Quick moves`) are portalled into the page header's tool row, so they cost the scene no row of their own.
 
-The tool row is two groups that wrap as wholes: the status chips (presentation switch, Live, Connected, Graphics) and the actions (refresh, view switch, the panel buttons, Office tools). Every control in it uses the small type token (`--text-sm`) and the shared spacing tokens, so at 1440x900 the row stays one line even with a 17 px classic scrollbar (1423 px); narrower, the actions move under the chips together instead of leaving Office tools on a line of its own.
+The tool row is two groups that wrap as wholes: the status chips (presentation switch, Live, Connected, Graphics) and the actions (refresh, view switch, the panel buttons, Office tools). Every control in it uses the small type token (`--text-sm`) and the shared spacing tokens, so at 1440x900 the row stays one line even with a 17 px classic scrollbar (1423 px); from 1280 px down to that width the actions move under the chips together instead of leaving Office tools on a line of its own; below 1280 px the controls pack line by line.
 
 ## Inside a building
 
