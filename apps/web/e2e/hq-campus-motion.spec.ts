@@ -12,16 +12,24 @@ if (OUT) mkdirSync(OUT, { recursive: true });
 const SIZES = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const;
 const hq = (page: Page) => page.locator('.hqLive');
 const canvas = (page: Page) => hq(page).locator('canvas.hqCanvas');
-type Tyre = 'alert' | 'inspection' | 'quiet' | 'none' | 'denied';
+/** alert, inspection (the source stores a time) and inspection_day (dates only) answer once with the earlier state, then with the new record. standing: an alert that is already there in the first answer and never changes. */
+type Tyre = 'alert' | 'standing' | 'inspection' | 'inspection_day' | 'quiet' | 'none' | 'denied';
 
 /** Only for local frame captures: hold the Tyre Pulse answer so the camera can be placed first. */
 const TYRE_DELAY_MS = Number(process.env.MOTION_TYRE_DELAY_MS ?? 0);
 const SECRET = 'fake-sn-0103 on fake-plate-01';
 const PRIVATE = 'Private note about a customer';
 
-async function tyreRoutes(page: Page, mode: Tyre) {
+type TyreMock = { fire: () => Promise<void> };
+async function tyreRoutes(page: Page, mode: Tyre): Promise<TyreMock> {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
+  const yesterday = new Date(now.getTime() - 24 * 3_600_000).toISOString().slice(0, 10);
+  // The first answer is the baseline; only what changed after it is an event (a later alert time, a later inspection).
+  let fired = false;
+  let servedAfterFire = 0;
+  let served = 0;
+  const alertAt = new Date(now.getTime() - 4 * 60_000).toISOString();
   const json = (route: import('@playwright/test').Route, body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route(/http:\/\/localhost:8000\/api\/v1\/tyre\/(setup|alerts|dashboard)(\?.*)?$/, async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -30,19 +38,41 @@ async function tyreRoutes(page: Page, mode: Tyre) {
     if (path.endsWith('/setup')) {
       return json(route, { connection: mode === 'none' ? null : { kind: 'supabase_postgres', label: 'TyrePulse', status: 'ok' }, mapping: null, mapping_problems: [], assumptions: {}, discovery: null, sync: mode === 'none' ? null : { synced_at: now.toISOString() }, fields: {}, presets: [], can_manage: true, can_operate: true, delivery_channels: [] });
     }
+    const alert = (fired && mode === 'alert') || mode === 'standing';
     if (path.endsWith('/alerts')) {
-      const items = mode === 'alert' ? [{ id: 'alert_1', key: 'low_tread:t1', kind: 'low_tread', severity: 'critical', subject_type: 'tyre', subject_id: 't1', subject_label: SECRET, message: PRIVATE, value: {}, status: 'open', first_seen_at: new Date(now.getTime() - 4 * 60_000).toISOString(), last_seen_at: now.toISOString(), resolved_at: null, acknowledged_by: null, acknowledged_at: null }] : [];
+      const items = alert ? [{ id: 'alert_1', key: 'low_tread:t1', kind: 'low_tread', severity: 'critical', subject_type: 'tyre', subject_id: 't1', subject_label: SECRET, message: PRIVATE, value: {}, status: 'open', first_seen_at: alertAt, last_seen_at: now.toISOString(), resolved_at: null, acknowledged_by: null, acknowledged_at: null }] : [];
       return json(route, { items, total: items.length, limit: 50, offset: 0, counts: {} });
     }
+    const timed = mode === 'inspection';
+    const inspected = (mode === 'inspection' || mode === 'inspection_day') && fired;
+    const operations = {
+      as_of: today, inspections_total: 4,
+      last_inspection: mode === 'inspection' || mode === 'inspection_day' ? (inspected ? today : yesterday) : null,
+      last_inspection_at: timed ? (inspected ? new Date(now.getTime() - 2 * 60_000).toISOString() : `${yesterday}T09:00:00Z`) : null,
+    };
+    served += 1;
+    if (fired) servedAfterFire += 1;
     return json(route, {
       summary: { as_of: today, currency: 'AED', vehicles: 6, tyres_fitted: 24, tyres_in_stock: 2, tyres_removed_last_30_days: 2, tyres_with_readings: 23, average_tread_mm: 10, below_minimum: 1, in_warning_band: 1, pressure_checked: 23, pressure_compliant_pct: 91, under_inflated: 1, over_inflated: 1, overdue_inspections: 1, due_next_30_days: 2, due_next_90_days: 2, cost_per_1000_km: null, cost_per_hour: null, min_tread_mm: 3 },
-      operations: { as_of: today, last_inspection: mode === 'inspection' ? today : null, inspections_total: 4 }, synced_at: now.toISOString(), alert_counts: {}, top_alerts: [], due_soon: [], due_by_month: {},
+      operations, synced_at: now.toISOString(), alert_counts: {}, top_alerts: [], due_soon: [], due_by_month: {},
+      latest_alert_at: alert ? alertAt : null,
     });
   });
+  return {
+    // The record lands at the source: wait for the baseline answer, then the page reads again (it does when the tab is shown again).
+    fire: async () => {
+      await expect.poll(() => served, { timeout: 60_000 }).toBeGreaterThan(0);
+      fired = true;
+      await expect.poll(async () => {
+        if (servedAfterFire === 0) await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+        return servedAfterFire;
+      }, { timeout: 30_000, intervals: [300, 500, 1000] }).toBeGreaterThan(0);
+    },
+  };
 }
 
 type OpenOptions = { tyre?: Tyre; ambient?: 0 | 1 | 2; locale?: 'en' | 'ar'; reduced?: boolean; flow?: boolean; night?: boolean };
-async function open(page: Page, o: OpenOptions = {}): Promise<{ flow: FlowMock | null }> {
+async function open(page: Page, o: OpenOptions = {}): Promise<{ flow: FlowMock | null; tyre: TyreMock }> {
   await page.addInitScript(([ambient, locale, night]) => {
     try {
       localStorage.setItem('anum.hq.light', night ? 'night' : 'day');
@@ -53,13 +83,14 @@ async function open(page: Page, o: OpenOptions = {}): Promise<{ flow: FlowMock |
   }, [o.ambient ?? null, o.locale ?? null, o.night ?? false] as const);
   if (o.reduced) await page.emulateMedia({ reducedMotion: 'reduce' });
   await mockHq(page, { campus: 'api', layout: 'starter-full', commerce: 'connected', meetings: 'live', tyre: 'connected' });
-  await tyreRoutes(page, o.tyre ?? 'quiet');
+  const tyre = await tyreRoutes(page, o.tyre ?? 'quiet');
   const flow = o.flow ? await mockFlow(page, []) : null;
   await page.goto('/#office-preview');
   await expect(canvas(page)).toBeVisible();
   await expect(canvas(page)).toHaveAttribute('data-engine', /three/, { timeout: 60_000 });
   await expect.poll(async () => Number(await canvas(page).getAttribute('data-triangles')), { timeout: 60_000 }).toBeGreaterThan(40_000);
-  return { flow };
+  if ((o.tyre === 'alert' || o.tyre === 'inspection' || o.tyre === 'inspection_day')) await tyre.fire();
+  return { flow, tyre };
 }
 
 const card = (page: Page, name: RegExp | string) => hq(page).locator('button.hqBuildingCard').filter({ hasText: name });
@@ -150,11 +181,32 @@ test.describe('layer 2: work motion from records', () => {
     await focusTyre(page);
     const line = tyreCard(page).locator('.hqWorkLine[data-work="tyre_inspection"]');
     await expect(line).toBeVisible({ timeout: 30_000 });
-    await expect(line).toHaveText(/^Because: Tyre Pulse inspection recorded, [A-Z][a-z]{2} \d{1,2}$/);
+    // The source stores the time of the inspection, so the line says it.
+    await expect(line).toHaveText(/^Because: Tyre Pulse inspection recorded, \d\d:\d\d$/);
     await expect.poll(() => rigs(page), { timeout: 15_000 }).toBe(1);
     await page.waitForTimeout(1200);
     await shot(page, 'inspection-rolling');
     await expect.poll(() => rigs(page), { timeout: 30_000 }).toBe(0);
+  });
+
+  test('a source that keeps inspection dates only shows the day, never a made-up time', async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, { tyre: 'inspection_day' });
+    await focusTyre(page);
+    const line = tyreCard(page).locator('.hqWorkLine[data-work="tyre_inspection"]');
+    await expect(line).toBeVisible({ timeout: 30_000 });
+    await expect(line).toHaveText(/^Because: Tyre Pulse inspection recorded, [A-Z][a-z]{2} \d{1,2}$/);
+    await expect.poll(() => rigs(page), { timeout: 15_000 }).toBe(1);
+  });
+
+  test('the first Tyre Pulse answer is a baseline: an alert already there is not replayed, and an unchanged answer is not an event', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const { tyre } = await open(page, { tyre: 'standing' });
+    await tyre.fire(); // a second, unchanged answer: still nothing to show
+    await page.waitForTimeout(3500);
+    await expect(hq(page).locator('[data-work], [data-feed]')).toHaveCount(0);
+    expect(await rigs(page)).toBe(0);
   });
 
   test('with the Tyre Pulse feed off the building says Not connected and nothing moves', async ({ page }) => {

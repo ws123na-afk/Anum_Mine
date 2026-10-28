@@ -1,6 +1,6 @@
 # ANUM MINE headquarters: campus motion
 
-Status: built on 26 October 2026. The owner asked for trucks, tyres and other things on the campus to be seen moving and doing things. Web only; no migration, no new route, no write path.
+Status: built on 26 October 2026. The owner asked for trucks, tyres and other things on the campus to be seen moving and doing things. Web only; no migration, no new route, no write path. On 28 October 2026 the owner asked for Tyre Pulse events to work "the way it should be": the tyre dashboard gained two read-only fields with the stored times of the last inspection and of the newest alert (see [Tyre Pulse event times](#tyre-pulse-event-times)); still no migration and no write path.
 
 The campus has two motion systems that never mix. The first claims nothing. The second is started by one stored record at a time and always says which.
 
@@ -27,7 +27,7 @@ A work motion starts only from a `WorkRecord` (`lib/hqWorkMotion.ts`). A record 
 - Bounded: a motion runs its timeline once (13 to 20 seconds), then the vehicle is gone and the scene is at rest. The card line stays six seconds longer, then it goes too. Nothing loops while nothing changes.
 - One live motion per building and kind, at most four animated at once; a fifth shows its card line without a vehicle.
 - A record is shown once per page load: leaving the campus and coming back does not replay it.
-- The first answer after opening replays nothing (presence and flow); only a change between two answers is an event. A record older than 30 minutes (Tyre Pulse: 24 hours) is history, not an event.
+- The first answer after opening replays nothing (presence, flow and Tyre Pulse); only a change between two answers is an event. A record older than 30 minutes (Tyre Pulse: 24 hours) is history, not an event.
 - Feed off or unreadable: no records, no motion, and the Tyre Pulse building's card says "Tyre Pulse: Not connected" (the tooltip says why: not connected, no access, could not be read, or open that workspace). No feed ever falls back to a made-up motion.
 - Reduced motion: no vehicle is drawn. The same "Because" line is shown as a static marker on the card for 60 seconds.
 
@@ -38,8 +38,8 @@ A work motion starts only from a `WorkRecord` (`lib/hqWorkMotion.ts`). A record 
 | 1 | 2 | Presence: a building's `working` count is higher than in the previous answer, `presence_verified_at` set (`GET /api/v1/office/campus`, refreshed by the presence stream) | That campus building | White van, amber roof beacon, parks in the yard, turns, leaves | 18 s (+6 s line) | Because: presence record shows an agent working, 14:05 | `lib/hqCampusLoader.ts` totals; `presenceRecords` |
 | 2 | 2 | Flow: a task of the open workspace whose stage became `in_office` (a running run) between two answers (`GET /api/v1/office/flow`, re-read on task, run and approval events) | The campus building of the task's office (`location.building_id`) | Box truck, amber beacon | 18 s (+6 s) | Because: a task run started, 14:05 | `flowRecords` |
 | 3 | 2 | Flow: a task whose stage became `done` between two answers | Same | Box truck, green beacon | 18 s (+6 s) | Because: a task finished, 14:05 | `flowRecords` |
-| 4 | 2 | Tyre Pulse: the dashboard's `operations.last_inspection` is today or yesterday (`GET /api/v1/tyre/dashboard`, polled every minute while the tab is visible) | The workshop building of the open workspace | One tyre rolls from the workshop door onto the rack (4 s), rests (5 s), rolls back (4 s) | 13 s (+6 s) | Because: Tyre Pulse inspection recorded, Oct 26 | `tyreRecords` |
-| 5 | 2 | Tyre Pulse: the newest active alert whose `first_seen_at` is within 24 hours (`GET /api/v1/tyre/alerts?status=active`) | Same | Flatbed with a stack of tyres, red beacon | 20 s (+6 s) | Because: Tyre Pulse alert raised (low tread), 14:05 | `tyreRecords` |
+| 4 | 2 | Tyre Pulse: a later inspection than in the previous answer: `operations.last_inspection_at` moved forward, or, for a source that keeps dates only, `operations.last_inspection` became a later day (`GET /api/v1/tyre/dashboard`, read every minute while the tab is visible and on coming back to the tab) | The workshop building of the open workspace | One tyre rolls from the workshop door onto the rack (4 s), rests (5 s), rolls back (4 s) | 13 s (+6 s) | Because: Tyre Pulse inspection recorded, 14:05 (a date-only source: Oct 26) | `tyreRecords` |
+| 5 | 2 | Tyre Pulse: the dashboard's `latest_alert_at` (when ANUM first saw the newest alert that is not resolved) moved forward since the previous answer; the alert kind comes from the matching record of `GET /api/v1/tyre/alerts?status=active` | Same | Flatbed with a stack of tyres, red beacon | 20 s (+6 s) | Because: Tyre Pulse alert raised (low tread), 14:05 | `tyreRecords` |
 | 6 | 1 | none (scenery) | Roads and roundabout | Cars, SUVs, vans, a bus and a tyre flatbed on fixed loops, wheels turning | loops while motion is allowed | none | `trafficPlan`, `hqSceneryLayer.ts` |
 | 7 | 1 | none (scenery) | Road surface | Pools of headlight on the road ahead of each vehicle, from the blue hour | with the light preset | none | `hqSceneryLayer.ts` |
 
@@ -59,9 +59,18 @@ Readable by the browser, read only, with the `tyre:read` permission and a connec
 
 - `GET /api/v1/tyre/setup`: whether a source is connected.
 - `GET /api/v1/tyre/alerts`: alert records ANUM derives from the synced Tyre Pulse data, each with a kind, a severity, `first_seen_at` and a status. Only the id, kind and time are kept; the subject label, message and values are discarded in `lib/hqTyreFeed.ts` before anything is stored in state.
-- `GET /api/v1/tyre/dashboard`: `operations.last_inspection`, the date (not the time) of the last synced inspection.
+- `GET /api/v1/tyre/dashboard`: `operations.last_inspection` (the day of the last synced inspection), `operations.last_inspection_at` (its time) and `latest_alert_at` (the newest alert's time); see below.
 
-Not readable today, and so not animated: single inspection events with a time of day (the sync keeps counts and the last date), work orders as events, tyre fitments and removals as events, and any other workspace's feed. The integration reader role (`anum_integration`, `infra/tyrepulse/`) is server side and is not used by the browser. Nothing was added to the API, the database or Tyre Pulse for this page; if per-event inspection timestamps are wanted, that is a new read-only field and needs a decision first.
+Not readable today, and so not animated: work orders as events, tyre fitments and removals as events, and any other workspace's feed. The integration reader role (`anum_integration`, `infra/tyrepulse/`) is server side and is not used by the browser.
+
+## Tyre Pulse event times
+
+Both fields are read only, ISO 8601 instants in UTC, taken from stored records and never estimated, or `null` when unknown (contract `packages/contracts/src/tyreEventTimes.ts`, server `tyre/api.py`, `tyre/fleet.py`, `tyre/mapping.py`):
+
+- `operations.last_inspection_at`: inspections are not recorded by ANUM; they are synced from the source's inspection table, where the time lived only in the mapped inspection column and the sync kept the date. The sync now also keeps the instant that column stores (`inspected_time` on each inspection and visit, inside the snapshot ANUM already stores as JSON, so no migration). It counts as a time only when the value carries a time of day and a time zone: a date, a text without an offset (the zone is unknown) or a value at exactly midnight (a date stored as a timestamp) stays date-only. The field is set only when every inspection of the last inspection day has a time, and it is the latest of them. Snapshots synced before this change, and sources that keep dates only, give `null`: the record is shown as a day ("Oct 26"), never with a made-up time. A source that stores the time in a separate column gets it by mapping that column as the inspection date in Tyre setup.
+- `latest_alert_at`: the stored `first_seen_at` of the newest alert that is not resolved (ANUM writes it when a sync raises the alert), so no new storage was needed.
+
+In the browser (`lib/hqTyreFeed.ts`) a value that is not a well formed ISO time is dropped, not repaired. `tyreRecords` compares each answer with the previous one: the first answer is the baseline; a later `latest_alert_at` is one alert event; a later `last_inspection_at`, or a later day when the source keeps dates only, is one inspection event. When only the day was known before and the same day now has a time, it may be the same inspection, so it is not an event. Times that move back (an alert resolved) are not events, and a change older than the 24 hour window is history.
 
 ## Where the code is
 
@@ -82,7 +91,8 @@ A vehicle needs a straight run from a road to the yard stop (8.5 m out from the 
 
 ## Gaps, said plainly
 
-- Tyre Pulse inspections have a date, not a time, so the card says "Oct 26", not "14:05".
+- A Tyre Pulse source that stores inspection dates only (or a snapshot synced before 28 October 2026) still shows the day, "Oct 26", until its inspection column carries a time with a zone and the next sync runs.
+- Tyre Pulse changes are seen when the dashboard is read (every minute, and on coming back to the tab), and a sync must have run: two inspections between two reads are one event.
 - Only the open workspace's Tyre Pulse feed can be read.
 - Presence rises are seen when the campus is refreshed, so a short burst between two refreshes is one event.
 - The vehicle models are low poly (about 100 to 900 triangles); they read as vehicles from the campus camera, not close up.

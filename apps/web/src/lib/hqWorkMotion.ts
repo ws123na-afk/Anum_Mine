@@ -35,14 +35,14 @@ export const LINGER_MS = 6_000;
 export const STATIC_MS = 60_000;
 /** A flow or presence record older than this is history, not a live event: no motion. */
 export const LIVE_WINDOW_MS = 30 * 60_000;
-/** Tyre Pulse records count for a day. */
+/** Tyre Pulse records count for a day (a day-only inspection: until its day is over and a day has passed). */
 export const TYRE_WINDOW_MS = 24 * 3_600_000;
 
 /** What a record may carry. `recordId` only de-duplicates; it is never shown. */
 export type WorkRecord = Readonly<{
   kind: WorkKind;
   buildingKey: string;
-  /** When the record says it happened (ISO instant, or a calendar day for a Tyre Pulse inspection). */
+  /** When the record says it happened (ISO instant, or a calendar day for a Tyre Pulse inspection whose source keeps dates only). */
   at: string;
   day: boolean;
   alertKind: WorkAlertKind | null;
@@ -50,6 +50,20 @@ export type WorkRecord = Readonly<{
 }>;
 
 const isoMs = (value: unknown): number => (typeof value === 'string' && value.length >= 10 && value.length <= 40 ? Date.parse(value) : NaN);
+const DAY_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+
+/** A server value when it is an ISO 8601 instant with a zone that parses (packages/contracts/src/tyreEventTimes.ts), else null. */
+export function tyreInstant(value: unknown): string | null {
+  return typeof value === 'string' && INSTANT.test(value) && Number.isFinite(Date.parse(value)) ? value : null;
+}
+
+/** A server value as a calendar day (its first ten characters, YYYY-MM-DD), else null. */
+export function tyreDay(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const day = value.slice(0, 10);
+  return DAY_ONLY.test(day) && Number.isFinite(Date.parse(day)) ? day : null;
+}
 
 /** Builds a record, or null when anything is outside what a record may carry (unknown kind or building, a time that does not parse or lies in the future). */
 export function makeRecord(input: Readonly<{ kind: unknown; buildingKey: unknown; at: unknown; recordId: unknown; alertKind?: unknown }>, knownBuildings: ReadonlySet<string>, nowEpochMs: number): WorkRecord | null {
@@ -60,7 +74,8 @@ export function makeRecord(input: Readonly<{ kind: unknown; buildingKey: unknown
   const at = input.at as string;
   const when = isoMs(at);
   if (!Number.isFinite(when) || when > nowEpochMs + 5 * 60_000) return null;
-  const day = kind === 'tyre_inspection';
+  // Only a Tyre Pulse inspection may be a calendar day, and only when its source keeps no time; every other record is an instant.
+  const day = kind === 'tyre_inspection' && DAY_ONLY.test(at);
   const age = nowEpochMs - when;
   // A day-only record is judged by its whole day: it is current until the day is over and a day has passed after it.
   if (kind === 'tyre_alert' || kind === 'tyre_inspection' ? age > TYRE_WINDOW_MS + (day ? 24 * 3_600_000 : 0) : age > LIVE_WINDOW_MS) return null;
@@ -140,23 +155,48 @@ export function flowRecords(previous: ReadonlyMap<string, string> | null, items:
 
 export const stagesOf = (items: readonly FlowView[]): Map<string, string> => new Map(items.map((i) => [i.key, i.stage]));
 
-/** What the Tyre Pulse reader gave the browser: only these fields are ever kept. */
+/** What the Tyre Pulse reader gave the browser: only these fields are ever kept. Times are ISO instants or calendar days, or null when unknown. */
 export type TyreFeed =
   | Readonly<{ state: 'loading' | 'not_connected' | 'forbidden' | 'error' }>
-  | Readonly<{ state: 'connected'; alerts: ReadonlyArray<Readonly<{ id: string; kind: string; firstSeenAt: string }>>; lastInspection: string | null }>;
+  | Readonly<{
+    state: 'connected';
+    alerts: ReadonlyArray<Readonly<{ id: string; kind: string; firstSeenAt: string }>>;
+    /** When ANUM first saw the newest alert that is not resolved (the dashboard's `latest_alert_at`). */
+    latestAlertAt: string | null;
+    /** The calendar day of the last inspection (`operations.last_inspection`). */
+    lastInspection: string | null;
+    /** Its stored time, when the source keeps one (`operations.last_inspection_at`); null for a date-only record. */
+    lastInspectionAt: string | null;
+  }>;
 
-/** The Tyre Pulse records of the last 24 hours: the newest alert and the last inspection day, one record each ("one animation per event type"). */
-export function tyreRecords(feed: TyreFeed, buildingKey: string | null, known: ReadonlySet<string>, nowEpochMs: number): WorkRecord[] {
-  if (feed.state !== 'connected' || !buildingKey) return [];
+/** The inspection that is new in `next`: its instant, or its day when the source keeps dates only. Null when nothing changed. */
+function newInspection(previous: Extract<TyreFeed, { state: 'connected' }>, next: Extract<TyreFeed, { state: 'connected' }>): string | null {
+  const laterDay = next.lastInspection !== null && (previous.lastInspection === null || next.lastInspection > previous.lastInspection);
+  if (next.lastInspectionAt) {
+    // Two times: a later one is a new inspection. Only a day before: a later day is new; the same day may be the same inspection, so it is not.
+    if (previous.lastInspectionAt) return isoMs(next.lastInspectionAt) > isoMs(previous.lastInspectionAt) ? next.lastInspectionAt : null;
+    return laterDay ? next.lastInspectionAt : null;
+  }
+  return laterDay ? next.lastInspection : null;
+}
+
+/**
+ * Tyre Pulse events: what changed between two connected answers, at most one alert and one inspection ("one animation per event type").
+ * The first answer replays nothing. An alert is an event when the newest alert time moved forward; an inspection when a later one was recorded.
+ * The record carries the stored time (an instant, or a day for a date-only source); one older than the 24 hour window is history, not an event.
+ */
+export function tyreRecords(previous: TyreFeed | null, next: TyreFeed, buildingKey: string | null, known: ReadonlySet<string>, nowEpochMs: number): WorkRecord[] {
+  if (next.state !== 'connected' || !buildingKey || !previous || previous.state !== 'connected') return [];
   const out: WorkRecord[] = [];
-  let newest: { id: string; kind: string; firstSeenAt: string } | null = null;
-  for (const a of feed.alerts) if (!newest || isoMs(a.firstSeenAt) > isoMs(newest.firstSeenAt)) newest = a;
-  if (newest) {
-    const record = makeRecord({ kind: 'tyre_alert', buildingKey, at: newest.firstSeenAt, recordId: newest.id, alertKind: newest.kind }, known, nowEpochMs);
+  const alertAt = next.latestAlertAt;
+  if (alertAt && (previous.latestAlertAt === null || isoMs(alertAt) > isoMs(previous.latestAlertAt))) {
+    const match = next.alerts.find((a) => isoMs(a.firstSeenAt) === isoMs(alertAt)) ?? null;
+    const record = makeRecord({ kind: 'tyre_alert', buildingKey, at: alertAt, recordId: match ? match.id : alertAt, alertKind: match?.kind }, known, nowEpochMs);
     if (record) out.push(record);
   }
-  if (feed.lastInspection) {
-    const record = makeRecord({ kind: 'tyre_inspection', buildingKey, at: feed.lastInspection, recordId: feed.lastInspection }, known, nowEpochMs);
+  const inspection = newInspection(previous, next);
+  if (inspection) {
+    const record = makeRecord({ kind: 'tyre_inspection', buildingKey, at: inspection, recordId: inspection }, known, nowEpochMs);
     if (record) out.push(record);
   }
   return out;
