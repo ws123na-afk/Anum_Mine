@@ -5,8 +5,8 @@ import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 import type { Registry } from '../src/lib/headquartersProjection.ts';
 import { projectHeadquarters } from '../src/lib/headquartersProjection.ts';
-import { facingAngle, facingTurn, footprintRect, frontOf, nearestYaw, turnAngle, turnRect, turnXZ, unturnXZ, worldSize, type QuarterTurn } from '../src/lib/campusFacing.ts';
-import { layoutCampus, lotOf, type CampusBuilding, type Placement } from '../src/lib/campusModel.ts';
+import { facingAngle, facingTurn, footprintRect, frontOf, leanOf, nearestYaw, turnAngle, turnRect, turnXZ, unturnXZ, worldSize, type QuarterTurn } from '../src/lib/campusFacing.ts';
+import { layoutCampus, lotBlocksCentre, lotOf, marginsOf, type CampusBuilding, type Placement } from '../src/lib/campusModel.ts';
 import { buildCampusScene } from '../src/lib/campusScene.ts';
 import { drawExterior } from '../src/lib/campusExteriors.ts';
 import { archetypeOf } from '../src/lib/campusBuildings.ts';
@@ -94,6 +94,59 @@ describe('buildings face the plaza', () => {
     });
   });
 
+  test('with its lean every front, door and sign points straight at the fountain (within 10 degrees) for 2, 4, 8 and 16 buildings', () => {
+    const TOLERANCE = (10 * Math.PI) / 180;
+    const off = (a: number, c: number) => Math.abs(Math.atan2(Math.sin(a - c), Math.cos(a - c)));
+    // The lean itself: on a diagonal it makes up the 45 degrees the quarter turn leaves, and it is never more than that.
+    for (let k = 0; k < 360; k += 5) {
+      const a = (k * Math.PI) / 180, x = Math.cos(a) * 70, z = Math.sin(a) * 70, t = facingTurn(x, z), yaw = leanOf(x, z, t);
+      assert.ok(Math.abs(yaw) <= Math.PI / 4 + 1e-9, `angle ${k}: lean ${yaw}`);
+      assert.ok(off(turnAngle(t) + yaw, facingAngle(x, z)) < 1e-9, `angle ${k}: quarter turn plus lean is the exact heading`);
+      // A turned and leaned point and its inverse.
+      const [wx, wz] = turnXZ(3, -7, t, yaw);
+      assert.deepEqual(unturnXZ(wx, wz, t, yaw).map((v) => Math.round(v * 1e9) / 1e9), [3, -7]);
+    }
+    for (const n of [2, 4, 8, 16]) {
+      const places = layoutCampus(campus(n - 1));
+      assert.equal(places.length, n);
+      const scene = buildCampusScene(places);
+      const lots = places.map((p) => lotOf(p, marginsOf(p.kind, false)));
+      places.forEach((p, i) => {
+        // The building's front (its entrance side: door, sign, forecourt) points at the plaza centre: the front's outward direction is
+        // the direction from the building's middle to the fountain, within 10 degrees (the quarter turn alone allowed 45).
+        const front = turnAngle(p.turn) + (p.yaw ?? 0);
+        assert.ok(off(front, facingAngle(p.x, p.z)) <= TOLERANCE, `${n}: ${p.workspaceId} front is ${off(front, facingAngle(p.x, p.z))} rad off`);
+        // Standing in the doorway and looking straight out, the fountain is ahead too. A centred door sees it within 10 degrees; a side
+        // entrance (the warehouse's office annex, about 9 m off the middle) within 12 on the smallest campus, where it stands nearest.
+        const door = scene.buildings[i].door;
+        const [doorSide] = unturnXZ(door.x - p.x, door.z - p.z, p.turn, p.yaw ?? 0);
+        const doorLimit = Math.abs(doorSide) < 1 ? TOLERANCE : (12 * Math.PI) / 180;
+        assert.ok(off(front, facingAngle(door.x, door.z)) <= doorLimit, `${n}: ${p.workspaceId} door looks ${off(front, facingAngle(door.x, door.z))} rad off the fountain`);
+        assert.ok(dot([door.x - p.x, door.z - p.z], [Math.sin(front), Math.cos(front)]) > 0, `${n}: ${p.workspaceId} door is on the front`);
+        const shape = drawExterior(p, archetypeOf(p), i, places.length);
+        assert.ok(Math.hypot(shape.door.x, shape.door.z) < Math.hypot(p.x, p.z), `${n}: ${p.workspaceId} door is nearer the centre`);
+        // The label stays over the building.
+        const f = footprintRect(p);
+        assert.ok(shape.anchor.x >= f.x0 - 0.5 && shape.anchor.x <= f.x1 + 0.5 && shape.anchor.z >= f.z0 - 0.5 && shape.anchor.z <= f.z1 + 0.5, `${n}: ${p.workspaceId} label`);
+        // Nothing stands on the plaza, the roundabout or the avenues, and no two lots (the boxes round the leaned lots) overlap.
+        assert.ok(!lotBlocksCentre(lots[i]), `${n}: ${p.workspaceId} is on the plaza or an avenue`);
+        for (let j = 0; j < i; j++) {
+          const a = lots[i], c = lots[j];
+          assert.ok(!(a.x0 < c.x1 && a.x1 > c.x0 && a.z0 < c.z1 && a.z1 > c.z0), `${n}: ${p.workspaceId} overlaps ${places[j].workspaceId}`);
+        }
+        // A walkway reaches its door and crosses no other building.
+        const spoke = scene.plaza.spokes.find((sp) => sp.id === p.workspaceId);
+        assert.ok(spoke && spoke.points.length >= 2, `${n}: ${p.workspaceId} has a walkway`);
+        for (const [x, z] of spoke!.points) for (const other of places) {
+          if (other === p) continue;
+          const [lx, lz] = unturnXZ(x - other.x, z - other.z, other.turn, other.yaw ?? 0);
+          assert.ok(!(Math.abs(lx) < other.width / 2 && Math.abs(lz) < other.depth / 2), `${n}: the walkway of ${p.workspaceId} crosses ${other.workspaceId}`);
+        }
+      });
+      assert.ok(places.some((p) => Math.abs(p.yaw ?? 0) > 0.05) || n < 4, `${n}: a diagonal building is leaned`);
+    }
+  });
+
   test('the focus camera turns the short way round to the front', () => {
     assert.equal(nearestYaw(350, 10), 370);
     assert.equal(nearestYaw(10, 350), -10);
@@ -114,9 +167,9 @@ describe('the glass turns with the building', () => {
   const frame = planFrame(hq.floors)!;
   const plans = new Map([['hq', planInputOf(hq, null)!]]);
   const rows = new Map([['hq', 0]]);
-  for (const turn of [0, 1, 2, 3] as const) {
-    test(`quarter turn ${turn}: every pane looks into the room that sits behind it on the plan`, () => {
-      const p: Placement = { workspaceId: 'hq', x: 140, z: 60, width: frame.w, depth: frame.d, height: 0, levels: 1, kind: 'executive', icon: null, turn };
+  for (const [turn, yaw] of [[0, 0], [1, 0], [2, 0], [3, 0], [1, 0.6], [2, -0.4]] as const) {
+    test(`quarter turn ${turn}${yaw ? `, leaned ${yaw} rad` : ''}: every pane looks into the room that sits behind it on the plan`, () => {
+      const p: Placement = { workspaceId: 'hq', x: 140, z: 60, width: frame.w, depth: frame.d, height: 0, levels: 1, kind: 'executive', icon: null, turn, ...(yaw ? { yaw } : {}) };
       const shape = plannedDrawer(rows, plans)(p, 'executive', 0, 1)!;
       const atlas = planAtlas([p], plans, rows)!;
       assert.equal(atlas.buildings[0].turn, turn);
@@ -132,7 +185,7 @@ describe('the glass turns with the building', () => {
         assert.equal(storey, Math.floor((cy - PLINTH) / STOREY_PITCH));
         const s = sampleBehindPane(atlas, 0, cx, cy, cz, nx, nz);
         // The same point in plan metres: back into the building's own frame, then onto the plan.
-        const [lx, lz] = unturnXZ(cx - nx * 2.8 - p.x, cz - nz * 2.8 - p.z, turn);
+        const [lx, lz] = unturnXZ(cx - nx * 2.8 - p.x, cz - nz * 2.8 - p.z, turn, yaw);
         const px = lx + frame.cx, pz = lz + frame.cz;
         const floor = hq.floors[frame.storeys[storey].floorIndex];
         const room = floor.rooms.find((r) => px > r.x + 0.3 && px < r.x + r.width - 0.3 && pz > r.z + 0.3 && pz < r.z + r.depth - 0.3);
@@ -151,6 +204,17 @@ describe('the glass turns with the building', () => {
 
   test('the shader undoes the turn and dissolves from the previous atlas', () => {
     for (const name of ['uPlanPrev', 'uPlanMix', 'uPlanInfo[bi].w']) assert.ok(PLAN_COMMON.includes(name), name);
+  });
+
+  test('the shader undoes the quarter turns and the lean with one angle, the same way the plan sampler does', () => {
+    assert.ok(PLAN_COMMON.includes('vec2 l = vec2(d.x * hc - d.y * hs, d.x * hs + d.y * hc);'));
+    for (const turn of [0, 1, 2, 3]) for (const yaw of [0, 0.5, -0.7]) {
+      const ha = -(turn * Math.PI) / 2 + yaw, hc = Math.cos(ha), hs = Math.sin(ha);
+      for (const [dx, dz] of [[4, -2], [-3, 7], [0.5, 0.25]]) {
+        const [ex, ez] = unturnXZ(dx, dz, turn, yaw);
+        assert.ok(Math.abs(dx * hc - dz * hs - ex) < 1e-9 && Math.abs(dx * hs + dz * hc - ez) < 1e-9, `turn ${turn} lean ${yaw}`);
+      }
+    }
   });
 
   test('cross-dissolve: eased from 0 to 1, at once under reduced motion or with nothing to dissolve from', () => {

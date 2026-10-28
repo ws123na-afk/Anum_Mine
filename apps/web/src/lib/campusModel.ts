@@ -6,7 +6,7 @@
  * `totals` is null and the screen says "Presence unavailable". Nothing here invents a number.
  * Pure functions, no DOM: the unit runner covers layout, totals and keyboard order.
  */
-import { facingTurn, footprintRect, turnRect, type QuarterTurn } from './campusFacing.ts';
+import { facingTurn, footprintRect, leanOf, turnRect, type QuarterTurn } from './campusFacing.ts';
 
 export type CampusBuildingKind = 'executive' | 'business' | 'department' | 'personal' | 'career';
 
@@ -161,6 +161,11 @@ export type Placement = Readonly<{
    * stay the building's own (along and across its front); `footprintRect` gives the world rectangle.
    */
   turn: QuarterTurn;
+  /**
+   * The lean on top of the quarter turn (radians, at most 45 degrees either way; `campusFacing.leanOf`): with it the front points straight
+   * at the plaza centre, also on a diagonal plot. Absent or 0 means the quarter turn alone.
+   */
+  yaw?: number;
 }>;
 
 export const FLOOR_HEIGHT = 3.4;
@@ -185,8 +190,8 @@ export const EXECUTIVE_LOT = { side: 10.5, back: 6, front: 31 } as const;
 export type Lot = Readonly<{ x0: number; x1: number; z0: number; z1: number }>;
 
 /** The lot in world axes: built in the building's own frame (front garden on +z) and turned with the building. */
-export function lotOf(p: Readonly<{ x: number; z: number; width: number; depth: number; turn?: number }>, margins: Readonly<{ side: number; back: number; front: number }> = LOT): Lot {
-  return turnRect({ x0: -p.width / 2 - margins.side, x1: p.width / 2 + margins.side, z0: -p.depth / 2 - margins.back, z1: p.depth / 2 + margins.front }, p.turn ?? 0, p.x, p.z);
+export function lotOf(p: Readonly<{ x: number; z: number; width: number; depth: number; turn?: number; yaw?: number }>, margins: Readonly<{ side: number; back: number; front: number }> = LOT): Lot {
+  return turnRect({ x0: -p.width / 2 - margins.side, x1: p.width / 2 + margins.side, z0: -p.depth / 2 - margins.back, z1: p.depth / 2 + margins.front }, p.turn ?? 0, p.x, p.z, p.yaw ?? 0);
 }
 
 /** The margins of a placement: the executive building has its long forecourt unless it is drawn from floor plans. */
@@ -213,7 +218,7 @@ export const lotBlocksCentre = (l: Lot): boolean => distanceToLot(l) < PLAZA.cle
   || (l.z1 > 0 && l.x0 < PLAZA.corridor && l.x1 > -PLAZA.corridor) || (l.x1 > 0 && l.z0 < PLAZA.corridor && l.z1 > -PLAZA.corridor);
 
 /**
- * Deterministic placement round the plaza at the centre. Every building is turned so its front faces the plaza (`facingTurn`), and its
+ * Deterministic placement round the plaza at the centre. Every building is turned so its front faces the plaza (`facingTurn`, then `leanOf` points it straight at the centre), and its
  * front garden lies on that side. The executive building takes the north slot (its door looks down on the fountain); every other building is tried first at the slot its id hashes to, then at the next slots, then on the next ring out, and
  * stands at the smallest radius where its whole lot clears the plaza, both avenues and every lot already placed. Buildings are placed in
  * order of their hash, never of the list, and a slot does not move when another building comes or goes: adding or removing one building
@@ -227,12 +232,13 @@ export function layoutCampus(buildings: readonly CampusBuilding[], sizes?: Reado
     const size = SIZE[b.kind];
     const planned = sizes?.get(b.workspace_id);
     const turn = facingTurn(x, z);
+    const yaw = leanOf(x, z, turn);
     if (planned) {
-      return { workspaceId: b.workspace_id, x, z, width: planned.w, depth: planned.d, levels: Math.max(1, planned.levels), kind: b.kind, icon: b.icon ?? null, height: planned.height + 6, turn };
+      return { workspaceId: b.workspace_id, x, z, width: planned.w, depth: planned.d, levels: Math.max(1, planned.levels), kind: b.kind, icon: b.icon ?? null, height: planned.height + 6, turn, yaw };
     }
     const levels = Math.max(b.kind === 'executive' ? 4 : 1, Math.min(14, b.floors ?? (b.kind === 'personal' ? 1 : 2)));
     return {
-      workspaceId: b.workspace_id, x, z, width: size.w, depth: size.d, levels, kind: b.kind, icon: b.icon ?? null, turn,
+      workspaceId: b.workspace_id, x, z, width: size.w, depth: size.d, levels, kind: b.kind, icon: b.icon ?? null, turn, yaw,
       height: levels * FLOOR_HEIGHT * (b.kind === 'executive' ? 1.25 : 1) + 1.2,
     };
   };
@@ -267,7 +273,8 @@ export function layoutCampus(buildings: readonly CampusBuilding[], sizes?: Reado
         const floor = ring === 0 ? PLAZA.clear : limit(ring - 1) + step * 0.15;
         for (let r = floor; r <= floor + 60; r += 1) {
           const x = Math.cos(angle) * r, z = Math.sin(angle) * r;
-          const lot = lotOf({ x, z, width: size.width, depth: size.depth, turn: facingTurn(x, z) }, margins);
+          const turn = facingTurn(x, z);
+          const lot = lotOf({ x, z, width: size.width, depth: size.depth, turn, yaw: leanOf(x, z, turn) }, margins);
           if (lotBlocksCentre(lot)) continue;
           if (!taken.some((t) => lotsOverlap(lot, t, 1))) { taken.push(lot); placed = make(b, x, z); }
           break;

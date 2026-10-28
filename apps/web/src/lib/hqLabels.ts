@@ -97,6 +97,12 @@ export function layoutLabels(
       // A building or room that is only off the edge of the stage stays in the page for keyboard and screen reader users (invisible,
       // shown where it can be reached when it takes focus); an agent card, or a card beyond its distance, is hidden.
       if (away || (input.priority ?? 1) >= 2) { hide(input, p.depth); continue; }
+      // The focused card (top priority, below 0: the billboard of the selected building) is never parked out of sight while its anchor is
+      // in front of the camera: it is pulled into the stage and placed like any other, so its Close button can always be reached.
+      if ((input.priority ?? 1) < 0 && p.visible && Number.isFinite(px.x) && Number.isFinite(px.y)) {
+        items.push({ input, x: Math.max(0, Math.min(width, px.x)), y: Math.max(0, Math.min(height, px.y)), depth: p.depth });
+        continue;
+      }
       const { w, h } = sizeOf(input.id, input.tiers?.[input.tiers.length - 1] ?? 'full');
       const x = Math.max(w / 2 + 4, Math.min(width - w / 2 - 4, Number.isFinite(px.x) ? px.x : width / 2));
       const y = Math.min(Math.max(Number.isFinite(px.y) ? px.y : height / 2, h + 6), height - bottomInset);

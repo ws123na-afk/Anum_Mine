@@ -246,7 +246,7 @@ export function HqNavigation(props: HqNavigationProps) {
   const closeDrawer = useCallback(() => { setDrawer(null); opener.current?.focus(); }, []);
   useEffect(() => {
     if (!drawer) return undefined;
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') closeDrawer(); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); closeDrawer(); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [drawer, closeDrawer]);
