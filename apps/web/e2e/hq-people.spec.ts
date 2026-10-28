@@ -43,8 +43,9 @@ test('six assigned agents are drawn with six different styles, deterministic fro
   await expect.poll(async () => (await looks(page)).length, { timeout: 60_000 }).toBe(6);
   const codes = await looks(page);
   expect(new Set(codes).size).toBe(6);
-  expect(new Set(codes.map((c) => c.split('/')[0])).size).toBeGreaterThanOrEqual(2);
-  await expect(canvas(page)).toHaveAttribute('data-figure-styles', /feminine:\d,masculine:\d,neutral:\d/);
+  // No look chosen: every build is neutral (owner rule); the six still differ in skin, hair and outfit.
+  expect(codes.map((c) => c.split('/')[0])).toEqual(Array(6).fill('neutral'));
+  await expect(canvas(page)).toHaveAttribute('data-figure-styles', 'feminine:0,masculine:0,neutral:6');
   await expect(canvas(page)).toHaveAttribute('data-model-figures', '6');
   // Reloading shows the same styles: nothing random.
   await page.reload();
