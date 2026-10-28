@@ -3,15 +3,16 @@ import { hex, scale, type Rgb } from '../../lib/hqGeometry.ts';
 import { acUnit, antenna, planter } from '../../lib/hqProps.ts';
 import { faceQuad, paneRow, rectFaces, type Ctx } from './parts.ts';
 import { beaconLight, pennant } from './facadeKit.ts';
+import { bevelBand } from './bevel.ts';
 
 /** A lit accent ring around a block at height y (four thin boxes in one, skip top and bottom). */
 export function accentBand(ctx: Ctx, x: number, z: number, w: number, d: number, y: number, h = 0.28, emissive = 0.8): void {
   ctx.b.box(x - 0.22, y, z - 0.22, w + 0.44, h, d + 0.44, ctx.scheme.accent, { emissive, shade: false, skip: ['top', 'bottom'] });
 }
 
-/** Stone band (a floor slab edge) around a block. */
+/** Stone band (a floor slab edge, a roof line) around a block, its top edge and corners bevelled (`bevel.ts`). */
 export function slabBand(ctx: Ctx, x: number, z: number, w: number, d: number, y: number, h = 0.5): void {
-  ctx.b.box(x - 0.3, y, z - 0.3, w + 0.6, h, d + 0.6, ctx.scheme.wall, { skip: ['bottom'] });
+  bevelBand(ctx.b, x - 0.3, z - 0.3, w + 0.6, d + 0.6, y, h, ctx.scheme.wall);
 }
 
 /**

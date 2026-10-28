@@ -1,10 +1,10 @@
 /**
  * Walkways from the roundabout at the centre of the campus to each building's door ("spokes").
  *
- * A building's door stands at the end of its front garden on the +z side, so a building south of the plaza has its door
- * on the side away from it. A spoke therefore cannot always be a straight line: it is routed on a coarse ground grid
- * round every footprint (A*, then straightened where the line of sight is clear), so it always reaches the door and never
- * crosses a building. Pure and deterministic: the same footprints and doors give the same spokes.
+ * A building's door stands at the end of its front garden, and every building is turned so that front faces the plaza
+ * (`campusFacing.ts`), so most spokes run straight in. A spoke is still routed on a coarse ground grid round every footprint
+ * (A*, then straightened where the line of sight is clear), so it always reaches the door and never crosses a building,
+ * also where a neighbour stands in the way. Pure and deterministic: the same footprints and doors give the same spokes.
  */
 import { PLAZA } from './campusModel.ts';
 

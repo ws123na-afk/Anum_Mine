@@ -125,3 +125,16 @@ A building's sign can now carry the owner's own logo, brand colour and one of fo
 ## Career centre (27 October 2026)
 
 Owner decision O2 makes career its own building kind. It is always drawn as the career centre: two learning wings with ribbon windows and amber sunshade reveals, a glass barrel-vault entrance hall between them, and a free-standing sign pylon on the forecourt that carries the lettered sign or the owner's logo sign (`hqAssets/exterior/careerCentre.ts`, triangle cap 2,600, accent amber `#e8a24a`), loaded with the lazy plan kit. The starter Career & Employment building takes the career kind by its stable id; because it has floor plans it is drawn by the plan shell like every planned building, with the career sign. See [reception and career](ANUM_MINE_HQ_RECEPTION.md).
+
+## Edges and planting (28 October 2026)
+
+- **Bevels** (`hqAssets/exterior/bevel.ts`): every slab band and roof line (`slabBand`, used by the towers, the admin and retail blocks, the
+  executive building, the crowns and the plan shells) has chamfered vertical corners and a chamfered top edge (38 triangles instead of 10), and the
+  main wall blocks of the admin, retail, warehouse, workshop, villa and career buildings have slim chamfered corner beads (24 triangles a block). The
+  45 degree faces catch the light differently and read as softened edges at campus distance. Per building at default size: warehouse 1,304 to 1,328
+  triangles, workshop 1,250 to 1,274, tower 3,353 to 3,437, admin 2,356 to 2,408, retail 1,060 to 1,140, executive 5,328 to 5,524, villa 1,444 to
+  1,492; every kind stays under its cap (`TRIANGLE_CAPS`).
+- **Facing and planting**: buildings face the plaza and the free ground has a seeded mix of trees, shrubs, grasses and succulents in five leaf tints,
+  see [the centre plaza](ANUM_MINE_HQ_CENTER_PLAZA.md#buildings-face-the-plaza).
+- Tests: `test/hqCampusLook.test.ts` (band and bead triangle counts, every face looks out or up, the chamfer passes outside the sharp corner).
+

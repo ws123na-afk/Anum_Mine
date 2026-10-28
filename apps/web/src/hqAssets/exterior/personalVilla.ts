@@ -12,6 +12,7 @@ import { treeTemplate } from '../environment/planting.ts';
 import { balconyRun, canopy, leaf, pennant, roofDeck } from './facadeKit.ts';
 import { STOREY, clamp, entrance, faceBox, faceQuad, finish, ledge, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
+import { cornerBevels } from './bevel.ts';
 
 const TIMBER = hex('#9b7550');
 const WATER = hex('#2f86b4');
@@ -32,6 +33,7 @@ export function buildPersonalVilla(params: ExteriorParams = {}): ExteriorAsset {
   castShadow(b, x0, z0, W, D, GH + UH + 1, 0.022);
   b.box(gx - 0.3, 0, gz - 0.3, gw + 0.6, y0, gd + 0.6, scheme.stone);
   b.box(gx, y0, gz, gw, GH, gd, white, { skip: ['top', 'bottom'], grad: 0.12 });
+  cornerBevels(b, gx, gz, gw, gd, y0, y0 + GH, scale(white, 0.94));
   // Living front: floor-to-ceiling panes on the west 62 percent; the east end is the garage and the entrance returns.
   const glazeTo = gw * 0.62;
   paneRow(ctx, GF.south, 0.6, glazeTo, y0 + 0.2, y0 + GH - 0.35, Math.max(3, Math.floor(glazeTo / 2.6)), 0.05, 0.9);
@@ -50,6 +52,7 @@ export function buildPersonalVilla(params: ExteriorParams = {}): ExteriorAsset {
   const uw = gw * 0.56, ud = gd * 0.78, ux = gx, uz = gz + 0.8, over = 2.6;
   const uy = y0 + GH + 0.25;
   b.box(ux, uy, uz, uw, UH, ud + over, scale(white, 0.98), { skip: ['top', 'bottom'], grad: 0.12 });
+  cornerBevels(b, ux, uz, uw, ud + over, uy, uy + UH, scale(white, 0.94));
   const UF = rectFaces(ux, uz, uw, ud + over);
   paneRow(ctx, UF.south, 0.5, uw - 0.5, uy + 0.35, uy + UH - 0.4, Math.max(3, Math.floor(uw / 2.4)), 0.05, 1);
   paneRow(ctx, UF.west, 1.0, UF.west.len - 1.0, uy + 0.5, uy + UH - 0.5, 3, 0.14, 0.9);

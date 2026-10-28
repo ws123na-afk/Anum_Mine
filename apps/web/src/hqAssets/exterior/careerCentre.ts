@@ -16,6 +16,7 @@ import { atriumVault, beaconLight, louvres } from './facadeKit.ts';
 import { STOREY, clamp, entrance, faceBox, faceQuad, fins, finish, ledge, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
 import { accentBand, slabBand } from './towerParts.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
+import { cornerBevels } from './bevel.ts';
 
 /** The career colour: a warm amber accent band, kept in step with `campusBuildings.ts` ACCENT.career. */
 const AMBER = hex('#e8a24a');
@@ -39,6 +40,7 @@ export function buildCareerCentre(params: ExteriorParams = {}): ExteriorAsset {
   b.box(x0 - 0.4, 0, z0 - 0.4, W + 0.8, y0, D + 0.8, scheme.stone);
   for (const wx of [x0, ax1]) {
     b.box(wx, y0, z0, wingW, H, D, scheme.wall, { skip: ['top', 'bottom'], grad: 0.12 });
+    cornerBevels(b, wx, z0, wingW, D, y0, y0 + H, scheme.trim);
     const F = rectFaces(wx, z0, wingW, D);
     faceQuad(b, F.south, 0, F.south.len, y0, y0 + 0.9, scale(scheme.stone, 0.72), 0, 0.05);
     for (let l = 0; l < Math.max(2, levels); l++) {

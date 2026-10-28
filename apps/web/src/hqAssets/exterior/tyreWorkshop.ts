@@ -8,6 +8,7 @@ import { WARM, WINDOW_BASE, acUnit, castShadow } from '../../lib/hqProps.ts';
 import { clamp, entrance, faceBox, faceDisc, faceQuad, finish, makeCtx, paneRow, rectFaces, signBoard } from './parts.ts';
 import { beaconLight } from './facadeKit.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
+import { cornerBevels } from './bevel.ts';
 
 const RUBBER = hex('#1b1f24');
 
@@ -23,6 +24,7 @@ export function buildTyreWorkshop(params: ExteriorParams = {}): ExteriorAsset {
   castShadow(b, x0, z0, W, D, H + 1, 0.022);
   // Walls: a stone base and light upper cladding.
   b.box(x0, 0, z0, W, H, D, scale(scheme.wall, 0.96), { skip: ['top', 'bottom'], grad: 0.15 });
+  cornerBevels(b, x0, z0, W, D, 0, H, scheme.trim);
   for (const f of Object.values(F)) {
     faceQuad(b, f, 0, f.len, 0, 1.2, scale(scheme.stone, 0.7), 0, 0.05);
     faceQuad(b, f, 0, f.len, 1.2, 1.32, scheme.trim, 0, 0.05);

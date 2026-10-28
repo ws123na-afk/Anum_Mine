@@ -33,6 +33,22 @@ generated from its floor plans instead of a generic box. Nothing may be invented
 5. **Fallback**. A building with no registry floors, a workspace's building that is not in the open registry, and a registry building with no rooms keep the
    generic shell and the generic room behind the glass (`hq_room`). A plan that is not loaded yet shows the generic look and is swapped in when the lazy chunk arrives.
 
+## Turned buildings
+
+Since 28 October 2026 every campus building is turned by quarter turns to face the plaza ([centre plaza](ANUM_MINE_HQ_CENTER_PLAZA.md#buildings-face-the-plaza)).
+The atlas tile stays in the building's own frame and turns with the facade: each atlas building carries its middle (`origin`), its quarter turns
+(`turn`) and its own size, `uPlanRect` is the middle and one over the size, and `uPlanInfo.w` is the turn. `hq_planAt` moves the world position back
+into the building's own frame before it reads the tile, and `samplePlan` does the same arithmetic, so a pane always looks into the room that sits
+behind it on that floor (`test/hqCampusLook.test.ts` checks every pane of the planned headquarters at all four turns). The revision includes where
+each tile stands and how it is turned.
+
+## Changes dissolve
+
+A new atlas with the same layout, size and building frames (only the occupancy moved: a desk lit or dimmed by presence) cross-dissolves from the
+previous one over `PLAN_FADE_MS` (450 ms, eased): the old texture stays bound as `uPlanPrev`, `uPlanMix` runs from 0 to 1, and the lookup blends the
+colour and the light of the two texels while keeping the wall bit of the new one. A new layout, a moved or turned building, a first atlas, or reduced
+motion swap at once (`planFade`, `canDissolve`). The content stays the real occupancy: only the transition between two real states is smoothed.
+
 ## Occupancy truth
 
 - A screen is lit only for a desk whose agent has a presence record that is fresh and says `working` or `meeting`. Queued, waiting, blocked, idle, paused,

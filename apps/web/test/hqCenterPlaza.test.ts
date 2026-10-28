@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { MeshBuilder } from '../src/lib/hqGeometry.ts';
 import { LOT, PLAZA, layoutCampus, lotBlocksCentre, lotOf, marginsOf, type CampusBuilding, type PlannedSize } from '../src/lib/campusModel.ts';
 import { campusExtent } from '../src/lib/campusModel.ts';
+import { footprintRect } from '../src/lib/campusFacing.ts';
 import { campusCamera, campusFraming } from '../src/lib/hqCamera.ts';
 import { layoutLabels } from '../src/lib/hqLabels.ts';
 import { buildCampusScene } from '../src/lib/campusScene.ts';
@@ -154,15 +155,20 @@ test('the home camera frames every building and the plaza, centred on the lopsid
     const f = campusFraming(campusExtent(placed));
     assert.ok(f.radius >= 30);
     for (const p of placed) {
-      assert.ok(Math.abs(p.x) + p.width / 2 <= f.radius, `${p.workspaceId} is outside the framing sideways`);
-      assert.ok(p.z - p.depth / 2 >= f.centerZ - f.radius && p.z + p.depth / 2 <= f.centerZ + f.radius, `${p.workspaceId} is outside the framing north or south`);
+      // The footprint as it stands on the ground (a building turned to face the plaza swaps width and depth).
+      const r = footprintRect(p);
+      assert.ok(Math.max(Math.abs(r.x0), Math.abs(r.x1)) <= f.radius, `${p.workspaceId} is outside the framing sideways`);
+      assert.ok(r.z0 >= f.centerZ - f.radius && r.z1 <= f.centerZ + f.radius, `${p.workspaceId} is outside the framing north or south`);
     }
     assert.ok(Math.abs(f.centerZ) + PLAZA.outer <= f.radius, 'the plaza at the origin is inside the framing');
     const cam = campusCamera(f.radius, f.centerZ, 1.6);
     assert.equal(cam.target.z, f.centerZ);
   }
-  // With the executive building due north the framing centre moves north of the plaza.
-  assert.ok(campusFraming(campusExtent(layoutCampus(campus(4)))).centerZ < 0);
+  // The framing follows the lopsided plan, not the origin. Since buildings face the plaza (their front gardens on the plaza side), the
+  // southern buildings stand further out than they did, so a fuller campus can be centred south; with the executive building due north
+  // and one more building the framing centre is north of the plaza.
+  assert.ok(campusFraming(campusExtent(layoutCampus(campus(2)))).centerZ < 0);
+  for (const n of [2, 4, 8, 16]) assert.notEqual(campusFraming(campusExtent(layoutCampus(campus(n)))).centerZ, 0, `${n} buildings`);
 });
 
 test('building cards are never hidden on a crowded stage: they give up detail and one is never lost', () => {
