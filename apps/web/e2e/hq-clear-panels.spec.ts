@@ -329,3 +329,24 @@ test('the Executive assistant, Team and History carry the same panel header with
   await history.getByRole('button', { name: 'Close history' }).click();
   await expect(history).toHaveCount(0);
 });
+
+for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+  for (const locale of ['en', 'ar'] as const) {
+    test(`another workspace's billboard and panel stay clear of the scene at ${width}x${height} (${locale}), and Escape closes them`, async ({ page }) => {
+      await open(page, { width, height }, { boards: 'api', locale });
+      await hq(page).locator('.hqLabels').getByRole('button', { name: /^Executive HQ\./ }).click();
+      const board = hq(page).locator('[data-testid="hq-billboard"][data-building="workspace_exec"]');
+      await expect(board).toBeVisible();
+      await expect(board.locator('[data-field="work"] [data-part="open"] b')).toHaveText('4');
+      await assertClear(page);
+      const stage = (await box(page, '.hqLive .hqStage'))!;
+      const card = (await board.boundingBox())!;
+      expect(card.x).toBeGreaterThanOrEqual(stage.x - 1);
+      expect(card.x + card.width).toBeLessThanOrEqual(stage.x + stage.w + 1);
+      const results = await new AxeBuilder({ page }).include('.hqLive').withTags(['wcag2a', 'wcag2aa']).analyze();
+      expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
+      await page.keyboard.press('Escape');
+      await expect(board).toHaveCount(0);
+    });
+  }
+}

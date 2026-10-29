@@ -314,3 +314,68 @@ test('the focused billboard card (top priority) is pulled into the stage when it
   const [plain] = layoutLabels([{ id: 'billboard:b', anchor: off, priority: 1.9, tiers: ['compact', 'dot'] }], vp, 378, 539, sizeOf, 0);
   assert.equal(plain.shown, false);
 });
+
+// ---- every building: another workspace's board facts (docs/ANUM_MINE_HQ_BILLBOARDS.md#every-building)
+
+const remoteBoard = (over: Record<string, unknown> = {}) => ({
+  asOf: FRESH, roomsTotal: 63, departments: ['finance', 'legal', `${LEAK}DEPT`],
+  rooms: [{ label: 'OKROOM Treasury', labelAr: 'OKROOM خزينة', kind: 'office', teamDepartment: 'finance' }, { label: 'OKROOM Court', labelAr: null, kind: 'meeting', teamDepartment: null }],
+  work: { source: 'connected', open: 4, waiting: 1, blocked: 0, truncated: false }, ...over,
+});
+const other = (remote: unknown, over: Record<string, unknown> = {}) => poisoned({ workspace_id: 'ws_other', realWorkspaceId: undefined, registryBuildingId: undefined, rooms: null, remote, ...over });
+
+test('another workspace\'s building shows its own open work, rooms and departments, read only through the whitelist', () => {
+  const log = new Set<string>();
+  const base = input({ building: other({ status: 'ready', board: remoteBoard() }), plan: null });
+  const m = billboardModel({ ...base, building: track(base.building, 'building', log), flow: track(base.flow!, 'flow', log) });
+  assert.deepEqual([...log].filter((p) => !BILLBOARD_READS.includes(p)), [], 'a property outside BILLBOARD_READS was read');
+  assert.ok(log.has('building.remote.board.work.open') && log.has('building.remote.board.rooms[].label'));
+  const row = (f: string) => m.rows.find((r) => r.field === f)!;
+  assert.deepEqual(row('work').parts?.map((p) => `${p.key}:${p.value}`), ['open:4', 'waiting:1', 'blocked:0']);
+  assert.match(m.rows.find((r) => r.field === 'workTime')!.value, /^Verified /);
+  assert.equal(row('departments').value, 'Finance, Legal');
+  // The rooms the server did not send are counted, never named.
+  assert.equal(row('roomNames').value, 'OKROOM Treasury, OKROOM Court, +61 more');
+  assert.equal(row('floors').value, '3 floors · 63 rooms');
+  // The open workspace's flow never counts for another workspace's building.
+  for (const t of billboardTexts(m)) assert.ok(!t.text.includes(LEAK), `leak in ${t.field}: ${t.text}`);
+  const ar = billboardModel(input({ building: other({ status: 'ready', board: remoteBoard() }), plan: null }, 'ar'));
+  assert.match(ar.rows.find((r) => r.field === 'roomNames')!.value, /OKROOM خزينة/);
+});
+
+test('another workspace: zero is zero, missing is Not connected, loading says so, a failed read offers Try again, an old answer is stale', () => {
+  const work = (remote: unknown, now = NOW) => billboardModel(input({ building: other(remote), plan: null, now })).rows.find((r) => r.field === 'work')!;
+  const zero = work({ status: 'ready', board: remoteBoard({ work: { source: 'connected', open: 0, waiting: 0, blocked: 0, truncated: false } }) });
+  assert.equal(zero.value, '0');
+  assert.equal(zero.connected, true);
+  assert.equal(work(undefined).value, 'Not connected');
+  assert.equal(work({ status: 'ready', board: null }).value, 'Not connected');
+  assert.equal(work({ status: 'unsupported', board: null }).value, 'Not connected');
+  assert.equal(work({ status: 'ready', board: remoteBoard({ work: { source: 'not_connected', open: null, waiting: null, blocked: null, truncated: false } }) }).value, 'Not connected');
+  assert.equal(work({ status: 'ready', board: remoteBoard({ work: { source: 'no_access', open: null, waiting: null, blocked: null, truncated: false } }) }).value, 'No access');
+  const loading = work({ status: 'loading', board: null });
+  assert.equal(loading.value, 'Loading');
+  assert.equal(loading.loading, true);
+  const failed = billboardModel(input({ building: other({ status: 'error', board: null }), plan: null }));
+  assert.equal(failed.rows.find((r) => r.field === 'work')!.failed, true);
+  assert.match(failed.rows.find((r) => r.field === 'roomNames')!.value, /Could not load/);
+  assert.equal(failed.retry, true);
+  assert.equal(failed.retryLabel, 'Try again');
+  assert.equal(billboardModel(input({ building: other({ status: 'ready', board: remoteBoard() }), plan: null })).retry, false);
+  // A failed later read keeps the last answer and calls it stale; so does an answer older than the stale window.
+  const kept = billboardModel(input({ building: other({ status: 'error', board: remoteBoard() }), plan: null }));
+  assert.equal(kept.rows.find((r) => r.field === 'work')!.stale, true);
+  assert.match(kept.rows.find((r) => r.field === 'workTime')!.value, /^Stale: last verified /);
+  const late = billboardModel(input({ building: other({ status: 'ready', board: remoteBoard() }), plan: null, now: NOW + BILLBOARD_STALE_MS + 60_000 }));
+  assert.equal(late.rows.find((r) => r.field === 'workTime')!.stale, true);
+  // A truncated flow is "at least".
+  assert.equal(work({ status: 'ready', board: remoteBoard({ work: { source: 'connected', open: 9, waiting: 0, blocked: 0, truncated: true } }) }).value, '9+');
+  // Counts that are not counts are never shown.
+  assert.equal(work({ status: 'ready', board: remoteBoard({ work: { source: 'connected', open: -1, waiting: 0, blocked: 0, truncated: false } }) }).value, 'Not connected');
+});
+
+test('the open workspace\'s own buildings never read another workspace\'s facts', () => {
+  const m = billboardModel(input({ building: poisoned({ remote: { status: 'ready', board: remoteBoard() } }) }));
+  assert.equal(m.rows.find((r) => r.field === 'work')!.parts?.[0].value, '3');
+  assert.ok(!m.rows.find((r) => r.field === 'roomNames')!.value.includes('Treasury'));
+});

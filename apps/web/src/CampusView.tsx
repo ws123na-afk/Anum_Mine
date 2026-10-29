@@ -134,10 +134,27 @@ export function CampusView(props: CampusViewProps) {
     return () => { live = false; };
   }, [bb, campus.buildings.length]);
   const boards = useMemo(() => (bb ? bb.billboardLayer(scene, placements) : null), [bb, scene, placements]);
+  // Every other workspace's building gets its own board facts and sign (docs/ANUM_MINE_HQ_BILLBOARDS.md#every-building): one bounded read,
+  // made only when the campus has such a building. The layout never depends on it, so the scene is never rebuilt for it.
+  // `currentWorkspaceId` may be the scene key of an entered registry building (`ws~building`): the open workspace is the one it belongs to.
+  const openWs = useMemo(() => { const b = campus.buildings.find((x) => x.workspace_id === props.currentWorkspaceId); return b ? workspaceOf(b) : props.currentWorkspaceId.split('~')[0]; }, [campus.buildings, props.currentWorkspaceId]);
+  const openWsRef = useRef(openWs);
+  openWsRef.current = openWs;
+  const [remote, setRemote] = useState<import('./hq-billboards/index.ts').RemoteState | null>(null);
+  const remoteFeed = useRef<{ retry: () => void } | null>(null);
+  const hasOthers = campus.buildings.some((b) => b.accessible && workspaceOf(b) !== openWs);
+  useEffect(() => {
+    if (!bb || !hasOthers) return undefined;
+    const started = bb.startCampusBoards(setRemote);
+    remoteFeed.current = started;
+    return () => { started.stop(); remoteFeed.current = null; setRemote(null); };
+  }, [bb, hasOthers, openWs]);
+  const retryBoards = useCallback(() => remoteFeed.current?.retry(), []);
+  const facts = useMemo(() => (bb && remote ? bb.withRemote(campus.buildings, remote, openWs) : campus.buildings), [bb, remote, campus.buildings, openWs]);
   // The brand signs (docs/ANUM_MINE_HQ_LOGO_SIGNS.md): a lazy chunk, fetched only when a building has a sign set up. Its logos are small decoded
   // bitmaps drawn into the existing sign atlas, loaded for the nearest buildings first; a logo that fails leaves the lettered sign.
   const [signKit, setSignKit] = useState<typeof import('./hq-logo-signs/campusSigns.ts') | null>(null);
-  const anySign = campus.buildings.some((b) => b.sign);
+  const anySign = facts.some((b) => b.sign);
   useEffect(() => {
     if (signKit || !anySign) return undefined;
     let live = true;
@@ -147,19 +164,19 @@ export function CampusView(props: CampusViewProps) {
   const [logos, setLogos] = useState<ReadonlyMap<string, SignLogo>>(NO_LOGOS);
   const logosRef = useRef(logos);
   logosRef.current = logos;
-  const logoSig = campus.buildings.map((b) => (b.sign?.logoSha256 ? `${b.sign.buildingId}:${b.sign.logoSha256}` : '')).join('|');
+  const logoSig = facts.map((b) => (b.sign?.logoSha256 ? `${b.sign.workspaceId ?? ''}/${b.sign.buildingId}:${b.sign.logoSha256}` : '')).join('|');
   useEffect(() => {
     if (!signKit) return undefined;
     const controller = new AbortController();
     const where = new Map(placements.map((p) => [p.workspaceId, p]));
     const focus = cameraRef.current.target;
-    const targets = signKit.pickLogoTargets(campus.buildings.flatMap((b) => (b.sign?.logoSha256 ? [{ id: b.workspace_id, buildingId: b.sign.buildingId, sha: b.sign.logoSha256, x: where.get(b.workspace_id)?.x ?? 0, z: where.get(b.workspace_id)?.z ?? 0 }] : [])), { x: focus.x, z: focus.z });
+    const targets = signKit.pickLogoTargets(facts.flatMap((b) => (b.sign?.logoSha256 ? [{ id: b.workspace_id, buildingId: b.sign.buildingId, sha: b.sign.logoSha256, x: where.get(b.workspace_id)?.x ?? 0, z: where.get(b.workspace_id)?.z ?? 0, ...(b.sign.workspaceId ? { workspaceId: b.sign.workspaceId } : {}) }] : [])), { x: focus.x, z: focus.z });
     void signKit.loadLogos(targets, logosRef.current, controller.signal).then((next) => { if (!controller.signal.aborted) setLogos(next); }).catch(() => undefined);
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signKit, logoSig, selectedId]);
   useEffect(() => () => { for (const logo of logosRef.current.values()) logo.image.close(); }, []);
-  const signStats = useMemo(() => (signKit ? signKit.signStats(campus.buildings, logos) : { branded: campus.buildings.filter((b) => b.sign).length, logos: 0 }), [signKit, campus.buildings, logos]);
+  const signStats = useMemo(() => (signKit ? signKit.signStats(facts, logos) : { branded: facts.filter((b) => b.sign).length, logos: 0 }), [signKit, facts, logos]);
   const atlasCache = useRef<GlassPlanData | null>(null);
   const glassPlan = useMemo(() => {
     if (!kit || !plans || !sizes.size) { atlasCache.current = null; return null; }
@@ -168,7 +185,7 @@ export function CampusView(props: CampusViewProps) {
     atlasCache.current = next;
     return next;
   }, [kit, plans, placements, sizes]);
-  const byId = useMemo(() => new Map(campus.buildings.map((b) => [b.workspace_id, b])), [campus.buildings]);
+  const byId = useMemo(() => new Map(facts.map((b) => [b.workspace_id, b])), [facts]);
   const order = useMemo(() => readingOrder(campus.buildings).map((b) => b.workspace_id), [campus.buildings]);
   const byIdRef = useRef(byId);
   byIdRef.current = byId;
@@ -210,7 +227,7 @@ export function CampusView(props: CampusViewProps) {
   const closeKey = useMemo(() => (bb && boards ? bb.closeBoards(boards, cameraEye(camera)).join('|') : ''), [bb, boards, camera]);
   const detailIds = useMemo(() => new Set([selectedId, hover, ...closeKey.split('|')].filter((id): id is string => !!id)), [selectedId, hover, closeKey]);
   readFaces.current = () => (boards && bb ? bb.boardFaces({
-    layer: boards, buildings: byId, plans: plansRef.current, flow: latest.current.flow, currentWorkspaceId: latest.current.currentWorkspaceId, live: latest.current.presenceLive === true, fontsReady, now: Date.now(),
+    layer: boards, buildings: byId, plans: plansRef.current, flow: latest.current.flow, currentWorkspaceId: openWsRef.current, live: latest.current.presenceLive === true, fontsReady, now: Date.now(),
     detailIds, cell: boardCell, logoReady: (id, sha) => logosRef.current.has(`${id}:${sha}`),
   }) : []);
   useEffect(() => {
@@ -224,7 +241,7 @@ export function CampusView(props: CampusViewProps) {
     feed.current = started;
     return () => { started.stop(); feed.current = null; };
   }, [bb, boards, boardCell]);
-  useEffect(() => { feed.current?.touch(); }, [campus.buildings, props.flow, plans, props.presenceLive, locale, fontsReady, props.currentWorkspaceId, detailIds, logos]);
+  useEffect(() => { feed.current?.touch(); }, [facts, props.flow, plans, props.presenceLive, locale, fontsReady, props.currentWorkspaceId, detailIds, logos]);
   // The camera that frames one building: its centre, at a distance that fits its size.
   const frameOf = useCallback((id: string): CameraState | null => {
     const p = placements.find((x) => x.workspaceId === id);
@@ -341,8 +358,8 @@ export function CampusView(props: CampusViewProps) {
   // The billboards are a separate pass (HqStage `extraLabels`): they can never move, hide or park a building card.
   const extraLabels: StageLabel[] = useMemo(() => (boards && bb ? bb.billboardLabels({
     layer: boards, buildings: byId, plans, flow: props.flow, selectedId, hoverId: hover, near: false, now: Date.now(),
-    onActivate: activate, onOpen: (id) => latest.current.onEnter(id), onHover: setHover, onClose: release,
-  }) : []), [boards, bb, byId, plans, props.flow, selectedId, hover, locale, activate, release]);
+    onActivate: activate, onOpen: (id) => latest.current.onEnter(id), onHover: setHover, onClose: release, onRetry: retryBoards, currentWorkspaceId: openWs,
+  }) : []), [boards, bb, byId, plans, props.flow, selectedId, hover, locale, activate, release, retryBoards, openWs]);
 
   const onView = useCallback((cam: CameraState, aspect: number) => {
     viewSink.current?.(cam, aspect);
