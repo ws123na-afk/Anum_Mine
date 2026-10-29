@@ -19,6 +19,17 @@ import { boardFace, type BoardFace } from './boardFace.ts';
 import { getLocale, t } from '../lib/i18n.ts';
 
 export { BOARD_FADE_MS, startBoardFeed, type BoardFeed, type BoardLogo } from './billboardTexture.ts';
+export { NO_REMOTE, withRemote, type RemoteFeed, type RemoteState } from './remoteBoards.ts';
+import { BOARDS_PATH, startRemoteBoards, type RemoteFeed, type RemoteState } from './remoteBoards.ts';
+import * as api from '../lib/api.ts';
+
+/** Starts reading the other workspaces' boards (`GET /office/campus/boards`) with the person's own credentials; see `remoteBoards.ts`. */
+export function startCampusBoards(onChange: (state: RemoteState) => void): RemoteFeed {
+  return startRemoteBoards({
+    load: (cursor) => api.apiRequest(`${BOARDS_PATH}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, { method: 'GET' }),
+    scope: () => api.currentScope(), onChange, hidden: () => typeof document !== 'undefined' && document.hidden,
+  });
+}
 import { faceTexts } from './boardFace.ts';
 
 /** What is on the boards right now, one line per board (the stage's `data-board-texts`, for QA and screen readers' curiosity: never an input). */
@@ -59,7 +70,7 @@ export function boardFaces(args: BoardFaceArgs): BoardFace[] {
   const locale = getLocale();
   return args.layer.sites.map((site) => {
     const building = args.buildings.get(site.workspaceId);
-    if (!building) return boardFace({ id: site.workspaceId, name: '', kindText: null, kind: 'business', summary: '', status: 'unavailable', accessible: false, brand: null, logo: null, icons: [], rows: [], openLabel: '', unavailableText: '' }, { live: false, rtl: locale === 'ar', fontsReady: args.fontsReady, tr: (k, v) => t(k, v) });
+    if (!building) return boardFace({ id: site.workspaceId, name: '', kindText: null, kind: 'business', summary: '', status: 'unavailable', accessible: false, brand: null, logo: null, icons: [], rows: [], retry: false, retryLabel: '', openLabel: '', unavailableText: '' }, { live: false, rtl: locale === 'ar', fontsReady: args.fontsReady, tr: (k, v) => t(k, v) });
     const model = billboardModel({ building, plan: args.plans?.get(site.workspaceId) ?? null, flow: args.flow ?? null, currentWorkspaceId: args.currentWorkspaceId, now: args.now });
     const detail = args.cell !== 256 && args.detailIds?.has(site.workspaceId) === true;
     return boardFace(model, { live: args.live, rtl: locale === 'ar', fontsReady: args.fontsReady, tr: (k, v) => t(k, v), detail, logoReady: args.logoReady });
@@ -81,6 +92,10 @@ export type BillboardLabelArgs = Readonly<{
   onHover: (id: string | null) => void;
   /** Let go of the building: the focused card's Close button. */
   onClose: () => void;
+  /** Read the other workspaces' boards again (a card whose read failed offers it). */
+  onRetry?: () => void;
+  /** The open workspace (its buildings read the live flow; every other one its boards read). */
+  currentWorkspaceId?: string;
 }>;
 
 /** How far (in scene metres along the view) an unfocused card still shows. */
@@ -94,7 +109,7 @@ export function billboardLabels(args: BillboardLabelArgs): StageLabel[] {
     if (!building) continue;
     const focused = site.workspaceId === args.selectedId || site.workspaceId === args.hoverId;
     if (!focused && !args.near) continue;
-    const model = billboardModel({ building, plan: args.plans?.get(site.workspaceId) ?? null, flow: args.flow ?? null, currentWorkspaceId: args.flow?.snapshot?.workspace_id ?? '', now: args.now });
+    const model = billboardModel({ building, plan: args.plans?.get(site.workspaceId) ?? null, flow: args.flow ?? null, currentWorkspaceId: args.currentWorkspaceId ?? args.flow?.snapshot?.workspace_id ?? '', now: args.now });
     // A focused card is always full and is placed first (priority -1), so the other cards move round it and it keeps clear of the panels and controls.
     // An unfocused card has priority 1.9: the building cards (priority 1) are placed first and stay above it, so it never takes a click meant for one.
     // On a stage under 700 px wide its body is folded by the style sheet (the detail panel already covers the building) and a focus unfolds it.
@@ -103,7 +118,7 @@ export function billboardLabels(args: BillboardLabelArgs): StageLabel[] {
       id: `billboard:${site.workspaceId}`, anchor: site.anchor, priority: focused ? -1 : 1.9, tiers, ...(focused ? { fine: true } : {}), ...(focused ? {} : { maxDistance: NEAR }),
       node: createElement(BillboardCard, {
         model, selected: site.workspaceId === args.selectedId, focused, onActivate: () => args.onActivate(site.workspaceId), onOpen: () => args.onOpen(site.workspaceId),
-        onHover: (on: boolean) => args.onHover(on ? site.workspaceId : null), onClose: args.onClose,
+        onHover: (on: boolean) => args.onHover(on ? site.workspaceId : null), onClose: args.onClose, onRetry: args.onRetry,
       }),
     });
   }

@@ -69,3 +69,70 @@ export interface CampusProfile {
   icon: CampusBuildingIcon;
   revision: number;
 }
+
+/**
+ * `GET /api/v1/office/campus/boards` (version 1, server: services/api/anum_api/office_campus_boards.py): the billboard facts and
+ * signs of every other workspace the caller may read, each read in that workspace's own tenant and workspace context.
+ * Paged (`limit` at most 16, `cursor`); the open workspace is never in it (its own live reads carry its boards).
+ */
+export const OFFICE_CAMPUS_BOARDS_VERSION = 1 as const;
+
+export interface CampusBoardSign {
+  style: string | null;
+  /** `#rrggbb` or null. */
+  color: string | null;
+  /** SHA-256 of the stored logo (fetched from `GET /office-spaces/buildings/{id}/logo` in that workspace), or null. */
+  logo_sha256: string | null;
+}
+
+export interface CampusBoardBuilding {
+  id: string;
+  name: string;
+  name_ar: string | null;
+  floors: number;
+  rooms: number;
+  sign: CampusBoardSign | null;
+}
+
+export interface CampusBoardRoom {
+  name: string;
+  name_ar: string | null;
+  kind: string;
+  team_department: string | null;
+  building_id: string;
+}
+
+export interface CampusBoardWork {
+  /** `connected`, or why there are no numbers (`not_connected`, `no_access`, `error`). */
+  source: string;
+  open: number | null;
+  waiting: number | null;
+  blocked: number | null;
+  /** The flow read was cut: the numbers are "at least". */
+  truncated: boolean;
+  by_building: Record<string, { open: number; waiting: number; blocked: number }>;
+}
+
+export type CampusBoard =
+  | {
+    workspace_id: string;
+    accessible: true;
+    as_of: string;
+    /** At most 16, by id. */
+    buildings: CampusBoardBuilding[];
+    buildings_total: number;
+    /** At most 60 rooms; `total` counts them all. */
+    rooms: { total: number; items: CampusBoardRoom[] };
+    departments: string[];
+    work: CampusBoardWork;
+  }
+  | { workspace_id: string; accessible: false };
+
+export interface CampusBoardsResponse {
+  version: typeof OFFICE_CAMPUS_BOARDS_VERSION;
+  tenant_id: string;
+  current_workspace_id: string;
+  generated_at: string;
+  next_cursor: string | null;
+  boards: CampusBoard[];
+}

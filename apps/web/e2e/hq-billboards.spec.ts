@@ -182,3 +182,105 @@ for (const [w, h] of SIZES) {
     await shot(page, `selected-${w}x${h}`);
   });
 }
+
+// ---- every building shows its own details (docs/ANUM_MINE_HQ_BILLBOARDS.md#every-building): the other workspaces' boards come from
+// GET /office/campus/boards (mocked with boardsFixture: Executive HQ with a logo and open work, Tyre Pulse HQ with zero open work,
+// ANUM360 Commerce unreadable, Personal Office without a registry).
+
+async function openAll(page: Page, { locale = 'en', boards = 'api' }: { locale?: 'en' | 'ar'; boards?: 'api' | 'failing' | 'slow' } = {}) {
+  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
+  await useSavedLocale(page, locale);
+  const mock = await mockHq(page, { layout: 'campus', campus: 'api', commerce: 'connected', tyre: 'connected', meetings: 'none', boards });
+  await mockFlow(page, items());
+  await page.goto('/#office-preview');
+  await sceneReady(page);
+  // The open workspace's four registry buildings and the five other workspaces.
+  await expect(hq(page).locator('.hqSceneWrap')).toHaveAttribute('data-billboards', '9', { timeout: 60_000 });
+  return mock;
+}
+
+async function focusOn(page: Page, name: RegExp, key: string) {
+  const button = hq(page).locator('.hqBuildingCard', { hasText: name }).first();
+  await button.focus();
+  await page.keyboard.press('Enter');
+  await expect(card(page, key)).toBeVisible();
+}
+
+test('every building shows its own open work, rooms, departments, logo and brand colour', async ({ page }) => {
+  const mock = await openAll(page);
+  await focusOn(page, /Executive HQ/, 'workspace_exec');
+  const exec = card(page, 'workspace_exec');
+  await expect(exec.locator('[data-field="work"] [data-part="open"] b')).toHaveText('4');
+  await expect(exec.locator('[data-field="work"] [data-part="waiting"] b')).toHaveText('1');
+  await expect(exec.locator('[data-field="work"] [data-part="blocked"] b')).toHaveText('1');
+  await expect(exec.locator('[data-field="workTime"]')).toContainText('Verified');
+  await expect(exec.locator('[data-field="departments"] dd')).toHaveText('Finance, Legal');
+  for (const room of ['Boardroom', 'Treasury', 'Counsel']) await expect(exec.locator('[data-field="roomNames"] dd')).toContainText(room);
+  // Zero is zero: Tyre Pulse HQ has no open work, and says 0, not Not connected.
+  await focusOn(page, /Tyre Pulse HQ/, 'workspace_tyre');
+  const tyre = card(page, 'workspace_tyre');
+  await expect(tyre.locator('[data-field="work"] [data-part="open"] b')).toHaveText('0');
+  await expect(tyre.locator('[data-field="roomNames"] dd')).toContainText('Workshop');
+  // A workspace the server could not read stays Not connected, never a zero.
+  await focusOn(page, /ANUM360 Commerce/, 'workspace_commerce');
+  await expect(card(page, 'workspace_commerce').locator('[data-field="work"] dd')).toHaveText('Not connected');
+  await expect(card(page, 'workspace_commerce').locator('[data-field="roomNames"] dd')).toHaveText('Not connected');
+  // A workspace with no registry yet says so.
+  await focusOn(page, /(?<!Founder )Personal Office/, 'workspace_personal');
+  await expect(card(page, 'workspace_personal').locator('[data-field="roomNames"] dd')).toHaveText('No rooms in the registry yet');
+  // The 3D signs and boards take the other workspaces' brand colours, and Executive HQ's logo, read in its own workspace.
+  const wrap = hq(page).locator('.hqSceneWrap');
+  await expect(wrap).toHaveAttribute('data-sign-brands', '2');
+  await expect(wrap).toHaveAttribute('data-sign-logos', '1', { timeout: 60_000 });
+  await expect(wrap).toHaveAttribute('data-board-logos', '1', { timeout: 60_000 });
+  await expect(wrap).toHaveAttribute('data-board-brands', '2');
+  expect(mock.boards.logos).toEqual([{ building: 'exec-tower', workspace: 'workspace_exec' }]);
+  await shot(page, 'all-buildings-1440');
+});
+
+test('a failed boards read says what failed and offers Try again; a slow one says Loading', async ({ page }) => {
+  const mock = await openAll(page, { boards: 'failing' });
+  await focusOn(page, /Executive HQ/, 'workspace_exec');
+  const exec = card(page, 'workspace_exec');
+  await expect(exec.locator('[data-field="work"] dd')).toContainText('Could not load this building');
+  await expect(exec.locator('[data-field="work"]')).toHaveAttribute('data-failed', 'true');
+  mock.boards.recover();
+  await exec.getByRole('button', { name: 'Try again' }).click();
+  await expect(exec.locator('[data-field="work"] [data-part="open"] b')).toHaveText('4');
+  await expect(exec.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+});
+
+test('a boards read in flight shows Loading, then the real values', async ({ page }) => {
+  const mock = await openAll(page, { boards: 'slow' });
+  await focusOn(page, /Executive HQ/, 'workspace_exec');
+  const exec = card(page, 'workspace_exec');
+  await expect(exec.locator('[data-field="work"] dd')).toHaveText('Loading');
+  await expect(exec.locator('[data-field="work"]')).toHaveAttribute('aria-busy', 'true');
+  await mock.boards.release();
+  await expect(exec.locator('[data-field="work"] [data-part="open"] b')).toHaveText('4');
+});
+
+for (const [w, h] of SIZES) {
+  for (const locale of ['en', 'ar'] as const) {
+    test(`another workspace's billboard fits ${w}x${h} in ${locale}: no sideways scroll, inside the stage, no axe violations`, async ({ page }) => {
+      await page.setViewportSize({ width: w, height: h });
+      await openAll(page, { locale });
+      await focusOn(page, /Executive HQ/, 'workspace_exec');
+      const exec = card(page, 'workspace_exec');
+      await expect(exec.locator('[data-field="work"] [data-part="open"] b')).toHaveText('4');
+      if (locale === 'ar') {
+        expect(await page.evaluate(() => document.documentElement.dir)).toBe('rtl');
+        await expect(exec.locator('[data-field="work"] [data-part="open"]')).toContainText('مهام مفتوحة');
+        if (w > 640) await expect(exec.locator('[data-field="roomNames"] dd')).toContainText('قاعة المجلس');
+      }
+      await noOverflow(page);
+      const stage = (await hq(page).locator('.hqSceneWrap').boundingBox())!;
+      const box = (await exec.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(stage.x - 1);
+      expect(box.x + box.width).toBeLessThanOrEqual(stage.x + stage.width + 1);
+      const results = await new AxeBuilder({ page }).include('.hqLive').withTags(['wcag2a', 'wcag2aa']).analyze();
+      expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
+      if (SHOTS) { mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: `${SHOTS}/all-${locale}-${w}x${h}.png` }); }
+    });
+  }
+}

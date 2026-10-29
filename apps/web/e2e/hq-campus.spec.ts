@@ -409,3 +409,27 @@ test('draw time stays low while the camera moves (measured on this machine)', as
   expect(Number(frames.triangles)).toBeGreaterThan(1000);
   expect(Number(frames.drawMs)).toBeLessThan(120);
 });
+
+// Every building shows its own details (docs/ANUM_MINE_HQ_BILLBOARDS.md#every-building): another workspace's billboard comes from the
+// campus boards read; the building cards and the counts of the campus read stay as they were.
+for (const locale of ['en', 'ar'] as const) {
+  test(`every building on the campus shows its own billboard details (${locale})`, async ({ page }) => {
+    await useSavedLocale(page, locale);
+    await openOffice(page, { campus: 'api', commerce: 'connected', meetings: 'live', boards: 'api' });
+    await sceneReady(page);
+    await expect(hq(page).getByRole('button', { name: /^Executive HQ\./ })).toBeAttached();
+    const execCard = hq(page).locator('.hqBuildingCard', { hasText: /Executive HQ/ }).first();
+    await execCard.focus();
+    await page.keyboard.press('Enter');
+    const board = hq(page).locator('[data-testid="hq-billboard"][data-building="workspace_exec"]');
+    await expect(board).toBeVisible();
+    await expect(board.locator('[data-field="work"] [data-part="open"] b')).toHaveText('4');
+    await expect(board.locator('[data-field="work"] [data-part="open"]')).toContainText(locale === 'ar' ? 'مهام مفتوحة' : 'Open tasks');
+    // The campus counts are untouched: the boards read adds details, never presence numbers.
+    await expect(board.locator('[data-field="presence"] dd').first()).toContainText(locale === 'ar' ? '5' : '5 agents');
+    // A workspace the campus cannot open is never read and keeps its honest text.
+    await expect(hq(page).locator('[data-testid="hq-billboard"][data-building="workspace_legal"]')).toHaveCount(0);
+    await expect(hq(page).locator('.hqSceneWrap')).toHaveAttribute('data-sign-brands', '2');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  });
+}

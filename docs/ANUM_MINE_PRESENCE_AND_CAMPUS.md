@@ -32,6 +32,9 @@ Shifts ([Green Concrete](ANUM_MINE_GREEN_CONCRETE.md#shifts)): an agent seated a
 
 `kind` and `icon` are null until an owner sets them; nothing is guessed. A workspace that fails to read is listed with `accessible: false`, `agents: null` and zero counts.
 
+### `GET /api/v1/office/campus/boards` (permission `task:read`)
+The billboard facts and signs of every other workspace the caller may read (open work counts, a rooms and departments summary, the owner's sign of each registry building), each read in that workspace's own tenant and workspace RLS context with the caller's role there. Paged (`limit` at most 16, `cursor`), cached 15 seconds per workspace, user and role, memberships read fresh every call. The open workspace is never in it. See [billboards: every building](ANUM_MINE_HQ_BILLBOARDS.md#every-building). Tests: `test_office_campus_boards.py`, `test_postgres_office_campus_boards.py`.
+
 ### `PUT /api/v1/office/campus/profile` (owner, `workspace:manage`)
 Body `{ "kind", "icon", "expected_revision"? }` for the **current** workspace. First save: no `expected_revision`. Later saves must send the current revision (409 when stale). Audited (`office.campus.profile`). Answers `{ workspace_id, kind, icon, revision }`.
 

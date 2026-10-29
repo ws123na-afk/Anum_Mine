@@ -373,3 +373,24 @@ for (const size of [SIZES[0], SIZES[4]] as const) {
     await shot(page, `campus-signs-alpha-ar-${label}`);
   });
 }
+
+// Another workspace's building takes the sign its owner set in that workspace (docs/ANUM_MINE_HQ_BILLBOARDS.md#every-building): the
+// campus boards read gives the sign, and the logo is read naming that workspace, so the API checks the person's membership there.
+for (const [size, locale] of [[SIZES[0], 'en'], [SIZES[4], 'ar']] as const) {
+  test(`another workspace's building shows its own logo and colour (${locale}, ${size[0]}x${size[1]})`, async ({ page }) => {
+    await page.setViewportSize({ width: size[0], height: size[1] });
+    const mock = await openHq(page, {
+      registry: signedRegistry({ sign: false, nameAr: locale === 'ar' }), locale, boards: 'api',
+      beforeGoto: async (p) => { await mockFlow(p); await mockProvisioning(p); },
+    });
+    await expect(stage(page)).toBeAttached({ timeout: 60_000 });
+    // Executive HQ (a logo and a colour) and Tyre Pulse HQ (a colour only); the open workspace's own buildings have no sign here.
+    await expect(stage(page)).toHaveAttribute('data-sign-brands', '2', { timeout: 60_000 });
+    await expect(stage(page)).toHaveAttribute('data-sign-logos', '1', { timeout: 60_000 });
+    await expect(stage(page)).toHaveAttribute('data-board-logos', '1', { timeout: 60_000 });
+    expect(mock.boards.logos).toEqual([{ building: 'exec-tower', workspace: 'workspace_exec' }]);
+    if (locale === 'ar') expect(await page.evaluate(() => document.documentElement.dir)).toBe('rtl');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    await shot(page, `campus-other-workspace-sign-${locale}-${size[0]}x${size[1]}`);
+  });
+}

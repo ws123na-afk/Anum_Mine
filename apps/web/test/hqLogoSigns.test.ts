@@ -213,3 +213,10 @@ test('the registry building record carries its sign into the scene and the campu
   // No sign: the campus object itself comes back.
   assert.equal(expandCampus(campus, 'w1', scene.slice(1, 2), null), campus);
 });
+
+test('another workspace\'s logo is fetched in that workspace (its id goes to the fetcher); the open workspace\'s without one', async () => {
+  const asked: Array<[string, string | undefined]> = [];
+  await loadLogos([{ id: 'ws_b', buildingId: 'b1', sha: 'cd'.repeat(32), x: 0, z: 0, workspaceId: 'ws_b' }, { id: 'own', buildingId: 'b2', sha: 'ef'.repeat(32), x: 1, z: 0 }],
+    new Map(), new AbortController().signal, async (id, _signal, workspaceId) => { asked.push([id, workspaceId]); return null; });
+  assert.deepEqual(asked.sort(), [['b1', 'ws_b'], ['b2', undefined]]);
+});

@@ -4,13 +4,15 @@
  * a Close button, the details are plain text in reading order, and the Open button enters the building. `lib/hqLabels.ts` decides the density through the wrapper's
  * `data-density`: full shows everything, compact the name and one line, dot only the board glyph; focus brings a parked card forward.
  */
-import { ArrowRight, X } from 'lucide-react';
+import { ArrowRight, RotateCw, X } from 'lucide-react';
 import { t } from '../lib/i18n.ts';
 import type { BillboardModel, BillboardRow } from './billboardModel.ts';
 import './hqBillboards.css';
 
 export function BillboardCard(props: {
   model: BillboardModel; selected: boolean; focused: boolean; onActivate: () => void; onOpen: () => void; onHover: (on: boolean) => void; onClose: () => void;
+  /** Read another workspace's boards again (shown only when a row's read failed). */
+  onRetry?: () => void;
 }) {
   const m = props.model;
   // A row without a heading (the verified time) belongs to the row before it.
@@ -47,7 +49,7 @@ export function BillboardCard(props: {
           {([['about', aboutGroups], ['live', liveGroups]] as const).map(([name, list]) => (
             <dl key={name} className="hqBbRows" data-col={name}>
               {list.map(({ row, times }, i) => (
-                <div key={i} className="hqBbRow" data-field={row.field} data-connected={row.connected ? 'true' : 'false'} data-stale={row.stale ? 'true' : 'false'}>
+                <div key={i} className="hqBbRow" data-field={row.field} data-connected={row.connected ? 'true' : 'false'} data-stale={row.stale ? 'true' : 'false'} data-loading={row.loading ? 'true' : undefined} data-failed={row.failed ? 'true' : undefined} aria-busy={row.loading ? true : undefined}>
                   <dt>{row.label}</dt>
                   <dd dir="auto" title={row.parts ? undefined : row.value}>{row.parts ? <span className="hqBbTotal">{row.value}</span> : row.value}
                     {row.parts && (
@@ -60,6 +62,9 @@ export function BillboardCard(props: {
             </dl>
           ))}
         </div>
+        {m.retry && props.onRetry && (
+          <button type="button" className="hqBbRetry" onClick={props.onRetry}><RotateCw aria-hidden="true" /><span>{m.retryLabel}</span></button>
+        )}
         {m.accessible
           ? <button type="button" className="hqBbOpen" aria-label={t('hqBillboard.openAria', { name: m.name })} onClick={props.onOpen}><span dir="auto">{m.openLabel}</span><ArrowRight aria-hidden="true" className="flip" /></button>
           : <p className="hqBbNote">{m.unavailableText}</p>}
