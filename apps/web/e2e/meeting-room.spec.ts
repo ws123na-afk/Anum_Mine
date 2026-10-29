@@ -292,8 +292,8 @@ test('Arabic: removing an agent asks and answers in Arabic', async ({ page }) =>
   const mock = createRoomMock();
   await mockRoom(page, mock);
   await page.goto('/#office/meeting/mtg_1');
-  await page.getByRole('button', { name: 'إزالة Omar من الاجتماع' }).click();
-  await expect(page.getByText('إزالة Omar؟ سيتوقف عن الكلام الآن ولا يمكنه العودة إلى هذا الاجتماع.')).toBeVisible();
+  await page.getByRole('button', { name: /^إزالة ⁨?Omar⁩? من الاجتماع$/ }).click();
+  await expect(page.getByText(/^إزالة ⁨?Omar⁩?؟ سيتوقف عن الكلام الآن ولا يمكنه العودة إلى هذا الاجتماع\.$/)).toBeVisible();
   await page.getByRole('button', { name: 'إزالة من الاجتماع' }).click();
   await expect(page.locator('[data-agent-left="true"]')).toContainText('غادر الاجتماع');
 });
