@@ -238,6 +238,7 @@ from .office_layout_history_api import router as office_layout_history_router
 from .workspace_admin import router as workspace_admin_router
 from .office_space_api import router as office_space_router
 from .office_campus_api import router as office_campus_router
+from .office_campus_boards import router as office_campus_boards_router
 from .office_presence_api import router as office_presence_router
 from .office_flow_api import router as office_flow_router
 from .office_provisioning_api import router as office_provisioning_router
@@ -447,6 +448,7 @@ app.include_router(office_layout_history_router)
 app.include_router(workspace_admin_router)
 app.include_router(office_space_router)
 app.include_router(office_campus_router)
+app.include_router(office_campus_boards_router)
 app.include_router(office_presence_router)
 app.include_router(office_flow_router)
 app.include_router(office_provisioning_router)

@@ -23,9 +23,13 @@ export const removeLogo = (buildingId: string, revision: number): Promise<Office
 export const saveLook = (buildingId: string, body: Pick<OfficeBuildingUpdate, 'expected_revision' | 'sign_style' | 'brand_color'>): Promise<OfficeBuilding> =>
   api.apiRequest<OfficeBuilding>(`${ROOT}/${enc(buildingId)}`, { method: 'PATCH', body: JSON.stringify(body) });
 
-/** The stored PNG, or null when the building has none (404). Revalidated with its ETag, so an unchanged logo costs a 304. */
-export async function fetchLogo(buildingId: string, signal?: AbortSignal): Promise<Blob | null> {
-  const response = await fetch(`${api.apiBaseUrl}${ROOT}/${enc(buildingId)}/logo`, { headers: await api.authHeaders(), cache: 'no-cache', signal });
+/**
+ * The stored PNG, or null when the building has none (404). Revalidated with its ETag, so an unchanged logo costs a 304. `workspaceId` reads
+ * a building of another of the person's workspaces: the request names that workspace, and the API checks the person's membership there.
+ */
+export async function fetchLogo(buildingId: string, signal?: AbortSignal, workspaceId?: string): Promise<Blob | null> {
+  const headers = { ...(await api.authHeaders()), ...(workspaceId ? { 'x-workspace-id': workspaceId } : {}) };
+  const response = await fetch(`${api.apiBaseUrl}${ROOT}/${enc(buildingId)}/logo`, { headers, cache: 'no-cache', signal });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`logo ${response.status}`);
   const blob = await response.blob();
