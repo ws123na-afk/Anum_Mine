@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CircleDot, Hand, Lock, LogIn, LogOut, Pause, Play, Square, Users, X } from 'lucide-react';
+import { CircleDot, Hand, Lock, LogIn, LogOut, Pause, Play, Square, UserMinus, Users, X } from 'lucide-react';
 import * as api from './lib/api';
 import { describeError } from './lib/errors';
 import { intlLocale, t, type MessageKey } from './lib/i18n';
 import {
-  TERMINAL, activeSpeakers, applyEvent, budgetUsed, draftFromMessage, initialState, isModelDraft, presentActors,
+  TERMINAL, activeSpeakers, applyEvent, budgetUsed, draftFromMessage, initialState, isModelDraft, presentActors, presentAgentIds,
   type MeetingBudget, type RoomEvent, type RoomState,
 } from './lib/liveMeeting';
 import { formatResetDate } from './lib/admin';
@@ -77,6 +77,7 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
   const [budgetFailed, setBudgetFailed] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [summaryError, setSummaryError] = useState('');
+  const [removing, setRemoving] = useState<string | null>(null);
 
   // First load: the stored room and transcript, then the live feed from the stored cursor.
   useEffect(() => {
@@ -165,6 +166,7 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
   const live = m.status === 'active' || m.status === 'paused';
   const speaking = replay ? [] : speakingNow;
   const present = presentActors(state);
+  const agentsHere = presentAgentIds(state.participants);
   const youPresent = present.includes(mine);
   const used = budgetUsed(state.meeting, state.messages.length);
   const blocked = budgetBlocks(budget);
@@ -235,11 +237,21 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
       <div className="mrMain">
         <ul className="mrSpeakers" aria-label={t('meetingRoom.agents')}>
           {agentIds.length === 0 && <li className="muted">{t('meetingRoom.noAgents')}</li>}
-          {agentIds.map((id) => <li key={id} className={speaking.includes(id) ? 'mrSpeaker mrIsSpeaking' : 'mrSpeaker'}>
-            <span className="mrAvatar" aria-hidden="true">{(who(id)[0] ?? '?').toUpperCase()}</span>
-            <span dir="auto">{who(id)}</span>
-            {speaking.includes(id) && <span className="mrSpeakTag" role="status">{t('meetingRoom.speaking', { name: who(id) })}</span>}
-          </li>)}
+          {agentIds.map((id) => {
+            const gone = !agentsHere.includes(id);
+            return <li key={id} className={`mrSpeaker${gone ? ' mrAgentLeft' : speaking.includes(id) ? ' mrIsSpeaking' : ''}${removing === id ? ' mrAsking' : ''}`} data-agent-left={gone ? 'true' : undefined}>
+              <span className="mrAvatar" aria-hidden="true">{(who(id)[0] ?? '?').toUpperCase()}</span>
+              <span dir="auto">{who(id)}</span>
+              {gone && <span className="muted mrLeftTag">{t('meetingRoom.agentLeft')}</span>}
+              {!gone && speaking.includes(id) && <span className="mrSpeakTag" role="status">{t('meetingRoom.speaking', { name: who(id) })}</span>}
+              {!gone && isOwner && live && !replay && (removing === id
+                ? <span className="mrRow mrRemoveAsk" role="group" aria-label={t('meetingRoom.removeAsk', { name: who(id) })}>
+                  <span className="mrHint">{t('meetingRoom.removeAsk', { name: who(id) })}</span>
+                  <button type="button" className="danger" disabled={busy} onClick={() => { setRemoving(null); void act(() => meetingRoomApi.removeAgent(meetingId, id), t('meetingRoom.removed', { name: who(id) })); }}>{t('meetingRoom.removeConfirm')}</button>
+                  <button type="button" className="secondary" onClick={() => setRemoving(null)}>{t('meetingRoom.cancel')}</button></span>
+                : <button type="button" className="secondary mrRemove" disabled={busy} aria-label={t('meetingRoom.removeAgent', { name: who(id) })} onClick={() => setRemoving(id)}><UserMinus aria-hidden="true" />{t('meetingRoom.remove')}</button>)}
+            </li>;
+          })}
         </ul>
 
         <section aria-labelledby="mr-transcript">
@@ -257,7 +269,7 @@ function Room({ workspaceId, meetingId, onClose }: { workspaceId: string; meetin
 
         {isOwner && live && <Composer disabled={busy} onSend={(text) => act(() => meetingRoomApi.say(meetingId, text))} />}
         {isOwner && m.status === 'active' && <div className="mrRow">
-          <button type="button" disabled={busy || blocked || speaking.length > 0 || agentIds.length === 0 || !!m.hand_raised_by} onClick={() => void act(() => meetingRoomApi.runTurn(meetingId))} title={blocked ? t('meetingRoom.budgetBlocked') : t('meetingRoom.runTurnHint')}>
+          <button type="button" disabled={busy || blocked || speaking.length > 0 || agentsHere.length === 0 || !!m.hand_raised_by} onClick={() => void act(() => meetingRoomApi.runTurn(meetingId))} title={blocked ? t('meetingRoom.budgetBlocked') : t('meetingRoom.runTurnHint')}>
             <Play aria-hidden="true" />{busy ? t('meetingRoom.busy') : t('meetingRoom.runTurn')}</button>
           <span className="muted mrHint">{t('meetingRoom.runTurnHint')}</span></div>}
         {!isOwner && live && <div className="mrRow">

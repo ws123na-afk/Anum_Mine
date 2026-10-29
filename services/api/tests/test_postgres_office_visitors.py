@@ -15,7 +15,7 @@ import pytest
 from conftest import APP_ROLE, TENANT_A, TENANT_B, WORKSPACE_A, WORKSPACE_B
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
-from test_postgres_office_hq import EXEC, OWNER_A, _scoped, headers, hq, seed_agent, seed_member, seed_office  # noqa: F401
+from test_postgres_office_hq import EXEC, OWNER_A, _scoped, headers, hq, run_sql, seed_agent, seed_member, seed_office  # noqa: F401
 from test_postgres_office_starter_campus import rows
 from test_postgres_control_plane import postgres_backend  # noqa: F401
 
@@ -250,3 +250,63 @@ def test_another_tenant_sees_and_changes_nothing(hq: TestClient, database_engine
         assert connection.execute(text("select count(*) from office_visitors")).scalar_one() == 1
         assert connection.execute(text("select purpose from office_visitors")).scalar_one() == PURPOSE
         tx.rollback()
+
+
+# --------------------------------------------------------------------------- host notification
+
+
+def _inbox(hq: TestClient, user_headers: dict[str, str]) -> list[dict]:
+    return ok(hq.get("/api/v1/notifications", headers=user_headers))["items"]
+
+
+def test_host_gets_one_in_app_notification_when_the_visitor_is_checked_in(hq: TestClient, database_engine: Engine) -> None:
+    host = headers(TENANT_A, WORKSPACE_A, EXEC, "viewer")
+    v = visit(hq, host_kind="user", host_id=EXEC)
+    assert _inbox(hq, host) == []  # an expected visit notifies nobody
+    inside = ok(move(hq, v, "check-in"))
+    notes = _inbox(hq, host)
+    assert len(notes) == 1
+    note = notes[0]
+    assert note["kind"] == "visitor_arrived" and note["title"] == "Your visitor is here"
+    assert note["body"] == f"{NAME} is checked in at reception."
+    assert COMPANY not in json.dumps(note) and PURPOSE not in json.dumps(note)
+    # In app only: never an email, never a phone push.
+    assert note["email_status"] == "not_requested" and note["push_status"] == "not_requested"
+    assert _inbox(hq, OWNER()) == []  # only the host can read it
+    ok(move(hq, inside, "check-out"))
+    assert len(_inbox(hq, host)) == 1  # a check out notifies nobody
+    # The event names ids only; the audit says the host was told, without the name.
+    events = rows(database_engine, "select subject, payload from domain_events where type = 'notification.created' and tenant_id = :t",
+                  t=TENANT_A)
+    assert len(events) == 1
+    payload = events[0][1] if isinstance(events[0][1], dict) else json.loads(events[0][1])
+    assert events[0][0] == note["id"]
+    assert payload == {"recipient": EXEC, "kind": "visitor_arrived", "work_item_id": None, "visitor_id": v["id"]}
+    audit = rows(database_engine, "select metadata from audit_records where action = 'office.visitor.check_in' and tenant_id = :t", t=TENANT_A)
+    meta = audit[0][0] if isinstance(audit[0][0], dict) else json.loads(audit[0][0])
+    assert meta["host_notified"] is True
+    blob = json.dumps([events, rows(database_engine, "select metadata from audit_records where tenant_id = :t", t=TENANT_A)], default=str)
+    assert NAME not in blob
+
+
+def test_walk_in_notifies_the_host_and_nobody_else_is_notified(hq: TestClient, database_engine: Engine) -> None:
+    host = headers(TENANT_A, WORKSPACE_A, EXEC, "viewer")
+    visit(hq, arrived=True, host_kind="user", host_id=EXEC)
+    assert [n["kind"] for n in _inbox(hq, host)] == ["visitor_arrived"]
+    # The owner who clicks is not told of their own click; an agent host and no host notify nobody.
+    seed_agent(database_engine, TENANT_A, WORKSPACE_A, "ag_host")
+    for extra in ({"host_kind": "user", "host_id": OWNER_A}, {"host_kind": "agent", "host_id": "ag_host"}, {}):
+        ok(move(hq, visit(hq, **extra), "check-in"))
+    assert len(_inbox(hq, host)) == 1 and _inbox(hq, OWNER()) == []
+    # A host who left the workspace after the visit was booked is not notified.
+    later = visit(hq, host_kind="user", host_id=EXEC)
+    run_sql(database_engine, "update workspace_memberships set active = false where tenant_id = :t and workspace_id = :w and user_id = :u",
+            t=TENANT_A, w=WORKSPACE_A, u=EXEC)
+    ok(move(hq, later, "check-in"))
+    run_sql(database_engine, "update workspace_memberships set active = true where tenant_id = :t and workspace_id = :w and user_id = :u",
+            t=TENANT_A, w=WORKSPACE_A, u=EXEC)
+    assert len(_inbox(hq, host)) == 1
+    flags = [m[0] if isinstance(m[0], dict) else json.loads(m[0]) for m in
+             rows(database_engine, "select metadata from audit_records where action in ('office.visitor.check_in', 'office.visitor.create') "
+                                   "and tenant_id = :t order by created_at", t=TENANT_A)]
+    assert [f.get("host_notified") for f in flags if f["status"] == "checked_in"].count(True) == 1

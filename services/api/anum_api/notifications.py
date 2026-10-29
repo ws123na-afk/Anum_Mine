@@ -76,12 +76,23 @@ def create_notification(
     body: str,
     work_item_id: str | None = None,
     email: str | None = None,
+    in_app_only: bool = False,
 ) -> UserNotification:
     """Store one notification for ``user_id`` in the caller's workspace.
 
     The caller is often someone else (an assignment notifies the assignee); the insert
     policy allows that, and only the recipient can read the row afterwards.
+
+    ``in_app_only``: the inbox row alone (web bell, phone Notifications screen), never an
+    email and never a phone push, whatever the recipient's switches say. Its kind must also
+    be in ``push.IN_APP_ONLY_KINDS`` so the ``notification.created`` event pushes nothing.
     """
+    if in_app_only:
+        return store.add_notification(context, UserNotification(
+            id=new_id("ntf"), user_id=user_id, kind=kind, title=title[:200], body=body[:1000],
+            work_item_id=work_item_id, email_status=EmailStatus.NOT_REQUESTED,
+            push_status=PushStatus.NOT_REQUESTED, created_at=utc_now(),
+        ))
     preferences = recipient_preferences(store, context, user_id)
     from .push import configured_account
 

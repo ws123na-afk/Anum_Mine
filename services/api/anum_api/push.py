@@ -451,6 +451,12 @@ def push_text(kind: PushKind, language: str | None) -> tuple[str, str]:
     """The fixed title and body of a kind in the phone's language (English when unknown)."""
     return (TEXT_AR if language == "ar" else TEXT)[kind]
 
+# Notification kinds that stay in the app (the inbox row and the web bell): their
+# ``notification.created`` event never becomes a phone push. A visitor checked in for a host
+# (docs/ANUM_MINE_HQ_RECEPTION.md#host-notification) is one: owner rule, no autonomous email,
+# SMS or push.
+IN_APP_ONLY_KINDS = frozenset({"visitor_arrived"})
+
 EVENT_KINDS: dict[str, PushKind] = {
     "approval.requested": PushKind.APPROVAL_REQUIRED,
     "agent_run.completed": PushKind.TASK_COMPLETED,
@@ -553,6 +559,8 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         item = event.payload.get("work_item_id")
         if not isinstance(recipient, str) or not recipient:
             return None
+        if event.payload.get("kind") in IN_APP_ONLY_KINDS:
+            return None  # the inbox row only, never a phone push
         if event.payload.get("kind") == "missed_call":
             return PushIntent(**{**common, "kind": PushKind.MISSED_CALL}, recipient=recipient)
         if event.payload.get("kind") == "finance_daily_report":

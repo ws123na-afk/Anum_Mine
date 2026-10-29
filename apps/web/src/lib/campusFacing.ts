@@ -49,6 +49,22 @@ export function leanOf(x: number, z: number, turn: QuarterTurn, cx = 0, cz = 0):
   return Math.atan2(Math.sin(d), Math.cos(d));
 }
 
+/**
+ * The lean of a building whose aim point is `side` metres along its front from the middle (its own frame: front on +z, negative is
+ * left): the front then points straight at the centre from that point instead of from the middle. A building whose entrance is off
+ * its middle (the warehouse's office annex) aims halfway to its door, so the middle and the doorway both look at the fountain. The
+ * point turns with the lean, so a few rounds settle it; the result stays within the quarter turn's 45 degrees either way.
+ */
+export function aimedLean(x: number, z: number, turn: QuarterTurn, side: number, cx = 0, cz = 0): number {
+  let yaw = leanOf(x, z, turn, cx, cz);
+  if (!side) return yaw;
+  for (let round = 0; round < 6; round++) {
+    const [ox, oz] = turnXZ(side, 0, turn, yaw);
+    yaw = leanOf(x + ox, z + oz, turn, cx, cz);
+  }
+  return Math.max(-Math.PI / 4, Math.min(Math.PI / 4, yaw));
+}
+
 /** Turns an offset (x, z) so its heading grows by `a` radians (heading as `facingAngle`: atan2(x, z)). */
 export function rotateXZ(x: number, z: number, a: number): [number, number] {
   if (!a) return [x, z];

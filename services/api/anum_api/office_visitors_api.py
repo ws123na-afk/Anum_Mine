@@ -16,7 +16,9 @@ Every write needs ``workspace:manage`` (an owner-level office write, like the of
 (a spoken or typed answer never changes the register and no registered agent tool calls these routes) and, for a
 change to an existing visit, the ``expected_revision`` the person was shown. Each write leaves one audit record with
 ids, statuses and counts only (never the visitor's name, company or purpose) and, after the commit, one
-``office.visitors_changed`` event with ids only. Times are server times.
+``office.visitors_changed`` event with ids only. Times are server times. A check in (or a walk-in) whose host is another
+active member of the workspace also leaves that host one in-app notification (``_notify_host``): the visitor's name is
+in the host's own inbox row only, never in audit, events or logs; no email, SMS or push.
 """
 from __future__ import annotations
 
@@ -254,6 +256,43 @@ def _record(session: Any, context: TenantContext, action: str, row: Any, events:
     events.append(repository.record_event(create_event(CanonicalEventName.OFFICE_VISITORS_CHANGED, context, r["id"], payload).event))
 
 
+HOST_NOTICE_KIND = "visitor_arrived"
+
+
+def host_notice_text(visitor_name: str) -> tuple[str, str]:
+    """Title and body of the host's notice: the visitor's name and nothing else (no company, no purpose)."""
+    return "Your visitor is here", f"{visitor_name} is checked in at reception."
+
+
+def _notify_host(session: Any, context: TenantContext, row: Any, events: list[Any]) -> bool:
+    """An in-app notification for the visit's host when the visitor is checked in (docs/ANUM_MINE_HQ_RECEPTION.md#host-notification).
+
+    Only a host who is a person and still an active member of this workspace, and never the person who made the click (they
+    saw it happen). The row is the host's own inbox entry (only they can read it, RLS) and carries the visitor's name; the
+    ``notification.created`` event carries ids only. No email, SMS or phone push: ``in_app_only`` and
+    ``push.IN_APP_ONLY_KINDS``. Same transaction as the check in, so both commit or neither does.
+    """
+    from .db.repository import SqlAlchemyRepository
+    from .db.team_repository import SqlAlchemyTeamStore
+    from .notifications import create_notification
+
+    r = row._mapping
+    host = r["host_id"]
+    if r["status"] != "checked_in" or r["host_kind"] != "user" or not host or host == context.user_id:
+        return False
+    active = session.execute(text("select 1 from workspace_memberships where tenant_id = :t and workspace_id = :w "
+                                  "and user_id = :h and active"), {**_scope(context), "h": host}).first()
+    if active is None:
+        return False
+    title, body = host_notice_text(r["visitor_name"])
+    notification = create_notification(SqlAlchemyTeamStore(session), context, user_id=host, kind=HOST_NOTICE_KIND,
+                                       title=title, body=body, in_app_only=True)
+    payload = {"recipient": host, "kind": HOST_NOTICE_KIND, "work_item_id": None, "visitor_id": r["id"]}
+    events.append(SqlAlchemyRepository(session).record_event(
+        create_event(CanonicalEventName.NOTIFICATION_CREATED, context, notification.id, payload).event))
+    return True
+
+
 def _writable(context: TenantContext, mode: str) -> None:
     require_permission(context, Permission.WORKSPACE_MANAGE)
     require_postgres()
@@ -392,7 +431,8 @@ def create_visit(body: VisitCreate, response: Response, context: TenantContext =
              "hk": body.host_kind, "h": body.host_id, "p": body.purpose, "e": body.expected_at,
              "ci": now if arrived else None, "s": "checked_in" if arrived else "expected", "u": context.user_id, "now": now})
         row = _reread(session, context, visit_id)
-        _record(session, context, "office.visitor.create", row, events, arrived=arrived)
+        notified = _notify_host(session, context, row, events) if arrived else False
+        _record(session, context, "office.visitor.create", row, events, arrived=arrived, host_notified=notified)
     event_runtime.after_commit(events)
     return _view(row)
 
@@ -458,7 +498,8 @@ def _move(context: TenantContext, visit_id: str, body: VisitMove, move: str) -> 
                              "updated_by = :u, updated_at = :now where tenant_id = :t and workspace_id = :w and id = :i"),
                         {**_scope(context), "i": visit_id, "s": target, "u": context.user_id, "now": utc_now()})
         row = _reread(session, context, visit_id)
-        _record(session, context, f"office.visitor.{move.replace('-', '_')}", row, events, previous_status=source)
+        extra: dict[str, Any] = {"host_notified": _notify_host(session, context, row, events)} if move == "check-in" else {}
+        _record(session, context, f"office.visitor.{move.replace('-', '_')}", row, events, previous_status=source, **extra)
     event_runtime.after_commit(events)
     return _view(row)
 

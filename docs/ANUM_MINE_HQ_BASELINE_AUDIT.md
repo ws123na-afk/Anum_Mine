@@ -12,7 +12,7 @@ see "What is deployed"). A plan is not implementation.
 Checked on main `40f05e8` by reading the files named here and the [feature completion matrix](ANUM_MINE_FEATURE_COMPLETION_MATRIX.md),
 which is the current audit and carries the evidence per requirement. The branches this audit listed as unmerged
 (`claude/hq-data`, `claude/hq-meetings`, `claude/hq-executive`) have landed: PRs 218 to 222, 242 to 244 and 246, and
-later HQ PRs up to 317. Migrations now run in one chain to `0120_record_retention`, and every file number is unique
+later HQ PRs up to 317. Migrations now run in one chain to `0121_meeting_agent_leave`, and every file number is unique
 (H-12 fixed by renaming the file `0099_office_room_geometry.py` to `0100_office_room_geometry.py`; revision ids unchanged).
 
 | Feature | 22 Oct | 29 Oct | Evidence on main | Still open (matrix row) |
