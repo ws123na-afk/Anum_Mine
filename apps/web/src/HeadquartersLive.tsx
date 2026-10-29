@@ -41,6 +41,7 @@ import { commandWall } from './lib/hqCommandWall.ts';
 import { resolveRoomModule } from './lib/hqRoomModule.ts';
 import { moduleBuildingKind } from './lib/hqBuildingModules.ts';
 import { HistoryLauncher } from './HqHistoryLauncher';
+import { HISTORY_LINK_EVENT, parseHistoryRef } from './lib/hqHistoryLink';
 import type { HistoryLaunch } from './HqHistoryPanel';
 import { useOfficeFlow } from './useOfficeFlow';
 import { useVisitorSummary } from './useVisitorSummary';
@@ -128,6 +129,12 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [historyLaunch, setHistoryLaunch] = useState<HistoryLaunch | null>(null);
   const launchCount = useRef(0);
   const openHistory = useCallback((scope: HistoryLaunch['scope'], tab?: HistoryLaunch['tab']) => { launchCount.current += 1; setHistoryLaunch({ id: launchCount.current, scope, tab }); }, []);
+  // "Show history" on a task, meeting or approval screen: the History panel (a lazy chunk) opens at that item's request.
+  useEffect(() => {
+    const show = (e: Event) => { const ref = parseHistoryRef((e as CustomEvent<unknown>).detail); if (ref) openHistory({ kind: 'record', ...ref }, 'timeline'); };
+    window.addEventListener(HISTORY_LINK_EVENT, show);
+    return () => window.removeEventListener(HISTORY_LINK_EVENT, show);
+  }, [openHistory]);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
   // Owner of this workspace (workspace:manage): only they are told to set a department; the server checks every write.
   const [canManage, setCanManage] = useState(false);

@@ -36,7 +36,11 @@ Where the records cannot say what the room looked like, the slider says **Cannot
 
 ## Export
 
-When the filters can be matched by the audit export, **Export these records (CSV)** downloads them. It is not offered for room or agent views or for the "Other" type.
+**Export these records (CSV)** and **Export as JSON** download every stored record that matches the view, not only the loaded ones. Room and agent views ask the server for only the records that name the room, its desks or the agent. You need the permission to export the audit log; without it the buttons say who can grant it.
+
+## Show history from a task, meeting or approval
+
+A task's side panel, the tasks and approvals on an agent's card, and the meeting held in a room each have a **Show history** button. It opens this panel at the request that created the item. When the item is named in more than one request, pick another one from the list. When nothing is stored about it yet, the panel says **No history recorded for this yet.**
 
 ## Who can do this
 

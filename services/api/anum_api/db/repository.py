@@ -1,8 +1,10 @@
+import json
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, case, func, not_, or_, select, tuple_
+from sqlalchemy import and_, case, cast, func, literal, not_, or_, select, tuple_
+from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.orm import Session
 
 from anum_api.approval_paging import ApprovalCursor, ApprovalFilter, ApprovalSummary
@@ -350,6 +352,21 @@ class SqlAlchemyRepository(AnumRepository):
                     AuditRecordRow.actor.icontains(audit_filter.text, autoescape=True),
                     AuditRecordRow.action.icontains(audit_filter.text, autoescape=True),
                     AuditRecordRow.target.icontains(audit_filter.text, autoescape=True),
+                )
+            )
+        if audit_filter.mentions:
+            ids = list(audit_filter.mentions)
+            # Any recorded value at any depth equal to one of the ids (a sequence comparison in
+            # SQL/JSON path is true when any pair matches). The ids are a bound parameter.
+            query = query.where(
+                or_(
+                    AuditRecordRow.actor.in_(ids),
+                    AuditRecordRow.target.in_(ids),
+                    func.jsonb_path_exists(
+                        AuditRecordRow.record_metadata,
+                        cast(literal("$.** ? (@ == $ids[*])"), JSONPATH),
+                        cast(literal(json.dumps({"ids": ids})), JSONB),
+                    ),
                 )
             )
         if after is not None:

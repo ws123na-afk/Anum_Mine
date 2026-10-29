@@ -1349,3 +1349,49 @@ def test_agent_controls_migration_is_expand_only_with_forced_rls_and_narrow_disc
     assert upgrade.count("grant ") == 1
     assert "grant select (tenant_id, engaged) on agent_emergency_stops to anum_maintenance" in upgrade
     assert "for select to anum_maintenance" in upgrade
+
+
+def _chain() -> dict[str, tuple[str, str | None]]:
+    """Every migration file: its revision id and down_revision, read from the file text."""
+    import re
+
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    out: dict[str, tuple[str, str | None]] = {}
+    for path in sorted(versions.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        revision = re.search(r'^revision\s*=\s*"([^"]+)"', text, re.M)
+        down = re.search(r'^down_revision\s*=\s*(?:"([^"]+)"|None)', text, re.M)
+        assert revision and down, path.name
+        out[path.name] = (revision.group(1), down.group(1))
+    return out
+
+
+def test_migration_files_have_unique_numbers_one_head_and_one_unbroken_chain() -> None:
+    chain = _chain()
+    numbers = [name.split("_", 1)[0] for name in chain]
+    assert len(numbers) == len(set(numbers)), sorted(n for n in numbers if numbers.count(n) > 1)
+    ids = {revision for revision, _ in chain.values()}
+    assert len(ids) == len(chain)
+    assert all(len(revision) <= 32 for revision in ids)
+    downs = [down for _, down in chain.values()]
+    assert downs.count(None) == 1
+    assert all(down in ids for down in downs if down is not None)
+    heads = ids - {down for down in downs if down is not None}
+    assert len(heads) == 1, heads
+    # Walking down from the head reaches every revision once: no branch, no gap.
+    by_id = {revision: down for revision, down in chain.values()}
+    seen, current = [], next(iter(heads))
+    while current is not None:
+        seen.append(current)
+        current = by_id[current]
+    assert len(seen) == len(ids)
+
+
+def test_room_geometry_file_rename_kept_its_revision_ids() -> None:
+    # Production databases store revision ids, not file names: the file moved from 0099 to 0100
+    # (finding H-12) and its ids stayed exactly as they were.
+    chain = _chain()
+    assert chain["0100_office_room_geometry.py"] == ("0100_office_room_geometry", "0099_office_create_keys")
+    assert chain["0099_office_create_keys.py"] == ("0099_office_create_keys", "0098_agent_live_meetings")
+    assert chain["0101_executive_grants.py"][1] == "0100_office_room_geometry"
+    assert "0099_office_room_geometry.py" not in chain

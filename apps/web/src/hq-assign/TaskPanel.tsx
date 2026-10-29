@@ -7,6 +7,7 @@ import { describeError } from '../lib/errors';
 import { formatDateTime, t } from '../lib/i18n';
 import { getTask, listTaskRuns } from '../lib/tasksApi';
 import { useLocale } from '../useLocale';
+import { ShowHistoryLink } from '../HqHistoryLauncher';
 import './hqAssign.css';
 
 export function TaskPanel({ taskId, agentName, onClose, onNavigate }: { taskId: string; agentName?: string; onClose: () => void; onNavigate: (hash: string) => void }) {
@@ -61,7 +62,8 @@ export function TaskPanel({ taskId, agentName, onClose, onNavigate }: { taskId: 
           {run.result && <><h4>{t('hqAssign.task.result')}</h4><p className="hqAsPre" dir="auto">{run.result}</p></>}
           {run.steps.length > 0 && <><h4>{t('hqAssign.task.steps')}</h4><ol className="hqAsSteps">{run.steps.slice(-8).map((s) => <li key={s.id}><code>{s.type}</code> {s.summary}</li>)}</ol></>}
         </>}
-        <div className="hqAsFoot"><button type="button" onClick={() => onNavigate('#tasks')}>{t('hqAssign.task.openTasks')}</button></div>
+        <div className="hqAsFoot"><button type="button" onClick={() => onNavigate('#tasks')}>{t('hqAssign.task.openTasks')}</button>
+          <ShowHistoryLink record={{ recordKind: 'task', id: task.id, label: task.title }} onOpen={onClose} /></div>
       </>}
     </div>
   </aside>, document.body);

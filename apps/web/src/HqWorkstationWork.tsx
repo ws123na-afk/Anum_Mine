@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { endpointMissing, loadDeskWork } from './lib/hqPresenceApi.ts';
 import { t } from './lib/i18n.ts';
 import type { OfficeWorkstationWork } from '@anum/contracts';
+import { ShowHistoryLink } from './HqHistoryLauncher';
 
 type State =
   | { kind: 'idle' }
@@ -82,6 +83,7 @@ export function WorkstationWork(props: Readonly<{ deskId: string | null; fallbac
                   </div>
                 ) : <p className="hqMuted">{t('hq.work.noRun')}</p>}
                 <a className="hqLink" href={'#tasks'}>{t('hq.work.openTasks')}</a>
+                <ShowHistoryLink record={{ recordKind: 'task', id: task.id, label: task.title ?? undefined }} />
               </details>
             </li>
           ))}
@@ -95,6 +97,7 @@ export function WorkstationWork(props: Readonly<{ deskId: string | null; fallbac
               <li key={a.id}>
                 <strong>{a.action ?? t('hq.work.untitled')}</strong>
                 <small>{a.risk_level}{a.expired ? ` · ${t('hq.work.expired')}` : ''}</small>
+                <ShowHistoryLink record={{ recordKind: 'approval', id: a.id, label: a.action ?? undefined }} />
               </li>
             ))}
           </ul>

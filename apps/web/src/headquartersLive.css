@@ -388,3 +388,9 @@
 .hqStatusRow { align-items: stretch; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-block-start: var(--d-s2); min-width: 0; position: relative; }
 .hqStatusRow > .hqFlowDock { flex: 1 1 320px; }
 .hqStatusReserve { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); flex: 0 0 auto; min-height: 40px; min-width: 240px; }
+
+/* "Show history" on a task, meeting or approval (HqHistoryLauncher.tsx ShowHistoryLink): opens the lazy History panel at the item's request. */
+.hqHistLink { align-items: center; align-self: flex-start; background: transparent; border: 1px solid var(--d-line); border-radius: 999px; color: inherit; cursor: pointer; display: inline-flex; font: inherit; font-size: var(--text-2xs); gap: 4px; min-height: 28px; padding: 0 var(--d-s3); }
+.hqHistLink:hover { border-color: var(--d-line-hover); }
+.hqHistLink svg { flex: none; height: 14px; width: 14px; }
+.hqTaskList .hqHistLink, .hqRoomMeeting .hqHistLink { display: flex; margin-block-start: var(--d-s1); width: fit-content; }

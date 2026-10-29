@@ -16,6 +16,7 @@ import csv
 import io
 import json
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -39,6 +40,8 @@ router = APIRouter(prefix="/api/v1", tags=["audit"])
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
 EXPORT_BATCH = 500
+# A room with its desks, or one agent: the History panel's narrowed export.
+MAX_MENTIONS = 100
 # Shown with the log and documented: nothing purges audit records.
 RETENTION = (
     "Audit records are kept for as long as the workspace exists, including after it is "
@@ -153,7 +156,12 @@ def audit_filter(
     since: datetime | None = Query(default=None, description="Inclusive; ISO 8601, UTC if no offset"),
     until: datetime | None = Query(default=None, description="Exclusive; ISO 8601, UTC if no offset"),
     q: str | None = Query(default=None, max_length=200, description="Text in actor, action or target"),
+    mention: list[str] | None = Query(
+        default=None,
+        description="Repeatable: keep records whose actor, target or any recorded value equals one of these ids",
+    ),
 ) -> AuditFilter:
+    mentions = _mentions(mention)
     result = AuditFilter(
         actor=_blank_to_none(actor),
         action=_blank_to_none(action),
@@ -163,6 +171,7 @@ def audit_filter(
         since=_aware(since),
         until=_aware(until),
         text=_blank_to_none(q),
+        mentions=mentions,
     )
     if result.since is not None and result.until is not None and result.since >= result.until:
         raise HTTPException(
@@ -170,6 +179,21 @@ def audit_filter(
             detail="The start of the date range must be before its end",
         )
     return result
+
+
+def _mentions(values: list[str] | None) -> tuple[str, ...]:
+    """Distinct, non-blank ids in the order given; too many or too long is refused (422)."""
+    out: list[str] = []
+    for value in values or ():
+        value = value.strip()
+        if not value or value in out:
+            continue
+        if len(value) > 200:
+            raise HTTPException(status_code=422, detail="Each id in mention must be at most 200 characters")
+        out.append(value)
+    if len(out) > MAX_MENTIONS:
+        raise HTTPException(status_code=422, detail=f"At most {MAX_MENTIONS} ids may be given in mention")
+    return tuple(out)
 
 
 def _require_reader(context: TenantContext, permission: Permission) -> None:
@@ -293,16 +317,7 @@ async def export_audit(
     """
     _require_reader(context, Permission.AUDIT_EXPORT)
     now = utc_now()
-    pinned = filters if filters.until is not None and filters.until <= now else AuditFilter(
-        actor=filters.actor,
-        action=filters.action,
-        target=filters.target,
-        outcome=filters.outcome,
-        correlation_id=filters.correlation_id,
-        since=filters.since,
-        until=now,
-        text=filters.text,
-    )
+    pinned = filters if filters.until is not None and filters.until <= now else replace(filters, until=now)
     repository.record_audit(
         AuditRecord(
             id=new_id("audit"),

@@ -7,6 +7,7 @@ import { RoomModuleAction } from './HqRoomModule';
 import type { WallModel } from './lib/hqCommandWall.ts';
 import { statusLabel } from './HqChrome';
 import { WorkstationWork } from './HqWorkstationWork';
+import { ShowHistoryLink } from './HqHistoryLauncher';
 import type { RoomGeometry, SceneDesk } from './lib/headquartersProjection.ts';
 import { presenceForDesk, type HqAgentPresence, type HqPresenceIndex, type RoomMeeting } from './lib/hqPresence.ts';
 import { profileHash } from './lib/orgChart.ts';
@@ -136,6 +137,7 @@ export function RoomMeetingSection({ meeting, presence }: Readonly<{ meeting: Ro
         </ul>}
       {meeting.people > 0 && <p className="hqNote">{t('hq.room.meeting.people', { count: meeting.people })}</p>}
       {(meeting.leftPeople ?? 0) > 0 && <p className="hqNote" data-testid="room-meeting-people-left">{t('hq.room.meeting.peopleLeft', { count: meeting.leftPeople ?? 0 })}</p>}
+      <ShowHistoryLink record={{ recordKind: 'meeting', id: meeting.meetingId, label: meeting.title || undefined }} />
     </section>
   );
 }
