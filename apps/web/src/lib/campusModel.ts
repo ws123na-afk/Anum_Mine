@@ -20,7 +20,24 @@ export type CampusTotals = Readonly<{
 }>;
 
 /** The owner's sign for a registry building (docs/ANUM_MINE_HQ_LOGO_SIGNS.md): the style and brand colour, and the hash of the uploaded logo (null: no logo). */
-export type BuildingSign = Readonly<{ buildingId: string; style: string | null; color: string | null; logoSha256: string | null }>;
+export type BuildingSign = Readonly<{
+  buildingId: string; style: string | null; color: string | null; logoSha256: string | null;
+  /** Set when the registry building belongs to another workspace than the open one: its logo is read in that workspace (`x-workspace-id`). */
+  workspaceId?: string;
+}>;
+
+/** One registry room of another workspace, as its campus board read gives it (docs/ANUM_MINE_HQ_BILLBOARDS.md#every-building). */
+export type RemoteRoom = Readonly<{ label: string; labelAr: string | null; kind: string; teamDepartment: string | null }>;
+/** Open work of another workspace's building, from its own flow (null numbers when the source is not connected). */
+export type RemoteWork = Readonly<{ source: string; open: number | null; waiting: number | null; blocked: number | null; truncated: boolean }>;
+/**
+ * What the campus boards read (`GET /office/campus/boards`) says about another workspace's building. `status` is the read's own state;
+ * `board` is null until a first answer, when the workspace was not in it, or when it could not be read (`accessible` false).
+ */
+export type RemoteBoardFacts = Readonly<{
+  status: 'loading' | 'ready' | 'error' | 'unsupported';
+  board: Readonly<{ asOf: string | null; rooms: readonly RemoteRoom[]; roomsTotal: number; departments: readonly string[]; work: RemoteWork }> | null;
+}>;
 
 export type CampusBuilding = Readonly<{
   workspace_id: string;
@@ -55,6 +72,8 @@ export type CampusBuilding = Readonly<{
   registryBuildingId?: string;
   /** The sign the owner set up for this building's registry record; absent when none of style, colour or logo is set. */
   sign?: BuildingSign;
+  /** Another workspace's building: its board facts from the campus boards read. Absent on the open workspace's buildings. */
+  remote?: RemoteBoardFacts;
   /** The workspace's own name, shown on a registry building's card so it is never mistaken for another workspace. */
   workspaceName?: string;
   /** Initials of the agents assigned to desks in this building and their departments (real assignments and presence only). */

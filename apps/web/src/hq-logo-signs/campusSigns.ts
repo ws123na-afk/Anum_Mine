@@ -17,7 +17,8 @@ export const LOGO_EDGE = 256;
 const CONCURRENCY = 3;
 
 export type Logo = Readonly<{ image: ImageBitmap; width: number; height: number }>;
-export type LogoTarget = Readonly<{ id: string; buildingId: string; sha: string; x: number; z: number }>;
+/** `workspaceId` is set for another workspace's building: its logo is read in that workspace, with the person's own membership there. */
+export type LogoTarget = Readonly<{ id: string; buildingId: string; sha: string; x: number; z: number; workspaceId?: string }>;
 
 /** The logos to load: the buildings that have one, nearest to `focus` first, at most `cap`. Pure. */
 export function pickLogoTargets(candidates: readonly LogoTarget[], focus: Readonly<{ x: number; z: number }>, cap: number = MAX_LOGOS): LogoTarget[] {
@@ -42,9 +43,9 @@ async function bitmapOf(blob: Blob): Promise<Logo> {
   return { image: small, width, height };
 }
 
-export type Fetcher = (buildingId: string, signal?: AbortSignal) => Promise<Blob | null>;
+export type Fetcher = (buildingId: string, signal?: AbortSignal, workspaceId?: string) => Promise<Blob | null>;
 /** The real fetcher is imported on first use, so the pure parts of this module load without the API client. */
-const defaultFetcher: Fetcher = async (buildingId, signal) => (await import('./logoClient.ts')).fetchLogo(buildingId, signal);
+const defaultFetcher: Fetcher = async (buildingId, signal, workspaceId) => (await import('./logoClient.ts')).fetchLogo(buildingId, signal, workspaceId);
 
 /**
  * Loads the logos of `targets`, reusing the ones already decoded in `previous` (same building and hash). Returns the new map and closes
@@ -60,7 +61,7 @@ export async function loadLogos(targets: readonly LogoTarget[], previous: Readon
     while (cursor < todo.length && !signal.aborted) {
       const [key, target] = todo[cursor++];
       try {
-        const blob = await fetcher(target.buildingId, signal);
+        const blob = await fetcher(target.buildingId, signal, target.workspaceId);
         if (!blob || signal.aborted) continue;
         next.set(key, await bitmapOf(blob));
       } catch { /* the lettered sign stays: a missing or unreadable logo is never an error on the campus */ }

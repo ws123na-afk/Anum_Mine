@@ -56,10 +56,10 @@ export async function mockOfficeSpaces(
 import { mockHq } from './hqCampusApi';
 import { mockOrgChart } from './orgChartApi';
 
-export interface OpenHqOptions { meetingRoomId?: string | null; registry?: ReturnType<typeof hqRegistry>; locale?: 'en' | 'ar'; theme?: 'light' | 'dark'; noWebgl?: boolean; reducedMotion?: boolean; stream?: 'unsupported' | 'live' | 'blocked' | 'down' | 'denied'; presence?: 'api' | 'missing'; beforeGoto?: (page: Page) => Promise<void> }
+export interface OpenHqOptions { meetingRoomId?: string | null; registry?: ReturnType<typeof hqRegistry>; locale?: 'en' | 'ar'; theme?: 'light' | 'dark'; noWebgl?: boolean; reducedMotion?: boolean; stream?: 'unsupported' | 'live' | 'blocked' | 'down' | 'denied'; presence?: 'api' | 'missing'; boards?: 'missing' | 'api' | 'failing' | 'slow'; beforeGoto?: (page: Page) => Promise<void> }
 
 /** Opens the authenticated headquarters (#office-preview) with the shell, the campus and the registry mocked. */
-export async function openHq(page: Page, options: OpenHqOptions = {}): Promise<HqMock & { meeting: { active: boolean; roomId: string | null; created: Array<Record<string, unknown>> }; stream: Awaited<ReturnType<typeof mockHq>>['stream'] }> {
+export async function openHq(page: Page, options: OpenHqOptions = {}): Promise<HqMock & { meeting: { active: boolean; roomId: string | null; created: Array<Record<string, unknown>> }; stream: Awaited<ReturnType<typeof mockHq>>['stream']; boards: Awaited<ReturnType<typeof mockHq>>['boards'] }> {
   if (options.locale || options.theme) {
     await page.addInitScript(({ locale, theme }) => {
       try {
@@ -80,10 +80,10 @@ export async function openHq(page: Page, options: OpenHqOptions = {}): Promise<H
   if (options.reducedMotion) await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
   await mockOrgChart(page);
-  const hq = await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live', meetingRoomId: options.meetingRoomId ?? null, stream: options.stream, presence: options.presence });
+  const hq = await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live', meetingRoomId: options.meetingRoomId ?? null, stream: options.stream, presence: options.presence, boards: options.boards });
   // The registry the office reads is the tenant-aware one (the same routes, registered last so it answers first).
   const mock = await mockOfficeSpaces(page, { registries: { [TENANT_A.tenantId]: options.registry ?? hqRegistry(TENANT_A, { rooms: 4, desks: 4, agentIds: ['agent_fleet', 'agent_leads', 'agent_care', 'agent_invoice'] }) } });
   await options.beforeGoto?.(page);
   await page.goto('/#office-preview');
-  return Object.assign(mock, { meeting: hq.meeting, stream: hq.stream });
+  return Object.assign(mock, { meeting: hq.meeting, stream: hq.stream, boards: hq.boards });
 }

@@ -7,7 +7,7 @@
  * reads the model through a recording proxy and fails when it touches a property outside `BILLBOARD_READS`.
  */
 import type { OfficeFlowSnapshot } from '@anum/contracts';
-import type { CampusBuilding, CampusBuildingKind, CampusTotals, StatusKey } from '../lib/campusModel.ts';
+import type { CampusBuilding, CampusBuildingKind, CampusTotals, RemoteBoardFacts, StatusKey } from '../lib/campusModel.ts';
 import { STATUS_ORDER, buildingStatus, workspaceOf } from '../lib/campusModel.ts';
 import type { PlanInput } from '../lib/hqPlanFrame.ts';
 import { departmentText } from '../lib/hqLabelModel.ts';
@@ -45,12 +45,12 @@ export const BILLBOARD_FIELDS = [
   { id: 'purpose', source: 'a fixed sentence per building kind (hqBillboard.purpose.*), never a claim about activity' },
   { id: 'floors', source: 'CampusBuilding.floors (office registry floors of the building)' },
   { id: 'roomCount', source: 'CampusBuilding.rooms, else the rooms of the building\'s floor plan' },
-  { id: 'departments', source: 'room.teamDepartment of the building\'s registry rooms (only departments the catalogue names)' },
-  { id: 'roomNames', source: 'room.label and labelAr of the building\'s registry rooms' },
+  { id: 'departments', source: 'room.teamDepartment of the building\'s registry rooms (only departments the catalogue names); another workspace: CampusBuilding.remote.board.departments' },
+  { id: 'roomNames', source: 'room.label and labelAr of the building\'s registry rooms; another workspace: CampusBuilding.remote.board.rooms and roomsTotal' },
   { id: 'presence', source: 'CampusBuilding.totals (campus endpoint or the presence index), agents by state' },
   { id: 'presenceTime', source: 'CampusBuilding.presence_verified_at' },
-  { id: 'work', source: 'OfficeFlowSnapshot task items located in the building (location.building_id, stage, waiting), tasks source connected' },
-  { id: 'workTime', source: 'OfficeFlowSnapshot.as_of, and the flow read status' },
+  { id: 'work', source: 'OfficeFlowSnapshot task items located in the building (location.building_id, stage, waiting), tasks source connected; another workspace: CampusBuilding.remote.board.work (its own flow, read in its own context)' },
+  { id: 'workTime', source: 'OfficeFlowSnapshot.as_of, and the flow read status; another workspace: CampusBuilding.remote.board.asOf and the boards read status' },
   { id: 'brand', source: 'CampusBuilding.sign.color (the owner\'s brand colour of the building\'s sign), the header band and accent rule of the 3D board when it passes the contrast check' },
   { id: 'logo', source: 'CampusBuilding.sign.logoSha256 and sign.buildingId: the owner\'s uploaded logo, fetched from the authenticated logo route and drawn in the header of the 3D board' },
   { id: 'icons', source: 'room.teamDepartment of the building\'s registry rooms, else room.kind: drawn as icons of the one HQ icon set (lib/hqIcons.ts)' },
@@ -70,6 +70,11 @@ export const BILLBOARD_READS: readonly string[] = [
   'flow.status', 'flow.snapshot', 'flow.snapshot.sources', 'flow.snapshot.sources.tasks', 'flow.snapshot.items', 'flow.snapshot.items[]',
   'flow.snapshot.items[].kind', 'flow.snapshot.items[].stage', 'flow.snapshot.items[].waiting', 'flow.snapshot.items[].location',
   'flow.snapshot.items[].location.building_id', 'flow.snapshot.truncated', 'flow.snapshot.as_of',
+  'building.remote', 'building.remote.status', 'building.remote.board', 'building.remote.board.asOf', 'building.remote.board.rooms', 'building.remote.board.rooms[]',
+  'building.remote.board.rooms[].label', 'building.remote.board.rooms[].labelAr', 'building.remote.board.rooms[].kind', 'building.remote.board.rooms[].teamDepartment',
+  'building.remote.board.roomsTotal', 'building.remote.board.departments', 'building.remote.board.departments[]', 'building.remote.board.work',
+  'building.remote.board.work.source', 'building.remote.board.work.open', 'building.remote.board.work.waiting', 'building.remote.board.work.blocked',
+  'building.remote.board.work.truncated',
 ];
 
 export type BillboardFlow = Readonly<{ status: 'loading' | 'ready' | 'error' | 'denied'; snapshot: OfficeFlowSnapshot | null }>;
@@ -98,6 +103,10 @@ export type BillboardRow = Readonly<{
   /** False when the value is the "Not connected" (or "No access") text. */
   connected: boolean;
   stale?: boolean;
+  /** The value is the "Loading" text of a read still in flight. */
+  loading?: boolean;
+  /** The read behind this row failed: the card offers Try again. */
+  failed?: boolean;
   parts?: readonly BillboardPart[];
 }>;
 
@@ -118,6 +127,9 @@ export type BillboardModel = Readonly<{
   /** One icon per department of the building's registry rooms (a room without a known department gives its kind), at most `ICON_LIMIT`. */
   icons: readonly IconKey[];
   rows: readonly BillboardRow[];
+  /** True when a row's read failed and the card should offer Try again (another workspace's boards read). */
+  retry: boolean;
+  retryLabel: string;
   openLabel: string;
   unavailableText: string;
 }>;
@@ -133,14 +145,33 @@ export function presenceParts(totals: CampusTotals, tr: Translate): BillboardPar
   return STATUS_ORDER.filter((key) => key === 'working' || (totals[key] ?? 0) > 0).map((key) => ({ key, label: label(key), value: String(totals[key] ?? 0) }));
 }
 
-type Work = Readonly<{ state: 'ok'; open: number; waiting: number; blocked: number; atLeast: boolean; asOf: string | null; stale: boolean }> | Readonly<{ state: 'not_connected' | 'no_access' }>;
+type Work = Readonly<{ state: 'ok'; open: number; waiting: number; blocked: number; atLeast: boolean; asOf: string | null; stale: boolean }> | Readonly<{ state: 'not_connected' | 'no_access' | 'loading' | 'error' }>;
+
+const count = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+
+/**
+ * Open work of another workspace's building: its own flow, read on the server in that workspace's context (`GET /office/campus/boards`).
+ * No answer yet says loading, a failed first read says error (the card offers Try again), a workspace that was not in the answer or could not
+ * be read is "not connected", and an older answer kept after a failed read (or older than the stale window) is called stale.
+ */
+export function remoteWorkOf(remote: RemoteBoardFacts | undefined, now?: number): Work {
+  if (!remote) return { state: 'not_connected' };
+  const board = remote.board;
+  if (!board) return remote.status === 'loading' ? { state: 'loading' } : remote.status === 'error' ? { state: 'error' } : { state: 'not_connected' };
+  const w = board.work;
+  if (w.source === 'no_access') return { state: 'no_access' };
+  if (w.source !== 'connected' || !count(w.open) || !count(w.waiting) || !count(w.blocked)) return { state: 'not_connected' };
+  const asOf = isTime(board.asOf) ? board.asOf : null;
+  const old = asOf !== null && now !== undefined && now - Date.parse(asOf) > BILLBOARD_STALE_MS;
+  return { state: 'ok', open: w.open, waiting: w.waiting, blocked: w.blocked, atLeast: w.truncated === true, asOf, stale: remote.status === 'error' || old };
+}
 
 /**
  * Open work of one building from the live flow read: task items that a record placed in one of its rooms and that are not done.
  * Only the open workspace has a flow, so any other building is "not connected"; so is a flow that did not answer or whose tasks source is down.
  */
-export function workOf(building: CampusBuilding, flow: BillboardFlow | null | undefined, currentWorkspaceId: string): Work {
-  if (workspaceOf(building) !== currentWorkspaceId) return { state: 'not_connected' };
+export function workOf(building: CampusBuilding, flow: BillboardFlow | null | undefined, currentWorkspaceId: string, now?: number): Work {
+  if (workspaceOf(building) !== currentWorkspaceId) return remoteWorkOf(building.remote, now);
   if (!flow) return { state: 'not_connected' };
   if (flow.status === 'denied') return { state: 'no_access' };
   const snap = flow.snapshot;
@@ -174,6 +205,13 @@ function roomsOf(plan: BillboardInput['plan']): RoomFacts[] {
 
 const unique = (list: readonly string[]): string[] => [...new Set(list)];
 
+/** Another workspace's rooms as a one-floor plan (only the fields the billboard reads), or null without an answer. */
+function remotePlan(remote: RemoteBoardFacts | undefined): BillboardInput['plan'] {
+  const board = remote?.board;
+  if (!board) return null;
+  return { floors: [{ rooms: board.rooms.map((r) => ({ label: r.label, labelAr: r.labelAr, kind: r.kind, teamDepartment: r.teamDepartment })) }] } as unknown as BillboardInput['plan'];
+}
+
 /** The model of one billboard. */
 export function billboardModel(input: BillboardInput): BillboardModel {
   const locale = input.locale ?? getLocale();
@@ -182,6 +220,12 @@ export function billboardModel(input: BillboardInput): BillboardModel {
   const name = sceneName(b, locale);
   const kindText = b.kindKnown === false ? null : tr(KIND_KEYS[b.kind] ?? 'hq.kind.unset');
   const rows: BillboardRow[] = [];
+  const remote = workspaceOf(b) !== input.currentWorkspaceId ? b.remote : undefined;
+  const board = remote?.board ?? null;
+  const pending = (field: BillboardFieldId, label: string | null): BillboardRow | null => (
+    remote && !board && remote.status === 'loading' ? { field, label, value: tr('hqBillboard.loading'), connected: false, loading: true }
+      : remote && !board && remote.status === 'error' ? { field, label, value: tr('hqBillboard.loadError'), connected: false, failed: true } : null
+  );
   const notConnected = (field: BillboardFieldId, label: string | null, noAccess = false): BillboardRow => (
     { field, label, value: tr(noAccess ? 'hqBillboard.noAccess' : 'hqBillboard.notConnected'), connected: false }
   );
@@ -190,31 +234,36 @@ export function billboardModel(input: BillboardInput): BillboardModel {
   rows.push({ field: 'purpose', label: tr('hqBillboard.label.about'), value: tr(b.kindKnown === false ? 'hqBillboard.purpose.unset' : (PURPOSE_KEYS[b.kind] ?? 'hqBillboard.purpose.unset')), connected: true });
 
   // Size: floors and rooms of the registry.
-  const rooms = roomsOf(input.plan);
-  const roomCount = typeof b.rooms === 'number' ? b.rooms : input.plan ? rooms.length : null;
+  const plan = input.plan ?? remotePlan(remote);
+  const rooms = roomsOf(plan);
+  const roomCount = typeof b.rooms === 'number' ? b.rooms : board ? board.roomsTotal : plan ? rooms.length : null;
   const size: string[] = [];
   if (typeof b.floors === 'number') size.push(tr('hq.building.floors', { count: b.floors }));
   if (roomCount !== null) size.push(tr('hqNav.card.rooms', { count: roomCount }));
   rows.push(size.length ? { field: typeof b.floors === 'number' ? 'floors' : 'roomCount', label: tr('hqBillboard.label.size'), value: size.join(' · '), connected: true } : notConnected('floors', tr('hqBillboard.label.size')));
 
   // Departments and room names come from the registry rooms of this building only.
-  if (input.plan) {
-    const departments = unique(rooms.map((r) => departmentText(r.department, tr)).filter((d): d is string => d !== null));
+  if (plan) {
+    // Another workspace's departments come from all its rooms (the server lists them apart from the first rooms it sends).
+    const source = !input.plan && board ? board.departments : rooms.map((r) => r.department);
+    const departments = unique(source.map((d) => departmentText(d, tr)).filter((d): d is string => d !== null));
     if (departments.length) {
       const shown = departments.slice(0, DEPARTMENT_LIMIT);
       const more = departments.length - shown.length;
       rows.push({ field: 'departments', label: tr('hqBillboard.label.departments'), value: [...shown, ...(more > 0 ? [tr('hqBillboard.more', { count: more })] : [])].join(', '), connected: true });
     }
     const names = unique(rooms.map((r) => roomName({ label: r.label, labelAr: r.labelAr }, locale)));
+    // Rooms the server did not send (past its first 60) are counted in "+N more", never named.
+    const unsent = !input.plan && board ? Math.max(0, board.roomsTotal - board.rooms.length) : 0;
     if (names.length) {
       const shown = names.slice(0, ROOM_NAME_LIMIT);
-      const more = names.length - shown.length;
+      const more = names.length - shown.length + unsent;
       rows.push({ field: 'roomNames', label: tr('hqBillboard.label.rooms'), value: [...shown, ...(more > 0 ? [tr('hqBillboard.more', { count: more })] : [])].join(', '), connected: true });
     } else {
       rows.push({ field: 'roomNames', label: tr('hqBillboard.label.rooms'), value: tr('hqBillboard.noRooms'), connected: true });
     }
   } else {
-    rows.push(notConnected('roomNames', tr('hqBillboard.label.rooms')));
+    rows.push(pending('roomNames', tr('hqBillboard.label.rooms')) ?? notConnected('roomNames', tr('hqBillboard.label.rooms')));
   }
 
   // Presence: the counts the campus panel shows, with the same verified time and a stale mark.
@@ -240,8 +289,9 @@ export function billboardModel(input: BillboardInput): BillboardModel {
   }
 
   // Open work from the live flow.
-  const work = workOf(b, input.flow, input.currentWorkspaceId);
-  if (work.state !== 'ok') rows.push(notConnected('work', tr('hqBillboard.label.work'), work.state === 'no_access'));
+  const work = workOf(b, input.flow, input.currentWorkspaceId, input.now);
+  if (work.state === 'loading' || work.state === 'error') rows.push(pending('work', tr('hqBillboard.label.work'))!);
+  else if (work.state !== 'ok') rows.push(notConnected('work', tr('hqBillboard.label.work'), work.state === 'no_access'));
   else {
     const n = (v: number) => (work.atLeast ? `${v}+` : String(v));
     rows.push({
@@ -264,7 +314,7 @@ export function billboardModel(input: BillboardInput): BillboardModel {
   const icons = [...keys.filter((k) => k.startsWith('dept:')), ...keys.filter((k) => k.startsWith('kind:'))].slice(0, ICON_LIMIT) as IconKey[];
   return {
     id: b.workspace_id, name, kindText, kind: b.kind, summary, status: buildingStatus(b), accessible: b.accessible, brand, logo, icons, rows,
-    openLabel: tr('hqBillboard.open'), unavailableText: tr('hqBillboard.unavailable'),
+    retry: rows.some((r) => r.failed), retryLabel: tr('hqBillboard.retry'), openLabel: tr('hqBillboard.open'), unavailableText: tr('hqBillboard.unavailable'),
   };
 }
 

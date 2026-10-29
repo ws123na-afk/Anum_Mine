@@ -1,6 +1,6 @@
 # ANUM MINE headquarters: building billboards
 
-Date: 26 October 2026, updated 27 October 2026 (quiet campus and live boards; then boards, signs and labels: brand header, logo, department icons, near and far faces, cheap boards on the lowest tier). Web only (`apps/web`). No API, contract or migration change.
+Date: 26 October 2026, updated 27 October 2026 (quiet campus and live boards; then boards, signs and labels: brand header, logo, department icons, near and far faces, cheap boards on the lowest tier). Web only (`apps/web`). Updated 29 October 2026: every building shows its own details (an API read and a contract addition, no migration; see [Every building](#every-building)).
 
 The owner asked that each building around the campus has its own billboard that says what the building does and shows its work details. A billboard is two things that belong together: a board in the 3D campus in front of the building, which now carries the live details itself, and a card in the page (an HTML overlay) with the full details for the building that is focused, hovered or selected. The campus is calm by default: the boards say it, the page only has a few small chips (see [labels](ANUM_MINE_HQ_LABELS.md#quiet-campus)).
 
@@ -24,14 +24,14 @@ Tests keep this true (`apps/web/test/hqBillboard.test.ts`): the model is read th
 | `purpose` | "What it does" | A fixed sentence per kind (`hqBillboard.purpose.executive`, `business`, `department`, `personal`, `career`; a typed map, `PURPOSE_KEYS`, so a kind without its sentence is a build error), or "Its building type is not set yet" when the owner has not set one. The sentences describe the kind and never claim activity |
 | `floors` | "3 floors" | `CampusBuilding.floors` (registry floors of the building) |
 | `roomCount` | "7 rooms" | `CampusBuilding.rooms`, else the rooms of the building's floor plan |
-| `departments` | Departments, up to 4 then "+N more" | `teamDepartment` of the building's registry rooms, only departments the catalogue names (`team.dept.*`), never a guessed or raw machine name |
-| `roomNames` | Rooms, up to 5 then "+N more" | `label` and `labelAr` of the building's registry rooms. A building without a floor plan (another workspace's) says Not connected |
+| `departments` | Departments, up to 4 then "+N more" | `teamDepartment` of the building's registry rooms, only departments the catalogue names (`team.dept.*`), never a guessed or raw machine name. Another workspace's building: `CampusBuilding.remote.board.departments` (every department of its rooms, from the boards read) |
+| `roomNames` | Rooms, up to 5 then "+N more" | `label` and `labelAr` of the building's registry rooms. Another workspace's building: `CampusBuilding.remote.board.rooms` (its first 60 rooms) and `roomsTotal` (the rooms the server did not send are counted in "+N more", never named). Without an answer: Loading, the error with Try again, or Not connected |
 | `presence` | "Agents now: 6", then Working, In meetings, Queued, Waiting for approval, Blocked, Idle (a state only when it has agents; Working always) | `CampusBuilding.totals` (the campus endpoint, or the presence index for the open workspace's registry buildings): the same numbers the campus panel and the building card use |
 | `presenceTime` | "Verified 14:03:22", or "Stale: last verified ..." when older than 90 seconds, or "Verification time not reported" | `CampusBuilding.presence_verified_at` (the "Verified" time the campus panel shows) |
-| `work` | "Open work": Open tasks, Waiting for approval, Blocked | The live flow read (`OfficeFlowSnapshot.items`): task items a record placed in one of the building's rooms (`location.building_id`), not done; "waiting" is `waiting` set, "blocked" is stage `blocked`. A truncated read shows "N+". Only the open workspace has a flow: any other building says Not connected; a denied read says No access; a flow whose tasks source is not connected says Not connected |
-| `workTime` | "Verified ..." or "Stale: last verified ..." | `OfficeFlowSnapshot.as_of`; a failed read that kept the last answer is called stale, as the flow dock does |
+| `work` | "Open work": Open tasks, Waiting for approval, Blocked | The live flow read (`OfficeFlowSnapshot.items`): task items a record placed in one of the building's rooms (`location.building_id`), not done; "waiting" is `waiting` set, "blocked" is stage `blocked`. A truncated read shows "N+". A denied read says No access; a flow whose tasks source is not connected says Not connected. Another workspace's building: `CampusBuilding.remote.board.work`, the same rule run on the server over that workspace's own flow ([Every building](#every-building)); zero is shown as 0 |
+| `workTime` | "Verified ..." or "Stale: last verified ..." | `OfficeFlowSnapshot.as_of`; a failed read that kept the last answer is called stale, as the flow dock does. Another workspace's building: `CampusBuilding.remote.board.asOf`, stale after a failed later read or when older than 90 seconds |
 | `brand` | The header band of the 3D board (behind the name) and the accent rule along its bottom, in the owner's brand colour. The band is used only when the colour passes a contrast check: the lettering takes white or the dark ink, whichever reads better, and that pair must reach 4.5 to 1 (WCAG AA). A colour that fails keeps the standard slate header and stays on the accent rule | `CampusBuilding.sign.color` (the owner's brand colour of the building's sign); a missing or invalid colour keeps the standard header and teal |
-| `logo` | The owner's logo in the header of the 3D board, on a white plate, as given (never recoloured) | `CampusBuilding.sign.logoSha256` and `sign.buildingId`. The picture is the bitmap the campus sign loader already decoded from the authenticated logo route (`GET /api/v1/office-spaces/buildings/{id}/logo`, the person's own credentials, at most 256 px, the nearest 16 buildings first, see [logo signs](ANUM_MINE_HQ_LOGO_SIGNS.md)). Until it is decoded, or when it fails, the board keeps its plain header |
+| `logo` | The owner's logo in the header of the 3D board, on a white plate, as given (never recoloured) | `CampusBuilding.sign.logoSha256` and `sign.buildingId` (and `sign.workspaceId` for another workspace's building: the logo is read in that workspace). The picture is the bitmap the campus sign loader already decoded from the authenticated logo route (`GET /api/v1/office-spaces/buildings/{id}/logo`, the person's own credentials, at most 256 px, the nearest 16 buildings first, see [logo signs](ANUM_MINE_HQ_LOGO_SIGNS.md)). Until it is decoded, or when it fails, the board keeps its plain header |
 | `icons` | A row of icons on the 3D board (far view) and before the departments line (close view) | `teamDepartment` of the building's registry rooms (only departments of the catalogue), else the room's `kind`; one icon set (`lib/hqIcons.ts`, see [labels](ANUM_MINE_HQ_LABELS.md#icons)), at most six |
 | `streamLink` | The "Live" tick on the 3D board, only while the presence stream is really connected and the numbers are fresh | The presence stream link of the page (`usePresenceLive`, link `live`); any other link (polling, reconnecting, down) shows no tick |
 | `open` | The "Open building" button (its accessible name adds the building name, so it never clashes with the detail panel's "Open {name}" button) | Fixed text; hidden (and "This building is not available to you right now" shown) when the building is not accessible |
@@ -88,8 +88,43 @@ The billboard code is a lazy chunk of its own (`hq-billboards`, JS and CSS), not
 - Verified on software GL only; no real GPU look was checked (the owner's Ultra tier was not available).
 - From the framing camera of a large campus a board can still be only a few dozen pixels wide; the far face then shows the name and key line, and the card carries the details for the focused building.
 - On the lowest tier (software GL) the board never shows the close view; the e2e spec checks the close view with the medium tier pinned.
-- Only the open workspace has a flow, so another workspace's building shows Not connected for open work; the registry rooms and departments are likewise known only for registry buildings of the open workspace.
+- Another workspace stays one building on the campus (its registry buildings are not drawn one by one): its board adds up the open work of all its buildings, and its sign is its only building's or its starter headquarters' (`campus-01-hq`); with several buildings and no starter headquarters it keeps the lettered sign.
+- Another workspace's board facts are read every 30 seconds, not streamed.
 - A building whose registry has no rooms shows "No rooms in the registry yet" and no departments.
+
+## Every building
+
+Owner request (29 October 2026, "add more things which are not there"): every building on the campus shows its own real details, not only the open workspace's. Before, another workspace's board said Not connected for open work and rooms and kept a lettered sign.
+
+**The read.** `GET /api/v1/office/campus/boards` (`services/api/anum_api/office_campus_boards.py`, contract `CampusBoardsResponse` in `packages/contracts/src/officeCampus.ts`, version 1) answers, for each of the caller's other workspaces:
+
+| Part | What |
+|---|---|
+| `buildings` | Its registry buildings (at most 16, by id): id, name, Arabic name, floor and room counts, and the owner's sign (style, brand colour, logo hash) |
+| `rooms` | Its first 60 rooms (name, Arabic name, kind, department, building) and the total |
+| `departments` | The departments of its rooms (at most 24) |
+| `work` | Open work from its own flow: task items a record placed in a room, not done; waiting (a pending approval) and blocked, per listed building and for the whole workspace; `truncated` when the flow read was cut; `source` says when tasks are not connected (no numbers then) |
+| `as_of` | When it was read |
+
+**Isolation.** The memberships come from the narrow membership directory role, as for `GET /office/campus`; each workspace is then read in its own tenant and workspace RLS context, as the caller, with the caller's role in that workspace (the same role the campus uses). One short session per workspace; no cross-tenant or cross-workspace query; no BYPASSRLS, SECURITY DEFINER or wider role. A workspace without `task:read` is not listed; one that fails to read is listed as `accessible: false` with no numbers. The open workspace is never in it (its own registry, presence and flow already carry its boards). Task titles, prompts, agent names and approval text never leave the server: only counts.
+
+**Bounds and cache.** Pages of at most 16 workspaces (`limit`, `cursor`; an unknown cursor is refused). Each workspace's answer is kept 15 seconds per tenant, workspace, user and role; the memberships are read fresh on every call, so a removed membership or a changed role takes effect at once.
+
+**The web.** The billboard chunk reads every page (at most four) once the campus has another workspace's building, then every 30 seconds while the tab is visible (`hq-billboards/remoteBoards.ts`). `withRemote` lays each answer on its campus building as `CampusBuilding.remote` and, when the building has no sign of its own, the workspace's sign (its only building's, or the starter headquarters'). The layout never depends on it, so the scene is never rebuilt for it. The logo is fetched from the same logo route with the person's own credentials, naming that workspace (`x-workspace-id`), so the API checks the membership there.
+
+**States** (the same as the open workspace's):
+
+| State | Card and close board |
+|---|---|
+| First read in flight | Open work and Rooms say **Loading** (`aria-busy`) |
+| First read failed (network, 5xx) | "Could not load this building's details. Check the connection and try again." and a **Try again** button |
+| A later read failed | The last answer stays, called **Stale: last verified ...** |
+| Answer older than 90 seconds | **Stale** |
+| The workspace is not in the answer, could not be read, or the API has no boards read (404, 403) | **Not connected** |
+| Tasks source not connected, or no access | **Not connected**, **No access** |
+| Zero open work | **0** |
+
+Tests: `services/api/tests/test_office_campus_boards.py` (the work rule, paging, refusals, the caller's own role per workspace, cache keys, a removed membership), `services/api/tests/test_postgres_office_campus_boards.py` (as the app role under forced RLS: a non-member of workspace B gets nothing of B, nothing crosses tenants, a forged cross-tenant context reads no rows, a removed membership stops the board at once), `apps/web/test/hqRemoteBoards.test.ts`, `apps/web/test/hqBillboard.test.ts` (whitelisted reads, zero, Not connected, Loading, Try again, Stale), `apps/web/test/hqLogoSigns.test.ts` (the logo is read in its workspace), `apps/web/e2e/hq-billboards.spec.ts` (every building's details and signs, a failed and a slow read, five sizes in English and Arabic, axe), `e2e/hq-logo-signs.spec.ts`, `e2e/hq-campus.spec.ts`, `e2e/hq-clear-panels.spec.ts`.
 
 ## Logo signs
 

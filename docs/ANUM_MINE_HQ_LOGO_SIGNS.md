@@ -25,7 +25,7 @@ The owner asked for "something more exciting and not that team like real world s
 
 Repeat for each building. A logo is stored per building, so ANUM HQ, ANUM 360 Commerce, Tyre Pulse and any company you add each get their own.
 
-A building in another workspace is drawn with the standard sign until you open that workspace and set its sign there. Signs belong to the office registry buildings of a workspace; the campus reads no other workspace's registry.
+A building in another of your workspaces shows the sign you set in that workspace (since 29 October 2026): open that workspace, set its sign, and every campus you open shows it. That workspace's one campus building takes the sign of its only registry building, or of its starter campus headquarters (`campus-01-hq`) when it has several; otherwise it keeps the lettered sign. The sign is read in that workspace with your own membership there ([every building](ANUM_MINE_HQ_BILLBOARDS.md#every-building)).
 
 ### Buildings whose names are generic
 
@@ -82,7 +82,7 @@ Rows are in [the security review](ANUM_MINE_HQ_SECURITY_REVIEW.md), "Logo upload
 
 ## What is not done
 
-* Another workspace's building has no registry building in this workspace, so it keeps the lettered sign.
+* Another workspace's building takes that workspace's sign (its only building's, or its starter headquarters'); a workspace with several buildings and no starter headquarters keeps the lettered sign.
 * The logo is drawn into the building's sign cell of the sign atlas. The boards in front of the buildings have their own live atlas (see [billboards](ANUM_MINE_HQ_BILLBOARDS.md)): their painter draws the same decoded bitmap into the board's header and uses the brand colour for the header band when it passes the contrast check (done 27 October 2026). The sign style is not used on the board.
 * Looked at on software GL, not on a real GPU.
 * A logo is shown at most 256 pixels on its long edge in the sign (a cell is 512 by 128), whatever the stored size.
