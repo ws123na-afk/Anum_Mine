@@ -63,8 +63,9 @@ function page(records: HistoryRecord[], url: URL) {
   const until = url.searchParams.get('until');
   const q = url.searchParams.get('q')?.toLowerCase();
   const actor = url.searchParams.get('actor');
+  const target = url.searchParams.get('target');
   const corr = url.pathname.split('/correlations/')[1];
-  const matching = records.filter((r) => (!actor || r.actor === actor)
+  const matching = records.filter((r) => (!actor || r.actor === actor) && (!target || r.target === target)
     && (!corr || r.correlation_id === decodeURIComponent(corr))
     && (!since || Date.parse(r.timestamp) >= Date.parse(since))
     && (!until || Date.parse(r.timestamp) < Date.parse(until))
@@ -109,8 +110,12 @@ export async function mockHistory(p: Page, options: HistoryMockOptions = {}): Pr
       const action = url.searchParams.get('action');
       const q = url.searchParams.get('q')?.toLowerCase();
       const actor = url.searchParams.get('actor');
+      // The server's room or agent filter: the actor, the target or any recorded value equals one of the ids.
+      const mentions = new Set(url.searchParams.getAll('mention'));
+      const names = (v: unknown): boolean => typeof v === 'string' ? mentions.has(v) : Array.isArray(v) ? v.some(names) : !!v && typeof v === 'object' && Object.values(v).some(names);
       const rows = records
         .filter((r) => (!actor || r.actor === actor) && (!q || `${r.actor} ${r.action} ${r.target}`.toLowerCase().includes(q)))
+        .filter((r) => mentions.size === 0 || mentions.has(r.actor) || mentions.has(r.target) || names(r.metadata))
         .filter((r) => !action || (action.endsWith('*') ? r.action.startsWith(action.slice(0, -1)) : r.action === action))
         .map((r) => ({ id: r.id, created_at: r.timestamp, actor: r.actor, action: r.action, target: r.target, outcome: r.outcome, correlation_id: r.correlation_id, tenant_id: 'tenant_local', workspace_id: WS, metadata: r.metadata }));
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) });

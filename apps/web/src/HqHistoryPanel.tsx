@@ -14,13 +14,13 @@ import { downloadAuditExport, getWorkspacePermissions } from './lib/adminApi';
 import { downloadNarrowedExport } from './lib/hqHistoryExportApi';
 import { exportNarrowing, narrowedFilename } from './lib/hqHistoryExport';
 import { describeError, isPermissionDenied } from './lib/errors';
-import { EMPTY_FILTERS, OFFICE_SCOPE, countActive, exportFilters, filtersActive, historyQuery, newerRecords, type HistoryFilters, type HistoryScope } from './lib/hqHistory';
+import { EMPTY_FILTERS, OFFICE_SCOPE, countActive, exportFilters, exportMentions, filtersActive, historyQuery, newerRecords, resolveRecord, type HistoryFilters, type HistoryScope, type RecordResolution } from './lib/hqHistory';
 import { HISTORY_CHECK_MS, HISTORY_STALE_MS, historyLive } from './lib/hqPanelStatus.ts';
 import { LiveChip } from './hq-nav/LiveChip';
 import { PanelHeader, useFold } from './hq-nav/PanelSection';
 import { useNow } from './hq-nav/useNow';
 import type { NameMap } from './lib/hqHistoryText';
-import { t } from './lib/i18n';
+import { formatDateTime, t } from './lib/i18n';
 import { useLocale } from './useLocale';
 import './hqHistory.css';
 
@@ -63,7 +63,26 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
     if (launch.scope.kind === 'room') setSliderRoom(launch.scope.roomId);
   }, [launch]);
 
-  const history = useHqHistory(filters, scope, tab === 'timeline');
+  // "Show history" on a task, meeting or approval: find the item's stored records (server filter on the target) and open its
+  // first request. An item with no stored record, or none with a correlation id, says so; nothing is guessed.
+  const [resolution, setResolution] = useState<{ status: 'loading' | 'denied' | 'error'; error?: string } | (Extract<RecordResolution, { kind: 'none' }> & { status: 'none' }) | null>(null);
+  const [resolveTry, setResolveTry] = useState(0);
+  useEffect(() => {
+    if (scope.kind !== 'record') { setResolution(null); return undefined; }
+    let live = true;
+    setResolution({ status: 'loading' });
+    resolveRecord((path) => historyClient.page(path), scope, () => live).then((found) => {
+      if (!live || !found) return;
+      if (found.kind === 'request') { setResolution(null); setScope(found.scope); }
+      else setResolution({ ...found, status: 'none' });
+    }, (failure) => {
+      if (!live) return;
+      setResolution(isPermissionDenied(failure) ? { status: 'denied' } : { status: 'error', error: describeError(failure) });
+    });
+    return () => { live = false; };
+  }, [scope, resolveTry]);
+
+  const history = useHqHistory(filters, scope, tab === 'timeline' && scope.kind !== 'record');
   const [folded, toggleFold] = useFold('history');
   const now = useNow(10_000);
   // While the timeline is open it checks for newer records every 30 s (one read of the first page). It never replaces the list on
@@ -75,7 +94,7 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
   const timeline = tab === 'timeline';
   useEffect(() => {
     setCheck({ at: timeline && history.status === 'ready' ? Date.now() : null, failed: false, newer: null });
-    if (timeline && history.status !== 'ready') return undefined;
+    if ((timeline && history.status !== 'ready') || scope.kind === 'record') return undefined;
     let live = true;
     const run = () => {
       if (document.visibilityState !== 'visible') return;
@@ -155,17 +174,17 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
 
   const csv = exportFilters(filters, scope);
   const exportKeep = exportNarrowing(filters, scope);
-  const download = async () => {
+  const download = async (format: 'csv' | 'json') => {
     if (!csv) return;
     setExporting(true);
     setExportNote(null);
     try {
       const keep = exportNarrowing(filters, scope);
       if (keep) {
-        const saved = await downloadNarrowedExport(csv, keep, narrowedFilename(scope, new Date().toISOString().slice(0, 10)));
+        const saved = await downloadNarrowedExport(csv, keep, narrowedFilename(scope, new Date().toISOString().slice(0, 10), format), { mentions: exportMentions(scope), format });
         setExportNote({ text: saved.rows === 0 ? t('hqHist.export.none') : t('hqHist.export.doneRows', { name: saved.name, count: saved.rows }), error: false });
       } else {
-        const name = await downloadAuditExport(csv, 'csv');
+        const name = await downloadAuditExport(csv, format);
         setExportNote({ text: t('hqHist.export.done', { name }), error: false });
       }
     } catch (failure) {
@@ -173,9 +192,13 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
     } finally { setExporting(false); }
   };
 
+  const kindName = (kind: 'task' | 'meeting' | 'approval') => t(`hqHist.source.${kind}` as 'hqHist.source.task');
+  const origin = scope.kind === 'correlation' ? scope.from : scope.kind === 'record' ? scope : undefined;
   const scopeLabel = scope.kind === 'room' ? t('hqHist.scope.room', { name: scope.label })
     : scope.kind === 'agent' ? t('hqHist.scope.agent', { name: scope.name })
-      : scope.kind === 'correlation' ? t('hqHist.scope.correlation', { id: scope.correlationId }) : t('hqHist.scope.office');
+      : scope.kind === 'record' ? t('hqHist.scope.record', { kind: kindName(scope.recordKind), name: scope.label ?? scope.id })
+        : scope.kind === 'correlation' ? t('hqHist.scope.correlation', { id: scope.correlationId }) : t('hqHist.scope.office');
+  const pickRequest = (correlationId: string) => { if (scope.kind === 'correlation') { setScope({ ...scope, correlationId }); setSelected(null); } };
   const { state, status } = history;
   const filtered = filtersActive(filters) || scope.kind !== 'office';
 
@@ -187,7 +210,9 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
           <PanelHeader id="hqHistTitle" title={t('hqHist.title')} purpose={t('hqPanels.history.purpose')} folded={folded} onFold={toggleFold} bodyId="hqHistMain"
             live={<LiveChip state={liveState} at={check.at} staleAfterMs={HISTORY_STALE_MS} nowMs={now} pollingText={t('hqPanels.history.polling')} hint={liveHint} testId="hq-history-live" />}
             actions={<button type="button" className="hqIconButton hqPhFold" data-autofocus onClick={close} aria-label={t('hqHist.close')} title={t('hqHist.close')}><X aria-hidden="true" /></button>} />
-          <p className="hqHistScope" data-scope={scope.kind} hidden={folded}>{scopeLabel}
+          <p className="hqHistScope" data-scope={scope.kind} hidden={folded}>
+            {origin && scope.kind === 'correlation' && <span className="hqHistOrigin" dir="auto">{t('hqHist.scope.record', { kind: kindName(origin.recordKind), name: origin.label ?? origin.id })}</span>}
+            {scopeLabel}
             {scope.kind !== 'office' && <button type="button" className="hqLinkButton" onClick={reset}>{t('hqHist.scope.clear')}</button>}
           </p>
         </div>
@@ -204,11 +229,45 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
         <div className="hqHistBody" id="hqHistBody" role="tabpanel" aria-labelledby={`hqHistTab-${tab}`}>
           {selected ? (
             <RecordDetail record={selected} names={names} roomIds={roomIds} onBack={back} onOpenRecord={open} onLocateRoom={props.onLocateRoom} onNavigate={props.onNavigate} onShowRecords={showRecordsNaming} onOpenRequest={openRequest} />
+          ) : tab === 'timeline' && scope.kind === 'record' ? (
+            <div className="hqHistRecord" data-testid="hq-history-record" aria-live="polite">
+              {(!resolution || resolution.status === 'loading') && <p className="hqHistLoading" role="status"><span className="hqSpinner" aria-hidden="true" />{t('hqHist.record.finding', { kind: kindName(scope.recordKind) })}</p>}
+              {resolution?.status === 'denied' && <div className="hqHistDenied" role="alert"><Lock aria-hidden="true" /><p>{t('hqHist.denied')}</p></div>}
+              {resolution?.status === 'error' && (
+                <div className="hqHistErrorBox" role="alert"><p>{t('hqHist.error', { detail: resolution.error ?? '' })}</p>
+                  <button type="button" className="hqGhost" onClick={() => setResolveTry((n) => n + 1)}><RefreshCcw aria-hidden="true" />{t('hqHist.retry')}</button></div>
+              )}
+              {resolution?.status === 'none' && (
+                <div className="hqHistEmpty" data-testid="hq-history-record-none">
+                  <h3>{t('hqHist.record.none')}</h3>
+                  <p>{resolution.withoutId > 0 ? t('hqHist.record.noIds', { kind: kindName(scope.recordKind), count: resolution.withoutId }) : t('hqHist.record.noneHint', { kind: kindName(scope.recordKind) })}</p>
+                  {resolution.partial && <p className="hqHistHint">{t('hqHist.record.partial')}</p>}
+                  {resolution.withoutId > 0 && <button type="button" className="hqGhost" onClick={() => showRecordsNaming(scope.id)}>{t('hqHist.source.records', { kind: kindName(scope.recordKind) })}</button>}
+                </div>
+              )}
+            </div>
           ) : tab === 'room' ? (
             <RoomSlider rooms={rooms} roomId={sliderRoom} onPickRoom={setSliderRoom} names={names} onOpenRecord={open} />
           ) : (
             <>
               <p className="hqHistHint">{t('hqHist.intro')}</p>
+              {scope.kind === 'correlation' && scope.from && (
+                <div className="hqHistRequests" data-testid="hq-history-requests">
+                  <p className="hqHistHint">{t(scope.from.requests.length === 1 ? 'hqHist.record.oneRequest' : 'hqHist.record.requests', { kind: kindName(scope.from.recordKind), count: scope.from.requests.length })}</p>
+                  {scope.from.requests.length > 1 && (
+                    <ul aria-label={t('hqHist.record.requestsList')}>
+                      {scope.from.requests.map((r) => (
+                        <li key={r.correlationId}>
+                          <button type="button" className="hqGhost" aria-pressed={r.correlationId === scope.correlationId} onClick={() => pickRequest(r.correlationId)}>
+                            {t('hqHist.record.request', { time: formatDateTime(r.first), action: r.action })}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {scope.from.partial && <p className="hqHistHint">{t('hqHist.record.partial')}</p>}
+                </div>
+              )}
               {scope.kind !== 'correlation' && (
                 <HistoryFilterForm applied={filters} rooms={rooms} agents={agents} roomId={roomScope} agentId={agentScope}
                   activeCount={countActive(filters, scope)} onApply={apply} onReset={reset} />
@@ -216,9 +275,14 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
               {(roomScope || agentScope) && <p className="hqHistHint">{t('hqHist.scope.note')}</p>}
               <div className="hqHistExport">
                 {csv ? (
-                  <button type="button" className="hqGhost" onClick={() => void download()} disabled={exporting || mayExport === false} title={t('hqHist.export.why')}>
-                    <Download aria-hidden="true" />{exporting ? t('hqHist.export.working') : t('hqHist.export')}
-                  </button>
+                  <div className="hqHistExportButtons">
+                    <button type="button" className="hqGhost" onClick={() => void download('csv')} disabled={exporting || mayExport === false} title={t('hqHist.export.why')}>
+                      <Download aria-hidden="true" />{exporting ? t('hqHist.export.working') : t('hqHist.export')}
+                    </button>
+                    <button type="button" className="hqGhost" onClick={() => void download('json')} disabled={exporting || mayExport === false} title={t('hqHist.export.why')}>
+                      <Download aria-hidden="true" />{t('hqHist.export.json')}
+                    </button>
+                  </div>
                 ) : <p className="hqHistHint">{t('hqHist.export.off')}</p>}
                 {csv && mayExport === false && <p className="hqHistHint" role="note">{t('hqHist.export.denied')}</p>}
                 {csv && exportKeep && <p className="hqHistHint">{t('hqHist.export.narrowed')}</p>}

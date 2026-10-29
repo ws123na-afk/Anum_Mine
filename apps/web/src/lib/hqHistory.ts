@@ -37,11 +37,19 @@ export interface HistoryFilters {
 }
 export const EMPTY_FILTERS: HistoryFilters = { q: '', actor: '', category: 'all', from: '', to: '' };
 
+/** A task, meeting or approval opened from its own screen ("Show history"); the panel resolves it to a request. */
+export type RecordKind = 'task' | 'meeting' | 'approval';
+/** One request (correlation id) among the stored records that name an item, oldest first. */
+export interface RecordRequest { correlationId: string; first: string; action: string; records: number }
+/** Where a correlation view came from when it was opened through "Show history". */
+export interface RecordOrigin { recordKind: RecordKind; id: string; label?: string; requests: readonly RecordRequest[]; partial: boolean }
+
 export type HistoryScope =
   | { kind: 'office' }
   | { kind: 'room'; roomId: string; label: string; deskIds: readonly string[] }
   | { kind: 'agent'; agentId: string; name: string }
-  | { kind: 'correlation'; correlationId: string };
+  | { kind: 'record'; recordKind: RecordKind; id: string; label?: string }
+  | { kind: 'correlation'; correlationId: string; from?: RecordOrigin };
 
 export const OFFICE_SCOPE: HistoryScope = { kind: 'office' };
 
@@ -77,6 +85,10 @@ export function historyQuery(filters: HistoryFilters, scope: HistoryScope, curso
   if (cursor) params.set('cursor', cursor);
   if (scope.kind === 'correlation') {
     return { ok: true, path: `${HISTORY_PATH}/correlations/${encodeURIComponent(scope.correlationId)}?${params}`, since: null, until: null };
+  }
+  if (scope.kind === 'record') {
+    params.set('target', scope.id);
+    return { ok: true, path: `${HISTORY_PATH}?${params}`, since: null, until: null };
   }
   const window = dateWindow(filters);
   if (!window.ok) return window;
@@ -121,6 +133,62 @@ export function relatesTo(record: Pick<OfficeHistoryEvidence, 'actor' | 'target'
   const ids = scopeIds(scope);
   if (!ids) return true;
   return ids.has(record.actor) || ids.has(record.target) || mentions(record.metadata, ids);
+}
+
+// --------------------------------------------------------------------------- show history of one item
+
+/** Pages read (of the largest size) to find the requests of one item before stopping with `partial`. */
+export const RECORD_PAGES = 5;
+export const RECORD_PAGE_SIZE = 200;
+
+/**
+ * The requests among an item's stored records (records whose target is the item), oldest first, each with the
+ * time and action of its first record. Records without a correlation id are counted apart: they cannot be tied
+ * to a request, and none is guessed.
+ */
+export function recordRequests(items: readonly Pick<OfficeHistoryEvidence, 'correlation_id' | 'timestamp' | 'action'>[]): { requests: RecordRequest[]; withoutId: number } {
+  const byId = new Map<string, RecordRequest>();
+  let withoutId = 0;
+  for (const item of items) {
+    const id = item.correlation_id.trim();
+    if (!id) { withoutId += 1; continue; }
+    const known = byId.get(id);
+    if (!known) byId.set(id, { correlationId: id, first: item.timestamp, action: item.action, records: 1 });
+    else {
+      known.records += 1;
+      if (Date.parse(item.timestamp) < Date.parse(known.first)) { known.first = item.timestamp; known.action = item.action; }
+    }
+  }
+  const requests = [...byId.values()].sort((a, b) => Date.parse(a.first) - Date.parse(b.first) || a.correlationId.localeCompare(b.correlationId));
+  return { requests, withoutId };
+}
+
+export type RecordResolution =
+  | { kind: 'request'; scope: Extract<HistoryScope, { kind: 'correlation' }> }
+  | { kind: 'none'; withoutId: number; partial: boolean };
+
+/** Reads the item's stored records (server filter on the target) and picks its first request, or says there is none. */
+export async function resolveRecord(fetchPage: (path: string) => Promise<OfficeHistoryPage>, scope: Extract<HistoryScope, { kind: 'record' }>, isCurrent: () => boolean = () => true): Promise<RecordResolution | null> {
+  const items: OfficeHistoryEvidence[] = [];
+  let cursor: string | null = null;
+  let partial = false;
+  for (let page = 0; ; page += 1) {
+    if (page >= RECORD_PAGES) { partial = true; break; }
+    const query = historyQuery(EMPTY_FILTERS, scope, cursor, RECORD_PAGE_SIZE);
+    if (!query.ok) throw new Error(query.error);
+    const answer = await fetchPage(query.path);
+    if (!isCurrent()) return null;
+    // The server filters on the exact target; keep only those, so another record is never counted as this one.
+    items.push(...answer.items.filter((item) => item.target === scope.id));
+    cursor = answer.next_cursor;
+    if (cursor === null) break;
+  }
+  const { requests, withoutId } = recordRequests(items);
+  if (requests.length === 0) return { kind: 'none', withoutId, partial };
+  return {
+    kind: 'request',
+    scope: { kind: 'correlation', correlationId: requests[0].correlationId, from: { recordKind: scope.recordKind, id: scope.id, ...(scope.label ? { label: scope.label } : {}), requests, partial } },
+  };
 }
 
 // --------------------------------------------------------------------------- paging
@@ -238,6 +306,7 @@ export function hasBeforeAfter(record: OfficeHistoryEvidence): boolean {
 export function exportFilters(filters: HistoryFilters, scope: HistoryScope): { actor?: string; action?: string; q?: string; since?: string; until?: string; correlationId?: string } | null {
   const out: { actor?: string; action?: string; q?: string; since?: string; until?: string; correlationId?: string } = {};
   if (scope.kind === 'correlation') return { correlationId: scope.correlationId };
+  if (scope.kind === 'record') return null;
   if (filters.category !== 'all' && filters.category !== 'other') {
     const prefix = CATEGORY_ACTION_PREFIX[filters.category];
     if (!prefix) return null;
@@ -250,6 +319,20 @@ export function exportFilters(filters: HistoryFilters, scope: HistoryScope): { a
   if (filters.q.trim()) out.q = filters.q.trim();
   if (filters.actor.trim()) out.actor = filters.actor.trim();
   return out;
+}
+
+/** The audit export's server-side `mention` filter must stay within this many ids. */
+export const MAX_EXPORT_MENTIONS = 100;
+
+/**
+ * The ids a room or agent view sends as the export's server filter (`mention`), so the server returns only the
+ * records that name them instead of the whole matching log. Null for other views, or when a room has more desks
+ * than the filter takes (the device then narrows the broad export, as before).
+ */
+export function exportMentions(scope: HistoryScope): string[] | null {
+  const ids = scopeIds(scope);
+  if (!ids || ids.size === 0 || ids.size > MAX_EXPORT_MENTIONS) return null;
+  return [...ids];
 }
 
 // --------------------------------------------------------------------------- display helpers

@@ -84,7 +84,7 @@ Presence knows nothing about shifts: it is derived from records, per agent. The 
 
 ## Data and migration `0101_executive_grants`
 
-Expand only (new tables and one new role; nothing existing changes). Chained on `0100_office_room_geometry` (file `0099_office_room_geometry.py`); numbers are renumbered at merge (data agent 0101, meetings 0102, executive 0103).
+Expand only (new tables and one new role; nothing existing changes). Chained on `0100_office_room_geometry` (file `0100_office_room_geometry.py`); numbers are renumbered at merge (data agent 0101, meetings 0102, executive 0103).
 
 - `campus_workspace_profiles` (tenant, workspace, kind, icon, revision, updated_by): forced RLS by tenant and workspace.
 - `executive_grants`: forced RLS by tenant and workspace, check constraints (scopes subset of five names, 1 to 5 scopes, hash shape, active needs approver), one active grant per person and workspace (partial unique index), index on grantee.

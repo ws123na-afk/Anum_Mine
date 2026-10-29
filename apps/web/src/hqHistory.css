@@ -123,3 +123,12 @@
 [dir="rtl"] .hqHist { animation-name: hqHistInRtl; }
 @keyframes hqHistInRtl { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
 @media (max-width: 760px) { @keyframes hqHistIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } } [dir="rtl"] .hqHist { animation-name: hqHistIn; } }
+
+/* Show history of one task, meeting or approval (docs/ANUM_MINE_HQ_HISTORY_PANEL.md): the item, its requests and the JSON export. */
+.hqHistOrigin { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.hqHistRecord { display: grid; gap: var(--d-s2); }
+.hqHistRequests { display: grid; gap: var(--d-s1); }
+.hqHistRequests ul { display: flex; flex-wrap: wrap; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
+.hqHistRequests button { max-inline-size: 100%; overflow-wrap: anywhere; text-align: start; }
+.hqHistRequests button[aria-pressed="true"] { border-color: var(--d-accent); box-shadow: 0 0 0 1px var(--d-accent); }
+.hqHistExportButtons { display: flex; flex-wrap: wrap; gap: var(--d-s2); }

@@ -109,6 +109,10 @@ class AuditFilter:
     since: datetime | None = None
     until: datetime | None = None
     text: str | None = None
+    # Ids of one room with its desks, or of one agent (the History panel's room and agent
+    # views): a record matches when its actor or target is one of them, or any value it
+    # recorded (at any depth) equals one of them. Empty means no such filter.
+    mentions: tuple[str, ...] = ()
 
     def matches(self, record: "AuditRecord") -> bool:
         if self.actor is not None and record.actor != self.actor:
@@ -133,6 +137,8 @@ class AuditFilter:
             needle = self.text.casefold()
             if not any(needle in value.casefold() for value in (record.actor, record.action, record.target)):
                 return False
+        if self.mentions and not names_any(record, frozenset(self.mentions)):
+            return False
         return True
 
     def as_metadata(self) -> dict[str, str]:
@@ -146,8 +152,24 @@ class AuditFilter:
             "since": self.since.isoformat() if self.since else None,
             "until": self.until.isoformat() if self.until else None,
             "text": self.text,
+            "mentions": ",".join(self.mentions) if self.mentions else None,
         }
         return {key: value for key, value in values.items() if value is not None}
+
+
+def _mentions(value: Any, ids: frozenset[str]) -> bool:
+    if isinstance(value, str):
+        return value in ids
+    if isinstance(value, Mapping):
+        return any(_mentions(item, ids) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_mentions(item, ids) for item in value)
+    return False
+
+
+def names_any(record: "AuditRecord", ids: frozenset[str]) -> bool:
+    """True when the record names one of ``ids`` as actor, target or any recorded value."""
+    return record.actor in ids or record.target in ids or _mentions(record.metadata, ids)
 
 
 # Newest first: (created_at, id) descending. A cursor is the last row's key.
