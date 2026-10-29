@@ -257,3 +257,43 @@ for (const locale of ['en', 'ar'] as const) {
     });
   }
 }
+
+test('the owner removes an agent from the live meeting: it leaves for good and only the others take turns', async ({ page }) => {
+  const mock = createRoomMock();
+  await mockRoom(page, mock);
+  await page.goto('/#office/meeting/mtg_1');
+  const room = page.getByRole('region', { name: 'Meeting room' });
+  const agents = room.getByRole('list', { name: 'Agents' });
+  await expect(agents.getByText('Omar')).toBeVisible();
+  // One click asks first; Cancel keeps the agent.
+  await agents.getByRole('button', { name: 'Remove Omar from the meeting' }).click();
+  await expect(agents.getByText('Remove Omar? It stops speaking now and cannot rejoin this meeting.')).toBeVisible();
+  await agents.getByRole('button', { name: 'Cancel' }).click();
+  expect(mock.state.calls.removals).toEqual([]);
+  await agents.getByRole('button', { name: 'Remove Omar from the meeting' }).click();
+  await agents.getByRole('button', { name: 'Remove from meeting' }).click();
+  await expect(room.getByRole('status').filter({ hasText: 'Omar left the meeting.' })).toBeVisible();
+  expect(mock.state.calls.removals).toEqual(['agent_omar']);
+  const omar = agents.locator('li', { hasText: 'Omar' });
+  await expect(omar).toHaveAttribute('data-agent-left', 'true');
+  await expect(omar).toContainText('Left the meeting');
+  await expect(omar.getByRole('button')).toHaveCount(0);
+  await expect(agents.getByRole('button', { name: 'Remove Maya from the meeting' })).toBeVisible();
+  await expect(room.getByRole('button', { name: 'Run next turn' })).toBeEnabled();
+  // The last agent leaves: nobody is left to take a turn.
+  await agents.getByRole('button', { name: 'Remove Maya from the meeting' }).click();
+  await agents.getByRole('button', { name: 'Remove from meeting' }).click();
+  await expect(agents.locator('[data-agent-left="true"]')).toHaveCount(2);
+  await expect(room.getByRole('button', { name: 'Run next turn' })).toBeDisabled();
+});
+
+test('Arabic: removing an agent asks and answers in Arabic', async ({ page }) => {
+  await useSavedLocale(page, 'ar');
+  const mock = createRoomMock();
+  await mockRoom(page, mock);
+  await page.goto('/#office/meeting/mtg_1');
+  await page.getByRole('button', { name: 'إزالة Omar من الاجتماع' }).click();
+  await expect(page.getByText('إزالة Omar؟ سيتوقف عن الكلام الآن ولا يمكنه العودة إلى هذا الاجتماع.')).toBeVisible();
+  await page.getByRole('button', { name: 'إزالة من الاجتماع' }).click();
+  await expect(page.locator('[data-agent-left="true"]')).toContainText('غادر الاجتماع');
+});

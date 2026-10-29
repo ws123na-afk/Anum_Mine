@@ -41,6 +41,7 @@ TRANSCRIPT_DENIED = ("Only a workspace owner can read meeting transcripts. "
                      "You can still see that the meeting took place, who attended and its status.")
 
 MeetingId = Annotated[str, Path(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")]
+AgentId = Annotated[str, Path(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")]
 
 
 class StrictBody(BaseModel):
@@ -122,7 +123,7 @@ def _store(context: TenantContext) -> Iterator[SqlLiveMeetingStore]:
 
 
 def _audit(store: SqlLiveMeetingStore, context: TenantContext, action: str, meeting_id: str,
-           room_id: str | None = None) -> None:
+           room_id: str | None = None, **extra: str) -> None:
     from .db.repository import SqlAlchemyRepository
     SqlAlchemyRepository(store.session).record_audit(
         AuditRecord(
@@ -135,7 +136,7 @@ def _audit(store: SqlLiveMeetingStore, context: TenantContext, action: str, meet
             outcome="success",
             correlation_id=new_id("correlation"),
             created_at=utc_now(),
-            metadata={"resource": "agent_meeting", "meeting_id": meeting_id, **({"room_id": room_id} if room_id else {})},
+            metadata={"resource": "agent_meeting", "meeting_id": meeting_id, **({"room_id": room_id} if room_id else {}), **extra},
         )
     )
 
@@ -221,10 +222,11 @@ def get_meeting(meeting_id: MeetingId, context: TenantContext = Depends(tenant_c
         result = store.get(context, meeting_id)
         if result is None:
             raise HTTPException(404, "Meeting not found")
-        # Each participant carries `left_at` from the room's attendance: null while present (or never joined the room),
-        # the stored time once they left. The HQ seats only participants with no `left_at`.
+        # Each participant carries `left_at`: for an agent the time the owner removed it from the meeting (its own row),
+        # for a person the room's attendance; null while present (or a person who never joined the room). The HQ seats
+        # only participants with no `left_at`.
         left = store.left_at_by_actor(context, meeting_id)
-        participants = [{**p, "left_at": left.get(p["actor_id"])} for p in store.participants(context, meeting_id)]
+        participants = [{**p, "left_at": p.get("left_at") or left.get(p["actor_id"])} for p in store.participants(context, meeting_id)]
         return {**dict(result), "participants": participants}
 
 
@@ -329,6 +331,44 @@ def add_agent_participant(
                           agent=body.agent_id, owner=context.user_id))
         updated = store._revise(context, meeting_id, body.expected_revision, {}, change_status=False)
         _audit(store,context,"agent_meeting.agent_add",meeting_id)
+        return updated
+
+
+@router.post("/{meeting_id}/agents/{agent_id}/remove")
+def remove_agent_participant(
+    meeting_id: MeetingId, agent_id: AgentId, body: RevisionChange,
+    context: TenantContext = Depends(tenant_context),
+) -> dict:
+    """The meeting owner removes an agent from an active or paused meeting: the agent leaves now.
+
+    Its participant row keeps the server time (`left_at`) and the owner (`removed_by`); the row stays, so the
+    transcript's speaker ids keep their participant. A removed agent takes no further turn, is no longer "in a meeting"
+    at its desk and is no longer seated in the headquarters. It cannot rejoin this meeting. A second removal answers
+    the meeting unchanged. Audited and announced to the room with ids only.
+    """
+    require_permission(context, Permission.WORKSPACE_MANAGE)
+    with _store(context) as store:
+        meeting = store.get(context, meeting_id, lock=True)
+        if meeting is None:
+            raise HTTPException(404, "Meeting not found")
+        if meeting["created_by"] != context.user_id:
+            raise HTTPException(403, "Only the owner can remove agents")
+        if meeting["revision"] != body.expected_revision:
+            raise HTTPException(409, "Meeting revision changed")
+        participant = next((p for p in store.participants(context, meeting_id) if p["actor_id"] == agent_id and p["kind"] == "agent"), None)
+        if participant is None:
+            raise HTTPException(404, "That agent is not a participant of this meeting")
+        if participant["left_at"] is not None:
+            return dict(meeting)
+        if meeting["status"] not in ("active", "paused"):
+            raise HTTPException(409, "Agents can only be removed from an active or paused meeting")
+        store.session.execute(text("""
+            update agent_meeting_participants set left_at=now(), removed_by=:owner
+            where tenant_id=:tenant and workspace_id=:workspace and session_id=:id and id=:participant and left_at is null
+        """), store.args(context, id=meeting_id, participant=participant["id"], owner=context.user_id))
+        updated = store._revise(context, meeting_id, body.expected_revision, {}, change_status=False)
+        store.emit(context, meeting_id, "agent_left", {"agent_id": agent_id}, actor=context.user_id)
+        _audit(store, context, "agent_meeting.agent_remove", meeting_id, updated.get("room_id"), agent_id=agent_id)
         return updated
 
 

@@ -6,7 +6,9 @@
  * `totals` is null and the screen says "Presence unavailable". Nothing here invents a number.
  * Pure functions, no DOM: the unit runner covers layout, totals and keyboard order.
  */
-import { facingTurn, footprintRect, leanOf, turnRect, type QuarterTurn } from './campusFacing.ts';
+import { aimedLean, facingTurn, footprintRect, turnRect, type QuarterTurn } from './campusFacing.ts';
+import { archetypeOf } from './campusBuildings.ts';
+import { warehouseEntranceX } from '../hqAssets/exterior/warehouseDoor.ts';
 
 export type CampusBuildingKind = 'executive' | 'business' | 'department' | 'personal' | 'career';
 
@@ -163,7 +165,8 @@ export type Placement = Readonly<{
   turn: QuarterTurn;
   /**
    * The lean on top of the quarter turn (radians, at most 45 degrees either way; `campusFacing.leanOf`): with it the front points straight
-   * at the plaza centre, also on a diagonal plot. Absent or 0 means the quarter turn alone.
+   * at the plaza centre, also on a diagonal plot. A building whose entrance is off its middle (the warehouse's office annex) aims from
+   * halfway to its door (`campusFacing.aimedLean`), so the middle and the doorway both look at the fountain. Absent or 0 means the quarter turn alone.
    */
   yaw?: number;
 }>;
@@ -218,7 +221,7 @@ export const lotBlocksCentre = (l: Lot): boolean => distanceToLot(l) < PLAZA.cle
   || (l.z1 > 0 && l.x0 < PLAZA.corridor && l.x1 > -PLAZA.corridor) || (l.x1 > 0 && l.z0 < PLAZA.corridor && l.z1 > -PLAZA.corridor);
 
 /**
- * Deterministic placement round the plaza at the centre. Every building is turned so its front faces the plaza (`facingTurn`, then `leanOf` points it straight at the centre), and its
+ * Deterministic placement round the plaza at the centre. Every building is turned so its front faces the plaza (`facingTurn`, then `aimedLean` points it straight at the centre), and its
  * front garden lies on that side. The executive building takes the north slot (its door looks down on the fountain); every other building is tried first at the slot its id hashes to, then at the next slots, then on the next ring out, and
  * stands at the smallest radius where its whole lot clears the plaza, both avenues and every lot already placed. Buildings are placed in
  * order of their hash, never of the list, and a slot does not move when another building comes or goes: adding or removing one building
@@ -228,11 +231,18 @@ export const lotBlocksCentre = (l: Lot): boolean => distanceToLot(l) < PLAZA.cle
 export function layoutCampus(buildings: readonly CampusBuilding[], sizes?: ReadonlyMap<string, PlannedSize>): Placement[] {
   const executive = buildings.find((b) => b.kind === 'executive');
   const others = buildings.filter((b) => b !== executive).slice().sort((a, b) => a.name.localeCompare(b.name) || a.workspace_id.localeCompare(b.workspace_id));
+  // How far along its front a building aims (`campusFacing.aimedLean`): halfway to an entrance that is off its middle. Only the
+  // warehouse's door is (its office annex at the left end); a building drawn from its floor plans has its door in the middle.
+  const aimOf = (b: CampusBuilding): number => {
+    if (sizes?.has(b.workspace_id) || archetypeOf({ kind: b.kind, icon: b.icon ?? null, workspaceId: b.workspace_id }) !== 'warehouse') return 0;
+    return warehouseEntranceX(SIZE[b.kind].w) / 2;
+  };
+  const leanFor = (b: CampusBuilding, x: number, z: number, turn: QuarterTurn): number => aimedLean(x, z, turn, aimOf(b));
   const make = (b: CampusBuilding, x: number, z: number): Placement => {
     const size = SIZE[b.kind];
     const planned = sizes?.get(b.workspace_id);
     const turn = facingTurn(x, z);
-    const yaw = leanOf(x, z, turn);
+    const yaw = leanFor(b, x, z, turn);
     if (planned) {
       return { workspaceId: b.workspace_id, x, z, width: planned.w, depth: planned.d, levels: Math.max(1, planned.levels), kind: b.kind, icon: b.icon ?? null, height: planned.height + 6, turn, yaw };
     }
@@ -274,7 +284,7 @@ export function layoutCampus(buildings: readonly CampusBuilding[], sizes?: Reado
         for (let r = floor; r <= floor + 60; r += 1) {
           const x = Math.cos(angle) * r, z = Math.sin(angle) * r;
           const turn = facingTurn(x, z);
-          const lot = lotOf({ x, z, width: size.width, depth: size.depth, turn, yaw: leanOf(x, z, turn) }, margins);
+          const lot = lotOf({ x, z, width: size.width, depth: size.depth, turn, yaw: leanFor(b, x, z, turn) }, margins);
           if (lotBlocksCentre(lot)) continue;
           if (!taken.some((t) => lotsOverlap(lot, t, 1))) { taken.push(lot); placed = make(b, x, z); }
           break;

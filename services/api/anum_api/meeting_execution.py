@@ -78,6 +78,7 @@ where tenant_id=:tenant and workspace_id=:workspace and id=:agent and status='ac
 ACTIVE_AGENT_SQL = text("""
 select actor_id from agent_meeting_participants where
 tenant_id=:tenant and workspace_id=:workspace and session_id=:id and kind='agent'
+and left_at is null
 order by created_at,id
 """)
 

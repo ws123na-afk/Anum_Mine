@@ -187,3 +187,31 @@ test('Arabic: the register reads right to left with Arabic words', async ({ page
   await expect(shown).toContainText('28 أكتوبر 2026');
   await expect(shown).toContainText('9:30');
 });
+
+test('a check in made elsewhere reaches the 3D reception room at once through the event stream, not after a minute', async ({ page }) => {
+  // The workspace event stream answers only when the test lets it: it then delivers office.visitors_changed (ids only).
+  let release: () => void = () => undefined;
+  const changed = new Promise<void>((resolve) => { release = resolve; });
+  let reception: Awaited<ReturnType<typeof mockReception>> | null = null;
+  await openHq(page, { registry: frontOffice(), beforeGoto: async (p) => {
+    reception = await mockReception(p, { visits: [fakeVisit(1, { room_id: 'Alpha-lobby' })] });
+    await p.route('http://localhost:8000/api/v1/events/stream', async (route) => {
+      await changed;
+      const event = { id: 'event_visitors', type: 'office.visitors_changed', version: 1, tenant_id: TENANT_A.tenantId, workspace_id: TENANT_A.workspaceId,
+        subject: 'visit-001', correlation_id: 'visit-001', created_at: new Date().toISOString(), payload: { action: 'office.visitor.check_in', visitor_id: 'visit-001', status: 'checked_in' } };
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: `id: event_visitors\ndata: ${JSON.stringify(event)}\n\n` }).catch(() => undefined);
+    });
+  } });
+  await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible();
+  await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).dispatchEvent('click', undefined, { timeout: 60_000 });
+  await hq(page).getByRole('button', { name: /^Open ⁨?Al Noor Fleet HQ⁩?$/ }).click();
+  const lobby = hq(page).locator('.hqBuilding .hqRoomCard', { hasText: 'Alpha Lobby' });
+  await expect(lobby).toHaveAccessibleName(/^Alpha Lobby\. No visitors checked in · Reception/);
+  // Someone at the front desk (another tab or browser) checks the visitor in: the server's register changes, this page did nothing.
+  const store = reception as unknown as Awaited<ReturnType<typeof mockReception>>;
+  Object.assign(store.visits[0], { status: 'checked_in', checked_in_at: new Date().toISOString(), revision: 2 });
+  const before = store.calls.filter((c) => c.path.endsWith('/summary')).length;
+  release();
+  await expect(lobby).toHaveAccessibleName(/^Alpha Lobby\. 1 visitor checked in · Reception/, { timeout: 8_000 });
+  expect(store.calls.filter((c) => c.path.endsWith('/summary')).length).toBeGreaterThan(before);
+});

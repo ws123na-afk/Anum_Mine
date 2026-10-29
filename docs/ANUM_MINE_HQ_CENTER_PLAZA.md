@@ -41,8 +41,10 @@ Updated 28 October 2026 (owner request: every building's entrance looks at the p
   quarter turn whose front points most directly at the plaza centre: north of the plaza faces south, east faces west, and so on; on an exact diagonal
   the z axis wins. The quarter turn alone can be up to 45 degrees off the exact direction to the fountain, so each building also takes a lean
   (`leanOf(x, z, turn)`, `Placement.yaw`, at most 45 degrees either way): quarter turn plus lean is the exact heading from the building's middle to the
-  fountain, so every front points straight at it (checked for 2, 4, 8 and 16 buildings within 10 degrees; a centred door looks at the fountain within
-  10 degrees from its doorway, the warehouse's side entrance within 12).
+  fountain, so every front points straight at it (checked for 2, 4, 8 and 16 buildings within 10 degrees). A warehouse's entrance is its office annex,
+  about 9 m off the middle (`hqAssets/exterior/warehouseDoor.ts`), so a warehouse aims from halfway to that door (`aimedLean`): its middle and its
+  doorway both look at the fountain within 10 degrees, on the smallest campus too, like every centred door (29 October 2026; it was 12 for the side
+  entrance before).
 - `Placement.turn` and `Placement.yaw` carry it. `width` and `depth` stay the building's own (along and across its front); `footprintRect(p)` is the
   world rectangle (width and depth swap on an odd turn; with a lean, the axis aligned box round the leaned rectangle). The lot is built in the
   building's own frame, turned and leaned (`lotOf`, the box round it), so the front garden always lies toward the plaza and the ring search clears

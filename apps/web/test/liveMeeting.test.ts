@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  SPEAKING_WINDOW_MS, activeSpeakers, applyEvent, budgetUsed, draftFromMessage, initialState, meetingHash, meetingIdFromHash, parseSse, presentActors,
+  SPEAKING_WINDOW_MS, activeSpeakers, applyEvent, budgetUsed, draftFromMessage, initialState, meetingHash, meetingIdFromHash, parseSse, presentActors, presentAgentIds,
   type RoomBundle, type RoomEvent, type RoomMeeting,
 } from '../src/lib/liveMeeting.ts';
 
@@ -79,6 +79,24 @@ describe('replaying events', () => {
     state = applyEvent(state, ev('file', { op: 'add', file_id: 'f1', name: 'plan.pdf' }));
     state = applyEvent(state, ev('file', { op: 'remove', file_id: 'f1' }));
     assert.equal(state.files.length, 0);
+  });
+});
+
+describe('an agent removed from the live meeting', () => {
+  test('agent_left marks only that agent as left, stops its speaking dot, and it no longer takes part', () => {
+    seq = 2;
+    const two = initialState({ ...bundle, participants: [{ id: 'p1', actor_id: 'agent_a', kind: 'agent' }, { id: 'p2', actor_id: 'agent_b', kind: 'agent' }, { id: 'p3', actor_id: 'owner', kind: 'human' }] }, []);
+    assert.deepEqual(presentAgentIds(two.participants), ['agent_a', 'agent_b']);
+    let state = applyEvent(two, ev('turn_started', { agent_id: 'agent_b', request_key: 'k9', sequence: 4 }));
+    state = applyEvent(state, ev('agent_left', { agent_id: 'agent_b' }, '2026-10-22T10:05:00Z'));
+    assert.equal(state.participants.find((p) => p.actor_id === 'agent_b')?.left_at, '2026-10-22T10:05:00Z');
+    assert.equal(state.participants.find((p) => p.actor_id === 'agent_a')?.left_at, undefined);
+    assert.deepEqual(presentAgentIds(state.participants), ['agent_a']);
+    assert.deepEqual(Object.values(state.speaking), []);
+    // A replay of the same leave keeps the first time; a stored left_at from the room read counts as left too.
+    const again = applyEvent(state, { ...ev('agent_left', { agent_id: 'agent_b' }, '2026-10-22T11:00:00Z') });
+    assert.equal(again.participants.find((p) => p.actor_id === 'agent_b')?.left_at, '2026-10-22T10:05:00Z');
+    assert.deepEqual(presentAgentIds([{ id: 'p1', actor_id: 'agent_a', kind: 'agent', left_at: '2026-10-22T10:05:00Z' }]), []);
   });
 });
 

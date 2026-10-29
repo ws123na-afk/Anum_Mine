@@ -34,7 +34,7 @@ Owner decisions of 27 October 2026, recorded as answered in the [feature complet
 
 ### The 3D reception room
 
-A room of kind `reception` shows only the number of visitors the server counts as checked in there now (`GET /office/visitors/summary`, counts only, never a name): its room card in the building view leads with "1 visitor checked in" or "No visitors checked in", and the room panel shows the same line. A visit counts at its own room; a visit with a building and no room counts at that building's reception room only when the building has exactly one; a visit with neither counts only when the workspace has exactly one reception room. Anything else stays in the panel and is never spread over rooms. With no answer (no permission, no PostgreSQL, offline) the room shows no visitor line at all. The count is read when the open office has a reception room (and again when its reception rooms change), every minute while the tab is visible, and after each change in the panel (`useVisitorSummary.ts`; the rules in `lib/hqReceptionCount.ts` are a small lazy chunk).
+A room of kind `reception` shows only the number of visitors the server counts as checked in there now (`GET /office/visitors/summary`, counts only, never a name): its room card in the building view leads with "1 visitor checked in" or "No visitors checked in", and the room panel shows the same line. A visit counts at its own room; a visit with a building and no room counts at that building's reception room only when the building has exactly one; a visit with neither counts only when the workspace has exactly one reception room. Anything else stays in the panel and is never spread over rooms. With no answer (no permission, no PostgreSQL, offline) the room shows no visitor line at all. The count is read when the open office has a reception room (and again when its reception rooms change), every minute while the tab is visible, after each change in the panel, and at once when the workspace event stream delivers `office.visitors_changed` (a check in or out made in another tab or browser, or at the reception desk; `useVisitorSummary.ts` reads the shell's stream through the `live` and `liveEvent` props; the rules in `lib/hqReceptionCount.ts` are a small lazy chunk). Without the stream (offline, no `event:read`) the minute read stands.
 
 ### API
 
@@ -59,6 +59,15 @@ Retention (owner decision O5, 28 October 2026): the daily retention job deletes 
 
 Audit (`office.visitor.create`, `update`, `check_in`, `check_out`, `cancel`, `delete`) and the event `office.visitors_changed` (after the commit) carry ids, statuses, revisions, the host kind and id, whether a company was given and, for an update, the names of the changed fields. Never the visitor's name, company or purpose, in audit, events or logs. The history panel names these actions in English and Arabic.
 
+## Host notification
+
+When a visitor is checked in (`POST /{id}/check-in`, or a walk-in added with `arrived: true`) and the visit's host is a person who is an active member of the workspace, that host gets one in-app notification through the existing notification path (`notifications.create_notification`, the same inbox as team work): the web bell and the phone's Notifications screen list "Your visitor is here", "<visitor name> is checked in at reception." (`office_visitors_api._notify_host`, kind `visitor_arrived`). It is written in the check in's own transaction, so both commit or neither does.
+
+- **In app only.** No email, SMS or phone push (owner rule: no autonomous email). The row is stored with email and push `not_requested` (`in_app_only`), and `push.IN_APP_ONLY_KINDS` keeps its `notification.created` event from becoming a push whatever the host's switches say. With **Desktop notifications** on, the host's own open web page may show it as an operating-system notification while it is in the background, as for every inbox entry ([Notifications](notifications.md#desktop)); nothing leaves ANUM.
+- **Who is not notified**: an agent host, a visit with no host, a host who has since left the workspace, and the person who made the click (they saw it happen). An expected visit, an edit, a check out or a cancellation notifies nobody.
+- **Privacy (S-20)**: the visitor's name is only in the host's own inbox row, which only the host can read (row level security on `user_notifications`). The `notification.created` event carries ids only (`recipient`, `kind`, `visitor_id`), and the check in's audit record adds only `host_notified: true|false`. Company and purpose are never in the notice. The text is stored in English, like the other inbox notices.
+- Tests: `test_office_visitors.py` (text, in-app only, no push intent) and `test_postgres_office_visitors.py` (check in and walk-in notify the host once, no email or push, only the host reads it, ids only in event and audit; nobody else is notified).
+
 ## The career building kind
 
 - **Contract and API**: `CampusBuildingKind` gains `career` (`packages/contracts/src/officeCampus.ts`), `PUT /office/campus/profile` accepts it, and the migration widens `ck_campus_profile_kind`. The previous release reads `career` as an unknown kind and draws the plain business look, so a rollback is safe.
@@ -69,10 +78,10 @@ Audit (`office.visitor.create`, `update`, `check_in`, `check_out`, `cancel`, `de
 ## Checks
 
 - API: `services/api/tests/test_office_visitors.py` (routes, 503 without PostgreSQL, viewer refused, text cleaning, cursor, click only, career kind, starter kinds) and `test_postgres_office_visitors.py` (migration, every route, paging, search, day window, host and place checks, set null on room delete, audit and events without names, Arabic refusal, another tenant sees and changes nothing, including direct SQL as the app role).
-- Web: `test/hqReception.test.ts` (query, parsing, counts per room, the room line, form rules and bodies, actions, client paths, career look and starter mapping, no example people) and `e2e/hq-reception.spec.ts` (owner journey with the 3D count, check in, cancel, edit, delete, stale revision, paging and search, viewer, denied, error and retry, opening from a reception room, axe, Arabic). `e2e/hq-room-modules.spec.ts` checks that the reception room opens the register and that no simulated names return.
+- Web: `e2e/hq-reception.spec.ts` also checks that a check in made elsewhere reaches the 3D room through the event stream within seconds. `test/hqReception.test.ts` (query, parsing, counts per room, the room line, form rules and bodies, actions, client paths, career look and starter mapping, no example people) and `e2e/hq-reception.spec.ts` (owner journey with the 3D count, check in, cancel, edit, delete, stale revision, paging and search, viewer, denied, error and retry, opening from a reception room, axe, Arabic). `e2e/hq-room-modules.spec.ts` checks that the reception room opens the register and that no simulated names return.
 
 ## Not done
 
-- **No host notification** when a visitor is checked in, and no visitor badge printing. Neither was part of decision O4.
+- **No visitor badge printing.** It was not part of decision O4 and is out of scope: nothing prints, and no printer or label format is assumed.
 - **Registry buildings carry no stored kind.** Only a workspace has a campus kind; the eight starter buildings take their look from their stable starter id, so a hand-made registry building cannot yet be marked as a career building.
-- **The 3D count refreshes once a minute** (and after the panel's own changes); the `office.visitors_changed` event is not yet pushed into the presence stream.
+- **The 3D count follows the workspace event stream**, not the presence stream: a page whose event stream is down falls back to the minute read.

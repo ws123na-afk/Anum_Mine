@@ -14,7 +14,8 @@ export interface RoomMeeting {
   started_at: string | null; ended_at: string | null; ended_reason: string | null;
   hand_raised_by: string | null; transcript_deleted_at: string | null;
 }
-export interface RoomParticipant { id: string; actor_id: string; kind: 'agent' | 'human' }
+/** `left_at`: an agent the meeting owner removed from the live meeting (the stored time); null or absent while it takes part. */
+export interface RoomParticipant { id: string; actor_id: string; kind: 'agent' | 'human'; left_at?: string | null }
 export interface RoomAttendance { actor_id: string; joined_at: string; left_at: string | null }
 export interface AgendaItem { id: string; position: number; title: string; state: 'open' | 'current' | 'done' }
 export type OutputKind = 'decision' | 'action_item' | 'summary';
@@ -129,6 +130,12 @@ export function applyEvent(state: RoomState, event: RoomEvent): RoomState {
       next.attendance = [...others, { actor_id: actor, joined_at: event.created_at, left_at: null }];
       break;
     }
+    case 'agent_left': {
+      const agent = str(p.agent_id);
+      next.participants = state.participants.map((x) => x.actor_id === agent && x.kind === 'agent' && !x.left_at ? { ...x, left_at: event.created_at } : x);
+      next.speaking = Object.fromEntries(Object.entries(state.speaking).filter(([, v]) => v.agentId !== agent));
+      break;
+    }
     case 'left': next.attendance = state.attendance.map((a) => a.actor_id === str(p.actor_id) ? { ...a, left_at: event.created_at } : a); break;
     case 'agenda': {
       const item = p.item as AgendaItem;
@@ -166,6 +173,11 @@ export function activeSpeakers(state: RoomState, now: number = Date.now()): stri
   const ids = new Set<string>();
   for (const s of Object.values(state.speaking)) if (now - Date.parse(s.since) <= SPEAKING_WINDOW_MS) ids.add(s.agentId);
   return [...ids];
+}
+
+/** The agents still taking part: every agent participant the owner has not removed (`left_at`). Only they take turns. */
+export function presentAgentIds(participants: readonly RoomParticipant[]): string[] {
+  return participants.filter((p) => p.kind === 'agent' && !p.left_at).map((p) => p.actor_id);
 }
 
 export function presentActors(state: RoomState): string[] {

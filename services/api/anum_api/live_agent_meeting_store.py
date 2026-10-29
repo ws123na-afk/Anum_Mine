@@ -86,7 +86,7 @@ class SqlLiveMeetingStore:
 
     def participants(self, context: TenantContext, meeting_id: str) -> list[dict[str, Any]]:
         rows = self.session.execute(text("""
-            select id, session_id, actor_id, kind, added_by, created_at
+            select id, session_id, actor_id, kind, added_by, created_at, left_at, removed_by
             from agent_meeting_participants
             where tenant_id=:tenant and workspace_id=:workspace and session_id=:id
             order by created_at, id
