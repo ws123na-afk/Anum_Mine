@@ -25,6 +25,14 @@ Reads need `task:read`; writes need `workspace:manage` and, for moderation, owne
 - `GET /export?format=markdown|json` (owner), `DELETE /transcript` (owner, ended meetings only).
 - Pause, resume and end use the existing `POST /state`. Turns come from `POST /run` or `POST /execute-turn` or the worker.
 
+## Removing an agent
+Before 29 October 2026 nothing recorded an AI agent leaving a meeting: pausing it, or ending its part, was not stored, so it kept speaking and stayed seated in the headquarters until the meeting ended. Now the meeting owner can remove an agent from an active or paused meeting in the room: each agent in the Agents list has **Remove**, which asks first ("Remove Maya? It stops speaking now and cannot rejoin this meeting.", **Remove from meeting** or **Cancel**). The API (`POST /agents/{agent_id}/remove`, owner and `workspace:manage`, the shown revision) stores the server time and the owner on the agent's participant row (`left_at`, `removed_by`, migration `0121_meeting_agent_leave`) and appends the room event `agent_left` (`{"agent_id"}`); the audit record `agent_meeting.agent_remove` carries ids only. From then on:
+- the agent takes no further turn (`meeting_execution.ACTIVE_AGENT_SQL` reads only participants without `left_at`; with every agent removed, Run next turn is disabled),
+- its desk no longer says it is in a meeting (`office_presence`),
+- the meeting detail gives it `left_at`, so the headquarters no longer seats or counts it and the room inspector lists it as "Left" (`lib/hqPresence.ts` `loadMeetingEvidence`, as for people since #316),
+- the room shows it as "Left the meeting" with no buttons: at once for owners (the room's event stream), within the 10 s room read for everyone else.
+The participant row stays, so the transcript keeps its speaker. A removed agent cannot rejoin the meeting (agents are added only to scheduled meetings). A leave is only ever this owner click: pausing an agent profile or a meeting records nothing. Tests: `services/api/tests/test_postgres_meeting_agent_leave.py`, `apps/web/test/liveMeeting.test.ts`, `e2e/meeting-room.spec.ts` (English and Arabic).
+
 ## Guarantees
 - A message is stored before its event; events are numbered without gaps under the meeting row lock; a client that reconnects with the last event number gets exactly the missed events.
 - Turn claims are durable leases; a crashed worker's lease expires and the turn is retried with the same key; duplicate requests return the stored turn without a second model call.

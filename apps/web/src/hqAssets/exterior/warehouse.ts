@@ -9,6 +9,7 @@ import { WARM, acUnit, castShadow, truck } from '../../lib/hqProps.ts';
 import { clamp, entrance, faceBox, faceQuad, finish, makeCtx, paneRow, rectFaces, signBoard, type Ctx, type Face } from './parts.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
 import { cornerBevels } from './bevel.ts';
+import { warehouseAnnexWidth, warehouseEntranceX, warehouseWidth } from './warehouseDoor.ts';
 
 const CLAD = hex('#c3c9ce');
 const YELLOW = hex('#e8c34a');
@@ -25,7 +26,7 @@ function rollerDoor(ctx: Ctx, f: Face, u0: number, u1: number, h: number, color:
 export function buildWarehouse(params: ExteriorParams = {}): ExteriorAsset {
   const ctx = makeCtx('warehouse', params, 0.3);
   const { b, rnd, scheme } = ctx;
-  const W = clamp(params.width, 24, 72, 42), D = clamp(params.depth, 16, 44, 26);
+  const W = warehouseWidth(params.width), D = clamp(params.depth, 16, 44, 26);
   const wallH = clamp(params.levels ? params.levels * 3.2 : undefined, 7, 14, 8.6);
   const x0 = -W / 2, z0 = -D / 2, x1 = W / 2, z1 = D / 2;
   const F = rectFaces(x0, z0, W, D);
@@ -90,7 +91,7 @@ export function buildWarehouse(params: ExteriorParams = {}): ExteriorAsset {
   beaconLight(ctx, 0, ry + 0.2, 0);
 
   // Roller doors on the front, spread over the part of the front that is not the annex.
-  const annexW = Math.min(10, W * 0.24);
+  const annexW = warehouseAnnexWidth(W);
   const doorsFrom = annexW + 3;
   const doorW = 4.4, doorH = 4.6;
   const nDoors = Math.max(2, Math.min(6, Math.floor((W - doorsFrom - 2) / (doorW + 3))));
@@ -151,7 +152,7 @@ export function buildWarehouse(params: ExteriorParams = {}): ExteriorAsset {
   return finish(ctx, {
     kind: 'warehouse', footprint: { width: W, depth: D }, height: ry,
     anchor: { x: 0, y: ry + 2.4, z: 0 },
-    door: { x: x0 + annexW / 2, y: 0, z: z1 + aD + 6 },
+    door: { x: warehouseEntranceX(params.width), y: 0, z: z1 + aD + 6 },
     sign, ground: [x0 - 3, z0 - 3, x1 + dockD + 12, z1 + 11],
   }, params);
 }

@@ -534,7 +534,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const receptionRooms = useMemo(() => (projection?.buildings ?? []).flatMap((b) => b.floors.flatMap((f) => f.rooms.map((r) => ({
     id: r.id, buildingId: b.id, kind: r.kind, label: roomName(r, locale), building: sceneName(b, locale),
   })))), [projection, locale]);
-  const visitors = useVisitorSummary(receptionRooms, scope.workspaceId);
+  const visitorLive = useMemo(() => ({ tick: props.live ?? 0, type: props.liveEvent ?? null }), [props.live, props.liveEvent]);
+  const visitors = useVisitorSummary(receptionRooms, scope.workspaceId, visitorLive);
   const visitorCounts = visitors.counts;
   const historyRooms = useMemo(() => (registryBuilding?.floors ?? []).flatMap((f) => f.rooms.map((r) => ({ id: r.id, label: roomName(r, locale), deskIds: r.deskIds }))), [registryBuilding, locale]);
   const historyAgents = useMemo(() => (presenceList ?? []).filter((p) => p.name && !p.agentId.startsWith('desk:')).map((p) => ({ id: p.agentId, label: p.name })), [presenceList]);

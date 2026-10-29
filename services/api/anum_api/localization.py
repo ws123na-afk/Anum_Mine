@@ -132,6 +132,10 @@ ARABIC_MESSAGES: dict[str, str] = {
     "A visit with this id already exists": "توجد زيارة بهذا المعرّف بالفعل.",
     "A finished visit cannot be changed; delete it or add a new visit": "لا يمكن تغيير زيارة انتهت؛ احذفها أو أضف زيارة جديدة.",
     "Only an expected visitor can be checked in": "لا يُسجَّل دخول إلا زائر متوقَّع.",
+    # Removing an agent from a live meeting (anum_api/live_agent_meeting_api.py)
+    "Only the owner can remove agents": "لا يمكن إزالة الوكلاء إلا لمالك الاجتماع.",
+    "That agent is not a participant of this meeting": "هذا الوكيل ليس مشاركًا في هذا الاجتماع.",
+    "Agents can only be removed from an active or paused meeting": "لا يمكن إزالة الوكلاء إلا من اجتماع جارٍ أو متوقف مؤقتًا.",
     "Only a checked-in visitor can be checked out": "لا يُسجَّل خروج إلا زائر سُجّل دخوله.",
     "Only an expected visit can be cancelled": "لا تُلغى إلا زيارة متوقَّعة.",
     "That building or room does not exist in this workspace": "هذا المبنى أو هذه الغرفة غير موجودة في مساحة العمل هذه.",

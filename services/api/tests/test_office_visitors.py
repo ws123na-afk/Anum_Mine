@@ -85,3 +85,35 @@ def test_starter_campus_buildings_carry_their_campus_kind() -> None:
     assert set(kinds.values()) <= set(office_campus_api.KINDS)
     plan = sc.plan_building(sc.BUILDING_BY_KEY["career"], sc.Facts(), "Asia/Dubai")
     assert plan["campus_kind"] == "career"
+
+
+def test_host_notice_is_in_app_only_and_never_pushed() -> None:
+    from anum_api import push
+    from anum_api.notifications import create_notification
+    from anum_api.schemas import DomainEvent, TenantContext
+    from anum_api.team_models import EmailStatus, PushStatus
+
+    # The text names the visitor only (no company, no purpose).
+    assert visitors.host_notice_text("Visitor Example") == ("Your visitor is here", "Visitor Example is checked in at reception.")
+    assert visitors.HOST_NOTICE_KIND in push.IN_APP_ONLY_KINDS
+
+    stored: list = []
+
+    class Store:
+        def add_notification(self, context, notification):  # type: ignore[no-untyped-def]
+            stored.append(notification)
+            return notification
+
+    context = TenantContext(tenant_id="tenant_example", workspace_id="ws_example", user_id="owner_example", roles=["owner"])
+    made = create_notification(Store(), context, user_id="host_example", kind=visitors.HOST_NOTICE_KIND, title="t", body="b",  # type: ignore[arg-type]
+                               email="host@example.test", in_app_only=True)
+    assert stored == [made]
+    assert made.email_status == EmailStatus.NOT_REQUESTED and made.push_status == PushStatus.NOT_REQUESTED
+
+    def event(kind: str) -> DomainEvent:
+        return DomainEvent(id="event_example", type="notification.created", tenant_id="tenant_example", workspace_id="ws_example",
+                           subject=made.id, correlation_id="c", created_at=datetime.now(timezone.utc),
+                           payload={"recipient": "host_example", "kind": kind, "work_item_id": None})
+
+    assert push.intent_for(event(visitors.HOST_NOTICE_KIND)) is None
+    assert push.intent_for(event("assignment")) is not None  # other team work still pushes

@@ -116,12 +116,10 @@ describe('buildings face the plaza', () => {
         // the direction from the building's middle to the fountain, within 10 degrees (the quarter turn alone allowed 45).
         const front = turnAngle(p.turn) + (p.yaw ?? 0);
         assert.ok(off(front, facingAngle(p.x, p.z)) <= TOLERANCE, `${n}: ${p.workspaceId} front is ${off(front, facingAngle(p.x, p.z))} rad off`);
-        // Standing in the doorway and looking straight out, the fountain is ahead too. A centred door sees it within 10 degrees; a side
-        // entrance (the warehouse's office annex, about 9 m off the middle) within 12 on the smallest campus, where it stands nearest.
+        // Standing in the doorway and looking straight out, the fountain is ahead too, within 10 degrees: also from a side entrance (the
+        // warehouse's office annex, about 9 m off the middle), whose building aims from halfway to that door, on the smallest campus too.
         const door = scene.buildings[i].door;
-        const [doorSide] = unturnXZ(door.x - p.x, door.z - p.z, p.turn, p.yaw ?? 0);
-        const doorLimit = Math.abs(doorSide) < 1 ? TOLERANCE : (12 * Math.PI) / 180;
-        assert.ok(off(front, facingAngle(door.x, door.z)) <= doorLimit, `${n}: ${p.workspaceId} door looks ${off(front, facingAngle(door.x, door.z))} rad off the fountain`);
+        assert.ok(off(front, facingAngle(door.x, door.z)) <= TOLERANCE, `${n}: ${p.workspaceId} door looks ${off(front, facingAngle(door.x, door.z))} rad off the fountain`);
         assert.ok(dot([door.x - p.x, door.z - p.z], [Math.sin(front), Math.cos(front)]) > 0, `${n}: ${p.workspaceId} door is on the front`);
         const shape = drawExterior(p, archetypeOf(p), i, places.length);
         assert.ok(Math.hypot(shape.door.x, shape.door.z) < Math.hypot(p.x, p.z), `${n}: ${p.workspaceId} door is nearer the centre`);
