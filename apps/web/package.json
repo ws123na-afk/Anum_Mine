@@ -13,21 +13,21 @@
   },
   "dependencies": {
     "@anum/contracts": "workspace:*",
-    "@sentry/browser": "11.8.0",
+    "@sentry/browser": "11.9.0",
     "@twilio/voice-sdk": "2.18.5",
     "@vitejs/plugin-react": "6.1.2",
     "kokoro-js": "1.2.1",
-    "lucide-react": "1.55.0",
+    "lucide-react": "1.61.0",
     "pdfjs-dist": "6.4.299",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "three": "0.184.0",
     "typescript": "^7.0.2",
-    "vite": "8.3.4"
+    "vite": "8.3.5"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.13.0",
-    "@playwright/test": "^1.63.0",
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "^1.64.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@types/three": "0.184.0"
