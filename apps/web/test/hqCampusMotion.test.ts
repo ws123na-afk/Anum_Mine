@@ -231,6 +231,30 @@ test('sites sit outside the building on the door side and routes never cross a b
   assert.equal(segmentHitsBox(-20, 30, 20, 30, box, 0), false);
 });
 
+test('a leaned building (45 degrees) gets its yard on its real front and a route, although its door sits inside the box round it', () => {
+  // A 40 x 20 building leaned 45 degrees: the box round it is about 42 x 42, and its door (16 m in front of its middle) is inside that box.
+  const yaw = Math.PI / 4, half = (40 * Math.cos(yaw) + 20 * Math.sin(yaw)) / 2;
+  const door = { x: 16 * Math.sin(yaw), z: 16 * Math.cos(yaw) };
+  const plain = { minX: -half, minZ: -half, maxX: half, maxZ: half };
+  assert.ok(door.x < plain.maxX && door.z < plain.maxZ);
+  const roads: number[] = [];
+  sampleRoad(new Float32Array([-60, -60, 60, -60, 60, 60, -60, 60]), 5, roads);
+  // The box alone puts the yard stop inside the box, so no road reaches it: the hauler never drove (the Tyre Pulse alert of the e2e spec).
+  assert.equal(routeTo(siteOf({ key: 'w', door, box: plain }), new Float32Array(roads), [plain]), null);
+  const box = { ...plain, lean: { cx: 0, cz: 0, hw: 20, hd: 10, yaw } };
+  const site = siteOf({ key: 'w', door, box });
+  assert.ok(Math.abs(site.nx - Math.SQRT1_2) < 1e-9 && Math.abs(site.nz - Math.SQRT1_2) < 1e-9); // straight out of the turned front
+  assert.ok(Math.abs(site.tx * site.nx + site.tz * site.nz) < 1e-9);
+  assert.equal(segmentHitsBox(site.stop.x, site.stop.z, site.stop.x, site.stop.z, box, 1.6), false);
+  const route = routeTo(site, new Float32Array(roads), [box]);
+  assert.ok(route);
+  assert.equal(segmentHitsBox(route!.ax, route!.az, route!.bx, route!.bz, box, 1.6), false);
+  // The empty corner of the box round it is open ground; the building itself is not.
+  assert.equal(segmentHitsBox(25, 10, 10, 25, box, 0), false);
+  assert.equal(segmentHitsBox(25, 10, 10, 25, plain, 0), true);
+  assert.equal(segmentHitsBox(-30, 0, 30, 0, box, 0), true);
+});
+
 test('the catalogue has the same keys and placeholders in English and Arabic, with no long dashes', () => {
   const en = CATALOGS.en as Record<string, unknown>, ar = CATALOGS.ar as Record<string, unknown>;
   const keys = Object.keys(en).filter((k) => k.startsWith('hqMotion.'));

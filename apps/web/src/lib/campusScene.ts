@@ -21,6 +21,11 @@ import type { Vec3 } from './headquartersProjection.ts';
 export type SceneMesh = Readonly<{ vertices: Float32Array; bounds: Aabb; triangles: number }>;
 export type CampusBuildingMesh = Readonly<{
   workspaceId: string; mesh: SceneMesh; box: Aabb; anchor: Vec3; door: Vec3;
+  /**
+   * For a leaned building (`Placement.yaw`): its own rectangle, grown like `box` (middle, half sizes in world axes before the lean, the lean).
+   * The box round a leaned building holds its door; the work motion's yard and obstacle tests use this instead (`hqWorkMotion.Lean2`).
+   */
+  lean?: Readonly<{ cx: number; cz: number; hw: number; hd: number; yaw: number }>;
   /** Index of this building's sign cell (see `signAtlasLayout`); the stage draws the real name there. */
   signIndex: number;
   archetype: Archetype;
@@ -132,6 +137,7 @@ export function buildCampusScene(placements: readonly Placement[], options: Camp
     buildings.push({
       workspaceId: p.workspaceId, mesh, anchor, door, signIndex: index, archetype,
       box: { min: { x: f.x0 - 1.2, y: 0, z: f.z0 - 1.2 }, max: { x: f.x1 + 1.2, y: mesh.bounds.max.y, z: f.z1 + 1.2 } },
+      ...(p.yaw ? { lean: { cx: p.x, cz: p.z, hw: worldSize({ ...p, yaw: 0 }).w / 2 + 1.2, hd: worldSize({ ...p, yaw: 0 }).d / 2 + 1.2, yaw: p.yaw } } : {}),
     });
   });
   // Walkways from the roundabout to every door, routed round the buildings.
