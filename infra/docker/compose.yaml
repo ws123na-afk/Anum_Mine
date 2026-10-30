@@ -97,7 +97,7 @@ services:
       retries: 10
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.163.2
+    image: otel/opentelemetry-collector-contrib:0.164.0
     # The base config only prints what it receives. With the observability profile set
     # ANUM_OTELCOL_OVERLAY=observability so the overlay sends traces to Tempo, metrics
     # to Prometheus and logs to Loki (docs/observability.md#local-stack).
