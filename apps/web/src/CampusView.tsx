@@ -197,7 +197,7 @@ export function CampusView(props: CampusViewProps) {
   const [work, setWork] = useState<WorkUi>(NO_WORK);
   const workSites: readonly WorkSiteInput[] = useMemo(() => scene.buildings.map((b) => ({
     key: b.workspaceId, workspaceId: workspaceOf(byIdRef.current.get(b.workspaceId) ?? { workspace_id: b.workspaceId }), workshop: b.archetype === 'workshop', door: { x: b.door.x, z: b.door.z },
-    box: { minX: b.box.min.x, minZ: b.box.min.z, maxX: b.box.max.x, maxZ: b.box.max.z },
+    box: { minX: b.box.min.x, minZ: b.box.min.z, maxX: b.box.max.x, maxZ: b.box.max.z, ...(b.lean ? { lean: b.lean } : {}) },
   })), [scene]);
   const [walk, setWalk] = useState<WalkerUi>(NO_WALK);
   const viewSink: ViewSink = useRef(null);

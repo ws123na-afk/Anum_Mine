@@ -11,6 +11,7 @@
  * Pure: no DOM, no three.js, no clock of its own (the caller passes `nowMs`). Poses are plain functions of
  * time written into a caller owned object.
  */
+import { rotateXZ } from './campusFacing.ts';
 import { intlLocale, type Locale } from './i18n.ts';
 import type { MessageKey } from './messages/en.ts';
 
@@ -263,7 +264,13 @@ export class WorkPlanner {
 
 // ---------------------------------------------------------------- sites and routes
 
-export type Box2 = Readonly<{ minX: number; minZ: number; maxX: number; maxZ: number }>;
+/**
+ * A building's own rectangle when it is leaned (`Placement.yaw`, up to 45 degrees): its middle, its half sizes in world axes before the
+ * lean (already grown like the box) and the lean. The axis aligned box round a leaned building is much bigger than the building, so its
+ * door, and the yard stop in front of it, sit inside that box: the yard side and the obstacle test then use this rectangle instead.
+ */
+export type Lean2 = Readonly<{ cx: number; cz: number; hw: number; hd: number; yaw: number }>;
+export type Box2 = Readonly<{ minX: number; minZ: number; maxX: number; maxZ: number; lean?: Lean2 }>;
 export type SiteInput = Readonly<{ key: string; door: Readonly<{ x: number; z: number }>; box: Box2 }>;
 /** Where things happen at one building: the yard stop for a vehicle, the tyre's start at the door and the rack. */
 export type WorkSite = Readonly<{
@@ -276,18 +283,27 @@ export type WorkSite = Readonly<{
 }>;
 
 export function siteOf(input: SiteInput): WorkSite {
-  const cx = (input.box.minX + input.box.maxX) / 2, cz = (input.box.minZ + input.box.maxZ) / 2;
-  const dx = input.door.x - cx, dz = input.door.z - cz;
+  const lean = input.box.lean;
+  const cx = lean ? lean.cx : (input.box.minX + input.box.maxX) / 2, cz = lean ? lean.cz : (input.box.minZ + input.box.maxZ) / 2;
+  // A leaned building is read in its own frame (the lean undone), so the side found is the building's real side, not a side of the box round it.
+  const [dx, dz] = lean ? rotateXZ(input.door.x - cx, input.door.z - cz, -lean.yaw) : [input.door.x - cx, input.door.z - cz];
+  const w = lean ? lean.hw * 2 : input.box.maxX - input.box.minX, d = lean ? lean.hd * 2 : input.box.maxZ - input.box.minZ;
   // Snap to the side of the building the door is on.
-  const alongX = Math.abs(dx) / Math.max(1e-6, input.box.maxX - input.box.minX) > Math.abs(dz) / Math.max(1e-6, input.box.maxZ - input.box.minZ);
-  const nx = alongX ? Math.sign(dx) || 1 : 0, nz = alongX ? 0 : Math.sign(dz) || 1;
+  const alongX = Math.abs(dx) / Math.max(1e-6, w) > Math.abs(dz) / Math.max(1e-6, d);
+  const sx = alongX ? Math.sign(dx) || 1 : 0, sz = alongX ? 0 : Math.sign(dz) || 1;
+  const [nx, nz] = lean ? rotateXZ(sx, sz, lean.yaw) : [sx, sz];
   const tx = -nz, tz = nx;
   const at = (n: number, t: number) => ({ x: input.door.x + nx * n + tx * t, z: input.door.z + nz * n + tz * t });
   return { key: input.key, nx, nz, tx, tz, stop: at(8.5, 6), door: at(1.4, 0), rack: at(6.5, -4.5) };
 }
 
-/** Does the segment (a to b) pass through a box grown by `pad`? */
+/** Does the segment (a to b) pass through a box grown by `pad`? A leaned building's box is tested by its own rectangle (`Lean2`). */
 export function segmentHitsBox(ax: number, az: number, bx: number, bz: number, box: Box2, pad: number): boolean {
+  const lean = box.lean;
+  if (lean) {
+    const [lax, laz] = rotateXZ(ax - lean.cx, az - lean.cz, -lean.yaw), [lbx, lbz] = rotateXZ(bx - lean.cx, bz - lean.cz, -lean.yaw);
+    return segmentHitsBox(lax, laz, lbx, lbz, { minX: -lean.hw, minZ: -lean.hd, maxX: lean.hw, maxZ: lean.hd }, pad);
+  }
   let t0 = 0, t1 = 1;
   const clip = (p: number, q: number): boolean => {
     if (Math.abs(p) < 1e-9) return q >= 0;
