@@ -89,6 +89,8 @@ The renderer only gained `workHooks()`, a few bytes; the work layer is attached 
 
 A vehicle needs a straight run from a road to the yard stop (8.5 m out from the door, 6 m to the side of the walkway) that crosses no building. The nearest such point on the roads is used. If none exists, the card line still shows and nothing is drawn.
 
+A building leaned to face the fountain (up to 45 degrees) is read by its own turned rectangle, not by the box round it: that box is much bigger than the building and holds its door, so the yard stop fell inside it and no road could reach it (on 30 October 2026 the Tyre Pulse hauler showed its line but never drove). The yard side is the building's real front, turned with it, and a run is blocked only by the building itself (`Lean2` in `hqWorkMotion.ts`, from `CampusBuildingMesh.lean`).
+
 ## Gaps, said plainly
 
 - A Tyre Pulse source that stores inspection dates only (or a snapshot synced before 28 October 2026) still shows the day, "Oct 26", until its inspection column carries a time with a zone and the next sync runs.
