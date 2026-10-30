@@ -97,7 +97,7 @@ services:
       retries: 10
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.163.1
+    image: otel/opentelemetry-collector-contrib:0.163.2
     # The base config only prints what it receives. With the observability profile set
     # ANUM_OTELCOL_OVERLAY=observability so the overlay sends traces to Tempo, metrics
     # to Prometheus and logs to Loki (docs/observability.md#local-stack).
@@ -116,7 +116,7 @@ services:
   # Grafana: http://localhost:3000 (anonymous viewer; dashboards from infra/observability).
   prometheus:
     profiles: ["observability"]
-    image: prom/prometheus:v3.15.0
+    image: prom/prometheus:v3.15.1
     command:
       - "--config.file=/etc/prometheus/prometheus.yaml"
       - "--storage.tsdb.retention.time=7d"
@@ -131,7 +131,7 @@ services:
 
   tempo:
     profiles: ["observability"]
-    image: grafana/tempo:3.1.0
+    image: grafana/tempo:3.1.1
     command: ["-config.file=/etc/tempo.yaml"]
     volumes:
       - ../observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
@@ -141,7 +141,7 @@ services:
 
   loki:
     profiles: ["observability"]
-    image: grafana/loki:3.7.8
+    image: grafana/loki:3.7.9
     command: ["-config.file=/etc/loki/config.yaml"]
     volumes:
       - ../observability/loki/loki.yaml:/etc/loki/config.yaml:ro

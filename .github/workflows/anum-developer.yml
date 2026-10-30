@@ -135,7 +135,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.12"
       - name: Install dependencies for the checks
@@ -145,7 +145,7 @@ jobs:
           python -m pip install --disable-pip-version-check -e "services/api[test]"
 
       - name: Run the developer
-        uses: anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967 # v1.0.252
+        uses: anthropics/claude-code-action@925afb53776cf1a2b738c6bdbed37b4d4000ef13 # v1.0.262
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Read-only: the agent commits locally; the publish job pushes after checking.
