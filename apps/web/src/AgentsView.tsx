@@ -7,6 +7,7 @@ import {
   Pause, Pencil, Phone, Play, Plus, RefreshCw, Search, ShoppingCart, Sparkles, Trash2, Truck, User, Users, Wrench,
 } from 'lucide-react';
 import type { Task } from '@anum/contracts';
+import { AgentMemoryPanel } from './AgentMemoryPanel';
 import { AgentSkillsPanel } from './AgentSkillsPanel';
 import { AvatarChip, AvatarStyleEditor, roleFamilyOf } from './AvatarStyleEditor';
 import { ChatView } from './ChatView';
@@ -17,10 +18,10 @@ import { parseProfileHash, profileHash, TEAM_HASH, type ProfileRef, type Profile
 import * as api from './lib/api';
 import {
   agentsApi, ALWAYS_ON_TOOL, CATEGORIES, COLORS, DESCRIPTION_MAX, DETAIL_TABS, draftBody, draftChanges, draftFromAgent,
-  draftFromTemplate, EDIT_STEPS, effectiveLevel, emptyDraft, INSTRUCTIONS_MAX, levelsFor, MEMORY_MAX, mergeById, NAME_MAX,
+  draftFromTemplate, EDIT_STEPS, effectiveLevel, emptyDraft, INSTRUCTIONS_MAX, levelsFor, mergeById, NAME_MAX,
   recentTasksPath, skillNames, skillsMissingTools, templateKey, toggleSkill, toggleTool, TOOL_CATEGORIES, toolGroups, validateDraft,
   WIZARD_STEPS, callSummaryPrompt,
-  type AgentCatalog, type AgentDraft, type AgentMemory, type AgentProfile, type AgentStatus, type AgentTemplate,
+  type AgentCatalog, type AgentDraft, type AgentProfile, type AgentStatus, type AgentTemplate,
   type CategoryFilter, type DetailTab, type DraftErrors, type WizardStep,
 } from './lib/agents';
 import { budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } from './lib/errors';
@@ -515,7 +516,7 @@ function AgentDetail({ id, catalog, catalogError, onOpenSkills, onBack, onEdit, 
     </nav>
     {panel === 'overview' && <OverviewTab agent={agent} tasksVersion={tasksVersion} onRan={() => setTasksVersion((v) => v + 1)} onOpenTasks={onOpenTasks} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} />}
     {panel === 'skills' && <AgentSkillsPanel agent={agent} catalog={catalog} catalogError={catalogError} onAgentChanged={setAgent} onOpenSkills={onOpenSkills} />}
-    {panel === 'memory' && <MemoryTab agent={agent} />}
+    {panel === 'memory' && <AgentMemoryPanel agentId={agent.id} canEdit={agent.can_edit} />}
     {panel === 'settings' && <SettingsTab agent={agent} catalog={catalog} busy={busy} onUpdate={(body) => void update(body)} onDelete={() => setConfirmDelete(true)}
       onSaveAvatar={async (avatar) => { setAgent(await agents.update(agent.id, { avatar, version: agent.version })); }} />}
     {panel === 'chat' && <section className="agentChat" aria-label={t('agents.chatWith', { name: agent.name })}><ChatView key={agent.id} agent={{ id: agent.id, name: agent.name }} onOpenBudgets={onOpenBudgets ?? (() => undefined)} /></section>}
@@ -634,70 +635,6 @@ function RecentTasks({ agent, version, onOpenTasks }: { agent: AgentProfile; ver
       <span className={`statusBadge ${task.status === 'completed' ? 'success' : task.status === 'failed' || task.status === 'cancelled' ? 'dangerTone' : 'warning'}`}>{statusLabel(task.status)}</span>
       <time dateTime={task.createdAt}>{formatDateTime(task.createdAt)}</time>
     </li>)}</ul>}
-  </section>;
-}
-
-function MemoryTab({ agent }: { agent: AgentProfile }) {
-  const [items, setItems] = useState<AgentMemory[]>([]);
-  const [total, setTotal] = useState(0);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [q, setQ] = useState('');
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [removing, setRemoving] = useState<AgentMemory | null>(null);
-  useEffect(() => { const timer = window.setTimeout(() => setQ(query), 250); return () => window.clearTimeout(timer); }, [query]);
-  const load = useCallback(async () => {
-    setState('loading'); setError(null);
-    try { const page = await agents.memories(agent.id, q); setItems(page.items); setTotal(page.total); setCursor(page.next_cursor); setState('ready'); }
-    catch (e) { setError(explain(e, 'agents.err.memories')); setState('error'); }
-  }, [agent.id, q]);
-  useEffect(() => { void load(); }, [load]);
-  async function add(event: FormEvent) {
-    event.preventDefault();
-    if (!draft.trim()) return;
-    setBusy(true); setError(null);
-    try { await agents.addMemory(agent.id, draft.trim()); setDraft(''); await load(); }
-    catch (e) { setError(explain(e, 'agents.err.memorySave')); }
-    finally { setBusy(false); }
-  }
-  async function confirmRemove() {
-    if (!removing) return;
-    setBusy(true);
-    try { await agents.removeMemory(agent.id, removing.id); setRemoving(null); await load(); }
-    catch (e) { setError(explain(e, 'agents.err.memoryDelete')); setRemoving(null); }
-    finally { setBusy(false); }
-  }
-  async function loadMore() {
-    if (!cursor) return;
-    try { const page = await agents.memories(agent.id, q, cursor); setItems((old) => mergeById(old, page.items)); setCursor(page.next_cursor); }
-    catch (e) { setError(explain(e, 'agents.err.memories')); }
-  }
-  const searchId = useId(), addId = useId();
-  return <section className="surface agentPanel" aria-labelledby="agent-memory-h">
-    <div className="sectionHeader"><h3 id="agent-memory-h">{t('agents.memory.title')}</h3><span className="muted">{t('agents.memory.count', { count: total })}</span></div>
-    <p className="muted">{t('agents.memory.intro')}</p>
-    {agent.can_edit ? <form className="memoryAdd" onSubmit={(e) => void add(e)}>
-      <label className="field"><span>{t('agents.memory.add')}</span>
-        <textarea id={addId} className="short" value={draft} maxLength={MEMORY_MAX} dir="auto" placeholder={t('agents.memory.placeholder')} onChange={(e) => setDraft(e.target.value)} /></label>
-      <div className="actions"><button type="submit" disabled={busy || !draft.trim()}><Plus aria-hidden="true" />{t('agents.memory.save')}</button></div>
-    </form> : <p className="muted">{t('agents.memory.readOnly')}</p>}
-    <div className="agentSearch memorySearch"><label className="visuallyHidden" htmlFor={searchId}>{t('agents.memory.search')}</label><Search aria-hidden="true" />
-      <input id={searchId} type="search" value={query} placeholder={t('agents.memory.search')} onChange={(e) => setQuery(e.target.value)} /></div>
-    {error && <Notice error>{error}</Notice>}
-    {state === 'loading' && <p className="muted" role="status">{t('common.loading')}</p>}
-    {state === 'error' && <button type="button" className="secondary" onClick={() => void load()}>{t('common.tryAgain')}</button>}
-    {state === 'ready' && items.length === 0 && <p className="muted">{q ? t('agents.memory.noMatch') : t('agents.memory.empty')}</p>}
-    {items.length > 0 && <ul className="agentMemoryList">{items.map((memory) => <li key={memory.id}>
-      <div><p dir="auto">{memory.content}</p><small className="muted">{t(memory.source === 'task' ? 'agents.memory.fromTask' : 'agents.memory.manual')} · <time dateTime={memory.created_at}>{formatDateTime(memory.created_at)}</time></small></div>
-      {agent.can_edit && <button type="button" className="iconButton" aria-label={t('agents.memory.deleteNamed', { text: memory.content.slice(0, 40) })} title={t('common.delete')} onClick={() => setRemoving(memory)}><Trash2 aria-hidden="true" /></button>}
-    </li>)}</ul>}
-    {cursor && <div className="actions"><button type="button" className="secondary" onClick={() => void loadMore()}>{t('agents.loadMore')}</button></div>}
-    {removing && <ConfirmDialog title={t('agents.memory.deleteTitle')} confirmLabel={t('common.delete')} danger busy={busy} onConfirm={() => void confirmRemove()} onCancel={() => setRemoving(null)}>
-      <p dir="auto">{removing.content}</p>
-    </ConfirmDialog>}
   </section>;
 }
 

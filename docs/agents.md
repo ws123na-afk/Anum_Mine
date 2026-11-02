@@ -17,7 +17,7 @@ The same model serves **department assistants**: a department assistant is an ag
 | `allowed_skills` | Built-in runtime skills whose tools exist in this deployment, or skills installed and enabled in the workspace ([Skills](skills.md)). |
 | `allowed_tools` | Tools registered in this deployment that the person saving the profile may use (a tool whose required role they lack is refused). `anum.respond` (answer in text, no side effects) is always on. |
 | `autonomy` | Per tool category, `off` (never used), `ask` (approval before every use) or `auto` (as workspace policy allows). A tool's category is the stricter of its risk (low `read`, medium `write`, high `external`) and its [autonomy](autonomy.md) action kind (`read` is reading; `draft`, `create`, `update`, `archive`, `pause` are `write`; replies, sends, deletes, money, price and stock changes, merges and unknown kinds are `external`). Tools declare `category` and `action_kind` on their `ToolDefinition`. `external` can only be `off` or `ask`. |
-| `knowledge_mode`, `knowledge_sources` | `none`, `workspace` (indexed memories and files the caller can see) or `selected` (only the listed memory and file ids). Folders do not exist in [Files](files.md) yet, so they cannot be selected. |
+| `knowledge_mode`, `knowledge_sources` | `none`, `workspace` (indexed memories and files the caller can see) or `selected` (only the listed memory and file ids, and shared [knowledge collections](knowledge-base.md): see [Knowledge collections](#knowledge-collections)). Folders do not exist in [Files](files.md) yet, so they cannot be selected. |
 | `status` | `active` or `paused`. A paused agent does not chat or run tasks. |
 | `sharing` | `private` (only the owner sees and uses it) or `workspace` (everyone in the workspace sees it and members can run it). |
 | `owner_user_id`, `version`, `template_id` | The creator, an edit counter for optimistic concurrency, and the template it started from. |
@@ -45,11 +45,11 @@ Template names and descriptions are translated in the clients by template id.
 | Create | `task:create` (members and owners). |
 | Change, pause, delete | The agent's creator, or a workspace owner for a shared agent. Only the creator changes `sharing`. Others get `403` with a sentence saying who can. |
 | Run tasks, chat | `task:run` / `task:create` on an active agent the caller can see. |
-| Agent memories | Read with `memory:read`; add and delete with `memory:create` / `memory:delete` plus the right to change the agent. |
+| Agent memories | Read with `memory:read`; add and edit with `memory:create`, delete with `memory:delete`, each plus the right to change the agent. |
 
 A workspace holds at most 200 agents and an agent at most 500 memories. `PATCH` takes an optional `version` and answers `409` when the agent changed since it was read.
 
-Every change is audited in the same transaction: `agent.created`, `agent.updated` (which fields changed and the resulting configuration), `agent.deleted`, `agent_memory.created`, `agent_memory.deleted`. Audit records never contain instruction or memory text.
+Every change is audited in the same transaction: `agent.created`, `agent.updated` (which fields changed and the resulting configuration), `agent.deleted`, `agent_memory.created`, `agent_memory.updated`, `agent_memory.deleted`. Audit records never contain instruction or memory text.
 
 ## API
 
@@ -63,8 +63,9 @@ Every change is audited in the same transaction: `agent.created`, `agent.updated
 | `DELETE /api/v1/agents/{id}` | Delete the agent and its memories; its tasks and chats stay in the history. |
 | `GET /api/v1/agents/{id}/skills` | The skills the agent loads, each with its state, version, tools and how it loads ([Skills](#skills)). |
 | `GET /api/v1/agents/skills/usage` | Per skill, the agents the caller can see that load it. |
-| `GET /api/v1/agents/{id}/memories?q=&limit=&cursor=` | `{items, next_cursor, total}`. |
-| `POST /api/v1/agents/{id}/memories` | `{content, task_id?}`; a `task_id` must be one of this agent's tasks. |
+| `GET /api/v1/agents/{id}/memories?q=&kind=&limit=&cursor=` | `{items, next_cursor, total}`; `q` searches the text and the source; expired memories are hidden. |
+| `POST /api/v1/agents/{id}/memories` | `{content, kind?, source_label?, source_date?, task_id?, file_id?}`; a `task_id` must be one of this agent's tasks, a `file_id` a file the agent's own knowledge sources include. |
+| `PATCH /api/v1/agents/{id}/memories/{memory_id}` | Edit `content`, `kind`, `source_label`, `source_date`; retention starts again from the edit. |
 | `DELETE /api/v1/agents/{id}/memories/{memory_id}` | Delete one memory. |
 | `POST /api/v1/tasks` with `agent_id` | A task that runs as the agent. |
 | `GET /api/v1/tasks?agent_id=` | The agent's recent tasks (keyset-paged like every task list). |
@@ -103,6 +104,18 @@ A skill never widens what the agent may do: tools stay the agent's own `allowed_
 | `unavailable` | A required tool is not in this deployment, the installed version is no longer published, or the id is unknown. |
 
 `GET /api/v1/agents/skills/usage` lists, per skill, the agents the caller can see that allow it (another user's private agent is never counted, as everywhere else). Both need `task:read`; changing an agent's skills stays `PATCH /api/v1/agents/{id}` with `allowed_skills` (and `allowed_tools`) and the `version` the page read, with every check above.
+
+## Agent memories
+
+An agent's memory holds recurring **facts** and **decisions** (`kind`), each with where it comes from (`source_label`, a task or a document) and the date it holds from (`source_date`), plus `updated_at`, `updated_by` and `expires_at` (migration `0127_agent_memory_facts`). Retention follows the organisation's [memory governance](memory.md#retention): kept until deleted unless permanent retention is not allowed, then `default_retention_days` from the save or the last edit; an expired memory is hidden at once and deleted by the next change to that agent's memories; when governance requires provenance a memory without a source is refused. A memory may come from a file only when the agent may read that file (its knowledge sources) and the person saving it can see it, so nothing is remembered from data the agent was not allowed to read. A run reads each memory with its kind, source and date first. The web memory panel (`AgentMemoryPanel.tsx`) adds, edits, filters by kind and deletes. Used by the [Green Concrete agents](ANUM_MINE_GREEN_CONCRETE_AGENTS.md#working-memory).
+
+## Knowledge collections
+
+A `selected` agent may name a shared knowledge base collection as a source (`{"type": "collection", "id"}`; a private or unknown one is refused). When a run starts the collection is read as the notes (memories) and documents (files) it holds then, as the caller sees them, so content added later is used by the next run; the run's retrieval step lists the passages it used.
+
+## Role skills
+
+Some built-in skills are first-party **role skills** with reviewed instructions (the Green Concrete `gc.*` skills): they are selected only for an agent that allows them (never for the plain Assistant), and while ready they load their instructions into every run and chat like an installed skill (`activation: always`, `loads_instructions: true`); their tool is still chosen from the user's own words.
 
 ## Chat
 

@@ -46,3 +46,20 @@
 .osHqCard { display: grid; gap: var(--d-s2); min-width: 0; }
 .osHqCard h3 { margin: 0; font-size: 0.95rem; }
 .osHqRoles { max-height: none; }
+/* Green Concrete agents kit (GreenConcreteKitPanel, docs/ANUM_MINE_GREEN_CONCRETE_AGENTS.md). */
+.gcKit { display: grid; gap: var(--d-s4); min-width: 0; border-top: 1px solid var(--d-line); padding-top: var(--d-s4); }
+.gcKit > h3, .gcKit > p { margin: 0; }
+.gcKit h4 { margin: 0 0 var(--d-s2); font-size: 0.95rem; }
+.gcKit h5 { margin: 0; font-size: 0.95rem; flex: 1 1 auto; overflow-wrap: anywhere; }
+.gcGrid { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
+.gcList { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--d-s3); }
+.gcList > li { display: grid; gap: var(--d-s1); min-width: 0; padding: var(--d-s3); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); }
+.gcList > li p { margin: 0; overflow-wrap: anywhere; }
+.gcList > li > button { justify-self: start; }
+.gcRow { display: flex; flex-wrap: wrap; gap: var(--d-s2); align-items: center; min-width: 0; }
+.gcRow strong { overflow-wrap: anywhere; }
+.gcBox { display: grid; gap: var(--d-s2); padding: var(--d-s3); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); }
+.gcBox p { margin: 0; }
+.gcBox > button { justify-self: start; }
+.gcKit .linkButton { background: none; border: 0; color: var(--d-sky); cursor: pointer; justify-self: start; min-height: 32px; padding: 0; text-decoration: underline; }
+.gcKit code { overflow-wrap: anywhere; }

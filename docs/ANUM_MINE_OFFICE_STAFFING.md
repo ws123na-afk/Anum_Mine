@@ -39,7 +39,7 @@ Each source is marked from real state when an office is read, never guessed.
 | Phone calls provider | connector | a row in `call_provider_accounts` | Calls |
 | Code projects (Developer mode) | connector | a row in `developer_projects` | Developer mode |
 | Web search service | server setting | `ANUM_SEARXNG_URL` set | the server operator |
-| Sales leads, Documents library, Knowledge base, Tasks and approvals, Visitor register, Audit log | built in module | always ("Built in") | the module |
+| Sales leads, Documents library, Knowledge base, Tasks and approvals, Visitor register, Green Concrete seats and working hours, Audit log | built in module | always ("Built in") | the module |
 
 A source shows **No access** when the reader lacks the permission that module needs (for example `finance:read`), so a viewer never learns more than the module would show. Mailboxes are private to their owner, so "Connected" for email means a mailbox the reader can open.
 
@@ -65,7 +65,7 @@ Autonomy, the risk ceiling and the cost cap are enforced by the runtime and agen
 | Security | Security reviewer (`security_reviewer`) |
 | Personal office | Personal assistant (`executive_assistant`), Personal finance (`finance_reconciliation`, live trading off) |
 | Career and employment | Career HR (`hr_people`), Career research (`research_analyst`) |
-| Green Concrete operations | PMV manager (`operations_dispatcher`), Business analyst (`research_analyst`), Tyre planning engineer, Data monitoring, Data collector (`fleet_maintenance`) |
+| Green Concrete operations | PMV manager (`operations_dispatcher`), Business analyst (`research_analyst`), Tyre planning engineer, Data monitoring, Data collector (`fleet_maintenance`), each plus its role kit (below) |
 | Tyre Pulse fleet | Fleet maintenance (`fleet_maintenance`), Fleet logistics (`operations_dispatcher`) |
 | Commerce | Orders desk, Sales follow-up, Support triage |
 | Marketing | Marketing specialist, Marketing content (drafts only, a person publishes) |
@@ -78,6 +78,10 @@ Autonomy, the risk ceiling and the cost cap are enforced by the runtime and agen
 | New ventures | Venture scout (`research_analyst`), Venture finance (`finance_reconciliation`, live trading off) |
 
 Each role's tools, their risk, skills and data sources are listed by `GET /api/v1/office/staffing/blueprint` and in the office view. A role whose template lacks a capability (for example calendar booking for the PA) shows as **Limited** with the missing items in plain words.
+
+### Role kits (Green Concrete)
+
+A role may add skills and tools to its template's: `green_concrete_kit.ROLE_KIT` gives each Green Concrete role its `gc.*` skills and read tools ([Green Concrete agents](ANUM_MINE_GREEN_CONCRETE_AGENTS.md)). `Role.template` returns the template with them appended, so the view, the gaps and Apply treat them like any other tool and skill: only added, all low risk (a test keeps every one under the role's ceiling). Green Concrete roles also read the shared **Green Concrete knowledge** collection once an owner created it: an agent that does not read it shows `missing_knowledge`, and its `update` action carries `add_collection`, which adds the collection to its knowledge sources (`none` becomes `selected` with the collection, `selected` keeps every source, `workspace` already covers it). Their sources now include Green Concrete seats and working hours, the calendar and the knowledge base where the skills read them. The rules and their marker are unchanged, so `BLUEPRINT_VERSION` stays 1.
 
 ### Office kinds
 

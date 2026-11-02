@@ -38,6 +38,8 @@ export interface StaffingAgent {
   skills: string[]; tools: string[];
   missing_tools: string[]; missing_skills: string[]; missing_rules: ('autonomy' | 'cost_cap' | 'never_list')[];
   over_risk_tools: string[]; complete: boolean;
+  /** The shared Green Concrete knowledge collection exists and this agent does not read it yet. */
+  missing_knowledge?: boolean;
 }
 
 export interface StaffingRole extends StaffingRoleView { agents: StaffingAgent[]; state: StaffingRoleState }
@@ -72,6 +74,8 @@ export interface StaffingUpdateContent {
   kind: 'update'; role: string; agent_id: string; version: number;
   add_tools: string[]; add_skills: string[];
   autonomy: StaffingRules['autonomy'] | null; add_rules_text: boolean; monthly_cost_limit_usd: number | null;
+  /** A knowledge collection id to add to the agent's sources (only added, never removed). */
+  add_collection?: string | null;
 }
 export interface StaffingAction {
   id: string; kind: 'create' | 'update'; role: string; agent_id?: string; hash: string;
