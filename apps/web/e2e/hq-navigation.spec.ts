@@ -95,8 +95,9 @@ test('the people list shows only assigned agents with their real state', async (
   await openOffice(page);
   await enterFleetBuilding(page);
   const people = hq(page).getByRole('region', { name: 'People at their posts' });
-  await expect(people.getByRole('button', { name: /^Open Fleet Planner\. Working\./ })).toBeVisible({ timeout: 30_000 });
-  await expect(people.getByRole('button', { name: /^Open WhatsApp Concierge\. In meetings\./ })).toBeVisible();
+  // The name holds every word the button shows: the agent, its role and room, then its state.
+  await expect(people.getByRole('button', { name: /^Open Fleet Planner\. Operations and warehouse, in Tyre Analysis\. Working\./ })).toBeVisible({ timeout: 30_000 });
+  await expect(people.getByRole('button', { name: /^Open WhatsApp Concierge\. Customer Care, in Customer Care\. In meetings\./ })).toBeVisible();
   // Another person's agent keeps its desk and loses its name.
   await expect(people.getByRole('button', { name: /^Open Private agent\./ })).toBeDisabled();
   // Desks without an assignment are not people.

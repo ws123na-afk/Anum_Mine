@@ -463,7 +463,7 @@ export const billingEn = {
   'pricing.failed': "Couldn't load the plans: {message}",
   'pricing.none': 'No plans are published yet. Contact the ANUM team for an account.',
   'pricing.closed': 'Sign-up is not open yet. Contact the ANUM team and we will set up your organisation.',
-  'pricing.start': 'Start free trial',
+  'pricing.start': 'Start a free trial',
   'pricing.startNamed': 'Start a free trial of {plan}',
   'pricing.vat': 'Prices exclude VAT. {rate} VAT applies in {country}.',
   'pricing.noVat': 'Prices exclude any VAT that applies in your country.',

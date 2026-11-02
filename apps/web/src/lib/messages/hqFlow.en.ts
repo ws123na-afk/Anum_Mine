@@ -57,7 +57,7 @@ export const hqFlowEn = {
   'hqFlow.noOffice.no_order_office': 'No record links orders to an office',
   'hqFlow.unlocated': 'Not in an office yet',
   'hqFlow.showInOffice': 'Show in the office',
-  'hqFlow.showRoom': 'Show {room} in the office',
+  'hqFlow.showRoom': 'Show in the office: {room}',
   'hqFlow.sources': 'Data sources',
   'hqFlow.source.tasks': 'Tasks and runs',
   'hqFlow.source.approvals': 'Approvals',

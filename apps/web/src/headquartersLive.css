@@ -163,6 +163,8 @@
 .hqAgentCard .hqLabelText strong { color: #14202b; font-size: var(--text-xs); }
 .hqAgentCard .hqLabelText small { color: #556070; }
 .hqAvatar { align-items: center; background: linear-gradient(145deg, #5fe0c6, #23a990); border-radius: 50%; color: #06241e; display: inline-flex; font-size: var(--text-xs); font-weight: 700; height: 28px; justify-content: center; width: 28px; flex: none; }
+/* Initials are drawn from data-initials, so a named button holding an avatar keeps its visible text inside its spoken name. */
+.hqAvatar[data-initials]::before { content: attr(data-initials); }
 .hqPill { background: color-mix(in srgb, var(--tone, var(--hq-faint)) 18%, #fff); border: 1px solid color-mix(in srgb, var(--tone, var(--hq-faint)) 55%, transparent); border-radius: 999px; color: #14202b; font-size: var(--text-2xs); font-weight: 650; padding: 1px 7px; white-space: nowrap; }
 .hqSide .hqPill, .hqDeskList .hqPill { background: color-mix(in srgb, var(--tone, var(--hq-faint)) 22%, transparent); color: var(--d-text); }
 

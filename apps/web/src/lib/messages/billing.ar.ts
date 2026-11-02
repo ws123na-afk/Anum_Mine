@@ -455,7 +455,7 @@ export const billingAr: Record<keyof typeof billingEn, Message> = {
   'pricing.none': 'لا توجد خطط منشورة بعد. تواصل مع فريق ANUM للحصول على حساب.',
   'pricing.closed': 'التسجيل غير مفتوح بعد. تواصل مع فريق ANUM وسنجهّز مؤسستك.',
   'pricing.start': 'ابدأ التجربة المجانية',
-  'pricing.startNamed': 'ابدأ تجربة مجانية لخطة {plan}',
+  'pricing.startNamed': 'ابدأ التجربة المجانية لخطة {plan}',
   'pricing.vat': 'الأسعار لا تشمل الضريبة. تطبّق ضريبة قيمة مضافة بنسبة {rate} في {country}.',
   'pricing.noVat': 'الأسعار لا تشمل أي ضريبة قيمة مضافة تطبّق في دولتك.',
   'pricing.signIn': 'تسجيل الدخول',

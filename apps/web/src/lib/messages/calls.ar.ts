@@ -65,7 +65,7 @@ export const callsAr: Record<keyof typeof callsEn, Message> = {
   'calls.recents.emptyAction': 'اطلب رقما',
   'calls.recents.noMatch': 'لا توجد مكالمة مطابقة',
   'calls.recents.noMatchText': 'جرب كلمات أخرى أو امسح المرشحات.',
-  'calls.recents.open': 'فتح المكالمة مع {name}',
+  'calls.recents.openHint': 'فتح المكالمة مع',
   'calls.recents.pickTitle': 'اختر مكالمة',
   'calls.recents.pickText': 'تظهر هنا ملاحظاتها وملخصها والمتابعة.',
 
@@ -134,7 +134,7 @@ export const callsAr: Record<keyof typeof callsEn, Message> = {
   'calls.contacts.emptyReadOnly': 'لا توجد جهات اتصال بعد. يضيفها الأعضاء.',
   'calls.contacts.noMatch': 'لا توجد جهة اتصال مطابقة',
   'calls.contacts.noMatchText': 'جرب اسما أو رقما أو شركة أخرى.',
-  'calls.contacts.open': 'فتح {name}',
+  'calls.contacts.openHint': 'فتح',
   'calls.contacts.star': 'إضافة {name} إلى المفضلة',
   'calls.contacts.unstar': 'إزالة {name} من المفضلة',
   'calls.contacts.pickTitle': 'اختر جهة اتصال',

@@ -310,12 +310,14 @@ export function CommandCenter({ userName, role, initialText, live, onGo, onOpenT
     <section className="commandStage" aria-label={t('command.stage')}>
       <ul className="orbChips start" aria-label={t('command.chips')}>{ORB_CHIPS.slice(0, 4).map(chip)}</ul>
       <div className="orbColumn">
-        <button type="button" className={`commandOrb ${orbState}`} aria-pressed={listening} aria-label={listening ? t('command.voice.stop') : t('command.voice.start')} onClick={toggleListening} disabled={viewer || planning || starting}>
+        {/* The spoken name is the action, then the words on the orb (WCAG 2.5.3: the name holds every word it shows). */}
+        <button type="button" className={`commandOrb ${orbState}`} aria-pressed={listening} onClick={toggleListening} disabled={viewer || planning || starting}>
+          <span className="visuallyHidden">{listening ? t('command.voice.stop') : t('command.voice.start')}. </span>
           <span className="orbHalo" aria-hidden="true" />
           <AnumMark size={64} className="orbMark" />
           <span className="orbWave" aria-hidden="true">{Array.from({ length: 23 }, (_, i) => <i key={i} style={{ ['--i' as string]: i }} />)}</span>
-          <span className="orbTitle" aria-hidden="true">{listening ? t('command.orb.listening') : working ? t('command.orb.workingTitle') : t('command.orb.ready')}</span>
-          <span className="orbCaption" aria-hidden="true" dir="auto">{caption}</span>
+          <span className="orbTitle">{listening ? t('command.orb.listening') : working ? t('command.orb.workingTitle') : t('command.orb.ready')}</span>{' '}
+          <span className="orbCaption" dir="auto">{caption}</span>
         </button>
         <p className="visuallyHidden" role="status" aria-live="polite">{listening ? t('command.orb.listening') : working ? t('command.orb.workingTitle') : ''}</p>
         <div className="languagePills" role="group" aria-label={t('command.language')}>

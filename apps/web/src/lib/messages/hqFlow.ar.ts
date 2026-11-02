@@ -58,7 +58,7 @@ export const hqFlowAr: Record<keyof typeof hqFlowEn, Message> = {
   'hqFlow.noOffice.no_order_office': 'لا سجل يربط الطلبات بمكتب',
   'hqFlow.unlocated': 'ليس في مكتب بعد',
   'hqFlow.showInOffice': 'اعرضه في المكتب',
-  'hqFlow.showRoom': 'اعرض {room} في المكتب',
+  'hqFlow.showRoom': 'اعرضه في المكتب: {room}',
   'hqFlow.sources': 'مصادر البيانات',
   'hqFlow.source.tasks': 'المهام وعمليات التشغيل',
   'hqFlow.source.approvals': 'الموافقات',

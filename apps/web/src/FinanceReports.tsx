@@ -55,9 +55,9 @@ export function DailyReports({ refresh }: { refresh: number }) {
       <div className="finReportsList">
         <ol className="cmList" aria-label={t('finance.reports.list')}>{items.map((r) => <li key={r.id}>
           <button type="button" className={`finReportPick ${openId === r.id ? 'active' : ''}`} aria-pressed={openId === r.id}
-            aria-label={t('finance.reports.open', { date: r.date })} onClick={() => pick(r.id)}>
-            <strong dir="ltr">{r.date}</strong>
-            <small className="muted">{summaryLine(r.summary)}</small>
+            aria-label={[t('finance.reports.open', { date: r.date }), summaryLine(r.summary), needsAction(r.summary) ? t('finance.reports.needsAction') : null].filter(Boolean).join('. ')} onClick={() => pick(r.id)}>
+            <strong dir="ltr">{r.date}</strong>{' '}
+            <small className="muted">{summaryLine(r.summary)}</small>{' '}
             {needsAction(r.summary) && <span className="statusBadge warning">{t('finance.reports.needsAction')}</span>}
           </button>
         </li>)}</ol>

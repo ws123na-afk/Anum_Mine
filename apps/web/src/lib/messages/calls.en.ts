@@ -64,7 +64,7 @@ export const callsEn = {
   'calls.recents.emptyAction': 'Dial a number',
   'calls.recents.noMatch': 'No call matches',
   'calls.recents.noMatchText': 'Try other words or clear the filters.',
-  'calls.recents.open': 'Open the call with {name}',
+  'calls.recents.openHint': 'Open the call with',
   'calls.recents.pickTitle': 'Pick a call',
   'calls.recents.pickText': 'Its notes, AI summary and follow-up open here.',
 
@@ -133,7 +133,7 @@ export const callsEn = {
   'calls.contacts.emptyReadOnly': 'No contacts yet. Members add them.',
   'calls.contacts.noMatch': 'No contact matches',
   'calls.contacts.noMatchText': 'Try another name, number or company.',
-  'calls.contacts.open': 'Open {name}',
+  'calls.contacts.openHint': 'Open',
   'calls.contacts.star': 'Add {name} to favourites',
   'calls.contacts.unstar': 'Remove {name} from favourites',
   'calls.contacts.pickTitle': 'Pick a contact',
