@@ -10,6 +10,7 @@ import { FLOW_STALE_MS, flowLive } from './lib/hqPanelStatus.ts';
 import { LiveChip } from './hq-nav/LiveChip';
 import { useNow } from './hq-nav/useNow';
 import { openAssign, openTaskPanel } from './lib/hqAssign';
+import { openHqPanel } from './lib/hqWorkPanels';
 import './hqFlow.css';
 
 export interface FlowRoomInfo { label: string }
@@ -142,8 +143,10 @@ function FlowCard({ item, roomName, onFocusRoom, onNavigate }: {
       <p className="hqFlowReason"><AlertTriangle size={14} aria-hidden="true" /> <span>{reasonText(item)}</span></p>
       <p className="hqFlowNext"><span>{t('hqFlow.next')}</span>
         <button type="button" onClick={() => {
-          // A task opens beside the office; every other next step goes to the page that owns it.
+          // Work opens beside the office: the task, its approvals, the agent's work log. Leads and orders go to the page that owns them.
           if (item.kind === 'task' && (stuck.action === 'open_task' || stuck.action === 'retry_task') && openTaskPanel(item.id)) return;
+          if (item.kind === 'task' && stuck.action === 'decide_approval' && openHqPanel({ kind: 'approvals', taskId: item.id })) return;
+          if (stuck.action === 'resume_agent' && loc?.agent_id && openHqPanel({ kind: 'agent', id: loc.agent_id, name: loc.agent_name })) return;
           onNavigate(actionHash(stuck.action));
         }}>{actionText(stuck.action)}</button>
         {loc?.agent_id && <button type="button" onClick={() => openAssign({ agentId: loc.agent_id, roomId: loc.room_id, roomName: roomNameFor(loc.room_id, loc.room_name), source: 'flow_dock' })}>{t('hqAssign.openFor', { name: loc.agent_name ?? '' })}</button>}</p>

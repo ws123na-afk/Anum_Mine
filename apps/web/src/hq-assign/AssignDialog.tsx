@@ -1,7 +1,7 @@
 /** The "Assign work" dialog of the headquarters (spec: docs/ANUM_MINE_ASSIGN_WORK.md). It sends one request to
  * `POST /api/v1/office/assignments`, which runs the Tasks page's own create and run code, so every permission,
  * budget, autonomy and approval rule applies. It never navigates away. */
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, CheckCircle2, Loader2, ShieldCheck, WifiOff, X } from 'lucide-react';
 import type { AgentProfile, AssignResponse } from '@anum/contracts';
@@ -15,10 +15,13 @@ import {
   toRequest, validateDraft, type AssignDraft, type AssignErrors, type AssignPrefill,
 } from '../lib/hqAssign';
 import { agentClient, useAssignAgents } from './useAssignAgents';
+import type { HqWorkPanel } from '../lib/hqWorkPanels';
 import './hqAssign.css';
 import { LocalDateInput } from '../hq-date/LocalDateInput.tsx';
 
 const client = createAssignClient(api.apiRequest);
+// The person form (team people and work items) loads only when someone picks "A person".
+const PersonForm = lazy(() => import('./AssignPerson').then((m) => ({ default: m.AssignPerson })));
 const mk = (key: string, vars?: Record<string, string | number>) => t(key as MessageKey, vars);
 
 export interface AssignDialogProps {
@@ -28,10 +31,11 @@ export interface AssignDialogProps {
   onClose: () => void;
   onAssigned: (result: AssignResponse, agent: AgentProfile) => void;
   onOpenTask: (taskId: string) => void;
-  onNavigate: (hash: string) => void;
+  /** Opens other work (the approval a new task waits on) in a drawer of the office, never a page change. */
+  onOpenPanel: (panel: HqWorkPanel) => void;
 }
 
-export function AssignDialog({ prefill, seatedIds, onClose, onAssigned, onOpenTask, onNavigate }: AssignDialogProps) {
+export function AssignDialog({ prefill, seatedIds, onClose, onAssigned, onOpenTask, onOpenPanel }: AssignDialogProps) {
   const locale = useLocale();
   const panel = useModal(onClose);
   const ids = { title: useId(), agent: useId(), search: useId(), name: useId(), instr: useId(), exp: useId(), ctx: useId(), pri: useId(), due: useId() };
@@ -44,6 +48,8 @@ export function AssignDialog({ prefill, seatedIds, onClose, onAssigned, onOpenTa
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [turnOn, setTurnOn] = useState<'idle' | 'busy' | 'failed'>('idle');
   const attempt = useRef<{ key: string; body: string } | null>(null);
+  // Work for a person goes to the Team page's work items (their own route and rules); agents get a task.
+  const [target, setTarget] = useState<'agent' | 'person'>('agent');
 
   useEffect(() => {
     const up = () => setOnline(true); const down = () => setOnline(false);
@@ -106,11 +112,16 @@ export function AssignDialog({ prefill, seatedIds, onClose, onAssigned, onOpenTa
   return createPortal(<div className="hqAsBackdrop" dir={locale === 'ar' ? 'rtl' : 'ltr'} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
     <div className="hqAsDialog" role="dialog" aria-modal="true" aria-labelledby={ids.title} ref={panel} aria-busy={busy}>
       <header className="hqAsHead">
-        <h2 id={ids.title}>{done ? t('hqAssign.done.title', { name: done.agent.name }) : title}</h2>
+        <h2 id={ids.title}>{done ? t('hqAssign.done.title', { name: done.agent.name }) : target === 'person' ? t('hqAssign.title') : title}</h2>
         <button type="button" className="hqAsX" aria-label={t('hqAssign.close')} onClick={onClose} disabled={busy}><X size={16} aria-hidden="true" /></button>
       </header>
-      {done ? <DoneView done={done} onOpenTask={() => { onOpenTask(done.result.task.id); onClose(); }} onNavigate={(h) => { onNavigate(h); onClose(); }} onClose={onClose}
+      {done ? <DoneView done={done} onOpenTask={() => { onOpenTask(done.result.task.id); onClose(); }} onOpenApproval={(id) => { onOpenPanel({ kind: 'approval', id }); onClose(); }} onClose={onClose}
         onAnother={() => { setDone(null); attempt.current = null; setDraft((d) => ({ ...emptyDraft(prefill), agentId: d.agentId })); setTouched(false); }} />
+        : <>
+        <div className="hqAsBody hqAsTarget" role="radiogroup" aria-label={t('hqWork.person.target')}>
+          {(['agent', 'person'] as const).map((k) => <label key={k} className="hqAsCheck"><input type="radio" name="hqAsTarget" checked={target === k} onChange={() => setTarget(k)} /> <span>{t(k === 'agent' ? 'hqWork.person.toAgent' : 'hqWork.person.toPerson')}</span></label>)}
+        </div>
+        {target === 'person' ? <Suspense fallback={<p className="hqAsBody hqAsNote" role="status">{t('hqWork.person.loading')}</p>}><PersonForm prefill={prefill} onClose={onClose} /></Suspense>
         : <form className="hqAsBody" noValidate onSubmit={(e) => { e.preventDefault(); void send(); }}>
           <p className="hqAsNote">{t('hqAssign.intro')}</p>
           {!online && <p className="hqAsBox hqAsWarn" role="alert"><WifiOff size={14} aria-hidden="true" /> {t('hqAssign.state.offline')}</p>}
@@ -120,7 +131,7 @@ export function AssignDialog({ prefill, seatedIds, onClose, onAssigned, onOpenTa
             {list.status === 'loading' && list.items.length === 0 && <p className="hqAsNote" role="status"><Loader2 size={14} className="hqAsSpin" aria-hidden="true" /> {t('hqAssign.agentsLoading')}</p>}
             {list.status === 'error' && <div className="hqAsBox hqAsWarn" role="alert"><p>{t('hqAssign.agentsError', { detail: list.error })}</p><button type="button" onClick={() => void list.retry()}>{t('hqAssign.retry')}</button></div>}
             {list.status === 'ready' && list.items.length === 0 && !list.q && <div className="hqAsBox" role="status">
-              <p>{t('hqAssign.agentsEmpty')}</p><button type="button" onClick={() => { onNavigate('#agents'); onClose(); }}>{t('hqAssign.agentsEmptyAction')}</button></div>}
+              <p>{t('hqAssign.agentsEmpty')}</p><a className="hqAsLink" href="#agents" onClick={onClose}>{t('hqAssign.agentsEmptyAction')}</a></div>}
             {(list.items.length > 0 || list.q) && <>
               <label htmlFor={ids.search} className="hqAsLabel">{t('hqAssign.agentSearch')}</label>
               <input id={ids.search} type="search" value={list.q} onChange={(e) => list.setQ(e.target.value)} dir="auto" autoComplete="off" />
@@ -177,7 +188,7 @@ export function AssignDialog({ prefill, seatedIds, onClose, onAssigned, onOpenTa
             <button type="submit" className="hqAsPrimary" disabled={busy || !online || (state !== null && state.kind !== 'ready')} data-autofocus>{submitLabel}</button>
             <button type="button" onClick={onClose} disabled={busy}>{t('hqAssign.cancel')}</button>
           </footer>
-        </form>}
+        </form>}</>}
     </div>
   </div>, document.body);
 }
@@ -223,7 +234,7 @@ function RiskSection({ agent, risk, catalogFailed, catalogLoaded }: { agent: Age
   </section>;
 }
 
-function DoneView({ done, onOpenTask, onNavigate, onClose, onAnother }: { done: { result: AssignResponse; agent: AgentProfile }; onOpenTask: () => void; onNavigate: (h: string) => void; onClose: () => void; onAnother: () => void }) {
+function DoneView({ done, onOpenTask, onOpenApproval, onClose, onAnother }: { done: { result: AssignResponse; agent: AgentProfile }; onOpenTask: () => void; onOpenApproval: (id: string) => void; onClose: () => void; onAnother: () => void }) {
   const { result } = done;
   const started = result.run !== null;
   return <div className="hqAsBody hqAsDone" role="status">
@@ -234,7 +245,7 @@ function DoneView({ done, onOpenTask, onNavigate, onClose, onAnother }: { done: 
     <p className="hqAsNote">{t('hqAssign.done.inFlow')}</p>
     <div className="hqAsFoot">
       <button type="button" className="hqAsPrimary" onClick={onOpenTask} data-autofocus>{t('hqAssign.done.openTask')}</button>
-      {result.approval && <button type="button" onClick={() => onNavigate('#approvals')}>{t('hqAssign.done.openApprovals')}</button>}
+      {result.approval && <button type="button" onClick={() => onOpenApproval(result.approval!.id)}>{t('hqAssign.done.openApprovals')}</button>}
       <button type="button" onClick={onAnother}>{t('hqAssign.done.another')}</button>
       <button type="button" onClick={onClose}>{t('hqAssign.close')}</button>
     </div>

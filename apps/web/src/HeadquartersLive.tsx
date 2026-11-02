@@ -48,7 +48,8 @@ import { useVisitorSummary } from './useVisitorSummary';
 import { HqCameraBridge } from './hq-nav/cameraBridge.ts';
 import { HqNavigation, type HqNavHandles } from './hq-nav/HqNavigation';
 import { ThumbCapture } from './hq-nav/thumbs.ts';
-import { AssignHost } from './hq-assign/AssignHost';
+import { AssignHost, type AssignedInfo } from './hq-assign/AssignHost';
+import { HQ_SCENE_PANEL_EVENT, type HqScenePanel } from './lib/hqWorkPanels.ts';
 // Loaded only when the owner opens it, so its code and styles stay out of the headquarters chunk (e2e/hq-performance.spec.ts budget).
 // Rarely opened, so kept out of the headquarters chunk (its size budget is tight).
 const OfficeSpaceLiveManager = lazy(() => import('./OfficeSpaceLiveManager').then((m) => ({ default: m.OfficeSpaceLiveManager })));
@@ -477,6 +478,27 @@ export function HeadquartersLive(props: HeadquartersProps) {
   // Opening the flow from a room shows that room's work only; the dock says so and clears the filter with one button.
   const openFlowFor = useCallback((rid?: string) => { if (rid) setRoomFilter(rid); setFlowOpen(true); }, []);
   const goTo = useCallback((hash: string) => { window.location.hash = hash; }, []);
+  // Work given or decided in a drawer: the flow, the desks and the open side panel read again at once (the event
+  // stream confirms it a moment later). A new task's agent is shown at its desk when that desk is on the open floor.
+  const floorRef = useRef(floor);
+  floorRef.current = floor;
+  const onWorkChanged = useCallback(() => { void flow.reload(); void controller.refresh(); }, [flow.reload, controller]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onAssigned = useCallback((info: AssignedInfo) => {
+    onWorkChanged();
+    const desk = floorRef.current?.desks.find((d) => d.agentId === info.agentId);
+    if (desk) selectAgent(info.agentId, desk);
+  }, [onWorkChanged, selectAgent]);
+  // The assistant dock and other cards ask for the live flow, the team or a new meeting without leaving the office.
+  useEffect(() => {
+    const open = (e: Event) => {
+      const which = (e as CustomEvent<HqScenePanel>).detail;
+      if (which === 'flow') { setRoomFilter(null); setFlowOpen(true); }
+      else if (which === 'team') setOverlay('teams');
+      else if (which === 'meetings') setOverlay('agentMeetings');
+    };
+    window.addEventListener(HQ_SCENE_PANEL_EVENT, open);
+    return () => window.removeEventListener(HQ_SCENE_PANEL_EVENT, open);
+  }, []);
 
   // Navigation commands from the executive assistant.
   const navScene = useMemo(() => {
@@ -760,7 +782,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           onChanged={visitors.reload} onClose={() => setReception(null)} /></Suspense>
       )}
 
-      <AssignHost onAssigned={() => void flow.reload()} onNavigate={goTo}
+      <AssignHost onAssigned={onAssigned} onChanged={onWorkChanged} live={`${props.live ?? 0}:${flow.snapshot?.as_of ?? 0}`}
         seatedAgentIds={(rid) => new Set((registryBuilding?.floors ?? []).flatMap((f) => f.desks).filter((d) => d.roomId === rid && d.agentId).map((d) => d.agentId as string))} />
       {starterOpen && <Suspense fallback={null}><StarterCampusDialog onClose={() => setStarterOpen(false)}
         onCreated={() => { void controller.refresh(); void flow.reload(); void gaps.reload(); }} onOpenGaps={() => setOverlay('gaps')}

@@ -1,8 +1,9 @@
 /** Built-in side panels: the room summary and the workstation summary with the desk's real work.
  * The meetings and executive workstreams replace them through `renderRoomPanel` and `renderWorkstationPanel`. */
 import { lazy, Suspense } from 'react';
-import { ArrowRight, ClipboardPlus, X } from 'lucide-react';
+import { ArrowRight, ClipboardPlus, History, Video, X } from 'lucide-react';
 import { openAssign } from './lib/hqAssign.ts';
+import { openHqPanel } from './lib/hqWorkPanels.ts';
 import { RoomModuleAction } from './HqRoomModule';
 import type { WallModel } from './lib/hqCommandWall.ts';
 import { statusLabel } from './HqChrome';
@@ -137,6 +138,7 @@ export function RoomMeetingSection({ meeting, presence }: Readonly<{ meeting: Ro
         </ul>}
       {meeting.people > 0 && <p className="hqNote">{t('hq.room.meeting.people', { count: meeting.people })}</p>}
       {(meeting.leftPeople ?? 0) > 0 && <p className="hqNote" data-testid="room-meeting-people-left">{t('hq.room.meeting.peopleLeft', { count: meeting.leftPeople ?? 0 })}</p>}
+      <button type="button" className="hqGhost" data-testid="room-meeting-open" onClick={() => openHqPanel({ kind: 'meeting', id: meeting.meetingId })}><Video aria-hidden="true" />{t('hqWork.meet.openHere')}</button>
       <ShowHistoryLink record={{ recordKind: 'meeting', id: meeting.meetingId, label: meeting.title || undefined }} />
     </section>
   );
@@ -171,7 +173,8 @@ export function AgentPanel(props: Readonly<{
       {p && <p className="hqNote">{t('hq.agent.observed', { time: new Date(p.observedAt).toLocaleTimeString() })}</p>}
       <WorkstationWork deskId={props.deskId} fallbackTasks={p?.taskTitles ?? []} hasPresence={Boolean(p)} refreshKey={props.refreshKey} />
       {!hidden && !props.agentId.startsWith('desk:') && <button type="button" className="hqPrimary" onClick={() => openAssign({ agentId: props.agentId, source: props.deskId ? 'desk' : 'agent_card' })}><ClipboardPlus aria-hidden="true" />{t('hqAssign.openFor', { name })}</button>}
-      {!hidden && <a className="hqPrimary" href={profileHash({ kind: 'agent', id: props.agentId })}>{t('hq.agent.profile')}<ArrowRight aria-hidden="true" className="flip" /></a>}
+      {!hidden && !props.agentId.startsWith('desk:') && <button type="button" className="hqGhost" data-testid="agent-work-log" onClick={() => openHqPanel({ kind: 'agent', id: props.agentId, name })}><History aria-hidden="true" />{t('hqWork.agent.openLog')}</button>}
+      {!hidden && <a className="hqGhost" href={profileHash({ kind: 'agent', id: props.agentId })} title={t('hqWork.fullPage')}>{t('hq.agent.profile')}<ArrowRight aria-hidden="true" className="flip" /></a>}
     </aside>
   );
 }

@@ -60,6 +60,10 @@ liveMeetingRoomIds: ReadonlySet<string>  // rooms to light up as "In a meeting"
 onSwitchWorkspace / onSwitchOrganisation // supplied by the shell; used to open another building
 ```
 
+### Opening work inside the office
+
+Work never takes the person out of the headquarters. Code inside or outside the bundle opens a drawer over the scene with `openHqPanel` from `lib/hqWorkPanels.ts` (task, run, approval, the approvals of a task or the queue, a meeting or the meeting picker, an agent's work log) or `openViewInHq(view)` for a module view (`approvals`, `meetings`, `tasks` opens the live flow, `agents` the team panel). Both answer false when no headquarters is mounted, so the caller navigates as before. The same requests are DOM events: `anum:hq-work-panel` (detail: the panel), `anum:hq-open-task` (detail: a task id) and `anum:hq-scene-panel` (`flow`, `team`, `meetings`). The drawers, their states and every place that used to navigate are in [assign work](ANUM_MINE_ASSIGN_WORK.md#work-inside-the-office). The executive PA dock passes its `onOpenTask` and `onOpenView` through them (`main.tsx`).
+
 ### Navigation commands (executive assistant)
 
 ```ts

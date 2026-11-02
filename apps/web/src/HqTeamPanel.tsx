@@ -15,6 +15,7 @@ import { ageText, reasonText } from './lib/officeFlow';
 import { useOfficeTeam } from './useOfficeFlow';
 import { useLocale } from './useLocale';
 import { openAssign } from './lib/hqAssign';
+import { openHqPanel } from './lib/hqWorkPanels';
 import { FLOW_STALE_MS, teamLive, type PanelLive } from './lib/hqPanelStatus.ts';
 import { LiveChip } from './hq-nav/LiveChip';
 import { PanelSection } from './hq-nav/PanelSection';
@@ -115,7 +116,8 @@ function MemberCard({ member: m, avatar, onEditAvatar, onPickLook, lookError, on
       <span className="hqTeamState" data-state={state}>{t(`hqTeam.state.${state}` as MessageKey)}{m.stale ? ` (${t('hqTeam.stale')})` : ''}</span>
     </div>
     {m.description && <p className="hqTeamDesc">{m.description}</p>}
-    <p className="hqTeamTask">{m.task ? t('hqTeam.task', { title: m.task.title }) : t('hqTeam.noTask')}</p>
+    <p className="hqTeamTask">{m.task ? t('hqTeam.task', { title: m.task.title }) : t('hqTeam.noTask')}
+      {m.task && <> <button type="button" className="hqLinkButton" onClick={() => openHqPanel({ kind: 'task', id: m.task!.id })} aria-label={t('hqWork.agent.openTask', { title: m.task.title })}>{t('hqWork.open')}</button></>}</p>
     {m.stuck && <p className="hqFlowReason"><span className="hqTeamStuck">{t('hqTeam.stuckBadge')}</span>
       <span>{reasonText({ stuck: m.stuck, location: { agent_name: m.name } as never })} ({ageText(m.stuck.age_seconds)})</span></p>}
     <div className="hqTeamSkills">
@@ -139,7 +141,7 @@ function MemberCard({ member: m, avatar, onEditAvatar, onPickLook, lookError, on
       {showRoom && onFocusRoom && <button type="button" className="hqLinkButton" onClick={() => onFocusRoom(m.desk.room_id)}>{roomNameFor(m.desk.room_id, m.desk.room_name)}</button>}
       <button type="button" className="hqLinkButton" onClick={() => openAssign({ agentId: m.agent_id, roomId: m.desk.room_id, roomName: roomNameFor(m.desk.room_id, m.desk.room_name), source: 'team_panel' })}>{t('hqAssign.openFor', { name: m.name })}</button>
       <button type="button" className="hqLinkButton" onClick={onEditAvatar} aria-label={t('avatar.editFor', { name: m.name })} data-avatar-edit={m.agent_id}><Palette size={14} aria-hidden="true" /> {t('avatar.edit')}</button>
-      <button type="button" className="hqLinkButton" onClick={() => onNavigate('#agents')}>{t('hqTeam.openAgent')}</button>
+      <button type="button" className="hqLinkButton" onClick={() => { if (!openHqPanel({ kind: 'agent', id: m.agent_id, name: m.name })) onNavigate('#agents'); }}>{t('hqWork.agent.openLogFor', { name: m.name })}</button>
       {onHistory && <button type="button" className="hqLinkButton" onClick={() => onHistory({ agentId: m.agent_id, name: m.name })}>{t('hqHist.launch.member', { name: m.name })}</button>}
     </div>
   </li>;

@@ -106,7 +106,7 @@ export const hqProvisioningEn = {
   'hqProv.done.limited': 'It is marked limited: {count} capabilities are missing.',
   'hqProv.done.turnOn': 'Turn it on',
   'hqProv.done.turnOnFailed': 'It could not be turned on. {detail}',
-  'hqProv.done.openAgents': 'Open Agents',
+  'hqProv.done.openAgents': 'Show the team',
   'hqProv.done.close': 'Close',
   'hqProv.kind.orders': 'orders',
   'hqProv.kind.leads': 'unowned leads',

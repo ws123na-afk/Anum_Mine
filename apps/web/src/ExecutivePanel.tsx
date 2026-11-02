@@ -21,6 +21,7 @@ import { BuildingProposalCard } from './hq-command/BuildingProposalCard';
 import { useLocale } from './useLocale';
 import type { BriefingOpen } from './PaBriefingCard';
 import './executivePanel.css';
+import { openHqPanel, panelForRecord } from './lib/hqWorkPanels';
 
 // The briefing card loads only when a briefing is asked for (the dock stays small).
 // The campus proposal card ("set up my campus") loads when asked for; its button is the only way to create.
@@ -244,8 +245,11 @@ export function ExecutivePanel({ onOpenView, onLocation, onOpenTask, docked, onS
   ];
 
   const openBriefingItem = (target: BriefingOpen) => {
-    if (target.kind === 'task' && onOpenTask) onOpenTask(target.id);
-    else onOpenView(target.view);
+    if (target.kind === 'task' && onOpenTask) { onOpenTask(target.id); return; }
+    // Inside the headquarters an approval or a meeting line opens that very record in a drawer there.
+    const panel = target.kind === 'approval' || target.kind === 'meeting' ? panelForRecord(target.kind, target.id) : null;
+    if (panel && openHqPanel(panel)) return;
+    onOpenView(target.view);
   };
 
   const goStop = (index: number) => {

@@ -3,6 +3,21 @@ import { ArrowRight } from 'lucide-react';
 import { resolveRoomModule, moduleHash, type RoomModuleInput } from './lib/hqRoomModule.ts';
 import { meetingHash } from './lib/liveMeeting.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
+import { inHqClick } from './lib/hqWorkPanels.ts';
+import type { RoomModuleTarget } from './lib/hqRoomModule.ts';
+
+/** Work modules open inside the office (the meeting in a drawer, Tasks as this room's live work); the href stays for a new tab. */
+function inPlace(target: RoomModuleTarget, roomId: string | undefined, onOpenFlow: (roomId?: string) => void) {
+  if (target.type === 'meeting') return inHqClick({ kind: 'meeting', id: target.meetingId, roomId: roomId ?? null });
+  if (target.type === 'view' && target.view === 'meetings') return inHqClick({ kind: 'meeting', roomId: roomId ?? null });
+  if (target.type === 'view' && target.view === 'tasks') {
+    return (e: { preventDefault(): void; metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean; button?: number }) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || (e.button ?? 0) !== 0) return;
+      e.preventDefault(); onOpenFlow(roomId);
+    };
+  }
+  return undefined;
+}
 
 export type RoomModuleActionProps = Readonly<{
   room: RoomModuleInput;
@@ -30,10 +45,10 @@ export function RoomModuleAction({ room, roomId, canManage = false, liveMeetingI
   const showHint = variant === 'panel' && m.needsDepartment && m.target.type !== 'reception';
   return (
     <div className="hqRoomModule" data-variant={variant} data-source={m.source} data-module={m.id}>
-      {hash !== null && <a className={cls} href={hash} data-testid="room-module">{label}<ArrowRight aria-hidden="true" className="flip" /></a>}
+      {hash !== null && <a className={cls} href={hash} data-testid="room-module" onClick={inPlace(m.target, roomId, onOpenFlow)}>{label}<ArrowRight aria-hidden="true" className="flip" /></a>}
       {/* A live meeting is always reachable from its room, even when the room's department opens another module. */}
       {liveMeetingId && m.target.type !== 'meeting' && (
-        <a className={cls} href={meetingHash(liveMeetingId)} data-testid="room-live-meeting">{t('hqRoomModule.openMeeting')}<ArrowRight aria-hidden="true" className="flip" /></a>
+        <a className={cls} href={meetingHash(liveMeetingId)} data-testid="room-live-meeting" onClick={inHqClick({ kind: 'meeting', id: liveMeetingId })}>{t('hqRoomModule.openMeeting')}<ArrowRight aria-hidden="true" className="flip" /></a>
       )}
       {m.target.type === 'flow' && <button type="button" className={cls} data-testid="room-module" onClick={() => onOpenFlow(roomId)}>{label}<ArrowRight aria-hidden="true" className="flip" /></button>}
       {m.target.type === 'reception' && onOpenReception && <button type="button" className={cls} data-testid="room-module" onClick={() => onOpenReception(roomId)}>{t('hqRec.room.open')}<ArrowRight aria-hidden="true" className="flip" /></button>}

@@ -107,7 +107,7 @@ export const hqProvisioningAr: Record<keyof typeof hqProvisioningEn, Message> = 
   'hqProv.done.limited': 'وُسم محدودا: {count} من القدرات ناقصة.',
   'hqProv.done.turnOn': 'تشغيله',
   'hqProv.done.turnOnFailed': 'تعذر تشغيله. {detail}',
-  'hqProv.done.openAgents': 'فتح الوكلاء',
+  'hqProv.done.openAgents': 'عرض الفريق',
   'hqProv.done.close': 'إغلاق',
   'hqProv.kind.orders': 'الطلبات',
   'hqProv.kind.leads': 'العملاء المحتملين بلا مالك',

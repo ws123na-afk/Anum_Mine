@@ -236,6 +236,8 @@ export const hqAr = {
   'hq.work.steps': 'آخر الخطوات',
   'hq.work.noRun': 'لم تُشغَّل هذه المهمة بعد.',
   'hq.work.openTasks': 'فتح المهام',
+  'hq.work.openTask': 'فتح المهمة',
+  'hq.work.review': 'المراجعة هنا',
   'hq.work.approvals': 'بانتظار الموافقة',
   'hq.work.expired': 'منتهية',
   'hq.work.openApprovals': 'فتح الموافقات',
