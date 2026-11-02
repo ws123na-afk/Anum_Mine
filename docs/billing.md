@@ -106,7 +106,9 @@ Test mode keys (`sk_test_...`) work the same way; the console shows whether the 
 
 ## Documents
 
-- **Invoice PDF**: `GET .../invoices/{id}/pdf`, written by ANUM's dependency-free PDF writer (`tyre/pdf.py`): issuer and bill-to blocks, number, dates, lines, subtotal, tax with rate, total, paid, due, and the bank details. Built-in PDF fonts cover Latin text; Arabic names print as `?` (the web and app pages show them in full).
+- **Invoice PDF**: `GET .../invoices/{id}/pdf`, written by ANUM's dependency-free PDF writer (`anum_api/pdf_writer.py`): issuer and bill-to blocks, number, dates, lines, subtotal, tax with rate, total, paid, due, and the bank details. Every label is in English and Arabic (English left, Arabic right), and Arabic names and addresses print as Arabic with the embedded Noto Sans Arabic, shaped and right to left ([Business: printing and PDF](business.md#printing-and-pdf) explains the font, its licence and the shaping).
+- **Credit note PDF**: `GET /billing/invoices/{id}/credit-notes/{credit_note_id}/pdf` (organisation billing admins) and `GET /platform/billing/organizations/{tenant_id}/invoices/{id}/credit-notes/{credit_note_id}/pdf` (console): number, date, the invoice, issuer and buyer with VAT numbers, reason, net, VAT and total, in English and Arabic.
+- **Receipt PDF**: the payment receipt (below) uses the same bilingual layout.
 - **Invoice email**: `POST /api/v1/platform/billing/organizations/{tenant_id}/invoices/{id}/email {to?}` plans a send through the issuer workspace's email integration with the PDF attached ([delivery](tools-and-integrations.md#delivery)): it waits in **Approvals** bound to the payload hash, and nothing is sent until someone approves it. Dunning reminders take the same path. Without an email integration the request answers `409` saying what to connect; the reminder is recorded as not sent.
 
 ## API

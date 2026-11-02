@@ -155,3 +155,20 @@ for (const size of GATE_SIZES) {
     });
   });
 }
+
+test('a card payment link from the business opens Moyasar in a new tab; without one the page says to pay by transfer', async ({ page }) => {
+  await mockPortal(page, { paymentUrl: 'https://checkout.moyasar.example/invoices/inv_9' });
+  const invoice = await openInvoice(page);
+  const pay = invoice.getByRole('link', { name: 'Pay by card' });
+  await expect(pay).toHaveAttribute('href', 'https://checkout.moyasar.example/invoices/inv_9');
+  await expect(pay).toHaveAttribute('target', '_blank');
+  await expect(pay).toHaveAttribute('rel', 'noopener noreferrer');
+  await expect(invoice.getByText(/never sees your card details/)).toBeVisible();
+
+  const tab = await page.context().newPage();
+  await mockPortal(tab);
+  const plain = await openInvoice(tab);
+  await expect(plain.getByRole('link', { name: 'Pay by card' })).toHaveCount(0);
+  await expect(plain.getByText(/There is no online payment here/)).toBeVisible();
+  await tab.close();
+});

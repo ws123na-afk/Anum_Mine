@@ -2,20 +2,23 @@
 payment links (``/api/v1/business``, docs/business.md#emailing-an-invoice-and-reminders and
 docs/business.md#payment-links).
 
-Every route is a plain ``def`` route (FastAPI runs it in a worker thread), so no store or unit
-of work is opened on the event loop. Sending is never done here: an email is planned as a
-delivery task that waits for an owner's approval of its exact payload.
+The routes that call out (the delivery planner, Moyasar) are ``async`` and take short units of
+work (``dependencies.units_of_work``): every store step runs in its own unit in a worker thread,
+so no transaction is open on the event loop or across the call (docs/realtime.md#event-loop).
+Sending is never done here: an email is planned as a delivery task that waits for an owner's
+approval of its exact payload.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
 from .. import delivery
-from ..dependencies import repository_context, tenant_context
+from ..dependencies import UnitsOfWork, repository_context, run_in_unit, tenant_context, units_of_work
 from ..repository import AnumRepository
 from ..schemas import TenantContext
 from ..settings import settings
@@ -50,29 +53,32 @@ def list_messages(invoice_id: str, context: TenantContext = Depends(tenant_conte
         return refresh_messages(store, repository, context, invoice_id)
 
 
-def _send(invoice_id: str, payload: EmailRequest, context: TenantContext, repository: AnumRepository, *, reminder: bool) -> EmailResult:
-    write(context)
-    message = request_email(context, repository, invoice_id, to=(payload.to or "").strip() or None, language=payload.language, reminder=reminder)
+def _view(repository: AnumRepository, context: TenantContext, invoice_id: str) -> InvoiceView:
     with open_business_store(context) as store:
-        invoice = get_or_404(store, "invoices", invoice_id, "Invoice")
-        view = invoice_view(store, repository, context, invoice)
-    audit(repository, context, "business.invoice.reminder_requested" if reminder else "business.invoice.email_requested", invoice_id,
-          metadata={"message_id": message.id, "status": message.status.value, "approval_id": message.approval_id, "reminder": message.reminder_number})
+        return invoice_view(store, repository, context, get_or_404(store, "invoices", invoice_id, "Invoice"))
+
+
+async def _send(invoice_id: str, payload: EmailRequest, context: TenantContext, units: UnitsOfWork, *, reminder: bool) -> EmailResult:
+    write(context)
+    message = await request_email(context, units, invoice_id, to=(payload.to or "").strip() or None, language=payload.language, reminder=reminder)
+    view = await run_in_unit(units, context, _view, context, invoice_id)
+    await run_in_unit(units, context, audit, context, "business.invoice.reminder_requested" if reminder else "business.invoice.email_requested", invoice_id,
+                      metadata={"message_id": message.id, "status": message.status.value, "approval_id": message.approval_id, "reminder": message.reminder_number})
     return EmailResult(message=message, payload_hash=message.payload_hash, invoice=view)
 
 
 @router.post("/invoices/{invoice_id}/email", response_model=EmailResult, status_code=status.HTTP_201_CREATED)
-def email_invoice(invoice_id: str, payload: EmailRequest, context: TenantContext = Depends(tenant_context),
-                  repository: AnumRepository = Depends(repository_context)) -> EmailResult:
+async def email_invoice(invoice_id: str, payload: EmailRequest, context: TenantContext = Depends(tenant_context),
+                        units: UnitsOfWork = Depends(units_of_work)) -> EmailResult:
     """Ask to email a sent invoice (PDF attached). It waits in Approvals; nothing is sent until an owner approves it."""
-    return _send(invoice_id, payload, context, repository, reminder=False)
+    return await _send(invoice_id, payload, context, units, reminder=False)
 
 
 @router.post("/invoices/{invoice_id}/reminders", response_model=EmailResult, status_code=status.HTTP_201_CREATED)
-def remind_invoice(invoice_id: str, payload: EmailRequest, context: TenantContext = Depends(tenant_context),
-                   repository: AnumRepository = Depends(repository_context)) -> EmailResult:
+async def remind_invoice(invoice_id: str, payload: EmailRequest, context: TenantContext = Depends(tenant_context),
+                         units: UnitsOfWork = Depends(units_of_work)) -> EmailResult:
     """Ask to send the next payment reminder for an overdue invoice. It waits for an owner's approval."""
-    return _send(invoice_id, payload, context, repository, reminder=True)
+    return await _send(invoice_id, payload, context, units, reminder=True)
 
 
 class ProviderState(BaseModel):
@@ -89,15 +95,15 @@ def payment_provider(context: TenantContext = Depends(tenant_context)) -> Provid
 
 
 @router.post("/invoices/{invoice_id}/payment-link", response_model=InvoiceView, status_code=status.HTTP_201_CREATED)
-def make_payment_link(invoice_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> InvoiceView:
-    """A Moyasar payment page for the balance. The same link comes back while the balance is unchanged."""
+async def make_payment_link(invoice_id: str, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> InvoiceView:
+    """A Moyasar payment page for the balance. The same link comes back while the balance is unchanged.
+    Moyasar is called with no transaction open (``create_payment_link`` uses its own short units)."""
     write(context)
     if not settings.web_app_url:
         raise http_error(409, "The web address of ANUM is not set (ANUM_WEB_APP_URL), so Moyasar would have nowhere to send the customer back.")
-    link = create_payment_link(context, invoice_id, app_url=settings.web_app_url)
-    with open_business_store(context) as store:
-        view = invoice_view(store, repository, context, get_or_404(store, "invoices", invoice_id, "Invoice"))
-    audit(repository, context, "business.invoice.payment_link_created", invoice_id, metadata={"link_id": link.id, "amount": str(link.amount)})
+    link = await asyncio.to_thread(create_payment_link, context, invoice_id, app_url=settings.web_app_url)
+    view = await run_in_unit(units, context, _view, context, invoice_id)
+    await run_in_unit(units, context, audit, context, "business.invoice.payment_link_created", invoice_id, metadata={"link_id": link.id, "amount": str(link.amount)})
     return view
 
 

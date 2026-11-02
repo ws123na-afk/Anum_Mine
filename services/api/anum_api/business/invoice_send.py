@@ -167,15 +167,10 @@ def resolve_attachment(context: TenantContext, item_id: str, fmt: str) -> tuple[
     return invoice_filename(invoice), "application/pdf", content
 
 
-def request_email(context: TenantContext, repository: AnumRepository, invoice_id: str, *, to: str | None, language: Literal["en", "ar"],
-                  reminder: bool) -> InvoiceMessage:
-    """Plan the invoice email (or the next reminder) as a delivery that waits for an approval."""
-    from .. import delivery
-    from ..model_gateway import MockModelGateway
-    from ..runtime import AgentRuntime
-
+def _prepare_email(context: TenantContext, repository: AnumRepository, invoice_id: str, to: str | None, language: Literal["en", "ar"],
+                   reminder: bool) -> tuple[Invoice, str, int | None, str, str]:
+    """Read and check, in one short unit of work: the invoice, the address, the reminder number and the text."""
     today = utc_now().date()
-    # 1. Read and check, in one short unit of work.
     with open_business_store(context) as store:
         invoice: Invoice | None = store.get("invoices", invoice_id)
         if invoice is None:
@@ -199,44 +194,70 @@ def request_email(context: TenantContext, repository: AnumRepository, invoice_id
         seller = invoice.seller or store.get_settings().billing
         link = open_link_url(store, invoice) if invoice.status == InvoiceStatus.SENT else None
     subject, text = email_text(invoice, language=language, reminder=number, seller_name=seller.legal_name or "ANUM", link=link)
+    return invoice, address, number, subject, text
+
+
+def _policy_asks(repository: AnumRepository, context: TenantContext, call: ToolCall) -> None:
+    """Never an unapproved send: the workspace's policy must ask an owner for this exact call."""
+    from .. import delivery
+    from ..model_gateway import MockModelGateway
+    from ..runtime import AgentRuntime
+
+    decision = AgentRuntime(MockModelGateway(), repository, tools=delivery.registry()).evaluate(call, context)
+    if decision.outcome == ToolPolicyOutcome.BLOCK:
+        raise http_error(409, f"The email was not planned: {decision.reason}")
+    if decision.outcome != ToolPolicyOutcome.REQUIRE_APPROVAL:
+        raise http_error(409, "This workspace lets the email tool send without asking. Invoice emails always need an owner's approval, "
+                              "so nothing was sent. Turn approval back on for email sending in Settings > Approvals.")
+
+
+def _remember(context: TenantContext, invoice: Invoice, message: InvoiceMessage, reminder: bool) -> None:
+    with open_business_store(context) as store:
+        store.add("invoice_messages", message)
+        record_activity(store, context, "invoice_reminder_requested" if reminder else "invoice_email_requested",
+                        f"{'Payment reminder ' + str(message.reminder_number) if reminder else 'Invoice email'} for {invoice.number} asked for; it waits for approval.",
+                        account_id=invoice.account_id, project_id=invoice.project_id, metadata={"invoice_id": invoice.id, "message_id": message.id})
+
+
+async def request_email(context: TenantContext, units: Any, invoice_id: str, *, to: str | None, language: Literal["en", "ar"],
+                        reminder: bool) -> InvoiceMessage:
+    """Plan the invoice email (or the next reminder) as a delivery that waits for an approval.
+
+    ``units`` opens short units of work (``dependencies.units_of_work``): every store step runs in
+    its own unit in a worker thread, and no transaction is open while the delivery is planned."""
+    from .. import delivery
+    from ..dependencies import run_in_unit
+
+    invoice, address, number, subject, text = await run_in_unit(units, context, lambda repository: _prepare_email(
+        context, repository, invoice_id, to, language, reminder))
     tools = delivery.registry()
     tool_name = delivery.channels(tools).get("email")
     if tools is None or tool_name is None:
         raise http_error(409, "No email integration that can send attachments is connected, so nothing can be sent. "
                               "Download the PDF and send it yourself, or connect one in Integrations.")
     try:
-        reference = delivery.attachment_reference(ATTACHMENT_KIND, invoice.id, "pdf", context)
+        reference = await asyncio.to_thread(delivery.attachment_reference, ATTACHMENT_KIND, invoice.id, "pdf", context)
     except LookupError:
         raise http_error(404, "Invoice not found") from None
-    # 2. Never an unapproved send: the policy must ask for this exact call.
     probe = ToolCall(name=tool_name, arguments={"to": address, "subject": subject, "text": text, "attachments": [reference]})
-    decision = AgentRuntime(MockModelGateway(), repository, tools=tools).evaluate(probe, context)
-    if decision.outcome == ToolPolicyOutcome.BLOCK:
-        raise http_error(409, f"The email was not planned: {decision.reason}")
-    if decision.outcome != ToolPolicyOutcome.REQUIRE_APPROVAL:
-        raise http_error(409, "This workspace lets the email tool send without asking. Invoice emails always need an owner's approval, "
-                              "so nothing was sent. Turn approval back on for email sending in Settings > Approvals.")
+    await run_in_unit(units, context, _policy_asks, context, probe)
     title = f"Send payment reminder {number} for invoice {invoice.number}" if reminder else f"Email invoice {invoice.number}"
     try:
-        outcome = asyncio.run(delivery.request_delivery(context, repository, channel="email", to=address, subject=subject, text=text,
-                                                        attachments=[reference], title=title))
+        outcome = await delivery.request_delivery(context, units, channel="email", to=address, subject=subject, text=text,
+                                                  attachments=[reference], title=title)
     except delivery.DeliveryUnavailableError as exc:
         raise http_error(409, str(exc)) from None
     status = {"waiting_approval": MessageStatus.WAITING_APPROVAL, "sent": MessageStatus.SENT, "failed": MessageStatus.FAILED}.get(outcome.status, MessageStatus.BLOCKED)
+    if status == MessageStatus.WAITING_APPROVAL and not outcome.approval_id:
+        status = MessageStatus.BLOCKED
     now = utc_now()
     message = InvoiceMessage(
         id=new_id("binmsg"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, invoice_id=invoice.id,
         kind=MessageKind.REMINDER if reminder else MessageKind.INVOICE, reminder_number=number, language=language, to_email=address,
-        subject=subject, status=status if status != MessageStatus.WAITING_APPROVAL or outcome.approval_id else MessageStatus.BLOCKED,
-        approval_id=outcome.approval_id, task_id=outcome.task_id, payload_hash=outcome.payload_hash,
+        subject=subject, status=status, approval_id=outcome.approval_id, task_id=outcome.task_id, payload_hash=outcome.payload_hash,
         detail=(outcome.summary or "")[:500], requested_by=context.user_id, created_at=now, updated_at=now,
     )
-    # 3. Remember the request in its own short unit of work.
-    with open_business_store(context) as store:
-        store.add("invoice_messages", message)
-        record_activity(store, context, "invoice_reminder_requested" if reminder else "invoice_email_requested",
-                        f"{'Payment reminder ' + str(number) if reminder else 'Invoice email'} for {invoice.number} asked for; it waits for approval.",
-                        account_id=invoice.account_id, project_id=invoice.project_id, metadata={"invoice_id": invoice.id, "message_id": message.id})
+    await asyncio.to_thread(_remember, context, invoice, message, reminder)
     return message
 
 
