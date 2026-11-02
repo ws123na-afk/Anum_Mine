@@ -80,6 +80,24 @@ PASSKEY_POLICY: dict[str, Any] = {
     "webAuthnPolicyPasswordlessPasskeysEnabled": True,
 }
 
+# Password rules and sign-in lockout (docs/security.md#sign-in-protection), applied with the
+# two-factor policies so a realm imported before they existed gets them too. Equal to
+# infra/render/keycloak_realm.py SIGN_IN_PROTECTION; a test keeps them equal.
+SIGN_IN_PROTECTION: dict[str, Any] = {
+    "passwordPolicy": (
+        "length(12) and maxLength(128) and lowerCase(1) and upperCase(1) and digits(1) "
+        "and notUsername and notEmail and passwordHistory(3)"
+    ),
+    "bruteForceProtected": True,
+    "permanentLockout": False,
+    "failureFactor": 10,
+    "waitIncrementSeconds": 60,
+    "maxFailureWaitSeconds": 900,
+    "maxDeltaTimeSeconds": 43200,
+    "quickLoginCheckMilliSeconds": 1000,
+    "minimumQuickLoginWaitSeconds": 60,
+}
+
 REQUIRED_ACTIONS: dict[str, dict[str, bool]] = {
     "CONFIGURE_TOTP": {"enabled": True, "defaultAction": True},
     "webauthn-register-passwordless": {"enabled": True},
@@ -364,6 +382,7 @@ def apply(kcadm: Kcadm, rp_id: str, log: Callable[[str], None] = print) -> None:
     wanted = {
         **OTP_POLICY,
         **PASSKEY_POLICY,
+        **SIGN_IN_PROTECTION,
         "webAuthnPolicyPasswordlessRpId": rp_id,
         "browserFlow": FLOW_ALIAS,
     }
