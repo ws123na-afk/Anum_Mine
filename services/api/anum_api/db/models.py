@@ -1672,6 +1672,14 @@ class AgentMemoryRecord(Base, WorkspaceScopedMixin):
     task_id: Mapped[str | None] = mapped_column(String(80))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Migration 0128_agent_memory_facts: kind, source, date, edits and retention.
+    kind: Mapped[str | None] = mapped_column(String(20))
+    source_label: Mapped[str | None] = mapped_column(String(200))
+    source_date: Mapped[date | None] = mapped_column(Date)
+    source_file_id: Mapped[str | None] = mapped_column(String(80))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_by: Mapped[str | None] = mapped_column(String(160))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -1680,7 +1688,9 @@ class AgentMemoryRecord(Base, WorkspaceScopedMixin):
             name="fk_agent_memories_agent",
             ondelete="CASCADE",
         ),
-        CheckConstraint("source in ('manual', 'task')", name="ck_agent_memories_source"),
+        CheckConstraint("source in ('manual', 'task', 'file')", name="ck_agent_memories_source"),
+        CheckConstraint("kind is null or kind in ('fact', 'decision')", name="ck_agent_memories_kind"),
+        CheckConstraint("source <> 'file' or source_file_id is not null", name="ck_agent_memories_file_source"),
         Index("ix_agent_memories_agent", "tenant_id", "workspace_id", "agent_id", text("created_at DESC")),
     )
 

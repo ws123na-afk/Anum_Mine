@@ -356,7 +356,7 @@ class AgentRuntime:
         )
         return [
             label_untrusted(
-                str(getattr(memory, "content", "")),
+                memory.for_prompt() if hasattr(memory, "for_prompt") else str(getattr(memory, "content", "")),
                 source=Provenance.MEMORY,
                 origin=f"agent-memory/{getattr(memory, 'id', 'unknown')}",
                 max_chars=2000,

@@ -141,7 +141,7 @@ def _load(context: TenantContext) -> dict[str, Any]:
             held = set()
         agents = [dict(r) for r in session.execute(text(
             "select id, name, status, department, template_id, allowed_tools, allowed_skills, autonomy, owner_user_id, "
-            "sharing, version, position(:mark in instructions) > 0 as has_rules from agent_profiles "
+            "sharing, version, knowledge_mode, knowledge_sources, position(:mark in instructions) > 0 as has_rules from agent_profiles "
             "where tenant_id = :t and workspace_id = :w order by id limit 1000"), {**p, "mark": bp.RULES_MARKER}).mappings()]
         ledger = {r.template_id: dict(r._mapping) for r in session.execute(text(
             "select template_id, status, agent_id, desk_id from office_agent_provisions "
@@ -153,8 +153,11 @@ def _load(context: TenantContext) -> dict[str, Any]:
     with open_agent_controls_store(context) as store:
         for cap in store.list_caps(context):
             caps[cap.agent_id] = cap.monthly_cost_limit_usd
+    from .green_concrete_kit_api import gc_collection_id
+
     return {"now": utc_now(), "buildings": buildings, "rooms": rooms, "desks": desks, "held": held,
-            "agents": agents, "ledger": ledger, "sources": sources, "caps": caps}
+            "agents": agents, "ledger": ledger, "sources": sources, "caps": caps,
+            "gc_collection": gc_collection_id(context)}
 
 
 def _can_edit(row: dict[str, Any], context: TenantContext) -> bool:
@@ -173,7 +176,9 @@ def _office_agents(data: dict[str, Any], context: TenantContext, building_id: st
             id=a["id"], name=a["name"], status=a["status"], department=a["department"], template_id=a["template_id"],
             allowed_tools=tuple(a["allowed_tools"] or ()), allowed_skills=tuple(a["allowed_skills"] or ()),
             autonomy=dict(a["autonomy"] or {}), has_rules=bool(a["has_rules"]), cap_usd=data["caps"].get(a["id"]),
-            can_edit=_can_edit(a, context), version=int(a["version"]), desk_id=seat.get(a["id"])))
+            can_edit=_can_edit(a, context), version=int(a["version"]), desk_id=seat.get(a["id"]),
+            knowledge_mode=str(a.get("knowledge_mode") or "none"),
+            knowledge_sources=tuple((str(k.get("type")), str(k.get("id"))) for k in (a.get("knowledge_sources") or []))))
     return out
 
 
@@ -221,7 +226,7 @@ def _office(data: dict[str, Any], context: TenantContext, building: dict[str, An
     for role in roles:
         members = []
         for a in by_role[role.key]:
-            gaps = bp.agent_gaps(role, views[role.key], a, risk)
+            gaps = bp.agent_gaps(role, views[role.key], a, risk, data["gc_collection"])
             needing += 0 if gaps["complete"] else 1
             members.append({"id": a.id, "name": a.name, "status": a.status, "desk_id": a.desk_id, "can_edit": a.can_edit,
                             "skills": list(a.allowed_skills), "tools": list(a.allowed_tools), **gaps})
@@ -254,8 +259,11 @@ def _actions(context: TenantContext, data: dict[str, Any], building: dict[str, A
     missing = [r for r in roles if not by_role[r.key]]
     places = _placements(data, bid, missing)
     out: list[dict[str, Any]] = []
+    collection = data["gc_collection"]
     for role in missing:
         view, t = views[role.key], role.template
+        mode, sources = (bp.with_collection(t.knowledge_mode, [], collection) if collection and role.knowledge_collection
+                         else (t.knowledge_mode, []))
         name = f"{t.name_ar if lang == 'ar' else t.name_en}{'، ' if lang == 'ar' else ', '}{_name(building, lang)}"[:80]
         content = {
             "kind": "create", "role": role.key, "lang": lang, "status": "paused",
@@ -263,7 +271,7 @@ def _actions(context: TenantContext, data: dict[str, Any], building: dict[str, A
                       "description": (role.purpose_ar if lang == "ar" else role.purpose_en)[:500],
                       "instructions": bp.instructions(role), "model_route": t.model_route,
                       "allowed_tools": view["attach_tools"], "allowed_skills": view["attach_skills"],
-                      "autonomy": bp.autonomy(role), "knowledge_mode": t.knowledge_mode, "knowledge_sources": [],
+                      "autonomy": bp.autonomy(role), "knowledge_mode": mode, "knowledge_sources": sources,
                       "sharing": "workspace", "template_id": bp.marker(bid, role.key)},
             "monthly_cost_limit_usd": t.monthly_cost_limit_usd, "placement": places[role.key],
         }
@@ -272,7 +280,7 @@ def _actions(context: TenantContext, data: dict[str, Any], building: dict[str, A
     for role in roles:
         view = views[role.key]
         for a in by_role[role.key]:
-            gaps = bp.agent_gaps(role, view, a, {})
+            gaps = bp.agent_gaps(role, view, a, {}, collection)
             if gaps["complete"] or not a.can_edit:
                 continue
             content = {
@@ -281,6 +289,7 @@ def _actions(context: TenantContext, data: dict[str, Any], building: dict[str, A
                 "autonomy": bp.tightened(a.autonomy, role) if "autonomy" in gaps["missing_rules"] else None,
                 "add_rules_text": "never_list" in gaps["missing_rules"],
                 "monthly_cost_limit_usd": role.template.monthly_cost_limit_usd if "cost_cap" in gaps["missing_rules"] else None,
+                "add_collection": collection if gaps["missing_knowledge"] else None,
             }
             out.append({"id": f"update:{a.id}", "kind": "update", "role": role.key, "agent_id": a.id, "content": content,
                         "hash": bp.action_hash(context.tenant_id, context.workspace_id, context.user_id, bid, content)})
@@ -465,6 +474,10 @@ def _run_update(context: TenantContext, action: dict[str, Any]) -> dict[str, Any
         changes["allowed_skills"] = sorted(set(agent.allowed_skills) | set(content["add_skills"]))
     if content["autonomy"]:
         changes["autonomy"] = bp.tightened(agent.autonomy.model_dump(mode="json"), role)
+    if content.get("add_collection"):
+        mode, sources = bp.with_collection(agent.knowledge_mode.value, [k.model_dump() for k in agent.knowledge_sources],
+                                           content["add_collection"])
+        changes["knowledge_mode"], changes["knowledge_sources"] = mode, sources
     if content["add_rules_text"] and bp.RULES_MARKER not in agent.instructions:
         changes["instructions"] = f"{agent.instructions}\n\n{bp.rules_text(role)}".strip()[:8000]
     if len(changes) > 1:
@@ -476,6 +489,7 @@ def _run_update(context: TenantContext, action: dict[str, Any]) -> dict[str, Any
         _set_cap(context, agent.id, float(content["monthly_cost_limit_usd"]))
     return {"outcome": "updated", "agent_id": agent.id,
             "added": {"tools": content["add_tools"], "skills": content["add_skills"],
+                      "knowledge": bool(content.get("add_collection")),
                       "rules": [r for r, on in (("autonomy", bool(content["autonomy"])), ("never_list", content["add_rules_text"]),
                                                 ("cost_cap", content["monthly_cost_limit_usd"] is not None)) if on]}}
 

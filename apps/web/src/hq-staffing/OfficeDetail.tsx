@@ -1,5 +1,5 @@
 /** One office against its blueprint: roles, agents and what each lacks, data sources, and the owner's apply step. */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import type { StaffingAction, StaffingApplyResult, StaffingCreateContent, StaffingOffice, StaffingOfficeSummary, StaffingRole, StaffingUpdateContent } from '@anum/contracts';
 import { ConfirmDialog, Drawer } from '../Dialog';
 import { describeError, isPermissionDenied } from '../lib/errors';
@@ -8,6 +8,8 @@ import { applyAll, connectView, localText, rolesByUnit, totals, type StaffingCli
 import { useLocale } from '../useLocale';
 import { LoadingSkeleton } from '../PageParts';
 import { openInOffice } from './openInOffice';
+
+const GreenConcreteKitPanel = lazy(() => import('./GreenConcreteKitPanel'));
 
 type Load = { state: 'loading' } | { state: 'ready'; office: StaffingOffice } | { state: 'error'; message: string; denied: boolean };
 
@@ -27,8 +29,8 @@ export function OfficeDetail({ client, summary, onClose, onChanged, onGo }: {
   const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
   const name = localText(summary.name, locale);
 
-  const refresh = useCallback(async () => {
-    setLoad({ state: 'loading' });
+  const refresh = useCallback(async (quiet = false) => {
+    if (!quiet) setLoad({ state: 'loading' });
     try { setLoad({ state: 'ready', office: await client.office(summary.building_id, lang) }); setPicked(new Set()); }
     catch (error) { setLoad({ state: 'error', message: t('ostaff.detailError', { detail: describeError(error) }), denied: isPermissionDenied(error) }); }
   }, [client, summary.building_id, lang]);
@@ -86,6 +88,9 @@ export function OfficeDetail({ client, summary, onClose, onChanged, onGo }: {
           <h3 id={`os-u-${unit.id}`}>{localText(unit.name, locale)}</h3>
           {unit.roles.map((role) => <RoleCard key={role.key} role={role} locale={locale} actions={actions} picked={picked} toggle={toggle} canApply={office.can_apply} busy={progress !== null} />)}
         </section>)}
+        {office.kind === 'green_concrete' && <Suspense fallback={<LoadingSkeleton label={t('gck.loading')} rows={2} />}>
+          <GreenConcreteKitPanel onGo={onGo} onChanged={() => { onChanged(); void refresh(true); }} />
+        </Suspense>}
         {office.other_agents.length > 0 && <section aria-labelledby="os-other"><h3 id="os-other">{t('ostaff.otherAgents')}</h3><p className="muted">{t('ostaff.otherAgentsText')}</p>
           <ul className="osAgents">{office.other_agents.map((a) => <li key={a.id}><strong dir="auto">{a.name}</strong> <span className="osPill">{t(`ostaff.status.${a.status}` as MessageKey)}</span></li>)}</ul></section>}
       </>}
@@ -105,7 +110,8 @@ function describeAction(a: StaffingAction, roleName: (k: string) => string, agen
     return t('ostaff.confirm.create', { agent: c.agent.name, tools: formatNumber(c.agent.allowed_tools.length), skills: formatNumber(c.agent.allowed_skills.length), cap: formatNumber(c.monthly_cost_limit_usd), seat });
   }
   const c = a.content as StaffingUpdateContent;
-  const rules = [c.autonomy ? t('ostaff.rule.autonomy') : null, c.add_rules_text ? t('ostaff.rule.never_list') : null, c.monthly_cost_limit_usd !== null ? t('ostaff.rule.cost_cap') : null].filter(Boolean).join(', ');
+  const rules = [c.autonomy ? t('ostaff.rule.autonomy') : null, c.add_rules_text ? t('ostaff.rule.never_list') : null, c.monthly_cost_limit_usd !== null ? t('ostaff.rule.cost_cap') : null,
+    c.add_collection ? t('ostaff.rule.knowledge') : null].filter(Boolean).join(', ');
   return t('ostaff.confirm.update', { name: `${agentName(c.agent_id)} (${roleName(c.role)})`, tools: formatNumber(c.add_tools.length), skills: formatNumber(c.add_skills.length), rules: rules ? t('ostaff.confirm.rules', { items: rules }) : '' });
 }
 
@@ -155,6 +161,7 @@ function RoleCard({ role, locale, actions, picked, toggle, canApply, busy }: {
         {a.missing_skills.length > 0 && <p className="osSmallText">{t('ostaff.gap.skills', { items: a.missing_skills.join(', ') })}</p>}
         {a.missing_tools.length > 0 && <p className="osSmallText">{t('ostaff.gap.tools', { items: a.missing_tools.join(', ') })}</p>}
         {a.missing_rules.length > 0 && <p className="osSmallText">{t('ostaff.gap.rules', { items: a.missing_rules.map((x) => t(`ostaff.rule.${x}` as MessageKey)).join(', ') })}</p>}
+        {a.missing_knowledge && <p className="osSmallText">{t('ostaff.gap.knowledge')}</p>}
         {a.over_risk_tools.length > 0 && <p className="osSmallText osWarn">{t('ostaff.gap.overRisk', { items: a.over_risk_tools.join(', ') })}</p>}
         {!a.complete && !a.can_edit && <p className="muted osSmallText">{t('ostaff.gap.cantEdit')}</p>}
         {upd && canApply && <label className="osPick"><input type="checkbox" checked={picked.has(upd.id)} disabled={busy} onChange={() => toggle(upd.id)} />{t('ostaff.action.update', { name: a.name, role: name })}</label>}

@@ -20,7 +20,8 @@ export interface AgentAutonomy {
 }
 
 export interface AgentKnowledgeSource {
-  type: 'memory' | 'file';
+  /** `collection`: a shared knowledge base collection; a run reads the notes and documents it holds when it starts. */
+  type: 'memory' | 'file' | 'collection';
   id: string;
 }
 
@@ -72,14 +73,44 @@ export interface AgentPage {
   counts: Record<'all' | AgentCategory, number>;
 }
 
+export type AgentMemoryKind = 'fact' | 'decision';
+
 export interface AgentMemory {
   id: string;
   agent_id: string;
   content: string;
-  source: 'manual' | 'task';
+  source: 'manual' | 'task' | 'file';
   task_id: string | null;
   created_by: string;
   created_at: string;
+  /** Migration 0128: a recurring fact or a decision a person made. */
+  kind?: AgentMemoryKind;
+  /** Where it comes from in plain words, and the date it holds from (YYYY-MM-DD). */
+  source_label?: string | null;
+  source_date?: string | null;
+  source_file_id?: string | null;
+  updated_at?: string | null;
+  updated_by?: string | null;
+  /** From the organisation's memory governance; null keeps it until someone deletes it. */
+  expires_at?: string | null;
+}
+
+/** `POST /api/v1/agents/{id}/memories` */
+export interface AgentMemoryCreate {
+  content: string;
+  kind?: AgentMemoryKind;
+  source_label?: string | null;
+  source_date?: string | null;
+  task_id?: string | null;
+  file_id?: string | null;
+}
+
+/** `PATCH /api/v1/agents/{id}/memories/{memory_id}`: any field left out keeps its value. */
+export interface AgentMemoryUpdate {
+  content?: string;
+  kind?: AgentMemoryKind;
+  source_label?: string | null;
+  source_date?: string | null;
 }
 
 /** `GET /api/v1/agents/{id}/memories?q=&limit=&cursor=` */

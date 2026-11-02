@@ -20,9 +20,10 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Final
 
+from . import green_concrete_kit as gk
 from . import office_provisioning as op
 from . import office_staff_templates as st
 from .office_provisioning import Template
@@ -72,6 +73,8 @@ SOURCES: tuple[Source, ...] = (
     Source("knowledge", "module", "Knowledge base", "قاعدة المعرفة", "memory:read", "knowledge"),
     Source("tasks_approvals", "module", "Tasks and approvals", "المهام والموافقات", "task:read", "tasks"),
     Source("visitor_register", "module", "Visitor register", "سجل الزوار", "task:read", "office"),
+    Source(gk.SEATS_SOURCE, "module", "Green Concrete seats and working hours", "مقاعد جرين كونكريت وساعات العمل",
+           "task:read", "office"),
     Source("audit_log", "module", "Audit log", "سجل التدقيق", "audit:read", "audit"),
 )
 SOURCE_BY_ID: Final = {s.id: s for s in SOURCES}
@@ -128,7 +131,18 @@ class Role:
 
     @property
     def template(self) -> Template:
-        return st.STAFF_TEMPLATE_BY_ID[self.template_id]
+        """The role's template with the skills and tools its kit adds (only adds; ``green_concrete_kit.ROLE_KIT``)."""
+        base = st.STAFF_TEMPLATE_BY_ID[self.template_id]
+        skills, tools = gk.kit_for(self.key)
+        if not skills and not tools:
+            return base
+        return replace(base, tools=tuple(dict.fromkeys((*base.tools, *tools))),
+                       skills=tuple(dict.fromkeys((*base.skills, *skills))))
+
+    @property
+    def knowledge_collection(self) -> bool:
+        """Whether its agents read the shared Green Concrete knowledge collection."""
+        return self.unit == "green_concrete"
 
     @property
     def rules(self) -> tuple[str, ...]:
@@ -183,7 +197,8 @@ ROLES: tuple[Role, ...] = (
     Role("gc_pmv_manager", "operations_dispatcher", "green_concrete",
          "PMV manager: hands out the team's work and follows what is stuck.",
          "مدير PMV: يوزع عمل الفريق ويتابع ما هو عالق.",
-         "medium", ("no_vehicle_record_changes",), ("tasks_approvals", "tyre_pulse", "email_center"), ("pmv_manager",)),
+         "medium", ("no_vehicle_record_changes",),
+         ("tasks_approvals", "tyre_pulse", "email_center", gk.SEATS_SOURCE, "calendar", "knowledge"), ("pmv_manager",)),
     Role("gc_business_analyst", "research_analyst", "green_concrete",
          "Business analyst: turns fleet and cost data into short findings for the manager.",
          "محلل أعمال: يحوّل بيانات الأسطول والتكاليف إلى نتائج قصيرة للمدير.",
@@ -191,15 +206,17 @@ ROLES: tuple[Role, ...] = (
     Role("gc_tyre_planner", "fleet_maintenance", "green_concrete",
          "Tyre planning engineer: plans rotations, replacements and purchases from Tyre Pulse data.",
          "مهندس تخطيط الإطارات: يخطط للتدوير والاستبدال والشراء من بيانات تاير بلس.",
-         "low", ("no_vehicle_record_changes",), ("tyre_pulse",), ("tyre_planning_engineer",)),
+         "low", ("no_vehicle_record_changes",), ("tyre_pulse", "knowledge"), ("tyre_planning_engineer",)),
     Role("gc_data_monitoring", "fleet_maintenance", "green_concrete",
          "Data monitoring: watches tyre alerts, inspections and due dates and reports what changed.",
          "مراقبة البيانات: يتابع تنبيهات الإطارات والفحوصات والمواعيد ويبلّغ عما تغيّر.",
-         "low", ("no_vehicle_record_changes",), ("tyre_pulse",), ("data_monitoring",)),
+         "low", ("no_vehicle_record_changes",), ("tyre_pulse", gk.SEATS_SOURCE, "tasks_approvals", "knowledge"),
+         ("data_monitoring",)),
     Role("gc_data_collector", "fleet_maintenance", "green_concrete",
          "Data collector: checks that readings and inspections arrived in Tyre Pulse and lists what is missing.",
          "جامع بيانات: يتحقق من وصول القراءات والفحوصات إلى تاير بلس ويذكر ما ينقص.",
-         "low", ("no_vehicle_record_changes",), ("tyre_pulse",), ("data_collector",)),
+         "low", ("no_vehicle_record_changes",), ("tyre_pulse", gk.SEATS_SOURCE, "tasks_approvals", "knowledge"),
+         ("data_collector",)),
     # Tyre Pulse
     Role("fleet_maintenance", "fleet_maintenance", "tyre_pulse",
          "Plans tyre rotations, inspections and purchases from the fleet data.",
@@ -463,6 +480,11 @@ class OfficeAgent:
     can_edit: bool
     version: int
     desk_id: str | None
+    knowledge_mode: str = "none"
+    knowledge_sources: tuple[tuple[str, str], ...] = ()
+
+    def reads_collection(self, collection_id: str) -> bool:
+        return self.knowledge_mode == "workspace" or ("collection", collection_id) in self.knowledge_sources
 
 
 def match_agents(building_id: str, roles: Sequence[Role], agents: Sequence[OfficeAgent]) -> tuple[dict[str, list[OfficeAgent]], list[OfficeAgent]]:
@@ -486,8 +508,9 @@ def match_agents(building_id: str, roles: Sequence[Role], agents: Sequence[Offic
     return by_role, left
 
 
-def agent_gaps(role: Role, view: Mapping[str, Any], agent: OfficeAgent, tool_risk: Mapping[str, str | None]) -> dict[str, Any]:
-    """What this agent lacks against its role: skills, tools, rules; and tools above the role's risk."""
+def agent_gaps(role: Role, view: Mapping[str, Any], agent: OfficeAgent, tool_risk: Mapping[str, str | None],
+               collection_id: str | None = None) -> dict[str, Any]:
+    """What this agent lacks against its role: skills, tools, rules, its knowledge collection; and tools above the role's risk."""
     tools = [t for t in view["attach_tools"] if t not in agent.allowed_tools]
     skills = [s for s in view["attach_skills"] if s not in agent.allowed_skills]
     want = autonomy(role)
@@ -501,8 +524,19 @@ def agent_gaps(role: Role, view: Mapping[str, Any], agent: OfficeAgent, tool_ris
         rules.append("never_list")
     over = sorted(t for t in agent.allowed_tools
                   if RISK_ORDER.get(tool_risk.get(t) or "high", 3) > RISK_ORDER[role.max_risk])
+    knowledge = bool(collection_id and role.knowledge_collection and not agent.reads_collection(collection_id))
     return {"missing_tools": tools, "missing_skills": skills, "missing_rules": rules, "over_risk_tools": over,
-            "complete": not (tools or skills or rules)}
+            "missing_knowledge": knowledge, "complete": not (tools or skills or rules or knowledge)}
+
+
+def with_collection(mode: str, sources: Sequence[Mapping[str, str]], collection_id: str) -> tuple[str, list[dict[str, str]]]:
+    """The agent's knowledge with the collection added; never removes a source and never narrows ``workspace``."""
+    if mode == "workspace":
+        return mode, [dict(s) for s in sources]
+    kept = [dict(s) for s in sources] if mode == "selected" else []
+    if not any(s.get("type") == "collection" and s.get("id") == collection_id for s in kept):
+        kept.append({"type": "collection", "id": collection_id})
+    return "selected", kept[:50]
 
 
 def tightened(current: Mapping[str, str], role: Role) -> dict[str, str]:
