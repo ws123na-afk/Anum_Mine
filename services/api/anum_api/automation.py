@@ -211,6 +211,9 @@ def check_steps(steps: list[WorkflowStep]) -> list[WorkflowStep]:
                 raise ValueError(f"{label}: the task title is longer than {TASK_TITLE_MAX} characters.")
             if len(prompt) > TASK_PROMPT_MAX:
                 raise ValueError(f"{label}: the task prompt is longer than {TASK_PROMPT_MAX} characters.")
+            agent_id = step.input.get("agent_id")
+            if agent_id is not None and (not isinstance(agent_id, str) or not 1 <= len(agent_id) <= 80):
+                raise ValueError(f'{label}: "agent_id" must be the id of an agent, or left out to run as the automation\'s owner.')
             run_flag = step.input.get("run", True)
             if not isinstance(run_flag, bool):
                 raise ValueError(f'{label}: "run" must be true (run the task) or false (only create it).')
@@ -636,7 +639,7 @@ class TaskOutcome:
 class RunEffects(Protocol):
     """Side effects of automation work, applied inside the engine's unit of work."""
 
-    def create_task(self, context: TenantContext, title: str, prompt: str) -> Task: ...
+    def create_task(self, context: TenantContext, title: str, prompt: str, agent_id: str | None = None) -> Task: ...
     def record_event(self, event: DomainEvent) -> None: ...
     def record_audit(self, record: AuditRecord) -> None: ...
     def wants_failure_notice(self, context: TenantContext, user_id: str) -> bool: ...
@@ -661,12 +664,13 @@ class RepositoryEffects:
         self._preferences = preferences
         self.deferred: list[DeferredStep] = []
 
-    def create_task(self, context: TenantContext, title: str, prompt: str) -> Task:
+    def create_task(self, context: TenantContext, title: str, prompt: str, agent_id: str | None = None) -> Task:
         now = utc_now()
         task = Task(
             id=new_id("task"),
             title=title,
             prompt=prompt,
+            agent_id=agent_id,
             status=TaskStatus.CREATED,
             tenant_id=context.tenant_id,
             workspace_id=context.workspace_id,
@@ -937,8 +941,21 @@ def _perform(
         prompt = _input_text(state, "prompt", scope, untrusted=True)[:TASK_PROMPT_MAX]
         if not title or not prompt:
             raise StepFailed("The step's input has no task title or prompt. Edit the workflow and retry the run.")
-        task = effects.create_task(context, title, prompt)
-        state.output = {"task_id": task.id, "title": task.title}
+        # Run as a chosen agent (docs/automation.md#run-as-an-agent): its tools, autonomy, caps
+        # and loop limits apply. The owner opts in per step with ``agent_id``.
+        agent_id = state.input.get("agent_id") if isinstance(state.input.get("agent_id"), str) else None
+        if agent_id:
+            from .agent_loop_limits import automation_agent
+
+            problem, attempts = automation_agent(context, agent_id)
+            if problem:
+                raise StepFailed(problem)
+            if attempts is not None:
+                state.max_attempts = min(state.max_attempts, attempts)
+            task = effects.create_task(context, title, prompt, agent_id=agent_id)
+        else:
+            task = effects.create_task(context, title, prompt)
+        state.output = {"task_id": task.id, "title": task.title, **({"agent_id": agent_id} if agent_id else {})}
         if state.input.get("run", True) is False:
             return {**state.output, "run": False}
         # The task runs after this transaction commits; the step waits for it.
@@ -2358,9 +2375,26 @@ def _handled() -> Iterator[None]:
         raise _http_error(exc) from exc
 
 
+def _check_step_agents(context: TenantContext, steps: list[WorkflowStep]) -> None:
+    """A task step that runs as an agent names one the editor can see (docs/automation.md#run-as-an-agent).
+    It may be paused now: the run checks again and fails with the reason if it still is."""
+    wanted = {step.input["agent_id"] for step in steps if step.action == "task.create" and isinstance(step.input.get("agent_id"), str)}
+    if not wanted:
+        return
+    from .agent_profiles import load_agent
+
+    for agent_id in sorted(wanted):
+        if load_agent(context, agent_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f'Agent "{agent_id}" is not in this workspace or is private to someone else. Choose an agent you can see.',
+            )
+
+
 @router.post("/workflows", response_model=WorkflowDefinition, status_code=status.HTTP_201_CREATED)
 def create_workflow(payload: WorkflowCreate, context: TenantContext = Depends(tenant_context)) -> WorkflowDefinition:
     _require(context, Permission.AUTOMATION_MANAGE)
+    _check_step_agents(context, payload.steps)
     with _handled():
         return current_engine().create_workflow(context, payload)
 
@@ -2392,6 +2426,7 @@ def get_workflow(workflow_id: str, context: TenantContext = Depends(tenant_conte
 @router.put("/workflows/{workflow_id}", response_model=WorkflowDefinition)
 def update_workflow(workflow_id: str, payload: WorkflowUpdate, context: TenantContext = Depends(tenant_context)) -> WorkflowDefinition:
     _require(context, Permission.AUTOMATION_MANAGE)
+    _check_step_agents(context, payload.steps)
     with _handled():
         return current_engine().update_workflow(context, workflow_id, payload)
 

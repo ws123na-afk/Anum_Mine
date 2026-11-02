@@ -1197,6 +1197,14 @@ def run_reminder_pass(batch: int | None = None, now: datetime | None = None) -> 
         recipient = TenantContext(tenant_id=tenant_id, workspace_id=workspace_id, user_id=user_id, roles=[])
         deliver_pending_email(recipient, [(user_id, notification_id)])
         counts["emails"] += 1
+    # Approvals that waited past their workspace's reminder hours (docs/approvals-and-risk.md#approval-ageing-reminder).
+    from .approval_reminders import run_approval_reminder_pass
+
+    try:
+        counts["approvals_reminded"] = run_approval_reminder_pass(batch, now)
+    except Exception:
+        logger.exception("Approval reminder pass failed")
+        counts["approvals_reminded"] = 0
     return counts
 
 

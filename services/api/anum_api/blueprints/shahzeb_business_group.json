@@ -1,6 +1,6 @@
 {
  "id": "shahzeb-business-group",
- "version": 3,
+ "version": 4,
  "name": "Shahzeb Business Group",
  "summary": "Shahzeb's plan for running the business group in ANUM: 12 agents, 24 skills, 8 department assistants, approval rules, knowledge folders, 30 saved commands and 25 automations. It starts small: the pilot turns on only Chief of Staff, Customer Care and Finance Controller.",
  "currency": "AED",
@@ -11,6 +11,38 @@
   "en"
  ],
  "aed_per_usd": 3.6725,
+ "approval_reminder_hours": 4,
+ "loop_limits": {
+  "max_runs_per_task": 5,
+  "max_step_attempts": 3
+ },
+ "require_marketing_consent": true,
+ "home_sections": [
+  "decisions",
+  "glance",
+  "focus",
+  "alerts",
+  "activity",
+  "meetings",
+  "insights",
+  "pinned",
+  "goto"
+ ],
+ "department_units": {
+  "Command": "executive",
+  "Sales": "commerce",
+  "Fleet & Tyres": "tyre_pulse",
+  "Commerce & Care": "commerce",
+  "Finance": "finance",
+  "Marketing": "marketing",
+  "Product Support": "technology",
+  "Systems & Knowledge": "research"
+ },
+ "business_workspaces": {
+  "FLEET": "w_fleet",
+  "TYRE": "w_tyre",
+  "GALLERY": "w_gallery"
+ },
  "pilot_agents": [
   "a1",
   "a7",
@@ -647,7 +679,7 @@
    "label": "New promotional outreach",
    "plan": "Approval plus consent",
    "support": "supported",
-   "anum": "Free-text sends always ask, and every send checks the contact suppression list: an opted-out contact is never messaged."
+   "anum": "Free-text sends always ask, every send checks the contact suppression list, and with the plan's consent rule a marketing send also needs an active consent record for each recipient (Contact opt-outs > Consent records)."
   },
   {
    "label": "Personal-data export or sharing",
@@ -2257,8 +2289,9 @@
    "name": "Group: Approval Ageing Reminder",
    "agent": "a1",
    "trigger": {
-    "type": "unsupported",
-    "reason": "ANUM shows waiting approvals in the bell and expires them after 24 hours, but no tool lets an automation list approvals, so an ageing reminder cannot be built yet."
+    "type": "setting",
+    "setting": "approval_reminder",
+    "reason": "A pending approval reminds the workspace's owners in the app once it has waited the plan's 4 hours (Approval policy > Reminder). Approvals still expire after 24 hours."
    },
    "week": 1,
    "former_names": [
@@ -2824,99 +2857,105 @@
   {
    "key": "m_people",
    "title": "Invite people and set their roles",
-   "detail": "In Members, invite the Operations and Care lead, the finance reviewer, the product maintainer and the fleet specialist as members, and the stakeholder as a viewer. Give your trusted technical admin the organization administrator role in Keycloak."
+   "detail": "In Members, invite the Operations and Care lead, the finance reviewer, the product maintainer and the fleet specialist as members, and the stakeholder as a viewer. Give your trusted technical admin the organization administrator role in Keycloak.",
+   "check": "people"
   },
   {
    "key": "m_approvers",
    "title": "Name the delegated approvers",
-   "detail": "In Governance > Approval rules, add the Operations/Care Lead to 'Refunds up to AED 250', the person you delegate quotes to on 'Standard quotes up to AED 5,000' and the Finance Reviewer to step 1 of 'Commitments above AED 5,000'. Until then owners approve them."
+   "detail": "In Governance > Approval rules, add the Operations/Care Lead to 'Refunds up to AED 250', the person you delegate quotes to on 'Standard quotes up to AED 5,000' and the Finance Reviewer to step 1 of 'Commitments above AED 5,000'. Until then owners approve them.",
+   "check": "approvers"
   },
   {
    "key": "m_2fa",
    "title": "Turn on two-step sign-in for everyone",
-   "detail": "Two-step sign-in is switched on in the sign-in service (Keycloak). This plan cannot do it for you."
+   "detail": "Two-step sign-in is switched on in the sign-in service (Keycloak). This plan cannot do it for you.",
+   "check": "two_factor"
   },
   {
    "key": "m_two_person",
    "title": "Turn on the two-person rule",
-   "detail": "Go to Approval policy and turn on the two-person rule once you have a second owner."
+   "detail": "Go to Approval policy and turn on the two-person rule once you have a second owner.",
+   "check": "two_person"
+  },
+  {
+   "key": "m_ai_model",
+   "title": "Configure the AI model",
+   "detail": "In Settings > AI model, choose the provider and model and test the connection. Every agent needs it.",
+   "check": "ai_model"
   },
   {
    "key": "m_integrations",
    "title": "Connect integrations in the plan's order",
-   "detail": "Connect them in this order: AI model, email and phone alerts, one mailbox per business, calendar, WhatsApp, online store, Zoom or Teams, tyre planning, speech, web search, marketing and social media, webhooks. Each one needs your own account and login."
+   "detail": "Connect them in this order: AI model, email and phone alerts, one mailbox per business, calendar, WhatsApp, online store, Zoom or Teams, tyre planning, speech, web search, marketing and social media, webhooks. Each one needs your own account and login.",
+   "check": "integrations"
   },
   {
    "key": "m_documents",
    "title": "Upload the knowledge documents",
-   "detail": "Upload each business's documents into the knowledge folders. In the title or a note, write who owns it, its version, whether it is approved, when it starts and when to review it."
+   "detail": "Upload each business's documents into the knowledge folders. In the title or a note, write who owns it, its version, whether it is approved, when it starts and when to review it.",
+   "check": "documents"
   },
   {
    "key": "m_webhooks",
    "title": "Connect the store, CRM and issue tracker to their automations",
-   "detail": "Automations 8, 9, 10, 16 and 24 start when another system (the store, the CRM or the issue tracker) sends a message. Set that up in Automations > Triggers. Its secret is shown only once."
+   "detail": "Automations 8, 9, 10, 16 and 24 start when another system (the store, the CRM or the issue tracker) sends a message. Set that up in Automations > Triggers. Its secret is shown only once.",
+   "check": "webhooks"
   },
   {
    "key": "m_test_automations",
    "title": "Test and turn on each automation",
-   "detail": "Every automation starts turned off. Run it by hand, check the result, then turn on its schedule or trigger."
+   "detail": "Every automation starts turned off. Run it by hand, check the result, then turn on its schedule or trigger.",
+   "check": "automations_on"
   },
   {
    "key": "m_whatsapp_templates",
    "title": "Choose routine WhatsApp templates",
-   "detail": "In WhatsApp > Templates, choose which templates may send without asking. Test each one first."
+   "detail": "In WhatsApp > Templates, choose which templates may send without asking. Test each one first.",
+   "check": "whatsapp_templates"
   },
   {
    "key": "m_promote",
    "title": "Give agents more freedom one step at a time",
    "detail": "Agents start with little freedom. Give an agent more in its Settings only after its drafts have been checked."
+  },
+  {
+   "key": "m_backups",
+   "title": "Check backups",
+   "detail": "On the server, run infra/oracle/backup.sh backup and enter the off-site backup key. The checklist reads the last run's result.",
+   "check": "backups"
   }
  ],
  "unsupported": [
   {
-   "key": "u_per_agent_budget",
-   "title": "Per-agent AI budget caps",
-   "reason": "ANUM sets an AI budget per workspace and per organization, not per agent. The plan adds the agents' amounts together into one monthly budget for the workspace."
-  },
-  {
-   "key": "u_budget_alerts",
-   "title": "Budget alerts at 50, 75 and 90 percent",
-   "reason": "ANUM warns at 80 percent and stops AI use at 100 percent, as the plan asks."
-  },
-  {
    "key": "u_banking",
    "title": "Banking, bank reconciliation and money movement",
-   "reason": "ANUM cannot connect to a bank or move money. Cash on delivery is checked against store orders only."
+   "reason": "Not planned. ANUM will not connect to a bank or move money. Cash on delivery is checked against store orders only, and a person handles the cash."
+  },
+  {
+   "key": "u_refund_tools",
+   "title": "Refund and discount tools",
+   "reason": "Not planned. Approval rules route refund and discount decisions to the right people, but a person makes the refund or discount in the store."
   },
   {
    "key": "u_courier",
    "title": "Courier tracking and delivery proof",
-   "reason": "ANUM is not connected to a courier. Delivery status comes from the online store only."
+   "reason": "Not planned. ANUM is not connected to a courier. Delivery status comes from the online store only."
   },
   {
-   "key": "u_departments",
-   "title": "Departments as objects",
-   "reason": "A department is only a label on agents and assistants. It has no members or rules of its own."
+   "key": "u_task_cost",
+   "title": "Approval when a task is estimated above AED 20",
+   "reason": "ANUM cannot estimate a task's cost before it runs. Each agent's monthly cap and the budget alerts at 50, 75 and 90 percent limit spending instead."
   },
   {
-   "key": "u_agent_automations",
-   "title": "Automations that run as a chosen agent",
-   "reason": "An automation runs as the person who owns it. Its instructions describe the agent's job, but it does not get that agent's tools or freedom."
+   "key": "u_memory_kinds",
+   "title": "Different memory retention per kind of fact",
+   "reason": "Remembered chat facts share one expiry (90 days). Meeting transcripts and visitor records have their own retention settings."
   },
   {
-   "key": "u_per_workspace_agents",
-   "title": "Agents placed in each business workspace",
-   "reason": "The plan is applied to the workspace you open it in. The business workspaces start empty; open one and apply the plan there if it needs its own agents."
-  },
-  {
-   "key": "u_home",
-   "title": "Configurable Home priorities",
-   "reason": "Home shows Today's Focus, approvals and activity in a fixed order. It never shows zero when data is missing."
-  },
-  {
-   "key": "u_loop_limits",
-   "title": "Loop limit of 5 cycles and retry counts per agent",
-   "reason": "ANUM sets how many times a task may retry or repeat. It cannot be changed per agent."
+   "key": "u_whatsapp_templates",
+   "title": "WhatsApp utility templates from the pilot pack",
+   "reason": "They need Meta's submission and approval in your WhatsApp Business account. ANUM sends a template on its own only after an owner ticks it on the auto-send list."
   }
  ]
 }

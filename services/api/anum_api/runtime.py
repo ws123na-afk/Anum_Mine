@@ -163,14 +163,26 @@ class AgentRuntime:
         if decision.outcome == ToolPolicyOutcome.BLOCK:
             return decision
         hits = suppressed_for_call(context, call.name, call.arguments, definition)
-        if not hits:
+        if hits:
+            audit_refusal(context, call.name, hits, "policy")
+            return ToolPolicyDecision(
+                outcome=ToolPolicyOutcome.BLOCK,
+                reason=refusal_reason(hits),
+                risk_level=RiskLevel.BLOCKED,
+                governance_rules=[*decision.governance_rules, "contact_suppression"],
+            )
+        # Marketing sends also need consent (docs/privacy.md#consent-records-for-campaigns).
+        from .contact_consent import audit_consent_refusal, consent_refusal_reason, consent_refusals_for_call
+
+        refusals = consent_refusals_for_call(context, call.name, call.arguments, definition)
+        if not refusals:
             return decision
-        audit_refusal(context, call.name, hits, "policy")
+        audit_consent_refusal(context, call.name, refusals, "policy")
         return ToolPolicyDecision(
             outcome=ToolPolicyOutcome.BLOCK,
-            reason=refusal_reason(hits),
+            reason=consent_refusal_reason(refusals),
             risk_level=RiskLevel.BLOCKED,
-            governance_rules=[*decision.governance_rules, "contact_suppression"],
+            governance_rules=[*decision.governance_rules, "contact_consent"],
         )
 
     def _with_autonomy(

@@ -203,6 +203,8 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             "business_lead_pair_decisions": "0125_unify_whatsapp_leads",
             "business_invoice_messages": "0126_business_invoice_send",
             "business_invoice_payment_links": "0126_business_invoice_send",
+            **{name: "0128_setup_plan_gaps" for name in (
+                "contact_consents", "contact_consent_settings", "agent_loop_limits", "approval_reminder_settings", "approval_reminders")},
             "billing_company_profiles": "0123_selling_readiness",
             "workspace_record_retention": "0120_record_retention",
             "office_visitors": "0118_career_visitor_register",

@@ -12,7 +12,8 @@ model call made for a workspace (task planning and voice answers) goes through
 2. after a successful call adds the gateway's usage metadata (input/output tokens and
    ``estimated_cost_usd``) to the workspace's monthly usage row;
 3. logs ``model_budget_threshold`` and counts ``anum.model.budget.thresholds`` when a
-   call crosses 80% or 100% of a limit.
+   call crosses 80% or 100% of a limit, and tells the workspace's owners in the app when
+   it crosses 50, 75, 90 or 100 percent (``budget_alerts.py``).
 
 The check does not reserve spend, so concurrent calls admitted just under a limit can
 overshoot it by at most those calls' usage. Calls whose model has no price estimate
@@ -380,6 +381,11 @@ def record_model_usage(
                 if before < threshold * limit <= after:
                     crossings.append((scope, kind, threshold))
                     _emit_threshold(context, scope, kind, threshold)
+            # Owners hear about 50, 75, 90 and 100 percent in the app (docs/model-gateway.md#budget-alerts).
+            from .budget_alerts import alert_scope, crossed
+
+            for percent in crossed(before, after, float(limit)):
+                alert_scope(context, scope.value, kind.value, percent, float(limit), next_month_start(month))
     return crossings
 
 

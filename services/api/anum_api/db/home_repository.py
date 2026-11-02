@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy import CheckConstraint, DateTime, Index, Integer, PrimaryKeyConstraint, String, UniqueConstraint, delete, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
 
 from anum_api.home import (
     MAX_INSIGHT_STATES,
@@ -34,6 +35,8 @@ class HomeProfileRecord(Base):
     user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
     display_name: Mapped[str | None] = mapped_column(String(80))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 0128_setup_plan_gaps: the chosen order of the web Home's sections (null: default).
+    sections: Mapped[list[str] | None] = mapped_column(JSONB(none_as_null=True))
 
 
 class HomePinRecord(Base, WorkspaceScopedMixin):
@@ -100,7 +103,7 @@ class SqlAlchemyHomeStore:
         record = self.session.get(HomeProfileRecord, (context.tenant_id, context.user_id))
         if record is None:
             return None
-        return HomeProfile(display_name=record.display_name, updated_at=record.updated_at)
+        return HomeProfile(display_name=record.display_name, updated_at=record.updated_at, sections=record.sections)
 
     def save_profile(self, context: TenantContext, profile: HomeProfile) -> HomeProfile:
         require_tenant(self.session, context.tenant_id)
@@ -109,9 +112,10 @@ class SqlAlchemyHomeStore:
             record = HomeProfileRecord(tenant_id=context.tenant_id, user_id=context.user_id)
             self.session.add(record)
         record.display_name = profile.display_name
+        record.sections = list(profile.sections) if profile.sections is not None else None
         record.updated_at = profile.updated_at or utc_now()
         self.session.flush()
-        return HomeProfile(display_name=record.display_name, updated_at=record.updated_at)
+        return HomeProfile(display_name=record.display_name, updated_at=record.updated_at, sections=record.sections)
 
     # pins --------------------------------------------------------------------------------------
 
