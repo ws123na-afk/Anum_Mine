@@ -132,6 +132,7 @@ _TOOL_CATEGORIES: dict[str, ChatCategory] = {
     "request_mail_action": "email",
     "external.action": "action",
     "web_search": "web",
+    "web.browse_page": "web",
 }
 
 
@@ -276,6 +277,25 @@ def _web_items(output: dict[str, Any]) -> list[ChatCardItem]:
                 url=url[:2000],
             )
         )
+    return items
+
+
+def _browse_items(output: dict[str, Any]) -> list[ChatCardItem]:
+    """The page that was read, then its https links: every row is a source link."""
+    final = str(output.get("final_url") or output.get("url") or "")
+    if not final.lower().startswith("https://"):
+        return []
+    host = final[len("https://"):].split("/", 1)[0]
+    items = [ChatCardItem(kind="web", title=_clip(output.get("title"), TITLE_CHARS) or final, subtitle=_clip(host, TITLE_CHARS),
+                          detail=_clip(output.get("text"), DETAIL_CHARS), url=final[:2000], badges=["source"])]
+    for row in output.get("links") or []:
+        if len(items) >= MAX_CARD_ITEMS:
+            break
+        url = str(row.get("url") or "") if isinstance(row, dict) else ""
+        if not url.lower().startswith("https://"):
+            continue
+        items.append(ChatCardItem(kind="web", title=_clip(row.get("text"), TITLE_CHARS) or url,
+                                  subtitle=_clip(url[len("https://"):].split("/", 1)[0], TITLE_CHARS), url=url[:2000], badges=["link"]))
     return items
 
 
@@ -479,6 +499,8 @@ def items_from_result(tool: str | None, result: "ToolResult | None") -> list[Cha
         return _whatsapp_items(result.output)
     if tool == "web_search":
         return _web_items(result.output)
+    if tool == "web.browse_page":
+        return _browse_items(result.output)
     return []
 
 
@@ -872,7 +894,7 @@ def summary_messages(
 
 def needs_summary(card: ChatCard, result: "ToolResult | None") -> bool:
     return card.state == "results" and result is not None and result.status == "succeeded" and (
-        card.tool in {"search_email", "list_whatsapp_conversations", "web_search"}
+        card.tool in {"search_email", "list_whatsapp_conversations", "web_search", "web.browse_page"}
         or card.tool in COMMERCE_READ_TOOLS
         or card.tool in TYRE_READ_TOOLS
         or card.tool in FINANCE_READ_TOOLS

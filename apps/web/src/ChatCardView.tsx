@@ -13,7 +13,7 @@ export type ChatTarget =
   | { kind: 'inbox' | 'whatsappView' | 'files' | 'approvals' | 'commerce' | 'tyre' | 'finance' };
 
 const ICONS: Record<CardCategory, LucideIcon> = { email: Inbox, whatsapp: MessageCircle, commerce: ShoppingBag, tyre: CircleDot, finance: Wallet, web: Globe, files: FileText, action: ShieldAlert };
-const KNOWN_BADGES = new Set(['unread', 'priority_high', 'needs_reply', 'window_closed', 'unshipped', 'low_stock']);
+const KNOWN_BADGES = new Set(['unread', 'priority_high', 'needs_reply', 'window_closed', 'unshipped', 'low_stock', 'source', 'link']);
 const VIEW_FOR: Partial<Record<CardCategory, { target: ChatTarget; label: MessageKey }>> = {
   email: { target: { kind: 'inbox' }, label: 'chatCard.openInbox' },
   whatsapp: { target: { kind: 'whatsappView' }, label: 'chatCard.openWhatsApp' },
@@ -60,7 +60,7 @@ export function ChatCardView({ card, live = false, onChange, onOpen }: { card: C
     <header className="chatCardHead">
       <Icon aria-hidden="true" />
       <h3>{card.state === 'approval' ? t('chatCard.approval.title') : card.state === 'failed' ? t('chatCard.failed.title') : card.state === 'denied' ? t('chatCard.denied.title') : t(`chatCard.title.${card.category}`)}</h3>
-      {card.state === 'running' && <span className="statusBadge warning" role="status"><Loader2 aria-hidden="true" className="chatCardSpin" />{t(`chatCard.running.${card.category}`)}</span>}
+      {card.state === 'running' && <span className="statusBadge warning" role="status"><Loader2 aria-hidden="true" className="chatCardSpin" />{card.tool === 'web.browse_page' ? t('chatCard.running.browse') : t(`chatCard.running.${card.category}`)}</span>}
       {card.task_id && onOpen && <button type="button" className="secondary" onClick={() => open({ kind: 'task', id: card.task_id as string })}>{t('chatCard.openTask')}</button>}
     </header>
 
