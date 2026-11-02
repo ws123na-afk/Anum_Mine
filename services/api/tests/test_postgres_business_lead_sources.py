@@ -164,3 +164,36 @@ def test_unified_mailboxes_read_provider_mailboxes_through_their_row_policies(db
     assert [item["ref"] for item in found["items"]] == ["provider:acct_pg_a"] and found["items"][0]["source"] == "outlook"
     assert ok(client.get("/api/v1/email/unified/mailboxes", headers=A2))["items"] == []
     assert [item["ref"] for item in ok(client.get("/api/v1/email/unified/mailboxes", headers=B))["items"]] == ["provider:acct_pg_b"]
+
+
+def test_the_ingestion_writes_the_business_lead_under_row_policies_and_the_overview_counts_it(db: Engine) -> None:
+    """The contract step (docs/business.md#whatsapp-leads) as the app role: the webhook's own
+    context writes the Business lead in its workspace only; a number already on an open lead waits;
+    the Sales overview reads Business leads; ``sales_leads`` is kept."""
+    from anum_api import sales_whatsapp_ingestion as importer
+    from anum_api.db.sales_repository import SalesCRMStore
+    from anum_api.schemas import TenantContext
+
+    webhook = TenantContext(tenant_id=TENANT_A, workspace_id=WORKSPACE_A, user_id="system:whatsapp", roles=[])
+
+    def crm_row(lead_id: str, phone: str) -> Any:
+        sales_lead(db, lead_id, phone)
+        with db_session.SessionLocal() as session, session.begin():
+            db_session.set_tenant_context(session, TENANT_A, WORKSPACE_A)
+            return SalesCRMStore(session, TENANT_A, WORKSPACE_A).get(lead_id)
+
+    first = crm_row("wa_pg_in_1", "+971502223333")
+    assert importer.join_lead_list(webhook, first, "owner_test") == "created"
+    [lead] = ok(client.get(f"{BASE}/leads", headers=A, params={"channel": "whatsapp"}))["items"]
+    assert lead["sales_lead_id"] == "wa_pg_in_1" and lead["channel_conversation_id"] == "conv_wa_pg_in_1"
+    assert importer.join_lead_list(webhook, first, "owner_test") == "unchanged"
+    second = crm_row("wa_pg_in_2", "+971502223333")
+    assert importer.join_lead_list(webhook, second, "owner_test") == "waiting"
+    assert ok(client.get(f"{BASE}/leads", headers=A, params={"channel": "whatsapp"}))["total"] == 1
+    assert ok(client.get(f"{BASE}/leads", headers=A2, params={"channel": "whatsapp"}))["total"] == 0
+    figures = ok(client.get("/api/v1/sales/overview", headers=A))
+    assert figures["leads"] == 1 and figures["waiting"] == 1 and figures["source"] == "business_leads"
+    assert ok(client.get("/api/v1/sales/overview", headers=B))["leads"] == 0
+    with db.begin() as connection:
+        _scoped(connection, TENANT_A, WORKSPACE_A)
+        assert connection.execute(text("select count(*) from sales_leads where id like 'wa_pg_in_%'")).scalar() == 2

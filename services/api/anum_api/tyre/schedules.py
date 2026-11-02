@@ -248,22 +248,25 @@ async def _run_report(context: TenantContext, run: automation.WorkflowRun, step:
         return
     from .api import DeliveryInput, deliver
 
-    with _unit_of_work(context, require_membership=False) as repository:
-        try:
-            await deliver(context, repository, report, DeliveryInput(**target))
-        except HTTPException as exc:
-            # Recorded on the report so the Reports page says why nothing was sent.
-            logger.warning("Tyre report %s was not delivered (HTTP %s)", report.id, exc.status_code)
-            with open_tyre_store(context) as store:
-                current = store.get_report(context, report.id)
-                if current is not None:
-                    current.deliveries.append({
-                        "channel": target.get("channel"), "to": target.get("to"), "format": target.get("format"),
-                        "status": "unavailable", "approval_id": None, "task_id": None,
-                        "requested_at": report.created_at.isoformat(), "requested_by": context.user_id,
-                        "message": str(exc.detail)[:300],
-                    })
-                    store.save_report(current)
+    # Short units of work, none held while the delivery tool runs (docs/realtime.md#event-loop).
+    def units(unit_context: TenantContext) -> Any:
+        return _unit_of_work(unit_context, require_membership=False)
+
+    try:
+        await deliver(context, units, report, DeliveryInput(**target))
+    except HTTPException as exc:
+        # Recorded on the report so the Reports page says why nothing was sent.
+        logger.warning("Tyre report %s was not delivered (HTTP %s)", report.id, exc.status_code)
+        with open_tyre_store(context) as store:
+            current = store.get_report(context, report.id)
+            if current is not None:
+                current.deliveries.append({
+                    "channel": target.get("channel"), "to": target.get("to"), "format": target.get("format"),
+                    "status": "unavailable", "approval_id": None, "task_id": None,
+                    "requested_at": report.created_at.isoformat(), "requested_by": context.user_id,
+                    "message": str(exc.detail)[:300],
+                })
+                store.save_report(current)
 
 
 automation.register_step_handler(STEP_ACTION, run_report_step)

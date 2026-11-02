@@ -68,8 +68,11 @@ def _send_reminder(reminder: svc.Reminder) -> dict[str, Any]:
     else:
         context = TenantContext(tenant_id=reminder.issuer_tenant_id, workspace_id=workspace, user_id=SYSTEM_USER, roles=["member"])
         try:
-            with _unit_of_work(context, require_membership=False) as repository:
-                outcome = asyncio.run(request_invoice_email(context, repository, reminder.tenant_id, invoice, reminder.to, reminder=reminder.reminder))
+            # Short units of work, none held while the delivery tool runs.
+            outcome = asyncio.run(request_invoice_email(
+                context, lambda unit_context: _unit_of_work(unit_context, require_membership=False),
+                reminder.tenant_id, invoice, reminder.to, reminder=reminder.reminder,
+            ))
             entry = {"status": outcome.status, "approval_id": outcome.approval_id, "task_id": outcome.task_id, "reminder": reminder.reminder}
         except delivery.DeliveryUnavailableError:
             entry = {"status": "not_sent", "reason": "no email integration in the sending workspace", "reminder": reminder.reminder}

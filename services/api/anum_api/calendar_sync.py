@@ -378,24 +378,30 @@ async def connection_token(connection: CalendarConnection, context: TenantContex
         except SecretDecryptionError:
             pass
     if not connection.refresh_token_enc:
-        _mark_reauth(connection, context, "No refresh token is stored; connect the calendar again.")
+        await asyncio.to_thread(_mark_reauth, connection, context, "No refresh token is stored; connect the calendar again.")
         raise CalendarSyncError(409, "This calendar needs to be connected again (no refresh token).")
     try:
         refresh = cipher.decrypt(connection.refresh_token_enc)
     except SecretDecryptionError:
-        _mark_reauth(connection, context, "The stored token could not be decrypted (was ANUM_SECRETS_KEY changed?).")
+        await asyncio.to_thread(_mark_reauth, connection, context, "The stored token could not be decrypted (was ANUM_SECRETS_KEY changed?).")
         raise CalendarSyncError(409, "The stored calendar token could not be decrypted; connect the calendar again.") from None
     try:
         grant = await provider_client(connection.provider).refresh(refresh)
     except MailProviderError as exc:
         if exc.reauth:
-            _mark_reauth(connection, context, exc.message)
+            await asyncio.to_thread(_mark_reauth, connection, context, exc.message)
         raise _failure(exc) from None
     connection.access_token_enc = cipher.encrypt(grant.access_token)
     if grant.refresh_token and grant.refresh_token != refresh:
         connection.refresh_token_enc = cipher.encrypt(grant.refresh_token)
     connection.access_expires_at = grant.expires_at
     connection.updated_at = utc_now()
+    await asyncio.to_thread(_store_tokens, connection, context)
+    return grant.access_token
+
+
+def _store_tokens(connection: CalendarConnection, context: TenantContext) -> None:
+    """Keep a refreshed grant (a worker-thread step of ``connection_token``)."""
     with open_sync_store(context) as store:
         stored = store.get_connection(connection.id)
         if stored is not None:
@@ -404,7 +410,6 @@ async def connection_token(connection: CalendarConnection, context: TenantContex
             stored.access_expires_at = connection.access_expires_at
             stored.updated_at = connection.updated_at
             store.save_connection(stored)
-    return grant.access_token
 
 
 # -- events <-> provider ----------------------------------------------------------------------
@@ -615,14 +620,21 @@ async def sync_connection(connection_id: str, context: TenantContext, *, force: 
     for the connection is skipped. Health is recorded on the connection."""
     now = utc_now()
     summary = SyncSummary()
-    with open_sync_store(context) as store:
-        connection = store.get_connection(connection_id)
-        if connection is None:
-            raise CalendarSyncError(404, "Calendar connection not found.")
-        if not force and connection.last_sync_at and (now - connection.last_sync_at).total_seconds() < 15:
-            return connection, summary
-        if not store.claim_sync(connection_id, now, now + SYNC_LEASE):
-            return connection, summary
+
+    # Every store step runs in a worker thread in its own short unit of work; only the
+    # provider calls wait on the event loop, with nothing open (docs/realtime.md#event-loop).
+    def claim() -> tuple[CalendarConnection, bool]:
+        with open_sync_store(context) as store:
+            connection = store.get_connection(connection_id)
+            if connection is None:
+                raise CalendarSyncError(404, "Calendar connection not found.")
+            if not force and connection.last_sync_at and (now - connection.last_sync_at).total_seconds() < 15:
+                return connection, False
+            return connection, store.claim_sync(connection_id, now, now + SYNC_LEASE)
+
+    connection, claimed = await asyncio.to_thread(claim)
+    if not claimed:
+        return connection, summary
     try:
         if provider_problems(connection.provider):
             raise CalendarSyncError(409, f"{PROVIDER_NAMES[connection.provider]} is not set up on this server.")
@@ -634,21 +646,12 @@ async def sync_connection(connection_id: str, context: TenantContext, *, force: 
         for _ in range(4):
             delta = await client.changes(token, cursor, since=since, until=until)
             summary.full = summary.full or delta.full
-            with open_calendar_store(context) as events:
-                stamp = utc_now()
-                for remote in delta.events:
-                    apply_remote(events, connection, remote, summary, stamp)
-                for external_id in delta.removed:
-                    local = events.by_external(connection.id, external_id)
-                    if local is not None and local.sync_state != "pending_push":
-                        events.delete(local.id)
-                        summary.deleted += 1
+            await asyncio.to_thread(_apply_delta, context, connection, delta, summary)
             cursor = delta.cursor or cursor
             if not delta.more:
                 break
         failures: list[str] = []
-        with open_calendar_store(context) as events:
-            waiting = events.pending_push(connection.id, MAX_PUSH_PER_PASS)
+        waiting = await asyncio.to_thread(_pending_push, context, connection.id)
         for event in waiting:
             try:
                 pushed = await push_event(client, token, event)
@@ -661,32 +664,29 @@ async def sync_connection(connection_id: str, context: TenantContext, *, force: 
             if pushed.sync_state == "pending_push":
                 summary.held += 1  # waiting for the owner's approval of the changed event
                 continue
-            with open_calendar_store(context) as events:
-                current = events.get(event.id)
-                # Edited again while it was being sent: keep the newer edit queued.
-                if current is not None and current.updated_at == event.updated_at:
-                    events.save(pushed)
-                    summary.pushed += 1
-                elif current is not None:
-                    current.external_id, current.external_etag = pushed.external_id, pushed.external_etag
-                    events.save(current)
+            if await asyncio.to_thread(_keep_pushed, context, event, pushed) is pushed:
+                summary.pushed += 1
         error = failures[0] if failures else None
     except (CalendarSyncError, MailProviderError) as exc:
         message = exc.message
         reauth = isinstance(exc, MailProviderError) and exc.reauth
-        with open_sync_store(context) as store:
-            stored = store.get_connection(connection_id)
-            if stored is not None:
-                stored.sync_lease_until = None
-                stored.last_sync_status = "error"
-                stored.last_error = message[:500]
-                if reauth:
-                    stored.status = ConnectionStatus.REAUTH_REQUIRED
-                elif stored.status != ConnectionStatus.REAUTH_REQUIRED:
-                    stored.status = ConnectionStatus.ERROR
-                stored.updated_at = utc_now()
-                store.save_connection(stored)
-                connection = stored
+
+        def record_failure() -> CalendarConnection | None:
+            with open_sync_store(context) as store:
+                stored = store.get_connection(connection_id)
+                if stored is not None:
+                    stored.sync_lease_until = None
+                    stored.last_sync_status = "error"
+                    stored.last_error = message[:500]
+                    if reauth:
+                        stored.status = ConnectionStatus.REAUTH_REQUIRED
+                    elif stored.status != ConnectionStatus.REAUTH_REQUIRED:
+                        stored.status = ConnectionStatus.ERROR
+                    stored.updated_at = utc_now()
+                    store.save_connection(stored)
+                return stored
+
+        connection = await asyncio.to_thread(record_failure) or connection
         logger.warning(
             "calendar_sync_failed provider=%s",
             connection.provider.value,
@@ -694,60 +694,60 @@ async def sync_connection(connection_id: str, context: TenantContext, *, force: 
         )
         return connection, summary
     except BaseException:
-        with open_sync_store(context) as store:
-            stored = store.get_connection(connection_id)
-            if stored is not None:
-                stored.sync_lease_until = None
-                store.save_connection(stored)
+
+        def release() -> None:
+            with open_sync_store(context) as store:
+                stored = store.get_connection(connection_id)
+                if stored is not None:
+                    stored.sync_lease_until = None
+                    store.save_connection(stored)
+
+        await asyncio.to_thread(release)
         raise
     finished = utc_now()
-    with open_sync_store(context) as store:
-        stored = store.get_connection(connection_id)
-        if stored is None:  # disconnected meanwhile
-            raise CalendarSyncError(404, "Calendar connection not found.")
-        stored.sync_cursor = cursor or stored.sync_cursor
-        stored.last_sync_at = finished
-        stored.last_sync_status = "error" if error else "ok"
-        stored.last_error = f"Some changes could not be sent: {error}" if error else None
-        stored.last_summary = summary.model_dump()
-        stored.status = ConnectionStatus.ERROR if error else ConnectionStatus.CONNECTED
-        stored.sync_lease_until = None
-        stored.updated_at = finished
-        store.save_connection(stored)
-    return stored, summary
+
+    def finish() -> CalendarConnection:
+        with open_sync_store(context) as store:
+            stored = store.get_connection(connection_id)
+            if stored is None:  # disconnected meanwhile
+                raise CalendarSyncError(404, "Calendar connection not found.")
+            stored.sync_cursor = cursor or stored.sync_cursor
+            stored.last_sync_at = finished
+            stored.last_sync_status = "error" if error else "ok"
+            stored.last_error = f"Some changes could not be sent: {error}" if error else None
+            stored.last_summary = summary.model_dump()
+            stored.status = ConnectionStatus.ERROR if error else ConnectionStatus.CONNECTED
+            stored.sync_lease_until = None
+            stored.updated_at = finished
+            store.save_connection(stored)
+        return stored
+
+    return await asyncio.to_thread(finish), summary
 
 
-async def attach_and_push(context: TenantContext, event_id: str, *, create: bool) -> CalendarEvent | None:
-    """After a local create or change: queue the event for the provider and try to send it now.
-
-    A failure leaves the event queued (``pending_push``) for the next sync pass; it never
-    fails the person's own save."""
-    with open_sync_store(context) as store:
-        connection = default_connection(store) if create else None
+def _apply_delta(context: TenantContext, connection: CalendarConnection, delta: Any, summary: SyncSummary) -> None:
     with open_calendar_store(context) as events:
-        event = events.get(event_id)
-        if event is None:
-            return None
-        if create:
-            if connection is None:
-                return event
-            event.connection_id = connection.id
-        elif event.connection_id is None or event.source_ref == GUEST_REF:
-            return event
-        event.sync_state = "pending_push"
-        events.save(event)
-    with open_sync_store(context) as store:
-        linked = store.get_connection(event.connection_id or "")
-    if linked is None or linked.status == ConnectionStatus.REAUTH_REQUIRED:
-        return event
-    try:
-        token = await connection_token(linked, context)
-        pushed = await push_event(provider_client(linked.provider), token, event.model_copy(deep=True))
-    except (CalendarSyncError, MailProviderError) as exc:
-        logger.info("calendar_push_deferred", extra={"anum_calendar": {"event": "push_deferred", "status": getattr(exc, "status", 0)}})
-        return event
+        stamp = utc_now()
+        for remote in delta.events:
+            apply_remote(events, connection, remote, summary, stamp)
+        for external_id in delta.removed:
+            local = events.by_external(connection.id, external_id)
+            if local is not None and local.sync_state != "pending_push":
+                events.delete(local.id)
+                summary.deleted += 1
+
+
+def _pending_push(context: TenantContext, connection_id: str) -> list[CalendarEvent]:
     with open_calendar_store(context) as events:
-        current = events.get(event_id)
+        return events.pending_push(connection_id, MAX_PUSH_PER_PASS)
+
+
+def _keep_pushed(context: TenantContext, event: CalendarEvent, pushed: CalendarEvent) -> CalendarEvent | None:
+    """Store what the provider answered for ``event``. Returns ``pushed`` when saved as is,
+    the current row when it was edited again while it was being sent (the newer edit stays
+    queued; only the link fields are kept), or None when it was deleted meanwhile."""
+    with open_calendar_store(context) as events:
+        current = events.get(event.id)
         if current is None:
             return None
         if current.updated_at == event.updated_at:
@@ -758,13 +758,50 @@ async def attach_and_push(context: TenantContext, event_id: str, *, create: bool
         return current
 
 
+async def attach_and_push(context: TenantContext, event_id: str, *, create: bool) -> CalendarEvent | None:
+    """After a local create or change: queue the event for the provider and try to send it now.
+
+    A failure leaves the event queued (``pending_push``) for the next sync pass; it never
+    fails the person's own save. Store steps run in worker threads (docs/realtime.md#event-loop)."""
+
+    def queue() -> tuple[CalendarEvent | None, CalendarConnection | None, bool]:
+        with open_sync_store(context) as store:
+            connection = default_connection(store) if create else None
+        with open_calendar_store(context) as events:
+            event = events.get(event_id)
+            if event is None:
+                return None, None, False
+            if create:
+                if connection is None:
+                    return event, None, False
+                event.connection_id = connection.id
+            elif event.connection_id is None or event.source_ref == GUEST_REF:
+                return event, None, False
+            event.sync_state = "pending_push"
+            events.save(event)
+        with open_sync_store(context) as store:
+            return event, store.get_connection(event.connection_id or ""), True
+
+    event, linked, queued = await asyncio.to_thread(queue)
+    if event is None or not queued:
+        return event
+    if linked is None or linked.status == ConnectionStatus.REAUTH_REQUIRED:
+        return event
+    try:
+        token = await connection_token(linked, context)
+        pushed = await push_event(provider_client(linked.provider), token, event.model_copy(deep=True))
+    except (CalendarSyncError, MailProviderError) as exc:
+        logger.info("calendar_push_deferred", extra={"anum_calendar": {"event": "push_deferred", "status": getattr(exc, "status", 0)}})
+        return event
+    return await asyncio.to_thread(_keep_pushed, context, event, pushed)
+
+
 async def remove_at_provider(context: TenantContext, event: CalendarEvent) -> None:
     """Before a local delete of a linked event: remove it at the provider too. Raises
     ``CalendarSyncError`` when the provider cannot be reached, so nothing is lost silently."""
     if not event.connection_id or not event.external_id or event.source_ref == GUEST_REF:
         return
-    with open_sync_store(context) as store:
-        connection = store.get_connection(event.connection_id)
+    connection = await asyncio.to_thread(_connection, context, event.connection_id)
     if connection is None:
         return
     notify = event.invites_hash is not None and event.invites_hash == invitation_hash(event)
@@ -773,6 +810,11 @@ async def remove_at_provider(context: TenantContext, event: CalendarEvent) -> No
         await provider_client(connection.provider).delete(token, event.external_id, notify=notify)
     except MailProviderError as exc:
         raise _failure(exc) from None
+
+
+def _connection(context: TenantContext, connection_id: str) -> CalendarConnection | None:
+    with open_sync_store(context) as store:
+        return store.get_connection(connection_id)
 
 
 # -- invitations (approval flow) -----------------------------------------------------------------
@@ -815,20 +857,28 @@ def _failed(summary: str) -> ToolResult:
     return ToolResult(status="failed", summary=summary)
 
 
+def _event(context: TenantContext, event_id: str) -> CalendarEvent | None:
+    with open_calendar_store(context) as events:
+        return events.get(event_id)
+
+
+def _save_event(context: TenantContext, event: CalendarEvent) -> None:
+    with open_calendar_store(context) as events:
+        events.save(event)
+
+
 async def send_invitations(call: ToolCall, context: TenantContext) -> ToolResult:
     args = call.arguments
     event_id = str(args.get("event_id", ""))
     approved_hash = str(args.get("content_hash", ""))
-    with open_calendar_store(context) as events:
-        event = events.get(event_id)
+    event = await asyncio.to_thread(_event, context, event_id)
     if event is None:
         return _failed("The event was deleted; no invitation was sent.")
     if invitation_hash(event) != approved_hash:
         return _failed("The event or its attendees changed after it was sent for approval; no invitation was sent. Ask for approval again.")
     if event.status == EventStatus.CANCELLED:
         return _failed("The event is cancelled; no invitation was sent.")
-    with open_sync_store(context) as store:
-        connection = store.get_connection(str(args.get("connection_id", "")))
+    connection = await asyncio.to_thread(_connection, context, str(args.get("connection_id", "")))
     if connection is None or connection.status == ConnectionStatus.REAUTH_REQUIRED:
         return _failed("The calendar is not connected any more; no invitation was sent. Connect it again and ask for approval again.")
     if event.connection_id not in (None, connection.id):
@@ -836,8 +886,7 @@ async def send_invitations(call: ToolCall, context: TenantContext) -> ToolResult
     event.connection_id = connection.id
     event.invites_hash = approved_hash
     event.sync_state = "pending_push"
-    with open_calendar_store(context) as events:
-        events.save(event)
+    await asyncio.to_thread(_save_event, context, event)
     try:
         token = await connection_token(connection, context)
         pushed = await push_event(provider_client(connection.provider), token, event.model_copy(deep=True))
@@ -846,12 +895,16 @@ async def send_invitations(call: ToolCall, context: TenantContext) -> ToolResult
             status="failed",
             summary=f"Approved, but {PROVIDER_NAMES[connection.provider]} refused it: {exc.message} The next sync tries again.",
         )
-    with open_calendar_store(context) as events:
-        current = events.get(event_id)
-        if current is not None:
-            current.external_id, current.external_etag = pushed.external_id, pushed.external_etag
-            current.synced_at, current.sync_state = pushed.synced_at, "synced"
-            events.save(current)
+
+    def keep() -> None:
+        with open_calendar_store(context) as events:
+            current = events.get(event_id)
+            if current is not None:
+                current.external_id, current.external_etag = pushed.external_id, pushed.external_etag
+                current.synced_at, current.sync_state = pushed.synced_at, "synced"
+                events.save(current)
+
+    await asyncio.to_thread(keep)
     count = len(args.get("attendees") or [])
     return ToolResult(
         status="succeeded",

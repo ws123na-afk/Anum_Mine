@@ -155,16 +155,22 @@ async def _forward_one(context: TenantContext, account: MailAccount, inbox: Fold
 
     if is_demo(context):  # nothing leaves a demo workspace (docs/demo-workspace.md)
         return "skipped"
-    with open_automation_store(context) as store:
-        fresh = store.get_rule(rule.id)
-        if fresh is None or fresh.status != "active" or fresh.approved_hash != rule.approved_hash or hash_of(fresh) != rule.approved_hash:
-            return "stopped"
-        claimed = store.claim_forward(ForwardLog(
-            id=new_id("mfwd"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
-            rule_id=rule.id, uid=item.uid, message_id=item.message_id,
-        ))
-    if not claimed:
-        return "skipped"
+
+    def claim() -> str:
+        with open_automation_store(context) as store:
+            fresh = store.get_rule(rule.id)
+            if fresh is None or fresh.status != "active" or fresh.approved_hash != rule.approved_hash or hash_of(fresh) != rule.approved_hash:
+                return "stopped"
+            claimed = store.claim_forward(ForwardLog(
+                id=new_id("mfwd"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+                rule_id=rule.id, uid=item.uid, message_id=item.message_id,
+            ))
+        return "claimed" if claimed else "skipped"
+
+    # The claim runs in a worker thread in its own short unit (docs/realtime.md#event-loop).
+    claimed = await asyncio.to_thread(claim)
+    if claimed != "claimed":
+        return claimed
 
     def finish(status: str, error: str | None) -> None:
         with open_automation_store(context) as store:
@@ -211,8 +217,13 @@ async def run_rules(context: TenantContext, account: MailAccount, inbox: Folder 
     is open during an IMAP or SMTP call.
     """
     result = PassResult()
-    with open_automation_store(context) as store:
-        rules = [rule for rule in store.list_rules(account.id) if rule.status == "active"]
+
+    def active_rules() -> list[ForwardRule]:
+        with open_automation_store(context) as store:
+            return [rule for rule in store.list_rules(account.id) if rule.status == "active"]
+
+    # Every store step runs in a worker thread (docs/realtime.md#event-loop).
+    rules = await asyncio.to_thread(active_rules)
     if not rules or inbox is None:
         return result
     checked: list[ForwardRule] = []
@@ -224,8 +235,7 @@ async def run_rules(context: TenantContext, account: MailAccount, inbox: Folder 
             reason = forward_problem(rule.forward_to, account.address)
             problem = f"Stopped: {reason}" if reason else None
         if problem:
-            with open_automation_store(context) as store:
-                store.refuse_rule(rule.id, problem, now)
+            await asyncio.to_thread(_with_rules, context, lambda store, rule=rule, problem=problem: store.refuse_rule(rule.id, problem, now))
             await asyncio.to_thread(_audit, context, "mail.forward.refused", rule.id, "failure", {"rule_id": rule.id})
             continue
         checked.append(rule)
@@ -245,8 +255,7 @@ async def run_rules(context: TenantContext, account: MailAccount, inbox: Folder 
         newest_page = await on_server(context, account, lambda server: server.messages(inbox.id, before=None, limit=1, query=None, unread=False, flagged=False))
         newest = max((item.uid for item in newest_page.items), default=0)
         for rule in starting:
-            with open_automation_store(context) as store:
-                store.restart_rule(rule.id, rule.approved_hash or "", newest, validity, now)
+            await asyncio.to_thread(_with_rules, context, lambda store, rule=rule: store.restart_rule(rule.id, rule.approved_hash or "", newest, validity, now))
     if not running:
         return result
     floor = min(rule.last_uid or 0 for rule in running)
@@ -286,9 +295,17 @@ async def run_rules(context: TenantContext, account: MailAccount, inbox: Folder 
                 result.failed += 1
                 error = "The last forward was not sent. Check the mailbox's Sent folder and the recipients."
         result.forwarded += forwarded
-        with open_automation_store(context) as store:
-            store.record_run(rule.id, approved, last, forwarded, error, now, validity)
+        await asyncio.to_thread(
+            _with_rules, context, lambda store, rule=rule, approved=approved, last=last, forwarded=forwarded, error=error:
+            store.record_run(rule.id, approved, last, forwarded, error, now, validity),
+        )
     return result
+
+
+def _with_rules(context: TenantContext, work: Any) -> Any:
+    """``work(store)`` in its own short unit of work (a worker-thread step of ``run_rules``)."""
+    with open_automation_store(context) as store:
+        return work(store)
 
 
 def _still_a_member(context: TenantContext) -> bool:

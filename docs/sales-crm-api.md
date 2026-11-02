@@ -15,7 +15,7 @@ One lead list (November 2026): the leads these routes store are listed in Busine
 | POST | /api/v1/sales/leads/{id}/transition | Validate status transitions and record event |
 | POST | /api/v1/sales/leads/{id}/quotes | Save quoted item prices as an approval-required draft |
 | POST | /api/v1/sales/leads/{id}/followups | Propose, but never silently execute, a future follow-up |
-| GET | /api/v1/sales/overview | Bounded funnel summary for latest 100 leads |
+| GET | /api/v1/sales/overview | WhatsApp figures from Business leads with the WhatsApp source, plus enquiries waiting to join the lead list ([business.md](business.md#whatsapp-leads)) |
 
 ## Security and implementation boundary
 

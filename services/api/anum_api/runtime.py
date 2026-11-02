@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
 
 from .agent_planning import AgentPlanner, PlanResult
@@ -519,9 +520,13 @@ class AgentRuntime:
         call: ToolCall,
         approval_id: str | None = None,
     ) -> AgentRun:
-        """Execute ``call`` through the tool registry and complete the run."""
+        """Execute ``call`` through the tool registry and complete the run.
+
+        The run is settled through the runtime's repository in a worker thread, never on the
+        event loop (docs/realtime.md#event-loop). A caller that must not keep a transaction
+        open while the tool works uses :func:`finish_execution_in_units` instead."""
         result = await self._execute_tool(call, task, run, context)
-        return self._settle(task, run, context, result, approval_id)
+        return await asyncio.to_thread(self._settle, task, run, context, result, approval_id)
 
     async def recover_interrupted_execution(
         self, task: Task, run: AgentRun, context: TenantContext
@@ -556,7 +561,7 @@ class AgentRuntime:
         )
         run.checkpoint.version += 1
         result = await self._execute_tool(call, task, run, context)
-        return self._settle(task, run, context, result)
+        return await asyncio.to_thread(self._settle, task, run, context, result)
 
     async def resume_after_approval(
         self,
@@ -831,7 +836,8 @@ class AgentRuntime:
         """
         result = await self.tools.execute(call, context)
         if result.audit_metadata:
-            self._audit(
+            await asyncio.to_thread(
+                self._audit,
                 context,
                 "tool.call",
                 call.name,
@@ -1034,6 +1040,57 @@ class AgentRuntime:
             correlation_id=correlation_id,
         )
         self.repository.record_event(envelope.event)
+
+
+class _NoUnitOpen:
+    """The runtime's repository while no unit of work is open: any use is a bug."""
+
+    def __getattr__(self, name: str) -> object:
+        raise RuntimeError(f"repository.{name} used while no unit of work is open")
+
+
+async def finish_execution_in_units(
+    runtime_factory: Callable[[AnumRepository], "AgentRuntime"],
+    unit_of_work: Callable[[TenantContext], AbstractContextManager[AnumRepository]],
+    task: Task,
+    run: AgentRun,
+    context: TenantContext,
+    call: ToolCall,
+    approval_id: str | None = None,
+) -> AgentRun:
+    """``finish_execution`` for a caller that committed the ``executing`` checkpoint in an
+    earlier unit of work: the tool runs with no transaction open, then the audit record and
+    the run's outcome are written in a new short unit in a worker thread
+    (docs/realtime.md#event-loop). A tool that raises fails the run (saved) and re-raises."""
+    tools = runtime_factory(_NoUnitOpen()).tools  # type: ignore[arg-type]
+    try:
+        result = await tools.execute(call, context)
+    except Exception as exc:
+        reason = f"The action stopped with an error ({type(exc).__name__}); it may not have finished."
+
+        def failed() -> None:
+            with unit_of_work(context) as repository:
+                runtime_factory(repository)._fail(task, run, context, reason, approval_id)
+                repository.save_task(task)
+                repository.save_run(run)
+
+        await asyncio.to_thread(failed)
+        raise
+
+    def settle() -> None:
+        with unit_of_work(context) as repository:
+            runtime = runtime_factory(repository)
+            if result.audit_metadata:
+                runtime._audit(
+                    context, "tool.call", call.name, result.status, task.id,
+                    {**result.audit_metadata, "tool": call.name, "task_id": task.id, "run_id": run.id},
+                )
+            runtime._settle(task, run, context, result, approval_id)
+            repository.save_task(task)
+            repository.save_run(run)
+
+    await asyncio.to_thread(settle)
+    return run
 
 
 def with_workspace_autonomy(

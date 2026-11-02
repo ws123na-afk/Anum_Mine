@@ -24,13 +24,17 @@ export interface SalesLead {
   updated_at: string;
 }
 
+// Counted from Business leads with the WhatsApp source (docs/business.md#whatsapp-leads): `quoted`
+// is Business's `offered` state; `waiting` counts enquiries that are not in the lead list yet.
 export interface SalesOverview {
   leads: number;
   qualified: number;
   quoted: number;
   won: number;
   lost: number;
+  waiting: number;
   by_intent: Record<string, number>;
+  source: string;
   scope: string;
   revenue_estimate: string | null;
 }

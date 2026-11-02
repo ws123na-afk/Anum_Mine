@@ -12,6 +12,7 @@ import {
 } from './lib/salesApi';
 import './salesDashboard.css';
 import { SalesCampaignAndOperations } from './SalesCampaignAndOperations';
+import { FIGURES_NOTE, salesFigures } from './lib/salesFigures';
 import { useIsOwner } from './useIsOwner';
 
 const LABELS = {
@@ -28,7 +29,6 @@ const LABELS = {
     due: 'Due date & time', channel: 'Channel', purpose: 'Reason', createFollowup: 'Save follow-up proposal',
     empty: 'No matching leads yet. Incoming eligible WhatsApp enquiries appear here after ingestion.',
     noSelection: 'Select a lead to review its history and next steps.',
-    limited: 'Showing up to 100 recent leads. Totals may exclude older records.',
     consent: 'Marketing consent', consentNo: 'Not verified', consentYes: 'Verified',
     reload: 'Refresh', saved: 'Saved successfully', draftSaved: 'Draft saved. Approval is still required.',
     error: 'Unable to load the sales pipeline', quoteNotice: 'Draft only: not delivered to customer.',
@@ -52,7 +52,6 @@ const LABELS = {
     due: 'تاريخ ووقت المتابعة', channel: 'القناة', purpose: 'السبب', createFollowup: 'حفظ اقتراح المتابعة',
     empty: 'لا توجد نتائج. تظهر استفسارات واتساب هنا بعد تسجيلها.',
     noSelection: 'اختر عميلاً لمراجعة بياناته وخطوات العمل التالية.',
-    limited: 'يتم عرض آخر 100 عميل كحد أقصى وقد لا تشمل الأرقام السجلات الأقدم.',
     consent: 'موافقة التسويق', consentNo: 'غير مؤكدة', consentYes: 'مؤكدة',
     reload: 'تحديث', saved: 'تم الحفظ بنجاح', draftSaved: 'تم حفظ المسودة وتحتاج إلى الموافقة.',
     error: 'تعذر تحميل بيانات المبيعات', quoteNotice: 'مسودة فقط، لم تُرسل إلى العميل.',
@@ -117,14 +116,10 @@ export function SalesDashboard({ focusLeadId = null }: { focusLeadId?: string | 
     </header>
     {error && <p role="alert" className="salesError"><AlertCircle size={18}/>{error}</p>}
     {notice && <p role="status" className="salesSuccess">{notice}</p>}
-    <div className="salesKpis">
-      {([
-        [labels.leads, overview?.leads ?? 0], [labels.qualified, overview?.qualified ?? 0],
-        [labels.quoted, overview?.quoted ?? 0], [labels.won, overview?.won ?? 0],
-        [labels.lost, overview?.lost ?? 0],
-      ] as const).map(([label, count]) => <div className="salesKpi" key={label}><span>{label}</span><strong>{count}</strong></div>)}
+    <div className="salesKpis" aria-busy={loading && !overview ? 'true' : undefined}>
+      {salesFigures(overview, locale).map((figure) => <div className="salesKpi" key={figure.key}><span>{figure.label}</span><strong>{figure.value}</strong></div>)}
     </div>
-    <p className="salesHint">{labels.limited}</p>
+    {overview && <p className="salesHint">{FIGURES_NOTE[locale]} <a href="#business-leads">{labels.openLeads}</a></p>}
     <SalesCampaignAndOperations locale={locale}/>
     <div className="salesSplit">
       <section className="salesListing" aria-label={labels.leads}>

@@ -160,9 +160,11 @@ class ToolRegistry:
         demo_refusal = send_refusal(context, call.name, self._definitions.get(call.name), call.arguments)
         if demo_refusal:
             return ToolResult(status="blocked", summary=demo_refusal, audit_metadata={"outcome": "demo_workspace"})
-        hits = suppressed_for_call(context, call.name, call.arguments, self._definitions.get(call.name))
+        # The list is read (and a refusal audited) in a worker thread, never on the event loop
+        # (docs/realtime.md#event-loop).
+        hits = await asyncio.to_thread(suppressed_for_call, context, call.name, call.arguments, self._definitions.get(call.name))
         if hits:
-            audit_refusal(context, call.name, hits, "execute")
+            await asyncio.to_thread(audit_refusal, context, call.name, hits, "execute")
             return ToolResult(
                 status="blocked",
                 summary="Not sent: " + refusal_reason(hits),
