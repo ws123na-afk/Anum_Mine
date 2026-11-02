@@ -34,6 +34,15 @@ FINANCE_TRIGGERS = frozenset(
     }
 )
 
+# Words that select browser research; the planner also needs an https address in the prompt.
+BROWSE_TRIGGERS = frozenset(
+    {
+        "open", "browse", "visit", "read", "page", "website", "site", "url", "link",
+        # Arabic: open, browse, visit, read, page, site, link.
+        "افتح", "تصفح", "زر", "اقرأ", "صفحة", "موقع", "رابط",
+    }
+)
+
 
 class SkillManifest(BaseModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_.-]+$")
@@ -126,6 +135,18 @@ def default_skill_registry() -> SkillRegistry:
                 ),
                 # Selectable only where ANUM_SEARXNG_URL registered the tool.
                 required_tools=frozenset({"web_search"}),
+            ),
+            SkillManifest(
+                id="anum.browser-research",
+                version="1.0.0",
+                name="Browser research",
+                description=(
+                    "Opens one public https page the user names in a sandboxed, read-only browser and reads its "
+                    "text and links (docs/browser-research.md)."
+                ),
+                # The planner also needs an https address in the user's own words.
+                triggers=BROWSE_TRIGGERS,
+                required_tools=frozenset({"web.browse_page"}),
             ),
             SkillManifest(
                 id="anum.whatsapp-inbox",

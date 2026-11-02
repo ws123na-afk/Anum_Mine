@@ -138,3 +138,13 @@ Owner decision O2 makes career its own building kind. It is always drawn as the 
   see [the centre plaza](ANUM_MINE_HQ_CENTER_PLAZA.md#buildings-face-the-plaza).
 - Tests: `test/hqCampusLook.test.ts` (band and bead triangle counts, every face looks out or up, the chamfer passes outside the sharp corner).
 
+
+## Standing on the ground, 2 November 2026
+
+Owner review: the building view looked like thin plates floating in the air. Every building in the building view now stands on a stone podium with
+entrance steps, a contact shadow at its foot and the site flush with it, and every floor is carried by columns, ring beams and a continuous lift and
+stair core, with the outer walls up to the slab above; no slab overhangs the floor under it, in the building view and in the campus plan shells.
+Details, the cutaway rules and the tests: [cutaway structure](ANUM_MINE_HQ_CUTAWAY.md#structure). The campus exteriors already stood on plinths;
+`test/hqGroundedBuilding.test.ts` now checks that every campus archetype's base reaches across it at ground level. Before and after screenshots
+(the campus, Knowledge and AI, Tyre Pulse and Personal Office, Closed and Cutaway, five sizes) are in the pull request. Still different: looked at on
+software GL only; the stair inside the core is one straight flight, not a full flight per storey.

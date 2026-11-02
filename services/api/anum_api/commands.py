@@ -139,6 +139,7 @@ _TOOL_AGENTS: dict[str, AgentId] = {
     "search_email": AgentId.EMAIL,
     "list_whatsapp_conversations": AgentId.WHATSAPP,
     "web_search": AgentId.RESEARCH,
+    "web.browse_page": AgentId.RESEARCH,
     "external.action": AgentId.ACTION,
 }
 

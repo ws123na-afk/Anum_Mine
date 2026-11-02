@@ -691,6 +691,9 @@ export const ar: Record<MessageKey, Message> = {
   'chatCard.openItem.tyre': 'فتح في تخطيط الإطارات: {title}',
   'chatCard.badge.unshipped': 'لم يُشحن',
   'chatCard.badge.low_stock': 'مخزون منخفض',
+  'chatCard.badge.source': 'الصفحة المقروءة',
+  'chatCard.badge.link': 'رابط في الصفحة',
+  'chatCard.running.browse': 'أقرأ الصفحة…',
   'chat.connectionDropped': 'انقطع الاتصال قبل اكتمال الإجابة.',
 
   // ---- Tasks ----
@@ -1423,6 +1426,9 @@ export const ar: Record<MessageKey, Message> = {
   'integrations.tool.available': 'أداة الوكيل web_search: متاحة.',
   'integrations.tool.degraded': 'أداة الوكيل web_search: تفشل الطلبات حتى تستجيب خدمة البحث.',
   'integrations.tool.unavailable': 'أداة الوكيل web_search: غير متاحة هنا.',
+  'integrations.browse.available': 'أداة الوكيل web.browse_page: متاحة. تبقى متوقفة في مساحة العمل حتى يشغلها المالك أدناه.',
+  'integrations.browse.degraded': 'أداة الوكيل web.browse_page: لا يمكن قراءة الصفحات حتى تستجيب خدمة المتصفح.',
+  'integrations.browse.unavailable': 'أداة الوكيل web.browse_page: غير متاحة هنا. تجيب بأنها غير متاحة على هذا الخادم أو متوقفة لمساحة العمل.',
 
   // ---- Skills ----
   'skills.eyebrow': 'قدرات محكومة',

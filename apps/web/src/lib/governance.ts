@@ -135,10 +135,16 @@ export function integrationConfigBody(enabled: boolean, endpoint: string): Resul
 }
 
 /**
- * What an integration's health means for the agent tool it backs (only `search` backs
- * one today: SearXNG and the `web_search` tool). Null for infrastructure integrations.
+ * What an integration's health means for the agent tool it backs: SearXNG (`search`) backs
+ * `web_search`, and the browser service (`browser-research`) backs `web.browse_page`.
+ * Null for infrastructure integrations.
  */
-export function integrationToolNote(kind: string, status: string): { text: string; available: boolean } | null {
+export function integrationToolNote(kind: string, status: string, id = ''): { text: string; available: boolean } | null {
+  if (id === 'browser-research') {
+    if (status === 'connected') return { text: t('integrations.browse.available'), available: true };
+    if (status === 'degraded') return { text: t('integrations.browse.degraded'), available: false };
+    return { text: t('integrations.browse.unavailable'), available: false };
+  }
   if (kind !== 'search') return null;
   if (status === 'connected') return { text: t('integrations.tool.available'), available: true };
   if (status === 'degraded') return { text: t('integrations.tool.degraded'), available: false };

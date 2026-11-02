@@ -54,6 +54,8 @@ from .integrations import (
 )
 from .integration_tools import configured_external_handler
 from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
+from .browser_research import BROWSER_INTEGRATION_ID
+from .browser_research.tool import register_browser_tools
 from .model_gateway import build_default_model_gateway
 from .memory import (
     CONVERSATION_SOURCE_TYPE,
@@ -545,6 +547,8 @@ tool_registry = register_calendar_tools(register_brevo_tools(register_call_tools
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
 )))))))
 ))))))
+# Browser research (docs/browser-research.md): always registered, off per workspace until an owner turns it on.
+register_browser_tools(tool_registry, settings, integration_registry.workspace_enabled(BROWSER_INTEGRATION_ID))
 # Reports and other features send through whichever delivery tools are registered.
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).

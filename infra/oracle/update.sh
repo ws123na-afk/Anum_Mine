@@ -54,6 +54,10 @@ dc config --quiet
 
 log "Building images"
 dc --profile jobs build --pull
+# The browser research image (profile `browser`, docs/browser-research.md), only when enabled.
+if grep -Eq '^COMPOSE_PROFILES=(.*,)?browser(,.*)?$' "$ENV_FILE"; then
+  dc --profile browser build --pull browser
+fi
 
 log "Starting the database and applying roles and migrations"
 dc up -d --wait postgres valkey

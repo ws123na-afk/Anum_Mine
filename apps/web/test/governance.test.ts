@@ -84,6 +84,12 @@ describe('integrations', () => {
     assert.match(integrationToolNote('search', 'degraded')?.text ?? '', /calls fail until search answers/);
     assert.deepEqual(integrationToolNote('search', 'disabled'), { text: 'Agent tool web_search: unavailable here.', available: false });
   });
+  test('the browser research integration says whether agents can use web.browse_page', () => {
+    assert.equal(integrationToolNote('tool', 'connected', 'browser-research')?.available, true);
+    assert.match(integrationToolNote('tool', 'degraded', 'browser-research')?.text ?? '', /browser service answers/);
+    assert.match(integrationToolNote('tool', 'disabled', 'browser-research')?.text ?? '', /Not available on this server/);
+    assert.equal(integrationToolNote('tool', 'connected', 'external-webhook'), null);
+  });
 });
 
 describe('organization policy access', () => {

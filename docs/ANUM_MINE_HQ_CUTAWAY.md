@@ -4,7 +4,7 @@ Status: built on 26 October 2026. The owner's concept renders 22 and 24 show a b
 
 ## What the person sees
 
-- The building view opens as a **cutaway**: every floor is drawn at once (up to 8 floors; a taller tower opens on the open floor alone and the "All floors" box turns the stack on), the two outer walls that face the camera and the roof are taken away, and the other two walls stay as a glass and solid frame with a base, posts and a rail.
+- The building view opens as a **cutaway**: every floor is drawn at once (up to 8 floors; a taller tower opens on the open floor alone and the "All floors" box turns the stack on), the two outer walls that face the camera and the roof are taken away, and the other two walls stay as a glass and solid frame with a base, posts and a rail, up to the slab above. The columns, beams and the lift and stair core stay too, and the building stands on a podium with entrance steps ([structure](#structure)).
 - The **open floor** is the one with the bright outline and full colour and full detail; the other floors are dressed at the lite detail level, about 20 percent darker, with their lit rooms, desks and room kits still drawn.
 - **Cutaway / Closed** is a pair of buttons beside the floor menu, each with `aria-pressed`. Closed puts the walls and the roof back (a glass building: the rooms are still seen through the glass). A polite live region (`data-testid="hq-facade-live"`) says "Cutaway view: ..." or "Closed view: ..." when the choice changes.
 - **Rotate left and right** turn the building by 90 degrees to the next diagonal view (yaw 35, 125, 215, 305) and pick again which walls are cut; the camera is fitted again for that turn. Q and E, dragging and the compass still turn freely; the cut follows the camera.
@@ -25,6 +25,47 @@ Why a lift and not an opacity fade: the renderer already eases a group of meshes
 
 Ceilings: no room has a ceiling of its own (only light panels hung under the cut), so a room is never hidden by a ceiling of its own floor. The slab of the floor above is real and does hide the back of a lower floor from a low camera (at 32 degrees the front 6 to 7 metres of each lower floor are seen, the open floor above them in full). That is the physics of the pitch of 4.2 m; the concept render shows more of each lower floor than a real section would.
 
+## Structure
+
+Owner review, 2 November 2026: the cutaway read as thin plates hovering over the lawn (no columns, walls or core between the slabs, open sky
+between the floors, the ground floor on the lawn with no base). Every building in the building view is now a frame that stands on the ground,
+in every view: the stacked cutaway, a single floor, Closed and the floor overview. It is drawn by `lib/buildingStructure.ts` (pure) from
+`buildBuildingScene`; nothing in it comes from or implies data.
+
+- **Podium.** The ground floor stands on a stone podium 0.6 m high (`PLINTH`) that reaches 1.2 m past the facade at the sides and the back and
+  1.8 m at the front (an entrance terrace with planters and two benches), with a dark skirting course at its foot and a pale coping. The site
+  (lawn, paving, car park, trees, hedges, lamps and the entrance sign) is drawn as before and then set 0.6 m lower, so it is flush with the
+  foot of the podium; nothing is left at the old ground level.
+- **Entrance.** Steps (four risers of 0.15 m, cheek walls) go down from the middle of the podium front to the site, under a door portal and a
+  canopy in the ground floor's front wall (Closed; the front wall lifts away in the cutaway like every other cut wall).
+- **Contact shadow.** A band on the ground round the foot of the podium and the steps, dark at the wall and fading out over 0.9 m. On the higher
+  tiers the baked occlusion and the shadow map add to it.
+- **No overhang.** Each floor's slab holds every floor above it (`slabPlans`): a smaller upper floor sits on the floor under it with a terrace
+  roof round it; a larger one makes the floors under it larger. The campus plan shells use the same rule (`hqPlanFrame.ts`), so the campus and
+  the building view show the same stack.
+- **Frame.** Every floor has square concrete columns (0.4 m) on its slab edge, no more than 7.5 m apart, and under each corner of the slab above
+  when that slab is smaller. A column runs from its floor to the underside of the slab above. Each upper slab has a downstand beam round its edge.
+- **Core.** The lift shaft and the stair wall run from the floor to the underside of the slab above on every floor, and through a floor with one
+  room (no lobby of its own) when a floor above it has a core, so the core is continuous.
+- **Walls to the slab.** The outer skin of each floor (solid base, glass, posts and rail) now reaches the underside of the slab above (3.9 m),
+  so no band of sky shows between floors in Closed. In the cutaway the two walls facing the camera and the roof still lift away; the two back walls,
+  the columns, the beams and the core stay, so the section reads as a dollhouse cut, not a stack of plates. Terrace roofs belong to the roof group:
+  they lift away with the roof in the cutaway and are back in Closed.
+- **Single floor view.** The floors under the open one are shells (the cached ghost floors): they now carry their columns, core and a closed skin,
+  so the open floor stands on a closed glass base instead of bare slabs. Dimmed floors keep their whole structure.
+
+`BuildingScene.structure` (`StructureFacts`) lists what was drawn: the site level, the podium and steps, each slab, every column and core. The unit
+test `test/hqGroundedBuilding.test.ts` reads it for every starter campus building (ANUM HQ, ANUM 360 Commerce, Tyre Pulse, Corporate Services,
+Knowledge and AI, New Ventures, Personal Office, Career and Employment), Green Concrete and two synthetic stacks (an overhanging floor, a one room
+floor between floors with a core), in the stacked cutaway, every single floor and the plain view: the podium is on the ground and under the whole
+ground floor, the steps reach the ground, every upper slab lies on the one below with a column under each corner whose foot is on that floor,
+every column and core runs floor to slab, every wall reaches the slab above, the lawn is at the foot of the podium and nothing is left at the old
+ground level. It also checks the campus archetypes (each exterior's base reaches across it at ground level) and that no plan shell storey is
+wider than the one under it.
+
+Cost: about 8 triangles per column; an 8 floor stack adds well under 3 percent (the test holds it there). The code is in the lazy headquarters
+chunk, not the renderer path.
+
 ## For the label layer (hook)
 
 Labels are owned by the label module; this view does not edit it. It exposes:
@@ -42,8 +83,9 @@ Measured on the synthetic floors of `test/hqCutaway.test.ts` (3 rooms, 10 desks 
 ## Tests
 
 - Unit `test/hqCutaway.test.ts`: front walls by azimuth, the dead band against flicker, the 90 degree snaps, the fit of every corner of the whole stack at six stage shapes and the four turns, the scene pieces, dimming, and the triangle budget of 8 and 18 floors.
+- Unit `test/hqGroundedBuilding.test.ts`: the [structure](#structure) of every building in every view.
 - Browser `e2e/hq-cutaway.spec.ts`: cutaway is the default, the toggle and its announcement with the keyboard, rotation re-cuts, reduced motion, overview and Top, All floors off, five viewports, Arabic (the 3D scene is not mirrored).
-- Local render check (not in CI): `e2e/hq-cutaway.local.spec.ts`, screenshots for the owner review.
+- Local render check (not in CI): `e2e/hq-cutaway.local.spec.ts`, screenshots for the owner review; `e2e/hq-grounded.local.spec.ts`, the campus and three buildings in Closed and Cutaway at the five sizes (`GROUND_TOP=1` opens the top floor).
 
 ## Honest list of what still differs from renders 22 and 24
 

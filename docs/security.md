@@ -129,6 +129,10 @@ Fixed findings when image scanning was added: the web image moved from `nginx-un
 
 Agents must not receive raw unrestricted access to user accounts, files, or integrations. Each tool call should be mediated by the runtime, checked against policy, logged, and paused for approval when risk requires it. Prompt injection must be treated as an expected attack class, especially when agents read external content. The [Threat model](threat-model.md) maps the trust boundaries, what an injected instruction can and cannot do today, and the open gaps (approval content and binding, tool output size and provenance). SSRF through workspace model base URLs (G1) and per-tenant model budgets (G4) are closed.
 
+### Browser research
+
+`web.browse_page` runs a page's JavaScript in Chromium, so it is the riskiest read-only tool. Its controls ([Browser research](browser-research.md)): the browser runs in its own container with no ANUM secrets and no route to PostgreSQL, Valkey or the other services; Chromium cannot reach the network itself; every request goes through a gate that allows GET reads of public https addresses only, resolves each host once, refuses any non-public answer (private, loopback, link-local, metadata, unique-local, reserved) and dials the checked address (no DNS rebinding), checks every redirect hop, passes no cookies and refuses downloads, frames and forms. Off per workspace until an owner turns it on; audit records hold addresses and counts, never page content. Threat model row T9.
+
 ## Data Protection
 
 Tenant data should be encrypted in transit and at rest by infrastructure defaults. Sensitive fields should be minimized, redacted in logs, and excluded from analytics payloads. Telemetry follows the redaction rules in [Observability](observability.md#redaction-rules): spans carry tenant and workspace ids only, never prompts, replies, query strings, credentials or client addresses. Backups contain every tenant and are handled as described in [Runbooks](runbooks.md#backup-and-restore). Memory records should carry provenance, scope, and retention metadata.

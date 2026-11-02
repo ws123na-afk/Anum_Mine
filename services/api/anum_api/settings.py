@@ -316,6 +316,15 @@ class Settings(BaseSettings):
     web_search_max_results: int = Field(default=5, ge=1, le=20)
     # SearXNG safesearch level: 0 off, 1 moderate, 2 strict.
     web_search_safe_search: int = Field(default=1, ge=0, le=2)
+    # Browser research (docs/browser-research.md): the internal browser service that runs
+    # Chromium in its own container (http://browser:8090 in the compose stacks) and the token
+    # the API sends it. Either empty: `web.browse_page` answers "Not available on this
+    # server". Operator configuration only; each workspace is off until an owner turns it on.
+    browser_research_url: str = ""
+    browser_research_token: str = ""
+    browser_research_timeout_seconds: float = Field(default=45.0, gt=0, le=120)
+    # Pages read per workspace per hour (counted in each API or worker process).
+    browser_research_per_hour: int = Field(default=30, ge=1, le=1000)
     # Tyre planning (docs/tyre-planning.md): reads the owner's fleet data from their own
     # Supabase (PostgreSQL or REST) or Firebase (Firestore). Workspace-saved Supabase
     # hosts must be public HTTPS/TLS endpoints outside local; this comma-separated list of

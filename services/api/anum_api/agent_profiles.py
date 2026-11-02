@@ -405,8 +405,8 @@ TEMPLATES: tuple[_TemplateSpec, ...] = (
             "Research the question on the web, compare sources and answer with a short summary "
             "followed by the sources you used. Say clearly when sources disagree or are missing."
         ),
-        tool_patterns=["web_search"],
-        skills=["anum.web-search", "anum.document-drafting"],
+        tool_patterns=["web_search", "web.browse_page"],
+        skills=["anum.web-search", "anum.browser-research", "anum.document-drafting"],
         wants=[("web_search", "Web search (set ANUM_SEARXNG_URL)")],
     ),
     _TemplateSpec(
