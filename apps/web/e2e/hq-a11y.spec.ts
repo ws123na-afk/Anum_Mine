@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import { openHq } from './support/hqApi';
+import { cameraOptions } from './support/hqScene';
 
 // F14 accessibility scans of the headquarters: English and Arabic, light and dark app theme,
 // the office's own day and night lighting, and the no-WebGL renderer.
@@ -21,7 +22,10 @@ for (const locale of ['en', 'ar'] as const) {
         await expect(page.locator('.hqLive')).toBeVisible();
         await expect(page.locator('canvas.hqCanvas')).toBeVisible();
         await expect(page.locator('.hqLive').getByRole('button', { name: /Al Noor Fleet HQ|Al Noor Fleet|مبنى|Fleet/ }).first()).toBeAttached();
-        if (lighting === 'night') await page.locator('.hqLive').getByRole('group', { name: /light|الإضاءة|Lighting/i }).getByRole('button').nth(1).click();
+        if (lighting === 'night') {
+          await cameraOptions(page); // the light moved under More camera options
+          await page.locator('.hqLive').getByRole('group', { name: /light|الإضاءة|Lighting/i }).getByRole('button').nth(1).click();
+        }
         await expect(page.locator('.hqLive')).toHaveClass(lighting === 'night' ? /hqNight/ : /hqDay/);
         expect(await violations(page)).toEqual([]);
       });

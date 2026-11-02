@@ -7,28 +7,38 @@ The owner's request (27 October 2026): make the headquarters page clear, with th
 Nothing but the scene's own controls sits on the scene. Panels live in their own column, under the scene, or in a drawer the person opened. The stage takes the height the viewport leaves after the page header above it and the quick views and status row below it.
 
 ```
-header: title and tagline, then one tool row: status chips | refresh, view switch, Hide side panels, Office tools
+header: title (and the tagline from 1500 px), then one tool row: the status chip | refresh, view switch, Floors, Plan and people, Office tools
 +--------------------------+----------------+
 | stage (3D)               | side column    |   side column: selected room or building, Total agents,
-| camera rail on the right |  (scrolls)     |   Quick moves, Executive assistant
-+--------------------------+----------------+   inside a building: floor plan and people, Quick moves, assistant (tabs)
+| floor selector, one      |  (scrolls)     |   Quick moves, Executive assistant
+| camera group at bottom   |                |   inside a building: floor plan and people, Quick moves, assistant (tabs)
++--------------------------+----------------+
 quick views (thumbnails)
 status row: Total agents chips (when the side column is not open) and the Live flow bar
 ```
 
 | Width | Side panels | Total agents | Selected room or building |
 |---|---|---|---|
-| 1280 and up | docked column (320 px); Hide side panels folds it away | panel in the column | top of the column |
+| 1600 and up | docked column (320 px); Hide side panels (Office tools) folds it away | panel in the column | top of the column |
+| 1280 to 1599 | drawer from the header button (Plan and people, or Quick moves); Show the side panel (Office tools) docks it for this browser | chips in the status row | under the scene |
 | 900 to 1279 | drawer from the header button | chips in the status row | under the scene |
 | under 900 | drawer (bottom sheet under 760 px) | chips in the status row | under the scene, stage first |
 
-Heights come from three shared variables on `.hqNav` (`--hq-above`, `--hq-below`, `--hq-stage-h`), never a fixed height. The header buttons for the panels (`Hide side panels`, `Floors`, `Quick moves`) are portalled into the page header's tool row, so they cost the scene no row of their own.
+The floor list with thumbnails (`FloorRail.tsx`) is not docked by default: the floor selector in the scene is the one floor control ([labels](ANUM_MINE_HQ_LABELS.md#declutter)). The **Floors** button in the header docks it beside the scene from 900 px (press again to put it away; the choice is kept in this browser under `anum.hq.nav.rail`) and opens it as a drawer under 900 px or in focus mode. Without WebGL there is no scene and so no floor selector: the floor list is then docked by default from 900 px and the side column from 1280 px (the 2D plan beside them); Floors and Hide side panels still put them away.
 
-The tool row is two groups that wrap as wholes: the status chips (presentation switch, Live, Connected, Graphics) and the actions (refresh, view switch, the panel buttons, Office tools). Every control in it uses the small type token (`--text-sm`) and the shared spacing tokens, so at 1440x900 the row stays one line even with a 17 px classic scrollbar (1423 px); from 1280 px down to that width the actions move under the chips together instead of leaving Office tools on a line of its own; below 1280 px the controls pack line by line.
+Heights come from three shared variables on `.hqNav` (`--hq-above`, `--hq-below`, `--hq-stage-h`), never a fixed height. The header buttons for the panels (`Floors`, `Plan and people` or `Quick moves`) are portalled into the page header's tool row, so they cost the scene no row of their own; the panel switches (`Hide side panels`, `Show side panels`, `Show the side panel`) are portalled into the Office tools menu.
 
-## Inside a building
+## Header
 
-The stage holds only the 3D room, its room and floor labels, the Back card (Back to campus, the building's name and its presence dot), the camera tools, the camera bar and the floor selector. No HTML block with numbers is drawn over it: the operations wall is in the selected room's panel, docked at the top of the side column (under the scene on narrow screens), and in the building panels below; the building's facts (type, people, floors, rooms, live meetings, orders today) are the first row of the building panels under the scene. The Live operations and Current flow strips are one docked row under the quick views, next to Team status; the in-progress and stuck counts are also in the Live flow bar. The room's own 3D wall screen (a texture, not HTML) still shows the wall's numbers.
+Owner feedback (2 November 2026): too many controls round a small stage. The header is one line on a laptop (1366 px and up, a classic scrollbar included):
+
+- **One status chip** (`StatusChip` in `HqChrome.tsx`) in place of the Live, Connected or Updating and Graphics chips. Its word is the most pressing of the people link (Live, Checking every N s, Reconnecting, Not connected) and the office data read (Connected, Updating, Showing the last update, Connection problem): a stopped link first, then a slow or changing one, else the people link. Its dot takes the worst tone of the three, the graphics tier included (reduced quality is amber). Its accessible name lists all three ("Office status: Live, Updating, Graphics: High. Show the details"); a press opens a small panel with each one in its own words (`hq-live-link`, `hq-data-status`, the Graphics chip that opens the Graphics check). Escape or a press outside closes it and focus returns to the chip. The word on the chip is also said in a polite status region. Nothing is hidden: Updating or Not connected is on the chip itself whenever it is the most pressing.
+- **One menu, Office tools**: it keeps every tool it had and adds the rarely used header items: the side panel switches (only while something is docked, never a dead switch) and **Concept preview** (the concept preview shows its own switch, Authenticated office, to come back). Escape, a press outside or a choice closes it and focus returns to Office tools.
+- The tagline shows from 1500 px only.
+
+## Inside a building## Inside a building
+
+The stage holds only the 3D room, its room and floor labels, the Back card (Back to campus, the building's name and its presence dot), the one camera group and the floor selector. No HTML block with numbers is drawn over it: the operations wall is in the selected room's panel, docked at the top of the side column (under the scene on narrow screens), and in the building panels below; the building's facts (type, people, floors, rooms, live meetings, orders today) are the first row of the building panels under the scene. The Live operations and Current flow strips are one docked row under the quick views, next to Team status; the in-progress and stuck counts are also in the Live flow bar. The room's own 3D wall screen (a texture, not HTML) still shows the wall's numbers.
 
 ## Panel by panel
 
@@ -45,7 +55,7 @@ Every panel has one header (`PanelSection.tsx`): title, one line on what it is f
 | History (`HqHistoryPanel.tsx`) | a drawer (bottom sheet under 760 px) | `/office-history`, read when opened, then the first page checked every 30 s; newer records are offered ("2 newer records", Show them), never pushed into the list | loading, refused, failed (with Try again), empty, paged, check failed (list kept) |
 | Live flow (`HqFlowDock.tsx`) | thin bar under the quick views; the list opens as a sheet that rises from the bar | `/office/flow` | loading, denied, failed, offline with the last answer, empty with a next action |
 | Reception (`HqReceptionPanel.tsx`, lazy) | a drawer from 761 px, a bottom sheet below, opened from Office tools or a reception room | `/office/visitors` | loading, empty with Add a visitor, filtered empty, error with Try again, denied, owner only, stale revision, paged and searched ([reception](ANUM_MINE_HQ_RECEPTION.md)) |
-| Campus map | a button in the camera rail (closed by default, remembered); opens beside the rail | the campus layout and the camera footprint | none |
+| Campus map | a button in the camera group (closed by default, remembered); opens in the top corner of the scene | the campus layout and the camera footprint | none |
 
 ## What "live" means
 
@@ -74,16 +84,17 @@ The pure rules (link to words, windows, stale, the announcement rule) are in `li
 
 ## Words and Arabic
 
-Short English; the Arabic strings (`hqPanels.ar.ts`) have the same keys and placeholders (`test/i18n.test.ts`). Logical properties only, so the column, the camera rail and the map flip in right to left.
+Short English; the Arabic strings (`hqPanels.ar.ts`) have the same keys and placeholders (`test/i18n.test.ts`). Logical properties only, so the column, the camera group, the status panel and the map flip in right to left.
 
 ## Checks
 
 - Unit: `test/hqPanelStatus.test.ts` (every chip rule above), `test/hqHistory.test.ts` (`newerRecords`).
-- Browser: `e2e/hq-clear-panels.spec.ts` (five viewports; panels never overlap the stage; Total agents whole; quick views not covered by the flow bar; every building card visible and clickable; live status changes when a feed drops and recovers; Total agents follows the stream and falls back to the campus read; the Executive assistant, Team and History headers and chips; one header tool row at 1440 and 1423 px; fold and Hide side panels; Arabic; axe), `e2e/hq-history.spec.ts` (the 30 s check offers newer records and survives a failed check), `e2e/hq-labels.spec.ts` (the building facts are docked, not on the Back card) and the existing `hq-*.spec.ts`.
+- Browser: `e2e/hq-clear-panels.spec.ts` (five viewports; panels never overlap the stage; Total agents whole; quick views not covered by the flow bar; every building card visible and clickable; live status changes when a feed drops and recovers; Total agents follows the stream and falls back to the campus read; the Executive assistant, Team and History headers and chips; one header line at 1440, 1423 and 1366 px; fold and Hide side panels; Arabic; axe; it starts with the side column docked, a person's choice), `e2e/hq-declutter.spec.ts` (the defaults: the stage share at 1366x768 and 1920x1080, the status chip panel, Office tools, the floor list toggle, every moved control by keyboard), `e2e/hq-history.spec.ts` (the 30 s check offers newer records and survives a failed check), `e2e/hq-labels.spec.ts` (the building facts are docked, not on the Back card) and the existing `hq-*.spec.ts`.
 - By hand: render at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 in English and Arabic (`e2e/tools/hqPanels.shots.ts`).
 
 ## Not done
 
-- The Back card, the floor selector and the camera bar inside a building stay glass controls on the scene (they are scene controls, not panels).
+- The Back card, the floor selector and the camera group stay glass controls on the scene (they are scene controls, not panels).
+- The building bar above the scene (building menu, floor count, Cutaway and Closed, All floors) stays a row of its own; at 1366x768 the stage of a building takes about 0.40 of the viewport (0.25 before), at 1920x1080 about 0.44 (0.37 before), with the app's own sidebar and top bar counted in the viewport.
 - Only the open workspace follows the presence stream: other workspaces' buildings on the campus keep the 30 s campus read (the page holds no stream for them).
 - The History panel offers newer records on a 30 s check; it does not stream them.

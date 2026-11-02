@@ -9,7 +9,7 @@ import type { WorkSiteInput, WorkUi } from './HqCampusWork';
 import type { ViewSink, WalkerCard, WalkerFeed, WalkerUi } from './HqCampusWalkers';
 import type { CardWork, FeedNote } from './lib/hqWorkMotion.ts';
 import './hqCampusMotion.css';
-import { BottomToolbar, CameraTools, Minimap, statusLabel, type HqView } from './HqChrome';
+import { BottomToolbar, Minimap, statusLabel, type HqView } from './HqChrome';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { buildCampusScene } from './lib/campusScene.ts';
 import { layoutKey, planSize, type PlanInput } from './lib/hqPlanFrame.ts';
@@ -21,7 +21,8 @@ import {
   buildingStatus, layoutCampus, readingOrder, stepBuilding, workspaceOf,
   type Campus, type CampusBuilding, type CampusBuildingKind, type StatusKey,
 } from './lib/campusModel.ts';
-import { campusCamera, campusFraming, clampTarget, faceNorth, rotateBy, threeDView, topView, viewFootprint, zoomBy } from './lib/hqCamera.ts';
+import { campusCamera, campusFraming, clampTarget, faceNorth, rotateBy, threeDView, topView, viewFootprint } from './lib/hqCamera.ts';
+import { useIdleFade } from './useIdleFade';
 import { cameraEye, dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import { getGpuState, subscribeGpuState } from './lib/hqGpuState.ts';
 import { boardSpec } from './lib/hqQualityTiers.ts';
@@ -190,6 +191,7 @@ export function CampusView(props: CampusViewProps) {
   const byIdRef = useRef(byId);
   byIdRef.current = byId;
   const [wrap, aspect] = useAspect();
+  const idle = useIdleFade(wrap);
   const framing = campusFraming(scene.extent);
   const home = useMemo(() => campusCamera(framing.radius, framing.centerZ, aspect), [framing.radius, framing.centerZ, aspect]);
   const [camera, setCamera] = useState<CameraState>(home);
@@ -385,7 +387,7 @@ export function CampusView(props: CampusViewProps) {
         onCamera={(c) => setCamera(clampTarget(c, scene.groundRadius * 0.8))} night={night} reducedMotion={props.reducedMotion}
         hoverId={hover} selectedId={selectedId} onHover={setHover}
         onPick={(id) => { if (id) activate(id); else props.onSelect(null); }}
-        boardAtlas={atlas && atlas.boards === boards ? atlas : null} labels={labels} labelKeepOut="[data-keepout]" extraLabels={extraLabels} extraKeepOut=".hqDetail, .hqOverlayRight, .hqOverlayMap, .hqOverlayBottom > *" onView={onView} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
+        boardAtlas={atlas && atlas.boards === boards ? atlas : null} labels={labels} labelKeepOut="[data-keepout]" extraLabels={extraLabels} extraKeepOut=".hqDetail, .hqOverlayMap, .hqOverlayBottom > *" onView={onView} onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
       />
       <div className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-work-live">
         {Object.entries(work.cards).map(([id, c]) => <p key={id}>{sceneName(byId.get(id) ?? { name: id }, locale)}: {c.because}</p>)}
@@ -401,14 +403,6 @@ export function CampusView(props: CampusViewProps) {
           <CampusWalkers feed={props.walkerFeed} sites={walkSites} spokes={scene.plaza.spokes} reducedMotion={props.reducedMotion} viewSink={viewSink} onChange={setWalk} />
         </Suspense>
       )}
-      <div className="hqOverlay hqOverlayRight" data-keepout="">
-        <CameraTools
-          yaw={camera.yaw} night={night} onNight={props.onNight}
-          onZoomIn={() => change((c) => zoomBy(c, 0.8))} onZoomOut={() => change((c) => zoomBy(c, 1.25))}
-          onReset={() => { props.nav?.bridge.cancel(); setCamera(view === 'top' ? topView(home) : home); }} onNorth={() => change(faceNorth)}
-          extra={<button type="button" onClick={toggleMap} aria-pressed={mapOpen} aria-controls={mapOpen ? 'hq-campus-map' : undefined} data-testid="hq-map-toggle" aria-label={mapOpen ? t('hqPanels.map.hide') : t('hqPanels.map.show')} title={mapOpen ? t('hqPanels.map.hide') : t('hqPanels.map.show')}><MapIcon aria-hidden="true" /></button>}
-        />
-      </div>
       {mapOpen && (
         <div className="hqOverlay hqOverlayMap" id="hq-campus-map" data-keepout="">
           <Minimap
@@ -420,9 +414,13 @@ export function CampusView(props: CampusViewProps) {
       )}
       <div className="hqOverlay hqOverlayBottom">
         <BottomToolbar
+          idle={idle}
           onRotateLeft={() => change((c) => rotateBy(c, -20))} onRotateRight={() => change((c) => rotateBy(c, 20))}
           onPrev={() => step(-1)} onNext={() => step(1)} prevLabel={t('hq.campus.prev')} nextLabel={t('hq.campus.next')}
           onZoomIn={() => change((c) => dolly(c, -250))} onZoomOut={() => change((c) => dolly(c, 250))}
+          onReset={() => { props.nav?.bridge.cancel(); setCamera(view === 'top' ? topView(home) : home); }}
+          north={{ yaw: camera.yaw, onNorth: () => change(faceNorth) }} light={{ night, onNight: props.onNight }}
+          extra={<button type="button" onClick={toggleMap} aria-pressed={mapOpen} aria-controls={mapOpen ? 'hq-campus-map' : undefined} data-testid="hq-map-toggle" aria-label={mapOpen ? t('hqPanels.map.hide') : t('hqPanels.map.show')} title={mapOpen ? t('hqPanels.map.hide') : t('hqPanels.map.show')}><MapIcon aria-hidden="true" /></button>}
           fullscreen={props.fullscreen} onFullscreen={props.onToggleFullscreen}
         />
       </div>

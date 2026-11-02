@@ -45,6 +45,12 @@ export type StageLabel = Readonly<{
   alternatives?: readonly Vec3[];
   /** A large card (a billboard): the placement searches in small steps for a free spot. */
   fine?: boolean;
+  /** Stays exactly at its anchor or gives way (a floor tag at its floor's edge); see `LabelInput.anchored`. */
+  anchored?: boolean;
+  /** Hidden while the anchor is nearer the eye than this (metres). */
+  minDepth?: number;
+  /** Boxes whose screen rectangle the label must never cover (the focused room). */
+  avoid?: readonly Aabb[];
 }>;
 
 export type StageStatus = 'ok' | 'recovering';

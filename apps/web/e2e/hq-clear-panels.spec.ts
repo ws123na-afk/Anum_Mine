@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { mockFlow, type FlowMock } from './support/hqFlowApi';
 import { mockHq } from './support/hqCampusApi';
+import { officeMenuItem, openStatus } from './support/hqScene';
 
 // The page layout and the side panels of the headquarters (docs/ANUM_MINE_HQ_PAGE_LAYOUT.md): panels dock beside or under the scene and
 // never over it, Total agents is whole, the live flow is a thin strip that leaves the quick views alone, every panel says whether it is
@@ -16,6 +17,9 @@ let flow: FlowMock;
 
 async function open(page: Page, size: { width: number; height: number }, options: Parameters<typeof openHq>[1] = {}) {
   await page.setViewportSize(size);
+  // This spec checks the side column docked beside the scene from 1280 px: a person who chose Show the side panel. By default it docks
+  // from 1600 px so a laptop's scene keeps the width (hq-declutter.spec.ts checks the defaults). Seeded once per tab, so a reload keeps a choice.
+  await page.addInitScript(() => { try { if (!sessionStorage.getItem('hq-side-seeded')) { sessionStorage.setItem('hq-side-seeded', '1'); localStorage.setItem('anum.hq.nav.side', 'open'); } } catch { /* storage blocked */ } });
   const registry = hqRegistry(TENANT_A, { rooms: 4, desks: 4, agentIds: ['agent_fleet', 'agent_leads', 'agent_care', 'agent_invoice'] });
   const mock = await openHq(page, { registry, stream: 'live', ...options, beforeGoto: async (p) => { flow = await mockFlow(p); } });
   await expect(hq(page).getByRole('heading', { level: 1 })).toBeVisible();
@@ -168,12 +172,12 @@ test('panels fold and open again, the choice is kept, and Hide side panels gives
   await hq(page).getByRole('button', { name: 'Open Total agents' }).click();
   await expect(hq(page).getByTestId('hq-status-panel')).toBeVisible();
   const before = (await box(page, '.hqLive .hqStage'))!;
-  await hq(page).getByRole('button', { name: 'Hide side panels' }).click();
+  await (await officeMenuItem(page, 'Hide side panels')).click(); // moved into Office tools
   await expect(hq(page).getByTestId('hq-status-strip')).toBeVisible();
   const after = (await box(page, '.hqLive .hqStage'))!;
   expect(after.w).toBeGreaterThan(before.w + 200);
   await assertClear(page);
-  await hq(page).getByRole('button', { name: 'Show side panels' }).click();
+  await (await officeMenuItem(page, 'Show side panels')).click();
   await expect(hq(page).getByTestId('hq-status-panel')).toBeVisible();
 });
 
@@ -185,8 +189,9 @@ test('the campus map is a corner button, closed by default, and opens without co
   await toggle.click();
   await expect(hq(page).locator('.hqMinimap')).toBeVisible();
   const map = (await box(page, '.hqLive .hqOverlayMap'))!;
-  const rail = (await box(page, '.hqLive .hqOverlayRight'))!;
-  expect(overlaps(map, rail)).toBe(false);
+  // The camera tools are one bar along the bottom now (the corner rail is gone): the map never covers it.
+  const bar = (await box(page, '.hqLive .hqOverlayBottom .hqToolbar'))!;
+  expect(overlaps(map, bar)).toBe(false);
   await toggle.click();
   await expect(hq(page).locator('.hqMinimap')).toHaveCount(0);
 });
@@ -243,20 +248,24 @@ for (const [width, height] of [[1440, 900], [390, 844]] as const) {
   });
 }
 
-test('the header keeps one tool row at 1440x900, also with a classic scrollbar, and wraps in whole groups when narrower', async ({ page }) => {
+test('the header is one line on a laptop (title, the one status chip, the view switch, Office tools), also with a classic scrollbar', async ({ page }) => {
   await open(page, { width: 1440, height: 900 });
+  // The status chips are one chip now; the graphics tier is in its panel (docs/ANUM_MINE_HQ_PAGE_LAYOUT.md, "Header").
+  await openStatus(page);
   await expect(hq(page).getByTestId('hq-gpu-chip')).toBeVisible({ timeout: 60_000 });
+  await page.keyboard.press('Escape');
   const row = () => page.evaluate(() => {
     const mid = (sel: string) => { const r = document.querySelector(sel)!.getBoundingClientRect(); return r.top + r.height / 2; };
-    return { status: mid('.hqHeadStatus'), actions: mid('.hqHeadActions'), tools: mid('.hqMenuWrap'), view: mid('.hqHeadActions .hqSegment'), side: mid('.hqHeadActions .hqFocusToggle') };
+    return { title: mid('.hqHeadTitle h1'), status: mid('[data-testid="hq-status-chip"]'), tools: mid('.hqMenuWrap'), view: mid('.hqHeadActions .hqSegment'), head: document.querySelector('.hqHead')!.getBoundingClientRect().height };
   });
-  // 1423 px is 1440 less a 17 px classic scrollbar (Windows): the row must still fit.
-  for (const width of [1440, 1423]) {
+  // 1423 px is 1440 less a 17 px classic scrollbar (Windows): the row must still fit; 1366 is the common laptop.
+  for (const width of [1440, 1423, 1366]) {
     await page.setViewportSize({ width, height: 900 });
     const r = await row();
-    for (const y of [r.actions, r.tools, r.view, r.side]) expect(Math.abs(y - r.status), `one tool row at ${width}`).toBeLessThan(8);
+    for (const y of [r.tools, r.view, r.title]) expect(Math.abs(y - r.status), `one header line at ${width}`).toBeLessThan(8);
+    expect(r.head, `header height at ${width}`).toBeLessThan(64);
   }
-  // Narrower, the actions move down together: Office tools never sits alone under the view switch at desktop widths.
+  // Narrower, the controls wrap, and Office tools never sits alone under the view switch at desktop widths.
   await page.setViewportSize({ width: 1280, height: 800 });
   const r = await row();
   expect(Math.abs(r.tools - r.view)).toBeLessThan(8);
