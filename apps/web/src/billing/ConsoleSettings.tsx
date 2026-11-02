@@ -3,7 +3,8 @@
 // sends invoices, and Stripe. Stripe keys are write-only: the page shows whether one is saved and
 // whether it is a test key, never the key itself (null keeps it, "" removes it).
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
-import { KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Copy, KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { apiBaseUrl } from '../lib/api';
 import * as b from '../lib/billingApi';
 import { bpToPercent, formatRate, percentToBp, type IssuerSettings, type SettingsBody } from '../lib/billing';
 import { countryName } from '../lib/billing';
@@ -38,6 +39,9 @@ function SettingsForm({ saved, onSaved }: { saved: IssuerSettings; onSaved: (nex
   const formId = useId();
   const text = (key: TextKey, label: MessageKey, ltr?: boolean) => <label key={key} className="field" htmlFor={`${formId}-${key}`}><span>{t(label)}</span>
     <input id={`${formId}-${key}`} value={form[key] ?? ''} dir={ltr ? 'ltr' : 'auto'} onChange={(e) => setForm({ ...form, [key]: e.target.value })} /></label>;
+  const [copied, setCopied] = useState(false);
+  const stripeHook = saved.stripe_webhook_url ? `${apiBaseUrl.replace(/\/+$/, '')}${saved.stripe_webhook_url}` : '';
+  const copyHook = async () => { try { await navigator.clipboard.writeText(stripeHook); setCopied(true); } catch { setCopied(false); } };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const taxRules: Record<string, number> = {};
@@ -104,7 +108,14 @@ function SettingsForm({ saved, onSaved }: { saved: IssuerSettings; onSaved: (nex
           {saved.stripe_test_mode !== null && <Badge tone={saved.stripe_test_mode ? 'warning' : 'success'}>{saved.stripe_test_mode ? t('billing.settings.testMode') : t('billing.settings.liveMode')}</Badge>}
           <Badge tone={saved.has_stripe_webhook_secret ? 'success' : 'neutral'}>{saved.has_stripe_webhook_secret ? t('billing.settings.hookSaved') : t('billing.settings.noHook')}</Badge>
         </div></div>
+      <ol className="blSteps">
+        <li>{t('billing.settings.stripeStep1')}</li>
+        <li>{t('billing.settings.stripeStep2')}{stripeHook && <div className="blCopy"><code dir="ltr">{stripeHook}</code><button type="button" className="secondary" onClick={() => void copyHook()}><Copy aria-hidden="true" />{copied ? t('billing.moyasar.copied') : t('billing.moyasar.copy')}</button></div>}
+          {saved.stripe_events?.length ? <small className="muted" dir="ltr">{t('billing.moyasar.events', { events: saved.stripe_events.join(', ') })}</small> : null}</li>
+        <li>{t('billing.settings.stripeStep3')}</li>
+      </ol>
       <label className="blCheck"><input type="checkbox" checked={form.stripe_enabled} onChange={(e) => setForm({ ...form, stripe_enabled: e.target.checked })} /><span>{t('billing.settings.stripeOn')}</span></label>
+      {saved.stripe_enabled && saved.has_stripe_secret_key && !saved.has_stripe_webhook_secret && <Note error>{t('billing.settings.stripeNeedsHook')}</Note>}
       <div className="blTwo">
         <label className="field" htmlFor={`${formId}-sk`}><span>{saved.has_stripe_secret_key ? t('billing.settings.replaceKey') : t('billing.settings.secretKey')}</span><input id={`${formId}-sk`} type="password" autoComplete="off" spellCheck={false} dir="ltr" value={secret} disabled={removeSecret} placeholder="sk_test_..." onChange={(e) => setSecret(e.target.value)} /></label>
         <label className="field" htmlFor={`${formId}-wh`}><span>{saved.has_stripe_webhook_secret ? t('billing.settings.replaceHook') : t('billing.settings.hookSecret')}</span><input id={`${formId}-wh`} type="password" autoComplete="off" spellCheck={false} dir="ltr" value={hook} disabled={removeHook} placeholder="whsec_..." onChange={(e) => setHook(e.target.value)} /></label>

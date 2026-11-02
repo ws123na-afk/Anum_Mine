@@ -171,7 +171,7 @@ export const portalAr: Record<keyof typeof portalEn, Message> = {
   'pt.invoices.noBank': 'لم يضف النشاط التجاري بيانات البنك. تواصل معه لترتيب الدفع.',
   'pt.invoices.noOnline': 'لا يوجد دفع إلكتروني هنا. ادفع بحوالة بنكية واجعل رقم الفاتورة مرجعًا.',
   'pt.invoices.payByCard': 'الدفع بالبطاقة',
-  'pt.invoices.payByCardHelp': 'ادفع الرصيد بالبطاقة أو مدى أو Apple Pay على صفحة ميسر الآمنة. لا يرى صاحب العمل بيانات بطاقتك.',
+  'pt.invoices.payByCardHelp': 'ادفع الرصيد بالبطاقة على صفحة مزوّد الدفع الآمنة. لا يرى صاحب العمل بيانات بطاقتك.',
   'pt.invoices.billTo': 'الفاتورة باسم',
   'pt.invoices.from': 'من',
   'pt.invoices.notes': 'ملاحظات',

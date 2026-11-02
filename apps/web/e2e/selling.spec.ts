@@ -5,7 +5,7 @@ import { mockBilling } from './support/billingApi';
 import { mockSelling } from './support/sellingApi';
 
 // Ready to sell (docs/selling-readiness.md): the platform owner's checklist read from the API, the SPF
-// lookup, company details and legal facts, Moyasar settings, a refund of a Moyasar payment, and the public
+// lookup, company details and legal facts, Moyasar and Stripe settings, refunds of Moyasar and Stripe payments, and the public
 // legal pages filled from the company details with the data rights wired to the app. Five sizes, English
 // and Arabic, axe on each.
 const sizes = [
@@ -55,7 +55,7 @@ test('the Ready to sell checklist reads real state, links to fixes and checks SP
 
   // Each item links to where it is fixed.
   await payment.getByRole('button', { name: 'Open payment settings' }).click();
-  await expect(page.getByRole('heading', { name: 'Card payments in Saudi Arabia and the UAE (Moyasar)' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Card payments in Saudi Arabia (Moyasar, optional)' })).toBeVisible();
 });
 
 test('company details and legal facts are saved, and publishing needs the lawyer confirmation', async ({ page }) => {
@@ -93,7 +93,7 @@ test('the platform owner turns Moyasar on with write-only keys', async ({ page }
   await mockBilling(page);
   const sent = await mockSelling(page);
   await openConsoleTab(page, 'Settings');
-  const card = page.locator('form').filter({ hasText: 'Card payments in Saudi Arabia and the UAE (Moyasar)' });
+  const card = page.locator('form').filter({ hasText: 'Card payments in Saudi Arabia (Moyasar, optional)' });
   await expect(card.getByText('http://localhost:8000/api/v1/billing/webhooks/moyasar/anum')).toBeVisible();
   await card.getByLabel('Let customers pay open invoices by card through Moyasar').check();
   await card.getByRole('button', { name: 'Save Moyasar settings' }).click();
@@ -137,11 +137,69 @@ test('a Moyasar payment is refunded with one idempotency key and a credit note',
   expect((sent.refunds[0] as { idempotency_key: string }).idempotency_key).toMatch(/^refund-/);
 });
 
+test('with a UAE company, Stripe is the active provider and Moyasar is optional', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await mockBilling(page);
+  await mockSelling(page, { stripeOn: true });
+  await openConsoleTab(page, 'Ready to sell');
+  const payment = page.locator('.blReadyItem').filter({ hasText: 'Card payment provider' });
+  await expect(payment).toContainText('Check');
+  await expect(payment).toContainText('Card payments go through Stripe (AED, SAR, USD, EUR, GBP).');
+  await expect(payment).toContainText('Stripe: ready');
+  await expect(payment).toContainText('Moyasar: off');
+  await expect(payment).toContainText('Moyasar is optional: it needs a company registered in Saudi Arabia.');
+  await expect(payment).toContainText('With a UAE trade licence, open a Stripe account');
+  expect(await serious(page, '.blConsole')).toEqual([]);
+});
+
+test('the platform owner sets up Stripe from the steps, with the webhook address to copy', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await mockBilling(page);
+  const sent = await mockSelling(page);
+  await openConsoleTab(page, 'Settings');
+  const stripe = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Card payments (Stripe)' }) });
+  await expect(stripe.getByText('Open a Stripe account for your UAE company (trade licence)', { exact: false })).toBeVisible();
+  await expect(stripe.getByText('http://localhost:8000/api/v1/billing/webhooks/stripe/anum')).toBeVisible();
+  await expect(stripe.getByText(/charge\.refunded/)).toBeVisible();
+  await stripe.getByLabel('Let customers pay open invoices by card').check();
+  await stripe.getByLabel('Secret key', { exact: true }).fill('sk_test_example');
+  await stripe.getByLabel('Webhook signing secret').fill('whsec_example');
+  expect(await serious(page, '.blConsole')).toEqual([]);
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(stripe.getByText('Webhook secret saved')).toBeVisible();
+  expect(sent.settings).toHaveLength(1);
+  expect(sent.settings[0]).toMatchObject({ stripe_enabled: true, stripe_secret_key: 'sk_test_example', stripe_webhook_secret: 'whsec_example' });
+});
+
+test('a Stripe payment is refunded through Stripe with one idempotency key and a credit note', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await mockBilling(page);
+  const sent = await mockSelling(page, { provider: 'stripe', stripeOn: true });
+  await page.goto('/#platformBilling');
+  await page.getByRole('button', { name: 'Open the billing of Acme Trading' }).click();
+  await page.getByRole('button', { name: 'Open invoice INV-000001' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Invoice' });
+  await drawer.getByRole('button', { name: /Refund the payment of/ }).click();
+  const form = page.getByRole('dialog', { name: 'Refund a payment on INV-000001' });
+  await expect(form.getByLabel('Stripe refunds the card now')).toBeChecked();
+  await expect(form.getByLabel('I returned it myself (a bank transfer back); record it only')).not.toBeChecked();
+  await form.getByLabel('Amount (AED)').fill('150.50');
+  await form.getByLabel('Reason').fill('Partial refund');
+  expect(await serious(page, '.dialogPanel')).toEqual([]);
+  await form.getByRole('button', { name: 'Refund', exact: true }).click();
+  await expect(page.getByText('The refund on INV-000001 is done and a credit note was issued.')).toBeVisible();
+  await expect(drawer.getByText('Through Stripe')).toBeVisible();
+  // AED in fils: 150.50 AED is 15050.
+  expect(sent.refunds).toHaveLength(1);
+  expect(sent.refunds[0]).toMatchObject({ amount_minor: 15050, reason: 'Partial refund', mode: 'provider' });
+  expect((sent.refunds[0] as { idempotency_key: string }).idempotency_key).toMatch(/^refund-/);
+});
+
 for (const locale of ['en', 'ar'] as const) {
   test(`the console's new tabs fit every size in ${locale}`, async ({ page }) => {
     await mockWorkspaceApi(page);
     await mockBilling(page);
-    await mockSelling(page, { companySet: true });
+    await mockSelling(page, { companySet: true, provider: 'stripe', stripeOn: true });
     if (locale === 'ar') await useSavedLocale(page, 'ar');
     for (const size of sizes) {
       await page.setViewportSize(size);
@@ -157,6 +215,19 @@ for (const locale of ['en', 'ar'] as const) {
       await expect(page.locator('.blTerms')).toBeVisible();
       expect(await noOverflow(page), `company ${size.width}`).toBe(true);
       expect(await serious(page, '.blConsole'), `company ${size.width}`).toEqual([]);
+      // The Stripe setup steps with the webhook address.
+      await nav.locator('button').nth(2).click();
+      await expect(page.locator('.blSteps code').filter({ hasText: '/webhooks/stripe/' })).toBeVisible();
+      expect(await noOverflow(page), `settings ${size.width}`).toBe(true);
+      expect(await serious(page, '.blConsole'), `settings ${size.width}`).toEqual([]);
+      // The refund dialog of a Stripe payment.
+      await nav.locator('button').nth(0).click();
+      await page.locator('button[aria-label*="Acme Trading"]').first().click();
+      await page.locator('button[aria-label*="INV-000001"]').first().click();
+      await page.getByRole('dialog').getByRole('button', { name: locale === 'ar' ? /استرد الدفعة/ : /Refund the payment of/ }).click();
+      await expect(page.locator('input[type=radio]').first()).toBeChecked();
+      expect(await noOverflow(page), `refund ${size.width}`).toBe(true);
+      expect(await serious(page, '.dialogPanel'), `refund ${size.width}`).toEqual([]);
     }
     if (locale === 'ar') await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   });

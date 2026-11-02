@@ -171,7 +171,7 @@ export const portalEn = {
   'pt.invoices.noBank': 'The business has not added bank details. Contact them to arrange payment.',
   'pt.invoices.noOnline': 'There is no online payment here. Pay by bank transfer and keep the invoice number as the reference.',
   'pt.invoices.payByCard': 'Pay by card',
-  'pt.invoices.payByCardHelp': 'Pay the balance by card, mada or Apple Pay on Moyasar\'s secure page. The business never sees your card details.',
+  'pt.invoices.payByCardHelp': 'Pay the balance by card on the payment provider\'s secure page. The business never sees your card details.',
   'pt.invoices.billTo': 'Billed to',
   'pt.invoices.from': 'From',
   'pt.invoices.notes': 'Notes',

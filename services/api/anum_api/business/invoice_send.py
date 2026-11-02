@@ -10,11 +10,13 @@
 * **Reminders** are for a sent invoice past its due date with a balance. The schedule
   (``REMINDER_DAYS`` after the due date) says when the next one is due; a person still presses
   the button, and the owner still approves each one. One live request per reminder number.
-* **Payment links.** When the owner has Moyasar on (Platform billing, the same account the
-  owner's ANUM subscriptions use, ``billing/moyasar.py``), a member can make a Moyasar hosted
-  payment page for a sent invoice's balance. Moyasar's webhook reaches the billing webhook; a
-  delivery for a Business invoice is recorded here once per Moyasar payment id
-  (``apply_moyasar_payment``), with the amount and status read back from Moyasar's API.
+* **Payment links.** When the owner has a card provider on (Platform billing, the same account
+  the owner's ANUM subscriptions use), a member can make a hosted payment page for a sent
+  invoice's balance: a Moyasar invoice page (``billing/moyasar.py``) when Moyasar is on, else a
+  Stripe Payment Link (``billing/providers.py``; a UAE company's Stripe account, AED in fils).
+  The provider's webhook reaches the billing webhook; a payment for a Business invoice is
+  recorded here once per provider payment id (``apply_card_payment``): for Moyasar with the
+  amount and status read back from Moyasar's API, for Stripe from the signed event.
 """
 
 from __future__ import annotations
@@ -55,6 +57,8 @@ MAX_REMINDERS = 10
 LIVE = (MessageStatus.WAITING_APPROVAL, MessageStatus.SENT)
 EMAIL = re.compile(r"^[^@\s<>\"']{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$")
 MOYASAR_USER = "system:moyasar"
+PROVIDER_USERS = {"moyasar": MOYASAR_USER, "stripe": "system:stripe"}
+PROVIDER_NAMES = {"moyasar": "Moyasar", "stripe": "Stripe"}
 ID = re.compile(r"^[A-Za-z0-9_-]{3,80}$")
 
 
@@ -261,7 +265,7 @@ async def request_email(context: TenantContext, units: Any, invoice_id: str, *, 
     return message
 
 
-# -- payment links (Moyasar) ----------------------------------------------------------------------
+# -- payment links (Moyasar or Stripe) -------------------------------------------------------------
 
 
 def _issuer(tenant_id: str) -> dict[str, Any]:
@@ -272,11 +276,21 @@ def _issuer(tenant_id: str) -> dict[str, Any]:
         return billing.issuer_settings(rows, tenant_id)
 
 
-def moyasar_state(tenant_id: str) -> dict[str, Any]:
-    """Whether this organisation's owner has Moyasar on (Platform billing > Settings)."""
+def _active(issuer: dict[str, Any]) -> tuple[bool, bool, str | None]:
+    """(Moyasar ready, Stripe ready, the provider links use): Moyasar first, as for ANUM's own invoices."""
+    from ..billing.api import stripe_ready
+
+    moyasar = bool(issuer.get("moyasar_enabled") and issuer.get("moyasar_secret_ciphertext") and issuer.get("moyasar_webhook_secret_ciphertext"))
+    stripe = stripe_ready(issuer)
+    return moyasar, stripe, "moyasar" if moyasar else ("stripe" if stripe else None)
+
+
+def provider_state(tenant_id: str) -> dict[str, Any]:
+    """Which card provider this organisation's owner has on (Platform billing > Settings)."""
     issuer = _issuer(tenant_id)
-    ready = bool(issuer.get("moyasar_enabled") and issuer.get("moyasar_secret_ciphertext") and issuer.get("moyasar_webhook_secret_ciphertext"))
-    return {"moyasar": "on" if ready else "off", "mode": issuer.get("moyasar_key_mode") if ready else None}
+    moyasar, stripe, active = _active(issuer)
+    mode = issuer.get(f"{active}_key_mode") if active else None
+    return {"moyasar": "on" if moyasar else "off", "stripe": "on" if stripe else "off", "provider": active, "mode": mode}
 
 
 def links_of(store: BusinessStore, invoice_id: str) -> list[PaymentLink]:
@@ -305,9 +319,12 @@ def to_minor(amount: Decimal) -> int:
 
 
 def create_payment_link(context: TenantContext, invoice_id: str, *, app_url: str) -> PaymentLink:
-    """A Moyasar hosted page for the invoice's balance; the same link again while the balance is unchanged."""
+    """A hosted page for the invoice's balance (Moyasar, else Stripe); the same link again while the balance is unchanged."""
+    import hashlib
+
     from ..billing import moyasar as moy
-    from ..billing.providers import ProviderError
+    from ..billing.api import stripe_for
+    from ..billing.providers import STRIPE_CURRENCIES, ProviderError
     from ..billing.selling import moyasar_for
 
     with open_business_store(context) as store:
@@ -319,23 +336,41 @@ def create_payment_link(context: TenantContext, invoice_id: str, *, app_url: str
         existing = open_link(store, invoice)
         if existing is not None:
             return existing
-    if invoice.currency.value not in moy.CURRENCIES:
-        raise http_error(409, f"Moyasar card payments are set up for {', '.join(moy.CURRENCIES)}; this invoice is in {invoice.currency.value}.")
-    provider = moyasar_for(_issuer(context.tenant_id))
-    if provider is None:
-        raise http_error(409, "Card payments are off. The owner turns Moyasar on in Platform billing > Settings > Moyasar.")
+        earlier = len(links_of(store, invoice_id))
+    issuer = _issuer(context.tenant_id)
+    _, _, active = _active(issuer)
+    if active is None:
+        raise http_error(409, "Card payments are off. The owner turns Stripe or Moyasar on in Platform billing > Settings.")
+    currencies = moy.CURRENCIES if active == "moyasar" else STRIPE_CURRENCIES
+    if invoice.currency.value not in currencies:
+        raise http_error(409, f"{PROVIDER_NAMES[active]} card payments are set up for {', '.join(currencies)}; this invoice is in {invoice.currency.value}.")
     balance = invoice.balance_due()
     back = f"{app_url.rstrip('/')}/business?tab=invoices"
+    metadata = {"anum_kind": "business_invoice", "anum_tenant_id": context.tenant_id, "anum_workspace_id": context.workspace_id,
+                "anum_business_invoice_id": invoice.id}
     try:
-        page = provider.create_payment_page(
-            amount_minor=to_minor(balance), currency=invoice.currency.value, description=f"Invoice {invoice.number}",
-            success_url=back, back_url=back,
-            metadata={"anum_kind": "business_invoice", "anum_tenant_id": context.tenant_id, "anum_workspace_id": context.workspace_id,
-                      "anum_business_invoice_id": invoice.id},
-        )
+        if active == "moyasar":
+            moyasar = moyasar_for(issuer)
+            if moyasar is None:
+                raise http_error(409, "Card payments are off. The owner turns Moyasar on in Platform billing > Settings > Moyasar.")
+            page = moyasar.create_payment_page(
+                amount_minor=to_minor(balance), currency=invoice.currency.value, description=f"Invoice {invoice.number}",
+                success_url=back, back_url=back, metadata=metadata,
+            )
+        else:
+            stripe = stripe_for(issuer)
+            if stripe is None:
+                raise http_error(409, "Card payments are off. The owner turns Stripe on in Platform billing > Settings.")
+            # The same invoice, balance and link count always maps to the same Stripe objects, so a retry makes no second link.
+            key = hashlib.sha256(f"binlink:{context.tenant_id}:{invoice.id}:{to_minor(balance)}:{earlier}".encode()).hexdigest()
+            page = stripe.create_payment_link(
+                amount_minor=to_minor(balance), currency=invoice.currency.value, description=f"Invoice {invoice.number}",
+                redirect_url=back, metadata=metadata, idempotency_key=key,
+            )
     except ProviderError as exc:
         raise http_error(502, str(exc)) from None
     now = utc_now()
+    replaced: list[PaymentLink] = []
     with open_business_store(context) as store:
         current: Invoice | None = store.get("invoices", invoice_id, for_update=True)
         if current is None or current.status != InvoiceStatus.SENT or current.balance_due() != balance:
@@ -343,62 +378,92 @@ def create_payment_link(context: TenantContext, invoice_id: str, *, app_url: str
         for item in links_of(store, invoice_id):
             if item.status == PaymentLinkStatus.OPEN:
                 store.save("payment_links", item.model_copy(update={"status": PaymentLinkStatus.REPLACED, "updated_at": now}))
+                replaced.append(item)
         link = PaymentLink(
-            id=new_id("binlink"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, invoice_id=invoice_id, provider="moyasar",
+            id=new_id("binlink"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, invoice_id=invoice_id, provider=active,
             provider_invoice_id=page.session_id[:200], url=page.url[:500], amount=balance, currency=current.currency, created_by=context.user_id,
             created_at=now, updated_at=now,
         )
         store.add("payment_links", link)
         record_activity(store, context, "invoice_payment_link_created", f"Payment link made for invoice {current.number}.",
                         account_id=current.account_id, project_id=current.project_id, metadata={"invoice_id": invoice_id, "link_id": link.id})
+    _turn_off_stripe_links(issuer, replaced)
     return link
+
+
+def _turn_off_stripe_links(issuer: dict[str, Any], links: list[PaymentLink]) -> None:
+    """Best effort, with no transaction open: a replaced Stripe link stops taking payments.
+
+    A Moyasar page and a Stripe link that could not be turned off stay payable for their old
+    amount; a payment on one is still recorded once, and any surplus is flagged for a refund.
+    """
+    from ..billing.api import stripe_for
+    from ..billing.providers import ProviderError
+
+    stale = [item for item in links if item.provider == "stripe"]
+    stripe = stripe_for(issuer) if stale else None
+    for item in stale:
+        if stripe is None:
+            break
+        try:
+            stripe.deactivate_payment_link(item.provider_invoice_id)
+        except ProviderError:
+            logger.warning("business_stripe_link_not_deactivated", extra={"anum_business": {"event": "stripe_link_not_deactivated"}})
 
 
 def apply_moyasar_payment(issuer_tenant_id: str, metadata: dict[str, str], payment_id: str, status: str, amount_minor: int, currency: str,
                           now: datetime | None = None) -> str:
-    """Record a Moyasar payment on a Business invoice, once per Moyasar payment id.
+    """Record a Moyasar payment on a Business invoice (values read back from Moyasar's API)."""
+    return apply_card_payment("moyasar", issuer_tenant_id, metadata, payment_id, status, amount_minor, currency, now)
 
-    ``payment_id``, ``status``, ``amount_minor`` and ``currency`` come from Moyasar's API (the
-    billing webhook reads the payment back), never from the delivered body. Only the issuer's own
-    Business invoices are paid through its Moyasar account.
+
+def apply_card_payment(provider: Literal["moyasar", "stripe"], issuer_tenant_id: str, metadata: dict[str, str], payment_id: str, status: str,
+                       amount_minor: int, currency: str, now: datetime | None = None) -> str:
+    """Record a card payment on a Business invoice, once per provider payment id.
+
+    For Moyasar, ``payment_id``, ``status``, ``amount_minor`` and ``currency`` come from Moyasar's
+    API (the billing webhook reads the payment back), never from the delivered body; for Stripe they
+    come from the signed ``checkout.session.completed`` event (amount in minor units, fils for AED).
+    Only the issuer's own Business invoices are paid through its provider account.
     """
     now = now or utc_now()
+    name = PROVIDER_NAMES[provider]
     tenant_id = metadata.get("anum_tenant_id", "")
     workspace_id = metadata.get("anum_workspace_id", "")
     invoice_id = metadata.get("anum_business_invoice_id", "")
     if tenant_id != issuer_tenant_id or not ID.match(workspace_id) or not ID.match(invoice_id):
-        logger.warning("business_moyasar_foreign_invoice", extra={"anum_business": {"event": "moyasar_foreign_invoice"}})
+        logger.warning("business_card_foreign_invoice", extra={"anum_business": {"event": f"{provider}_foreign_invoice"}})
         return "ignored"
     if status != "paid" or amount_minor <= 0:
         return "ignored"
-    context = TenantContext(tenant_id=tenant_id, workspace_id=workspace_id, user_id=MOYASAR_USER, roles=["member"])
+    context = TenantContext(tenant_id=tenant_id, workspace_id=workspace_id, user_id=PROVIDER_USERS[provider], roles=["member"])
     with open_business_store(context) as store:
         invoice: Invoice | None = store.get("invoices", invoice_id, for_update=True)
         if invoice is None:
             return "ignored"
-        if store.first("invoice_payments", provider="moyasar", provider_payment_id=payment_id[:200]) is not None:
+        if store.first("invoice_payments", provider=provider, provider_payment_id=payment_id[:200]) is not None:
             return "duplicate_payment"
         if currency.upper() != invoice.currency.value:
-            logger.warning("business_moyasar_currency_mismatch", extra={"anum_business": {"event": "moyasar_currency_mismatch"}})
+            logger.warning("business_card_currency_mismatch", extra={"anum_business": {"event": f"{provider}_currency_mismatch"}})
             return "ignored"
         amount = money(Decimal(amount_minor) / Decimal(100))
         if invoice.status != InvoiceStatus.SENT or invoice.balance_due() <= 0:
             record_activity(store, context, "invoice_payment_needs_review",
-                            f"Moyasar reported a card payment of {invoice.currency.value} {amount} on invoice {invoice.number}, which is "
-                            f"{invoice.status.value}. Check it in the Moyasar dashboard and refund it there if it is not owed.",
-                            account_id=invoice.account_id, metadata={"invoice_id": invoice.id, "moyasar_payment": payment_id[:200]},
-                            idempotency_key=f"moyasar-review:{payment_id[:100]}")
+                            f"{name} reported a card payment of {invoice.currency.value} {amount} on invoice {invoice.number}, which is "
+                            f"{invoice.status.value}. Check it in the {name} dashboard and refund it there if it is not owed.",
+                            account_id=invoice.account_id, metadata={"invoice_id": invoice.id, f"{provider}_payment": payment_id[:200]},
+                            idempotency_key=f"{provider}-review:{payment_id[:100]}")
             return "needs_review"
         applied = min(amount, invoice.balance_due())
-        reference = f"Moyasar {payment_id}"[:120]
-        note = "Paid by card on the Moyasar payment page." + (f" Moyasar took {amount}; {amount - applied} more than the balance, refund it there." if applied < amount else "")
+        reference = f"{name} {payment_id}"[:120]
+        note = f"Paid by card on the {name} payment page." + (f" {name} took {amount}; {amount - applied} more than the balance, refund it there." if applied < amount else "")
         invoice, payment = apply_payment(store, context, invoice, amount=applied, paid_on=now.date(), method=PaymentMethod.CARD,
-                                         reference=reference, note=note[:300], now=now, provider="moyasar", provider_payment_id=payment_id[:200])
+                                         reference=reference, note=note[:300], now=now, provider=provider, provider_payment_id=payment_id[:200])
         for link in links_of(store, invoice.id):
             if link.status == PaymentLinkStatus.OPEN:
                 store.save("payment_links", link.model_copy(update={"status": PaymentLinkStatus.PAID if invoice.status == InvoiceStatus.PAID else PaymentLinkStatus.REPLACED,
                                                                    "updated_at": now}))
-        record_activity(store, context, "invoice_payment_recorded", f"Card payment of {invoice.currency.value} {applied} received through Moyasar on invoice {invoice.number}.",
+        record_activity(store, context, "invoice_payment_recorded", f"Card payment of {invoice.currency.value} {applied} received through {name} on invoice {invoice.number}.",
                         account_id=invoice.account_id, project_id=invoice.project_id, metadata={"invoice_id": invoice.id, "payment_id": payment.id})
     return "paid"
 
