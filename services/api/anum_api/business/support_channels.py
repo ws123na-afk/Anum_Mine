@@ -13,6 +13,7 @@ These adapters are small on purpose: tests replace them, and a new channel adds 
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -95,7 +96,7 @@ async def request_email_reply(context: TenantContext, repository: Any, message_i
     except email_inbox.EmailError as exc:
         raise http_error(exc.status, exc.message) from None
     try:
-        response = await email_api.request_send_approval(draft.id, context, repository)
+        response = await asyncio.to_thread(email_api.request_send_approval, draft.id, context, repository)
     except HTTPException as exc:
         return DeliveryRequest("failed", draft.id, None, None, None, str(exc.detail))
     approval = response.approval

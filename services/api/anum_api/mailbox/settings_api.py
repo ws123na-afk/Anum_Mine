@@ -266,7 +266,7 @@ def _load_rule(context: TenantContext, rule_id: str) -> tuple[ForwardRule, MailA
 
 
 @router.get("/accounts/{account_id}/settings", response_model=SettingsView)
-async def get_settings(account_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> SettingsView:
+def get_settings(account_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> SettingsView:
     """The mailbox's retention and background sync, its last background check and any change waiting."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     _available(context)
@@ -292,7 +292,7 @@ async def get_settings(account_id: str, context: TenantContext = Depends(tenant_
 
 
 @router.post("/accounts/{account_id}/settings", response_model=Waiting)
-async def ask_settings_change(
+def ask_settings_change(
     account_id: str, body: SettingsChange, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
 ) -> Waiting:
     """Ask to change the mailbox's settings: applied only after an owner approves exactly this change."""
@@ -322,7 +322,7 @@ async def ask_settings_change(
 
 
 @router.delete("/accounts/{account_id}/settings/pending", status_code=status.HTTP_204_NO_CONTENT)
-async def withdraw_settings_change(account_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
+def withdraw_settings_change(account_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
     """Withdraw a settings change still waiting for approval (nothing changes)."""
     account = _owned(context, account_id)
     with open_automation_store(context) as store:
@@ -339,7 +339,7 @@ async def withdraw_settings_change(account_id: str, context: TenantContext = Dep
 
 
 @router.get("/accounts/{account_id}/rules", response_model=list[RuleView])
-async def list_rules(account_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> list[RuleView]:
+def list_rules(account_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> list[RuleView]:
     """The mailbox's forwarding rules (its owner's only)."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     _available(context)
@@ -350,7 +350,7 @@ async def list_rules(account_id: str, context: TenantContext = Depends(tenant_co
 
 
 @router.post("/accounts/{account_id}/rules", response_model=RuleResult, status_code=status.HTTP_201_CREATED)
-async def create_rule(account_id: str, body: RuleBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> RuleResult:
+def create_rule(account_id: str, body: RuleBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> RuleResult:
     """A new forwarding rule. It forwards nothing until an owner approves exactly this rule."""
     account = _owned(context, account_id)
     values = _clean_rule(body.model_dump(), account)
@@ -368,7 +368,7 @@ async def create_rule(account_id: str, body: RuleBody, context: TenantContext = 
 
 
 @router.patch("/rules/{rule_id}", response_model=RuleResult)
-async def change_rule(rule_id: str, body: RuleChange, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> RuleResult:
+def change_rule(rule_id: str, body: RuleChange, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> RuleResult:
     """Edit a rule: it stops forwarding at once and waits for a new approval of what it does now."""
     rule, account = _load_rule(context, rule_id)
     merged = {**rule.model_dump(include={"name", "from_contains", "subject_contains", "forward_to"}), **body.model_dump(exclude_none=True)}
@@ -383,7 +383,7 @@ async def change_rule(rule_id: str, body: RuleChange, context: TenantContext = D
 
 
 @router.post("/rules/{rule_id}/pause", response_model=RuleView)
-async def pause_rule(rule_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> RuleView:
+def pause_rule(rule_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> RuleView:
     """Stop a rule (no approval needed: it only stops forwarding). Resuming asks for approval again."""
     rule, account = _load_rule(context, rule_id)
     if rule.approval_id or rule.task_id:
@@ -412,7 +412,7 @@ async def resume_rule(rule_id: str, context: TenantContext = Depends(tenant_cont
 
 
 @router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_rule(rule_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
+def delete_rule(rule_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
     """Remove a rule and withdraw its approval if one is waiting."""
     rule, account = _load_rule(context, rule_id)
     if rule.approval_id or rule.task_id:
@@ -427,7 +427,7 @@ async def delete_rule(rule_id: str, context: TenantContext = Depends(tenant_cont
 
 
 @router.get("/unread", response_model=UnreadView)
-async def unread(context: TenantContext = Depends(tenant_context)) -> UnreadView:
+def unread(context: TenantContext = Depends(tenant_context)) -> UnreadView:
     """The inbox unread counts the background sync stored for the caller's mailboxes (no mail server call)."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     cfg = mail_settings

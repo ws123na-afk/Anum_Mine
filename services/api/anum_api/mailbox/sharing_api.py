@@ -213,7 +213,7 @@ def _decode_cursor(cursor: str) -> tuple[str, str]:
 
 
 @router.get("/accounts/{account_id}/grants", response_model=list[GrantView])
-async def list_grants(
+def list_grants(
     account_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
 ) -> list[GrantView]:
     """Who the owner shared this mailbox with."""
@@ -226,7 +226,7 @@ async def list_grants(
 
 
 @router.get("/accounts/{account_id}/share-candidates", response_model=list[Candidate])
-async def share_candidates(
+def share_candidates(
     account_id: str,
     q: str | None = Query(default=None, max_length=200),
     context: TenantContext = Depends(tenant_context),
@@ -248,7 +248,7 @@ async def share_candidates(
 
 
 @router.post("/accounts/{account_id}/grants", response_model=GrantView, status_code=status.HTTP_201_CREATED)
-async def create_grant(
+def create_grant(
     account_id: str, body: GrantCreate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
 ) -> GrantView:
     """Share the mailbox with a member (or change what they may do if it is already shared)."""
@@ -277,7 +277,7 @@ async def create_grant(
 
 
 @router.patch("/grants/{grant_id}", response_model=GrantView)
-async def update_grant(
+def update_grant(
     grant_id: str, body: GrantUpdate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
 ) -> GrantView:
     """Let a person read only, or read and send (the mailbox's owner only)."""
@@ -295,7 +295,7 @@ async def update_grant(
 
 
 @router.delete("/grants/{grant_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_grant(
+def delete_grant(
     grant_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
 ) -> Response:
     """Stop sharing (the owner), or leave a mailbox shared with you (the person it was shared with)."""
@@ -313,7 +313,7 @@ async def delete_grant(
 
 
 @router.get("/accounts/{account_id}/identities", response_model=list[IdentityView])
-async def list_identities(account_id: str, context: TenantContext = Depends(tenant_context)) -> list[IdentityView]:
+def list_identities(account_id: str, context: TenantContext = Depends(tenant_context)) -> list[IdentityView]:
     """The addresses this mailbox sends as (default first). Empty: it sends as its own address."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     account, access = load_access(context, account_id, "read")
@@ -331,7 +331,7 @@ def _clear_default(store, account_id: str, keep: str) -> None:  # type: ignore[n
 
 
 @router.post("/accounts/{account_id}/identities", response_model=IdentityView, status_code=status.HTTP_201_CREATED)
-async def create_identity(
+def create_identity(
     account_id: str, body: IdentityCreate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
 ) -> IdentityView:
     """Add an address this mailbox may send as (it must be an alias of it on the mail server)."""
@@ -373,7 +373,7 @@ def _own_identity(store, context: TenantContext, identity_id: str) -> MailIdenti
 
 
 @router.patch("/identities/{identity_id}", response_model=IdentityView)
-async def update_identity(
+def update_identity(
     identity_id: str, body: IdentityUpdate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
 ) -> IdentityView:
     """Change the name, the signature or which identity is the default (the address stays)."""
@@ -395,7 +395,7 @@ async def update_identity(
 
 
 @router.delete("/identities/{identity_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_identity(
+def delete_identity(
     identity_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
 ) -> Response:
     """Remove a sender identity. Drafts that used it go back to the mailbox address."""
@@ -411,7 +411,7 @@ async def delete_identity(
 
 
 @router.get("/contacts", response_model=ContactPage)
-async def list_contacts(
+def list_contacts(
     q: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=25, ge=1, le=100),
     cursor: str | None = Query(default=None, max_length=1200),
@@ -429,7 +429,7 @@ async def list_contacts(
 
 
 @router.get("/contacts/{contact_id}", response_model=ContactView)
-async def get_contact(contact_id: str, context: TenantContext = Depends(tenant_context)) -> ContactView:
+def get_contact(contact_id: str, context: TenantContext = Depends(tenant_context)) -> ContactView:
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     with open_mail_store(context) as store:
         contact = store.get_contact(contact_id)
@@ -455,7 +455,7 @@ def _apply(contact: MailContact, name: str | None, email: str | None, company: s
 
 
 @router.post("/contacts", response_model=ContactView, status_code=status.HTTP_201_CREATED)
-async def create_contact(
+def create_contact(
     body: ContactBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
 ) -> ContactView:
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
@@ -476,7 +476,7 @@ async def create_contact(
 
 
 @router.patch("/contacts/{contact_id}", response_model=ContactView)
-async def update_contact(
+def update_contact(
     contact_id: str, body: ContactUpdate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
 ) -> ContactView:
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
@@ -498,7 +498,7 @@ async def update_contact(
 
 
 @router.delete("/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_contact(
+def delete_contact(
     contact_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
 ) -> Response:
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
