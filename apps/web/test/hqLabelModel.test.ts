@@ -272,3 +272,15 @@ test('declutter: the building view priority order is deterministic (selected roo
   assert.ok(shownIds(a).includes('selected'), 'the selected room wins its spot');
   assert.equal(a.find((p) => p.id === 'floor:other')!.shown, false);
 });
+
+test('declutter: a floor tag hangs at the drawn slab of its floor when the scene gives it, and the drawn slabs above occlude', async () => {
+  const { drawnSlabsAbove } = await import('../src/lib/hqLabels.ts');
+  const plan = { x0: -10, z0: -10, x1: 40, z1: 30 };
+  const [tag] = floorTagSpecs({ floors: [floors[0]], activeIndex: 0, plans: new Map([[0, plan]]) });
+  for (const a of [tag.anchor, ...tag.alternatives]) assert.ok(a.x < plan.x0 || a.x > plan.x1 || a.z < plan.z0 || a.z > plan.z1, 'outside the drawn slab');
+  const slabs = [{ ...plan, floorIndex: 0, y0: -0.3, y1: 0 }, { ...plan, floorIndex: 1, y0: 3.9, y1: 4.2 }];
+  const above = drawnSlabsAbove(2, slabs);
+  assert.equal(above[0].length, 1);
+  assert.equal(above[1].length, 0);
+  assert.deepEqual(above[0][0], { min: { x: -10, y: 3.9, z: -10 }, max: { x: 40, y: 4.2, z: 30 } });
+});

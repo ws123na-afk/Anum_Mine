@@ -409,8 +409,10 @@ export function BuildingView(props: BuildingViewProps) {
     if (stackLib) {
       // Floor tags: the open floor's own tag, and with All floors one compact tag per floor at its own edge (never the others while zoomed in).
       // Each stays at its anchor or gives way, is hidden off the stage, behind a slab above it, too near the eye or over the focused room.
-      const above = stacked ? stackLib.slabsAbove(floors) : null;
-      for (const tag of stackLib.floorTagSpecs({ floors, activeIndex })) {
+      // Anchored at the drawn slab of each floor (the structure grows a lower slab to hold the floors above it), hidden behind the drawn slabs above.
+      const plans = new Map(scene.structure.slabs.map((b) => [b.floorIndex, b] as const));
+      const above = stacked ? stackLib.drawnSlabsAbove(floors.length, scene.structure.slabs) : null;
+      for (const tag of stackLib.floorTagSpecs({ floors, activeIndex, plans })) {
         const active = tag.floor === activeIndex;
         if (!active && (!stacked || zoomedIn)) continue;
         const f = floors[tag.floor];

@@ -343,6 +343,11 @@ export function slabBox(extent: RoomRect, index: number, pitch = FLOOR_PITCH_M):
   return { min: { x: extent.x0 - 0.6, y: y - SLAB_M, z: extent.z0 - 0.6 }, max: { x: extent.x1 + 0.6, y: y + 0.02, z: extent.z1 + 0.6 } };
 }
 
+/** The drawn slabs of the floors above each floor (from the scene's `structure.slabs`) as solid boxes, for the floor tags' depth test. */
+export function drawnSlabsAbove(count: number, slabs: readonly (RoomRect & Readonly<{ floorIndex: number; y0: number; y1: number }>)[]): Aabb[][] {
+  return Array.from({ length: count }, (_, i) => slabs.filter((b) => b.floorIndex > i).map((b) => ({ min: { x: b.x0, y: b.y0, z: b.z0 }, max: { x: b.x1, y: b.y1, z: b.z1 } })));
+}
+
 /** For each floor, the slabs of the floors above it: what can stand between the eye and a label hung inside that floor. */
 export function slabsAbove(floors: readonly Pick<SceneFloor, 'rooms'>[], pitch = FLOOR_PITCH_M): Aabb[][] {
   const slabs = floors.map((f, i) => { const e = floorExtent(f); return e ? slabBox(e, i, pitch) : null; });
@@ -358,11 +363,15 @@ export type FloorTagSpec = Readonly<{
 export const FLOOR_TAG_PRIORITY = { active: 3, other: 4 } as const;
 
 /** One tag per floor for the stacked view: it sits on the floor's edge nearest the eye, so no slab can cover it. */
-export function floorTagSpecs(args: Readonly<{ floors: readonly Pick<SceneFloor, 'id' | 'rooms'>[]; activeIndex: number; pitch?: number }>): FloorTagSpec[] {
+export function floorTagSpecs(args: Readonly<{
+  floors: readonly Pick<SceneFloor, 'id' | 'rooms'>[]; activeIndex: number; pitch?: number;
+  /** The drawn slab of each floor when the scene knows it (`structure.slabs`: the rooms, a margin, the core, grown to hold the floors above); else the rooms' extent. */
+  plans?: ReadonlyMap<number, RoomRect>;
+}>): FloorTagSpec[] {
   const pitch = args.pitch ?? FLOOR_PITCH_M;
   const out: FloorTagSpec[] = [];
   args.floors.forEach((floor, fi) => {
-    const e = floorExtent(floor);
+    const e = floor.rooms.length ? args.plans?.get(fi) ?? floorExtent(floor) : null;
     if (!e) return;
     const y = fi * pitch + 1.1, cx = (e.x0 + e.x1) / 2, cz = (e.z0 + e.z1) / 2, out1 = 1.6;
     const sides: Vec3[] = [{ x: cx, y, z: e.z0 - out1 }, { x: cx, y, z: e.z1 + out1 }, { x: e.x0 - out1, y, z: cz }, { x: e.x1 + out1, y, z: cz }];

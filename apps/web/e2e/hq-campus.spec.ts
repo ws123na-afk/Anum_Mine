@@ -35,8 +35,9 @@ test('the campus shows one building per workspace with real counts, and opens a 
   const totals = hq(page).getByRole('region', { name: 'Total agents' });
   await expect(totals).toContainText('4 of 6 buildings report presence');
   await expect(totals.getByRole('img')).toHaveAccessibleName('22 agents by status');
-  // The concept toggle stays, visibly separate.
-  await expect(page.getByRole('group', { name: 'Office presentation mode' })).toBeVisible();
+  // The concept preview stays a separate, labelled choice: it moved into the Office tools menu (the preview shows the mode switch to come back).
+  await expect(await officeMenuItem(page, 'Concept preview')).toBeVisible();
+  await page.keyboard.press('Escape');
 
   await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
   const detail = hq(page).getByRole('complementary', { name: 'About Al Noor Fleet HQ' });

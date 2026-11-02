@@ -166,9 +166,11 @@ test('every moved control is still reachable, by keyboard too, and none is a dea
   const count = page.getByTestId('hq-floor-count');
   const floors = hq(page).getByRole('group', { name: 'Floors of this building' });
   const before = await count.textContent();
-  await floors.getByRole('button', { name: 'Floor below' }).click();
-  await expect(count).not.toHaveText(before ?? '');
+  // The building opens on its lowest floor: Floor below is disabled there (a real end, not a dead button), Floor above moves up.
+  await expect(floors.getByRole('button', { name: 'Floor below' })).toBeDisabled();
   await floors.getByRole('button', { name: 'Floor above' }).click();
+  await expect(count).not.toHaveText(before ?? '');
+  await floors.getByRole('button', { name: 'Floor below' }).click();
   await expect(count).toHaveText(before ?? '');
   await showFloorList(page);
   await expect(hq(page).getByRole('navigation', { name: 'Floors of ANUM HQ' })).toBeVisible();
