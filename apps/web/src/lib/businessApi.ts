@@ -6,6 +6,7 @@ import type {
   ImportResult, LeadState, MilestoneStatus, OpportunityStage, ProjectStatus, ProposalContent, BusinessContact, BusinessChangeOrder, BusinessProfitability,
   BusinessUsageEntry, ChangeOrderInput, UsageKind, BusinessAccountRow, ResolutionCode,
   SupportAssignee, SupportPolicy, SupportSetup, SupportSummary, SupportTicket, TicketDetail, TicketFields, TicketReplyRequest, TicketStatus,
+  LeadDuplicatePair, WhatsAppWaitingPage,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -42,7 +43,7 @@ export const activateVersion = (offerId: string) => apiRequest<BusinessProductDe
 export const retireVersion = (offerId: string) => apiRequest<BusinessProductDetail>(`${BASE}/offers/${id(offerId)}/retire`, json('POST'));
 
 // leads
-export const listLeads = (q: { q?: string; state?: readonly LeadState[]; sort?: string; limit: number; offset: number }) =>
+export const listLeads = (q: { q?: string; state?: readonly LeadState[]; sort?: string; channel?: 'whatsapp' | 'other'; limit: number; offset: number }) =>
   apiRequest<BusinessPage<BusinessLead>>(`${BASE}/leads${query(q)}`, { method: 'GET' });
 export const getLead = (leadId: string) => apiRequest<BusinessLeadDetail>(`${BASE}/leads/${id(leadId)}`, { method: 'GET' });
 export const createLead = (body: Record<string, unknown>) => apiRequest<BusinessLeadDetail>(`${BASE}/leads`, json('POST', body));
@@ -159,3 +160,15 @@ export const addReply = (ticketId: string, body: string) => apiRequest<TicketDet
 export const editReply = (ticketId: string, replyId: string, body: string) => apiRequest<TicketDetail>(`${ticketPath(ticketId)}/replies/${id(replyId)}`, json('PATCH', { body }));
 export const discardReply = (ticketId: string, replyId: string) => apiRequest<TicketDetail>(`${ticketPath(ticketId)}/replies/${id(replyId)}`, { method: 'DELETE' });
 export const requestReplyApproval = (ticketId: string, replyId: string) => apiRequest<TicketReplyRequest>(`${ticketPath(ticketId)}/replies/${id(replyId)}/request-approval`, json('POST'));
+
+// One lead list (docs/business.md#whatsapp-leads): WhatsApp leads waiting to join it and duplicate suggestions.
+export const listWaitingWhatsApp = (q: { q?: string; limit: number; offset: number }) =>
+  apiRequest<WhatsAppWaitingPage>(`${BASE}/lead-sources/whatsapp${query(q)}`, { method: 'GET' });
+export const mapWhatsAppLead = (salesLeadId: string, body: { link_to_lead_id?: string; separate_from?: string[] }) =>
+  apiRequest<{ lead_id: string; linked: boolean }>(`${BASE}/lead-sources/whatsapp/${id(salesLeadId)}/map`, json('POST', body));
+export const mapAllWhatsApp = () => apiRequest<{ mapped: number; waiting_for_owner: number }>(`${BASE}/lead-sources/whatsapp/map-all`, { method: 'POST' });
+export const listLeadDuplicates = () => apiRequest<LeadDuplicatePair[]>(`${BASE}/lead-duplicates`, { method: 'GET' });
+export const mergeLeads = (keepId: string, mergeId: string) =>
+  apiRequest<{ kept_id: string | null; closed_id: string | null }>(`${BASE}/lead-duplicates/merge`, json('POST', { keep_id: keepId, merge_id: mergeId }));
+export const keepLeadsSeparate = (firstId: string, secondId: string) =>
+  apiRequest<{ kept_id: string | null; closed_id: string | null }>(`${BASE}/lead-duplicates/separate`, json('POST', { first_id: firstId, second_id: secondId }));

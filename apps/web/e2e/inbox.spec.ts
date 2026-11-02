@@ -36,6 +36,17 @@ async function mockInbox(page: Page, options: InboxOptions = {}): Promise<Calls>
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     const role = options.role ?? 'owner';
     if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role, active: true });
+    // The provider inbox opens inside the one Email page, whose mailbox list covers both back ends (docs/email.md#one-email-module).
+    if (path === '/api/v1/email/unified/mailboxes') {
+      if (role === 'viewer') return json({ error: { code: 'forbidden', message: 'Reading email needs the owner or member role in this workspace.' } }, 403);
+      const accounts = (options.accounts ?? [emailAccount]) as { id: string; provider: string; address: string; display_name?: string | null; status: string; visibility: string; unread_count: number }[];
+      return json({
+        items: accounts.map((a) => ({ ref: `provider:${a.id}`, id: a.id, backend: 'provider', source: a.provider, address: a.address, display_name: a.display_name ?? null,
+          status: a.status, access: a.visibility, unread: a.unread_count, can_send: a.status === 'connected' })),
+        provider: { state: accounts.length ? 'ok' : 'none', detail: null }, server: { state: 'off', detail: 'The Email Center is turned off on this server (ANUM_MAILSERVER_ENABLED).' },
+        can_act: true, can_manage: role === 'owner',
+      });
+    }
     if (path === '/api/v1/email/setup') {
       if (role === 'viewer') return json({ error: { code: 'forbidden', message: 'Reading email needs the owner or member role in this workspace.' } }, 403);
       return json({ ...emailSetup, can_connect: role === 'owner' });
@@ -110,7 +121,7 @@ const noHorizontalOverflow = (page: Page) => page.evaluate(() => document.docume
 test('owners read a message as plain text and send the AI draft only through approval', async ({ page }) => {
   const calls = await mockInbox(page);
   await page.goto('/#inbox');
-  await expect(page.getByRole('heading', { level: 1, name: 'Inbox' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Email' })).toBeVisible();
   // The mailbox setup sits behind the status chip; the summary band reads GET /email/summary and /email/drafts.
   await expect(page.getByRole('region', { name: 'Inbox at a glance' })).toContainText('Drafts waiting');
   await page.getByRole('button', { name: /1 mailbox/ }).click();
@@ -226,7 +237,7 @@ test('narrow screens show the list or the message, with a way back', async ({ pa
 
 async function openCompose(page: Page) {
   await page.goto('/#inbox');
-  await expect(page.getByRole('heading', { level: 1, name: 'Inbox' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Email' })).toBeVisible();
   await page.getByRole('button', { name: 'New email' }).click();
   const drawer = page.getByRole('dialog', { name: 'New email' });
   await expect(drawer).toBeVisible();

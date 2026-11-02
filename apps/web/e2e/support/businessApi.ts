@@ -12,7 +12,11 @@ export const PAYLOAD_HASH = 'b7'.repeat(32);
 
 export interface BusinessMock { calls: { method: string; path: string; body: unknown; query?: string }[]; approvals: number }
 
-export async function mockBusiness(page: Page, options: { role?: 'owner' | 'member'; status?: 403 | 500; webSearch?: boolean; products?: number; failProducts?: number } = {}): Promise<BusinessMock> {
+export async function mockBusiness(page: Page, options: {
+  role?: 'owner' | 'member'; status?: 403 | 500; webSearch?: boolean; products?: number; failProducts?: number;
+  /** WhatsApp Sales CRM leads not in the lead list yet, and duplicate pairs (docs/business.md#whatsapp-leads). */
+  whatsapp?: Json[]; duplicates?: Json[]; failWhatsAppOnce?: boolean;
+} = {}): Promise<BusinessMock> {
   await mockWorkspaceApi(page);
   const role = options.role ?? 'owner';
   const mock: BusinessMock = { calls: [], approvals: 0 };
@@ -87,6 +91,33 @@ export async function mockBusiness(page: Page, options: { role?: 'owner' | 'memb
         transitions: {}, contactable_bases: ['consent_given', 'inbound_inquiry', 'existing_relationship', 'referral', 'public_business_channel'],
       });
     }
+    // One lead list: WhatsApp leads waiting to join it, and duplicate suggestions.
+    if (path === '/lead-sources/whatsapp' && method === 'GET') {
+      if (options.failWhatsAppOnce) { options.failWhatsAppOnce = false; return json(envelope('internal_error', 'The WhatsApp store did not answer.'), 503); }
+      const q = (url.searchParams.get('q') ?? '').toLowerCase();
+      const waiting = (options.whatsapp ?? []).filter((item) => !q || JSON.stringify(item).toLowerCase().includes(q));
+      const offset = Number(url.searchParams.get('offset') ?? 0), limit = Number(url.searchParams.get('limit') ?? 25);
+      return json({ items: waiting.slice(offset, offset + limit), total: waiting.length, limit, offset, truncated: false });
+    }
+    if (path === '/lead-sources/whatsapp/map-all' && method === 'POST') {
+      const all = options.whatsapp ?? [];
+      const free = all.filter((item) => !(item.suggestions as Json[]).length);
+      for (const item of free) leads.push({ id: id('blead'), ...scope, account_id: id('bacct'), contact_id: null, product_id: null, title: String(item.requirements || 'WhatsApp enquiry'), state: 'discovered', owner_id: 'user_local', source: 'inbound', score: {}, score_total: 0, score_known: 0, next_step: '', lost_reason: '', suppressed_reason: '', created_by: 'user_local', created_at: now(), updated_at: now(), account_name: String(item.company_name || item.contact_name), channel: 'whatsapp', channel_conversation_id: item.conversation_id, channel_phone: item.phone, sales_lead_id: item.id, notes: [], evidence: [], inferences: [], activities: [], drafts: [] });
+      options.whatsapp = all.filter((item) => !free.includes(item));
+      return json({ mapped: free.length, waiting_for_owner: options.whatsapp.length });
+    }
+    if (parts[0] === 'lead-sources' && parts[3] === 'map' && method === 'POST') {
+      const item = (options.whatsapp ?? []).find((row) => row.id === parts[2]);
+      if (!item) return json(envelope('not_found', 'WhatsApp lead not found.'), 404);
+      options.whatsapp = (options.whatsapp ?? []).filter((row) => row !== item);
+      return json({ lead_id: (body.link_to_lead_id as string) ?? id('blead'), linked: Boolean(body.link_to_lead_id) });
+    }
+    if (path === '/lead-duplicates' && method === 'GET') return json(options.duplicates ?? []);
+    if ((path === '/lead-duplicates/merge' || path === '/lead-duplicates/separate') && method === 'POST') {
+      if (path.endsWith('merge') && role !== 'owner') return json(envelope('forbidden', 'Only workspace owners can do this.'), 403);
+      options.duplicates = [];
+      return json({ kept_id: body.keep_id ?? null, closed_id: body.merge_id ?? null });
+    }
     if (path === '/kpi') {
       const won = leads.filter((lead) => lead.state === 'won').length;
       const step = (stage: string, reached: number) => ({ stage, reached, of: leads.length, rate_pct: leads.length ? Math.round(reached * 1000 / leads.length) / 10 : null, from_previous_pct: stage === 'created' ? null : leads.length ? 100 : null });
@@ -134,8 +165,8 @@ export async function mockBusiness(page: Page, options: { role?: 'owner' | 'memb
 
     // leads
     if (path === '/leads' && method === 'GET') {
-      const state = url.searchParams.get('state');
-      const shown = leads.filter((lead) => !state || lead.state === state).map((lead) => leadDetail(lead).lead);
+      const state = url.searchParams.get('state'), channel = url.searchParams.get('channel');
+      const shown = leads.filter((lead) => (!state || lead.state === state) && (!channel || (channel === 'whatsapp') === (lead.channel === 'whatsapp'))).map((lead) => leadDetail(lead).lead);
       return json(page_(shown));
     }
     if (path === '/leads' && method === 'POST') {

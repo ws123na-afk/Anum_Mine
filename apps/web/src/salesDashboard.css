@@ -75,3 +75,5 @@
 .salesReadiness ul{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;padding:0;margin:0;list-style:none}
 .salesReadiness li{display:flex;align-items:center;gap:9px;font-size:var(--text-md)}
 .salesReadiness li span{font-size:var(--text-md);min-width:22px}
+/* One lead list: the leads live in Business, Leads (docs/business.md#whatsapp-leads). */
+.salesLeadsLink { align-items: center; display: inline-flex; font-weight: 600; gap: var(--d-s1); min-height: 40px; }

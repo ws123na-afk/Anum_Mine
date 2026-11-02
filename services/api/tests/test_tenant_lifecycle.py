@@ -200,6 +200,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             "office_desk_staffing": "0109_staff_desks",
             "office_building_logos": "0117_building_logo_signs",
             "billing_refunds": "0123_selling_readiness",
+            "business_lead_pair_decisions": "0125_unify_whatsapp_leads",
             "billing_company_profiles": "0123_selling_readiness",
             "workspace_record_retention": "0120_record_retention",
             "office_visitors": "0118_career_visitor_register",

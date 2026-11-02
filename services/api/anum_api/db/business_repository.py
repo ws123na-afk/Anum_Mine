@@ -128,6 +128,18 @@ class BusinessLeadRecord(Base, _Updated):
     lost_at: Mapped[datetime | None] = mapped_column(TS)
     suppressed_at: Mapped[datetime | None] = mapped_column(TS)
     created_by: Mapped[str] = mapped_column(String(160))
+    # Migration 0125_unify_whatsapp_leads.
+    channel: Mapped[str | None] = mapped_column(String(20))
+    channel_conversation_id: Mapped[str | None] = mapped_column(String(80))
+    channel_phone: Mapped[str | None] = mapped_column(String(20))
+    sales_lead_id: Mapped[str | None] = mapped_column(String(80))
+
+
+class BusinessLeadPairDecisionRecord(Base, _Updated):
+    __tablename__ = "business_lead_pair_decisions"
+    pair_key: Mapped[str] = mapped_column(String(200))
+    decision: Mapped[str] = mapped_column(String(20))
+    decided_by: Mapped[str] = mapped_column(String(160))
 
 
 class BusinessEvidenceRecord(Base, _Updated):
@@ -552,6 +564,7 @@ RECORDS: dict[str, Any] = {
     "accounts": BusinessAccountRecord,
     "contacts": BusinessContactRecord,
     "leads": BusinessLeadRecord,
+    "lead_pair_decisions": BusinessLeadPairDecisionRecord,
     "evidence": BusinessEvidenceRecord,
     "inferences": BusinessInferenceRecord,
     "activities": BusinessActivityRecord,

@@ -100,6 +100,19 @@ export async function mockMailApi(page: Page, options: MailMockOptions = {}): Pr
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     const error = (status: number, message: string, code = 'error') => json({ error: { code, message } }, status);
     if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role, active: true });
+    // The one Email page reads its mailbox list over both back ends (docs/email.md#one-email-module).
+    if (path === '/api/v1/email/unified/mailboxes') {
+      if (role === 'viewer') return error(403, 'Reading email needs the owner or member role in this workspace.', 'forbidden');
+      const enabled = options.enabled ?? true;
+      const unread = state.messages.filter((m) => m.folder === 'INBOX' && !m.seen).length;
+      return json({
+        items: options.noAccount || !enabled ? [] : [{ ref: `server:${mailAccount.id}`, id: mailAccount.id, backend: 'server', source: 'mailserver', address: mailAccount.address,
+          display_name: mailAccount.display_name, status: 'connected', access: 'owner', unread, can_send: true }],
+        provider: { state: 'none', detail: null },
+        server: enabled ? { state: 'ok', detail: null } : { state: 'off', detail: 'The Email Center is turned off on this server (ANUM_MAILSERVER_ENABLED).' },
+        can_act: true, can_manage: role === 'owner',
+      });
+    }
     if (!path.startsWith('/api/v1/mail') && !path.startsWith('/api/v1/approvals/approval_')) return route.fallback();
     if (path === '/api/v1/mail/setup') {
       if (role === 'viewer') return error(403, 'Reading email needs the owner or member role in this workspace.', 'forbidden');

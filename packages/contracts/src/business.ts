@@ -82,7 +82,18 @@ export interface BusinessLead extends Scoped {
   last_verified_at: string | null; researched_at: string | null; qualified_at: string | null; contacted_at: string | null; replied_at: string | null;
   meeting_at: string | null; offered_at: string | null; won_at: string | null; lost_at: string | null; suppressed_at: string | null; created_by: string;
   account_name: string; account_domain: string | null; contact_name: string | null; product_name: string | null; block_reason: string | null;
+  /** Set when the lead was mapped from the WhatsApp Sales CRM (docs/business.md#whatsapp-leads); absent or null otherwise. */
+  channel?: 'whatsapp' | null; channel_conversation_id?: string | null; channel_phone?: string | null; sales_lead_id?: string | null;
 }
+
+/** A WhatsApp Sales CRM lead that is not in the lead list yet, with the leads it may be the same person as. */
+export interface WhatsAppWaitingLead {
+  id: string; contact_name: string; company_name: string; phone: string | null; requirements: string; stage: string; conversation_id: string;
+  campaign_hint: string | null; created_at: string; updated_at: string; suggestions: { lead_id: string; title: string; reason: string }[];
+}
+export interface WhatsAppWaitingPage { items: WhatsAppWaitingLead[]; total: number; limit: number; offset: number; truncated: boolean }
+export interface LeadPairSide { id: string; title: string; state: LeadState; channel: string | null; score_total: number; updated_at: string }
+export interface LeadDuplicatePair { first: LeadPairSide; second: LeadPairSide; reason: string }
 
 export interface BusinessEvidence extends Scoped {
   lead_id: string; account_id: string; url: string; url_key: string; title: string; published_on: string | null; excerpt: string;

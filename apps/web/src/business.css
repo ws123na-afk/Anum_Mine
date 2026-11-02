@@ -181,3 +181,28 @@
 .invLines { font-size: var(--text-sm); }
 .invLines th[scope="row"] { min-width: 0; }
 .invLines td { white-space: nowrap; }
+
+/* One lead list (BusinessLeadSources.tsx, docs/business.md#whatsapp-leads). */
+.bzSourceBadge {
+  align-items: center; border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted); display: inline-flex; font-size: var(--text-xs);
+  font-weight: 600; gap: 4px; margin-inline-start: var(--d-s1); padding: 1px var(--d-s2); vertical-align: middle; white-space: nowrap;
+}
+.bzSourceBadge svg { height: 12px; width: 12px; }
+.bzWaiting { display: grid; gap: var(--d-s2); margin-block-end: var(--d-s3); min-width: 0; padding: var(--d-s3); }
+.bzWaitingHead { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.bzWaitingHead h3 { align-items: center; display: flex; font-size: var(--text-base); gap: var(--d-s1); margin: 0; }
+.bzWaitingHead p { margin: var(--d-s1) 0 0; }
+.bzWaitingList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.bzWaitingItem { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s2); }
+.bzWaitingText { display: grid; gap: var(--d-s1); min-width: 0; overflow-wrap: anywhere; }
+.bzWaitingMeta, .bzPairSide { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s2); }
+.bzSuggest { border-inline-start: 3px solid var(--d-warn); display: grid; gap: var(--d-s1); padding-inline-start: var(--d-s2); }
+.bzSuggest p { margin: 0; }
+.bzSuggestRow { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.bzFromChannel { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); padding: var(--d-s2) var(--d-s3); }
+.bzFromChannel p { margin: 0; }
+.bzLinkButton {
+  align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); display: inline-flex; font-weight: 600;
+  min-height: 40px; padding: var(--d-s1) var(--d-s3); text-decoration: none;
+}
+.bzLinkButton:hover { background: var(--d-glass-1, transparent); }

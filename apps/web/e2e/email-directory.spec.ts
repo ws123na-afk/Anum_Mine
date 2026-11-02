@@ -11,7 +11,8 @@ async function openEmail(page: Page, options: DirectoryOptions = {}) {
   await mockWorkspaceApi(page);
   const mail = await mockMailApi(page);
   const directory = await mockMailDirectory(page, options);
-  await page.goto('/#email');
+  // The own mail server's mailboxes as a whole (its picker, sharing and contacts) inside the one Email page.
+  await page.goto('/#email/server');
   await expect(page.getByRole('heading', { level: 1, name: 'Email' })).toBeVisible();
   await expect(page.locator('.mailRow').first()).toBeVisible();
   return { ...mail, directory: directory.calls };

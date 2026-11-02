@@ -42,6 +42,7 @@ const id = (value: string) => encodeURIComponent(value);
 export const listSalesLeads = (status?: SalesStage): Promise<{items: SalesLead[]; count: number}> =>
   apiRequest(`${BASE}/leads?limit=100${status ? `&status=${encodeURIComponent(status)}` : ''}`, {method: 'GET'});
 
+export const getSalesLead = (leadId: string): Promise<SalesLead> => apiRequest(`${BASE}/leads/${encodeURIComponent(leadId)}`, {method: 'GET'});
 export const getSalesOverview = (): Promise<SalesOverview> => apiRequest(`${BASE}/overview`, {method: 'GET'});
 
 export const updateSalesLead = (lead: SalesLead, fields: Record<string, unknown>): Promise<SalesLead> =>

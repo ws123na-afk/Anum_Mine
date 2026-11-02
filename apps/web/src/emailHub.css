@@ -1,0 +1,67 @@
+/* The one Email page (EmailHub.tsx): the mailbox list beside the page, the source badges, the
+   All inboxes filters and the Connections groups. Spacing, radii and colour from the shared tokens. */
+.emailHub { display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.emailHubMain { display: grid; align-content: start; gap: var(--d-s3); min-width: 0; }
+/* From 1280px the list sits beside the page; below it is a row of mailboxes above the page. */
+@media (min-width: 1280px) {
+  .emailHub { align-items: start; grid-template-columns: 216px minmax(0, 1fr); }
+  .emailHubRail { position: sticky; top: var(--d-s3); }
+}
+
+.emailHubRail { border: 1px solid var(--d-line); border-radius: var(--d-r-control); min-width: 0; padding: var(--d-s2); }
+.hubRailList { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
+@media (max-width: 1279px) {
+  .hubRailList { display: flex; gap: var(--d-s1); overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: var(--d-s1); }
+  .hubRailList > li { flex: none; max-width: 280px; }
+}
+.hubRailItem {
+  align-items: center; background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-text); display: flex;
+  font-size: var(--text-md); gap: var(--d-s2); min-height: 44px; padding: var(--d-s1) var(--d-s2); text-align: start; width: 100%;
+}
+.hubRailItem > svg { flex: none; height: 18px; width: 18px; }
+.hubRailItem:hover { background: var(--d-glass-1, transparent); }
+.hubRailItem[aria-current='page'] { background: var(--d-glass-2, transparent); border-color: var(--d-violet); font-weight: 600; }
+.hubRailLabel { align-items: center; display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: var(--d-s1); min-width: 0; }
+.hubRailMailbox .hubRailLabel { align-items: flex-start; flex-direction: column; flex-wrap: nowrap; }
+.hubRailNote { display: grid; gap: var(--d-s2); margin: var(--d-s2) 0 0; }
+.hubAddress { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.hubCount {
+  border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-text); flex: none; font-size: var(--text-xs); font-weight: 700; line-height: 1;
+  min-width: 22px; padding: 4px 6px; text-align: center;
+}
+.hubShared { align-items: center; color: var(--d-muted); display: inline-flex; font-size: var(--text-xs); gap: 2px; }
+.hubShared svg { height: 12px; width: 12px; }
+
+.hubSource {
+  align-items: center; border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted); display: inline-flex; flex: none;
+  font-size: var(--text-xs); font-weight: 600; gap: 4px; line-height: 1.2; padding: 2px var(--d-s2); white-space: nowrap;
+}
+.hubSource svg { height: 12px; width: 12px; }
+.hubSource-mailserver { border-color: var(--d-sky); color: var(--d-text); }
+
+.hubFilters { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; padding: 0 var(--d-s3) var(--d-s2); }
+.hubFilters input[type='search'] { flex: 1 1 160px; min-height: 40px; min-width: 0; width: auto; }
+.hubRowMeta { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1); min-width: 0; }
+.hubRowMeta .hubAddress { color: var(--d-muted); font-size: var(--text-sm); }
+.hubReader .mailAllContext { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); padding: var(--d-s2) var(--d-s3); }
+
+.hubWriteFrom { display: grid; gap: var(--d-s3); }
+.hubWriteFrom fieldset { border: 0; display: grid; gap: var(--d-s2); margin: 0; min-width: 0; padding: 0; }
+.hubWriteOption {
+  align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: flex; flex-wrap: wrap; gap: var(--d-s2);
+  min-height: 44px; padding: var(--d-s2) var(--d-s3);
+}
+.hubWriteOption:has(input:checked) { border-color: var(--d-violet); }
+
+.hubGroups { display: grid; gap: var(--d-s3); min-width: 0; }
+.hubGroup { display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
+.hubGroupHead { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.hubGroupHead h2 { font-size: var(--text-base); margin: 0; }
+.hubGroupHead p { margin: var(--d-s1) 0 0; }
+.hubConnList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.hubConn {
+  align-items: center; border-top: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between;
+  min-width: 0; padding-top: var(--d-s2);
+}
+.hubConnText { display: grid; gap: var(--d-s1); min-width: 0; }
+.hubConnMeta { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s2); }
