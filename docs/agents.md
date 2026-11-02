@@ -130,6 +130,10 @@ No role is granted anything new and nothing reads agents across tenants. The mig
 
 Every state-changing agent route (create, edit, add or delete a memory, delete) writes an audit record without the instructions or memory text; `test_agents.py` walks them through `tests/audit_probe.py` ([Audit log](governance-and-scale.md#audit-log)).
 
+## Office staffing blueprint
+
+Every office of the headquarters has a reviewed blueprint of agent roles, each with its purpose, skills, tools and their risk, rules (autonomy, highest tool risk, approvals, monthly cost cap, a never list) and data sources ([Office staffing](ANUM_MINE_OFFICE_STAFFING.md)). The Command Center's **Offices and agents** tab compares each office's agents with it. A workspace owner can create a missing role (paused, through `create_agent_governed`) or give an existing agent its missing skills, tools and rules through `update_agent_governed`, the synchronous body of `PATCH /agents/{id}` (same edit right, version check, capability validation and `agent.updated` audit). Tools and skills are only added, autonomy and the cost cap only tightened, and the rules are appended to the instructions under `Office rules (blueprint v1)`.
+
 ## Not yet
 
 - Converging with [department assistants](team-work.md#department-assistants): team work landed its own `assistant_profiles` and `tasks.assistant_id`. A task can carry either; both narrow tool policy and neither widens it (the runtime applies autonomy, then the assistant, then the agent). Merging the two models into one is open.

@@ -106,6 +106,7 @@ x-user-roles: owner,member
 - [ANUM MINE floor overview: the whole floor on one screen, and the fitted building camera](docs/ANUM_MINE_FLOOR_OVERVIEW.md)
 - [ANUM MINE headquarters label cards and scene chrome: room and agent cards, density rule, floor selector, live strips](docs/ANUM_MINE_HQ_LABELS.md)
 - [ANUM MINE Staff my campus: a reviewed paused agent for every empty desk](docs/ANUM_MINE_STAFF_DESKS.md)
+- [ANUM MINE office staffing blueprint: roles, skills, tools, rules and data sources per office, and the Offices and agents view](docs/ANUM_MINE_OFFICE_STAFFING.md)
 - [ANUM MINE departments with real modules, agent roles for them and meetings tied to rooms](docs/ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md)
 - [ANUM MINE headquarters building modules, command centre room kind, personal office and floor transitions](docs/ANUM_MINE_HQ_BUILDING_MODULES.md)
 - [ANUM MINE Executive PA tools and executive desk](docs/ANUM_MINE_EXECUTIVE_PA.md)

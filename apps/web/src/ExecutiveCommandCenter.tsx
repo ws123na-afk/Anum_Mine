@@ -5,7 +5,7 @@
  * and opens only by an explicit workspace switch. Grants are managed in
  * ExecutiveCommandCenterGrants.tsx (owner only, approved by exact payload hash).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Building2, Link2Off, LockKeyhole, RefreshCw, ShieldCheck } from 'lucide-react';
 import { apiRequest, apiRequestVoid, currentScope } from './lib/api';
 import { ApiError, describeError, isPermissionDenied } from './lib/errors';
@@ -16,7 +16,10 @@ import type { ExecutiveGrantedWorkspace, ExecutiveNotGrantedWorkspace, Executive
 import { ExecutivePanel } from './ExecutivePanel';
 import { ExecutiveGrants } from './ExecutiveCommandCenterGrants';
 import { PageHeader, LoadingSkeleton } from './PageParts';
+import { forgetExecutiveTab, takeExecutiveTab } from './lib/officeStaffing';
 import './executivePanel.css';
+
+const OfficeStaffingView = lazy(() => import('./hq-staffing/OfficeStaffingView'));
 
 type Load = { state: 'loading' } | { state: 'ready'; overview: ExecutiveOverview; own: ExecutiveSummary | null }
   | { state: 'denied' } | { state: 'error'; message: string } | { state: 'notConnected'; own: ExecutiveSummary | null };
@@ -46,6 +49,8 @@ export function ExecutiveCommandCenter({ workspaceId, tenantId, owner, onGo, onS
   const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const go = onGo as (view: string) => void;
+  const [tab, setTab] = useState<'workspaces' | 'offices'>(() => takeExecutiveTab());
+  useEffect(() => { forgetExecutiveTab(); }, []);
 
   const ownSummary = useCallback(async (): Promise<ExecutiveSummary | null> => {
     try { return (await pa.invoke('summarise_workspace', {}, 'typed')).summary ?? null; } catch { return null; }
@@ -103,6 +108,16 @@ export function ExecutiveCommandCenter({ workspaceId, tenantId, owner, onGo, onS
   return <div className="exPage">
     <PageHeader title={t('nav.executive')} subtitle={t('executive.subtitle')}
       actions={<button type="button" className="secondary" onClick={() => void refresh()} disabled={load.state === 'loading'}><RefreshCw aria-hidden="true" />{t('executive.refresh')}</button>} />
+    <div className="exTabs" role="tablist" aria-label={t('ostaff.tabs')}>
+      {(['workspaces', 'offices'] as const).map((id) => <button key={id} type="button" role="tab" id={`ex-tab-${id}`} aria-controls={`ex-panel-${id}`}
+        aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} className={tab === id ? undefined : 'secondary'}
+        onClick={() => setTab(id)} onKeyDown={(e) => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const next = id === 'workspaces' ? 'offices' : 'workspaces'; setTab(next); document.getElementById(`ex-tab-${next}`)?.focus(); } }}>
+        {t(id === 'workspaces' ? 'ostaff.tab.workspaces' : 'ostaff.tab.offices')}</button>)}
+    </div>
+    {tab === 'offices' && <div role="tabpanel" id="ex-panel-offices" aria-labelledby="ex-tab-offices">
+      <Suspense fallback={<LoadingSkeleton label={t('ostaff.loading')} rows={3} />}><OfficeStaffingView onGo={go} /></Suspense>
+    </div>}
+    {tab === 'workspaces' && <div role="tabpanel" id="ex-panel-workspaces" aria-labelledby="ex-tab-workspaces">
     {note && <p className={`notice ${note.error ? 'errorNotice' : ''}`} role={note.error ? 'alert' : 'status'}>{note.text}</p>}
     <div className="exLayout">
       <section className="exDesk" aria-labelledby="ex-desk-title">
@@ -131,5 +146,6 @@ export function ExecutiveCommandCenter({ workspaceId, tenantId, owner, onGo, onS
       </section>
       <aside className="exSide"><ExecutivePanel onOpenView={(view) => go(view)} /></aside>
     </div>
+    </div>}
   </div>;
 }
