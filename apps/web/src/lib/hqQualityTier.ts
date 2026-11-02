@@ -25,6 +25,30 @@ export function classifyRenderer(name: string): GpuClass {
   return 'unknown';
 }
 
+/**
+ * Older integrated graphics, which start one tier lower than the integrated rule: Intel HD Graphics with a four digit model or none
+ * (2012 to 2015, 7th and 8th generation), Intel's 12 to 18 unit chips (HD or UHD 500, 505, 510, 600, 605, 610: half the units of the
+ * UHD 620 measured below) and AMD's R-series APUs (2014 to 2016).
+ */
+const OLDER_INTEGRATED = /\bhd graphics(?! ?[5-9]\d\d\b)|\b(u?hd) graphics (50[05]|510|60[05]|610)\b|radeon(\(tm\))? r[2-7] graphics/;
+
+/**
+ * The tier a session starts on before anything is measured (docs/ANUM_MINE_HQ_GPU_CHECK.md, "The automatic choice"). The rule rests on the
+ * renderer string and on the first real report: an integrated Intel UHD Graphics 620 (Windows, Chrome) held 60 frames a second at High and
+ * Medium (95th percentile 16.8 ms) but not at Ultra (95th percentile 66.7 ms, 14 dropped frames in 201), so integrated graphics start at
+ * High and the older ones above at Medium. Discrete cards and Apple M chips start at Ultra; phone GPUs at Medium; a masked or unknown name
+ * at High (the frame governor still lowers any tier that is too heavy). A very large canvas never starts above High.
+ */
+export function startTierFor(name: string, pixels: number): number {
+  const gpu = classifyRenderer(name);
+  const n = name.toLowerCase();
+  const tier = gpu === 'software' ? 0
+    : gpu === 'discrete' || (gpu === 'apple' && /apple m\d/.test(n)) ? 3
+      : gpu === 'mobile' || ((gpu === 'integrated' || gpu === 'unknown') && OLDER_INTEGRATED.test(n)) ? 1
+        : 2;
+  return pixels > PIXELS_BEFORE_STEP_DOWN ? Math.min(tier, 2) : tier;
+}
+
 /** Only these GPUs are ever promoted without a pin: the others stay on the ultra tier however fast one frame was. */
 export const canPromote = (gpu: GpuClass): boolean => gpu === 'discrete' || gpu === 'apple';
 

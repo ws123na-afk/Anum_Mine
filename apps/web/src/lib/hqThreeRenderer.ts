@@ -36,9 +36,9 @@ import { clipPlanes, viewProjection } from './hqMath.ts';
 import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
 import { ModelLayer } from './hqModelLayer.ts';
-import { QUALITY_PIN_KEY, ladderFor, parsePin, tierById, type QualityState, type StepSettings, type TierReason } from './hqQualityTiers.ts';
+import { QUALITY_PIN_KEY, ladderFor, parsePin, programVariants, tierById, type QualityState, type StepSettings, type TierReason } from './hqQualityTiers.ts';
 import type { FrameGovernor } from './hqGovernor.ts';
-import { PROMOTE_FRAMES, classifyRenderer, parseFxOff, shouldPromote, type FxName, type GpuClass } from './hqQualityTier.ts';
+import { PROMOTE_FRAMES, classifyRenderer, parseFxOff, shouldPromote, startTierFor, type FxName, type GpuClass } from './hqQualityTier.ts';
 import type { PhotoFx, PbrHook } from './hqPhotoFx.ts';
 import type { ModelGroup } from './hqModels.ts';
 
@@ -300,16 +300,17 @@ function readAmbientOverride(): boolean | null {
   } catch { return null; }
 }
 
-function probeGpu(): GpuClass {
+/** The unmasked renderer name (empty when hidden or unavailable). */
+function probeGpu(): string {
   try {
     const scratch = document.createElement('canvas');
     const gl = scratch.getContext('webgl2');
-    if (!gl) return 'unknown';
+    if (!gl) return '';
     const info = gl.getExtension('WEBGL_debug_renderer_info');
     const name = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
     gl.getExtension('WEBGL_lose_context')?.loseContext();
-    return classifyRenderer(name);
-  } catch { return 'unknown'; }
+    return name;
+  } catch { return ''; }
 }
 
 
@@ -351,11 +352,15 @@ export class HqRenderer {
   private bloomLoad: Promise<void> | null = null;
   private cameraState: CameraState | null = null;
   private night = 0;
+  private light: ReturnType<typeof lightingFor> | null = null;
+  private lightAt = -1;
   private hover: string | null = null;
   private selected: string | null = null;
   private shadowRegion: { center: { x: number; y: number; z: number }; radius: number } | null = null;
   private shadowDirty = true;
+  /** '' marks the shadow camera dirty; `sunKey` holds the region, sun and map size it was last placed for. */
   private lastSunKey = '';
+  private readonly sunKey = new Float64Array(6);
   /** The tier in force: the automatic one, a pin, or a Graphics check run (`override`). */
   private quality = 3;
   private reason: TierReason = 'automatic';
@@ -412,7 +417,11 @@ export class HqRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly onLostEvent: () => void;
   private readonly onRestoredEvent: () => void;
-  private sizeKey = '';
+  /** The canvas size and pixel ratio last applied (width -1 forces a resize). Numbers, so a frame builds no key string. */
+  private sizeW = -1;
+  private sizeH = 0;
+  private sizeDpr = 0;
+  private readonly view = { width: 1, height: 1, dpr: 1 };
   // Ambient motion: one scene clock, the level it runs at, and the loop that keeps frames coming while it is above 0.
   private scenery: SceneryLayer | null = null;
   private clock = 0;
@@ -435,7 +444,7 @@ export class HqRenderer {
       this.envs = [];
       this.composer?.dispose(); this.composer = null; this.bloom = null;
       this.sun.shadow.map?.dispose(); this.sun.shadow.map = null;
-      this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = ''; this.governor?.reset();
+      this.lost = false; this.sizeW = -1; this.shadowDirty = true; this.lastSunKey = ''; this.governor?.reset();
       this.cb.onRestored?.(); this.requestFrame();
     };
     canvas.addEventListener('webglcontextlost', this.onLostEvent);
@@ -460,7 +469,8 @@ export class HqRenderer {
     // it gets simple lit materials, no reflection map, no antialiasing and a lower pixel ratio, unless quality is pinned.
     const photoPin = readPhotoPin();
     const forced = photoPin ? 3 : readQualityOverride();
-    const gpu = probeGpu();
+    const gpuName = probeGpu();
+    const gpu = classifyRenderer(gpuName);
     const software = gpu === 'software';
     const cheap = forced === null && software;
     let renderer: WebGLRenderer;
@@ -478,6 +488,8 @@ export class HqRenderer {
         const hooks = window as unknown as { __anumHqBench: unknown; __anumHqTune: unknown };
         hooks.__anumHqBench = (n: number, off?: string[]) => made.bench(n, off);
         hooks.__anumHqTune = (t: Parameters<PhotoFx['setTune']>[0]) => { made.photo?.setTune(t); made.requestFrame(); };
+        (hooks as unknown as Record<string, unknown>).__anumHqPrograms = () => made.renderer.info.programs?.length ?? 0;
+        (hooks as unknown as Record<string, unknown>).__anumHqPrewarm = (ids?: number[]) => made.prewarm(ids);
       }
       try { made.forcedScenery = readSceneryOverride(window.localStorage); } catch { made.forcedScenery = null; }
       const pin = readAmbientOverride();
@@ -494,7 +506,11 @@ export class HqRenderer {
     made.pinned = forced;
     if (forced !== null) { made.quality = forced; made.reason = 'pinned'; }
     else if (cheap) { made.quality = 0; made.reason = 'software'; }
-    else if (pixels > 4_000_000) { made.quality = 2; made.reason = 'large-canvas'; }
+    else {
+      // The automatic start (hqQualityTier `startTierFor`): integrated graphics start at High, older ones at Medium, discrete at Ultra.
+      made.quality = startTierFor(gpuName, pixels);
+      if (pixels > 4_000_000 && made.quality === 2 && startTierFor(gpuName, 0) > 2) made.reason = 'large-canvas';
+    }
     made.configureTier();
     void made.loadSceneFx();
     if (photoPin) void made.enablePhoto();
@@ -505,13 +521,24 @@ export class HqRenderer {
   private configureTier(): void {
     const id = this.override ?? this.pinned ?? this.quality;
     const unlit = tierById(id).boardUnlit;
-    if (unlit !== this.boardTierUnlit) { this.boardTierUnlit = unlit; if (this.lastScene) this.setScene(this.lastScene); }
+    if (unlit !== this.boardTierUnlit) { this.boardTierUnlit = unlit; this.swapBoards(); }
     this.ladder = ladderFor(tierById(id));
     if (this.ladder[0].bloom) this.loadBloom();
     this.governor = null;
     this.governed = this.pinned === null && this.override === null && !this.software;
     if (this.governed) void (this.governorLoad ??= import('./hqGovernor.ts')).then((m) => { if (!this.disposed && this.governed && !this.governor) this.governor = new m.FrameGovernor(this.ladder.length); });
     this.applyStep(0);
+  }
+
+  /** The billboards' posts, frame and lamps change material in place when the tier's board style changes (no scene rebuild, no new buffers). */
+  private swapBoards(): void {
+    for (const mesh of this.meshes) {
+      const cls = mesh.userData.boardCls as Cls | undefined;
+      if (!cls) continue;
+      mesh.material = this.materials.get(this.boardUnlit ? 'boardFlat' : cls)!;
+      mesh.castShadow = !this.boardUnlit && cls !== 'water' && cls !== 'glass' && cls !== 'pane';
+    }
+    this.shadowDirty = true;
   }
 
   private applyStep(step: number): void {
@@ -521,7 +548,8 @@ export class HqRenderer {
     const lean = wantLean !== this.lean;
     this.applied = wantLean && !next.lean ? { ...next, lean: true } : next;
     this.dprScale = next.dprScale;
-    this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = '';
+    // The canvas is resized only when the pixel ratio really changes (`resize` compares it): setting its size reallocates the drawing buffer, a hitch on every tier switch.
+    this.shadowDirty = true; this.lastSunKey = '';
     if (lean) this.setLean(wantLean);
     if (step > 0 && this.photoAuto) { this.photoAuto = false; this.demoted = true; this.leavePhoto(); }
     this.emitQuality();
@@ -562,6 +590,19 @@ export class HqRenderer {
   // `liftValue`, `startLifts` and `requestFrame` through a cast, so none of that costs this chunk anything. Keep the names in step.
 
 
+  /**
+   * Compiles every shader variant the given tiers draw with (default: the rungs of the tier in force), in parallel where the browser can,
+   * so a tier switch or a governor step does not stall a frame on a compile. Resolves with what it did, or null when it could not run.
+   */
+  prewarm(ids?: readonly number[]): Promise<import('./hqWarmup.ts').WarmResult | null> {
+    if (this.disposed || this.lost || !this.cameraState) return Promise.resolve(null);
+    const steps = ids ? ids.map((id) => ladderFor(tierById(id))[0]) : this.ladder;
+    const boards = (ids ?? [this.override ?? this.pinned ?? this.quality]).some((id) => tierById(id).boardUnlit !== this.boardUnlit);
+    // The glow variants only matter when glow can draw: at dusk and night, or whenever the governor may switch it on later.
+    const glow = !ids || this.night > 0.04;
+    return import('./hqWarmup.ts').then((m) => m.warmPrograms(this as never, programVariants(steps, glow && !this.reducedMotion), boards)).catch(() => null);
+  }
+
   /** True while the photographic effects draw: wanted, loaded, on the full rung and not in the simple materials. */
   private photoActive(): boolean { return (this.photoPin || this.photoAuto) && this.photoOn && this.photo !== null && this.step === 0 && !this.lean; }
 
@@ -581,6 +622,8 @@ export class HqRenderer {
     // The next frame draws the scene built with the chunks (the stage reports it as part of `data-scene-settled`).
     this.stats.sceneFx = 'ready';
     if (!this.disposed) this.requestFrame();
+    // On a graphics card, compile ahead every shader variant the governor's rungs use, a moment after the scene settled (`hqWarmup.ts`).
+    if (!this.software && this.governed) window.setTimeout(() => { void this.prewarm(); }, 1500);
   }
 
   /** Loads the photographic extension (PBR detail maps, post stack, point lights) and recompiles the materials with it. */
@@ -861,6 +904,7 @@ export class HqRenderer {
       mesh.userData.hl = 0;
       mesh.userData.fallbackOf = item.fallbackOf ?? null;
       mesh.userData.lift = item.lift ?? null;
+      if (item.board && cls !== 'sign') mesh.userData.boardCls = cls;
       mesh.visible = !item.fallbackOf || !this.readyGroups.has(item.fallbackOf);
       const sunOk = cls !== 'sign' && cls !== 'pane' && cls !== 'glass' && !(item.board && this.boardUnlit);
       mesh.castShadow = sunOk && cls !== 'water';
@@ -1095,7 +1139,9 @@ export class HqRenderer {
   // -------------------------------------------------------------- frame
 
   private applyLighting(): void {
-    const light = lightingFor(this.night);
+    // The light preset is worked out again only when the time of day moved (it builds a dozen small arrays).
+    if (this.lightAt !== this.night || !this.light) { this.light = lightingFor(this.night); this.lightAt = this.night; }
+    const light = this.light;
     const set = (target: Color, t: readonly [number, number, number]) => target.setRGB(t[0], t[1], t[2], SRGBColorSpace);
     set(this.sun.color, light.sunColor);
     this.sun.intensity = light.sunIntensity;
@@ -1152,9 +1198,13 @@ export class HqRenderer {
       const dir = { x: light.sunDir[0], y: light.sunDir[1], z: light.sunDir[2] };
       const len = Math.hypot(dir.x, dir.y, dir.z);
       const R = region.radius;
-      const key = `${region.center.x.toFixed(1)},${region.center.z.toFixed(1)},${R.toFixed(1)},${(dir.x / len).toFixed(2)},${(dir.z / len).toFixed(2)},${shadowSize}`;
-      if (key !== this.lastSunKey) {
-        this.lastSunKey = key;
+      // The shadow camera moves only when the region, the sun or the map size changed (compared as numbers: no key string per frame).
+      const k = this.sunKey;
+      const changed = this.lastSunKey === '' || Math.abs(k[0] - region.center.x) > 0.05 || Math.abs(k[1] - region.center.z) > 0.05 || Math.abs(k[2] - R) > 0.05
+        || Math.abs(k[3] - dir.x / len) > 0.005 || Math.abs(k[4] - dir.z / len) > 0.005 || k[5] !== shadowSize;
+      if (changed) {
+        this.lastSunKey = 'set';
+        k[0] = region.center.x; k[1] = region.center.z; k[2] = R; k[3] = dir.x / len; k[4] = dir.z / len; k[5] = shadowSize;
         this.sun.position.set(region.center.x - (dir.x / len) * R * 2, region.center.y - (dir.y / len) * R * 2, region.center.z - (dir.z / len) * R * 2);
         this.sun.target.position.set(region.center.x, region.center.y, region.center.z);
         const cam = this.sun.shadow.camera;
@@ -1186,16 +1236,17 @@ export class HqRenderer {
   private resize(): { width: number; height: number; dpr: number } {
     const box = this.canvas.getBoundingClientRect();
     const dpr = Math.max(0.6, Math.min(this.maxDpr, window.devicePixelRatio || 1) * this.dprScale);
-    const key = `${box.width.toFixed(1)}x${box.height.toFixed(1)}@${dpr.toFixed(2)}`;
-    if (key !== this.sizeKey) {
-      this.sizeKey = key;
+    if (Math.abs(box.width - this.sizeW) > 0.05 || Math.abs(box.height - this.sizeH) > 0.05 || Math.abs(dpr - this.sizeDpr) > 0.005) {
+      this.sizeW = box.width; this.sizeH = box.height; this.sizeDpr = dpr;
       this.renderer.setPixelRatio(dpr);
       this.renderer.setSize(Math.max(1, Math.round(box.width)), Math.max(1, Math.round(box.height)), false);
       this.composer?.setPixelRatio(dpr);
       this.composer?.setSize(Math.max(1, Math.round(box.width)), Math.max(1, Math.round(box.height)));
     }
     this.stats.dpr = dpr;
-    return { width: Math.max(1, box.width), height: Math.max(1, box.height), dpr };
+    const v = this.view;
+    v.width = Math.max(1, box.width); v.height = Math.max(1, box.height); v.dpr = dpr;
+    return v;
   }
 
   /** Starts loading the glow pass once; a frame is drawn again when it arrives. */
@@ -1249,13 +1300,14 @@ export class HqRenderer {
       this.stepAmbient();
       if (this.shadowDirty && this.renderer.shadowMap.enabled) { this.renderer.shadowMap.needsUpdate = true; this.shadowDirty = false; }
       this.renderer.info.reset();
+      const vp = viewProjection(cs, aspect);
       let usePhoto = this.photoActive();
       const wantBloom = !usePhoto && this.applied.bloom && !this.reducedMotion && this.night > 0.04;
       if (wantBloom && !this.bloomKit) this.loadBloom();
       const useBloom = wantBloom && this.bloomKit !== null;
       if (usePhoto) {
         try {
-          this.photo!.frame({ camera: cs, viewProjection: viewProjection(cs, aspect), width, height, dpr, night: this.night, time: this.clock, halos: this.lastScene?.halos, reducedMotion: this.reducedMotion });
+          this.photo!.frame({ camera: cs, viewProjection: vp, width, height, dpr, night: this.night, time: this.clock, halos: this.lastScene?.halos, reducedMotion: this.reducedMotion });
         } catch (error) {
           // A pass that cannot run on this GPU: leave the photographic effects for good and draw this frame the plain way.
           this.leavePhoto();
@@ -1272,14 +1324,16 @@ export class HqRenderer {
       }
       this.stats.bloom = useBloom || usePhoto;
       this.stats.tier = usePhoto ? 4 : this.override ?? this.pinned ?? this.quality;
-      this.stats.fx = this.fxList(usePhoto);
+      if (usePhoto !== this.fxPhoto || this.fxKeyNow() !== this.fxKey) { this.fxPhoto = usePhoto; this.fxKey = this.fxKeyNow(); this.stats.fx = this.fxList(usePhoto); }
       this.stats.scenery.level = this.level; this.stats.scenery.clock = this.clock; this.stats.scenery.vehicles = this.scenery?.count ?? 0;
       if (this.level > 0) this.stats.scenery.frames += 1;
       if (this.layer) Object.assign(this.stats.models, this.layer.stats);
       this.stats.triangles = this.renderer.info.render.triangles;
       this.stats.drawn = this.renderer.info.render.calls;
-      this.stats.culled = Math.max(0, this.meshes.length - this.meshes.filter((m) => m.visible).length);
-      this.cb.onFrame?.(viewProjection(cs, aspect), aspect);
+      let hidden = 0;
+      for (const m of this.meshes) if (!m.visible) hidden += 1;
+      this.stats.culled = hidden;
+      this.cb.onFrame?.(vp, aspect);
       if (lifting) this.requestFrame();
     } catch (error) {
       this.fail(error);
@@ -1306,6 +1360,11 @@ export class HqRenderer {
     else if (decision) { gov.apply(decision, started); this.applyStep(gov.step); }
   }
 
+  /** The inputs of `fxList` as one number, so the list string is built only when one of them changed. */
+  private fxKeyNow(): number { return (this.sceneFx ? 1 : 0) + (this.contactMesh ? 2 : 0) + (this.photoOn ? 4 : 0) + this.fxOff.size * 8; }
+  private fxKey = -1;
+  private fxPhoto = false;
+
   /** What is on right now, for the canvas attributes and the docs: a comma list. */
   private fxList(photo: boolean): string {
     const on: string[] = [];
@@ -1326,7 +1385,7 @@ export class HqRenderer {
       this.photo?.setOff(next);
       if (pbr) for (const material of this.materials.values()) material.needsUpdate = true;
       if (rebuild && this.lastScene) this.setScene(this.lastScene);
-      this.shadowDirty = true; this.lastSunKey = '';
+      this.shadowDirty = true; this.lastSunKey = ''; this.fxKey = -1;
     }
     const gl = this.renderer.getContext();
     const times: number[] = [];
