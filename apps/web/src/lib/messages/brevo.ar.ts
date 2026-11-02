@@ -93,7 +93,7 @@ export const brevoAr: Record<keyof typeof brevoEn, Message> = {
   'brevo.campaigns.noMatchText': 'اختر حالة أخرى أو امسح عامل التصفية.',
   'brevo.campaigns.write': 'اكتب حملة',
   'brevo.campaigns.report': 'التقرير',
-  'brevo.campaigns.reportOf': 'تقرير {name}',
+  'brevo.campaigns.reportOf': 'التقرير الخاص بـ {name}',
   'brevo.report.title': 'تقرير الحملة',
   'brevo.report.what': 'تحميل التقرير',
   'brevo.report.loading': 'جارٍ تحميل التقرير...',

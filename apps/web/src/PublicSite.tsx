@@ -37,7 +37,8 @@ export function PublicSite({ route }: { route: PublicRoute }) {
         <a href={TRUST_PATH} aria-current={current === TRUST_PATH ? 'page' : undefined}>{t('public.nav.trust')}</a>
         <a href={STATUS_PATH} aria-current={current === STATUS_PATH ? 'page' : undefined}>{t('public.nav.status')}</a>
         <a href="/legal/privacy" aria-current={route.kind === 'legal' ? 'page' : undefined}>{t('public.nav.legal')}</a>
-        <button type="button" className="publicLang" lang={getLocale() === 'en' ? 'ar' : 'en'} aria-label={t('public.language.switchLabel')} onClick={() => chooseLocale(getLocale() === 'en' ? 'ar' : 'en')}><Languages aria-hidden="true" size={16} />{t('public.language.switch')}</button>
+        {/* Named by its text (WCAG 2.5.3): what it does in this page's language, then the other language's name in that language. */}
+        <button type="button" className="publicLang" onClick={() => chooseLocale(getLocale() === 'en' ? 'ar' : 'en')}><Languages aria-hidden="true" size={16} /><span className="visuallyHidden">{t('public.language.switchLabel')}: </span><span lang={getLocale() === 'en' ? 'ar' : 'en'}>{t('public.language.switch')}</span></button>
         <a className="publicOpen" href="/">{t('public.nav.open')}</a>
       </nav>
     </header>

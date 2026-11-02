@@ -23,7 +23,8 @@ export function AvatarChip({ id, name, avatar, department, size = 32, decorative
   const c = useMemo(() => chipColours(id, avatar, roleFamilyOf(department)), [id, avatar, department]);
   return <span className="avatarChip" {...(decorative ? { 'aria-hidden': true } : { role: 'img', 'aria-label': t('avatar.chipLabel', { name }) })} data-avatar-chip={id}
     style={{ '--chip-bg': c.background, '--chip-ring': c.ring, '--chip-ink': c.ink, '--chip-hair': c.hair, '--chip-size': `${size}px` } as CSSProperties}>
-    <span aria-hidden="true">{initialsOf(name)}</span>
+    {/* Drawn from data-initials (avatarStyle.css): a chip inside a named button never shows letters its name lacks (WCAG 2.5.3). */}
+    <span aria-hidden="true" data-initials={initialsOf(name)} />
   </span>;
 }
 

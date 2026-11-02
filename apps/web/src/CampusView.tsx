@@ -441,7 +441,7 @@ export function buildingSummary(b: CampusBuilding): string {
 /**
  * The page label of a building on the quiet campus: a small button with the name and a status dot (a chip), or only the status dot. The details
  * (what it does, counts, verified time) are on the building's 3D board and, for the focused building, its billboard card and the detail panel.
- * The accessible name is unchanged: the name and the presence summary, whatever the density.
+ * The accessible name: the name, the lines the card shows (work, feed, walkers), then the presence summary, whatever the density.
  */
 function BuildingCard(props: { building: CampusBuilding; selected: boolean; density: CardDensity; work?: CardWork; feed?: FeedNote; walk?: WalkerCard; walkOff?: boolean; onActivate: () => void; onHover: (on: boolean) => void }) {
   const b = props.building;
@@ -451,10 +451,13 @@ function BuildingCard(props: { building: CampusBuilding; selected: boolean; dens
   const density: CardDensity = props.density === 'dot' && (props.work || props.feed || props.walk || props.walkOff) ? 'compact' : props.density;
   const feedHint = props.feed ? t(`hqMotion.feed.offHint.${props.feed.reason}` as MessageKey) : '';
   const workHint = props.work ? `${props.work.because}. ${t('hqMotion.legend')}` : '';
+  // The spoken name holds the card's visible words in the order shown (WCAG 2.5.3): the name, then the lines under it, then the presence summary.
+  const lines = [props.work?.because, props.feed ? t('hqMotion.feed.off') : null, props.walk?.because, props.walkOff ? t('hqWalkers.status.off') : null].filter(Boolean);
+  const spoken = [sceneName(b), ...lines, summary].map((part) => `${part}.`).join(' ') + (props.selected ? ` ${t('hq.building.pressToOpen')}` : '');
   return (
     <button
       type="button" className="hqLabelCard hqBuildingCard" data-selected={props.selected} data-status={status} data-kind={b.kind} data-density={density} data-walk={props.walk?.kind}
-      aria-label={`${sceneName(b)}. ${summary}.${props.walk ? ' ' + props.walk.because + '.' : ''}${props.walkOff ? ' ' + t('hqWalkers.status.off') + '.' : ''}${props.work ? ' ' + props.work.because + '.' : ''}${props.feed ? ' ' + t('hqMotion.feed.off') + '.' : ''}${props.selected ? ' ' + t('hq.building.pressToOpen') : ''}`}
+      aria-label={spoken}
       aria-pressed={props.selected} title={density === 'dot' ? [sceneName(b), props.work?.because, props.feed ? t('hqMotion.feed.off') : ''].filter(Boolean).join('. ') : (workHint || feedHint || sceneName(b))} data-work={props.work?.kind} data-feed={props.feed?.reason}
       onClick={props.onActivate}
       // A mouse hover only: a tap on a phone also sends mouse events, and a hover it set would never end (the card stayed open).
@@ -462,10 +465,10 @@ function BuildingCard(props: { building: CampusBuilding; selected: boolean; dens
     >
       <span className="hqLabelIcon">{iconOf(b)}</span>
       <span className="hqLabelText">
-        <strong>{sceneName(b)}</strong>
-        {props.work && <small className="hqWorkLine" data-work={props.work.kind}>{props.work.because}</small>}
-        {props.feed && <small className="hqWorkLine" data-feed={props.feed.reason}>{t('hqMotion.feed.off')}</small>}
-        {props.walk && <small className="hqWalkLine" data-walk={props.walk.kind}>{props.walk.because}</small>}
+        <strong>{sceneName(b)}</strong>{' '}
+        {props.work && <small className="hqWorkLine" data-work={props.work.kind}>{props.work.because}</small>}{' '}
+        {props.feed && <small className="hqWorkLine" data-feed={props.feed.reason}>{t('hqMotion.feed.off')}</small>}{' '}
+        {props.walk && <small className="hqWalkLine" data-walk={props.walk.kind}>{props.walk.because}</small>}{' '}
         {props.walkOff && <small className="hqWalkLine" data-walkers-off="">{t('hqWalkers.status.off')}</small>}
       </span>
       <span className="hqStatusDot" aria-hidden="true" />

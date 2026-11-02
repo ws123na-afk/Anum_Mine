@@ -70,7 +70,7 @@ export const emailHubAr: Record<keyof typeof emailHubEn, Message> = {
   'emailHub.connections.open': 'افتح',
   'emailHub.connections.openLabel': 'افتح {address}',
   'emailHub.connections.settings': 'الإعدادات',
-  'emailHub.connections.settingsLabel': 'إعدادات {address}',
+  'emailHub.connections.settingsLabel': 'الإعدادات الخاصة بـ {address}',
   'emailHub.connections.connectProvider': 'اربط أو أدر',
   'emailHub.connections.manageProvider': 'اعرض الاتصالات',
   'emailHub.connections.connectServer': 'اربط صندوقا',

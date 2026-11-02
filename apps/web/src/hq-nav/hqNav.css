@@ -25,6 +25,8 @@
 .hqRailText { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
 .hqRailText strong { font-size: var(--text-sm); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
 .hqRailText small { color: var(--d-muted); font-size: var(--text-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Full stops a screen reader hears between the parts of a floor item; inline and zero-size, so they add no space to the name or the layout. */
+.hqSpokenStop { font-size: 0; }
 
 /* Side panel. */
 .hqNavSide, .hqNavSideBody { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: flex; flex-direction: column; gap: var(--d-s3); max-block-size: calc(var(--hq-stage-h, 640px) + var(--hq-below, 0px)); min-width: 0; overflow: hidden auto; padding: var(--d-s3); position: relative; }

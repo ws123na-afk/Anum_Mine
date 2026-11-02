@@ -84,15 +84,18 @@ export function PeopleList(props: { rows: readonly PersonRow[]; presenceKnown: b
             const name = r.state === 'private' ? t('hq.agent.private') : r.name ?? t('hq.agent.assigned');
             const chip = r.offShift ? t(r.offShift === 'off_waiting' ? 'hqGc.offWaiting' : 'hqGc.off') : r.state === 'not_connected' ? (props.presenceKnown ? t('hqNav.people.notConnected') : t('hqNav.people.unavailable')) : r.status ? statusLabel(r.status) : t('hq.status.unknown');
             const tone = r.state === 'known' && r.status && !r.offShift ? STATUS_TONE[r.status] : 'faint';
+            const where = [r.role ? roleText(r.role) : null, r.roomLabel ? t('hqNav.people.in', { room: r.roomLabel }) : null].filter(Boolean).join(', ');
+            const state = `${chip}${r.stale ? ` (${t('hq.agent.stale')})` : ''}`;
+            // The spoken name holds every word the button shows (WCAG 2.5.3): the name, where they sit, then the state. The initials are drawn from data-initials.
             return (
               <li key={r.key}>
-                <button type="button" className="hqPerson" disabled={!r.agentId} aria-label={`${t('hqNav.people.open', { name })}. ${chip}.`} onClick={() => r.agentId && props.onOpen(r)}>
-                  <span className="hqAvatar" aria-hidden="true">{r.name && r.state !== 'private' ? initialsOf(r.name) : '?'}</span>
+                <button type="button" className="hqPerson" disabled={!r.agentId} aria-label={`${t('hqNav.people.open', { name })}. ${where ? `${where}. ` : ''}${state}.`} onClick={() => r.agentId && props.onOpen(r)}>
+                  <span className="hqAvatar" aria-hidden="true" data-initials={r.name && r.state !== 'private' ? initialsOf(r.name) : '?'} />
                   <span className="hqPersonText">
-                    <strong>{name}</strong>
-                    <small>{[r.role ? roleText(r.role) : null, r.roomLabel ? t('hqNav.people.in', { room: r.roomLabel }) : null].filter(Boolean).join(', ')}</small>
-                  </span>
-                  <span className={`hqPill tone-${tone}`} data-stale={r.stale}>{chip}{r.stale ? ` (${t('hq.agent.stale')})` : ''}</span>
+                    <strong>{name}</strong>{' '}
+                    <small>{where}</small>
+                  </span>{' '}
+                  <span className={`hqPill tone-${tone}`} data-stale={r.stale}>{state}</span>
                 </button>
               </li>
             );

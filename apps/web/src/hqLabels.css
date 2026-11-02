@@ -220,3 +220,5 @@
 /* The Low and Medium tiers (and a software rasteriser): the cards over the scene are drawn without the glass blur, a little more opaque instead.
    A backdrop blur over a canvas that redraws costs the compositor a blurred copy of each card's area every frame (docs/ANUM_MINE_HQ_GPU_CHECK.md, "Render scale"). */
 .hqStage[data-lite="true"] :is(.hqLabelCard, .hqBillboard, .hqBackCard, .hqFloorSelector, .hqPanel) { backdrop-filter: none; background: rgba(10, 16, 24, .92); }
+/* Counts and initials inside a named card are drawn from a data attribute, so the card's visible text stays inside its spoken name. */
+.hqRoomWorking[data-count]::before { content: attr(data-count); }

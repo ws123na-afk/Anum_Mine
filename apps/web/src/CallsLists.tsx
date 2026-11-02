@@ -75,11 +75,13 @@ export function RecentsTab({ refresh, setup, selected, onSelect, onDial, onCallI
       {page.state === 'denied' && <div className="paneBody"><p className="notice" role="status"><Lock aria-hidden="true" />{page.message}</p></div>}
       {page.state === 'ready' && page.value.items.length > 0 && <ul className="callsRows">
         {page.value.items.map((call) => <li key={call.id} className={call.id === selected ? 'selected' : undefined}>
-          <button type="button" className="callsRow" aria-current={call.id === selected ? 'true' : undefined} aria-label={t('calls.recents.open', { name: callWith(call) })} onClick={() => onSelect(call.id)}>
+          {/* Named by its own text after a hidden verb (WCAG 2.5.3: the name holds every word the row shows). */}
+          <button type="button" className="callsRow" aria-current={call.id === selected ? 'true' : undefined} onClick={() => onSelect(call.id)}>
+            <span className="visuallyHidden">{t('calls.recents.openHint')} </span>
             <span className="callsRowIcon" aria-hidden="true">{call.kind.startsWith('ai') ? <Bot /> : call.direction === 'inbound' ? <PhoneIncoming /> : <PhoneOutgoing />}</span>
             <span className="callsRowText">
-              <span className="callsRowTop"><strong dir="auto">{callWith(call)}</strong><span className={`statusBadge ${outcomeTone(call.outcome)}`}>{isLive(call) ? t('calls.detail.live') : outcomeLabel(call.outcome)}</span></span>
-              <small>{[kindLabel(call.kind), formatDateTime(call.started_at, { dateStyle: 'medium', timeStyle: 'short' }), durationText(call.duration_seconds)].filter(Boolean).join(' · ')}</small>
+              <span className="callsRowTop"><strong dir="auto">{callWith(call)}</strong>{' '}<span className={`statusBadge ${outcomeTone(call.outcome)}`}>{isLive(call) ? t('calls.detail.live') : outcomeLabel(call.outcome)}</span></span>
+              <small>{[kindLabel(call.kind), formatDateTime(call.started_at, { dateStyle: 'medium', timeStyle: 'short' }), durationText(call.duration_seconds)].filter(Boolean).join(' · ')}</small>{' '}
               {(call.summary || call.notes) && <small className="callsSnippet" dir="auto">{call.summary ?? call.notes}</small>}
             </span>
           </button>
@@ -313,10 +315,11 @@ export function ContactsTab({ refresh, setup, selected, onSelect, onDial, onCall
       {page.state === 'denied' && <div className="paneBody"><p className="notice" role="status"><Lock aria-hidden="true" />{page.message}</p></div>}
       {page.state === 'ready' && page.value.items.length > 0 && <ul className="callsRows">
         {page.value.items.map((contact) => <li key={contact.id} className={contact.id === selected ? 'selected callsContactItem' : 'callsContactItem'}>
-          <button type="button" className="callsRow" aria-current={contact.id === selected ? 'true' : undefined} aria-label={t('calls.contacts.open', { name: contact.name })} onClick={() => onSelect(contact.id)}>
-            <span className="callsAvatar" aria-hidden="true">{initials(contact.name)}</span>
+          <button type="button" className="callsRow" aria-current={contact.id === selected ? 'true' : undefined} onClick={() => onSelect(contact.id)}>
+            <span className="visuallyHidden">{t('calls.contacts.openHint')} </span>
+            <span className="callsAvatar" aria-hidden="true" data-initials={initials(contact.name)} />
             <span className="callsRowText">
-              <span className="callsRowTop"><strong dir="auto">{contact.name}</strong>{contact.ai_consent && <span className="tagChip"><Bot aria-hidden="true" /></span>}</span>
+              <span className="callsRowTop"><strong dir="auto">{contact.name}</strong>{' '}{contact.ai_consent && <span className="tagChip"><Bot aria-hidden="true" /></span>}</span>
               <small><bdi dir="ltr">{contact.phone}</bdi>{contact.company ? <> · <span dir="auto">{contact.company}</span></> : null}</small>
             </span>
           </button>

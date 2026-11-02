@@ -79,7 +79,7 @@ export const setupAr: Record<keyof typeof setupEn, Message> = {
   'setup.copyFailed': 'تعذّر النسخ. حدّد النص وانسخه يدويًا.',
   'setup.open': 'فتح {view}',
   'setup.guide': 'دليل الإعداد',
-  'setup.guideFor': 'دليل إعداد {name} (يفتح في علامة تبويب جديدة)',
+  'setup.guideFor': 'دليل الإعداد الخاص بـ {name} (يفتح في علامة تبويب جديدة)',
   'setup.cost': 'التكلفة',
   'setup.check': 'فحص الاتصال',
   'setup.checking': 'جارٍ الفحص...',

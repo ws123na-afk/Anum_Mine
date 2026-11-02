@@ -123,6 +123,19 @@ export function EmailHub({ initialPane, initialMessageId, onOpenApprovals, onOpe
   </div>;
 }
 
+/**
+ * A mailbox's spoken name: every word its rail item shows, in that order (WCAG 2.5.3), then its unread count in words. The count badge
+ * itself is drawn from data-count (emailHub.css), so the digits it shows are never missing from the name.
+ */
+function mailboxName(m: UnifiedMailbox): string {
+  return [
+    t('emailHub.rail.mailbox', { address: m.address, source: t(sourceKey(m.source)) }),
+    m.access === 'read' || m.access === 'send' ? t('emailHub.shared') : null,
+    needsAttention(m) ? t('emailHub.attention') : null,
+    (m.unread ?? 0) > 0 ? t('emailHub.unreadCount', { count: m.unread ?? 0 }) : null,
+  ].filter(Boolean).join('. ');
+}
+
 /** The one mailbox list: All inboxes, every mailbox with its source badge, then Connections. */
 function HubRail({ load, pane, onPick, onRetry }: { load: Load; pane: HubPane | null; onPick: (pane: HubPane) => void; onRetry: () => void }) {
   const found = load.state === 'ready' ? load.value : null;
@@ -135,11 +148,11 @@ function HubRail({ load, pane, onPick, onRetry }: { load: Load; pane: HubPane | 
       {item({ kind: 'all' }, <Inbox aria-hidden="true" />, t('emailHub.all'), unread > 0 ? <span className="hubCount" aria-label={t('emailHub.unreadCount', { count: unread })}>{formatNumber(unread)}</span> : null)}
       {found?.items.map((m) => <li key={m.ref}>
         <button type="button" className="hubRailItem hubRailMailbox" aria-current={current({ kind: 'mailbox', ref: m.ref }) ? 'page' : undefined} onClick={() => onPick({ kind: 'mailbox', ref: m.ref })}
-          aria-label={t('emailHub.rail.mailbox', { address: m.address, source: t(sourceKey(m.source)) })}>
-          <span className="hubRailLabel"><span dir="ltr" className="hubAddress">{m.address}</span><SourceBadge source={m.source} />
-            {m.access === 'read' || m.access === 'send' ? <span className="hubShared"><Share2 aria-hidden="true" />{t('emailHub.shared')}</span> : null}</span>
+          aria-label={mailboxName(m)}>
+          <span className="hubRailLabel"><span dir="ltr" className="hubAddress">{m.address}</span>{' '}<SourceBadge source={m.source} />{' '}
+            {m.access === 'read' || m.access === 'send' ? <span className="hubShared"><Share2 aria-hidden="true" />{t('emailHub.shared')}</span> : null}</span>{' '}
           {needsAttention(m) && <span className="statusBadge warning">{t('emailHub.attention')}</span>}
-          {(m.unread ?? 0) > 0 && <span className="hubCount" aria-hidden="true">{formatNumber(m.unread ?? 0)}</span>}
+          {(m.unread ?? 0) > 0 && <span className="hubCount" aria-hidden="true" data-count={formatNumber(m.unread ?? 0)} />}
         </button>
       </li>)}
       {item({ kind: 'connections' }, <Settings aria-hidden="true" />, t('emailHub.connections'))}

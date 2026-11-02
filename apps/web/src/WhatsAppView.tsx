@@ -74,7 +74,7 @@ export function WhatsAppView({ onOpenApprovals, onOpenBudgets, focusConversation
 function StatusChip({ account, onSetup }: { account: WaAccount; onSetup?: () => void }) {
   const tone = !account.configured ? 'neutral' : account.status === 'connected' ? 'success' : account.status === 'error' ? 'dangerTone' : 'warning';
   if (!onSetup) return <span className={`statusBadge ${tone}`}>{account.configured ? t(`wa.state.${account.status ?? 'unverified'}`) : t('wa.state.notConnected')}{account.display_phone_number && <> · <bdi dir="ltr">{account.display_phone_number}</bdi></>}</span>;
-  return <button type="button" className={`chipButton ${tone} waTabStatus`} onClick={onSetup} aria-label={t('pages.wa.chipLabel', { state: account.configured ? t(`wa.state.${account.status ?? 'unverified'}`) : t('wa.state.notConnected') })}>
+  return <button type="button" className={`chipButton ${tone} waTabStatus`} onClick={onSetup} aria-label={t('pages.wa.chipLabel', { state: `${account.configured ? t(`wa.state.${account.status ?? 'unverified'}`) : t('wa.state.notConnected')}${account.display_phone_number ? ` \u00B7 ${account.display_phone_number}` : ''}` })}>
     <span className="chipDot" aria-hidden="true" />
     <span>{account.configured ? t(`wa.state.${account.status ?? 'unverified'}`) : t('wa.state.notConnected')}{account.display_phone_number && <> · <bdi dir="ltr">{account.display_phone_number}</bdi></>}</span>
   </button>;

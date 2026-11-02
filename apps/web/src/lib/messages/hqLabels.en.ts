@@ -5,7 +5,7 @@ export const hqLabelsEn = {
   'hqLabels.desks': { one: '{count} desk', other: '{count} desks' } as Message,
   'hqLabels.working': { one: '{count} working', other: '{count} working' } as Message,
   'hqLabels.roomAria': '{name}. {sub}. Opens the room panel.',
-  'hqLabels.floorTagAria': '{name}. Show this floor.',
+  'hqLabels.floorTagAria': '{name}. {rooms}. Show this floor.',
   'hqLabels.floorTagRooms': { one: '{count} room', other: '{count} rooms' } as Message,
   'hqLabels.agentAria': '{name}, {role}, {status}. Opens the agent panel.',
   'hqLabels.agentNoRole': 'No role set',

@@ -463,8 +463,15 @@ function costLine(engine: { label: string; model: string | null; usd_per_minute:
     : t('call.cost.perMillion', { engine: base, price: formatNumber(cost.perMillionChars ?? 0) });
 }
 
+/** The spoken name starts with the short word under the icon unless the full label already says it (WCAG 2.5.3): "Video: Turn camera on". */
+function controlName(short: string, label: string): string {
+  const words = (text: string) => text.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const said = words(label), shown = words(short);
+  return shown.every((word) => said.includes(word)) ? label : `${short}: ${label}`;
+}
+
 function ControlButton({ pressed, expanded, onClick, label, short, icon }: { pressed?: boolean; expanded?: boolean; onClick: () => void; label: string; short: string; icon: React.ReactNode }) {
-  return <button type="button" className="callControl" aria-pressed={pressed} aria-expanded={expanded} aria-label={label} title={label} onClick={onClick}>
+  return <button type="button" className="callControl" aria-pressed={pressed} aria-expanded={expanded} aria-label={controlName(short, label)} title={label} onClick={onClick}>
     <span className="callControlIcon" aria-hidden="true">{icon}</span>
     <span className="callControlLabel" aria-hidden="true">{short}</span>
   </button>;
