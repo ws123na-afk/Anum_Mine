@@ -250,6 +250,7 @@ export * from './conversations.js';
 export * from './setupPlans.js';
 export * from './voice.js';
 export * from './finance.js';
+export * from './financeIbkr.js';
 export * from './calls.js';
 export * from './business.js';
 export * from './businessPipeline.js';

@@ -5,6 +5,7 @@ import type { Message } from './types.ts';
 import { commerceEn } from './commerce.en.ts';
 import { financeEn } from './finance.en.ts';
 import { financeTradingEn } from './financeTrading.en.ts';
+import { financeIbkrEn } from './financeIbkr.en.ts';
 import { financeIntelEn } from './financeIntel.en.ts';
 import { financeEquityEn } from './financeEquity.en.ts';
 import { financeReportsEn } from './financeReports.en.ts';
@@ -89,6 +90,7 @@ export const en = {
   // ---- Finance (finance.en.ts) ----
   ...financeEn,
   ...financeTradingEn,
+  ...financeIbkrEn,
   ...financeIntelEn,
   ...financeEquityEn,
   ...financeReportsEn,
