@@ -279,11 +279,13 @@ export function placeLabels(
     if (cached) return cached;
     const node = nodes.get(id);
     if (!node) return { w: 160, h: 44 };
-    const prevDisplay = node.style.display, prevDensity = node.dataset.density;
+    const prevDisplay = node.style.display, prevDensity = node.dataset.density, prevTransform = node.style.transform;
     node.style.display = '';
     node.style.transform = 'translate3d(-9999px, 0, 0)';
     node.dataset.density = density;
     const size = { w: node.offsetWidth || 160, h: node.offsetHeight || 44 };
+    // Put the card back where it was: a measurement must never move a card that is already placed.
+    node.style.transform = prevTransform;
     node.style.display = prevDisplay;
     if (prevDensity === undefined) delete node.dataset.density; else node.dataset.density = prevDensity;
     sizes.set(key, size);
@@ -307,8 +309,9 @@ export function placeLabels(
     if (node.style.transform !== transform) node.style.transform = transform;
     const z = String(Math.max(1, Math.round(5000 - p.depth * 10) - (labels[i].priority ?? 0) * 1000));
     if (node.style.zIndex !== z) node.style.zIndex = z;
+    if (!p.shown) continue;
     const size = sizeOf(labels[i].id, p.density);
-    if (p.shown && size.w > 14 && size.h > 14) rects.push({ x0: p.x - size.w / 2, y0: p.y - size.h, x1: p.x + size.w / 2, y1: p.y });
+    if (size.w > 14 && size.h > 14) rects.push({ x0: p.x - size.w / 2, y0: p.y - size.h, x1: p.x + size.w / 2, y1: p.y });
   }
   return rects;
 }
