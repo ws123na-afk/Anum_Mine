@@ -21,7 +21,17 @@ from pydantic import BaseModel
 
 from ..schemas import TenantContext
 from ..scoped_store import open_scoped_store
-from .invoice_models import CreditNote, Invoice, InvoiceCounter, InvoicePayment, PaymentNotice, PortalAccess, PortalDecision
+from .invoice_models import (
+    CreditNote,
+    Invoice,
+    InvoiceCounter,
+    InvoiceMessage,
+    InvoicePayment,
+    PaymentLink,
+    PaymentNotice,
+    PortalAccess,
+    PortalDecision,
+)
 from .models import (
     Account,
     Activity,
@@ -84,6 +94,8 @@ KINDS: dict[str, type[BaseModel]] = {
     "invoice_counters": InvoiceCounter,
     "credit_notes": CreditNote,
     "payment_notices": PaymentNotice,
+    "invoice_messages": InvoiceMessage,
+    "payment_links": PaymentLink,
     "portal_access": PortalAccess,
     "portal_decisions": PortalDecision,
 }

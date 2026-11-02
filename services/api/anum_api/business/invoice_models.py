@@ -136,6 +136,62 @@ class InvoicePayment(Scoped):
     reference: str = Field(default="", max_length=120)
     note: str = Field(default="", max_length=300)
     recorded_by: str
+    # A key the form sends once per submit: a retry with the same key is the same payment.
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=80)
+    # A payment a provider reported (Moyasar), recorded once per provider payment id.
+    provider: Literal["moyasar"] | None = None
+    provider_payment_id: str | None = Field(default=None, max_length=200)
+
+
+class MessageKind(StrEnum):
+    INVOICE = "invoice"
+    REMINDER = "reminder"
+
+
+class MessageStatus(StrEnum):
+    WAITING_APPROVAL = "waiting_approval"
+    SENT = "sent"
+    REJECTED = "rejected"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+
+
+class InvoiceMessage(Scoped):
+    """An invoice email or a payment reminder a person asked for (docs/business.md#emailing-an-invoice-and-reminders).
+    It is a delivery task waiting for an approval of its exact payload; nothing is sent before an owner approves it."""
+
+    invoice_id: str
+    kind: MessageKind
+    reminder_number: int | None = Field(default=None, ge=1, le=20)
+    language: Literal["en", "ar"] = "en"
+    to_email: str = Field(max_length=254)
+    subject: str = Field(max_length=200)
+    status: MessageStatus = MessageStatus.WAITING_APPROVAL
+    approval_id: str | None = None
+    task_id: str | None = None
+    payload_hash: str | None = Field(default=None, max_length=64)
+    detail: str = Field(default="", max_length=500)
+    requested_by: str
+
+
+class PaymentLinkStatus(StrEnum):
+    OPEN = "open"
+    PAID = "paid"
+    REPLACED = "replaced"
+
+
+class PaymentLink(Scoped):
+    """A hosted payment page for a sent invoice's balance (docs/business.md#payment-links). Only the
+    provider's invoice id and the page address are kept; card details never reach ANUM."""
+
+    invoice_id: str
+    provider: Literal["moyasar"] = "moyasar"
+    provider_invoice_id: str = Field(max_length=200)
+    url: str = Field(max_length=500, pattern=r"^https://")
+    amount: Money
+    currency: Currency
+    status: PaymentLinkStatus = PaymentLinkStatus.OPEN
+    created_by: str
 
 
 class CreditNoteStatus(StrEnum):

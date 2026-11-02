@@ -360,7 +360,27 @@ export interface InvoiceLine {
 
 export interface InvoicePayment extends Scoped {
   invoice_id: string; amount: number; paid_on: string; method: PaymentMethod; reference: string; note: string; recorded_by: string;
+  /** The form's key for one submit: a retry with the same key is the same payment. */
+  idempotency_key?: string | null;
+  /** A payment Moyasar reported (a payment link), recorded once per Moyasar payment id. */
+  provider?: 'moyasar' | null; provider_payment_id?: string | null;
 }
+
+export type InvoiceMessageKind = 'invoice' | 'reminder';
+export type InvoiceMessageStatus = 'waiting_approval' | 'sent' | 'rejected' | 'failed' | 'blocked';
+/** An invoice email or payment reminder a person asked for; it waits for an owner's approval (docs/business.md#emailing-an-invoice-and-reminders). */
+export interface InvoiceMessage extends Scoped {
+  invoice_id: string; kind: InvoiceMessageKind; reminder_number: number | null; language: 'en' | 'ar'; to_email: string; subject: string;
+  status: InvoiceMessageStatus; approval_id: string | null; task_id: string | null; payload_hash: string | null; detail: string; requested_by: string;
+}
+export interface InvoiceEmailInput { to?: string; language: 'en' | 'ar' }
+export interface InvoiceEmailResult { message: InvoiceMessage; payload_hash: string | null; invoice: BusinessInvoice }
+/** A Moyasar hosted payment page for a sent invoice's balance (docs/business.md#payment-links). */
+export interface InvoicePaymentLink extends Scoped {
+  invoice_id: string; provider: 'moyasar'; provider_invoice_id: string; url: string; amount: number; currency: BusinessCurrency;
+  status: 'open' | 'paid' | 'replaced'; created_by: string;
+}
+export interface BusinessPaymentProvider { moyasar: 'on' | 'off'; mode: string | null }
 
 /** Money an owner took off a sent invoice; the invoice itself never changes (docs/business.md#credit-notes). */
 export interface CreditNote extends Scoped {
@@ -378,6 +398,10 @@ export interface PaymentNotice extends Scoped {
 export interface InvoiceCan {
   edit: boolean; request_send: boolean; cancel_request: boolean; delete: boolean; void: boolean; record_payment: boolean; remove_payment: boolean;
   credit: boolean; credit_enabled: boolean; void_credit_note: boolean; decide_notice: boolean;
+  /** Ask for the invoice email or a payment reminder; each waits for an owner's approval. */
+  email: boolean; remind: boolean;
+  /** Make a Moyasar payment page for the balance (the owner's Moyasar must be on). */
+  payment_link: boolean;
 }
 
 export interface BusinessInvoice extends Scoped {
@@ -397,6 +421,12 @@ export interface BusinessInvoice extends Scoped {
   approval: TicketReplyApproval | null;
   /** Why a draft cannot be sent for approval yet. */
   issues: string[];
+  /** Invoice emails and payment reminders asked for, with their approval status. */
+  messages: InvoiceMessage[];
+  /** The reminder the schedule says is due now. */
+  next_reminder: number | null;
+  /** The open payment page for the current balance. */
+  payment_link: InvoicePaymentLink | null;
   can: InvoiceCan;
 }
 
@@ -506,6 +536,8 @@ export interface PortalInvoice extends PortalInvoiceSummary {
   /** A sent invoice with a balance, on a link that may act, in a workspace that is not paused. */
   can_report_payment: boolean;
   void_reason: string;
+  /** The business's card payment page for the current balance, when it made one. */
+  payment_url?: string | null;
 }
 export interface PortalPaymentNoticeInput { idempotency_key: string; payer_name: string; amount: number; paid_on: string; method: PaymentMethod; reference?: string; note?: string }
 export interface PortalTicketSummary {

@@ -27,6 +27,8 @@ export interface PortalOptions {
   overdueInvoices?: number;
   /** The first invoice has a credit note of 100. */
   credited?: boolean;
+  /** The business made a Moyasar payment link for the first invoice's balance. */
+  paymentUrl?: string;
 }
 export interface PortalMock {
   requests: { method: string; path: string; headers: Record<string, string>; body: unknown }[];
@@ -75,7 +77,7 @@ export async function mockPortal(page: Page, options: PortalOptions = {}): Promi
       return { ...base, id: 'binv_1', number: 'INV-0001', status: balance <= 0 ? 'paid' : 'sent', total: 1150, amount_paid: paid, amount_credited: credited, balance, issue_date: day(-40), due_date: day(-26), overdue: balance > 0, days_overdue: 26, payment_state: balance <= 0 ? 'paid' : 'partially_paid',
         payments: [{ paid_on: day(-20), amount: 400, method: 'bank_transfer', reference: 'TT-5' }, ...reports.filter((item) => item.status === 'confirmed').map((item) => ({ paid_on: item.paid_on, amount: item.amount, method: item.method, reference: item.reference }))],
         credit_notes: credited ? [{ number: 'INV-0001-CN1', issue_date: day(-5), amount: 100, reason: 'Agreed discount', status: 'issued' }] : [], payment_notices: reports.map((item) => ({ ...item })),
-        can_report_payment: canDecide && !options.archived && balance > 0 };
+        can_report_payment: canDecide && !options.archived && balance > 0, payment_url: balance > 0 ? options.paymentUrl ?? null : null };
     }
     if (n === 2) return { ...base, id: 'binv_2', number: 'INV-0002', status: 'paid', total: 1150, amount_paid: 1150, balance: 0, issue_date: day(-60), due_date: day(-46), overdue: false, days_overdue: 0, payment_state: 'paid', payments: [{ paid_on: day(-50), amount: 1150, method: 'cash', reference: '' }] };
     return { ...base, id: 'binv_3', number: 'INV-0003', status: 'void', total: 1150, amount_paid: 0, balance: 1150, issue_date: day(-30), due_date: day(-16), overdue: false, days_overdue: 0, payment_state: 'unpaid', payments: [], void_reason: 'Issued twice' };

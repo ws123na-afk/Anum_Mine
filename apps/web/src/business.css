@@ -206,3 +206,7 @@
   min-height: 40px; padding: var(--d-s1) var(--d-s3); text-decoration: none;
 }
 .bzLinkButton:hover { background: var(--d-glass-1, transparent); }
+/* The card payment link (BusinessInvoiceSend.tsx): a long https address wraps inside the drawer. */
+.invLink { display: grid; gap: var(--d-s1); min-width: 0; }
+.invLink p { margin: 0; }
+.invLinkUrl { min-width: 0; overflow-wrap: anywhere; word-break: break-all; text-align: start; }

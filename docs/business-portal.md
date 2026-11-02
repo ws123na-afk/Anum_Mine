@@ -34,6 +34,10 @@ A customer is not a member of the workspace. Instead an owner creates an access 
 
 There is no online payment: ANUM collects no money and has no payment gateway. The invoice shows the owner's bank details and the customer pays outside ANUM; the business records the payment ([invoices](business.md#invoices)), or confirms the customer's report of it ([below](#reporting-a-payment)).
 
+### Paying by card
+
+When the business made a Moyasar payment link for the invoice's current balance ([Business: payment links](business.md#payment-links)), the invoice carries `payment_url`, the PDF prints it, and the customer pays by card, mada, Apple Pay or STC Pay on Moyasar's page. The payment is recorded on the invoice when Moyasar reports it to ANUM; the customer does not report it.
+
 ## Reporting a payment
 
 Where the customer pays by bank transfer, cash or cheque, the invoice page has **I have paid** (only for a sent invoice with a balance, on a link that may act, in a workspace that is not archived). The customer gives their name, the amount, the date, the method and a reference (a transfer number) and sends it.

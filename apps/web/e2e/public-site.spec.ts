@@ -1,3 +1,4 @@
+import { sweep } from './support/sweep';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { useSavedLocale } from './support/workspaceApi';
@@ -133,15 +134,20 @@ test('/status says so when the device is offline', async ({ page, context }) => 
   await expect(page.getByRole('heading', { level: 2, name: 'All systems operational' })).toBeVisible();
 });
 
-test('Arabic: the chrome is right to left and the English-only document says so', async ({ page }) => {
+test('Arabic: the document follows the language switch, right to left, with the same draft rule', async ({ page }) => {
   await mockHealth(page);
   await useSavedLocale(page, 'ar');
   await page.goto('/legal/privacy');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(page.getByText('هذا المستند متاح بالإنجليزية فقط.')).toBeVisible();
-  await expect(page.locator('.legalBody')).toHaveAttribute('dir', 'ltr');
+  await expect(page.getByRole('heading', { level: 1, name: 'سياسة الخصوصية' })).toBeVisible();
+  await expect(page.getByText('هذه ترجمة للنص الإنجليزي. يبقى النص الإنجليزي هو المرجع إلى أن يعتمد محامٍ هذه الترجمة.')).toBeVisible();
+  await expect(page.locator('.legalBody')).toHaveAttribute('dir', 'rtl');
+  await expect(page.locator('article.legalDoc')).toHaveAttribute('lang', 'ar');
+  await expect(page.getByRole('heading', { level: 2, name: 'مدة الاحتفاظ' })).toBeVisible();
   await page.getByRole('button', { name: 'اعرض هذه الصفحة بالإنجليزية' }).click();
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+  await expect(page.getByRole('heading', { level: 1, name: 'Privacy Policy' })).toBeVisible();
+  await expect(page.locator('.legalBody')).toHaveAttribute('dir', 'ltr');
   await expect(page.getByRole('note')).toContainText('Draft, not yet published');
 });
 
@@ -200,6 +206,20 @@ test('responsive: no horizontal overflow or clipped header at every gate size', 
       expect(layout.navLeft, where).toBeGreaterThanOrEqual(0);
       expect(layout.navRight, where).toBeLessThanOrEqual(layout.width);
       await expect(page.getByRole('link', { name: 'Open ANUM' })).toBeInViewport();
+    }
+  }
+});
+
+test('responsive in Arabic: every legal page right to left at every gate size, no overflow, clipped control or axe violation', async ({ page }) => {
+  test.setTimeout(240_000);
+  await mockHealth(page);
+  await useSavedLocale(page, 'ar');
+  for (const size of viewports) {
+    await page.setViewportSize(size);
+    for (const path of ['/legal/terms', '/legal/privacy', '/legal/dpa', '/legal/aup', '/legal/subprocessors']) {
+      await page.goto(path);
+      await expect(page.locator('.legalBody')).toHaveAttribute('dir', 'rtl');
+      await sweep(page, `ar ${path} at ${size.width}x${size.height}`);
     }
   }
 });

@@ -27,7 +27,7 @@ export const publicSiteAr: Record<keyof typeof publicSiteEn, Message> = {
   'public.legal.publishedBadge': 'منشور',
   'public.legal.updated': 'آخر تحديث: {date}',
   'public.legal.contents': 'في هذه الصفحة',
-  'public.legal.englishOnly': 'هذا المستند متاح بالإنجليزية فقط.',
+  'public.legal.translationNote': 'هذه ترجمة للنص الإنجليزي. يبقى النص الإنجليزي هو المرجع إلى أن يعتمد محامٍ هذه الترجمة.',
   'public.legal.table': 'جدول',
   'public.trust.eyebrow': 'الثقة',
   'public.trust.title': 'الثقة والأمان',

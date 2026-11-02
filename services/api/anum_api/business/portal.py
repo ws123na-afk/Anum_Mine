@@ -34,6 +34,7 @@ from .invoice_models import (
     PortalDecision,
 )
 from .invoice_pdf import render_invoice_pdf
+from .invoice_send import open_link_url
 from .invoice_print import render_invoice
 from .invoice_service import credit_notes_of, notices_of, payments_of
 from .invoices import payment_state
@@ -281,6 +282,8 @@ class PortalInvoice(PortalInvoiceSummary):
     # True when this link may report a payment on this invoice now (a sent invoice with a balance, a link that may act).
     can_report_payment: bool
     void_reason: str
+    # The business's Moyasar payment page for the current balance, when it made one (card, mada, Apple Pay).
+    payment_url: str | None = None
 
 
 class PaymentNoticeInput(BaseModel):
@@ -570,6 +573,7 @@ def _detail(store: BusinessStore, session: PortalSession, invoice: Invoice) -> P
         credit_notes=[PortalCreditNote(number=item.number, issue_date=item.issue_date, amount=item.amount, reason=item.reason, status=item.status) for item in credit_notes],
         payment_notices=[PortalPaymentNotice(id=item.id, amount=item.amount, paid_on=item.paid_on, method=item.method, reference=item.reference, status=item.status,
                                              decision_note=item.decision_note, created_at=item.created_at) for item in notices],
+        payment_url=open_link_url(store, invoice),
         can_report_payment=bool(session.access.can_decide and invoice.status == InvoiceStatus.SENT and invoice.balance_due() > 0 and not workspace_archived(session.context)),
     )
 
@@ -651,10 +655,11 @@ def print_invoice(invoice_id: str, lang: Literal["en", "ar"] = "en", session: Po
 
 @router.get("/invoices/{invoice_id}/pdf")
 def invoice_pdf(invoice_id: str, session: PortalSession = Depends(portal_session)) -> Response:
-    """The invoice as a PDF file (Latin text only; the printable page covers Arabic)."""
+    """The invoice as a PDF file, labelled in English and Arabic."""
     with open_business_store(session.context) as store:
         invoice = _invoice_of(store, session, invoice_id)
-        content = render_invoice_pdf(invoice, payments_of(store, invoice.id), credit_notes_of(store, invoice.id), store.get_settings().billing)
+        content = render_invoice_pdf(invoice, payments_of(store, invoice.id), credit_notes_of(store, invoice.id), store.get_settings().billing,
+                                     payment_link=open_link_url(store, invoice))
     return pdf_response(invoice, content)
 
 
