@@ -1,7 +1,8 @@
 import type { Page, Route } from '@playwright/test';
 
 // Ready to sell (docs/selling-readiness.md): a fake of the readiness checklist, the SPF lookup, the company
-// details and legal facts, the Moyasar settings, a refund of a Moyasar payment and the public legal facts.
+// details and legal facts, the Moyasar and Stripe settings, a refund of a card payment (Moyasar or Stripe) and the
+// public legal facts.
 // Register it after mockWorkspaceApi and mockBilling: Playwright tries the newest route first.
 const now = new Date().toISOString();
 const later = new Date(Date.now() + 10 * 86400_000).toISOString();
@@ -23,12 +24,14 @@ const TERMS = [
 ];
 const DOCS = ['terms', 'privacy', 'dpa', 'aup', 'subprocessors'] as const;
 
-export interface SellingState { legal: unknown[]; moyasar: unknown[]; refunds: unknown[]; dns: string[]; publicAuth: (string | null)[] }
+export interface SellingState { legal: unknown[]; moyasar: unknown[]; refunds: unknown[]; dns: string[]; publicAuth: (string | null)[]; settings: unknown[] }
 
-export interface SellingOptions { ready?: boolean; companySet?: boolean }
+/** ``provider``: which card provider took the paid invoice's payment. ``stripeOn``: Stripe is on (a UAE company) and Moyasar off. */
+export interface SellingOptions { ready?: boolean; companySet?: boolean; provider?: 'moyasar' | 'stripe'; stripeOn?: boolean }
 
-export async function mockSelling(page: Page, { ready = false, companySet = false }: SellingOptions = {}): Promise<SellingState> {
-  const state: SellingState = { legal: [], moyasar: [], refunds: [], dns: [], publicAuth: [] };
+export async function mockSelling(page: Page, { ready = false, companySet = false, provider = 'moyasar', stripeOn = false }: SellingOptions = {}): Promise<SellingState> {
+  const state: SellingState = { legal: [], moyasar: [], refunds: [], dns: [], publicAuth: [], settings: [] };
+  const currency = provider === 'stripe' ? 'AED' : 'SAR';
   let company: Record<string, string> = companySet ? { ...COMPANY } : { ...EMPTY_COMPANY };
   let moyasar = { enabled: false, has_secret_key: false, has_webhook_secret: false, test_mode: null as boolean | null, webhook_url: '/api/v1/billing/webhooks/moyasar/anum', events: ['payment_paid', 'payment_refunded'] };
   const values = () => ({
@@ -47,7 +50,10 @@ export async function mockSelling(page: Page, { ready = false, companySet = fals
   const readiness = () => {
     const companyDone = Boolean(company.legal_name && company.dpo_email);
     const items = [
-      item('payment_provider', ready || moyasar.enabled, 'payments', { moyasar: moyasar.enabled ? 'ready' : 'off', stripe: 'off', live_keys: ready, bank_transfer: true }, ready ? 'done' : moyasar.enabled ? 'warning' : 'missing'),
+      item('payment_provider', ready || moyasar.enabled || stripeOn, 'payments', {
+        moyasar: moyasar.enabled ? 'ready' : 'off', stripe: stripeOn ? 'ready' : 'off', active: moyasar.enabled ? 'moyasar' : stripeOn ? 'stripe' : null,
+        currencies: moyasar.enabled ? ['SAR', 'AED', 'USD'] : stripeOn ? ['AED', 'SAR', 'USD', 'EUR', 'GBP'] : [], moyasar_optional: !moyasar.enabled, live_keys: ready, bank_transfer: true,
+      }, ready ? 'done' : moyasar.enabled || stripeOn ? 'warning' : 'missing'),
       item('company_details', ready || companyDone, 'company', { missing: companyDone || ready ? [] : ['legal_name', 'dpo_email'] }),
       item('mail_sending', ready, 'mail', { mailbox_connected: ready, smtp_configured: false }),
       item('backups_local', true, 'backups', { recorded: true, ok: true, finished_at: earlier, last_success_at: earlier, keep_days: 7 }),
@@ -89,10 +95,30 @@ export async function mockSelling(page: Page, { ready = false, companySet = fals
     }
     return json(route, moyasar);
   });
-  // A paid invoice whose payment came through Moyasar, and its refund.
-  const payment = { id: 'pay_m', amount_minor: 34385, currency: 'SAR', method: 'card', reference: 'Moyasar pay_example', received_at: now, has_proof: false, proof_name: null, provider: 'moyasar', recorded_by: 'system:moyasar', refunded_minor: 0, refundable_minor: 34385 };
+  // The Stripe settings (a UAE company's account): keys write-only, the webhook address and events to pick in Stripe.
+  let stripe = { stripe_enabled: stripeOn, has_stripe_secret_key: stripeOn, has_stripe_webhook_secret: stripeOn, stripe_test_mode: stripeOn ? true : null };
+  const settings = () => ({
+    issuer_name: 'Example Business Group LLC', issuer_address: 'Business Bay, Dubai', issuer_vat_number: '', issuer_email: 'billing@example.com', bank_name: 'Emirates NBD',
+    bank_account_name: 'Example Business Group LLC', bank_iban: 'AE070331234567890123456', bank_swift: 'EBILAEAD', invoice_prefix: 'INV', credit_note_prefix: 'CN',
+    payment_terms_days: 14, tax_rules: { AE: 500 }, default_tax_bp: 0, reminder_days: [1, 7, 14], grace_days: 7, sending_workspace_id: null, ...stripe,
+    moyasar_enabled: moyasar.enabled, stripe_webhook_url: '/api/v1/billing/webhooks/stripe/anum',
+    stripe_events: ['checkout.session.completed', 'charge.refunded', 'refund.created', 'refund.updated', 'refund.failed'],
+  });
+  await page.route('http://localhost:8000/api/v1/platform/billing/settings', async (route) => {
+    const request = route.request();
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    if (request.method() === 'PUT') {
+      const body = request.postDataJSON() as { stripe_enabled: boolean; stripe_secret_key: string | null; stripe_webhook_secret: string | null };
+      state.settings.push(body);
+      stripe = { stripe_enabled: body.stripe_enabled, has_stripe_secret_key: stripe.has_stripe_secret_key || Boolean(body.stripe_secret_key),
+        has_stripe_webhook_secret: stripe.has_stripe_webhook_secret || Boolean(body.stripe_webhook_secret), stripe_test_mode: body.stripe_secret_key ? body.stripe_secret_key.startsWith('sk_test_') : stripe.stripe_test_mode };
+    }
+    return json(route, settings());
+  });
+  // A paid invoice whose payment came through the card provider, and its refund.
+  const payment = { id: 'pay_m', amount_minor: 34385, currency, method: provider === 'stripe' ? 'stripe' : 'card', reference: provider === 'stripe' ? 'Stripe pi_example' : 'Moyasar pay_example', received_at: now, has_proof: false, proof_name: null, provider, recorded_by: `system:${provider}`, refunded_minor: 0, refundable_minor: 34385 };
   const paid = {
-    id: 'inv_1', number: 'INV-000001', status: 'paid', kind: 'subscription', currency: 'SAR', period_start: earlier, period_end: later, issued_at: earlier, due_at: later,
+    id: 'inv_1', number: 'INV-000001', status: 'paid', kind: 'subscription', currency, period_start: earlier, period_end: later, issued_at: earlier, due_at: later,
     subtotal_minor: 29900, tax_rate_bp: 1500, tax_country: 'SA', tax_minor: 4485, total_minor: 34385, amount_paid_minor: 34385, amount_credited_minor: 0, amount_due_minor: 0, overdue: false, reminders_sent: 0, last_email: null,
     bill_to: { company_name: 'Acme Trading LLC', city: 'Riyadh', country: 'SA' }, issuer: { issuer_name: 'Example Business Group LLC' },
     bank_details: { enabled: true, bank_name: 'Riyad Bank', account_name: 'ANUM', iban: 'SA0380000000608010167519', swift: 'RIBLSARI' },
@@ -105,7 +131,7 @@ export async function mockSelling(page: Page, { ready = false, companySet = fals
     if (path.endsWith('/refunds') && request.method() === 'POST') {
       const body = request.postDataJSON() as { amount_minor: number; reason: string };
       state.refunds.push(body);
-      const refund = { id: 'refund_1', payment_id: 'pay_m', amount_minor: body.amount_minor, currency: 'SAR', provider: 'moyasar', status: 'succeeded', reason: body.reason, credit_note_id: 'cn_1', failure: null, created_at: now };
+      const refund = { id: 'refund_1', payment_id: 'pay_m', amount_minor: body.amount_minor, currency, provider, status: 'succeeded', reason: body.reason, credit_note_id: 'cn_1', failure: null, created_at: now };
       paid.amount_paid_minor -= body.amount_minor; paid.amount_credited_minor += body.amount_minor;
       payment.refunded_minor += body.amount_minor; payment.refundable_minor -= body.amount_minor;
       paid.credit_notes = [{ id: 'cn_1', number: 'CN-000001', reason: `Refund: ${body.reason}`, subtotal_minor: 0, tax_minor: 0, total_minor: body.amount_minor, issued_at: now }];

@@ -29,17 +29,31 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ..dependencies import repository_context, tenant_context
+from ..dependencies import UnitsOfWork, repository_context, run_in_unit, tenant_context, units_of_work
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from ..settings import settings
 from . import company as co
 from . import moyasar as moy
 from . import service as svc
-from .api import _admin, _audit, _customer_account, _email_connected, _invoice_or_404, _operator, _raise, console, is_email, router, webhooks
+from .api import (
+    _admin,
+    _audit,
+    _customer_account,
+    _email_connected,
+    _invoice_or_404,
+    _operator,
+    _raise,
+    console,
+    is_email,
+    router,
+    stripe_for,
+    stripe_ready,
+    webhooks,
+)
 from .enforce import clear_cache
 from .pdf import credit_note_filename, receipt_filename, render_credit_note, render_receipt
-from .providers import ProviderError, SignatureError
+from .providers import REFUND_DONE, REFUND_FAILED, STRIPE_CURRENCIES, ProviderError, ProviderUnreachable, SignatureError
 from .rows import RowConflict, Rows, open_billing
 from .views import invoice_detail_view, moyasar_view, refund_view
 
@@ -47,6 +61,8 @@ logger = logging.getLogger("anum.billing")
 platform = APIRouter(prefix="/api/v1/platform", tags=["billing"])
 public_legal_router = APIRouter(prefix="/api/v1/public", tags=["billing"])
 TENANT_ID = r"[a-z0-9][a-z0-9_-]{2,79}"
+# Providers whose card payments ANUM refunds through their API.
+REFUNDABLE_PROVIDERS = ("moyasar", "stripe")
 
 
 def moyasar_webhook_path(issuer_tenant_id: str) -> str:
@@ -307,7 +323,7 @@ class RefundInput(BaseModel):
 
     amount_minor: int = Field(gt=0, le=10**12)
     reason: str = Field(min_length=3, max_length=500)
-    # "provider": Moyasar refunds the card. "manual": the money was returned outside ANUM (bank transfer back).
+    # "provider": Moyasar or Stripe refunds the card. "manual": the money was returned outside ANUM (bank transfer back).
     mode: Literal["provider", "manual"] = "provider"
     idempotency_key: str = Field(min_length=8, max_length=120, pattern=r"^[A-Za-z0-9_.:-]+$")
 
@@ -317,12 +333,34 @@ def _same_request(existing: dict[str, Any], payment_id: str, payload: RefundInpu
 
 
 @console.post("/organizations/{tenant_id}/invoices/{invoice_id}/payments/{payment_id}/refunds", status_code=status.HTTP_201_CREATED)
-def refund_payment(
+async def refund_payment(
     tenant_id: str, invoice_id: str, payment_id: str, payload: RefundInput, response: Response,
-    context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context),
+    context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work),
 ) -> dict[str, Any]:
+    """Refund a recorded payment through its provider (Moyasar or Stripe) or record one made by hand.
+
+    No transaction is open while the provider is called: the database steps run in a worker
+    thread, each in its own short transaction, and the audit record in its own unit of work.
+    """
     _operator(context)
-    now = utc_now()
+    # The caller's membership is checked by opening a unit of work (as repository_context did) before anything moves.
+    await run_in_unit(units, context, _membership_checked)
+    claim, replay = await asyncio.to_thread(_refund_work, tenant_id, invoice_id, payment_id, payload, context, utc_now())
+    await run_in_unit(units, context, _audit, context, "billing.refund.create", invoice_id, {
+        "tenant": tenant_id, "refund_id": claim["id"], "payment_id": claim["payment_id"], "amount_minor": int(claim["amount_minor"]),
+        "mode": payload.mode, "status": claim["status"],
+    })
+    if replay:
+        response.status_code = status.HTTP_200_OK
+    return await asyncio.to_thread(_refund_answer, tenant_id, invoice_id, claim, utc_now())
+
+
+def _membership_checked(repository: AnumRepository) -> None:
+    """Nothing to do: opening the unit of work checked the caller's membership."""
+
+
+def _refund_work(tenant_id: str, invoice_id: str, payment_id: str, payload: RefundInput, context: TenantContext,
+                 now: datetime) -> tuple[dict[str, Any], bool]:
     issuer_id = context.tenant_id
     # 1. Claim: one short transaction writes the pending refund (or finds the earlier one).
     with open_billing(tenant_id) as rows:
@@ -338,10 +376,10 @@ def refund_payment(
             payment = rows.get("billing_payments", id=payment_id)
             if payment is None or payment["invoice_id"] != invoice_id:
                 raise HTTPException(status_code=404, detail="That payment is not on this invoice.")
-            if payload.mode == "provider" and payment.get("provider") != "moyasar":
+            if payload.mode == "provider" and payment.get("provider") not in REFUNDABLE_PROVIDERS:
                 raise HTTPException(status_code=409, detail=(
-                    "Only a Moyasar card payment can be refunded through the provider. Return the money yourself "
-                    "(bank transfer, or the Stripe dashboard) and record it here as a manual refund."))
+                    "Only a card payment taken through Moyasar or Stripe can be refunded through the provider. Return the money "
+                    "yourself (a bank transfer back) and record it here as a manual refund."))
             left = svc.refundable(rows, payment)
             limit = min(left, svc.creditable(invoice), int(invoice["amount_paid_minor"]))
             if payload.amount_minor > limit:
@@ -349,7 +387,7 @@ def refund_payment(
             claim = {
                 "id": new_id("refund"), "tenant_id": tenant_id, "issuer_tenant_id": issuer_id, "invoice_id": invoice_id,
                 "payment_id": payment_id, "amount_minor": payload.amount_minor, "currency": payment["currency"],
-                "provider": "moyasar" if payload.mode == "provider" else None, "provider_refund_id": None, "status": "pending",
+                "provider": payment.get("provider") if payload.mode == "provider" else None, "provider_refund_id": None, "status": "pending",
                 "reason": payload.reason, "idempotency_key": payload.idempotency_key, "credit_note_id": None, "failure": None,
                 "requested_by": context.user_id, "created_at": now, "updated_at": now,
             }
@@ -366,44 +404,89 @@ def refund_payment(
         payment_row = rows.get("billing_payments", id=claim["payment_id"])
         issuer = svc.issuer_settings(rows, issuer_id)
     if replay and claim["status"] != "pending":
-        response.status_code = status.HTTP_200_OK
-        return _refund_answer(tenant_id, invoice_id, claim, now)
-    # 2. The provider call, with no transaction open.
+        return claim, True
+    # 2. The provider call, with no transaction open; 3. the booking in its own transaction.
     if claim["status"] == "pending" and claim["provider"] == "moyasar":
-        provider = moyasar_for(issuer)
-        if provider is None:
-            _fail(tenant_id, claim, "Moyasar is turned off; turn it on again or record a manual refund.", now)
-            raise HTTPException(status_code=409, detail="Moyasar card payments are turned off, so the card cannot be refunded from ANUM.")
-        provider_payment_id = str((payment_row or {}).get("provider_payment_id") or "")
-        try:
-            # A replayed pending claim may already have reached Moyasar: compare its refunded total first.
-            already = provider.fetch_payment(provider_payment_id).refunded_minor if replay else 0
-            with open_billing(tenant_id) as rows:
-                booked = sum(int(r["amount_minor"]) for r in rows.select("billing_refunds", {"payment_id": claim["payment_id"], "status": "succeeded"}))
-            result = None if replay and already >= booked + int(claim["amount_minor"]) else provider.refund(provider_payment_id, int(claim["amount_minor"]))
-        except ProviderError as exc:
-            _fail(tenant_id, claim, str(exc), now)
-            raise HTTPException(status_code=502, detail=str(exc)) from None
-        # 3. Book it: credit note, invoice paid amount lowered, refund succeeded.
-        with open_billing(tenant_id) as rows:
-            current = rows.get("billing_refunds", id=claim["id"])
-            if current and current["status"] == "pending":
-                rows.update("billing_refunds", {"id": claim["id"]}, {
-                    "provider_refund_id": f"{provider_payment_id}:{result.refunded_minor if result else already}"[:200], "updated_at": now,
-                })
-                try:
-                    svc.apply_refund(rows, current, now=now, actor=context.user_id)
-                except svc.BillingError as exc:
-                    raise _raise(exc) from None
-            claim = rows.get("billing_refunds", id=claim["id"]) or claim
+        claim = _refund_through_moyasar(tenant_id, claim, payment_row, issuer, replay, now, context.user_id)
+    elif claim["status"] == "pending" and claim["provider"] == "stripe":
+        claim = _refund_through_stripe(tenant_id, claim, payment_row, issuer, replay, now, context.user_id)
     clear_cache(tenant_id)
-    _audit(repository, context, "billing.refund.create", invoice_id, {
-        "tenant": tenant_id, "refund_id": claim["id"], "payment_id": claim["payment_id"], "amount_minor": int(claim["amount_minor"]),
-        "mode": payload.mode, "status": claim["status"],
-    })
-    if replay:
-        response.status_code = status.HTTP_200_OK
-    return _refund_answer(tenant_id, invoice_id, claim, now)
+    return claim, replay
+
+
+def _refund_through_moyasar(tenant_id: str, claim: dict[str, Any], payment_row: dict[str, Any] | None, issuer: dict[str, Any], replay: bool,
+                            now: datetime, actor: str) -> dict[str, Any]:
+    provider = moyasar_for(issuer)
+    if provider is None:
+        _fail(tenant_id, claim, "Moyasar is turned off; turn it on again or record a manual refund.", now)
+        raise HTTPException(status_code=409, detail="Moyasar card payments are turned off, so the card cannot be refunded from ANUM.")
+    provider_payment_id = str((payment_row or {}).get("provider_payment_id") or "")
+    try:
+        # A replayed pending claim may already have reached Moyasar: compare its refunded total first.
+        already = provider.fetch_payment(provider_payment_id).refunded_minor if replay else 0
+        with open_billing(tenant_id) as rows:
+            booked = sum(int(r["amount_minor"]) for r in rows.select("billing_refunds", {"payment_id": claim["payment_id"], "status": "succeeded"}))
+        result = None if replay and already >= booked + int(claim["amount_minor"]) else provider.refund(provider_payment_id, int(claim["amount_minor"]))
+    except ProviderError as exc:
+        _fail(tenant_id, claim, str(exc), now)
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    with open_billing(tenant_id) as rows:
+        current = rows.get("billing_refunds", id=claim["id"])
+        if current and current["status"] == "pending":
+            rows.update("billing_refunds", {"id": claim["id"]}, {
+                "provider_refund_id": f"{provider_payment_id}:{result.refunded_minor if result else already}"[:200], "updated_at": now,
+            })
+            try:
+                svc.apply_refund(rows, current, now=now, actor=actor)
+            except svc.BillingError as exc:
+                raise _raise(exc) from None
+        return rows.get("billing_refunds", id=claim["id"]) or claim
+
+
+def _refund_through_stripe(tenant_id: str, claim: dict[str, Any], payment_row: dict[str, Any] | None, issuer: dict[str, Any], replay: bool,
+                           now: datetime, actor: str) -> dict[str, Any]:
+    """Stripe's Refunds API with an Idempotency-Key per claim; never a second refund for one claim.
+
+    A replayed claim first looks for a Stripe refund carrying this claim's id in its metadata, so a
+    refund Stripe made before the API died is found instead of made again. When Stripe gives no
+    clear answer the claim stays pending (its amount stays reserved) and a retry or Stripe's refund
+    webhook settles it. A refund Stripe reports as pending is booked when the webhook says it succeeded.
+    """
+    provider = stripe_for(issuer)
+    if provider is None:
+        _fail(tenant_id, claim, "Stripe is turned off; turn it on again or record a manual refund.", now)
+        raise HTTPException(status_code=409, detail="Stripe card payments are turned off, so the card cannot be refunded from ANUM.")
+    payment_intent = str((payment_row or {}).get("provider_payment_id") or "")
+    try:
+        found = None
+        if replay:
+            found = next((r for r in provider.refunds_of(payment_intent) if r.metadata.get("anum_refund_id") == claim["id"]), None)
+        result = found or provider.refund(
+            payment_intent=payment_intent, amount_minor=int(claim["amount_minor"]), idempotency_key=f"anum-refund-{claim['id']}",
+            metadata={"anum_refund_id": claim["id"], "anum_tenant_id": tenant_id, "anum_invoice_id": claim["invoice_id"]},
+        )
+    except ProviderUnreachable as exc:
+        # It may have happened: keep the claim pending; the same request again (same key) or the webhook settles it.
+        raise HTTPException(status_code=502, detail=f"{exc} The refund is kept as pending; send the same refund again to check it.") from None
+    except ProviderError as exc:
+        _fail(tenant_id, claim, str(exc), now)
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    with open_billing(tenant_id) as rows:
+        current = rows.get("billing_refunds", for_update=True, id=claim["id"])
+        if current and current["status"] == "pending":
+            if result.status in REFUND_FAILED or result.amount_minor != int(current["amount_minor"]):
+                rows.update("billing_refunds", {"id": claim["id"], "status": "pending"}, {
+                    "status": "failed", "provider_refund_id": result.id[:200], "updated_at": now,
+                    "failure": f"Stripe did not refund the card (status {result.status or 'unknown'}).",
+                })
+            else:
+                rows.update("billing_refunds", {"id": claim["id"]}, {"provider_refund_id": result.id[:200], "updated_at": now})
+                if result.status in REFUND_DONE:
+                    try:
+                        svc.apply_refund(rows, current, now=now, actor=actor)
+                    except svc.BillingError as exc:
+                        raise _raise(exc) from None
+        return rows.get("billing_refunds", id=claim["id"]) or claim
 
 
 def _fail(tenant_id: str, claim: dict[str, Any], message: str, now: datetime) -> None:
@@ -609,8 +692,11 @@ def readiness(context: TenantContext = Depends(tenant_context)) -> dict[str, Any
     values = co.legal_values(merged, flags)
     missing = co.missing_by_doc(values)
     moyasar_ready = bool(issuer.get("moyasar_enabled") and issuer.get("moyasar_secret_ciphertext") and issuer.get("moyasar_webhook_secret_ciphertext"))
-    stripe_ready = bool(issuer.get("stripe_enabled") and issuer.get("stripe_secret_ciphertext") and issuer.get("stripe_webhook_secret_ciphertext"))
-    live = (moyasar_ready and issuer.get("moyasar_key_mode") == "live") or (stripe_ready and issuer.get("stripe_key_mode") == "live")
+    stripe_on = stripe_ready(issuer)
+    # The provider that takes card payments: Moyasar when it is on (Saudi, needs a Saudi company), else Stripe
+    # (a UAE company's account), else none. The same order as POST /billing/invoices/{id}/checkout.
+    active = "moyasar" if moyasar_ready else ("stripe" if stripe_on else None)
+    live = (active == "moyasar" and issuer.get("moyasar_key_mode") == "live") or (active == "stripe" and issuer.get("stripe_key_mode") == "live")
     bank = bool(issuer.get("bank_iban"))
     company_missing = [name for name in co.REQUIRED_COMPANY if not str(merged.get(name) or "").strip()]
     backups = co.backup_status()
@@ -626,11 +712,12 @@ def readiness(context: TenantContext = Depends(tenant_context)) -> dict[str, Any
         return "done" if info["ok"] else "missing"
 
     items = [
-        _item("payment_provider", moyasar_ready or stripe_ready, "payments", {
+        _item("payment_provider", active is not None, "payments", {
             "moyasar": "ready" if moyasar_ready else ("off" if not issuer.get("moyasar_enabled") else "incomplete"),
-            "stripe": "ready" if stripe_ready else ("off" if not issuer.get("stripe_enabled") else "incomplete"),
-            "live_keys": bool(live), "bank_transfer": bank,
-        }, state=("done" if live else "warning") if (moyasar_ready or stripe_ready) else "missing"),
+            "stripe": "ready" if stripe_on else ("off" if not issuer.get("stripe_enabled") else "incomplete"),
+            "active": active, "currencies": list(STRIPE_CURRENCIES if active == "stripe" else moy.CURRENCIES) if active else [],
+            "moyasar_optional": active != "moyasar", "live_keys": bool(live), "bank_transfer": bank,
+        }, state=("done" if live else "warning") if active else "missing"),
         _item("company_details", not company_missing, "company", {"missing": company_missing}),
         _item("mail_sending", mail_connected, "mail", {"mailbox_connected": mail_connected, "smtp_configured": smtp}),
         _item("backups_local", backup_state("local") == "done", "backups", {"recorded": backups["recorded"], **(backups.get("local") or {})},

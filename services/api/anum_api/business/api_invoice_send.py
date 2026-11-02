@@ -1,8 +1,8 @@
-"""HTTP routes for Business invoices, part 3: emailing the invoice, payment reminders and Moyasar
-payment links (``/api/v1/business``, docs/business.md#emailing-an-invoice-and-reminders and
+"""HTTP routes for Business invoices, part 3: emailing the invoice, payment reminders and card
+payment links (Moyasar or Stripe) (``/api/v1/business``, docs/business.md#emailing-an-invoice-and-reminders and
 docs/business.md#payment-links).
 
-The routes that call out (the delivery planner, Moyasar) are ``async`` and take short units of
+The routes that call out (the delivery planner, Moyasar, Stripe) are ``async`` and take short units of
 work (``dependencies.units_of_work``): every store step runs in its own unit in a worker thread,
 so no transaction is open on the event loop or across the call (docs/realtime.md#event-loop).
 Sending is never done here: an email is planned as a delivery task that waits for an owner's
@@ -25,7 +25,7 @@ from ..settings import settings
 from .api_invoices import InvoiceView, invoice_view
 from .common import get_or_404, read, write
 from .invoice_models import InvoiceMessage
-from .invoice_send import ATTACHMENT_KIND, create_payment_link, moyasar_state, refresh_messages, request_email, resolve_attachment
+from .invoice_send import ATTACHMENT_KIND, create_payment_link, provider_state, refresh_messages, request_email, resolve_attachment
 from .service import audit, http_error
 from .store import open_business_store
 
@@ -83,24 +83,27 @@ async def remind_invoice(invoice_id: str, payload: EmailRequest, context: Tenant
 
 class ProviderState(BaseModel):
     moyasar: Literal["on", "off"]
+    stripe: Literal["on", "off"] = "off"
+    # The provider a new payment link uses: Moyasar when it is on, else Stripe, else none.
+    provider: Literal["moyasar", "stripe"] | None = None
     mode: str | None = None
 
 
 @router.get("/payment-provider", response_model=ProviderState)
 def payment_provider(context: TenantContext = Depends(tenant_context)) -> ProviderState:
-    """Whether card payment links can be made: the owner's Moyasar (Platform billing) is on."""
+    """Whether card payment links can be made: the owner's Moyasar or Stripe (Platform billing) is on."""
     read(context)
-    state: dict[str, Any] = moyasar_state(context.tenant_id)
+    state: dict[str, Any] = provider_state(context.tenant_id)
     return ProviderState(**state)
 
 
 @router.post("/invoices/{invoice_id}/payment-link", response_model=InvoiceView, status_code=status.HTTP_201_CREATED)
 async def make_payment_link(invoice_id: str, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> InvoiceView:
-    """A Moyasar payment page for the balance. The same link comes back while the balance is unchanged.
-    Moyasar is called with no transaction open (``create_payment_link`` uses its own short units)."""
+    """A Moyasar page or a Stripe Payment Link for the balance. The same link comes back while the balance is
+    unchanged. The provider is called with no transaction open (``create_payment_link`` uses its own short units)."""
     write(context)
     if not settings.web_app_url:
-        raise http_error(409, "The web address of ANUM is not set (ANUM_WEB_APP_URL), so Moyasar would have nowhere to send the customer back.")
+        raise http_error(409, "The web address of ANUM is not set (ANUM_WEB_APP_URL), so the payment page would have nowhere to send the customer back.")
     link = await asyncio.to_thread(create_payment_link, context, invoice_id, app_url=settings.web_app_url)
     view = await run_in_unit(units, context, _view, context, invoice_id)
     await run_in_unit(units, context, audit, context, "business.invoice.payment_link_created", invoice_id, metadata={"link_id": link.id, "amount": str(link.amount)})

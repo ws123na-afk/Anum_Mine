@@ -466,6 +466,7 @@ function PaymentsBlock({ invoice, canRemove, busy, onRemove, onSaved, onError }:
             <Download aria-hidden="true" />{t('inv.receipt.button')}</button>
           {canRemove && <button type="button" className="secondary" disabled={busy} onClick={() => onRemove(payment.id)}>{t('inv.pay.remove')}</button>}</div>
         {payment.provider === 'moyasar' && <small>{t('inv.pay.viaMoyasar')}</small>}
+        {payment.provider === 'stripe' && <small>{t('inv.pay.viaStripe')}</small>}
         <small dir="auto">{[payment.reference, payment.note].filter(Boolean).join(' / ')}</small>
         <small>{t('inv.pay.recordedBy', { by: payment.recorded_by })}</small></li>)}</ul>}
   </section>;
