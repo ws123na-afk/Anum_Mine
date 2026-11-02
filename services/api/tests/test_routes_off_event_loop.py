@@ -106,3 +106,13 @@ def test_home_sources_run_in_worker_threads(on_loop: list[str]) -> None:
     assert client.get("/api/v1/home/summary", headers=HEADERS).status_code == 200
     assert client.get("/api/v1/home/insights", headers=HEADERS).status_code == 200
     assert on_loop == [], f"opened on the event loop: {on_loop}"
+
+
+def test_one_email_and_one_lead_list_read_off_the_loop(on_loop: list[str]) -> None:
+    """The unified mailbox list and All inboxes (docs/email.md#one-email-module) and the WhatsApp
+    leads waiting for the lead list (docs/business.md#whatsapp-leads)."""
+    assert client.get("/api/v1/email/unified/mailboxes", headers=HEADERS).status_code == 200
+    assert client.get("/api/v1/email/unified/messages", headers=HEADERS).status_code == 200
+    assert client.get("/api/v1/business/lead-sources/whatsapp", headers=HEADERS).status_code == 200
+    assert client.get("/api/v1/business/lead-duplicates", headers=HEADERS).status_code == 200
+    assert on_loop == [], f"opened on the event loop: {on_loop}"
