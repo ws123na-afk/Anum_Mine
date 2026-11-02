@@ -23,6 +23,7 @@ import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { reasonText } from './FinancePlan';
 import { WiderPanel } from './FinanceWider';
+import { LivePreflight } from './FinanceLivePreflight';
 
 const PAGE = 20;
 
@@ -493,6 +494,7 @@ export function ExecutionPanel() {
         <span className={`statusBadge ${ex.available ? 'success' : 'warning'}`}>{ex.available ? t('finance.execution.available') : t('finance.execution.notEnabled')}</span></li>)}</ul>
     </section>
     <LiveSection key={`live-${liveKey}`} onChanged={refresh} />
+    <LivePreflight />
     <WiderPanel key={historyKey} />
     <RequestHistory key={historyKey} />
   </>;
