@@ -11,7 +11,7 @@ import type {
   FinancePaperOrderStatus, FinanceWider, FinanceWidening, FinanceWideningInput, FinancePortfolio, FinancePortfolioInput, FinancePortfolioSummary, FinancePrice, FinancePriceInput, FinancePriceSaved,
   FinanceAgentDecision, FinanceEquity, FinanceIntelAgent, FinanceIntelOverview, FinanceStrategy, FinanceStrategyRun, FinanceStrategyState,
   FinanceIntelBarsInput, FinanceIntelBarsResult, FinanceIntelCycle, FinanceIntelInstrument, FinanceIntelInstrumentInput, FinanceIntelPhase,
-  FinanceIntelRule, FinanceStrategyInput, FinanceDailyReport, FinanceDailyReportItem,
+  FinanceIntelRule, FinanceStrategyInput, FinanceDailyReport, FinanceDailyReportItem, FinancePreflight, FinancePreflightInput,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -139,6 +139,8 @@ export const setKillSwitch = (scope: 'person' | 'global', engaged: boolean, reas
 export const getLive = () => get<FinanceLive>('/execution/live');
 export const proposeLiveChange = (body: FinanceLiveChangeInput) => send<FinanceIntent>('POST', '/execution/live/changes', body);
 export const optOutLive = () => send<FinanceLive>('POST', '/execution/live/opt-out', {});
+// Live eligibility preflight (docs/finance.md#live-eligibility-preflight): read only, live stays off.
+export const livePreflight = (body: FinancePreflightInput) => send<FinancePreflight>('POST', '/broker/readiness', body);
 
 // ---- Stage 9: wider live use, framework only and off ---------------------------------------------------
 export const getWider = () => get<FinanceWider>('/execution/wider');
