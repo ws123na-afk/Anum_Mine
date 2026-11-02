@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  actionTone, applyRequestFor, changeCount, checkChanged, checkStatus, checkTone, evidenceProblem, failedItems, filterItems, groupBySection, itemHref, outcomeSummary, outcomeTone, previewMatches, reasonText, rolloutWeeks,
+  actionTone, applyRequestFor, checklistSummary, checklistTone, orderChecklist, previewQuery, SECTION_ORDER, changeCount, checkChanged, checkStatus, checkTone, evidenceProblem, failedItems, filterItems, groupBySection, itemHref, outcomeSummary, outcomeTone, previewMatches, reasonText, rolloutWeeks,
   type SetupPlanItem,
 } from '../src/lib/setupPlan.ts';
 import { setLocale } from '../src/lib/i18n.ts';
@@ -23,7 +23,19 @@ describe('setup plan items', () => {
     assert.equal(previewMatches(shown, 'pilot', false), true);
     assert.equal(previewMatches(shown, 'all', false), false);
     assert.equal(previewMatches(shown, 'pilot', true), false);
-    assert.deepEqual(applyRequestFor(shown), { phase: 'pilot', overwrite_edited: false, plan_version: 3 });
+    assert.deepEqual(applyRequestFor(shown), {
+      phase: 'pilot', overwrite_edited: false, plan_version: 3, business_workspaces: false, run_automations_as_agents: false, seat_in_offices: true,
+    });
+  });
+  test('the options are part of what the preview was built with and of what apply sends', () => {
+    const options = { business_workspaces: true, run_automations_as_agents: true, seat_in_offices: false };
+    const shown = { phase: 'all' as const, overwrite_edited: false, options, plan: { version: 4 } };
+    assert.equal(previewMatches(shown, 'all', false, options), true);
+    assert.equal(previewMatches(shown, 'all', false, { ...options, seat_in_offices: true }), false);
+    assert.equal(previewMatches(shown, 'all', false), false);
+    assert.deepEqual(applyRequestFor(shown), { phase: 'all', overwrite_edited: false, plan_version: 4, ...options });
+    assert.equal(previewQuery('all', true, options),
+      'phase=all&overwrite_edited=true&business_workspaces=true&run_automations_as_agents=true&seat_in_offices=false');
   });
   test('filter by section, words (name, reason, facts) and changes only, keeping failures', () => {
     const items = [
@@ -97,5 +109,27 @@ describe('pilot checks', () => {
     assert.equal(evidenceProblem('https://anum.example/tasks/1'), null);
     assert.equal(evidenceProblem('http://anum.example/tasks/1'), 'plan.checks.evidenceHttps');
     assert.equal(evidenceProblem('x'.repeat(301)), 'plan.checks.evidenceLong');
+  });
+});
+
+describe('setup plan checklist', () => {
+  const row = (key: string, state: 'done' | 'todo' | 'partial' | 'cannot_check' | 'no_access') =>
+    ({ key, check: key, title: key, detail: '', state, summary: '', view: null, details: [] });
+  test('steps to do come first, then partly done, then those ANUM cannot read, then done; plan order within each', () => {
+    const ordered = orderChecklist([row('a', 'done'), row('b', 'cannot_check'), row('c', 'todo'), row('d', 'partial'), row('e', 'todo'), row('f', 'no_access')]);
+    assert.deepEqual(ordered.map((r) => r.key), ['c', 'e', 'd', 'f', 'b', 'a']);
+  });
+  test('tones and the summary', () => {
+    assert.equal(checklistTone('done'), 'success');
+    assert.equal(checklistTone('partial'), 'warning');
+    assert.equal(checklistTone('todo'), 'dangerTone');
+    assert.equal(checklistTone('cannot_check'), 'neutral');
+    assert.deepEqual(checklistSummary({ done: 11, total: 11 }), { done: 11, total: 11, complete: true });
+    assert.equal(checklistSummary({ done: 0, total: 0 }).complete, false);
+  });
+  test('the new sections sit after agents and before the steps for people', () => {
+    assert.ok(SECTION_ORDER.indexOf('controls') > SECTION_ORDER.indexOf('agents'));
+    assert.ok(SECTION_ORDER.indexOf('home') < SECTION_ORDER.indexOf('manual'));
+    assert.ok(SECTION_ORDER.includes('offices') && SECTION_ORDER.includes('business_agents'));
   });
 });

@@ -19,6 +19,7 @@ from anum_api.agent_tools import ToolCall, ToolDefinition, ToolPolicyOutcome, To
 from anum_api.approval_reminders import memory_reminder_store, run_approval_reminder_pass
 from anum_api.budget_alerts import crossed
 from anum_api.contact_consent import consent_refusals_for_call, consent_store
+from anum_api.home import home_store
 from anum_api.dependencies import memory_repository
 from anum_api.model_budget import BudgetScope, ModelBudgetLimits, memory_model_budget_store, record_model_usage
 from anum_api.model_gateway import MockModelGateway, ModelUsage
@@ -36,10 +37,10 @@ CTX = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_1",
 
 @pytest.fixture(autouse=True)
 def _clean() -> Any:
-    for cleared in (memory_agent_controls_store, memory_loop_limit_store, memory_reminder_store, consent_store, suppression_store):
+    for cleared in (memory_agent_controls_store, memory_loop_limit_store, memory_reminder_store, consent_store, suppression_store, home_store):
         cleared.clear()
     yield
-    for cleared in (memory_agent_controls_store, memory_loop_limit_store, memory_reminder_store, consent_store, suppression_store):
+    for cleared in (memory_agent_controls_store, memory_loop_limit_store, memory_reminder_store, consent_store, suppression_store, home_store):
         cleared.clear()
 
 

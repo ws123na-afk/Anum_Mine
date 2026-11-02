@@ -114,7 +114,7 @@ memory_loop_limit_store = InMemoryLoopLimitStore()
 
 
 class SqlLoopLimitStore:
-    """``agent_loop_limits`` (migration 0128), forced RLS on the tenant and workspace."""
+    """``agent_loop_limits`` (migration 0129), forced RLS on the tenant and workspace."""
 
     def __init__(self, session: Any) -> None:
         from .db.repository import SqlAlchemyRepository

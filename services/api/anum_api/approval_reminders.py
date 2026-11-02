@@ -10,7 +10,7 @@ with ``insert ... on conflict do nothing`` so two passes never send it twice.
 
 The reminder pass runs with the team reminder sweep (``team_work.run_reminder_pass``). With
 PostgreSQL due approvals are discovered as ``anum_maintenance`` (ids and timestamps only,
-migration ``0128_setup_plan_gaps``) and each is handled in its own transaction inside its
+migration ``0129_setup_plan_gaps``) and each is handled in its own transaction inside its
 tenant's RLS context. Nothing here approves, rejects or changes an approval.
 """
 

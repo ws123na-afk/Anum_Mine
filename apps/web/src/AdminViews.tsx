@@ -29,6 +29,7 @@ import { ConfirmDialog } from './Dialog';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { AccessNotice } from './PageParts';
 import { AgentMeetingBudgetCard } from './AgentMeetingBudgetCard';
+import { ApprovalReminderCard } from './ApprovalReminderCard';
 import type { TenantWriteAccess } from './lib/governance';
 import { tenantWriteAccess } from './lib/governance';
 import './admin.css';
@@ -591,6 +592,7 @@ export function ApprovalPolicyView({ workspaceId }: { workspaceId: string }) {
           {changed && <button type="button" className="secondary" disabled={busy} onClick={() => setDraft(policyDraft(policy))}><RotateCcw aria-hidden="true" />{t('policy.undo')}</button>}
         </div>}
       </section>
+      <ApprovalReminderCard readOnly={readOnly} />
     </>}
   </>;
 }

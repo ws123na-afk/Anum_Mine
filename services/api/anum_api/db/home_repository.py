@@ -35,7 +35,7 @@ class HomeProfileRecord(Base):
     user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
     display_name: Mapped[str | None] = mapped_column(String(80))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # 0128_setup_plan_gaps: the chosen order of the web Home's sections (null: default).
+    # 0129_setup_plan_gaps: the chosen order of the web Home's sections (null: default).
     sections: Mapped[list[str] | None] = mapped_column(JSONB(none_as_null=True))
 
 

@@ -1,4 +1,4 @@
-"""Migration 0128_setup_plan_gaps in PostgreSQL, as the non-owner app role: consent records,
+"""Migration 0129_setup_plan_gaps in PostgreSQL, as the non-owner app role: consent records,
 loop limits, approval reminders (discovered as ``anum_maintenance``) and the Home order, each
 under forced RLS; and the whole pilot of the setup plan setting them through the SQL stores."""
 

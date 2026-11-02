@@ -1,4 +1,4 @@
-"""PostgreSQL consent records for campaigns (migration ``0128_setup_plan_gaps``).
+"""PostgreSQL consent records for campaigns (migration ``0129_setup_plan_gaps``).
 
 ``contact_consents`` and ``contact_consent_settings`` are organisation-wide under forced RLS on
 ``anum.tenant_id``; every statement also filters on the tenant. Recording is one

@@ -26,14 +26,14 @@ Organisation and workspace deletion (``0079_tenant_lifecycle``): every new table
 purge grants and policy and is listed in ``anum_api/tenant_lifecycle_tables.py``.
 
 Expand only: the previous release ignores the new tables and the nullable column. Rollback
-never reverses it. Numbered 0128 and chained after ``0127_stripe_payment_links``.
+never reverses it. Numbered 0129 and chained after ``0128_agent_memory_facts``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0128_setup_plan_gaps"
-down_revision = "0127_stripe_payment_links"
+revision = "0129_setup_plan_gaps"
+down_revision = "0128_agent_memory_facts"
 branch_labels = None
 depends_on = None
 

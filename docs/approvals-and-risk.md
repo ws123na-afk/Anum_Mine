@@ -174,6 +174,14 @@ The setup plan's approval rules (blueprint version 2, [Setup plan](setup-plan.md
 
 Not done yet: the Flutter and Android approval screens do not show the route or the opted-out recipients yet (they offer Approve and Reject as before and show the API's `403` refusal), and there is no per-workspace override of tenant rules.
 
+## Approval-ageing reminder
+
+A workspace owner chooses after how many hours (1 to 23, since an approval expires after 24) a pending approval reminds the people who can approve it, or leaves it off (the default): Approval policy, **Remind approvers** (`apps/web/src/ApprovalReminderCard.tsx`). `GET /api/v1/approval-reminders/settings` (any member with `approval:read`) and `PUT` `{reminder_hours}` (owners, `policy:manage`; null turns it off; audited as `approval.reminder_settings_updated`).
+
+The team reminder sweep (`team_work.run_reminder_pass`, which runs with the automation scheduler) calls `approval_reminders.run_approval_reminder_pass`: with PostgreSQL, approvals that are pending, not expired and older than the workspace's hours are discovered as `anum_maintenance` (ids and timestamps only: a column grant and a select policy on pending approvals, the reminder settings and the reminders already sent, migration `0129_setup_plan_gaps`); each is handled in its own transaction in its tenant's RLS context. The approval is read again, `approval_reminders` is claimed with `insert ... on conflict do nothing` so it reminds once, and every active owner of the workspace gets one in-app notification (kind `approval_reminder`, the action, its risk, how long it waited and when it expires). In-app only: no email and no phone push. Audited as `approval.reminder_sent` by the system actor. Nothing here approves, rejects or changes the approval. The setup plan sets 4 hours (its automation #4).
+
+Named approvers of a routed approval who are not owners are not reminded yet; owners can approve every approval by default.
+
 ## Paging, filters and search
 
 A workspace accumulates approvals for as long as it runs, so clients never load them all.

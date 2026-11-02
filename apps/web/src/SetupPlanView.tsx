@@ -10,6 +10,7 @@ import {
   CHECK_GROUPS, checkChanged, checkStatus, checkTone, evidenceProblem, type PilotCheck, type PilotCheckStatus, type PilotChecks,
   actionLabel, actionTone, applyRequestFor, changeCount, failedItems, filterItems, groupBySection, itemHref, outcomeLabel, outcomeSummary, outcomeTone, previewMatches, reasonText,
   rolloutWeeks, sectionLabel, type SetupPlanApplyResult, type SetupPlanItem, type SetupPlanPhase, type SetupPlanPreview, type SetupPlanSection, type SetupPlanSummary,
+  DEFAULT_OPTIONS, checklistStateLabel, checklistSummary, checklistTone, orderChecklist, type SetupChecklist, type SetupPlanOptions,
 } from './lib/setupPlan';
 import * as api from './lib/setupPlanApi';
 import './admin.css';
@@ -66,6 +67,7 @@ export function SetupPlanView({ onOpenMembers }: { onOpenMembers?: () => void })
 function PlanPanel({ planId, onDenied }: { planId: string; onDenied: (message: string) => void }) {
   const [phase, setPhase] = useState<SetupPlanPhase>('pilot');
   const [overwrite, setOverwrite] = useState(false);
+  const [options, setOptions] = useState<SetupPlanOptions>(DEFAULT_OPTIONS);
   const [preview, setPreview] = useState<SetupPlanPreview | null>(null);
   const [result, setResult] = useState<SetupPlanApplyResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +75,15 @@ function PlanPanel({ planId, onDenied }: { planId: string; onDenied: (message: s
   const [confirming, setConfirming] = useState(false);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'plan' | 'checks'>('plan');
+  const [tab, setTab] = useState<'plan' | 'list' | 'checks'>('plan');
+  const [checklist, setChecklist] = useState<SetupChecklist | null>(null);
+  const [checklistError, setChecklistError] = useState<string | null>(null);
+  const loadChecklist = useCallback(async () => {
+    setChecklistError(null);
+    try { setChecklist(await api.getSetupChecklist(planId)); }
+    catch (failure) { setChecklistError(t('plan.loadFailed', { message: describeError(failure) })); }
+  }, [planId]);
+  useEffect(() => { void loadChecklist(); }, [loadChecklist]);
   const [checks, setChecks] = useState<PilotChecks | null>(null);
   const [checksError, setChecksError] = useState<string | null>(null);
   const loadChecks = useCallback(async () => {
@@ -90,24 +100,25 @@ function PlanPanel({ planId, onDenied }: { planId: string; onDenied: (message: s
     setLoading(true); setError(null);
     if (!keepResult) setResult(null);
     try {
-      const next = await api.previewSetupPlan(planId, phase, overwrite);
+      const next = await api.previewSetupPlan(planId, phase, overwrite, options);
       if (request === latestPreview.current) setPreview(next);
     } catch (failure) {
       if (request !== latestPreview.current) return;
       if (isPermissionDenied(failure)) { onDenied(describeError(failure)); return; }
       setError(t('plan.loadFailed', { message: describeError(failure) }));
     } finally { if (request === latestPreview.current) setLoading(false); }
-  }, [planId, phase, overwrite, onDenied]);
+  }, [planId, phase, overwrite, options, onDenied]);
   useEffect(() => { void refresh(); }, [refresh]);
 
   const apply = async () => {
-    if (!preview || !previewMatches(preview, phase, overwrite)) return;
+    if (!preview || !previewMatches(preview, phase, overwrite, options)) return;
     setApplying(true); setApplyError(null);
     try {
       // Exactly what the shown preview was built with, never a choice whose preview has not loaded.
       const applied = await api.applySetupPlan(planId, applyRequestFor(preview));
       setResult(applied); setConfirming(false);
       await refresh(true);
+      void loadChecklist();
     } catch (failure) {
       setConfirming(false);
       if (isPermissionDenied(failure)) { onDenied(describeError(failure)); return; }
@@ -116,7 +127,9 @@ function PlanPanel({ planId, onDenied }: { planId: string; onDenied: (message: s
     } finally { setApplying(false); }
   };
 
-  const current = preview !== null && previewMatches(preview, phase, overwrite);
+  const current = preview !== null && previewMatches(preview, phase, overwrite, options);
+  const chosen = [options.business_workspaces && t('plan.options.business'), options.run_automations_as_agents && t('plan.options.runAs'),
+    options.seat_in_offices && t('plan.options.seat')].filter((x): x is string => Boolean(x));
   const changes = preview ? changeCount(preview) : 0;
   const shown = result ?? preview;
   const counts = useMemo(() => {
@@ -130,8 +143,12 @@ function PlanPanel({ planId, onDenied }: { planId: string; onDenied: (message: s
 
   const tabs = <div className="segmented planTabs" role="group" aria-label={t('plan.title')}>
     <button type="button" aria-pressed={tab === 'plan'} onClick={() => setTab('plan')}>{t('plan.tab.plan')}</button>
+    <button type="button" aria-pressed={tab === 'list'} onClick={() => setTab('list')}>{t('plan.tab.list')}{checklist && <span className="planTabCount">{checklist.done}/{checklist.total}</span>}</button>
     <button type="button" aria-pressed={tab === 'checks'} onClick={() => setTab('checks')}>{t('plan.tab.checks')}{checks && <span className="planTabCount">{checks.passed}/{checks.total}</span>}</button>
   </div>;
+  if (tab === 'list') {
+    return <>{tabs}<ChecklistPanel checklist={checklist} error={checklistError} onRetry={() => void loadChecklist()} /></>;
+  }
   if (tab === 'checks') {
     return <>{tabs}<PilotChecksPanel planId={planId} checks={checks} error={checksError} onRetry={() => void loadChecks()} onSaved={setChecks} /></>;
   }
@@ -149,6 +166,12 @@ function PlanPanel({ planId, onDenied }: { planId: string; onDenied: (message: s
         </div>
         <p className="muted">{phase === 'pilot' ? t('plan.phase.pilotHint') : t('plan.phase.allHint')}</p>
         <label className="planToggle"><input type="checkbox" checked={overwrite} disabled={applying} onChange={(event) => setOverwrite(event.target.checked)} /><span>{t('plan.overwrite')}<small className="muted">{t('plan.overwriteHint')}</small></span></label>
+        <fieldset className="planOptions">
+          <legend>{t('plan.options.title')}</legend>
+          {([['seat_in_offices', 'plan.options.seat', 'plan.options.seatHint'], ['run_automations_as_agents', 'plan.options.runAs', 'plan.options.runAsHint'],
+            ['business_workspaces', 'plan.options.business', 'plan.options.businessHint']] as const).map(([key, label, hint]) =>
+            <label key={key} className="planToggle"><input type="checkbox" checked={options[key]} disabled={applying} onChange={(event) => setOptions({ ...options, [key]: event.target.checked })} /><span>{t(label)}<small className="muted">{t(hint)}</small></span></label>)}
+        </fieldset>
         <div className="actions">
           <button type="button" disabled={loading || applying || !current || changes === 0} onClick={() => setConfirming(true)}>
             <ClipboardList aria-hidden="true" />{changes === 0 && preview ? t('plan.apply.nothing') : phase === 'pilot' ? t('plan.apply.pilot') : t('plan.apply.all')}
@@ -180,6 +203,7 @@ function PlanPanel({ planId, onDenied }: { planId: string; onDenied: (message: s
       <p>{t('plan.confirm.body', { count: changes })}</p>
       <p className="muted">{t('plan.confirm.safety')}</p>
       {overwrite && <p className="planWarn">{t('plan.confirm.overwrite')}</p>}
+      {chosen.length > 0 && <p>{t('plan.confirm.options', { list: chosen.join(', ') })}</p>}
     </ConfirmDialog>}
   </>;
 }
@@ -280,6 +304,41 @@ function Gaps({ preview }: { preview: SetupPlanPreview }) {
       <details className="planGroup"><summary><h3>{t('plan.gaps.memory')}</h3><span className="muted">{t('plan.items.count', { count: preview.memory_rules.length })}</span></summary>{rows(preview.memory_rules)}</details>
     </div>
   </section>;
+}
+
+function ChecklistPanel({ checklist, error, onRetry }: { checklist: SetupChecklist | null; error: string | null; onRetry: () => void }) {
+  if (error) return <div className="planState"><Notice error>{error}</Notice><button type="button" className="secondary" onClick={onRetry}><RefreshCw aria-hidden="true" />{t('plan.retry')}</button></div>;
+  if (!checklist) return <Notice>{t('plan.list.loading')}</Notice>;
+  const summary = checklistSummary(checklist);
+  return <>
+    <section className={`surface planChecksHead ${summary.complete ? 'done' : ''}`} aria-live="polite">
+      <div>
+        <h3>{t('plan.list.summary', { done: summary.done, total: summary.total })}</h3>
+        <p>{summary.complete ? t('plan.list.complete') : t('plan.list.intro')}</p>
+      </div>
+      <progress max={summary.total} value={summary.done} aria-label={t('plan.list.summary', { done: summary.done, total: summary.total })} />
+      <div className="actions"><button type="button" className="secondary" onClick={onRetry}><RefreshCw aria-hidden="true" />{t('plan.list.refresh')}</button></div>
+    </section>
+    <section className="surface planItems" aria-label={t('plan.tab.list')}>
+      <ul className="planRows">{orderChecklist(checklist.items).map((item) => {
+        const href = item.view ? `#${item.view}` : null;
+        return <li key={item.key} className="planRow planListRow">
+          <div className="planRowHead">
+            <span className={`statusBadge ${checklistTone(item.state)}`}>{checklistStateLabel(item.state)}</span>
+            <strong className="planRowName" dir="auto">{item.title}</strong>
+            {href && <a className="planOpen" href={href} aria-label={t('plan.list.openLabel', { title: item.title })}><ExternalLink aria-hidden="true" />{t('plan.list.open')}</a>}
+          </div>
+          <p className="planReason" dir="auto">{item.summary}</p>
+          <p className="muted" dir="auto">{item.detail}</p>
+          {item.details.length > 0 && <details><summary>{t('plan.list.details')}</summary>
+            <ul className="planListDetails">{item.details.map((detail) => <li key={detail.label}>
+              <span className={`statusBadge ${checklistTone(detail.state)}`}>{checklistStateLabel(detail.state)}</span>
+              <bdi>{detail.label}</bdi>{detail.note && <span className="muted"><bdi>{detail.note}</bdi></span>}
+            </li>)}</ul></details>}
+        </li>;
+      })}</ul>
+    </section>
+  </>;
 }
 
 function PilotChecksPanel({ planId, checks, error, onRetry, onSaved }: {
