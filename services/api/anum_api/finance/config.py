@@ -82,6 +82,15 @@ class FinanceConfig(BaseSettings):
     commentary_monthly_limit: int = Field(default=31, ge=0, le=400)
     commentary_max_chars: int = Field(default=1500, ge=200, le=4000)
     commentary_timeout_seconds: float = Field(default=45.0, ge=5, le=120)
+    # Symbol research (docs/finance-research.md): how long gathered figures are kept per person and
+    # workspace, the timeout for each outside source and the model, the AI summary switch and its
+    # daily cap per person, and the contact e-mail SEC EDGAR asks every automated reader to send in
+    # its User-Agent (not a secret; empty: the SEC fund facts are shown as not available).
+    research_cache_minutes: int = Field(default=30, ge=1, le=1440)
+    research_timeout_seconds: float = Field(default=20.0, ge=3, le=120)
+    research_summary_enabled: bool = True
+    research_summary_daily_limit: int = Field(default=10, ge=0, le=200)
+    research_contact: str = Field(default="", max_length=120, pattern=r"^$|^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
     model_config = SettingsConfigDict(env_prefix="ANUM_FINANCE_", env_file=".env", extra="ignore", hide_input_in_errors=True)
 

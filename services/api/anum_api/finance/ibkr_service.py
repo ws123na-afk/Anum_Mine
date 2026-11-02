@@ -664,7 +664,7 @@ def _guardian(fstore: FinanceStore, context: TenantContext, intent: Intent, amou
 
 
 def create_order(context: TenantContext, body: OrderInput, now: datetime, *, requested_by: Literal["person", "agent"] = "person",
-                 proposer: str | None = None) -> Intent:
+                 proposer: str | None = None, paper_only: bool = False) -> Intent:
     """An order waiting for the owner's approval. Live only when every live gate holds; agents only paper."""
     symbol = body.symbol.strip().upper()
     try:  # the same exact scale the database keeps, so the approval hash survives a round trip
@@ -676,6 +676,8 @@ def create_order(context: TenantContext, body: OrderInput, now: datetime, *, req
         environment = settings.mode(now)
         if requested_by == "agent" and environment == Environment.LIVE:
             raise BrokerRefusal("agent_live", "An assistant can only propose paper orders. You place live orders yourself.", status=403)
+        if paper_only and environment == Environment.LIVE:
+            raise BrokerRefusal("paper_only", "This buy plan came from a research backtest and only proposes paper orders. Live is on, so nothing was proposed.")
         connection = _connection(store, context, environment)
         if connection.verified_at is None:
             raise BrokerRefusal("not_verified", "Check your IBKR connection first (log in to IBKR, then press Check).")
@@ -1066,6 +1068,7 @@ class PlanInput(BaseModel):
     amount: Decimal = Field(gt=0, max_digits=8, decimal_places=2)
     day_of_month: int = Field(ge=1, le=28)
     active: bool = True
+    paper_only: bool = False
 
 
 def save_plans(context: TenantContext, plans: list[PlanInput], version: int, now: datetime) -> BrokerSettings:
@@ -1086,7 +1089,8 @@ def save_plans(context: TenantContext, plans: list[PlanInput], version: int, now
                 raise BrokerRefusal("max_order", f"A plan buys at most your USD {settings.limits.max_order} per order.", status=422)
             old = before.get(item.id or "")
             saved.append(BuyPlan(id=old.id if old else new_id("fin_plan"), symbol=symbol, amount=item.amount, day_of_month=item.day_of_month,
-                                 active=item.active, last_proposed=old.last_proposed if old else None))
+                                 active=item.active, last_proposed=old.last_proposed if old else None,
+                                 paper_only=item.paper_only or bool(old and old.paper_only), origin=old.origin if old else None))
         settings.buy_plans = saved
         result = _save_settings(store, context, settings, now)
         _event(store, context, "plans_changed", f"Your buy plans changed ({len(saved)} set). A plan only proposes a buy for your approval.", now=now)
@@ -1116,6 +1120,9 @@ def propose_due_plans(context: TenantContext, now: datetime) -> dict[str, Any]:
         if allowed is None:
             skipped.append({"plan_id": plan.id, "reason": f"{plan.symbol} is no longer on your allowed list."})
             continue
+        if plan.paper_only and environment == Environment.LIVE:
+            skipped.append({"plan_id": plan.id, "reason": "This plan only runs on paper. Live is on, so nothing was proposed."})
+            continue
         try:
             quote = client.quote(allowed.conid)
         except IbkrError as exc:
@@ -1136,7 +1143,7 @@ def propose_due_plans(context: TenantContext, now: datetime) -> dict[str, Any]:
         body = OrderInput(symbol=plan.symbol, side="buy", quantity=quantity, limit_price=quote.last,
                           reason=f"Buy plan: USD {plan.amount} on day {plan.day_of_month}")
         try:
-            proposed.append(create_order(context, body, now, proposer=f"buy_plan:{plan.id}"))
+            proposed.append(create_order(context, body, now, proposer=f"buy_plan:{plan.id}", paper_only=plan.paper_only))
             done.append(plan.id)
         except BrokerRefusal as exc:
             skipped.append({"plan_id": plan.id, "reason": exc.message})

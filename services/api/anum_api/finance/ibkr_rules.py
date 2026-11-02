@@ -171,6 +171,10 @@ class BuyPlan(BaseModel):
     day_of_month: int = Field(ge=1, le=28)
     active: bool = True
     last_proposed: str | None = None  # the New York month ("2026-11") a proposal was last made
+    # Made from a research backtest's "Paper run" (docs/finance-research.md#paper-run): it only ever
+    # proposes PAPER orders; while live is on it proposes nothing. Once set it stays set.
+    paper_only: bool = False
+    origin: str | None = Field(default=None, max_length=80)
 
     def due(self, now: datetime) -> bool:
         local = now.astimezone(NEW_YORK)

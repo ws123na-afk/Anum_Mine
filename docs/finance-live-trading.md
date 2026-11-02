@@ -25,6 +25,7 @@ This is not legal, tax or investment advice. Real money can be lost.
 | Partial fills, rejects, cancels, IBKR questions declined, no answer looked up by client order id, duplicate approvals refused | Built |
 | Kill switch that cancels every open order at IBKR and confirms each cancel | Built |
 | Buy plans that propose a buy on a day of the month | Built (proposals are made when the owner opens the IBKR tab in US market hours) |
+| Fund research, backtests and paper runs ([Fund research](finance-research.md)) | Built: figures with sources, an AI summary checked against the data, and a tested monthly rule turned into a paper-only buy plan |
 | Paper proof gate, live switch with typed code and cooling-off | Built |
 | In-app alerts for fills, rejects, limit hits, mismatches, session end and the kill switch | Built (in the IBKR tab; not yet push or email) |
 
@@ -116,6 +117,8 @@ Code ceilings no edit can pass: capital USD 10,000, per order USD 1,000 (repeate
 
 A plan is an allowed ETF, an amount (at most the per-order limit) and a day of the month (1 to 28). On or after that day, when the owner opens the IBKR tab during US market hours, ANUM reads IBKR's price and **proposes** one buy (whole shares the amount can buy, limit at IBKR's price) into the approval queue. Once a month per plan. It never sends, never sells and never runs on its own schedule: an approval expires in five minutes, so proposals are only made while the owner is there. When the amount buys less than one whole share, ANUM says so and proposes nothing that month.
 
+A plan made from a research backtest's Paper run ([Fund research](finance-research.md#paper-run)) is marked `paper_only` (shown as "Paper only (from research)"): it proposes paper orders only, proposes nothing while live is on, and keeps the mark when the plans are edited.
+
 ## Shariah screening
 
 Shariah-screened ETFs on the list: SPUS (SP Funds S&P 500 Sharia Industry Exclusions ETF), HLAL (Wahed FTSE USA Shariah ETF), UMMA (Wahed Dow Jones Islamic World ETF), SPRE (SP Funds S&P Global REIT Sharia ETF), SPSK (SP Funds Dow Jones Global Sukuk ETF). The issuer pages (spfunds.com, funds.wahedinvest.com) could not be opened from the build session; the names and listings come from published comparisons ([ETF Central](https://www.etfcentral.com/compare-etfs/SPUS-vs-HLAL), [Zacks](https://zacks.com)) and are **NOT CONFIRMED** against the issuers. When the owner adds one, ANUM looks it up at IBKR and accepts it only as a US-listed stock-type contract, which confirms the US listing from IBKR's own data.
@@ -149,7 +152,7 @@ How each earlier lock changed, in the narrowest way:
 
 ## Screens
 
-Finance, IBKR trading (English and Arabic): the PAPER or LIVE badge on every section, the kill switch, alerts, connect paper and live, account and positions, today's P&L with unrealised and realised apart, dividends and tax withheld from statements, reconciliation with the explain form, the order ticket (limit only, IBKR price labelled Delayed or real time), approvals showing the exact order and a countdown, orders with Check, Look up and send, and Cancel, limits with the daily loss explanation, allowed ETFs with Shariah labels, buy plans, the live switch with its gates and paper proof, and the audit trail. Every state is handled: loading, empty with a next action, error with a retry, permission denied, and paging.
+Finance, IBKR trading (English and Arabic; research and backtests are on Finance, Research: [Fund research](finance-research.md)): the PAPER or LIVE badge on every section, the kill switch, alerts, connect paper and live, account and positions, today's P&L with unrealised and realised apart, dividends and tax withheld from statements, reconciliation with the explain form, the order ticket (limit only, IBKR price labelled Delayed or real time), approvals showing the exact order and a countdown, orders with Check, Look up and send, and Cancel, limits with the daily loss explanation, allowed ETFs with Shariah labels, buy plans, the live switch with its gates and paper proof, and the audit trail. Every state is handled: loading, empty with a next action, error with a retry, permission denied, and paging.
 
 ## API
 
@@ -204,6 +207,8 @@ Reviewed in the build against the OWASP checklist (the `owasp-security` and `ful
 | Hung event loop | Plain `def` routes in worker threads; no transaction open across an IBKR call | Code review (`ibkr_service.py` module docstring) |
 
 ## Open items
+
+* The IBKR client also reads historical bars (`GET /iserver/marketdata/history`) for [Fund research](finance-research.md#sources); the path is from IBKR's reference and not confirmed against a running gateway.
 
 * Fractional and cash-quantity orders through the API: not confirmed; whole shares only (see above).
 * Which IBKR entity serves a Saudi resident, and whether OAuth (instead of the gateway) is offered to individual accounts: not confirmed.

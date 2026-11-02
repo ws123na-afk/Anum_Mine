@@ -32,6 +32,8 @@ import './finance.css';
 const PAGE = 25;
 // IBKR trading is its own lazy chunk (docs/finance-live-trading.md): it loads only when its tab opens.
 const IbkrPanel = lazy(() => import('./FinanceIbkr').then((m) => ({ default: m.IbkrPanel })));
+// Fund research (docs/finance-research.md) is its own lazy chunk too.
+const ResearchPanel = lazy(() => import('./FinanceResearch').then((m) => ({ default: m.ResearchPanel })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CADENCES: FinanceCadence[] = ['monthly', 'weekly', 'quarterly', 'yearly', 'once'];
 const DEBT_KINDS: FinanceDebtKind[] = ['loan', 'card', 'mortgage', 'other'];
@@ -118,6 +120,7 @@ export function FinanceView() {
     {tab === 'intel' && <IntelPanel onOpen={pick} />}
     {tab === 'execution' && <ExecutionPanel />}
     {tab === 'ibkr' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('ibkr.loading')}</Notice></section>}><IbkrPanel /></Suspense>}
+    {tab === 'research' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fresearch.loading')}</Notice></section>}><ResearchPanel /></Suspense>}
     {tab === 'transactions' && <Transactions accounts={accountList} onChanged={onChanged} onImport={() => pick('import')} />}
     {tab === 'accounts' && <Accounts accounts={accounts} base={base} onChanged={onChanged} />}
     {tab === 'import' && <Import accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} onDone={() => pick('transactions')} />}
