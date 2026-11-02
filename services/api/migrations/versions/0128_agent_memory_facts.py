@@ -21,14 +21,14 @@ table, no new grant), so ``tenant_lifecycle_tables.py`` needs no entry. Nothing 
 Expand only: the previous release reads and writes the table without the new columns. Rollback
 never reverses it.
 
-Numbered 0127 and chained after ``0126_business_invoice_send``, the head of ``main``.
+Numbered 0128 and chained after ``0127_stripe_payment_links``, the head of ``main``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0127_agent_memory_facts"
-down_revision = "0126_business_invoice_send"
+revision = "0128_agent_memory_facts"
+down_revision = "0127_stripe_payment_links"
 branch_labels = None
 depends_on = None
 

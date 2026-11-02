@@ -83,7 +83,7 @@ export interface AgentMemory {
   task_id: string | null;
   created_by: string;
   created_at: string;
-  /** Migration 0127: a recurring fact or a decision a person made. */
+  /** Migration 0128: a recurring fact or a decision a person made. */
   kind?: AgentMemoryKind;
   /** Where it comes from in plain words, and the date it holds from (YYYY-MM-DD). */
   source_label?: string | null;

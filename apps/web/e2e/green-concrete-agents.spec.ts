@@ -69,12 +69,14 @@ test('an owner views, adds, edits and deletes an agent memory with its kind, sou
   await agent.getByLabel('Kind').first().selectOption('decision');
   await agent.getByLabel('Where it comes from').first().fill('Owner, weekly meeting');
   await agent.getByRole('button', { name: 'Save memory' }).click();
+  await expect(agent.getByRole('button', { name: /Edit memory: Tyres are bought/ })).toBeVisible();
   await expect(agent).toContainText('Owner, weekly meeting');
   expect(mock.memoryWrites[0]).toMatchObject({ method: 'POST', content: 'Tyres are bought from the approved supplier list only.', kind: 'decision', source_label: 'Owner, weekly meeting' });
   await agent.getByRole('button', { name: 'Edit memory: Rotate steer tyres at 6 mm.' }).click();
   await agent.getByRole('textbox', { name: 'Memory', exact: true }).fill('Rotate steer tyres at 5 mm.');
   await agent.getByRole('button', { name: 'Save changes' }).click();
-  await expect(agent).toContainText('Rotate steer tyres at 5 mm.');
+  await expect(agent.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
+  await expect(agent.getByRole('button', { name: 'Edit memory: Rotate steer tyres at 5 mm.' })).toBeVisible();
   expect(mock.memoryWrites[1]).toEqual({ method: 'PATCH', id: 'mem_1', content: 'Rotate steer tyres at 5 mm.' });
   await agent.getByRole('button', { name: 'Delete memory: Rotate steer tyres at 5 mm.' }).click();
   await page.getByRole('alertdialog', { name: 'Delete this memory?' }).getByRole('button', { name: 'Delete' }).click();

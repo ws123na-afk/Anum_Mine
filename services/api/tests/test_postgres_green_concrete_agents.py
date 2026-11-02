@@ -1,4 +1,4 @@
-"""Green Concrete agents kit on PostgreSQL as the non-owner app role with forced RLS: migration 0127's columns and
+"""Green Concrete agents kit on PostgreSQL as the non-owner app role with forced RLS: migration 0128's columns and
 checks, agent memory CRUD with kind, source, date and retention, the kit view, setup (the shared knowledge
 collection and the routines, created turned off), the routine switch, the staffing Apply adding the kit and the
 collection only, the shift handover tool from the real seats, and tenant isolation."""

@@ -285,12 +285,12 @@ class AgentPage(BaseModel):
 class AgentMemorySource(StrEnum):
     MANUAL = "manual"
     TASK = "task"
-    # Taken from a Documents file the agent itself may read (migration 0127).
+    # Taken from a Documents file the agent itself may read (migration 0128).
     FILE = "file"
 
 
 class AgentMemoryKind(StrEnum):
-    """A recurring fact, or a decision a person made (migration 0127)."""
+    """A recurring fact, or a decision a person made (migration 0128)."""
 
     FACT = "fact"
     DECISION = "decision"

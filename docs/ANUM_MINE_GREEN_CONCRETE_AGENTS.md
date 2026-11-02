@@ -1,6 +1,6 @@
 # ANUM MINE: Green Concrete agents, their skills, tools, memory, knowledge and routines
 
-Status: built (API, migration `0127_agent_memory_facts`, contract, web, tests). Web and API only; no mobile work. Owner request of 2 November 2026: "give skills to Green Concrete, add more plugins and the things required, the memory, and many more things that need to be added there."
+Status: built (API, migration `0128_agent_memory_facts`, contract, web, tests). Web and API only; no mobile work. Owner request of 2 November 2026: "give skills to Green Concrete, add more plugins and the things required, the memory, and many more things that need to be added there."
 
 Green Concrete is the owner's company in the headquarters ([Green Concrete](ANUM_MINE_GREEN_CONCRETE.md)): a Command Center with a seat for every real person, each with their own working hours, and a PMV manager. Its agents are the five roles of the office staffing blueprint ([Office staffing](ANUM_MINE_OFFICE_STAFFING.md)): PMV manager, Business analyst, Tyre planning engineer, Data monitoring and Data collector. This change gives those roles real skills, the read tools those skills need, working memory, a shared knowledge collection and routines. Real data only: nothing here invents a person, a number or a fleet record, and every skill says **Not connected** when its data is missing.
 
@@ -13,7 +13,7 @@ Green Concrete is the owner's company in the headquarters ([Green Concrete](ANUM
 | Owner routes: the kit, setup, the routine switch | `services/api/anum_api/green_concrete_kit_api.py` |
 | Role kits in the blueprint (only add), the collection gap and its Apply | `office_staffing_blueprint.py`, `office_staffing_api.py` |
 | Role skills load their instructions; collections expand at run start | `agent_skills.py`, `agent_skill_loadout.py`, `agent_policy.py`, `agent_planning.py` |
-| Agent memory: kind, source, date, edit, retention | `agent_profiles.py`, `db/agent_profiles_repository.py`, migration `0127_agent_memory_facts.py` |
+| Agent memory: kind, source, date, edit, retention | `agent_profiles.py`, `db/agent_profiles_repository.py`, migration `0128_agent_memory_facts.py` |
 | Automation step that runs as an agent | `automation.py` (`task.create` `input.agent_id`), `main.run_task_for_automation` |
 | Contract | `packages/contracts/src/greenConcreteKit.ts`, `agents.ts` (memory, collection source), `officeStaffing.ts` |
 | Web: the kit in the Green Concrete office drawer (lazy chunk) | `apps/web/src/hq-staffing/GreenConcreteKitPanel.tsx`, `src/lib/greenConcreteKit.ts`, messages `greenConcreteKit.en.ts` / `.ar.ts` |
@@ -67,7 +67,7 @@ No tool is made up for data ANUM does not have. The kit lists these as gaps, sho
 
 ## Working memory
 
-Every agent keeps its own memory of facts and decisions (`agent_memories`, now with migration 0127):
+Every agent keeps its own memory of facts and decisions (`agent_memories`, now with migration 0128):
 
 * **Kind**: `fact` (a recurring fact) or `decision` (a decision a person made).
 * **Source and date**: `source_label` in plain words ("SOP: tyre rotation, version 3"), `source_date` the day it holds from; a memory from a task names the task; a memory from a document names the file.
@@ -132,7 +132,7 @@ In **Agents kit**, **Show memory** on the agent (or Agents, the agent, Memory): 
 
 ## Tests
 
-API unit `tests/test_green_concrete_agents.py`: catalog integrity (each skill names one registered low risk read tool, agent only, reviewed instructions with Not connected, every source known), no tool matches a template's missing capability, role kits only add and stay under each role's risk ceiling, Arabic for every string and no long dashes, routines' schedules, the planner (words to tool and period), every section from a synthetic dataset (breakdowns, use, cost, data quality, fuel Not connected, overdue inspections), the team from each person's own hours at 07:00, 12:00 and 21:00 Dubai, tasks overdue and changed this shift, tools answering Not connected and No access, memory CRUD with kind, source and date, permissions and isolation, retention from governance with expired memories hidden and removed, provenance, file sources, the prompt form, collections as agent sources, role skill instructions loading, the kit routes' permissions and the automation step's agent. PostgreSQL as the app role `tests/test_postgres_green_concrete_agents.py`: migration 0127's checks, memory CRUD and expiry under RLS, the kit view, setup once (collection, routines off with their schedule off in the building's time zone and the agent in the step), the routine switch, Apply adding the kit and the collection only, the handover tool from the real seats, and another tenant seeing nothing. Web unit `test/greenConcreteKit.test.ts`; browser `e2e/green-concrete-agents.spec.ts` (every state, setup, routine switch, memory add, edit and delete, Arabic, five viewports, axe).
+API unit `tests/test_green_concrete_agents.py`: catalog integrity (each skill names one registered low risk read tool, agent only, reviewed instructions with Not connected, every source known), no tool matches a template's missing capability, role kits only add and stay under each role's risk ceiling, Arabic for every string and no long dashes, routines' schedules, the planner (words to tool and period), every section from a synthetic dataset (breakdowns, use, cost, data quality, fuel Not connected, overdue inspections), the team from each person's own hours at 07:00, 12:00 and 21:00 Dubai, tasks overdue and changed this shift, tools answering Not connected and No access, memory CRUD with kind, source and date, permissions and isolation, retention from governance with expired memories hidden and removed, provenance, file sources, the prompt form, collections as agent sources, role skill instructions loading, the kit routes' permissions and the automation step's agent. PostgreSQL as the app role `tests/test_postgres_green_concrete_agents.py`: migration 0128's checks, memory CRUD and expiry under RLS, the kit view, setup once (collection, routines off with their schedule off in the building's time zone and the agent in the step), the routine switch, Apply adding the kit and the collection only, the handover tool from the real seats, and another tenant seeing nothing. Web unit `test/greenConcreteKit.test.ts`; browser `e2e/green-concrete-agents.spec.ts` (every state, setup, routine switch, memory add, edit and delete, Arabic, five viewports, axe).
 
 ## Not done, said plainly
 

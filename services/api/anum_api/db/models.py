@@ -1672,7 +1672,7 @@ class AgentMemoryRecord(Base, WorkspaceScopedMixin):
     task_id: Mapped[str | None] = mapped_column(String(80))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # Migration 0127_agent_memory_facts: kind, source, date, edits and retention.
+    # Migration 0128_agent_memory_facts: kind, source, date, edits and retention.
     kind: Mapped[str | None] = mapped_column(String(20))
     source_label: Mapped[str | None] = mapped_column(String(200))
     source_date: Mapped[date | None] = mapped_column(Date)
