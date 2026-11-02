@@ -15,6 +15,7 @@ longer wait than ``ANUM_COMMERCE_MAX_RETRY_WAIT_SECONDS``; the connector reports
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import time
@@ -447,7 +448,13 @@ def complete_or_webhook(status: str) -> bool:
 
 
 async def ingest_webhook(context: TenantContext, connector: Connector, events: list[dict[str, Any]]) -> dict[str, int]:
-    """Store events pushed by the owner's store (own-store ``webhook`` mode)."""
+    """Store events pushed by the owner's store (own-store ``webhook`` mode), in a worker thread."""
+    return await asyncio.to_thread(ingest_webhook_blocking, context, connector, events)
+
+
+def ingest_webhook_blocking(context: TenantContext, connector: Connector, events: list[dict[str, Any]]) -> dict[str, int]:
+    """Blocking: parse and store pushed events. Callers on the event loop run it in a thread
+    (docs/realtime.md#event-loop)."""
     from .clients.own_store import contract_listing, contract_order, contract_return
 
     now = utc_now()

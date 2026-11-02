@@ -157,6 +157,7 @@ x-user-roles: owner,member
 - [Security](docs/security.md)
 - [Threat model: agent tool use and prompt injection](docs/threat-model.md)
 - [Email Center: external penetration test plan](docs/email-pentest-plan.md)
+- [Penetration test scope: what an external tester may test](docs/pentest-scope.md)
 - [Identity and sign-in](docs/identity.md)
 - [Multi-tenancy](docs/multi-tenancy.md)
 - [Agent runtime](docs/agent-runtime.md)

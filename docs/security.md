@@ -125,6 +125,38 @@ Fixed findings in October 2026 (`cargo audit`): `rustls` 0.23.45 → 0.23.46 (RU
 
 Fixed findings when image scanning was added: the web image moved from `nginx-unprivileged:1.28-alpine` (the February 2026 build on Alpine 3.23.3 that was scanned had 3 critical and 64 high fixable findings, counted per package, in nginx, OpenSSL, curl, expat, musl and others) to `1.30-alpine` (Alpine 3.24, none) plus `apk upgrade`. The API image no longer ships pip: the base image's pip vendors `urllib3` 2.7.0 (CVE-2026-97687, CVE-2026-97689), `msgpack` 1.1.2 (GHSA-6v7p-g79w-8964) and `setuptools` 70.3.0 (CVE-2025-47273), all high with fixes, and the runtime never installs packages. The backup image drops `/usr/local/bin/gosu` from its `postgres:17-trixie` base: it is the setuid helper of the base image's `docker-entrypoint.sh`, which the backup image never runs (own `ENTRYPOINT`, `USER 10001`), and its bundled Go runtime (stdlib, `golang.org/x/net`) had 25 fixable findings (24 high, 1 critical) that failed `deploy-staging.yml` while PR CI did not yet scan this image.
 
+## Pre-sale review (November 2026)
+
+A review before ANUM is sold to customers and handed to an external penetration tester ([Penetration test scope](pentest-scope.md)). It covered tenant isolation, sign-in and permissions, input and output handling, secrets, the Oracle deployment and dependencies. The automated checks it added keep the findings from coming back.
+
+### What is now checked automatically
+
+- `services/api/tests/test_security_inventory.py` walks every API route (about 1,120). Every route must depend on an authentication dependency (`tenant_context` and its relatives) or be listed in `PUBLIC_ROUTES` with the credential that replaces a session (signature, signed link, hashed token). Every authenticated route must reach a permission check (`require_permission` and its relatives) or be listed in `SELF_SCOPED_ROUTES` with the reason it acts only on the caller's own rows. Stale entries fail too. It also checks that every narrow cross-tenant role is granted to `anum_app` `WITH INHERIT FALSE` in `infra/helm/bootstrap-database.sql`, and that no new `async def` route opens a store on the event loop (the existing ones are frozen in `tests/event_loop_store_baseline.txt`, which may only shrink).
+- `services/api/tests/test_postgres_security_inventory.py` reads the migrated catalogue instead of a fixed list: every table but `alembic_version` has row-level security enabled and forced and at least one policy; every permissive policy that applies to all roles is bounded by `anum.tenant_id` (narrowing owner-only policies are `AS RESTRICTIVE`); the cross-tenant roles are NOLOGIN and nothing bypasses RLS; no function in `public` is `SECURITY DEFINER`.
+
+### Findings
+
+| # | Severity | Finding | Status |
+|---|---|---|---|
+| P1 | Medium | The unauthenticated commerce webhook (`POST /api/v1/commerce/webhooks/...`) looked up the connection, decrypted its secret and stored the events on the event loop, before the signature was checked. Any caller could stall every user's requests with forged deliveries. | Fixed: all database work runs in worker threads, path ids must be plain identifiers, refused deliveries are limited per caller address (429). Tests: `test_commerce.py` `test_webhook_never_touches_the_database_on_the_event_loop`, `test_webhook_refusals_are_rate_limited_per_caller`. |
+| P2 | Low | The Twilio webhooks read the provider row on the event loop before checking the signature (only reachable with a valid route id). | Fixed: the read runs in a worker thread. Test: `test_calls.py` `test_webhook_provider_lookup_runs_off_the_event_loop`. |
+| P3 | Medium | Keycloak's shared realm had no password rules (Keycloak's default: none) and the default lockout (after 30 failed sign-ins). | Fixed, see [Sign-in protection](#sign-in-protection). Test: `test_keycloak_two_factor.py` `test_shared_and_running_realms_get_password_rules_and_a_sign_in_lockout`. Owner step for the running server below. |
+| P4 | Low | The test email (`POST /api/v1/notification-channels/email-test`) wrote the caller's email address into the audit record, and had no limit, so it could flood a mailbox or burn the sending quota. | Fixed: the audit record holds ids only; five in a row, then one a minute per person (429). Test: `test_notification_channels.py` `test_test_email_audit_holds_ids_only_and_is_rate_limited`. |
+| P5 | Medium | `pypdf` 6.21.2, which parses uploaded PDFs, had seven published advisories (fixed in 6.21.3 and 6.21.4). | Fixed: pinned to 6.21.4 (patch release). `pip-audit` on `services/api` reports none; `pnpm audit --prod` reports none. |
+| P6 | Low | On the Oracle VM the API, web, Keycloak and the migrate and retention jobs kept Docker's default capabilities. | Fixed: `cap_drop: [ALL]` and `no-new-privileges` (all are non-root images). Test: `test_oracle_compose.py` `test_anum_services_drop_capabilities_and_privilege_gain`. |
+| P7 | High (availability) | 262 `async def` routes, all behind sign-in, open a store or unit of work on the event loop. One slow query or connection wait there stalls every user of that API process (the rule in [Realtime: event loop](realtime.md#event-loop)). | Open: frozen by the baseline test so it cannot grow. Fix route by route (move the database work into `asyncio.to_thread`, or make the route a plain `def`). |
+
+Checked and found sound (no change): every table has forced RLS and a policy; every widening role is NOLOGIN and granted `WITH INHERIT FALSE`; OIDC validation pins RS256, issuer, audience, expiry and a key id, and the audience mapper is on access tokens only; header auth and `anum_local_*` sessions are refused outside `local`/`test`; every public webhook checks a signature in constant time; file storage keys cannot leave their root; outbound fetchers that take a tenant-saved address go through the pinned egress guards; no raw HTML sinks in the web app (email and Brevo previews are sandboxed iframes without scripts); no secret patterns in the repository; no secret or token in log statements.
+
+### Sign-in protection
+
+A shared Keycloak realm (the imported `anum-realm.json`, through `infra/render/keycloak_realm.py`) and `infra/oracle/keycloak-2fa.sh apply` on a running server set the same rules as self sign-up (`SIGN_IN_PROTECTION`):
+
+- passwords of 12 to 128 characters with a lower-case letter, an upper-case letter and a digit, not the user name or the email address, not one of the last 3;
+- brute-force detection on: a temporary lockout after 10 failed sign-ins, growing by a minute each time up to 15 minutes, counted over 12 hours, and a 60-second wait after two tries within one second. Lockouts are temporary, so an attacker cannot lock an owner out for good; `keycloak-2fa.sh reset-user` lifts one.
+
+Keycloak imports the realm file only on its first start. On a server that is already running, the owner applies the rules with `bash infra/oracle/keycloak-2fa.sh apply` (it is idempotent). Existing passwords keep working; the rules apply at the next password change.
+
 ## Agent Safety
 
 Agents must not receive raw unrestricted access to user accounts, files, or integrations. Each tool call should be mediated by the runtime, checked against policy, logged, and paused for approval when risk requires it. Prompt injection must be treated as an expected attack class, especially when agents read external content. The [Threat model](threat-model.md) maps the trust boundaries, what an injected instruction can and cannot do today, and the open gaps (approval content and binding, tool output size and provenance). SSRF through workspace model base URLs (G1) and per-tenant model budgets (G4) are closed.
@@ -151,4 +183,4 @@ OIDC validation with membership resolution is implemented (`ANUM_AUTH_MODE=oidc`
 
 ## Later
 
-Add per-tenant quotas beyond model budgets (storage, runs, integrations), scheduled re-scanning of the pushed images and their base images, policy simulation, organization compliance exports, anomaly detection, device trust, per-integration token vaulting, customer-managed keys, and formal security review workflows.
+Move the 262 routes in `services/api/tests/event_loop_store_baseline.txt` off the event loop ([Pre-sale review](#pre-sale-review-november-2026), P7). Add per-tenant quotas beyond model budgets (storage, runs, integrations), scheduled re-scanning of the pushed images and their base images, policy simulation, organization compliance exports, anomaly detection, device trust, per-integration token vaulting, customer-managed keys, and formal security review workflows.

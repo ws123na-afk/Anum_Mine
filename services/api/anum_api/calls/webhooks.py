@@ -60,6 +60,11 @@ def _xml(twiml: TwiML) -> Response:
     return Response(content=twiml.render(), media_type="application/xml")
 
 
+def _provider(context: TenantContext) -> ProviderAccount | None:
+    with open_calls_store(context) as store:
+        return store.get_provider()
+
+
 async def _verified(request: Request, route_id: str) -> tuple[TenantContext, ProviderAccount, dict[str, str]]:
     if not _ROUTE.match(route_id) or not call_settings.webhooks_ready:
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -71,8 +76,9 @@ async def _verified(request: Request, route_id: str) -> tuple[TenantContext, Pro
     if scope is None:
         raise HTTPException(status_code=403, detail="Forbidden")
     context = service.system_context(*scope)
-    with open_calls_store(context) as store:
-        account = store.get_provider()
+    # In a worker thread like route_workspace: the signature is not checked yet, so this
+    # read must never stall the event loop (docs/security.md#pre-sale-review-november-2026).
+    account = await asyncio.to_thread(_provider, context)
     if account is None or account.route_id != route_id:
         raise HTTPException(status_code=403, detail="Forbidden")
     url = call_settings.public_base_url.rstrip("/") + request.url.path + (f"?{request.url.query}" if request.url.query else "")
