@@ -484,6 +484,9 @@ class Settings(BaseSettings):
     signup_ip_hourly_limit: int = Field(default=3, ge=1, le=100)
     keycloak_provisioner_client_id: str = Field(default="", max_length=200)
     keycloak_provisioner_client_secret: SecretStr | None = None
+    # Ready to sell (docs/selling-readiness.md): the read-only folder where infra/oracle/backup.sh
+    # writes last-local.json and last-offsite.json (times and outcome only). Empty = not recorded.
+    backup_status_dir: str = Field(default="", max_length=500)
     # First-party skill signing keys (docs/skills.md#signing): "key-id=BASE64,key-id2=BASE64",
     # raw 32-byte Ed25519 public keys. Malformed entries are ignored with a warning.
     skill_platform_keys: str = Field(default="", max_length=4000)

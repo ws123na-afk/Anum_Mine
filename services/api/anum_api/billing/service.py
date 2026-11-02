@@ -23,9 +23,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "invoice_prefix": "INV", "credit_note_prefix": "CN", "payment_terms_days": 14,
     "tax_rules": {"SA": 1500}, "default_tax_bp": 0, "reminder_days": [1, 7, 14], "grace_days": 7,
     "sending_workspace_id": None, "stripe_enabled": False, "stripe_key_mode": None,
+    "moyasar_enabled": False, "moyasar_key_mode": None,
 }
 # The Stripe ciphertext columns start empty (written only through the settings route).
-DEFAULT_SETTINGS.update(dict.fromkeys(("stripe_secret_ciphertext", "stripe_webhook_secret_ciphertext")))
+DEFAULT_SETTINGS.update(dict.fromkeys(("stripe_secret_ciphertext", "stripe_webhook_secret_ciphertext",
+                                       "moyasar_secret_ciphertext", "moyasar_webhook_secret_ciphertext")))
 MAX_CATCH_UP_PERIODS = 24
 
 
@@ -109,10 +111,27 @@ def _snapshot_bill_to(account: dict[str, Any]) -> dict[str, Any]:
     return {key: account.get(key) or "" for key in keys}
 
 
-def _snapshot_issuer(settings_row: dict[str, Any]) -> dict[str, Any]:
+def company_profile(rows: Rows, issuer_tenant_id: str) -> dict[str, Any] | None:
+    """The issuer's company details (docs/selling-readiness.md#company-and-legal), or ``None``."""
+    with rows.as_tenant(issuer_tenant_id):
+        return rows.get("billing_company_profiles", tenant_id=issuer_tenant_id)
+
+
+def _snapshot_issuer(settings_row: dict[str, Any], company: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Who issues the invoice: the company details win over the billing settings' issuer fields."""
     keys = ("issuer_name", "issuer_address", "issuer_vat_number", "issuer_email", "bank_name", "bank_account_name",
             "bank_iban", "bank_swift")
-    return {key: settings_row.get(key) or "" for key in keys}
+    out = {key: settings_row.get(key) or "" for key in keys}
+    company = company or {}
+    for key, source in (("issuer_name", "legal_name"), ("issuer_address", "address"), ("issuer_vat_number", "vat_number"),
+                        ("issuer_email", "contact_email")):
+        if str(company.get(source) or "").strip():
+            out[key] = str(company[source]).strip()
+    registration = str(company.get("registration_number") or "").strip()
+    out["issuer_registration"] = (
+        f"{registration}, {company.get('registration_country') or ''}".strip(", ") if registration else ""
+    )
+    return out
 
 
 @dataclass
@@ -164,7 +183,7 @@ def issue_invoice(
         "issued_at": now, "due_at": due, "subtotal_minor": subtotal, "tax_rate_bp": rate,
         "tax_country": (account.get("country") or "")[:2].upper(), "tax_minor": tax, "total_minor": total,
         "amount_paid_minor": 0, "amount_credited_minor": 0, "amount_due_minor": total,
-        "bill_to": _snapshot_bill_to(account), "issuer": _snapshot_issuer(settings_row), "notes": "",
+        "bill_to": _snapshot_bill_to(account), "issuer": _snapshot_issuer(settings_row, company_profile(rows, issuer)), "notes": "",
         "reminders_sent": 0, "last_reminder_at": None, "last_email": None, "paid_at": now if total == 0 else None,
         "voided_at": None, "created_by": actor, "created_at": now, "updated_at": now,
     }
@@ -207,7 +226,8 @@ def invoice_detail(rows: Rows, invoice: dict[str, Any]) -> dict[str, Any]:
     lines = rows.select("billing_invoice_lines", {"invoice_id": invoice["id"]}, order=[("position", False)])
     payments = rows.select("billing_payments", {"invoice_id": invoice["id"]}, order=[("received_at", False)])
     notes = rows.select("billing_credit_notes", {"invoice_id": invoice["id"]}, order=[("issued_at", False)])
-    return {"invoice": invoice, "lines": lines, "payments": payments, "credit_notes": notes}
+    refunds = rows.select("billing_refunds", {"invoice_id": invoice["id"]}, order=[("created_at", False)])
+    return {"invoice": invoice, "lines": lines, "payments": payments, "credit_notes": notes, "refunds": refunds}
 
 
 def list_invoices(rows: Rows, *, q: str | None, status: str | None, limit: int, offset: int) -> tuple[list[dict[str, Any]], int]:
@@ -302,6 +322,47 @@ def issue_credit_note(rows: Rows, invoice_id: str, *, total_minor: int, reason: 
             rows.update("billing_accounts", {"tenant_id": rows.tenant_id},
                         {"credit_balance_minor": int(account["credit_balance_minor"]) + to_balance, "updated_at": now})
     _settle(rows, now)
+    return note
+
+
+def refundable(rows: Rows, payment: dict[str, Any]) -> int:
+    """What is left to refund of ``payment``: its amount less every refund not failed."""
+    taken = sum(int(r["amount_minor"]) for r in rows.select("billing_refunds", {"payment_id": payment["id"], "status": ("!=", "failed")}))
+    return int(payment["amount_minor"]) - taken
+
+
+def creditable(invoice: dict[str, Any]) -> int:
+    return int(invoice["total_minor"]) - int(invoice["amount_credited_minor"])
+
+
+def apply_refund(rows: Rows, refund: dict[str, Any], *, now: datetime, actor: str) -> dict[str, Any]:
+    """Book money given back (docs/billing.md#refunds).
+
+    The refund issues a credit note for the same amount (gapless number) and lowers what the
+    invoice shows as paid, so ``total = paid + credited + due`` still holds and nothing becomes
+    due again or lands on the credit balance. Called once, when a refund succeeds.
+    """
+    invoice = rows.get("billing_invoices", for_update=True, id=refund["invoice_id"])
+    if invoice is None:
+        raise BillingError(404, "Invoice not found.")
+    amount = int(refund["amount_minor"])
+    if amount > creditable(invoice) or amount > int(invoice["amount_paid_minor"]):
+        raise BillingError(422, f"A refund on {invoice['number']} can be at most {min(creditable(invoice), int(invoice['amount_paid_minor']))}.")
+    subtotal, tax = split_gross(amount, int(invoice["tax_rate_bp"]))
+    settings_row = issuer_settings(rows, invoice["issuer_tenant_id"])
+    with rows.as_tenant(invoice["issuer_tenant_id"]):
+        number = f"{settings_row['credit_note_prefix']}-{rows.next_number('credit_note'):06d}"
+    note = {
+        "id": new_id("creditnote"), "tenant_id": rows.tenant_id, "issuer_tenant_id": invoice["issuer_tenant_id"],
+        "invoice_id": invoice["id"], "number": number, "reason": f"Refund: {refund.get('reason') or 'money returned'}"[:500],
+        "subtotal_minor": subtotal, "tax_minor": tax, "total_minor": amount, "issued_at": now, "created_by": actor,
+    }
+    rows.insert("billing_credit_notes", note)
+    rows.update("billing_invoices", {"id": invoice["id"]}, {
+        "amount_paid_minor": int(invoice["amount_paid_minor"]) - amount,
+        "amount_credited_minor": int(invoice["amount_credited_minor"]) + amount, "updated_at": now,
+    })
+    rows.update("billing_refunds", {"id": refund["id"]}, {"status": "succeeded", "credit_note_id": note["id"], "failure": None, "updated_at": now})
     return note
 
 

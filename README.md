@@ -189,6 +189,7 @@ x-user-roles: owner,member
 - [Reports](docs/reports.md)
 - [Privacy: download and delete my data](docs/privacy.md)
 - [Organisation export and deletion](docs/organisation-lifecycle.md)
+- [Ready to sell: Moyasar card payments, refunds, receipts, company and legal details, the checklist](docs/selling-readiness.md)
 - [Privacy policy template](docs/privacy-policy.md)
 - [Public pages: legal documents, Trust and status](docs/legal-pages.md)
 - [Terms of Service (draft)](docs/legal/terms-of-service.md)

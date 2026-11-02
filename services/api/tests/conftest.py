@@ -33,6 +33,8 @@ TABLES_IN_DELETE_ORDER = (
     "agent_usage_monthly",
     "agent_cost_caps",
     "agent_emergency_stops",
+    "billing_refunds",
+    "billing_company_profiles",
     "billing_invoice_lines",
     "billing_credit_notes",
     "billing_payments",

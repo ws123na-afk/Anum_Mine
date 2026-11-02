@@ -1016,7 +1016,7 @@ def rotate_billing_stripe_keys(
     batch_size: int = 200,
     correlation_id: str | None = None,
 ) -> RotationReport:
-    """Re-encrypt every billing issuer's Stripe secret key and webhook secret (docs/billing.md).
+    """Re-encrypt every billing issuer's Stripe and Moyasar secret keys and webhook secrets (docs/billing.md).
 
     Issuers are found as ``anum_maintenance`` (``billing_settings.tenant_id`` only); each
     row is locked and rewritten as the application role inside that issuer's tenant.
@@ -1025,7 +1025,8 @@ def rotate_billing_stripe_keys(
 
     report = RotationReport(dry_run=dry_run, correlation_id=correlation_id or new_id("rotate_secrets"))
     after = ""
-    columns = ("stripe_secret_ciphertext", "stripe_webhook_secret_ciphertext")
+    columns = ("stripe_secret_ciphertext", "stripe_webhook_secret_ciphertext", "moyasar_secret_ciphertext",
+               "moyasar_webhook_secret_ciphertext")
     while True:
         rows = discover(maintenance_session_factory or session_factory, _BILLING_ISSUERS, {"after": after, "limit": batch_size})
         for row in rows:

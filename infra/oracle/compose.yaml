@@ -418,6 +418,11 @@ services:
       ANUM_DEVELOPER_TENANT_ID: ${ANUM_DEVELOPER_TENANT_ID:-}
       ANUM_DEVELOPER_WORKSPACE_ID: ${ANUM_DEVELOPER_WORKSPACE_ID:-}
       ANUM_DEVELOPER_GITHUB_TOKEN: ${ANUM_DEVELOPER_GITHUB_TOKEN:-}
+      # The last backup's outcome for the Ready to sell checklist (docs/selling-readiness.md#backups):
+      # backup.sh writes times and ok only into <backup dir>/status, mounted read-only below.
+      ANUM_BACKUP_STATUS_DIR: /var/lib/anum/backup-status
+    volumes:
+      - ${ANUM_BACKUP_DIR:-/var/lib/anum/backups}/status:/var/lib/anum/backup-status:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
       interval: 30s

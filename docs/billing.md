@@ -36,6 +36,8 @@ Every table has `tenant_id` and **forced RLS** with the policy `tenant_isolation
 | `billing_number_sequences` | issuer | The next invoice and credit note number. |
 | `billing_webhook_events` | issuer | Provider event ids already processed (unique per issuer and provider). |
 | `billing_signups` | the new organisation | Who signed up, when, from which hashed IP, which plan. |
+| `billing_refunds` | customer | Refunds of recorded payments (migration `0123_selling_readiness`, [Ready to sell](selling-readiness.md#refunds)). |
+| `billing_company_profiles` | issuer | The company details and legal facts that fill the legal pages and new invoices ([Ready to sell](selling-readiness.md#company-and-legal)). |
 
 ### Organisation deletion
 
@@ -93,6 +95,14 @@ The default is **manual / bank transfer** (no paid tool is needed): the invoice 
 - `checkout.session.completed` records a `stripe` payment for the invoice named in the session metadata, after checking that the invoice's organisation is billed by this issuer; the payment's provider id is unique, so a payment is never recorded twice. What Stripe collects is never dropped: an amount above what was due (after a partial bank payment or a credit), or a payment for an invoice that was paid another way meanwhile, is added to the account's credit balance and logged. A payment is applied once per Stripe payment id, whatever event carries it.
 
 Test mode keys (`sk_test_...`) work the same way; the console shows whether the key is a test key.
+
+### Moyasar
+
+**Moyasar** (Saudi Arabia: mada, Visa, Mastercard, Apple Pay, STC Pay) is the second adapter (`billing/moyasar.py`, migration `0123_selling_readiness`), also off by default with its secret key and webhook secret token entered in the console and stored only as Fernet ciphertexts. When it is on it takes precedence over Stripe for `POST /billing/invoices/{id}/checkout`, which then answers the URL of a Moyasar hosted invoice page (`provider: "moyasar"`). Moyasar calls `POST /api/v1/billing/webhooks/moyasar/{issuer_tenant_id}`; the body's `secret_token` is compared in constant time and the payment is then read back from Moyasar's API, so amounts and statuses never come from the delivery. Routes `GET`, `PUT /platform/billing/providers/moyasar`. Details, the provider comparison and the owner steps: [Ready to sell](selling-readiness.md#payment-provider).
+
+### Refunds and receipts
+
+`POST /platform/billing/organizations/{tenant_id}/invoices/{id}/payments/{payment_id}/refunds {amount_minor, reason, mode, idempotency_key}` refunds a Moyasar payment through Moyasar or records money returned by hand, idempotent per key, with a credit note for the same amount (table `billing_refunds`). `GET .../payments/{payment_id}/receipt` (organisation and console) answers a PDF receipt. See [Ready to sell](selling-readiness.md#refunds).
 
 ## Documents
 
@@ -171,6 +181,7 @@ Owner settings (see [Deploy on Oracle](deploy-oracle.md#self-serve-sign-up) and 
 ## Not done yet
 
 - The billing contact and address are edited on the web only; the phone shows them.
+- Moyasar was exercised only against a fake Moyasar (`tests/test_selling_readiness.py`); the first sandbox payment and refund must be checked on staging.
 - Stripe was exercised only against a stand-in (signatures, idempotency, the Checkout request); the first real test-mode payment should be checked on staging. No Playwright spec drives the Stripe redirect, the console's plan editor, issuer settings form or start-billing dialog.
 - The `anum-provisioner` Keycloak client is created by hand (steps in [Deploy on Oracle](deploy-oracle.md#self-serve-sign-up)); it is not in the realm file and the linking call was tested against a stand-in of Keycloak's admin API.
 - The console's MRR and totals assume one currency (SAR); plans in another currency are listed but summed as is.
