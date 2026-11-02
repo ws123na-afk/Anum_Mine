@@ -32,7 +32,7 @@ export function initialSpeechLanguage(saved: string | null | undefined, interfac
 // ---------------------------------------------------------------- shortcuts around the orb
 
 /** Views a chip, tile or suggestion can open (a subset of the shell's views). */
-export type CommandTarget = 'inbox' | 'whatsapp' | 'tasks' | 'files' | 'voice' | 'automation' | 'agents' | 'assistant' | 'approvals';
+export type CommandTarget = 'email' | 'inbox' | 'whatsapp' | 'tasks' | 'files' | 'voice' | 'automation' | 'agents' | 'assistant' | 'approvals';
 
 /**
  * What a chip or tile does: open a real view, put a request into the composer for the person to
@@ -47,7 +47,7 @@ export interface ShortcutItem { id: string; label: MessageKey; icon: string; act
 
 /** The chips around the orb: four on each side on wide screens. */
 export const ORB_CHIPS: readonly ShortcutItem[] = [
-  { id: 'emails', label: 'command.chip.emails', icon: 'mail', action: { kind: 'view', view: 'inbox' } },
+  { id: 'emails', label: 'command.chip.emails', icon: 'mail', action: { kind: 'view', view: 'email' } },
   { id: 'report', label: 'command.chip.report', icon: 'chart', action: { kind: 'prefill', text: 'command.prefill.report' } },
   { id: 'research', label: 'command.chip.research', icon: 'search', action: { kind: 'prefill', text: 'command.prefill.research' } },
   { id: 'task', label: 'command.chip.task', icon: 'check', action: { kind: 'view', view: 'tasks' } },
@@ -59,7 +59,7 @@ export const ORB_CHIPS: readonly ShortcutItem[] = [
 
 /** The row of capability tiles under the composer. */
 export const CAPABILITY_TILES: readonly ShortcutItem[] = [
-  { id: 'email', label: 'command.tile.email', icon: 'mail', action: { kind: 'view', view: 'inbox' } },
+  { id: 'email', label: 'command.tile.email', icon: 'mail', action: { kind: 'view', view: 'email' } },
   { id: 'analysis', label: 'command.tile.analysis', icon: 'chart', action: { kind: 'prefill', text: 'command.prefill.analyze', mode: 'files' } },
   { id: 'reports', label: 'command.tile.reports', icon: 'report', action: { kind: 'prefill', text: 'command.prefill.report' } },
   { id: 'voice', label: 'command.tile.voice', icon: 'mic', action: { kind: 'view', view: 'voice' } },
@@ -138,8 +138,8 @@ export function buildSuggestions(input: SuggestionInput, limit = 5): Suggestion[
   for (const command of (input.commands ?? []).filter((c) => c.status === 'failed' || c.status === 'partial').slice(0, 2)) {
     out.push({ id: `failed:${command.id}`, title: t('command.suggest.failed', { title: command.text }), detail: t('command.suggest.failedDetail'), action: { kind: 'replan', text: command.text }, tone: 'danger' });
   }
-  if (input.unreadEmails) out.push({ id: 'unread', title: t('command.suggest.unread', { count: input.unreadEmails }), detail: t('command.suggest.unreadDetail'), action: { kind: 'view', view: 'inbox' }, tone: 'info' });
-  if (input.mailboxes === 0) out.push({ id: 'mailbox', title: t('command.suggest.mailbox'), detail: t('command.suggest.mailboxDetail'), action: { kind: 'view', view: 'inbox' }, tone: 'info' });
+  if (input.unreadEmails) out.push({ id: 'unread', title: t('command.suggest.unread', { count: input.unreadEmails }), detail: t('command.suggest.unreadDetail'), action: { kind: 'view', view: 'email' }, tone: 'info' });
+  if (input.mailboxes === 0) out.push({ id: 'mailbox', title: t('command.suggest.mailbox'), detail: t('command.suggest.mailboxDetail'), action: { kind: 'view', view: 'email' }, tone: 'info' });
   if (input.files === 0) out.push({ id: 'files', title: t('command.suggest.files'), detail: t('command.suggest.filesDetail'), action: { kind: 'view', view: 'files' }, tone: 'info' });
   if (input.commands && input.commands.length === 0) out.push({ id: 'first', title: t('command.suggest.first'), detail: t('command.suggest.firstDetail'), action: { kind: 'focus' }, tone: 'info' });
   return out.slice(0, limit);

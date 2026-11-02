@@ -118,7 +118,7 @@ export function HomeView({ tasks, approvals, loading, userName, owner, alerts, b
         <Glance icon={<Inbox />} tone={email.state === 'ready' && email.value.unread ? 'info' : 'ok'} label={t('home.glance.inbox')}
           value={email.state === 'ready' ? String(email.value.unread) : email.state === 'loading' ? null : '-'}
           detail={email.state === 'ready' ? (email.value.mailboxes ? t('home.glance.inboxDetail', { count: email.value.mailboxes }) : t('home.glance.inboxNone')) : email.state === 'denied' ? t('home.glance.notForRole') : email.state === 'error' ? t('home.glance.couldNotLoad') : ''}
-          onOpen={() => onGo('inbox')} />
+          onOpen={() => onGo('email')} />
         <Glance icon={<MessageCircle />} tone={whatsapp.state === 'ready' && whatsapp.value.chats ? 'info' : 'ok'} label={t('home.glance.whatsapp')}
           value={whatsapp.state === 'ready' ? `${whatsapp.value.messages}${whatsapp.value.more ? '+' : ''}` : whatsapp.state === 'loading' ? null : '-'}
           detail={whatsapp.state === 'ready' ? t('home.glance.whatsappDetail', { count: whatsapp.value.chats }) : whatsapp.state === 'denied' ? t('home.glance.notForRole') : whatsapp.state === 'error' ? t('home.glance.whatsappUnavailable') : ''}

@@ -155,6 +155,7 @@ from .sales_api import router as sales_router
 from .sales_followup_scheduler import run_due_sales_followups
 from . import email_inbox
 from .email_api import router as email_router
+from .email_unified import router as email_unified_router
 from .commerce.api import router as commerce_router
 from .commerce.scheduler import build_commerce_scheduler
 from .commerce.tools import register_commerce_tools
@@ -477,6 +478,7 @@ app.include_router(agent_controls_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
 app.include_router(sales_router)
+app.include_router(email_unified_router)
 app.include_router(email_router)
 app.include_router(mail_ai_router)
 app.include_router(mail_router)

@@ -211,6 +211,17 @@ class SalesCRMStore:
         query = query.order_by(SalesLeadRecord.updated_at.desc(),SalesLeadRecord.id.desc()).limit(limit)
         return [_record_to_lead(item) for item in self.session.scalars(query).all()]
 
+    def list_for_mapping(self, *, limit: int = 500) -> list[Lead]:
+        """Oldest first, at most ``limit`` (1 to 500): the WhatsApp leads the Business lead list
+        maps (docs/business.md#whatsapp-leads). Read only."""
+        if not 1 <= limit <= 500:
+            raise ValueError("Limit must be 1-500")
+        query = select(SalesLeadRecord).where(
+            SalesLeadRecord.tenant_id == self.tenant_id,
+            SalesLeadRecord.workspace_id == self.workspace_id,
+        ).order_by(SalesLeadRecord.created_at.asc(), SalesLeadRecord.id.asc()).limit(limit)
+        return [_record_to_lead(item) for item in self.session.scalars(query).all()]
+
     def insert(self, lead: Lead, event: LeadEvent) -> None:
         self._check(lead.tenant_id, lead.workspace_id)
         self._check(event.tenant_id, event.workspace_id)

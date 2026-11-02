@@ -702,4 +702,19 @@ def test_every_state_changing_route_is_audited_without_contact_details_or_text(s
     third_opp = call("POST", "/opportunities", json={"lead_id": third["lead"]["id"]}).json()
     third_proposal = call("POST", "/proposals", json=proposal_body(third_opp["id"])).json()
     call("POST", f"/proposals/{third_proposal['id']}/withdraw", json={"reason": "Client paused"})
+    # One lead list: WhatsApp leads mapped in, duplicates merged or kept apart (docs/business.md#whatsapp-leads).
+    from test_business_lead_sources import whatsapp_lead
+    from anum_api.business.whatsapp_leads import memory_whatsapp_leads
+
+    memory_whatsapp_leads.put(whatsapp_lead("wa_audit_1", "+971509990001", tenant=TENANT, workspace=WORKSPACE))
+    memory_whatsapp_leads.put(whatsapp_lead("wa_audit_2", "+971509990002", tenant=TENANT, workspace=WORKSPACE))
+    try:
+        call("POST", "/lead-sources/whatsapp/wa_audit_1/map", json={})
+        call("POST", "/lead-sources/whatsapp/map-all")
+        first = call("POST", "/leads", json={"title": "Pair one", "account": {"name": "Pair One Co"}}).json()["lead"]["id"]
+        second = call("POST", "/leads", json={"title": "Pair two", "account": {"name": "Pair Two Co"}}).json()["lead"]["id"]
+        call("POST", "/lead-duplicates/separate", json={"first_id": first, "second_id": second})
+        call("POST", "/lead-duplicates/merge", json={"keep_id": first, "merge_id": second})
+    finally:
+        memory_whatsapp_leads.clear()
     probe.assert_covered()

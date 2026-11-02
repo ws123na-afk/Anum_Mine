@@ -26,12 +26,13 @@ export type NavGroup = 'main' | 'more' | 'admin';
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
   { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'finance', 'marketing', 'business', 'files', 'memory', 'reports', 'skills', 'office', 'executive'] },
-  { group: 'more', views: ['favorites', 'inbox', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
+  { group: 'more', views: ['favorites', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
   { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'agentControls', 'policy', 'suppressions', 'developer', 'organisations', 'platformBilling'] },
 ];
 
 /** Views reached as a tab of a sidebar entry: they open by link and light up their parent entry. */
-export const TABS_OF: Readonly<Partial<Record<View, View>>> = { knowledge: 'memory' };
+// One Email module (docs/email.md#one-email-module): the provider inbox (`#inbox`) opens inside Email.
+export const TABS_OF: Readonly<Partial<Record<View, View>>> = { knowledge: 'memory', inbox: 'email' };
 /** The sidebar entry a view belongs to (itself, or the entry it is a tab of). */
 export const navParent = (view: View): View => TABS_OF[view] ?? view;
 /** Every view a link can open, sidebar entries first. */
@@ -74,6 +75,10 @@ export function viewFromHash(hash: string): View {
   if (id.startsWith('agents/')) return 'agents';
   // A Marketing tab opened by link (#marketing-calendar, docs/marketing.md).
   if (id.startsWith('marketing-')) return 'marketing';
+  // A pane of the one Email page (#email/all, #email/connections, #email/mailbox/<ref>, docs/email.md#one-email-module).
+  if (id.startsWith('email/')) return 'email';
+  // A WhatsApp conversation or a WhatsApp lead's sales tools (#whatsapp/<id>, #whatsapp/sales/<id>, docs/business.md#whatsapp-leads).
+  if (id.startsWith('whatsapp/')) return 'whatsapp';
   // A Business tab or record opened by link (#business-leads/<id>, docs/business.md).
   if (id.startsWith('business-')) return 'business';
   // A Finance tab opened by link (#finance-transactions, docs/finance.md).

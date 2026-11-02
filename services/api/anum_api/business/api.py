@@ -824,11 +824,14 @@ def lead_detail(context: TenantContext, store: BusinessStore, lead: Lead) -> Lea
 def list_leads(
     state: list[LeadState] = Q(default=[]), q: str | None = Q(default=None, max_length=100), product_id: str | None = None,
     account_id: str | None = None, sort: Literal["updated", "score", "created"] = "updated", limit: int = 50, offset: int = 0,
+    channel: Literal["whatsapp", "other"] | None = Q(default=None, description="whatsapp: leads from WhatsApp; other: every other lead"),
     context: TenantContext = Depends(tenant_context),
 ) -> Page[LeadView]:
     read(context)
     limit, offset = page_bounds(limit, offset)
     where: dict[str, Any] = {}
+    if channel is not None:
+        where["channel"] = "whatsapp" if channel == "whatsapp" else None
     if state:
         where["state"] = set(state)
     if product_id:
@@ -837,7 +840,7 @@ def list_leads(
         where["account_id"] = account_id
     order = {"updated": "updated_at", "score": "score_total", "created": "created_at"}[sort]
     with open_business_store(context) as store:
-        items, total = store.find("leads", Query(where=where, text=q, text_fields=("title", "next_step"), order_by=order, limit=limit, offset=offset))
+        items, total = store.find("leads", Query(where=where, text=q, text_fields=("title", "next_step", "channel_phone"), order_by=order, limit=limit, offset=offset))
         if q and not items and offset == 0:
             # A search also finds leads by their company's name.
             accounts, _ = store.find("accounts", Query(text=q, text_fields=("name", "domain"), limit=50))

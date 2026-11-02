@@ -39,7 +39,14 @@ function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
 
 const when = (value: string) => formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short' });
 
-export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: { onOpenBudgets?: () => void; onOpenApprovals?: () => void; initialMessageId?: string | null } = {}) {
+export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId, accountId, title, subtitle, composeFrom, openMailboxes }: {
+  onOpenBudgets?: () => void; onOpenApprovals?: () => void; initialMessageId?: string | null;
+  /** Inside the one Email page (EmailHub.tsx): the mailbox picked in its list, the page title, and a mailbox to write from at once. */
+  accountId?: string | null; title?: string; subtitle?: string; composeFrom?: string | null; openMailboxes?: boolean;
+} = {}) {
+  const startFilters: Filters = { ...EMPTY_FILTERS, accountId: accountId ?? '' };
+  const heading = title ?? viewLabel('inbox');
+  const subheading = subtitle ?? t('pages.inbox.subtitle');
   const owner = useIsOwner();
   const wide = useMediaQuery(SPLIT_QUERY);
   const widest = useMediaQuery(RAIL_QUERY);
@@ -49,7 +56,7 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const [budget, setBudget] = useState<string | null>(null);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<Filters>(startFilters);
   const [queryDraft, setQueryDraft] = useState('');
   const [items, setItems] = useState<EmailMessage[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -60,11 +67,11 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
   const [picked, setPicked] = useState(() => (initialMessageId ? 1 : 0));
   const [busy, setBusy] = useState<string | null>(null);
   const [privateConnect, setPrivateConnect] = useState(false);
-  const [mailboxesOpen, setMailboxesOpen] = useState(false);
+  const [mailboxesOpen, setMailboxesOpen] = useState(Boolean(openMailboxes));
   const [summary, setSummary] = useState<Load<InboxSummary>>({ state: 'loading' });
   const [drafts, setDrafts] = useState<Load<EmailDraft[]>>({ state: 'loading' });
   // The compose drawer: open on a blank new email (null draft) or on a new-email draft from the queue.
-  const [compose, setCompose] = useState<{ draft: EmailDraft | null } | null>(null);
+  const [compose, setCompose] = useState<{ draft: EmailDraft | null } | null>(() => composeFrom ? { draft: null } : null);
   const autoSynced = useRef(false);
   const autoPicked = useRef(Boolean(initialMessageId));
   const searchId = useId();
@@ -123,7 +130,7 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
 
   useEffect(() => {
     void loadAccounts().then((list) => {
-      void loadMessages(EMPTY_FILTERS);
+      void loadMessages(startFilters);
       if (list.length) loadSummary();
       // Bring stale mailboxes up to date once when the page opens.
       if (autoSynced.current) return;
@@ -133,10 +140,12 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
       void Promise.allSettled(stale.map((account) => syncEmailAccount(account.id))).then(async (results) => {
         const fresh = results.flatMap((r) => r.status === 'fulfilled' ? [r.value] : []);
         if (fresh.length) setAccounts((current) => current.map((a) => fresh.find((f) => f.id === a.id) ?? a));
-        await loadMessages(EMPTY_FILTERS);
+        await loadMessages(startFilters);
         loadSummary();
       });
     });
+    // startFilters is fixed for this mount (the Email page remounts the view per mailbox).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadAccounts, loadMessages, loadSummary]);
 
   // On a wide screen the reading pane opens on the first unread message, once.
@@ -195,9 +204,9 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
 
   const replaceMessage = (message: EmailMessage) => { setItems((current) => current.map((m) => m.id === message.id ? message : m)); loadSummary(); };
 
-  if (state === 'loading' && !setup) return <><PageHeader title={viewLabel('inbox')} subtitle={t('pages.inbox.subtitle')} /><p className="notice" role="status" aria-busy="true"><CircleDot aria-hidden="true" />{t('email.loading')}</p></>;
-  if (state === 'denied') return <><PageHeader title={viewLabel('inbox')} subtitle={t('pages.inbox.subtitle')} /><section className="surface inboxPanel" aria-labelledby="inbox-denied"><Lock aria-hidden="true" className="inboxPanelIcon" /><div><h2 id="inbox-denied">{t('email.denied.title')}</h2><p className="muted">{t('email.denied.text')}</p></div></section></>;
-  if (state === 'error') return <><PageHeader title={viewLabel('inbox')} subtitle={t('pages.inbox.subtitle')} /><div className="inboxLayout"><Notice error>{t('email.loadFailed', { reason: error ?? '' })}</Notice><div className="actions"><button type="button" onClick={() => { setState('loading'); void loadAccounts().then(() => loadMessages(filters)); }}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div></div></>;
+  if (state === 'loading' && !setup) return <><PageHeader title={heading} subtitle={subheading} /><p className="notice" role="status" aria-busy="true"><CircleDot aria-hidden="true" />{t('email.loading')}</p></>;
+  if (state === 'denied') return <><PageHeader title={heading} subtitle={subheading} /><section className="surface inboxPanel" aria-labelledby="inbox-denied"><Lock aria-hidden="true" className="inboxPanelIcon" /><div><h2 id="inbox-denied">{t('email.denied.title')}</h2><p className="muted">{t('email.denied.text')}</p></div></section></>;
+  if (state === 'error') return <><PageHeader title={heading} subtitle={subheading} /><div className="inboxLayout"><Notice error>{t('email.loadFailed', { reason: error ?? '' })}</Notice><div className="actions"><button type="button" onClick={() => { setState('loading'); void loadAccounts().then(() => loadMessages(filters)); }}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div></div></>;
 
   const canConnect = Boolean(setup?.can_connect);
   const canAct = Boolean(setup?.can_act);
@@ -215,7 +224,7 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
     figure('customers', t('pages.inbox.fig.customers'), summary, () => ({ value: formatNumber(summaryValue!.by_category.customer_question ?? 0), hint: t('pages.inbox.fig.customersHint', { orders: formatNumber(summaryValue!.by_category.order ?? 0) }) })),
     figure('drafts', t('pages.inbox.fig.drafts'), drafts, () => ({ value: formatNumber(waiting.length), hint: t('pages.inbox.fig.draftsHint', { count: pendingApproval }), tone: pendingApproval ? 'warn' : '' })),
   ];
-  const header = <PageHeader title={viewLabel('inbox')} subtitle={t('pages.inbox.subtitle')} actions={<>
+  const header = <PageHeader title={heading} subtitle={subheading} actions={<>
     <button type="button" className={`chipButton ${chipTone}`} aria-haspopup="dialog" onClick={() => setMailboxesOpen(true)}>
       <span className="chipDot" aria-hidden="true" /><span>{accounts.length ? t('pages.inbox.mailboxChip', { count: accounts.length, synced: syncedLabel(lastSync) }) : t('pages.inbox.noMailbox')}</span>{attention > 0 && <span className="statusBadge warning">{t('pages.inbox.needsAttention', { count: attention })}</span>}
     </button>
@@ -228,7 +237,7 @@ export function InboxView({ onOpenBudgets, onOpenApprovals, initialMessageId }: 
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     {budget && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{t('common.budgetReached', { message: budget })}{onOpenBudgets && <button type="button" className="secondary inboxInlineButton" onClick={onOpenBudgets}>{t('email.openBudgets')}</button>}</p>}
     {mailboxesOpen && <Drawer title={t('email.accounts.title')} onClose={() => setMailboxesOpen(false)}>{setupPanel}</Drawer>}
-    {compose && <ComposeDrawer key={compose.draft?.id ?? 'new'} accounts={accounts} initialDraft={compose.draft} owner={owner === true} onClose={() => setCompose(null)} onChanged={loadSummary} onOpenApprovals={onOpenApprovals}
+    {compose && <ComposeDrawer key={compose.draft?.id ?? 'new'} accounts={composeFrom && !compose.draft ? accounts.filter((a) => a.id === composeFrom) : accounts} initialDraft={compose.draft} owner={owner === true} onClose={() => setCompose(null)} onChanged={loadSummary} onOpenApprovals={onOpenApprovals}
       onDiscarded={() => { setCompose(null); setNotice({ text: t('email.compose.discarded') }); }} />}
 
     {accounts.length === 0 && <section className="surface inboxStart" aria-labelledby="inbox-start">
@@ -333,7 +342,7 @@ function DraftsQueue({ drafts, waiting, open, selected, onOpen, onRetry }: { dra
   </details>;
 }
 
-function MessagePanel({ messageId, canAct, owner, focusSignal, onBack, onChanged, onSelect, onBudget, onOpenApprovals, onDraftsChanged }: {
+export function MessagePanel({ messageId, canAct, owner, focusSignal, onBack, onChanged, onSelect, onBudget, onOpenApprovals, onDraftsChanged }: {
   messageId: string; canAct: boolean; owner: boolean; focusSignal: number; onBack: () => void; onChanged: (message: EmailMessage) => void; onSelect: (id: string) => void;
   onBudget: (message: string) => void; onOpenApprovals?: () => void; onDraftsChanged: () => void;
 }) {

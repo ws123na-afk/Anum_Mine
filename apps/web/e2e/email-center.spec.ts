@@ -7,10 +7,10 @@ import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 // and moves on a selection, delete for good only through an approval with the payload hash, the
 // reader in a sandboxed frame, and every page state (off, denied, offline, empty, no match).
 
-async function openEmail(page: Page, options: MailMockOptions = {}) {
+async function openEmail(page: Page, options: MailMockOptions = {}, hash = '#email') {
   await mockWorkspaceApi(page);
   const mock = await mockMailApi(page, options);
-  await page.goto('/#email');
+  await page.goto(`/${hash}`);
   await expect(page.getByRole('heading', { level: 1, name: 'Email' })).toBeVisible();
   return mock;
 }
@@ -137,7 +137,10 @@ test('list shortcuts star and archive the focused message', async ({ page, isMob
 });
 
 test('the page says when the Email Center is turned off', async ({ page }) => {
+  // With no mailbox anywhere the one Email page lands on Connections, which names the setting.
   await openEmail(page, { enabled: false });
+  await expect(page.getByText('The Email Center is turned off on this server (ANUM_MAILSERVER_ENABLED).')).toBeVisible();
+  await page.goto('/#email/server');
   await expect(page.getByRole('heading', { name: 'The Email Center is turned off' })).toBeVisible();
   await expect(page.getByText('ANUM_MAILSERVER_ENABLED=true')).toBeVisible();
 });

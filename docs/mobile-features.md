@@ -331,6 +331,8 @@ Screen: **Home > Tyre planning** with the tabs Dashboard, Due, Alerts, Plan and 
 
 ## Business
 
+Leads from the WhatsApp sales desk are Business leads on the phone too: their row starts with **WhatsApp** and shows a chat icon ([Business: WhatsApp leads](business.md#whatsapp-leads)). Bringing waiting WhatsApp leads in and answering duplicate suggestions are on the web.
+
 The internal sales desk ([Business](business.md)). Owners and members read it; viewers are told who can. Every change below goes to the API, which checks the role again: the phone hides controls the role cannot use and shows the server's sentence when it still refuses.
 
 | What you can do | State |
@@ -371,7 +373,7 @@ Work on other branches. None of it is in the app yet; each item is marked done h
 
 | Item | What it will do | State |
 | --- | --- | --- |
-| Email inbox | Read and answer Gmail, Outlook and Zoho Mail through the assistant; every sent email goes through approvals | In progress |
+| Email inbox | Read and answer Gmail, Outlook and Zoho Mail through the assistant; every sent email goes through approvals. The menu names both email screens by what they hold: **Email: Gmail, Outlook, Zoho** and **Email: own server** ([One Email module](email.md#one-email-module); the web has one Email page) | In progress |
 | Team work and customer organisations | Work together in teams and manage separate customer organisations | In progress |
 | Google and Apple sign-in | Sign in with a Google or Apple account | In progress |
 | Favorites, knowledge base and reports | Save answers, build a knowledge base, produce reports | In progress |

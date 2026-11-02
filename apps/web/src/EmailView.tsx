@@ -75,21 +75,27 @@ export function folderLabel(folder: MailFolder): string {
   return folder.role ? t(`mail.folder.${folder.role}` as MessageKey) : folder.name;
 }
 
-export function EmailView({ onOpenApprovals }: { onOpenApprovals?: () => void } = {}) {
+export function EmailView({ onOpenApprovals, accountId: fixedAccount, initialDraftId, onSetupChanged, openSettings }: {
+  onOpenApprovals?: () => void;
+  /** Inside the one Email page (EmailHub.tsx): the mailbox picked in its list (no picker here), a draft to open, and a note when mailboxes change. */
+  accountId?: string | null; initialDraftId?: string | null; onSetupChanged?: () => void; openSettings?: boolean;
+} = {}) {
+  const hubbed = fixedAccount !== undefined;
   const owner = useIsOwner() === true;
   const [setup, setSetup] = useState<MailSetup | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error' | 'denied'>('loading');
   const [loadError, setLoadError] = useState('');
   const [note, setNote] = useState<Note>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(Boolean(openSettings));
   const [contactsOpen, setContactsOpen] = useState(false);
-  const [accountId, setAccountId] = useState<string | null>(() => rememberedMailbox());
-  const [openDraft, setOpenDraft] = useState<string | null>(null);
+  const [accountId, setAccountId] = useState<string | null>(() => fixedAccount ?? rememberedMailbox());
+  const [openDraft, setOpenDraft] = useState<string | null>(initialDraftId ?? null);
 
   const load = useCallback(async () => {
     setState('loading');
-    try { setSetup(await getMailSetup()); setState('ready'); }
+    try { setSetup(await getMailSetup()); setState('ready'); onSetupChanged?.(); }
     catch (e) { if (isPermissionDenied(e)) setState('denied'); else { setLoadError(describeError(e)); setState('error'); } }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -112,7 +118,7 @@ export function EmailView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
 
   const pick = (id: string) => { setAccountId(id); rememberMailbox(id); setNote(null); };
   // All inboxes (docs/email.md#all-inboxes): offered once there are two mailboxes or more.
-  if (accountId === ALL_INBOXES && setup.accounts.length > 1) {
+  if (!hubbed && accountId === ALL_INBOXES && setup.accounts.length > 1) {
     return <div className="mailLayout">
       <AllInboxes setup={setup} owner={owner} onOpenApprovals={onOpenApprovals} onOpenMailbox={pick}
         header={(actions) => head(<><MailboxPicker accounts={setup.accounts} currentId={ALL_INBOXES} onPick={pick} allOption />{actions}</>)} />
@@ -133,10 +139,10 @@ export function EmailView({ onOpenApprovals }: { onOpenApprovals?: () => void } 
     <Mailbox key={account.id} setup={setup} account={account} owner={owner} note={note} setNote={setNote} onOpenApprovals={onOpenApprovals}
       openDraft={openDraft} onDraftOpened={() => setOpenDraft(null)}
       header={(actions) => head(<>
-        <MailboxPicker accounts={setup.accounts} currentId={account.id} onPick={pick} allOption />
+        {!hubbed && <MailboxPicker accounts={setup.accounts} currentId={account.id} onPick={pick} allOption />}
         <button type="button" className={`chipButton ${account.status === 'connected' ? 'success' : 'warning'}`} aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
           {/* With the mailbox picker beside it, the chip names the status; otherwise the address. */}
-          <span className="chipDot" aria-hidden="true" />{setup.accounts.length > 1
+          <span className="chipDot" aria-hidden="true" />{setup.accounts.length > 1 && !hubbed
             ? <span>{t(`mail.status.${account.status}` as MessageKey)}</span>
             : <><span>{account.address}</span><span className="visuallyHidden">{t(`mail.status.${account.status}` as MessageKey)}</span></>}
         </button>
@@ -449,7 +455,7 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
         {listState === 'ready' && nextBefore !== null && <div className="actions mailPad"><button type="button" className="secondary" disabled={busy === 'more'} onClick={() => { if (!folderId) return; setBusy('more'); void loadList(folderId, filters, nextBefore).finally(() => setBusy(null)); }}>{t('mail.list.more')}</button></div>}
       </section>
 
-      <section data-pane="detail" className="pane mailDetail" aria-label={t('mail.reader.empty')}>
+      <section data-pane="detail" className="pane mailDetail" aria-label={t('mail.reader.empty')} tabIndex={0}>
         {pane?.kind === 'message' && folder && <Reader key={`${folder.id}:${pane.uid}`} account={account} folder={folder} uid={pane.uid} canAct={canAct} busy={busy !== null}
           message={items.find((m) => m.uid === pane.uid) ?? null} moves={moves} onBack={() => setPane(null)} onAction={(action) => void act(action, [pane.uid])}
           onCompose={(kind) => void startDraft(kind, pane.uid)} onOpenApprovals={onOpenApprovals}

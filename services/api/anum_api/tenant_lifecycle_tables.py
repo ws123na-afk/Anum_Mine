@@ -248,6 +248,7 @@ _ORDER = (
     "business_activities",
     "business_inferences",
     "business_evidence",
+    "business_lead_pair_decisions",
     "business_leads",
     "business_contacts",
     "business_accounts",

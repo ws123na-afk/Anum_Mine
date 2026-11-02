@@ -2,6 +2,8 @@
 
 This change exposes the previously developed Sales CRM domain and PostgreSQL storage through authenticated, workspace-scoped REST endpoints. It reuses ANUM's existing session identity, role permissions, transactional database session and row-level security rather than adding a separate user system.
 
+One lead list (November 2026): the leads these routes store are listed in Business, Leads, marked WhatsApp, and their stage is set by Business's state machine ([Business: WhatsApp leads](business.md#whatsapp-leads)). The routes stay for the WhatsApp detail of a lead (quotes, follow-ups, consent) until the contract step described there.
+
 ## Endpoints
 
 | Method | Path | Behavior |

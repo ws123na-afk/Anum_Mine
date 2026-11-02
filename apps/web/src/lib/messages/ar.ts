@@ -71,6 +71,8 @@ import { mailOutgoingAr } from './mailOutgoing.ar.ts';
 import { mailAiAr } from './mailAi.ar.ts';
 import { mailShareAr } from './mailShare.ar.ts';
 import { mailAllAr } from './mailAll.ar.ts';
+import { emailHubAr } from './emailHub.ar.ts';
+import { leadSourcesAr } from './leadSources.ar.ts';
 import { inboxComposeAr } from './inboxCompose.ar.ts';
 import { mailRulesAr } from './mailRules.ar.ts';
 import { mailOpsAr } from './mailOps.ar.ts';
@@ -123,6 +125,8 @@ export const ar: Record<MessageKey, Message> = {
   ...mailAiAr,
   ...mailShareAr,
   ...mailAllAr,
+  ...emailHubAr,
+  ...leadSourcesAr,
   ...inboxComposeAr,
   ...mailRulesAr,
   ...mailOpsAr,

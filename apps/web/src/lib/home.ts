@@ -36,7 +36,7 @@ export interface CalendarEvent {
 /** Feature keys of docs/home.md#targets and the web view that shows each (missing: the web has no such view). */
 export const FEATURE_VIEWS: Readonly<Record<string, View>> = {
   command: 'command', chat: 'assistant', agents: 'agents', voice: 'voice', automations: 'automation', tasks: 'tasks', calendar: 'calendar',
-  reports: 'reports', documents: 'files', integrations: 'integrations', knowledge: 'knowledge', approvals: 'approvals', email: 'inbox',
+  reports: 'reports', documents: 'files', integrations: 'integrations', knowledge: 'knowledge', approvals: 'approvals', email: 'email',
   whatsapp: 'whatsapp', autonomy: 'autonomy', settings: 'settings', insights: 'home', commerce: 'commerce', team: 'team', favorites: 'favorites',
   tyres: 'tyre', marketing: 'marketing',
 };
@@ -45,7 +45,7 @@ export const viewForFeature = (feature: string): View | null => FEATURE_VIEWS[fe
 export const PINNABLE_FEATURES: readonly string[] = Object.keys(FEATURE_VIEWS).filter((key) => key !== 'insights');
 
 /** Quick links into each area, in the order Home shows them. */
-export const QUICK_LINKS: readonly View[] = ['command', 'inbox', 'whatsapp', 'tasks', 'approvals', 'meetings', 'automation', 'reports', 'files', 'agents', 'voice', 'assistant'];
+export const QUICK_LINKS: readonly View[] = ['command', 'email', 'whatsapp', 'tasks', 'approvals', 'meetings', 'automation', 'reports', 'files', 'agents', 'voice', 'assistant'];
 
 export type DayPart = 'morning' | 'afternoon' | 'evening';
 export function dayPart(date: Date): DayPart {
