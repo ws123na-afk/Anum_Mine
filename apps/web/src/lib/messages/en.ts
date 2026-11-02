@@ -689,6 +689,9 @@ export const en = {
   'chatCard.openItem.tyre': 'Open in Tyre planning: {title}',
   'chatCard.badge.unshipped': 'Not shipped',
   'chatCard.badge.low_stock': 'Low stock',
+  'chatCard.badge.source': 'Page read',
+  'chatCard.badge.link': 'Link on the page',
+  'chatCard.running.browse': 'Reading the page…',
   'chat.connectionDropped': 'The connection dropped before the answer finished.',
 
   // ---- Tasks ----
@@ -1421,6 +1424,9 @@ export const en = {
   'integrations.tool.available': 'Agent tool web_search: available.',
   'integrations.tool.degraded': 'Agent tool web_search: calls fail until search answers.',
   'integrations.tool.unavailable': 'Agent tool web_search: unavailable here.',
+  'integrations.browse.available': 'Agent tool web.browse_page: available. It stays off in a workspace until an owner turns it on below.',
+  'integrations.browse.degraded': 'Agent tool web.browse_page: pages cannot be read until the browser service answers.',
+  'integrations.browse.unavailable': 'Agent tool web.browse_page: not available here. It answers "Not available on this server" or "off for this workspace".',
 
   // ---- Skills ----
   'skills.eyebrow': 'Governed capabilities',

@@ -68,3 +68,52 @@ def test_broker_does_not_accept_unexpected_response_shapes():
         wrong.account()
     with pytest.raises(BrokerPaperReadError):
         wrong.positions()
+
+
+def test_paper_reader_refuses_redirects_and_never_forwards_the_keys():
+    """A redirect from the paper origin must not carry the key headers anywhere else."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from urllib.request import Request
+
+    from anum_api.finance.alpaca_paper_reader import _DenyRedirects
+
+    seen: list[tuple[str, str | None]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            seen.append((self.path, self.headers.get("APCA-API-SECRET-KEY")))
+            if self.path == "/v2/account":
+                self.send_response(302)
+                self.send_header("Location", "/collect")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *args):  # silence the test server
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}/v2/account",
+            headers={"APCA-API-SECRET-KEY": "not_real"}, method="GET",
+        )
+        with pytest.raises(BrokerPaperReadError, match="redirects are not allowed"):
+            AlpacaPaperReader._urlopen(request, 1000)
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert [path for path, _ in seen] == ["/v2/account"]
+
+    # The handler refuses any status and target, including a same-origin one.
+    for code in (301, 302, 303, 307, 308):
+        with pytest.raises(BrokerPaperReadError):
+            _DenyRedirects().redirect_request(
+                Request(PAPER_ORIGIN + "/v2/account"), None, code, "Moved",
+                {"Location": "https://example.org/collect"}, "https://example.org/collect",
+            )

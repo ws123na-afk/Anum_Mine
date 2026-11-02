@@ -138,6 +138,9 @@ class IntegrationDefinition(BaseModel):
     accepts_workspace_credential: bool = False
     # Set internally when an owner turned it off for the workspace.
     workspace_disabled: bool = False
+    # False: off in every workspace until an owner turns it on there (browser research,
+    # docs/browser-research.md#workspace-switch). True: on wherever the operator configured it.
+    default_enabled: bool = True
 
 
 class IntegrationConfiguration(BaseModel):
@@ -423,7 +426,7 @@ class IntegrationRegistry:
         definition = self._definition(integration_id)
         with self._open_store(context) as store:
             stored = store.get(context, integration_id)
-        value = stored or IntegrationConfiguration(enabled=definition.configured, endpoint=definition.endpoint)
+        value = stored or IntegrationConfiguration(enabled=definition.configured and definition.default_enabled, endpoint=definition.endpoint)
         return IntegrationConfigurationView(id=integration_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id, **value.model_dump())
 
     def set_credential(self, integration_id: str, context: TenantContext, secret: str) -> WorkspaceCredentialView:
@@ -479,8 +482,20 @@ class IntegrationRegistry:
     def _effective(definition: IntegrationDefinition, value: IntegrationConfiguration | None) -> IntegrationDefinition:
         # A workspace may only switch an integration on or off. Probes and the reported endpoint
         # always come from the operator's Settings: a tenant-saved endpoint is never connected to (SSRF).
-        if value is None or (definition.disabled_detail and not definition.configured):
-            # Nothing to switch: no override, or the operator has not configured it at all.
+        if definition.disabled_detail and not definition.configured:
+            # Nothing to switch: the operator has not configured it at all.
+            return definition
+        if value is None and not definition.default_enabled:
+            # Off by default: only an owner's switch turns it on for a workspace.
+            return definition.model_copy(
+                update={
+                    "configured": False,
+                    "workspace_disabled": True,
+                    "disabled_detail": "Off for this workspace until an owner turns it on.",
+                }
+            )
+        if value is None:
+            # No override: the operator's setting applies.
             return definition
         if value.enabled:
             # Turning it "on" never enables what the operator has not configured.
@@ -520,7 +535,9 @@ class IntegrationRegistry:
 
     async def _check(self, definition: IntegrationDefinition) -> IntegrationHealth:
         if not definition.configured:
-            if definition.workspace_disabled:
+            if definition.workspace_disabled and not definition.default_enabled:
+                remediation = "A workspace owner turns it on here, under Integrations."
+            elif definition.workspace_disabled:
                 remediation = "A workspace owner can turn it back on here, under Integrations."
             elif definition.disabled_detail:
                 remediation = None  # the detail already says what to set
@@ -683,6 +700,7 @@ def default_integration_registry(settings: Settings) -> IntegrationRegistry:
                 remediation="Check that the S3 endpoint in ANUM_S3_ENDPOINT answers from the API's network and that ANUM_S3_ACCESS_KEY is set (docs/files.md).",
             ),
             searxng_integration(settings),
+            browser_research_integration(settings),
             external_webhook_integration(settings),
             *email_integrations(),
         ]
@@ -762,6 +780,42 @@ def searxng_integration(settings: Settings) -> IntegrationDefinition:
         probe=probe,
         environment_variable="ANUM_SEARXNG_URL",
         remediation="Check that SearXNG answers <ANUM_SEARXNG_URL>/healthz on the internal network (the searxng service in the compose stacks).",
+    )
+
+
+def browser_research_integration(settings: Settings) -> IntegrationDefinition:
+    """The browser service behind ``web.browse_page`` (docs/browser-research.md).
+
+    Off in every workspace until an owner turns it on (``default_enabled=False``). When the
+    operator has not set up the service the entry is unavailable and says so; the health check
+    asks the service whether Chromium can start in its image.
+    """
+    from .browser_research import BROWSER_INTEGRATION_ID
+    from .browser_research.tool import normalize_service_url, service_problem
+
+    problem = service_problem(settings.browser_research_url, settings.browser_research_token)
+    base = None if problem else normalize_service_url(settings.browser_research_url)
+
+    async def probe() -> None:
+        if base is None:
+            raise RuntimeError("browser service is not configured")
+        await http_probe(f"{base}/healthz")
+
+    return IntegrationDefinition(
+        id=BROWSER_INTEGRATION_ID,
+        name="Browser research",
+        kind=IntegrationKind.TOOL,
+        endpoint=base or "not configured",
+        configured=base is not None,
+        disabled_detail=problem,
+        credentials=CredentialMetadata(configured=base is not None, source="environment" if base else "none", scopes=["web.browse_page:read"]),
+        probe=probe,
+        environment_variable="ANUM_BROWSER_RESEARCH_URL",
+        remediation=(
+            "Check that the browser service answers <ANUM_BROWSER_RESEARCH_URL>/healthz on the internal network; "
+            "a 503 there means Chromium is not installed in its image (docs/browser-research.md#setting-it-up)."
+        ),
+        default_enabled=False,
     )
 
 

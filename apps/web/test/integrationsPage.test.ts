@@ -47,6 +47,14 @@ describe('categories', () => {
     }
     assert.equal(servicePurpose({ kind: 'quantum', detail: 'Health check passed.' }), 'Health check passed.');
   });
+  test('a service with its own line says what it is, not its kind', () => {
+    setLocale('en');
+    assert.match(servicePurpose({ id: 'browser-research', kind: 'tool', detail: 'x' }), /read-only browser behind the web\.browse_page/);
+    assert.equal(servicePurpose({ id: 'external-webhook', kind: 'tool', detail: 'x' }), servicePurpose({ kind: 'tool', detail: 'x' }));
+    setLocale('ar');
+    assert.match(servicePurpose({ id: 'browser-research', kind: 'tool', detail: 'x' }), /متصفح/);
+    setLocale('en');
+  });
 });
 
 describe('buckets and actions', () => {

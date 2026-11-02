@@ -35,6 +35,7 @@ LIVE_CANDIDATE is documented as a possible future state only; the database refus
 | Phone: Finance, Trading intelligence section with the simulation banner, live off, the kill switch behind a confirmation, strategies by lifecycle state with paging and runs, positions with P&L and drawdown over time, agent decisions with reasons, Guardian rules read only; English and Arabic | `apps/mobile/lib/features/finance/finance_intel_*.dart` | Built |
 | Web dashboard: simulation banner, kill switch, venue sessions, strategies by lifecycle state with paging, backtest and walk-forward results with benchmark, folds, warnings and reproduction, paper and shadow positions and P&L, Supervisor and agent decisions with reasons, Guardian decisions, risk limits read only; English and Arabic | `apps/web/src/FinanceIntel.tsx`, `apps/web/src/lib/financeIntel.ts` | Built ([dashboard](finance-trading-intel.md#dashboard)) |
 | Paper and shadow simulator, execution gateway, Guardian, kill switches, manual prices | stages 6 and 7, [Finance](finance.md) | Built earlier, unchanged |
+| Live eligibility check: the person's checklist, their own live preconditions and a Saudi crypto note in one read-only answer that always says live is off and zero orders were sent; English and Arabic | `finance/broker_readiness.py`, `apps/web/src/FinanceLivePreflight.tsx` | Built ([details](finance.md#live-eligibility-preflight)) |
 
 ## What is tested
 
@@ -55,6 +56,7 @@ LIVE_CANDIDATE is documented as a possible future state only; the database refus
 | `apps/web/test/financeReports.test.ts`, `apps/web/e2e/finance-reports.spec.ts` | Reports list paging, deep links, sections, download, loading, empty, errors with retry, denied, Arabic, the responsive gate at the five sizes |
 | `apps/web/test/financeEquity.test.ts`, `apps/web/e2e/finance-equity.spec.ts` | Buy and hold line (shared scale, reasons), chart scaling with gaps, words, catalogs; charts, paged table, ranges, currencies, shadow, loading, empty, error with retry, denied, Arabic, the responsive gate at the five sizes |
 | `apps/mobile/test/finance_intel_test.dart` | Phone section: sessions, new strategy with checks and confirmation, moves with confirmation and the server's refusal, Supervisor cycle and pause with confirmation, actions denied, daily reports list, paging, detail, retry, empty and copy, the buy and hold line, the new screens at 320 to 768 wide with 200% text, Arabic; layout at 320 to 1440 wide with 200% text, strategies paging and runs, P&L and drawdown, decisions shown as text, limits, kill switch confirmation and cancel, empty, error with retry, denied, Arabic, the section hidden without a source |
+| `services/api/tests/test_finance_live_preflight.py`, `test_postgres_finance_live_preflight.py`, `apps/web/test/financePreflight.test.ts`, `apps/web/e2e/finance-live-preflight.spec.ts` | Live eligibility check: live off and zero orders whatever is ticked, the Saudi note, read only, audit with ids only, `finance:read`, RLS and tenants, client checks, error with retry, denied, Arabic, the responsive gate at the five sizes |
 | `apps/web/e2e/finance-intel.spec.ts` | Banner, live off, empty states with a next action, loading, error with retry, permission denied, strategy paging and lifecycle filter, walk-forward results, agent filter, kill switch with confirmation (the only write), Arabic right to left, no sideways overflow at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 on desktop and phone projects |
 
 Evidence for this branch is the CI run of PR #104. Local runs before each push: API unit tests above, web typecheck, unit tests and build, the dashboard Playwright spec on both projects, `pnpm docs:check`, bandit, pip-audit and gitleaks. The PostgreSQL dashboard test needs CI's database job.
@@ -64,7 +66,7 @@ Evidence for this branch is the CI run of PR #104. Local runs before each push: 
 Stated plainly so nothing is presented as finished:
 
 * Market-data fetch from any provider, and corporate actions: blocked on the owner decisions below (which providers, accepting their terms, network egress from the VM). Own CSV imports work on the web and the phone.
-* A future live-trading design for independent review: document only; live trading stays off by the hard boundary.
+* A future live-trading design for independent review: document only ([all-market plan](finance-all-markets-implementation.md)); live trading stays off by the hard boundary.
 
 ## Open owner decisions
 
